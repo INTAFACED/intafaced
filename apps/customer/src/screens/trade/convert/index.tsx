@@ -264,14 +264,15 @@ function ConvertCard({
   const pausedByService = pairs.status === 'ready' && pairs.data.paused;
   // Over the per-conversion limit: not priced here; the quote desk takes large amounts (J-cex-spot-11 #9).
   const fromLimit = offered?.get(from) ?? null;
+  // The accept counts the limit in this pair's quote asset: a buy's spend as typed, a sell's coins at the price now.
   const tooLarge = useMemo(() => {
     const typed = dec(amount);
     const cap = dec(fromLimit?.amount);
     if (!fromLimit || typed === null || cap === null) return false;
-    if (fromLimit.asset === from) return typed > cap;
+    if (edge.side === 'buy') return typed > cap;
     const at = dec(price);
     return at !== null && mulDown(typed, at) > cap;
-  }, [amount, fromLimit, from, price]);
+  }, [amount, fromLimit, edge.side, price]);
   const insufficient = useMemo(() => {
     const typed = dec(amount);
     const have = dec(available.value);
@@ -657,7 +658,7 @@ function ConvertCard({
             <div className="cvt-note" role="note" data-testid="cvt-too-large">
               <p>
                 <strong>{t('Too large title')}.</strong>{' '}
-                {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: fromLimit.asset })}
+                {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: market.quote })}
               </p>
               <a
                 className="text-link"

@@ -18,6 +18,7 @@ import {
   orderHoldAccount,
   parseAmount as amt,
   recipes,
+  stampPostAttempts,
   userAvailable,
   type Amount,
 } from '@intafaced/ledger-client';
@@ -176,13 +177,45 @@ describe('limit convert (PG-hard)', () => {
     expect(await free(ALICE, 'USDT')).toBe(amt('80'));
   });
 
-  it('more than the balance is refused and holds nothing', async () => {
+  it('more than the balance, refused on its one attempt: the limit ends at once and holds nothing', async () => {
     const trade = service();
+    const post = ledger.post.bind(ledger);
+    // The shared HTTP client stamps how many attempts a post made; one attempt and a named refusal prove nothing booked.
+    vi.spyOn(ledger, 'post').mockImplementation(async (req) => {
+      try {
+        return await post(req);
+      } catch (err) {
+        stampPostAttempts(err, 1);
+        throw err;
+      }
+    });
     await expect(place(trade, '150')).rejects.toMatchObject({ code: 'ledger.insufficient_funds' });
     expect(await free(ALICE, 'USDT')).toBe(amt('100'));
     const [row] = await trade.limitConverts(alice());
     expect(row).toMatchObject({ status: 'ended', endCode: 'ledger.insufficient_funds' });
     expect(await trade.sweepLimitConverts()).toMatchObject({ examined: 0 });
+  });
+
+  it('a refused hold that does not prove nothing booked: never held again; ended once the in-flight bound has passed', async () => {
+    const trade = service();
+    await expect(place(trade, '150')).rejects.toMatchObject({ code: 'ledger.insufficient_funds' });
+    const [row] = await trade.limitConverts(alice());
+    expect(row!.status).toBe('placing');
+    const journal = ledger.journal().length;
+    // Within the bound the sweep only reads the key back: no second hold, no fill, the row keeps placing.
+    await ledger.post(
+      recipes.deposit({ userId: ALICE, assetId: 'USDT', amount: amt('100'), rail: 'test', railRef: `${ALICE}:${randomUUID()}` }),
+    );
+    await trade.sweepLimitConverts();
+    expect(ledger.journal()).toHaveLength(journal + 1);
+    expect((await trade.limitConverts(alice()))[0]!.status).toBe('placing');
+    expect(await free(ALICE, 'USDT')).toBe(amt('200'));
+    // Past the bound with no hold booked, it ends; nothing was ever set aside.
+    await db.sql`UPDATE trade.convert_limits SET updated_at = now() - interval '8 minutes' WHERE id = ${row!.id}`;
+    await trade.sweepLimitConverts();
+    expect((await trade.limitConverts(alice()))[0]).toMatchObject({ status: 'ended', endCode: 'trade.convert_limit_hold_not_booked' });
+    expect(ledger.journal()).toHaveLength(journal + 1);
+    expect(await held(ALICE, 'USDT', row!.id)).toBe(0n);
   });
 
   it('no sweep configured: placing refuses by name, nothing admitted or held', async () => {

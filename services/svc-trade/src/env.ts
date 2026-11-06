@@ -744,10 +744,6 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
-       * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while
-       * TRADE_COPY_PLACE_MIRROR is on; off, nothing is copied and copy.placeMirror refuses by name.
-       */
-      /**
        * How often the limit-convert sweep prices each waiting limit convert (J-cex-spot-11 #8). Blank (default): no
        * sweep runs, and placing a limit convert refuses `trade.convert_limit_unset`; nothing is ever held unwatched.
        */
@@ -756,6 +752,10 @@ const schema = serviceEnvSchema
         z.coerce.number().int().min(250).max(60_000).nullable(),
       ),
 
+      /**
+       * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while
+       * TRADE_COPY_PLACE_MIRROR is on; off, nothing is copied and copy.placeMirror refuses by name.
+       */
       TRADE_COPY_MIRROR_SWEEP_INTERVAL_MS: z.coerce.number().int().min(250).max(60_000).default(2_000),
 
       /**

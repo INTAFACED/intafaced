@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AmountInput, Button, CoinIcon, fmtAmount, refusalCopy, type MarketRow } from '../buy/deps';
 import { dec } from '../buy/trade-math';
 import type { LimitConvert as LimitRow, createToolApi } from '../../../features/trade/tool-api';
@@ -52,9 +52,16 @@ export function LimitConvert({
   }, [tools]);
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 3_000);
-    return () => clearInterval(timer);
   }, [refresh]);
+  // Read again only while something is live and the page is in view: a waiting limit can fill at any tick.
+  const live = (rows ?? []).some((r) => LIVE.has(r.status));
+  useEffect(() => {
+    if (!live) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [live, refresh]);
 
   const typed = dec(amount);
   const have = dec(available);
@@ -80,7 +87,10 @@ export function LimitConvert({
       setAmount('');
       setMessage(t('Limit held', { amount: plain(result.data.amount), asset: result.data.fromAsset }));
       void refresh();
-    } else if (result.reason !== 'uncertain') {
+    } else if (result.reason === 'uncertain') {
+      // The same request id is kept: pressing again answers the limit it may have placed, never a second hold.
+      setMessage(t('Limit uncertain'));
+    } else {
       requestId.current = null;
       const copy = refusalCopy(result.code ?? '', { asset: from, available: available ?? '' });
       setMessage(`${copy.title}. ${copy.body}${result.code ? ` (Ref ${result.code})` : ''}`);
@@ -88,11 +98,13 @@ export function LimitConvert({
   }
 
   async function cancel(id: string) {
-    await tools.convertLimitCancel(id);
+    const result = await tools.convertLimitCancel(id);
+    if (!result.ok) setMessage(t('Cancel refused', { reason: refusalCopy(result.code ?? '').title }));
     void refresh();
   }
 
-  const mine = useMemo(() => (rows ?? []).filter((r) => r.symbol === market.symbol), [rows, market.symbol]);
+  // Every pair's limits: money set aside on another pair stays visible and cancellable here.
+  const mine = rows ?? [];
   const waiting = mine.filter((r) => LIVE.has(r.status));
   const recent = mine.filter((r) => !LIVE.has(r.status)).slice(0, 5);
   const rule = (r: LimitRow) =>
@@ -100,7 +112,7 @@ export function LimitConvert({
       amount: plain(r.amount),
       from: r.fromAsset,
       to: r.toAsset,
-      base: market.base,
+      base: r.symbol.split('/')[0] ?? market.base,
       target: plain(r.targetRate),
     });
 
@@ -136,8 +148,8 @@ export function LimitConvert({
           <span className="cvt-field__label">{t('Target rate')}</span>
           <div className="cvt-field__main">
             <span className="cvt-asset">
-              <CoinIcon asset={to} size={28} />
-              <span>{to}</span>
+              <CoinIcon asset={market.quote} size={28} />
+              <span>{market.quote}</span>
             </span>
             <AmountInput
               size="hero"

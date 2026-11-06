@@ -70,6 +70,9 @@ export function RouteCard({ from, to }: { from: string; to: string }) {
       <Button variant="primary" size={56} fullWidth disabled>
         {t('Preview conversion')}
       </Button>
+      <a className="text-link" href="/trade/convert" data-testid="cvt-route-other">
+        {t('Choose other coins')}
+      </a>
     </section>
   );
 }

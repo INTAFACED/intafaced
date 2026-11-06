@@ -41,11 +41,14 @@ function convertible(market: Market, at: Date): boolean {
   }
 }
 
-/** The quote asset a coin's conversions are counted in: its own when it is one, else its first open pair's, by symbol. */
+/**
+ * The asset a coin's conversions are counted in: the accept checks the max order in the quote asset of the pair it
+ * converts on. A coin that is some pair's base counts in that pair's quote asset (its first open pair, by symbol); a coin
+ * that is only ever a quote asset counts in itself.
+ */
 function limitAssetFor(asset: string, open: readonly Market[]): string {
-  if (open.some((m) => m.quoteAsset === asset)) return asset;
   const pairs = open.filter((m) => m.baseAsset === asset).sort((a, b) => a.symbol.localeCompare(b.symbol));
-  return pairs[0]!.quoteAsset;
+  return pairs[0]?.quoteAsset ?? asset;
 }
 
 export function convertPairs(markets: readonly Market[], at: Date, maxOrder: number | null, paused = false): ConvertPairs {

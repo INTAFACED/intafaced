@@ -20,9 +20,18 @@
  * The settle is a delegated child of the limit's own `strategy.start` admission (as a grid level is of its bot), so a
  * sweep acts with the authority the customer granted when placing, never a credential minted from a user id.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import type { Principal } from '@intafaced/auth';
-import { formatAmount, LedgerError, parseAmount, recipes, SCALE, type Amount } from '@intafaced/ledger-client';
+import {
+  formatAmount,
+  LedgerError,
+  parseAmount,
+  POST_IN_FLIGHT_BOUND_SECONDS,
+  provesPostNotCommitted,
+  recipes,
+  SCALE,
+  type Amount,
+} from '@intafaced/ledger-client';
 import { TradingControlError } from '../controls/trading-controls.js';
 import { checkMaxOrderNotional, resolveAdmissionLimits } from '../futures/pretrade-limits.js';
 import { TradeError, type TradeErrorCode } from '../spot/types.js';
@@ -85,6 +94,19 @@ interface Row {
 export const LIMIT_CONVERT_LIST_SIZE = 50;
 
 const businessIdOf = (id: string) => `convert-limit:${id}`;
+
+/**
+ * The row id, from the business key (the user and their request id), never a random one: the same request again, or two
+ * at once, name the same row, the same `strategy.start` admission and the same ledger hold key.
+ */
+export function limitConvertIdFor(userId: string, clientLimitId: string): string {
+  const h = createHash('sha256').update(`convert-limit:${userId.toLowerCase()}:${clientLimitId}`).digest('hex');
+  const variant = ((parseInt(h.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+/** Rows read per page by the sweep; it pages through every live row each tick, oldest first. */
+const SWEEP_PAGE = 200;
 
 /** `numeric` text from Postgres to scaled bigint, exactly. */
 const amountOf = (text: string): Amount => parseAmount(text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text);
@@ -177,7 +199,7 @@ export async function placeLimitConvert(
   const refusal = checkMaxOrderNotional({ limits: resolved.limits, quoteAsset: probe.quoteAsset, notional, what: 'limit convert' });
   if (refusal) throw new TradeError(refusal.message, refusal.code as TradeErrorCode);
 
-  const id = randomUUID();
+  const id = limitConvertIdFor(userId, input.clientLimitId);
   // The customer's own grant, given now, is the authority the sweep settles under later.
   await svc.admitAccountOperation(principal, 'strategy.start', businessIdOf(id), {
     kind: 'convert.limit',
@@ -197,22 +219,37 @@ export async function placeLimitConvert(
   return present(await finishPlacing(svc, row, true));
 }
 
-/** Holds the source for a `placing` row and makes it `waiting`; a refused hold ends it with nothing held. */
-async function finishPlacing(svc: TradeServiceInternal, row: Row, rethrow = false): Promise<Row> {
-  try {
-    await svc.ledger.post(recipes.orderHold(holdOf(row)));
-  } catch (err) {
-    if (err instanceof LedgerError && err.code === 'ledger.insufficient_funds') {
-      const [ended] = await svc.sql<Row[]>`UPDATE trade.convert_limits SET status = 'ended', end_code = ${err.code}, updated_at = now()
-        WHERE id = ${row.id} AND status = 'placing' RETURNING *`;
-      if (rethrow) throw err;
-      return ended ?? row;
+/**
+ * Holds the source for a `placing` row and makes it `waiting`. Only the placing call itself posts the hold: a refusal the
+ * ledger proves committed nothing ends the row with nothing held; any other failure leaves it `placing`. Recovery (the
+ * sweep, or the same request again) never posts the hold a second time, so nothing is set aside later without the
+ * customer asking: it reads the key back, and once `POST_IN_FLIGHT_BOUND_SECONDS` have passed with no hold booked it
+ * ends the row.
+ */
+async function finishPlacing(svc: TradeServiceInternal, row: Row, first = false): Promise<Row> {
+  const hold = recipes.orderHold(holdOf(row));
+  if (first) {
+    try {
+      await svc.ledger.post(hold);
+    } catch (err) {
+      if (provesPostNotCommitted(err)) await endPlacing(svc, row, err instanceof LedgerError ? err.code : 'ledger.refused');
+      throw err;
     }
-    throw err;
+  } else if ((await svc.ledger.getTxByKey(hold.idempotencyKey)) == null) {
+    const [ended] = await svc.sql<Row[]>`UPDATE trade.convert_limits SET status = 'ended', end_code = 'trade.convert_limit_hold_not_booked',
+        updated_at = now()
+      WHERE id = ${row.id} AND status = 'placing'
+        AND updated_at < now() - make_interval(secs => ${POST_IN_FLIGHT_BOUND_SECONDS}) RETURNING *`;
+    return ended ?? row;
   }
   const [waiting] = await svc.sql<Row[]>`UPDATE trade.convert_limits SET status = 'waiting', updated_at = now()
     WHERE id = ${row.id} AND status = 'placing' RETURNING *`;
   return waiting ?? (await load(svc, row.id));
+}
+
+async function endPlacing(svc: TradeServiceInternal, row: Row, code: string): Promise<void> {
+  await svc.sql`UPDATE trade.convert_limits SET status = 'ended', end_code = ${code}, updated_at = now()
+    WHERE id = ${row.id} AND status = 'placing'`;
 }
 
 async function load(svc: TradeServiceInternal, id: string): Promise<Row> {
@@ -260,35 +297,50 @@ export async function sweepLimitConverts(
   opts: { onFailed?: (id: string, err: unknown) => void } = {},
 ): Promise<LimitSweepResult> {
   if (!svc.convertEnabled || svc.convertLimitSweepMs === null) return { examined: 0, filled: 0, ended: 0, failed: 0 };
-  const rows = await svc.sql<Row[]>`SELECT * FROM trade.convert_limits
-    WHERE status IN ('placing', 'waiting', 'triggered', 'cancelling') ORDER BY created_at LIMIT 500`;
   let filled = 0;
   let ended = 0;
   let failed = 0;
-  for (const row of rows) {
-    try {
-      let current = row;
-      if (current.status === 'placing') current = await finishPlacing(svc, current);
-      if (current.status === 'cancelling') {
-        await finishCancel(svc, current);
-        continue;
+  let examined = 0;
+  // Every live row, every tick, a page at a time: a long queue of waiting limits never starves the newest one.
+  let after: { createdAt: Date; id: string } | null = null;
+  for (;;) {
+    const cursor: { createdAt: Date; id: string } | null = after;
+    const rows: Row[] = cursor
+      ? await svc.sql<Row[]>`SELECT * FROM trade.convert_limits
+          WHERE status IN ('placing', 'waiting', 'triggered', 'cancelling') AND (created_at, id) > (${cursor.createdAt}, ${cursor.id})
+          ORDER BY created_at, id LIMIT ${SWEEP_PAGE}`
+      : await svc.sql<Row[]>`SELECT * FROM trade.convert_limits
+          WHERE status IN ('placing', 'waiting', 'triggered', 'cancelling') ORDER BY created_at, id LIMIT ${SWEEP_PAGE}`;
+    if (rows.length === 0) break;
+    examined += rows.length;
+    const last = rows[rows.length - 1]!;
+    after = { createdAt: last.created_at, id: last.id };
+    for (const row of rows) {
+      try {
+        let current = row;
+        if (current.status === 'placing') current = await finishPlacing(svc, current);
+        if (current.status === 'cancelling') {
+          await finishCancel(svc, current);
+          continue;
+        }
+        if (current.status === 'waiting') {
+          const claimed = await tryTrigger(svc, current);
+          if (!claimed) continue;
+          current = claimed;
+        }
+        if (current.status === 'triggered') {
+          const done = await settleTriggered(svc, current);
+          if (done.status === 'filled') filled += 1;
+          else if (done.status === 'ended') ended += 1;
+        }
+      } catch (err) {
+        failed += 1;
+        opts.onFailed?.(row.id, err);
       }
-      if (current.status === 'waiting') {
-        const claimed = await tryTrigger(svc, current);
-        if (!claimed) continue;
-        current = claimed;
-      }
-      if (current.status === 'triggered') {
-        const done = await settleTriggered(svc, current);
-        if (done.status === 'filled') filled += 1;
-        else if (done.status === 'ended') ended += 1;
-      }
-    } catch (err) {
-      failed += 1;
-      opts.onFailed?.(row.id, err);
     }
+    if (rows.length < SWEEP_PAGE) break;
   }
-  return { examined: rows.length, filled, ended, failed };
+  return { examined, filled, ended, failed };
 }
 
 /** Prices the amount now; only a quote at or better than the target is stored and claims the row. */
