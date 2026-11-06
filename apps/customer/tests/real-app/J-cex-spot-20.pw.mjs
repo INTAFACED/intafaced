@@ -1,8 +1,8 @@
 // World: book, restart, gates
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { awayBid, fundedTrader } from './desk.mjs';
-import { api, bestPrices, fromUnits, journeyState, toUnits, tool } from './stack.mjs';
+import { fundedTrader } from './desk.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
 
 // J-cex-spot-20 "I see the venue's health: matching, FIX, seeded liquidity and the published rulebook", in the founder
 // console (apps/admin) against the running stack. One test per step, titled "J-cex-spot-20 #<n>". The founder is founder A;
@@ -50,6 +50,7 @@ async function health(page, key = 'a') {
 
 async function place(who, body) {
   const res = await (await api(who)).post('/api/v1/orders', { symbol: SYMBOL, timeInForce: 'GTC', ...body });
+  // A new order answers 201 Created; any other answer is a refusal to read.
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
   return res.body;
 }
@@ -92,41 +93,83 @@ test(`${J} #1 opens matching and trade health: venue health from the engine; a m
 }) => {
   test.setTimeout(300_000);
   const { customer } = run.read();
-  // A fresh engine has timed no order submit: its submit latency is a metric not yet read. The restart replays the
-  // journal, so the books come back as they were (the engine's own restingOrders below says so).
+  // A fresh engine has timed nothing since it started. The stack's own market maker submits on its quoted markets at
+  // once (run 42241363359 saw 6 submits before the first read), so the metric not yet read is the submit latency of the
+  // unquoted TEST market IFC/USDC, which nothing but a journey trades. The restart replays the journal, so the books
+  // come back as they were (the engine's own restingOrders below says so).
   tool('local-test-stack.mjs', 'restart', 'matching');
-  const fresh = await engineBackUp();
-  expect(fresh.metrics.operations.submit.count).toBe(0);
+  await engineBackUp();
 
   await health(page);
   const venue = page.getByRole('region', { name: 'Venue / matching' });
   await expect(venue).toHaveAttribute('data-tile-state', 'live');
-  // Every figure is the engine's own: halt state, markets, resting orders, admission and hold-halted markets.
-  const engine = await engineHealth();
+  // Every figure is the engine's own: halt state, markets, resting orders, admission and hold-halted markets. The stack's
+  // market maker re-quotes every few seconds, so the resting count moves (run 42247381475: 44 read, 46 shown). It is
+  // compared inside a still window: the engine read before and after the page load agree, and the page must show
+  // exactly that.
+  let engine = null;
+  await expect
+    .poll(
+      async () => {
+        const before = await engineHealth();
+        await page.reload();
+        const shown = await page
+          .getByRole('region', { name: 'Venue / matching' })
+          .locator('[data-metric=resting-orders]')
+          .getAttribute('data-value');
+        const after = await engineHealth();
+        if (before.restingOrders !== after.restingOrders) return 'moving';
+        engine = after;
+        return shown === String(after.restingOrders) ? 'equal' : `shown ${shown}, engine ${after.restingOrders}`;
+      },
+      { timeout: 90_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe('equal');
   await expect(venue.locator('[data-metric=venue-halted]')).toHaveText(engine.venueHalted ? 'Halted' : 'Running');
   await expect(venue.locator('[data-metric=markets]')).toHaveAttribute('data-value', String(engine.markets));
-  await expect(venue.locator('[data-metric=resting-orders]')).toHaveAttribute('data-value', String(engine.restingOrders));
   await expect(venue.locator('[data-metric=admission]')).toHaveText(engine.admissionOpen ? 'Open' : `Closed: ${engine.admissionReason}`);
   await expect(venue.locator('[data-metric=hold-halted]')).toHaveAttribute('data-value', engine.holdHalted.join(','));
   await expect(venue.locator('[data-metric=engine-started]')).toHaveAttribute('data-value', engine.metrics.startedAt);
+  // The venue-wide submit latency is read, with the engine's own bucket bound.
+  const all = venue.locator('[data-metric=latency-submit]');
+  if (engine.metrics.operations.submit.count > 0) await expect(all).toHaveAttribute('data-state', 'read');
 
-  // The submit latency has no reading: the typed blocker, and no number.
-  const submit = venue.locator('[data-metric=latency-submit]');
-  await expect(submit).toHaveAttribute('data-state', 'unread');
-  await expect(submit).toContainText('matching_metrics_unread');
-  await expect(submit).not.toContainText(/\d+(\.\d+)? ms/);
+  // IFC/USDC's submit latency has no reading since the engine started: the typed blocker, and no number.
+  const quiet = venue.locator('[data-metric=latency-submit-market][data-market-symbol="IFC/USDC"]');
+  await expect(quiet).toHaveAttribute('data-state', 'unread');
+  await expect(quiet).toContainText('matching_metrics_unread');
+  await expect(quiet).not.toContainText(/\d+(\.\d+)? ms/);
+  const marketId = await quiet.getAttribute('data-market-id');
+  expect(engine.metrics.submitByMarket[marketId]?.count ?? 0).toBe(0);
 
-  // One order reaches the engine; after a refresh the same metric is read, and it is the engine's own figure.
-  await place(customer, { type: 'limit', side: 'buy', amount: '0.001', price: await awayBid(80), clientOrderId: `${J}-1-${RUN}` });
-  await expect.poll(async () => (await engineHealth()).metrics.operations.submit.count, { timeout: 30_000 }).toBeGreaterThan(0);
-  await page.reload();
-  const after = await engineHealth();
-  const read = page.getByRole('region', { name: 'Venue / matching' }).locator('[data-metric=latency-submit]');
-  await expect(read).toHaveAttribute('data-state', 'read');
-  await expect(read).not.toContainText('matching_metrics_unread');
-  // Counts only grow between the engine read and the console's; the bucket bounds are the engine's own.
-  expect(Number(await read.getAttribute('data-count'))).toBeGreaterThanOrEqual(after.metrics.operations.submit.count);
-  await expect(read).toContainText(`p99 ≤ ${after.metrics.operations.submit.p99Ms} ms`);
+  // One IFC/USDC order reaches the engine (a TEST bid far under any price, cancelled again so the book stays empty);
+  // after a refresh the same metric is read, and it is the engine's own figure.
+  expect(fund(customer.email, 'USDC', '5').tx).toBeTruthy();
+  const order = await place(customer, {
+    symbol: 'IFC/USDC',
+    type: 'limit',
+    side: 'buy',
+    amount: '1',
+    price: '0.01',
+    clientOrderId: `${J}-1-${RUN}`,
+  });
+  try {
+    await expect
+      .poll(async () => (await engineHealth()).metrics.submitByMarket[marketId]?.count ?? 0, { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    await page.reload();
+    const after = await engineHealth();
+    const read = page
+      .getByRole('region', { name: 'Venue / matching' })
+      .locator(`[data-metric=latency-submit-market][data-market-id="${marketId}"]`);
+    await expect(read).toHaveAttribute('data-state', 'read');
+    await expect(read).not.toContainText('matching_metrics_unread');
+    expect(Number(await read.getAttribute('data-count'))).toBe(after.metrics.submitByMarket[marketId].count);
+    await expect(read).toContainText(`p99 ≤ ${after.metrics.submitByMarket[marketId].p99Ms} ms`);
+  } finally {
+    const res = await (await api(customer)).delete(`/api/v1/orders/${order.id}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  }
 });
 
 test(`${J} #2 opens the reconcile tile: the blocker reconcile_route_missing until support reconcile exists`, async ({ page }) => {
