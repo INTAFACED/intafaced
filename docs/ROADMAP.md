@@ -19,6 +19,7 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 - **Journeys.** Each cross-module journey has one owner whose job is keeping it green in the real app: trader first; then bank to fund to trade to withdraw; merchant payout to bank; one portfolio.
 - **Front end.** Build on the default design tokens. Look choices go to the owner in one batch per phase, as two or three rendered options side by side; without an answer the default stays.
 - **Outside services.** A slice whose rail, vendor or chain is missing is still built in full; only the outside call refuses, with the allowlisted notice.
+- **Deferred steps.** A step whose Slices cell in the journey map says DEFERRED leaves the done count, and its cell names the decision; a slice that only deferred steps name gets order 0 (in no live journey). Deferred on 6 Nov 2026: J-agents-12 #2, opening an agent run with an API key, while the owner decision of 29 Oct stands that agents run only from a person's own session, never from API keys or delegated tokens (the outside-assistant journey J-agents-21 is the separate, capped use the owner added on 6 Nov); and J-copy-bots-otc-01 #6, accepting the copy disclosure, under the owner decision of 2026-10-27 (no legal or compliance work until launch prep), which the journey map already said and the index had missed. CB-copy-22, that step's only slice, so goes to order 0.
 
 ## Decisions many slices sit on
 
@@ -44,25 +45,25 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1502 slices left in 21 modules. 284 need no other slice. 47 sit in a dependency loop that the lane untangles first. 358 end in a refusal that names an outside service (built, switched on later). Size: 707 L, 689 M, 106 S.
+1519 slices left in 21 modules. 285 need no other slice. 47 sit in a dependency loop that the lane untangles first. 363 end in a refusal that names an outside service (built, switched on later). Size: 714 L, 699 M, 106 S.
 
 ### Journey map
 
-Done is defined by 460 journeys (3036 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
+Done is defined by 465 journeys (3088 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
 | merchant       | 42       | 7       | 14      | 21      | 242   | 5                   |
 | dex-protocol   | 32       | 5       | 16      | 11      | 277   | 0                   |
+| bank           | 30       | 8       | 13      | 9       | 180   | 7                   |
 | copy-bots-otc  | 30       | 5       | 13      | 12      | 205   | 1                   |
-| bank           | 28       | 8       | 11      | 9       | 164   | 7                   |
-| derivatives    | 24       | 7       | 7       | 10      | 165   | 0                   |
+| derivatives    | 26       | 7       | 9       | 10      | 186   | 0                   |
+| agents         | 21       | 2       | 12      | 7       | 134   | 3                   |
 | identity       | 21       | 7       | 8       | 6       | 133   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 117   | 0                   |
 | pay            | 21       | 4       | 9       | 8       | 121   | 1                   |
 | wallet         | 21       | 6       | 7       | 8       | 110   | 0                   |
 | academy        | 20       | 4       | 9       | 7       | 135   | 0                   |
-| agents         | 20       | 2       | 11      | 7       | 119   | 3                   |
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
 | cex-spot       | 20       | 4       | 11      | 5       | 169   | 0                   |
 | more-catalogue | 20       | 5       | 10      | 5       | 127   | 1                   |
@@ -82,17 +83,17 @@ Done is defined by 460 journeys (3036 steps) in `modules/<module>/acceptance/jou
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
 | ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
-| bank           | 98     | 40           | 7                             | 57    |
+| bank           | 105    | 40           | 12                            | 59    |
 | identity       | 90     | 17           | 30                            | 27    |
 | wallet         | 77     | 25           | 27                            | 26    |
+| derivatives    | 73     | 13           | 20                            | 35    |
 | p2p            | 70     | 12           | 2                             | 40    |
-| derivatives    | 67     | 12           | 20                            | 32    |
 | academy        | 60     | 3            | 14                            | 34    |
 | cex-spot       | 53     | 5            | 13                            | 33    |
 | support-public | 52     | 10           | 15                            | 21    |
 | more-catalogue | 51     | 3            | 22                            | 19    |
+| agents         | 50     | 1            | 10                            | 24    |
 | pay            | 49     | 7            | 3                             | 19    |
-| agents         | 46     | 1            | 10                            | 22    |
 | developer      | 42     | 12           | 1                             | 23    |
 | campaigns      | 41     | 2            | 11                            | 23    |
 | charts-desk    | 41     | 6            | 2                             | 27    |
@@ -107,14 +108,14 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | Lane                          | Slices | Need nothing | In the trader journey | In an Order 1 journey | In no journey |
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
 | svc-pay merchant              | 232    | 36           | 11                    | 42                    | 35            |
-| svc-bank                      | 195    | 53           | 35                    | 58                    | 25            |
-| svc-trade spot                | 163    | 41           | 42                    | 54                    | 7             |
+| svc-bank                      | 202    | 53           | 35                    | 58                    | 25            |
+| svc-trade spot                | 164    | 41           | 42                    | 54                    | 7             |
 | svc-identity                  | 136    | 29           | 68                    | 50                    | 11            |
 | svc-protocol                  | 75     | 4            | 1                     | 19                    | 4             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |
+| svc-trade futures             | 62     | 11           | 0                     | 25                    | 0             |
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
-| svc-trade futures             | 56     | 10           | 0                     | 25                    | 0             |
-| svc-agents                    | 49     | 2            | 0                     | 8                     | 3             |
+| svc-agents                    | 52     | 2            | 0                     | 8                     | 3             |
 | svc-ops                       | 42     | 11           | 4                     | 2                     | 12            |
 | svc-notify                    | 39     | 15           | 3                     | 13                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 13                    | 3             |
@@ -304,6 +305,7 @@ First milestone. Lanes take these before their other slices.
 - `W-balances-09` Custody and safeguarding disclosures (S, depth 6, journey order 1) · needs W-balances-08
 - `SP-conditional-algo-01` Triggered stop orders: stop-market, stop-limit and pending list (L, depth 2, journey order 2) · needs SP-order-entry-01
 - `C-chart-core-04` Chart settings, legend, crosshair, data window and price-line overlays (L, depth 2, journey order 2) · needs C-alerts-scan-01, C-chart-core-01, C-embed-feed-ops-01
+- `I-account-lifecycle-03` Sub-account lifecycle: types, freeze control, delete (M, depth 2, journey order 2) · needs I-account-lifecycle-01
 - `I-account-lifecycle-08` Self-service account freeze (M, depth 2, journey order 2, refuses for an outside service) · needs I-account-lifecycle-01
 - `I-account-lifecycle-10` Close account: request, checks, cooling-off (M, depth 2, journey order 2) · needs I-account-lifecycle-01
 - `I-account-lifecycle-12` Appeal a restriction, ban or closure (L, depth 2, journey order 2) · needs I-account-lifecycle-01, I-account-lifecycle-02
@@ -357,7 +359,6 @@ First milestone. Lanes take these before their other slices.
 - `I-signin-sessions-24` Operator session tools, recovery link and support-assisted recovery (L, depth 7, journey order 2, refuses for an outside service) · needs I-signin-sessions-12, I-signin-sessions-22
 - `RC-cex-spot-11` Pay trading fees in IFC with the published decay discount (L, depth 8, journey order 2) · needs SP-fees-vip-02, SP-fees-vip-04, SP-order-entry-04
 - `SP-developer-status-02` Developer portal: overview, announcements, error format and changelog (M, depth 2, journey order 3) · needs SP-developer-status-01
-- `I-account-lifecycle-03` Sub-account lifecycle: types, freeze control, delete (M, depth 2, journey order 3) · needs I-account-lifecycle-01
 - `W-withdraw-10` Allowlist default-deny, one-time-send policy and governed changes (L, depth 2, journey order 3) · needs W-security-accounts-04, W-withdraw-08
 - `W-withdraw-11` Multi-approval for withdrawals (N-of-M, amount locked at submit) (L, depth 2, journey order 3) · needs W-security-accounts-04, W-withdraw-06
 - `W-withdraw-12` Create a withdrawal through a scoped API key (D-167) (M, depth 2, journey order 3) · needs W-security-accounts-01, W-withdraw-05
