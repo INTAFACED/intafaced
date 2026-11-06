@@ -39,6 +39,8 @@ const en = {
   kindIndicatorRefused: 'Indicator alerts are not offered, so this one cannot be saved. Choose the price to set an alert.',
   extraCap: 'An alert holds at most {max} conditions, the first one included.',
   extraCapUnset: 'Extra conditions are off: the most conditions one alert may hold is not set.',
+  extraCapLoading: 'Reading how many conditions one alert may hold. Extra conditions are off while it loads.',
+  extraCapFailed: 'How many conditions one alert may hold could not be read, so extra conditions are off. Reload to try again.',
   modifiedAt: 'Modified {when}',
   stoppedBurst: 'Stopped because it triggered too often. Resume it to watch again.',
   stoppedBurstNoResume: 'Stopped because it triggered too often.',
@@ -279,6 +281,9 @@ const es = {
     'Las alertas de indicador no están disponibles, así que esta no se puede guardar. Elige el precio para crear una alerta.',
   extraCap: 'Una alerta tiene como máximo {max} condiciones, la primera incluida.',
   extraCapUnset: 'Las condiciones adicionales están desactivadas: no está fijado cuántas condiciones puede tener una alerta.',
+  extraCapLoading: 'Leyendo cuántas condiciones puede tener una alerta. Las condiciones adicionales están desactivadas mientras carga.',
+  extraCapFailed:
+    'No se pudo leer cuántas condiciones puede tener una alerta, así que las condiciones adicionales están desactivadas. Recarga para intentarlo de nuevo.',
   modifiedAt: 'Modificada {when}',
   stoppedBurst: 'Detenida porque se activó demasiadas veces. Reanúdala para volver a vigilar.',
   stoppedBurstNoResume: 'Detenida porque se activó demasiadas veces.',
@@ -515,6 +520,10 @@ const fr = {
     'Les alertes d’indicateur ne sont pas proposées, celle-ci ne peut donc pas être enregistrée. Choisissez le prix pour créer une alerte.',
   extraCap: 'Une alerte compte au plus {max} conditions, la première comprise.',
   extraCapUnset: 'Les conditions supplémentaires sont désactivées : le nombre maximal de conditions par alerte n’est pas fixé.',
+  extraCapLoading:
+    'Lecture du nombre maximal de conditions par alerte. Les conditions supplémentaires sont désactivées pendant le chargement.',
+  extraCapFailed:
+    'Le nombre maximal de conditions par alerte n’a pas pu être lu, les conditions supplémentaires sont donc désactivées. Rechargez pour réessayer.',
   modifiedAt: 'Modifiée {when}',
   stoppedBurst: 'Arrêtée car elle s’est déclenchée trop souvent. Reprenez-la pour surveiller à nouveau.',
   stoppedBurstNoResume: 'Arrêtée car elle s’est déclenchée trop souvent.',

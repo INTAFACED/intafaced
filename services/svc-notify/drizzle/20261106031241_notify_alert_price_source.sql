@@ -1,5 +1,5 @@
 -- svc-notify · J-charts-desk-09 #2 alert price source
--- Reversal: 0038_notify_alert_price_source.down.sql
+-- Reversal: 20261106031241_notify_alert_price_source.down.sql
 --
 -- A price alert is evaluated against the price the person chose: 'mark' (mid of bid and ask when the book is two-sided, else
 -- last: what every alert used before this migration), 'bid', 'ask' or 'last'. Existing rows keep 'mark', so nothing they do

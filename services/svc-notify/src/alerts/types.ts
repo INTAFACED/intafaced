@@ -124,6 +124,8 @@ export const ALERT_FREQUENCIES = ['once', 'every_crossing'] as const satisfies r
  */
 export type AlertPriceSource = 'mark' | 'bid' | 'ask' | 'last';
 export const ALERT_PRICE_SOURCES = ['mark', 'bid', 'ask', 'last'] as const satisfies readonly AlertPriceSource[];
+/** A source other than the mark: one field of the ticker, read on its own. */
+export type AlertPriceSide = Exclude<AlertPriceSource, 'mark'>;
 export function isAlertPriceSource(source: unknown): source is AlertPriceSource {
   return typeof source === 'string' && (ALERT_PRICE_SOURCES as readonly string[]).includes(source);
 }
@@ -259,11 +261,14 @@ export type MarkQuote =
  */
 export type MarkSource = {
   readonly kind: 'dark' | 'live';
+  /** The mark: mid of bid and ask when the book is two-sided, else last. */
+  quote(marketId: string, at?: Date): Promise<MarkQuote>;
   /**
-   * `source` names which price to quote; omitted means `mark`. A source that has only one price (the whale flow mark, a dark
-   * port) may ignore it.
+   * The named sides of one market, from one read, so they share a snapshot. A port that cannot name a side leaves this out,
+   * and every alert on a side then refuses `notify.price_source_unavailable`: a port can never answer a side with the mark.
+   * A side missing from the returned map refuses the same way.
    */
-  quote(marketId: string, at?: Date, source?: AlertPriceSource): Promise<MarkQuote>;
+  quoteSides?(marketId: string, sides: readonly AlertPriceSide[], at?: Date): Promise<ReadonlyMap<AlertPriceSide, MarkQuote>>;
 };
 
 export type AlertRefuseCode =

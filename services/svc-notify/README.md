@@ -812,7 +812,7 @@ a row. A redelivery reuses the same key and cannot double-send.
   `updateAlert` take it; every wire alert carries it. The trade ticker port reads only the side named; a ticker without it refuses
   `notify.price_source_unavailable` (the evaluation refuses `alert.price_unavailable` with that detail) and never falls back to
   another side. The sweep quotes each market once per source its active price alerts chose. Other kinds stay on the mark (whale on
-  its flow mark). Migration 0038 (CHECK on the four values).
+  its flow mark). Migration 20261106031241_notify_alert_price_source (CHECK on the four values).
 - Quota (C-alerts-scan-03a): `NOTIFY_ALERT_MAX_ACTIVE_PRICE` is the most price alerts one person may hold open, active or
   paused. No default: blank refuses every price alert create `notify.alert_quota_unset`; at the cap a create is refused
   `alert.quota_reached` (precondition, nothing stored). Triggered, expired, cancelled and deleted alerts do not use a place,

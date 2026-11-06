@@ -22,7 +22,7 @@ const ALERT_MIGRATIONS = [
   '0021_notify_alert_triggers.sql',
   '0022_notify_alert_frequency.sql',
   '0026_notify_alert_burst.sql',
-  '0038_notify_alert_price_source.sql',
+  '20261106031241_notify_alert_price_source.sql',
 ];
 
 const available = await postgresAvailable(URL);
@@ -394,10 +394,10 @@ describe.skipIf(!available)('PostgresAlertStore burst auto-stop and migration 00
   });
 });
 
-describe.skipIf(!available)('PostgresAlertStore price source and migration 0038', () => {
+describe.skipIf(!available)('PostgresAlertStore price source and migration 20261106031241_notify_alert_price_source', () => {
   it('runs twice, keeps an existing row on mark, stores and edits the chosen source, and refuses one outside the four', async () => {
-    await sql!.unsafe(migration('0038_notify_alert_price_source.sql'));
-    await sql!.unsafe(migration('0038_notify_alert_price_source.sql'));
+    await sql!.unsafe(migration('20261106031241_notify_alert_price_source.sql'));
+    await sql!.unsafe(migration('20261106031241_notify_alert_price_source.sql'));
     const store = new PostgresAlertStore(sql!);
     const userId = fresh();
     const legacy = randomUUID();

@@ -34,7 +34,7 @@ import {
   EXTRA_CONDITIONS,
   isCrossingCondition,
   NOTIFY_PRICE_SOURCE_UNAVAILABLE,
-  type AlertPriceSource,
+  type AlertPriceSide,
   type AlertEdit,
   type AlertEditState,
   type AlertExtra,
@@ -744,18 +744,13 @@ export class AlertService {
     const whaleQuote = await this.sourcedWhaleQuote(marketId, at);
     const actives = await this.store.listActiveByMarket(marketId);
     const results: EvaluateMarketReport['results'][number][] = [];
-    // One quote per price source a price alert here chose, within this pass. `mark` is the quote above, shared by every other kind.
-    const bySource = new Map<AlertPriceSource, MarkQuote>([['mark', quote]]);
-    for (const alert of actives) {
-      if (alert.kind !== 'price' || bySource.has(alert.source)) continue;
-      bySource.set(alert.source, await this.sourcedQuote(marketId, at, alert.source));
-    }
+    // Every side a price alert here chose, quoted from one read in this pass. `mark` is the quote above, shared by every other kind.
+    const sides = [...new Set(actives.flatMap((a) => (a.kind === 'price' && a.source !== 'mark' ? [a.source] : [])))];
+    const bySide = await this.sourcedSides(marketId, sides, at);
 
     for (const alert of actives) {
-      // Every price alert's source was quoted above; a missing one refuses, never falls back to the mark.
-      const priceQuote = (): MarkQuote =>
-        bySource.get(alert.source) ?? { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE };
-      const ownQuote = alert.kind === 'whale' ? whaleQuote : alert.kind === 'price' ? priceQuote() : quote;
+      const ownQuote =
+        alert.kind === 'whale' ? whaleQuote : alert.kind === 'price' && alert.source !== 'mark' ? sideQuote(bySide, alert.source) : quote;
       const applied = await this.applyEvaluation(alert, ownQuote, at);
       results.push({
         alertId: alert.id,
@@ -791,7 +786,9 @@ export class AlertService {
     const quote =
       alert.kind === 'whale'
         ? await this.sourcedWhaleQuote(alert.marketId, at)
-        : await this.sourcedQuote(alert.marketId, at, alert.kind === 'price' ? alert.source : 'mark');
+        : alert.kind === 'price' && alert.source !== 'mark'
+          ? sideQuote(await this.sourcedSides(alert.marketId, [alert.source], at), alert.source)
+          : await this.sourcedQuote(alert.marketId, at);
     const applied = await this.applyEvaluation(alert, quote, at);
     const refreshed = (await this.store.get(userId, alertId)) ?? alert;
     return {
@@ -802,10 +799,25 @@ export class AlertService {
     };
   }
 
-  private async sourcedQuote(marketId: string, at: Date, source: AlertPriceSource = 'mark'): Promise<MarkQuote> {
-    // `mark` is quoted exactly as before the source existed, so a port that predates it sees the same call.
-    const raw = source === 'mark' ? await this.marks.quote(marketId, at) : await this.marks.quote(marketId, at, source);
+  private async sourcedQuote(marketId: string, at: Date): Promise<MarkQuote> {
+    const raw = await this.marks.quote(marketId, at);
     return acceptAlertMark(this.marks, raw, at);
+  }
+
+  /**
+   * The named sides of one market from one read. A port without `quoteSides` cannot name a side, so each one refuses
+   * `notify.price_source_unavailable`; it is never answered with the mark.
+   */
+  private async sourcedSides(
+    marketId: string,
+    sides: readonly AlertPriceSide[],
+    at: Date,
+  ): Promise<ReadonlyMap<AlertPriceSide, MarkQuote>> {
+    const out = new Map<AlertPriceSide, MarkQuote>();
+    if (sides.length === 0) return out;
+    const raw = this.marks.quoteSides ? await this.marks.quoteSides(marketId, sides, at) : new Map<AlertPriceSide, MarkQuote>();
+    for (const side of sides) out.set(side, acceptAlertMark(this.marks, raw.get(side) ?? sideUnavailable, at));
+    return out;
   }
 
   private async sourcedWhaleQuote(marketId: string, at: Date): Promise<MarkQuote> {
@@ -888,4 +900,11 @@ export class AlertService {
     const status = typeof this.notify.channelStatus === 'function' ? this.notify.channelStatus() : [];
     return outOfAppRequiredRefusal(status);
   }
+}
+
+const sideUnavailable: MarkQuote = { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE };
+
+/** The quote of one side from `sourcedSides`; a side it did not answer refuses, never falls back to the mark. */
+function sideQuote(bySide: ReadonlyMap<AlertPriceSide, MarkQuote>, side: AlertPriceSide): MarkQuote {
+  return bySide.get(side) ?? sideUnavailable;
 }

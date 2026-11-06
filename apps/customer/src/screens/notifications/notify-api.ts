@@ -378,6 +378,8 @@ export interface AlertEdit {
   name?: string | null;
   message?: string | null;
   expiresAt?: string | null;
+  /** The price a price alert watches. Left out, the stored one is kept. */
+  source?: AlertSource;
 }
 
 /** Change an alert that is active or stopped. The answer must be this person's alert showing the values just sent, or it is not believed. */
@@ -394,7 +396,8 @@ export function updatePriceAlert(api: ApiClient, id: string, edit: AlertEdit, us
           (edit.targetPrice === undefined || canonicalPrice(row.targetPrice) === canonicalPrice(edit.targetPrice)) &&
           (edit.condition === undefined || row.condition === edit.condition) &&
           (edit.name === undefined || (row.name ?? null) === edit.name) &&
-          (edit.message === undefined || (row.message ?? null) === edit.message),
+          (edit.message === undefined || (row.message ?? null) === edit.message) &&
+          (edit.source === undefined || (row.source ?? 'mark') === edit.source),
         'Returned alert does not match',
       ),
     }),

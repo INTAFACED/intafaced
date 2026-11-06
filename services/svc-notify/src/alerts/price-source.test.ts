@@ -1,7 +1,7 @@
 /**
  * J-charts-desk-09 #2: a price alert is evaluated against the price the person chose (bid, ask, last, or the mark). A side the
- * ticker does not carry refuses `notify.price_source_unavailable` and never falls back to another side. The sweep quotes once per
- * source a market's alerts need and evaluates each alert against its own.
+ * ticker does not carry refuses `notify.price_source_unavailable` and never falls back to another side. The sweep reads every
+ * side a market's alerts need in one call, and a port that cannot name a side refuses every alert on one.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -10,57 +10,51 @@ import { MemoryNotifyStore } from '../store.js';
 import { AlertService } from './service.js';
 import { AlertValidationError, MemoryAlertStore } from './store.js';
 import { TEST_ALERT_LIMITS } from './test-limits.js';
-import { createTradeHttpMarkSource, priceFromTicker, priceFromTickerSource } from './trade-http-mark.js';
+import { createTradeHttpMarkSource, priceFromTickerSide } from './trade-http-mark.js';
 import { NOTIFY_PRICE_SOURCE_UNAVAILABLE } from './types.js';
-import type { AlertPriceSource, MarkQuote, MarkSource } from './types.js';
+import type { AlertPriceSide, AlertPriceSource, MarkQuote, MarkSource } from './types.js';
 
 const MARKET_ID = '11111111-1111-1111-1111-111111111111';
 const NOW = new Date('2026-10-31T12:00:00Z');
+const REFUSED: MarkQuote = { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE };
 
-describe('priceFromTickerSource', () => {
+describe('priceFromTickerSide', () => {
   it('reads only the side named', () => {
     const body = { bid: '99', ask: '101', last: '100.25' };
-    expect(priceFromTickerSource(body, 'bid')).toEqual({ price: '99', quality: 'bid' });
-    expect(priceFromTickerSource(body, 'ask')).toEqual({ price: '101', quality: 'ask' });
-    expect(priceFromTickerSource(body, 'last')).toEqual({ price: '100.25', quality: 'last' });
-  });
-
-  it('mark is the mid-else-last rule exactly', () => {
-    for (const body of [
-      { bid: '99', ask: '101', last: '7' },
-      { bid: null, ask: '101', last: '7' },
-      { bid: null, ask: null, last: null },
-    ]) {
-      expect(priceFromTickerSource(body, 'mark')).toEqual(priceFromTicker(body));
-    }
+    expect(priceFromTickerSide(body, 'bid')).toEqual({ price: '99', quality: 'bid' });
+    expect(priceFromTickerSide(body, 'ask')).toEqual({ price: '101', quality: 'ask' });
+    expect(priceFromTickerSide(body, 'last')).toEqual({ price: '100.25', quality: 'last' });
   });
 
   it('a missing or invalid side is null, never another side', () => {
-    expect(priceFromTickerSource({ bid: null, ask: '101', last: '100' }, 'bid')).toBeNull();
-    expect(priceFromTickerSource({ bid: '99', ask: undefined, last: '100' }, 'ask')).toBeNull();
-    expect(priceFromTickerSource({ bid: '99', ask: '101', last: null }, 'last')).toBeNull();
-    expect(priceFromTickerSource({ bid: '0', ask: '-1', last: 'abc' }, 'bid')).toBeNull();
-    expect(priceFromTickerSource({ bid: '0', ask: '-1', last: 'abc' }, 'ask')).toBeNull();
-    expect(priceFromTickerSource({ bid: '0', ask: '-1', last: 'abc' }, 'last')).toBeNull();
+    expect(priceFromTickerSide({ bid: null, ask: '101', last: '100' }, 'bid')).toBeNull();
+    expect(priceFromTickerSide({ bid: '99', ask: undefined, last: '100' }, 'ask')).toBeNull();
+    expect(priceFromTickerSide({ bid: '99', ask: '101', last: null }, 'last')).toBeNull();
+    expect(priceFromTickerSide({ bid: '0', ask: '-1', last: 'abc' }, 'bid')).toBeNull();
+    expect(priceFromTickerSide({ bid: '0', ask: '-1', last: 'abc' }, 'ask')).toBeNull();
+    expect(priceFromTickerSide({ bid: '0', ask: '-1', last: 'abc' }, 'last')).toBeNull();
   });
 });
 
-function tradeSource(ticker: Record<string, unknown>): MarkSource {
+function tradeSource(ticker: Record<string, unknown> | null) {
+  const tickerReads: string[] = [];
   const fetchImpl = vi.fn(async (url: string) => {
     const u = String(url);
     if (u.includes('/api/v1/markets?limit=')) return new Response(JSON.stringify([{ id: MARKET_ID, symbol: 'BTC/USDT' }]), { status: 200 });
-    return new Response(JSON.stringify({ ...ticker, timestamp: NOW.getTime() }), { status: 200 });
+    tickerReads.push(u);
+    return new Response(JSON.stringify(ticker === null ? null : { ...ticker, timestamp: NOW.getTime() }), { status: 200 });
   }) as unknown as typeof fetch;
-  return createTradeHttpMarkSource({ baseUrl: 'http://trade.test', fetchImpl, marketsLimit: 100 });
+  return { marks: createTradeHttpMarkSource({ baseUrl: 'http://trade.test', fetchImpl, marketsLimit: 100 }), tickerReads };
 }
 
-describe('trade ticker MarkSource by source', () => {
-  it('quotes bid, ask and last from the ticker, and mark as before', async () => {
-    const marks = tradeSource({ bid: '99', ask: '101', last: '100.25' });
-    expect(await marks.quote(MARKET_ID, NOW, 'bid')).toEqual({ kind: 'ok', price: '99', at: NOW });
-    expect(await marks.quote(MARKET_ID, NOW, 'ask')).toEqual({ kind: 'ok', price: '101', at: NOW });
-    expect(await marks.quote(MARKET_ID, NOW, 'last')).toEqual({ kind: 'ok', price: '100.25', at: NOW });
-    expect(await marks.quote(MARKET_ID, NOW, 'mark')).toEqual({ kind: 'ok', price: '100', at: NOW });
+describe('trade ticker MarkSource by side', () => {
+  it('quotes bid, ask and last from one ticker read, and the mark as before', async () => {
+    const { marks, tickerReads } = tradeSource({ bid: '99', ask: '101', last: '100.25' });
+    const sides = await marks.quoteSides!(MARKET_ID, ['bid', 'ask', 'last'], NOW);
+    expect(tickerReads).toHaveLength(1);
+    expect(sides.get('bid')).toEqual({ kind: 'ok', price: '99', at: NOW });
+    expect(sides.get('ask')).toEqual({ kind: 'ok', price: '101', at: NOW });
+    expect(sides.get('last')).toEqual({ kind: 'ok', price: '100.25', at: NOW });
     expect(await marks.quote(MARKET_ID, NOW)).toEqual({ kind: 'ok', price: '100', at: NOW });
   });
 
@@ -68,15 +62,26 @@ describe('trade ticker MarkSource by source', () => {
     ['bid', { ask: '101', last: '100' }],
     ['ask', { bid: '99', last: '100' }],
     ['last', { bid: '99', ask: '101' }],
-  ] as const)('a ticker without %s refuses by code and does not fall back', async (source, ticker) => {
-    const marks = tradeSource(ticker);
-    expect(await marks.quote(MARKET_ID, NOW, source)).toEqual({
+  ] as const)('a ticker without %s refuses by code and does not fall back', async (side, ticker) => {
+    const { marks } = tradeSource(ticker);
+    expect((await marks.quoteSides!(MARKET_ID, [side], NOW)).get(side)).toEqual(REFUSED);
+    // The mark still prices this ticker; only the side asked for is missing.
+    expect((await marks.quote(MARKET_ID, NOW)).kind).toBe('ok');
+  });
+
+  it('a ticker read that fails refuses every side with its own reason, and asking for no side reads nothing', async () => {
+    const { marks, tickerReads } = tradeSource(null);
+    const sides = await marks.quoteSides!(MARKET_ID, ['bid', 'ask'], NOW);
+    expect(sides.get('bid')).toEqual(REFUSED);
+    expect(sides.get('ask')).toEqual(REFUSED);
+    expect((await marks.quoteSides!(MARKET_ID, [], NOW)).size).toBe(0);
+    expect(tickerReads).toHaveLength(1);
+    const unknown = await marks.quoteSides!('22222222-2222-2222-2222-222222222222', ['bid'], NOW);
+    expect(unknown.get('bid')).toMatchObject({
       kind: 'unavailable',
       reason: 'refused',
-      detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE,
+      detail: expect.stringContaining('no trade market'),
     });
-    // The mark still prices this ticker; only the side asked for is missing.
-    expect((await marks.quote(MARKET_ID, NOW, 'mark')).kind).toBe('ok');
   });
 
   it('the refusal code is the stable string', () => {
@@ -84,27 +89,37 @@ describe('trade ticker MarkSource by source', () => {
   });
 });
 
-/** A live source with a fixed price per side; `null` is a side the book does not have. Counts calls per source. */
-function sidedSource(prices: Record<AlertPriceSource, string | null>) {
-  const calls: (AlertPriceSource | undefined)[] = [];
+/**
+ * A live source with a fixed price per side; `null` is a side the book does not have. Records each mark call and each
+ * `quoteSides` call. `sides: false` builds a port that cannot name a side at all.
+ */
+function sidedSource(prices: Record<AlertPriceSource, string | null>, sides = true) {
+  const markCalls: number[] = [];
+  const sideCalls: (readonly AlertPriceSide[])[] = [];
+  const priced = (price: string | null, at?: Date): MarkQuote => (price === null ? REFUSED : { kind: 'ok', price, at: at ?? NOW });
   const marks: MarkSource = {
     kind: 'live',
-    async quote(_marketId, at, source): Promise<MarkQuote> {
-      calls.push(source);
-      const price = prices[source ?? 'mark'];
-      return price === null
-        ? { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE }
-        : { kind: 'ok', price, at: at ?? NOW };
+    async quote(_marketId: string, at?: Date): Promise<MarkQuote> {
+      markCalls.push(1);
+      return priced(prices.mark, at);
     },
+    ...(sides
+      ? {
+          async quoteSides(_marketId: string, asked: readonly AlertPriceSide[], at?: Date) {
+            sideCalls.push([...asked]);
+            return new Map(asked.map((side) => [side, priced(prices[side], at)] as const));
+          },
+        }
+      : {}),
   };
-  return { marks, calls };
+  return { marks, markCalls, sideCalls };
 }
 
-function rig(prices: Record<AlertPriceSource, string | null>) {
-  const { marks, calls } = sidedSource(prices);
+function rig(prices: Record<AlertPriceSource, string | null>, sides = true) {
+  const { marks, markCalls, sideCalls } = sidedSource(prices, sides);
   const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
   const store = new MemoryAlertStore();
-  return { alerts: new AlertService(store, marks, notify, undefined, TEST_ALERT_LIMITS), store, calls };
+  return { alerts: new AlertService(store, marks, notify, undefined, TEST_ALERT_LIMITS), store, markCalls, sideCalls };
 }
 
 const above = (source?: AlertPriceSource) => ({
@@ -118,7 +133,7 @@ const above = (source?: AlertPriceSource) => ({
 
 describe('sweep by source', () => {
   it('two alerts on one market: at or above 100.5 fires on the ask (101) and holds on the bid (99)', async () => {
-    const { alerts, calls } = rig({ mark: '100', bid: '99', ask: '101', last: '100' });
+    const { alerts, markCalls, sideCalls } = rig({ mark: '100', bid: '99', ask: '101', last: '100' });
     const onBid = await alerts.create(above('bid'), NOW);
     const onAsk = await alerts.create(above('ask'), NOW);
     const report = await alerts.evaluateMarket('BTC-USD', NOW);
@@ -128,19 +143,25 @@ describe('sweep by source', () => {
     expect(byId.get(onAsk.id)).toMatchObject({ kind: 'fire', markPrice: '101' });
     expect((await alerts.get('u1', onAsk.id))!.status).toBe('fired');
     expect((await alerts.get('u1', onBid.id))!.status).toBe('active');
-    // One quote for the mark and one per source the alerts chose, not one per alert.
-    expect(calls.sort()).toEqual(['ask', 'bid', undefined].sort());
+    // One mark quote and one read for every side the alerts chose, not one per alert or per side.
+    expect(markCalls).toHaveLength(1);
+    expect(sideCalls).toHaveLength(1);
+    expect([...sideCalls[0]!].sort()).toEqual(['ask', 'bid']);
   });
 
-  it('quotes a shared source once however many alerts chose it', async () => {
-    const { alerts, calls } = rig({ mark: '100', bid: '99', ask: '101', last: '100' });
+  it('asks for a shared side once however many alerts chose it, and for no side when every alert is on the mark', async () => {
+    const { alerts, sideCalls } = rig({ mark: '100', bid: '99', ask: '101', last: '100' });
     await alerts.create(above('ask'), NOW);
     await alerts.create(above('ask'), NOW);
     await alerts.create(above(), NOW);
     const report = await alerts.evaluateMarket('BTC-USD', NOW);
     expect(report.results.filter((r) => r.outcome.kind === 'fire')).toHaveLength(2);
-    expect(calls.filter((c) => c === 'ask')).toHaveLength(1);
-    expect(calls.filter((c) => c === undefined)).toHaveLength(1);
+    expect(sideCalls).toEqual([['ask']]);
+
+    const onlyMark = rig({ mark: '101', bid: '99', ask: '101', last: '100' });
+    await onlyMark.alerts.create(above(), NOW);
+    await onlyMark.alerts.evaluateMarket('BTC-USD', NOW);
+    expect(onlyMark.sideCalls).toEqual([]);
   });
 
   it('a missing side refuses its alert by code; an alert on another source on the same market still evaluates', async () => {
@@ -155,12 +176,28 @@ describe('sweep by source', () => {
     expect((await alerts.get('u1', onAsk.id))!.status).toBe('fired');
   });
 
+  it('a port that cannot name a side refuses every alert on one, even when the mark would fire it; mark alerts still evaluate', async () => {
+    // The mark (101) is past 100.5, so a fallback to it would fire the bid alert. It must refuse instead.
+    const { alerts, markCalls } = rig({ mark: '101', bid: '99', ask: '101', last: '100' }, false);
+    const onBid = await alerts.create(above('bid'), NOW);
+    const onMark = await alerts.create(above(), NOW);
+    const report = await alerts.evaluateMarket('BTC-USD', NOW);
+    const byId = new Map(report.results.map((r) => [r.alertId, r.outcome]));
+    expect(byId.get(onBid.id)).toMatchObject({ kind: 'refuse', code: 'alert.price_unavailable', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE });
+    expect(byId.get(onMark.id)).toMatchObject({ kind: 'fire', markPrice: '101' });
+    expect((await alerts.get('u1', onBid.id))!.status).toBe('active');
+    expect(markCalls).toHaveLength(1);
+    const single = await alerts.evaluateAlert('u1', onBid.id, NOW);
+    expect(single.outcome).toMatchObject({ kind: 'refuse', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE });
+  });
+
   it('evaluateAlert uses the alert own source', async () => {
-    const { alerts, calls } = rig({ mark: '100', bid: '99', ask: '101', last: '100' });
+    const { alerts, markCalls, sideCalls } = rig({ mark: '100', bid: '99', ask: '101', last: '100' });
     const onAsk = await alerts.create(above('ask'), NOW);
     const report = await alerts.evaluateAlert('u1', onAsk.id, NOW);
     expect(report.outcome).toMatchObject({ kind: 'fire', markPrice: '101' });
-    expect(calls).toEqual(['ask']);
+    expect(sideCalls).toEqual([['ask']]);
+    expect(markCalls).toEqual([]);
   });
 });
 

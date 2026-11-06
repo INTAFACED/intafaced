@@ -11,6 +11,7 @@ const reads = vi.hoisted(() => ({
   items: [] as unknown[],
   burst: null as null | { windowMinutes: number; maxTriggers: number },
   maxConditions: null as null | number,
+  quotaStatus: 'ready' as 'ready' | 'loading' | 'failed',
 }));
 vi.mock('./use-alerts', () => ({
   useAlerts: () => ({
@@ -54,7 +55,10 @@ vi.mock('./use-triggers', () => ({
 }));
 vi.mock('./use-quota', () => ({
   useAlertQuota: () => ({
-    state: { status: 'ready', quota: { kind: 'price', used: 0, max: 10, burst: reads.burst, maxConditions: reads.maxConditions } },
+    state:
+      reads.quotaStatus === 'ready'
+        ? { status: 'ready', quota: { kind: 'price', used: 0, max: 10, burst: reads.burst, maxConditions: reads.maxConditions } }
+        : { status: reads.quotaStatus },
     reload: () => undefined,
   }),
 }));
@@ -188,6 +192,7 @@ describe('the price an alert watches, other alert kinds, and the condition cap',
   const button = (text: string) => Array.from(host.querySelectorAll('button')).find((b) => b.textContent === text) as HTMLButtonElement;
   beforeEach(() => {
     reads.maxConditions = null;
+    reads.quotaStatus = 'ready';
   });
   it('offers the mark, the bid, the ask and the last trade, and a row names a source other than the mark', async () => {
     reads.items = [row({ name: 'on the bid', source: 'bid' }), row({ id: '22222222-2222-4222-8222-222222222222', name: 'on the mark' })];
@@ -233,5 +238,18 @@ describe('the price an alert watches, other alert kinds, and the condition cap',
     const note = host.querySelector('[data-testid="alerts-extra-cap"]')!;
     expect(note.getAttribute('data-cap')).toBe('unset');
     expect(note.textContent).toBe('Extra conditions are off: the most conditions one alert may hold is not set.');
+  });
+  it.each([
+    ['loading', 'Reading how many conditions one alert may hold. Extra conditions are off while it loads.'],
+    ['failed', 'How many conditions one alert may hold could not be read, so extra conditions are off. Reload to try again.'],
+  ] as const)('while the condition limit is %s, no extra condition can be added, and the note says why', async (status, words) => {
+    reads.items = [];
+    reads.maxConditions = 5;
+    reads.quotaStatus = status;
+    await mount();
+    expect(button('Add a condition').disabled).toBe(true);
+    const note = host.querySelector('[data-testid="alerts-extra-cap"]')!;
+    expect(note.getAttribute('data-cap')).toBe(status);
+    expect(note.textContent).toBe(words);
   });
 });

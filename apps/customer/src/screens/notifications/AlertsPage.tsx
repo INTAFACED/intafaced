@@ -22,6 +22,7 @@ import {
   type AlertView,
   type CancelWords,
   type Refusal,
+  SOURCE_KEY,
 } from './alerts-model';
 import { AlertEditPanel } from './AlertEditPanel';
 import { TriggerLog } from './TriggerLog';
@@ -44,8 +45,6 @@ import {
 } from './notify-api';
 import { NotifyNav } from './NotifyNav';
 import { useAlertMarkets, useAlerts, type AlertMarket } from './use-alerts';
-
-const SOURCE_KEY = { mark: 'sourceMark', bid: 'sourceBid', ask: 'sourceAsk', last: 'sourceLast' } as const;
 
 type Notice =
   | { kind: 'saved'; found: boolean }
@@ -171,9 +170,17 @@ export default function AlertsPage() {
   const list = state.status === 'ready' ? state : null;
   // The most conditions an alert may hold (the main one included), when the owner has set it: the form stops at it.
   const maxConditions = quota.state.status === 'ready' ? (quota.state.quota.maxConditions ?? null) : null;
-  // A limit the service reports as blank (null) refuses extra conditions up front: the service would refuse them at save.
-  const conditionCapUnset = quota.state.status === 'ready' && quota.state.quota.maxConditions === null;
-  const atConditionCap = conditionCapUnset || (maxConditions !== null && 1 + extras.length >= maxConditions);
+  // Until the cap is read, nothing past the main condition can be added: the form never lets through what it cannot check.
+  // A cap still loading or unreadable says so; a cap the service reports as blank refuses extra conditions up front.
+  const conditionCapNote: 'extraCapLoading' | 'extraCapFailed' | 'extraCapUnset' | null =
+    quota.state.status === 'loading'
+      ? 'extraCapLoading'
+      : quota.state.status === 'failed'
+        ? 'extraCapFailed'
+        : maxConditions === null
+          ? 'extraCapUnset'
+          : null;
+  const atConditionCap = conditionCapNote !== null || (maxConditions !== null && 1 + extras.length >= maxConditions);
   const marketList: AlertMarket[] = markets.status === 'ready' ? markets.markets : [];
   const marketOf = (value: string) => marketList.find((market) => market.id === value);
   const selected = marketOf(marketId);
@@ -728,9 +735,13 @@ export default function AlertsPage() {
               {copy.t('extraAdd')}
             </Button>
           </div>
-          {conditionCapUnset ? (
-            <p className="nf-muted" data-testid="alerts-extra-cap" data-cap="unset">
-              {copy.t('extraCapUnset')}
+          {conditionCapNote !== null ? (
+            <p
+              className="nf-muted"
+              data-testid="alerts-extra-cap"
+              data-cap={conditionCapNote === 'extraCapUnset' ? 'unset' : quota.state.status}
+            >
+              {copy.t(conditionCapNote)}
             </p>
           ) : atConditionCap && maxConditions !== null ? (
             <p className="nf-muted" data-testid="alerts-extra-cap">

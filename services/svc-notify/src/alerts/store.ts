@@ -148,12 +148,8 @@ export function assertAlertPriceSource(source: unknown, kind: string): AlertPric
   return source;
 }
 
-/** The price source a create stores: the one named, else `mark`. */
-function sourceOf(input: CreatePriceAlertInput): AlertPriceSource {
-  return assertAlertPriceSource(input.source ?? 'mark', input.kind ?? 'price');
-}
-
-function assertCreate(input: CreatePriceAlertInput): SourcedAlertKind {
+/** A create's kind and price source, each validated once here. */
+function assertCreate(input: CreatePriceAlertInput): { kind: SourcedAlertKind; source: AlertPriceSource } {
   if (!input.marketId.trim()) {
     throw new AlertValidationError('alert.invalid_market', 'marketId required');
   }
@@ -163,15 +159,15 @@ function assertCreate(input: CreatePriceAlertInput): SourcedAlertKind {
   if (!isValidPositivePrice(input.targetPrice)) {
     throw new AlertValidationError('alert.invalid_price', `targetPrice=${input.targetPrice}`);
   }
-  sourceOf(input);
-  return sourcedKind(input);
+  const kind = sourcedKind(input);
+  return { kind, source: assertAlertPriceSource(input.source ?? 'mark', kind) };
 }
 
 export class MemoryAlertStore implements AlertStore {
   private readonly byId = new Map<string, PriceAlert>();
 
   async create(input: CreatePriceAlertInput): Promise<PriceAlert> {
-    const kind = assertCreate(input);
+    const { kind, source } = assertCreate(input);
     // Counted and written with no pause between, so two creates racing for the last place cannot both pass.
     if (input.maxOpen !== undefined && this.openCount(input.userId, kind) >= input.maxOpen) {
       throw new AlertQuotaReachedError(input.maxOpen);
@@ -200,7 +196,7 @@ export class MemoryAlertStore implements AlertStore {
       stopReason: null,
       burstStartedAt: null,
       burstCount: 0,
-      source: sourceOf(input),
+      source,
     };
     this.byId.set(row.id, row);
     return row;
@@ -346,13 +342,13 @@ export class PostgresAlertStore implements AlertStore {
   constructor(private readonly sql: Sql) {}
 
   async create(input: CreatePriceAlertInput): Promise<PriceAlert> {
-    const kind = assertCreate(input);
+    const { kind, source } = assertCreate(input);
     const id = randomUUID();
     const insert = (sql: Sql) => sql<AlertRow[]>`
       INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source)
       VALUES (${id}, ${input.userId}, ${input.marketId.trim()}, ${kind}, ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
         ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${sql.json((input.extras ?? []) as never)},
-        ${input.frequency ?? 'once'}, ${sourceOf(input)})
+        ${input.frequency ?? 'once'}, ${source})
       RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
     `;
     if (input.maxOpen === undefined) return mapRow((await insert(this.sql))[0]!);
@@ -372,7 +368,7 @@ export class PostgresAlertStore implements AlertStore {
   async createMany(inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]> {
     const first = inputs[0];
     if (!first) return [];
-    for (const input of inputs) assertCreate(input);
+    const sources = inputs.map((input) => assertCreate(input).source);
     // One transaction under the same per-person lock a single create takes, so the batch is all in or all out.
     return this.sql.begin(async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`notify.alert_quota:${first.userId}`}, 0))`;
@@ -383,12 +379,12 @@ export class PostgresAlertStore implements AlertStore {
       const held = counted?.n ?? 0;
       if (held + inputs.length > maxOpen) throw new AlertQuotaReachedError(maxOpen, held, inputs.length);
       const rows: PriceAlert[] = [];
-      for (const input of inputs) {
+      for (const [i, input] of inputs.entries()) {
         const [row] = await tx<AlertRow[]>`
           INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source)
           VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
             ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)},
-            ${input.frequency ?? 'once'}, ${sourceOf(input)})
+            ${input.frequency ?? 'once'}, ${sources[i]!})
           RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
         `;
         rows.push(mapRow(row!));
@@ -606,6 +602,12 @@ function mapRow(r: AlertRow): PriceAlert {
     stopReason: r.stop_reason === 'burst' ? 'burst' : null,
     burstStartedAt: r.burst_started_at,
     burstCount: r.burst_count,
-    source: isAlertPriceSource(r.source) ? r.source : 'mark',
+    source: storedSource(r),
   };
+}
+
+/** A stored source outside the four is a broken row (the CHECK should stop it): refuse to read it, never treat it as the mark. */
+function storedSource(r: AlertRow): AlertPriceSource {
+  if (isAlertPriceSource(r.source)) return r.source;
+  throw new Error(`notify.price_alerts ${r.id} has an unknown source ${String(r.source)} — refuse rather than evaluate it on the mark`);
 }
