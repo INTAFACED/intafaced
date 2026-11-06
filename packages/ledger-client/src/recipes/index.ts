@@ -527,6 +527,13 @@ export interface MarketMakerMakerFillInput {
   takerSide: 'buy' | 'sell';
   makerFeeBps: number;
   takerFeeBps: number;
+  /**
+   * The customer product this fill settles, when it is not a book trade: `convert` for a Convert quote
+   * (svc-trade convert/settle.ts). Written to `meta.product`, which the ledger's history page echoes allow-listed, so
+   * the bank's activity can call the line a conversion. Meta only: it is not part of the post's fingerprint, the entries
+   * and the key are the same with or without it.
+   */
+  product?: 'convert';
 }
 
 export function marketMakerMakerFill(input: MarketMakerMakerFillInput): PostRequest {
@@ -575,6 +582,7 @@ export function marketMakerMakerFill(input: MarketMakerMakerFillInput): PostRequ
       makerOrderId: input.makerOrderId,
       takerOrderId: input.takerOrderId,
       house: 'market-maker',
+      ...(input.product === undefined ? {} : { product: input.product }),
     },
     entries,
   };
