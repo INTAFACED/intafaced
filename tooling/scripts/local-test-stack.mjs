@@ -1327,6 +1327,7 @@ async function startServices(all) {
   await Promise.all(started.values());
 }
 
+let switchesSaid = false;
 function serviceDefs(secrets) {
   const ctx = {
     c: (name, port) => commonEnv(secrets, name, port),
@@ -1349,8 +1350,17 @@ function serviceDefs(secrets) {
     EDGE_ABSENT,
     testChain,
   };
-  // A journey's LOCAL TEST owner switches (local-test-owner-switch.mjs) go on last; with none set, nothing changes.
+  // A journey's LOCAL TEST owner switches (local-test-owner-switch.mjs) go on last; with none set, nothing changes. One
+  // that is on is said once, so a plain start never runs on a switch silently (`local-test-owner-switch.mjs clear`).
   const switches = readSwitches(STATE);
+  if (!switchesSaid && Object.keys(switches).length > 0) {
+    switchesSaid = true;
+    console.error(
+      `LOCAL TEST owner switches on: ${Object.entries(switches)
+        .map(([s, n]) => `${s} ${Object.keys(n).join(' ')}`)
+        .join(', ')}`,
+    );
+  }
   return SERVICES.map((service) => {
     const def = service(ctx);
     return switches[def.name] ? { ...def, env: () => applyOwnerSwitches(def.name, def.env(), switches) } : def;

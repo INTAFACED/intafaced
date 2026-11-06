@@ -77,6 +77,7 @@ export const GATE_PATHS = [
   ['tooling/scripts/github-refusal.mjs', 'how the gate tools recognise a 403 or 429 and stop'],
   ['tooling/scripts/gate-tools.test.mjs', 'the gate tools test entry'],
   ['tooling/scripts/journey-freeze-guard.mjs', 'the journey harness guard: no journey leaks the platform posting freeze'],
+  ['tooling/scripts/local-test-owner-switch.mjs', 'the journey harness guard: no owner switch outlives its journey step'],
   ['apps/customer/tests/real-app/journey.mjs', "every journey's test, wrapped by the posting-freeze guard"],
   ['tooling/scripts/tooling-tests.mjs', 'which tooling tests the Doctrine gates run'],
   ['docs/runbooks/journey-baseline.json', "the steps the Real-app journeys run on main may fail, which decide that run's verdict"],

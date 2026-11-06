@@ -11,8 +11,9 @@
  * file, which every builder wrote alone (local-stack-services/agents.mjs has a dozen). This takes any owner setting:
  *   - a name `services/svc-<service>/src/env.ts` marks as an owner setting (owner-settings.mjs `scanEnvFile`: its
  *     comment says NO DEFAULT, Never invent, or names an `_unset` code; wiring such as URLs, keys and ports is left out),
- *     or a name the service's TEST profile holds (tooling/profiles/test-owner-values/<service>.json). Nothing else:
- *     no secret, URL or port can be switched here;
+ *     or a name the service's TEST profile holds (tooling/profiles/test-owner-values/<service>.json). Nothing else, and
+ *     from env.ts never a name shaped like a secret (`_SECRET`, `_KEY`, `_TOKEN`, `_PASSWORD`, `_DSN`), even one whose
+ *     comment names an `_unset` code: only the reviewed TEST profile can make such a name switchable;
  *   - `blank` leaves it unset, so the service refuses with its own typed code;
  *   - `test` sets the profile's labelled TEST value (refused when the profile has none);
  *   - `value:<text>` sets a TEST value of the step's own (a second limit, a stricter rule). It is a TEST value on the local
@@ -21,7 +22,9 @@
  * The switches live in the running stack's state folder (owner-switches.json, mode 600). local-test-stack.mjs applies
  * them last to that service's settings whenever it starts it, so `set` and `clear` restart only the named services.
  * With no file, every service starts exactly as before. Journeys use `withOwnerSwitch` (apps/customer/tests/real-app/
- * stack.mjs), which always clears what it set, so no switch outlives its step.
+ * stack.mjs), which always clears what it set, and journey.mjs's guard clears whatever a crashed or timed-out step left,
+ * before and after every journey test. The CLI is for looking by hand: a journey run clears what it set. A start of the
+ * stack with a switch on prints it, so a plain `pnpm local:stack` never runs on one silently.
  */
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -36,12 +39,14 @@ export const SWITCH_LABEL = 'LOCAL TEST owner switch: not an owner decision and 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const NAME = /^[A-Z][A-Z0-9_]*$/;
 const SERVICE = /^[a-z][a-z0-9-]*$/;
+const SECRET_SHAPED = /(_SECRET|_KEY|_TOKEN|_PASSWORD|_DSN)$/;
 
 /** The names one service's owner settings may be switched by: env.ts's owner settings and its TEST profile's names. */
 export function switchableNames(service, { repo = REPO, profile = loadProfile() } = {}) {
   if (!SERVICE.test(String(service))) throw new Error(`"${service}" is not a stack service name`);
   const envFile = path.join(repo, 'services', `svc-${service}`, 'src', 'env.ts');
-  const names = new Set(existsSync(envFile) ? scanEnvFile(readFileSync(envFile, 'utf8'), service).map((s) => s.env) : []);
+  const fromEnv = existsSync(envFile) ? scanEnvFile(readFileSync(envFile, 'utf8'), service).map((s) => s.env) : [];
+  const names = new Set(fromEnv.filter((name) => !SECRET_SHAPED.test(name)));
   for (const [name, v] of Object.entries(profile.values)) if (v.service === service) names.add(name);
   return names;
 }
@@ -120,6 +125,8 @@ export function applyOwnerSwitches(service, env, services) {
 
 /** Adds checked switches for one service to `services` (a copy). `assignments` is [{ name, choice }]. */
 export function withSwitches(services, service, assignments, { by = 'a journey', at = new Date().toISOString(), ...opts } = {}) {
+  if (typeof by !== 'string' || by.trim() === '') throw new Error('a switch names who set it (--by <who>)');
+  opts.profile ??= loadProfile();
   const names = opts.names ?? switchableNames(service, opts);
   const next = { ...services, [service]: { ...(services[service] ?? {}) } };
   for (const { name, choice } of assignments) next[service][name] = { ...planSwitch(service, name, choice, { ...opts, names }), by, at };
@@ -136,8 +143,17 @@ export function withoutSwitches(services, only = []) {
  * Restarts the named services without blocking this process, so a journey's open pages and kept-alive connections keep
  * being answered while it runs (as J-agents-15's own restart did before this file).
  */
-async function restart(services) {
-  if (services.length === 0) return;
+let restarts = Promise.resolve();
+function restart(services) {
+  if (services.length === 0) return Promise.resolve();
+  // One restart at a time in this process: a step abandoned at its timeout may still be restarting a service when the
+  // guard clears it, and two restarts of one service race on its port.
+  const next = restarts.then(() => restartNow(services));
+  restarts = next.catch(() => {});
+  return next;
+}
+
+async function restartNow(services) {
   try {
     await promisify(execFile)(process.execPath, [path.join(REPO, 'tooling', 'scripts', 'local-test-stack.mjs'), 'restart', ...services], {
       cwd: REPO,
@@ -158,7 +174,16 @@ export async function setSwitches(service, assignments, { by, stateDir = localSt
 
 /** Clears the named services' switches (all when none are named) and restarts each service that had one. */
 export async function clearSwitches(only = [], { stateDir = localStackState() } = {}) {
-  const [next, cleared] = withoutSwitches(readSwitches(stateDir), only);
+  let current;
+  try {
+    current = readSwitches(stateDir);
+  } catch (err) {
+    // A file that does not parse is no switch anyone can read: remove it, so the stack can start again, and say so.
+    if (only.length > 0) throw err;
+    rmSync(switchFile(stateDir), { force: true });
+    throw new Error(`${err instanceof Error ? err.message : String(err)}: removed; restart any service it held by hand`);
+  }
+  const [next, cleared] = withoutSwitches(current, only);
   writeSwitches(next, stateDir);
   await restart(cleared);
   return cleared;
@@ -207,6 +232,7 @@ async function main(argv) {
   const [cmd, ...rest] = argv;
   const byAt = rest.indexOf('--by');
   const by = byAt === -1 ? 'the command line' : rest[byAt + 1];
+  if (byAt !== -1 && (!by || by.startsWith('--'))) throw new Error('--by needs who set it');
   const args = byAt === -1 ? rest : rest.filter((_, i) => i !== byAt && i !== byAt + 1);
   if (cmd === 'set') {
     const [service, ...pairs] = args;

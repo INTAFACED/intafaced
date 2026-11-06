@@ -9,6 +9,7 @@ import {
   SWITCH_FILE,
   SWITCH_LABEL,
   applyOwnerSwitches,
+  clearSwitches,
   guardOwnerSwitches,
   parseAssignment,
   planSwitch,
@@ -37,6 +38,8 @@ const ENV_TS = `export const env = z.object({
       DEMO_PEER_URL: z.string(),
       /** Signing key. Never invent one. */
       DEMO_SIGNING_KEY: z.string().optional(),
+      /** The peer's API key. NO DEFAULT: blank refuses demo.api_key_unset. */
+      DEMO_API_KEY: z.string().optional(),
 });`;
 
 function fakeRepo() {
@@ -53,6 +56,7 @@ test('switchable names: env.ts owner settings and the TEST profile, never wiring
     assert.deepEqual([...names].sort(), ['DEMO_CAP', 'DEMO_LIMIT']);
     assert.equal(names.has('DEMO_PEER_URL'), false, 'a URL with no owner mark is wiring');
     assert.equal(names.has('DEMO_SIGNING_KEY'), false, 'a key is wiring even with an owner mark');
+    assert.equal(names.has('DEMO_API_KEY'), false, 'a secret-shaped name is never switchable from env.ts, even with an _unset code');
     assert.equal(names.has('OTHER_FEE'), false, "another service's TEST value is not this service's");
     assert.throws(() => switchableNames('../etc', { repo, profile: PROFILE }), /not a stack service name/);
   } finally {
@@ -121,6 +125,10 @@ test('the switch file: written mode 600 with its label, cleared per service, rem
     assert.equal(existsSync(file), false, 'no switch left: the stack starts as it always did');
     writeFileSync(file, JSON.stringify({ services: {} }));
     assert.throws(() => readSwitches(state), /not a LOCAL TEST owner switch file/);
+    assert.throws(
+      () => withSwitches({}, 'demo', [{ name: 'DEMO_CAP', choice: 'blank' }], { names, profile: PROFILE, by: ' ' }),
+      /names who set it/,
+    );
   } finally {
     rmSync(state, { recursive: true, force: true });
   }
@@ -212,4 +220,16 @@ test('the guard: a clear that is refused after the step is said, and fails the s
     }),
     /OWNER SWITCH LEAK: "J-y #1" left bank BANK_LIMIT \(by J-y #1\) set; the guard could NOT clear it \(restart of bank failed\); the next test clears it first/,
   );
+});
+
+test('clear: a switch file that does not parse is removed, so the stack can start again, and said', async () => {
+  const state = mkdtempSync(path.join(tmpdir(), 'owner-switch-bad-'));
+  try {
+    writeFileSync(path.join(state, SWITCH_FILE), '{ not json');
+    await assert.rejects(clearSwitches([], { stateDir: state }), /removed; restart any service it held by hand/);
+    assert.equal(existsSync(path.join(state, SWITCH_FILE)), false);
+    assert.deepEqual(readSwitches(state), {});
+  } finally {
+    rmSync(state, { recursive: true, force: true });
+  }
 });

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { clearSwitches, setSwitches } from '../../../../tooling/scripts/local-test-owner-switch.mjs';
+import { clearSwitches, readSwitches, setSwitches, withSwitches } from '../../../../tooling/scripts/local-test-owner-switch.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
@@ -85,11 +85,23 @@ export function restartWith(service, envKey, on) {
  */
 export async function withOwnerSwitch(service, settings, body, { by = 'a real-app journey' } = {}) {
   const assignments = Object.entries(settings).map(([name, choice]) => ({ name, choice }));
+  // Checked before anything is written: a refused name changes nothing, so nothing of anyone else's is cleared.
+  withSwitches(readSwitches(STATE), service, assignments, { by });
+  let failed = null;
   try {
     await setSwitches(service, assignments, { by, stateDir: STATE });
     return await body();
+  } catch (err) {
+    failed = err;
+    throw err;
   } finally {
-    await clearSwitches([service], { stateDir: STATE });
+    try {
+      await clearSwitches([service], { stateDir: STATE });
+    } catch (err) {
+      // The step's own failure is what it reports; a failed put-back is said beside it (and the guard clears it next).
+      if (!failed) throw err;
+      console.log(`OWNER SWITCH put-back of ${service} after a failed step also failed: ${err instanceof Error ? err.message : err}`);
+    }
   }
 }
 
