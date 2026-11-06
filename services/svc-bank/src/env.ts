@@ -635,7 +635,10 @@ const schema = serviceEnvSchema
           try {
             return parseStatementJobsInterval(v);
           } catch (err) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_INTERVAL_MS' });
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_INTERVAL_MS',
+            });
             return z.NEVER;
           }
         }),
@@ -648,7 +651,10 @@ const schema = serviceEnvSchema
           try {
             return parseStatementJobsLease(v);
           } catch (err) {
-            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_LEASE_MS' });
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_LEASE_MS',
+            });
             return z.NEVER;
           }
         }),

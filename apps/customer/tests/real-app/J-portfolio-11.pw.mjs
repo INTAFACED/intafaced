@@ -256,9 +256,7 @@ async function listedJob(id) {
   return res.body?.result?.data?.items?.find((job) => job.id === id);
 }
 
-test(`${J} #5 a worker dies mid-render: the job re-queues on the same key and the second file has the same content`, async ({
-  page,
-}) => {
+test(`${J} #5 a worker dies mid-render: the job re-queues on the same key and the second file has the same content`, async ({ page }) => {
   // Two bank restarts take most of a minute each.
   test.setTimeout(300_000);
   const now = new Date();
