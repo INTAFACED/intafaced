@@ -447,17 +447,184 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
   }
 });
 
+/** The market the #8 plan is written for: the unquoted TEST spot market, so no owner market's plan is touched. */
+const PLAN_MARKET = 'IFC/USDC';
+
+/** In `form`: file the request, have founder B approve exactly its hash, then write it as founder A. Returns the approval id. */
+async function writeTwoPerson(page, browser, form, { propose, apply, confirm }) {
+  await form.getByRole('button', { name: propose }).click();
+  const request = form.locator('[data-filed]');
+  await expect(request).toBeVisible();
+  const approvalId = (await filed(request, 'Approval id').textContent()).trim();
+  const payloadHash = (await filed(request, 'Payload hash').textContent()).trim();
+  expect(payloadHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  await approveAsB(browser, approvalId, payloadHash);
+  await form.getByLabel('Approved request id').fill(approvalId);
+  await form.getByRole('button', { name: apply }).click();
+  const dialog = page.getByRole('alertdialog');
+  await dialog.getByRole('button', { name: confirm }).click();
+  await expect(dialog.getByRole('status')).toContainText('Written', { timeout: 30_000 });
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  return approvalId;
+}
+
+/** Fills each labelled field in `form`; a label mapped to null is left blank. */
+async function fillAll(form, values) {
+  for (const [label, value] of Object.entries(values)) await form.getByLabel(label, { exact: true }).fill(value ?? '');
+}
+
+/** A refusal shown in `form` before anything is filed: svc-trade's own code and the blank it names. */
+async function refusedBeforeFiling(form, code, words) {
+  const alert = form.getByRole('alert');
+  await expect(alert).toContainText(code);
+  await expect(alert).toContainText(words);
+  await expect(alert).toContainText('Nothing was filed.');
+  await expect(form.locator('[data-filed]')).toHaveCount(0);
+}
+
 test(`${J} #8 opens the launch liquidity plan record and the maker incentive programme: per-market plans, tiers, obligations and clawback records`, async ({
   page,
+  browser,
 }) => {
+  test.setTimeout(420_000);
+  const { customer } = run.read();
+  // The TEST maker is the journey's own customer account, admitted to the programme below.
+  const maker = (await api(customer)).userId;
+  expect(maker).toMatch(/^[0-9a-f-]{36}$/);
   await founderSignIn(page, 'a');
+
+  // ── The maker incentive programme: TEST terms written by founder A, approved by founder B. ──
+  await page.goto(`${ADMIN}/trade-ops/maker-programme`);
+  const programme = page.locator('[data-room=maker-programme]');
+  await expect(programme).toBeVisible();
+  const tiers = [
+    { name: `TEST Bronze ${RUN}`, volume: '0', uptime: '90', spread: '40', rebate: '1' },
+    { name: `TEST Gold ${RUN}`, volume: '1000000', uptime: '97.5', spread: '20', rebate: '3' },
+  ];
+  const termsForm = programme.getByRole('form', { name: 'Programme terms' });
+  for (const [i, t] of tiers.entries()) {
+    await fillAll(termsForm, {
+      [`Tier ${i + 1} name`]: t.name,
+      [`Tier ${i + 1} 30-day maker volume`]: t.volume,
+      [`Tier ${i + 1} uptime share (%)`]: t.uptime,
+      [`Tier ${i + 1} spread at depth (bps)`]: t.spread,
+      [`Tier ${i + 1} rebate (bps)`]: t.rebate,
+    });
+  }
+  const equalAccess = `TEST ${RUN}: any account meeting a tier's published criteria is admitted.`;
+  const obligations = {
+    'Max spread (bps)': '50',
+    'Min depth': '25000',
+    'Min uptime (%)': null,
+    'Cancel-to-fill ceiling': '30',
+    'Clawback window (days)': '90',
+    'Equal-access criteria': equalAccess,
+  };
+  // A blank term is refused by name with svc-trade's own code, and nothing is filed.
+  await fillAll(termsForm, obligations);
+  await termsForm.getByRole('button', { name: 'Propose terms' }).click();
+  await refusedBeforeFiling(termsForm, 'trade.maker_programme_term_unset', 'min uptime is not set');
+  await fillAll(termsForm, { 'Min uptime (%)': '95' });
+  const termsApproval = await writeTwoPerson(page, browser, termsForm, {
+    propose: 'Propose terms',
+    apply: 'Apply approved terms',
+    confirm: 'Write terms',
+  });
+
+  // The written terms, row by row: every tier with its criteria and rebate, and every obligation.
+  await page.reload();
+  const terms = programme.locator('[data-terms]');
+  await expect(terms).toHaveAttribute('data-state', 'set');
+  await expect(terms).toHaveAttribute('data-version', /^[1-9]\d*$/);
+  await expect(terms.locator('tr[data-tier]')).toHaveCount(tiers.length);
+  for (const t of tiers) {
+    const row = terms.locator(`tr[data-tier="${t.name}"]`);
+    await expect(row.locator('[data-col=volume]')).toHaveText(t.volume);
+    await expect(row.locator('[data-col=uptime]')).toHaveText(`${t.uptime}%`);
+    await expect(row.locator('[data-col=spread]')).toHaveText(`${t.spread} bps`);
+    await expect(row.locator('[data-col=rebate]')).toHaveText(`${t.rebate} bps`);
+  }
+  await expect(terms.locator('[data-obligation=max-spread]')).toHaveText('50 bps');
+  await expect(terms.locator('[data-obligation=min-depth]')).toHaveText('25000');
+  await expect(terms.locator('[data-obligation=min-uptime]')).toHaveText('95%');
+  await expect(terms.locator('[data-obligation=cancel-ratio-ceiling]')).toHaveText('30');
+  await expect(terms.locator('[data-obligation=clawback-window]')).toHaveText('90 days');
+  await expect(terms.locator('[data-obligation=equal-access]')).toHaveText(equalAccess);
+  expect(termsApproval).toBeTruthy();
+
+  // The TEST maker joins the Gold tier, again under a second founder.
+  const memberForm = programme.getByRole('form', { name: 'Programme member' });
+  await fillAll(memberForm, { 'Member account id': maker, 'Conflict declaration': `TEST ${RUN}: none` });
+  await memberForm.getByLabel('Tier', { exact: true }).selectOption(tiers[1].name);
+  await memberForm.getByLabel('Status', { exact: true }).selectOption('active');
+  await writeTwoPerson(page, browser, memberForm, { propose: 'Propose member', apply: 'Apply approved member', confirm: 'Write member' });
+  await page.reload();
+  const member = programme.locator(`tr[data-member="${maker}"]`);
+  await expect(member.locator('[data-col=tier]')).toHaveText(tiers[1].name);
+  await expect(member.locator('[data-col=status]')).toHaveText('active');
+  await expect(member.locator('[data-col=conflict]')).toHaveText(`TEST ${RUN}: none`);
+
+  // Clawback records: nothing creates one (period settlement and clawback posting are not connected), so the list
+  // is empty and says so; the payments section names that blocker.
+  const clawbacks = programme.getByRole('region', { name: 'Clawback records' });
+  await expect(clawbacks).toBeVisible();
+  await expect(clawbacks.locator('tr[data-clawback]')).toHaveCount(0);
+  await expect(clawbacks).toContainText('No clawback recorded');
+  await expect(programme.getByRole('region', { name: 'Periods and payments' })).toContainText('Not connected');
+
+  // ── The launch-liquidity plan record: one record per market. ──
   await page.goto(`${ADMIN}/trade-ops/launch-liquidity`);
   const plans = page.locator('[data-room=launch-liquidity]');
   await expect(plans).toBeVisible();
-  // One record per market: its plan (makers, capital, spread, depth, uptime, inventory band, exit criteria and state), or
-  // "No plan recorded" for a market that has none; never an invented plan.
+  const planForm = plans.getByRole('form', { name: 'Launch-liquidity plan' });
+  await planForm.getByLabel('Market', { exact: true }).selectOption(PLAN_MARKET);
+  const plan = {
+    'Maker 1 account': maker,
+    'Maker 1 capital': '50000',
+    'Maker 1 capital asset': 'USDT',
+    'Max spread (bps)': '30',
+    'Min depth': '10000',
+    'Depth band (bps)': '50',
+    'Min uptime (%)': '95',
+    'Inventory band low': '-2.5',
+    'Inventory band high': '2.5',
+    'Exit review date': null,
+    'Exit if uptime below (%)': '80',
+    'Exit if spread above (bps)': '100',
+  };
+  // A plan missing its exit criteria is refused by name.
+  await fillAll(planForm, plan);
+  await planForm.getByRole('button', { name: 'Propose plan' }).click();
+  await refusedBeforeFiling(planForm, 'trade.launch_plan_unset', 'exit criteria: review date is not set');
+  // A maker who is not in the programme is refused.
+  const stranger = '00000000-0000-4000-8000-000000000000';
+  await fillAll(planForm, { 'Exit review date': '2030-02-01', 'Maker 1 account': stranger });
+  await planForm.getByRole('button', { name: 'Propose plan' }).click();
+  await refusedBeforeFiling(planForm, 'trade.launch_plan_maker_unknown', stranger);
+  await fillAll(planForm, { 'Maker 1 account': maker });
+  const planApproval = await writeTwoPerson(page, browser, planForm, {
+    propose: 'Propose plan',
+    apply: 'Apply approved plan',
+    confirm: 'Write plan',
+  });
+
+  await page.reload();
   const markets = plans.locator('[data-plan-market]');
-  expect(await markets.count()).toBeGreaterThan(0);
+  expect(await markets.count()).toBeGreaterThan(1);
+  const written = plans.locator(`[data-plan-market="${PLAN_MARKET}"]`);
+  await expect(written).toHaveAttribute('data-plan-state', 'approved');
+  await expect(written).toHaveAttribute('data-approval', planApproval);
+  await expect(written.locator(`[data-col=makers] [data-maker="${maker}"]`)).toHaveText(maker);
+  await expect(written.locator(`[data-col=capital] [data-capital="${maker}"]`)).toHaveText('50000 USDT');
+  await expect(written.locator('[data-col=max-spread]')).toHaveText('30 bps');
+  await expect(written.locator('[data-col=min-depth]')).toHaveText('10000 within 50 bps');
+  await expect(written.locator('[data-col=min-uptime]')).toHaveText('95%');
+  await expect(written.locator('[data-col=inventory-band]')).toHaveText('-2.5 to 2.5');
+  await expect(written.locator('[data-col=exit-criteria]')).toHaveText(
+    'review 2030-02-01; exit if uptime below 80% or spread above 100 bps',
+  );
+  // Every other market: its own plan with every field, or "No plan recorded"; never an invented plan.
   for (const m of await markets.all()) {
     const state = await m.getAttribute('data-plan-state');
     expect(['none', 'draft', 'approved', 'active', 'exited']).toContain(state);
@@ -466,21 +633,4 @@ test(`${J} #8 opens the launch liquidity plan record and the maker incentive pro
       for (const col of ['makers', 'capital', 'max-spread', 'min-depth', 'min-uptime', 'inventory-band', 'exit-criteria'])
         await expect(m.locator(`[data-col=${col}]`)).not.toBeEmpty();
   }
-
-  await page.goto(`${ADMIN}/trade-ops/maker-programme`);
-  const programme = page.locator('[data-room=maker-programme]');
-  await expect(programme).toBeVisible();
-  // Tiers and obligations as the programme terms state them, or the typed blocker naming the unset term.
-  const terms = programme.locator('[data-terms]');
-  const termsState = await terms.getAttribute('data-state');
-  if (termsState === 'unset') await expect(terms).toContainText('trade.maker_programme_term_unset');
-  else {
-    await expect(terms.locator('[data-tier]').first()).toBeVisible();
-    for (const col of ['max-spread', 'min-depth', 'min-uptime', 'cancel-ratio-ceiling', 'clawback-window'])
-      await expect(terms.locator(`[data-obligation=${col}]`)).not.toBeEmpty();
-  }
-  // Clawback records: each with its period, account, amount and state, or an empty list that says so.
-  const clawbacks = programme.getByRole('region', { name: 'Clawback records' });
-  await expect(clawbacks).toBeVisible();
-  if ((await clawbacks.locator('tr[data-clawback]').count()) === 0) await expect(clawbacks).toContainText('No clawback recorded');
 });

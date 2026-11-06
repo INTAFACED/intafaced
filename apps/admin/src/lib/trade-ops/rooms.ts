@@ -69,6 +69,18 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     label: 'Seeding',
     job: 'The house book seed per market, written with a second founder; seeded orders are flagged everywhere.',
   },
+  {
+    id: 'launch-liquidity',
+    href: '/trade-ops/launch-liquidity',
+    label: 'Launch liquidity',
+    job: 'The launch-liquidity plan per market: makers, capital, obligations and exit criteria, written with a second founder.',
+  },
+  {
+    id: 'maker-programme',
+    href: '/trade-ops/maker-programme',
+    label: 'Maker programme',
+    job: 'Maker tiers, rebates, obligations and members, written with a second founder; clawback records.',
+  },
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
   {
