@@ -400,15 +400,45 @@ if (!available) {
       busDown = true;
       const held = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args });
       expect(held).toMatchObject({ outcome: 'waiting', request: { status: 'waiting' } });
-      expect(await runtime.publishApprovalRequests()).toBe(0);
+      const failed: string[] = [];
+      expect(await runtime.publishApprovalRequests({ onError: (_err, requestId) => failed.push(requestId) })).toBe(0);
+      expect(failed).toEqual([held.outcome === 'waiting' ? held.request.id : null]);
       expect(bus.emitted('agentApprovalRequested')).toHaveLength(0);
       expect(await unpublished()).toBe(1);
       busDown = false;
+      // A later held call announces only itself: the backlog is the sweep's, so no call waits on it.
+      const next = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:2', tool: 'support.ticket.comment', input: args });
+      if (next.outcome !== 'waiting') throw new Error('the rule should hold the comment');
+      expect(bus.emitted('agentApprovalRequested').map((e) => e.payload.requestId)).toEqual([next.request.id]);
+      expect(await unpublished()).toBe(1);
       // Another person's sweep never announces this person's request.
-      expect(await runtime.publishApprovalRequests(OTHER)).toBe(0);
+      expect(await runtime.publishApprovalRequests({ ownerId: OTHER })).toBe(0);
       expect(await runtime.publishApprovalRequests()).toBe(1);
       expect(await runtime.publishApprovalRequests()).toBe(0);
-      expect(bus.emitted('agentApprovalRequested')).toHaveLength(1);
+      expect(bus.emitted('agentApprovalRequested')).toHaveLength(2);
+      expect(await unpublished()).toBe(0);
+    });
+
+    it('a request a decision holds is left for the next sweep: it is read again under its lock, never announced as it was', async () => {
+      const { person, bus, runtime } = people();
+      const { id, sessionId } = await ruled(person);
+      busDown = true;
+      const held = await person.own.tool.try({ id, sessionId, requestId: 'try:comment:1', tool: 'support.ticket.comment', input: args });
+      if (held.outcome !== 'waiting') throw new Error('the rule should hold the comment');
+      busDown = false;
+      const decision = await sql.reserve();
+      try {
+        await decision`BEGIN`;
+        await decision`SELECT id FROM agents.own_agent_approval_requests WHERE id = ${held.request.id} FOR UPDATE`;
+        expect(await runtime.publishApprovalRequests()).toBe(0);
+        await decision`UPDATE agents.own_agent_approval_requests SET status = 'rejected', decided_at = now() WHERE id = ${held.request.id}`;
+        await decision`COMMIT`;
+      } finally {
+        decision.release();
+      }
+      expect(await unpublished()).toBe(1);
+      expect(await runtime.publishApprovalRequests()).toBe(0);
+      expect(bus.emitted('agentApprovalRequested')).toHaveLength(0);
       expect(await unpublished()).toBe(0);
     });
 

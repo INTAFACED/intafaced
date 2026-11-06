@@ -1111,9 +1111,9 @@ export class AgentRuntime {
     return publishPendingUsageAlerts(this.sql, this.bus, userId);
   }
 
-  /** Publishes held tool calls not yet announced to their owner, one person's or everyone's, each on its request (J-agents-05 #4). */
-  async publishApprovalRequests(userId?: string): Promise<number> {
-    return publishPendingApprovalRequests(this.sql, this.bus, userId);
+  /** Publishes held tool calls not yet announced to their owner, each on its request (J-agents-05 #4); all of them unscoped. */
+  async publishApprovalRequests(scope: Parameters<typeof publishPendingApprovalRequests>[2] = {}): Promise<number> {
+    return publishPendingApprovalRequests(this.sql, this.bus, scope);
   }
 
   /**

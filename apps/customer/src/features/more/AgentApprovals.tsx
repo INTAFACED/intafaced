@@ -39,9 +39,11 @@ export function AgentApprovals() {
   const [refused, setRefused] = useState<Failed | null>(null);
   const [editing, setEditing] = useState<OwnAgentInboxRow | null>(null);
   // After a decision the inbox is read again: the rows last read stay on screen (their buttons off) until it answers,
-  // so the page never swaps them for a loading state under the decision's own words.
-  const lastRead = useRef<Resource<OwnAgentInboxRow[]> | null>(null);
-  if (inbox.resource.status !== 'loading') lastRead.current = inbox.resource;
+  // so the page never swaps them for a loading state under the decision's own words. Only rows are kept: a failed read
+  // shows its loading state on retry.
+  const lastRead = useRef<Extract<Resource<OwnAgentInboxRow[]>, { status: 'ready' }> | null>(null);
+  if (inbox.resource.status === 'ready') lastRead.current = inbox.resource;
+  else if (inbox.resource.status === 'failed') lastRead.current = null;
   const rereading = inbox.resource.status === 'loading' && lastRead.current !== null;
   const shown = rereading ? lastRead.current! : inbox.resource;
   const locked = busy || rereading;
@@ -156,7 +158,7 @@ export function AgentApprovals() {
         )}
       </Read>
       {editing ? (
-        <EditRequest row={editing} busy={busy} onSave={(input) => void edit(editing, input)} onClose={() => setEditing(null)} />
+        <EditRequest row={editing} busy={locked} onSave={(input) => void edit(editing, input)} onClose={() => setEditing(null)} />
       ) : null}
     </Panel>
   );
