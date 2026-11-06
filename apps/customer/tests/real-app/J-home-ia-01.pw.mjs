@@ -1,3 +1,4 @@
+// World: book
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ORIGIN, api, bestPrices, fund, toUnits } from './stack.mjs';

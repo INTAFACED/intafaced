@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
 import { atTick, chartBars, expectLines, F, shownText, STEP_MS } from './charts-desk-studies.mjs';

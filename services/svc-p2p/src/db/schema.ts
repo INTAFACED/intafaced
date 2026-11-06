@@ -105,6 +105,8 @@ export const offers = p2p.table(
     methods: jsonb('methods').notNull().default([]),
     /** The seller's consent at post to non-instant methods (P-disputes-security-09). */
     acceptsNonInstant: boolean('accepts_non_instant').notNull().default(false),
+    /** P-trade-orders-15: this ad's release window in seconds (60 to the published release clock); null keeps that clock. */
+    releaseWindowSeconds: integer('release_window_seconds'),
     terms: text('terms').notNull().default(''),
     /**
      * Verification tier of the maker at create. Null on older rows: a published
@@ -170,6 +172,8 @@ export const p2pTrades = p2p.table(
     settlementWindowSeconds: integer('settlement_window_seconds'),
     /** P-ads-merchant-19: the release window of a cash-in-person method row, copied at take (300 s to 24 h). */
     cashReleaseSeconds: integer('cash_release_seconds'),
+    /** P-trade-orders-15: the ad's own release window, copied at take and written once; null keeps the published clock. */
+    releaseWindowSeconds: integer('release_window_seconds'),
     /** P-ads-merchant-07: taken through a share link; written once at take (a trigger refuses a change). */
     sharedFrom: boolean('shared_from').notNull().default(false),
     status: tradeStatusEnum('status').notNull().default('created'),

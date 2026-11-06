@@ -12,6 +12,8 @@ import { readProcessIdentity } from './local-test-state.mjs';
 import {
   GuardError,
   assertLocalTarget,
+  bandEdgeQuote,
+  crossingQuote,
   marketStatus,
   buildLadder,
   createPriceWalk,
@@ -233,6 +235,64 @@ assert.equal(b.next(), a.next());
   assert.equal(bookMid({ bids: [['65000', '1']] }), null);
   assert.equal(bookMid(null), null);
   assert.equal(bookMid({ bids: [['1e3', '1']], asks: [['65001', '1']] }), null);
+}
+
+// 7b. A quote the price band refused goes in at the band's edge (as the order check names it), on the tick, nearer the
+// book; a buy moved down keeps its notional. Anything else is left alone. The book J-portfolio-04 met on main (run 1247):
+// the maker's own bids gone, a TEST buy resting at 52,074, its asks at 65,431.81, so svc-trade's band ran 52,848.24 to
+// 64,592.29 and refused every maker bid at the walk's price.
+{
+  const grid = { tick: toScaled('0.01'), lot: toScaled('0.00001') };
+  const band = { low: '52848.24', high: '64592.29', collar: '0.1' };
+  const bid = { side: 'buy', level: 0, price: '65351.37', amount: '0.0459' };
+  const edgedBid = bandEdgeQuote(bid, band, grid);
+  assert.equal(edgedBid.price, '64592.29');
+  assert.equal(edgedBid.side, 'buy');
+  assert.equal(edgedBid.level, 0);
+  // 65351.37 x 0.0459 = 2999.627883; at 64592.29 that needs 0.046439..., rounded up to the lot: 0.04644.
+  assert.equal(edgedBid.amount, '0.04644');
+  assert.ok(toScaled(edgedBid.price) * toScaled(edgedBid.amount) >= toScaled(bid.price) * toScaled(bid.amount));
+  const ask = { side: 'sell', level: 1, price: '52000.5', amount: '0.1' };
+  assert.deepEqual(bandEdgeQuote(ask, band, grid), { ...ask, price: '52848.24' });
+  // An edge off the tick is moved inside the band: down for a buy, up for a sell.
+  const offTick = { low: '52848.235', high: '64592.299' };
+  assert.equal(bandEdgeQuote(bid, offTick, grid).price, '64592.29');
+  assert.equal(bandEdgeQuote(ask, offTick, grid).price, '52848.24');
+  // No band named, an edge that is not a plain decimal, or an edge that is not nearer the book: nothing to re-place.
+  assert.equal(bandEdgeQuote(bid, null, grid), null);
+  assert.equal(bandEdgeQuote(bid, {}, grid), null);
+  assert.equal(bandEdgeQuote(bid, { high: '6.4e4' }, grid), null);
+  assert.equal(bandEdgeQuote({ ...bid, price: '64000' }, band, grid), null);
+  assert.equal(bandEdgeQuote({ ...ask, price: '60000' }, band, grid), null);
+}
+
+// 7c. A crossing meets only the maker's own level-0 quote: resting at the ladder's price and amount, and alone at the
+// top of the book on that side. Anything at or ahead of it (run 42171557580, J-cex-spot-01 #7: a person's TEST buy one
+// cent above the best bid, filled by test_taker's crossing) means no crossing.
+{
+  const bid0 = { side: 'buy', level: 0, price: '65000', amount: '0.046' };
+  const bid1 = { side: 'buy', level: 1, price: '64941.5', amount: '0.046' };
+  const ask0 = { side: 'sell', level: 0, price: '65078', amount: '0.046' };
+  const plan = [bid0, bid1, ask0];
+  const resting = [{ ...bid0 }, { ...bid1 }, { ...ask0 }];
+  const book = { bids: [['65000', '0.046']], asks: [['65078.00', '0.04600']] };
+  assert.equal(crossingQuote(plan, resting, 'sell', book), bid0);
+  assert.equal(crossingQuote(plan, resting, 'buy', book), ask0);
+  // A person's buy one cent above the maker's best bid: the sell would fill it first.
+  assert.equal(crossingQuote(plan, resting, 'sell', { ...book, bids: [['65000.01', '0.1']] }), null);
+  // A person's buy at the maker's price, queued first: the level's size is more than the maker's.
+  assert.equal(crossingQuote(plan, resting, 'sell', { ...book, bids: [['65000', '0.146']] }), null);
+  // The maker's quote part-filled: less than its amount at its price.
+  assert.equal(crossingQuote(plan, resting, 'sell', { ...book, bids: [['65000', '0.02']] }), null);
+  // The level-0 bid did not rest, or rests only at a band edge: no crossing, not a deeper bid.
+  assert.equal(crossingQuote(plan, [{ ...bid1 }, { ...ask0 }], 'sell', { ...book, bids: [['64941.5', '0.046']] }), null);
+  assert.equal(
+    crossingQuote(plan, [{ ...bid0, price: '58000', amount: '0.0515' }], 'sell', { ...book, bids: [['58000', '0.0515']] }),
+    null,
+  );
+  // No book read: no crossing.
+  assert.equal(crossingQuote(plan, resting, 'sell', null), null);
+  assert.equal(crossingQuote(plan, resting, 'buy', { bids: [], asks: [] }), null);
 }
 
 // 8. The ladder: bids below mid and asks above, on the tick grid, strictly ordered, sized above the market minimums.

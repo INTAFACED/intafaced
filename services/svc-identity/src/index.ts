@@ -19,6 +19,7 @@ import { env } from './env.js';
 import { SignInChallengeService, parseSignInChallengePolicy } from './auth/signin-challenge.js';
 import { relaySecurityFactorEvents } from './auth/factor-changed-notice.js';
 import { AuthService } from './auth/auth-service.js';
+import { parseStaffTestRoster } from '@intafaced/auth';
 import { createPayMerchantEmailInviteClaimer } from './auth/merchant-email-invite-claim.js';
 import { openIdentityMail } from './auth/local-mail.js';
 import { withAntiPhishingCode } from './profile/anti-phishing-mail.js';
@@ -485,6 +486,9 @@ const appeals = new AccountAppeals(sql, {
 });
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
 auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
+// Local and test stacks only: the labelled TEST staff roster, read with the raw APP_ENV (never the schema's default), so a
+// non-blank roster refuses boot anywhere else (identity.staff_test_roster_refused). Blank is no roster: no staff scopes.
+auth.useStaffTestRoster(parseStaffTestRoster(env.IDENTITY_STAFF_TEST_ROSTER, process.env.APP_ENV));
 
 const referral = new ReferralService(sql);
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */

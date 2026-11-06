@@ -1,3 +1,4 @@
+// World: book, market
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, journeyState, tool, toUnits, fromUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
@@ -196,8 +197,10 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   const { positionId, cancelledId } = run.read();
   await signIn(page, account());
 
-  // A stop market 3 bps under the mark, on the mark: the walk crosses it within a minute or two and it closes the long
-  // through the book with an order whose origin is the stop.
+  // A stop market 3 bps under the mark, on the mark. Then the TEST price is moved 30 bps down, ten times the stop's
+  // distance, so the mark crosses it whichever way the walk drifts (waiting for the walk alone missed it in 3 of 10 main
+  // runs, at 240 s: runs 42175912825, 42176902535, 42181495113), and it closes the long through the book with an order
+  // whose origin is the stop. The price is put back before anything else.
   let stop;
   for (let attempt = 0; attempt < 4 && !stop; attempt += 1) {
     const { mark } = await markOf(me);
@@ -215,12 +218,18 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
     else expect(res.body.error, JSON.stringify(res.body)).toMatch(/wrong_side|trigger/);
   }
   expect(stop, 'the stop was armed').toBeTruthy();
-  const placed = await until(
-    async () => (await orders(me, 'scope=all&limit=50&origin=stop')).filter((o) => o.originRef === stop.id),
-    (list) => list.length > 0 && list[0].status === 'filled',
-    'the stop to fire and fill',
-    240_000,
-  );
+  let placed;
+  try {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', '-0.30%');
+    placed = await until(
+      async () => (await orders(me, 'scope=all&limit=50&origin=stop')).filter((o) => o.originRef === stop.id),
+      (list) => list.length > 0 && list[0].status === 'filled',
+      'the stop to fire and fill',
+      240_000,
+    );
+  } finally {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+  }
   const fromStop = placed[0];
   expect(fromStop).toMatchObject({ origin: 'stop', side: 'sell', reduceOnly: true, positionId });
 

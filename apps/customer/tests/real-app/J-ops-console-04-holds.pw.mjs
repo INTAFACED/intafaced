@@ -1,3 +1,4 @@
+// World: freeze, stack
 import { expect, test } from './journey.mjs';
 import { randomUUID } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';

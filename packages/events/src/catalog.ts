@@ -175,7 +175,8 @@ export const kycInfoRequested = defineEvent(
 
 /**
  * I-signin-sessions-08 (J-identity-05 #6, J-identity-03 #6). One change to a sign-in factor: the authenticator app turned
- * on, off or replaced, a passkey added or removed, or the password changed or reset. svc-identity publishes it from an
+ * on, off or replaced, a passkey added or removed, the password changed or reset, or a new device approved and signed in
+ * (`new_device`, J-identity-06 #7). svc-identity publishes it from an
  * outbox row written in the same transaction as the change (at least once). No secret, code, credential id or address
  * rides on it.
  */
@@ -186,6 +187,7 @@ export const SECURITY_FACTOR_CHANGES = [
   'passkey_added',
   'passkey_removed',
   'password_changed',
+  'new_device',
 ] as const;
 
 export const securityFactorChanged = defineEvent(
