@@ -135,7 +135,13 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     await page.waitForTimeout(1000);
     expect(orderSends(sent)).toHaveLength(0);
     // The door itself refuses the same order with the typed code, before any hold.
-    const market = await client.post('/api/v1/orders', { symbol: LIMITED, side: 'buy', type: 'market', amount: '0.001' });
+    const market = await client.post('/api/v1/orders', {
+      symbol: LIMITED,
+      side: 'buy',
+      type: 'market',
+      amount: '0.001',
+      clientOrderId: `${J}-3m-${who.handle}`,
+    });
     expect(market.status).toBe(400);
     expect(JSON.stringify(market.body)).toContain('trade.mode_limit_only');
     expect(held(await client.balances(), 'USDC')).toBe(before);
