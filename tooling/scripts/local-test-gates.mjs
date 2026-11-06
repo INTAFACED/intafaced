@@ -83,7 +83,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
-import { FOUNDER_STEPS_NAME, FOUNDER_VAULT_NAME, enrolledFounderPair } from './local-test-founders.mjs';
+import { FOUNDER_VAULT_NAME, enrolledFounderPair, recordFounderStep, withFounderSteps } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 import { leakedFreezePlan } from './journey-freeze-guard.mjs';
@@ -629,13 +629,35 @@ export function stepAfterRefusal(sentStep, current) {
   return Math.max(Number.isFinite(sent) ? sent : 0, current + TOTP_SKEW_STEPS);
 }
 
+/**
+ * The next TOTP step for founder `op.founderKey`, after both the last step this process holds for them and the last any
+ * process recorded, written back before the lock is let go; null while both steps in the window are spent.
+ */
+export function reserveFounderStep(ctx, op) {
+  return withFounderSteps(ctx.paths.stateDir, (steps) => {
+    const recorded = Number(steps[op.founderKey] ?? 0);
+    const held = Number(op.lastStep ?? 0);
+    const last = Math.max(Number.isFinite(recorded) ? recorded : 0, Number.isFinite(held) ? held : 0);
+    const step = nextTotpStep(last, stepOf(ctx));
+    return { next: step === null ? null : { ...steps, [op.founderKey]: step }, result: step };
+  });
+}
+
 /** The step on this context's clock (`ctx.clock`, for tests) or the wall clock. */
 const stepOf = (ctx) => (ctx.clock ? Math.floor(ctx.clock() / STEP_MS) : stepNow());
 
-/** A TOTP code for a step strictly after the last one this operator used (identity refuses replays). */
+/**
+ * A TOTP code for a step strictly after the last one this operator used (identity refuses replays). A founder's step
+ * (`op.founderKey`) is taken from the steps file every process shares, and recorded there, under its lock, so no other
+ * process can send the same step meanwhile (`reserveFounderStep`).
+ */
 async function freshCode(ctx, op) {
   let step;
-  while ((step = nextTotpStep(op.lastStep, stepOf(ctx))) === null) await (ctx.sleep ?? sleep)(1000);
+  for (;;) {
+    step = op.founderKey ? reserveFounderStep(ctx, op) : nextTotpStep(op.lastStep, stepOf(ctx));
+    if (step !== null) break;
+    await (ctx.sleep ?? sleep)(1000);
+  }
   op.lastStep = step;
   return ctx.totp.totp(op.totpSecret, { at: new Date(step * STEP_MS) });
 }
@@ -778,11 +800,13 @@ export async function approverSessions(ctx) {
 
 /** The founder pair as operators, each at the last TOTP step any local tool used, and the writer that records them. */
 function founderOps(ctx, pair) {
-  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-  const steps = readJson(stepsFile, {});
   const ops = {};
-  for (const { key, ...f } of pair) ops[key] = { ...f, lastStep: Number(steps[key] ?? 0) };
-  const saveSteps = () => writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: ops.a.lastStep, b: ops.b.lastStep });
+  for (const { key, ...f } of pair) ops[key] = { ...f, founderKey: key, lastStep: 0 };
+  // Each code's step is recorded when it is taken (freshCode); this keeps a refused step's successor recorded too, and
+  // never moves a recorded step back.
+  const saveSteps = () => {
+    for (const key of Object.keys(ops)) recordFounderStep(ctx.paths.stateDir, key, ops[key].lastStep);
+  };
   return { ops, saveSteps };
 }
 
@@ -796,13 +820,12 @@ function founderOps(ctx, pair) {
 export async function consoleTreasuryToken(ctx, { ttlSeconds }) {
   const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
   if (!a) return null;
-  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-  const op = { ...a, lastStep: Number(readJson(stepsFile, {}).a ?? 0) };
+  const op = { ...a, founderKey: 'a', lastStep: 0 };
   try {
     await operatorLogin(ctx, op);
   } finally {
     // Identity may have spent the step even when the login then failed: never hand it to the next tool.
-    writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: op.lastStep });
+    recordFounderStep(ctx.paths.stateDir, 'a', op.lastStep);
   }
   return mintSessionToken(ctx, op, ['admin:treasury'], ttlSeconds);
 }
@@ -813,11 +836,7 @@ export async function consoleTreasuryToken(ctx, { ttlSeconds }) {
  * gates do.
  */
 export async function founderTotp(ctx, key, secret) {
-  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-  const op = { totpSecret: secret, lastStep: Number(readJson(stepsFile, {})[key] ?? 0) };
-  const code = await freshCode(ctx, op);
-  writePrivate(stepsFile, { ...readJson(stepsFile, {}), [key]: op.lastStep });
-  return code;
+  return freshCode(ctx, { totpSecret: secret, founderKey: key, lastStep: 0 });
 }
 
 async function signInPair(ctx, ops, saveSteps) {
@@ -3027,8 +3046,7 @@ export async function scopedConsoleSession(ctx, without) {
   const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
   if (!a) throw new Error('the founder pair is not enrolled on this stack');
   const scopes = scopesWithout(await stackFounderScopes(ctx.paths.stateDir), without);
-  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
-  const op = { ...a, lastStep: Number(readJson(stepsFile, {}).a ?? 0) };
+  const op = { ...a, founderKey: 'a', lastStep: 0 };
   let reply;
   try {
     // As the console's server signs in: no Origin, so identity returns the refresh token in the body (a browser
@@ -3053,7 +3071,7 @@ export async function scopedConsoleSession(ctx, without) {
       throw new Error(`founder a login refused (${res.status}): ${res.json?.error ? refusalText(res) : 'no session in the reply'}`);
   } finally {
     // Identity may have spent the step even when the login then failed: never hand it to the next tool.
-    writePrivate(stepsFile, { ...readJson(stepsFile, {}), a: op.lastStep });
+    recordFounderStep(ctx.paths.stateDir, 'a', op.lastStep);
   }
   op.userId = reply.userId;
   op.sessionId = decodeJwtPayload(reply.accessToken).sid;
