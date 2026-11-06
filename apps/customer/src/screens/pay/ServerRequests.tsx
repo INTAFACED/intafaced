@@ -40,6 +40,18 @@ function useRefusal() {
   };
 }
 
+/** An ask stays open to the end of a whole UTC day, `days` days from today, so the same ask made again today closes at the same moment. */
+export function askExpiry(now: Date, days: number): string {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + days + 1) - 1000).toISOString();
+}
+
+/** `ask:<payer>:<16 hex of SHA-256 over coin, amount, note and closing time>`: at most 57 characters. */
+export async function askKey(payerUserId: string, asset: string, amount: string, note: string | null, expiresAt: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode([asset, amount, note ?? '', expiresAt].join('\n')));
+  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `ask:${payerUserId}:${hex.slice(0, 16)}`;
+}
+
 /** Ask a person by handle (PP-send-request-12): a review first, then one request on a business key. No money moves. */
 export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () => void }) {
   const { api, userId } = useSession();
@@ -77,9 +89,10 @@ export function AskAPerson({ assets, onSent }: { assets: string[]; onSent: () =>
     if (found.kind === 'notFound') return setProblem(t('askNotFound', { handle: handle.trim().replace(/^@/, '') }));
     if (found.kind !== 'found') return setProblem(t('askLookupFailed'));
     if (found.self || found.userId === userId) return setProblem(t('askSelf'));
-    const expiresAt = new Date(Date.now() + days * 86_400_000).toISOString();
-    // The business key of this one ask: the same review sent twice is one request.
-    const key = `ask:${crypto.randomUUID()}`.slice(0, 64);
+    const expiresAt = askExpiry(new Date(), days);
+    // The business key of this ask is what it asks: the same person, coin, amount, note and closing day. A lost reply, a
+    // second press or the same ask reviewed again after a reload is the same request, never a second one.
+    const key = await askKey(found.userId, chosen, valid, cleanNote(note), expiresAt);
     setReview({ payerUserId: found.userId, handle: found.handle, asset: chosen, amount: valid, note: cleanNote(note), expiresAt, key });
   }
 
