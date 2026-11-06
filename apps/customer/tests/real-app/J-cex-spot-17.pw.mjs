@@ -1,7 +1,7 @@
 // World: book, gates
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { EDGE, api, bestPrices, fromUnits, fund, otherTrader, toUnits } from './stack.mjs';
+import { EDGE, api, bestPrices, fromUnits, fund, otherTrader, times, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 
@@ -89,7 +89,10 @@ async function publish(schedule, reason, { after = null, leadMs = 10_000, wait =
   const { ctx, sessions } = await ops();
   const effectiveAt = Math.max(Date.now() + leadMs, after ? Date.parse(after) + 5_000 : 0);
   const row = await setFeeSchedule(ctx, schedule, { effectiveAt, reason: `LOCAL TEST ${J}: ${reason}`, sessions });
-  if (wait) await expect.poll(async () => (await published()).body.version, { timeout: 30_000 }).toBe(`v${row.version}`);
+  // Follows the version this call wrote, and waits until its own effective time has passed: one written to start after a
+  // version still scheduled (`after`) is not served before then.
+  const lead = Math.max(0, Date.parse(row.effectiveAt) - Date.now());
+  if (wait) await expect.poll(async () => (await published()).body.version, { timeout: lead + 30_000 }).toBe(`v${row.version}`);
   return row;
 }
 
@@ -184,10 +187,17 @@ async function fillsOf(client, symbol, id) {
   return fills;
 }
 
-/** A post-only IFC/USDT buy 3% under the best bid, below the house ladder, so it rests until sold into. */
-async function restingIfcBuy(client, amount, clientOrderId) {
+/**
+ * A post-only IFC/USDT buy 3% under the best bid, below the house ladder, so it rests until sold into. `who` is first
+ * funded with the order's own cost at that price plus 5% (whole USDT, rounded up), so the hold never depends on a guessed balance.
+ */
+async function restingIfcBuy(who, client, amount, clientOrderId) {
   const { bid } = await bestPrices('IFC/USDT');
   const price = fromUnits(((toUnits(bid) * 97n) / 100n / 10n ** 14n) * 10n ** 14n);
+  const cost = times(price, amount);
+  // Whole USDT, rounded up: the cost plus 5%, so any fill price at or under the limit stays covered.
+  const one = toUnits('1');
+  fund(who.email, 'USDT', fromUnits(((cost * 105n) / 100n / one + 1n) * one));
   const placed = await client.post('/api/v1/orders', {
     symbol: 'IFC/USDT',
     side: 'buy',
@@ -326,7 +336,7 @@ test(`${J} #3 proposes a complete version, a second operator approves: written w
   const b = await room(browser, 'b');
   try {
     // A customer's order placed now, under the version in force (maker 0.04%), resting across the change.
-    const order = await restingIfcBuy(client, '200', `js17-before-${tag}`);
+    const order = await restingIfcBuy(who, client, '200', `js17-before-${tag}`);
     expect((await openOrders(who, 'IFC/USDT')).map((o) => o.id)).toContain(order.id);
 
     // A proposes IFC/USDT's group at maker 0.02% from a stated time; B approves; A writes it.
