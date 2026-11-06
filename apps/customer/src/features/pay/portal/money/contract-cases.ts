@@ -32,8 +32,12 @@ export const moneyContract: ContractPart = {
     { method: 'pricingHistory', run: (p) => p.pricingHistory(M) },
     { method: 'conversionList', run: (p) => p.conversionList(M) },
     { method: 'conversionGet', run: (p) => p.conversionGet('ee100001-0000-4000-8000-000000000001') },
+    { method: 'refundRequests', run: (p) => p.refundRequests(M, {}) },
   ],
   notMocked: {
+    refundRequestGet: 'reads one request the session asked for: the stand-in starts with none, and the Playwright run exercises it',
+    refundRequestCancel: 'a write: the stand-in answers it, and the Playwright run exercises it',
+    refundRequestDecide: 'a write: the stand-in answers it, and the Playwright run exercises it',
     destinationAdd: 'a write: the stand-in answers it, and the Playwright run exercises it',
     destinationCancelHold: 'a write: the stand-in answers it, and the Playwright run exercises it',
     destinationSetDefault: 'a write: the stand-in answers it, and the Playwright run exercises it',

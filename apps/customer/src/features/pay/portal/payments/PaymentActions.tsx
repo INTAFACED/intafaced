@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { defineCopy } from '../../../../shared/i18n';
 import type { ApiResult } from '../../../../shared/api';
-import { useSession } from '../../../session/session';
+import { useSessionIfAny } from '../../../session/session';
 import { payStepUp } from '../access/step-up-store';
 import { formatMoney } from '../ui/format';
 import { paymentLabel } from '../presentation';
@@ -84,19 +84,21 @@ const why = (f: Failure) => f.message || f.code || 'error';
 /** Void: only for an authorised, uncaptured payment. */
 export function VoidAction({ paymentId, onDone }: { paymentId: string; onDone: () => void }) {
   const { t } = copy.useCopy();
-  const { api } = useSession();
+  const session = useSessionIfAny();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failure | null>(null);
   async function run() {
+    if (!session) return;
     setBusy(true);
-    const result = await api.mutate('pay', 'payment.void', { paymentId }, paymentOut);
+    const result = await session.api.mutate('pay', 'payment.void', { paymentId }, paymentOut);
     setBusy(false);
     setOpen(false);
     if (!result.ok) return setFailure(result);
     setFailure(null);
     onDone();
   }
+  if (!session) return null;
   return (
     <>
       <Button variant="secondary" onClick={() => setOpen(true)} disabled={busy}>
@@ -155,7 +157,7 @@ export function ReverseAction({
   onDone: () => void;
 }) {
   const { t } = copy.useCopy();
-  const { api } = useSession();
+  const session = useSessionIfAny();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -173,7 +175,7 @@ export function ReverseAction({
       setOpen(false);
       return setFailure(t('stepUp'));
     }
-    const result = await api.mutate('pay', 'payment.reverse', { paymentId }, reverseOut);
+    const result = await session!.api.mutate('pay', 'payment.reverse', { paymentId }, reverseOut);
     setBusy(false);
     setOpen(false);
     if (!result.ok) return setFailure(t('refused', { reason: why(result) }));
@@ -181,7 +183,8 @@ export function ReverseAction({
     setDone(result.data);
     onDone();
   }
-  if (done) return null;
+  // A money action needs a signed-in session; a view rendered without one shows no action.
+  if (done || !session) return null;
   return (
     <>
       <Button variant="secondary" onClick={() => void start()} disabled={busy}>
@@ -226,7 +229,7 @@ export async function bulkBatchId(merchantId: string, paymentIds: readonly strin
 /** The payments on this page that a refund could apply to, chosen by hand, then refunded once each. */
 export function BulkRefund({ merchantId, payments, onDone }: { merchantId: string; payments: readonly Pick[]; onDone: () => void }) {
   const { t } = copy.useCopy();
-  const { api } = useSession();
+  const session = useSessionIfAny();
   const candidates = payments.filter((p) => REFUNDABLE.has(p.status));
   const [chosen, setChosen] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
@@ -237,7 +240,7 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
   );
   // A batch sent whose answer has not come back: "Run again" sends the same batch, never a new one.
   const [unanswered, setUnanswered] = useState<{ batchId: string; ids: string[] } | null>(null);
-  if (candidates.length === 0 && !report) return null;
+  if ((candidates.length === 0 && !report) || !session) return null;
   async function run(batch: { batchId: string; ids: string[] }) {
     setBusy(true);
     if (!(await payStepUp.ensure('refund'))) {
@@ -246,7 +249,7 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
       return setFailure(t('stepUp'));
     }
     setUnanswered(batch);
-    const result = await api.mutate(
+    const result = await session!.api.mutate(
       'pay',
       'payment.bulkRefund',
       { merchantId, batchId: batch.batchId, rows: batch.ids.map((paymentId) => ({ paymentId })) },
