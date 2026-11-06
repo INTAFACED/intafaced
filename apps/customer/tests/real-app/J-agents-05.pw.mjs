@@ -323,8 +323,10 @@ test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names th
   await expect(notices).toHaveCount(held.length, { timeout: 20_000 });
   for (const notice of await notices.all()) await expect(notice).toHaveAttribute('href', '/agents/approvals');
 
-  // Exactly one row per held request, read back from the notify service, and #3's push delivery refused for the unset
-  // push vendor (the stack wires none), which the push channel names as vendor.push.
+  // Exactly one row per held request, read back from the notify service. The push channel names its unset vendor
+  // (vendor.push; the stack wires none), so no phone can be registered (J-home-ia-05 #5) and nothing went to one: svc-notify
+  // records an out-of-app delivery only for a confirmed address, so #3's notice has no push delivery, and its inbox row
+  // is written regardless.
   const notifyRead = async (procedure, input) => {
     const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
     const res = await (await api(agents.account())).get(`/api/notify/trpc/${procedure}${query}`);
@@ -340,11 +342,10 @@ test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names th
   const [ofRequest] = rows.filter(({ params }) => params.requestId === request.id);
   expect(ofRequest).toMatchObject({ href: '/agents/approvals', params: { tool: 'support.ticket.comment' } });
   const push = (await notifyRead('notify.deliveries', { notificationId: ofRequest.id })).filter((row) => row.channel === 'push');
-  expect(push.map(({ status, refusalCode }) => ({ status, refusalCode }))).toEqual([
-    { status: 'refused', refusalCode: 'channel.not_configured' },
-  ]);
-  const pushCell = (await notifyRead('notify.categoryPrefs')).find((cell) => cell.channel === 'push');
-  expect(pushCell).toMatchObject({ configured: false, notConnected: 'vendor.push' });
+  const pushCells = (await notifyRead('notify.categoryPrefs')).filter((cell) => cell.channel === 'push');
+  expect(pushCells.length, 'the push channel has category rows').toBeGreaterThan(0);
+  for (const cell of pushCells) expect(cell).toMatchObject({ configured: false, notConnected: 'vendor.push' });
+  expect(push).toEqual([]);
 
   // The notice opens the Approvals inbox, which says phone notices are off and names the vendor.
   await notices.first().click();
