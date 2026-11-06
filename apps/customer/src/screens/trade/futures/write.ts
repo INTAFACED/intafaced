@@ -134,6 +134,7 @@ function openOrder(input: OpenInput): PlaceOrderInput {
     ...(input.confirmTier !== undefined ? { confirmTier: input.confirmTier } : {}),
     ...(input.takeProfit ? { takeProfit: input.takeProfit } : {}),
     ...(input.stopLoss ? { stopLoss: input.stopLoss } : {}),
+    ...(input.orderLabel ? { orderLabel: input.orderLabel } : {}),
   };
 }
 
@@ -148,6 +149,7 @@ function reduceOrder(input: ReduceInput): PlaceOrderInput {
     ...(input.type === 'limit' && input.priceCorrection ? { priceCorrection: input.priceCorrection } : {}),
     reduceOnly: true,
     clientOrderId: input.clientOrderId,
+    ...(input.orderLabel ? { orderLabel: input.orderLabel } : {}),
   };
 }
 
