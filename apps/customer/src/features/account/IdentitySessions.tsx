@@ -14,6 +14,7 @@ import {
   sessionRevokeKey,
   sessionsFor,
   splitSessions,
+  VISIBLE_SESSIONS,
   type IdentitySeat,
   type RevokeMarker,
   type StoredRevoke,
@@ -43,8 +44,8 @@ export function IdentitySessions() {
   );
   const [showOlder, setShowOlder] = useState(false);
   const seats = resource.status === 'ready' && resource.data ? resource.data.sessions : null;
-  // The newest five stay in view; the rest fold behind "Show N more". This device is always in view.
-  const split = useMemo(() => (seats ? splitSessions(seats, thisDevice) : null), [seats, thisDevice]);
+  // The newest five used within a day stay in view; the rest fold behind "Show N more". This device is always in view.
+  const split = useMemo(() => (seats ? splitSessions(seats, thisDevice, VISIBLE_SESSIONS, Date.now()) : null), [seats, thisDevice]);
   const moreControl = seats
     ? sessionMoreControl({ hidden: split?.older.length ?? 0, expanded: showOlder, returned: seats.length, limit, maxLimit: MAX_LIMIT })
     : 'none';
@@ -249,11 +250,11 @@ export function IdentitySessions() {
           <ul className="identity-sessions__rows" aria-label={t('table')}>
             {(split ? (showOlder ? [...split.recent, ...split.older] : split.recent) : resource.data.sessions).map((seat) => {
               const mine = thisDevice !== null && seat.id.toLowerCase() === thisDevice;
-              const started = stamp(seat.createdAt, timeZone);
+              const started = stamp(seat.lastUsedAt ?? seat.createdAt, timeZone);
               return (
                 <li className="identity-sessions__row" key={seat.id} data-session-id={seat.id} data-this-device={mine ? 'true' : undefined}>
                   <div>
-                    <time dateTime={seat.createdAt} lang={requestedLocale}>
+                    <time dateTime={seat.lastUsedAt ?? seat.createdAt} lang={requestedLocale}>
                       {t('createdLabel', { time: started })}
                     </time>
                     {mine ? (

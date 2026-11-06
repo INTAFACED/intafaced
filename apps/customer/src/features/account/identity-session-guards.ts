@@ -4,21 +4,22 @@ const instant = z
   .string()
   .datetime({ offset: true })
   .refine((value) => Number.isFinite(Date.parse(value)));
-export const identitySeat = z.object({ id: uuid, createdAt: instant, revoked: z.literal(false) });
+// lastUsedAt is optional so a revoke marker saved before it was read still parses.
+export const identitySeat = z.object({ id: uuid, createdAt: instant, lastUsedAt: instant.optional(), revoked: z.literal(false) });
 export type IdentitySeat = z.infer<typeof identitySeat>;
 export interface PrivateSessionSource {
   userId: string;
   sessions: IdentitySeat[];
 }
+const lastUse = (seat: { createdAt: string; lastUsedAt?: string | undefined }) => seat.lastUsedAt ?? seat.createdAt;
 export function sessionsFor(owner: string, limit: number) {
-  return z
-    .object({ userId: uuid, sessions: z.array(identitySeat).max(limit) })
-    .refine(
-      (value) =>
-        value.userId === owner &&
-        new Set(value.sessions.map((seat) => seat.id)).size === value.sessions.length &&
-        value.sessions.every((seat, index, rows) => index === 0 || Date.parse(rows[index - 1]!.createdAt) >= Date.parse(seat.createdAt)),
-    );
+  return z.object({ userId: uuid, sessions: z.array(identitySeat).max(limit) }).refine(
+    (value) =>
+      value.userId === owner &&
+      new Set(value.sessions.map((seat) => seat.id)).size === value.sessions.length &&
+      // The service lists newest use first (its newest row per sign-in); a reply without last use falls back to sign-in.
+      value.sessions.every((seat, index, rows) => index === 0 || Date.parse(lastUse(rows[index - 1]!)) >= Date.parse(lastUse(seat))),
+  );
 }
 export const revokeResponse = z.object({ userId: uuid, sessionId: uuid, revoked: z.boolean() });
 export const revokeMarker = z.object({ requestId: uuid, owner: uuid, seat: identitySeat, createdAt: instant });
@@ -92,17 +93,23 @@ export function sessionIdFromToken(token: string | null | undefined): string | n
 /** How many of the newest sessions stay in view before "Show N more". */
 export const VISIBLE_SESSIONS = 5;
 
+/** A session not used for a day folds behind "Show N more" (journey J-identity-06 #1). */
+export const IDLE_FOLD_MS = 24 * 60 * 60 * 1000;
+
 /**
  * The newest five sessions (and this device's own, whatever its age) stay in view; the rest fold behind "Show N more".
- * Order is kept. A start time that cannot be read counts as oldest, never as newest.
+ * Newest is by last use (sign-in time when a reply has no last use). Given
+ * `now`, a session last used more than a day before it folds too. Order is kept. A time that cannot be read counts as
+ * oldest, never as newest.
  */
-export function splitSessions<T extends { id: string; createdAt: string }>(
+export function splitSessions<T extends { id: string; createdAt: string; lastUsedAt?: string | undefined }>(
   seats: readonly T[],
   currentId: string | null,
   visible: number = VISIBLE_SESSIONS,
+  now?: number,
 ): { recent: T[]; older: T[] } {
   const time = (seat: T) => {
-    const at = Date.parse(seat.createdAt);
+    const at = Date.parse(lastUse(seat));
     return Number.isFinite(at) ? at : Number.NEGATIVE_INFINITY;
   };
   const newest = new Set(
@@ -114,7 +121,12 @@ export function splitSessions<T extends { id: string; createdAt: string }>(
   );
   const recent: T[] = [];
   const older: T[] = [];
-  for (const seat of seats) (newest.has(seat) || seat.id.toLowerCase() === currentId ? recent : older).push(seat);
+  const idle = (seat: T) => {
+    if (now === undefined) return false;
+    const used = Date.parse(seat.lastUsedAt ?? seat.createdAt);
+    return !Number.isFinite(used) || now - used > IDLE_FOLD_MS;
+  };
+  for (const seat of seats) (seat.id.toLowerCase() === currentId || (newest.has(seat) && !idle(seat)) ? recent : older).push(seat);
   return { recent, older };
 }
 
