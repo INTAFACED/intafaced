@@ -19,11 +19,6 @@
  *     member or collaborator, is `parked` with a blocker;
  *   - an input could not be read: this run's report, the named run's report, the pass history since it, or an issue.
  *     Every unreadable input is red (fail closed), never green.
- * A parked step (OWNER 183, 6 Nov 2026: a journey with `parked`, or a step with `parked`, in docs/roadmap/journeys.json)
- * is not judged: it stays in the plan and its test may keep running, but its red or its missing pass doesn't turn the
- * run red. The one exception is money: a parked money step stays judged unless the baseline shows it was never built
- * (listed once as `unbuilt`, no pass on record, none in the named run or since), since built money code may be shared
- * with live journeys. Unparking a step puts it back under every rule above at once.
  * The workflow adds the rest: a shard with no report, and a shard job red for any reason other than its journeys failing
  * (setup, the stack, the time limit, the Content-Security-Policy check), are red too.
  *
@@ -160,21 +155,12 @@ export function issueProblem(n, read) {
   return null;
 }
 
-/** The step keys (`J-<module>-NN#<n>`) the owner parked in a journeys.json: every step of a parked journey, and each parked step. */
-export function parkedSteps(journeys) {
-  const out = new Set();
-  for (const j of Array.isArray(journeys) ? journeys : [])
-    for (const st of j.steps ?? []) if (j.parked === true || st.parked === true) out.add(`${j.id}#${st.n}`);
-  return out;
-}
-
 /**
  * The verdict. `newest` and `named` are readReport() results for this run and the baseline's named run; `passedSince`
  * maps a step to the newest run on main after the named run that passed it; `issues` maps an issue number to its read;
- * `target` is the set of journey file names a targeted run ran, or null for a full run; `parked` is parkedSteps() of this
- * commit's journeys.json, whose steps are left out. Returns { failing, red, parked } (`parked`: failing steps left out).
+ * `target` is the set of journey file names a targeted run ran, or null for a full run. Returns { failing, red }.
  */
-export function judge({ newest, named, baseline, money, passedSince = {}, issues = {}, target = null, parked = new Set() }) {
+export function judge({ newest, named, baseline, money, passedSince = {}, issues = {}, target = null }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   const failing = new Set(
     Object.entries(newest.states)
@@ -188,25 +174,6 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
   const dupes = new Set();
   for (const e of baseline?.steps ?? []) entries.has(e.step) ? dupes.add(e.step) : entries.set(e.step, e);
   const notBaselined = new Set((baseline?.notBaselined ?? []).map((e) => e.step));
-  // A parked money step is left out only while it is known never to have been built: the baseline lists it, once, as
-  // `unbuilt` with no recorded pass (`lastPassedRun`), and it passed neither in the named run nor on main since. Any
-  // other parked money step (a pass on record, `notBaselined`, a regression entry, missing from the baseline) stays
-  // judged, fail closed: built money code may be shared with live journeys (Codex read of #7198). A parked step that
-  // isn't money is left out.
-  const neverBuilt = (step) => {
-    const e = entries.get(step);
-    return (
-      e?.state === 'unbuilt' &&
-      e.lastPassedRun === undefined &&
-      !dupes.has(step) &&
-      !notBaselined.has(step) &&
-      named.states[step] !== 'passed' &&
-      passedSince[step] === undefined
-    );
-  };
-  const leaveOut = (step) => parked.has(step) && (!(money[step] ?? true) || neverBuilt(step));
-  const parkedFailing = [...failing].filter(leaveOut).sort(byStep);
-  for (const step of parkedFailing) failing.delete(step);
   const runNo = baseline?.run?.number;
   const red = [];
   for (const step of [...failing].sort(byStep)) {
@@ -234,7 +201,7 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
       }
     } else no(`state "${e.state}" is not one the baseline allows`);
   }
-  return { failing: failing.size, red, parked: parkedFailing };
+  return { failing: failing.size, red };
 }
 
 /** The pass history after the named run: for each step, the newest run number that passed it. `reports` is
@@ -306,10 +273,8 @@ function main() {
   const problem = (why) => red.push({ step: '(input)', why, money: true });
   const reportFile = arg('--report');
   const baseline = json(arg('--baseline') ?? join(root, BASELINE_PATH));
-  const journeys = json(join(root, 'docs/roadmap/journeys.json'));
-  const parked = parkedSteps(journeys);
   const money = moneyRule({
-    journeys,
+    journeys: json(join(root, 'docs/roadmap/journeys.json')),
     slices: json(join(root, 'docs/roadmap/slices.json')),
     manifests: manifestsAt(root),
   });
@@ -386,17 +351,13 @@ function main() {
       }
     }
 
-  const verdict =
-    newest && named ? judge({ newest, named, baseline, money, passedSince, issues, target, parked }) : { failing: 0, red: [], parked: [] };
+  const verdict = newest && named ? judge({ newest, named, baseline, money, passedSince, issues, target }) : { failing: 0, red: [] };
   verdict.red.unshift(...red);
   const lines = [
     '### Verdict against the list of steps not built yet',
     '',
     `Baseline: run ${baseline.run?.number} (\`${BASELINE_PATH}\`).${target ? ` Targeted run: ${[...target].join(', ')}.` : ''}`,
     `Failing or missing steps: ${verdict.failing}; outside the list or against its rules: **${verdict.red.length}**.`,
-    ...(verdict.parked.length
-      ? [`Parked by the owner (OWNER 183) and not judged: ${verdict.parked.length} failing or missing (${verdict.parked.join(', ')}).`]
-      : []),
     '',
     ...(verdict.red.length
       ? verdict.red.map((r) => `- ${r.step}${r.money ? ' (money)' : ''}: ${r.why}`)
