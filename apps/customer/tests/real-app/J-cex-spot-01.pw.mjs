@@ -20,6 +20,22 @@ import {
 import { awayBid, confirm, free, held, openDesk, openOrders, previewed, reviewLimit, reviewSheet, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
+// DIAGNOSTIC ONLY (lane F, never merged): print CSP refusals and navigations with their time.
+test.beforeEach(async ({ page }) => {
+  page.on('console', (m) => {
+    if (/Refused|Content Security Policy|violates/i.test(m.text()))
+      console.log(
+        `DIAG console ${new Date().toISOString()} ${page.url()} ${m.type()} ${m.text().slice(0, 400)} @ ${JSON.stringify(m.location())}`,
+      );
+  });
+  page.on('framenavigated', (f) => {
+    if (f === page.mainFrame()) console.log(`DIAG nav ${new Date().toISOString()} ${f.url()}`);
+  });
+  page.on('requestfailed', (r) =>
+    console.log(`DIAG failed ${new Date().toISOString()} ${r.url().slice(0, 120)} ${r.failure()?.errorText}`),
+  );
+});
+
 // J-cex-spot-01, in the running app (docs/roadmap/journeys.json). One test per step, titled "J-cex-spot-01 #<n>", run in
 // order on one TEST account. Every number here is a TEST number on the local stack; the ledger is read through the
 // customer's own API after each move.
