@@ -308,18 +308,23 @@ const purgeTranscripts = () =>
 await purgeTranscripts();
 const transcriptPurge = setInterval(() => void purgeTranscripts(), 60 * 60 * 1000);
 transcriptPurge.unref();
-// Publish usage alerts a crash or a bus outage left recorded but unpublished: once now, then each minute.
-const sweepUsageAlerts = (): void =>
+// Publish usage alerts and approval requests a crash or a bus outage left recorded but unpublished: once now, then each
+// minute.
+const sweepUnpublished = (): void => {
   void runtime.publishUsageAlerts().catch((err: unknown) => app.log.warn({ err }, 'usage alert sweep failed'));
-sweepUsageAlerts();
-const usageAlertTimer = setInterval(sweepUsageAlerts, 60_000);
-usageAlertTimer.unref();
+  void runtime
+    .publishApprovalRequests({ onError: (err, requestId) => app.log.warn({ err, requestId }, 'approval request not published') })
+    .catch((err: unknown) => app.log.warn({ err }, 'approval request sweep failed'));
+};
+sweepUnpublished();
+const unpublishedTimer = setInterval(sweepUnpublished, 60_000);
+unpublishedTimer.unref();
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       clearInterval(transcriptPurge);
-      clearInterval(usageAlertTimer);
+      clearInterval(unpublishedTimer);
       // Draining, not dropping: an in-flight settlement finishes before exit.
       await app.close();
       await bus.close();

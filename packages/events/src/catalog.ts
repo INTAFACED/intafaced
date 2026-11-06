@@ -976,6 +976,31 @@ export const agentUsageAlertCrossed = defineEvent(
   'An own agent’s spend this month reached the alert its owner set. Published once per agent and month, so the owner is told once.',
 );
 
+/**
+ * A rule held one of a person's own agent's tool calls for their approval (AG-approvals-01, J-agents-05 #4). The tool
+ * has not run. It carries the tool id and the request, never the call's input: what the agent wants to write is the
+ * person's content, read in the Approvals inbox under their own authorisation.
+ */
+export const agentApprovalRequested = defineEvent(
+  'agents',
+  'approval',
+  'requested',
+  1,
+  z.object({
+    /** The approval request, and its business key: one notice per request, however often it is sent. */
+    requestId: z.string().guid(),
+    userId: userIdSchema,
+    /** The person's own agent whose call is held. */
+    agentId: z.string().guid(),
+    sessionId: z.string().guid(),
+    /** The held tool's id, e.g. `support.ticket.comment`. */
+    tool: z.string().min(1).max(120),
+    /** When the request stops waiting and reads expired, ISO 8601. */
+    expiresAt: z.string().datetime(),
+  }),
+  'An own agent’s tool call waits for its owner’s approval. Published once per request, so the owner is told once.',
+);
+
 // ── p2p (§6.2) ───────────────────────────────────────────────────────────────
 
 export const p2pOfferCreated = defineEvent(
@@ -2015,6 +2040,7 @@ export const EVENT_CATALOG = {
   agentActionRejected,
   agentUsageSettled,
   agentUsageAlertCrossed,
+  agentApprovalRequested,
   p2pOfferCreated,
   p2pEscrowLocked,
   p2pEscrowReleased,

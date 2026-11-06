@@ -22,6 +22,7 @@ import { asksForReturnsRanking, COPY_INTEL_SESSION_AGENT_ID } from './copy-intel
 import { usageCost } from './metering/pricing.js';
 import type { TokenUsage } from './providers/provider.js';
 import type { SpendGate } from './spend/gate.js';
+import { publishPendingApprovalRequests } from './own/approval-notices.js';
 import { publishPendingUsageAlerts } from './own/usage-limits.js';
 import { UserSpendStore } from './spend/store.js';
 import { withEngineSpan } from './tracing.js';
@@ -1108,6 +1109,11 @@ export class AgentRuntime {
   /** Publishes recorded usage alerts not yet published, one person's or everyone's, each on its business key (J-agents-02). */
   async publishUsageAlerts(userId?: string): Promise<number> {
     return publishPendingUsageAlerts(this.sql, this.bus, userId);
+  }
+
+  /** Publishes held tool calls not yet announced to their owner, each on its request (J-agents-05 #4); all of them unscoped. */
+  async publishApprovalRequests(scope: Parameters<typeof publishPendingApprovalRequests>[2] = {}): Promise<number> {
+    return publishPendingApprovalRequests(this.sql, this.bus, scope);
   }
 
   /**

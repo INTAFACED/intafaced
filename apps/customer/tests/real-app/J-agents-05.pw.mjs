@@ -14,8 +14,9 @@ import { api, journeyState, tool } from './stack.mjs';
 // Approvals inbox, and the tool has not run. #5 and #6 are built (AG-approvals-01): edit, approve and reject in the inbox,
 // with the comment sent once to the person's own support request (svc-support), a wait after which a request expires
 // (a short TEST wait on a restart), and identity unavailable to svc-agents on a restart (LOCAL_STACK_AGENTS_IDENTITY=off).
-// #4 and #7 fail at their first missing part, quickly (UNBUILT): there is no notice and no automatic reviewer
-// (AG-approvals-01, -02).
+// #4 is built (AG-approvals-01): svc-agents publishes each held call once (agents.approval.requested) and svc-notify
+// writes one inbox row naming the action and linking to the Approvals inbox, which says phone notices are off
+// (vendor.push). #7 fails at its first missing part, quickly (UNBUILT): there is no automatic reviewer (AG-approvals-02).
 const J = 'J-agents-05';
 const agents = agentsRun(J);
 /** The run's own state file (the one agentsRun keeps): the support request the comments go to. */
@@ -312,10 +313,42 @@ test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names th
 }) => {
   await signIn(page, agents.account());
   await page.goto('/home');
+  // Every comment the account's agent holds (#3's among them, as #3 counts them) is one notice: the notice is built, so
+  // svc-agents publishes each held call and svc-notify writes its row, with a real wait.
+  const held = (await ownRead('inbox', { limit: 100 })).filter((row) => row.tool === 'support.ticket.comment' && row.status === 'waiting');
+  const [request] = held.filter((row) => row.input.body === 'TEST comment, run');
+  expect(request, "#3's held comment").toBeDefined();
   await page.getByRole('button', { name: /^Notifications/ }).click();
-  const notice = page.getByRole('dialog', { name: /Notifications/ }).getByRole('link', { name: /wants to send a comment/ });
-  await expect(notice).toBeVisible(UNBUILT);
-  await notice.click();
+  const notices = page.getByRole('dialog', { name: /Notifications/ }).getByRole('link', { name: /wants to send a comment/ });
+  await expect(notices).toHaveCount(held.length, { timeout: 20_000 });
+  for (const notice of await notices.all()) await expect(notice).toHaveAttribute('href', '/agents/approvals');
+
+  // Exactly one row per held request, read back from the notify service. The push channel names its unset vendor
+  // (vendor.push; the stack wires none), so no phone can be registered (J-home-ia-05 #5) and nothing went to one: svc-notify
+  // records an out-of-app delivery only for a confirmed address, so #3's notice has no push delivery, and its inbox row
+  // is written regardless.
+  const notifyRead = async (procedure, input) => {
+    const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+    const res = await (await api(agents.account())).get(`/api/notify/trpc/${procedure}${query}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  const rows = (await notifyRead('notify.list', { limit: 100 })).items.filter(({ kind }) => kind === 'agents.approval.requested');
+  for (const { id } of held)
+    expect(
+      rows.filter(({ params }) => params.requestId === id),
+      `the notice of request ${id}`,
+    ).toHaveLength(1);
+  const [ofRequest] = rows.filter(({ params }) => params.requestId === request.id);
+  expect(ofRequest).toMatchObject({ href: '/agents/approvals', params: { tool: 'support.ticket.comment' } });
+  const push = (await notifyRead('notify.deliveries', { notificationId: ofRequest.id })).filter((row) => row.channel === 'push');
+  const pushCells = (await notifyRead('notify.categoryPrefs')).filter((cell) => cell.channel === 'push');
+  expect(pushCells.length, 'the push channel has category rows').toBeGreaterThan(0);
+  for (const cell of pushCells) expect(cell).toMatchObject({ configured: false, notConnected: 'vendor.push' });
+  expect(push).toEqual([]);
+
+  // The notice opens the Approvals inbox, which says phone notices are off and names the vendor.
+  await notices.first().click();
   await expect(page).toHaveURL(/\/agents\/approvals/);
   await expect(main(page).getByRole('note').filter({ hasText: 'vendor.push' })).toBeVisible();
 });

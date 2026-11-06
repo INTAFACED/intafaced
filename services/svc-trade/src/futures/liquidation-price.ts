@@ -30,6 +30,11 @@ export interface LiquidationPriceInput {
   /** Quote depth on the side the position closes into: the ladder's own input. */
   readonly depthNotional: Amount;
   readonly policy: FuturesLadderPolicy;
+  /**
+   * The margin ratio (maintenance over equity, 18 places, 1 = 100%) the price is for. Absent is 1: the liquidation
+   * itself. A pre-liquidation stop asks for its own level below 1 (D-margin-04), and the same tiers answer.
+   */
+  readonly level?: Amount;
 }
 
 export type LiquidationPriceResult =
@@ -45,22 +50,31 @@ function ceilDiv(a: bigint, b: bigint): bigint {
   return (a + b - 1n) / b;
 }
 
-/** The price at which a tier's maintenance meets equity, or null when there is none above zero. */
+/**
+ * The price at which a tier's maintenance, over the level, meets equity, or null when there is none above zero. At a
+ * level l the requirement is `m·S·P / l`, so with l = 1 this is the liquidation price:
+ *
+ *   long   P = (S·E − M)·l / (S·(l − m))
+ *   short  P = (S·E + M)·l / (S·(l + m))
+ */
 function priceForTier(input: LiquidationPriceInput, maintenanceBps: number): Amount | null {
-  const m = BigInt(maintenanceBps);
+  const level = input.level ?? SCALE; // scale 10^18
+  const m = BigInt(maintenanceBps) * SCALE; // in bps, scale 10^18
+  const l = BPS * level; // in bps, scale 10^18
   const entryNotional = input.size * input.entryPrice; // scale 10^36
   const margin = input.margin * SCALE; // scale 10^36
   if (input.side === 'long') {
     const numerator = entryNotional - margin;
-    const denominator = input.size * (BPS - m);
+    const denominator = input.size * (l - m);
     if (numerator <= 0n || denominator <= 0n) return null;
-    return ceilDiv(numerator * BPS, denominator);
+    return ceilDiv(numerator * l, denominator);
   }
-  return ((entryNotional + margin) * BPS) / (input.size * (BPS + m));
+  return ((entryNotional + margin) * l) / (input.size * (l + m));
 }
 
 export function liquidationPriceFor(input: LiquidationPriceInput): LiquidationPriceResult {
   assertLadderPolicyCoherent(input.policy);
+  if (input.level !== undefined && (input.level <= 0n || input.level > SCALE)) throw new RangeError('level must be in (0, 1]');
   if (input.size <= 0n || input.entryPrice <= 0n) return { price: null, reason: 'empty_position' };
 
   const tiers = [...new Set(input.policy.tiers.map((tier) => tier.maintenanceBps))];
