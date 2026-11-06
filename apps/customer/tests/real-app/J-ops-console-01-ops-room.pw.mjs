@@ -3,17 +3,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
-import { createHash } from 'node:crypto';
 import { signUp, verify } from './desk.mjs';
+import { uuidOf } from './merchant.mjs';
 import { api } from './stack.mjs';
 
 const RUN = Date.now().toString(36);
-
-/** A stable uuid for a journey key, so a write sent again in this run names the same account. */
-function uuidOf(key) {
-  const hex = createHash('sha256').update(key).digest('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
 
 // J-ops-console-01 step #2: the customer app's /ops room asks identity whether the signed-in account is a founder. A founder
 // gets the operator console panel with its link to the Team console; anyone else gets a pointer to

@@ -122,9 +122,13 @@ test.describe('one TEST merchant', () => {
     await row.getByRole('link').first().click();
     await expect(page).toHaveURL(new RegExp(world.merchantId));
     await expect(failedPart(page)).toHaveCount(0);
-    // The vendor-backed KYB read: svc-pay's automatic check is not connected on this stack, and the screen names it by its
-    // outside dependency, `vendor.kyc` (svc-pay kyb-documents.ts VENDOR_CHECK).
-    await expect(page.getByText('vendor.kyc', { exact: false }).first(), 'the verification screen does not name vendor.kyc').toBeVisible();
+    // The vendor-backed KYB read, on the merchant's verification tab: svc-pay's automatic check is not connected on this
+    // stack (svc-pay kyb-documents.ts VENDOR_CHECK, notConnected 'vendor.kyc'), so the screen says so and names it.
+    await page.goto(`${ADMIN}/merchants/${world.merchantId}?tab=verification`, { waitUntil: 'load' });
+    await expect(failedPart(page)).toHaveCount(0);
+    const check = page.locator('[data-kind="info"]').filter({ hasText: 'No automatic document check' });
+    await expect(check).toBeVisible();
+    await expect(check, 'the verification screen does not name the outside check vendor.kyc').toContainText('vendor.kyc');
   });
 });
 
@@ -133,11 +137,13 @@ test(`${J} #5 the jurisdiction setting history lists every change with actor, re
   await page.goto(`${ADMIN}/jurisdiction`, { waitUntil: 'load' });
   const history = page.getByRole('table', { name: /setting history/i });
   await expect(history, 'the jurisdiction board has no setting history read yet').toBeVisible({ timeout: 5_000 });
-  const headers = (await history.getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
+  // A row's cells and the header cells are read in order, row headers included, so one index names one column.
+  const headers = (await history.locator('thead th').allInnerTexts()).map((h) => h.trim());
   const columns = {};
   for (const column of ['Actor', 'Reason', 'Before', 'After']) {
     await expect(history.getByRole('columnheader', { name: column })).toBeVisible();
-    columns[column] = headers.indexOf(column);
+    columns[column] = headers.findIndex((h) => h === column || h.startsWith(`${column} `));
+    expect(columns[column], `no header cell starts with ${column}: ${JSON.stringify(headers)}`).toBeGreaterThanOrEqual(0);
   }
   // Every change is a row, and every row names who made it, why, and the value before and after. No change is made here:
   // a change to a compliance setting is #4, deferred to launch prep (owner decision 2026-10-27), so the rows are the ones
@@ -145,7 +151,7 @@ test(`${J} #5 the jurisdiction setting history lists every change with actor, re
   const rows = history.locator('tbody tr');
   expect(await rows.count(), 'the setting history lists no change').toBeGreaterThan(0);
   for (const row of await rows.all()) {
-    const cells = (await row.getByRole('cell').allInnerTexts()).map((c) => c.trim());
+    const cells = (await row.locator('th, td').allInnerTexts()).map((c) => c.trim());
     for (const [column, index] of Object.entries(columns))
       expect(cells[index], `a setting history row has no ${column}: ${JSON.stringify(cells)}`).toMatch(/\S/);
   }

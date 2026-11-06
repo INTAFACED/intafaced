@@ -119,14 +119,20 @@ function duration(seconds) {
   return `${s} s`;
 }
 
+/** Founder A's session for the API, signed in once for the test (each sign-in spends a TOTP step). */
+async function founderApi() {
+  const ctx = await makeContext({ log: () => {}, shareSessions: true });
+  const token = (await approverSessions(ctx)).a?.token;
+  if (!token) throw new Error('the stack has no founder A session for the API');
+  return { ctx, token };
+}
+
 /** Founder A's own reads of every source the board reads, straight from the services through Edge. */
-async function serviceReads() {
-  const ctx = await makeContext({ log: () => {} });
-  const token = (await approverSessions(ctx)).a.token;
+async function serviceReads({ ctx, token }) {
   const read = async (module, procedure, input) => {
     const res = await ctx.edge.query(module, procedure, input, token);
     const data = res.json?.result?.data;
-    if (data === undefined) throw new Error(`${module} ${procedure} refused founder A: ${res.status} ${res.text.slice(0, 300)}`);
+    if (data === undefined) throw new Error(`${module} ${procedure} refused the founder session: ${res.status} ${res.text.slice(0, 300)}`);
     return data;
   };
   const now = Date.now();
@@ -176,17 +182,29 @@ async function cell(row, key) {
 test('J-ops-console-01 #3 each sourced row shows volume, failures and the oldest waiting item as svc-* read them', async ({ page }) => {
   test.setTimeout(240_000);
   await founderSignIn(page, 'a');
+  const session = await founderApi();
+  const ages = (r) =>
+    BANK_AGES.map((k) => at(r.bank, k))
+      .filter((v) => v !== null && v !== undefined)
+      .map(Number);
   let before;
   let after;
   let b;
-  let seconds;
   for (let attempt = 1; ; attempt++) {
-    before = await serviceReads();
+    before = await serviceReads(session);
     const t0 = Date.now();
     b = await board(page);
-    seconds = (Date.now() - t0) / 1000;
-    after = await serviceReads();
-    if (same(counts(before), counts(after))) break;
+    after = await serviceReads(session);
+    const seconds = (Date.now() - t0) / 1000;
+    // The same oldest pending transfer in both reads: its age grew by no more than the time between them. If it settled
+    // and a younger one is now the oldest, the board may have seen either, so it is read again.
+    const sameOldest =
+      ages(before).length === 0
+        ? ages(after).length === 0
+        : ages(after).length > 0 &&
+          Math.max(...ages(after)) >= Math.max(...ages(before)) &&
+          Math.max(...ages(after)) - Math.max(...ages(before)) <= seconds + 2;
+    if (same(counts(before), counts(after)) && sameOldest) break;
     if (attempt === 5) throw new Error('the services kept changing between the two reads on 5 tries, so the board could not be compared');
   }
   const want = counts(after);
@@ -206,17 +224,13 @@ test('J-ops-console-01 #3 each sourced row shows volume, failures and the oldest
   expect((await cell(bank, 'volume')).value).toBe(want.bankVolume.toString());
   expect((await cell(bank, 'failures')).value).toBe(want.bankFailures.toString());
   const bankOldest = await cell(bank, 'oldest');
-  const ages = (r) =>
-    BANK_AGES.map((k) => at(r.bank, k))
-      .filter((v) => v !== null && v !== undefined)
-      .map(Number);
   if (ages(after).length === 0) {
     expect(bankOldest.value).toBeNull();
     expect(bankOldest.text).toContain('nothing created in the last 24 hours is still pending');
   } else {
     // The age grows with the clock: the board read it between the two reads, so its words are one of those in between.
     const low = Math.trunc(Math.max(...ages(before)));
-    const high = Math.ceil(Math.max(...ages(after)) + seconds);
+    const high = Math.ceil(Math.max(...ages(after)));
     const words = new Set();
     for (let s = low; s <= high; s++) words.add(duration(s));
     expect([...words], `the board's oldest pending transfer, against svc-bank's ${low}..${high} s`).toContain(bankOldest.value);
