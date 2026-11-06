@@ -5,7 +5,7 @@
  * use from approval and closes after its capture, a physical card's delivery and address history, activation, and a lost
  * report that reverses an open hold once and leaves one new inactive card.
  *
- * PG-hard: never `describe.skip`. CI uses TEST_DATABASE_URL; without it, Testcontainers `postgres:16-alpine`.
+ * PG-hard: a missing database fails the suite. CI uses TEST_DATABASE_URL; without it, Testcontainers `postgres:16-alpine`.
  */
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
