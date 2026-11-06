@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
@@ -259,7 +259,7 @@ test(`${J}, part of #5: when the confirmation's answer is lost, the recovery cod
   await expect(recovery).toHaveCount(0);
 });
 
-test(`${J}, part of #8: the anti-phishing code sets with a confirmation, rides on an account email, refuses the handle, changes and goes`, async ({
+test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later security mails, refuses the handle, is never shown signed out, changes and goes`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -324,6 +324,28 @@ test(`${J}, part of #8: the anti-phishing code sets with a confirmation, rides o
     return mailedLines(who.email, 'signup-existing').at(-1);
   }
   expect(await noticeMail()).toMatch(new RegExp(` anti_phishing=${code}$`));
+
+  // A later security mail carries it too: a password reset asked for from a signed-out browser.
+  const resets = mailedLines(who.email, 'password-reset').length;
+  const out = await page.context().browser().newPage({ baseURL: PASSKEY_ORIGIN });
+  await out.goto('/findPwd');
+  await out.getByLabel('Email address', { exact: true }).fill(who.email);
+  await out.getByRole('button', { name: 'Send reset code' }).click();
+  await expect(out.getByLabel('Code from the email')).toBeVisible();
+  await expect.poll(() => mailedLines(who.email, 'password-reset').length, { timeout: 30_000 }).toBeGreaterThan(resets);
+  expect(mailedLines(who.email, 'password-reset').at(-1)).toMatch(new RegExp(` anti_phishing=${code}$`));
+
+  // It is never shown signed out: not on the signed-out reset page, not behind Security, and identity refuses to read it
+  // without a session.
+  expect(await out.content()).not.toContain(code);
+  await out.goto('/uc/safe');
+  await expect(out.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+  await expect(out.getByTestId('security__anti-phishing')).toHaveCount(0);
+  expect(await out.content()).not.toContain(code);
+  await out.close();
+  const signedOut = await fetch(`${EDGE}/api/identity/trpc/profile.antiPhishing.get`, { headers: { origin: ORIGIN } });
+  expect(signedOut.status).toBe(401);
+  expect(await signedOut.text()).not.toContain(code);
 
   const changed = `Heron${randomBytes(3).toString('hex')}`;
   await card.getByRole('button', { name: 'Change the code' }).click();
