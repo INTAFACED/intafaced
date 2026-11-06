@@ -113,7 +113,8 @@ test(`${J} #2 types an amount below the minimum or above the balance: "Too small
   await pick(page, 'USDT', 'BTC');
   const calls = convertCalls(page);
   await amountBox(page).fill('0.0001');
-  await expect(card(page)).toContainText(/Too small: the minimum is [\d.,]+ USDT\./);
+  // A buy's minimum in USDT comes from the coin minimum at the live price, so it may read "about".
+  await expect(card(page)).toContainText(/Too small: the minimum is (about )?[\d.,]+ USDT\./);
   await amountBox(page).fill('250');
   const short = card(page).getByRole('alert').filter({ hasText: 'Not enough USDT' });
   await expect(short).toContainText('You have 100 USDT available.');
@@ -180,7 +181,7 @@ test(`${J} #5 presses Convert now twice: one request is sent; a receipt and the 
   await dialog.getByRole('button', { name: 'Convert now' }).dblclick();
   const settled = (await (await answer).json()).result.data;
   const receipt = page.getByTestId('cvt-receipt');
-  await expect(receipt).toContainText('Converted USDT to BTC');
+  await expect(receipt).toContainText(/Converted [\d.,]+ USDT to [\d.,]+ BTC/);
   await page.waitForTimeout(1_000);
   expect(
     calls.filter((c) => c === 'convert.accept'),
@@ -204,7 +205,7 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   const who = account();
   await signIn(page, who);
   await pick(page, 'USDT', 'BTC');
-  await amountBox(page).fill('5');
+  await amountBox(page).fill('10');
   await card(page).getByRole('button', { name: 'Preview conversion' }).click();
   const dialog = review(page);
   const go = dialog.getByRole('button', { name: /^(Convert now|Accept new price)$/ });
@@ -233,7 +234,7 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   expect(sent[1].quoteId).toBe(sent[0].quoteId);
   expect(sent[1].clientConvertId).toBe(sent[0].clientConvertId);
   expect(fill.quoteId).toBe(sent[0].quoteId);
-  await expect(page.getByTestId('cvt-receipt')).toContainText('Converted USDT to BTC');
+  await expect(page.getByTestId('cvt-receipt')).toContainText(/Converted [\d.,]+ USDT to [\d.,]+ BTC/);
   const after = await until(
     () => ledger(who),
     (b) => b.USDT.total !== before.USDT.total,
