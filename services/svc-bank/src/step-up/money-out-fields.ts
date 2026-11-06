@@ -309,3 +309,57 @@ export function setCardPinBinding(i: { actor: string; cardId: string; commandId:
     fields: { actor: i.actor, cardId: i.cardId, commandId: i.commandId },
   };
 }
+
+/**
+ * Activating a card that arrived (BK-cissue-04). One approval turns one card on: the card id is the whole operation, and a
+ * second use of the same approval is refused, as unfreezing is.
+ */
+export function activateCardBinding(i: { actor: string; cardId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.activate',
+    operationKey: i.cardId,
+    fields: { actor: i.actor, cardId: i.cardId },
+  };
+}
+
+/** Ordering a card from the card room (BK-cissue-02/-03): the approval binds every term of the order. */
+export function orderCardBinding(i: {
+  actor: string;
+  cardId: string;
+  assetId: string;
+  perAuthorizationLimit: string;
+  cardType: 'virtual' | 'physical';
+  country: string;
+  termsVersion: string;
+  usesAllowed: number | null | undefined;
+  designId: string | undefined;
+  deliverySpeed: string | undefined;
+  shippingAddress: string;
+}): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.order',
+    operationKey: i.cardId,
+    fields: {
+      actor: i.actor,
+      cardId: i.cardId,
+      assetId: i.assetId,
+      perAuthorizationLimit: i.perAuthorizationLimit,
+      cardType: i.cardType,
+      country: i.country.toUpperCase(),
+      termsVersion: i.termsVersion,
+      usesAllowed: i.usesAllowed == null ? '' : String(i.usesAllowed),
+      designId: i.designId ?? '',
+      deliverySpeed: i.deliverySpeed ?? '',
+      shippingAddress: i.shippingAddress,
+    },
+  };
+}
+
+/** Changing an ordered card's delivery address (BK-cissue-03): binds the request and the new address, as the order did. */
+export function updateCardShippingBinding(i: { actor: string; cardId: string; requestId: string; shippingAddress: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.updateShipping',
+    operationKey: i.requestId,
+    fields: { actor: i.actor, cardId: i.cardId, requestId: i.requestId, shippingAddress: i.shippingAddress },
+  };
+}
