@@ -1,3 +1,5 @@
+import { routingProcedures } from './desk-routing-router.js';
+import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
 import { guestProcedures } from './guest-router.js';
 import type { GuestRequests } from './guest-requests.js';
@@ -243,10 +245,13 @@ export function createSupportRouter(
   kbSegmentCap: number | null = null,
   /** The balance disclosure gate (J-support-public-20 #2). Left out, no record owner is wired and no check can be recorded. */
   checks: VerificationChecks = new VerificationChecks(new MemoryCheckBook(), support, null),
+  /** Routing, capacity and skills (SP-routing-01). Left out, no routing procedure is mounted and nothing routes. */
+  routing?: DeskRouting,
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
     ...macroProcedures(macros),
+    ...(routing ? routingProcedures(routing, support) : {}),
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
     ...surveyProcedures(surveys, support, surveyApprovals),
@@ -1433,7 +1438,10 @@ export function createSupportRouter(
       .mutation(async ({ ctx, input }) => {
         try {
           requireSupportOps(ctx.principal!);
-          return await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
+          const placed = await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
+          // A request placed in a routed group goes to its next agent now (SP-routing-01); routing off or unset does nothing.
+          if (routing && placed.groupId !== null) await routing.route(placed.ticketId);
+          return placed;
         } catch (err) {
           mapError(err);
         }

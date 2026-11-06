@@ -159,6 +159,8 @@ const schema = serviceEnvSchema
       NOTIFY_SUPPORT_SERVICE_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(32).optional()),
       SUPPORT_PUBLIC_ORIGIN: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /** How often the routing worker re-selects waiting requests (SP-routing-01). Blank: no sweep; routing runs on desk actions only. */
+      SUPPORT_ROUTING_SWEEP_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
 
