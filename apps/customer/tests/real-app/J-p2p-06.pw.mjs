@@ -252,8 +252,9 @@ test('J-p2p-06 #5 the release window passes after payment: a dispute opens once,
   const tradeId = taken.id;
   const paid = await b.mutate('trades.markFiatSent', { tradeId });
   expect(paid.status).toBe('fiat_sent');
-  // The release clock is the ad's window from the moment of payment, not the published 1800 s.
-  expect(Date.parse(paid.deadlineAt) - Date.now()).toBeLessThanOrEqual(RELEASE_SECONDS * 1_000);
+  // The release clock is the ad's window from the moment of payment, not the published 1800 s (a minute's allowance for
+  // the gap between this runner's clock and the stack's).
+  expect(Date.parse(paid.deadlineAt) - Date.now()).toBeLessThanOrEqual((RELEASE_SECONDS + 60) * 1_000);
   const held = (await s.query('trades.get', { tradeId })).escrowHeld;
   expect(held).toBe('10');
   const sellerFree = await free(state.seller);

@@ -9,6 +9,7 @@ import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { P2pError, P2pService } from './p2p-service.js';
 import { parsePairLimits, type BuyerCancelLimit } from './take-limits.js';
+import { awayFromUtcMidnight } from './utc-midnight-fixture.js';
 
 /**
  * J-p2p-06 #5 (P-trade-orders-15): an ad's own release window. It may only shorten the published release clock, it is
@@ -122,6 +123,25 @@ describe('svc-p2p ad release window and cancel count (J-p2p-06 #1 #5)', () => {
       const refused = await refusal(sellOffer(p2p, seconds));
       expect(refused.code).toBe('p2p.release_window_out_of_bounds');
     }
+    // The seller releases, so a buy ad (whose maker is the buyer) may not shorten the seller's clock.
+    const buyAd = await refusal(
+      p2p.createOffer({
+        makerId: TAKER,
+        side: 'buy',
+        asset: ASSET,
+        fiatCurrency: 'EUR',
+        priceType: 'fixed',
+        price: parseAmount('0.92'),
+        minAmt: parseAmount('10'),
+        maxAmt: parseAmount('20'),
+        totalAmt: parseAmount('200'),
+        methods: ['sepa'],
+        terms: 'TEST terms',
+        makerTier: 'basic',
+        releaseWindowSeconds: 60,
+      }),
+    );
+    expect(buyAd.code).toBe('p2p.release_window_out_of_bounds');
     expect(await sql`SELECT id FROM p2p.offers`).toHaveLength(0);
     expect((await sellOffer(p2p, 60)).releaseWindowSeconds).toBe(60);
     expect((await sellOffer(p2p)).releaseWindowSeconds).toBeNull();
@@ -140,6 +160,18 @@ describe('svc-p2p ad release window and cancel count (J-p2p-06 #1 #5)', () => {
     const paidSlow = await p2p.markFiatSent(slow.id, TAKER);
     expect(paidFast.deadlineAt!.getTime() - paidFast.fiatSentAt!.getTime()).toBe(60_000);
     expect(paidSlow.deadlineAt!.getTime() - paidSlow.fiatSentAt!.getTime()).toBe(RELEASE_SECONDS * 1000);
+
+    // An order whose ad window outlasts a clock the owner has since shortened gets that shorter clock.
+    const longAd = await sellOffer(p2p, 1500);
+    const longOrder = await take(p2p, longAd.id);
+    const shorter = new P2pService(sql, ledger, new MemoryEventBus('svc-p2p'), {
+      instruments,
+      feeBps: 0,
+      deadlines: { escrowSeconds: 120, paymentSeconds: 900, releaseSeconds: 600, disputeSeconds: 604_800, escalationRecheckSeconds: 3_600 },
+      takeLimits: { activeOrderCap: 20, pairLimits: PAIRS, buyerCancels: { limit: 100, windowHours: 24 } },
+    });
+    const paidLong = await shorter.markFiatSent(longOrder.id, TAKER);
+    expect(paidLong.deadlineAt!.getTime() - paidLong.fiatSentAt!.getTime()).toBe(600_000);
 
     // Written once: a later write to the order's window is refused by the database.
     await expect(sql`UPDATE p2p.p2p_trades SET release_window_seconds = 600 WHERE id = ${fast.id}`).rejects.toThrow(/written once/);
@@ -174,6 +206,7 @@ describe('svc-p2p ad release window and cancel count (J-p2p-06 #1 #5)', () => {
 
   it('the buyer reads how many cancels count today, out of how many, and when the count starts again', async () => {
     await expect(service({ limit: null, windowHours: null }).buyerCancelCount(TAKER)).rejects.toMatchObject({ code: 'p2p.config_unset' });
+    await awayFromUtcMidnight();
     const p2p = service({ limit: 2, windowHours: 24 });
     const [{ midnight }] = (await sql<Array<{ midnight: Date }>>`
       SELECT (date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day') AT TIME ZONE 'UTC' AS midnight

@@ -1751,13 +1751,21 @@ export class P2pService {
   }
 
   /**
-   * P-trade-orders-15: an ad's own release window, or null to keep the published release clock. It may only shorten
-   * that clock: below 60 s (the published clock's own floor) or above the published clock refuses
+   * P-trade-orders-15: a sell ad's own release window, or null to keep the published release clock. It may only
+   * shorten that clock: below 60 s (the published clock's own floor), above the published clock, or on a buy ad refuses
    * `p2p.release_window_out_of_bounds` with both bounds.
    */
-  private adReleaseWindow(seconds: number | undefined): number | null {
+  private adReleaseWindow(seconds: number | undefined, side: 'buy' | 'sell'): number | null {
     if (seconds === undefined) return null;
     const max = this.deadlines.releaseSeconds;
+    // The seller releases, so only the seller's own ad may shorten the seller's clock: a buy ad's maker is the buyer.
+    if (side !== 'sell') {
+      throw new P2pError('Only a sell ad sets its own release window', 'p2p.release_window_out_of_bounds', {
+        until: null,
+        min: String(RELEASE_WINDOW_MIN_SECONDS),
+        max: String(max),
+      });
+    }
     if (!Number.isSafeInteger(seconds) || seconds < RELEASE_WINDOW_MIN_SECONDS || seconds > max) {
       throw new P2pError(
         `An ad's release window is between ${RELEASE_WINDOW_MIN_SECONDS} and ${max} seconds`,
@@ -1770,8 +1778,8 @@ export class P2pService {
 
   /**
    * P-trade-orders-05: the buyer's cancels in the current counting window, on the database clock. Windows are fixed
-   * blocks of the owner's `windowHours` counted from UTC midnight, so at 24 hours the window is the UTC day and the
-   * count starts again at each day boundary. Counted: the buyer's own cancels (`buyer.<reason>`) and payment windows
+   * blocks of the owner's `windowHours`, which divides 24 (`parseBuyerCancelLimit`), so they start at UTC midnight;
+   * at 24 hours the window is the UTC day and the count starts again at each day boundary. Counted: the buyer's own cancels (`buyer.<reason>`) and payment windows
    * they let run out; a seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
    */
   private async buyerCancelWindow(
@@ -2218,7 +2226,7 @@ export class P2pService {
     const verdict = checkOfferLimit({ status: standing, maxAmt: input.maxAmt, asset: input.asset, policy: this.offerLimits });
     if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
 
-    const releaseWindowSeconds = this.adReleaseWindow(input.releaseWindowSeconds);
+    const releaseWindowSeconds = this.adReleaseWindow(input.releaseWindowSeconds, input.side);
     const totalAmt = input.totalAmt ?? input.maxAmt;
     const clientOfferId = input.offerId;
     const idempotencyKey = input.idempotencyKey?.trim() || undefined;
@@ -2514,7 +2522,10 @@ export class P2pService {
       idempotencyKey: `relist:${closed.id}`,
       ...(input.makerTier === undefined ? {} : { makerTier: input.makerTier }),
       acceptsNonInstant: closed.acceptsNonInstant,
-      ...(closed.releaseWindowSeconds == null ? {} : { releaseWindowSeconds: closed.releaseWindowSeconds }),
+      // Kept, but never longer than today's published clock, so a relist is not refused for a clock the owner shortened.
+      ...(closed.releaseWindowSeconds == null
+        ? {}
+        : { releaseWindowSeconds: Math.min(closed.releaseWindowSeconds, this.deadlines.releaseSeconds) }),
       relistedFrom: closed.id,
       // A private ad relisted stays private: relisting never puts on the board what its maker kept off it.
       visibility: closed.visibility,
@@ -3490,7 +3501,9 @@ export class P2pService {
           // P-ads-merchant-19: an order paid in cash in person takes the method row's release window, copied at take.
           // P-trade-orders-15: an ad's own release window, copied at take, shortens the published clock; with both a
           // cash window and an ad window the shorter holds.
-          const own = [trade.cashReleaseSeconds, trade.releaseWindowSeconds].filter((s): s is number => typeof s === 'number' && s > 0);
+          // The ad's window never outlasts today's published clock, even if the owner shortened it after the take.
+          const adWindow = trade.releaseWindowSeconds ? Math.min(trade.releaseWindowSeconds, this.deadlines.releaseSeconds) : null;
+          const own = [trade.cashReleaseSeconds, adWindow].filter((s): s is number => typeof s === 'number' && s > 0);
           const released =
             own.length > 0 ? new Date(now.getTime() + Math.min(...own) * 1000) : deadlineFor('fiat_sent', now, this.deadlines)!;
           const settledBy = trade.settlement.instant || !trade.deadlines.paymentBy ? null : new Date(trade.deadlines.paymentBy);

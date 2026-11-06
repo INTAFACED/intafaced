@@ -10,6 +10,7 @@ import { ANY_COUNTRY } from './instruments.js';
 import { P2pError, P2pService } from './p2p-service.js';
 import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits, pairLimitRefusal, type TakeLimits } from './take-limits.js';
 import { parseVerificationLimits, type VerificationLimitConfig } from './verification-limits.js';
+import { awayFromUtcMidnight } from './utc-midnight-fixture.js';
 
 /**
  * P-trade-orders-03 and P-disputes-security-15: a take over the ongoing-order cap, outside the pair's bounds, or over
@@ -45,11 +46,15 @@ describe('svc-p2p take limit parsing', () => {
     expect(parseActiveOrderCap(-2)).toBeNull();
   });
 
-  it('reads a cancel limit only when both the count and the window are whole numbers', () => {
+  it('reads a cancel limit only when both are whole numbers and the window divides the UTC day', () => {
     expect(parseBuyerCancelLimit(3, 24)).toEqual({ limit: 3, windowHours: 24 });
     expect(parseBuyerCancelLimit(3, null)).toEqual({ limit: null, windowHours: null });
     expect(parseBuyerCancelLimit(undefined, 24)).toEqual({ limit: null, windowHours: null });
     expect(parseBuyerCancelLimit(0, 24)).toEqual({ limit: null, windowHours: null });
+    // The window divides 24, so every window starts at a UTC day boundary.
+    expect(parseBuyerCancelLimit(3, 6)).toEqual({ limit: 3, windowHours: 6 });
+    expect(parseBuyerCancelLimit(3, 5)).toEqual({ limit: null, windowHours: null });
+    expect(parseBuyerCancelLimit(3, 48)).toEqual({ limit: null, windowHours: null });
   });
 
   it('reads a decimal-string pair table and refuses anything partial', () => {
@@ -315,6 +320,7 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
   };
 
   it('cancelled orders pause buying until the UTC day ends, when the count starts again; others’ cancels do not count', async () => {
+    await awayFromUtcMidnight();
     const p2p = service({ activeOrderCap: 5, pairLimits: PAIRS, buyerCancels: { limit: 2, windowHours: 24 } });
     const offer = await sellOffer(p2p);
     const placed = await take(p2p, offer.id);
