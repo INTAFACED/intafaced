@@ -360,6 +360,9 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   await page.getByRole('button', { name: 'Account menu' }).click();
   await expect(page.getByTestId('account-summary')).toContainText('Verification: Full');
   await page.keyboard.press('Escape');
+  console.log(`DIAG waiting on /trade ${new Date().toISOString()}`);
+  await page.waitForTimeout(4000);
+  console.log(`DIAG leaving /trade ${new Date().toISOString()}`);
   await page.goto('/verification');
   await expect(page.getByTestId('verification__level-tag')).toContainText('Full');
   await expect(page.getByTestId('verification__level-tag')).not.toContainText('Not verified');
