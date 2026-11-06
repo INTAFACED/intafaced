@@ -160,6 +160,12 @@ export const en = {
   // where a number is what the reader came for.
   'notify.trade.position.liquidated.title': 'Position liquidated',
   'notify.trade.position.liquidated.body': 'Your {side} position on {symbol} was liquidated. Size {contracts}, entry {entryPrice}.',
+  'notify.trade.margin_call.title': 'Margin call: your position is near liquidation',
+  'notify.trade.margin_call.body':
+    'Your {symbol} position is at {healthPct}% of its maintenance margin and will be liquidated at 100%. You can add margin or reduce the position.',
+  'notify.trade.risk_level.crossed.title': 'Your risk level was reached',
+  'notify.trade.risk_level.crossed.body':
+    'Your {symbol} position reached your {level}% risk level: its margin ratio is {marginRatio}%. You can add margin or reduce the position.',
   'notify.p2p.escrow.locked.title': 'Escrow locked',
   'notify.p2p.escrow.locked.body': '{amount} {asset} locked for {fiatAmount} {fiatCurrency}.',
   'notify.p2p.escrow.released.title': 'Trade completed',

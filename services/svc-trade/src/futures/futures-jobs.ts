@@ -62,7 +62,7 @@ import {
 } from './dated-futures-settlement.js';
 import type { FuturesLadderPolicy } from './maintenance-ladder.js';
 import { sqlAcceptedMarkStore } from './accepted-mark.js';
-import { durableMarginCallNotifier, sqlMarginCallStore, type MarginCallStore } from './margin-call-transport.js';
+import { busMarginCallAnnouncer, durableMarginCallNotifier, sqlMarginCallStore, type MarginCallStore } from './margin-call-transport.js';
 import {
   DEFAULT_FUTURES_MARK_POLICY,
   acceptableForMarking,
@@ -383,7 +383,8 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
    * invent grace (D3).
    */
   const marginCalls = sqlMarginCallStore(deps.sql);
-  const notifyMarginCall = durableMarginCallNotifier(marginCalls);
+  // The call row first; then the trader is told once per call through `tradeMarginCalled` (svc-notify, J-derivatives-06 #6).
+  const notifyMarginCall = durableMarginCallNotifier(marginCalls, deps.bus ? busMarginCallAnnouncer(deps.sql, deps.bus) : null);
 
   if (!deps.config.enabled) {
     return {

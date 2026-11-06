@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import { createRiskStopService } from './futures/risk-stop.js';
 import { registerRiskStopRest } from './futures/risk-stop-rest.js';
+import { createRiskAlertService } from './futures/risk-alerts.js';
+import { registerRiskAlertsRest } from './futures/risk-alerts-rest.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import {
@@ -809,6 +811,13 @@ const riskStops = createRiskStopService({
   closeOrder: (userId, clientOrderId) => conditionalOrders.getByClientId(userId, clientOrderId),
   sync: (input) => conditionalOrders.syncRiskStop(input),
 });
+// The trader's liquidation-risk alerts (D-account-03, J-derivatives-06 #6): their own margin-ratio levels, read on the
+// same tick from the same figures as the pre-liquidation stop; each crossing is written, then published once.
+const riskAlerts = createRiskAlertService({
+  sql,
+  bus,
+  figures: (userId, positionId) => positions.riskStopFigures(userId, positionId, null),
+});
 const conditionalJobs = startConditionalOrderJobs({
   config: conditionalJobsConfig,
   evaluate: async () => {
@@ -822,6 +831,14 @@ const conditionalJobs = startConditionalOrderJobs({
     }
     try {
       await riskStops.evaluate({ enabled: true });
+    } catch (err) {
+      failure ??= err;
+    }
+    try {
+      const alerts = await riskAlerts.evaluate();
+      for (const item of alerts.failed) {
+        app.log.error({ job: 'futures.risk_alerts', positionId: item.positionId, err: item.message }, 'a risk alert was not checked');
+      }
     } catch (err) {
       failure ??= err;
     }
@@ -1105,6 +1122,12 @@ registerRiskStopRest(app, {
   edgeTrust: edgeTrustFromEnv(env),
   serviceName: env.SERVICE_NAME,
   stops: riskStops,
+});
+registerRiskAlertsRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  alerts: riskAlerts,
 });
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),

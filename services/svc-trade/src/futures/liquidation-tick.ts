@@ -214,6 +214,12 @@ export interface MarginCallNotifier {
     healthBps: number;
     at: Date;
   }): Promise<{ delivered: boolean }>;
+  /**
+   * The position is healthy again (health at or above the margin-call level): its open call, if any, ends, so a later
+   * fall is a new call that the trader is told about again (J-derivatives-06 #6). Optional: a notifier with no store
+   * has nothing to end.
+   */
+  clearMarginCall?(input: { positionId: string; at: Date }): Promise<void>;
 }
 
 /**
@@ -858,6 +864,15 @@ async function planAndDrive(
         summary: summarizeLadder(decision),
         delivered: delivery.delivered,
       };
+    }
+
+    if (decision.rung.action === 'none' && deps.notifyMarginCall?.clearMarginCall) {
+      // Healthy: an open call ends here. A failure to end it is retried next tick and never holds up this one.
+      try {
+        await deps.notifyMarginCall.clearMarginCall({ positionId: row.positionId, at: (deps.now ?? (() => new Date()))() });
+      } catch {
+        // The call stays open one tick longer; the trader is not told twice for it.
+      }
     }
 
     const outcome =
