@@ -218,8 +218,8 @@ test(`${J} #6 asks for a range that crosses months as a PDF: refused with the re
 });
 
 /** This person's export job `id` as the document centre lists it, or undefined. */
-async function listedJob(id) {
-  const res = await (await api(who)).get('/api/bank/trpc/statements.jobs.list');
+async function listedJob(id, client) {
+  const res = await (client ?? (await api(who))).get('/api/bank/trpc/statements.jobs.list');
   return res.body?.result?.data?.items?.find((job) => job.id === id);
 }
 
@@ -253,13 +253,12 @@ test(`${J} #4 requests an export for a long range: a job row exists first, the s
     errorCode: null,
   });
   expect(Number.isFinite(Date.parse(job.createdAt))).toBe(true);
-  // While it has no file, asking for it is refused as not ready; once the worker has made it, the download works. Either
-  // answer may come first (the TEST worker looks every second), but a file is never handed out before the row is ready.
+  // While it has no file, asking for it is refused as not ready (412, the bank's code). The TEST worker looks every second,
+  // so it may already have made the file: then the download is that ready job's file, whole.
   const early = await client.get(`/api/bank/trpc/statements.jobs.download?input=${encodeURIComponent(JSON.stringify({ id: job.id }))}`);
   if (early.status !== 200) {
-    expect(early.body?.error?.data?.intafacedCode ?? early.body?.error?.message ?? '', JSON.stringify(early.body).slice(0, 300)).toMatch(
-      /statement_job_not_ready|is (queued|rendering), so it has no file yet/,
-    );
+    expect(early.status, JSON.stringify(early.body).slice(0, 300)).toBe(412);
+    expect(early.body?.error?.message).toMatch(/\(bank\.statement_job_not_ready\)$/);
   }
   // The same request returns the same job.
   const again = await client.post('/api/bank/trpc/statements.jobs.create', request);
@@ -268,13 +267,18 @@ test(`${J} #4 requests an export for a long range: a job row exists first, the s
   // The document centre lists it; it is made after the row was written, and then it has its file.
   await openCentre(page);
   await expect(page.getByTestId('statement-documents').locator(`[data-job="${job.id}"]`)).toBeVisible({ timeout: 5_000 });
-  await expect.poll(async () => (await listedJob(job.id))?.state, { timeout: 30_000 }).toBe('ready');
-  const ready = await listedJob(job.id);
-  expect(ready.attempts).toBe(1);
+  await expect.poll(async () => (await listedJob(job.id, client))?.state, { timeout: 30_000 }).toBe('ready');
+  const ready = await listedJob(job.id, client);
+  expect(ready.attempts).toBeGreaterThanOrEqual(1);
   expect(ready.sha256).toMatch(/^[0-9a-f]{64}$/);
   expect(Date.parse(ready.finishedAt)).toBeGreaterThanOrEqual(Date.parse(job.createdAt));
+  if (early.status === 200) {
+    const bytes = Buffer.from(early.body.result.data.bodyBase64, 'base64');
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(ready.sha256);
+  }
+  // One job for this request, however often it was asked for.
   const all = (await client.get('/api/bank/trpc/statements.jobs.list')).body.result.data.items;
-  expect(all.filter((row) => row.id === job.id)).toHaveLength(1);
+  expect(all.filter((row) => row.report === 'ledger' && row.from === request.from && row.to === request.to)).toHaveLength(1);
 });
 
 /** The bank restarted with every export render held (a TEST fault), or back on renders that finish. */
