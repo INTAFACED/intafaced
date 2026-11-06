@@ -34,7 +34,7 @@ export default defineConfig({
     // the new-device check asks only where a journey clears this cookie on purpose (J-identity-02 #5).
     storageState: localTestDeviceState(),
     screenshot: 'only-on-failure',
-    trace: 'retain-on-failure',
+    trace: 'off',
     launchOptions: process.env.JOURNEY_CHROMIUM ? { executablePath: process.env.JOURNEY_CHROMIUM } : {},
   },
 });
