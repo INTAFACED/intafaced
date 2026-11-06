@@ -1,3 +1,4 @@
+// World: stack
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';

@@ -72,6 +72,38 @@ const script = resolve(here, 'local-test-stack.mjs');
   );
 }
 
+// The empty-catalogue profile (J-support-public-01 #3): LOCAL_STACK_SUPPORT_CATALOGUE=off moves svc-support, and only
+// svc-support, to a database of its own; without it svc-support is on the stack's database like every other service.
+{
+  const { localTestServiceEnvs, PLAN_SECRETS } = await import('./local-test-stack.mjs');
+  const { SUPPORT_EMPTY_CATALOGUE_DB, onEmptyCatalogueDb } = await import('./local-stack-services/support.mjs');
+  const dbOf = (envs, name) => new URL(envs.find((d) => d.name === name).env.DATABASE_URL).pathname.slice(1);
+  const prior = process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
+  try {
+    delete process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
+    const shared = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(shared, 'support'), 'intafaced_local_test', 'support on the stack database by default');
+    process.env.LOCAL_STACK_SUPPORT_CATALOGUE = 'off';
+    const empty = localTestServiceEnvs(PLAN_SECRETS);
+    assert.equal(dbOf(empty, 'support'), SUPPORT_EMPTY_CATALOGUE_DB, 'support on its own empty database under the profile');
+    for (const { name, env } of empty)
+      if (name !== 'support' && env.DATABASE_URL)
+        assert.equal(dbOf(empty, name), 'intafaced_local_test', `${name} stays on the stack database under the profile`);
+  } finally {
+    if (prior === undefined) delete process.env.LOCAL_STACK_SUPPORT_CATALOGUE;
+    else process.env.LOCAL_STACK_SUPPORT_CATALOGUE = prior;
+  }
+  // Only the database name changes: the role, password, host, port and any query stay.
+  assert.equal(
+    onEmptyCatalogueDb('postgres://svc_support:pw@127.0.0.1:5433/intafaced_local_test'),
+    `postgres://svc_support:pw@127.0.0.1:5433/${SUPPORT_EMPTY_CATALOGUE_DB}`,
+  );
+  assert.equal(
+    onEmptyCatalogueDb('postgres://u:p@h:1/db?sslmode=disable'),
+    `postgres://u:p@h:1/${SUPPORT_EMPTY_CATALOGUE_DB}?sslmode=disable`,
+  );
+}
+
 // Service keys: off by default, so the journeys' stack is unchanged; LOCAL_STACK_S2S=dual gives every S2S service one
 // shared public keyring and its own matching signing key, and keypair is refused.
 {

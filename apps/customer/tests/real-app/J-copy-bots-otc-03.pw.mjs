@@ -1,3 +1,4 @@
+// World: book, gates
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';

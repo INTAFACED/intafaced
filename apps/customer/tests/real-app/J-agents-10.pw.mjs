@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { UNBUILT, agentsRun, createOwnAgent, openNavigatorSession, openOwnAgent } from './agents.mjs';
 import { signIn } from './desk.mjs';

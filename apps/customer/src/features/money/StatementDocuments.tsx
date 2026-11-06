@@ -95,7 +95,7 @@ export function StatementDocuments({ version }: { version: number }) {
       ) : (
         <>
           {!load.enabled && (
-            <p className="money-caption" data-not-connected="bank.statement_jobs_unset">
+            <p className="money-caption" data-code="bank.statement_jobs_unset">
               {t('off')}
             </p>
           )}

@@ -48,7 +48,7 @@ export const STATUS_CONTEXT = 'Independent review';
 
 const SESSION_ID = /session_[A-Za-z0-9]+/g;
 /**
- * A commit's session trailer, the `<Tool>-Session: <link>` line AGENTS.md item 8 names. Any word before `-Session:`
+ * A commit's session trailer, the `<Tool>-Session: <link>` line AGENTS.md, "Where a mistake costs more" names. Any word before `-Session:`
  * counts, so a renamed trailer still names its author (more author sessions, never fewer).
  */
 const SESSION_TRAILER = /^[A-Za-z]+-Session:/i;
@@ -76,7 +76,7 @@ export function sessionsForHead(commits, sha) {
   return commitSessions(list.map((c) => c?.commit?.message));
 }
 
-/** A `Reviewer session:` line whose first word is the session, bare or as a link (docs/agents/reviewer-brief.md). */
+/** A `Reviewer session:` line whose first word is the session, bare or as a link (tooling/ci/ci-review/REVIEW.md). */
 const REVIEWER_LINE = /^Reviewer session:\s*<?(?:https?:\/\/[^\s>]*\/)?(session_[A-Za-z0-9]+)\b/i;
 
 /**
@@ -100,14 +100,14 @@ export function reviewerLineSessions(body) {
 
 /**
  * Why a PASS does not count for the session it names, or null when it does. A PASS must name its reviewing session on
- * a line of its own, `Reviewer session: session_…` (AGENTS.md item 8; a gate since OWNER 138 (1)(a), 31 Oct): without
+ * a line of its own, `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more"; a gate since OWNER 138 (1)(a), 31 Oct): without
  * one, nothing shows another session reviewed. A PASS that names the PR's own session does not count either (owner
  * decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's session-trailer commit lines. `authorSessions` is
  * that Set, or null when the commits could not be read whole; then no PASS counts.
  */
 export function sessionRefusal(body, authorSessions) {
   if (reviewerLineSessions(body).length === 0)
-    return 'it names no reviewing session; add a line of its own `Reviewer session: session_…` (AGENTS.md item 8)';
+    return 'it names no reviewing session; add a line of its own `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more")';
   if (!(authorSessions instanceof Set)) return "the pull request's commits could not be read whole, so its sessions are unknown";
   for (const id of passSessions(body)) {
     if (authorSessions.has(id)) return `it names the pull request's own session (${id}); another session must review`;
@@ -149,7 +149,7 @@ export function commentSignoff({ comments, authorSessions = null, ...who }) {
 
 export const hasCommentSignoff = (args) => commentSignoff(args).ok;
 
-/** The one workflow, job and step whose result seals a head (AGENTS.md item 8). */
+/** The one workflow, job and step whose result seals a head (AGENTS.md, "Where a mistake costs more"). */
 export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
 export const REVIEW_JOB = 'CI review';
 export const VERDICT_STEP = 'Verdict';
@@ -1055,7 +1055,7 @@ async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
   for (const l of lines) console.log(`  ${l}`);
   if (!ok) {
     console.error(
-      `::error title=Review sign-off missing in the merge group::${lines.filter((l) => !/not required|found$/.test(l)).join('; ')}. Each queued pull request that needs the independent review must carry a passing CI review for its own head (AGENTS.md item 8).`,
+      `::error title=Review sign-off missing in the merge group::${lines.filter((l) => !/not required|found$/.test(l)).join('; ')}. Each queued pull request that needs the independent review must carry a passing CI review for its own head (AGENTS.md, "Where a mistake costs more").`,
     );
     process.exit(1);
   }
@@ -1128,7 +1128,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, REVIEW_POLL_MS));
   }
   console.error(
-    `::error title=Review sign-off missing::No passing CI review on ${HEAD_SHA}. This change needs one (${reason}): ${verdict.why}. The CI review job runs on every push to an in-repo pull request and re-runs this seal when it passes (AGENTS.md item 8); a comment or a status counts for nothing.`,
+    `::error title=Review sign-off missing::No passing CI review on ${HEAD_SHA}. This change needs one (${reason}): ${verdict.why}. The CI review job runs on every push to an in-repo pull request and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
   );
   process.exit(1);
 }

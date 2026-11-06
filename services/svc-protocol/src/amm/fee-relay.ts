@@ -120,7 +120,8 @@ export interface FeeRelayChain {
     blockNumber?: bigint;
   }): Promise<unknown>;
   call(args: { account?: Address; to: Address; data: Hex; blockNumber?: bigint }): Promise<unknown>;
-  getBlockNumber(): Promise<bigint>;
+  /** Always `{ cacheTime: 0 }`: the node's block now, never a cached number, since every read here pins to it (#7192). */
+  getBlockNumber(args: { cacheTime: 0 }): Promise<bigint>;
   getBlock(args: { blockNumber: bigint }): Promise<{ timestamp: bigint }>;
 }
 
@@ -158,7 +159,7 @@ export function feeTokenRefusal(err: unknown, token: Address): TRPCError | null 
 
 /** The relay's tokens with names and whether each may pay, its published markup and the gas a relayed swap is priced for. */
 export async function readFeeTokens(chain: FeeRelayChain, setting: FeeRelaySetting): Promise<ProtocolFeeTokens> {
-  const blockNumber = await chain.getBlockNumber();
+  const blockNumber = await chain.getBlockNumber({ cacheTime: 0 });
   const at = { address: setting.relay, abi: FEE_RELAY_ABI, blockNumber };
   const [markupBps, listed] = (await Promise.all([
     chain.readContract({ ...at, functionName: 'markupBps' }),
@@ -188,7 +189,9 @@ export async function quoteFee(
   feeToken: Address,
   maxFeePerGasWei: bigint,
 ): Promise<ProtocolFeeQuote> {
-  const blockNumber = await chain.getBlockNumber();
+  // The node's block now, never a cached one: viem keeps a block number for its polling interval, and a quote pinned to
+  // a block from before the relay or a token change reads no code or the old list (#7192).
+  const blockNumber = await chain.getBlockNumber({ cacheTime: 0 });
   const gasWei = setting.gasLimit * maxFeePerGasWei;
   const at = { address: setting.relay, abi: FEE_RELAY_ABI, blockNumber };
   let priced: [bigint, bigint, bigint];

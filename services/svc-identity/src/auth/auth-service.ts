@@ -42,9 +42,14 @@ import {
   PAY_STEP_UP_ACCESS_TTL_SECONDS,
   PAY_STEP_UP_FACTOR_TTL_SECONDS,
   scopesForFounderSession,
+  scopesForStaffTestSession,
   SESSION_SCOPES,
+  staffTestClaim,
+  staffTestRoleFor,
   type PayStepUpScope,
   type Scope,
+  type StaffTestRoleName,
+  type StaffTestRoster,
   type TokenConfig,
 } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
@@ -634,6 +639,8 @@ export class AuthService {
   private founderSessionScopes: readonly Scope[] = [];
   /** The config string whose sha256 is written on each founder issuance. */
   private founderSessionConfigValue = '';
+  /** The labelled TEST staff roster; undefined (production, or none set) grants no staff scope. */
+  private staffTestRoster: StaffTestRoster | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -1119,7 +1126,13 @@ export class AuthService {
     mfa: boolean,
     query: Sql | undefined,
     gates: { readonly apiKey?: boolean; readonly subAccount?: boolean },
-  ): Promise<{ scopes: Scope[]; founder: boolean; granted: Scope[] }> {
+  ): Promise<{
+    scopes: Scope[];
+    founder: boolean;
+    granted: Scope[];
+    /** A TEST staff member's `staffPermissions` claim (local and test stacks only); absent for everyone else. */
+    staff?: { readonly staffPermissions: readonly string[]; readonly staffEnv: string };
+  }> {
     let founder = false;
     try {
       founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
@@ -1136,7 +1149,49 @@ export class AuthService {
     const granted = scopes.filter(
       (scope) => (FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope) && !base.includes(scope),
     );
-    return { scopes, founder, granted };
+    if (founder || this.staffTestRoster === undefined) return { scopes, founder, granted };
+    // Local and test stacks only (the roster refused boot anywhere else): a TEST staff member's session gets the role's
+    // TEST scopes, on the same gates a founder's has. A founder never takes a staff path.
+    const role = await this.staffTestRole(userId, query);
+    const staffScopes = scopesForStaffTestSession(scopes, {
+      roster: this.staffTestRoster,
+      role,
+      mfa,
+      apiKey: gates.apiKey === true,
+      subAccount: gates.subAccount === true,
+    });
+    if (staffScopes.length === scopes.length) return { scopes, founder, granted };
+    // Only a session that took the role's scopes (second factor, not a key, not a sub-account) carries its permissions.
+    const staff = staffTestClaim(this.staffTestRoster, role);
+    // The trail of who held which TEST desk scope: one warn line in identity's log (the only sink AuthService has), never a
+    // secret. Founders keep their own audit table. A warn, too, because staff scopes on a session are TEST-only.
+    this.log.warn(
+      { userId, role, scopes: staffScopes.filter((scope) => !scopes.includes(scope)), staffEnv: staff?.staffEnv ?? null },
+      'TEST staff session scopes granted (local or test stack only)',
+    );
+    return { scopes: staffScopes, founder, granted, ...(staff ? { staff } : {}) };
+  }
+
+  /**
+   * The labelled TEST staff roster (`IDENTITY_STAFF_TEST_ROSTER`, parsed by `parseStaffTestRoster` with the raw APP_ENV,
+   * so it is undefined everywhere but a local or test stack). Undefined grants no staff session anything.
+   */
+  useStaffTestRoster(roster: StaffTestRoster | undefined): void {
+    this.staffTestRoster = roster;
+  }
+
+  /**
+   * The caller's TEST staff role: their confirmed email's entry in the TEST roster, or null. With no roster (production)
+   * it is always null and reads nothing. An unconfirmed email never counts, so a sign-up alone cannot take a role.
+   */
+  async staffTestRole(userId: string, query?: Sql): Promise<StaffTestRoleName | null> {
+    if (this.staffTestRoster === undefined) return null;
+    const rows = await (query ?? this.sql)<Array<{ email: string | null; email_verified_at: Date | string | null }>>`
+      SELECT email::text AS email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row || row.email_verified_at === null) return null;
+    return staffTestRoleFor(this.staffTestRoster, row.email);
   }
 
   /** One audit row for a live founder issuance. A non-founder writes nothing. */
@@ -1160,10 +1215,21 @@ export class AuthService {
    * Step-up does not call this: a step-up token never receives founder scopes.
    */
   private async scopesFor(userId: string, mfa: boolean, sessionId: string, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+    return (await this.sessionGrant(userId, mfa, sessionId, extra, query)).scopes;
+  }
+
+  /** `scopesFor`, with a TEST staff member's `staffPermissions` claim beside the scopes (local and test stacks only). */
+  private async sessionGrant(
+    userId: string,
+    mfa: boolean,
+    sessionId: string,
+    extra: readonly Scope[] = [],
+    query?: Sql,
+  ): Promise<{ scopes: Scope[]; staff?: { readonly staffPermissions: readonly string[]; readonly staffEnv: string } }> {
     const pay = await this.scopesForNewAccessToken(userId);
     const decided = await this.founderScopesOn([...pay, ...extra], userId, mfa, query, {});
     await this.recordFounderScopeGrant(query ?? this.sql, userId, sessionId, decided.founder, decided.granted);
-    return decided.scopes;
+    return { scopes: decided.scopes, ...(decided.staff ? { staff: decided.staff } : {}) };
   }
 
   private resetDeps() {
@@ -1668,9 +1734,9 @@ export class AuthService {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
     });
     const tier = await this.kycTier(userId);
-    const scopes = await this.scopesFor(userId, options.mfa, sessionId);
+    const { scopes, staff } = await this.sessionGrant(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null },
+      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null, ...staff },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -1794,6 +1860,7 @@ export class AuthService {
           mfa: session.mfa,
           familyId: session.family_id,
           trustedDeviceId: session.trusted_device_id,
+          ...decided.staff,
         },
         this.tokens,
       );

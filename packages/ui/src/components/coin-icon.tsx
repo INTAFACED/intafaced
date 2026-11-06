@@ -9,8 +9,6 @@ export interface CoinIconProps extends Omit<React.ComponentProps<'span'>, 'child
   size?: number;
 }
 
-const dataUri = (svg: string) => `data:image/svg+xml,${encodeURIComponent(svg)}`;
-
 /** True when we hold artwork for the asset (listed assets only, see coins/manifest.json). */
 export function hasCoinArt(asset: string): boolean {
   return asset.toUpperCase() in coinArt;
@@ -34,14 +32,14 @@ export function CoinIcon({ asset, size = 32, className, style, ...props }: CoinI
         className={cn('inline-block shrink-0 overflow-hidden rounded-pill bg-raised', className)}
         {...props}
       >
-        <img
-          src={dataUri(svg)}
-          alt=""
+        <span
           aria-hidden="true"
-          width={size}
-          height={size}
-          draggable={false}
-          className="block size-full object-cover"
+          className="block size-full [&>svg]:block [&>svg]:size-full"
+          // Drawn inline, never as a data: image: Chromium reported a data: image that began loading while the page was
+          // being left under the production policy's connect-src, which refuses data: (issue 7216). The art is this package's
+          // own generated constant (coins/coin-art.generated.ts), with no script, handler, id or reference
+          // (coin-art.test.ts); nothing a person types reaches it.
+          dangerouslySetInnerHTML={{ __html: svg }}
         />
       </span>
     );
