@@ -274,11 +274,13 @@ function SideForm({
   }, [suggestion?.nonce]);
 
   // A ladder click asks this side's ticket to open its review once the filled draft can be sent (C-trade-dom-02).
-  const reviewPending = useRef(false);
+  const reviewPending = useRef<{ price: string; amount: string | null; applied: boolean } | null>(null);
   // A click in the book or the trades list fills the price (and the cumulative amount with Shift).
   useEffect(() => {
     if (!suggestion || suggestion.flatten) return;
-    reviewPending.current = suggestion.review === side;
+    const lots = suggestion.amount ? floorToLot(suggestion.amount, market.lotSize) : null;
+    reviewPending.current =
+      suggestion.review === side ? { price: padDecimals(suggestion.price, pricePlaces), amount: lots, applied: false } : null;
     edit(() => {
       setPrice(padDecimals(suggestion.price, pricePlaces));
       setTotalEdit(null);
@@ -401,13 +403,25 @@ function SideForm({
     } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = false;
   });
 
-  // The ladder click's review: opened once, on the draft the click filled, never sent from here.
+  // The ladder click's review: opened once, on exactly the draft the click filled, never sent from here. It waits until
+  // the ticket shows that price (and amount), and is dropped when the draft cannot be sent or the person edits it.
   useEffect(() => {
-    if (!reviewPending.current || type !== 'limit') return;
-    if (canSend && checked.ok) {
-      reviewPending.current = false;
+    const pending = reviewPending.current;
+    if (!pending) return;
+    const drafted = price === pending.price && (pending.amount === null || amount === pending.amount);
+    if (!drafted) {
+      if (pending.applied) reviewPending.current = null;
+      return;
+    }
+    pending.applied = true;
+    if (type !== 'limit') {
+      reviewPending.current = null;
+    } else if (canSend && checked.ok) {
+      reviewPending.current = null;
       void startReview();
-    } else if (live.state === 'blocked' || live.state === 'error') reviewPending.current = false;
+    } else if (!checked.ok || live.state === 'blocked' || live.state === 'error') {
+      reviewPending.current = null;
+    }
   });
 
   async function startReview() {
