@@ -87,6 +87,11 @@ test('each shared part is found directly, through a computed subcommand, and thr
   // A computed subcommand counts as every part it could be; a stack script run by hand counts as the stack's tools.
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', which, 'on')")].sort(), ['freeze', 'gates']);
   assert.deepEqual([...directWorld("tool('local-test-market.mjs', 'ensure')")], ['market']);
+  // Any quote counts: double quotes and a backtick template are as literal as single quotes.
+  assert.deepEqual([...directWorld('tool("local-test-market.mjs", "stop")')], ['market']);
+  assert.deepEqual([...directWorld("tool(`local-test-market.mjs`, 'move', 'BTC/USDT', '+7%')")], ['market']);
+  assert.deepEqual([...directWorld('tool("local-test-market.mjs", "status")')], []);
+  assert.deepEqual([...directWorld('tool("local-test-gates.mjs", "posting-freeze", "on")')], ['freeze']);
   assert.deepEqual(
     [...directWorld("execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-loan'])")],
     ['stack'],

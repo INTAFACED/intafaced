@@ -641,7 +641,7 @@ function parseArgs(argv) {
     else if (!a.startsWith('--'))
       // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
       die(
-        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move (for example: pnpm local:market ${a})`,
+        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move | unshift (for example: pnpm local:market ${a})`,
         2,
       );
   }

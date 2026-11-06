@@ -60,9 +60,9 @@ const BOOK = [
   /['`](?:Confirm (?:buy|sell|open long|open short)|Place order)['`]\s*[:)]/,
   /`(?:Buy|Sell|Confirm|Open) \$\{/,
 ];
-const FREEZE = [/ledger-freeze/, /tool\(\s*'local-test-gates\.mjs',\s*'posting-freeze'/];
+const FREEZE = [/ledger-freeze/, /tool\(\s*['"`]local-test-gates\.mjs['"`],\s*['"`]posting-freeze['"`]/];
 // A stack script run some other way than `tool(…)` (execFileSync, spawnSync, a path joined by hand): its own tools.
-const STACK_SCRIPT = /['`][^'`\n]*\blocal-test[a-z-]*\.mjs['`]/g;
+const STACK_SCRIPT = /['"`][^'"`\n]*\blocal-test[a-z-]*\.mjs['"`]/g;
 
 /** The world parts one piece of source touches directly (not through helpers). */
 export function directWorld(src) {
@@ -71,9 +71,10 @@ export function directWorld(src) {
   if (FREEZE.some((re) => re.test(src))) found.add('freeze');
   if (/\brestartWith\(/.test(src)) found.add('restart');
   const viaTool = new Set();
-  for (const m of src.matchAll(/\btool\(\s*'([a-z-]+\.mjs)'\s*(?:,\s*('([a-z-]+)'|[^,)]+))?/g)) {
+  // Any quote: 'x', "x" or `x` (a template with no ${…} in it is as literal as the others).
+  for (const m of src.matchAll(/\btool\(\s*(['"`])([a-z-]+\.mjs)\1\s*(?:,\s*((['"`])([a-z-]+)\4|[^,)]+))?/g)) {
     viaTool.add(m.index);
-    const [, script, , literal] = m;
+    const [, , script, , , literal] = m;
     // A subcommand the source computes counts as every part it could be.
     const sub = literal ?? null;
     if (sub && PER_ACCOUNT[script]?.has(sub)) continue;

@@ -67,12 +67,27 @@ async function sessionOf(who) {
     }).then(json);
 }
 
+/** The stack's own TEST accounts (the market maker and its taker): the maker loop owns their orders, never a journey. */
+function stackAccounts() {
+  try {
+    const accounts = JSON.parse(fs.readFileSync(stackPaths().accounts, 'utf8'));
+    return new Set(
+      Object.values(accounts)
+        .map((a) => a?.email)
+        .filter(Boolean),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 const rows = (body, ...keys) => {
   if (Array.isArray(body)) return body;
   for (const k of keys) if (Array.isArray(body?.[k])) return body[k];
   return [];
 };
 const ACTIVE_ALGO = new Set(['active', 'paused']); // svc-trade's AlgoStatus that can still send a slice
+const STOPPABLE_GRID = new Set(['initializing', 'running', 'paused_range']); // svc-trade grid-service.ts STOPPABLE
 
 /** Everything one account still has working on the shared books, taken down. Returns what was left, in words. */
 export async function clearAccountBooks(who) {
@@ -82,7 +97,7 @@ export async function clearAccountBooks(who) {
   const ok = (res) => res.status < 300 || res.status === 404 || res.status === 409;
   // Spot (and whatever else the one cancel-all takes), then each futures order on its own.
   const all = await call('DELETE', '/api/v1/orders');
-  if (!ok(all) && all.status !== 400) left.push(`${who.email}: cancel-all answered ${all.status}`);
+  if (!ok(all)) left.push(`${who.email}: cancel-all answered ${all.status}`);
   /** A list read, or null after saying it could not be read (so nothing it would have listed is taken for gone). */
   const list = async (route, what, ...keys) => {
     const res = await call('GET', route);
@@ -101,7 +116,7 @@ export async function clearAccountBooks(who) {
     if (!ok(res)) left.push(`${who.email}: algo ${a.id} answered ${res.status}`);
   }
   for (const g of await list('/api/v1/bots/grid', 'grid bots', 'bots', 'items')) {
-    if (g.state !== 'running' && g.state !== 'starting') continue;
+    if (!STOPPABLE_GRID.has(String(g.state ?? g.status ?? ''))) continue;
     const res = await call('POST', `/api/v1/bots/grid/${encodeURIComponent(g.id)}/stop`, { settlement: 'keep' });
     if (!ok(res)) left.push(`${who.email}: grid bot ${g.id} answered ${res.status}`);
   }
@@ -113,12 +128,16 @@ export async function clearAccountBooks(who) {
  * with when that file began (null if it was not running), and `accounts` the TEST accounts it signed up or acted as.
  * Returns what it printed.
  */
-export async function restoreWorld(file, { makerArgs, accounts }) {
+export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
   const parts = worldOf(file);
   const said = [];
-  if (parts.has('book'))
-    for (const who of accounts)
-      for (const line of await clearAccountBooks(who).catch((err) => [`${who.email}: ${err.message}`])) said.push(line);
+  if (parts.has('book')) {
+    const own = stackAccounts();
+    const cleared = await Promise.all(
+      accounts.filter((who) => !own.has(who.email)).map((who) => clearAccountBooks(who).catch((err) => [`${who.email}: ${err.message}`])),
+    );
+    for (const lines of cleared) said.push(...lines);
+  }
   if (parts.has('market')) {
     try {
       tool('local-test-market.mjs', 'unshift');
@@ -129,12 +148,16 @@ export async function restoreWorld(file, { makerArgs, accounts }) {
           .slice(0, 200)}`,
       );
     }
-    if (makerArgs && !marketRunning())
+    // The maker as the file found it: running with the same options, or stopped.
+    const now = marketArgs();
+    const same = now !== null && makerArgs !== null && JSON.stringify(now) === JSON.stringify(makerArgs);
+    if (!same && (now !== null || makerArgs !== null))
       try {
-        tool('local-test-market.mjs', 'start', ...makerArgs);
+        if (now !== null) tool('local-test-market.mjs', 'stop');
+        if (makerArgs !== null) tool('local-test-market.mjs', 'start', ...makerArgs);
       } catch (err) {
         said.push(
-          `market maker not started again: ${String(err.stderr ?? err.message)
+          `market maker not put back as it was: ${String(err.stderr ?? err.message)
             .trim()
             .slice(0, 200)}`,
         );
