@@ -421,8 +421,8 @@ export type PrincipalSummary = z.infer<typeof principalSummarySchema>;
 
 /**
  * The shape svc-identity must implement. Declaring it here means a breaking
- * change to identity's API is a compile error in this package — caught in the
- * contracts PR, before any consumer is touched (§15.2).
+ * change to identity's API is a compile error in this package — caught at
+ * compile time here, before any consumer runs.
  *
  * Deliberately absent: `certPerk` / `grantCertPerk` / `applyCertMap`.
  * A certification is an XP source (`rank.awardXp`). Perks stay `rank.perks`

@@ -3,5 +3,5 @@
 The Identity Blueprint service. Read `README.md` before editing.
 
 - Tests: `*.test.*` files under `src/`. Run `pnpm --filter @intafaced/svc-blueprint test`.
-- Root rules that matter most here: Non-custodial: holds no balance (`packages/config/src/modules.ts`). One service per PR; no reading other services' tables; cross-service changes are two PRs (contracts or events first), except that a slice's contracts, one service and its screen land as one PR.
+- Root rules that matter most here: Non-custodial: holds no balance (`packages/config/src/modules.ts`). One PR may carry one whole journey across services, contracts and events; ledger-client money recipes and the security services and packages go in their own PR; no reading other services' tables.
 - Env, ports and required settings: `docs/SERVICES.md` (generated). All other rules: root `AGENTS.md`.

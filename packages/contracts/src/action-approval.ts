@@ -54,7 +54,7 @@ export const SAME_PERSON_ACTION_TYPES = [
   // Changing where an ordered card is delivered: the new address, bound as the order binds it.
   'bank.step_up.cards.updateShipping',
   // Withdrawals. Identity mints and consumes these. svc-bank ramps still gate on the
-  // trade:withdraw bearer until a bank change reads the approval (one service per PR).
+  // trade:withdraw bearer until a bank change reads the approval.
   'bank.step_up.ramps.offramp',
   'bank.step_up.ramps.setWithdrawDestination',
   // Merchant payout destination. Identity mints it; svc-pay consumes it.

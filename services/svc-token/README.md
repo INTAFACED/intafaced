@@ -126,7 +126,7 @@ Every recipe this service invokes, and what it touches:
 | `burn`               | `token.burn`              | rewards engine → burn account        |
 | `mintEmission`       | `token.emission`          | mint boundary → destination          |
 
-> **This PR adds one recipe to `packages/ledger-client`:** `sweepFeesToRewards`. Strictly §15.2 says a shared-package change should be its own PR first — flagging it rather than burying it. It exists because real yield must demonstrably come from fees the platform earned, and the trail from `houseFees(module)` to a user's balance should be two queryable ledger transactions rather than one opaque one.
+> **This PR adds one recipe to `packages/ledger-client`:** `sweepFeesToRewards`. Strictly §15.2 said a shared-package change should be its own PR first — flagging it rather than burying it. It exists because real yield must demonstrably come from fees the platform earned, and the trail from `houseFees(module)` to a user's balance should be two queryable ledger transactions rather than one opaque one.
 
 ### Why staking value lives in the ledger
 
