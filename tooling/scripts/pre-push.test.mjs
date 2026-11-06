@@ -90,6 +90,11 @@ test('the checks run in the Mac-wide heavy slot when its script exists, and `non
   assert.equal(heavyWrapper({}, '/Users/x', no), null);
   assert.equal(heavyWrapper({ INTAFACED_HEAVY_WRAPPER: '/opt/cap.sh' }, '/Users/x', yes), '/opt/cap.sh');
   assert.equal(heavyWrapper({ INTAFACED_HEAVY_WRAPPER: 'none' }, '/Users/x', yes), null);
+  const noLocks = (p) => !p.endsWith('/locks');
+  assert.deepEqual(heavyWrapper({}, '/Users/x', noLocks), {
+    missing: '/Users/x/code/review/restart/locks',
+    path: '/Users/x/code/review/restart/heavy.sh',
+  });
 });
 
 test('a change to the shared config core settings during the checks is named', () => {

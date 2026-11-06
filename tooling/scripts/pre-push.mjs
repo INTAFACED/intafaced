@@ -22,7 +22,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { appendFileSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { availableParallelism, homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { affectedFilters, classify, readEdges } from '../ci/ci-affected.mjs';
 
@@ -100,7 +100,10 @@ export function heavyWrapper(env, home, exists = existsSync) {
   const named = env.INTAFACED_HEAVY_WRAPPER;
   if (named === 'none') return null;
   const path = named || join(home, 'code', 'review', 'restart', 'heavy.sh');
-  return exists(path) ? path : null;
+  if (!exists(path)) return null;
+  // The default script takes its slots as folders under locks/ beside it and waits forever when that folder is missing.
+  if (!named && !exists(join(dirname(path), 'locks'))) return { missing: join(dirname(path), 'locks'), path };
+  return path;
 }
 
 /** The shared config's core settings a check must never change (2026-11-06: a gate's `git init` set core.bare). */
@@ -245,7 +248,13 @@ async function main() {
     return;
   }
 
-  const wrapper = process.env.INTAFACED_PRE_PUSH_IN_SLOT === '1' ? null : heavyWrapper(process.env, homedir());
+  let wrapper = process.env.INTAFACED_PRE_PUSH_IN_SLOT === '1' ? null : heavyWrapper(process.env, homedir());
+  if (wrapper && typeof wrapper === 'object') {
+    console.log(
+      `  ⚠ ${wrapper.path} is here but its slot folder ${wrapper.missing} is not, so it would wait forever: running without a slot`,
+    );
+    wrapper = null;
+  }
   if (wrapper) {
     // The same checks again, inside one heavy slot; the inner run repeats the cheap checks above and does the rest.
     console.log(`  waiting for a heavy slot (${wrapper}) …`);
