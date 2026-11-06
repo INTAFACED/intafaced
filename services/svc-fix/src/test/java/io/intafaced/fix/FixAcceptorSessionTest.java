@@ -281,9 +281,7 @@ class FixAcceptorSessionTest {
             assertEquals(nosSeq, client.getExpectedSenderNum() - 1, "send used the session sequence");
             // The transport counts its post inside matching.submit(); the application counts it only after submit()
             // returns. Wait on the one counted last, or the second assertion can read it a moment early (#7186).
-            for (int i = 0; i < 40 && firstApp.matchingPosts() < 1; i++) {
-                Thread.sleep(50);
-            }
+            awaitTrue(() -> firstApp.matchingPosts() >= 1, "the application counted its post to matching");
             assertEquals(1, firstPosts.get());
             assertEquals(1, firstApp.matchingPosts());
         } finally {
@@ -330,6 +328,17 @@ class FixAcceptorSessionTest {
         } catch (ConfigError missing) {
             return false;
         }
+    }
+
+    /** Polls `condition` every 50 ms for up to 2 s, then fails naming what it waited for. */
+    private static void awaitTrue(java.util.function.BooleanSupplier condition, String waitingFor) throws InterruptedException {
+        for (int i = 0; i < 40; i++) {
+            if (condition.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        assertTrue(condition.getAsBoolean(), "timed out after 2 s waiting until " + waitingFor);
     }
 
     private static Session loggedOnSession(SessionID sessionId) throws Exception {
