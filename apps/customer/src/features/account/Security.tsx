@@ -208,9 +208,9 @@ export function Security() {
     if (!waiting.moved && same(visibleSetup.original)) setupHeading.current?.focus();
   }, [visibleSetup?.record.requestId, api, userId]);
   /** The call options for this change: its abort signal. */
-  const sending = (_intent: Original, signal?: AbortSignal) => (signal ? { signal } : {});
+  const sending = (signal?: AbortSignal) => (signal ? { signal } : {});
   /** The approval this change carries when the person just confirmed it is them; nothing otherwise. */
-  const approved = (intent: Original) => (intent.approval ? { ...intent.approval } : {});
+  const approved = (intent: Original) => intent.approval ?? {};
   const blocked = (kind: SecurityKind) => !userId || busy || familyBlocked(journal, securityFamily(kind));
   function open(kind: SecurityKind, credential?: Passkey) {
     if (!userId || blocked(kind) || running.current || !api.canWrite()) return;
@@ -325,7 +325,7 @@ export function Security() {
       'webauthn.registerOptions',
       approved(intent),
       registrationFor(intent.owner),
-      sending(intent, abort.signal),
+      sending(abort.signal),
     );
     if (!same(intent)) {
       settleOriginalRefusal(preparation, options);
@@ -353,7 +353,7 @@ export function Security() {
       'webauthn.registerVerify',
       { ...payload, ...approved(intent) },
       z.object({ credentialId }).refine((value) => value.credentialId === payload!.rawId),
-      sending(intent, abort.signal),
+      sending(abort.signal),
     );
     if (!same(intent)) {
       settleOriginalRefusal(registration, answer);
@@ -391,7 +391,7 @@ export function Security() {
       'webauthn.remove',
       { credentialId: intent.credential.credentialId, ...approved(intent) },
       z.object({ removed: z.boolean() }),
-      sending(intent, abort.signal),
+      sending(abort.signal),
     );
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
@@ -407,7 +407,7 @@ export function Security() {
     setSetup(null);
     setCode('');
     setShowKey(false);
-    const answer = await intent.client.mutate('identity', 'totp.enrol', approved(intent), setupResponse, sending(intent));
+    const answer = await intent.client.mutate('identity', 'totp.enrol', approved(intent), setupResponse, sending());
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;
@@ -424,8 +424,8 @@ export function Security() {
     const prepared = { ...record, state: 'prepared' as const };
     sync(intent.owner);
     if (setupFocus.current?.intent === intent) setupFocus.current.readyRequest = prepared.requestId;
-    // A setup started after "Confirm it is you" keeps that token for its own confirmation only: the factor gate checks
-    // the confirmation too. It stays in memory with this setup and expires in five minutes.
+    // A setup started after "Confirm it is you" keeps that approval for its own confirmation only: the service checks it
+    // when the setup starts and spends it when the code confirms. It stays in memory with this setup; a refresh drops it.
     setSetup({ original: intent, record: prepared, data: answer.data, confirmed: false });
     setResponse(null);
   }
@@ -453,7 +453,7 @@ export function Security() {
         { secret: prepared.data.secret, code: entered, ...approved(intent) },
         z.object({ ok: z.literal(true) }),
         // A wrong code is this form's answer, not the end of the sign-in.
-        { ...sending(intent), keepSessionFor: ['auth.mfa_invalid'] },
+        { ...sending(), keepSessionFor: ['auth.mfa_invalid'] },
       );
       if (!same(intent)) {
         settleOriginalRefusal(record, answer);

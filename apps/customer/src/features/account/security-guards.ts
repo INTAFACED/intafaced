@@ -69,6 +69,8 @@ export function stepUpKind(kind: SecurityKind | undefined): 'options' | 'remove'
  * or another session's before the factor change runs, so each is a pre-effect refusal of every door that carries one.
  */
 const stepUpRefusals = {
+  'identity.second_factor_required': 412,
+  'identity.delegated_refused': 403,
   'identity.step_up_required': 412,
   'identity.step_up_used': 412,
   'identity.step_up_target': 412,

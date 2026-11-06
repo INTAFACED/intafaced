@@ -11,6 +11,7 @@ import { identityActionPayloadHash, stubActionApprovals } from './auth/privilege
 import { AuthError, type AuthService, type KycRecordView } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
 import { SecurityStepUpError } from './auth/security-step-up.js';
+import { totp } from './auth/totp.js';
 import type { RankService } from './rank/rank-service.js';
 import type { FreezeService } from './affiliates/freeze-service.js';
 import { MemoryAccrualStore } from './affiliates/accrual-store.js';
@@ -1373,7 +1374,12 @@ describe('a password session changes a factor only with a step-up approval minte
     const api = await caller(['identity:write'], { mfa: false });
     await api.webauthn.remove({ credentialId: 'cred-9', clientRequestId: 'req-rm-9', stepUpApprovalId: 'appr-3' });
     await api.totp.enrol({ clientRequestId: 'req-totp', stepUpApprovalId: 'appr-4' });
-    await api.totp.confirm({ secret: 'JBSWY3DPEHPK3PXPJBSWY3DP', code: '123456', clientRequestId: 'req-totp', stepUpApprovalId: 'appr-4' });
+    await api.totp.confirm({
+      secret: 'JBSWY3DPEHPK3PXPJBSWY3DP',
+      code: totp('JBSWY3DPEHPK3PXPJBSWY3DP'),
+      clientRequestId: 'req-totp',
+      stepUpApprovalId: 'appr-4',
+    });
     expect(seen).toEqual([
       {
         how: 'require',
@@ -1387,6 +1393,16 @@ describe('a password session changes a factor only with a step-up approval minte
     expect(actorOf('removeWebauthnCredential').mfa).toBe(true);
     expect(actorOf('startTotpEnrolment').mfa).toBe(true);
     expect(actorOf('confirmTotpEnrolment').mfa).toBe(true);
+  });
+
+  it('a mistyped setup code is refused before the approval is spent', async () => {
+    const seen = guarded();
+    const api = await caller(['identity:write'], { mfa: false });
+    const wrong = await api.totp
+      .confirm({ secret: 'JBSWY3DPEHPK3PXPJBSWY3DP', code: '000000', clientRequestId: 'req-totp', stepUpApprovalId: 'appr-5' })
+      .catch((e: unknown) => e);
+    expect(codeOf(wrong)).toBe('UNAUTHORIZED');
+    expect(seen).toEqual([]);
   });
 
   it('an approval for another action or request is refused with its code, and nothing runs', async () => {

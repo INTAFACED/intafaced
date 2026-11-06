@@ -133,7 +133,7 @@ if (!(await postgresAvailable(URL))) {
 
   describe('SecurityStepUp.require', () => {
     it('names the 13 STP-3 scopes, the security lock unlock, new-device approval and recovery keys, and each has a door the guard can bind', () => {
-      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(18);
+      expect(new Set(SECURITY_STEP_UP_SCOPES).size).toBe(19);
       for (const scope of SECURITY_STEP_UP_SCOPES) expect(doorForScope(scope)?.scope).toBe(scope);
     });
 

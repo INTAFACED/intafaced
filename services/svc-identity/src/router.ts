@@ -66,6 +66,7 @@ declare module '@intafaced/contracts' {
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { factorActor, factorGateTrpcError, type FactorActor } from './auth/factor-gate.js';
 import { toSecurityStepUpTrpc, type SecurityStepUp, type SecurityStepUpScope } from './auth/security-step-up.js';
+import { matchTotpStep } from './auth/totp.js';
 import {
   AuthError,
   assertDelegateCannotGrant,
@@ -2295,6 +2296,11 @@ export function createIdentityRouter(
         .output(z.object({ ok: z.literal(true) }))
         .mutation(async ({ ctx, input }) => {
           try {
+            // A mistyped code is refused before the approval is spent, so the person can type it again on the same
+            // confirmation; confirmTotpEnrolment still checks the code (and its replay) inside its own transaction.
+            if (input.stepUpApprovalId && matchTotpStep(input.secret, input.code) === null) {
+              throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+            }
             const actor = await steppedUpActor(ctx.principal, 'spend', 'identity.step_up.totp_add', input);
             await auth.confirmTotpEnrolment(ctx.principal.userId, actor, input.secret, input.code);
             return { ok: true as const };

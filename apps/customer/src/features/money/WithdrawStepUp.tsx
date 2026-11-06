@@ -40,6 +40,7 @@ export function WithdrawStepUp({
 }: {
   why?: string;
   mint?: (method: WithdrawStepUpMethod, signal?: AbortSignal) => Promise<ApiResult<string>>;
+  /** Gets the token (or, with `mint`, the approval id) for exactly one call. */
   run: (token: string) => Promise<ApiResult<unknown>>;
   onDone: () => void;
   onCancel: () => void;
