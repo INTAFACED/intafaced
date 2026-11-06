@@ -291,7 +291,11 @@ async function main() {
   let changed = [];
   if (plan.kind !== 'docs') {
     const listed = JSON.parse(
-      execFileSync(turbo, ['ls', ...plan.test.map((f) => `--filter=${f}`), '--output=json'], { cwd: top, encoding: 'utf8' }),
+      execFileSync(turbo, ['ls', ...plan.test.map((f) => `--filter=${f}`), '--output=json'], {
+        cwd: top,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }),
     );
     changed = listed.packages.items.map(({ name, path }) => {
       let testScript = '';
