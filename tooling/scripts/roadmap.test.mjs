@@ -11,6 +11,7 @@ import {
   journeyOrder,
   laneFor,
   parseJourneys,
+  sliceIdCandidates,
   parseSpec,
   passedSteps,
   progress,
@@ -312,4 +313,20 @@ test('a step names upper-case and one-segment slice ids (OPS-ORD-01, LOAN-03), a
     built.steps.map((s) => s.slices),
     [['OPS-ORD-01'], ['LOAN-03'], [], []],
   );
+});
+
+test('a joined range names both slices; an id may touch `_`; a requirement id inside an id is not a slice', () => {
+  assert.deepEqual(
+    sliceIdCandidates('bots engine (CB-bots-02-CB-bots-19); feed').filter((id) => /^CB-bots-\d+$/.test(id)),
+    ['CB-bots-02', 'CB-bots-19'],
+  );
+  assert.deepEqual(sliceIdCandidates('_BK-loan-01_', { longest: true }), ['BK-loan-01']);
+  assert.deepEqual(sliceIdCandidates('see OPS-ORD-01.', { longest: true }), ['OPS-ORD-01']);
+  const known = new Set(['CB-copy-20', 'CB-bots-02', 'CB-bots-19']);
+  assert.deepEqual(dependsOn('bots engine (CB-bots-02-CB-bots-19); derivatives liquidation feed.', known, 'CB-copy-20'), [
+    'CB-bots-02',
+    'CB-bots-19',
+  ]);
+  const [j] = parseJourneys(['## J-a-01: x', '- Order: 1', '| 1 | does | sees | CB-bots-02-CB-bots-19 | none |'].join('\n'), 'a', known);
+  assert.deepEqual(j.steps[0].slices, ['CB-bots-02', 'CB-bots-19']);
 });

@@ -45,7 +45,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1519 slices left in 21 modules. 273 need no other slice. 47 sit in a dependency loop that the lane untangles first. 363 end in a refusal that names an outside service (built, switched on later). Size: 714 L, 699 M, 106 S.
+1519 slices left in 21 modules. 272 need no other slice. 47 sit in a dependency loop that the lane untangles first. 363 end in a refusal that names an outside service (built, switched on later). Size: 714 L, 699 M, 106 S.
 
 ### Journey map
 
@@ -80,7 +80,7 @@ Done is defined by 465 journeys (3088 steps) in `modules/<module>/acceptance/jou
 | Module         | Slices | Need nothing | Refuse for an outside service | Large |
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
 | merchant       | 211    | 35           | 10                            | 105   |
-| copy-bots-otc  | 125    | 43           | 18                            | 47    |
+| copy-bots-otc  | 125    | 42           | 18                            | 47    |
 | ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
 | bank           | 105    | 28           | 12                            | 59    |
@@ -109,7 +109,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
 | svc-pay merchant              | 232    | 35           | 11                    | 42                    | 35            |
 | svc-bank                      | 202    | 45           | 35                    | 58                    | 22            |
-| svc-trade spot                | 164    | 42           | 42                    | 54                    | 7             |
+| svc-trade spot                | 164    | 41           | 42                    | 54                    | 7             |
 | svc-identity                  | 136    | 29           | 68                    | 50                    | 11            |
 | svc-protocol                  | 75     | 4            | 1                     | 19                    | 4             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |

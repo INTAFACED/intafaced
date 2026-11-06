@@ -6913,7 +6913,7 @@
     "spec": "modules/copy-bots-otc/specs/copy-copy.md",
     "lane": "svc-trade spot",
     "touches": ["svc-trade", "customer: trade"],
-    "depends": [],
+    "depends": ["CB-bots-02", "CB-bots-19"],
     "journeys": [],
     "outside": "",
     "size": "L",
