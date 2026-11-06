@@ -1,6 +1,33 @@
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// DIAGNOSTIC ONLY (lane F proof branch, never merged): on a failure, print the BTC/USDT book and the market log.
+test.afterEach(async ({}, info) => {
+  if (info.status === info.expectedStatus) return;
+  const state = process.env.LOCAL_STACK_STATE || path.join(os.homedir(), '.intafaced', 'local-test-stack');
+  try {
+    const lines = fs.readFileSync(path.join(state, 'logs', 'market.log'), 'utf8').split('\n');
+    console.log(
+      `DIAG market.log (last 120 BTC lines):\n${lines
+        .filter((l) => l.includes('BTC/USDT'))
+        .slice(-120)
+        .join('\n')}`,
+    );
+  } catch (err) {
+    console.log(`DIAG market.log unreadable: ${err.message}`);
+  }
+  try {
+    const me = await api(account());
+    const book = await me.get('/api/v1/orderbook/BTC%2FUSDT?limit=10');
+    console.log(`DIAG book now ${new Date().toISOString()}: ${JSON.stringify(book.body)}`);
+  } catch (err) {
+    console.log(`DIAG book unreadable: ${err.message}`);
+  }
+});
 
 // J-derivatives-02, in the running app (docs/roadmap/journeys.json): size a trade and check its risk before opening it.
 // One test per step, titled "J-derivatives-02 #<n>", run in order on one TEST account. The contract is the TEST
@@ -310,6 +337,8 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   await expect(ticket.getByText('50 bps of the mark')).toBeVisible();
   await expect(ticket.getByText('Protection price', { exact: true })).toBeVisible();
   const market = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
+  console.log(`DIAG #5 preview ${new Date().toISOString()}: ${JSON.stringify(market.body)}`);
+  console.log(`DIAG #5 book: ${JSON.stringify((await me.get('/api/v1/orderbook/BTC%2FUSDT?limit=10')).body)}`);
   expect(market.status, JSON.stringify(market.body)).toBe(200);
   expect(market.body).toMatchObject({ type: 'market', slippageCapBps: 50, maxOrderNotional: String(MAX_ORDER), split: null });
   const mark = toUnits(market.body.markPrice);
