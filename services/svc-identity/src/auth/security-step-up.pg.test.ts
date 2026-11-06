@@ -167,7 +167,7 @@ if (!(await postgresAvailable(URL))) {
     it('does not spend an approval minted for another action or other field values', async () => {
       const user = await newUser();
       const approvalId = await mintRemove(user);
-      await expect(guard.require(user.principal, ADD, { label: 'Phone', clientRequestId: 'req-1' }, approvalId)).rejects.toMatchObject({
+      await expect(guard.require(user.principal, ADD, { clientRequestId: 'req-1' }, approvalId)).rejects.toMatchObject({
         code: 'identity.step_up_target',
       });
       await expect(
@@ -297,7 +297,7 @@ if (!(await postgresAvailable(URL))) {
       await expect(
         guard.assertHeld(user.principal, REMOVE, { credentialId: 'cred-2', clientRequestId: 'req-1' }, approvalId),
       ).rejects.toMatchObject({ code: 'identity.step_up_target' });
-      await expect(guard.assertHeld(user.principal, ADD, { label: 'Phone', clientRequestId: 'req-1' }, approvalId)).rejects.toMatchObject({
+      await expect(guard.assertHeld(user.principal, ADD, { clientRequestId: 'req-1' }, approvalId)).rejects.toMatchObject({
         code: 'identity.step_up_target',
       });
       await expect(guard.assertHeld({ ...user.principal, sid: 'another-session' }, REMOVE, removeFields, approvalId)).rejects.toMatchObject(

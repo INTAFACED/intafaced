@@ -76,6 +76,8 @@ export const SAME_PERSON_ACTION_TYPES = [
   'identity.step_up.passkey_add',
   'identity.step_up.passkey_remove',
   'identity.step_up.passkey_rename',
+  // Set up the first authenticator app while a passkey is already on (I-signin-sessions-01).
+  'identity.step_up.totp_add',
   // Bind one passkey to the actions it answers for, and ask for a passkey after the password (I-signin-sessions-10).
   'identity.step_up.passkey_purposes',
   'identity.step_up.passkey_second_step',

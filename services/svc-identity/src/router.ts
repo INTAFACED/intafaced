@@ -64,7 +64,8 @@ declare module '@intafaced/contracts' {
   }
 }
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
-import { factorActor, factorGateTrpcError } from './auth/factor-gate.js';
+import { factorActor, factorGateTrpcError, type FactorActor } from './auth/factor-gate.js';
+import { toSecurityStepUpTrpc, type SecurityStepUp, type SecurityStepUpScope } from './auth/security-step-up.js';
 import {
   AuthError,
   assertDelegateCannotGrant,
@@ -891,6 +892,12 @@ export function createIdentityRouter(
      */
     founderEnrolment?: { invites?: FounderEnrolmentConfig | undefined; now?: () => Date };
     webauthnEnabled?: boolean;
+    /**
+     * The single-use security step-up (I-signin-sessions-01). With it, a session that has not passed a second factor
+     * may add or remove a factor by presenting a `customerStepUp` approval minted for exactly that change. Absent, only
+     * an MFA session may (the factor gate alone).
+     */
+    securityStepUp?: Pick<SecurityStepUp, 'require' | 'assertHeld'>;
     /** The owner's published verification requirements and review times (I-kyc-compliance-05). Absent = none published. */
     kycLadder?: KycLadderSettings;
     /** The owner's reject reasons (IDENTITY_KYC_REJECT_REASONS, I-kyc-compliance-01). Absent or empty: every reject refuses. */
@@ -1028,6 +1035,36 @@ export function createIdentityRouter(
   const founderNow = options.founderEnrolment?.now ?? (() => new Date());
   const privilegedUserIds = options.privilegedUserIds ?? [];
   const toFactorError = (err: unknown): TRPCError => factorGateTrpcError(err) ?? toTrpcError(err);
+  /**
+   * The factor gate's actor for one factor change. A session that has passed a second factor goes as before. One that
+   * has not, and presents a step-up approval, goes as an MFA actor for this one call only when the approval is this
+   * session's, unexpired and minted for exactly this change and request: `check` reads it (a first phase), `spend`
+   * consumes it (the change itself), so a second use, another action or another request is refused. Nothing is kept:
+   * the next call asks again.
+   */
+  async function steppedUpActor(
+    principal: Parameters<typeof factorActor>[0] & { readonly sid?: string | undefined },
+    how: 'check' | 'spend',
+    scope: SecurityStepUpScope,
+    step: { readonly clientRequestId?: string | undefined; readonly stepUpApprovalId?: string | undefined },
+    fields: Readonly<Record<string, string>> = {},
+  ): Promise<FactorActor> {
+    const actor = factorActor(principal, privilegedUserIds);
+    if (actor.mfa || !step.stepUpApprovalId || !options.securityStepUp) return actor;
+    const held = { userId: principal.userId, sid: principal.sid ?? '', kid: principal.kid, sub_account: principal.sub_account };
+    const bound = { ...fields, clientRequestId: step.clientRequestId ?? '' };
+    try {
+      if (how === 'spend') await options.securityStepUp.require(held, scope, bound, step.stepUpApprovalId);
+      else await options.securityStepUp.assertHeld(held, scope, bound, step.stepUpApprovalId);
+    } catch (err) {
+      toSecurityStepUpTrpc(err);
+    }
+    return { ...actor, mfa: true };
+  }
+  const stepUpInput = {
+    clientRequestId: z.string().min(1).max(128).optional(),
+    stepUpApprovalId: z.string().min(1).max(128).optional(),
+  };
   const referral = options.referral;
   const share = options.share;
   const freeze = options.freeze;
@@ -2242,21 +2279,24 @@ export function createIdentityRouter(
 
     totp: router({
       enrol: protectedProcedure
+        .input(z.object(stepUpInput).optional())
         .output(z.object({ secret: z.string(), uri: z.string(), recoveryCodes: z.array(z.string()) }))
-        .mutation(async ({ ctx }) => {
+        .mutation(async ({ ctx, input }) => {
           try {
-            return await auth.startTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+            const actor = await steppedUpActor(ctx.principal, 'check', 'identity.step_up.totp_add', input ?? {});
+            return await auth.startTotpEnrolment(ctx.principal.userId, actor);
           } catch (err) {
             throw toFactorError(err);
           }
         }),
 
       confirm: protectedProcedure
-        .input(z.object({ secret: z.string().min(16), code: z.string().regex(/^\d{6}$/) }))
+        .input(z.object({ secret: z.string().min(16), code: z.string().regex(/^\d{6}$/), ...stepUpInput }))
         .output(z.object({ ok: z.literal(true) }))
         .mutation(async ({ ctx, input }) => {
           try {
-            await auth.confirmTotpEnrolment(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input.secret, input.code);
+            const actor = await steppedUpActor(ctx.principal, 'spend', 'identity.step_up.totp_add', input);
+            await auth.confirmTotpEnrolment(ctx.principal.userId, actor, input.secret, input.code);
             return { ok: true as const };
           } catch (err) {
             throw toFactorError(err);
@@ -2272,10 +2312,11 @@ export function createIdentityRouter(
      * the same session tokens as password login, with `mfa: true`.
      */
     webauthn: router({
-      registerOptions: protectedProcedure.mutation(async ({ ctx }) => {
+      registerOptions: protectedProcedure.input(z.object(stepUpInput).optional()).mutation(async ({ ctx, input }) => {
         if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
         try {
-          return await auth.startWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds));
+          const actor = await steppedUpActor(ctx.principal, 'check', 'identity.step_up.passkey_add', input ?? {});
+          return await auth.startWebauthnRegistration(ctx.principal.userId, actor);
         } catch (err) {
           throw toFactorError(err);
         }
@@ -2293,13 +2334,19 @@ export function createIdentityRouter(
               transports: z.array(z.string()).optional(),
             }),
             clientExtensionResults: z.record(z.string(), z.unknown()).optional(),
+            ...stepUpInput,
           }),
         )
         .output(z.object({ credentialId: z.string() }))
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            return await auth.confirmWebauthnRegistration(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds), input);
+            const { clientRequestId, stepUpApprovalId, ...registration } = input;
+            const actor = await steppedUpActor(ctx.principal, 'spend', 'identity.step_up.passkey_add', {
+              clientRequestId,
+              stepUpApprovalId,
+            });
+            return await auth.confirmWebauthnRegistration(ctx.principal.userId, actor, registration);
           } catch (err) {
             throw toFactorError(err);
           }
@@ -2369,16 +2416,15 @@ export function createIdentityRouter(
        * Missing/foreign id → removed:false (never confirms existence).
        */
       remove: protectedProcedure
-        .input(z.object({ credentialId: z.string().min(1) }))
+        .input(z.object({ credentialId: z.string().min(1), ...stepUpInput }))
         .output(z.object({ removed: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
           if (!webauthnEnabled) throw new TRPCError({ code: 'FORBIDDEN', message: 'WebAuthn is disabled' });
           try {
-            const removed = await auth.removeWebauthnCredential(
-              ctx.principal.userId,
-              factorActor(ctx.principal, privilegedUserIds),
-              input.credentialId,
-            );
+            const actor = await steppedUpActor(ctx.principal, 'spend', 'identity.step_up.passkey_remove', input, {
+              credentialId: input.credentialId,
+            });
+            const removed = await auth.removeWebauthnCredential(ctx.principal.userId, actor, input.credentialId);
             return { removed };
           } catch (err) {
             throw toFactorError(err);

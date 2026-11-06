@@ -79,6 +79,106 @@ test(`${J}, part of #2: the refused passkey add goes ahead after the authenticat
   await expect(page.getByTestId('failure')).toHaveCount(0);
 });
 
+test(`${J} #2 a security change opens a step-up sheet; its approval is single use and bound to this action, and a refresh does not carry it`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person('sx');
+  await virtualAuthenticator(page);
+  await signUpInBrowser(page, who);
+  // The first passkey needs no step-up (there is no factor yet to confirm with); this sign-in stays password only.
+  await addPasskey(page);
+  const names = page.getByTestId('security__passkey-names');
+  const rows = names.getByTestId('security__row');
+  await expect(rows).toHaveCount(1);
+  const refusal = page.getByTestId('failure');
+  const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+  const field = (body, key) => {
+    const found = new RegExp(`"${key}":"([^"]+)"`).exec(body ?? '');
+    expect(found, `${key} in ${body}`).not.toBeNull();
+    return found[1];
+  };
+  /** Starts a passkey add; this sign-in has not passed a second factor, so it is refused and asks to confirm. */
+  async function startAdd() {
+    await page.getByRole('button', { name: 'Add passkey' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+    await expect(refusal).toContainText('Confirm it is you');
+    await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+    await expect(sheet).toContainText('This changes how you sign in');
+  }
+
+  // Starting a security change opens the step-up sheet; one passkey tap mints one approval for this add, and the add
+  // carries it with the same request id it was minted for.
+  await virtualAuthenticator(page, 'usb');
+  await startAdd();
+  const minted = page.waitForResponse((r) => r.url().includes('/api/identity/trpc/stepUp.complete'));
+  const verified = page.waitForResponse((r) => r.url().includes('/api/identity/trpc/webauthn.registerVerify'));
+  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  const first = field(await (await minted).text(), 'stepUpApprovalId');
+  const added = await verified;
+  const firstAdd = added.request().postData();
+  const credential = field(await added.text(), 'credentialId');
+  expect(field(firstAdd, 'stepUpApprovalId')).toBe(first);
+  const firstRequest = field(firstAdd, 'clientRequestId');
+  await expect(sheet).toBeHidden();
+  await expect(rows).toHaveCount(2);
+  await expect(refusal).toHaveCount(0);
+
+  // Single use: the same add sent again with the approval it already spent is refused, and nothing is added.
+  await startAdd();
+  await page.route('**/api/identity/trpc/webauthn.registerOptions', (route) =>
+    route.continue({ postData: JSON.stringify({ clientRequestId: firstRequest, stepUpApprovalId: first }) }),
+  );
+  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByTestId('security__ref')).toHaveText('identity.step_up_used');
+  await expect(refusal).not.toContainText('Outcome not confirmed');
+  await page.unroute('**/api/identity/trpc/webauthn.registerOptions');
+  await expect(rows).toHaveCount(2);
+
+  // Bound to this action: the sheet's confirmation, minted for removing the passkey just added, is refused for an add.
+  await startAdd();
+  await page.route('**/api/identity/trpc/stepUp.begin', (route) => {
+    const asked = JSON.parse(route.request().postData() ?? '{}');
+    const clientRequestId = asked.fields?.clientRequestId;
+    return route.continue({
+      postData: JSON.stringify({
+        scope: 'identity.step_up.passkey_remove',
+        purpose: 'account.passkey.remove',
+        target: credential,
+        fields: { credentialId: credential, clientRequestId },
+      }),
+    });
+  });
+  const otherAction = page.waitForResponse((r) => r.url().includes('/api/identity/trpc/stepUp.complete'));
+  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  expect((await otherAction).ok()).toBe(true);
+  await expect(sheet).toBeHidden();
+  await expect(page.getByTestId('security__ref')).toHaveText('identity.step_up_target');
+  await expect(refusal).not.toContainText('Outcome not confirmed');
+  await page.unroute('**/api/identity/trpc/stepUp.begin');
+  await expect(rows).toHaveCount(2);
+
+  // A refresh does not carry it: the confirmation starts an authenticator setup (its key shows), the page reloads, and
+  // starting the setup again is refused and asks to confirm once more.
+  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
+  await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
+  await expect(refusal).toContainText('Confirm it is you');
+  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  await expect(sheet).toContainText('This changes how you sign in');
+  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Show setup key' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Show setup key' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
+  await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
+  await expect(refusal).toContainText('Confirm it is you');
+  await expect(page.getByTestId('security__ref')).toHaveText('auth.mfa_required');
+  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  await expect(sheet).toContainText('This changes how you sign in');
+});
+
 test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and label; the name holds 64 characters at most, an empty one is refused, and no limit shows as "no limit set"`, async ({
   page,
 }) => {

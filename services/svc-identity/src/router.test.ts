@@ -10,6 +10,7 @@ import { requestIpAls } from './auth/auth-service-ip.js';
 import { identityActionPayloadHash, stubActionApprovals } from './auth/privileged-dual-control.js';
 import { AuthError, type AuthService, type KycRecordView } from './auth/auth-service.js';
 import { userCopy } from './user-copy.js';
+import { SecurityStepUpError } from './auth/security-step-up.js';
 import type { RankService } from './rank/rank-service.js';
 import type { FreezeService } from './affiliates/freeze-service.js';
 import { MemoryAccrualStore } from './affiliates/accrual-store.js';
@@ -209,6 +210,9 @@ function stubServices(): Stub {
       attestation: 'none' as const,
     })),
     confirmWebauthnRegistration: record('confirmWebauthnRegistration', () => ({ credentialId: 'cred-1' })),
+    removeWebauthnCredential: record('removeWebauthnCredential', () => true),
+    startTotpEnrolment: record('startTotpEnrolment', () => ({ secret: 'JBSWY3DPEHPK3PXP', uri: 'otpauth://TEST', recoveryCodes: [] })),
+    confirmTotpEnrolment: record('confirmTotpEnrolment', () => undefined),
     startWebauthnAuthentication: record('startWebauthnAuthentication', () => ({
       challenge: 'chal-auth',
       timeout: 60_000,
@@ -1302,6 +1306,106 @@ describe('webauthn registration requires a live session; auth is public', () => 
     expect(codeOf(await api.webauthn.registerOptions().catch((e: unknown) => e))).toBe('FORBIDDEN');
     expect(codeOf(await api.webauthn.authOptions({ identifier: 'alice' }).catch((e: unknown) => e))).toBe('FORBIDDEN');
     expect(stub.calls.filter((c) => c.method.startsWith('startWebauthn') || c.method.startsWith('confirmWebauthn'))).toHaveLength(0);
+  });
+});
+
+// ── Factor changes with a single-use step-up (I-signin-sessions-01) ─────────
+
+describe('a password session changes a factor only with a step-up approval minted for exactly that change', () => {
+  type Seen = { how: 'require' | 'assertHeld'; scope: string; fields: Record<string, string>; id: string | null | undefined };
+  function guarded(refuse?: string) {
+    const seen: Seen[] = [];
+    const spent = new Set<string>();
+    const securityStepUp = {
+      async require(_p: unknown, scope: string, fields: Record<string, string>, id?: string | null) {
+        seen.push({ how: 'require', scope, fields: { ...fields }, id });
+        if (refuse) throw new SecurityStepUpError(refuse as never);
+        if (spent.has(id ?? '')) throw new SecurityStepUpError('identity.step_up_used');
+        spent.add(id ?? '');
+      },
+      async assertHeld(_p: unknown, scope: string, fields: Record<string, string>, id?: string | null) {
+        seen.push({ how: 'assertHeld', scope, fields: { ...fields }, id });
+        if (refuse) throw new SecurityStepUpError(refuse as never);
+      },
+    };
+    router = createIdentityRouter(stub.auth, stub.rank, { registrationOpen: true, actionApprovals: stubActionApprovals(), securityStepUp });
+    return seen;
+  }
+  const actorOf = (method: string) => stub.calls.find((c) => c.method === method)!.args[1] as { mfa: boolean };
+  const registration = {
+    id: 'cred-1',
+    rawId: 'cred-1',
+    type: 'public-key' as const,
+    response: { clientDataJSON: 'eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIn0', attestationObject: 'o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YQ' },
+  };
+  const step = { clientRequestId: 'req-add-1', stepUpApprovalId: 'appr-1' };
+
+  it('adding a passkey checks the approval at options and spends it at verify, then goes as an MFA actor', async () => {
+    const seen = guarded();
+    const api = await caller(['identity:write'], { mfa: false });
+    await api.webauthn.registerOptions(step);
+    expect(actorOf('startWebauthnRegistration').mfa).toBe(true);
+    await expect(api.webauthn.registerVerify({ ...registration, ...step })).resolves.toEqual({ credentialId: 'cred-1' });
+    expect(actorOf('confirmWebauthnRegistration').mfa).toBe(true);
+    // The step-up fields never reach the ceremony.
+    expect(stub.calls.find((c) => c.method === 'confirmWebauthnRegistration')!.args[2]).toEqual(registration);
+    expect(seen).toEqual([
+      { how: 'assertHeld', scope: 'identity.step_up.passkey_add', fields: { clientRequestId: 'req-add-1' }, id: 'appr-1' },
+      { how: 'require', scope: 'identity.step_up.passkey_add', fields: { clientRequestId: 'req-add-1' }, id: 'appr-1' },
+    ]);
+  });
+
+  it('a second use is refused before the change runs', async () => {
+    guarded();
+    const api = await caller(['identity:write'], { mfa: false });
+    await api.webauthn.remove({ credentialId: 'cred-1', clientRequestId: 'req-rm-1', stepUpApprovalId: 'appr-2' });
+    stub.calls.length = 0;
+    const again = await api.webauthn
+      .remove({ credentialId: 'cred-1', clientRequestId: 'req-rm-1', stepUpApprovalId: 'appr-2' })
+      .catch((e: unknown) => e);
+    expect(codeOf(again)).toBe('PRECONDITION_FAILED');
+    expect((again as { cause?: { code?: string } }).cause?.code).toBe('identity.step_up_used');
+    expect(stub.calls.filter((c) => c.method === 'removeWebauthnCredential')).toHaveLength(0);
+  });
+
+  it('removing binds the passkey; setting up the authenticator checks at enrol and spends at confirm', async () => {
+    const seen = guarded();
+    const api = await caller(['identity:write'], { mfa: false });
+    await api.webauthn.remove({ credentialId: 'cred-9', clientRequestId: 'req-rm-9', stepUpApprovalId: 'appr-3' });
+    await api.totp.enrol({ clientRequestId: 'req-totp', stepUpApprovalId: 'appr-4' });
+    await api.totp.confirm({ secret: 'JBSWY3DPEHPK3PXPJBSWY3DP', code: '123456', clientRequestId: 'req-totp', stepUpApprovalId: 'appr-4' });
+    expect(seen).toEqual([
+      {
+        how: 'require',
+        scope: 'identity.step_up.passkey_remove',
+        fields: { credentialId: 'cred-9', clientRequestId: 'req-rm-9' },
+        id: 'appr-3',
+      },
+      { how: 'assertHeld', scope: 'identity.step_up.totp_add', fields: { clientRequestId: 'req-totp' }, id: 'appr-4' },
+      { how: 'require', scope: 'identity.step_up.totp_add', fields: { clientRequestId: 'req-totp' }, id: 'appr-4' },
+    ]);
+    expect(actorOf('removeWebauthnCredential').mfa).toBe(true);
+    expect(actorOf('startTotpEnrolment').mfa).toBe(true);
+    expect(actorOf('confirmTotpEnrolment').mfa).toBe(true);
+  });
+
+  it('an approval for another action or request is refused with its code, and nothing runs', async () => {
+    guarded('identity.step_up_target');
+    const api = await caller(['identity:write'], { mfa: false });
+    const refused = await api.webauthn.registerOptions(step).catch((e: unknown) => e);
+    expect(codeOf(refused)).toBe('PRECONDITION_FAILED');
+    expect((refused as { cause?: { code?: string } }).cause?.code).toBe('identity.step_up_target');
+    expect(stub.calls.filter((c) => c.method === 'startWebauthnRegistration')).toHaveLength(0);
+  });
+
+  it('without an approval the gate decides as before; an MFA session never spends one', async () => {
+    const seen = guarded();
+    const password = await caller(['identity:write'], { mfa: false });
+    await password.webauthn.registerOptions();
+    expect(actorOf('startWebauthnRegistration').mfa).toBe(false);
+    const mfa = await caller(['identity:write']);
+    await mfa.webauthn.remove({ credentialId: 'cred-1', ...step });
+    expect(seen).toEqual([]);
   });
 });
 

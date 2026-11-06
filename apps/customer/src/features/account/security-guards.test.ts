@@ -19,6 +19,16 @@ describe('isPreEffectRefusal', () => {
     expect(isPreEffectRefusal('options', refused('auth.other', 403, 'forbidden'))).toBe(false);
   });
 
+  it('reads a spent, mismatched, expired or foreign step-up confirmation (412) as refused before the change', () => {
+    for (const kind of ['options', 'register', 'remove', 'setup', 'confirm'] as const) {
+      for (const code of ['identity.step_up_used', 'identity.step_up_target', 'identity.step_up_expired', 'identity.step_up_not_yours']) {
+        expect(isPreEffectRefusal(kind, refused(code, 412, 'error'))).toBe(true);
+      }
+    }
+    expect(isPreEffectRefusal('options', refused('identity.step_up_used', 412, 'uncertain'))).toBe(false);
+    expect(isPreEffectRefusal('logout', refused('identity.step_up_used', 412, 'error'))).toBe(false);
+  });
+
   it('keeps the earlier known refusals', () => {
     expect(isPreEffectRefusal('confirm', refused('auth.mfa_invalid', 401, 'unauthorized'))).toBe(true);
     expect(isPreEffectRefusal('options', refused('auth.not_found', 404, 'not_mounted'))).toBe(true);

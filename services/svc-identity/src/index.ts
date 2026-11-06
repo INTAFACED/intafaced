@@ -680,6 +680,7 @@ const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env
 
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
+    securityStepUp,
     registrationOpen: env.REGISTRATION_OPEN,
     // The code-less register door is for the dev and test stacks' own tools only.
     directRegister: isExplicitDevOrTest(process.env.APP_ENV),

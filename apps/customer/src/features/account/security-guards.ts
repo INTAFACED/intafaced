@@ -64,12 +64,29 @@ export function stepUpKind(kind: SecurityKind | undefined): 'options' | 'remove'
  * `auth.mfa_required` 403 is the factor gate (svc-identity factor-gate.ts): it refuses a session that has not passed a
  * second factor before any read-modify-write of the account's factors.
  */
+/**
+ * The step-up guard (svc-identity security-step-up.ts) refuses a confirmation that is spent, for another change, expired
+ * or another session's before the factor change runs, so each is a pre-effect refusal of every door that carries one.
+ */
+const stepUpRefusals = {
+  'identity.step_up_required': 412,
+  'identity.step_up_used': 412,
+  'identity.step_up_target': 412,
+  'identity.step_up_expired': 412,
+  'identity.step_up_not_yours': 412,
+} as const;
 const preEffectRefusals: Readonly<Record<SecurityKind, Readonly<Record<string, number>>>> = {
-  options: { 'auth.not_found': 404, 'auth.mfa_required': 403 },
-  register: { 'auth.not_found': 404, 'auth.webauthn_invalid': 401, 'auth.mfa_required': 403 },
-  remove: { 'auth.not_found': 404, 'auth.mfa_required': 403 },
-  setup: { 'auth.totp_key_missing': 412, 'auth.not_found': 404, 'auth.mfa_already_enrolled': 409, 'auth.mfa_required': 403 },
-  confirm: { 'auth.mfa_invalid': 401, 'auth.totp_key_missing': 412, 'auth.mfa_required': 403 },
+  options: { 'auth.not_found': 404, 'auth.mfa_required': 403, ...stepUpRefusals },
+  register: { 'auth.not_found': 404, 'auth.webauthn_invalid': 401, 'auth.mfa_required': 403, ...stepUpRefusals },
+  remove: { 'auth.not_found': 404, 'auth.mfa_required': 403, ...stepUpRefusals },
+  setup: {
+    'auth.totp_key_missing': 412,
+    'auth.not_found': 404,
+    'auth.mfa_already_enrolled': 409,
+    'auth.mfa_required': 403,
+    ...stepUpRefusals,
+  },
+  confirm: { 'auth.mfa_invalid': 401, 'auth.totp_key_missing': 412, 'auth.mfa_required': 403, ...stepUpRefusals },
   logout: {},
 };
 export function isPreEffectRefusal(kind: SecurityKind, answer: ApiResult<unknown>): boolean {

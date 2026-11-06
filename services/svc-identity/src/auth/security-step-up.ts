@@ -27,6 +27,7 @@ export const SECURITY_STEP_UP_SCOPES = [
   'identity.step_up.passkey_add',
   'identity.step_up.passkey_remove',
   'identity.step_up.passkey_rename',
+  'identity.step_up.totp_add',
   'identity.step_up.passkey_purposes',
   'identity.step_up.passkey_second_step',
   'identity.step_up.totp_replace',

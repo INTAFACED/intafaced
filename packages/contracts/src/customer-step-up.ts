@@ -475,7 +475,20 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
   {
     scope: 'identity.step_up.passkey_add',
     purpose: 'account.passkey.add',
-    clientFields: ['label', 'clientRequestId'],
+    // Security's add names no passkey yet (it is named after it exists), so the approval binds the one add request.
+    clientFields: ['clientRequestId'],
+    targetField: 'clientRequestId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
+    // Set up the first authenticator app on an account that already has a passkey (I-signin-sessions-01): the approval
+    // binds the one setup request, checked when the setup starts and spent when its first code confirms it.
+    scope: 'identity.step_up.totp_add',
+    purpose: 'account.totp.add',
+    clientFields: ['clientRequestId'],
     targetField: 'clientRequestId',
     targetRequired: true,
     emptyOk: [],

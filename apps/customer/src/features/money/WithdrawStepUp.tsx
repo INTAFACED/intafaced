@@ -28,14 +28,18 @@ export const stepUpRefusalKeys: Record<string, Key> = {
  * code; the short token that buys goes to `run` for exactly one call, as that call's own bearer, and is dropped. The
  * token is never stored, never put in the session and never shown. `run` returns the action's own answer: a refusal of
  * the action stays in the dialog in the service's words so the person can fix it and send again; success closes it.
+ * A caller that needs a single-use approval bound to one change (Security's factor changes, I-signin-sessions-01)
+ * passes `mint`, which buys that approval instead of a token; `run` then gets the approval id, under the same rules.
  */
 export function WithdrawStepUp({
   why,
+  mint,
   run,
   onDone,
   onCancel,
 }: {
   why?: string;
+  mint?: (method: WithdrawStepUpMethod, signal?: AbortSignal) => Promise<ApiResult<string>>;
   run: (token: string) => Promise<ApiResult<unknown>>;
   onDone: () => void;
   onCancel: () => void;
@@ -60,14 +64,18 @@ export function WithdrawStepUp({
     if (busy) return;
     setBusy(how);
     setProblem(null);
-    const token = await mintWithdrawToken(api, method, alive.current?.signal);
+    const token = mint
+      ? await mint(method, alive.current?.signal)
+      : await mintWithdrawToken(api, method, alive.current?.signal).then((minted) =>
+          minted.ok ? { ok: true as const, data: minted.data.accessToken } : minted,
+        );
     if (gone()) return;
     if (!token.ok) {
       setBusy(null);
       setProblem(wordsFor(token));
       return;
     }
-    const answer = await run(token.data.accessToken);
+    const answer = await run(token.data);
     if (gone()) return;
     setBusy(null);
     if (!answer.ok) {

@@ -49,6 +49,7 @@ import { usePreferences } from '../../shared/preferences';
 import './security.css';
 import { VerifyEmail } from './VerifyEmail';
 import { WithdrawStepUp } from '../money/WithdrawStepUp';
+import { confirmWithStepUp, type StepUpBegin } from './security-step-up';
 
 type Problem = 'changed' | 'keyChanged' | 'setupChanged' | 'storage' | 'another' | 'locks' | 'unsupported' | 'cancelled' | 'ceremonyFailed';
 type Original = {
@@ -58,8 +59,11 @@ type Original = {
   credential?: Passkey;
   limit: number;
   requestId: string;
-  /** The five-minute token from "Confirm it's you" (`auth.stepUp`), for this one change only. Never persisted. */
-  bearer?: string;
+  /**
+   * The single-use approval from "Confirm it's you" (`stepUp.begin/complete`, I-signin-sessions-01), minted for exactly
+   * this change and request id. Kept in memory with this one intent only, never persisted: a refresh drops it.
+   */
+  approval?: { clientRequestId: string; stepUpApprovalId: string };
 };
 type Setup = {
   original: Original;
@@ -108,7 +112,8 @@ export function Security() {
   const [codesKept, setCodesKept] = useState(false);
   // A new or cleared setup asks again whether its codes were kept.
   useEffect(() => setCodesKept(false), [setup]);
-  const [stepUp, setStepUp] = useState<Response | null>(null);
+  // The refused change "Confirm it's you" answers for, and the request id its approval is minted for and sent with.
+  const [stepUp, setStepUp] = useState<{ refused: Response; clientRequestId: string } | null>(null);
   /** Counts passkeys added or removed here, so the passkey names below load again. */
   const [passkeyRevision, setPasskeyRevision] = useState(0);
   /** Counts sign-in methods changed on this page, so the checklist loads again. */
@@ -202,11 +207,10 @@ export function Security() {
     setupFocus.current = null;
     if (!waiting.moved && same(visibleSetup.original)) setupHeading.current?.focus();
   }, [visibleSetup?.record.requestId, api, userId]);
-  /** The call options for this change: its abort signal, and the step-up token when the person just confirmed it is them. */
-  const sending = (intent: Original, signal?: AbortSignal) => ({
-    ...(signal ? { signal } : {}),
-    ...(intent.bearer ? { bearer: intent.bearer } : {}),
-  });
+  /** The call options for this change: its abort signal. */
+  const sending = (_intent: Original, signal?: AbortSignal) => (signal ? { signal } : {});
+  /** The approval this change carries when the person just confirmed it is them; nothing otherwise. */
+  const approved = (intent: Original) => (intent.approval ? { ...intent.approval } : {});
   const blocked = (kind: SecurityKind) => !userId || busy || familyBlocked(journal, securityFamily(kind));
   function open(kind: SecurityKind, credential?: Passkey) {
     if (!userId || blocked(kind) || running.current || !api.canWrite()) return;
@@ -319,7 +323,7 @@ export function Security() {
     const options = await intent.client.mutate(
       'identity',
       'webauthn.registerOptions',
-      {},
+      approved(intent),
       registrationFor(intent.owner),
       sending(intent, abort.signal),
     );
@@ -347,7 +351,7 @@ export function Security() {
     const answer = await intent.client.mutate(
       'identity',
       'webauthn.registerVerify',
-      payload,
+      { ...payload, ...approved(intent) },
       z.object({ credentialId }).refine((value) => value.credentialId === payload!.rawId),
       sending(intent, abort.signal),
     );
@@ -385,7 +389,7 @@ export function Security() {
     const answer = await intent.client.mutate(
       'identity',
       'webauthn.remove',
-      { credentialId: intent.credential.credentialId },
+      { credentialId: intent.credential.credentialId, ...approved(intent) },
       z.object({ removed: z.boolean() }),
       sending(intent, abort.signal),
     );
@@ -403,7 +407,7 @@ export function Security() {
     setSetup(null);
     setCode('');
     setShowKey(false);
-    const answer = await intent.client.mutate('identity', 'totp.enrol', {}, setupResponse, sending(intent));
+    const answer = await intent.client.mutate('identity', 'totp.enrol', approved(intent), setupResponse, sending(intent));
     if (!same(intent)) {
       settleOriginalRefusal(record, answer);
       return;
@@ -446,7 +450,7 @@ export function Security() {
       const answer = await intent.client.mutate(
         'identity',
         'totp.confirm',
-        { secret: prepared.data.secret, code: entered },
+        { secret: prepared.data.secret, code: entered, ...approved(intent) },
         z.object({ ok: z.literal(true) }),
         // A wrong code is this form's answer, not the end of the sign-in.
         { ...sending(intent), keepSessionFor: ['auth.mfa_invalid'] },
@@ -522,19 +526,49 @@ export function Security() {
           : logoutAll(intent);
   }
   /**
-   * Sends the change the factor gate refused once more, with the step-up token as that call's own bearer. The token is
-   * never persisted; it stays in memory with this one intent (and a setup it starts, for that setup's confirmation), and
-   * a later change asks again. The change's own answer
+   * Buys the single-use approval for the change the factor gate refused: `stepUp.begin` names exactly that change (its
+   * scope, the passkey it removes) and the request id the change is then sent with, so the approval answers for that one
+   * call and nothing else. A code goes as the authenticator's code; a passkey taps.
+   */
+  function mintFor(refused: Response, clientRequestId: string) {
+    return async (method: { code: string } | { passkey: true }, signal?: AbortSignal): Promise<ApiResult<string>> => {
+      const kind = stepUpKind(refused.record?.kind);
+      if (!kind) return { ok: false, reason: 'invalid_response', message: t('stepUpChanged') };
+      const credential = refused.original.credential?.credentialId;
+      const begin: StepUpBegin =
+        kind === 'remove'
+          ? {
+              scope: 'identity.step_up.passkey_remove',
+              purpose: 'account.passkey.remove',
+              target: credential ?? '',
+              fields: { credentialId: credential ?? '', clientRequestId },
+            }
+          : kind === 'setup'
+            ? { scope: 'identity.step_up.totp_add', purpose: 'account.totp.add', target: clientRequestId, fields: { clientRequestId } }
+            : {
+                scope: 'identity.step_up.passkey_add',
+                purpose: 'account.passkey.add',
+                target: clientRequestId,
+                fields: { clientRequestId },
+              };
+      const answer = await confirmWithStepUp(api, begin, 'code' in method ? { totpCode: method.code } : { passkey: true }, signal);
+      return answer.ok ? { ok: true, data: answer.data.stepUpApprovalId } : answer;
+    };
+  }
+  /**
+   * Sends the change the factor gate refused once more, with the single-use approval just minted for it. The approval is
+   * never persisted; it stays in memory with this one intent (and a setup it starts, for that setup's confirmation), the
+   * service spends it once, and a later change, or the same one after a refresh, asks again. The change's own answer
    * shows on the page, as any other answer does. A refused authenticator confirmation is not resent: its code has likely
    * expired, so that refusal offers signing in again instead.
    */
-  async function afterStepUp(refused: Response, token: string): Promise<ApiResult<null>> {
+  async function afterStepUp(refused: Response, approval: Original['approval'] & {}): Promise<ApiResult<null>> {
     const kind = stepUpKind(refused.record?.kind);
     if (!kind || !userId || running.current || !sameActor(refused.original)) {
       return { ok: false, reason: 'invalid_response', message: t('stepUpChanged') };
     }
     setStepUp(null);
-    const intent: Original = { ...refused.original, kind, requestId: crypto.randomUUID(), bearer: token };
+    const intent: Original = { ...refused.original, kind, requestId: crypto.randomUUID(), approval };
     original.current = intent;
     await coordinated(intent, () => dispatch(intent));
     return { ok: true, data: null };
@@ -889,7 +923,7 @@ export function Security() {
                     <p>{secondFactor.body}</p>
                   )}
                   {stepUpKind(currentResponse.record?.kind) && (
-                    <Button onClick={() => setStepUp(currentResponse)}>
+                    <Button onClick={() => setStepUp({ refused: currentResponse, clientRequestId: crypto.randomUUID() })}>
                       <Copy k="stepUpConfirm" />
                     </Button>
                   )}
@@ -909,10 +943,11 @@ export function Security() {
               )}
             </div>
           ))}
-        {stepUp && sameActor(stepUp.original) && (
+        {stepUp && sameActor(stepUp.refused.original) && (
           <WithdrawStepUp
             why={t('stepUpWhy')}
-            run={(token) => afterStepUp(stepUp, token)}
+            mint={mintFor(stepUp.refused, stepUp.clientRequestId)}
+            run={(stepUpApprovalId) => afterStepUp(stepUp.refused, { clientRequestId: stepUp.clientRequestId, stepUpApprovalId })}
             onDone={() => setStepUp(null)}
             onCancel={() => setStepUp(null)}
           />
