@@ -19,6 +19,7 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 - **Journeys.** Each cross-module journey has one owner whose job is keeping it green in the real app: trader first; then bank to fund to trade to withdraw; merchant payout to bank; one portfolio.
 - **Front end.** Build on the default design tokens. Look choices go to the owner in one batch per phase, as two or three rendered options side by side; without an answer the default stays.
 - **Outside services.** A slice whose rail, vendor or chain is missing is still built in full; only the outside call refuses, with the allowlisted notice.
+- **Deferred steps.** A step whose Slices cell in the journey map says DEFERRED leaves the done count, and its cell names the decision; a slice that only deferred steps name gets order 0 (in no live journey). Deferred on 6 Nov 2026: J-agents-12 #2, opening an agent run with an API key, while the owner decision of 29 Oct stands that agents run only from a person's own session, never from API keys or delegated tokens (the outside-assistant journey J-agents-21 is the separate, capped use the owner added on 6 Nov); and J-copy-bots-otc-01 #6, accepting the copy disclosure, under the owner decision of 2026-10-27 (no legal or compliance work until launch prep), which the journey map already said and the index had missed. CB-copy-22, that step's only slice, so goes to order 0.
 
 ## Decisions many slices sit on
 
