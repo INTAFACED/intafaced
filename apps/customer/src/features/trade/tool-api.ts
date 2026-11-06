@@ -216,6 +216,13 @@ export const positionPreviewSchema = z.object({
   orderable: z.boolean(),
   refusals: z.array(z.object({ code: z.string(), field: z.string(), message: z.string() })),
 });
+/** What can be converted now (`convert.pairs`): each coin with its per-conversion limit, null when none is set. */
+export const convertPairsSchema = z.object({
+  assets: z.array(z.object({ asset: z.string(), maxPerConvert: z.object({ amount: decimalSchema, asset: z.string() }).nullable() })),
+  restricted: z.array(z.string()),
+});
+export type ConvertPairs = z.infer<typeof convertPairsSchema>;
+
 /** One stored convert quote as `convert.list` reads it. A quote that was never accepted shows as `quoted` or `expired`. */
 export const convertHistoryRowSchema = z.object({
   quoteId: z.string(),
@@ -241,6 +248,7 @@ export type ConvertQuoteInput =
 
 export function createToolApi(api: ApiClient) {
   return {
+    convertPairs: (signal?: AbortSignal) => api.query('trade', 'convert.pairs', undefined, convertPairsSchema, { signal }),
     convertQuote: (input: ConvertQuoteInput) => api.query('trade', 'convert.quote', input, convertQuoteSchema),
     /** The service refuses without a window (92 days at most) and a limit, so the caller always names both. */
     convertList: (input: { from: string; to: string; limit: number; cursor?: string }, signal?: AbortSignal) =>

@@ -113,6 +113,7 @@ import {
 } from './types.js';
 import * as listings from './trade-service/listings.js';
 import * as convert from './trade-service/convert.js';
+import { convertPairs, type ConvertPairs } from '../convert/pairs.js';
 import * as orderPlace from './trade-service/order-place.js';
 import * as orderChange from './trade-service/order-change.js';
 import * as fillFlow from './trade-service/fills.js';
@@ -1065,6 +1066,14 @@ export class TradeService {
     admit: (businessId: string, payload: unknown) => Promise<unknown>,
   ): Promise<ConvertTradeWire> {
     return convert.convertExecuteFor(this.internal, userId, input, admit);
+  }
+
+  /** What can be converted now, each coin with its per-conversion limit (null when the owner left it blank). */
+  async convertPairs(principal: Principal): Promise<ConvertPairs> {
+    requireScope(principal, 'trade:read');
+    const listed = await this.markets(500);
+    const resolved = resolveAdmissionLimits();
+    return convertPairs(listed, this.now(), 'limits' in resolved ? resolved.limits.maxOrder : null);
   }
 
   convertList(principal: Principal, input: ConvertListQuery) {

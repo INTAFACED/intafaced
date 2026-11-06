@@ -50,16 +50,13 @@ function convertCalls(page) {
 /** Opens the room with From and To picked through the pickers, as a person picks them. */
 async function pick(page, from, to) {
   await page.goto(ROOM);
+  const picker = page.getByRole('dialog', { name: 'Choose an asset' });
+  const row = (ticker) =>
+    picker.getByTestId('picker__row').filter({ has: page.getByTestId('picker__ticker').getByText(ticker, { exact: true }) });
   await card(page).getByRole('button', { name: 'Change the From asset' }).click();
-  await page
-    .getByRole('dialog', { name: 'Choose an asset' })
-    .getByRole('option', { name: new RegExp(`^${from}\\b`) })
-    .click();
+  await row(from).click();
   await card(page).getByRole('button', { name: 'Change the To asset' }).click();
-  await page
-    .getByRole('dialog', { name: 'Choose an asset' })
-    .getByRole('option', { name: new RegExp(`^${to}\\b`) })
-    .click();
+  await row(to).click();
 }
 
 /** The account's ledger balances, as decimal strings, read through the API. */
@@ -86,19 +83,26 @@ test(`${J} #1 opens /trade/convert and picks the coins: only convertible coins, 
 
   await card(page).getByRole('button', { name: 'Change the From asset' }).click();
   const picker = page.getByRole('dialog', { name: 'Choose an asset' });
-  const options = picker.getByRole('option');
-  await expect(options).toHaveCount(assets.length);
-  for (const a of assets) {
-    const row = options.filter({ hasText: new RegExp(`^${a.asset}\\b`) });
-    await expect(row).toHaveCount(1);
-    // Each coin names its own per-conversion limit from the service, or says it has none set.
+  const rows = picker.getByTestId('picker__row');
+  const grouped = (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // The From list: every coin the service converts that the account can pay with, each with its limit or none set.
+  const tickers = await rows.getByTestId('picker__ticker').allInnerTexts();
+  expect(tickers.length).toBeGreaterThan(0);
+  for (const ticker of tickers) {
+    const a = assets.find((x) => x.asset === ticker);
+    expect(a, `${ticker} is listed but the service does not convert it`).toBeTruthy();
+    const row = rows.filter({ has: page.getByTestId('picker__ticker').getByText(ticker, { exact: true }) });
     if (a.maxPerConvert === null) await expect(row).toContainText('Limit not set');
-    else await expect(row).toContainText(`Up to ${a.maxPerConvert.display} ${a.maxPerConvert.asset} per conversion`);
+    else await expect(row).toContainText(`Up to ${grouped(a.maxPerConvert.amount)} ${a.maxPerConvert.asset} per conversion`);
   }
-  for (const r of restricted) await expect(options.filter({ hasText: new RegExp(`^${r}\\b`) })).toHaveCount(0);
-  await picker.getByRole('option', { name: /^USDT\b/ }).click();
+  // A restricted coin is never offered.
+  for (const r of restricted) expect(tickers).not.toContain(r);
+  await rows.filter({ has: page.getByTestId('picker__ticker').getByText('USDT', { exact: true }) }).click();
   await card(page).getByRole('button', { name: 'Change the To asset' }).click();
-  await picker.getByRole('option', { name: /^BTC\b/ }).click();
+  const toTickers = await rows.getByTestId('picker__ticker').allInnerTexts();
+  for (const r of restricted) expect(toTickers).not.toContain(r);
+  for (const ticker of toTickers) expect(assets.map((x) => x.asset)).toContain(ticker);
+  await rows.filter({ has: page.getByTestId('picker__ticker').getByText('BTC', { exact: true }) }).click();
   await expect(page.getByTestId('headline-pair')).toHaveText('USDT to BTC');
 });
 

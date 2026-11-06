@@ -161,6 +161,16 @@ const convertSourceOutput = z.object({
   asOf: z.string(),
 });
 
+const convertPairsOutput = z.object({
+  assets: z.array(
+    z.object({
+      asset: z.string(),
+      maxPerConvert: z.object({ amount: z.string(), asset: z.string() }).nullable(),
+    }),
+  ),
+  restricted: z.array(z.string()),
+});
+
 const convertQuoteOutput = z.object({
   quoteId: z.string(),
   symbol: z.string(),
@@ -1088,6 +1098,11 @@ export function createTradeRouter(
      * accept settles exact in/out via ledger-client (not a matching order).
      */
     convert: router({
+      /** What can be converted now, each coin with its per-conversion limit or none set (J-cex-spot-11 #1). */
+      pairs: scopedProcedure('trade:read', { module: 'trade' })
+        .output(convertPairsOutput)
+        .query(({ ctx }) => guard(async () => trade.convertPairs(ctx.principal))),
+
       quote: scopedProcedure('trade:read', { module: 'trade' })
         .input(
           z.object({

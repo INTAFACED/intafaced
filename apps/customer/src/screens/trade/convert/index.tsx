@@ -38,6 +38,7 @@ import { convertCopy } from './copy';
 import { KeyValue, StatusChip, type KeyValueItem } from './deps';
 import { OtcConvert } from './OtcConvert';
 import { RecentConversions } from './RecentConversions';
+import { useConvertPairs } from './use-pairs';
 import { canAccept, holdProgress, spreadPercent, validUntilClock } from './breakdown';
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
 import { acceptQuote, holdMs, newClientConvertId, refOf, useQuote, type AcceptRef, type Fill, type Quote } from './convert-flow';
@@ -232,6 +233,7 @@ function ConvertCard({
     };
   }, []);
 
+  const pairs = useConvertPairs(tools);
   const ticker = useTicker(market.symbol);
   const limits = useMarketLimits();
   const available = useAvailable(from);
@@ -307,8 +309,25 @@ function ConvertCard({
 
   const toList = toAssets(all, from);
   const fromList = fromAssets(all);
+  // Only coins the service would quote now; each names its per-conversion limit, or that none is set.
+  const offered = pairs.status === 'ready' ? new Map(pairs.data.assets.map((a) => [a.asset, a.maxPerConvert])) : null;
   const pickerItems = (assets: string[], showBalance: boolean): PickerItem[] =>
-    assets.map((asset) => ({ asset, name: null, detail: showBalance ? <Balance asset={asset} /> : undefined }));
+    assets
+      .filter((asset) => offered === null || offered.has(asset))
+      .map((asset) => {
+        const limit = offered?.get(asset);
+        return {
+          asset,
+          name: null,
+          note:
+            offered === null
+              ? undefined
+              : limit
+                ? t('Limit per conversion', { amount: fmtAmount(limit.amount, { places: 0 }), asset: limit.asset })
+                : t('Limit not set'),
+          detail: showBalance ? <Balance asset={asset} /> : undefined,
+        };
+      });
 
   function pick(side: 'from' | 'to', asset: string) {
     setAmount('');

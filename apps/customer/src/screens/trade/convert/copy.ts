@@ -33,6 +33,8 @@ const messages = {
   'Minimum is about {min} {asset}.': 'Too small: the minimum is about {min} {asset}.',
   'Use steps of {step} {asset}.': 'Use steps of {step} {asset}.',
   'Deposit {asset}': 'Deposit {asset}',
+  'Limit per conversion': 'Up to {amount} {asset} per conversion',
+  'Limit not set': 'Limit not set',
   'Spread value': '{bps} bps ({percent})',
   'Not enough {asset}. You have {value} available.': 'Not enough {asset}. You have {value} available.',
   'Too big': 'That’s more than we can convert in one go right now. Try a smaller amount.',
