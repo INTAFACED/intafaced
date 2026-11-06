@@ -139,13 +139,12 @@ function Versions({ history, now }: { history: FeeHistory; now: Date }) {
 
 // ── #2-#4 the proposal ──
 
-function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: () => void }) {
+function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: (row: FeeVersionRow) => void }) {
   const [draft, setDraft] = useState<ProposalDraft>(() => draftFrom(base));
   const [reason, setReason] = useState('');
   const [localRefusal, setLocalRefusal] = useState<{ code: string; message: string } | null>(null);
   const [proposed, setProposed] = useState<Outcome<{ approval: ActionApproval; payloadHash: string }> | null>(null);
   const [approvalId, setApprovalId] = useState('');
-  const [written, setWritten] = useState<FeeVersionRow | null>(null);
   const [busy, setBusy] = useState(false);
 
   const setRate = (i: number, field: 'makerBps' | 'takerBps', value: string) =>
@@ -156,7 +155,6 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: () => vo
 
   async function propose() {
     setProposed(null);
-    setWritten(null);
     // Checked here first: a blank or malformed value is refused with its typed code, and nothing is sent.
     const check = buildProposal(base, draft, reason, new Date());
     if (!check.ok) {
@@ -315,18 +313,10 @@ function Propose({ base, onWritten }: { base: FeeVersionRow; onWritten: () => vo
           doneText="Written"
           run={() => tradeOpsAction('fees', { action: 'apply', ...body(), approvalId: approvalId.trim() })}
           onDone={(o) => {
-            if (o.kind === 'ok') {
-              setWritten(o.data as FeeVersionRow);
-              onWritten();
-            }
+            if (o.kind === 'ok') onWritten(o.data as FeeVersionRow);
           }}
         />
       </div>
-      {written ? (
-        <p role="status" className="text-sm" data-fees="written" data-version={written.version} data-effective-at={written.effectiveAt}>
-          Written: v{written.version}, takes effect {shownTime(written.effectiveAt)}.
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -680,6 +670,8 @@ function FiatBuy({ view }: { view: FeesDeskView['onrampQuotes'] }) {
 
 export function FeesRoom({ initial }: { initial: FeesDeskView }) {
   const [view, setView] = useState(initial);
+  // Kept here, not in the form: the form starts again from the version just written, and this line must stay.
+  const [written, setWritten] = useState<FeeVersionRow | null>(null);
   const reread = useCallback(async () => {
     const next = await tradeOpsAction<FeesDeskView>('fees', { action: 'read' });
     if (next.kind === 'ok') setView(next.data);
@@ -698,12 +690,24 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
       </PageSection>
       <PageSection title="Propose a new version">
         {base ? (
-          <Propose key={base.version} base={base} onWritten={() => void reread()} />
+          <Propose
+            key={base.version}
+            base={base}
+            onWritten={(row) => {
+              setWritten(row);
+              void reread();
+            }}
+          />
         ) : history ? (
           <p className="text-sm text-fg-2">No version is stored yet, so there is nothing to start a proposal from.</p>
         ) : (
           <p className="text-sm text-fg-2">The fee versions could not be read, so nothing can be proposed.</p>
         )}
+        {written ? (
+          <p role="status" className="text-sm" data-fees="written" data-version={written.version} data-effective-at={written.effectiveAt}>
+            Written: v{written.version}, takes effect {shownTime(written.effectiveAt)}.
+          </p>
+        ) : null}
       </PageSection>
       <PageSection title="VIP snapshot runs">
         <Snapshots view={view.snapshots} />
