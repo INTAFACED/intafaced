@@ -9,6 +9,7 @@ import {
   CardStatusAction,
   DisputeActions,
   ListingActions,
+  ListingReviewActions,
   ResidencyActions,
   VendorActions,
 } from '@/components/ops-actions';
@@ -107,6 +108,7 @@ function DetailPanel({ spec, row, ctx }: { spec: ReadSpec; row: Row; ctx: RowAct
       {spec.rowAction === 'academy.ambassador' && <AmbassadorActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'academy.residency' && <ResidencyActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'market.listing.takedown' && <ListingActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {spec.rowAction === 'market.listing.review' && <ListingReviewActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'p2p.dispute.escalate' && <DisputeActions row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}
       {spec.rowAction === 'pay.transfer.detail' && <TransferRecord key={row.id} id={row.id} />}
       {spec.rowAction === 'identity.kyc_document.open' && <KycDocumentOpen row={row} userId={ctx.userId} onChanged={ctx.onChanged} />}

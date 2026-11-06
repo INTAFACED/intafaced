@@ -354,6 +354,41 @@ describe('operator card freeze', () => {
   });
 });
 
+describe('listing review', () => {
+  const LISTING = '5a3b9c10-1111-4222-8333-444455556677';
+  const approve: DeskRequest = {
+    kind: 'market.listing.review',
+    listingId: LISTING,
+    decision: 'approved',
+    reason: 'meets the published criteria',
+  };
+  it('sends the listing, the decision, the reason as typed and both approval ids to ops.listingReview.decide', async () => {
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) =>
+      ok({ listingId: LISTING, reviewState: 'approved', decision: 'approved', reason: 'meets the published criteria' }),
+    );
+    vi.stubGlobal('fetch', fn);
+    expect(await opsExecute(ctx)(approve, ids)).toMatchObject({
+      ok: true,
+      detail: 'svc-market answered and its returned listing review is approved.',
+    });
+    const [url, init] = fn.mock.calls[0]!;
+    expect(url).toBe('http://edge:4000/api/market/trpc/ops.listingReview.decide');
+    expect(JSON.parse(String(init!.body))).toEqual({
+      listingId: LISTING,
+      decision: 'approved',
+      reason: 'meets the published criteria',
+      ...ids,
+    });
+  });
+  it('an answer for another listing or state is not a success', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ listingId: LISTING, reviewState: 'rejected', decision: 'rejected' })),
+    );
+    expect(await opsExecute(ctx)(approve, ids)).toMatchObject({ ok: false });
+  });
+});
+
 describe('listing takedown', () => {
   const LISTING = '5a3b9c10-1111-4222-8333-444455556666';
   const takedown: DeskRequest = { kind: 'market.listing.takedown', listingId: LISTING, reason: 'sells a forbidden product' };

@@ -133,6 +133,8 @@ export interface ReadSpec {
 export type RowAction =
   | 'market.vendor.vet'
   | 'market.listing.takedown'
+  /** Two founders approve or reject one listing waiting in svc-market's review queue (MC-market-03). */
+  | 'market.listing.review'
   | 'academy.ambassador'
   | 'academy.residency'
   /** One moderator re-arms an open dispute. The service asks for no second person, so this is a direct action with a reason. */

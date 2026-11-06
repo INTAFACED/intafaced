@@ -152,7 +152,6 @@ test(`${J} starts: signed in to the admin app at /more-ops/market; listings are 
     await two.client.post('/api/market/trpc/createNonStrategyListing', {
       title: toReject,
       description: 'TEST data listing on the local test stack. Not real data.',
-      offerType: 'one_time',
       category: 'data',
       assetId: 'USDT',
       price: '3',
@@ -209,7 +208,8 @@ test(`${J} #1 Opens the review queue: applied listings with seller, terms and cr
   try {
     await openDesk(a);
     const blank = a.getByTestId(`read-market.listing-review-rules`).getByTestId('record');
-    await expect(blank).toContainText('not set');
+    // The criteria cell is empty ("—"): svc-market answers no criteria, and the desk invents none.
+    await expect(blank.locator('.dk-kv-row').filter({ hasText: 'Review criteria' }).locator('dd')).toHaveText('—');
     await expect(blank).toContainText('waiting: no listing can be approved until the review criteria are set');
     await expect(bodyRows(a.getByRole('region', { name: QUEUE })).filter({ hasText: toApprove })).toHaveCount(1);
     expect(await publicIds()).not.toContain(approveId);

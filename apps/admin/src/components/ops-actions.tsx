@@ -235,6 +235,69 @@ export function AppointAmbassadorAction({ userId, onChanged }: { userId: string;
   );
 }
 
+const LISTING_REVIEW_COPY = {
+  approved: {
+    label: 'Approve',
+    consequence: 'The listing becomes public in the Market and can be bought.',
+    danger: false,
+  },
+  rejected: {
+    label: 'Reject',
+    consequence: 'The listing stays off the Market, and its seller reads your reason on their own listing.',
+    danger: true,
+  },
+} as const;
+
+/**
+ * One listing in svc-market's review queue (MC-market-03): two founders approve it (it becomes public) or reject it with
+ * a reason the seller reads. The approval covers the listing, the decision AND the reason, so the second founder signs
+ * exactly the words typed here. A seller never decides their own listing; svc-market refuses that by name.
+ */
+export function ListingReviewActions({ row, userId, onChanged }: { row: Row; userId: string; onChanged: () => void }) {
+  const listingId = rowText(row, 'id');
+  const [decision, setDecision] = useState<'approved' | 'rejected'>('approved');
+  if (listingId === null) {
+    return (
+      <p className="dk-muted" data-testid="listing-review-no-action">
+        svc-market gave this row no listing id, so there is no decision to take here.
+      </p>
+    );
+  }
+  const copy = LISTING_REVIEW_COPY[decision];
+  const action: ControlAction = {
+    heading: `${copy.label} this listing`,
+    submitLabel: `Ask a second operator to approve: ${copy.label.toLowerCase()} (this console admits only founders)`,
+    needsReason: true,
+    reasonLabel:
+      decision === 'rejected'
+        ? 'Why (the seller reads this; kept in the listing review audit, 12 to 500 characters)'
+        : 'Why (kept in the listing review audit, 12 to 500 characters)',
+    build: (reason) => ({ kind: 'market.listing.review', listingId, decision, reason }),
+    danger: copy.danger,
+  };
+  return (
+    <div className="dk-stack" data-testid="listing-review-actions">
+      <div className="dk-row" role="group" aria-label="Decision">
+        {(['approved', 'rejected'] as const).map((o) => (
+          <button key={o} type="button" className="adm-btn" aria-pressed={decision === o} onClick={() => setDecision(o)}>
+            {LISTING_REVIEW_COPY[o].label}
+          </button>
+        ))}
+      </div>
+      <ControlDesk
+        key={`${listingId}:${decision}`}
+        endpoint="/api/more-ops"
+        userId={userId}
+        blockedReason={null}
+        action={action}
+        consequence={`${copy.consequence} ${TWO_PEOPLE}`}
+        blockedButtonLabel="Decision unavailable"
+        onChanged={onChanged}
+      />
+    </div>
+  );
+}
+
 /**
  * Take a listing off the market. svc-market makes it permanent: nobody can set it active again, and the vendor cannot restore
  * it. Purchases already settled keep their access and nothing is refunded. The approval covers the listing AND the reason,

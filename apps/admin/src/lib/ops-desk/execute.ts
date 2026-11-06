@@ -69,6 +69,18 @@ interface TakedownAnswer {
   readonly status: string;
 }
 
+interface ListingReviewAnswer {
+  readonly listingId: string;
+  readonly reviewState: string;
+  readonly decision: string;
+}
+
+export function readListingReviewAnswer(raw: unknown): ListingReviewAnswer | null {
+  if (!isRecord(raw) || typeof raw.listingId !== 'string' || typeof raw.reviewState !== 'string' || typeof raw.decision !== 'string')
+    return null;
+  return { listingId: raw.listingId, reviewState: raw.reviewState, decision: raw.decision };
+}
+
 export function readTakedownAnswer(raw: unknown): TakedownAnswer | null {
   if (!isRecord(raw) || typeof raw.listingId !== 'string' || typeof raw.status !== 'string') return null;
   return { listingId: raw.listingId, status: raw.status };
@@ -305,6 +317,20 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
         ok: true,
         detail: `svc-bank answered and its returned card is ${a.status}${a.frozenBy === 'operator' ? ', frozen by an operator' : ''}.`,
       };
+    }
+    if (request.kind === 'market.listing.review') {
+      const result = await founderCall(
+        ctx,
+        'market',
+        'ops.listingReview.decide',
+        'POST',
+        { listingId: request.listingId, decision: request.decision, reason: request.reason, ...ids },
+        readListingReviewAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-market', 'market', result);
+      const a = result.data;
+      if (a.listingId !== request.listingId || a.reviewState !== request.decision) return WRONG_STATE;
+      return { ok: true, detail: `svc-market answered and its returned listing review is ${a.reviewState}.` };
     }
     if (request.kind === 'market.listing.takedown') {
       const result = await founderCall(
