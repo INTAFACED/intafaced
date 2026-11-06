@@ -33,6 +33,8 @@ export const sendInput = z.object({
   note: z.string().min(1).max(140).optional(),
   /** The single-use fresh confirmation for exactly this send, when the bank's money-out rule asks for one. */
   stepUpApprovalId: z.string().min(1).max(64).optional(),
+  /** Paying a request someone sent (J-pay-05): svc-bank settles exactly that open request with this send, once. */
+  requestId: id.optional(),
 });
 /** `bank.transfers.quote`: the published limits and fee for one personal send, and how much of today is used. */
 export const transferQuoteSchema = z.object({

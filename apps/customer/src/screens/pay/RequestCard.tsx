@@ -31,6 +31,7 @@ import { payCopy } from './copy';
 import { personalCopy } from './personal-copy';
 import { absoluteLink, canShare, copyText, shareLink } from './share';
 import { QrCode } from './QrCode';
+import { AskPersonCard } from './AskPersonCard';
 import type { IdentityState } from './identity-state';
 
 const DOLLAR_COINS = ['USDT', 'USDC', 'USD'];
@@ -89,7 +90,10 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
       {loaded.length === 0 ? (
         <StateBlock kind="empty" title={t('reqNoAssetsTitle')} body={t('reqNoAssetsBody')} />
       ) : (
-        <CreateRequest userId={userId as string} payeeId={payeeId} assets={loaded} />
+        <>
+          <AskPersonCard assets={loaded} />
+          <CreateRequest userId={userId as string} payeeId={payeeId} assets={loaded} />
+        </>
       )}
       <PayARequest />
     </div>

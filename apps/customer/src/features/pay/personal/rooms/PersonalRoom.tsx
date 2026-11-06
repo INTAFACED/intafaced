@@ -10,6 +10,8 @@ import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefu
 import { decodedSegment, requestRoomHref, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
 import { fetchHeldSend, type HeldSend } from '../../held-send';
+import { createPersonalPayApi } from '../../pay-api';
+import { createPersonRequestsApi, type PersonRequest, type RequestStatus } from '../../person-requests';
 
 /** The room's layout: headline on the left, one card on the right, the way Send and Receive sit. */
 function Frame({ title, line, children }: { title: string; line: string; children: ReactNode }) {
@@ -78,7 +80,163 @@ function Section({ title, empty, off, describedBy }: { title: string; empty: str
   );
 }
 
+const STATUS_KEY = {
+  open: 'askStatusOpen',
+  paid: 'askStatusPaid',
+  declined: 'askStatusDeclined',
+  cancelled: 'askStatusCancelled',
+  expired: 'askStatusExpired',
+} as const satisfies Record<RequestStatus, string>;
+
+const who = (handle: string | null, userId: string) => (handle ? `@${handle}` : userId);
+
+type ServerRead = { kind: 'loading' } | { kind: 'none' } | { kind: 'failed'; message: string } | { kind: 'found'; request: PersonRequest };
+
+/**
+ * `/pay/request/:id`: a request between two people that svc-bank keeps (J-pay-05), read for whoever opens it. Only the person
+ * asked sees Pay and Decline, and only while it waits. When svc-bank has no request with this id, the room shows a payment
+ * link made on this device, as before.
+ */
 function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
+  const { api, userId } = useSession();
+  const requests = useMemo(() => createPersonRequestsApi(api), [api]);
+  const [read, setRead] = useState<ServerRead>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!userId || !id || !/^[0-9a-f-]{36}$/i.test(id)) {
+      setRead({ kind: 'none' });
+      return;
+    }
+    const controller = new AbortController();
+    setRead({ kind: 'loading' });
+    void requests.get(id, controller.signal).then((result) => {
+      if (controller.signal.aborted) return;
+      if (result.ok) setRead({ kind: 'found', request: result.data });
+      else if (result.code === 'bank.personal_request_not_found' || result.status === 404) setRead({ kind: 'none' });
+      else setRead({ kind: 'failed', message: result.message });
+    });
+    return () => controller.abort();
+  }, [requests, userId, id, attempt]);
+  if (read.kind === 'found')
+    return <PersonRequestRoom request={read.request} onChange={(request) => setRead({ kind: 'found', request })} />;
+  if (read.kind === 'failed') return <RequestReadFailed message={read.message} retry={() => setAttempt((n) => n + 1)} />;
+  if (read.kind === 'loading') return <RequestReading />;
+  return <DeviceRequestRoom id={id} slice={slice} />;
+}
+
+function RequestReading() {
+  const { t } = roomsCopy.useCopy();
+  return (
+    <Frame title={t('askTitle')} line="">
+      <p className="pay-empty" role="status" aria-busy="true" />
+    </Frame>
+  );
+}
+
+function RequestReadFailed({ message, retry }: { message: string; retry: () => void }) {
+  const { t } = roomsCopy.useCopy();
+  return (
+    <Frame title={t('askTitle')} line="">
+      <StateBlock kind="error" title={t('askLoadFailed')} onRetry={retry} retryLabel={t('askRetry')} />
+      <p className="pay-reason__body" role="alert">
+        {message}
+      </p>
+    </Frame>
+  );
+}
+
+function PersonRequestRoom({ request, onChange }: { request: PersonRequest; onChange: (request: PersonRequest) => void }) {
+  const { t } = roomsCopy.useCopy();
+  const { api, userId } = useSession();
+  const { timeZone } = usePreferences();
+  const requests = useMemo(() => createPersonRequestsApi(api), [api]);
+  const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
+  const [busy, setBusy] = useState<'pay' | 'decline' | null>(null);
+  const [refused, setRefused] = useState<string | null>(null);
+  // One send id per opened request: pressing Pay again sends the same transfer, which svc-bank answers with its first receipt.
+  const transferId = useMemo(() => crypto.randomUUID(), [request.requestId]);
+  const asked = userId !== null && userId.toLowerCase() === request.payerUserId.toLowerCase();
+  const open = request.status === 'open';
+
+  async function refresh() {
+    const again = await requests.get(request.requestId);
+    if (again.ok) onChange(again.data);
+  }
+  async function payIt() {
+    setBusy('pay');
+    setRefused(null);
+    const spaces = await pay.spaces();
+    const from = spaces.ok ? spaces.data.find((space) => space.kind === 'primary' && space.assetId === request.assetId) : undefined;
+    if (!spaces.ok || !from) {
+      setRefused(spaces.ok ? t('askNoSpace') : spaces.message);
+      setBusy(null);
+      return;
+    }
+    const sent = await pay.send({
+      transferId,
+      fromSpaceId: from.id,
+      toUserId: request.payeeUserId,
+      amount: request.amount,
+      requestId: request.requestId,
+    });
+    if (!sent.ok) setRefused(sent.code ? `${sent.message} (${sent.code})` : sent.message);
+    await refresh();
+    setBusy(null);
+  }
+  async function declineIt() {
+    setBusy('decline');
+    setRefused(null);
+    const result = await requests.decline(request.requestId);
+    if (result.ok) onChange(result.data);
+    else {
+      setRefused(result.code ? `${result.message} (${result.code})` : result.message);
+      await refresh();
+    }
+    setBusy(null);
+  }
+
+  return (
+    <Frame title={t('askTitle')} line="">
+      <div data-testid="person-request" data-status={request.status} data-request-id={request.requestId}>
+        <Rows
+          rows={[
+            [t('askFromYou'), who(request.payeeHandle, request.payeeUserId)],
+            [t('askOfYou'), who(request.payerHandle, request.payerUserId)],
+            [t('requestAmount'), <span data-testid="person-request-amount">{`${request.amount} ${request.assetId}`}</span>],
+            [t('requestNote'), <span data-testid="person-request-note">{request.note ?? t('notSet')}</span>],
+            [t('askExpires'), <span lang="zxx">{stamp(request.expiresAt, timeZone, Date.now())}</span>],
+            [t('requestStatus'), <strong data-testid="person-request-status">{t(STATUS_KEY[request.status])}</strong>],
+          ]}
+        />
+        {request.status === 'paid' && <p className="pay-hint">{t('askPaidLine')}</p>}
+        {request.status === 'declined' && <p className="pay-hint">{t('askDeclinedLine')}</p>}
+        {asked && open && (
+          <div className="pay-row-actions">
+            <Button size={40} disabled={busy !== null} onClick={() => void payIt()} data-testid="person-request-pay">
+              {busy === 'pay' ? t('askPaying') : t('askPay')}
+            </Button>
+            <Button
+              variant="secondary"
+              size={40}
+              disabled={busy !== null}
+              onClick={() => void declineIt()}
+              data-testid="person-request-decline"
+            >
+              {busy === 'decline' ? t('askDeclining') : t('askDecline')}
+            </Button>
+          </div>
+        )}
+        {refused && (
+          <p className="pay-reason__body" role="alert" data-testid="person-request-refused">
+            {t('askRefused')}: {refused}
+          </p>
+        )}
+      </div>
+    </Frame>
+  );
+}
+
+function DeviceRequestRoom({ id, slice }: { id: string | null; slice: string }) {
   const { t } = roomsCopy.useCopy();
   const { userId } = useSession();
   const { timeZone } = usePreferences();
