@@ -49,7 +49,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 443 journeys (2924 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 19 steps still need a capability no slice covers yet.
+Done is defined by 443 journeys (2922 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 19 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -65,7 +65,7 @@ Done is defined by 443 journeys (2924 steps) in `modules/<module>/acceptance/jou
 | wallet         | 21       | 6       | 7       | 8       | 110   | 0                   |
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
 | cex-spot       | 20       | 4       | 11      | 5       | 169   | 0                   |
-| ops-console    | 20       | 5       | 12      | 3       | 176   | 0                   |
+| ops-console    | 20       | 5       | 12      | 3       | 175   | 0                   |
 | support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
 | charts-desk    | 19       | 3       | 8       | 8       | 120   | 0                   |
 | developer      | 18       | 4       | 9       | 5       | 116   | 0                   |
@@ -73,45 +73,47 @@ Done is defined by 443 journeys (2924 steps) in `modules/<module>/acceptance/jou
 | algo-dev       | 16       | 1       | 8       | 7       | 105   | 0                   |
 | portfolio      | 16       | 3       | 8       | 5       | 93    | 3                   |
 | home-ia        | 11       | 3       | 5       | 3       | 58    | 0                   |
-| more-catalogue | 11       | 4       | 5       | 2       | 70    | 1                   |
+| more-catalogue | 11       | 4       | 5       | 2       | 69    | 1                   |
 
 ### Parked
 
-Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built later, and not counted above. 22 whole journeys (138 steps) and 26 steps of live journeys. A slice a live step still names keeps its place in the lane queues.
+Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built later, and not counted above. 22 whole journeys (138 steps) and 28 steps of live journeys. A slice a live step still names keeps its place in the lane queues.
 
-| Journey                                                                                       | Parked                   | Until                                                                                                            |
-| --------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| J-academy-04 Hand in an assignment and read the feedback                                      | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, assignments)                                       |
-| J-academy-09 Go to a live session and take part                                               | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, live sessions)                                     |
-| J-academy-10 Accept an invitation, join my cohort, and stay informed                          | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, cohorts)                                           |
-| J-academy-20 Compete in a season and earn from learning                                       | whole journey            | after launch (OWNER 183 (2): social extras, seasons)                                                             |
-| J-dex-protocol-16 Stake with a validator on INTACHAIN and look at INTACORE                    | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain; also (2) own-chain extras, validator staking) |
-| J-dex-protocol-25 Run a fair-launch auction and deploy a spot token with a genesis allocation | whole journey            | after launch (OWNER 183 (2): own-chain extras, fair-launch auction)                                              |
-| J-merchant-31 Set up a card terminal and take an in-person payment                            | whole journey            | after launch (OWNER 183 (2): the shop-floor card terminal)                                                       |
-| J-merchant-32 Run the shop floor: cart, tips, offline, shifts, saved cards and QR             | whole journey            | after launch (OWNER 183 (2): the shop-floor card terminal)                                                       |
-| J-merchant-34 Route payments across processors                                                | whole journey            | after launch (OWNER 183 (2): multi-processor routing)                                                            |
-| J-merchant-35 A platform onboards its sub-merchants                                           | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
-| J-merchant-36 A platform splits payments, pays its sub-merchants and watches them             | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
-| J-merchant-37 Give sub-merchants embedded money screens                                       | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
-| J-merchant-42 Founder checks that white-label tenants are isolated and fair                   | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
-| J-more-catalogue-05 Point my miner at the pool                                                | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
-| J-more-catalogue-06 Watch my fleet and get told when a worker goes quiet                      | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
-| J-more-catalogue-07 See my mining rewards and get paid                                        | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
-| J-more-catalogue-08 Seal, plan and pay a mining window                                        | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
-| J-more-catalogue-15 Read a prediction market and place a Yes or No order                      | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
-| J-more-catalogue-16 Manage my orders and positions until a market settles                     | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
-| J-more-catalogue-17 Use the controls Predict keeps parked, and set my limits                  | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
-| J-more-catalogue-18 Make my Blueprint, share its card, and see who opened it                  | whole journey            | after launch (OWNER 183 (2): social extras, Blueprint cards)                                                     |
-| J-more-catalogue-19 Join a crew and see my mentor matches                                     | whole journey            | after launch (OWNER 183 (2): social extras, crews and mentors)                                                   |
-| J-academy-12 Add a quiz and an assignment, schedule release, and set the gradebook            | steps #4, #5, #8         | after launch (OWNER 183 (2): the academy's full-school parts, assignments and gradebook)                         |
-| J-academy-13 Grade work, fix a quiz, and download the gradebook                               | steps #1, #2, #3, #7     | after launch (OWNER 183 (2): the academy's full-school parts, grading and gradebook)                             |
-| J-academy-15 Enrol people in bulk, run cohorts, and send a course email                       | steps #4, #5             | after launch (OWNER 183 (2): the academy's full-school parts, cohorts)                                           |
-| J-academy-19 Join a live lobby, a specialist room or a crew session                           | steps #1, #2, #3, #5, #6 | after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)                              |
-| J-dex-protocol-26 Hold a crew vault, set up inheritance and name recovery guardians           | steps #1, #2, #3         | after launch (OWNER 183 (2): social extras, crews (the crew vault))                                              |
-| J-dex-protocol-27 Mint and sell NFTs, and spend with the Sovereign Card                       | steps #1, #2, #3, #4     | after launch (OWNER 183 (2): NFT minting and sales)                                                              |
-| J-dex-protocol-28 Issue assets, raise funds and use the treasury yield vault                  | steps #1, #2, #3         | after launch (OWNER 183 (2): own-chain extras, asset issuance)                                                   |
-| J-dex-protocol-29 Run the protocol desk: metrics, labels, quoters, listings and pool control  | steps #8                 | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain (INTACHAIN listing rooms))                     |
-| J-dex-protocol-32 Account for protocol revenue, rebates and the IFC buyback                   | steps #8                 | after launch (OWNER 183 (2): own-chain extras, buyback)                                                          |
+| Journey                                                                                              | Parked                   | Until                                                                                                            |
+| ---------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| J-academy-04 Hand in an assignment and read the feedback                                             | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, assignments)                                       |
+| J-academy-09 Go to a live session and take part                                                      | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, live sessions)                                     |
+| J-academy-10 Accept an invitation, join my cohort, and stay informed                                 | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, cohorts)                                           |
+| J-academy-20 Compete in a season and earn from learning                                              | whole journey            | after launch (OWNER 183 (2): social extras, seasons)                                                             |
+| J-dex-protocol-16 Stake with a validator on INTACHAIN and look at INTACORE                           | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain; also (2) own-chain extras, validator staking) |
+| J-dex-protocol-25 Run a fair-launch auction and deploy a spot token with a genesis allocation        | whole journey            | after launch (OWNER 183 (2): own-chain extras, fair-launch auction)                                              |
+| J-merchant-31 Set up a card terminal and take an in-person payment                                   | whole journey            | after launch (OWNER 183 (2): the shop-floor card terminal)                                                       |
+| J-merchant-32 Run the shop floor: cart, tips, offline, shifts, saved cards and QR                    | whole journey            | after launch (OWNER 183 (2): the shop-floor card terminal)                                                       |
+| J-merchant-34 Route payments across processors                                                       | whole journey            | after launch (OWNER 183 (2): multi-processor routing)                                                            |
+| J-merchant-35 A platform onboards its sub-merchants                                                  | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-merchant-36 A platform splits payments, pays its sub-merchants and watches them                    | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-merchant-37 Give sub-merchants embedded money screens                                              | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-merchant-42 Founder checks that white-label tenants are isolated and fair                          | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-more-catalogue-05 Point my miner at the pool                                                       | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-06 Watch my fleet and get told when a worker goes quiet                             | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-07 See my mining rewards and get paid                                               | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-08 Seal, plan and pay a mining window                                               | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-15 Read a prediction market and place a Yes or No order                             | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
+| J-more-catalogue-16 Manage my orders and positions until a market settles                            | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
+| J-more-catalogue-17 Use the controls Predict keeps parked, and set my limits                         | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
+| J-more-catalogue-18 Make my Blueprint, share its card, and see who opened it                         | whole journey            | after launch (OWNER 183 (2): social extras, Blueprint cards)                                                     |
+| J-more-catalogue-19 Join a crew and see my mentor matches                                            | whole journey            | after launch (OWNER 183 (2): social extras, crews and mentors)                                                   |
+| J-academy-12 Add a quiz and an assignment, schedule release, and set the gradebook                   | steps #4, #5, #8         | after launch (OWNER 183 (2): the academy's full-school parts, assignments and gradebook)                         |
+| J-academy-13 Grade work, fix a quiz, and download the gradebook                                      | steps #1, #2, #3, #7     | after launch (OWNER 183 (2): the academy's full-school parts, grading and gradebook)                             |
+| J-academy-15 Enrol people in bulk, run cohorts, and send a course email                              | steps #4, #5             | after launch (OWNER 183 (2): the academy's full-school parts, cohorts)                                           |
+| J-academy-19 Join a live lobby, a specialist room or a crew session                                  | steps #1, #2, #3, #5, #6 | after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)                              |
+| J-dex-protocol-26 Hold a crew vault, set up inheritance and name recovery guardians                  | steps #1, #2, #3         | after launch (OWNER 183 (2): social extras, crews (the crew vault))                                              |
+| J-dex-protocol-27 Mint and sell NFTs, and spend with the Sovereign Card                              | steps #1, #2, #3, #4     | after launch (OWNER 183 (2): NFT minting and sales)                                                              |
+| J-dex-protocol-28 Issue assets, raise funds and use the treasury yield vault                         | steps #1, #2, #3         | after launch (OWNER 183 (2): own-chain extras, asset issuance)                                                   |
+| J-dex-protocol-29 Run the protocol desk: metrics, labels, quoters, listings and pool control         | steps #8                 | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain (INTACHAIN listing rooms))                     |
+| J-dex-protocol-32 Account for protocol revenue, rebates and the IFC buyback                          | steps #8                 | after launch (OWNER 183 (2): own-chain extras, buyback)                                                          |
+| J-more-catalogue-20 Understand and use IFC: stake, real yield, supply and burns                      | steps #3                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
+| J-ops-console-24 Watch capital and counterparties, run a buyback, plan a wind-down and keep evidence | steps #4                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
 
 ### By module
 
@@ -166,7 +168,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-edge                      | 19     | 1            | 2                     | 5                     | 5             |
 | customer: more                | 16     | 2            | 3                     | 7                     | 1             |
 | svc-market                    | 15     | 0            | 0                     | 6                     | 0             |
-| svc-token                     | 15     | 2            | 0                     | 4                     | 0             |
+| svc-token                     | 15     | 2            | 0                     | 4                     | 2             |
 | customer shell                | 12     | 5            | 3                     | 6                     | 1             |
 | svc-tax                       | 12     | 2            | 7                     | 2                     | 3             |
 | customer: pay                 | 11     | 1            | 1                     | 5                     | 1             |
