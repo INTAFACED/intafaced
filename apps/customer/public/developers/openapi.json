@@ -113,6 +113,41 @@
         }
       }
     },
+    "/api/v1/spreads": {
+      "get": {
+        "operationId": "fetchSpreads",
+        "summary": "Best ask minus best bid of every market with a book, at the pair precision",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/analytics/{symbol}": {
+      "get": {
+        "operationId": "fetchMarketAnalytics",
+        "summary": "Aggressor differential and trade figures of one market over a named window",
+        "tags": ["spot"],
+        "parameters": [{ "name": "symbol", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/orderbook/{symbol}": {
       "get": {
         "operationId": "fetchOrderBook",

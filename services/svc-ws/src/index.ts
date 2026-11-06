@@ -35,7 +35,8 @@ import { createMuxGateway, type MuxGateway } from './mux/gateway.js';
 import { MUX_IDLE_UNSET, resolveMuxIdleMs } from './mux/idle.js';
 import { MuxPoller } from './mux/poller.js';
 import { HubMarketResolver } from './mux/resolver.js';
-import { HttpCandleSource, HttpMarketDirectory, HttpTickerSource } from './mux/sources.js';
+import { HttpCandleSource, HttpInstrumentSource, HttpMarketDirectory, HttpTickerSource } from './mux/sources.js';
+import { InstrumentsHub } from './mux/instruments-hub.js';
 import { TickerHub } from './mux/ticker-hub.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { registerTapeLabelDoor } from './tape-label-http.js';
@@ -214,6 +215,16 @@ const tickerHub = new TickerHub(
   app.log,
 );
 
+const instrumentsHub = new InstrumentsHub(
+  {
+    highWaterBytes: env.WS_HIGH_WATER_BYTES,
+    maxLagTicks: env.WS_MAX_LAG_TICKS,
+    maxConnections: env.WS_MUX_MAX_SEATS,
+    onDemand: () => void muxPoller.tickInstruments(true),
+  },
+  app.log,
+);
+
 const candleHub = new CandleHub(
   {
     highWaterBytes: env.WS_HIGH_WATER_BYTES,
@@ -232,6 +243,8 @@ const muxPoller = new MuxPoller(
     tickerSource: new HttpTickerSource({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT, log: app.log }),
     candleSource: new HttpCandleSource({ baseUrl: env.TRADE_URL, log: app.log }),
     directory: marketDirectory,
+    instruments: instrumentsHub,
+    instrumentSource: new HttpInstrumentSource({ baseUrl: env.TRADE_URL, marketsLimit: env.WS_MARKETS_LIST_LIMIT, log: app.log }),
   },
   { tickerPollMs: env.WS_TICKER_POLL_MS, candlePollMs: env.WS_CANDLE_POLL_MS, flushMs: 250 },
   app.log,
@@ -257,6 +270,7 @@ if (muxIdleMs === undefined) {
       trades: tradeHub,
       tickers: tickerHub,
       candles: candleHub,
+      instruments: instrumentsHub,
       resolver: new HubMarketResolver(hub, marketDirectory),
       maxSubscriptions: env.WS_MUX_MAX_SUBSCRIPTIONS,
       maxOpsPerSecond: env.WS_MUX_MAX_OPS_PER_SECOND,

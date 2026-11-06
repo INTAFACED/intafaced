@@ -32,9 +32,12 @@ function served(entry: Pick<StreamEntry, 'door' | 'channel'>): boolean {
     case 'drop-copy':
       return parseDropCopyChannel(entry.channel) === entry.channel;
     case 'mux': {
+      // `instruments` covers every market and takes none; every other mux channel is subscribed for one market.
       const parsed = entry.channel.endsWith('.')
         ? parseMuxChannel(`${entry.channel}${MARKET}`)
-        : parseMuxChannel({ ch: entry.channel, market: MARKET, interval: '1m' });
+        : entry.channel === 'instruments'
+          ? parseMuxChannel({ ch: entry.channel })
+          : parseMuxChannel({ ch: entry.channel, market: MARKET, interval: '1m' });
       return parsed.ok;
     }
   }
@@ -87,6 +90,7 @@ describe('GET /streams', () => {
       'mux trades',
       'mux ticker',
       'mux candles',
+      'mux instruments',
       'mux futures.mark.',
       'private orders',
       'private fills',
@@ -115,6 +119,7 @@ describe('GET /streams', () => {
       'mux trades spot',
       'mux ticker spot',
       'mux candles spot',
+      'mux instruments spot',
       'mux futures.mark. derivatives',
       'private orders spot',
       'private fills spot',

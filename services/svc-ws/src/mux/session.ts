@@ -17,6 +17,7 @@ import {
 } from './protocol.js';
 import { publishedPositiveMs } from './idle.js';
 import type { MarketResolver } from './resolver.js';
+import type { InstrumentsHub } from './instruments-hub.js';
 import type { TickerHub } from './ticker-hub.js';
 import {
   FRESHNESS_LIMIT_KEY,
@@ -81,6 +82,8 @@ export interface MuxSessionDeps {
   readonly depth: DepthHub;
   readonly trades: TradeHub;
   readonly tickers: TickerHub;
+  /** Every market's state as a stream. Absent: the channel refuses `unsupported`. */
+  readonly instruments?: InstrumentsHub;
   readonly candles: CandleHub;
   readonly resolver: MarketResolver;
   /** Owner-published. Unset refuses the connection. */
@@ -312,9 +315,12 @@ export class MuxSession {
 
   async #subscribe(spec: ChannelSpec, i: number): Promise<Result> {
     if (spec.ch === 'futures.mark') return this.#subscribeMark(spec, i);
+    if (spec.ch === 'instruments' && !this.#deps.instruments) {
+      return fail(i, spec, null, 'unsupported', 'the instruments stream is not served here');
+    }
     let marketId: string | null = null;
     let symbol: string | null = null;
-    if (spec.market !== undefined) {
+    if (spec.ch !== 'instruments' && spec.market !== undefined) {
       const resolved = await this.#deps.resolver.resolve(spec.market);
       if (this.#closed) return fail(i, spec, null, 'unavailable', 'connection closing');
       if (resolved === null) return fail(i, spec, null, 'unknown_market', 'no such market');
@@ -347,7 +353,8 @@ export class MuxSession {
     entry.detach = detach;
     this.#subs.set(key, entry);
     this.#noteSubscriptions();
-    if (marketId !== null && spec.market !== undefined && spec.market !== marketId) this.#aliases.set(spec.market, marketId);
+    const typed = spec.ch === 'instruments' ? undefined : spec.market;
+    if (marketId !== null && typed !== undefined && typed !== marketId) this.#aliases.set(typed, marketId);
     if (marketId !== null && symbol !== null) this.#aliases.set(symbol, marketId);
     return ok(i, spec, marketId, symbol);
   }
@@ -395,13 +402,15 @@ export class MuxSession {
         return this.#deps.candles.attach(marketId as string, spec.interval, sink, this.#clock());
       case 'ticker':
         return this.#deps.tickers.attach(marketId, sink, this.#clock());
+      case 'instruments':
+        return this.#deps.instruments ? this.#deps.instruments.attach(sink, spec.resume) : null;
       case 'futures.mark':
         return null;
     }
   }
 
   #lookup(spec: ChannelSpec): { key: string; entry: Entry | undefined; marketId: string | null } {
-    if (spec.ch === 'futures.mark') {
+    if (spec.ch === 'futures.mark' || spec.ch === 'instruments') {
       const key = subscriptionKey(spec, null);
       return { key, entry: this.#subs.get(key), marketId: null };
     }
@@ -433,6 +442,10 @@ export class MuxSession {
         return fail(i, spec, marketId, 'unsupported', 'trades are a tape of independent prints; there is nothing to resync');
       case 'futures.mark':
         return fail(i, spec, marketId, 'unsupported', 'a mark is one observation; there is nothing to resync');
+      case 'instruments': {
+        const outcome = this.#deps.instruments?.resync(entry.sink) ?? 'absent';
+        return outcomeResult(i, spec, marketId, outcome === 'not_subscribed' ? 'absent' : outcome);
+      }
     }
   }
 

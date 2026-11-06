@@ -110,7 +110,7 @@ describe('the published route list matches what the services really mount', () =
     // Every registration resolved to a real /api/v1 path; none is left as a variable name.
     for (const route of declared) expect(route.path, `${route.method} ${route.path} in ${route.file}`).toMatch(/^\/api\/v1\//);
     const ours = REST_REFERENCE.map((route) => declarationKey({ ...route, scopes: scopesOf(route) }));
-    expect(ours).toHaveLength(116);
+    expect(ours).toHaveLength(118);
     expect(new Set(ours).size).toBe(ours.length);
     expect([...ours].sort()).toEqual([...new Set(declared.map(declarationKey))].sort());
   });
@@ -181,7 +181,7 @@ describe('the published route list matches what the services really mount', () =
     const expected = Object.entries(doors).flatMap(([door, entry]) =>
       entry.channels.map((channel) => ({ door, channel, private: entry.private })),
     );
-    expect(expected).toHaveLength(11);
+    expect(expected).toHaveLength(12);
     expect(STREAM_REFERENCE.map(({ door, channel, private: isPrivate }) => ({ door, channel, private: isPrivate }))).toEqual(expected);
     expect(STREAM_DOOR_PATH).toEqual(Object.fromEntries(Object.entries(doors).map(([door, entry]) => [door, entry.path])));
     // Each stream sits under the product svc-ws gives it (`STREAM_PRODUCTS`, served on every `/streams` entry).

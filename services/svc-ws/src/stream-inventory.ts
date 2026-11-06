@@ -35,6 +35,7 @@ export const STREAM_PRODUCTS: Readonly<Record<string, StreamProduct>> = {
   'mux trades': 'spot',
   'mux ticker': 'spot',
   'mux candles': 'spot',
+  'mux instruments': 'spot',
   'mux futures.mark.': 'derivatives',
   'private orders': 'spot',
   'private fills': 'spot',

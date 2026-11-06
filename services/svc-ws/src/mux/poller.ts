@@ -1,7 +1,8 @@
 import type { HubLogger } from '../depth/hub.js';
 import { MUX_INTERVAL_MS, type MuxInterval } from './protocol.js';
 import type { CandleHub, WireCandle } from './candle-hub.js';
-import type { CandleSource, MarketDirectory, TickerSource } from './sources.js';
+import type { InstrumentsHub } from './instruments-hub.js';
+import type { CandleSource, InstrumentSource, MarketDirectory, TickerSource } from './sources.js';
 import type { TickerHub, TickerRow } from './ticker-hub.js';
 
 /**
@@ -51,9 +52,21 @@ export class MuxPoller {
   /** Last upstream answer per candle key (null = the read failed), for the demand path. */
   readonly #candleLast = new Map<string, { at: number; candles: readonly WireCandle[] | null }>();
   #tickerLast: { at: number; rows: readonly TickerRow[] | null } | null = null;
+  readonly #instruments: InstrumentsHub | null;
+  readonly #instrumentSource: InstrumentSource | null;
+  #instrumentsBusy = false;
 
   constructor(
-    deps: { tickers: TickerHub; candles: CandleHub; tickerSource: TickerSource; candleSource: CandleSource; directory: MarketDirectory },
+    deps: {
+      tickers: TickerHub;
+      candles: CandleHub;
+      tickerSource: TickerSource;
+      candleSource: CandleSource;
+      directory: MarketDirectory;
+      /** The instruments stream: polled at the ticker cadence while somebody is subscribed. */
+      instruments?: InstrumentsHub;
+      instrumentSource?: InstrumentSource;
+    },
     options: MuxPollerOptions,
     log: HubLogger,
   ) {
@@ -62,6 +75,8 @@ export class MuxPoller {
     this.#tickerSource = deps.tickerSource;
     this.#candleSource = deps.candleSource;
     this.#directory = deps.directory;
+    this.#instruments = deps.instruments ?? null;
+    this.#instrumentSource = deps.instrumentSource ?? null;
     this.#options = options;
     this.#log = log;
     this.#clock = options.clock ?? Date.now;
@@ -77,6 +92,11 @@ export class MuxPoller {
     every(() => void this.tickTickers(), this.#options.tickerPollMs);
     every(() => this.#tickers.flush(this.#clock()), this.#options.flushMs);
     every(() => void this.tickCandles(), this.#options.candlePollMs);
+    if (this.#instruments) {
+      const instruments = this.#instruments;
+      every(() => void this.tickInstruments(), this.#options.tickerPollMs);
+      every(() => instruments.flush(), this.#options.flushMs);
+    }
   }
 
   stop(): void {
@@ -107,6 +127,22 @@ export class MuxPoller {
       this.#log.warn({ err: String(err) }, 'ws: ticker poll failed — disclosing ticker.unavailable');
     } finally {
       this.#tickerBusy = false;
+    }
+  }
+
+  /** One read of every market's state for the instruments stream. Exposed so tests drive it. */
+  async tickInstruments(force = false): Promise<void> {
+    const hub = this.#instruments;
+    const source = this.#instrumentSource;
+    if (!hub || !source || this.#instrumentsBusy || (!force && hub.connections === 0)) return;
+    this.#instrumentsBusy = true;
+    try {
+      hub.ingest(await source.fetch());
+    } catch (err) {
+      hub.markUnavailable();
+      this.#log.warn({ err: String(err) }, 'ws: instruments poll failed — disclosing instruments.unavailable');
+    } finally {
+      this.#instrumentsBusy = false;
     }
   }
 

@@ -52,8 +52,16 @@ export const MUX_MAX_ID_LENGTH = 64;
 /** A market id (`BTC-USDT`, a uuid) or a unified symbol (`BTC/USDT`). Bounded before any lookup. */
 export const MUX_MARKET = /^[A-Za-z0-9._:/-]{1,64}$/;
 
-export type MuxChannelName = 'book' | 'trades' | 'ticker' | 'candles';
-export const MUX_CHANNELS: readonly MuxChannelName[] = ['book', 'trades', 'ticker', 'candles'];
+export type MuxChannelName = 'book' | 'trades' | 'ticker' | 'candles' | 'instruments';
+export const MUX_CHANNELS: readonly MuxChannelName[] = ['book', 'trades', 'ticker', 'candles', 'instruments'];
+
+/** An instruments stream position a reconnecting client asks to resume from: the stream's epoch and the last sequence it applied. */
+export interface InstrumentsResume {
+  readonly epoch: string;
+  readonly sequence: number;
+}
+
+const EPOCH = /^[A-Za-z0-9-]{1,64}$/;
 
 /** Public futures mark. The symbol is the rest of `futures.mark.<symbol>`. */
 export const FUTURES_MARK_PREFIX = 'futures.mark.';
@@ -82,7 +90,9 @@ export type ChannelSpec =
   /** `market` omitted = every market. */
   | { readonly ch: 'ticker'; readonly market?: string }
   /** Public mark. `symbol` is the listing symbol, not an account. */
-  | { readonly ch: 'futures.mark'; readonly symbol: string };
+  | { readonly ch: 'futures.mark'; readonly symbol: string }
+  /** Every market's listing and trading state: a snapshot, then one event per change. `resume` picks up after a reconnect. */
+  | { readonly ch: 'instruments'; readonly resume?: InstrumentsResume };
 
 export type ParsedOp =
   | { readonly ok: true; readonly verb: MuxVerb; readonly id: string | undefined; readonly channels: readonly unknown[] }
@@ -160,6 +170,22 @@ export function parseChannel(raw: unknown): ParsedChannel {
   }
 
   switch (ch as MuxChannelName) {
+    case 'instruments': {
+      if (market !== undefined) return { ok: false, code: 'bad_request', message: 'instruments covers every market; it takes no market' };
+      const resume = raw.resume;
+      if (resume === undefined) return { ok: true, spec: { ch: 'instruments' } };
+      if (
+        !isRecord(resume) ||
+        typeof resume.epoch !== 'string' ||
+        !EPOCH.test(resume.epoch) ||
+        typeof resume.sequence !== 'number' ||
+        !Number.isSafeInteger(resume.sequence) ||
+        resume.sequence < 0
+      ) {
+        return { ok: false, code: 'bad_request', message: 'resume must be { epoch, sequence } from an earlier instruments frame' };
+      }
+      return { ok: true, spec: { ch: 'instruments', resume: { epoch: resume.epoch, sequence: resume.sequence } } };
+    }
     case 'ticker':
       return { ok: true, spec: market === undefined ? { ch: 'ticker' } : { ch: 'ticker', market } };
     case 'book':
@@ -200,5 +226,7 @@ export function subscriptionKey(spec: ChannelSpec, marketId: string | null): str
       return `ticker|${marketId ?? '*'}`;
     case 'futures.mark':
       return `futures.mark|${spec.symbol}`;
+    case 'instruments':
+      return 'instruments';
   }
 }

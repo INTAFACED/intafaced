@@ -1,5 +1,5 @@
 import { test, expect } from './journey.mjs';
-import { EDGE, api, bestPrices, fund, journeyState, toUnits } from './stack.mjs';
+import { EDGE, ORIGIN, api, bestPrices, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn } from './desk.mjs';
 
 // J-cex-spot-14, in the running app (docs/roadmap/journeys.json): a pro trader knows whether a market is open, limited,
@@ -265,14 +265,144 @@ test(`${J} #7 a market inside its opening window or the higher-risk zone shows a
   expect(JSON.stringify(res.body)).toContain('trade.opening_window');
 });
 
+/** The stack's svc-ws restarted with its multiplexed door's TEST limits (`LOCAL_STACK_WS_MUX=on`), or without them. */
+function wsMux(on) {
+  const before = process.env.LOCAL_STACK_WS_MUX;
+  if (on) process.env.LOCAL_STACK_WS_MUX = 'on';
+  else delete process.env.LOCAL_STACK_WS_MUX;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'ws');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_WS_MUX;
+    else process.env.LOCAL_STACK_WS_MUX = before;
+  }
+}
+
+/** One connection to the multiplexed door, through the Customer server's /ws upstream, keeping every frame it receives. */
+async function muxClient() {
+  const ws = new WebSocket(`${ORIGIN.replace(/^http/, 'ws')}/ws/stream`);
+  const frames = [];
+  ws.addEventListener('message', (event) => frames.push(JSON.parse(String(event.data))));
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true });
+    ws.addEventListener('error', () => reject(new Error('the multiplexed door refused the connection')), { once: true });
+  });
+  let read = 0;
+  return {
+    frames,
+    send: (op) => ws.send(JSON.stringify(op)),
+    /** The next frame (after those already taken) that matches, waiting up to `ms`. */
+    async next(match, ms = 20_000) {
+      const until = Date.now() + ms;
+      for (;;) {
+        const at = frames.findIndex((f, i) => i >= read && match(f));
+        if (at >= 0) {
+          read = at + 1;
+          return frames[at];
+        }
+        if (Date.now() > until)
+          throw new Error(`no matching frame in ${ms} ms; last frames: ${JSON.stringify(frames.slice(-3)).slice(0, 600)}`);
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    },
+    close: () => ws.close(),
+  };
+}
+
+const acked = (f, id) => f.op === 'ack' && f.id === id;
+const instruments = (type) => (f) => f.ch === 'instruments' && f.data?.type === type;
+
 test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async () => {
-  const tickers = await (await fetch(`${EDGE}/api/v1/tickers`)).json();
+  // Spreads, tickers and candles over REST. Each list read names its window (a blank one refuses), so ask for the
+  // published maximum. The ticker carries its spread, and a spread is the best ask minus the best bid.
+  const tickers = await (await fetch(`${EDGE}/api/v1/tickers?limit=500`)).json();
   const btc = Object.values(tickers).find((t) => t?.symbol === 'BTC/USDT');
   expect(btc?.spread, 'the ticker carries a spread field').toBeTruthy();
-  const spreads = await fetch(`${EDGE}/api/v1/spreads`);
-  expect(spreads.status).toBe(200);
+  const spreads = await fetch(`${EDGE}/api/v1/spreads?limit=500`);
+  expect(spreads.status, await spreads.clone().text()).toBe(200);
+  const row = (await spreads.json()).find((r) => r.symbol === 'BTC/USDT');
+  expect(row?.spread, 'BTC/USDT has a spread').toBeTruthy();
+  expect(toUnits(row.spread)).toBe(toUnits(row.ask) - toUnits(row.bid));
   const candles = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=1m&limit=5`);
   expect(candles.status).toBe(200);
+
+  // The streams: svc-ws's multiplexed door, opened with its labelled TEST limits for this step and closed after it.
+  wsMux(true);
+  const sockets = [];
+  try {
+    const first = await muxClient();
+    sockets.push(first);
+    first.send({ op: 'subscribe', id: 'all', channels: [{ ch: 'instruments' }, { ch: 'book', market: 'BTC/USDT' }, { ch: 'ticker' }] });
+    const ack = await first.next((f) => acked(f, 'all'));
+    expect(ack.results.map((r) => [r.ch, r.ok])).toEqual([
+      ['instruments', true],
+      ['book', true],
+      ['ticker', true],
+    ]);
+
+    // Depth: a snapshot, then updates in order, each starting where the one before ended.
+    const book = await first.next((f) => f.ch === 'book' && f.data?.type === 'snapshot');
+    let at = book.data.sequence;
+    for (let n = 0; n < 2; n += 1) {
+      const delta = await first.next((f) => f.ch === 'book' && f.data?.type === 'delta', 30_000);
+      expect(delta.data.fromSequence, 'a depth update starts where the book is').toBe(at);
+      expect(delta.data.sequence).toBeGreaterThan(at);
+      at = delta.data.sequence;
+    }
+    // Tickers: a snapshot of every market, then updates.
+    const tickerSnapshot = await first.next((f) => f.ch === 'ticker' && f.data?.type === 'snapshot');
+    expect(tickerSnapshot.data.tickers.some((t) => t.symbol === 'BTC/USDT')).toBe(true);
+    await first.next((f) => f.ch === 'ticker' && f.data?.type === 'update', 30_000);
+
+    // Instruments: one snapshot of every market's state, current as of a sequence, then one event per change in order.
+    const snapshot = await first.next(instruments('snapshot'));
+    const { epoch } = snapshot.data;
+    expect(snapshot.data.instruments.find((m) => m.symbol === LIMITED)?.state).toBe('OPEN');
+    // A second connection keeps the stream read while the first is away.
+    const keeper = await muxClient();
+    sockets.push(keeper);
+    keeper.send({ op: 'subscribe', id: 'keep', channels: [{ ch: 'instruments' }] });
+    await keeper.next((f) => acked(f, 'keep'));
+
+    let last = snapshot.data.sequence;
+    await inMode(LIMITED, 'LIMIT_ONLY', async () => {
+      const event = await first.next((f) => instruments('event')(f) && f.data.symbol === LIMITED, 30_000);
+      expect(event.data).toMatchObject({ epoch, from: 'OPEN', to: 'LIMIT_ONLY' });
+      expect(event.data.id).toMatch(/^[0-9a-f]{32}$/);
+      // Every event since the snapshot came in sequence order, one number apart (another market may have changed too).
+      const seen = first.frames.filter(instruments('event')).map((f) => f.data.sequence);
+      expect(seen).toEqual(seen.map((_, i) => snapshot.data.sequence + 1 + i));
+      last = seen.at(-1);
+      // The first connection drops; the step puts the market back to Open while it is away.
+      first.close();
+    });
+    // The keeper sees the change back, as the next sequence: the change the first connection missed.
+    const missed = await keeper.next((f) => instruments('event')(f) && f.data.symbol === LIMITED && f.data.to === 'OPEN', 30_000);
+    expect(missed.data.sequence).toBeGreaterThan(last);
+
+    // A reconnect that names its epoch and last sequence resumes there: no snapshot, and exactly the missed event next.
+    const again = await muxClient();
+    sockets.push(again);
+    again.send({ op: 'subscribe', id: 'resume', channels: [{ ch: 'instruments', resume: { epoch, sequence: last } }] });
+    await again.next((f) => acked(f, 'resume'));
+    const resumed = await again.next((f) => f.ch === 'instruments');
+    expect(resumed.data).toMatchObject({ type: 'resume', epoch, fromSequence: last });
+    // The events after its last sequence, in order, up to and including the one it missed.
+    const replayed = [];
+    while (replayed.at(-1)?.sequence !== missed.data.sequence) replayed.push((await again.next(instruments('event'))).data);
+    expect(replayed.map((e) => e.sequence)).toEqual(replayed.map((_, i) => last + 1 + i));
+    expect(replayed.at(-1)).toMatchObject({ id: missed.data.id, symbol: LIMITED, from: 'LIMIT_ONLY', to: 'OPEN' });
+
+    // A position the stream can't resume from (another epoch) is a gap: a snapshot, never a silent skip.
+    const stale = await muxClient();
+    sockets.push(stale);
+    stale.send({ op: 'subscribe', id: 'stale', channels: [{ ch: 'instruments', resume: { epoch: 'not-this-stream', sequence: last } }] });
+    const gap = await stale.next((f) => f.ch === 'instruments');
+    expect(gap.data).toMatchObject({ type: 'snapshot', reason: 'gap', epoch });
+  } finally {
+    for (const socket of sockets) socket.close();
+    wsMux(false);
+  }
 });
 
 test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window stats with the window named; a blank window refuses`, async ({

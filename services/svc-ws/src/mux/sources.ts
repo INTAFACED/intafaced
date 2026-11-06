@@ -1,5 +1,6 @@
 import { publishedMarketsListLimit } from '../depth/registry.js';
 import type { HubLogger } from '../depth/hub.js';
+import type { InstrumentRow } from './instruments-hub.js';
 import type { TickerRow } from './ticker-hub.js';
 import type { WireCandle } from './candle-hub.js';
 import type { MuxInterval } from './protocol.js';
@@ -237,4 +238,56 @@ export function parseCandleRow(row: unknown): WireCandle | null {
   if (typeof t !== 'number' || !Number.isSafeInteger(t) || t < 0) return null;
   for (const amount of [o, h, l, c, v]) if (typeof amount !== 'string' || !DECIMAL.test(amount)) return null;
   return { t, o: o as string, h: h as string, l: l as string, c: c as string, v: v as string };
+}
+
+// ── Instruments (every market's listing and trading state) ─────────────────
+
+export interface InstrumentSource {
+  fetch(): Promise<readonly InstrumentRow[]>;
+}
+
+export interface HttpInstrumentSourceOptions extends FetchOptions {
+  readonly marketsLimit: number | undefined;
+}
+
+/** `GET /api/v1/markets?limit=`: each row's id, symbol, base, quote and its public lifecycle state. */
+export class HttpInstrumentSource implements InstrumentSource {
+  readonly #options: HttpInstrumentSourceOptions;
+
+  constructor(options: HttpInstrumentSourceOptions) {
+    this.#options = options;
+  }
+
+  async fetch(): Promise<readonly InstrumentRow[]> {
+    const limit = publishedMarketsListLimit(this.#options.marketsLimit);
+    const body = await getJson(this.#options, `/api/v1/markets?limit=${limit}`);
+    const rows = Array.isArray(body) ? body : (body as { markets?: unknown })?.markets;
+    if (!Array.isArray(rows)) throw new MuxSourceError('market listing returned no list', null);
+    const out: InstrumentRow[] = [];
+    for (const raw of rows) {
+      const row = parseInstrument(raw);
+      if (row !== null) out.push(row);
+    }
+    return out;
+  }
+}
+
+const text = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
+
+/** One market row, or null when it has no id or symbol a client could hold. */
+export function parseInstrument(raw: unknown): InstrumentRow | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const market = text(row.id);
+  const symbol = text(row.symbol);
+  if (market === null || symbol === null) return null;
+  const lifecycle = row.lifecycle !== null && typeof row.lifecycle === 'object' ? (row.lifecycle as Record<string, unknown>) : null;
+  return {
+    market,
+    symbol,
+    base: text(row.base),
+    quote: text(row.quote),
+    state: text(lifecycle?.state),
+    reasonCode: text(lifecycle?.reasonCode) ?? text(row.lifecycleReasonCode),
+  };
 }

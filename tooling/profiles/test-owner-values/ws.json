@@ -1,0 +1,50 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "WS_MUX_IDLE_MS": {
+      "service": "ws",
+      "value": "60000",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: an idle multiplexed connection with no subscription closes after a minute."
+    },
+    "WS_MAX_CONNECTIONS": {
+      "service": "ws",
+      "value": "50",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: fifty sockets on the door."
+    },
+    "WS_MUX_MAX_SEATS": {
+      "service": "ws",
+      "value": "50",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: fifty subscribers per hub."
+    },
+    "WS_MUX_MAX_SUBSCRIPTIONS": {
+      "service": "ws",
+      "value": "16",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: sixteen channels per connection."
+    },
+    "WS_MUX_MAX_OPS_PER_SECOND": {
+      "service": "ws",
+      "value": "20",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: twenty operations a second per connection."
+    },
+    "WS_HIGH_WATER_BYTES": {
+      "service": "ws",
+      "value": "1048576",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: 1 MiB of unread frames before a client counts as lagging."
+    },
+    "WS_MAX_LAG_TICKS": {
+      "service": "ws",
+      "value": "20",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: a client still lagging after twenty ticks is closed."
+    },
+    "WS_MARKETS_LIST_LIMIT": {
+      "service": "ws",
+      "value": "500",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: the whole TEST market list in one read."
+    },
+    "WS_DEPTH_LIMIT": {
+      "service": "ws",
+      "value": "20",
+      "note": "TEST: set only when the stack's svc-ws is started with LOCAL_STACK_WS_MUX=on (J-cex-spot-14 #8 opens the multiplexed door for its step and puts it back). Default stack and production leave it blank, and the door refuses by its own *_unset code. Value: twenty levels a side on the book channel."
+    }
+  }
+}
