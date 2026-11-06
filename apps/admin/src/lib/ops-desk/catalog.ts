@@ -1926,6 +1926,77 @@ const moreSections: readonly DeskSection[] = [
         forbiddenText: FORBID_MARKET_OPS,
       },
       {
+        id: 'market.listing-review',
+        title: 'Listings waiting for review',
+        note: 'Every new listing, of every kind, waits here until two founders approve it (it becomes public) or reject it with a reason its seller reads. Oldest first. Nothing is ranked by returns.',
+        module: 'market',
+        procedure: 'ops.listingReview.list',
+        input: { limit: 50 },
+        shape: 'list',
+        rowsKey: 'rows',
+        idKey: 'id',
+        page: 50,
+        rowAction: 'market.listing.review',
+        columns: [
+          text('title', 'Listing'),
+          text('sellerName', 'Seller'),
+          text('offerType', 'Type'),
+          amount('price', 'Price'),
+          text('assetId', 'Asset'),
+          int('periodSeconds', 'Period (s)', { nullable: true }),
+          text('reviewState', 'Review'),
+          time('submittedAt', 'Submitted'),
+          time('reviewDueAt', 'Review due', { nullable: true }),
+          text('description', 'Description', { detail: true }),
+          text('category', 'Category', { nullable: true, detail: true }),
+          text('vendorId', 'Vendor id', { detail: true }),
+          text('id', 'Listing id', { detail: true }),
+        ],
+        emptyText: 'No listing is waiting for review.',
+        forbiddenText: FORBID_MARKET_OPS,
+      },
+      {
+        id: 'market.listing-review-rules',
+        title: 'Listing review criteria and window',
+        note: 'The owner publishes these. While either is blank every new listing waits and svc-market refuses a decision by name. No return, win-rate or drawdown threshold is built in.',
+        module: 'market',
+        plainName: 'listing review rules',
+        procedure: 'ops.listingReview.list',
+        input: { limit: 50 },
+        shape: 'record',
+        columns: [
+          text('criteria', 'Review criteria', { nullable: true }),
+          int('windowSeconds', 'Review window (s)', { nullable: true }),
+          text('queueNote', 'Queue'),
+        ],
+        emptyText: '',
+        forbiddenText: FORBID_MARKET_OPS,
+      },
+      {
+        id: 'market.listing-review-decisions',
+        title: 'Listing review decisions',
+        note: 'Every approval, rejection and takedown, newest first, with its reason, the founder who asked and the founder who approved. The 50 newest; a full page is not the whole history.',
+        module: 'market',
+        plainName: 'listing review decisions',
+        procedure: 'ops.listingReview.decisions',
+        input: { limit: 50 },
+        shape: 'list',
+        idKey: 'businessKey',
+        page: 50,
+        columns: [
+          text('listingId', 'Listing id'),
+          text('decision', 'Decision'),
+          text('reason', 'Reason'),
+          text('actorId', 'Asked by'),
+          text('approverId', 'Approved by', { nullable: true }),
+          time('decidedAt', 'Decided'),
+          int('ordinal', 'Review round', { detail: true }),
+          text('businessKey', 'Key', { detail: true }),
+        ],
+        emptyText: 'No listing review decision is recorded yet.',
+        forbiddenText: FORBID_MARKET_OPS,
+      },
+      {
         id: 'market.listings',
         title: 'Public listings',
         note: 'What a shopper can see today. svc-market refuses to publish a listing while the house commission is blank (see Commerce programme on this desk), so a blank rate also means an empty list.',
@@ -2363,6 +2434,19 @@ export const MINING_DESK: DeskSpec = {
     'Pool terms, payout windows, shares and workers, as svc-mining-pool reports them, each with the time it was read. This desk changes nothing: the pool has no operator action, and payouts refuse until emission is published.',
   sections: moreSections.filter((s) => s.id === 'mining'),
   commonSet: 'mining',
+};
+
+/**
+ * Market: the More modules desk's market section on its own page (J-more-catalogue-04): the listing review queue with the
+ * owner's criteria, the review decisions, vendors, public listings and sales. It reads only that section.
+ */
+export const MARKET_DESK: DeskSpec = {
+  ...DESKS.more,
+  title: 'Market: listing review',
+  intro:
+    'Listings waiting for review, with their seller, terms and the owner’s criteria. Two founders approve or reject each one; an approved listing becomes public, a rejected one shows its seller the reason, and every decision and takedown is in the audit below.',
+  sections: moreSections.filter((s) => s.id === 'market'),
+  commonSet: undefined,
 };
 
 /**

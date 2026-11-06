@@ -102,6 +102,12 @@ export type DeskRequest =
   | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
+  | {
+      readonly kind: 'market.listing.review';
+      readonly listingId: string;
+      readonly decision: ListingReviewDecision;
+      readonly reason: string;
+    }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
   /** Release the next waitlist wave (svc-identity `waitlist.waves.release`, RC-campaigns-03). `size` is the owner's wave size read. */
@@ -252,6 +258,8 @@ export type DeskRequest =
 
 export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
+export const LISTING_REVIEW_DECISIONS = ['approved', 'rejected'] as const;
+export type ListingReviewDecision = (typeof LISTING_REVIEW_DECISIONS)[number];
 export const CARD_STATUSES = ['frozen', 'active'] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
@@ -549,6 +557,13 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.status !== 'string' || !(CARD_STATUSES as readonly string[]).includes(raw.status)) return null;
     return { kind: 'bank.card.status', cardId: raw.cardId, status: raw.status as CardStatus, reason: raw.reason };
   }
+  // svc-market binds the listing, the decision AND the reason to a listing review approval (MC-market-03).
+  if (raw.kind === 'market.listing.review') {
+    if (keys !== 'decision,kind,listingId,reason') return null;
+    if (typeof raw.listingId !== 'string' || !UUID.test(raw.listingId) || !validReason(raw.reason)) return null;
+    if (raw.decision !== 'approved' && raw.decision !== 'rejected') return null;
+    return { kind: 'market.listing.review', listingId: raw.listingId, decision: raw.decision, reason: raw.reason };
+  }
   // svc-market binds the listing AND the reason to the approval, so a changed reason cannot ride on an approved takedown.
   if (raw.kind === 'market.listing.takedown') {
     if (keys !== 'kind,listingId,reason') return null;
@@ -775,6 +790,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `${request.status === 'frozen' ? 'FREEZE' : 'UNFREEZE'} CARD ${request.cardId.slice(0, 8)}`;
     case 'market.listing.takedown':
       return `TAKE DOWN LISTING ${request.listingId.slice(0, 8)}`;
+    case 'market.listing.review':
+      return `${request.decision === 'approved' ? 'APPROVE' : 'REJECT'} LISTING ${request.listingId.slice(0, 8)}`;
     case 'identity.auth_key.rotate':
       return `ROTATE KEY ${request.keyId}`;
     case 'identity.auth_key.remove_old':
@@ -879,6 +896,10 @@ export function describeRequest(request: DeskRequest): string {
       return request.status === 'frozen'
         ? `Freeze card ${request.cardId} as an operator: the card is frozen and its owner cannot unfreeze it. Only an operator can lift it. The owner can still close it.`
         : `Lift the freeze on card ${request.cardId}, whoever set it: this includes a freeze the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.`;
+    case 'market.listing.review':
+      return request.decision === 'approved'
+        ? `Approve market listing ${request.listingId} ("${request.reason}"): it becomes public in the Market and can be bought.`
+        : `Reject market listing ${request.listingId} ("${request.reason}"): it stays off the Market, and its seller reads this reason.`;
     case 'market.listing.takedown':
       return `Take down market listing ${request.listingId}: it leaves the market for good. Nobody can set it active again, and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded.`;
     case 'identity.auth_key.rotate':

@@ -15,6 +15,7 @@ export default async function Page() {
   return (
     <>
       <nav aria-label="More modules rooms" className="dk-row">
+        <Link href="/more-ops/market">Market listing review</Link>
         <Link href="/more-ops/venue-economics">Venue unit economics</Link>
         <Link href="/more-ops/mining">Mining desk</Link>
         <Link href="/more-ops/predict">Predict desk</Link>
