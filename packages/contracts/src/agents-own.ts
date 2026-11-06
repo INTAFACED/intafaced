@@ -701,3 +701,79 @@ export const ownAgentReviewCheckSchema = z.object({
   engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES).nullable(),
 });
 export type OwnAgentReviewCheck = z.infer<typeof ownAgentReviewCheckSchema>;
+
+/**
+ * AN AGENT'S ALLOWANCE (AG-spend-03; J-agents-08 #3, #4; OWNER 186 (1)). A time-bound, revocable grant that lets the
+ * person's own agent place orders up to an amount, in one asset, until it ends. It is a limit and never a balance: the
+ * person keeps custody and nothing is pulled or held when it is granted. Amount, asset and period are the person's, and
+ * a blank one refuses `agents.allowance.unset` naming the field. Value-moving agent tools are on for TEST money only: a
+ * deployment that is not explicitly dev or test refuses every grant and every order ask with `agents.real_money_off`
+ * (real money stays off until Launch hardening passes, OWNER 179).
+ */
+export const OWN_AGENT_ALLOWANCE_PERIODS = ['day', 'week', 'month'] as const;
+export type OwnAgentAllowancePeriod = (typeof OWN_AGENT_ALLOWANCE_PERIODS)[number];
+export const OWN_AGENT_ALLOWANCE_STATES = ['active', 'revoked', 'expired'] as const;
+
+/** `own.allowance.grant`: blank fields reach the service as typed, so a blank one is refused by name, never filled in. */
+export const ownAgentAllowanceGrantSchema = z.object({
+  id: z.string().min(1).max(64),
+  requestId: z.string().min(1).max(200),
+  amount: z.string().max(64),
+  assetId: z.string().max(32),
+  period: z.string().max(16),
+});
+
+export const ownAgentAllowanceSchema = z.object({
+  id: z.string().uuid(),
+  agentId: z.string().uuid(),
+  assetId: z.string(),
+  /** Decimal strings, never numbers. */
+  amount: z.string(),
+  remaining: z.string(),
+  period: z.enum(OWN_AGENT_ALLOWANCE_PERIODS),
+  grantedAt: z.string(),
+  expiresAt: z.string(),
+  revokedAt: z.string().nullable(),
+  state: z.enum(OWN_AGENT_ALLOWANCE_STATES),
+  /** Only TEST money can be granted (OWNER 186 (1)). */
+  label: z.literal('TEST'),
+});
+export type OwnAgentAllowance = z.infer<typeof ownAgentAllowanceSchema>;
+
+/** `own.allowance.list`: the agent's allowances, newest first, and whether this deployment moves TEST money at all. */
+export const ownAgentAllowancesSchema = z.object({
+  allowances: z.array(ownAgentAllowanceSchema),
+  /** False on any deployment that is not explicitly dev or test: every grant and order ask refuses agents.real_money_off. */
+  testMoney: z.boolean(),
+});
+export type OwnAgentAllowances = z.infer<typeof ownAgentAllowancesSchema>;
+
+export const ownAgentAllowanceRevokeSchema = z.object({ id: z.string().min(1).max(64), allowanceId: z.string().uuid() });
+
+/**
+ * `own.act`: the person asks their own agent to place an order, in words. The TEST engine reads the order from the
+ * words by rule (no model is called); the order is then admitted against the agent's allowance before anything is
+ * sent. A refusal answers with its code: `agents.real_money_off`, `agents.act.not_an_order`, `agents.allowance.none`,
+ * `agents.allowance.revoked`, `agents.allowance.expired`, `agents.allowance.asset_mismatch`, or
+ * `agents.value_move_unavailable` while the agent's order door to the trade service is not built.
+ */
+export const ownAgentActStartSchema = z.object({
+  id: z.string().min(1).max(64),
+  requestId: z.string().min(1).max(200),
+  ask: z.string().max(4000),
+});
+export const OWN_AGENT_ORDER_SIDES = ['buy', 'sell'] as const;
+export const OWN_AGENT_ORDER_TYPES = ['market', 'limit'] as const;
+/** The order the TEST engine read from the person's words. */
+export const ownAgentOrderAskSchema = z.object({
+  side: z.enum(OWN_AGENT_ORDER_SIDES),
+  /** Decimal string in the base asset. */
+  size: z.string(),
+  baseAsset: z.string(),
+  orderType: z.enum(OWN_AGENT_ORDER_TYPES),
+  /** Decimal string in the allowance's asset; null for a market order. */
+  limitPrice: z.string().nullable(),
+});
+export type OwnAgentOrderAsk = z.infer<typeof ownAgentOrderAskSchema>;
+export const ownAgentActSchema = z.object({ order: ownAgentOrderAskSchema });
+export type OwnAgentAct = z.infer<typeof ownAgentActSchema>;
