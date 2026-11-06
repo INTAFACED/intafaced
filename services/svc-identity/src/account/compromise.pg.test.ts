@@ -94,7 +94,9 @@ if (!available) {
       const held = await auth.compromiseCase(u.userId, me);
       expect(held).toMatchObject({ id: first.caseId, sessionsEnded: live.sessions, keysEnded: 2, notes: [] });
 
-      // A new sign-in and a new key after it, then pressing again: the same case, and both are ended.
+      // The person lifts the freeze (the TEST wait is skipped here), then a new sign-in and a new key, then pressing
+      // again: the same case, the freeze is back, and both are ended.
+      await db.sql`UPDATE account_self_freezes SET state = 'lifted', lifted_at = now() WHERE user_id = ${u.userId}`;
       await auth.login({ identifier: u.handle, password: PASSWORD });
       await auth.createApiKey({ userId: u.userId, name: 'k3', scopes: ['identity:read'], grantorScopes: SESSION_SCOPES });
       const again = await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
@@ -103,8 +105,9 @@ if (!available) {
       // Pressed once more with nothing left to end: the same case, nothing changed.
       const third = await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
       expect(third).toMatchObject({ caseId: first.caseId, changed: false });
+      expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: true, reason: 'compromise' });
       expect(await db.sql`SELECT id FROM compromise_cases WHERE user_id = ${u.userId}`).toHaveLength(1);
-      expect(await db.sql`SELECT id FROM account_self_freezes WHERE user_id = ${u.userId}`).toHaveLength(1);
+      expect(await db.sql`SELECT id FROM account_self_freezes WHERE user_id = ${u.userId} AND state = 'frozen'`).toHaveLength(1);
     });
 
     it('a wrong password, or an API key or sub-account, changes nothing', async () => {
@@ -168,7 +171,8 @@ if (!available) {
       expect(list.devices).toBe(devices.reviewedAt.toISOString());
       expect(list.addresses).toBeNull();
 
-      // A key made after the case opened puts the API keys item back to be done.
+      // A key made after the case opened (once the freeze is lifted) puts the API keys item back to be done.
+      await db.sql`UPDATE account_self_freezes SET state = 'lifted', lifted_at = now() WHERE user_id = ${u.userId}`;
       await auth.createApiKey({ userId: u.userId, name: 'late', scopes: ['identity:read'], grantorScopes: SESSION_SCOPES });
       expect((await items()).api_keys).toBeNull();
     });
