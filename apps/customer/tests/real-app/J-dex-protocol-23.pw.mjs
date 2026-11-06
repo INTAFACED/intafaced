@@ -142,6 +142,13 @@ test(`${J} #7 opens the testnet kit and the WebSocket streams docs: the faucet, 
 test(`${J} #8 embeds the swap widget in a host page: it quotes in the page and the confirm step opens a top-level window`, async ({
   page,
 }) => {
+  // A host page may frame the widget only if the widget's own policy lets it. While /embed/swap still answers
+  // frame-ancestors 'none', the step fails here by name, before the browser is asked to load a frame its policy refuses
+  // (that refusal is a real CSP violation, and the run's production-policy check turned main red on it: runs 1306 and
+  // 42146991688, shards 12 and 19).
+  const served = await fetch(`${ORIGIN}/embed/swap`);
+  const policy = served.headers.get('content-security-policy') ?? '';
+  expect(policy, 'UNBUILT: /embed/swap may not be framed by a host page (frame-ancestors).').not.toMatch(/frame-ancestors\s+'none'/);
   await page.setContent(
     `<main><h1>TEST host page</h1><iframe title="Swap" src="${ORIGIN}/embed/swap" width="420" height="640"></iframe></main>`,
   );
