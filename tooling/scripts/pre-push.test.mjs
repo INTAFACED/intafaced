@@ -2,7 +2,7 @@
 // Run by tooling/scripts/tooling-tests.mjs (the `tooling-tests` Doctrine gate).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { configDrift, heavyWrapper, parseRefs, planChecks, skipReason, stepEnv, SKIP_ENV } from './pre-push.mjs';
+import { configDrift, elapsed, heavyWrapper, parseRefs, planChecks, skipReason, stepEnv, SKIP_ENV } from './pre-push.mjs';
 import { GATES, runOptions, selectGates } from '../ci/gates.mjs';
 
 const BASE = 'a'.repeat(40);
@@ -102,4 +102,11 @@ test('a change to the shared config core settings during the checks is named', (
   assert.deepEqual(configDrift(before, { ...before }), []);
   assert.deepEqual(configDrift(before, { ...before, 'core.bare': 'true' }), ['core.bare: false → true']);
   assert.deepEqual(configDrift(before, { ...before, 'core.hookspath': null }), ['core.hookspath: .githooks → (unset)']);
+});
+
+test('durations print as minutes and seconds, never 60 seconds', () => {
+  assert.equal(elapsed(0), '0m00s');
+  assert.equal(elapsed(59_600), '1m00s');
+  assert.equal(elapsed(119_600), '2m00s');
+  assert.equal(elapsed(125_000), '2m05s');
 });

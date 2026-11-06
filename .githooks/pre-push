@@ -34,8 +34,7 @@ printf '%s\n' "$REFS" | while read -r local_ref _local_sha remote_ref _remote_sh
       git push -u origin feat/your-change
       gh pr create --fill
 
-    If you genuinely need to push main:
-      git push --no-verify
+    Never push main (AGENTS.md, Check then merge, item 7).
 
 MESSAGE
     exit 1

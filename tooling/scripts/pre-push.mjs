@@ -77,7 +77,10 @@ function gitPath(args) {
   return resolve(git(['rev-parse', '--show-toplevel']), p);
 }
 
-const elapsed = (ms) => `${Math.floor(ms / 60000)}m${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}s`;
+export const elapsed = (ms) => {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
+};
 
 /**
  * The environment the steps run in: this one without the variables git exports into a hook to locate this repository
@@ -98,13 +101,15 @@ export function stepEnv(env, localVars) {
  */
 export function heavyWrapper(env, home, exists = existsSync) {
   const named = env.INTAFACED_HEAVY_WRAPPER;
-  if (named === 'none') return null;
+  if (named === 'none' || !exists(ZSH)) return null;
   const path = named || join(home, 'code', 'review', 'restart', 'heavy.sh');
   if (!exists(path)) return null;
   // The default script takes its slots as folders under locks/ beside it and waits forever when that folder is missing.
   if (!named && !exists(join(dirname(path), 'locks'))) return { missing: join(dirname(path), 'locks'), path };
   return path;
 }
+
+const ZSH = '/bin/zsh';
 
 /** The shared config's core settings a check must never change (2026-11-06: a gate's `git init` set core.bare). */
 export const GUARDED_CONFIG = ['core.bare', 'core.hookspath', 'core.worktree'];
@@ -135,7 +140,8 @@ function step(name, cmd, args, { cwd, logDir, children, env }) {
   const started = Date.now();
   console.log(`  … ${name}: ${[cmd, ...args].join(' ')}`);
   return new Promise((done) => {
-    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
+    // Its own process group, so a stop reaches what it started too (gates.mjs's gate scripts, turbo's tasks).
+    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env, detached: true });
     children.add(child);
     child.stdout.pipe(out, { end: false });
     child.stderr.pipe(out, { end: false });
@@ -201,22 +207,34 @@ async function main() {
     return;
   }
 
-  if (!planOnly && pushed.length === 0) {
-    console.log('  pre-push checks: nothing pushed but deletions; nothing to check');
+  if (!planOnly && pushed.every((r) => r.remoteRef.startsWith('refs/tags/'))) {
+    for (const r of pushed) console.log(`  pre-push checks: ${r.remoteRef} is a tag, not checked (no PR run checks a tag)`);
+    if (pushed.length === 0) console.log('  pre-push checks: nothing pushed but deletions; nothing to check');
     return;
   }
   // The checks read this worktree, so they can only vouch for a push of its HEAD with nothing uncommitted.
   for (const r of pushed) {
+    // A tag push starts no PR run, so it is not checked; a branch push is, and only HEAD's can be.
+    if (r.remoteRef.startsWith('refs/tags/')) {
+      console.log(`  pre-push checks: ${r.remoteRef} is a tag, not checked (no PR run checks a tag)`);
+      continue;
+    }
     if (r.localSha !== head)
       refuse(
         `${r.localRef} (${r.localSha.slice(0, 12)}) is not this worktree's HEAD (${head.slice(0, 12)}); the checks run on HEAD. Push from the worktree that has it checked out.`,
       );
   }
-  const dirty = planOnly ? '' : git(['status', '--porcelain', '--untracked-files=no']);
+  // Untracked files count too (not ignored ones): a new file left out of the commit typechecks here and is missing in CI.
+  const dirty = planOnly ? '' : git(['status', '--porcelain', '--untracked-files=all']);
   if (dirty)
     refuse(
-      `tracked files differ from HEAD, so the checks would read code you are not pushing:\n${dirty}\n    Commit them, or set them aside, then push.`,
+      `files differ from HEAD (changed or untracked), so the checks would read code you are not pushing:\n${dirty}\n    Commit them, add them to .gitignore, or set them aside, then push.`,
     );
+  // A backup left by an earlier run that was killed outright: restoring it later would overwrite money.ts.
+  const moneySrc = join(top, 'packages', 'ledger-client', 'src', 'money.ts');
+  const moneyBackup = `${moneySrc}.mutation-backup`;
+  if (!planOnly && existsSync(moneyBackup))
+    refuse(`${moneyBackup} is left from an earlier mutation run that was killed; compare it with money.ts at HEAD, then delete it.`);
   if (!existsSync(join(top, 'node_modules', '.bin', 'turbo')))
     refuse('this worktree has no node_modules; run `pnpm install --frozen-lockfile` first (about 30 s).');
 
@@ -258,7 +276,7 @@ async function main() {
   if (wrapper) {
     // The same checks again, inside one heavy slot; the inner run repeats the cheap checks above and does the rest.
     console.log(`  waiting for a heavy slot (${wrapper}) …`);
-    const child = spawn('zsh', [wrapper, process.execPath, fileURLToPath(import.meta.url)], {
+    const child = spawn(ZSH, [wrapper, process.execPath, fileURLToPath(import.meta.url)], {
       cwd: top,
       stdio: ['pipe', 'inherit', 'inherit'],
       env: { ...process.env, INTAFACED_PRE_PUSH_IN_SLOT: '1' },
@@ -266,7 +284,13 @@ async function main() {
     child.stdin.end(refs.map((r) => `${r.localRef} ${r.localSha} ${r.remoteRef} ${r.remoteSha}`).join('\n') + '\n');
     process.on('SIGINT', () => child.kill('SIGINT'));
     process.on('SIGTERM', () => child.kill('SIGTERM'));
-    const code = await new Promise((done) => child.on('close', (c) => done(c ?? 1)));
+    const code = await new Promise((done) => {
+      child.on('error', (err) => {
+        console.error(`  ✖ could not start ${ZSH} ${wrapper}: ${err.message}`);
+        done(1);
+      });
+      child.on('close', (c) => done(c ?? 1));
+    });
     process.exit(code);
   }
 
@@ -277,7 +301,13 @@ async function main() {
   let interrupted = false;
   const stop = (sig) => {
     interrupted = true;
-    for (const c of children) c.kill(sig);
+    for (const c of children) {
+      try {
+        process.kill(-c.pid, sig);
+      } catch {
+        c.kill(sig);
+      }
+    }
   };
   process.on('SIGINT', () => stop('SIGINT'));
   process.on('SIGTERM', () => stop('SIGTERM'));
@@ -304,11 +334,10 @@ async function main() {
   if (!interrupted) results.push(await step('gates-exclusive', node, ['tooling/ci/gates.mjs', '--part', 'exclusive'], ctx));
 
   // money-property-mutation restores money.ts in a `finally`, which a signal skips: put the copy it took back.
-  const src = join(top, 'packages', 'ledger-client', 'src', 'money.ts');
-  const backup = `${src}.mutation-backup`;
-  if (existsSync(backup)) {
-    copyFileSync(backup, src);
-    rmSync(backup, { force: true });
+  // There was no backup when this run started (refused above), so one now was taken by this run's mutation gate.
+  if (existsSync(moneyBackup)) {
+    copyFileSync(moneyBackup, moneySrc);
+    rmSync(moneyBackup, { force: true });
     console.error("  restored packages/ledger-client/src/money.ts from the mutation gate's backup (it was stopped mid-run)");
   }
 
