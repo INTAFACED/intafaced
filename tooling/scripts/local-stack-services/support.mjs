@@ -1,8 +1,24 @@
+/**
+ * The stack's empty-catalogue profile: `LOCAL_STACK_SUPPORT_CATALOGUE=off` on a start or restart of support runs
+ * svc-support on a database of its own, made new on each such start: svc-support's migrations, then every answer they
+ * seed unpublished, so nothing is published (local-test-stack.mjs resetSupportEmptyCatalogue). /help can then be seen with
+ * the whole library empty (J-support-public-01 #3) while the shared stack's answers stay where they are. The stack
+ * records which database support runs on, and a start that wants the other one restarts support onto it.
+ */
+export const SUPPORT_EMPTY_CATALOGUE_DB = 'intafaced_local_test_support_empty';
+export const supportCatalogueOff = (env = process.env) => env.LOCAL_STACK_SUPPORT_CATALOGUE === 'off';
+/** `url` with its database name replaced by the empty-catalogue database's; the role, password, host, port and query stay. */
+export function onEmptyCatalogueDb(url) {
+  const u = new URL(url);
+  u.pathname = `/${SUPPORT_EMPTY_CATALOGUE_DB}`;
+  return u.toString();
+}
+
 export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
   name: 'support',
   env: () => ({
     ...c('svc-support', PORTS.support),
-    DATABASE_URL: dbUrl('svc_support', secrets),
+    DATABASE_URL: supportCatalogueOff() ? onEmptyCatalogueDb(dbUrl('svc_support', secrets)) : dbUrl('svc_support', secrets),
     IDENTITY_URL: urlOf('identity'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
