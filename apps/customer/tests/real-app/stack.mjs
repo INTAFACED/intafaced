@@ -32,6 +32,33 @@ const STATE = localStackState();
 export const stackFile = (name) => path.join(STATE, name);
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
 
+/**
+ * The shared-world state of this worker's current journey file (journey.mjs, `worldBetweenFiles`): which file it is,
+ * whether the market maker was running when it began, and the TEST accounts it signed up or acted as. In a run file
+ * (mode 600, like the journey state), so a worker Playwright starts again after a failed step, which carries on with the
+ * same file, still knows them, and what the file left is put back only when the next file starts.
+ */
+const WORLD_FILE = path.join(RUN, `world-${process.env.JOURNEY_RUN_ID ?? 'local'}-${process.env.TEST_PARALLEL_INDEX ?? '0'}.json`);
+export const worldState = {
+  read() {
+    try {
+      return JSON.parse(readFileSync(WORLD_FILE, 'utf8'));
+    } catch {
+      return { file: null, marketWasRunning: false, accounts: [] };
+    }
+  },
+  write(state) {
+    mkdirSync(RUN, { recursive: true });
+    writeFileSync(WORLD_FILE, JSON.stringify(state), { mode: 0o600 });
+  },
+};
+function touch(who) {
+  if (!who?.email || !who?.password) return;
+  const state = worldState.read();
+  if (state.accounts.some((a) => a.email === who.email)) return;
+  worldState.write({ ...state, accounts: [...state.accounts, { email: who.email, password: who.password }] });
+}
+
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */
 export function journeyState(id) {
   const file = path.join(RUN, `${id}.json`);
@@ -137,6 +164,7 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose =
  * password; the country and birth date are TEST answers. Lands signed in, off /register.
  */
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
+  touch(who);
   const seen = mailedCodes(who.email).length;
   await page.goto('/register');
   if (accountType === 'business') await page.getByRole('radio', { name: /Business/ }).check();
@@ -173,6 +201,7 @@ export async function json(res) {
  * with an authenticator signs in with a fresh code from it (`totpCode`).
  */
 export async function api(who, { totpCode } = {}) {
+  touch(who);
   const signIn = () =>
     fetch(`${EDGE}/api/identity/trpc/auth.login`, {
       method: 'POST',

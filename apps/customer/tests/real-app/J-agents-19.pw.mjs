@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { UNBUILT, agentCard, agentsRun, openAgents, openNavigatorSession } from './agents.mjs';
 import { connectWallet, dexRun } from './dex.mjs';

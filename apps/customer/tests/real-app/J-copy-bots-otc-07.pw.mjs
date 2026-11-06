@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { fund, journeyState } from './stack.mjs';
 import { listLeader } from './copy.mjs';

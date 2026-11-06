@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { UNBUILT } from './dex.mjs';
 import { desk, founderPair, openDesk, twoFounder } from './protocol-desk.mjs';

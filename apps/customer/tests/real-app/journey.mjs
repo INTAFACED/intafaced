@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
 import { LEDGER, ROOT } from './stack.mjs';
+import { enterFile } from './world-restore.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
@@ -56,6 +57,15 @@ export const expect = new Proxy(baseExpect, {
 });
 
 export const test = base.extend({
+  // No journey file leaves the shared world changed for the file after it: its resting orders, algos and bots come down,
+  // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
+  worldBetweenFiles: [
+    async ({}, use, testInfo) => {
+      await enterFile(testInfo.file);
+      await use();
+    },
+    { auto: true, timeout: 150_000 },
+  ],
   // No journey leaves the platform posting freeze on for the journeys after it (journey-freeze-guard.mjs).
   postingFreezeGuard: [
     async ({}, use, testInfo) => {

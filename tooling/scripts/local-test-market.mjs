@@ -11,6 +11,8 @@
  *   node tooling/scripts/local-test-market.mjs move <symbol> <+/-pct%>
  *                                    shifts that market's TEST PRICE by the percent from the next cycle on (0% clears it),
  *                                    so a journey can push a price out of a bot's range; the running loop picks it up.
+ *   node tooling/scripts/local-test-market.mjs unshift
+ *                                    clears every market's shift at once (the journeys put the price back between files).
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
@@ -1415,6 +1417,15 @@ async function main() {
     process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
   }
   if (cmd === 'history') process.exit(await runHistory(opts, os.homedir()));
+  if (cmd === 'unshift') {
+    // Every `move` cleared at once, so a journey file that moved a price and stopped part-way leaves no shift for the
+    // next file (journey.mjs, worldBetweenFiles). The running loop quotes the walk again from its next cycle.
+    const shifts = readShifts(p);
+    const cleared = [...shifts.keys()];
+    fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(p.shiftFile, JSON.stringify({}), { mode: 0o600 });
+    return console.log(cleared.length ? `TEST PRICE shift cleared for ${cleared.join(', ')}` : 'no TEST PRICE shift to clear');
+  }
   if (cmd === 'move') {
     const [symbol, pct] = rest;
     const bps = parseShift(pct);
@@ -1442,7 +1453,7 @@ async function main() {
     console.log(`was running (pid ${rec.pid}) and is not now; starting it again with the same options`);
     return startBackground(p, rec.args ?? [], { wait: false });
   }
-  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move`, 2);
+  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift`, 2);
   await startBackground(p, rest, { wait: true });
 }
 

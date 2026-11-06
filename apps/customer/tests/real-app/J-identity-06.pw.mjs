@@ -1,3 +1,4 @@
+// World: none
 import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';

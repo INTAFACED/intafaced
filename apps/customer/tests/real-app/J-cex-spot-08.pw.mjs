@@ -1,3 +1,4 @@
+// World: book
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, openDesk, openOrders, placements, previewed, reviewSheet } from './desk.mjs';
