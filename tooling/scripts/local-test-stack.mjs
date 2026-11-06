@@ -1107,9 +1107,10 @@ async function migrate(secrets, schemas = SCHEMAS) {
 
 /**
  * The empty-catalogue profile's database (local-stack-services/support.mjs), made new on every start of support with
- * LOCAL_STACK_SUPPORT_CATALOGUE=off: dropped, created, given svc-support's schema and migrated as svc_support, so it holds
- * svc-support's tables and nothing published. svc-support is stopped by then (start migrates only what is about to start),
- * so nothing holds a connection to it. The stack's own database is never touched.
+ * LOCAL_STACK_SUPPORT_CATALOGUE=off: dropped, created, given svc-support's schema and migrated as svc_support, then every
+ * answer the migrations seed (the platform answers of 0003 and 0013) unpublished, so it holds svc-support's tables and
+ * nothing published. svc-support is stopped by then (start migrates only what is about to start), so nothing holds a
+ * connection to it. The stack's own database is never touched.
  */
 async function resetSupportEmptyCatalogue(secrets) {
   psql(secrets, `DROP DATABASE IF EXISTS ${SUPPORT_EMPTY_CATALOGUE_DB} WITH (FORCE)`);
@@ -1124,8 +1125,14 @@ GRANT USAGE ON SCHEMA public TO svc_support;`,
   await runPnpmAsync(['--filter', '@intafaced/svc-support', 'db:migrate'], 'migrate-support-empty-catalogue', {
     DATABASE_URL: onEmptyCatalogueDb(dbUrl('svc_support', secrets)),
   });
+  psql(secrets, 'UPDATE support.kb_articles SET published = false WHERE published', { db: SUPPORT_EMPTY_CATALOGUE_DB });
   say(`  support: empty-catalogue profile on ${SUPPORT_EMPTY_CATALOGUE_DB} (LOCAL_STACK_SUPPORT_CATALOGUE=off), made new`);
 }
+
+/** Which database the running svc-support is on: 'off' (the empty-catalogue profile's) or 'on' (the stack's). */
+const supportCatalogueFile = () => path.join(STATE, 'support-catalogue');
+const supportCatalogueWas = () => (fs.existsSync(supportCatalogueFile()) ? fs.readFileSync(supportCatalogueFile(), 'utf8').trim() : 'on');
+const supportCatalogueWanted = () => (supportCatalogueOff() ? 'off' : 'on');
 
 // ── Service definitions ─────────────────────────────────────────────────────
 
@@ -2060,6 +2067,10 @@ async function cmdStart(flags) {
   // Migrate only what is about to start: a service that is already running on the current build was migrated when it
   // started; one on another build is restarted onto this one (stopForNewBuild), so its new migrations run first.
   const backendBuild = currentBuild('backendBuild');
+  // A running svc-support on the other catalogue's database is stopped first, so this start puts it on the one asked for
+  // (a journey that switched it off and never switched it back, say): it is never left reading the wrong book.
+  if (wanted.some((d) => d.name === 'support') && ownedAlive(readProcs().support) && supportCatalogueWas() !== supportCatalogueWanted())
+    await cmdStop(['support']);
   const procsNow = readProcs();
   const toStart = wanted.filter((d) => !ownedAlive(procsNow[d.name]) || !onCurrentBuild(procsNow[d.name], backendBuild));
   // An old build never serves a schema migrated past it: stop it before its migrations run.
@@ -2069,6 +2080,7 @@ async function cmdStart(flags) {
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
   if (supportCatalogueOff() && toStart.some((d) => d.name === 'support')) await resetSupportEmptyCatalogue(secrets);
+  if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];
@@ -2079,6 +2091,10 @@ async function cmdStart(flags) {
       secrets,
       SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
     );
+  if (extra.includes('support')) {
+    if (supportCatalogueOff()) await resetSupportEmptyCatalogue(secrets);
+    writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
+  }
   // Vault before identity starts, so the first boot already has the invite hashes.
   // Enrolment itself waits until edge is up (below).
   try {

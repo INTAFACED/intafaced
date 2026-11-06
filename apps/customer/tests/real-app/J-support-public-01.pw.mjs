@@ -509,20 +509,30 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
 // (`LOCAL_STACK_SUPPORT_CATALOGUE=off`: a database of its own, made new, with nothing published;
 // tooling/scripts/local-stack-services/support.mjs) and put back on the stack's database after, whatever happened.
 test(`${J} #3 with the whole library empty, /help shows its honest empty state and no sample answer`, async ({ browser }) => {
-  test.setTimeout(240_000);
-  restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', false);
+  // Two restarts of support (each up to tool()'s two minutes) and the profile's new database, on top of the browser steps.
+  test.setTimeout(420_000);
+  let page = null;
+  let failure = null;
   try {
+    restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', false);
     // The library is empty for everyone: the public answers read lists none.
     const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
     expect(listed.status, 'listKb answers').toBe(200);
     expect((await listed.json()).result.data, 'the empty-catalogue profile publishes no answer').toEqual([]);
-    const page = await visitor(browser);
+    page = await visitor(browser);
     await page.goto('/help');
     // The honest empty state, and not one answer row: no sample answer stands in.
     await expect(page.locator('main').getByText(/No answers are published/)).toBeVisible();
     await expect(page.locator('main').getByTestId('help__row')).toHaveCount(0);
-    await page.context().close();
-  } finally {
-    restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', true);
+  } catch (err) {
+    failure = err;
   }
+  // Support goes back on the stack's database whatever happened; a failure to put it back never hides the step's own.
+  try {
+    await page?.context().close();
+    restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', true);
+  } catch (err) {
+    failure ??= err;
+  }
+  if (failure) throw failure;
 });

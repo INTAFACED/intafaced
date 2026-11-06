@@ -1,14 +1,18 @@
 /**
  * The stack's empty-catalogue profile: `LOCAL_STACK_SUPPORT_CATALOGUE=off` on a start or restart of support runs
- * svc-support on a database of its own, made new and empty (svc-support's migrations only, nothing published), so /help
- * can be seen with the whole library empty (J-support-public-01 #3) while the shared stack's answers stay where they
- * are. Starting support again without it puts svc-support back on the stack's database. The stack makes the database on
- * each such start (local-test-stack.mjs resetSupportEmptyCatalogue).
+ * svc-support on a database of its own, made new on each such start: svc-support's migrations, then every answer they
+ * seed unpublished, so nothing is published (local-test-stack.mjs resetSupportEmptyCatalogue). /help can then be seen with
+ * the whole library empty (J-support-public-01 #3) while the shared stack's answers stay where they are. The stack
+ * records which database support runs on, and a start that wants the other one restarts support onto it.
  */
 export const SUPPORT_EMPTY_CATALOGUE_DB = 'intafaced_local_test_support_empty';
 export const supportCatalogueOff = (env = process.env) => env.LOCAL_STACK_SUPPORT_CATALOGUE === 'off';
-/** `url` with its database name replaced by the empty-catalogue database's. */
-export const onEmptyCatalogueDb = (url) => url.replace(/\/[^/?]+(\?.*)?$/, (_m, query = '') => `/${SUPPORT_EMPTY_CATALOGUE_DB}${query}`);
+/** `url` with its database name replaced by the empty-catalogue database's; the role, password, host, port and query stay. */
+export function onEmptyCatalogueDb(url) {
+  const u = new URL(url);
+  u.pathname = `/${SUPPORT_EMPTY_CATALOGUE_DB}`;
+  return u.toString();
+}
 
 export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
   name: 'support',
