@@ -68,6 +68,12 @@ export interface MatchingOperatorRouteDeps {
   /** Null when the upstream URL or the signing secret is blank. */
   readonly matching: MatchingControlCall | null;
   readonly blocked: MatchingDoorBlock | null;
+  /**
+   * The engine's health read alone (J-cex-spot-20 #1). svc-matching serves `GET /health` to anyone on its network with
+   * no credential, so this needs only MATCHING_URL: it sends no service signature and can reach nothing else. Absent: the
+   * health door uses `matching` and its block, as before.
+   */
+  readonly healthRead?: MatchingControlCall | null;
   readonly readApproval: MatchingApprovalRead;
   readonly now?: () => number;
 }
@@ -179,6 +185,32 @@ function errorMessage(err: unknown): string {
  * svc-matching is key-signed over its method, path and query, body and content
  * type; `dual` also sends the secret, `keypair` does not.
  */
+/**
+ * An unsigned client for svc-matching's public health read and nothing else: every request it can make is
+ * `GET /health`, whatever path it is asked for, so it can never stand in for the signed control client.
+ */
+export function httpMatchingHealthRead(baseUrl: string, timeoutMs: number, fetchFn: typeof fetch = globalThis.fetch): MatchingControlCall {
+  const target = `${baseUrl.replace(/\/$/, '')}/health`;
+  return async () => {
+    try {
+      const res = await fetchFn(target, { method: 'GET', signal: AbortSignal.timeout(timeoutMs) });
+      const text = await res.text();
+      let body: unknown = {};
+      if (text.length > 0) {
+        try {
+          body = JSON.parse(text) as unknown;
+        } catch {
+          body = { error: 'matching upstream body was not JSON' };
+        }
+      }
+      return { kind: 'answered', status: res.status, body };
+    } catch (err) {
+      if (isTimeout(err)) return { kind: 'unknown', error: `svc-matching did not answer before ${timeoutMs}ms` };
+      return { kind: 'unavailable', error: `svc-matching did not answer: ${errorMessage(err)}` };
+    }
+  };
+}
+
 export function httpMatchingControl(
   baseUrl: string,
   secret: string,
@@ -331,7 +363,7 @@ export function registerMatchingOperatorRoutes(app: FastifyInstance, deps: Match
       if (authError(err, reply)) return reply;
       throw err;
     }
-    const matching = openMatching();
+    const matching = deps.healthRead ?? openMatching();
     if (!matching) return sendJson(reply, 503, blockedBody());
     const started = clock();
     const res = await matching({ method: 'GET', path: '/health' });
