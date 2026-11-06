@@ -247,7 +247,7 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
   const dialog = page.getByRole('dialog', { name: 'Pre-liquidation stop' });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('places a market order that closes the whole position');
-  await expect(dialog.getByText('Margin ratio now')).toBeVisible();
+  await expect(dialog.getByRole('term').filter({ hasText: /^Margin ratio now$/ })).toBeVisible();
   await expect(dialog.getByRole('region', { name: 'On this position now' })).toContainText('No pre-liquidation stop set');
   const level = dialog.getByLabel(/Close at margin ratio/);
   const save = dialog.getByRole('button', { name: 'Set stop' });
