@@ -249,7 +249,7 @@ test('a deferred journey or step leaves the scoreboard and the slice order', () 
   const passed = new Set(['J-cex-spot-01#1', 'J-cex-spot-01#2']);
   const page = progress([], [], '2026-10-20T09:00:00Z', journeys, passed);
   assert.match(page, /Passing in the real app on main: 1 of 1 journeys \(2 of 2 steps\)\. Order 1: 1 of 1\./);
-  assert.match(page, /Deferred to launch prep and not counted: 1 journey and 2 steps\./);
+  assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 1 journey and 2 steps\./);
 });
 
 test('a skipped step, a step with no tests, or a failing duplicate title does not pass', () => {

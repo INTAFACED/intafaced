@@ -1,4 +1,5 @@
 import { t as copyText, Text } from './copy';
+import { CardOrderRoom } from './CardOrder';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button, DataTable, EmptyState, Failure, Field, Page } from '../../shared/ui';
@@ -2134,6 +2135,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <LoanApplyRoom search={search} open={open} />;
     case '/bank/cards':
       return <Cards open={open} />;
+    case '/bank/cards/new':
+      return <CardOrderRoom />;
     case '/bank/ramps':
       return <Ramps open={open} />;
     case '/bank/ramps/new':

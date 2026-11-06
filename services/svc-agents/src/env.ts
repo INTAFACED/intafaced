@@ -281,6 +281,12 @@ const schema = serviceEnvSchema
        */
       AGENTS_OWN_ASSISTANT_MODEL: blankAsAbsent(z.string().max(200).optional()),
       /**
+       * Owner decision: the model the automatic reviewer of a person's own agent uses (AG-approvals-02). Blank sends every
+       * call the reviewer would decide to the person, and the setting shows owner.decision. `test-engine` is the TEST
+       * engine of a test deployment, which reviews by rule and calls no model.
+       */
+      AGENTS_REVIEWER_MODEL: blankAsAbsent(z.string().max(200).optional()),
+      /**
        * Owner value: how long a call of a person's own agent that a rule holds waits for the person's decision, in whole
        * seconds, 1 to 604800 (AG-approvals-01). After it the request reads expired and can never be approved. Blank
        * refuses holding any call with agents.approval.ttl_unset: nothing is stored and the tool does not run.

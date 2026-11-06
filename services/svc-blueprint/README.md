@@ -280,7 +280,7 @@ There is deliberately **no default URL**. One pointing at a host that does not e
 
 ## Shared-package changes in this PR
 
-§15.2 says a shared-package change should be its own PR first. Flagging these rather than burying them:
+When this was built, §15.2 said a shared-package change should be its own PR first (since owner decision 2026-11-06, one journey's PR may carry it). Flagging these rather than burying them:
 
 - `packages/contracts/src/blueprint.ts` — **new.** The profile schema and the export/erase envelopes. §7.1 names three read-only downstream consumers of `blueprints.profile` (svc-trade, svc-academy, svc-agents); they read it through here and never import this service.
 - `packages/events/src/catalog.ts` — three events added. The bus validates against the catalog, so this is unavoidable rather than optional.

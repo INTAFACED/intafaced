@@ -41,7 +41,7 @@ import { MARKET_LISTING_PIN_IEEE, MARKET_LISTING_PIN_UNSET, MARKET_LISTING_SET_U
  *
  * ── WHY THE SCHEMAS STILL LIVE HERE AND NOT IN `packages/contracts` ────────
  *
- * §15.2 requires a contracts PR first for CROSS-SERVICE work, and Stage 1's
+ * §15.2 required a contracts PR first for CROSS-SERVICE work, and Stage 1's
  * comment here predicted that Stage 2's stake read would earn one. On building
  * it, that turned out to be wrong, and the correction is worth writing down.
  *

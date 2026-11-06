@@ -208,6 +208,8 @@ export const ownAgentApprovalRequestSchema = z.object({
   createdAt: z.string(),
   expiresAt: z.string(),
   decidedAt: z.string().nullable(),
+  /** Who approved or rejected it: the person, or the automatic reviewer's proceed (AG-approvals-02). Null otherwise. */
+  decidedBy: z.enum(['person', 'reviewer']).nullable(),
   replacedBy: z.string().uuid().nullable(),
   /** The tool's first answer once an approved request has run; null before. A repeated approve returns this. */
   result: z.unknown().nullable(),
@@ -637,3 +639,65 @@ export const ownAgentAcceptSchema = z.object({
   tools: z.array(z.string().max(120)).max(50),
   acceptKey: z.string().min(8).max(128),
 });
+
+/**
+ * THE AUTOMATIC REVIEWER (AG-approvals-02; J-agents-05 #7). A switch per agent lets the person send the calls a rule
+ * would hold for them to a reviewer instead, for tools that move no value only. The reviewer can only add friction:
+ * `proceed` runs the call once, `needs_person` holds it for the person as before, and `refuse` ends it with
+ * `agents.review_refused` and its coded reason. For a tool that can move value `proceed` is not in the schema, so such
+ * a call always goes to the person. The reviewer runs on the model the owner chose; while that choice is blank every
+ * call goes to the person and the setting shows `owner.decision`. On a test deployment the TEST engine reviews by rule
+ * and calls no model.
+ */
+export const OWN_AGENT_REVIEW_DECISIONS = ['proceed', 'needs_person', 'refuse'] as const;
+export type OwnAgentReviewDecision = (typeof OWN_AGENT_REVIEW_DECISIONS)[number];
+/** A reviewer's answer for a call of a tool that moves no value: any of the three. */
+export const ownAgentNoValueReviewSchema = z.object({
+  valueTool: z.literal(false),
+  decision: z.enum(OWN_AGENT_REVIEW_DECISIONS),
+  reasonCode: z.string().regex(/^(agents\.review\.[a-z_]+|owner\.decision)$/),
+});
+/** A reviewer's answer for a call of a tool that can move value: never `proceed`. */
+export const ownAgentValueReviewSchema = z.object({
+  valueTool: z.literal(true),
+  decision: z.enum(['needs_person', 'refuse']),
+  reasonCode: z.string().regex(/^(agents\.review\.[a-z_]+|owner\.decision)$/),
+});
+export const ownAgentReviewSchema = z.discriminatedUnion('valueTool', [ownAgentNoValueReviewSchema, ownAgentValueReviewSchema]);
+export type OwnAgentReview = z.infer<typeof ownAgentReviewSchema>;
+
+/** `own.reviewer.get` and `own.reviewer.set`: the person's switch for this agent and the engine reviews run on. */
+export const ownAgentReviewerSchema = z.object({
+  on: z.boolean(),
+  /** null: the owner has not chosen the reviewer's model, so every call goes to the person (`owner.decision`). */
+  engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES).nullable(),
+  updatedAt: z.string().nullable(),
+});
+export type OwnAgentReviewer = z.infer<typeof ownAgentReviewerSchema>;
+
+/** One decision the reviewer made on a call of the agent's tool, newest first. The input is kept as a digest only. */
+export const ownAgentReviewRowSchema = z.object({
+  id: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  requestId: z.string(),
+  tool: z.string(),
+  decision: z.enum(OWN_AGENT_REVIEW_DECISIONS),
+  reasonCode: z.string(),
+  inputDigest: z.string(),
+  /** The approval request the call became: run by the reviewer's `proceed`, or held for the person. Null when refused. */
+  approvalRequestId: z.string().uuid().nullable(),
+  engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES).nullable(),
+  createdAt: z.string(),
+});
+export type OwnAgentReviewRow = z.infer<typeof ownAgentReviewRowSchema>;
+
+/**
+ * `own.review.check`: what the reviewer would decide for one call of a tool from the catalogue, without running it or
+ * storing anything. A tool that can move value goes to the person without the reviewer being asked.
+ */
+export const ownAgentReviewCheckSchema = z.object({
+  tool: z.string(),
+  review: ownAgentReviewSchema,
+  engine: z.enum(OWN_AGENT_ASSISTANT_ENGINES).nullable(),
+});
+export type OwnAgentReviewCheck = z.infer<typeof ownAgentReviewCheckSchema>;

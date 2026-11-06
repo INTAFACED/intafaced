@@ -106,7 +106,7 @@ const schema = baseEnvSchema
        * Poll cadence against svc-matching.
        *
        * Polling, not a push, because §5.1 gives the engine no outbound depth
-       * feed and adding one is a change to svc-matching — a separate PR, and
+       * feed and adding one is a change to svc-matching, and
        * arguably a separate design (the README's `SnapshotSink` socket is where
        * it would land). The cost of polling is bounded and visible: one HTTP
        * GET per subscribed market per tick, and markets with no subscriber are

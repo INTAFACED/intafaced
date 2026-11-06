@@ -26,8 +26,8 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 
 ## Services and events
 
-1. One service per pull request. Two open PRs may touch one service when their files do not overlap (owner decision 2026-10-20); if another open PR touches the same files, take a different part. `Main trust` stays the safety net: a breaking commit is reverted first.
-2. A slice lands as one PR when it needs `packages/contracts` or `packages/events`, one service and that service's screen (owner decision 2026-10-22). Any other cross-service change is two PRs in order: the `packages/contracts` or `packages/events` PR first, then the service PR.
+1. One pull request may carry one whole journey: it may touch every service, `packages/contracts` and `packages/events` that the journey needs, in one PR, instead of one service per PR in order (owner decision 2026-11-06). Two open PRs may touch one service when their files do not overlap. If another open PR touches the same files, take a different part. `Main trust` stays the safety net: a breaking commit is reverted first.
+2. Money recipes in `packages/ledger-client`, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR, reviewed as "Check, then merge" says.
 3. Services never read each other's tables. Use tRPC through `packages/contracts` or an event. Publish only subjects declared in `packages/events/src/catalog.ts`. Consumers are idempotent.
 4. User-facing copy names no partner or model vendor (`pnpm scan:brand`).
 

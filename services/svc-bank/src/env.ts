@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
@@ -457,6 +458,28 @@ const schema = serviceEnvSchema
        * panel refuses `bank.account_terms_unset` and never claims a fee-free account. Boot stays up; the read is the refuse.
        */
       BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
+
+      /**
+       * Owner-published card programme terms as JSON (BK-cissue-01 to -03, J-bank-13): `{ network, countries: [ISO2],
+       * limits: { virtual, physical }, terms: { version, text }, designs: [{ id, name }], speeds: [{ speed, days }],
+       * deliveryCountries: [ISO2] }`. NO DEFAULT. Blank / unset / not in shape → the card room refuses
+       * `bank.card_eligibility_unset` and a live issuer issues nothing; the simulator's direct issue keeps working.
+       */
+      BANK_CARD_PROGRAMME_JSON: z.string().optional(),
+
+      /**
+       * Owner-published cashback rates by rank card tier as JSON (RC-bank-02, J-bank-13 #7): `{ "assetId": "IFC", "rates":
+       * { "none" | "standard" | "metal" | "obsidian": <bps> } }`. NO DEFAULT. Blank / unset / not in shape → the cashback
+       * read refuses `bank.cashback_rate_unset`, and a card in that asset earns no tier rate.
+       */
+      BANK_CARD_CASHBACK_RATES_JSON: z.string().optional(),
+
+      /**
+       * THE CARD SIMULATOR'S CASHBACK STAND-IN (J-bank-13 #7): `test` lets card-sim pay cashback from the reward pot on the
+       * local test stack. Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production. Default `off`: a
+       * simulated card pays none (`bank.rewards_issuer_unset`).
+       */
+      BANK_CARD_SIM_CASHBACK: z.enum(CARD_SIM_CASHBACK_SETTINGS).default('off'),
 
       /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",

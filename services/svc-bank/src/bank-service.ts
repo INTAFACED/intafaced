@@ -8,6 +8,7 @@ import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
+import { CardOrderService } from './cards/card-orders.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
 import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
@@ -103,6 +104,8 @@ export interface BankServices {
   /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
   readonly assetPauses: AssetPauseService;
   readonly cards: CardService;
+  /** J-bank-13: the card room's product list, terms, order and delivery. */
+  readonly cardOrders: CardOrderService;
   readonly ramps: RampService;
   /** Add money: the ways to pay in with their quotes, and the customer's requests (J-bank-02). */
   readonly addMoney: AddMoneyService;
@@ -366,6 +369,9 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
   });
+  const cardOrders = new CardOrderService(sql, cards, {
+    terms: options.cards?.programmeTerms ?? null,
+  });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   // One registry: the address book reads the same one as deposits and the supported-asset list unless a test passes its own.
   const assetRegistry = options.assetRegistry ?? null;
@@ -451,6 +457,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     assetPauses,
     loans,
     cards,
+    cardOrders,
     ramps,
     addMoney,
     linkedAccounts,
