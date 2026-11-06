@@ -1,4 +1,4 @@
-// World: book, gates, stack
+// World: book, gates, restart, stack
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { awayBid, fundedTrader, signIn } from './desk.mjs';
@@ -9,7 +9,8 @@ import { api, bestPrices, fromUnits, journeyState, times, toUnits, tool } from '
 // One test per step, titled "J-cex-spot-18 #<n>". The support agent is founder B (the stack's TEST desk agent, as in
 // J-support-public-10); the finance operator who approves is founder A. The customer is a fresh TEST account funded with
 // TEST 1000 USDT, with one filled buy (the order they report), one resting buy that stays live, and one resting buy whose
-// book entry the stack drops (`local-test-gates.mjs engine-drop`, a LOCAL TEST fault): its hold is then an orphan.
+// book entry the stack drops and whose cancel it loses (`local-test-gates.mjs engine-drop`, a LOCAL TEST fault that
+// stops and restarts svc-trade): its hold is then an orphan.
 const J = 'J-cex-spot-18';
 const SYMBOL = 'BTC/USDT';
 const AMOUNT = '0.001';
@@ -160,12 +161,14 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
 });
 
 test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts; a second run releases none`, async ({ page }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const { customer, orphan, live } = run.read();
   const orphanOrder = await customerOrder(customer, orphan);
   const hold = times(orphanOrder.price, orphanOrder.amount);
-  // LOCAL TEST fault: the book forgets the orphan's entry; the trade service still holds its funds.
+  // LOCAL TEST fault: the order leaves the book and its cancel is lost on the way to svc-trade (run 42212975613: a cancel
+  // that arrives is released by trade itself, leaving no orphan). Trade still has the order open, holding its funds.
   tool('local-test-gates.mjs', 'engine-drop', SYMBOL, orphan);
+  expect((await customerOrder(customer, orphan)).status).toBe('open');
   const usedBefore = await usdtUsed(customer);
   const totalBefore = await usdtTotal(customer);
   await founderSignIn(page, 'b');

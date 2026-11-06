@@ -63,6 +63,8 @@ import {
   scopesWithout,
   sealConsoleSession,
   stackFounderScopes,
+  isCancelOf,
+  TRADE_CANCELS,
 } from './local-test-gates.mjs';
 import { draftFounderVault } from './local-test-founders.mjs';
 import { TEST_SPOT_LISTINGS, UNQUOTED_TEST_SPOT, localTestDatabaseUrl } from './seed-spot-test-listing.mjs';
@@ -740,6 +742,26 @@ for (const [args, usage] of [
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, usage);
   assert.doesNotMatch(r.stderr, /refusing/);
+}
+// engine-drop loses exactly one cancel: matching's orderCancelled for that order, on svc-trade's own durable consumer.
+{
+  const bytes = (env) => new TextEncoder().encode(JSON.stringify(env));
+  const cancel = (orderId) => ({
+    subject: 'intafaced.matching.order.cancelled',
+    payload: { orderId, marketId: 'm', remainingQty: '1', sequence: 1 },
+  });
+  assert.equal(isCancelOf(bytes(cancel('o-1')), 'o-1'), true);
+  assert.equal(isCancelOf(bytes(cancel('o-2')), 'o-1'), false, "another order's cancel is handed back, never lost");
+  assert.equal(isCancelOf(bytes({ ...cancel('o-1'), subject: 'intafaced.matching.order.filled' }), 'o-1'), false);
+  assert.equal(isCancelOf(new TextEncoder().encode('not json'), 'o-1'), false);
+  const events = readFileSync(resolve(here, '../../services/svc-trade/src/events.ts'), 'utf8');
+  assert.match(
+    events,
+    new RegExp(`'orderCancelled'[\\s\\S]*?durable: '${TRADE_CANCELS.durable}'`),
+    "trade's cancel consumer is the one named",
+  );
+  const prefix = /const STREAM_PREFIX = '([A-Z_]+)'/.exec(readFileSync(resolve(here, 'local-test-stack.mjs'), 'utf8'))?.[1];
+  assert.equal(TRADE_CANCELS.stream, `${prefix}_MATCHING`, "the stack's own matching stream");
 }
 // scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
 {

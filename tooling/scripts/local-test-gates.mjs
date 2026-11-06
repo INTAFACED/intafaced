@@ -17,7 +17,7 @@
  *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy, the network rules and the custody policy in svc-pay, and list the TEST fraud address in svc-bank
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
- *   node tooling/scripts/local-test-gates.mjs engine-drop <SYMBOL> <orderId>   LOCAL TEST fault: the book forgets one resting order (trade keeps its hold)
+ *   node tooling/scripts/local-test-gates.mjs engine-drop <SYMBOL> <orderId>   LOCAL TEST fault: one resting order leaves the book and its cancel is lost (restarts trade; trade keeps its hold)
  *   node tooling/scripts/local-test-gates.mjs trade-audit --kind <k> --account <userId>   svc-trade operator audit rows, as one JSON line
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two founders)
@@ -1121,27 +1121,99 @@ export async function setBookHalt(ctx, symbol, halted) {
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
 }
 
+/** svc-trade's durable consumer of matching's cancels (services/svc-trade/src/events.ts) and the stack's stream for them. */
+export const TRADE_CANCELS = Object.freeze({ stream: 'LOCAL_TEST_MATCHING', durable: 'trade-cancels' });
+
+/** True when these bus bytes are matching's `orderCancelled` envelope for `orderId`; anything unreadable is not. */
+export function isCancelOf(bytes, orderId) {
+  try {
+    const env = JSON.parse(new TextDecoder().decode(bytes));
+    return env?.subject === 'intafaced.matching.order.cancelled' && env?.payload?.orderId === orderId;
+  } catch {
+    return false;
+  }
+}
+
+function stackTool(...args) {
+  const r = spawnSync(process.execPath, [path.join(path.dirname(SCRIPT), 'local-test-stack.mjs'), ...args], {
+    encoding: 'utf8',
+    env: process.env,
+  });
+  if (r.status !== 0) throw new Error(`local-test-stack ${args.join(' ')} failed: ${(r.stderr || r.stdout).trim().slice(-300)}`);
+}
+
+/** Waits until no pull from a stopped trade is still open on its cancel consumer, so the next cancel waits for us. */
+export async function quietCancels(nc) {
+  const jsm = await nc.jetstreamManager();
+  // A pull trade left open as it stopped could still take the cancel; wait for the server to drop it (a message it
+  // did take comes back after ack_wait, which the read below outlasts).
+  for (let i = 0; i < 50 && (await jsm.consumers.info(TRADE_CANCELS.stream, TRADE_CANCELS.durable)).num_waiting > 0; i++)
+    await new Promise((r) => setTimeout(r, 200));
+}
+
 /**
- * LOCAL TEST fault for J-cex-spot-18 #3: the book forgets one resting order while svc-trade still holds its funds, the
- * orphan hold an operator reconcile sweep exists to find. The cancel goes straight to svc-matching, signed as svc-trade
- * (the only caller its order routes accept), so trade's own cancel path never runs and the hold stays. Refuses on any
- * stack that is not the active local one.
+ * Takes `orderId`'s cancel off svc-trade's durable cancel consumer and terminates it, so it is never delivered; every
+ * other message read on the way is handed back (nak) once, for trade to receive as usual. Throws when that cancel never
+ * arrives within `waitMs`, for then nothing was made an orphan.
+ */
+export async function loseCancel(nc, orderId, { waitMs = 45_000 } = {}) {
+  const consumer = await nc.jetstream().consumers.get(TRADE_CANCELS.stream, TRADE_CANCELS.durable);
+  const others = new Map();
+  let lost = null;
+  const until = Date.now() + waitMs;
+  while (!lost && Date.now() < until) {
+    for await (const msg of await consumer.fetch({ max_messages: 100, expires: 2_000 })) {
+      if (!lost && isCancelOf(msg.data, orderId)) lost = msg;
+      else others.set(msg.seq, msg);
+    }
+  }
+  // Every other message goes back to trade once, untouched; only the orphan's cancel is lost.
+  for (const msg of others.values()) msg.nak();
+  if (!lost)
+    throw new Error(`the cancel of ${orderId} never reached trade's consumer ${TRADE_CANCELS.durable}; nothing was made an orphan`);
+  lost.term();
+}
+
+/**
+ * LOCAL TEST fault for J-cex-spot-18 #3: one resting order leaves the book and svc-trade never hears of it, so its row
+ * stays open with its hold, the orphan an operator reconcile sweep exists to find. That is how a real orphan happens:
+ * the cancel event is lost. Delivery to svc-trade is at-least-once (a durable JetStream consumer, explicit ack,
+ * deliver-all; packages/events/src/jetstream-bus.ts), so stopping trade alone loses nothing: it would hear the cancel on
+ * its next start. Only a message the consumer gives up on is lost (max_deliver spent, or terminated). So, with trade
+ * stopped, this cancels the order in matching (its own door, signed as svc-trade, the only caller it accepts), takes
+ * that one cancel off trade's durable consumer and terminates it, hands every other message it saw back for
+ * redelivery, and starts trade again. No service code changes. Refuses on any stack that is not the active local one.
  */
 export async function dropEngineOrder(ctx, symbol, orderId) {
   const market = (await listMarkets(ctx)).find((m) => m.symbol === symbol);
   if (!market) throw new Error(`no market ${symbol}`);
-  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
-  const route = `/markets/${encodeURIComponent(market.id)}/orders/${encodeURIComponent(orderId)}`;
-  const res = await fetch(`${ctx.url('matching')}${route}`, {
-    redirect: 'error',
-    method: 'DELETE',
-    headers: ctx.contracts.serviceAuthHeadersForBody('svc-trade', ctx.secrets.internal, ''),
-    signal: AbortSignal.timeout(30_000),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (res.status !== 200 || body.cancelled !== true)
-    throw new Error(`matching dropped no order ${orderId} on ${symbol} (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
-  ctx.log(`matching ${symbol}: order ${orderId} dropped from the book (${MARKERS.label} fault; trade still holds its funds)`);
+  const { createRequire } = await import('node:module');
+  const { connect } = createRequire(path.join(REPO, 'packages', 'events', 'package.json'))('nats');
+  const nc = await connect({ servers: `nats://${HOST}:${ctx.marker.ports.nats}`, name: 'local-test-gates engine-drop' });
+  try {
+    stackTool('stop', 'trade');
+    // Trade is down; everything else must still be this stack's own.
+    assertActiveLocalStack({ stateDir: ctx.paths.stateDir, services: ['edge', 'identity', 'matching', 'ledger', 'customer'] });
+    await quietCancels(nc);
+    const route = `/markets/${encodeURIComponent(market.id)}/orders/${encodeURIComponent(orderId)}`;
+    const res = await fetch(`${ctx.url('matching')}${route}`, {
+      redirect: 'error',
+      method: 'DELETE',
+      headers: ctx.contracts.serviceAuthHeadersForBody('svc-trade', ctx.secrets.internal, ''),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.status !== 200 || body.cancelled !== true)
+      throw new Error(`matching dropped no order ${orderId} on ${symbol} (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
+    await loseCancel(nc, orderId);
+  } finally {
+    await nc.flush().catch(() => undefined);
+    await nc.close().catch(() => undefined);
+    stackTool('restart', 'trade');
+  }
+  ctx.log(
+    `matching ${symbol}: order ${orderId} dropped from the book and its cancel lost (${MARKERS.label} fault; trade still holds its funds)`,
+  );
   return { symbol, marketId: market.id, orderId };
 }
 
@@ -3300,7 +3372,7 @@ async function main() {
       const [symbol, orderId] = process.argv.slice(3);
       if (!symbol || !orderId) die('usage: local-test-gates.mjs engine-drop <SYMBOL> <orderId>', 2);
       const r = await dropEngineOrder(ctx, symbol, orderId);
-      say(`  ${r.symbol} order ${r.orderId} dropped from the book`);
+      say(`  ${r.symbol} order ${r.orderId} dropped from the book, its cancel lost; trade restarted`);
     } else if (cmd === 'trade-audit') {
       const args = process.argv.slice(3);
       const flag = (name) => {
