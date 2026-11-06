@@ -11,6 +11,7 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // J-identity-13, in the running app (docs/roadmap/journeys.json): I think my account was compromised. Tests titled
 // "J-identity-13 #<n>" prove a whole step. #3 to #6 follow one TEST person in order (their case, their freeze, their
 // checklist), so the file runs serially and a step whose earlier step left nothing stops at once.
+// World: restart, stack
 const J = 'J-identity-13';
 
 test.describe.configure({ mode: 'serial' });
