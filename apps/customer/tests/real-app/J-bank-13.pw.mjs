@@ -326,7 +326,7 @@ test(`${J} #3 orders a physical card with a design and a speed: design choice, d
   await page.getByLabel('Limit per payment (USDT)').fill('50');
   await page.getByLabel('Name on the card').fill(ADDRESS.name);
   await page.getByLabel('Address line 1').fill(ADDRESS.line1);
-  await page.getByLabel('City').fill(ADDRESS.city);
+  await page.getByLabel('City', { exact: true }).fill(ADDRESS.city);
   await page.getByLabel('Postal code').fill(ADDRESS.postalCode);
   await page.getByLabel('Delivery country').selectOption(ADDRESS.country);
   const ordered = Date.now();
@@ -379,7 +379,7 @@ test(`${J} #4 changes the delivery address: allowed before print with the old ad
   await delivery.getByRole('button', { name: 'Change delivery address' }).click();
   const dialog = page.getByRole('dialog', { name: 'Change delivery address' });
   await dialog.getByLabel('Address line 1').fill(MOVED.line1);
-  await dialog.getByLabel('City').fill(MOVED.city);
+  await dialog.getByLabel('City', { exact: true }).fill(MOVED.city);
   await dialog.getByLabel('Postal code').fill(MOVED.postalCode);
   await dialog.getByRole('button', { name: 'Save address' }).click();
   await expect(dialog).toHaveCount(0);
