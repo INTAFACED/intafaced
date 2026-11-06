@@ -151,7 +151,10 @@ test(`${J} #3 confirms: the order shows as a line with its size, and a retry sen
       if (route.request().method() !== 'POST' || lostOnce) return route.continue();
       lostOnce = true;
       await route.fetch();
-      await route.abort('failed');
+      // The page may already have given up on this request (J-cex-spot-11 #6, run 42177314372): only that is tolerated.
+      await route.abort('failed').catch((err) => {
+        if (!/already handled/.test(String(err?.message))) throw err;
+      });
     },
   );
   await ticket().getByRole('button', { name: 'Place' }).click();
