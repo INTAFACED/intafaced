@@ -106,7 +106,7 @@ const en = {
   cashbackTierHead: 'Card tier',
   cashbackRateHead: 'Cashback',
   cashbackPaid: 'Cashback paid: {amount} {asset}',
-  cashbackUnpaid: 'Earned, not paid yet: {amount} {asset}',
+  cashbackUnpaid: 'Earned and still being posted: {amount} {asset}',
   cashbackRefused: 'Not paid, the reward pot was short: {amount} {asset}',
   cashbackSimulated: 'Paid on spend from the simulation record’s cards.',
   cashbackOff: 'Cashback needs rail.card. It is switched off in this build.',
