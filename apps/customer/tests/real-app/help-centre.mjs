@@ -105,6 +105,76 @@ export async function unpublish(id, baseRevision) {
   return data(await ctx.edge.mutate('support', 'unpublishKb', { id, baseRevision }, await leadToken()), 'unpublishKb');
 }
 
+/** Every published answer the support desk may read, of every audience, as the support lead lists them. */
+export async function publishedAnswers() {
+  const { ctx } = await founders();
+  return data(await ctx.edge.query('support', 'listKb', { limit: 500 }, await leadToken()), 'listKb');
+}
+
+/** True for an answer typed in the desk (SP-kb-01); a catalogue answer carries only its keys. */
+const typed = (row) => row.title != null && row.body != null && row.language != null && row.sectionId != null;
+
+/**
+ * Take every published answer off the help centre, so the library is empty. Returns what it took down, for `restoreAnswers`.
+ * It refuses before taking anything down when an answer could not be published again (a typed answer whose section is no
+ * longer open), so the stack is never left with answers it cannot put back. The journeys on one stack run one at a time
+ * (real-app.playwright.config.mjs, workers 1), so no other step reads the library while it is empty.
+ */
+export async function emptyLibrary(taken) {
+  const { ctx } = await founders();
+  const rows = await publishedAnswers();
+  const library = data(await ctx.edge.query('support', 'kbLibrary'), 'kbLibrary');
+  const open = new Set(library.categories.flatMap((category) => category.sections.map((section) => section.id)));
+  const stuck = rows.filter((row) => typed(row) && !open.has(row.sectionId)).map((row) => row.id);
+  if (stuck.length > 0) throw new Error(`these published answers sit in a closed section and could not be put back: ${stuck.join(', ')}`);
+  for (const row of rows) taken.push({ was: row, hidden: await unpublish(row.id, row.revision) });
+  return taken;
+}
+
+/**
+ * Publish again each answer `emptyLibrary` took down, with its own title, body, topic and audience: a catalogue answer by
+ * its keys, an answer typed in the desk through review. Every answer is tried; any that fails is named at the end.
+ */
+export async function restoreAnswers(taken) {
+  const { ctx } = await founders();
+  const failed = [];
+  for (const { was, hidden } of taken) {
+    try {
+      const back = typed(was)
+        ? await publishText({
+            id: was.id,
+            title: was.title,
+            body: was.body,
+            language: was.language,
+            sectionId: was.sectionId,
+            tags: was.tags ?? [],
+            baseRevision: hidden.revision,
+          })
+        : data(
+            await ctx.edge.mutate(
+              'support',
+              'publishKb',
+              {
+                id: was.id,
+                titleKey: was.titleKey,
+                bodyKey: was.bodyKey,
+                baseRevision: hidden.revision,
+                category: was.category ?? null,
+                tags: was.tags ?? null,
+              },
+              await leadToken(),
+            ),
+            'publishKb',
+          );
+      const audience = was.audience ?? 'public';
+      if ((back.audience ?? 'public') !== audience) await setAudience(was.id, back.revision, audience);
+    } catch (error) {
+      failed.push(`${was.id}: ${error.message}`);
+    }
+  }
+  if (failed.length > 0) throw new Error(`answers not put back:\n${failed.join('\n')}`);
+}
+
 /** Vote counts per article version, as the support desk reads them (no reader id). */
 export async function feedbackSummary() {
   const { ctx } = await founders();

@@ -1,9 +1,12 @@
 import { test, expect } from './journey.mjs';
 import {
   contactChannels,
+  emptyLibrary,
   feedbackSummary,
   helpCentre,
   publishText,
+  publishedAnswers,
+  restoreAnswers,
   saveCategory,
   saveSection,
   setAudience,
@@ -504,17 +507,45 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
   }
 });
 
-// Last in this serial file, so its red skips no other step. With the whole library empty, /help shows its honest empty
-// state and no sample answer. That needs a stack whose catalogue is empty; on a shared stack other journeys' answers are
-// published, so this clause of #3 stays red by name until the stack has that profile (lead ruling 2026-10-30 19:24).
+// With an empty knowledge base, /help shows its honest empty state and no sample answer. The support lead takes every
+// published answer down (the platform's own and any another journey left), the visitor reads /help, and every answer is
+// published again as it was. A shard's journeys run one at a time on its own stack (real-app.playwright.config.mjs,
+// workers 1), so no other step reads the library while it is empty. Last in this serial file.
 test(`${J} #3 with the whole library empty, /help shows its honest empty state and no sample answer`, async ({ browser }) => {
-  const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 1 }))}`);
-  expect(listed.status, 'listKb answers').toBe(200);
-  const answers = (await listed.json()).result.data;
-  if (answers.length > 0) throw new Error('the empty-library clause needs an empty-catalogue stack profile');
+  const before = await publishedAnswers();
+  expect(before.length, 'the stack publishes answers to take down').toBeGreaterThan(0);
+  const taken = [];
+  try {
+    await emptyLibrary(taken);
+    // The service agrees the library is empty, signed out and for the desk.
+    const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 500 }))}`);
+    expect(listed.status, 'listKb answers').toBe(200);
+    expect((await listed.json()).result.data).toEqual([]);
+    expect(await publishedAnswers()).toEqual([]);
+
+    const page = await visitor(browser);
+    await page.goto('/help');
+    const main = page.locator('main');
+    await expect(main.getByRole('heading', { level: 1, name: 'How can we help?' })).toBeVisible();
+    await expect(main.getByRole('heading', { level: 2, name: 'No answers yet' })).toBeVisible();
+    await expect(main.getByText('No answers are published yet. You can still open support for your account.')).toBeVisible();
+    await expect(main.getByTestId('help__row')).toHaveCount(0);
+    // No sample answer: none of the answers that were published shows on the page, by title or by address.
+    for (const row of before) await expect(page.locator(`a[href*="id=${row.id}"]`)).toHaveCount(0);
+    for (const row of before.filter((r) => r.title)) await expect(main.getByText(row.title)).toHaveCount(0);
+    // A link to a taken-down answer reads as an address that never existed.
+    await page.goto(`/helpdetail?id=${before[0].id}`);
+    await expect(main.getByRole('heading', { level: 1, name: 'No answer found' })).toBeVisible();
+    await expect(main.getByTestId('help__body')).toHaveCount(0);
+    await page.context().close();
+  } finally {
+    await restoreAnswers(taken);
+  }
+  // Back as it was: the same answers are published again, each at a new version.
+  const after = await publishedAnswers();
+  expect(after.map((r) => [r.id, r.audience ?? 'public']).sort()).toEqual(before.map((r) => [r.id, r.audience ?? 'public']).sort());
   const page = await visitor(browser);
   await page.goto('/help');
-  await expect(page.locator('main').getByTestId('help__row')).toHaveCount(0);
-  await expect(page.locator('main').getByText(/No answers are published/)).toBeVisible();
+  await expect(page.locator('main [data-testid="help__row"]').first()).toBeVisible();
   await page.context().close();
 });
