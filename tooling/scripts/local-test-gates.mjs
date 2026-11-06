@@ -2513,6 +2513,8 @@ export const TEST_CHART_COUNTS = Object.freeze({
   brushPointCap: 2000,
   delayedBoundarySeconds: 30,
   renderBudgetMs: 500,
+  // 5% of the last price: a chart order dragged further than that asks first (J-charts-desk-15 #5). TEST stand-in.
+  orderProtectionBps: 500,
 });
 export const CHART_DATA_CLASSES_ALLOWED = Object.freeze(['real_time', 'delayed', 'end_of_day']);
 export const TEST_CHART_DATA_CLASSES = Object.freeze({ 'BTC/USDT': 'real_time', 'ETH/USDT': 'real_time' });

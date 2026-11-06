@@ -43,7 +43,7 @@ import { AccountDetailsService, type AccountDetailsOptions } from './account-det
 import { parseAccountTerms, type AccountTerms } from './account-home/account-terms.js';
 import { CurrencyService } from './account-home/currencies.js';
 import { ProfileService } from './account-home/profile.js';
-import { PersonalPayService } from './transfers/personal-pay.js';
+import { PersonalPayService, type RemindPolicy } from './transfers/personal-pay.js';
 import { ReceivedHoldService } from './holds/received-holds.js';
 import type { SendReviewRule } from './transfers/send-review.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
@@ -149,6 +149,8 @@ export interface BankServices {
 export interface BankServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
+  /** `BANK_REQUEST_REMIND_POLICY_JSON`, parsed: the owner's reminder cap per window. Null refuses every reminder. */
+  remindPolicy?: RemindPolicy | null;
   /** `BANK_STRANGER_HOLD_DAYS`, parsed: how long a held payment from a stranger waits. Null: no such hold can be placed. */
   strangerHoldDays?: number | null;
   /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */
@@ -326,6 +328,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     onCreditPosted: (credit) => sorter.sortCredit(credit),
     securityLock: options.ramps?.securityLock,
     reviewRule: options.sendReviewRule ?? null,
+    remindPolicy: options.remindPolicy ?? null,
   });
   const assetPauses = new AssetPauseService(sql);
   // The supply pause lives in the deposit path so auto-invest cannot go around it.

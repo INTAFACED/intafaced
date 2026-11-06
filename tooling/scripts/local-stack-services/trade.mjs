@@ -68,8 +68,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // Market buys are funded at bestAsk x (1 + cap) and refuse trade.slippage_cap_unset without it
     // (services/svc-trade/src/env.ts TRADE_MARKET_SLIPPAGE_CAP_BPS): 50 bps.
     TRADE_MARKET_SLIPPAGE_CAP_BPS: '50',
+    // The operator's Convert kill-switch, on as in production. `LOCAL_STACK_TRADE_CONVERT=off` on a restart turns it off,
+    // so J-cex-spot-11 #7 sees Convert paused: every quote refuses trade.convert_disabled and the room says Use Spot.
+    TRADE_CONVERT_ENABLED: process.env.LOCAL_STACK_TRADE_CONVERT === 'off' ? 'false' : 'true',
     // House edge on Convert quotes; convert.quote refuses trade.convert_spread_unset without it: 20 bps.
     TRADE_CONVERT_SPREAD_BPS: '20',
+    // LOCAL TEST, not an owner decision: how often the limit-convert sweep prices each waiting limit convert. Without it
+    // no sweep runs and placing one refuses trade.convert_limit_unset; every 2 s so J-cex-spot-11 #8 sees its fill soon.
+    TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS: '2000',
     // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
     TRADE_CONVERT_QUOTE_TTL_MS: '15000',
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in

@@ -61,7 +61,11 @@ function procedureName(pathname: string): string {
   return rest.split('?')[0] ?? '';
 }
 
+/** Requests that reached this file's own stub: proof the edge answering on the port is the one this file started. */
+let stubHits = 0;
+
 function handleSupportKb(req: IncomingMessage, res: ServerResponse, body: string): void {
+  stubHits += 1;
   const url = new URL(req.url ?? '/', 'http://support.stub');
   const proc = procedureName(url.pathname);
   const input = readJsonInput(req, url, body);
@@ -153,44 +157,63 @@ beforeAll(async () => {
   const stubbed = await listenStub();
   stub = stubbed.server;
 
-  const port = await freePort();
-  edgeBase = `http://127.0.0.1:${port}`;
+  // A free port is probed, closed, then handed to the edge: in between, another test process in the same job can take it,
+  // and its server then answers /health for ours (main run 41316532581 got "<p>Payment request</p>" from such a server,
+  // #7100). So the edge is proved to be this file's own, a support call reaching this file's stub, and started again on
+  // a new port when it is not.
+  for (let attempt = 1; ; attempt += 1) {
+    const port = await freePort();
+    edgeBase = `http://127.0.0.1:${port}`;
 
-  let output = '';
-  const log = () => output;
+    let output = '';
+    const log = () => output;
 
-  child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
-    cwd: join(HERE, '..'),
-    env: {
-      ...process.env,
-      APP_ENV: 'test',
-      NODE_ENV: 'test',
-      SERVICE_NAME: 'svc-edge',
-      HTTP_HOST: '127.0.0.1',
-      HTTP_PORT: String(port),
-      LOG_LEVEL: 'fatal',
-      OTEL_ENABLED: 'false',
-      JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
-      EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
-      EDGE_RATE_LIMIT_MAX: '300',
-      EDGE_RATE_LIMIT_WINDOW_MS: '60000',
-      EDGE_BODY_LIMIT_BYTES: '1048576',
-      INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
-      EDGE_KILL_STATE_PATH: '',
-      SUPPORT_URL: stubbed.origin,
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+    child = spawn(process.execPath, ['--import', 'tsx', ENTRYPOINT], {
+      cwd: join(HERE, '..'),
+      env: {
+        ...process.env,
+        APP_ENV: 'test',
+        NODE_ENV: 'test',
+        SERVICE_NAME: 'svc-edge',
+        HTTP_HOST: '127.0.0.1',
+        HTTP_PORT: String(port),
+        LOG_LEVEL: 'fatal',
+        OTEL_ENABLED: 'false',
+        JWT_ACCESS_SECRET: 'test-only-signing-secret-at-least-32-characters-long',
+        EDGE_PRINCIPAL_SECRET: 'test-only-edge-principal-secret-at-least-32-chars',
+        EDGE_RATE_LIMIT_MAX: '300',
+        EDGE_RATE_LIMIT_WINDOW_MS: '60000',
+        EDGE_BODY_LIMIT_BYTES: '1048576',
+        INTAFACED_SANCTIONS_REGIONS: 'AA:test-fixture-not-a-real-list',
+        EDGE_KILL_STATE_PATH: '',
+        SUPPORT_URL: stubbed.origin,
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
 
-  child.stdout?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
-  child.stderr?.on('data', (d: Buffer) => {
-    output += d.toString();
-  });
+    child.stdout?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
+    child.stderr?.on('data', (d: Buffer) => {
+      output += d.toString();
+    });
 
-  await waitForBoot(edgeBase, log, child);
-}, 90_000);
+    // Our edge exiting (its port was taken) or another server answering are both a lost port: start again.
+    const booted = await waitForBoot(edgeBase, log, child).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    const before = stubHits;
+    const probe = booted ? null : await fetch(`${edgeBase}/api/support/trpc/listKb`).catch(() => null);
+    if (probe?.ok && stubHits > before) break;
+    child?.kill();
+    child = null;
+    if (attempt === 3)
+      throw new Error(
+        `the edge on ${edgeBase} is not this file's own after 3 starts (${String(booted ?? 'another server answered')}):\n${log()}`,
+      );
+  }
+}, 200_000);
 
 afterAll(async () => {
   child?.kill();

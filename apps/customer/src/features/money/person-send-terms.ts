@@ -86,6 +86,7 @@ export function personSendStepUp(assetId: string, input: Record<string, unknown>
     amount: text('amount'),
     ...(text('note') ? { note: text('note') } : {}),
     ...(text('reference') ? { reference: text('reference') } : {}),
+    ...(text('requestId') ? { requestId: text('requestId') } : {}),
   };
   return { scope: 'bank.step_up.transfers.toUser', purpose: 'transfers.toUser', target: fields.toUserId, amount: fields.amount, fields };
 }

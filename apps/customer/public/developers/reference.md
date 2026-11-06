@@ -25,6 +25,8 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `GET /api/v1/charts/owner-values`                   | `fetchChartOwnerValues` | public; with a key trade:read |
 | `GET /api/v1/fees/published`                        | `fetchPublishedFees`    | public; with a key trade:read |
 | `POST /api/v1/orders`                               | `createOrder`           | trade:write                   |
+| `POST /api/v1/convert/quote`                        | `createConvertQuote`    | trade:write                   |
+| `POST /api/v1/convert/accept`                       | `acceptConvertQuote`    | trade:write                   |
 | `DELETE /api/v1/orders/:id`                         | `cancelOrder`           | trade:write                   |
 | `DELETE /api/v1/orders`                             | `cancelAllOrders`       | trade:write                   |
 | `GET /api/v1/orders/:id`                            | `fetchOrder`            | trade:read                    |
