@@ -279,7 +279,9 @@ class FixAcceptorSessionTest {
             nosSeq = client.getExpectedSenderNum();
             assertTrue(client.send(limitNos()), "first NOS while loggedOn=" + client.isLoggedOn());
             assertEquals(nosSeq, client.getExpectedSenderNum() - 1, "send used the session sequence");
-            for (int i = 0; i < 40 && firstPosts.get() < 1; i++) {
+            // The transport counts its post inside matching.submit(); the application counts it only after submit()
+            // returns. Wait on the one counted last, or the second assertion can read it a moment early (#7186).
+            for (int i = 0; i < 40 && firstApp.matchingPosts() < 1; i++) {
                 Thread.sleep(50);
             }
             assertEquals(1, firstPosts.get());
