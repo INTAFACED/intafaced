@@ -143,7 +143,6 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   // (compose-pin tests are law). Order writes are money instructions: unbound
   // v1 HMAC must 401 here. Callers already send serviceAuthHeadersForBody.
   bodyBind: 'require',
-  rulebookVersion: env.MATCHING_RULEBOOK_VERSION,
   approvals: actionApprovals,
   operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS),
   ...(env.EDGE_PRINCIPAL_SECRET ? { edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
