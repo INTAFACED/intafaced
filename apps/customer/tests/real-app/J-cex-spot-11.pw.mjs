@@ -225,10 +225,17 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   page.on('request', (r) => {
     if (/convert\.accept/.test(r.url())) sent.push(r.postDataJSON());
   });
-  await page.route(/convert\.accept/, async (route) => {
-    await route.fetch();
-    await route.abort('connectionreset');
-  });
+  await page.route(
+    /convert\.accept/,
+    async (route) => {
+      await route.fetch();
+      // The page may already have given up on the request; either way its answer never reaches the page.
+      await route.abort('connectionreset').catch((err) => {
+        if (!/already handled/.test(String(err?.message))) throw err;
+      });
+    },
+    { times: 1 },
+  );
   await dialog.getByRole('button', { name: 'Convert now' }).click();
   await expect(page.getByTestId('pending')).toContainText('We couldn’t confirm this conversion');
   await page.unroute(/convert\.accept/);
@@ -354,10 +361,15 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
   await page.goto(ROOM);
   const recent = page.getByRole('region', { name: 'Recent conversions' });
   const me = await api(account());
-  const listed = await me.get(`/api/trade/trpc/convert.list?input=${encodeURIComponent(JSON.stringify({ windowDays: 30, limit: 100 }))}`);
-  const rows = listed.body.result.data.items ?? listed.body.result.data;
-  // Only settled conversions: #4's expired quote and #3's untaken one are not there.
-  expect(rows.every((r) => r.status !== 'quoted' && r.status !== 'expired')).toBe(true);
+  // The service's own record over the panel's 30 days, asked the way the panel asks it (a window and a limit).
+  const now = Date.now();
+  const window = { from: new Date(now - 30 * 86_400_000).toISOString(), to: new Date(now).toISOString(), limit: 100 };
+  const listed = await me.get(`/api/trade/trpc/convert.list?input=${encodeURIComponent(JSON.stringify(window))}`);
+  expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
+  const rows = listed.body.result.data.rows;
+  // The record holds the quotes never taken (#3's, #4's expired one); the panel lists only conversions.
+  expect(rows.some((r) => r.status === 'quoted' || r.status === 'expired')).toBe(true);
+  const taken = rows.filter((r) => r.status !== 'quoted' && r.status !== 'expired');
   const row = recent.getByRole('row').filter({ hasText: fromUnits(toUnits(paid)).replace(/\.?0+$/, '') });
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('USDT');
@@ -368,7 +380,8 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
       .slice(0, 8),
   );
   await expect(row.getByRole('cell').first()).toHaveText(/\d{1,2}:\d{2}/);
-  await expect(recent.getByRole('row')).toHaveCount(1 + rows.filter((r) => r.status === 'settled').length);
+  // A header row and one row per conversion taken (the panel shows the latest ten): never a quote not taken.
+  await expect(recent.getByRole('row')).toHaveCount(1 + Math.min(10, taken.length));
 
   // An account that never converted reads as empty.
   const fresh = await signUp(page, 'jcs11e');
