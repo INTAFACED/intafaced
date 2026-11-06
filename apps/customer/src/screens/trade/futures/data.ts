@@ -22,7 +22,10 @@ import {
   type Collateral,
   type ConditionalOrder,
   type EntryProtection,
+  type FundingHistory,
   type FundingRate,
+  type FundingSeries,
+  type FundingStatement,
   type FuturesApi,
   type FuturesListing,
   type FuturesOrder,
@@ -40,7 +43,9 @@ export const FUTURES_INTERVALS = {
   markets: 300_000,
   strip: 5_000,
   positions: 5_000,
-  funding: 60_000,
+  // A funding period can be short on a test stack; a new period's rate shows within this.
+  funding: 10_000,
+  fundingRecords: 15_000,
   marginCalls: 30_000,
   adl: 60_000,
   history: 30_000,
@@ -123,6 +128,47 @@ export function useFundingRate(symbol: string | null): Loadable<FundingRate> {
             })
           : constantSource<FundingRate>(OFF),
       [env, api, symbol],
+    ),
+  );
+}
+
+/** Public funding history and the mark and index series, read while the Funding tab is open. */
+export function useFundingHistory(symbol: string | null, enabled: boolean): { rates: Loadable<FundingHistory>; series: Loadable<FundingSeries> } {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  const rates = useSource(
+    useMemo(
+      () =>
+        symbol && enabled
+          ? env.poller.source<FundingHistory>(`futures-funding-history:${symbol}`, (signal) => api.fundingHistory(symbol, signal), {
+              intervalMs: FUTURES_INTERVALS.fundingRecords,
+            })
+          : constantSource<FundingHistory>(OFF),
+      [env, api, symbol, enabled],
+    ),
+  );
+  const series = useSource(
+    useMemo(
+      () =>
+        symbol && enabled
+          ? env.poller.source<FundingSeries>(`futures-funding-series:${symbol}`, (signal) => api.fundingSeries(symbol, signal), {
+              intervalMs: FUTURES_INTERVALS.fundingRecords,
+            })
+          : constantSource<FundingSeries>(OFF),
+      [env, api, symbol, enabled],
+    ),
+  );
+  return { rates, series };
+}
+
+/** The caller's funding statement (every payment by position and period), read while the Funding tab is open. Private. */
+export function useFundingStatement(enabled: boolean): Loadable<FundingStatement> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  return useSource(
+    useMemo(
+      () => privateSource<FundingStatement>(env, 'futures-funding-statement', (signal) => api.fundingStatement(signal), FUTURES_INTERVALS.fundingRecords, enabled),
+      [env, api, enabled],
     ),
   );
 }

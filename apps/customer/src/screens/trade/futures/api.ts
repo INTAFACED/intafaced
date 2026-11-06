@@ -29,8 +29,81 @@ export const fundingRateSchema = z.object({
   fundingTimestamp: z.number(),
   fundingDatetime: z.string(),
   nextFundingTimestamp: z.number().nullable(),
+  // What a computed period's rate was built from (J-derivatives-08). Absent or null on a rate published without them.
+  periodId: z.string().nullable().optional(),
+  periodStart: z.string().nullable().optional(),
+  periodEnd: z.string().nullable().optional(),
+  premium: signedDecimalSchema.nullable().optional(),
+  interestComponent: signedDecimalSchema.nullable().optional(),
+  cap: decimalSchema.nullable().optional(),
+  clamped: z.boolean().nullable().optional(),
+  annualisedRate: signedDecimalSchema.nullable().optional(),
+  indexNow: z.object({ price: decimalSchema.nullable(), reason: z.string().nullable() }).optional(),
+  lastPeriod: z
+    .object({
+      periodId: z.string(),
+      status: z.string(),
+      code: z.string().nullable(),
+      message: z.string().nullable(),
+      periodStart: z.string().nullable(),
+      periodEnd: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type FundingRate = z.infer<typeof fundingRateSchema>;
+
+const fundingPaymentFields = {
+  periodId: z.string(),
+  time: z.string(),
+  rate: signedDecimalSchema.nullable(),
+  rateReason: z.string().nullable(),
+  amount: decimalSchema,
+  direction: z.enum(['paid', 'received']),
+};
+
+export const fundingStatementSchema = z.object({
+  rows: z.array(
+    z.object({
+      ...fundingPaymentFields,
+      positionId: z.string(),
+      symbol: z.string(),
+      side: z.enum(['long', 'short']),
+      asset: z.string(),
+    }),
+  ),
+  totals: z.array(z.object({ asset: z.string(), paid: decimalSchema, received: decimalSchema, net: signedDecimalSchema })),
+});
+export type FundingStatement = z.infer<typeof fundingStatementSchema>;
+export type FundingStatementRow = FundingStatement['rows'][number];
+
+export const fundingHistorySchema = z.object({
+  symbol: z.string(),
+  rates: z.array(
+    z.object({
+      periodId: z.string(),
+      periodTimestamp: z.number(),
+      fundingRate: signedDecimalSchema,
+      mark_price: decimalSchema.nullable(),
+      index_price: decimalSchema.nullable().optional(),
+      premium: signedDecimalSchema.nullable().optional(),
+      interestComponent: signedDecimalSchema.nullable().optional(),
+      cap: decimalSchema.nullable().optional(),
+      annualisedRate: signedDecimalSchema.nullable().optional(),
+      settlement: z.object({ legs: z.number().int(), paid: decimalSchema, received: decimalSchema }).nullable().optional(),
+    }),
+  ),
+});
+export type FundingHistory = z.infer<typeof fundingHistorySchema>;
+
+export const fundingSeriesSchema = z.object({
+  symbol: z.string(),
+  series: z.array(z.object({ at: z.string(), mark: decimalSchema.nullable(), index: decimalSchema.nullable(), indexReason: z.string().nullable() })),
+});
+export type FundingSeries = z.infer<typeof fundingSeriesSchema>;
+
+/** How many mark and index samples the Funding tab reads: the route refuses an unbounded read. */
+export const FUNDING_SERIES_LIMIT = 60;
 
 export const marginCallSchema = z.object({
   positionId: z.string(),
@@ -500,6 +573,14 @@ export function createFuturesApi(api: ApiClient) {
     ticker: (symbol: string, signal?: AbortSignal) => api.rest('/futures/ticker', tickerStripSchema, { query: { symbol }, signal }),
     fundingRate: (symbol: string, signal?: AbortSignal) =>
       api.rest(`/funding-rate/${encodeURIComponent(symbol)}`, fundingRateSchema, { signal }),
+    fundingHistory: (symbol: string, signal?: AbortSignal) =>
+      api.rest(`/funding-history/${encodeURIComponent(symbol)}`, fundingHistorySchema, { signal }),
+    fundingSeries: (symbol: string, signal?: AbortSignal) =>
+      api.rest(`/funding-index-history/${encodeURIComponent(symbol)}`, fundingSeriesSchema, {
+        query: { limit: FUNDING_SERIES_LIMIT },
+        signal,
+      }),
+    fundingStatement: (signal?: AbortSignal) => api.rest('/futures/funding-statement', fundingStatementSchema, { signal }),
     preview: (input: PreviewInput, signal?: AbortSignal) =>
       api.rest('/positions/preview', positionPreviewSchema, { method: 'POST', body: { ...input, marginMode: 'isolated' }, signal }),
     collateral: (signal?: AbortSignal) => api.rest('/futures/collateral', collateralSchema, { signal }),

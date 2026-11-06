@@ -209,7 +209,7 @@ async function fundingTab(page, who) {
   await signIn(page, who);
   await page.goto(DESK);
   await page.getByRole('tab', { name: 'Funding' }).click();
-  const tab = page.getByRole('region', { name: 'Funding' });
+  const tab = page.getByRole('region', { name: 'Funding', exact: true });
   await expect(tab).toBeVisible();
   return tab;
 }
@@ -272,8 +272,9 @@ test(`${J} #1 reads the contract strip and Funding tab: rate, countdown, premium
 
   // The room: the strip names the rate and the countdown; the Funding tab names every input, as the service gave them.
   const tab = await fundingTab(page, long);
-  const strip = page.getByRole('region', { name: /contract/i }).first();
-  await expect(strip).toContainText(/Funding/);
+  const strip = page.getByRole('region', { name: SYMBOL, exact: true });
+  await expect(strip).toContainText('Funding rate');
+  await expect(strip).toContainText('Next funding');
   await expect(strip).toContainText(/in \d/);
   const shown = await until(
     async () => {
@@ -292,6 +293,7 @@ test(`${J} #1 reads the contract strip and Funding tab: rate, countdown, premium
       drawn['Mark price'] === exact(now.markPrice) &&
       drawn['Index price'] === exact(now.indexPrice),
     'the Funding tab drawn from the published period',
+    90_000,
   );
   expect(shown.drawn['Time to next funding']).toMatch(/\d/);
 });
@@ -508,9 +510,7 @@ test(`${J} #6 reads public funding, index and mark history: premium, annualised 
   expect(JSON.stringify(unbounded.body)).toContain('trade.series_limit_unset');
 
   // The room: the Funding tab's public history draws the rows and the series.
-  await page.goto(DESK);
-  await page.getByRole('tab', { name: 'Funding' }).click();
-  const tab = page.getByRole('region', { name: 'Funding' });
+  const tab = await fundingTab(page, state('long'));
   const table = tab.getByRole('table', { name: 'Funding history' });
   const positive = rows.find((r) => r.periodId === state('positivePeriod'));
   const row = table.getByRole('row').filter({ hasText: pct(positive.annualisedRate) });

@@ -126,3 +126,25 @@ describe('percentOfBps', () => {
     expect(percentOfBps(0)).toBe('0.00');
   });
 });
+
+describe('exact funding figures (J-derivatives-08)', () => {
+  it('draws every digit, grouped, with a true minus', async () => {
+    const { exactDecimal, exactPct, periodOutcome } = await import('./tabs-logic');
+    expect(exactDecimal('1234567.000100')).toBe('1,234,567.0001');
+    expect(exactDecimal('-0.000000000000000001')).toBe('−0.000000000000000001');
+    expect(exactDecimal('0.000')).toBe('0');
+    expect(exactDecimal(null)).toBeNull();
+    expect(exactPct('0.0001')).toBe('0.01%');
+    expect(exactPct('-0.0002')).toBe('−0.02%');
+    expect(exactPct('0.000000000000000001')).toBe('0.0000000000000001%');
+    expect(exactPct('35.04')).toBe('3,504%');
+    expect(exactPct('0')).toBe('0%');
+    expect(periodOutcome({ periodId: 'p', status: 'refused', code: 'trade.index_params_unset', periodStart: null })).toEqual({
+      status: 'unset',
+      code: 'trade.index_params_unset',
+    });
+    expect(periodOutcome({ periodId: 'p', status: 'refused', code: 'trade.funding_samples_insufficient', periodStart: null })?.status).toBe(
+      'refused',
+    );
+  });
+});
