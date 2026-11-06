@@ -208,7 +208,20 @@ export function ReverseAction({
 type Pick = { id: string; status: string; assetId: string; amount: string; customerRef?: string | null; description?: string | null };
 
 const REFUNDABLE = new Set(['captured', 'settled', 'refunded']);
-const batchKey = (merchantId: string) => `pay.bulk-refund:${merchantId}`;
+
+/**
+ * The batch's business key: the business and the payments chosen, in a fixed order, hashed to a uuid. The same
+ * selection always names the same batch, so a retry after a lost reply, a reload or a second click replays each row
+ * under its first key (`refund:<paymentId>:bulk:<batchId>:<row>`) and never sends it again under a new one.
+ */
+export async function bulkBatchId(merchantId: string, paymentIds: readonly string[]): Promise<string> {
+  const ids = [...paymentIds].map((id) => id.toLowerCase()).sort();
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`bulk-refund:${merchantId.toLowerCase()}:${ids.join(',')}`)),
+  );
+  const hex = [...bytes.slice(0, 16)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
 /** The payments on this page that a refund could apply to, chosen by hand, then refunded once each. */
 export function BulkRefund({ merchantId, payments, onDone }: { merchantId: string; payments: readonly Pick[]; onDone: () => void }) {
@@ -223,6 +236,8 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
     bulkReports.get(merchantId) ?? null,
   );
   if (candidates.length === 0 && !report) return null;
+  // A batch sent whose answer has not come back: "Run again" sends the same batch, never a new one.
+  const [unanswered, setUnanswered] = useState<{ batchId: string; ids: string[] } | null>(null);
   async function run(batch: { batchId: string; ids: string[] }) {
     setBusy(true);
     if (!(await payStepUp.ensure('refund'))) {
@@ -230,12 +245,7 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
       setOpen(false);
       return setFailure(t('stepUp'));
     }
-    // The batch id is minted once per batch and kept for the tab, so "Run again" and a reload replay it.
-    try {
-      sessionStorage.setItem(batchKey(merchantId), JSON.stringify(batch));
-    } catch {
-      /* the batch still runs; a reload starts a new one */
-    }
+    setUnanswered(batch);
     const result = await api.mutate(
       'pay',
       'payment.bulkRefund',
@@ -245,6 +255,7 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
     setBusy(false);
     setOpen(false);
     if (!result.ok) return setFailure(t('refused', { reason: why(result) }));
+    setUnanswered(null);
     setFailure(null);
     const next = { ...batch, out: result.data };
     bulkReports.set(merchantId, next);
@@ -294,11 +305,23 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
         {t('bulkAction')}
       </Button>
       {failure && <p role="alert">{failure}</p>}
+      {unanswered && !busy && !report && (
+        <Button variant="secondary" onClick={() => void run(unanswered)}>
+          {t('bulkAgain')}
+        </Button>
+      )}
       {open && (
         <Dialog title={t('bulkConfirmTitle', { n: chosen.length })} closeLabel={t('close')} onClose={() => setOpen(false)}>
           <p>{t('bulkConfirmBody')}</p>
           <div className="pp-actions">
-            <Button variant="primary" disabled={busy} onClick={() => void run({ batchId: crypto.randomUUID(), ids: [...chosen] })}>
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={async () => {
+                const ids = [...chosen];
+                await run({ batchId: await bulkBatchId(merchantId, ids), ids });
+              }}
+            >
               {t('bulkRun')}
             </Button>
           </div>
