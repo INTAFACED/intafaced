@@ -275,7 +275,8 @@ const es = {
   kindLabel: 'Alerta sobre',
   kindPrice: 'El precio',
   kindIndicator: 'Un indicador (RSI, medias móviles)',
-  kindIndicatorRefused: 'Las alertas de indicador no están disponibles, así que esta no se puede guardar. Elige el precio para crear una alerta.',
+  kindIndicatorRefused:
+    'Las alertas de indicador no están disponibles, así que esta no se puede guardar. Elige el precio para crear una alerta.',
   extraCap: 'Una alerta tiene como máximo {max} condiciones, la primera incluida.',
   extraCapUnset: 'Las condiciones adicionales están desactivadas: no está fijado cuántas condiciones puede tener una alerta.',
   modifiedAt: 'Modificada {when}',
