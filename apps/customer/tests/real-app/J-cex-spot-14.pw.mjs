@@ -8,6 +8,8 @@ import { deskPath, fundedTrader, held, openDesk, openOrders, placements, signIn 
 // through the real ledger. Operators set a market's trading mode through svc-trade's two-person door
 // (`setMarketMode`, two TEST operators), as TEST changes on books only this file holds in a restricted mode, each put
 // back to Open in the same step. Money: none moves; a refusal in any state leaves no hold, and cancels always work.
+// World: book, gates
+// (book: limit orders rest and cancel on BTC/USDC; gates: a market's trading mode is set and put back to Open.)
 const J = 'J-cex-spot-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** #3 holds this book limit-only for the step, #4 holds it cancel-only. */

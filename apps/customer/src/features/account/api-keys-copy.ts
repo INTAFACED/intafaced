@@ -18,6 +18,9 @@ const messages = {
   capUnset: 'The number of keys an account may hold is not set, so new keys are refused.',
   capFull: 'This account holds as many keys as it may. Revoke one to make another.',
   empty: 'You have no API keys.',
+  appsTitle: 'Connected apps',
+  appsEmpty:
+    'No connected apps. This platform gives no outside app access to an account, so there is none to remove. Your own programs use the API keys on this page.',
   loading: 'Reading your keys',
   colName: 'Name',
   colPrefix: 'Prefix',

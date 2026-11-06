@@ -41,6 +41,12 @@ export interface CardDelivery {
   expectedBy: Date;
   carrier: string | null;
   trackingRef: string | null;
+  /**
+   * What delivery cannot do in this build, named by the bank: no printer or courier is connected to any programme
+   * (`hardware`), so production and carrier tracking come only from the simulator's stand-in printer. Never null today;
+   * it becomes null only when a printer and courier adapter exists.
+   */
+  notConnected: 'hardware' | null;
   address: CardShippingAddress;
   history: Array<{ address: CardShippingAddress; changedAt: Date }>;
 }
@@ -56,6 +62,8 @@ export const cardShipmentJobBody = z
     trackingRef: z.string().min(1).max(80).optional(),
   })
   .strict();
+/** No printer or courier adapter exists in this build (`hardware`); the simulator's stand-in printer is not one. */
+const PRINTER_CONNECTED = false;
 const SHIPMENT_ORDER: readonly ShipmentState[] = ['ordered', 'produced', 'shipped', 'delivered'];
 
 export interface CardOrderOptions {
@@ -249,6 +257,7 @@ export class CardOrderService {
       expectedBy: new Date(row.ordered_at.getTime() + Number(row.estimate_days) * 86_400_000),
       carrier: row.carrier,
       trackingRef: row.tracking_ref,
+      notConnected: PRINTER_CONNECTED ? null : 'hardware',
       address: toAddress(row.address)!,
       history: history.map((h) => ({ address: toAddress(h.previous_address)!, changedAt: h.changed_at })),
     };

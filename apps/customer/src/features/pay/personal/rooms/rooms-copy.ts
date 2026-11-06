@@ -27,6 +27,8 @@ const en = {
   requestStatus: 'Status',
   requestStatusBody:
     'Not tracked. The payer is not told, and a payment is not matched to a request, because the request service is not connected.',
+  serverRequestTitle: 'Payment request',
+  serverRequestLine: 'A request kept by the bank: paying it settles it once.',
   requestReason: 'The request service is not connected, so a request cannot be paid, rejected or expire. The link works as a payment link.',
   // Scheduled
   scheduledTitle: 'Scheduled payments',

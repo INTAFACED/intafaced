@@ -517,6 +517,20 @@ export type TradeErrorCode =
    */
   | 'trade.reconcile_unknown_engine_miss'
   | 'trade.convert_disabled'
+  /**
+   * A cash currency to a coin (or back) has no direct market; the two linked legs through a crypto leg are not built,
+   * so nothing is quoted (J-cex-spot-11 #11, SP-convert-buy-03).
+   */
+  | 'trade.convert_two_leg_unbuilt'
+  /** Neither a direct market nor a cash-through-crypto route joins the two assets. */
+  | 'trade.convert_pair_unlisted'
+  /** No sweep watches limit converts (`TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS` blank): none can be placed (#8). */
+  | 'trade.convert_limit_unset'
+  /** The same request id already placed a different limit convert. */
+  | 'trade.convert_limit_conflict'
+  | 'trade.convert_limit_not_found'
+  /** The limit convert already triggered, filled, ended or was cancelled. */
+  | 'trade.convert_limit_not_waiting'
   | 'trade.standing_instruction_disabled'
   | 'trade.convert_no_liquidity'
   /** House inventory short at settle. Customer hold was released; request a new quote. Never the customer's shortfall. */

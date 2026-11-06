@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
+import { attachConvertRestRoutes, type ConvertRestPort } from './convert/convert-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
 import { attachCopyExportRoute } from './copy/copy-export-rest.js';
 import { attachAlgoRestRoutes, type AlgoRestPort } from './algo/algo-rest.js';
@@ -184,6 +185,8 @@ export interface PrivateRestDeps {
   edgeTrust?: EdgeTrust;
   serviceName: string;
   convertExport?(principal: Principal, query: { from?: string; to?: string }): Promise<string>;
+  /** The convert API (`/api/v1/convert/quote`, `/accept`; J-cex-spot-11 #12). Absent: both answer 503 `trade.convert_unmounted`. */
+  convert?: ConvertRestPort;
   /** Ledger history and statement export (J-cex-spot-07 #5, #6). Absent: those routes answer 503 `trade.statements_unmounted`. */
   statements?: StatementRestDeps;
   /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
@@ -1303,6 +1306,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   }
 
   attachConvertExportRoute(app, deps.convertExport, requirePrincipal);
+  attachConvertRestRoutes(app, deps.convert, { requirePrincipal, requireTradeJurisdiction });
   attachCopyExportRoute(app, deps.copyExport, requirePrincipal);
   attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
