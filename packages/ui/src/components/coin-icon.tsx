@@ -23,7 +23,9 @@ export function hasCoinArt(asset: string): boolean {
  */
 export function CoinIcon({ asset, size = 32, className, style, ...props }: CoinIconProps) {
   const key = asset.toUpperCase();
-  const svg = coinArt[key];
+  // DIAG (never merged): no data: image, to confirm it as the CSP report's source.
+  const svg = undefined as string | undefined;
+  void coinArt;
   const dim = { width: size, height: size, ...style };
   if (svg) {
     return (
