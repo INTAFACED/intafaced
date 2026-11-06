@@ -550,6 +550,9 @@ async function preflight(maker, symbols) {
 /** Crossing side for the nth crossing in a market: buy, sell, buy, sell... so the taker's balances stay flat. */
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
 
+/** A jump still not done after this many cycles is let go, so a stuck cancel cannot empty the book every cycle. */
+export const JUMP_TRIES = 5;
+
 /**
  * Whether a `move`'s jump is done: every old quote came down and the new ladder rests on both sides. Until then the
  * jump stays pending and the next cycle makes it again, old quotes first (failure it prevents: J-derivatives-02 #2
@@ -749,6 +752,8 @@ async function runLoop(opts, home) {
   const quoted = new Map();
   /** The `move` shift each walked market was last quoted at, so a changed shift is quoted as a clean jump. */
   const quotedShift = new Map();
+  /** How many cycles in a row a market's pending jump has been made (`jumpSettled`), up to JUMP_TRIES. */
+  const jumpTries = new Map();
   const place = (client, m, side, price, amount, tif) =>
     m.swap
       ? acceptedTier(m).then((tier) => placeFutures(client, m, side, price, amount, `LTEST-${runId}-${(counter += 1)}`, tier))
@@ -840,11 +845,10 @@ async function runLoop(opts, home) {
               : null;
         if (id) {
           ids.push(id);
-          restedSides.add(q.side);
+          // A jump's quote may take and fill at once; only one still open rests on its side.
+          if (m.swap ? LIVE_FUTURES.has(r.json?.status) : r.json?.status === 'open') restedSides.add(q.side);
         } else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
       }
-      // The shift counts as quoted only once its jump is done; otherwise the next cycle jumps again (`jumpSettled`).
-      if (shift !== undefined && (!jump || jumpSettled({ left, rested: restedSides }))) quotedShift.set(m.symbol, shift);
       // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
       // 409 means it is already gone: filled or cancelled).
       const stale = [];
@@ -854,10 +858,24 @@ async function runLoop(opts, home) {
           : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
         if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
       }
+      // The shift counts as quoted only once its jump is done; otherwise the next cycle jumps again (`jumpSettled`).
+      let pending = '';
+      if (shift !== undefined) {
+        const tries = jump ? (jumpTries.get(m.symbol) ?? 0) + 1 : 0;
+        if (!jump || jumpSettled({ left: stale, rested: restedSides }) || tries >= JUMP_TRIES) {
+          if (jump && tries >= JUMP_TRIES && !jumpSettled({ left: stale, rested: restedSides }))
+            pending = `; jump to ${shift} bps given up after ${tries} tries`;
+          quotedShift.set(m.symbol, shift);
+          jumpTries.delete(m.symbol);
+        } else {
+          jumpTries.set(m.symbol, tries);
+          pending = `; jump to ${shift} bps pending (${stale.length} old left, sides resting: ${[...restedSides].join('+') || 'none'})`;
+        }
+      }
       quoted.set(m.symbol, [...ids, ...stale]);
       const rested = ids.length;
       log(
-        `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
+        `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}${pending}`,
       );
       if (cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
         // Alternate per market (failure it prevents: every symbol here has the same name length, so a

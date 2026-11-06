@@ -22,6 +22,7 @@ import {
   quoteOrder,
   crossesOn,
   jumpSettled,
+  JUMP_TRIES,
   fromScaled,
   HISTORY_EDGE_WINDOW_MS,
   TAPE_CLIENT_PREFIX,
@@ -281,6 +282,8 @@ assert.equal(jumpSettled({ left: ['old-1'], rested: both }), false, 'an old quot
 assert.equal(jumpSettled({ left: [], rested: new Set() }), false, 'no new quote rested');
 assert.equal(jumpSettled({ left: [], rested: new Set(['sell']) }), false, 'no bid rested');
 assert.equal(jumpSettled({ left: [], rested: new Set(['buy']) }), false, 'no ask rested');
+// A stuck cancel cannot keep a jump pending, and the book empty between cycles, for good.
+assert.ok(Number.isInteger(JUMP_TRIES) && JUMP_TRIES > 1 && JUMP_TRIES <= 10);
 
 console.log('local-test-market: guard and price-walk checks passed');
 
