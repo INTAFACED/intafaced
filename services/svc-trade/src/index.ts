@@ -20,6 +20,7 @@ import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { bookHaltFromBoard, createMatchingClient } from './spot/matching-client.js';
+import { createMatchingRulebookReader } from './spot/matching-rulebook.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
 import { readOrderLinks } from './spot/order-links.js';
@@ -1065,6 +1066,7 @@ registerPublicRest(app, {
   candles: (marketId, timeframe, limit, sinceMs) => trade.candles(marketId, timeframe, limit, sinceMs),
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
+  rulebook: createMatchingRulebookReader(env.MATCHING_URL),
   bookHalt: async (market) => {
     const board = await matching.listMarkets();
     return bookHaltFromBoard(board, market.id);
