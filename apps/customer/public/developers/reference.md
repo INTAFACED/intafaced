@@ -111,6 +111,8 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `GET /api/v1/futures/conditional-orders/:id`    | `fetchConditionalOrder`                                        | trade:read                                            |
 | `DELETE /api/v1/futures/conditional-orders/:id` | `cancelConditionalOrder`                                       | trade:write                                           |
 | `PUT /api/v1/positions/:id/protection`          | `setPositionProtection`                                        | trade:write                                           |
+| `GET /api/v1/positions/:id/risk-stop`           | `fetchPositionRiskStop`                                        | trade:read                                            |
+| `PUT /api/v1/positions/:id/risk-stop`           | `setPositionRiskStop`                                          | trade:write                                           |
 | `GET /api/v1/futures/entry-protection`          | `fetchEntryProtection`                                         | trade:read                                            |
 | `POST /api/v1/futures/orders`                   | `createFuturesOrder`                                           | trade:write                                           |
 | `GET /api/v1/futures/orders`                    | `fetchFuturesOrders`                                           | trade:read                                            |

@@ -6,6 +6,7 @@ import {
   closeAllReduce,
   freeFor,
   gateActions,
+  riskStopProblem,
   hasUnresolved,
   pickNonce,
   remainingIds,
@@ -102,6 +103,7 @@ describe('gateActions', () => {
     expect(g.leverage).toBe('liquidating');
     expect(g.protect).toBe('liquidating');
     expect(g.stop).toBe('liquidating');
+    expect(g.riskStop).toBe('liquidating');
     expect(g.reverse).toBe('liquidating');
     expect(g.close).toBe('liquidating');
   });
@@ -110,6 +112,7 @@ describe('gateActions', () => {
     expect(open.add).toBeNull();
     expect(open.protect).toBe('stale');
     expect(open.stop).toBe('stale');
+    expect(open.riskStop).toBe('stale');
     expect(open.reverse).toBe('stale');
     expect(open.close).toBe('stale');
     expect(gate({ stale: true }, { status: 'closing' }).close).toBeNull();
@@ -172,5 +175,17 @@ describe('close-all reducer', () => {
     expect(stopsRun(blocked)).toBe(true);
     const s = closeAllReduce(startCloseAll(['a']), { type: 'result', id: 'a', result: blocked });
     expect(remainingIds(s)).toEqual(['a']);
+  });
+});
+
+describe('riskStopProblem', () => {
+  it('a percent strictly between the ratio now and 100 is accepted; blank, out of range and malformed are named', () => {
+    expect(riskStopProblem('', '2.5')).toBe('empty');
+    expect(riskStopProblem('50', '2.5')).toBeNull();
+    expect(riskStopProblem('62.5', null)).toBeNull();
+    for (const bad of ['0', '100', '120', '-5', 'abc', '5e1', '1.12345678901234567'])
+      expect(riskStopProblem(bad, null), bad).toBe('invalid');
+    expect(riskStopProblem('2.5', '2.5')).toBe('reached');
+    expect(riskStopProblem('2', '2.5')).toBe('reached');
   });
 });

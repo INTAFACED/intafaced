@@ -80,3 +80,66 @@ describe('liquidation price from the maintenance ladder', () => {
     expect(rungAt(c, parseAmount('99999.99')).action).not.toBe('liquidate');
   });
 });
+
+describe('the price at a margin-ratio level (a pre-liquidation stop, D-margin-04)', () => {
+  const ONE = 10n ** 18n;
+  const cases = [
+    { name: 'a 5x long', side: 'long', size: '0.01', entry: '64732.41', margin: '129.77538', depth: '1000000' },
+    { name: 'a 5x short', side: 'short', size: '0.01', entry: '64732.41', margin: '129.77538', depth: '1000000' },
+    { name: 'a 10x long in a higher tier', side: 'long', size: '2', entry: '65000', margin: '13000', depth: '200000' },
+    { name: 'a 10x short in a higher tier', side: 'short', size: '2', entry: '65000', margin: '13000', depth: '200000' },
+  ] as const;
+
+  function atLevel(c: (typeof cases)[number], level: bigint) {
+    return liquidationPriceFor({
+      side: c.side,
+      size: parseAmount(c.size),
+      entryPrice: parseAmount(c.entry),
+      margin: parseAmount(c.margin),
+      depthNotional: parseAmount(c.depth),
+      policy: POLICY,
+      level,
+    });
+  }
+
+  /** Maintenance over equity at a price, as the margin summary works it out (18 places). */
+  function ratioAt(c: (typeof cases)[number], price: bigint): bigint {
+    const rung = rungAt(c, price);
+    if (!('maintenanceRequired' in rung)) throw new Error(`no requirement at ${formatAmount(price)}`);
+    const size = parseAmount(c.size);
+    const move = c.side === 'long' ? price - parseAmount(c.entry) : parseAmount(c.entry) - price;
+    const equity = parseAmount(c.margin) + (size * move) / ONE;
+    return (rung.maintenanceRequired * ONE) / equity;
+  }
+
+  for (const c of cases) {
+    it(`${c.name}: at level 1 it is the liquidation price itself`, () => {
+      expect(atLevel(c, ONE)).toEqual(estimate(c));
+    });
+
+    it(`${c.name}: at 75% the ratio reaches the level within a cent of the price shown, between the entry and the liquidation`, () => {
+      // 75%: the higher-tier pair already sits at 50% at entry (500 bps on a notional half its margin's double).
+      const level = (ONE * 3n) / 4n;
+      const got = atLevel(c, level);
+      const liq = estimate(c);
+      if (got.price === null || liq.price === null) throw new Error('no price');
+      const past = c.side === 'long' ? got.price - CENT : got.price + CENT;
+      const before = c.side === 'long' ? got.price + CENT : got.price - CENT;
+      expect(ratioAt(c, past)).toBeGreaterThanOrEqual(level);
+      expect(ratioAt(c, before)).toBeLessThan(level);
+      const entry = parseAmount(c.entry);
+      if (c.side === 'long') {
+        expect(got.price).toBeGreaterThan(liq.price);
+        expect(got.price).toBeLessThan(entry);
+      } else {
+        expect(got.price).toBeLessThan(liq.price);
+        expect(got.price).toBeGreaterThan(entry);
+      }
+    });
+  }
+
+  it('a level outside (0, 1] is a programming error, not a price', () => {
+    expect(() => atLevel(cases[0], 0n)).toThrow(RangeError);
+    expect(() => atLevel(cases[0], ONE + 1n)).toThrow(RangeError);
+  });
+});
