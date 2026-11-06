@@ -647,7 +647,7 @@ export const PAY_TRANSFER_DETAIL: ReadSpec = {
   refusals: TRANSFER_REFUSALS,
 };
 
-const FORBID_BANK_TREASURY =
+export const FORBID_BANK_TREASURY =
   'svc-bank did not accept your founder session for this read (it needs the treasury permission admin:treasury, with a verified second factor).';
 
 const CUSTOMER_BALANCE_REFUSALS: Readonly<Record<string, string>> = {

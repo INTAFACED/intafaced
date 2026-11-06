@@ -23,6 +23,7 @@ import { rampHealthProcedure } from '../ops/ramp-health.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../ops/customer-balances.js';
+import { customerCardsProcedure } from '../ops/customer-cards.js';
 import { transferDetailProcedure } from '../ops/transfer-detail.js';
 import { authorizationGetProcedure } from '../ops/authorization-detail.js';
 import { businessApprovalsProcedure } from '../ops/business-approvals.js';
@@ -990,6 +991,8 @@ export function createOpsRouter(c: BankRouterContext) {
     authorizationGet: authorizationGetProcedure(bank, guard),
     customerBalances: customerBalancesProcedure(bank, guard),
     customerBalanceEntries: customerBalanceEntriesProcedure(bank, guard),
+    /** J-ops-console-04 #7: one customer's cards, every status, for the console's customer record. Read-only, audited first. */
+    customerCards: customerCardsProcedure(bank, guard),
     businessApprovals: businessApprovalsProcedure(bank, guard),
   });
 }

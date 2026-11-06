@@ -1,4 +1,4 @@
-import { BANK_CUSTOMER_BALANCES } from '@/lib/ops-desk/catalog';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_TREASURY } from '@/lib/ops-desk/catalog';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
 import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import type { CustomerTab } from './tabs';
@@ -185,6 +185,63 @@ function depositTravelRule(userId: string): ReadSpec {
   };
 }
 
+const CARD_LIMIT = 50;
+const CARD_STATUS_WORDS: Readonly<Record<string, string>> = {
+  active: 'Active',
+  inactive: 'Issued, not activated yet',
+  frozen: 'Frozen',
+  closed: 'Closed',
+};
+
+/** Every card svc-bank issued to the account, every status (a closed one included), newest first (J-ops-console-04 #7). */
+function customerCards(userId: string): ReadSpec {
+  return {
+    id: 'cards.list',
+    title: 'Cards issued to this account',
+    note: 'Every card svc-bank issued to this account, newest first, in every status, closed ones included, as svc-bank holds it now. A simulated card is the test card simulator: no real card exists. No card number, security code or PIN is read here; svc-bank logs that you read this account’s cards before it reads them.',
+    module: 'bank',
+    plainName: 'svc-bank’s cards for this account',
+    procedure: 'ops.customerCards',
+    input: { userId, limit: CARD_LIMIT },
+    shape: 'list',
+    rowsKey: 'cards',
+    idKey: 'id',
+    page: CARD_LIMIT,
+    columns: [
+      col('id', 'Card id', 'text'),
+      col('status', 'Status', 'text', { words: CARD_STATUS_WORDS }),
+      col('cardType', 'Type', 'text'),
+      col('panTail', 'Last four', 'text'),
+      col('assetId', 'Draws on', 'text'),
+      col('simulated', 'Simulated (no real card)', 'bool'),
+      col('perAuthorizationLimit', 'Per payment limit', 'amount'),
+      col('settlementAssetId', 'Charged in', 'text', { detail: true }),
+      col('issuer', 'Programme', 'text', { detail: true }),
+      col('dailyLimit', 'Daily limit', 'amount', { nullable: true, detail: true }),
+      col('monthlyLimit', 'Monthly limit', 'amount', { nullable: true, detail: true }),
+      col('cashLimit', 'Cash limit', 'amount', { nullable: true, detail: true }),
+      col('cashbackBps', 'Cashback', 'bps', { detail: true }),
+      col('online', 'Online payments', 'bool', { detail: true }),
+      col('contactless', 'Contactless', 'bool', { detail: true }),
+      col('atm', 'Cash machines', 'bool', { detail: true }),
+      col('abroad', 'Abroad', 'bool', { detail: true }),
+      col('usesAllowed', 'Payments before it closes itself', 'int', { nullable: true, detail: true }),
+      col('designId', 'Design', 'text', { nullable: true, detail: true }),
+      col('deliverySpeed', 'Delivery speed', 'text', { nullable: true, detail: true }),
+      col('replacesCardId', 'Replaces card id', 'text', { nullable: true, detail: true }),
+      col('replacedByCardId', 'Replaced by card id', 'text', { nullable: true, detail: true }),
+    ],
+    emptyText: 'svc-bank has issued no card to this account: it has never been issued or ordered one.',
+    forbiddenText: FORBID_BANK_TREASURY,
+    refusals: {
+      'bank.ops_audit_unavailable':
+        'svc-bank could not record that you asked, so it read nothing. It writes that record before it reads any card, and refuses when it cannot.',
+      'bank.cards_list_limit_unset':
+        'svc-bank refused the read because no page size was sent. This console always sends one; this is a fault in the console.',
+    },
+  };
+}
+
 export interface CustomerTabPlan {
   readonly reads: readonly ReadSpec[];
   /** What this tab cannot show for one account, and why. */
@@ -259,12 +316,12 @@ export function tabPlan(tab: CustomerTab, userId: string): CustomerTabPlan {
       };
     case 'cards':
       return {
-        reads: [],
+        reads: [customerCards(userId)],
         unwired: [
           un(
-            'cards.list',
-            'Cards issued to this account',
-            'svc-bank keeps each customer’s cards, but its card list answers only the signed-in owner; it has no operator read of one customer’s cards.',
+            'cards.payments',
+            'Card payments of this account',
+            'svc-bank has no operator read that lists one customer’s card payments: its card payment list answers only the signed-in owner, and its staff read of a card payment goes by one payment’s id.',
           ),
         ],
       };
