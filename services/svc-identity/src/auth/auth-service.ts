@@ -1218,7 +1218,10 @@ export class AuthService {
     }
     const left = await this.tryRedeemRecoveryCode(userId, code);
     if (left === null) {
-      this.logTotpRefusal(userId, secret === null ? { reason: 'secret_unreadable' } : { reason: 'no_match', stepOffset: totpStepOffset(secret, code) });
+      this.logTotpRefusal(
+        userId,
+        secret === null ? { reason: 'secret_unreadable' } : { reason: 'no_match', stepOffset: totpStepOffset(secret, code) },
+      );
       throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     }
     return { recoveryCodesLeft: left };
