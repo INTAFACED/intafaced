@@ -1866,9 +1866,7 @@ export class CardService {
       tier,
       rateBps: rates.rates[tier] ?? null,
       assetId: rates.assetId,
-      rates: CARD_TIERS
-        .filter((t) => rates.rates[t] !== undefined)
-        .map((t) => ({ tier: t, bps: rates.rates[t]! })),
+      rates: CARD_TIERS.filter((t) => rates.rates[t] !== undefined).map((t) => ({ tier: t, bps: rates.rates[t]! })),
       paid: parseAmount(totals?.paid ?? '0'),
       unpaid: parseAmount(totals?.unpaid ?? '0'),
       refused: parseAmount(totals?.refused ?? '0'),
