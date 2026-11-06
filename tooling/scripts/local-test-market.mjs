@@ -796,11 +796,20 @@ async function runLoop(opts, home) {
       let previous = quoted.get(m.symbol);
       if (!previous && m.swap) {
         previous = (await openFuturesQuoteIds(maker, m)) ?? undefined;
+        if (previous === undefined) {
+          // Unreadable, the earlier run's quotes can't be taken down; this market waits for the next cycle to try again.
+          log(`${m.symbol}: the earlier run's open quotes could not be read; not quoting this cycle`);
+          continue;
+        }
       } else if (!previous) {
-        const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
-        const rows = Array.isArray(open.json) ? open.json : null;
-        if (open.status === 200 && rows && rows.length < 100) previous = rows.map((o) => o.id);
-        else await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
+        // Spot clears in one request; if that fails, the quotes are read and taken down one by one below.
+        const all = await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
+        if (all.status < 300) previous = [];
+        else {
+          const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
+          const rows = Array.isArray(open.json) ? open.json : null;
+          if (open.status === 200 && rows) previous = rows.map((o) => o.id);
+        }
       }
       // A `move` is a jump: the old ladder comes down before the new one goes up. Overlapped, the old bids and the new
       // asks would stand together and the book's mid would sit halfway, a price the jump never quoted (failure it
@@ -828,9 +837,10 @@ async function runLoop(opts, home) {
         const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
         if (r.status === 201 && r.json?.id) {
           ids.push(r.json.id);
-          // A post-only quote that would take is answered 201 but not open: it does not rest.
+          // A post-only quote that would take is answered 201 but not open: it does not rest. A jump's quote may fill.
           if (r.json.status === 'open') rested += 1;
-          else refused = `${r.status} ${r.json.status}`;
+          else if (r.json.status !== 'closed')
+            refused = `${r.status} ${r.json.status} ${(r.json.rejectCode ?? '').toString().slice(0, 120)}`.trim();
         } else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) {
           ids.push(r.json.orderId);
           rested += 1;
