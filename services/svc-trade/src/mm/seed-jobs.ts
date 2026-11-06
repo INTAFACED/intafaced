@@ -30,7 +30,12 @@ import {
   type SeedTradableMarket,
 } from './seed-market.js';
 
-export type MmSeedLastRun = { runId: string; levels: number };
+/**
+ * A market's last seed run. `version` is the operator row it was placed from (absent for an environment run), so a newly
+ * approved version cancels the run before it places; the assets let a run be cancelled after its market leaves the
+ * configuration.
+ */
+export type MmSeedLastRun = { runId: string; levels: number; version?: string; baseAsset?: string; quoteAsset?: string };
 
 /** Load durable last-run map. Corrupt/missing → empty (never invent runs). */
 export function loadMmSeedLastRun(path: string | undefined): Map<string, MmSeedLastRun> {
@@ -38,12 +43,22 @@ export function loadMmSeedLastRun(path: string | undefined): Map<string, MmSeedL
   if (path == null || path.trim() === '') return out;
   try {
     const raw = readFileSync(path, 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, { runId?: string; levels?: number }>;
+    const parsed = JSON.parse(raw) as Record<
+      string,
+      { runId?: string; levels?: number; version?: unknown; baseAsset?: unknown; quoteAsset?: unknown }
+    >;
     for (const [marketId, v] of Object.entries(parsed)) {
       if (!marketId || typeof v?.runId !== 'string' || !v.runId.trim()) continue;
       const levels = Number(v.levels);
       if (!Number.isFinite(levels) || levels < 1) continue;
-      out.set(marketId, { runId: v.runId.trim(), levels: Math.floor(levels) });
+      out.set(marketId, {
+        runId: v.runId.trim(),
+        levels: Math.floor(levels),
+        ...(typeof v.version === 'string' ? { version: v.version } : {}),
+        ...(typeof v.baseAsset === 'string' && typeof v.quoteAsset === 'string'
+          ? { baseAsset: v.baseAsset, quoteAsset: v.quoteAsset }
+          : {}),
+      });
     }
   } catch {
     /* missing or corrupt — start empty */
@@ -135,11 +150,18 @@ export interface MmSeedJobsDeps {
    * returns none, the environment is the bootstrap, as before. Absent: the environment only.
    */
   operatorConfigs?: () => Promise<readonly OperatorSeedTarget[]>;
+  /**
+   * The outside venue's mid alone, for an operator row whose mid source is `venue`; never the environment's configured
+   * mids. Null or absent: no outside feed is wired, so such a row places nothing (`feed.market_not_connected`).
+   */
+  venueMidSource?: ((marketId: string) => AcceptedMmMid | null | Promise<AcceptedMmMid | null>) | null;
 }
 
 /** One market's operator-written seed row, as the job reads it. */
 export interface OperatorSeedTarget extends MmSeedTarget {
   readonly enabled: boolean;
+  /** The row's version; a run placed from an older one is cancelled before this one places. */
+  readonly version: string;
   /** The values to place from, or the first blank one (`mm.seed_unset`, nothing placed). */
   readonly config:
     | {
@@ -221,7 +243,7 @@ export function startMmSeedJobs(deps: MmSeedJobsDeps): MmSeedJobsHandle {
     return true;
   };
 
-  const seedOne = async (target: MmSeedTarget, params: SeedParams, midOf: () => Promise<AcceptedMmMid | null>) => {
+  const seedOne = async (target: MmSeedTarget, params: SeedParams, midOf: () => Promise<AcceptedMmMid | null>, version?: string) => {
     // Only seed empty books — avoids re-submit/release race on live seed orders.
     const depth = await deps.matching.depth(target.marketId, 1);
     if (depth.bids.length > 0 || depth.asks.length > 0) {
@@ -276,7 +298,13 @@ export function startMmSeedJobs(deps: MmSeedJobsDeps): MmSeedJobsHandle {
       (p) => p.status === 'resting' || p.status === 'submit_indeterminate' || p.status === 'rejected' || p.status === 'manufactured_cross',
     );
     if (trackable) {
-      lastRun.set(target.marketId, { runId, levels: params.levels });
+      lastRun.set(target.marketId, {
+        runId,
+        levels: params.levels,
+        baseAsset: target.baseAsset,
+        quoteAsset: target.quoteAsset,
+        ...(version !== undefined ? { version } : {}),
+      });
       persist();
     }
 
@@ -286,24 +314,50 @@ export function startMmSeedJobs(deps: MmSeedJobsDeps): MmSeedJobsHandle {
   host.every('mm.seed', deps.config.intervalMs!, async () => {
     const operator = deps.operatorConfigs ? await deps.operatorConfigs() : [];
     if (operator.length > 0) {
-      // The approved rows are the whole configuration: a market switched off has its last run cancelled (stopping
-      // the seed is never slower than starting it), and a row with a blank value places nothing.
+      // The approved rows are the whole configuration. Stopping the seed is never slower than starting it: a market
+      // switched off, left with a blank value, moved to a newer version, or no longer configured at all has its last
+      // run cancelled before anything else is placed.
+      const configured = new Set(operator.map((r) => r.marketId));
+      for (const [marketId, prior] of [...lastRun]) {
+        if (configured.has(marketId)) continue;
+        const assets =
+          prior.baseAsset && prior.quoteAsset
+            ? { baseAsset: prior.baseAsset, quoteAsset: prior.quoteAsset }
+            : deps.config.targets.find((t) => t.marketId === marketId);
+        if (!assets) {
+          deps.onResult?.(marketId, { skipped: 'prior_run_assets_unknown' });
+          continue;
+        }
+        if (await cancelPrior({ marketId, baseAsset: assets.baseAsset, quoteAsset: assets.quoteAsset }))
+          deps.onResult?.(marketId, { skipped: 'not_configured' });
+      }
       for (const row of operator) {
         if (!row.enabled) {
           if (await cancelPrior(row)) deps.onResult?.(row.marketId, { skipped: 'operator_seed_off' });
           continue;
         }
         if (!row.config.ok) {
-          deps.onResult?.(row.marketId, { skipped: `mm.seed_unset:${row.config.unset}` });
+          if (await cancelPrior(row)) deps.onResult?.(row.marketId, { skipped: `mm.seed_unset:${row.config.unset}` });
           continue;
         }
+        const prior = lastRun.get(row.marketId);
+        if (prior && prior.version !== row.version && !(await cancelPrior(row))) continue;
         const c = row.config;
-        await seedOne(row, c, async () =>
-          c.midSource === 'configured'
-            ? c.configuredMid
-              ? AcceptedMmMid.configured(c.configuredMid)
-              : null
-            : await deps.midSource(row.marketId),
+        const venue = deps.venueMidSource;
+        if (c.midSource === 'venue' && !venue) {
+          deps.onResult?.(row.marketId, { skipped: 'feed.market_not_connected' });
+          continue;
+        }
+        await seedOne(
+          row,
+          c,
+          async () =>
+            c.midSource === 'configured'
+              ? c.configuredMid
+                ? AcceptedMmMid.configured(c.configuredMid)
+                : null
+              : await venue!(row.marketId),
+          row.version,
         );
       }
       return;

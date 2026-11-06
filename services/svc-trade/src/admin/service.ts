@@ -1035,11 +1035,19 @@ export class TradeOpsAdmin {
       operationId: clientRequestId,
     });
     const next = (BigInt(version) + 1n).toString();
+    // The on/off switch keeps the market's seeding configuration as the last version had it (J-cex-spot-20 #5): it
+    // turns the seed on or off, never blanks the values an operator wrote.
     await this.deps.sql`INSERT INTO trade.operator_mm_seed (
-      id, market_id, version, enabled, operator_id, approver_id, approval_id
-    ) VALUES (
-      ${randomUUID()}, ${input.market}, ${next}::bigint, ${input.enabled}, ${principal.userId}, ${consumed.approverId}, ${input.approvalId}
-    )`;
+      id, market_id, version, enabled, operator_id, approver_id, approval_id,
+      half_spread_bps, step_bps, levels, qty_per_level, mid_source, configured_mid
+    )
+    SELECT ${randomUUID()}, ${input.market}, ${next}::bigint, ${input.enabled}, ${principal.userId}, ${consumed.approverId}, ${input.approvalId},
+           p.half_spread_bps, p.step_bps, p.levels, p.qty_per_level, p.mid_source, p.configured_mid
+      FROM (SELECT 1) AS one
+      LEFT JOIN LATERAL (
+        SELECT half_spread_bps, step_bps, levels, qty_per_level, mid_source, configured_mid
+          FROM trade.operator_mm_seed WHERE market_id = ${input.market} ORDER BY version DESC LIMIT 1
+      ) AS p ON true`;
     const result = { market: input.market, enabled: input.enabled, version: next };
     await storeRequest(this.deps.sql, clientRequestId, 'mm_seed', fingerprint, result);
     await writeOperatorAudit(this.deps.sql, {

@@ -137,6 +137,8 @@ export interface SeedConfigRow extends SeedConfigInput {
 interface DbRow {
   market_id: string;
   symbol: string;
+  base_asset: string;
+  quote_asset: string;
   version: string;
   enabled: boolean;
   half_spread_bps: number | null;
@@ -174,20 +176,23 @@ function rowOf(r: DbRow): SeedConfigRow {
 
 /** The latest version of every market that has one. */
 export async function latestSeedConfigs(sql: Sql): Promise<SeedConfigRow[]> {
-  const rows = await sql<DbRow[]>`
+  return (await latestRows(sql)).map(rowOf).sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+async function latestRows(sql: Sql): Promise<DbRow[]> {
+  return sql<DbRow[]>`
     SELECT DISTINCT ON (s.market_id)
-           s.market_id::text, m.symbol, s.version::text, s.enabled, s.half_spread_bps, s.step_bps, s.levels,
+           s.market_id::text, m.symbol, m.base_asset, m.quote_asset, s.version::text, s.enabled, s.half_spread_bps, s.step_bps, s.levels,
            s.qty_per_level::text, s.mid_source, s.configured_mid::text, s.operator_id, s.approver_id, s.approval_id, s.created_at
       FROM trade.operator_mm_seed s
       JOIN trade.markets m ON m.id = s.market_id
      ORDER BY s.market_id, s.version DESC`;
-  return rows.map(rowOf).sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
 
 /** Every version of one market, newest first. */
 async function history(sql: Sql, market: string): Promise<SeedConfigRow[]> {
   const rows = await sql<DbRow[]>`
-    SELECT s.market_id::text, m.symbol, s.version::text, s.enabled, s.half_spread_bps, s.step_bps, s.levels,
+    SELECT s.market_id::text, m.symbol, m.base_asset, m.quote_asset, s.version::text, s.enabled, s.half_spread_bps, s.step_bps, s.levels,
            s.qty_per_level::text, s.mid_source, s.configured_mid::text, s.operator_id, s.approver_id, s.approval_id, s.created_at
       FROM trade.operator_mm_seed s
       JOIN trade.markets m ON m.id = s.market_id
@@ -227,37 +232,41 @@ export class SeedConfigAdmin {
     const fingerprint = payloadHash({ kind: 'mm_seed_config', ...body });
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'mm_seed_config', fingerprint);
     if (prior) return prior as SeedConfigRow;
-    const [market] = await this.deps.sql<Array<{ id: string; symbol: string }>>`
-      SELECT id::text, symbol FROM trade.markets WHERE id = ${input.market}`;
-    if (!market) throw new TradeOpsError('market_not_found', 'no such market');
-    const version = await this.currentVersion(input.market);
-    if (version !== input.expectedVersion) {
-      throw new TradeOpsError('mm.seed_stale', `the seed configuration moved to v${version} since this was proposed; propose again`);
-    }
-    const consumed = await consumeApproval(this.deps.approvals, {
-      approvalId: input.approvalId,
-      actionType: MM_SEED_ACTION_TYPE,
-      targetId: input.market,
-      expectedVersion: version,
-      payloadHash: payloadHash(body),
-      operationId: clientRequestId,
-    });
-    const next = (BigInt(version) + 1n).toString();
-    const writtenAt = new Date();
-    const written: SeedConfigRow = {
-      ...config,
-      market: input.market,
-      symbol: market.symbol,
-      version: next,
-      operatorId: principal.userId,
-      approverId: consumed.approverId,
-      approvalId: input.approvalId,
-      writtenAt: writtenAt.toISOString(),
-    };
-    // The version, its audit row and the answer to this request id commit together: a retry after a lost reply finds the
-    // answer, never a second version and never a stale refusal of its own write.
-    await this.deps.sql.begin(async (tx) => {
+    const written = await this.deps.sql.begin(async (tx) => {
       const q = tx as unknown as Sql;
+      // One writer per market at a time: the market row is locked, so a second write bound to the same version waits
+      // here and is then refused as stale, before its approval is spent.
+      const [market] = await q<Array<{ id: string; symbol: string }>>`
+        SELECT id::text, symbol FROM trade.markets WHERE id = ${input.market} FOR UPDATE`;
+      if (!market) throw new TradeOpsError('market_not_found', 'no such market');
+      const [latest] = await q<Array<{ version: string }>>`
+        SELECT version::text FROM trade.operator_mm_seed WHERE market_id = ${input.market} ORDER BY version DESC LIMIT 1`;
+      const version = latest?.version ?? '0';
+      if (version !== input.expectedVersion) {
+        throw new TradeOpsError('mm.seed_stale', `the seed configuration moved to v${version} since this was proposed; propose again`);
+      }
+      const consumed = await consumeApproval(this.deps.approvals, {
+        approvalId: input.approvalId,
+        actionType: MM_SEED_ACTION_TYPE,
+        targetId: input.market,
+        expectedVersion: version,
+        payloadHash: payloadHash(body),
+        operationId: clientRequestId,
+      });
+      const next = (BigInt(version) + 1n).toString();
+      const writtenAt = new Date();
+      const row: SeedConfigRow = {
+        ...config,
+        market: input.market,
+        symbol: market.symbol,
+        version: next,
+        operatorId: principal.userId,
+        approverId: consumed.approverId,
+        approvalId: input.approvalId,
+        writtenAt: writtenAt.toISOString(),
+      };
+      // The version, its audit row and the answer to this request id commit together: a retry after a lost reply finds
+      // the answer, never a second version and never a stale refusal of its own write.
       await q`INSERT INTO trade.operator_mm_seed (
         id, market_id, version, enabled, operator_id, approver_id, approval_id, created_at,
         half_spread_bps, step_bps, levels, qty_per_level, mid_source, configured_mid
@@ -275,7 +284,8 @@ export class SeedConfigAdmin {
         reason: config.enabled ? 'seed configuration on' : 'seed configuration off',
         detail: { version: next, config },
       });
-      await storeRequest(q, clientRequestId, 'mm_seed_config', fingerprint, written);
+      await storeRequest(q, clientRequestId, 'mm_seed_config', fingerprint, row);
+      return row;
     });
     return written;
   }
@@ -283,16 +293,9 @@ export class SeedConfigAdmin {
 
 /** What the seed job reads each tick: every market's latest row with its assets, complete or naming its first blank. */
 export async function operatorSeedTargets(sql: Sql): Promise<OperatorSeedTarget[]> {
-  const rows = await latestSeedConfigs(sql);
-  if (rows.length === 0) return [];
-  const assets = await sql<Array<{ id: string; base_asset: string; quote_asset: string }>>`
-    SELECT id::text, base_asset, quote_asset FROM trade.markets WHERE id IN ${sql(rows.map((r) => r.market))}`;
-  const byId = new Map(assets.map((a) => [a.id, a]));
-  return rows.flatMap((r) => {
-    const a = byId.get(r.market);
-    if (!a) return [];
-    const done = completeConfig(r);
+  return (await latestRows(sql)).map((r) => {
+    const done = completeConfig(rowOf(r));
     const config: OperatorSeedTarget['config'] = done.ok ? { ok: true, ...done.config } : done;
-    return [{ marketId: r.market, baseAsset: a.base_asset, quoteAsset: a.quote_asset, enabled: r.enabled, config }];
+    return { marketId: r.market_id, baseAsset: r.base_asset, quoteAsset: r.quote_asset, enabled: r.enabled, version: r.version, config };
   });
 }

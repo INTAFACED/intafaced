@@ -981,6 +981,22 @@ describe('trade operator procedures', () => {
         clientRequestId: 'seedcfg-5',
       }),
     ).rejects.toBeInstanceOf(AuthError);
+    // The older on/off switch turns the seed off and keeps every value the operator wrote.
+    allow({
+      approvalId: 'seedcfg-switch',
+      actionType: 'trade.mm_seed',
+      targetId: otherMarketId,
+      expectedVersion: written.version,
+      body: { actionType: 'trade.mm_seed', market: otherMarketId, enabled: false, expectedVersion: written.version },
+    });
+    await admin.setSeed(operatorWriter(), {
+      market: otherMarketId,
+      enabled: false,
+      approvalId: 'seedcfg-switch',
+      clientRequestId: 'seedcfg-6',
+    });
+    const switched = (await admin.seedConfig.list(operator())).configs.find((c) => c.market === otherMarketId);
+    expect(switched).toMatchObject({ ...full, enabled: false, version: String(Number(written.version) + 1) });
   });
 
   it('reports a drifted order repair, refuses a sweep while its switch is off, and has no sweep status yet', async () => {

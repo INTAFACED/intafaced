@@ -53,11 +53,15 @@ class Book implements Pick<MatchingClient, 'submit' | 'depth' | 'cancel'> {
   }
 }
 
+/** Ends the environment-leftover test once both the cancel and the switched-off row have been reported. */
+const results_has_not_configured = (n: number) => n >= 3;
+
 const ROW: OperatorSeedTarget = {
   marketId: 'btc-usdt',
   baseAsset: 'BTC',
   quoteAsset: 'USDT',
   enabled: true,
+  version: '1',
   config: { ok: true, halfSpreadBps: 100, stepBps: 10, levels: 3, qtyPerLevel: '1', midSource: 'configured', configuredMid: '100' },
 };
 
@@ -165,23 +169,92 @@ describe('seed job from the operator configuration (J-cex-spot-20 #5)', () => {
     expect(matching.submitted).toHaveLength(0);
   });
 
-  it('venue mid source reads the mid source, never the configured value', async () => {
-    const matching = new Book();
+  it('a venue mid source reads the outside venue alone, never the environment mids; with no venue feed it places nothing', async () => {
+    const venueRow: OperatorSeedTarget = {
+      ...ROW,
+      config: { ...(ROW.config as Extract<OperatorSeedTarget['config'], { ok: true }>), midSource: 'venue', configuredMid: null },
+    };
+    const withFeed = new Book();
     await ticks(
       {
         ledger: await funded(),
-        matching,
-        operatorConfigs: async () => [
-          {
-            ...ROW,
-            config: { ...(ROW.config as Extract<OperatorSeedTarget['config'], { ok: true }>), midSource: 'venue', configuredMid: null },
-          },
-        ],
+        matching: withFeed,
+        operatorConfigs: async () => [venueRow],
+        venueMidSource: () => AcceptedMmMid.venue('5000'),
       },
       (n) => n >= 1,
     );
-    expect(matching.submitted.length).toBeGreaterThan(0);
-    expect(matching.submitted.every((s) => Math.abs(Number(s.request.price) - 5000) < 500)).toBe(true);
+    expect(withFeed.submitted.length).toBeGreaterThan(0);
+    expect(withFeed.submitted.every((s) => Math.abs(Number(s.request.price) - 5000) < 500)).toBe(true);
+
+    // midSource stands for the environment chain (TRADE_MM_SEED_MIDS first): it is never asked for a venue row.
+    const noFeed = new Book();
+    const results = await ticks(
+      {
+        ledger: await funded(),
+        matching: noFeed,
+        operatorConfigs: async () => [venueRow],
+        midSource: () => AcceptedMmMid.configured('100'),
+      },
+      (n) => n >= 1,
+    );
+    expect(results[0]).toEqual({ marketId: 'btc-usdt', result: { skipped: 'feed.market_not_connected' } });
+    expect(noFeed.submitted).toHaveLength(0);
+  });
+
+  it('a newly approved version cancels the run placed from the old one, then places from the new one', async () => {
+    const matching = new Book();
+    let rows: OperatorSeedTarget[] = [ROW];
+    await ticks({ ledger: await funded(), matching, operatorConfigs: async () => rows }, (n) => {
+      if (n === 1)
+        rows = [{ ...ROW, version: '2', config: { ...(ROW.config as Extract<OperatorSeedTarget['config'], { ok: true }>), levels: 1 } }];
+      return n >= 2;
+    });
+    expect(matching.submitted).toHaveLength(6 + 2);
+    const first = new Set(matching.submitted.slice(0, 6).map((s) => s.request.orderId));
+    expect(new Set(matching.cancelled)).toEqual(first);
+    expect(matching.live.size).toBe(2);
+  });
+
+  it('a row left with a blank value cancels the run an earlier version placed', async () => {
+    const matching = new Book();
+    let rows: OperatorSeedTarget[] = [ROW];
+    const results = await ticks({ ledger: await funded(), matching, operatorConfigs: async () => rows }, (n) => {
+      if (n === 1) rows = [{ ...ROW, version: '2', config: { ok: false, unset: 'half spread' } }];
+      return n >= 2;
+    });
+    expect(matching.live.size).toBe(0);
+    expect(results[1]).toEqual({ marketId: 'btc-usdt', result: { skipped: 'mm.seed_unset:half spread' } });
+  });
+
+  it('once operator rows exist, a run the environment placed on a market they do not name is cancelled', async () => {
+    const matching = new Book();
+    let rows: OperatorSeedTarget[] = [];
+    const results = await ticks(
+      {
+        ledger: await funded(),
+        matching,
+        operatorConfigs: async () => rows,
+        config: {
+          enabled: true,
+          intervalMs: 15,
+          halfSpreadBps: 100,
+          stepBps: 10,
+          levels: 1,
+          qtyPerLevel: '1',
+          targets: [{ marketId: 'btc-usdt', baseAsset: 'BTC', quoteAsset: 'USDT' }],
+        },
+      },
+      (n) => {
+        if (n === 1) rows = [{ ...ROW, marketId: 'eth-usdt', baseAsset: 'ETH', quoteAsset: 'USDT', enabled: false }];
+        return results_has_not_configured(n);
+      },
+    );
+    expect(matching.submitted).toHaveLength(2);
+    expect(matching.live.size).toBe(0);
+    expect(
+      results.some((r) => r.marketId === 'btc-usdt' && JSON.stringify(r.result) === JSON.stringify({ skipped: 'not_configured' })),
+    ).toBe(true);
   });
 
   it('with no rows and the environment off, nothing is scheduled to place (default off)', async () => {
