@@ -1,3 +1,4 @@
+// World: none
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, createOwnAgent, openFounderDesk, openOwnAgent, tableIn } from './agents.mjs';

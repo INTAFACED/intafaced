@@ -1,3 +1,4 @@
+// World: book, freeze, gates, stack
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import {
