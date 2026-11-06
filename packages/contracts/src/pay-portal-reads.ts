@@ -109,7 +109,7 @@ export const payRefundLedgerEffectSchema = z
   })
   .strict();
 
-const paymentStatusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+const paymentStatusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']);
 
 export const payRefundItemSchema = z
   .object({

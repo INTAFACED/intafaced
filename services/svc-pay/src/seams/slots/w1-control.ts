@@ -1,5 +1,6 @@
 import type { Sql } from 'postgres';
-import type { PartialPayGuards } from '../guards.js';
+import { composeGuards, type PartialPayGuards } from '../guards.js';
+import { createRefundApprovalGuards } from '../../refund-control/service.js';
 import { createControlGuards } from '../../control/guards.js';
 import { resolveMerchantControlsMode, type MerchantControlsMode } from '../../control/mode.js';
 import type { SettlementBookReader } from '../../settlement-book.js';
@@ -19,5 +20,7 @@ export function createW1ControlGuards(deps: {
   // PAY_MERCHANT_CONTROLS=off|required. Unset or `off` outside an explicit dev or test
   // APP_ENV, and any other value, throws at boot: the controls are never silently off.
   const mode = deps.merchantControls ?? resolveMerchantControlsMode(process.env.PAY_MERCHANT_CONTROLS, process.env.APP_ENV);
-  return createControlGuards({ sql: deps.sql, mode, ledger: deps.ledger });
+  // The owner's refund approval rule (J-merchant-06 #5) holds whatever the controls mode: the owner asked for it, so it
+  // is never switched off with the tier caps. No rule set, nothing is held.
+  return composeGuards(createControlGuards({ sql: deps.sql, mode, ledger: deps.ledger }), createRefundApprovalGuards());
 }

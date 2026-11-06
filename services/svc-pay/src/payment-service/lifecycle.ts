@@ -5,6 +5,7 @@
  * function here, which passes itself as `svc`.
  */
 import { recordFundsPending } from './funds.js';
+import { voidInFlight } from './voids.js';
 import { assertCategoryAllows, merchantCategoryRule } from '../onboarding-policy/category.js';
 import { postPayLedger } from '../ledger-receipt.js';
 import {
@@ -483,6 +484,10 @@ export async function capture(
           // A concurrent capture, and then a dispute, can land between the first read and this lock.
           if (BEYOND_CAPTURE.has(row.status)) return svc.view(tx, row);
           assertCapturable(row);
+          // A void asked of the rail and not answered yet: the hold may already be released, so nothing is captured.
+          if (await voidInFlight(tx, row.id)) {
+            throw new PayError(`Payment ${row.id} has a void waiting for the rail's answer`, 'pay.void_in_flight', { paymentId: row.id });
+          }
           if (svc.rails.has(row.rail_adapter) && svc.rails.get(row.rail_adapter).checksPayerName) await assertNoPayerNameHold(tx, row.id);
           if (
             admitted &&

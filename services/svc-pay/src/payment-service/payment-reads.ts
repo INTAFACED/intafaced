@@ -66,7 +66,7 @@ export async function listPayments(
   await svc.getMerchant(input.merchantId);
   const limit = assertPaymentListLimit(input.limit);
   const filters = listFilters(input);
-  svc.assertListStatus(input.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+  svc.assertListStatus(input.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']);
   const min = boundAmount(input.amountMin);
   const max = boundAmount(input.amountMax);
   if (min.kind === 'invalid' || max.kind === 'invalid') {

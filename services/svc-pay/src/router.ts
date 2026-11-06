@@ -91,7 +91,8 @@ import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
-import { isInteractivePrincipal, seesFullPricing } from './merchant-ops/roles.js';
+import { isInteractivePrincipal, requireMerchantPermission, seesFullPricing } from './merchant-ops/roles.js';
+import { RefundControl, BULK_REFUND_MAX_ROWS, type RefundRequest } from './refund-control/service.js';
 import { maskRailRef, PaymentPrivacy, seesClearRailRef } from './merchant-ops/payment-views.js';
 import { paymentPrivacyProcedures } from './merchant-ops/payment-views-router.js';
 import { paymentListPrivacySchema } from '@intafaced/contracts/pay-payment-views';
@@ -163,6 +164,25 @@ const amountSchema = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigne
 
 const assetIdSchema = z.string().min(1).max(16);
 
+/** J-merchant-06: a refund that waits for approval, and what became of it. */
+const refundRequestSchema = z.object({
+  id: z.string(),
+  merchantId: z.string(),
+  paymentId: z.string(),
+  assetId: z.string(),
+  amount: amountSchema,
+  refundId: z.string(),
+  status: z.enum(['queued', 'approved', 'refunded', 'failed', 'rejected', 'cancelled', 'voided']),
+  makerUserId: z.string(),
+  checkerUserId: z.string().nullable(),
+  checkerReason: z.string().nullable(),
+  failureCode: z.string().nullable(),
+  voidReason: z.string().nullable(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+});
+
 const paymentView = z.object({
   id: z.string().guid(),
   merchantId: z.string().guid(),
@@ -172,7 +192,7 @@ const paymentView = z.object({
   method: z.string(),
   railAdapter: z.string(),
   railRef: z.string().nullable(),
-  status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+  status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']),
   capturedAmount: amountSchema,
   refundedAmount: amountSchema,
   createdAt: z.string().datetime({ offset: true }),
@@ -460,6 +480,58 @@ export function createPayRouter(
       railRef: railRefFor(out.railRef, audience),
       pricingSnapshot: projectPricingSnapshot(facts.pricingSnapshot, audience),
       failure: facts.failure,
+    };
+  };
+
+  /** J-merchant-06: the refund controls (rule, queued requests, bulk). Absent without the pay database. */
+  const refundControl = portalSql ? new RefundControl(portalSql, pay) : null;
+  const refunds = (): RefundControl => {
+    if (!refundControl) throw new PayError('Refund controls need the pay database', 'pay.refund_request_not_found');
+    return refundControl;
+  };
+  const refundRequestOut = (r: RefundRequest) => ({
+    id: r.id,
+    merchantId: r.merchantId,
+    paymentId: r.paymentId,
+    assetId: r.assetId,
+    amount: r.amount,
+    refundId: r.refundId,
+    status: r.status,
+    makerUserId: r.makerUserId,
+    checkerUserId: r.checkerUserId,
+    checkerReason: r.checkerReason,
+    failureCode: r.failureCode,
+    voidReason: r.voidReason,
+    createdAt: r.createdAt.toISOString(),
+    decidedAt: r.decidedAt?.toISOString() ?? null,
+    closedAt: r.closedAt?.toISOString() ?? null,
+  });
+  /** What a refund of this payment would do now (M-payments-core-05 pre-check). Reads only. */
+  const refundCheck = async (paymentId: string) => {
+    const p = await pay.getPayment(paymentId);
+    const left = p.capturedAmount - p.refundedAmount;
+    const source = p.status === 'settled' || p.status === 'refunded' ? ('settled' as const) : ('clearing' as const);
+    const cases = p.status === 'disputed' ? await disputeCases.listForPayment(p.id) : [];
+    const disputeOpen =
+      p.status === 'disputed' && (cases.length === 0 || cases.some((c) => c.status === 'open' || c.status === 'contested'));
+    const blockedBy = disputeOpen
+      ? ('pay.refund_open_dispute' as const)
+      : !['captured', 'settled', 'refunded'].includes(p.status)
+        ? ('pay.nothing_captured' as const)
+        : left <= 0n
+          ? ('pay.refund_nothing_left' as const)
+          : null;
+    const funding =
+      source === 'clearing' ? await pay.clearingBalance(p.merchantId, p.assetId) : await pay.merchantBalance(p.merchantId, p.assetId);
+    const rule = refundControl ? await refundControl.rule(p.merchantId, p.assetId) : null;
+    return {
+      paymentId: p.id,
+      assetId: p.assetId,
+      maxRefundable: formatAmount(left > 0n ? left : 0n),
+      source,
+      fundingBalance: formatAmount(funding),
+      blockedBy,
+      approvalThreshold: rule?.threshold ?? null,
     };
   };
 
@@ -1212,6 +1284,231 @@ export function createPayRouter(
               'owner',
               true,
             );
+          }),
+        ),
+
+      /** J-merchant-06 #1: what a refund of this payment would do now: the most it can refund, the balance that funds it, what blocks it. */
+      refundCheck: ownMerchantRead()
+        .input(z.object({ paymentId: z.string().guid() }))
+        .output(
+          z.object({
+            paymentId: z.string(),
+            assetId: z.string(),
+            maxRefundable: amountSchema,
+            source: z.enum(['clearing', 'settled']),
+            fundingBalance: amountSchema,
+            blockedBy: z.enum(['pay.refund_open_dispute', 'pay.nothing_captured', 'pay.refund_nothing_left']).nullable(),
+            approvalThreshold: amountSchema.nullable(),
+          }),
+        )
+        .query(({ ctx, input }) =>
+          wrap(async () => {
+            const payment = await pay.getPayment(input.paymentId);
+            await assertPaymentRead(ctx.principal.userId, input.paymentId, payment.merchantId);
+            return refundCheck(input.paymentId);
+          }),
+        ),
+
+      /** J-merchant-06 #5: the owner's refund approval rule, per asset. `threshold: null` clears it; no rule is defaulted. */
+      refundRules: router({
+        get: ownMerchantRead()
+          .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema }))
+          .output(z.object({ assetId: z.string(), threshold: amountSchema }).nullable())
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.refunds.list', 'payments.read');
+              const rule = await refunds().rule(input.merchantId, input.assetId);
+              return rule ? { assetId: rule.assetId, threshold: rule.threshold } : null;
+            }),
+          ),
+        set: scopedProcedure('pay:write', { module: 'pay' })
+          .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema, threshold: amountSchema.nullable() }))
+          .output(z.object({ assetId: z.string(), threshold: amountSchema }).nullable())
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.payment.refund');
+              const rule = await refunds().setRule(
+                input.merchantId,
+                input.assetId,
+                input.threshold === null ? null : parseAmount(input.threshold),
+                ctx.principal!.userId,
+              );
+              return rule ? { assetId: rule.assetId, threshold: rule.threshold } : null;
+            }),
+          ),
+      }),
+
+      /**
+       * J-merchant-06 #4/#5: refunds that wait (queued) with nothing posted. The maker asks with their refund
+       * confirmation; a checker who is not the maker decides with their own; cancel closes a queued request once.
+       */
+      refundRequests: router({
+        request: scopedProcedure('pay:refund', { module: 'pay' })
+          .input(z.object({ paymentId: z.string().guid(), amount: amountSchema, refundId: z.string().min(1).max(200) }))
+          .output(refundRequestSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              const payment = await pay.getPayment(input.paymentId);
+              await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
+              return refundRequestOut(
+                await refunds().request({
+                  merchantId: payment.merchantId,
+                  paymentId: input.paymentId,
+                  amount: parseAmount(input.amount),
+                  refundId: input.refundId,
+                  makerUserId: ctx.principal!.userId,
+                }),
+              );
+            }),
+          ),
+        list: ownMerchantRead()
+          .input(
+            z.object({
+              merchantId: z.string().guid(),
+              paymentId: z.string().guid().optional(),
+              status: z.enum(['queued', 'approved', 'refunded', 'failed', 'rejected', 'cancelled', 'voided']).optional(),
+            }),
+          )
+          .output(z.object({ items: z.array(refundRequestSchema) }))
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              await assertRead(ctx.principal.userId, input.merchantId, 'trpc.payment.refunds.list', 'payments.read');
+              return { items: (await refunds().list({ ...input, limit: 100 })).map(refundRequestOut) };
+            }),
+          ),
+        get: ownMerchantRead()
+          .input(z.object({ requestId: z.string().guid() }))
+          .output(refundRequestSchema)
+          .query(({ ctx, input }) =>
+            wrap(async () => {
+              const request = await refunds().get(input.requestId);
+              await refuseAsMissing(
+                assertRead(ctx.principal.userId, request.merchantId, 'trpc.payment.refunds.get', 'payments.read'),
+                () => new PayError(`Refund request ${input.requestId} not found`, 'pay.refund_request_not_found'),
+              );
+              return refundRequestOut(request);
+            }),
+          ),
+        cancel: scopedProcedure('pay:write', { module: 'pay' })
+          .input(z.object({ requestId: z.string().guid() }))
+          .output(refundRequestSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              const request = await refunds().get(input.requestId);
+              await refuseAsMissing(
+                assertAccess(ctx.principal?.userId, request.merchantId, 'trpc.payment.refund'),
+                () => new PayError(`Refund request ${input.requestId} not found`, 'pay.refund_request_not_found'),
+              );
+              return refundRequestOut(await refunds().cancel(input.requestId));
+            }),
+          ),
+        decide: scopedProcedure('pay:refund', { module: 'pay' })
+          .input(
+            z.object({ requestId: z.string().guid(), decision: z.enum(['approve', 'reject']), reason: z.string().max(500).optional() }),
+          )
+          .output(refundRequestSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              if (!portalSql) throw new PayError('Refund controls need the pay database', 'pay.refund_request_not_found');
+              const request = await refunds().get(input.requestId);
+              // The checker holds the approver seat on this business (owner, admin or finance), not merely a session.
+              const caller = await requireMerchantPermission(portalSql, ctx.principal as never, 'payout.approve');
+              if (caller.merchantId !== request.merchantId) {
+                throw new PayError(`Refund request ${input.requestId} not found`, 'pay.refund_request_not_found');
+              }
+              return refundRequestOut(
+                await refunds().decide({
+                  requestId: input.requestId,
+                  checkerUserId: ctx.principal!.userId,
+                  decision: input.decision,
+                  reason: input.reason,
+                }),
+              );
+            }),
+          ),
+      }),
+
+      /** J-merchant-06 #6: release an authorised, uncaptured payment. Posts nothing; voided again answers the same. */
+      void: scopedProcedure('pay:write', { module: 'pay' })
+        .input(z.object({ paymentId: z.string().guid() }))
+        .output(paymentView)
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            const payment = await pay.getPayment(input.paymentId);
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.capture');
+            return paymentOut(await pay.voidPayment(input.paymentId), 'owner', true);
+          }),
+        ),
+
+      /**
+       * J-merchant-06 #6: undo a payment, deciding on the server: an authorisation is voided; a captured payment is
+       * refunded in full of what is left, under the one key `reverse:<paymentId>`, so reversing again replays it.
+       * Its own refund scope, because it may refund.
+       */
+      reverse: scopedProcedure('pay:refund', { module: 'pay' })
+        .input(z.object({ paymentId: z.string().guid() }))
+        .output(z.object({ used: z.enum(['void', 'refund']), amount: amountSchema, payment: paymentView }))
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            const payment = await pay.getPayment(input.paymentId);
+            await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
+            if (payment.status === 'authorized' || payment.status === 'voided') {
+              const voided = await pay.voidPayment(input.paymentId);
+              return { used: 'void' as const, amount: formatAmount(0n), payment: await paymentOut(voided, 'owner', true) };
+            }
+            const refundId = `reverse:${input.paymentId}`;
+            const history = await pay.history(input.paymentId);
+            const done = history.find((e) => e.event === 'refunded' && e.payload.refundId === refundId);
+            const amount = done ? parseAmount(String(done.payload.amount)) : payment.capturedAmount - payment.refundedAmount;
+            if (amount <= 0n) throw new PayError(`Payment ${input.paymentId} has nothing left to reverse`, 'pay.nothing_captured');
+            const refunded = await pay.refund(input.paymentId, amount, { refundId, ...sandboxKeyEnv(ctx.principal) });
+            return { used: 'refund' as const, amount: formatAmount(amount), payment: await paymentOut(refunded, 'owner', true) };
+          }),
+        ),
+
+      /**
+       * J-merchant-06 #7: refund several payments. Each row is its own refund keyed by the batch and the row, so a
+       * batch run again refunds nothing twice; the report names each row's outcome and refusal.
+       */
+      bulkRefund: scopedProcedure('pay:refund', { module: 'pay' })
+        .input(
+          z.object({
+            merchantId: z.string().guid(),
+            batchId: z.string().guid(),
+            rows: z
+              .array(z.object({ paymentId: z.string().guid(), amount: amountSchema.optional() }))
+              .min(1)
+              .max(BULK_REFUND_MAX_ROWS),
+          }),
+        )
+        .output(
+          z.object({
+            batchId: z.string(),
+            rows: z.array(
+              z.object({
+                row: z.number().int(),
+                paymentId: z.string(),
+                amount: amountSchema.nullable(),
+                refundId: z.string(),
+                outcome: z.enum(['pending', 'refunded', 'refused', 'unknown']),
+                refusalCode: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .mutation(({ ctx, input }) =>
+          wrap(async () => {
+            await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.payment.refund');
+            const rows = await refunds().bulk({
+              merchantId: input.merchantId,
+              batchId: input.batchId,
+              rows: input.rows.map((r) => ({
+                paymentId: r.paymentId,
+                ...(r.amount === undefined ? {} : { amount: parseAmount(r.amount) }),
+              })),
+              makerUserId: ctx.principal!.userId,
+            });
+            return { batchId: input.batchId, rows };
           }),
         ),
 
@@ -2781,6 +3078,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.link_inactive':
       case 'pay.settlement_not_found':
       case 'pay.refund_not_found':
+      case 'pay.refund_request_not_found':
       case 'pay.checkout_session_not_found':
       case 'pay.price_not_found':
         return 'NOT_FOUND' as const;
@@ -2867,6 +3165,11 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.refund_in_flight':
       case 'pay.refund_id_spent':
       case 'pay.refund_id_conflict':
+      case 'pay.refund_open_dispute':
+      case 'pay.refund_request_closed':
+      case 'pay.void_not_authorized':
+      case 'pay.void_in_flight':
+      case 'pay.void_outcome_unknown':
       case 'pay.chargeback_plan_conflict':
       case 'pay.settlement_in_flight':
       case 'pay.payout_destination_in_flight':
@@ -2924,7 +3227,10 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.reserve_terms_unset':
       case 'pay.category_rail_refused':
       case 'pay.category_not_chosen':
+      case 'pay.refund_approval_self':
         return 'FORBIDDEN' as const;
+      case 'pay.void_unsupported':
+        return 'PRECONDITION_FAILED' as const;
       case 'pay.kyb_invalid':
       case 'pay.kyb_identity_changed':
         return 'CONFLICT' as const;

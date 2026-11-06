@@ -13,7 +13,7 @@ import { asUuid, assertPortalPageLimit, pageCursor, portalFilters } from './comm
 
 type Reader = Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>;
 
-const PAYMENT_STATUSES = new Set(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+const PAYMENT_STATUSES = new Set(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']);
 
 export interface RefundLedgerEffect {
   recorded: boolean;

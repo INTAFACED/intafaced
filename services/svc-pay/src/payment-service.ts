@@ -71,6 +71,7 @@ import { listMerchantStatement } from './portal-reads/statement.js';
 import * as merchants from './payment-service/merchants.js';
 import * as paymentReads from './payment-service/payment-reads.js';
 import * as lifecycle from './payment-service/lifecycle.js';
+import * as voids from './payment-service/voids.js';
 import * as refunds from './payment-service/refunds.js';
 import * as webhooks from './payment-service/webhooks.js';
 import * as settlement from './payment-service/settlement.js';
@@ -141,7 +142,7 @@ export {
  * a balance that could not cover it.
  */
 
-export type PaymentStatus = 'created' | 'authorized' | 'captured' | 'settled' | 'refunded' | 'disputed' | 'failed';
+export type PaymentStatus = 'created' | 'authorized' | 'captured' | 'settled' | 'refunded' | 'disputed' | 'failed' | 'voided';
 export type SettlementStatus = 'pending' | 'posted' | 'paid_out' | 'failed';
 
 export type PayErrorCode =
@@ -270,6 +271,25 @@ export type PayErrorCode =
    */
   | 'pay.refund_id_spent'
   | 'pay.refund_id_conflict'
+  /** J-merchant-06: a payment with an open dispute is not refunded until the dispute is closed. */
+  | 'pay.refund_open_dispute'
+  /** J-merchant-06 #6: only an authorised, uncaptured payment is voided. */
+  | 'pay.void_not_authorized'
+  /** The payment's rail cannot release an authorisation. Nothing was recorded. */
+  | 'pay.void_unsupported'
+  /** A void was asked of the rail and its answer is not on record; the authorisation is kept and checked again. */
+  | 'pay.void_outcome_unknown'
+  /** A void is waiting for the rail's answer, so the payment cannot be captured. */
+  | 'pay.void_in_flight'
+  /** J-merchant-06 #4/#5: a refund request that is no longer queued cannot be cancelled or decided. */
+  | 'pay.refund_request_closed'
+  | 'pay.refund_request_not_found'
+  /** The maker of a refund request cannot approve it. */
+  | 'pay.refund_approval_self'
+  /** A refund request for an amount the payment cannot refund. */
+  | 'pay.refund_request_invalid'
+  /** Bulk refund: a batch with no rows, more than the cap, or a payment twice. */
+  | 'pay.refund_batch_invalid'
   /** A redelivered chargeback names a different amount than the opening already planned for that dispute. */
   | 'pay.chargeback_plan_conflict'
   /** Merchant pots cannot cover the dispute and the insurance fund cannot cover the rest. */
@@ -2787,6 +2807,11 @@ export class PayService {
     } = {},
   ): Promise<PaymentView> {
     return lifecycle.capture(this.internal, paymentId, options);
+  }
+
+  /** J-merchant-06 #6: release an authorised, uncaptured payment. Posts nothing (payment-service/voids.ts). */
+  async voidPayment(paymentId: string): Promise<PaymentView> {
+    return voids.voidPayment(this.internal, paymentId);
   }
 
   private async finishBookedCapture(tx: Sql, row: PaymentRow, booked: BookedCaptureCompletion): Promise<PaymentView> {

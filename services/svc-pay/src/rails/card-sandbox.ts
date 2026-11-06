@@ -54,6 +54,8 @@ export const SANDBOX_ERROR_TOKEN = 'tok_rail_error';
  * the funds stay held until a signed `funds.available` delivery names the charge.
  */
 export const SANDBOX_FUNDS_HELD_TOKEN = 'tok_funds_held';
+/** The acquirer authorises and captures the charge, and refuses every refund on it (a definite refusal, J-merchant-06 #4). */
+export const SANDBOX_REFUND_REFUSED_TOKEN = 'tok_refund_refused';
 
 interface AcquirerCharge {
   ref: string;
@@ -62,9 +64,11 @@ interface AcquirerCharge {
   authorized: Amount;
   captured: Amount;
   refunded: Amount;
-  status: 'authorized' | 'captured' | 'refunded' | 'failed';
+  status: 'authorized' | 'captured' | 'refunded' | 'failed' | 'voided';
   /** Set from the instrument at authorize: the acquirer holds this charge's funds after capture. */
   fundsHeld: boolean;
+  /** Set from the instrument at authorize: the acquirer refuses refunds on this charge. */
+  refundsRefused: boolean;
 }
 
 export class CardSandboxAdapter implements RailAdapter {
@@ -202,6 +206,7 @@ export class CardSandboxAdapter implements RailAdapter {
       refunded: 0n,
       status: 'authorized',
       fundsHeld: p.instrument?.token === SANDBOX_FUNDS_HELD_TOKEN,
+      refundsRefused: p.instrument?.token === SANDBOX_REFUND_REFUSED_TOKEN,
     };
     this.charges.set(ref, charge);
 
@@ -265,6 +270,17 @@ export class CardSandboxAdapter implements RailAdapter {
       });
     }
 
+    if (charge.refundsRefused) {
+      return railFailure({
+        railRef: ref,
+        amount,
+        assetId: charge.assetId,
+        failureCode: 'refund.declined',
+        failureReason: 'The card issuer refused the refund',
+        at: this.now(),
+      });
+    }
+
     const refundable = charge.captured - charge.refunded;
     if (amount > refundable) {
       // The core checks this too, from its own records. Both check because they
@@ -292,6 +308,35 @@ export class CardSandboxAdapter implements RailAdapter {
       assetId: charge.assetId,
       at: this.now(),
       raw: { refundedTotal: formatAmount(charge.refunded) },
+    };
+  }
+
+  /** Releases an authorised charge. A voided charge answers `voided` again; a captured one cannot be voided. */
+  async void(ref: string): Promise<RailResult> {
+    const charge = this.charges.get(ref);
+    this.lastContact = this.now();
+    if (!charge) return this.unknownReference(ref);
+    const forced = this.takeForcedFailure(ref, charge.authorized, charge.assetId);
+    if (forced) return forced;
+    if (charge.status === 'authorized') charge.status = 'voided';
+    if (charge.status !== 'voided') {
+      return railFailure({
+        railRef: ref,
+        amount: charge.authorized,
+        assetId: charge.assetId,
+        failureCode: 'void.not_authorized',
+        failureReason: `Charge is ${charge.status}, not authorized`,
+        at: this.now(),
+      });
+    }
+    return {
+      ok: true,
+      railRef: ref,
+      status: 'voided',
+      amount: charge.authorized,
+      assetId: charge.assetId,
+      at: this.now(),
+      raw: { paymentId: charge.paymentId, chargeStatus: charge.status },
     };
   }
 

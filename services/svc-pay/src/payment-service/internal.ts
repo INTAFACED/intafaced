@@ -113,13 +113,15 @@ export function listFilters(input: { search?: string; assetId?: string; from?: s
 /** Which statuses may legally follow which. Anything else is a bug, not an edge case. */
 export const TRANSITIONS: Readonly<Record<PaymentStatus, readonly PaymentStatus[]>> = {
   created: ['authorized', 'failed'],
-  authorized: ['captured', 'failed'],
+  authorized: ['captured', 'failed', 'voided'],
   captured: ['settled', 'refunded', 'disputed'],
   settled: ['refunded', 'disputed'],
   refunded: [],
   // A won dispute returns the money, so the payment goes back to where it came from (see restoreAfterWonDispute).
   disputed: ['captured', 'settled'],
   failed: [],
+  // An authorisation released before capture (J-merchant-06 #6). Nothing was taken, so nothing follows it.
+  voided: [],
 };
 
 /** Hold keys for one payout attempt. The legacy key is a pre-cutover user hold. */

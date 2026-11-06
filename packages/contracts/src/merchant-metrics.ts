@@ -29,7 +29,7 @@ export const metricsFreshnessSchema = z
   .strict();
 export type MetricsFreshness = z.infer<typeof metricsFreshnessSchema>;
 
-export const PAY_PAYMENT_STATUSES = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'] as const;
+export const PAY_PAYMENT_STATUSES = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided'] as const;
 export const payPaymentStatusSchema = z.enum(PAY_PAYMENT_STATUSES);
 
 export const merchantMetricsInputSchema = z.object({ merchantId: payMerchantIdSchema, window: payMetricWindowSchema }).strict();

@@ -37,7 +37,7 @@ export const SECTION_SPECS: Readonly<Record<FounderMerchantSection, SectionSpec>
     section: 'payments',
     title: 'Payments',
     sub: 'Every payment this merchant took, with rail and the fee that was applied.',
-    statuses: ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'],
+    statuses: ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided'],
     searchable: true,
   },
   refunds: {

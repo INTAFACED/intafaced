@@ -365,7 +365,7 @@ const paymentItemSchema = z
     method: z.string().min(1).max(64),
     railAdapter: z.string().min(1).max(64),
     railRef: z.string().min(1).max(256).nullable(),
-    status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+    status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']),
     createdAt: payTimestampSchema,
     failureCode: z.string().min(1).max(64).nullable(),
     pricing: feeSnapshotSchema.nullable(),
@@ -397,7 +397,7 @@ const refundItemSchema = z
     payment: z
       .object({
         paymentId: z.string().guid(),
-        status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+        status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']),
       })
       .strict(),
   })

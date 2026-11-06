@@ -143,7 +143,7 @@ export function createFounderMerchantReads(deps: {
             assetId: filters.assetId,
             from: filters.from,
             to: filters.to,
-            status: oneOf(filters.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+            status: oneOf(filters.status, ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']),
           });
           return {
             section: 'payments',

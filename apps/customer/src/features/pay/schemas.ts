@@ -553,7 +553,7 @@ export const paymentSchema = z.object({
   method: z.string(),
   railAdapter: z.string(),
   railRef: z.string().nullable(),
-  status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+  status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']),
   capturedAmount: amount,
   refundedAmount: amount,
   createdAt: z.string().datetime({ offset: true }),

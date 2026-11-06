@@ -107,7 +107,7 @@ const BASE = '/v1';
 /** Public edge path advertised in OpenAPI. Not a mount. */
 const EXTERNAL_BASE = '/api/pay/v1';
 
-const PAYMENT_STATUSES: readonly PaymentStatus[] = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'];
+const PAYMENT_STATUSES: readonly PaymentStatus[] = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided'];
 
 const MAX_LIMIT = 200;
 

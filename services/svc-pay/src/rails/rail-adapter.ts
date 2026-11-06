@@ -913,6 +913,13 @@ export interface RailAdapter {
   payout(s: SettlementInstruction): Promise<RailResult>;
 
   /**
+   * Release an authorisation that was never captured (J-merchant-06 #6). Idempotent on `ref`: voiding a voided charge
+   * answers `voided` again. Absent means the rail cannot release a hold, and the core refuses `pay.void_unsupported`
+   * before it records anything.
+   */
+  void?(ref: string): Promise<RailResult>;
+
+  /**
    * Provider idempotency key `payout` will use for this instruction.
    * Absent means the core must not call `payout`: it cannot journal the key
    * a reconciler would have to ask later.

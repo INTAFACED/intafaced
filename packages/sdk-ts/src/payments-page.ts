@@ -8,7 +8,7 @@
 import type { PayResponse } from './client.js';
 
 const AMOUNT = /^\d+(\.\d{1,18})?$/;
-const STATUSES = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'] as const;
+const STATUSES = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided'] as const;
 
 export type PayPaymentStatus = (typeof STATUSES)[number];
 
