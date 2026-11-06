@@ -465,7 +465,16 @@ export function createRefundApprovalGuards(): PartialPayGuards {
          WHERE merchant_id = ${ctx.merchantId}::uuid AND asset_code = ${ctx.assetId}
       `;
       const rule = rules[0];
-      if (!rule || (await refundedSoFar(ctx.tx, ctx.paymentId, ctx.refundId)) + ctx.amount <= parseAmount(rule.threshold)) return;
+      if (!rule) return;
+      const before = await refundedSoFar(ctx.tx, ctx.paymentId, ctx.refundId);
+      if (before + ctx.amount <= parseAmount(rule.threshold)) return;
+      // A refund larger than what is left can never run: the door refuses it by its own code
+      // (pay.refund_exceeds_captured), which says why, rather than asking for an approval it could never use.
+      const captured = await ctx.tx<Array<{ total: string }>>`
+        SELECT COALESCE(SUM((payload->>'amount')::numeric), 0)::text AS total
+          FROM pay.payment_events WHERE payment_id = ${ctx.paymentId}::uuid AND event = 'captured'
+      `;
+      if (ctx.amount > parseAmount(captured[0]?.total ?? '0') - before) return;
       const approved =
         ctx.refundId === undefined
           ? []

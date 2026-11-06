@@ -346,4 +346,14 @@ describe('refund controls, void and reverse (J-merchant-06)', { timeout: 60_000 
       [amt('5'), amt('2')],
     ]);
   });
+
+  it('above the rule, a refund larger than what is left is refused as such, not sent for approval', async () => {
+    const m = await merchant();
+    await control.setRule(m.id, 'USDC', amt('100'), OWNER);
+    const p = await captured(m.id, '100');
+    await pay.refund(p.id, amt('30'), { refundId: `refund:${p.id}:30` });
+    await expect(pay.refund(p.id, amt('80'), { refundId: `refund:${p.id}:80` })).rejects.toMatchObject({
+      code: 'pay.refund_exceeds_captured',
+    });
+  });
 });
