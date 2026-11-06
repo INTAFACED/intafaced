@@ -231,7 +231,11 @@ export function bandEdgeQuote(quote, band, { tick, lot }) {
 async function bandOf(client, m, side, price, amount) {
   const r = await client
     .http('POST', '/api/v1/orders/preview', { symbol: m.symbol, type: 'limit', side, amount, price, timeInForce: 'GTC', postOnly: true })
-    .catch(() => null);
+    .catch((err) => {
+      // The stack's guard refusing (a service restarting) stops the cycle, as for every other write (#7110).
+      if (stackNotActive(err)) throw err;
+      return null;
+    });
   const refusal = (r?.status === 200 && Array.isArray(r.json?.refusals) ? r.json.refusals : []).find((x) => x?.code === 'trade.price_band');
   return refusal?.data ?? null;
 }
@@ -937,7 +941,6 @@ async function runLoop(opts, home) {
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
           // every crossing then failed with 400 ledger.insufficient_funds).
           const n = (crossings.get(m.symbol) ?? 0) + 1;
-          crossings.set(m.symbol, n);
           const side = crossingSide(n);
           // Top the taker up through the real ledger if either leg is under half its target.
           await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
@@ -948,6 +951,8 @@ async function runLoop(opts, home) {
             log(`${m.symbol} no crossing this cycle: none of the maker's ${side === 'buy' ? 'asks' : 'bids'} rests`);
             continue;
           }
+          // Counted only once placed: a skipped crossing keeps its side for next time, so buys and sells still alternate.
+          crossings.set(m.symbol, n);
           const r = await place(taker, m, side, best.price, best.amount, 'IOC');
           const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
           log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
