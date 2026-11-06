@@ -279,3 +279,37 @@ test('a step whose Slices cell is empty counts as NO-SLICE; a journey id used tw
   }
   assert.throws(() => buildJourneys(dir), /journey id J-a-01 is used twice/);
 });
+
+test('a step names upper-case and one-segment slice ids (OPS-ORD-01, LOAN-03), and only ids that are a slice heading', () => {
+  const text = [
+    '## J-a-01: x',
+    '- Order: 1',
+    '| 1 | does | sees | OPS-ORD-01 | none |',
+    '| 2 | does | sees | LOAN-03, CS-orders-02 | none |',
+    // Requirement ids share the shape (TRD-0082, ORD-001); with the headings known they are not slices.
+    '| 3 | does | sees | TRD-0082 ORD-001 | none |',
+    '| 4 | does | sees | NO-SLICE | none |',
+  ].join('\n');
+  const known = new Set(['OPS-ORD-01', 'LOAN-03', 'CS-orders-02']);
+  const [j] = parseJourneys(text, 'a', known);
+  assert.deepEqual(
+    j.steps.map((s) => [s.n, s.slices, s.noSlice]),
+    [
+      [1, ['OPS-ORD-01'], false],
+      [2, ['LOAN-03', 'CS-orders-02'], false],
+      [3, [], true],
+      [4, [], true],
+    ],
+  );
+  // From a spec folder: buildJourneys knows the slices from the spec headings.
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  mkdirSync(join(dir, 'modules', 'a', 'acceptance'), { recursive: true });
+  mkdirSync(join(dir, 'modules', 'a', 'specs'), { recursive: true });
+  writeFileSync(join(dir, 'modules', 'a', 'acceptance', 'journeys.md'), text);
+  writeFileSync(join(dir, 'modules', 'a', 'specs', 'a-ops.md'), '### OPS-ORD-01. One\n\n### LOAN-03. Two\n');
+  const [built] = buildJourneys(dir);
+  assert.deepEqual(
+    built.steps.map((s) => s.slices),
+    [['OPS-ORD-01'], ['LOAN-03'], [], []],
+  );
+});

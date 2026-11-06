@@ -44,18 +44,18 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1502 slices left in 21 modules. 284 need no other slice. 47 sit in a dependency loop that the lane untangles first. 358 end in a refusal that names an outside service (built, switched on later). Size: 707 L, 689 M, 106 S.
+1502 slices left in 21 modules. 272 need no other slice. 47 sit in a dependency loop that the lane untangles first. 358 end in a refusal that names an outside service (built, switched on later). Size: 707 L, 689 M, 106 S.
 
 ### Journey map
 
-Done is defined by 460 journeys (3037 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
+Done is defined by 460 journeys (3037 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 19 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
 | merchant       | 42       | 6       | 15      | 21      | 242   | 5                   |
 | dex-protocol   | 32       | 5       | 16      | 11      | 277   | 0                   |
-| copy-bots-otc  | 30       | 5       | 13      | 12      | 206   | 1                   |
-| bank           | 28       | 4       | 15      | 9       | 164   | 7                   |
+| copy-bots-otc  | 30       | 5       | 13      | 12      | 205   | 1                   |
+| bank           | 28       | 4       | 15      | 9       | 164   | 0                   |
 | derivatives    | 24       | 1       | 13      | 10      | 165   | 0                   |
 | identity       | 21       | 4       | 11      | 6       | 133   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 117   | 0                   |
@@ -66,11 +66,11 @@ Done is defined by 460 journeys (3037 steps) in `modules/<module>/acceptance/jou
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
 | cex-spot       | 20       | 2       | 13      | 5       | 169   | 0                   |
 | more-catalogue | 20       | 5       | 10      | 5       | 127   | 1                   |
-| ops-console    | 20       | 4       | 13      | 3       | 176   | 7                   |
+| ops-console    | 20       | 4       | 13      | 3       | 176   | 0                   |
 | support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
 | charts-desk    | 19       | 1       | 10      | 8       | 120   | 0                   |
 | developer      | 18       | 4       | 9       | 5       | 116   | 0                   |
-| algo-dev       | 16       | 1       | 8       | 7       | 104   | 0                   |
+| algo-dev       | 16       | 1       | 8       | 7       | 105   | 0                   |
 | portfolio      | 16       | 2       | 9       | 5       | 93    | 3                   |
 | home-ia        | 11       | 3       | 5       | 3       | 58    | 0                   |
 
@@ -79,16 +79,16 @@ Done is defined by 460 journeys (3037 steps) in `modules/<module>/acceptance/jou
 | Module         | Slices | Need nothing | Refuse for an outside service | Large |
 | -------------- | ------ | ------------ | ----------------------------- | ----- |
 | merchant       | 211    | 35           | 10                            | 105   |
-| copy-bots-otc  | 125    | 42           | 18                            | 47    |
+| copy-bots-otc  | 125    | 43           | 18                            | 47    |
 | ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
-| bank           | 98     | 40           | 7                             | 57    |
+| bank           | 98     | 28           | 7                             | 57    |
 | identity       | 90     | 17           | 30                            | 27    |
 | wallet         | 77     | 25           | 27                            | 26    |
 | p2p            | 70     | 12           | 2                             | 40    |
 | derivatives    | 67     | 12           | 20                            | 32    |
 | academy        | 60     | 3            | 14                            | 34    |
-| cex-spot       | 53     | 5            | 13                            | 33    |
+| cex-spot       | 53     | 4            | 13                            | 33    |
 | support-public | 52     | 10           | 15                            | 21    |
 | more-catalogue | 51     | 3            | 22                            | 19    |
 | pay            | 49     | 7            | 3                             | 19    |
@@ -106,16 +106,16 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Lane                          | Slices | Need nothing | In the trader journey | In an Order 1 journey | In no journey |
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
-| svc-pay merchant              | 232    | 36           | 11                    | 36                    | 35            |
-| svc-bank                      | 195    | 53           | 35                    | 37                    | 25            |
-| svc-trade spot                | 163    | 41           | 42                    | 48                    | 6             |
+| svc-pay merchant              | 232    | 35           | 11                    | 36                    | 35            |
+| svc-bank                      | 195    | 45           | 35                    | 37                    | 22            |
+| svc-trade spot                | 163    | 42           | 42                    | 47                    | 7             |
 | svc-identity                  | 136    | 29           | 68                    | 39                    | 11            |
 | svc-protocol                  | 75     | 4            | 1                     | 19                    | 4             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
 | svc-trade futures             | 56     | 10           | 0                     | 9                     | 0             |
 | svc-agents                    | 49     | 2            | 0                     | 8                     | 3             |
-| svc-ops                       | 42     | 11           | 4                     | 1                     | 12            |
+| svc-ops                       | 42     | 10           | 4                     | 2                     | 11            |
 | svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
 | svc-pay wallet                | 32     | 9            | 14                    | 9                     | 6             |
@@ -131,7 +131,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | customer shell                | 12     | 5            | 3                     | 6                     | 1             |
 | svc-tax                       | 12     | 2            | 7                     | 2                     | 3             |
 | customer: pay                 | 11     | 1            | 1                     | 5                     | 0             |
-| admin: ops-desk               | 10     | 6            | 0                     | 3                     | 3             |
+| admin: ops-desk               | 10     | 3            | 0                     | 3                     | 0             |
 | svc-indexer                   | 10     | 1            | 0                     | 6                     | 1             |
 | svc-ws                        | 10     | 2            | 3                     | 2                     | 0             |
 | customer: account             | 8      | 1            | 1                     | 2                     | 0             |
@@ -147,11 +147,11 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin: founder-ops            | 2      | 1            | 1                     | 0                     | 0             |
 | admin: protocol-desk          | 2      | 0            | 0                     | 0                     | 0             |
 | config                        | 2      | 2            | 0                     | 0                     | 2             |
-| customer: money               | 2      | 1            | 1                     | 0                     | 1             |
+| customer: money               | 2      | 0            | 1                     | 0                     | 0             |
 | acceptance (Polish)           | 1      | 1            | 1                     | 0                     | 1             |
 | admin: console-status-banner  | 1      | 0            | 0                     | 1                     | 0             |
 | admin: flag-state             | 1      | 0            | 0                     | 0                     | 0             |
-| admin: jurisdiction-board     | 1      | 0            | 0                     | 0                     | 1             |
+| admin: jurisdiction-board     | 1      | 1            | 0                     | 0                     | 0             |
 | admin: launch-sequence        | 1      | 0            | 0                     | 0                     | 0             |
 | admin: module-state-inspector | 1      | 0            | 0                     | 1                     | 0             |
 | admin: modules                | 1      | 0            | 0                     | 0                     | 0             |
@@ -165,7 +165,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Journey                  | Slices | Need nothing |
 | ------------------------ | ------ | ------------ |
-| trader                   | 225    | 56           |
+| trader                   | 225    | 55           |
 | bank-fund-trade-withdraw | 51     | 17           |
 | merchant-payout-to-bank  | 84     | 23           |
 | one-portfolio            | 35     | 9            |
@@ -196,7 +196,6 @@ First milestone. Lanes take these before their other slices.
 - `W-withdraw-06` Withdrawal state machine, status vocabulary, history list and failure reasons (L, depth 1, journey order 1)
 - `W-withdraw-08` Address book: list, save, rename, delete (M, depth 1, journey order 1)
 - `W-withdraw-13` Withdrawal hold after card, ACH or PayPal purchase (M, depth 1, journey order 1)
-- `RC-cex-spot-07` Venue unit economics report (M, depth 1, journey order 2)
 - `HM-dashboard-02` Net worth over time on Home (Phantom #65): stored daily value, range switch and honest empty state (L, depth 1, journey order 2)
 - `HM-shell-02` Theme: follow system, light or dark (rendered options first, owner picks) (M, depth 1, journey order 2)
 - `I-account-lifecycle-01` Display and locale saved on the account; UID display (S, depth 1, journey order 2)
@@ -302,6 +301,7 @@ First milestone. Lanes take these before their other slices.
 - `W-security-accounts-02` Register a custom token or asset (M, depth 2, journey order 2) · needs W-balances-05
 - `W-withdraw-07` Cancel a pending withdrawal and returned-withdrawal recovery (M, depth 2, journey order 2) · needs W-withdraw-06
 - `W-withdraw-14` Internal off-chain settlement between platform accounts (M, depth 2, journey order 2) · needs W-withdraw-05
+- `RC-cex-spot-07` Venue unit economics report (M, depth 3, journey order 2) · needs OPS-ORD-01
 - `SP-conditional-algo-02` OCO pair, attached TP/SL bracket and OTO close (L, depth 3, journey order 2) · needs SP-conditional-algo-01, SP-order-entry-01
 - `C-trade-dom-01` Time and sales, depth chart, ladder view and the DOM tied to the chart symbol (L, depth 3, journey order 2) · needs C-chart-core-01, C-workspace-01
 - `HM-navigation-05` Simple and Pro as one account-level preference record (also the base for tiles, hide-amounts and theme) (M, depth 3, journey order 2) · needs HM-dashboard-01, HM-navigation-01, HM-shell-02, HM-widgets-01
