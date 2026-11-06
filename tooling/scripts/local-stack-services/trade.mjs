@@ -83,6 +83,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // LOCAL TEST, not an owner decision: how often the limit-convert sweep prices each waiting limit convert. Without it
     // no sweep runs and placing one refuses trade.convert_limit_unset; every 2 s so J-cex-spot-11 #8 sees its fill soon.
     TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS: '2000',
+    // LOCAL TEST, not an owner decision: how often the seed job looks at the operator-written seeding configuration
+    // (J-cex-spot-20 #5). Seeding itself stays off: TRADE_MM_SEED_ENABLED is unset and no market has an approved row
+    // until a journey writes one. Every 5 s (the env's floor) so J-cex-spot-20 #4 sees the seed soon.
+    TRADE_MM_SEED_INTERVAL_MS: '5000',
     // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
     TRADE_CONVERT_QUOTE_TTL_MS: '15000',
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in

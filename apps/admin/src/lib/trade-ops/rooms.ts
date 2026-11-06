@@ -63,6 +63,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     label: 'Copy trading',
     job: 'Vet who may lead copy trading with a second founder; set the lead criteria; suspend a lead.',
   },
+  {
+    id: 'seeding',
+    href: '/trade-ops/seeding',
+    label: 'Seeding',
+    job: 'The house book seed per market, written with a second founder; seeded orders are flagged everywhere.',
+  },
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
   {

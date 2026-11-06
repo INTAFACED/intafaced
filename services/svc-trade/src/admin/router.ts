@@ -97,6 +97,8 @@ const indexSourcesConfig = z
   .strict();
 
 const expectedVersion = z.string().regex(/^(?:0|[1-9]\d*)$/);
+/** A seed configuration value as typed: a string, or null when left blank (refused `mm.seed_unset` by name). */
+const seedValue = z.string().max(64).nullable();
 
 function fail(error: unknown): never {
   if (error instanceof TRPCError) throw error;
@@ -275,6 +277,34 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       setSeed: operatorWrite
         .input(z.object({ market: id, enabled: z.boolean(), approvalId: z.string().min(1).max(128), clientRequestId }))
         .mutation(({ ctx, input }) => ready().setSeed(ctx.principal, input).catch(fail)),
+      // J-cex-spot-20 #5: the operator-written seeding configuration, one version per market under two-person approval.
+      seedConfigs: operator.query(({ ctx }) => ready().seedConfig.list(ctx.principal).catch(fail)),
+      seedConfigHistory: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().seedConfig.history(ctx.principal, input.market).catch(fail)),
+      setSeedConfig: operatorWrite
+        .input(
+          z
+            .object({
+              market: id,
+              config: z
+                .object({
+                  enabled: z.boolean(),
+                  halfSpreadBps: seedValue,
+                  stepBps: seedValue,
+                  levels: seedValue,
+                  qtyPerLevel: seedValue,
+                  midSource: z.enum(['configured', 'venue']).nullable(),
+                  configuredMid: seedValue,
+                })
+                .strict(),
+              expectedVersion,
+              approvalId: z.string().min(1).max(128),
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().seedConfig.set(ctx.principal, input).catch(fail)),
     }),
     fundingParams: router({
       get: operator
