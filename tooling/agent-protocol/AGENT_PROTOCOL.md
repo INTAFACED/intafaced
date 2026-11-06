@@ -53,7 +53,7 @@ pnpm verify    # gates, format, build, typecheck, test: a broad local check
 pnpm gate      # the per-service Definition of Done (section 8)
 ```
 
-CI and `pnpm verify` read the same gate list, `tooling/ci/gates.mjs`. A red gate is not a discussion: fix the cause, never weaken the gate. Merging follows `AGENTS.md` ("Check, then merge").
+CI and `pnpm verify` read the same gate list, `tooling/ci/gates.mjs`. A red gate is not a discussion: fix the cause, never weaken the gate. Merging follows `AGENTS.md`.
 
 A 403 or 429 from GitHub means stop GitHub requests and report the response. Do not retry in a loop, switch accounts or create a token. Resume a rate-limited request only after `Retry-After` or the `X-RateLimit-Reset` time; if neither is given, wait at least 60 seconds. Resolve an account or permission restriction before resuming. Independent local work continues.
 
