@@ -1479,7 +1479,13 @@ export class PositionService {
         entryPrice: parseAmount(row.entry_price),
         margin: parseAmount(row.margin_current ?? row.margin_initial),
         depthNotional,
-        policy: ladder.policy,
+        // PLANTED FAULT (do not merge): the stop price ignores the ladder, one flat tier at the top rate.
+        policy: {
+          ...ladder.policy,
+          tiers: [
+            { uptoDepthBps: Number.MAX_SAFE_INTEGER, maintenanceBps: ladder.policy.tiers[ladder.policy.tiers.length - 1]!.maintenanceBps },
+          ],
+        },
         level,
       });
       return priced.price === null ? { price: null, reason: priced.reason } : { price: priced.price, reason: null };
