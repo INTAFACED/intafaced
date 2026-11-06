@@ -2627,6 +2627,7 @@ function cmdCspReport(args) {
     groups.set(key, g);
   }
   say(`  csp-report: ${rows.length} Content-Security-Policy violation(s), ${groups.size} kind(s)`);
+  for (const r of rows) say(`    DIAG row ${JSON.stringify(r)}`);
   for (const [key, g] of groups) {
     say(
       `    ${key}  ×${g.n}  on ${[...g.pages].slice(0, 3).join(', ')}${g.source ? `  from ${g.source}:${g.line}` : ''}${g.sample ? `  "${g.sample}"` : ''}`,
