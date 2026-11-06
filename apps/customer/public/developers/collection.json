@@ -1011,6 +1011,31 @@
           }
         },
         {
+          "name": "fetchFuturesOrder",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/orders/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "orders", ":id"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "fetchFuturesExecutions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/futures/executions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "futures", "executions"]
+            }
+          }
+        },
+        {
           "name": "cancelFuturesOrder",
           "request": {
             "method": "DELETE",
