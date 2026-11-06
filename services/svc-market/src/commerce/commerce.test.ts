@@ -1,3 +1,4 @@
+import { approvingCommerce } from './listing-review-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -144,7 +145,7 @@ describe('market.commerce', () => {
     stakes = new FixedEntitlement(3);
     vendors = new VendorService(sql, stakes);
     ledger = new MemoryLedger();
-    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
+    commerce = approvingCommerce(sql, vendors, ledger, { commissionBps: 500 });
   });
 
   afterAll(async () => {
@@ -155,7 +156,7 @@ describe('market.commerce', () => {
   describe('refuse-closed commission', () => {
     it('refuses purchase when commission bps is not configured', async () => {
       await approvedVendor(VENDOR_USER);
-      const blank = new CommerceService(sql, vendors, ledger, { commissionBps: null });
+      const blank = approvingCommerce(sql, vendors, ledger, { commissionBps: null });
       // Need a listing first under a configured service, then purchase under blank.
       const listing = await commerce.createListing({
         userId: VENDOR_USER,
@@ -174,7 +175,7 @@ describe('market.commerce', () => {
 
     it('refuses createListing when commission bps is not configured (no slot burn)', async () => {
       await approvedVendor(VENDOR_USER);
-      const blank = new CommerceService(sql, vendors, ledger, { commissionBps: null });
+      const blank = approvingCommerce(sql, vendors, ledger, { commissionBps: null });
       await expect(
         blank.createListing({
           userId: VENDOR_USER,
@@ -208,12 +209,12 @@ describe('market.commerce', () => {
       });
       expect((await commerce.publicListings({ limit: 50 })).some((l) => l.id === listing.id)).toBe(true);
 
-      const blank = new CommerceService(sql, vendors, ledger, { commissionBps: null });
+      const blank = approvingCommerce(sql, vendors, ledger, { commissionBps: null });
       await expect(blank.publicListings({ limit: 50 })).resolves.toEqual([]);
     });
 
     it('programme reports unconfigured when null', () => {
-      const blank = new CommerceService(sql, vendors, ledger, { commissionBps: null });
+      const blank = approvingCommerce(sql, vendors, ledger, { commissionBps: null });
       expect(blank.programme()).toEqual({
         commissionBps: null,
         commissionConfigured: false,
@@ -506,7 +507,7 @@ describe('market.commerce', () => {
 
     it('settles with explicit zero house commission (owner free rate)', async () => {
       await approvedVendor(VENDOR_USER);
-      const free = new CommerceService(sql, vendors, ledger, { commissionBps: 0 });
+      const free = approvingCommerce(sql, vendors, ledger, { commissionBps: 0 });
       const listing = await free.createListing({
         userId: VENDOR_USER,
         title: 'Free commission pack',
@@ -727,7 +728,7 @@ describe('market.commerce', () => {
           FROM market.vendors WHERE user_id = ${VENDOR_USER}
       `;
       // Live service now has a different rate — must not stuck or re-split.
-      const moved = new CommerceService(sql, vendors, ledger, { commissionBps: 100 });
+      const moved = approvingCommerce(sql, vendors, ledger, { commissionBps: 100 });
       const settled = await moved.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId });
       expect(settled.status).toBe('settled');
       expect(settled.commissionBps).toBe(500);

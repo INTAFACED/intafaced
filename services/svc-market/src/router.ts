@@ -158,6 +158,11 @@ function mapError(err: unknown): never {
     if (err.code === 'market.earnings_vendor_required' || err.code === 'market.review_not_buyer') {
       throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     }
+    if (err.code === 'market.review_self_forbidden') throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
+    if (err.code === 'market.review_not_pending') throw new TRPCError({ code: 'CONFLICT', message, cause: err });
+    if (err.code === 'market.listing_review_state_unreadable') {
+      throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message, cause: err });
+    }
     if (err.code === 'market.stake_required' || err.code === 'market.vendor_not_approved') {
       throw new TRPCError({ code: 'FORBIDDEN', message, cause: err });
     }
@@ -199,6 +204,11 @@ function mapError(err: unknown): never {
       err.code === 'market.earnings_window_unset' ||
       err.code === 'market.listing_taken_down' ||
       err.code === 'market.takedown_approval_mismatch' ||
+      err.code === 'market.review_approval_mismatch' ||
+      err.code === 'market.review_criteria_unset' ||
+      err.code === 'market.review_window_unset' ||
+      err.code === 'market.review_queue_list_limit_unset' ||
+      err.code === 'market.listing_not_approved' ||
       err.code === 'market.review_not_settled' ||
       err.code === MARKET_LISTING_PIN_UNSET ||
       err.code === MARKET_LISTING_PIN_IEEE ||
@@ -258,6 +268,41 @@ export const listingOut = z.object({
 
 /** A catalogue or own-list row: the listing and its review state (`listingReviewState`), the same for every kind. */
 export const reviewedListingOut = listingOut.extend({ reviewState: z.enum(LISTING_REVIEW_STATES) });
+
+const listingReviewDecisionOut = z.object({
+  listingId: z.string().guid(),
+  ordinal: z.number().int().positive(),
+  decision: z.enum(['approved', 'rejected', 'taken_down']),
+  reason: z.string(),
+  actorId: z.string(),
+  approverId: z.string().nullable(),
+  businessKey: z.string(),
+  decidedAt: z.string().datetime(),
+});
+
+const listingReviewQueueOut = z.object({
+  criteria: z.string().nullable(),
+  windowSeconds: z.number().int().positive().nullable(),
+  queueState: z.enum(['open', 'waiting']),
+  queueNote: z.string(),
+  rows: z.array(
+    z.object({
+      id: z.string().guid(),
+      title: z.string(),
+      description: z.string(),
+      offerType: z.enum(['one_time', 'subscription']),
+      category: z.string().nullable(),
+      assetId: z.string(),
+      price: z.string(),
+      periodSeconds: z.number().int().positive().nullable(),
+      vendorId: z.string().guid(),
+      sellerName: z.string(),
+      reviewState: z.enum(['applied', 'reviewing']),
+      submittedAt: z.string().datetime(),
+      reviewDueAt: z.string().datetime().nullable(),
+    }),
+  ),
+});
 
 /**
  * A listing stores no copy-leader, bot or signal id, so this read has no
@@ -517,6 +562,69 @@ export function createMarketRouter(
             mapError(err);
           }
         }),
+
+      /**
+       * The founders' listing review (MC-market-03, J-more-catalogue-04). `list` is the queue with the owner's criteria
+       * and window; `decisions` is the audit (approvals, rejections and takedowns, with both founders); `decide`
+       * approves or rejects one listing. MFA is local because market:ops is not INTERACTIVE_ONLY. Identity approval
+       * type `market.listing.review`, target id = listing id, expectedVersion `1`, payload hash
+       * marketActionPayloadHash('market.listing.review', { listingId, decision, reason }).
+       */
+      listingReview: router({
+        list: scopedProcedure(MARKET_OPS_SCOPE)
+          .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
+          .output(listingReviewQueueOut)
+          .query(async ({ input }) => {
+            requireCommerce(commerce);
+            try {
+              return await commerce.listingReviewQueue({ actorScope: MARKET_OPS_SCOPE, limit: input?.limit });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        decisions: scopedProcedure(MARKET_OPS_SCOPE)
+          .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
+          .output(z.array(listingReviewDecisionOut))
+          .query(async ({ input }) => {
+            requireCommerce(commerce);
+            try {
+              return await commerce.listingReviewDecisions({ actorScope: MARKET_OPS_SCOPE, limit: input?.limit });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        decide: scopedProcedure(MARKET_OPS_SCOPE)
+          .input(
+            z.object({
+              listingId: z.string().guid(),
+              decision: z.enum(['approved', 'rejected']),
+              reason: z.string().max(2_000),
+              approvalId: z.string().max(128).nullish(),
+              operationId: z.string().max(128).nullish(),
+            }),
+          )
+          .output(listingReviewDecisionOut.extend({ reviewState: z.enum(LISTING_REVIEW_STATES) }))
+          .mutation(async ({ ctx, input }) => {
+            requireCommerce(commerce);
+            try {
+              requireMfa(ctx.principal!);
+              return await commerce.decideListingReview(
+                {
+                  actorId: ctx.principal!.userId,
+                  actorScope: MARKET_OPS_SCOPE,
+                  listingId: input.listingId,
+                  decision: input.decision,
+                  reason: input.reason,
+                  approvalId: input.approvalId,
+                  operationId: input.operationId,
+                },
+                approvals,
+              );
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+      }),
 
       /**
        * Operator takedown. MFA is local because market:ops is not INTERACTIVE_ONLY.
@@ -805,7 +913,7 @@ export function createMarketRouter(
           category: z.string().max(64).optional(),
         }),
       )
-      .output(listingOut)
+      .output(reviewedListingOut)
       .mutation(async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
@@ -835,7 +943,7 @@ export function createMarketRouter(
           })
           .strict(),
       )
-      .output(listingOut)
+      .output(reviewedListingOut)
       .mutation(async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
@@ -864,7 +972,7 @@ export function createMarketRouter(
           })
           .strict(),
       )
-      .output(listingOut.extend({ category: z.string().min(1).max(32) }))
+      .output(reviewedListingOut.extend({ category: z.string().min(1).max(32) }))
       .mutation(async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
@@ -893,7 +1001,7 @@ export function createMarketRouter(
      */
     myListings: scopedProcedure('market:read', { module: 'market' })
       .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(reviewedListingOut))
+      .output(z.array(reviewedListingOut.extend({ reviewReason: z.string().nullable() })))
       .query(async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {

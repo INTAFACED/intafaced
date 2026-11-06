@@ -1,3 +1,4 @@
+import { approvingCommerce } from './commerce/listing-review-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -99,7 +100,7 @@ describe('market ops depth', () => {
     stakes = new FixedEntitlement(200);
     vendors = new VendorService(sql, stakes);
     ledger = new MemoryLedger();
-    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
+    commerce = approvingCommerce(sql, vendors, ledger, { commissionBps: 500 });
     reviews = new ReviewsService(sql);
   });
 
@@ -151,7 +152,7 @@ describe('market ops depth', () => {
       await sale(listingA!.id, vendorA, VENDOR_USER, '4', 500, 'pending');
       await sale(listingB!.id, vendorB, VENDOR_USER_B, '3', 250, 'settled');
 
-      const later = new CommerceService(sql, vendors, ledger, { commissionBps: 100 });
+      const later = approvingCommerce(sql, vendors, ledger, { commissionBps: 100 });
       const page = await later.opsSales({
         actorScope: MARKET_OPS_SCOPE,
         from: FROM,
@@ -584,8 +585,8 @@ describe('market ops depth', () => {
         recipes.deposit({ userId: BUYER, assetId: 'BTC', amount: parseAmount('1000'), rail: 'test', railRef: 'buyer-earn-b' }),
       );
       const at500 = commerce;
-      const at250 = new CommerceService(sql, vendors, ledger, { commissionBps: 250 });
-      const reader = new CommerceService(sql, vendors, ledger, { commissionBps: 100 });
+      const at250 = approvingCommerce(sql, vendors, ledger, { commissionBps: 250 });
+      const reader = approvingCommerce(sql, vendors, ledger, { commissionBps: 100 });
       const usdt = await at500.createListing({
         userId: VENDOR_USER,
         title: 'USDT pack',

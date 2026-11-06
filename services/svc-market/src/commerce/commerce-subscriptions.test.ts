@@ -1,3 +1,4 @@
+import { approvingCommerce } from './listing-review-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -159,7 +160,7 @@ describe('market.commerce C3 subscriptions PG-hard (source)', () => {
   });
 
   it('subscribe named-refuses recurring — no invented automatic charge', async () => {
-    const commerce = new CommerceService(
+    const commerce = approvingCommerce(
       (() => {
         throw new Error('sql must not run on recurring refuse');
       }) as never,
@@ -231,7 +232,7 @@ describe('Stage C3 listing subscriptions', () => {
     vendors = new VendorService(sql, stakes);
     ledger = new MemoryLedger();
     clock = new Date('2026-08-16T00:00:00.000Z');
-    commerce = new CommerceService(sql, vendors, ledger, {
+    commerce = approvingCommerce(sql, vendors, ledger, {
       commissionBps: 500,
       now: () => new Date(clock.getTime()),
     });
@@ -278,13 +279,13 @@ describe('Stage C3 listing subscriptions', () => {
     });
     try {
       const http = createLedgerClient('http://ledger.test', 'internal-secret-internal-secret-32');
-      const active = new CommerceService(sql, vendors, http, { commissionBps: 500, now: () => clock });
+      const active = approvingCommerce(sql, vendors, http, { commissionBps: 500, now: () => clock });
       await expect(active.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId })).rejects.toThrow('ACK lost');
       expect(committed?.idempotencyKey).toBe(`market.purchase:${purchaseId}`);
       // The shared client retries a lost response (a network error) twice before it gives up: three identical posts of
       // the one key, which the ledger answers with the one booking.
       expect(requests).toHaveLength(3);
-      const closed = new CommerceService(sql, vendors, http, { commissionBps: null, now: () => clock });
+      const closed = approvingCommerce(sql, vendors, http, { commissionBps: null, now: () => clock });
       await expect(closed.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId })).rejects.toMatchObject({
         code: 'market.commission_not_configured',
       });
@@ -383,7 +384,7 @@ describe('Stage C3 listing subscriptions', () => {
       await commerce.archiveListing({ userId: VENDOR_USER, listingId: listing.id });
       await sql`UPDATE market.listings SET period_seconds = ${PERIOD * 2}, price = 999 WHERE id = ${listing.id}`;
       await sql`UPDATE market.vendors SET status = 'suspended' WHERE user_id = ${VENDOR_USER}`;
-      const closed = new CommerceService(sql, vendors, ledger, { commissionBps: null, now: () => clock });
+      const closed = approvingCommerce(sql, vendors, ledger, { commissionBps: null, now: () => clock });
       const resumed = await closed.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId });
       expect(resumed).toMatchObject({
         status: 'settled',
@@ -438,7 +439,7 @@ describe('Stage C3 listing subscriptions', () => {
       price: '10',
       periodSeconds: PERIOD,
     });
-    const blank = new CommerceService(sql, vendors, ledger, { commissionBps: null, now: () => clock });
+    const blank = approvingCommerce(sql, vendors, ledger, { commissionBps: null, now: () => clock });
     await expect(blank.purchase({ buyerId: BUYER, listingId: listing.id, purchaseId: randomUUID() })).rejects.toMatchObject({
       code: 'market.commission_not_configured',
     });
@@ -555,7 +556,7 @@ describe('Stage C3 listing subscriptions', () => {
     });
 
     try {
-      const open = new CommerceService(sql, vendors, http, {
+      const open = approvingCommerce(sql, vendors, http, {
         commissionBps: 500,
         now: () => new Date(clock.getTime()),
       });
@@ -641,7 +642,7 @@ describe('Stage C3 listing subscriptions', () => {
          WHERE id IN (${passListing.id}, ${pendingListing.id}, ${stuckListing.id})
       `;
 
-      const hostile = new CommerceService(sql, vendors, http, {
+      const hostile = approvingCommerce(sql, vendors, http, {
         commissionBps: null,
         now: () => new Date(clock.getTime()),
       });
@@ -735,7 +736,7 @@ describe('Stage C3 listing subscriptions', () => {
       throw new Error('overlapping renewals neither shared the max(access_until) read nor waited on the (listing, buyer) lock');
     };
 
-    const racing = new CommerceService(pauseAfterExcludedAccessMax(sql, afterRead), vendors, ledger, {
+    const racing = approvingCommerce(pauseAfterExcludedAccessMax(sql, afterRead), vendors, ledger, {
       commissionBps: 500,
       now: () => new Date(clock.getTime()),
     });

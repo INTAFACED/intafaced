@@ -1,3 +1,4 @@
+import { approvingCommerce } from './commerce/listing-review-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -656,9 +657,9 @@ describe('svc-market mount — commerce scopes', () => {
         refundWindowSeconds: null,
         refundPolicy: null,
       })),
-      createListing: vi.fn(async () => listingRow),
+      createListing: vi.fn(async () => ({ ...listingRow, reviewState: 'applied' as const })),
       archiveListing: vi.fn(async () => ({ ...listingRow, status: 'archived' as const })),
-      myListings: vi.fn(async (_userId: string, _opts?: { limit?: number }) => [reviewedRow]),
+      myListings: vi.fn(async (_userId: string, _opts?: { limit?: number }) => [{ ...reviewedRow, reviewReason: null }]),
       publicListings: vi.fn(async () => [reviewedRow]),
       purchase: vi.fn(async () => ({
         id: purchaseId,
@@ -936,7 +937,7 @@ describe('svc-market mount — commerce scopes', () => {
     const commerce = stubCommerce();
     commerce.myListings = vi.fn(async (_userId: string, opts?: { limit?: number }) => {
       assertMyListingsListLimit(opts?.limit);
-      return [reviewedRow];
+      return [{ ...reviewedRow, reviewReason: null }];
     });
     const caller = createMarketRouter(stubVendors(), commerce as never).createCaller(signed());
     await expect(caller.myListings()).rejects.toMatchObject({
@@ -947,7 +948,7 @@ describe('svc-market mount — commerce scopes', () => {
       code: 'PRECONDITION_FAILED',
       message: 'market.my_listings_list_limit_unset',
     });
-    await expect(caller.myListings({ limit: 50 })).resolves.toEqual([reviewedRow]);
+    await expect(caller.myListings({ limit: 50 })).resolves.toEqual([{ ...reviewedRow, reviewReason: null }]);
   });
 
   it('myPurchases omit is PRECONDITION_FAILED — never invents a 50-purchase page', async () => {
@@ -1258,7 +1259,7 @@ describe('svc-market mount — listings array and public reviews', () => {
     `;
     const vendors = new VendorService(sql, new FixedEntitlement());
     const ledger = new MemoryLedger();
-    commerce = new CommerceService(sql, vendors, ledger, { commissionBps: 500 });
+    commerce = approvingCommerce(sql, vendors, ledger, { commissionBps: 500 });
     reviews = new ReviewsService(sql);
     const vendor = await vendors.applyAsVendor({
       userId: VENDOR_USER,
