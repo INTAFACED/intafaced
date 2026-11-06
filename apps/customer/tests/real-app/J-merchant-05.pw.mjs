@@ -795,7 +795,7 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
     await expect(reasonRows.filter({ hasText: r.code }).locator('td').last()).toHaveText(String(r.count));
   }
   // Last, as it waits on the stack: the fee in its parts. svc-pay stores a payment's fee only while its merchant
-  // controls are required; the journey stack runs them off until #7066 (svc-pay merchant controls required on the stack).
+  // controls are required, as the journey stack runs them (PAY_MERCHANT_CONTROLS, local-stack-services/pay.mjs).
   // The business's own TEST fee: 1.00% + 0.50 USDT, set by one founder and confirmed by another; the founders read it back.
   const fee = feeInTwoParts(merchantId);
   expect(fee, JSON.stringify(fee)).toMatchObject({ merchantId, holds: true, rules: 1 });
@@ -811,7 +811,7 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
   expect(read.status).toBe('captured');
   expect(
     read.pricingSnapshot,
-    'BLOCKED merchant_controls_off: svc-pay stores a fee only with PAY_MERCHANT_CONTROLS=required, and the journey stack runs it off until #7066 turns it on',
+    'no fee stored on the payment: svc-pay stores one only with PAY_MERCHANT_CONTROLS=required (the journey stack sets it) and a pricing rule that applies',
   ).not.toBeNull();
   expect(units(read.pricingSnapshot.fee)).toBe(units('1.5'));
   expect(read.pricingSnapshot).toMatchObject({ appliedLayer: 'merchant', feeBps: 100, assetCode: 'USDT' });

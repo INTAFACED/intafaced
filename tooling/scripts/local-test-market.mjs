@@ -207,23 +207,33 @@ export function buildLadder({ mid, tick, lot, minAmount, minCost, levels, halfSp
 
 /**
  * A refused quote moved to the edge of the market's price band, or null (exported for tests). svc-trade refuses a buy
- * priced above the band, or a sell below it, with `trade.price_band` and names the band ("outside the price band <low> to
- * <high>", admin/risk.ts). The band is centred on the book's touch. So when the maker's own quotes are gone (it was stopped
- * and started again) and someone else's order rests far off on one side, every quote at the walk's price on the other
- * side is refused, every cycle, and that side of the book never comes back. (Failure it prevents: J-portfolio-04 #1–#7 on
- * main, runs 1247 to 1265. A TEST buy rested at 80% of the BTC/USDT bid, J-ops-console-08 #7 stopped and restarted the
- * maker, and the maker's bids stayed refused. With no bids, the band's buy edge sat under the best ask, so no buy could take
- * it.) A quote at the band's edge rests and moves the touch toward the walk, and the next cycle's ladder fits. A refusal
- * that is not the band's, names no band, or whose edge is not nearer the book than the refused price gives null.
+ * priced above the band, or a sell below it, with `trade.price_band`, and its order check (POST /api/v1/orders/preview)
+ * names the band's edges (`refusals[].data`: low, high). The band is centred on the book's touch. So when the maker's own
+ * quotes are gone (it was stopped and started again) and someone else's order rests far off on one side, every quote at
+ * the walk's price on the other side is refused, every cycle, and that side of the book never comes back. (Failure it
+ * prevents: J-portfolio-04 #1–#7 on main, runs 1247 to 1265. A TEST buy rested at 80% of the BTC/USDT bid, J-ops-console-08
+ * #7 stopped and restarted the maker, and the maker's bids stayed refused. With no bids, the band's buy edge sat under the
+ * best ask, so no buy could take it.) A quote at the band's edge rests and moves the touch toward the walk, and the next
+ * cycle's ladder fits. A buy moved down keeps its notional (more of the base, on the lot), so it stays above the market's
+ * minimum cost. No edge named, or an edge not nearer the book than the refused price, gives null.
  */
-export function bandEdgeQuote(quote, refusal, tick) {
-  if (refusal?.intafacedCode !== 'trade.price_band') return null;
-  const named = /price band (\d+(?:\.\d+)?) to (\d+(?:\.\d+)?)/.exec(String(refusal.message ?? ''));
-  if (!named) return null;
+export function bandEdgeQuote(quote, band, { tick, lot }) {
+  const named = quote.side === 'buy' ? band?.high : band?.low;
+  if (typeof named !== 'string' || !/^\d+(\.\d+)?$/.test(named)) return null;
   const price = toScaled(quote.price);
-  const edge = quote.side === 'buy' ? floorTo(toScaledFloor(named[2]), tick) : ceilTo(toScaledFloor(named[1]), tick);
+  const edge = quote.side === 'buy' ? floorTo(toScaledFloor(named), tick) : ceilTo(toScaledFloor(named), tick);
   if (edge <= 0n || (quote.side === 'buy' ? edge >= price : edge <= price)) return null;
-  return { ...quote, price: fromScaled(edge) };
+  const amount = quote.side === 'buy' ? ceilTo((price * toScaled(quote.amount)) / edge, lot) : toScaled(quote.amount);
+  return { ...quote, price: fromScaled(edge), amount: fromScaled(amount) };
+}
+
+/** The price band svc-trade's order check names for this order ({ low, high }), or null when it names none. */
+async function bandOf(client, m, side, price, amount) {
+  const r = await client
+    .http('POST', '/api/v1/orders/preview', { symbol: m.symbol, type: 'limit', side, amount, price, timeInForce: 'GTC', postOnly: true })
+    .catch(() => null);
+  const refusal = (r?.status === 200 && Array.isArray(r.json?.refusals) ? r.json.refusals : []).find((x) => x?.code === 'trade.price_band');
+  return refusal?.data ?? null;
 }
 
 // ── TEST PRICE table: invented, illustrative starting points ────────────────
@@ -836,20 +846,31 @@ async function runLoop(opts, home) {
       }
       if (shift !== undefined) quotedShift.set(m.symbol, shift);
       const ids = [];
+      /** The quotes that rest, at the price each went in at (a band-refused one at the band's edge). */
+      const resting = [];
       let refused = null;
       for (const q of ladder) {
         // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
         // that level is quoted again next cycle.
+        let quote = q;
         let r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
         // A quote the price band refused goes in at the band's edge instead, so a side the band shut can come back.
-        const edged = !m.swap && r.status >= 300 ? bandEdgeQuote(q, r.json, m.tick) : null;
-        if (edged) {
-          log(`${m.symbol} ${q.side} ${q.price} refused by the price band; quoted at its edge ${edged.price}`);
-          r = await place(maker, m, edged.side, edged.price, edged.amount, jump ? 'GTC-TAKE' : 'GTC');
+        if (!m.swap && r.status >= 300 && r.json?.intafacedCode === 'trade.price_band') {
+          const band = await bandOf(maker, m, q.side, q.price, q.amount);
+          const edged = bandEdgeQuote(q, band, { tick: m.tick, lot: m.lot });
+          if (edged) {
+            log(`${m.symbol} ${q.side} ${q.price} refused by the price band; quoted at its edge ${edged.price}`);
+            quote = edged;
+            r = await place(maker, m, edged.side, edged.price, edged.amount, jump ? 'GTC-TAKE' : 'GTC');
+          } else log(`${m.symbol} ${q.side} ${q.price} refused by the price band; the order check named no edge to quote at`);
         }
-        if (r.status === 201 && r.json?.id) ids.push(r.json.id);
-        else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
-        else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
+        if (r.status === 201 && r.json?.id) {
+          ids.push(r.json.id);
+          resting.push(quote);
+        } else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) {
+          ids.push(r.json.orderId);
+          resting.push(quote);
+        } else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
       }
       // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
       // 409 means it is already gone: filled or cancelled).
@@ -874,7 +895,13 @@ async function runLoop(opts, home) {
         const side = crossingSide(n);
         // Top the taker up through the real ledger if either leg is under half its target.
         await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
-        const best = ladder.find((q) => q.level === 0 && q.side === (side === 'buy' ? 'sell' : 'buy'));
+        // The best quote that rests on the other side, so the crossing meets a price that is in the book.
+        const other = resting.filter((q) => q.side === (side === 'buy' ? 'sell' : 'buy'));
+        const best = other.sort((x, y) => x.level - y.level)[0];
+        if (!best) {
+          log(`${m.symbol} no crossing this cycle: none of the maker's ${side === 'buy' ? 'asks' : 'bids'} rests`);
+          continue;
+        }
         const r = await place(taker, m, side, best.price, best.amount, 'IOC');
         const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
         log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
