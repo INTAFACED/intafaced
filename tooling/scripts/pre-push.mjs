@@ -104,6 +104,14 @@ export function testRuns(packages, { hasTestDb }) {
   return runs;
 }
 
+/**
+ * Gates the hook leaves to CI for this push: `tooling-tests` (every .test.mjs file under tooling/, 1.5 to 5 minutes on a
+ * loaded Mac, the longest gate) when the push changes nothing under tooling/. Returns gates.mjs arguments.
+ */
+export function skippedGates(files) {
+  return files.some((f) => f.startsWith('tooling/')) ? [] : ['--skip', 'tooling-tests'];
+}
+
 function git(args, opts = {}) {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
 }
@@ -307,6 +315,9 @@ async function main() {
       return { name, testScript };
     });
   }
+  const gateSkip = skippedGates(files);
+  if (gateSkip.length)
+    plan.gaps.push(`CI runs the tooling tests on every PR; this push changes nothing under tooling/, so they are left to CI`);
   const hasTestDb = Boolean(process.env.TEST_DATABASE_URL);
   const tests = testRuns(changed, { hasTestDb });
   if (plan.kind !== 'docs') {
@@ -322,7 +333,7 @@ async function main() {
   );
   for (const g of plan.gaps) console.log(`  (CI's job: ${g})`);
   if (planOnly) {
-    console.log(`  gates: node tooling/ci/gates.mjs --jobs ${jobs} --part shared, then --part exclusive`);
+    console.log(`  gates: node tooling/ci/gates.mjs --jobs ${jobs} --part shared ${gateSkip.join(' ')}, then --part exclusive`);
     if (plan.kind !== 'docs') {
       console.log(`  typecheck: turbo ${tcArgs.join(' ')}`);
       for (const t of tests) console.log(`  ${t.name}: turbo ${t.args.join(' ')}`);
@@ -395,7 +406,7 @@ async function main() {
     }
   };
   const [gates] = await Promise.all([
-    step('gates', node, ['tooling/ci/gates.mjs', '--jobs', String(jobs), '--part', 'shared'], ctx),
+    step('gates', node, ['tooling/ci/gates.mjs', '--jobs', String(jobs), '--part', 'shared', ...gateSkip], ctx),
     code(),
   ]);
   results.unshift(gates);

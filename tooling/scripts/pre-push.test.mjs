@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {
   configDrift,
   elapsed,
+  skippedGates,
   heavyWrapper,
   INFRA_SUITES,
   testRuns,
@@ -60,7 +61,7 @@ test("git's pushed refs are read, and a deletion is marked", () => {
 });
 
 test('gates: no flags is one gate at a time over the whole list (what CI runs)', () => {
-  assert.deepEqual(runOptions(['node', 'gates.mjs']), { jobs: 1, part: 'all' });
+  assert.deepEqual(runOptions(['node', 'gates.mjs']), { jobs: 1, part: 'all', skip: [] });
   const { shared, exclusive } = selectGates(GATES, 'all');
   assert.equal(shared.length + exclusive.length, GATES.length);
 });
@@ -76,7 +77,7 @@ test('gates: the in-place money mutation gate is exclusive, and the parts split 
 });
 
 test('gates: a bad --jobs or --part is refused', () => {
-  assert.deepEqual(runOptions(['--jobs', '4', '--part', 'shared']), { jobs: 4, part: 'shared' });
+  assert.deepEqual(runOptions(['--jobs', '4', '--part', 'shared']), { jobs: 4, part: 'shared', skip: [] });
   assert.throws(() => runOptions(['--jobs', '0']), /whole number/);
   assert.throws(() => runOptions(['--jobs']), /whole number/);
   assert.throws(() => runOptions(['--part', 'some']), /shared or exclusive/);
@@ -146,4 +147,15 @@ test('with a test database the infrastructure suites run too', () => {
   assert.equal(runs.length, 1);
   assert.ok(!runs[0].args.includes('--exclude'));
   assert.deepEqual(testRuns([], { hasTestDb: false }), []);
+});
+
+test('the tooling tests run here only when the push changes tooling/', () => {
+  assert.deepEqual(skippedGates(['services/svc-bank/src/a.ts']), ['--skip', 'tooling-tests']);
+  assert.deepEqual(skippedGates(['services/svc-bank/src/a.ts', 'tooling/ci/gates.mjs']), []);
+});
+
+test('gates: --skip takes known ids only', () => {
+  assert.deepEqual(runOptions(['--skip', 'tooling-tests']).skip, ['tooling-tests']);
+  assert.throws(() => runOptions(['--skip', 'no-such-gate']), /gate ids/);
+  assert.throws(() => runOptions(['--skip']), /gate ids/);
 });

@@ -35,6 +35,7 @@
  *   node tooling/ci/gates.mjs          run every gate, report all failures
  *   node tooling/ci/gates.mjs --list   print the gate ids, one per line
  *   node tooling/ci/gates.mjs --jobs 4 run up to 4 gates at once; an `exclusive` gate runs alone, after the rest
+ *   node tooling/ci/gates.mjs --skip a,b  run every gate but those (named in the output as skipped)
  *   node tooling/ci/gates.mjs --part shared|exclusive
  *                                      run only the gates that may share the tree, or only the exclusive ones
  *
@@ -444,7 +445,7 @@ if (RUN_AS_SCRIPT) main();
 
 /** Parses `--jobs N` (default 1) and `--part shared|exclusive` (default: every gate). Exported for its test. */
 export function runOptions(argv) {
-  const opt = { jobs: 1, part: 'all' };
+  const opt = { jobs: 1, part: 'all', skip: [] };
   const j = argv.indexOf('--jobs');
   if (j >= 0) {
     const n = Number(argv[j + 1]);
@@ -455,6 +456,15 @@ export function runOptions(argv) {
   if (p >= 0) {
     if (!['shared', 'exclusive'].includes(argv[p + 1])) throw new Error(`--part is shared or exclusive, got ${argv[p + 1]}`);
     opt.part = argv[p + 1];
+  }
+  const k = argv.indexOf('--skip');
+  if (k >= 0) {
+    const ids = String(argv[k + 1] ?? '')
+      .split(',')
+      .filter(Boolean);
+    const unknown = ids.filter((id) => !GATES.some((g) => g.id === id));
+    if (ids.length === 0 || unknown.length) throw new Error(`--skip takes gate ids from --list, got ${argv[k + 1]}`);
+    opt.skip = ids;
   }
   return opt;
 }
@@ -507,7 +517,12 @@ async function main() {
     process.exit(1);
   }
 
-  const { shared, exclusive } = selectGates(GATES, opt.part);
+  const { shared, exclusive } = selectGates(
+    GATES.filter((g) => !opt.skip.includes(g.id)),
+    opt.part,
+  );
+  // A skipped gate is named in the run, never dropped quietly: the caller (the pre-push hook) leaves it to CI.
+  for (const id of opt.skip) console.log(`  – ${id.padEnd(22)} skipped here (--skip); CI runs it`);
   const total = shared.length + exclusive.length;
   const what = opt.part === 'all' ? `${GATES.length}` : `${total} of ${GATES.length}, ${opt.part}`;
   console.log(`\n══ DOCTRINE GATES (${what}${opt.jobs > 1 ? `, ${opt.jobs} at a time` : ''}) ══\n`);
