@@ -197,6 +197,59 @@ test(`${J} #3 opens FIX sessions and SBE consumers: sessions, CompID mapping and
   }
 });
 
+/** The unquoted TEST market (seed-spot-test-listing.mjs `UNQUOTED_TEST_SPOT`): its book is empty, so the seed may place. */
+const SEED_MARKET = 'IFC/USDC';
+/** A TEST mid for it: the stack has no price feed for IFC/USDC, and the configured source is what an operator types. */
+const SEED_MID = '1';
+
+/** Fills the seeding form as `values` says; a value left out stays blank. */
+async function fillSeeding(form, values) {
+  await form.getByLabel('Market').selectOption(SEED_MARKET);
+  if (values.enabled) await form.getByLabel('Enabled').check();
+  else await form.getByLabel('Enabled').uncheck();
+  await form.getByLabel('Half spread (bps)').fill(values.half ?? '');
+  await form.getByLabel('Step (bps)').fill(values.step ?? '');
+  await form.getByLabel('Levels').fill(values.levels ?? '');
+  await form.getByLabel('Quantity per level').fill(values.qty ?? '');
+  await form.getByLabel('Mid source').selectOption(values.midSource ?? '');
+  await form.getByLabel('Configured mid').fill(values.mid ?? '');
+}
+
+/** Founder A files the version, founder B approves it, founder A writes it. Returns the approval id. */
+async function writeSeeding(page, browser, values) {
+  await page.goto(`${ADMIN}/trade-ops/seeding`);
+  const room = page.locator('[data-room=seeding]');
+  const form = room.getByRole('form', { name: 'Seeding configuration' });
+  await fillSeeding(form, values);
+  await form.getByRole('button', { name: 'Propose configuration' }).click();
+  const request = room.locator('[data-filed]');
+  await expect(request).toBeVisible();
+  const approvalId = (await filed(request, 'Approval id').textContent()).trim();
+  const payloadHash = (await filed(request, 'Payload hash').textContent()).trim();
+  expect(payloadHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  // Filed, not written: the room as it was read still shows no version under this approval.
+  await expect(room.locator(`[data-config][data-approval="${approvalId}"]`)).toHaveCount(0);
+  await approveAsB(browser, approvalId, payloadHash);
+  await form.getByLabel('Approved request id').fill(approvalId);
+  await form.getByRole('button', { name: 'Apply approved configuration' }).click();
+  const dialog = page.getByRole('alertdialog');
+  await dialog.getByRole('button', { name: 'Write configuration' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Written', { timeout: 30_000 });
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toHaveCount(0);
+  return approvalId;
+}
+
+/** The seeded orders the Orders room flags on the seed market. */
+async function houseSeeds(page) {
+  await page.goto(`${ADMIN}/trade-ops/orders?limit=500`);
+  await expect(page.locator('[data-origin]').first()).toBeVisible();
+  return {
+    house: await page.locator(`[data-origin="House seed"][data-order-symbol="${SEED_MARKET}"]`).count(),
+    customer: await page.locator(`[data-origin="Customer"][data-order-symbol="${SEED_MARKET}"]`).count(),
+  };
+}
+
 test(`${J} #5 writes the internal book seeding configuration: an operator-written config and console with approvals`, async ({
   page,
   browser,
@@ -206,72 +259,61 @@ test(`${J} #5 writes the internal book seeding configuration: an operator-writte
   await page.goto(`${ADMIN}/trade-ops/seeding`);
   const room = page.locator('[data-room=seeding]');
   await expect(room).toBeVisible();
-  const { ask, bid } = await bestPrices(SYMBOL);
-  const mid = fromUnits(((toUnits(ask) + toUnits(bid)) / 2n / toUnits('1')) * toUnits('1'));
   const form = room.getByRole('form', { name: 'Seeding configuration' });
-  await form.getByLabel('Market').selectOption(SYMBOL);
-  await form.getByLabel('Enabled').check();
-  await form.getByLabel('Half spread (bps)').fill('500');
-  await form.getByLabel('Levels').fill('3');
-  await form.getByLabel('Quantity per level').fill('0.001');
-  await form.getByLabel('Mid source').selectOption('configured');
-  await form.getByLabel('Configured mid').fill(mid);
-  // A blank step is refused by name, and nothing is filed.
-  await form.getByLabel('Step (bps)').fill('');
+  const full = { enabled: true, half: '500', step: '50', levels: '3', qty: '10', midSource: 'configured', mid: SEED_MID };
+
+  // A blank step is refused by name, with svc-trade's own code, and nothing is filed.
+  await fillSeeding(form, { ...full, step: '' });
   await form.getByRole('button', { name: 'Propose configuration' }).click();
-  await expect(room.getByRole('alert')).toContainText('mm.seed_unset');
-  await expect(room.getByRole('alert')).toContainText('step');
+  const alert = room.getByRole('alert');
+  await expect(alert).toContainText('mm.seed_unset');
+  await expect(alert).toContainText('step is not set');
+  await expect(alert).toContainText('Nothing was filed.');
   await expect(room.locator('[data-filed]')).toHaveCount(0);
 
-  await form.getByLabel('Step (bps)').fill('50');
-  await form.getByRole('button', { name: 'Propose configuration' }).click();
-  const request = room.locator('[data-filed]');
-  await expect(request).toBeVisible();
-  const approvalId = (await filed(request, 'Approval id').textContent()).trim();
-  const payloadHash = (await filed(request, 'Payload hash').textContent()).trim();
-  // Nothing changes before the second operator approves.
+  // The complete version, filed by A, approved by B, written by A.
+  const approvalId = await writeSeeding(page, browser, full);
   await page.reload();
-  await expect(room.locator(`[data-config][data-market="${SYMBOL}"][data-approval="${approvalId}"]`)).toHaveCount(0);
-
-  await approveAsB(browser, approvalId, payloadHash);
-  await room.getByRole('button', { name: 'Apply approved configuration' }).click();
-  await page.reload();
-  const current = room.locator(`[data-config][data-market="${SYMBOL}"]`);
+  const current = room.locator(`[data-config][data-market="${SEED_MARKET}"]`);
   await expect(current).toHaveAttribute('data-approval', approvalId);
-  await expect(current.locator('[data-col=levels]')).toHaveText('3');
+  await expect(current).toHaveAttribute('data-enabled', 'true');
+  await expect(current.locator('[data-col=half-spread]')).toHaveText('500 bps');
   await expect(current.locator('[data-col=step]')).toHaveText('50 bps');
+  await expect(current.locator('[data-col=levels]')).toHaveText('3');
+  await expect(current.locator('[data-col=qty]')).toHaveText('10');
+  await expect(current.locator('[data-col=mid]')).toHaveText(`Configured ${SEED_MID}`);
   await expect(current.locator('[data-col=source]')).toHaveText('Operator config');
-  run.write({ ...run.read(), seedApproval: approvalId, seedMid: mid });
+  run.write({ ...run.read(), seedApproval: approvalId });
 });
 
 test(`${J} #4 opens seeded liquidity: seeded orders flagged and the seeded share, "unknown" when nothing is open`, async ({ page }) => {
   test.setTimeout(240_000);
   await founderSignIn(page, 'a');
-  // The approved configuration (#5) places three levels a side on the house account, each marked as seeded.
-  await page.goto(`${ADMIN}/trade-ops/orders?market=${encodeURIComponent(SYMBOL)}`);
-  const seeded = page.locator('[data-order-row][data-origin="House seed"]');
-  await expect
-    .poll(
-      async () => {
-        await page.reload();
-        return seeded.count();
-      },
-      { timeout: 120_000 },
-    )
-    .toBe(6);
+  // The approved configuration (#5) places three levels a side on the house account; each is flagged as seeded.
+  let seen = { house: 0, customer: 0 };
+  await expect.poll(async () => (seen = await houseSeeds(page)).house, { timeout: 150_000 }).toBe(6);
+  expect(seen.customer).toBe(0);
 
+  // The seed market's open quantity is all seeded, so its share is 100%; it is quantity from the same flag.
   await page.goto(`${ADMIN}/trade-ops/markets`);
-  const row = page.locator(`[data-market-row="${SYMBOL}"]`);
-  // The seeded share is seeded quantity over all open quantity in that market, from the same flag.
-  const rows = await page.request.get(`${ADMIN}/api/trade-ops/orders?market=${encodeURIComponent(SYMBOL)}&status=open`);
-  const open = (await rows.json()).orders;
-  const total = open.reduce((n, o) => n + toUnits(o.amount), 0n);
-  const house = open.filter((o) => o.seeded).reduce((n, o) => n + toUnits(o.amount), 0n);
-  await expect(row.locator('[data-col=seeded]')).toHaveText(`${(house * 100n) / total}%`);
+  await expect(page.locator(`[data-col=seeded][data-market-symbol="${SEED_MARKET}"]`)).toHaveText('100%');
   // A market with nothing open reads "unknown", never 0%.
-  const empty = page.locator('[data-market-row][data-open-orders="0"]').first();
+  const empty = page.locator('[data-col=seeded][data-open-orders="0"]').first();
   await expect(empty).toBeVisible();
-  await expect(empty.locator('[data-col=seeded]')).toHaveText('unknown');
+  await expect(empty).toHaveText('unknown');
+});
+
+// The world the next journey file finds: the seed market switched off by the same two-person write, which cancels the
+// seed's orders and leaves its book as empty as it was.
+test.afterAll(async ({ browser }) => {
+  if (!run.read().seedApproval || run.read().seedOff) return;
+  test.setTimeout(300_000);
+  const page = await (await browser.newContext()).newPage();
+  await founderSignIn(page, 'a');
+  await writeSeeding(page, browser, { enabled: false });
+  await expect.poll(async () => (await houseSeeds(page)).house, { timeout: 150_000 }).toBe(0);
+  run.write({ ...run.read(), seedOff: true });
+  await page.context().close();
 });
 
 test(`${J} #6 opens the published trading rulebook: versioned rulebook text customers can read`, async ({ page, browser }) => {

@@ -19,7 +19,7 @@ import type { MatchingClient } from '../spot/matching-client.js';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import type { Market } from '../spot/types.js';
 import { createJobHost, type JobHost } from '../futures/job-host.js';
-import { acceptedMmMidPrice, type AcceptedMmMid } from './accepted-mid.js';
+import { AcceptedMmMid, acceptedMmMidPrice } from './accepted-mid.js';
 import { mmSeedJobsArmed } from './seed-honesty.js';
 import {
   cancelSeedMarket,
@@ -129,6 +129,37 @@ export interface MmSeedJobsDeps {
    * Present and false: this market stays unseeded. Default in the table is off.
    */
   operatorSeedAllows?: (marketId: string) => Promise<boolean>;
+  /**
+   * The operator-written seeding configuration, one row per market that has one (J-cex-spot-20 #5, RC-cex-spot-17). When it
+   * returns any row, those rows are the whole configuration and the environment's markets and values are not used; when it
+   * returns none, the environment is the bootstrap, as before. Absent: the environment only.
+   */
+  operatorConfigs?: () => Promise<readonly OperatorSeedTarget[]>;
+}
+
+/** One market's operator-written seed row, as the job reads it. */
+export interface OperatorSeedTarget extends MmSeedTarget {
+  readonly enabled: boolean;
+  /** The values to place from, or the first blank one (`mm.seed_unset`, nothing placed). */
+  readonly config:
+    | {
+        readonly ok: true;
+        readonly halfSpreadBps: number;
+        readonly stepBps: number;
+        readonly levels: number;
+        readonly qtyPerLevel: string;
+        readonly midSource: 'configured' | 'venue';
+        readonly configuredMid: string | null;
+      }
+    | { readonly ok: false; readonly unset: string };
+}
+
+/** The values one market is seeded with this tick. */
+interface SeedParams {
+  halfSpreadBps: number;
+  stepBps: number;
+  levels: number;
+  qtyPerLevel: string;
 }
 
 export interface MmSeedJobsHandle {
@@ -154,14 +185,10 @@ export function startMmSeedJobs(deps: MmSeedJobsDeps): MmSeedJobsHandle {
     Number.isInteger(deps.config.halfSpreadBps) &&
     deps.config.stepBps != null &&
     Number.isInteger(deps.config.stepBps);
-  if (
-    !mmSeedJobsArmed(deps.config.enabled, deps.config.targets.length) ||
-    !namedTargets ||
-    deps.config.intervalMs == null ||
-    !Number.isFinite(deps.config.intervalMs) ||
-    deps.config.intervalMs <= 0 ||
-    !seedBpsNamed
-  ) {
+  const envArmed = mmSeedJobsArmed(deps.config.enabled, deps.config.targets.length) && namedTargets && seedBpsNamed;
+  const intervalOk = deps.config.intervalMs != null && Number.isFinite(deps.config.intervalMs) && deps.config.intervalMs > 0;
+  // The operator path needs only a tick interval: its markets and values come from the approved rows, never the env.
+  if (!intervalOk || (!envArmed && !deps.operatorConfigs)) {
     return { host, stop: () => host.stopAll() };
   }
 
@@ -176,7 +203,112 @@ export function startMmSeedJobs(deps: MmSeedJobsDeps): MmSeedJobsHandle {
     });
   const persist = () => saveMmSeedLastRun(deps.statePath, lastRun);
 
-  host.every('mm.seed', deps.config.intervalMs, async () => {
+  /** Cancel a market's last seed run, if it left one. False when the cancel could not be confirmed. */
+  const cancelPrior = async (target: MmSeedTarget): Promise<boolean> => {
+    const prior = lastRun.get(target.marketId);
+    if (!prior) return true;
+    const cancelResult = await cancelSeedMarket(
+      { marketId: target.marketId, baseAsset: target.baseAsset, quoteAsset: target.quoteAsset, levels: prior.levels, runId: prior.runId },
+      { ledger: deps.ledger, matching: deps.matching },
+    );
+    deps.onCancelResult?.(target.marketId, cancelResult);
+    if (!cancelResult.ok) {
+      deps.onResult?.(target.marketId, { skipped: `prior_${cancelResult.reason}` });
+      return false;
+    }
+    lastRun.delete(target.marketId);
+    persist();
+    return true;
+  };
+
+  const seedOne = async (target: MmSeedTarget, params: SeedParams, midOf: () => Promise<AcceptedMmMid | null>) => {
+    // Only seed empty books — avoids re-submit/release race on live seed orders.
+    const depth = await deps.matching.depth(target.marketId, 1);
+    if (depth.bids.length > 0 || depth.asks.length > 0) {
+      deps.onResult?.(target.marketId, { skipped: 'book_not_empty' });
+      return;
+    }
+
+    const mid = acceptedMmMidPrice(await midOf());
+    if (mid == null) {
+      deps.onResult?.(target.marketId, { skipped: 'missing_mid' });
+      return;
+    }
+
+    // Catalog row required for assertTradable — no invent-active fallback.
+    const market = await deps.marketFor(target.marketId);
+    if (market == null) {
+      deps.onResult?.(target.marketId, { skipped: 'market_unknown' });
+      return;
+    }
+
+    // Cancel prior seed: engine may already be empty (fills/cancels);
+    // still release any leftover MM holds before a new runId draws again.
+    // Includes runs restored from TRADE_MM_SEED_STATE_PATH after restart.
+    if (!(await cancelPrior(target))) return;
+
+    const runId = runIdFor(target.marketId);
+    const result = await seedMarket(
+      {
+        marketId: target.marketId,
+        baseAsset: target.baseAsset,
+        quoteAsset: target.quoteAsset,
+        midPrice: mid,
+        halfSpreadBps: params.halfSpreadBps,
+        stepBps: params.stepBps,
+        levels: params.levels,
+        qtyPerLevel: params.qtyPerLevel,
+        runId,
+      },
+      {
+        ledger: deps.ledger,
+        matching: deps.matching,
+        market,
+        ...(deps.marketLifecycle && isFullMarket(market) ? { marketLifecycle: deps.marketLifecycle, lifecycleMarket: market } : {}),
+        now: deps.now,
+        futuresEnabled: deps.futuresEnabled,
+        recordSeededOrder: deps.recordSeededOrder,
+      },
+    );
+
+    // Track runs that may leave live orders or stranded holds for cancel path.
+    const trackable = result.placements.some(
+      (p) => p.status === 'resting' || p.status === 'submit_indeterminate' || p.status === 'rejected' || p.status === 'manufactured_cross',
+    );
+    if (trackable) {
+      lastRun.set(target.marketId, { runId, levels: params.levels });
+      persist();
+    }
+
+    deps.onResult?.(target.marketId, result);
+  };
+
+  host.every('mm.seed', deps.config.intervalMs!, async () => {
+    const operator = deps.operatorConfigs ? await deps.operatorConfigs() : [];
+    if (operator.length > 0) {
+      // The approved rows are the whole configuration: a market switched off has its last run cancelled (stopping
+      // the seed is never slower than starting it), and a row with a blank value places nothing.
+      for (const row of operator) {
+        if (!row.enabled) {
+          if (await cancelPrior(row)) deps.onResult?.(row.marketId, { skipped: 'operator_seed_off' });
+          continue;
+        }
+        if (!row.config.ok) {
+          deps.onResult?.(row.marketId, { skipped: `mm.seed_unset:${row.config.unset}` });
+          continue;
+        }
+        const c = row.config;
+        await seedOne(row, c, async () =>
+          c.midSource === 'configured'
+            ? c.configuredMid
+              ? AcceptedMmMid.configured(c.configuredMid)
+              : null
+            : await deps.midSource(row.marketId),
+        );
+      }
+      return;
+    }
+    if (!envArmed) return;
     for (const target of deps.config.targets) {
       if (!target.marketId.trim() || !target.baseAsset.trim() || !target.quoteAsset.trim()) {
         deps.onResult?.(target.marketId, { skipped: 'invalid_target' });
@@ -186,86 +318,16 @@ export function startMmSeedJobs(deps: MmSeedJobsDeps): MmSeedJobsHandle {
         deps.onResult?.(target.marketId, { skipped: 'operator_seed_off' });
         continue;
       }
-
-      // Only seed empty books — avoids re-submit/release race on live seed orders.
-      const depth = await deps.matching.depth(target.marketId, 1);
-      if (depth.bids.length > 0 || depth.asks.length > 0) {
-        deps.onResult?.(target.marketId, { skipped: 'book_not_empty' });
-        continue;
-      }
-
-      const mid = acceptedMmMidPrice(await deps.midSource(target.marketId));
-      if (mid == null) {
-        deps.onResult?.(target.marketId, { skipped: 'missing_mid' });
-        continue;
-      }
-
-      // Catalog row required for assertTradable — no invent-active fallback.
-      const market = await deps.marketFor(target.marketId);
-      if (market == null) {
-        deps.onResult?.(target.marketId, { skipped: 'market_unknown' });
-        continue;
-      }
-
-      // Cancel prior seed: engine may already be empty (fills/cancels);
-      // still release any leftover MM holds before a new runId draws again.
-      // Includes runs restored from TRADE_MM_SEED_STATE_PATH after restart.
-      const prior = lastRun.get(target.marketId);
-      if (prior) {
-        const cancelResult = await cancelSeedMarket(
-          {
-            marketId: target.marketId,
-            baseAsset: target.baseAsset,
-            quoteAsset: target.quoteAsset,
-            levels: prior.levels,
-            runId: prior.runId,
-          },
-          { ledger: deps.ledger, matching: deps.matching },
-        );
-        deps.onCancelResult?.(target.marketId, cancelResult);
-        if (!cancelResult.ok) {
-          deps.onResult?.(target.marketId, { skipped: `prior_${cancelResult.reason}` });
-          continue;
-        }
-        lastRun.delete(target.marketId);
-        persist();
-      }
-
-      const runId = runIdFor(target.marketId);
-      const result = await seedMarket(
+      await seedOne(
+        target,
         {
-          marketId: target.marketId,
-          baseAsset: target.baseAsset,
-          quoteAsset: target.quoteAsset,
-          midPrice: mid,
-          halfSpreadBps: deps.config.halfSpreadBps,
-          stepBps: deps.config.stepBps,
+          halfSpreadBps: deps.config.halfSpreadBps!,
+          stepBps: deps.config.stepBps!,
           levels: deps.config.levels,
           qtyPerLevel: deps.config.qtyPerLevel,
-          runId,
         },
-        {
-          ledger: deps.ledger,
-          matching: deps.matching,
-          market,
-          ...(deps.marketLifecycle && isFullMarket(market) ? { marketLifecycle: deps.marketLifecycle, lifecycleMarket: market } : {}),
-          now: deps.now,
-          futuresEnabled: deps.futuresEnabled,
-          recordSeededOrder: deps.recordSeededOrder,
-        },
+        async () => await deps.midSource(target.marketId),
       );
-
-      // Track runs that may leave live orders or stranded holds for cancel path.
-      const trackable = result.placements.some(
-        (p) =>
-          p.status === 'resting' || p.status === 'submit_indeterminate' || p.status === 'rejected' || p.status === 'manufactured_cross',
-      );
-      if (trackable) {
-        lastRun.set(target.marketId, { runId, levels: deps.config.levels });
-        persist();
-      }
-
-      deps.onResult?.(target.marketId, result);
     }
   });
 

@@ -874,6 +874,115 @@ describe('trade operator procedures', () => {
     expect(await admin.seedEnabled(marketId)).toBe(true);
   });
 
+  it('writes the seeding configuration as a versioned two-person write; blanks refuse by name; a retry is the same write (J-cex-spot-20 #5)', async () => {
+    const full = {
+      enabled: true,
+      halfSpreadBps: '500',
+      stepBps: '50',
+      levels: '3',
+      qtyPerLevel: '10',
+      midSource: 'configured' as const,
+      configuredMid: '1',
+    };
+    const before = await admin.seedConfig.currentVersion(otherMarketId);
+    // A blank step refuses before any approval is looked at.
+    await expect(
+      admin.seedConfig.set(operatorWriter(), {
+        market: otherMarketId,
+        config: { ...full, stepBps: null },
+        expectedVersion: before,
+        approvalId: 'none',
+        clientRequestId: 'seedcfg-0',
+      }),
+    ).rejects.toMatchObject({ code: 'mm.seed_unset', message: expect.stringContaining('step') });
+    // No approval: refused, nothing written.
+    await expect(
+      admin.seedConfig.set(operatorWriter(), {
+        market: otherMarketId,
+        config: full,
+        expectedVersion: before,
+        approvalId: 'nope',
+        clientRequestId: 'seedcfg-1',
+      }),
+    ).rejects.toMatchObject({ code: 'approval_missing' });
+    expect(await admin.seedConfig.currentVersion(otherMarketId)).toBe(before);
+    // An approval for other values does not write these.
+    allow({
+      approvalId: 'seedcfg-other',
+      actionType: 'trade.mm_seed',
+      targetId: otherMarketId,
+      expectedVersion: before,
+      body: { actionType: 'trade.mm_seed', market: otherMarketId, expectedVersion: before, config: { ...full, levels: '4' } },
+    });
+    await expect(
+      admin.seedConfig.set(operatorWriter(), {
+        market: otherMarketId,
+        config: full,
+        expectedVersion: before,
+        approvalId: 'seedcfg-other',
+        clientRequestId: 'seedcfg-2',
+      }),
+    ).rejects.toBeTruthy();
+    expect(await admin.seedConfig.currentVersion(otherMarketId)).toBe(before);
+
+    allow({
+      approvalId: 'seedcfg-ok',
+      actionType: 'trade.mm_seed',
+      targetId: otherMarketId,
+      expectedVersion: before,
+      body: { actionType: 'trade.mm_seed', market: otherMarketId, expectedVersion: before, config: full },
+    });
+    const written = await admin.seedConfig.set(operatorWriter(), {
+      market: otherMarketId,
+      config: full,
+      expectedVersion: before,
+      approvalId: 'seedcfg-ok',
+      clientRequestId: 'seedcfg-3',
+    });
+    expect(written).toMatchObject({
+      ...full,
+      market: otherMarketId,
+      version: String(Number(before) + 1),
+      approvalId: 'seedcfg-ok',
+      approverId: APPROVER,
+    });
+    // The same request again answers the same write, and no second version appears.
+    const again = await admin.seedConfig.set(operatorWriter(), {
+      market: otherMarketId,
+      config: full,
+      expectedVersion: before,
+      approvalId: 'seedcfg-ok',
+      clientRequestId: 'seedcfg-3',
+    });
+    expect(again).toEqual(written);
+    expect(await admin.seedConfig.currentVersion(otherMarketId)).toBe(written.version);
+    const listed = (await admin.seedConfig.list(operator())).configs.find((c) => c.market === otherMarketId);
+    expect(listed).toMatchObject({ ...full, version: written.version });
+    // A proposal bound to the version before is stale once this one is written.
+    await expect(
+      admin.seedConfig.set(operatorWriter(), {
+        market: otherMarketId,
+        config: full,
+        expectedVersion: before,
+        approvalId: 'seedcfg-ok',
+        clientRequestId: 'seedcfg-4',
+      }),
+    ).rejects.toMatchObject({ code: 'mm.seed_stale' });
+    // The job reads it complete; a reader without write scope cannot write.
+    const { operatorSeedTargets } = await import('./seed-config.js');
+    const target = (await operatorSeedTargets(db.sql)).find((t) => t.marketId === otherMarketId);
+    expect(target).toMatchObject({ enabled: true, config: { ok: true, levels: 3, stepBps: 50, qtyPerLevel: '10', configuredMid: '1' } });
+    await expect(
+      admin.seedConfig.set(operator(), {
+        market: otherMarketId,
+        config: full,
+        expectedVersion: written.version,
+        approvalId: 'x',
+        clientRequestId: 'seedcfg-5',
+      }),
+    ).rejects.toBeInstanceOf(AuthError);
+  });
+
   it('reports a drifted order repair, refuses a sweep while its switch is off, and has no sweep status yet', async () => {
     expect(await admin.reconcileStatus(operator())).toEqual({ lastSweepAt: null, result: null });
     await fund(ALICE, '1000');
