@@ -1,3 +1,4 @@
+// hand-declared-ok: svc-bank declares the personalRequest answers inside its router and packages/contracts has no browser-safe schema for them
 import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../../shared/api';
 
