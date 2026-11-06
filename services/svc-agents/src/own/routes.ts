@@ -39,6 +39,9 @@ import {
   ownAgentUsageWindowSchema,
   ownAgentAcceptSchema,
   ownAgentAssistantSchema,
+  ownAgentReviewCheckSchema,
+  ownAgentReviewerSchema,
+  ownAgentReviewRowSchema,
   ownAgentDraftRequestSchema,
   ownAgentIdentitySchema,
   ownAgentIssuedTokenSchema,
@@ -86,6 +89,7 @@ import {
 import { assertOwnerActive, OwnIdentityStore, tokenLifetime } from './identity.js';
 import { draftTicketComment } from '../support-agent/comment-draft.js';
 import { assistantEngine, draftAgent, OwnerDecisionPending } from './assistant.js';
+import { OwnReviewerStore, reviewCall, reviewerEngine } from './reviewer.js';
 import { invokeSupportDataTool } from '../support-agent/data-tools.js';
 import type { SupportDeskPort } from '../support-agent/desk-port.js';
 import type { SupportTierLaw } from '../support-agent/tier-gate.js';
@@ -181,6 +185,16 @@ function approvalRefused(code: string): TRPCError['code'] | null {
   return ownerForbidden(code);
 }
 
+/** The person's own signed-in session: never an agent's token, an API key or a sub-account (assertPersonSetsLimits). */
+function isPersonSession(principal: Parameters<typeof assertPersonSetsLimits>[0]): boolean {
+  try {
+    assertPersonSetsLimits(principal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A closed request's typed refusal, as the agent's call reads it: the step ends there and the tool does not run. */
 function closedRequest(request: OwnApprovalRequestView): never {
   throw new TRPCError({ code: 'FORBIDDEN', message: request.refusalCode ?? 'agents.approval.decided' });
@@ -245,6 +259,8 @@ export interface OwnToolDeps {
   readonly assistantModel?: string | null;
   /** How long a held call waits for the person, in seconds (AG-approvals-01); blank refuses agents.approval.ttl_unset. */
   readonly approvalTtlSeconds?: number | null;
+  /** The owner's model for the automatic reviewer (AG-approvals-02); blank sends every call to the person. */
+  readonly reviewerModel?: string | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
@@ -283,6 +299,75 @@ export function ownRouter(
   templates: readonly OwnTemplate[] = OWN_TEMPLATE_IDS,
   tooling: OwnToolDeps = NO_TOOL_DEPS,
 ) {
+  /**
+   * Approves a held request and runs it once, as the person's approval or the reviewer's proceed (`by`). Before anything
+   * is decided it checks the tool's door and input, reads the owner's account from identity, and runs the call's gates
+   * again; one caller runs it at a time and approving again returns the first result.
+   */
+  async function decideAndRun(
+    ctx: { principal: { userId: string } } & Parameters<typeof forwardedPrincipalHeaders>[0],
+    stored: OwnApprovalRequestView & { agentId: string },
+    by: 'person' | 'reviewer',
+  ): Promise<{ request: OwnApprovalRequestView; repeated: boolean }> {
+    const { runtime } = runDepsOf(run);
+    const owner = ctx.principal.userId;
+    const requests = new OwnApprovalRequestStore(sqlOf(sql));
+    // The door and its input first: a call that could never run is refused before anything is decided.
+    const desk = tooling.supportDesk ?? null;
+    if (!OWN_APPROVAL_DOORS.has(stored.tool) || !desk?.commentTicket) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.tool_not_wired' });
+    }
+    const draft = draftTicketComment({ ticketId: stored.input.ticketId, body: stored.input.body });
+    if (draft.status === 'refuse') throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${draft.reason}` });
+    // Fails closed: the owner's account must read active from identity before anything is approved or run.
+    await guard(() => assertOwnerActive(owner, tooling.accounts ?? null), approvalRefused);
+    const { agent, session } = await ownedOwnSession(sql, runtime, owner, stored.agentId, stored.sessionId);
+    // The call's gates as they stand now: a consent withdrawn, a tool taken off the agent, a baseline left blank or
+    // a rule that now hands the step off refuses, as the same call made now would be refused.
+    await guard(() =>
+      gateToolCall(sqlOf(sql), tooling.baseline, { ownerId: owner, agentId: agent.id, agentTools: agent.tools, tool: stored.tool }),
+    );
+    // The session's own guardrail, as for any call: open, inside its action limit, the tool declared in it.
+    const decision = evaluateToolCall(session.guardrail, await runtime.stateOf(session), { tool: stored.tool, approved: true });
+    if (!decision.allowed) throw new TRPCError({ code: 'FORBIDDEN', message: decision.code });
+    const { call, alreadyApproved } = await guard(() => requests.approve(owner, stored.id, by), approvalRefused);
+    if (alreadyApproved && call.request.ranAt !== null) return { request: call.request, repeated: true };
+    // One runner: a second approve while the first is running is refused, never a second run.
+    if (!(await requests.claimRun(owner, call.request.id))) {
+      throw new TRPCError({ code: 'CONFLICT', message: 'agents.approval.running' });
+    }
+    try {
+      const acted = await runtime.act({
+        sessionId: session.id,
+        tool: call.request.tool,
+        approved: true,
+        execute: async () => {
+          // The request's own key: a second run after a lost answer is the desk's first comment, never another.
+          const sent = await desk.commentTicket!(
+            { ticketId: draft.ticketId, body: draft.body, clientRequestId: `agents:approve:${call.request.id}` },
+            forwardedPrincipalHeaders(ctx),
+          );
+          if (sent.status === 'missing') throw new DoorRefusal('ticket_missing');
+          if (sent.status === 'refused') throw new DoorRefusal(sent.code);
+          if (sent.status === 'unreachable') throw new DoorRefusal('desk_unreachable');
+          return { tool: call.request.tool, ticketId: sent.comment.ticketId, commentId: sent.comment.id, commented: 'yes' };
+        },
+      });
+      const request = await requests.recordResult(owner, call.request.id, acted.result);
+      return { request, repeated: false };
+    } catch (err) {
+      if (err instanceof DoorRefusal && PERMANENT_DOOR_REFUSALS.has(err.reason)) {
+        // Refused for good: the request ends failed with the door's code, which the agent's call reads.
+        await requests.fail(owner, call.request.id, `agents.tool_refused.${err.reason}`);
+      } else {
+        // Not reached, or the runtime refused: the request keeps its approval and approving again retries it.
+        await requests.releaseRun(owner, call.request.id);
+      }
+      if (err instanceof DoorRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${err.reason}` });
+      return runError(err);
+    }
+  }
+
   return router({
     /** The templates and the tools a draft may be given, with the ones that move money marked so they can be refused. */
     catalogue: scopedProcedure('agents:read', { module: 'agents' })
@@ -613,6 +698,71 @@ export function ownRouter(
         return guard(() => new OwnApprovalRequestStore(sqlOf(sql)).inbox(ctx.principal.userId, input.limit));
       }),
 
+    /**
+     * The automatic reviewer's switch for this agent (AG-approvals-02; J-agents-05 #7). Only the person's own signed-in
+     * session reads or sets it, never an agent's token: an agent can never change who decides its calls. `engine` null:
+     * the owner has not chosen the reviewer's model, and every call goes to the person (`owner.decision`).
+     */
+    reviewer: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentReviewerSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnReviewerStore(sqlOf(sql)).setting(ctx.principal.userId, agent.id, reviewerEngine(tooling.reviewerModel));
+          });
+        }),
+      set: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ on: z.boolean() }))
+        .output(ownAgentReviewerSchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnReviewerStore(sqlOf(sql)).set(ctx.principal.userId, agent.id, input.on, reviewerEngine(tooling.reviewerModel));
+          });
+        }),
+    }),
+
+    review: router({
+      /** The reviewer's decisions on this agent's calls, newest first, each with its coded reason and input digest. */
+      list: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+        .output(z.array(ownAgentReviewRowSchema))
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnReviewerStore(sqlOf(sql)).list(ctx.principal.userId, agent.id, input.limit);
+          });
+        }),
+      /**
+       * What the reviewer would decide for one call of a catalogue tool, without running it or storing anything. A tool
+       * that can move value goes to the person and the reviewer is not asked.
+       */
+      check: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(
+          idInput.extend({
+            tool: z.string().min(1).max(120),
+            input: z.record(z.string().max(64), z.string().max(4000)).refine((args) => Object.keys(args).length <= 8),
+          }),
+        )
+        .output(ownAgentReviewCheckSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            await storeOf(sql).get(ctx.principal.userId, input.id);
+            if (!OWN_TOOLS.some((tool) => tool.name === input.tool)) {
+              throw new OwnAgentRefusal('agents.tool_not_declared', { tool: input.tool });
+            }
+            const engine = reviewerEngine(tooling.reviewerModel);
+            return { tool: input.tool, engine, review: reviewCall(engine, { tool: input.tool, input: input.input }) };
+          });
+        }),
+    }),
+
     /** The calls of this agent's tools that a rule held for the person, newest first. None of them has run. */
     approvals: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
@@ -642,66 +792,12 @@ export function ownRouter(
           // Only the person's own signed-in session decides: never an agent's token, an API key or a sub-account, so an
           // agent can never approve the call its rule held for the person.
           assertPersonSetsLimits(ctx.principal);
-          const { runtime } = runDepsOf(run);
           const owner = ctx.principal.userId;
           const requests = new OwnApprovalRequestStore(sqlOf(sql));
           const stored = await guard(() => requests.get(owner, input.requestId), approvalRefused);
           if (stored.status === 'approved' && stored.ranAt !== null) return { request: stored, repeated: true };
           if (stored.refusalCode) closedRequest(stored);
-          // The door and its input first: a call that could never run is refused before anything is decided.
-          const desk = tooling.supportDesk ?? null;
-          if (!OWN_APPROVAL_DOORS.has(stored.tool) || !desk?.commentTicket) {
-            throw new TRPCError({ code: 'BAD_REQUEST', message: 'agents.tool_not_wired' });
-          }
-          const draft = draftTicketComment({ ticketId: stored.input.ticketId, body: stored.input.body });
-          if (draft.status === 'refuse') throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${draft.reason}` });
-          // Fails closed: the owner's account must read active from identity before anything is approved or run.
-          await guard(() => assertOwnerActive(owner, tooling.accounts ?? null), approvalRefused);
-          const { agent, session } = await ownedOwnSession(sql, runtime, owner, stored.agentId, stored.sessionId);
-          // The call's gates as they stand now: a consent withdrawn, a tool taken off the agent, a baseline left blank or
-          // a rule that now hands the step off refuses, as the same call made now would be refused.
-          await guard(() =>
-            gateToolCall(sqlOf(sql), tooling.baseline, { ownerId: owner, agentId: agent.id, agentTools: agent.tools, tool: stored.tool }),
-          );
-          // The session's own guardrail, as for any call: open, inside its action limit, the tool declared in it.
-          const decision = evaluateToolCall(session.guardrail, await runtime.stateOf(session), { tool: stored.tool, approved: true });
-          if (!decision.allowed) throw new TRPCError({ code: 'FORBIDDEN', message: decision.code });
-          const { call, alreadyApproved } = await guard(() => requests.approve(owner, stored.id), approvalRefused);
-          if (alreadyApproved && call.request.ranAt !== null) return { request: call.request, repeated: true };
-          // One runner: a second approve while the first is running is refused, never a second run.
-          if (!(await requests.claimRun(owner, call.request.id))) {
-            throw new TRPCError({ code: 'CONFLICT', message: 'agents.approval.running' });
-          }
-          try {
-            const acted = await runtime.act({
-              sessionId: session.id,
-              tool: call.request.tool,
-              approved: true,
-              execute: async () => {
-                // The request's own key: a second run after a lost answer is the desk's first comment, never another.
-                const sent = await desk.commentTicket!(
-                  { ticketId: draft.ticketId, body: draft.body, clientRequestId: `agents:approve:${call.request.id}` },
-                  forwardedPrincipalHeaders(ctx),
-                );
-                if (sent.status === 'missing') throw new DoorRefusal('ticket_missing');
-                if (sent.status === 'refused') throw new DoorRefusal(sent.code);
-                if (sent.status === 'unreachable') throw new DoorRefusal('desk_unreachable');
-                return { tool: call.request.tool, ticketId: sent.comment.ticketId, commentId: sent.comment.id, commented: 'yes' };
-              },
-            });
-            const request = await requests.recordResult(owner, call.request.id, acted.result);
-            return { request, repeated: false };
-          } catch (err) {
-            if (err instanceof DoorRefusal && PERMANENT_DOOR_REFUSALS.has(err.reason)) {
-              // Refused for good: the request ends failed with the door's code, which the agent's call reads.
-              await requests.fail(owner, call.request.id, `agents.tool_refused.${err.reason}`);
-            } else {
-              // Not reached, or the runtime refused: the request keeps its approval and approving again retries it.
-              await requests.releaseRun(owner, call.request.id);
-            }
-            if (err instanceof DoorRefusal) throw new TRPCError({ code: 'BAD_REQUEST', message: `agents.tool_refused.${err.reason}` });
-            return runError(err);
-          }
+          return decideAndRun(ctx, stored, 'person');
         }),
 
       edit: scopedProcedure('agents:read', { module: 'agents', person: true })
@@ -905,8 +1001,20 @@ export function ownRouter(
             if (latest.status === 'approved' && latest.ranAt !== null) {
               return { outcome: 'ran' as const, tool: input.tool, dataClass: held.dataClass, result: latest.result };
             }
+            // A call the reviewer approved whose run did not finish (the desk was not reached) is run again on the
+            // request's own key, as the person's approving again would: nobody else is told to decide it.
+            if (latest.status === 'approved' && latest.decidedBy === 'reviewer' && isPersonSession(ctx.principal)) {
+              const ran = await decideAndRun(ctx, { ...latest, agentId: agent.id }, 'reviewer');
+              return { outcome: 'ran' as const, tool: input.tool, dataClass: held.dataClass, result: ran.request.result };
+            }
             return { outcome: 'waiting' as const, tool: input.tool, dataClass: held.dataClass, request: latest };
           }
+          // The reviewer's stored decision on this call stands whatever the gates say now: a refused call stays
+          // refused on every retry, and is never reviewed again.
+          const reviewer = new OwnReviewerStore(sqlOf(sql));
+          const call = { tool: input.tool, input: input.input };
+          const storedReview = await guard(() => reviewer.find(ctx.principal.userId, session.id, input.requestId, call));
+          if (storedReview?.decision === 'refuse') throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.review_refused' });
           const gate = await guard(() =>
             gateToolCall(sqlOf(sql), tooling.baseline, {
               ownerId: ctx.principal.userId,
@@ -921,6 +1029,35 @@ export function ownRouter(
             const decision = evaluateToolCall(session.guardrail, await runtime.stateOf(session), { tool: input.tool, approved: true });
             if (!decision.allowed) throw new TRPCError({ code: 'FORBIDDEN', message: decision.code });
             const ttlSeconds = await guard(async () => approvalTtl(tooling.approvalTtlSeconds), approvalRefused);
+            // The automatic reviewer, when the person turned it on for this agent (AG-approvals-02): it decides in the
+            // person's place, and can only add friction. Its decision is stored once per call before anything else, so
+            // a retry reads it and is never reviewed again.
+            const engine = reviewerEngine(tooling.reviewerModel);
+            const review = await guard(async () => {
+              if (storedReview) return storedReview;
+              if (!(await reviewer.setting(ctx.principal.userId, agent.id, engine)).on) return null;
+              let decided = reviewCall(engine, call);
+              // A proceed runs the call only where it can run as the person's approval would: on the person's own
+              // signed-in session and through a wired approval door. Anywhere else the call goes to the person.
+              if (decided.decision === 'proceed' && !isPersonSession(ctx.principal)) {
+                decided = { ...decided, decision: 'needs_person', reasonCode: 'agents.review.not_person_session' };
+              } else if (decided.decision === 'proceed' && (!OWN_APPROVAL_DOORS.has(input.tool) || !tooling.supportDesk?.commentTicket)) {
+                decided = { ...decided, decision: 'needs_person', reasonCode: 'agents.review.door_not_wired' };
+              }
+              return reviewer.record({
+                ownerId: ctx.principal.userId,
+                agentId: agent.id,
+                sessionId: session.id,
+                requestId: input.requestId,
+                tool: input.tool,
+                args: input.input,
+                review: decided,
+                engine,
+              });
+            });
+            // Refused: the step ends with the reviewer's typed refusal, no request is made and nothing runs.
+            if (review?.decision === 'refuse') throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.review_refused' });
+            const proceed = review?.decision === 'proceed';
             const request = await guard(() =>
               requests.hold({
                 ttlSeconds,
@@ -931,8 +1068,25 @@ export function ownRouter(
                 tool: input.tool,
                 args: input.input,
                 ruleId: gate.ruleId,
+                notifyPerson: !proceed,
               }),
             );
+            if (review) await reviewer.link(ctx.principal.userId, review.id, request.id);
+            if (proceed) {
+              // The reviewer's proceed runs the call once, exactly as the person's approval would, on the request's key.
+              try {
+                const ran = await decideAndRun(ctx, { ...request, agentId: agent.id }, 'reviewer');
+                return { outcome: 'ran' as const, tool: input.tool, dataClass: gate.dataClass, result: ran.request.result };
+              } catch (err) {
+                // Refused before it was approved (the owner's account, the session's guardrail): the call goes to the
+                // person after all, and they are told. Approved but not run: a retry runs it again on the same key.
+                const now = await requests.get(ctx.principal.userId, request.id);
+                if (now.status !== 'waiting') throw err;
+                await requests.announceAgain(ctx.principal.userId, request.id);
+                await runtime.publishApprovalRequests({ ownerId: ctx.principal.userId, requestId: request.id }).catch(() => undefined);
+                return { outcome: 'waiting' as const, tool: input.tool, dataClass: gate.dataClass, request: now };
+              }
+            }
             // The person is told after the request's commit; a bus fault here never fails the call (the sweep sends it).
             await runtime.publishApprovalRequests({ ownerId: ctx.principal.userId, requestId: request.id }).catch(() => undefined);
             return { outcome: 'waiting' as const, tool: input.tool, dataClass: gate.dataClass, request };

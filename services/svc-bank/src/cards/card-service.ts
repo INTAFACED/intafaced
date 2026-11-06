@@ -27,6 +27,8 @@ import {
   type ConversionQuote,
 } from './conversion.js';
 import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
+import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates } from './card-programme.js';
+import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
 
 /**
  * CARDS (§8.1) — the LEDGER half: authorise, hold, capture, reverse, cash back.
@@ -216,6 +218,23 @@ export interface CardRecord {
    * the owner cannot lift). Null when the card is not frozen by a recorded actor.
    */
   frozenBy: 'owner' | 'holder' | 'operator' | null;
+  /**
+   * When the person activated the card (BK-cissue-04). NULL is a card that has not been activated: a physical card ordered
+   * through `cards.order`, or a replacement. It declines every authorisation `bank.card_not_active` until it is.
+   * Omitted (a row from before activation existed, or a fake) reads as activated.
+   */
+  activatedAt?: Date | null;
+  /** POLICY: captured payments a virtual card takes before it closes itself (single-use is 1). NULL is no limit. */
+  usesAllowed?: number | null;
+  /** The owner's design and delivery speed a physical card was ordered with, and the country the person lives in. */
+  designId?: string | null;
+  deliverySpeed?: string | null;
+  residenceCountry?: string | null;
+}
+
+/** True when the card has not been activated yet (BK-cissue-04). */
+export function cardInactive(card: Pick<CardRecord, 'activatedAt'>): boolean {
+  return card.activatedAt === null;
 }
 
 export interface CardShippingAddress {
@@ -360,6 +379,17 @@ export interface CardServiceOptions {
    */
   readonly onCaptureSettled?: CaptureSettledHook;
   /**
+   * The owner's card programme terms (`BANK_CARD_PROGRAMME_JSON`, BK-cissue-01): count limits checked on every issue when
+   * published. Absent, `issue` keeps its behaviour from before; the card room (`cards.order`) refuses without them.
+   */
+  readonly programmeTerms?: CardProgrammeTerms | null;
+  /**
+   * Cashback by rank card tier (RC-bank-02): the owner's rate table, identity's rank door, and whether the card simulator
+   * pays (the TEST stand-in, `BANK_CARD_SIM_CASHBACK=test`, refused at boot outside dev/test). Absent: no tier rate, no
+   * simulator cashback, exactly as before.
+   */
+  readonly cashback?: { readonly rates?: CashbackRates | null; readonly rankTier?: RankTierPort; readonly simulatorPays?: boolean };
+  /**
    * After a card's status really changes, in the same transaction as the card's row: a shared pot's log names who did
    * it (BK-acct-09). Throwing rolls the row back. Absent = nothing else is told.
    */
@@ -386,6 +416,10 @@ export class CardService {
   private readonly moduleEnabled: boolean;
   private readonly onCaptureSettled: CaptureSettledHook | null;
   private readonly onStatusChanged: CardStatusHook | null;
+  private readonly programmeTerms: CardProgrammeTerms | null;
+  private readonly cashbackRates: CashbackRates | null;
+  private readonly rankTier: RankTierPort;
+  private readonly simulatorPays: boolean;
 
   constructor(
     private readonly sql: Sql,
@@ -399,6 +433,33 @@ export class CardService {
     this.moduleEnabled = options.moduleEnabled !== false;
     this.onCaptureSettled = options.onCaptureSettled ?? null;
     this.onStatusChanged = options.onStatusChanged ?? null;
+    this.programmeTerms = options.programmeTerms ?? null;
+    this.cashbackRates = options.cashback?.rates ?? null;
+    this.rankTier = options.cashback?.rankTier ?? unconfiguredRankTier();
+    this.simulatorPays = options.cashback?.simulatorPays === true;
+  }
+
+  /** The owner's published programme terms, or null (BK-cissue-01). */
+  terms(): CardProgrammeTerms | null {
+    return this.programmeTerms;
+  }
+
+  private async assertUnderCount(sql: Sql, userId: string, cardType: 'virtual' | 'physical', limit: number): Promise<void> {
+    const held = await this.heldCount(userId, cardType, sql);
+    if (held >= limit) {
+      throw new BankError(
+        `You already hold ${held} ${cardType} card${held === 1 ? '' : 's'}; the limit is ${limit}.`,
+        'bank.card_count_limit',
+      );
+    }
+  }
+
+  /** Active or frozen cards of one kind this person holds: what the count limit counts. A closed card is not held. */
+  async heldCount(userId: string, cardType: 'virtual' | 'physical', sql: Sql = this.sql): Promise<number> {
+    const [row] = await sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM bank.cards WHERE user_id = ${userId} AND card_type = ${cardType} AND status <> 'closed'
+    `;
+    return Number(row?.n ?? 0);
   }
 
   private assertModuleEnabled(): void {
@@ -496,9 +557,22 @@ export class CardService {
     /** Omitted means virtual. A physical card stores a delivery address and stays simulated on card-sim. */
     cardType?: 'virtual' | 'physical';
     shippingAddress?: CardShippingAddress;
+    /** False starts the card not activated (a physical card ordered through `cards.order`). Omitted is activated. */
+    activated?: boolean;
+    /** Single-use (1) or n-use: captured payments before the card closes itself. Virtual cards only. */
+    usesAllowed?: number | null;
+    designId?: string | null;
+    deliverySpeed?: string | null;
+    residenceCountry?: string | null;
   }): Promise<CardRecord> {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
+    if (input.usesAllowed != null && (!Number.isInteger(input.usesAllowed) || input.usesAllowed < 1)) {
+      throw new BankError('A use limit is a whole number of payments, at least one', 'bank.card_use_limit_invalid');
+    }
+    if (input.usesAllowed != null && (input.cardType ?? 'virtual') !== 'virtual') {
+      throw new BankError('Only a virtual card can be single-use or limited to a number of payments', 'bank.card_use_limit_invalid');
+    }
     if (input.perAuthorizationLimit <= 0n) {
       throw new BankError('A card needs a positive per-authorisation limit', 'bank.card_limit_exceeded');
     }
@@ -506,24 +580,38 @@ export class CardService {
     const cardType = input.cardType ?? 'virtual';
     const shipping = cardType === 'physical' ? requireShippingAddress(input.shippingAddress) : null;
     const settlementAssetId = input.settlementAssetId ?? input.assetId;
+    const limits = this.programmeTerms?.limits ?? null;
+    // The count limit is read before the issuer is asked, so a refused order makes no card at the issuer; it is read
+    // again under the person's lock below, where two orders at once are decided.
+    if (limits && !(await this.cardOrNull(input.cardId))) await this.assertUnderCount(this.sql, input.userId, cardType, limits[cardType]);
     const handle = await this.issuer.issue({ cardId: input.cardId, userId: input.userId, assetId: input.assetId });
     const programme = this.issuer.programme;
 
-    const rows = await this.sql<CardRow[]>`
-      INSERT INTO bank.cards (
-        id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, cashback_bps, per_authorization_limit,
-        card_type, shipping_address
-      )
-      VALUES (
-        ${input.cardId}, ${input.userId}, ${input.assetId}, ${settlementAssetId}, ${programme.id}, ${programme.simulated},
-        ${handle.issuerRef}, ${handle.panTail}, ${input.cashbackBps ?? 0},
-        ${formatAmount(input.perAuthorizationLimit)}::numeric,
-        ${cardType}, ${shipping === null ? null : JSON.stringify(shipping)}::jsonb
-      )
-      ON CONFLICT (issuer, issuer_ref) DO NOTHING
-      RETURNING id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by
+    const rows = await transaction(this.sql, async (tx) => {
+      // The count limit and the insert under one per-person lock, so two orders at once cannot both take the last place.
+      // A retried order of a card that already exists is that card, whatever the count says now.
+      await tx`SELECT pg_advisory_xact_lock(hashtext(${`card-count:${input.userId}`}))`;
+      if (limits) {
+        const already = await tx<Array<{ id: string }>>`SELECT id FROM bank.cards WHERE id = ${input.cardId}`;
+        if (already.length === 0) await this.assertUnderCount(tx, input.userId, cardType, limits[cardType]);
+      }
+      return tx<CardRow[]>`
+        INSERT INTO bank.cards (
+          id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, cashback_bps, per_authorization_limit,
+          card_type, shipping_address, activated_at, uses_allowed, design_id, delivery_speed, residence_country
+        )
+        VALUES (
+          ${input.cardId}, ${input.userId}, ${input.assetId}, ${settlementAssetId}, ${programme.id}, ${programme.simulated},
+          ${handle.issuerRef}, ${handle.panTail}, ${input.cashbackBps ?? 0},
+          ${formatAmount(input.perAuthorizationLimit)}::numeric,
+          ${cardType}, ${shipping === null ? null : JSON.stringify(shipping)}::jsonb,
+          ${input.activated === false ? null : this.clock()}, ${input.usesAllowed ?? null}, ${input.designId ?? null},
+          ${input.deliverySpeed ?? null}, ${input.residenceCountry ?? null}
+        )
+        ON CONFLICT (issuer, issuer_ref) DO NOTHING
+        RETURNING id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country
     `;
-
+    });
     // A redelivered issue is the same card, not a second one drawing on the same
     // balance. The unique index is what makes that true; this reads it back.
     const existing = rows[0] ?? (await this.cardByIssuerRef(programme.id, handle.issuerRef));
@@ -540,7 +628,7 @@ export class CardService {
 
   async card(cardId: string): Promise<CardRecord> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE id = ${cardId}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE id = ${cardId}
     `;
     const row = rows[0];
     if (!row) throw new BankError(`Card ${cardId} not found`, 'bank.card_not_found');
@@ -550,7 +638,7 @@ export class CardService {
   async cardsOf(userId: string, limit?: number): Promise<CardRecord[]> {
     const page = assertCardsListLimit(limit);
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
        LIMIT ${page}
     `;
     return rows.map(toCard);
@@ -621,7 +709,7 @@ export class CardService {
       if (raced) return this.replayOperatorCommand(raced, input.cardId, input.status, reason);
 
       const rows = await tx<CardRow[]>`
-        SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by
+        SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country
           FROM bank.cards WHERE id = ${input.cardId}
          FOR UPDATE
       `;
@@ -911,7 +999,7 @@ export class CardService {
       INSERT INTO bank.cards (
         id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, cashback_bps, per_authorization_limit,
         daily_limit, monthly_limit, cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad,
-        card_type, shipping_address, replaces_card_id
+        card_type, shipping_address, replaces_card_id, activated_at, uses_allowed, design_id, delivery_speed, residence_country
       )
       VALUES (
         ${input.replacementId}, ${card.userId}, ${card.assetId}, ${card.settlementAssetId}, ${programme.id}, ${programme.simulated},
@@ -922,7 +1010,8 @@ export class CardService {
         ${card.cashLimit === null ? null : formatAmount(card.cashLimit)}::numeric,
         ${card.online}, ${card.contactless}, ${card.atm}, ${card.abroad},
         ${card.cardType}, ${card.shippingAddress === null ? null : JSON.stringify(card.shippingAddress)}::jsonb,
-        ${card.id}
+        ${card.id}, ${card.cardType === 'physical' ? null : this.clock()}, ${card.usesAllowed ?? null}, ${card.designId ?? null}, ${card.deliverySpeed ?? null},
+        ${card.residenceCountry ?? null}
       )
       ON CONFLICT (id) DO NOTHING
     `;
@@ -1014,6 +1103,14 @@ export class CardService {
           decision: 'approved',
           declineCode: null,
         });
+        if (claimed.decision === 'declined') {
+          // The card's use limit was reached under its lock (or a redelivery found a decline): an answer, told once.
+          span.setAttribute('intafaced.card_decision', 'declined');
+          if (claimed.declineCode === 'bank.card_use_limit_reached') {
+            await this.tellIssuer(card, claimed, { decision: 'declined', reason: claimed.declineCode });
+          }
+          return claimed;
+        }
         const finished = await this.commitHold(card, claimed, input.amount);
         if (finished.decision === 'declined') return finished;
 
@@ -1113,7 +1210,7 @@ export class CardService {
    * not one of the four switches.
    */
   private async declineReason(card: CardRecord, fundingAmount: Amount, channel: CardChannel): Promise<string | null> {
-    if (card.status !== 'active') return 'bank.card_not_active';
+    if (card.status !== 'active' || cardInactive(card)) return 'bank.card_not_active';
     // THE CEILING IS IN THE FUNDING ASSET, and it is checked against the
     // CONVERTED amount. A limit denominated in the asset the card draws on is a
     // limit on what may leave the user's balance, which is the thing a ceiling
@@ -1313,6 +1410,7 @@ export class CardService {
         // this platform holds no pot for.
         const cashback = await this.payCashback(card, authorization, capturedFunding);
         const roundUp = await this.applyRoundUp(card, authorization, capturedFunding);
+        await this.closeWhenUsedUp(card);
 
         return {
           authorizationId: authorization.id,
@@ -1470,6 +1568,9 @@ export class CardService {
     // This does not insert a capture: the settlement loop above only re-drives
     // rows that already exist.
     await this.retryPendingCashback(card, authorization.id);
+    // A settled capture whose cashback was never claimed (the tier could not be read, or the tier had no rate then) is
+    // earned now, once, at the rate in force now: `payCashback` claims the row on the authorisation's key.
+    await this.earnMissingCashback(card, authorization);
 
     return {
       authorizationId: authorization.id,
@@ -1518,42 +1619,75 @@ export class CardService {
    */
   private rewardsIssuerConnected(card: CardRecord): boolean {
     const programme = this.issuer.programme;
+    // The test stack's stand-in (J-bank-13 #7): the simulator pays, from the same pot and recipe, only when the boot-guarded
+    // TEST switch is on and the card is the simulator's own. Never in production: the switch refuses to start there.
+    if (this.simulatorPays && programme.id === 'card-sim' && card.issuer === 'card-sim') return true;
     if (programme.simulated || card.simulated) return false;
     if (programme.id === 'none' || programme.id === 'card-sim') return false;
     if (card.issuer === 'none' || card.issuer === 'card-sim') return false;
     return card.issuer === programme.id;
   }
 
-  private async payCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
-    const amount = cashbackOn(captured, card.cashbackBps);
-    // Zero is not a refusal and not a payment. A card with no cashback rate, or
-    // a purchase too small to earn one atomic unit at that rate, earns nothing —
-    // and posting a zero-value transaction to say so would be noise in the book.
-    if (amount <= 0n) return { status: 'none', amount: 0n };
-
-    // No issuer is connected. Do not call rewardPay and do not write a cashback
-    // row — that row would be a rewards balance. The capture already stands.
-    if (!this.rewardsIssuerConnected(card)) {
-      return { status: 'refused', amount, reason: 'bank.rewards_issuer_unset' };
+  /**
+   * The rate this capture earns (RC-bank-02). An operator's per-card rate wins when one was set; otherwise the owner's
+   * rate for the person's rank card tier, on a card funded in the table's asset. Null means no rate applies (another
+   * asset, no table): nothing is earned. A tier with no published rate, or no tier read, refuses by name.
+   */
+  private async cashbackRate(card: CardRecord): Promise<{ bps: number } | { refused: string }> {
+    if (card.cashbackBps > 0) return { bps: card.cashbackBps };
+    const rates = this.cashbackRates;
+    if (!rates || rates.assetId !== card.assetId) return { bps: 0 };
+    let tier: CardTier;
+    try {
+      tier = await this.rankTier.cardTierOf(card.userId);
+    } catch (err) {
+      return { refused: err instanceof BankError ? err.code : 'bank.rank_unavailable' };
     }
+    const bps = rates.rates[tier];
+    return bps === undefined ? { refused: 'bank.cashback_rate_unset' } : { bps };
+  }
 
-    const claimed = await this.sql<
-      Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>
-    >`
-      INSERT INTO bank.card_cashback (authorization_id, rate_bps, amount)
-      VALUES (${authorization.id}, ${card.cashbackBps}, ${formatAmount(amount)}::numeric)
-      ON CONFLICT (authorization_id) DO NOTHING
-      RETURNING id, status, ledger_tx_id, amount::text AS amount, rejection_code
-    `;
-
-    const row =
-      claimed[0] ??
+  private async payCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
+    type CashbackRow = { id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null };
+    const readRow = async () =>
       (
-        await this.sql<Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>>`
+        await this.sql<CashbackRow[]>`
           SELECT id, status, ledger_tx_id, amount::text AS amount, rejection_code
             FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
         `
-      )[0]!;
+      )[0];
+
+    // A row already claimed for this authorisation is the decision: its amount, never a re-rate.
+    let row = await readRow();
+    if (!row) {
+      // No issuer pays (and no TEST stand-in): name that, before any call to identity for a tier that could not be paid.
+      if (!this.rewardsIssuerConnected(card)) {
+        const own = cashbackOn(captured, card.cashbackBps);
+        const tierApplies = card.cashbackBps === 0 && this.cashbackRates?.assetId === card.assetId;
+        if (own <= 0n && !tierApplies) return { status: 'none', amount: 0n };
+        return { status: 'refused', amount: own, reason: 'bank.rewards_issuer_unset' };
+      }
+      const rate = await this.cashbackRate(card);
+      if ('refused' in rate) return { status: 'refused', amount: 0n, reason: rate.refused };
+      const amount = cashbackOn(captured, rate.bps);
+      // Zero is not a refusal and not a payment. A card with no cashback rate, or
+      // a purchase too small to earn one atomic unit at that rate, earns nothing —
+      // and posting a zero-value transaction to say so would be noise in the book.
+      if (amount <= 0n) return { status: 'none', amount: 0n };
+
+      // No issuer is connected. Do not call rewardPay and do not write a cashback
+      // row — that row would be a rewards balance. The capture already stands.
+      if (!this.rewardsIssuerConnected(card)) {
+        return { status: 'refused', amount, reason: 'bank.rewards_issuer_unset' };
+      }
+
+      await this.sql`
+        INSERT INTO bank.card_cashback (authorization_id, rate_bps, amount)
+        VALUES (${authorization.id}, ${rate.bps}, ${formatAmount(amount)}::numeric)
+        ON CONFLICT (authorization_id) DO NOTHING
+      `;
+      row = (await readRow())!;
+    }
 
     // The row's amount, not a re-rate. A later change to the card's bps must
     // not post a different reward than the one this authorisation claimed.
@@ -1571,6 +1705,15 @@ export class CardService {
    * Does not insert a settlement and does not select `settled` or `rejected`.
    * The amount is the one stored on the row.
    */
+  private async earnMissingCashback(card: CardRecord, authorization: AuthorizationRecord): Promise<void> {
+    const [capture] = await this.sql<Array<{ amount: string }>>`
+      SELECT s.amount::text AS amount FROM bank.card_settlements s
+       WHERE s.authorization_id = ${authorization.id} AND s.sequence = 0 AND s.kind = 'capture' AND s.status = 'settled'
+         AND NOT EXISTS (SELECT 1 FROM bank.card_cashback cb WHERE cb.authorization_id = s.authorization_id)
+    `;
+    if (capture) await this.payCashback(card, authorization, parseAmount(capture.amount));
+  }
+
   private async retryPendingCashback(card: CardRecord, authorizationId: string): Promise<void> {
     const rows = await this.sql<Array<{ id: string; amount: string }>>`
       SELECT id, amount::text AS amount
@@ -1658,6 +1801,88 @@ export class CardService {
     return { ledgerTxId: posted.id };
   }
 
+  /**
+   * The person's cashback by rank card tier (RC-bank-02, J-bank-13 #7): their tier and its rate, every tier's rate, the
+   * asset it is paid in, what was paid on their spend (summed from settled reward records, each a ledger transaction) and
+   * what was earned and not paid (a short pot, or a post not yet through). Refuses `bank.cashback_rate_unset` with no
+   * table, `bank.rank_unavailable` with no tier. `paying` says whether this programme pays at all.
+   */
+  async cashbackSummary(userId: string): Promise<{
+    tier: CardTier;
+    rateBps: number | null;
+    assetId: string;
+    rates: Array<{ tier: CardTier; bps: number }>;
+    paid: Amount;
+    /** Earned and still being posted: a later pass pays it on the same key. */
+    unpaid: Amount;
+    /** Earned and refused because the pot was short (`bank.cashback_pot_unfunded`); not retried. */
+    refused: Amount;
+    payments: Array<{
+      authorizationId: string;
+      cardId: string;
+      amount: Amount;
+      status: string;
+      rejectionCode: string | null;
+      ledgerTxId: string | null;
+    }>;
+    paying: boolean;
+    simulated: boolean;
+  }> {
+    const rates = this.cashbackRates;
+    if (!rates) throw new BankError('The owner has not published cashback rates by card tier', 'bank.cashback_rate_unset');
+    const tier = await this.rankTier.cardTierOf(userId);
+    const programme = this.issuer.programme;
+    // The same rule a capture uses, asked of a card of this programme.
+    const paying = this.rewardsIssuerConnected({ issuer: programme.id, simulated: programme.simulated } as CardRecord);
+    const rows = await this.sql<
+      Array<{
+        authorization_id: string;
+        card_id: string;
+        amount: string;
+        status: string;
+        rejection_code: string | null;
+        ledger_tx_id: string | null;
+      }>
+    >`
+      SELECT cb.authorization_id, a.card_id, cb.amount::text AS amount, cb.status, cb.rejection_code, cb.ledger_tx_id
+        FROM bank.card_cashback cb
+        JOIN bank.card_authorizations a ON a.id = cb.authorization_id
+        JOIN bank.cards c ON c.id = a.card_id
+       WHERE c.user_id = ${userId} AND c.asset_id = ${rates.assetId}
+       ORDER BY cb.created_at DESC
+       LIMIT 50
+    `;
+    // The totals over every reward record, not the 50 listed.
+    const [totals] = await this.sql<Array<{ paid: string; unpaid: string; refused: string }>>`
+      SELECT COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'settled'), 0)::text AS paid,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'pending'), 0)::text AS unpaid,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'rejected'), 0)::text AS refused
+        FROM bank.card_cashback cb
+        JOIN bank.card_authorizations a ON a.id = cb.authorization_id
+        JOIN bank.cards c ON c.id = a.card_id
+       WHERE c.user_id = ${userId} AND c.asset_id = ${rates.assetId}
+    `;
+    return {
+      tier,
+      rateBps: rates.rates[tier] ?? null,
+      assetId: rates.assetId,
+      rates: CARD_TIERS.filter((t) => rates.rates[t] !== undefined).map((t) => ({ tier: t, bps: rates.rates[t]! })),
+      paid: parseAmount(totals?.paid ?? '0'),
+      unpaid: parseAmount(totals?.unpaid ?? '0'),
+      refused: parseAmount(totals?.refused ?? '0'),
+      payments: rows.map((r) => ({
+        authorizationId: r.authorization_id,
+        cardId: r.card_id,
+        amount: parseAmount(r.amount),
+        status: r.status,
+        rejectionCode: r.rejection_code,
+        ledgerTxId: r.ledger_tx_id,
+      })),
+      paying,
+      simulated: programme.simulated,
+    };
+  }
+
   /** What the pot can currently pay. A ledger read, like every other figure here. */
   async cashbackCapacity(assetId: string): Promise<Amount> {
     return (await this.ledger.balance(rewardsEngine(assetId))).amount;
@@ -1709,7 +1934,7 @@ export class CardService {
 
   private async cardByIssuerRef(issuer: string, issuerRef: string): Promise<CardRow | undefined> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE issuer = ${issuer} AND issuer_ref = ${issuerRef}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE issuer = ${issuer} AND issuer_ref = ${issuerRef}
     `;
     return rows[0];
   }
@@ -1813,12 +2038,35 @@ export class CardService {
     await transaction(
       this.sql,
       async (tx) => {
+        let decision = input.decision;
+        let declineCode = input.declineCode;
+        const usesAllowed = input.card.usesAllowed ?? null;
+        if (decision === 'approved' && usesAllowed !== null) {
+          // A SINGLE-USE OR N-USE CARD (BK-cissue-02). Under the card's row lock, every approval that has not been given
+          // back whole counts as a use: a captured payment, and a hold still open. So the last allowed use is held from
+          // the moment it is approved, and a second authorisation in flight declines rather than racing it.
+          await tx`SELECT id FROM bank.cards WHERE id = ${input.card.id} FOR UPDATE`;
+          const [used] = await tx<Array<{ n: number }>>`
+            SELECT count(*)::int AS n
+              FROM bank.card_authorizations a
+             WHERE a.card_id = ${input.card.id}
+               AND a.decision = 'approved'
+               AND NOT EXISTS (
+                 SELECT 1 FROM bank.card_settlements s
+                  WHERE s.authorization_id = a.id AND s.sequence = 0 AND s.kind = 'reversal' AND s.status = 'settled'
+               )
+          `;
+          if (Number(used?.n ?? 0) >= usesAllowed) {
+            decision = 'declined';
+            declineCode = 'bank.card_use_limit_reached';
+          }
+        }
         const claimed = await tx<Array<{ id: string }>>`
           INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, channel, decision, decline_code, status)
           VALUES (
             ${input.card.id}, ${input.input.authorizationRef}, ${formatAmount(input.fundingAmount)}::numeric,
-            ${input.input.merchantCategory ?? null}, ${input.input.channel}, ${input.decision}, ${input.declineCode},
-            ${input.decision === 'approved' ? 'pending' : 'rejected'}
+            ${input.input.merchantCategory ?? null}, ${input.input.channel}, ${decision}, ${declineCode},
+            ${decision === 'approved' ? 'pending' : 'rejected'}
           )
           ON CONFLICT (card_id, authorization_ref) DO NOTHING
           RETURNING id
@@ -2047,7 +2295,7 @@ export class CardService {
 
   private async cardOrNull(cardId: string): Promise<CardRecord | null> {
     const rows = await this.sql<CardRow[]>`
-      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by FROM bank.cards WHERE id = ${cardId}
+      SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE id = ${cardId}
     `;
     const row = rows[0];
     return row ? toCard(row) : null;
@@ -2139,11 +2387,87 @@ export class CardService {
     return parseAmount(rows[0]?.total ?? '0');
   }
 
+  /**
+   * A single-use or n-use card closes itself once its captured payments reach its limit (BK-cissue-02). Counted from the
+   * capture records, never stored, so a crash before this runs leaves nothing to double count: the next capture, or the
+   * use-limit decline on the next authorisation, holds the line, and a retry closes it once.
+   */
+  private async closeWhenUsedUp(card: CardRecord): Promise<void> {
+    if (card.usesAllowed == null) return;
+    if ((await this.usesMade(card.id)) < card.usesAllowed) return;
+    const current = await this.card(card.id);
+    if (current.status === 'closed') return;
+    await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'closed' });
+    await transaction(this.sql, async (tx) => {
+      const changed = await this.updateStatus(tx, current.id, tx`status = 'closed', frozen_by = NULL`, 'closed');
+      if (changed && this.onStatusChanged) {
+        await this.onStatusChanged(tx, {
+          cardId: current.id,
+          ownerUserId: current.userId,
+          actor: { userId: current.userId },
+          status: 'closed',
+        });
+      }
+    });
+  }
+
+  /** Captured payments on this card so far: what a single-use or n-use card has used. */
+  async usesMade(cardId: string): Promise<number> {
+    const [row] = await this.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n
+        FROM bank.card_settlements s
+        JOIN bank.card_authorizations a ON a.id = s.authorization_id
+       WHERE a.card_id = ${cardId} AND s.sequence = 0 AND s.kind = 'capture' AND s.status = 'settled'
+    `;
+    return Number(row?.n ?? 0);
+  }
+
+  /**
+   * Every hold still open on a card, given back whole (BK-cissue-04, a lost or stolen card): an approval with its hold
+   * posted and nothing settled on sequence 0 yet. Each goes through `reverse`, keyed on its authorisation, so a retried
+   * report reverses nothing twice.
+   */
+  private async reverseOpenHolds(card: CardRecord): Promise<void> {
+    const open = await this.sql<Array<{ authorization_ref: string }>>`
+      SELECT a.authorization_ref
+        FROM bank.card_authorizations a
+       WHERE a.card_id = ${card.id}
+         AND a.decision = 'approved'
+         AND a.hold_ledger_tx_id IS NOT NULL
+         -- Any sequence-0 row means a capture or reversal already claimed this hold: a capture in flight finishes on its
+         -- own key (or the recovery job re-drives it) and is never raced here.
+         AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.sequence = 0)
+       ORDER BY a.decided_at
+    `;
+    for (const row of open) await this.reverse({ cardId: card.id, authorizationRef: row.authorization_ref });
+  }
+
+  /** Activate a card that has not been activated (BK-cissue-04). Once is enough: activating again changes nothing. */
+  async activate(input: { cardId: string; userId: string }): Promise<CardRecord> {
+    this.assertModuleEnabled();
+    this.assertIssuerMayMutate();
+    const card = await this.ownedCard(input.cardId, input.userId);
+    if (!cardInactive(card)) return card;
+    if (card.status !== 'active') {
+      throw new BankError(
+        card.status === 'closed' ? 'A closed card cannot be activated' : 'Unfreeze this card before activating it',
+        'bank.card_not_active',
+      );
+    }
+    await this.sql`UPDATE bank.cards SET activated_at = ${this.clock()}, updated_at = now() WHERE id = ${card.id} AND activated_at IS NULL`;
+    return this.card(card.id);
+  }
+
   private async closeReplaced(card: CardRecord, replacementId: string, reason: CardReplaceReason): Promise<void> {
     const current = await this.card(card.id);
     if (current.replacedByCardId === replacementId && current.status === 'closed' && current.replaceReason === reason) return;
     if (current.replaceReason && current.replaceReason !== reason) {
       throw new BankError('This card was already replaced on different terms', 'bank.card_replace_conflict');
+    }
+    if (reason === 'lost' || reason === 'stolen') {
+      // Frozen first, so nothing new is approved on it, then every open hold back to the person, then closed.
+      if (current.status === 'active') await this.setStatus(current.id, 'frozen', current.userId);
+      await this.reverseOpenHolds(current);
     }
     await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'closed' });
     await transaction(this.sql, async (tx) => {
@@ -2207,6 +2531,11 @@ interface CardRow {
   replaced_by_card_id: string | null;
   replace_reason: string | null;
   frozen_by: string | null;
+  activated_at: Date | null;
+  uses_allowed: number | null;
+  design_id: string | null;
+  delivery_speed: string | null;
+  residence_country: string | null;
 }
 
 interface AuthorizationRow {
@@ -2261,6 +2590,11 @@ function toCard(row: CardRow): CardRecord {
     replaceReason:
       row.replace_reason === 'lost' || row.replace_reason === 'stolen' || row.replace_reason === 'damaged' ? row.replace_reason : null,
     frozenBy: row.frozen_by === 'owner' || row.frozen_by === 'holder' || row.frozen_by === 'operator' ? row.frozen_by : null,
+    activatedAt: row.activated_at ?? null,
+    usesAllowed: row.uses_allowed === null || row.uses_allowed === undefined ? null : Number(row.uses_allowed),
+    designId: row.design_id ?? null,
+    deliverySpeed: row.delivery_speed ?? null,
+    residenceCountry: row.residence_country ?? null,
   };
 }
 
@@ -2326,7 +2660,8 @@ function canonicalAddress(address: CardShippingAddress | null): string {
   return JSON.stringify(address);
 }
 
-function toAddress(value: unknown): CardShippingAddress | null {
+/** A stored delivery address, read back from its jsonb (an object, or the JSON text of one). */
+export function toAddress(value: unknown): CardShippingAddress | null {
   if (value == null) return null;
   const parsed = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
   if (!parsed || typeof parsed !== 'object') return null;

@@ -185,6 +185,16 @@
       "service": "bank",
       "value": "30",
       "note": "Made-up TEST period: a payment from someone not in the recipient's contacts, held for them to accept, waits 30 days before it goes back to the sender (J-pay-03 #5); not the owner rule. Nothing is held unless the person chooses to hold such payments."
+    },
+    "BANK_CARD_PROGRAMME_JSON": {
+      "service": "bank",
+      "value": "{\"network\": \"TEST network\", \"countries\": [\"DE\", \"FR\", \"NL\", \"ES\", \"IT\", \"AT\"], \"limits\": {\"virtual\": 3, \"physical\": 1}, \"terms\": {\"version\": \"local-test-1\", \"text\": \"TEST cardholder terms: a made-up text for the local test stack only. Not a contract, not an owner's terms.\"}, \"designs\": [{\"id\": \"classic\", \"name\": \"TEST Classic\"}, {\"id\": \"night\", \"name\": \"TEST Night\"}], \"speeds\": [{\"speed\": \"standard\", \"days\": 7}, {\"speed\": \"express\", \"days\": 2}], \"deliveryCountries\": [\"DE\", \"FR\", \"NL\", \"ES\", \"IT\", \"AT\"]}",
+      "note": "TEST card programme (J-bank-13): made-up eligible countries, a small count limit (3 virtual, 1 physical) so a journey can read it, TEST cardholder terms, two TEST designs and two TEST delivery speeds. Not an owner decision, not a network or an issuer."
+    },
+    "BANK_CARD_CASHBACK_RATES_JSON": {
+      "service": "bank",
+      "value": "{\"assetId\": \"IFC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
+      "note": "TEST cashback rates by rank card tier, paid in IFC on spend from an IFC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. Made up for the local test stack; not an owner decision."
     }
   }
 }

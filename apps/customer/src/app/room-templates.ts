@@ -90,6 +90,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/bank/loans/apply': { template: 'flow' },
   '/bank/loans/detail': { template: 'settings' },
   '/bank/cards': { template: 'settings' },
+  '/bank/cards/new': { template: 'flow' },
   '/bank/ramps': { template: 'settings' },
   '/bank/ramps/new': { template: 'flow' },
   '/bank/ramps/accounts': { template: 'settings' },
