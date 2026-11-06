@@ -511,8 +511,18 @@ function Unknown() {
   );
 }
 
-const TEST_VALUE_NAME = { decline: 'valueDecline', acquirer_outage: 'valueOutage', funds_held: 'valueFundsHeld' } as const;
-const TEST_VALUE_RESULT = { decline: 'resultDecline', acquirer_outage: 'resultOutage', funds_held: 'resultFundsHeld' } as const;
+const TEST_VALUE_NAME = {
+  decline: 'valueDecline',
+  acquirer_outage: 'valueOutage',
+  funds_held: 'valueFundsHeld',
+  unlisted_reason: 'valueUnlisted',
+} as const;
+const TEST_VALUE_RESULT = {
+  decline: 'resultDecline',
+  acquirer_outage: 'resultOutage',
+  funds_held: 'resultFundsHeld',
+  unlisted_reason: 'resultUnlisted',
+} as const;
 
 /**
  * /developers/sandbox/test-values: the card tokens that steer a sandbox payment (J-developer-02 #8), from the contract
