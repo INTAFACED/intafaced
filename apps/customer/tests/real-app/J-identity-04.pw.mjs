@@ -131,7 +131,7 @@ test(`${J} #2 a security change opens a step-up sheet; its approval is single us
   );
   await sheet.getByRole('button', { name: 'Use a passkey' }).click();
   await expect(sheet).toBeHidden();
-  await expect(page.getByTestId('security__ref').filter({ hasText: /^identity\\.step_up_used$/ })).toBeVisible();
+  await expect(page.getByTestId('security__ref').filter({ hasText: /^identity\.step_up_used$/ })).toBeVisible();
   await expect(refusal).not.toContainText('Outcome not confirmed');
   await page.unroute('**/api/identity/trpc/webauthn.registerOptions');
   await expect(rows).toHaveCount(2);
@@ -154,7 +154,7 @@ test(`${J} #2 a security change opens a step-up sheet; its approval is single us
   await sheet.getByRole('button', { name: 'Use a passkey' }).click();
   expect((await otherAction).ok()).toBe(true);
   await expect(sheet).toBeHidden();
-  await expect(page.getByTestId('security__ref').filter({ hasText: /^identity\\.step_up_target$/ })).toBeVisible();
+  await expect(page.getByTestId('security__ref').filter({ hasText: /^identity\.step_up_target$/ })).toBeVisible();
   await expect(refusal).not.toContainText('Outcome not confirmed');
   await page.unroute('**/api/identity/trpc/stepUp.begin');
   await expect(rows).toHaveCount(2);
@@ -174,7 +174,7 @@ test(`${J} #2 a security change opens a step-up sheet; its approval is single us
   await page.getByRole('button', { name: 'Start authenticator setup' }).click();
   await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
   await expect(refusal).toContainText('Confirm it is you');
-  await expect(page.getByTestId('security__ref').filter({ hasText: /^auth\\.mfa_required$/ })).toBeVisible();
+  await expect(page.getByTestId('security__ref').filter({ hasText: /^auth\.mfa_required$/ })).toBeVisible();
   await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
   await expect(sheet).toContainText('This changes how you sign in');
 });
