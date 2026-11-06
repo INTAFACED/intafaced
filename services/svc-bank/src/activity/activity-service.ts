@@ -102,7 +102,10 @@ export interface LedgerPageEntry {
 export interface LedgerPageRequest {
   readonly ownerType: 'user' | 'subaccount';
   readonly ownerId: string;
-  readonly kind: 'available';
+  /** The spendable account, or one lock account (PF-balances-01: the entries behind a lock). */
+  readonly kind: 'available' | 'hold' | 'escrow' | 'stake' | 'collateral';
+  /** The lock account's purpose (one claim); the ledger reads the account with this exact purpose, '' when left out. */
+  readonly purpose?: string;
   readonly assetId?: string;
   readonly limit: number;
   readonly cursor?: string;

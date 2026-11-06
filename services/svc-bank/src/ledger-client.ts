@@ -148,6 +148,7 @@ export function createLedgerHistoryPages(baseUrl: string, internalSecret: string
         ownerType: request.ownerType,
         ownerId: request.ownerId,
         kind: request.kind,
+        ...(request.purpose === undefined || request.purpose === '' ? {} : { purpose: request.purpose }),
         ...(request.assetId === undefined ? {} : { assetId: request.assetId }),
         limit: request.limit,
         ...(request.cursor === undefined ? {} : { cursor: request.cursor }),

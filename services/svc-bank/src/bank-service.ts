@@ -339,6 +339,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const portfolio = new PortfolioService(ledger, spaces, {
     ...(options.portfolio ?? {}),
     transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
+    txs: options.portfolio?.txs ?? ledger,
     assets: options.portfolio?.assets ?? options.assetRegistry ?? null,
   });
   const activityRecords = new ActivityRecordService(sql);

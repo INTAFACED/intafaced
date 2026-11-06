@@ -217,6 +217,8 @@ export interface PortfolioServiceOptions {
   tickers?: TickerSource;
   /** svc-ledger `historyPage`, read only. Unset = `balanceEntries` refuses `ActivityUnavailableError`. */
   pages?: LedgerHistoryPages;
+  /** svc-ledger `txById`, read only: each lock entry's business key. Unset = `lockEntries` refuses `ActivityUnavailableError`. */
+  txs?: Pick<LedgerClient, 'getTx'>;
   /** svc-ledger `holdingsHistory`, read only. Unset = `valueOverTime` refuses `bank.value_history_unavailable`. */
   history?: LedgerHoldingsHistoryReads;
   /** svc-trade's public candles. Unset = `valueOverTime` refuses `bank.prices_unavailable` once a coin needs a price. */
@@ -273,6 +275,35 @@ export interface BalanceEntriesPage {
   readonly sumCheck: { readonly ok: true; readonly entriesSum: string; readonly balance: string; readonly entryCount: number };
 }
 
+/** The lock kinds a balance can be split into (the ledger-client list): order holds, escrow, stake and collateral. */
+export const LOCK_ENTRY_KINDS = ['hold', 'escrow', 'stake', 'collateral'] as const;
+export type LockEntryKind = (typeof LOCK_ENTRY_KINDS)[number];
+
+/** One ledger entry behind a lock, with the claim it belongs to and the business key it was posted under. */
+export interface LockEntry {
+  readonly entryId: string | null;
+  /** The ledger transaction: the reference shared by every line it posted. */
+  readonly txId: string;
+  /** The transaction's idempotency key, a business key such as `order.hold:<orderId>`. */
+  readonly businessKey: string;
+  /** The claim the lock account holds for (its purpose: an order, an escrow, a position, a loan). */
+  readonly source: string;
+  readonly accountId: string;
+  readonly reason: string;
+  readonly direction: 'debit' | 'credit';
+  readonly amount: string;
+  readonly postedAt: string;
+}
+
+export interface LockEntriesPage {
+  readonly assetId: string;
+  readonly kind: LockEntryKind;
+  readonly entries: LockEntry[];
+  readonly nextCursor: string | null;
+  /** The signed sum of every entry behind the lock equals the lock's live balance, or the call refused. */
+  readonly sumCheck: { readonly ok: true; readonly entriesSum: string; readonly balance: string; readonly entryCount: number };
+}
+
 /** The slice of SpaceService the total needs: the user's named Spaces (live, plus archived ones that still hold value). */
 export interface SpaceLister {
   namedSpaces(userId: string): Promise<SpaceRecord[]>;
@@ -288,6 +319,7 @@ export class PortfolioService {
   private readonly assets: AssetRegistryReads | null;
   private readonly now: () => Date;
   private readonly transferFees: TransferFeeReads | undefined;
+  private readonly txs: Pick<LedgerClient, 'getTx'> | undefined;
 
   constructor(
     private readonly ledger: Pick<LedgerClient, 'balances'>,
@@ -296,6 +328,7 @@ export class PortfolioService {
   ) {
     this.tickers = options.tickers;
     this.pages = options.pages;
+    this.txs = options.txs;
     this.history = options.history;
     this.closes = options.closes;
     this.assets = options.assets ?? null;
@@ -490,6 +523,118 @@ export class PortfolioService {
       out.push({ assetId, total: formatAmount(total), available: formatAmount(available), locked });
     }
     return { assets: out };
+  }
+
+  /**
+   * Every ledger entry behind one lock of one asset, newest first (PF-balances-01, J-portfolio-16 #2): each lock account
+   * of that kind that holds something now (main and every named Space), read whole, each entry with the claim it belongs
+   * to and the business key its transaction was posted under. The signed sum of the entries is compared with the lock's
+   * live balance; a sum that differs refuses `portfolio.entries_do_not_sum` with the gap. A history too long to add up, or
+   * a ledger that cannot be read, gives no list and no partial check. Read only.
+   */
+  async lockEntries(
+    userId: string,
+    input: { assetId: string; kind: LockEntryKind; source?: string; cursor?: string; limit?: number },
+  ): Promise<LockEntriesPage> {
+    if (!this.pages || !this.txs) throw new ActivityUnavailableError();
+    const assetId = input.assetId.toUpperCase();
+    const limit = Math.min(Math.max(Math.trunc(input.limit ?? BALANCE_ENTRIES_DEFAULT_LIMIT), 1), BALANCE_ENTRIES_MAX_LIMIT);
+    if (input.cursor !== undefined && !/^\d{1,9}$/.test(input.cursor)) {
+      throw new BankError('That page marker is not valid', 'bank.activity_range');
+    }
+    const skip = input.cursor === undefined ? 0 : Number(input.cursor);
+
+    const owners: Array<{ accountId: string; ownerType: 'user' | 'subaccount'; ownerId: string }> = [
+      { accountId: 'main', ownerType: 'user', ownerId: userId },
+      ...(await this.namedOf(userId)).map((s) => ({ accountId: s.id, ownerType: 'subaccount' as const, ownerId: s.id })),
+    ];
+    const all: Array<LedgerPageEntry & { accountId: string; source: string }> = [];
+    let balance = 0n;
+    for (const owner of owners) {
+      const locks = (await this.ledger.balances(owner.ownerType, owner.ownerId)).filter(
+        (r) =>
+          r.account.kind === input.kind &&
+          r.account.assetId.toUpperCase() === assetId &&
+          r.amount !== 0n &&
+          (input.source === undefined || accountPurpose(r.account) === input.source),
+      );
+      for (const lock of locks) {
+        balance += lock.amount;
+        const source = accountPurpose(lock.account);
+        let cursor: string | undefined;
+        for (let page = 0; ; page += 1) {
+          if (page >= ENTRY_MAX_PAGES) throw new ActivityLookupBoundedError();
+          let got: Awaited<ReturnType<LedgerHistoryPages['page']>>;
+          try {
+            got = await this.pages.page({
+              ownerType: owner.ownerType,
+              ownerId: owner.ownerId,
+              kind: input.kind,
+              purpose: source,
+              assetId,
+              limit: ENTRY_PAGE,
+              ...(cursor === undefined ? {} : { cursor }),
+            });
+          } catch {
+            throw new ActivityUnavailableError();
+          }
+          for (const e of got.entries) {
+            if (e.assetId.toUpperCase() === assetId) all.push({ ...e, accountId: owner.accountId, source });
+          }
+          if (got.nextCursor === null) break;
+          cursor = got.nextCursor;
+        }
+      }
+    }
+
+    const entriesSum = all.reduce<Amount>((acc, e) => acc + (e.direction === 'debit' ? 1n : -1n) * parseAmount(e.amount), 0n);
+    if (entriesSum !== balance) {
+      const gap = entriesSum - balance;
+      throw new BankError(
+        `The entries add up to ${formatAmount(entriesSum)} ${assetId} but the ${input.kind} is ${formatAmount(balance)}, a gap of ${formatAmount(gap)}`,
+        'portfolio.entries_do_not_sum',
+      );
+    }
+    all.sort((a, b) => {
+      const t = b.postedAt.getTime() - a.postedAt.getTime();
+      if (t !== 0) return t;
+      const ea = a.entryId === undefined ? -1n : BigInt(a.entryId);
+      const eb = b.entryId === undefined ? -1n : BigInt(b.entryId);
+      if (ea !== eb) return ea < eb ? 1 : -1;
+      return a.txId < b.txId ? 1 : a.txId > b.txId ? -1 : 0;
+    });
+    const slice = all.slice(skip, skip + limit);
+    // The business key is the transaction's own idempotency key, read from the ledger for the shown page only. One that
+    // cannot be read refuses the page: an entry is never shown without the key it was posted under.
+    const keys = new Map<string, string>();
+    for (const txId of new Set(slice.map((e) => e.txId))) {
+      let tx: Awaited<ReturnType<LedgerClient['getTx']>>;
+      try {
+        tx = await this.txs.getTx(txId);
+      } catch {
+        throw new ActivityUnavailableError();
+      }
+      if (!tx) throw new ActivityUnavailableError();
+      keys.set(txId, tx.idempotencyKey);
+    }
+    const shown = skip + slice.length;
+    return {
+      assetId,
+      kind: input.kind,
+      entries: slice.map((e) => ({
+        entryId: e.entryId ?? null,
+        txId: e.txId,
+        businessKey: keys.get(e.txId)!,
+        source: e.source,
+        accountId: e.accountId,
+        reason: e.reason,
+        direction: e.direction,
+        amount: e.amount,
+        postedAt: e.postedAt.toISOString(),
+      })),
+      nextCursor: shown < all.length ? String(shown) : null,
+      sumCheck: { ok: true, entriesSum: formatAmount(entriesSum), balance: formatAmount(balance), entryCount: all.length },
+    };
   }
 
   /**
