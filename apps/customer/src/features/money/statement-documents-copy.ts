@@ -21,6 +21,7 @@ const en = {
   downloaded: 'Downloaded {name}.',
   notReady: 'That document is not ready yet.',
   notFound: 'That document is not yours or no longer exists.',
+  unfinished: 'A background export covers dates that have ended. End it today or earlier.',
 } as const;
 
 const es: Record<keyof typeof en, string> = {
@@ -44,6 +45,7 @@ const es: Record<keyof typeof en, string> = {
   downloaded: 'Descargado {name}.',
   notReady: 'Ese documento aún no está listo.',
   notFound: 'Ese documento no es tuyo o ya no existe.',
+  unfinished: 'Una exportación en segundo plano cubre fechas ya terminadas. Termínala hoy o antes.',
 };
 
 const fr: Record<keyof typeof en, string> = {
@@ -67,6 +69,7 @@ const fr: Record<keyof typeof en, string> = {
   downloaded: 'Téléchargé {name}.',
   notReady: 'Ce document n’est pas encore prêt.',
   notFound: 'Ce document n’est pas à vous ou n’existe plus.',
+  unfinished: 'Un export en arrière-plan couvre des dates terminées. Terminez-le aujourd’hui ou avant.',
 };
 
 export const statementDocumentsCopy = defineCopy('customer.money.statement-documents', en, { es, fr });

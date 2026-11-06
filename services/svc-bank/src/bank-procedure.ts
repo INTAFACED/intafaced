@@ -24,6 +24,7 @@ const STATUS: Partial<Record<BankErrorCode, TRPCError['code']>> = {
   'bank.statement_jobs_unset': 'SERVICE_UNAVAILABLE',
   'bank.statement_job_not_found': 'NOT_FOUND',
   'bank.statement_job_not_ready': 'PRECONDITION_FAILED',
+  'bank.statement_job_unfinished': 'BAD_REQUEST',
   'bank.activity_filter_name_invalid': 'BAD_REQUEST',
   'bank.activity_filter_empty': 'BAD_REQUEST',
   'bank.activity_filter_conflict': 'CONFLICT',

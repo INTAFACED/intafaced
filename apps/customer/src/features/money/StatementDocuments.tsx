@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, RefreshCw } from 'lucide-react';
 import { Button } from '../../shared/ui';
 import { useSession } from '../session/session';
@@ -7,6 +7,7 @@ import { decodeBase64, saveFile, shortFingerprint } from '../../screens/money/st
 import { statementFileSchema, statementJobsSchema, type StatementJob } from './contracts';
 import { statementCentreCopy } from './statement-centre-copy';
 import { statementDocumentsCopy } from './statement-documents-copy';
+import { refusedWords } from './statement-refusals';
 
 type Load =
   | { kind: 'loading' }
@@ -29,8 +30,12 @@ export function StatementDocuments({ version }: { version: number }) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [said, setSaid] = useState<{ words: string; code: string | null; ok: boolean } | null>(null);
 
+  // Reads can overlap (the watch, a new request, Refresh): only the latest one asked for may set the list.
+  const latest = useRef(0);
   const read = useCallback(async () => {
+    const asked = ++latest.current;
     const result = await api.query('bank', 'statements.jobs.list', undefined, statementJobsSchema);
+    if (asked !== latest.current) return;
     if (!result.ok) {
       const code = result.code ?? null;
       setLoad({ kind: 'failed', words: refusalCopy(code ?? result.reason).title, code });
@@ -109,7 +114,7 @@ export function StatementDocuments({ version }: { version: number }) {
                   <span data-testid="statement-document-state">{t(`state_${job.state}`)}</span>
                   {job.state === 'failed' && job.errorCode && (
                     <span className="money-caption" data-code={job.errorCode}>
-                      {refusalCopy(job.errorCode).title}
+                      {refusedWords(centre.t, job.errorCode, job.errorCode)}
                     </span>
                   )}
                   {job.attempts > 1 && job.state === 'ready' && (

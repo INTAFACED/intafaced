@@ -6,9 +6,10 @@ import { refusalCopy } from '../../data';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
 import { statementFileSchema, statementJobSchema } from './contracts';
 import { DepthPanel } from './DepthParts';
-import { dayIsOver, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
+import { dayIsOver, endedBy, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
 import { statementCentreCopy } from './statement-centre-copy';
 import { statementDocumentsCopy } from './statement-documents-copy';
+import { refusedWords } from './statement-refusals';
 import { StatementDocuments } from './StatementDocuments';
 import './bank-depth.css';
 
@@ -17,19 +18,6 @@ type Said =
   | { kind: 'asked' }
   | { kind: 'refused'; words: string; code: string | null }
   | null;
-
-/** The bank's typed statement refusals, each in words. */
-const REFUSAL_KEYS = {
-  'bank.statement_pdf_one_month': 'pdfOneMonth',
-  'bank.statement_range': 'range',
-  'bank.statement_too_large': 'tooLarge',
-  'bank.statement_unavailable': 'unavailable',
-  'bank.statement_balances_unavailable': 'balancesUnavailable',
-} as const;
-
-function refusedWords(t: (key: (typeof REFUSAL_KEYS)[keyof typeof REFUSAL_KEYS]) => string, code: string | null, reason: string) {
-  return code && code in REFUSAL_KEYS ? t(REFUSAL_KEYS[code as keyof typeof REFUSAL_KEYS]) : refusalCopy(code ?? reason).title;
-}
 
 /**
  * `/bank/statements` (PF-statements-01): the statement and export centre. One signed door, `bank.statements.export`,
@@ -106,13 +94,19 @@ export function StatementCentre() {
     const result = await api.mutate(
       'bank',
       'statements.jobs.create',
-      { from: range.from, to: range.to, format, report },
+      // A background export is of dates that have ended: a range running to the end of today stops now.
+      { from: range.from, to: endedBy(range.to, new Date()), format, report },
       statementJobSchema,
     );
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? null;
-      const words = code === 'bank.statement_jobs_unset' ? documents.t('off') : refusedWords(t, code, result.reason);
+      const words =
+        code === 'bank.statement_jobs_unset'
+          ? documents.t('off')
+          : code === 'bank.statement_job_unfinished'
+            ? documents.t('unfinished')
+            : refusedWords(t, code, result.reason);
       setSaid({ kind: 'refused', words, code });
       return;
     }

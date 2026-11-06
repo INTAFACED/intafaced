@@ -184,21 +184,89 @@ describe('bank.statements.jobs', () => {
     expect(touched.length).toBe(0);
   });
 
-  it('re-queues on an activity outage and only another person reads as not found', async () => {
+  it('re-queues on an activity outage after a wait, and only another person reads as not found', async () => {
     const state = { down: true };
-    const { jobs } = service(60_000, state);
+    const { jobs } = service(200, state);
     const who = fresh();
     const job = await jobs.create(who, { ...LONG, report: 'statement' });
     let made = await jobs.renderNext();
     while (made && made.id !== job.id) made = await jobs.renderNext();
     expect(made).toMatchObject({ id: job.id, state: 'queued', attempts: 1 });
     state.down = false;
+    // Not claimed again in the same breath: a brief outage cannot use every attempt at once.
+    expect((await jobs.renderNext())?.id).not.toBe(job.id);
+    await new Promise((resolve) => setTimeout(resolve, 250));
     made = await jobs.renderNext();
     while (made && made.id !== job.id) made = await jobs.renderNext();
     expect(made).toMatchObject({ id: job.id, state: 'ready', attempts: 2 });
     const stranger = fresh();
     await expect(jobs.download(stranger, job.id)).rejects.toMatchObject({ code: 'bank.statement_job_not_found' });
     expect(await jobs.list(stranger)).toEqual([]);
+  });
+
+  it('refuses a range that has not ended, so the same request is always the same document', async () => {
+    const { jobs } = service();
+    const now = new Date('2026-11-06T10:00:00.000Z');
+    await expect(
+      jobs.create(fresh(), { ...LONG, from: '2026-11-01T00:00:00.000Z', to: '2026-11-06T23:59:59.999Z' }, now),
+    ).rejects.toMatchObject({ code: 'bank.statement_job_unfinished' });
+  });
+
+  it('queues a failed request again when it is asked for again', async () => {
+    const { jobs } = service();
+    const who = fresh();
+    const job = await jobs.create(who, { ...LONG, report: 'trades', to: '2026-11-04T00:00:00.000Z' });
+    await db.sql`
+      UPDATE bank.statement_jobs SET state = 'failed', error_code = 'bank.statement_unavailable', finished_at = now(), attempts = 5
+       WHERE id = ${job.id}
+    `;
+    const again = await jobs.create(who, { ...LONG, report: 'trades', to: '2026-11-04T00:00:00.000Z' });
+    expect(again).toMatchObject({ id: job.id, state: 'queued', attempts: 0, errorCode: null });
+  });
+
+  it('marks failed a lapsed claim that has used every attempt, instead of claiming it again', async () => {
+    const { jobs } = service(50);
+    const who = fresh();
+    const job = await jobs.create(who, { ...LONG, report: 'trades', to: '2026-11-03T00:00:00.000Z' });
+    await db.sql`
+      UPDATE bank.statement_jobs SET state = 'rendering', attempts = 5, lease_until = now() - interval '1 second' WHERE id = ${job.id}
+    `;
+    let made = await jobs.renderNext();
+    while (made && made.id !== job.id) made = await jobs.renderNext();
+    expect(made).toBeNull();
+    expect((await jobs.list(who))[0]).toMatchObject({ id: job.id, state: 'failed', errorCode: 'bank.statement_unavailable' });
+  });
+
+  it('a background PDF is the direct download of the same request, byte for byte, as the dates were spelled', async () => {
+    const { jobs, statements } = service();
+    const who = fresh();
+    const request = { from: '2026-10-01T00:00:00Z', to: '2026-10-31T23:59:59Z', format: 'pdf' as const };
+    const asOf = new Date('2026-11-06T02:00:00.000Z');
+    const job = await jobs.create(who, request, asOf);
+    let made = await jobs.renderNext();
+    while (made && made.id !== job.id) made = await jobs.renderNext();
+    expect(made).toMatchObject({ state: 'ready' });
+    const direct = await statements.export(who, { ...request, now: asOf });
+    expect((await jobs.download(who, job.id)).bodyBase64).toBe(direct.bodyBase64);
+  });
+
+  it('renews its claim while a render runs, so a long render is not taken by a second worker', async () => {
+    const statements = new StatementService(activity(), SECRET);
+    const slow = new StatementJobService(db.sql, statements, { leaseMs: 100, testRenderHoldMs: 400 });
+    const other = new StatementJobService(db.sql, statements, { leaseMs: 100 });
+    const who = fresh();
+    // Make everything older first, so the slow worker claims this job.
+    while (await other.renderNext());
+    const job = await slow.create(who, { ...LONG, report: 'trades', to: '2026-11-02T00:00:00.000Z' });
+    const making = (async () => {
+      let made = await slow.renderNext();
+      while (made && made.id !== job.id) made = await slow.renderNext();
+      return made;
+    })();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const stolen = await other.claim();
+    expect(stolen?.id).not.toBe(job.id);
+    expect(await making).toMatchObject({ id: job.id, state: 'ready', attempts: 1 });
   });
 
   it('the worker makes queued jobs on its interval and stops', async () => {

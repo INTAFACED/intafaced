@@ -51,6 +51,8 @@ const RETRYABLE = new Set(['bank.statement_unavailable']);
 /** Claims after which a job that still cannot be made is marked failed with the last reason. */
 export const STATEMENT_JOB_MAX_ATTEMPTS = 5;
 export const STATEMENT_JOBS_LIST_LIMIT = 50;
+/** How far a request's end may be past the bank's clock and still count as ended (the caller's clock may run ahead). */
+const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 interface JobRow {
   id: string;
@@ -129,24 +131,32 @@ export class StatementJobService {
     return this.config.leaseMs !== null;
   }
 
-  /** Asks for an export: refused now if the file would be, else the one job for this request (made if new). */
+  /**
+   * Asks for an export: refused now if the file would be, else the one job for this request (made if new). The range must
+   * have ended (give or take a clock's skew), so the same request is always the same document. A request whose earlier job
+   * failed is queued again on the same row.
+   */
   async create(userId: string, input: StatementRequest, now = new Date()): Promise<StatementJob> {
     if (!this.enabled) {
       throw new BankError('Background exports are not switched on in this build', 'bank.statement_jobs_unset');
     }
     const plan = await this.statements.plan(userId, input);
-    const from = instant(plan.from);
-    const to = instant(plan.to);
+    if (Date.parse(plan.to) > now.getTime() + CLOCK_SKEW_MS) {
+      throw new BankError('A background export covers dates that have ended. End it now or earlier.', 'bank.statement_job_unfinished');
+    }
     const spaceId = plan.space?.id ?? null;
     const assetId = plan.assetId ?? null;
-    const key = statementJobKey({ report: plan.report, format: plan.format, from, to, assetId, spaceId });
-    const made = await this.sql<JobRow[]>`
+    const key = statementJobKey({ report: plan.report, format: plan.format, from: plan.from, to: plan.to, assetId, spaceId });
+    // The dates are kept as they were first asked for, so the worker plans and prints exactly what a direct download would.
+    const [row] = await this.sql<JobRow[]>`
       INSERT INTO bank.statement_jobs (id, user_id, key, report, format, from_at, to_at, asset_id, space_id, as_of)
-      VALUES (${randomUUID()}, ${userId}, ${key}, ${plan.report}, ${plan.format}, ${from}, ${to}, ${assetId}, ${spaceId}, ${now})
-      ON CONFLICT (user_id, key) DO NOTHING
+      VALUES (${randomUUID()}, ${userId}, ${key}, ${plan.report}, ${plan.format}, ${plan.from}, ${plan.to}, ${assetId}, ${spaceId}, ${now})
+      ON CONFLICT (user_id, key) DO UPDATE
+         SET state = 'queued', attempts = 0, lease_until = NULL, error_code = NULL, finished_at = NULL, as_of = EXCLUDED.as_of
+       WHERE bank.statement_jobs.state = 'failed'
       RETURNING ${this.sql.unsafe(VIEW_COLUMNS)}
     `;
-    if (made[0]) return view(made[0]);
+    if (row) return view(row);
     const [found] = await this.sql<JobRow[]>`
       SELECT ${this.sql.unsafe(VIEW_COLUMNS)} FROM bank.statement_jobs WHERE user_id = ${userId} AND key = ${key}
     `;
@@ -200,18 +210,26 @@ export class StatementJobService {
   }
 
   /**
-   * Claims the oldest job no live worker holds: a queued one, or one whose claim lapsed (its worker died mid-render), which
-   * is re-queued on the same key, the same row and the same `as_of`. Two workers never claim one row at once.
+   * Claims the oldest job no live worker holds: a queued one whose retry time has come, or one whose claim lapsed (its worker
+   * died mid-render), which is re-queued on the same key, the same row and the same `as_of`. Two workers never claim one row
+   * at once. A lapsed claim that has used every attempt is marked failed instead, so a job that kills its worker every time
+   * cannot loop for ever.
    */
   async claim(): Promise<JobRow | null> {
     if (this.config.leaseMs === null) return null;
+    await this.sql`
+      UPDATE bank.statement_jobs
+         SET state = 'failed', lease_until = NULL, error_code = 'bank.statement_unavailable', finished_at = now()
+       WHERE state = 'rendering' AND lease_until < now() AND attempts >= ${STATEMENT_JOB_MAX_ATTEMPTS}
+    `;
     const [row] = await this.sql<JobRow[]>`
       UPDATE bank.statement_jobs
          SET state = 'rendering', attempts = attempts + 1,
              lease_until = now() + (${this.config.leaseMs} * interval '1 millisecond')
        WHERE id = (
          SELECT id FROM bank.statement_jobs
-          WHERE state = 'queued' OR (state = 'rendering' AND lease_until < now())
+          WHERE (state = 'queued' AND (lease_until IS NULL OR lease_until < now()))
+             OR (state = 'rendering' AND lease_until < now() AND attempts < ${STATEMENT_JOB_MAX_ATTEMPTS})
           ORDER BY created_at, id
           LIMIT 1
           FOR UPDATE SKIP LOCKED
@@ -221,10 +239,38 @@ export class StatementJobService {
     return row ?? null;
   }
 
-  /** Claims and makes one job. Null when there was nothing to claim. */
+  /** The job as it stands now; used when this worker's claim was lost to another, so the caller never sees a stale view. */
+  private async current(id: string): Promise<StatementJob> {
+    const [row] = await this.sql<JobRow[]>`SELECT ${this.sql.unsafe(VIEW_COLUMNS)} FROM bank.statement_jobs WHERE id = ${id}`;
+    if (!row) throw new Error(`statement job ${id} vanished`);
+    return view(row);
+  }
+
+  /**
+   * Claims and makes one job. Null when there was nothing to claim. While it renders, the claim is renewed every half lease,
+   * so a long render is never taken by a second worker; a worker that dies stops renewing and its claim lapses.
+   */
   async renderNext(): Promise<StatementJob | null> {
     const job = await this.claim();
     if (!job) return null;
+    const leaseMs = this.config.leaseMs as number;
+    const renew = setInterval(
+      () => {
+        void this.sql`
+        UPDATE bank.statement_jobs SET lease_until = now() + (${leaseMs} * interval '1 millisecond')
+         WHERE id = ${job.id} AND state = 'rendering' AND attempts = ${job.attempts}
+      `.catch(() => undefined);
+      },
+      Math.max(1, Math.floor(leaseMs / 2)),
+    );
+    try {
+      return await this.make(job, leaseMs);
+    } finally {
+      clearInterval(renew);
+    }
+  }
+
+  private async make(job: JobRow, leaseMs: number): Promise<StatementJob> {
     const hold = this.config.testRenderHoldMs ?? 0;
     if (hold > 0) await sleep(hold);
     let file: StatementFile;
@@ -242,9 +288,11 @@ export class StatementJobService {
       const code = err instanceof BankError ? err.code : 'bank.statement_unavailable';
       const again = (RETRYABLE.has(code) || !(err instanceof BankError)) && job.attempts < STATEMENT_JOB_MAX_ATTEMPTS;
       // Only the claim this worker holds is changed: a claim that lapsed and was taken again belongs to the new worker.
+      // A retry waits one lease before it can be claimed again, so a brief outage does not use every attempt at once.
       const [after] = again
         ? await this.sql<JobRow[]>`
-            UPDATE bank.statement_jobs SET state = 'queued', lease_until = NULL
+            UPDATE bank.statement_jobs
+               SET state = 'queued', lease_until = now() + (${leaseMs} * interval '1 millisecond')
              WHERE id = ${job.id} AND state = 'rendering' AND attempts = ${job.attempts}
             RETURNING ${this.sql.unsafe(VIEW_COLUMNS)}
           `
@@ -253,7 +301,7 @@ export class StatementJobService {
              WHERE id = ${job.id} AND state = 'rendering' AND attempts = ${job.attempts}
             RETURNING ${this.sql.unsafe(VIEW_COLUMNS)}
           `;
-      return after ? view(after) : view(job);
+      return after ? view(after) : this.current(job.id);
     }
     const body = Buffer.from(file.bodyBase64, 'base64');
     const [done] = await this.sql<JobRow[]>`
@@ -264,7 +312,7 @@ export class StatementJobService {
        WHERE id = ${job.id} AND state = 'rendering' AND attempts = ${job.attempts}
       RETURNING ${this.sql.unsafe(VIEW_COLUMNS)}
     `;
-    return done ? view(done) : view(job);
+    return done ? view(done) : this.current(job.id);
   }
 }
 

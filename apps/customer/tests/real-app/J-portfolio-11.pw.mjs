@@ -267,6 +267,16 @@ test(`${J} #5 a worker dies mid-render: the job re-queues on the same key and th
     to: now.toISOString(),
   };
   let job;
+  // The held worker takes the oldest open job, so #4's must be made first, or it would be the one held.
+  await expect
+    .poll(
+      async () => {
+        const res = await (await api(who)).get('/api/bank/trpc/statements.jobs.list');
+        return res.body?.result?.data?.items?.every((row) => row.state === 'ready' || row.state === 'failed');
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   bankRenderHold(true);
   try {
     const made = await (await api(who)).post('/api/bank/trpc/statements.jobs.create', request);

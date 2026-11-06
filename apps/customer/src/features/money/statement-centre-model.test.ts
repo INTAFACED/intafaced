@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dayIsOver, dayRange, last30Days } from './statement-centre-model';
+import { dayIsOver, dayRange, endedBy, last30Days } from './statement-centre-model';
 
 describe('statement centre dates', () => {
   it('offers the last 30 UTC days, today included', () => {
@@ -19,5 +19,13 @@ describe('statement centre dates', () => {
     expect(dayIsOver('2026-10-29', new Date('2026-10-30T00:00:00.000Z'))).toBe(true);
     expect(dayIsOver('2026-10-30', new Date('2026-10-30T23:59:59.000Z'))).toBe(false);
     expect(dayIsOver('nope', new Date())).toBe(false);
+  });
+});
+
+describe('endedBy', () => {
+  it('stops a range that runs past now at now, and leaves an ended one as it is', () => {
+    const now = new Date('2026-11-06T10:00:00.000Z');
+    expect(endedBy('2026-11-06T23:59:59.999Z', now)).toBe('2026-11-06T10:00:00.000Z');
+    expect(endedBy('2026-11-05T23:59:59.999Z', now)).toBe('2026-11-05T23:59:59.999Z');
   });
 });

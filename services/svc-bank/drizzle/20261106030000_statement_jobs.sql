@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS "bank"."statement_jobs" (
   "space_id" text,
   "state" text NOT NULL DEFAULT 'queued',
   "attempts" integer NOT NULL DEFAULT 0,
-  -- Until when the worker that claimed it owns it; a claim past this is re-queued on the same key.
+  -- Rendering: until when the worker that claimed it owns it (renewed while it renders); a claim past this is re-queued on
+  -- the same key. Queued after a failed try: not before this.
   "lease_until" timestamptz,
   -- The moment the file is rendered as of, fixed at request, so a second render writes the same bytes.
   "as_of" timestamptz NOT NULL,

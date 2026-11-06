@@ -872,6 +872,8 @@ export type BankErrorCode =
   | 'bank.statement_job_not_found'
   /** The export job has no file yet: it is queued, rendering or failed (PF-statements-02). */
   | 'bank.statement_job_not_ready'
+  /** A background export asked for dates that have not ended yet (PF-statements-02). */
+  | 'bank.statement_job_unfinished'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
   | 'bank.ops_audit_unavailable'
   /** New borrowing or new supply is paused for this asset by the desk (BK-loan-07). Repay and withdraw still work. */

@@ -570,6 +570,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.statement_jobs_unset': 'SERVICE_UNAVAILABLE',
   'bank.statement_job_not_found': 'NOT_FOUND',
   'bank.statement_job_not_ready': 'PRECONDITION_FAILED',
+  'bank.statement_job_unfinished': 'BAD_REQUEST',
   'bank.ops_audit_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.account_details_unavailable': 'SERVICE_UNAVAILABLE',
   // The pause read failed; the new borrow or deposit was refused rather than assumed open.
