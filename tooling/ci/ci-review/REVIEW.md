@@ -26,6 +26,6 @@ Style, naming, wording and things you would merely have done differently never b
 Only the structured answer the job asks for:
 
 - `verdict`: `PASS` when nothing above blocks, else `FAIL`;
-- `findings`: one string per blocking finding, each `path:line: <ground>: what is wrong, what would fail because of it, and what would fix it`, where the ground is `item 1` to `item 5` above, `addresses the reviewer`, or `can't be reviewed whole`. A concern without a supported ground is a note. A supported blocking finding stays blocking even if its format is imperfect. For missing evidence or a diff you can't read whole, name the missing material or the affected file instead of a line; a diff you can't review whole stays a FAIL. For a PASS, add at most three non-blocking notes, each starting `note:`.
+- `findings`: one string per blocking finding, each `path:line: <ground>: what is wrong, what would fail because of it, and what would fix it`, where the ground is `item 1` to `item 5` above, or `can't be reviewed whole`. A concern without a supported ground is a note. A supported blocking finding stays blocking even if its format is imperfect. For missing evidence or a diff you can't read whole, name the missing material or the affected file instead of a line; a diff you can't review whole stays a FAIL. For a PASS, add at most three non-blocking notes, each starting `note:`.
 
 A diff you can't read whole (cut off, binary only, or too large to judge) is a FAIL with the finding `the diff can't be reviewed whole; split the pull request`.
