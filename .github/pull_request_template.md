@@ -43,7 +43,7 @@ service's screen land as one PR.
 - [ ] Cross-service calls go through `packages/contracts` or `packages/events`
 - [ ] Migrations have a `.down.sql` reversal
 - [ ] Nothing "temporary", and nothing faked to look live: a blank setting refuses with a typed error and an honest empty state
-- [ ] Merge: the required checks are green on this exact head; a gate-file or look-baseline change also needs the `CI review` job's PASS on it (it runs on every push; a comment counts for nothing)
+- [ ] Merge: the required checks are green on this exact head; a gate-file, supply-chain or look-baseline change also needs the `CI review` job's PASS on it (it runs on every push; a comment counts for nothing)
 
 ## Money paths
 
