@@ -113,7 +113,7 @@ test(`${J} #2 types an amount below the minimum or above the balance: "Too small
   await amountBox(page).fill('250');
   const short = card(page).getByRole('alert').filter({ hasText: 'Not enough USDT' });
   await expect(short).toContainText('You have 100 USDT available.');
-  await expect(short.getByRole('link', { name: 'Deposit USDT' })).toHaveAttribute('href', /\/wallet\/deposit\?asset=USDT/);
+  await expect(short.getByRole('link', { name: 'Deposit USDT' })).toHaveAttribute('href', '/uc/recharge?asset=USDT');
   await expect(card(page).getByRole('button', { name: 'Preview conversion' })).toBeDisabled();
   await page.waitForTimeout(1_500);
   expect(
@@ -191,7 +191,7 @@ test(`${J} #5 presses Convert now twice: one request is sent; a receipt and the 
   expect(toUnits(before.USDT.total) - toUnits(after.USDT.total)).toBe(toUnits(settled.inAmount));
   expect(toUnits(after.BTC.total) - toUnits(before.BTC?.total ?? '0')).toBe(toUnits(settled.outAmount));
   await expect(page.getByTestId('cvt-paid')).toContainText(settled.inAmount.replace(/\.?0+$/, ''));
-  run.write({ converted: settled.convertId, paid: settled.inAmount, received: settled.outAmount });
+  run.write({ converted: settled.quoteId, paid: settled.inAmount, received: settled.outAmount });
 });
 
 test(`${J} #6 loses the connection on accept: the note stays; Check again asks about the same quote and cannot convert twice`, async ({
@@ -207,38 +207,40 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
   if ((await go.innerText()) === 'Accept new price') await go.click();
   const before = await ledger(who);
   // The accept reaches the service; its answer never reaches the page.
-  let quoteId;
+  const sent = [];
+  page.on('request', (r) => {
+    if (/convert\.accept/.test(r.url())) sent.push(r.postDataJSON());
+  });
   await page.route(/convert\.accept/, async (route) => {
-    quoteId = route.request().postDataJSON()?.quoteId ?? route.request().postDataJSON()?.['0']?.quoteId;
     await route.fetch();
     await route.abort('connectionreset');
   });
   await dialog.getByRole('button', { name: 'Convert now' }).click();
-  const note = page.getByTestId('pending');
-  await expect(note).toContainText('We couldn’t confirm this conversion');
+  await expect(page.getByTestId('pending')).toContainText('We couldn’t confirm this conversion');
   await page.unroute(/convert\.accept/);
   await page.reload();
+  // The note stays across a reload.
   await expect(page.getByTestId('pending')).toBeVisible();
-  // Check again reads the same quote's outcome; it is not a second conversion.
-  const calls = convertCalls(page);
-  const checked = page.waitForResponse((r) => /convert\.status/.test(r.url()));
+  // Check again asks about the same quote, under the same request id: the service answers with the one conversion.
+  const checked = page.waitForResponse((r) => /convert\.accept/.test(r.url()));
   await page.getByTestId('pending').getByRole('button', { name: 'Check again' }).click();
-  const status = (await (await checked).json()).result.data;
-  expect(status.quoteId).toBe(quoteId);
-  expect(calls).not.toContain('convert.accept');
+  const fill = (await (await checked).json()).result.data;
+  expect(sent).toHaveLength(2);
+  expect(sent[1].quoteId).toBe(sent[0].quoteId);
+  expect(sent[1].clientConvertId).toBe(sent[0].clientConvertId);
+  expect(fill.quoteId).toBe(sent[0].quoteId);
+  await expect(page.getByTestId('cvt-receipt')).toContainText('Converted USDT to BTC');
   const after = await until(
     () => ledger(who),
     (b) => b.USDT.total !== before.USDT.total,
     'the one conversion on the ledger',
   );
-  expect(toUnits(before.USDT.total) - toUnits(after.USDT.total)).toBe(toUnits(status.inAmount));
-  await page
-    .getByTestId('pending')
-    .getByRole('button', { name: 'Check again' })
-    .click()
-    .catch(() => undefined);
-  await page.waitForTimeout(2_000);
-  expect((await ledger(who)).USDT.total, 'a second check converts nothing').toBe(after.USDT.total);
+  expect(toUnits(before.USDT.total) - toUnits(after.USDT.total)).toBe(toUnits(fill.inAmount));
+  // Asked once more with the same quote, the service answers the same conversion and moves nothing.
+  const again = await (await api(who)).post('/api/trade/trpc/convert.accept', sent[0]);
+  expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
+  expect(again.body.result.data.fillId).toBe(fill.fillId);
+  expect((await ledger(who)).USDT.total, 'the same quote converts once').toBe(after.USDT.total);
 });
 
 test(`${J} #7 converts while instant buys are paused: "Use Spot" with the reason; nothing sent`, async ({ page }) => {
@@ -394,7 +396,7 @@ test(`${J} #12 a developer asks for a quote and trades through the convert API: 
   const [a, b] = await Promise.all([withKey(key, accept), withKey(key, accept)]);
   expect(a.status, JSON.stringify(a.body).slice(0, 300)).toBe(200);
   expect(b.status, JSON.stringify(b.body).slice(0, 300)).toBe(200);
-  expect(a.body.convertId).toBe(b.body.convertId);
+  expect(a.body.fillId).toBe(b.body.fillId);
   const after = await until(
     () => me.balances(),
     (x) => x.USDT.total !== before.USDT.total,
@@ -402,6 +404,6 @@ test(`${J} #12 a developer asks for a quote and trades through the convert API: 
   );
   expect(toUnits(before.USDT.total) - toUnits(after.USDT.total)).toBe(toUnits(a.body.fromAmount));
   const again = await withKey(key, accept);
-  expect(again.body.convertId).toBe(a.body.convertId);
+  expect(again.body.fillId).toBe(a.body.fillId);
   expect((await me.balances()).USDT.total).toBe(after.USDT.total);
 });

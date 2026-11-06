@@ -77,7 +77,12 @@ function breakdownItems(
       label: t('Rate'),
       value: dec(quote.avgPrice) === null ? null : t('1 {base} ≈ {price}', { base: market.base, price: priceText(quote.avgPrice, market) }),
     },
-    { key: 'spread', label: t('House spread'), value: percent, hint: percent ? t('Included in the rate') : undefined },
+    {
+      key: 'spread',
+      label: t('House spread'),
+      value: percent ? t('Spread value', { bps: quote.convertSpreadBps, percent }) : null,
+      hint: percent ? t('Included in the rate') : undefined,
+    },
     { key: 'fee', label: t('Fee'), value: t('None separate') },
     { key: 'source', label: t('Price source'), value: t('House quote') },
     {
@@ -184,15 +189,12 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
 
 type Reviewing = { quote: Quote; changed: boolean } | null;
 
-/** True when a replacement quote would charge or pay something different from the one the customer reviewed. */
+/**
+ * True when the quote now on screen is not the one the customer reviewed. Every replacement is a new price, even one with
+ * the same numbers: it is accepted first, and only the next click converts (a price held for a stated time is that price).
+ */
 function numbersChanged(reviewed: Quote, current: Quote): boolean {
-  return (
-    reviewed.quoteId !== current.quoteId &&
-    (dec(reviewed.inAmount) !== dec(current.inAmount) ||
-      dec(reviewed.outAmount) !== dec(current.outAmount) ||
-      reviewed.inAsset !== current.inAsset ||
-      reviewed.outAsset !== current.outAsset)
-  );
+  return reviewed.quoteId !== current.quoteId;
 }
 
 function ConvertCard({
@@ -250,14 +252,9 @@ function ConvertCard({
     const have = dec(available.value);
     return available.state === 'ready' && typed !== null && have !== null && typed > have;
   }, [amount, available]);
+  // Not enough is its own card below the field, with the way to deposit; the field names what is wrong with the amount.
   const inlineError = insufficient
-    ? (() => {
-        const words = refusalCopy('ledger.insufficient_funds', {
-          asset: from,
-          available: fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' }),
-        });
-        return `${words.title}. ${words.body}`;
-      })()
+    ? null
     : !plan.ok && plan.problem.kind === 'tooSmall'
       ? plan.problem.asset === edge.market.quote
         ? t('Minimum is about {min} {asset}.', { min: plan.problem.min, asset: plan.problem.asset })
@@ -575,6 +572,14 @@ function ConvertCard({
         </div>
       </div>
 
+      {insufficient ? (
+        <div className="cvt-note" role="alert" data-testid="cvt-short">
+          <p>{shortText}</p>
+          <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+            {t('Deposit {asset}', { asset: from })}
+          </a>
+        </div>
+      ) : null}
       {quote ? (
         <div className="cvt-breakdown" data-testid="cvt-breakdown" aria-label={t('Price details')} role="group">
           <KeyValue density="dense" items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
