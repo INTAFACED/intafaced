@@ -85,20 +85,24 @@ if (!available) {
       const live = await countLive(u.userId);
       expect(live.keys).toBe(2);
       expect(live.sessions).toBeGreaterThanOrEqual(1);
-      expect(await auth.compromiseCase(u.userId)).toBeNull();
+      expect(await auth.compromiseCase(u.userId, me)).toBeNull();
 
       const first = await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
       expect(first.changed).toBe(true);
       expect(await countLive(u.userId)).toEqual({ sessions: 0, keys: 0 });
       expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: true, reason: 'compromise' });
-      const held = await auth.compromiseCase(u.userId);
+      const held = await auth.compromiseCase(u.userId, me);
       expect(held).toMatchObject({ id: first.caseId, sessionsEnded: live.sessions, keysEnded: 2, notes: [] });
 
-      // A new sign-in after it, then pressing again: the same case, and that sign-in is not ended.
+      // A new sign-in and a new key after it, then pressing again: the same case, and both are ended.
       await auth.login({ identifier: u.handle, password: PASSWORD });
+      await auth.createApiKey({ userId: u.userId, name: 'k3', scopes: ['identity:read'], grantorScopes: SESSION_SCOPES });
       const again = await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
-      expect(again).toMatchObject({ caseId: first.caseId, changed: false });
-      expect((await countLive(u.userId)).sessions).toBe(1);
+      expect(again).toMatchObject({ caseId: first.caseId, changed: true });
+      expect(await countLive(u.userId)).toEqual({ sessions: 0, keys: 0 });
+      // Pressed once more with nothing left to end: the same case, nothing changed.
+      const third = await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
+      expect(third).toMatchObject({ caseId: first.caseId, changed: false });
       expect(await db.sql`SELECT id FROM compromise_cases WHERE user_id = ${u.userId}`).toHaveLength(1);
       expect(await db.sql`SELECT id FROM account_self_freezes WHERE user_id = ${u.userId}`).toHaveLength(1);
     });
@@ -111,7 +115,7 @@ if (!available) {
       await expect(auth.startCompromise({ userId: u.userId, actor: { ...me, delegated: true }, password: PASSWORD })).rejects.toMatchObject(
         { code: 'auth.mfa_required' },
       );
-      expect(await auth.compromiseCase(u.userId)).toBeNull();
+      expect(await auth.compromiseCase(u.userId, me)).toBeNull();
       expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: false });
       expect((await countLive(u.userId)).sessions).toBeGreaterThanOrEqual(1);
     });
@@ -128,7 +132,7 @@ if (!available) {
       ).rejects.toThrow('crash before commit');
       expect(await countLive(u.userId)).toEqual(before);
       expect(await auth.selfFreezeStatus(u.userId)).toMatchObject({ frozen: false });
-      expect(await auth.compromiseCase(u.userId)).toBeNull();
+      expect(await auth.compromiseCase(u.userId, me)).toBeNull();
     });
 
     it('a freeze already open still gets a case, and the sessions signed in since are ended', async () => {
@@ -138,7 +142,7 @@ if (!available) {
       const opened = await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
       expect(opened.changed).toBe(true);
       expect((await countLive(u.userId)).sessions).toBe(0);
-      expect((await auth.compromiseCase(u.userId))?.sessionsEnded).toBe(1);
+      expect((await auth.compromiseCase(u.userId, me))?.sessionsEnded).toBe(1);
       expect(await db.sql`SELECT id FROM account_self_freezes WHERE user_id = ${u.userId}`).toHaveLength(1);
     });
 
@@ -147,7 +151,7 @@ if (!available) {
       await factor(u.userId, 'password_changed', new Date(Date.now() - 60_000));
       const opened = await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
       const items = async () =>
-        Object.fromEntries((await auth.compromiseCase(u.userId))!.checklist.map((entry) => [entry.item, entry.doneAt]));
+        Object.fromEntries((await auth.compromiseCase(u.userId, me))!.checklist.map((entry) => [entry.item, entry.doneAt]));
       let list = await items();
       expect(Object.keys(list)).toEqual(['password', 'second_factor', 'devices', 'api_keys', 'addresses']);
       expect(list).toMatchObject({ password: null, second_factor: null, devices: null, addresses: null });
@@ -163,6 +167,26 @@ if (!available) {
       expect(list.second_factor).not.toBeNull();
       expect(list.devices).toBe(devices.reviewedAt.toISOString());
       expect(list.addresses).toBeNull();
+
+      // A key made after the case opened puts the API keys item back to be done.
+      await auth.createApiKey({ userId: u.userId, name: 'late', scopes: ['identity:read'], grantorScopes: SESSION_SCOPES });
+      expect((await items()).api_keys).toBeNull();
+    });
+
+    it('removing the authenticator alone does not tick the second-step item', async () => {
+      const u = await person();
+      await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
+      await transaction(db.sql, (tx) =>
+        queueFactorChangedNotice(tx, { userId: u.userId, change: 'totp_removed', now: new Date(), mail: false }),
+      );
+      const list = (await auth.compromiseCase(u.userId, me))!.checklist;
+      expect(list.find((entry) => entry.item === 'second_factor')?.doneAt).toBeNull();
+    });
+
+    it('an API key or sub-account cannot read the case', async () => {
+      const u = await person();
+      await auth.startCompromise({ userId: u.userId, actor: me, password: PASSWORD });
+      await expect(auth.compromiseCase(u.userId, { ...me, delegated: true })).rejects.toMatchObject({ code: 'auth.mfa_required' });
     });
 
     it('a stolen-funds report is one note per request id, and with no open case it refuses by name', async () => {
@@ -180,7 +204,7 @@ if (!available) {
       expect(twice).toEqual({ noteId: once.noteId, changed: false });
       const other = await auth.reportStolenFunds({ userId: u.userId, actor: me, body: 'TEST more', clientRequestId: 'req-00000002' });
       expect(other.noteId).not.toBe(once.noteId);
-      const notes = (await auth.compromiseCase(u.userId))!.notes;
+      const notes = (await auth.compromiseCase(u.userId, me))!.notes;
       expect(notes.map((note) => [note.kind, note.body])).toEqual([
         ['stolen_funds', 'TEST 1 BTC left'],
         ['stolen_funds', 'TEST more'],

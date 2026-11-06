@@ -216,8 +216,9 @@ function StolenFunds({ open, onFiled }: { open: CompromiseCase; onFiled: () => v
   const [failure, setFailure] = useState<Failed | null>(null);
   const [filed, setFiled] = useState(false);
   const [busy, setBusy] = useState(false);
-  // One request id per report the person writes: a resend after a lost answer is the same note.
-  const requestId = useRef(crypto.randomUUID());
+  // One request id per report text: a resend of the same words after a lost answer is the same note, and edited words
+  // are a new note, never dropped as a repeat.
+  const request = useRef<{ text: string; id: string } | null>(null);
   useEffect(() => {
     if (body.trim().length > 0) setFiled(false);
   }, [body]);
@@ -231,15 +232,17 @@ function StolenFunds({ open, onFiled }: { open: CompromiseCase; onFiled: () => v
     setProblem(null);
     setBusy(true);
     setFailure(null);
+    if (request.current?.text !== text) request.current = { text, id: crypto.randomUUID() };
+    const requestId = request.current.id;
     try {
       const answer = await api.mutate(
         'identity',
         'account.compromised.reportStolenFunds',
-        { body: text, clientRequestId: `stolen-funds:${requestId.current}` },
+        { body: text, clientRequestId: `stolen-funds:${requestId}` },
         compromiseReportOutputSchema,
       );
       if (!answer.ok) return setFailure(answer);
-      requestId.current = crypto.randomUUID();
+      request.current = null;
       setBody('');
       setFiled(true);
       onFiled();

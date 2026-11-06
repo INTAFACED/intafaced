@@ -29,12 +29,13 @@ type CaseRow = { id: string; opened_at: Date; sessions_ended: number; keys_ended
 
 export type OpenedCase = { caseId: string; openedAt: Date; changed: boolean; sessionsEnded: number };
 
-/** Opens the case, or returns the open one. Call inside a transaction that already checked the password. */
+/**
+ * Opens the case, or returns the open one. Call inside a transaction that already checked the password. Every press
+ * ends every session and API key and makes sure the owner's freeze is on, so a second press after an attacker signed
+ * in again, or after the person lifted the freeze, secures the account again; it still returns the same case.
+ */
 export async function openCompromiseCase(tx: Sql, userId: string): Promise<OpenedCase> {
   await tx`SELECT id FROM users WHERE id = ${userId} FOR UPDATE`;
-  const open = await tx<CaseRow[]>`
-    SELECT id, opened_at, sessions_ended, keys_ended FROM compromise_cases WHERE user_id = ${userId} AND state = 'open'`;
-  if (open[0]) return { caseId: open[0].id, openedAt: open[0].opened_at, changed: false, sessionsEnded: 0 };
   // Counted here, before the freeze, so the case says what this press ended even when a freeze was already open.
   const sessions = await tx<Array<{ id: string }>>`
     UPDATE sessions SET revoked = true WHERE user_id = ${userId} AND revoked = false RETURNING id`;
@@ -42,6 +43,12 @@ export async function openCompromiseCase(tx: Sql, userId: string): Promise<Opene
     UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'account_freeze'
     WHERE user_id = ${userId} AND revoked = false RETURNING id`;
   const freeze = await applySelfFreeze(tx, userId, 'compromise');
+  const open = await tx<CaseRow[]>`
+    SELECT id, opened_at, sessions_ended, keys_ended FROM compromise_cases WHERE user_id = ${userId} AND state = 'open'`;
+  if (open[0]) {
+    const changed = sessions.length > 0 || keys.length > 0 || freeze.changed;
+    return { caseId: open[0].id, openedAt: open[0].opened_at, changed, sessionsEnded: sessions.length };
+  }
   const made = await tx<Array<{ id: string; opened_at: Date }>>`
     INSERT INTO compromise_cases (user_id, freeze_id, sessions_ended, keys_ended)
     VALUES (${userId}, ${freeze.id}, ${sessions.length}, ${keys.length})
@@ -59,20 +66,23 @@ async function openCase(sql: Sql, userId: string): Promise<CaseRow | null> {
 export async function readCompromiseCase(sql: Sql, userId: string): Promise<CompromiseCase | null> {
   const row = await openCase(sql, userId);
   if (!row) return null;
-  // What identity saw after the case opened: the first password change, the first other sign-in method change.
+  // What identity saw after the case opened: the first password change, and the first second step set up or replaced
+  // (a removal alone never ticks it: taking the authenticator off weakens the account, it does not review it).
   const [seen] = await sql<Array<{ password: Date | null; second_factor: Date | null }>>`
     SELECT
       min(changed_at) FILTER (WHERE change = 'password_changed') AS password,
-      min(changed_at) FILTER (WHERE change <> 'password_changed') AS second_factor
+      min(changed_at) FILTER (WHERE change IN ('totp_added', 'totp_replaced', 'passkey_added')) AS second_factor
     FROM security_factor_events WHERE user_id = ${userId} AND changed_at >= ${row.opened_at}`;
+  // Every key ended when the case opened; a key made since (live now) puts the item back to be done.
+  const [liveKeys] = await sql<Array<{ n: number }>>`
+    SELECT count(*)::int AS n FROM api_keys WHERE user_id = ${userId} AND revoked = false`;
   const reviews = await sql<Array<{ item: CompromiseReviewItem; reviewed_at: Date }>>`
     SELECT item, reviewed_at FROM compromise_case_reviews WHERE case_id = ${row.id}`;
   const done: Record<CompromiseChecklistItem, Date | null> = {
     password: seen?.password ?? null,
     second_factor: seen?.second_factor ?? null,
     devices: null,
-    // Every key ended when the case opened.
-    api_keys: row.opened_at,
+    api_keys: (liveKeys?.n ?? 0) === 0 ? row.opened_at : null,
     addresses: null,
   };
   for (const review of reviews) done[review.item] = review.reviewed_at;

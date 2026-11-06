@@ -50,7 +50,7 @@ export function createCompromiseRouter(auth: AuthService, privilegedUserIds: rea
 
     mine: protectedProcedure.output(compromiseMineOutputSchema).query(async ({ ctx }) => {
       try {
-        return { case: await auth.compromiseCase(ctx.principal.userId) };
+        return { case: await auth.compromiseCase(ctx.principal.userId, factorActor(ctx.principal, privilegedUserIds)) };
       } catch (err) {
         toTrpc(err);
       }

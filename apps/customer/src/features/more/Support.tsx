@@ -7,7 +7,7 @@ import { isHiddenPath } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
 import { useApi, useSession } from '../session/session';
 import { t as copyText } from './copy';
-import { categoryLabel } from './support-category';
+import { categoryLabel, topicFromAddress } from './support-category';
 import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
 import { CustomerStatusBadge, RequestNotFound, SupportAddressUnknown, SupportRequest } from './SupportRequest';
@@ -292,12 +292,6 @@ export function RequestList({
   );
 }
 
-/** `/support/new?topic=phishing` opens a scam report (J-identity-13 #2): only a topic the form offers is taken. */
-function topicFromAddress(): 'phishing' | null {
-  if (typeof window === 'undefined') return null;
-  return new URLSearchParams(window.location.search).get('topic') === 'phishing' ? 'phishing' : null;
-}
-
 function NewRequest({
   action,
   subject: drafted,
@@ -317,13 +311,13 @@ function NewRequest({
     { userId } = useSession();
   const depositsHidden = isHiddenPath('/uc/recharge');
   const draft = follows ? followUpDraft(follows, copy.t('followUpPrefix')) : null;
-  const [category, setCategory] = useState(draft?.category ?? topicFromAddress() ?? 'other'),
+  const [category, setCategory] = useState(() => draft?.category ?? topicFromAddress() ?? 'other'),
     [subject, setSubject] = useState(draft?.subject ?? drafted),
     [body, setBody] = useState(''),
     [headers, setHeaders] = useState('');
   const sendHeaders = category === 'phishing' && headers.trim() !== '' ? headers.trim() : null;
   // A paste over the cap is refused with the cap, never cut short: what was pasted is what would be sent.
-  const headersTooLong = category === 'phishing' && headers.length > SUPPORT_MESSAGE_HEADERS_MAX;
+  const headersTooLong = category === 'phishing' && headers.trim().length > SUPPORT_MESSAGE_HEADERS_MAX;
   // The request types the desk set up, each with its questions (SP-tickets-03). Unread or none: a general request.
   const catalogue = useResource(
     (signal) => api.query('support', 'requestForms', undefined, supportRequestFormsSchema, { signal }),
@@ -497,7 +491,7 @@ function NewRequest({
               <p className="notice" role="alert" data-testid="support__headers-cap">
                 {copy.t('headersTooLong', {
                   max: SUPPORT_MESSAGE_HEADERS_MAX.toLocaleString('en-US'),
-                  count: headers.length.toLocaleString('en-US'),
+                  count: headers.trim().length.toLocaleString('en-US'),
                 })}
               </p>
             )}

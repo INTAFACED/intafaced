@@ -4,18 +4,20 @@ import { z } from 'zod';
  * svc-identity `account.compromised.*` (I-signin-sessions-28, J-identity-13 #3 to #5): "my account is compromised".
  *
  * - `start` (password): in one transaction ends every session and API key, sets the owner's own freeze (reason
- *   `compromise`, so no money leaves) and opens one case. While that case is open, pressing again returns the same case
- *   and ends nothing more (`changed: false`).
+ *   `compromise`, so no money leaves) and opens one case. While that case is open, pressing again returns the same case;
+ *   it ends any session or key made since and puts the freeze back if it was lifted (`changed: false` when there was
+ *   nothing left to end).
  * - `mine`: the open case, or null. Its checklist ticks from what identity sees, never by the person ticking it:
  *   `password` and `second_factor` from a password or sign-in method change recorded after the case opened, `devices`
  *   and `addresses` from the person's review of their devices or addresses, `api_keys` when the case opened (every key
- *   ended then).
+ *   ended then; a live key made since puts it back to be done). `second_factor` ticks
+ *   on a second step set up or replaced, never on a removal alone.
  * - `reportStolenFunds`: a free-text report kept as a note on the case. It moves no money and promises nothing back.
  *   Idempotent on the client's request id.
  * - `markReviewed`: the person reviewed their devices or withdrawal addresses while the case is open.
  *
  * Refusals: `identity.compromise_no_case` (nothing open to note or review), `auth.invalid_credentials`,
- * `identity.delegated_refused` (an API key or sub-account cannot).
+ * `auth.mfa_required` (an API key or sub-account cannot; the person signs in themselves).
  */
 export const COMPROMISE_CHECKLIST_ITEMS = ['password', 'second_factor', 'devices', 'api_keys', 'addresses'] as const;
 export type CompromiseChecklistItem = (typeof COMPROMISE_CHECKLIST_ITEMS)[number];
@@ -33,7 +35,7 @@ export const compromiseStartInputSchema = z.object({ password: z.string().min(1)
 export const compromiseStartOutputSchema = z.object({
   caseId: z.string().uuid(),
   openedAt: z.string(),
-  /** False when a case was already open: nothing was ended again. */
+  /** False when a case was already open and there was nothing left to end or freeze. */
   changed: z.boolean(),
 });
 

@@ -2288,7 +2288,7 @@ export class AuthService {
    * "My account is compromised" (I-signin-sessions-28, J-identity-13 #3). The same bar as the owner's own freeze: a
    * signed-in person (never an API key or sub-account) and the current password, counted as a guess. Then, in one
    * transaction, every session and API key ends, the owner's freeze (reason `compromise`) is set and one case opens
-   * (`account/compromise.ts`). While a case is open this returns it and ends nothing more. Moves no money.
+   * (`account/compromise.ts`). While a case is open this returns it, after ending anything made since. Moves no money.
    */
   async startCompromise(input: { userId: string; actor: FactorActor; password: string }): Promise<OpenedCase> {
     if (input.actor.delegated) {
@@ -2311,7 +2311,8 @@ export class AuthService {
   }
 
   /** The person's open compromised-account case, or null (J-identity-13 #3 to #5). */
-  async compromiseCase(userId: string): Promise<CompromiseCase | null> {
+  async compromiseCase(userId: string, actor: FactorActor): Promise<CompromiseCase | null> {
+    if (actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
     return readCompromiseCase(this.sql, userId);
   }
 

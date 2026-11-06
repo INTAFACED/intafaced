@@ -291,12 +291,16 @@ test(`${J} #3 "my account is compromised" ends every session and key, freezes th
   const keys = (await after.get(query('/api/identity/trpc/apiKeys.list', { limit: 200 }))).body.result.data;
   expect(keys.filter((record) => record.name === 'compromised').map((record) => record.revoked)).toEqual([true]);
 
-  // Pressing again returns the same case and ends nothing more.
+  // Pressing again returns the same case. It ends the sign-in made since (an attacker's would end the same way), and
+  // opens no second case or freeze.
   const again = await after.post('/api/identity/trpc/account.compromised.start', { password: who.password });
   expect(again.status, JSON.stringify(again.body).slice(0, 300)).toBe(200);
   expect(again.body.result.data.caseId).toBe(s.caseId);
-  expect(again.body.result.data.changed).toBe(false);
-  expect((await after.get(STATUS)).status).toBe(200);
+  await new Promise((resolve) => setTimeout(resolve, EDGE_AUTHORITY_CACHE_MAX_MS + 100));
+  expect((await after.get(STATUS)).status).toBe(401);
+  s.session = await api(who, { totpCode: await code() });
+  expect((await caseOf(s.session)).id).toBe(s.caseId);
+  expect((await s.session.get(STATUS)).body.result.data.restrictions.map((restriction) => restriction.kind)).toEqual(['self_freeze']);
 
   // The page shows the one case, from identity.
   await signInWithCode(page);
