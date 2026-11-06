@@ -700,3 +700,46 @@ describe('VWAP and POV engines', () => {
     expect(quiet.placed).toHaveLength(0);
   });
 });
+
+describe('TwapEngine.whenSaved (#7219)', () => {
+  /** An onChange whose save takes a while to land, as a store over a shared Postgres can: it records each save once done. */
+  function slowStore() {
+    const landed: string[] = [];
+    const onChange = async (parent: { status: string; nextSliceIndex: number }) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      landed.push(`${parent.status}:${parent.nextSliceIndex}`);
+    };
+    return { landed, onChange };
+  }
+
+  it('waits for the save onChange has not been handed yet, which collecting its promises misses', async () => {
+    // The pattern the arrival-mark test used: collect what onChange returns, then await it.
+    const collected = slowStore();
+    const writes: Promise<unknown>[] = [];
+    const collecting = new TwapEngine(makePorts(), {
+      onChange: (parent) => {
+        const write = collected.onChange(parent);
+        writes.push(write);
+        return write;
+      },
+    });
+    collecting.create(USER, baseInput(), LOT);
+    await Promise.all(writes.splice(0));
+    expect(collected.landed, "create's save is handed to onChange a microtask later, so nothing was awaited").toEqual([]);
+
+    const queued = slowStore();
+    const engine = new TwapEngine(makePorts(), { onChange: queued.onChange });
+    const parent = engine.create(USER, baseInput(), LOT);
+    await engine.whenSaved(parent.id);
+    expect(queued.landed).toEqual(['active:0']);
+    await engine.tick(parent.id);
+    await engine.whenSaved(parent.id);
+    // Every save the tick asked for has landed, in order, the last one being the parent as it stands now.
+    expect(queued.landed.at(-1)).toBe(`${engine.get(parent.id)!.status}:${engine.get(parent.id)!.nextSliceIndex}`);
+  });
+
+  it('resolves at once for a parent with no save waiting', async () => {
+    const engine = new TwapEngine(makePorts());
+    await expect(engine.whenSaved('none')).resolves.toBeUndefined();
+  });
+});

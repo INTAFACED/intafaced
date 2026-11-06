@@ -944,6 +944,16 @@ export class TwapEngine {
     return parent;
   }
 
+  /**
+   * Resolves once every save of `parentId` asked for so far has run. Saves of one parent run in order, each `onChange`
+   * called only after the one before it settled, so the last one queued covers them all. A caller that collects the
+   * promises `onChange` returns misses the save that has not been handed to `onChange` yet (#7219: a test read the
+   * arrival mark before the parent's first insert had run).
+   */
+  whenSaved(parentId: string): Promise<void> {
+    return this.saves.get(parentId) ?? Promise.resolve();
+  }
+
   private emitChange(parent: TwapParent): Promise<void> {
     const onChange = this.onChange;
     if (!onChange) return Promise.resolve();

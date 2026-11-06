@@ -373,7 +373,6 @@ describe('desk acceptance (shared test postgres)', () => {
     await fund(ALICE, 'USDT', '100');
     await fund(BOB, 'BTC', '1');
     const store = new SqlTwapParentStore(sql);
-    const writes: Promise<unknown>[] = [];
     let t = Date.now();
     let probes = 0;
     const engine = new TwapEngine(
@@ -399,11 +398,7 @@ describe('desk acceptance (shared test postgres)', () => {
         markFor: async (marketId) => ({ marketId, price: parseAmount('50'), asOf: new Date(t), quality: 'mid' as const }),
       },
       {
-        onChange: (parent, plan) => {
-          const write = store.save({ parent, plan });
-          writes.push(write);
-          return write;
-        },
+        onChange: (parent, plan) => store.save({ parent, plan }),
       },
     );
     const created = engine.create(
@@ -421,16 +416,17 @@ describe('desk acceptance (shared test postgres)', () => {
       },
       btc.lotSize,
     );
-    await Promise.all(writes.splice(0));
+    // Each save reaches onChange a microtask later, in order: wait on the engine's own queue (#7219).
+    await engine.whenSaved(created.id);
     await engine.tick(created.id);
-    await Promise.all(writes.splice(0));
+    await engine.whenSaved(created.id);
     t += 2_000;
     await engine.tick(created.id);
-    await Promise.all(writes.splice(0));
+    await engine.whenSaved(created.id);
     t += 2_000;
     const missed = await engine.tick(created.id);
     expect(missed.kind).toBe('miss');
-    await Promise.all(writes);
+    await engine.whenSaved(created.id);
     const restarted = new SqlTwapParentStore(sql);
     const loaded = await restarted.load(created.id);
     expect(loaded?.parent.children).toHaveLength(2);
