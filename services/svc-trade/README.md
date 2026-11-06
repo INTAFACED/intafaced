@@ -110,6 +110,18 @@ principal claim; no identity vendor is called from this service.
 | `admin.agreements.list` / `.export`   | compliance view of stored acceptances; the CSV export is capped by `TRADE_OPERATOR_EXPORT_CAP` (blank refuses) and audited |
 | `admin.eligibilityRules.get` / `.set` | versioned questions, pass mark and minimum tier; any blank part refuses `eligibility_rules_incomplete`                     |
 
+**Fees and convert, finance reads (J-cex-spot-17).** Read only, `admin:read`, behind the console's Fees and convert room.
+Fee versions themselves are `admin.fees.get` / `admin.fees.set` (two-person, a stated effective time; an order keeps the
+version in force when it was placed, `spot/fee-schedule-store.ts`). A schedule change moves no money.
+
+| Procedure                    | What it does                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `admin.fees.snapshots`       | finished fee tier snapshot runs, newest first (`limit` 1-100, required): version, accounts, accounts above regular, counted volume                                             |
+| `admin.convertDesk.settings` | Convert open or paused, each coin's maximum per conversion, spread, quote hold time, desk-price size ranges; a blank one is `null`, a set one Convert refuses carries its code |
+| `admin.convertDesk.quotes`   | convert quotes of one `side`, newest first (`limit` 1-100, required), exact amounts and the spread in the quote as given                                                       |
+
+An unwired convert read refuses `trade.convert_settings_unwired`; a missing page size refuses `fees_desk_limit_unset`.
+
 **Charts module owner values (C-ops-04, LD-14).** Five counts and a data class per market, held here until account sync
 exists. Blank is `null` ("not set"); nothing has a default. Operator writes need `admin:write`, a reason, and a
 `clientRequestId` (idempotent); each write leaves an audit row (`chart_owner_values.set` or `chart_data_class.set`) with the

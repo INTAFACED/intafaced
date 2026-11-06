@@ -208,6 +208,17 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
           }),
         )
         .mutation(({ ctx, input }) => ready().feeScheduleSet(ctx.principal, input).catch(fail)),
+      /** Finished fee tier snapshot runs, newest first, with the figures each used (J-cex-spot-17 #4). */
+      snapshots: operator
+        .input(z.object({ limit: z.number().int().min(1).max(100) }).strict())
+        .query(({ ctx, input }) => ready().feesConvert.snapshotRuns(ctx.principal, input.limit).catch(fail)),
+    }),
+    /** Convert's state and owner values, and the quotes customers were given (J-cex-spot-17 #7, #8). Read only. */
+    convertDesk: router({
+      settings: operator.query(({ ctx }) => ready().feesConvert.convertSettings(ctx.principal).catch(fail)),
+      quotes: operator
+        .input(z.object({ side: z.enum(['buy', 'sell']), limit: z.number().int().min(1).max(100) }).strict())
+        .query(({ ctx, input }) => ready().feesConvert.convertQuotes(ctx.principal, input).catch(fail)),
     }),
     positions: router({
       list: operator

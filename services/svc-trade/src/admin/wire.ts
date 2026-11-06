@@ -9,11 +9,25 @@ import type { TradeService } from '../spot/trade-service.js';
 import type { OwnerFeeSchedule } from '../spot/fee-schedule.js';
 import type { OtcDeskLaw } from '../otc/desk-law.js';
 import type { ApprovalBook } from './common.js';
+import type { ConvertOwnerValues } from './fees-convert-desk.js';
 import { TradeOpsAdmin } from './service.js';
+
+/** A principal that may only read trading, for the operator's view of what Convert offers a customer. */
+function reader(): Principal {
+  return {
+    sub: 'svc-trade:operator-read',
+    userId: 'svc-trade:operator-read',
+    scopes: ['trade:read'],
+    tier: 'basic',
+    mfa: false,
+    sid: '00000000-0000-4000-8000-000000000002',
+    expiresAt: new Date(Date.now() + 60_000),
+  };
+}
 
 export function wireTradeOpsAdmin(deps: {
   sql: Sql;
-  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket' | 'engineLiveOrderIds'>;
+  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket' | 'engineLiveOrderIds' | 'convertPairs'>;
   ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
   approvals: ApprovalBook;
   feeSchedule?: OwnerFeeSchedule;
@@ -23,6 +37,8 @@ export function wireTradeOpsAdmin(deps: {
   sweepLimit?: number | null;
   sweepMinAgeSeconds?: number | null;
   sweepEnabled?: boolean;
+  /** Convert's owner values; what Convert offers now is read from `trade` as a reader principal. */
+  convert?: Omit<ConvertOwnerValues, 'pairs'>;
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
@@ -32,6 +48,7 @@ export function wireTradeOpsAdmin(deps: {
     sweepMinAgeSeconds: deps.sweepMinAgeSeconds ?? null,
     sweepEnabled: deps.sweepEnabled ?? false,
     engineLiveOrderIds: (marketId) => deps.trade.engineLiveOrderIds(marketId),
+    ...(deps.convert ? { convert: { ...deps.convert, pairs: () => deps.trade.convertPairs(reader()) } } : {}),
     ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,

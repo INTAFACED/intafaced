@@ -173,7 +173,7 @@ import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
 import { describeOtcMidFeedWiring } from './otc/mid-feed.js';
 import { OtcDeskService } from './otc/otc-service.js';
 import { loadOtcMakerDirectory } from './otc/maker-directory.js';
-import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
+import { NO_OTC_CONVERT_BOUNDS, parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { createIfcDiscountSource } from './spot/fee-ifc.js';
@@ -362,6 +362,15 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
   venueSymbolsConfigured: env.TRADE_OTC_VENUE_SYMBOLS.trim().length > 0,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
 });
+const otcConvertBounds = (() => {
+  try {
+    return parseOtcConvertBoundsJson(env.TRADE_OTC_CONVERT_BOUNDS);
+  } catch (err) {
+    // A malformed setting must not stop all trading: log it and leave both flows refusing.
+    process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.convert_bounds_invalid', message: String(err) })}\n`);
+    return undefined;
+  }
+})();
 const otc = new OtcDeskService(ledger, otcStakes, {
   accountAdmission: tradingControls,
   emailProof,
@@ -369,15 +378,7 @@ const otc = new OtcDeskService(ledger, otcStakes, {
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
   midFeedWiring: otcMidFeedWiring,
-  convertBounds: (() => {
-    try {
-      return parseOtcConvertBoundsJson(env.TRADE_OTC_CONVERT_BOUNDS);
-    } catch (err) {
-      // A malformed setting must not stop all trading: log it and leave both flows refusing.
-      process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.convert_bounds_invalid', message: String(err) })}\n`);
-      return undefined;
-    }
-  })(),
+  convertBounds: otcConvertBounds,
   store: new SqlOtcQuoteStore(sql),
   makerDirectory: loadOtcMakerDirectory(env.TRADE_OTC_MAKER_DIRECTORY, (message) =>
     process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.maker_directory_invalid', message })}\n`),
@@ -559,6 +560,12 @@ export const appRouter = createTradeRouter(
     sweepLimit: parseSweepLimit(env.TRADE_OPERATOR_SWEEP_LIMIT),
     sweepMinAgeSeconds: parseSweepMinAgeSeconds(env.TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS),
     sweepEnabled: parseSweepEnabled(env.TRADE_OPERATOR_SWEEP_ENABLED),
+    convert: {
+      spreadBps: env.TRADE_CONVERT_SPREAD_BPS,
+      quoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
+      // A malformed setting refuses both flows above, so the read shows both as not set.
+      deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
+    },
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),

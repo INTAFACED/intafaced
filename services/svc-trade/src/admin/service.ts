@@ -75,6 +75,7 @@ import { readMarketStatusHistory } from './status-history.js';
 import { FundingDesk } from './funding-desk.js';
 import { CopyBotsOtcAdmin } from './copy-bots-otc.js';
 import type { OtcDeskLaw } from '../otc/desk-law.js';
+import { FeesConvertDesk, type ConvertOwnerValues } from './fees-convert-desk.js';
 
 export interface TradeOpsDeps {
   readonly sql: Sql;
@@ -109,6 +110,8 @@ export interface TradeOpsDeps {
   readonly otcLaw?: OtcDeskLaw;
   /** TRADE_OPS_METRICS_WINDOW_SECONDS, parsed. Absent or null: the module counts refuse. */
   readonly metricsWindowSeconds?: number | null;
+  /** Convert's owner values and what it offers now, for the finance read. Absent: that read refuses unwired. */
+  readonly convert?: ConvertOwnerValues;
   readonly now?: () => Date;
 }
 
@@ -155,8 +158,11 @@ export class TradeOpsAdmin {
   readonly vipApplications: VipReviewAdmin;
   /** Copy, bots and OTC counts, customer lookup and quote desk (CB-ops-05, CB-ops-04). */
   readonly copyBotsOtc: CopyBotsOtcAdmin;
+  /** Fee tier snapshot runs, Convert's owner values and its quotes, read only (J-cex-spot-17). */
+  readonly feesConvert: FeesConvertDesk;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.feesConvert = new FeesConvertDesk({ sql: deps.sql, ...(deps.convert ? { convert: deps.convert } : {}) });
     this.copyBotsOtc = new CopyBotsOtcAdmin({
       sql: deps.sql,
       otcLaw: deps.otcLaw ?? { published: false },
