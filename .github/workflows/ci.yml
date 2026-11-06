@@ -520,7 +520,7 @@ jobs:
           git fetch --no-tags --depth=1 origin "$BASE"
           git worktree add --detach "$RUNNER_TEMP/base" FETCH_HEAD
       # A pull request whose title names journey steps (`J-bank-13 #1 #2`): each one passing in a finished Real-app
-      # journeys run on its exact head, or listed by its full id under a "Left or replaced" heading (owner decision
+      # journeys run on its exact head, or exempted on a body line `Left-or-replaced: J-bank-13 #1` (owner decision
       # 2026-11-06; #7202 merged with its named steps red in its own run). On a merge queue's commit, every queued pull
       # request on its own head. journey-seal-recheck.yml re-runs this job when a journeys run finishes or a title or body
       # is edited. The default branch's copy decides, as for the review below.

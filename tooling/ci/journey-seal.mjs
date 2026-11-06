@@ -2,7 +2,7 @@
 /**
  * Merge-seal step: a pull request whose title names journey steps (`J-bank-13 #1 #2`, `J-ops-console-22 #1–#5`) is
  * sealed only when, for each named step, a finished Real-app journeys run (real-app-journeys.yml) on the pull request's
- * exact head shows it passing, or the body lists the step under a `Left or replaced` heading. A pull request whose title
+ * exact head shows it passing, or the body exempts it on a `Left-or-replaced:` line. A pull request whose title
  * names no step is unaffected. (Failure it prevents: #7202, the J-bank-13 trial, merged although its own branch run
  * 42162035136 on its exact head had failed all seven steps it named, because Real-app journeys is not a required check
  * and the seal never looked at the pull request's own steps; project-state research/trial-2026-11-06/J-bank-13-SCORE.md.
@@ -22,9 +22,11 @@
  *     attempt started), so a re-run's verdict is never read from an earlier attempt's report. A run with no such report,
  *     or one that can't be read, is red for every step it could have decided (fail closed), unless a newer run decides;
  *   - a step no finished run on the head reports is not green.
- * `Left or replaced`: a Markdown heading (any level) whose text is `Left or replaced`, up to the next heading of the same
- * or a higher level; a step counts there only as a list item that opens with its full id (leftOrReplaced). A bare `#7`
- * names no journey (#7202's own section opened with "#7: inferences" about a step it claimed built).
+ * The exemption is one strict machine line, not Markdown: `Left-or-replaced: J-bank-13 #1 #3` (exemptions), at column 0,
+ * outside any fenced code block and any HTML comment, holding only full step ids. Anything else that looks like one (a
+ * line with `left-or-replaced:` in any case, indented, inside a list, or with anything but step ids after it) fails the
+ * seal closed and is named. (Rounds 1 and 2 of the Codex read showed hand-parsed Markdown headings kept leaking: a setext
+ * heading, an indented line, a fence inside a list. A `## Left or replaced` heading is prose and exempts nothing.)
  *
  * The title and body are read from the API at seal time, not from the event, so a re-run reads an edited title.
  * journey-seal-recheck.yml re-runs the seal when a journeys run on a pull request's head finishes and when a title or
@@ -55,9 +57,10 @@ const SHA40 = /^[0-9a-f]{40}$/;
 const STEP_RUN = /\b(J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+)((?:(?:\s*(?:,|&|\/|\band\b)\s*|\s*)#\d+(?:\s*(?:[-–—]|\bto\b)\s*#?\d+)?)+)/gi;
 const NUMBER = /#(\d+)(?:\s*(?:[-–—]|\bto\b)\s*#?(\d+))?/gi;
 const STEP_MAX = 99;
-/** A list item that opens with step ids (markup allowed before them): the ids and their `#` run only. */
-const LEFT_ITEM =
-  /^\s*(?:[-*+]|\d+[.)])\s+[*_`\s]*(J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+(?:(?:\s*(?:,|&|\/|\band\b)\s*|\s*)#\d+(?:\s*(?:[-–—]|\bto\b)\s*#?\d+)?)+)/i;
+/** The exemption line, exactly: column 0, this case, a colon, then step ids only. */
+const EXEMPT_LINE = /^Left-or-replaced:(.*)$/;
+/** Anything that looks like an exemption line, wherever it sits and however it is written. */
+const LOOKS_EXEMPT = /left[ \t]*-[ \t]*or[ \t]*-[ \t]*replaced[ \t]*:/i;
 const byStep = (a, b) => a.localeCompare(b, 'en', { numeric: true });
 
 /** Step keys (`J-bank-13#1`, as readReport keys them) named in a piece of text. Journey ids are read in lower case. */
@@ -89,55 +92,41 @@ export function titleProblems(title) {
 }
 
 /**
- * Step keys listed under a `Left or replaced` heading of a body: list items (`-`, `*`, `+` or `1.`, at any depth) that
- * open with full step ids, optionally in bold or code (`- J-bank-13 #3: needs the issuer`, `- **J-bank-13 #3**`). Only
- * that opening run counts, so prose under the heading ("None. J-bank-13 #1 #2 all pass") and a step an item merely
- * mentions ("- J-bank-13 #3, replaced by J-bank-14 #2" leaves only #3) never exempt anything. Fenced code and HTML
- * comments are skipped, and so is a line indented four columns or more (a tab is four): Markdown may read it as code,
- * so it exempts nothing, even where it would be a nested item (fail closed). The section ends at the next ATX heading of
- * its level or higher, at any setext underline (`-----`, `=====`) and at any thematic break (`***`, `___`, `- - -`);
- * a setext heading `Left or replaced` opens it as an ATX one does.
+ * The steps a body exempts, and the exemption-like lines it can't accept: { steps: Set, problems: [line] }. One fence
+ * tracker over the raw lines (a fence opens at any indent, so one inside a list counts) and HTML comments stripped; a
+ * line inside either is code or hidden and exempts nothing. Outside them, a `Left-or-replaced:` line at column 0 whose
+ * rest is only full step ids (`J-bank-13 #1 #3, J-bank-14 #2`) exempts those steps; every other line that looks like an
+ * exemption is a problem, and so is an exemption line with anything else after the colon or a range that can't be read.
  */
-export function leftOrReplaced(body) {
-  const out = new Set();
+export function exemptions(body) {
+  const steps = new Set();
+  const problems = [];
   let fence = null;
-  let level = 0; // 0: not in the section; else the heading level that opened it
-  let prev = '';
   for (const line of String(body ?? '')
     .replace(/\r/g, '')
     .replace(/<!--[\s\S]*?(?:-->|$)/g, (c) => c.replace(/[^\n]/g, ''))
     .split('\n')) {
-    const before = prev;
-    prev = line;
-    const f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+    const f = /^(`{3,}|~{3,})(.*)$/.exec(line.trimStart());
     if (fence) {
-      if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !line.trim().slice(f[1].length).trim()) fence = null;
+      if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2].trim()) fence = null;
       continue;
     }
-    if (f && !(f[1][0] === '`' && line.trim().slice(f[1].length).includes('`'))) {
+    if (f && !(f[1][0] === '`' && f[2].includes('`'))) {
       fence = f[1];
       continue;
     }
-    // A setext underline or a thematic break. Under a paragraph line it makes that line a heading.
-    const rule = /^ {0,3}(?:=+|-+|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})[ \t]*$/.test(line);
-    if (rule) {
-      const text = before.replace(/[*_`]/g, '').trim();
-      level = /^[=-]/.test(line.trim()) && /^left or replaced\s*:?$/i.test(text) ? (line.trim()[0] === '=' ? 1 : 2) : 0;
+    if (!LOOKS_EXEMPT.test(line)) continue;
+    const m = EXEMPT_LINE.exec(line);
+    const rest = m ? m[1] : '';
+    const named = m ? stepsIn(rest) : [];
+    const leftover = rest.replace(STEP_RUN, '').replace(/[\s,;]+/g, '');
+    if (!m || named.length === 0 || leftover || titleProblems(rest).length) {
+      problems.push(line.trim());
       continue;
     }
-    const h = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$/.exec(line);
-    if (h) {
-      const text = (h[2] ?? '').replace(/[*_`]/g, '').trim();
-      if (/^left or replaced\s*:?$/i.test(text)) level = h[1].length;
-      else if (level && h[1].length <= level) level = 0;
-      continue;
-    }
-    if (!level) continue;
-    if (/^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length >= 4) continue;
-    const lead = LEFT_ITEM.exec(line);
-    if (lead) for (const k of stepsIn(lead[1])) out.add(k);
+    for (const k of named) steps.add(k);
   }
-  return out;
+  return { steps, problems };
 }
 
 /**
@@ -155,11 +144,20 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
       lines: [`the title's ${unreadable.join(', ')} can't be read as steps (a step number past ${STEP_MAX}); name the steps it means`],
     };
   if (named.length === 0) return { ok: true, state: 'none', lines: ['the title names no journey step'] };
-  const left = leftOrReplaced(body);
+  const left = exemptions(body);
+  if (left.problems.length)
+    return {
+      ok: false,
+      state: 'fail',
+      lines: left.problems.map(
+        (l) =>
+          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
+      ),
+    };
   const lines = [];
   const needed = [];
   for (const k of named) {
-    if (left.has(k)) lines.push(`${k}: listed under "Left or replaced"`);
+    if (left.steps.has(k)) lines.push(`${k}: exempted on a Left-or-replaced line`);
     else needed.push(k);
   }
   if (needed.length === 0) return { ok: true, state: 'pass', lines };
@@ -352,6 +350,18 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
   }
 }
 
+/** A title the seal judges: it names steps, or holds a range that can't be read as steps (which fails the seal). */
+export const namesSteps = (title) => titleSteps(title).length > 0 || titleProblems(title).length > 0;
+
+/**
+ * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`).
+ * A title edited from "fix J-bank-13" to "J-bank-13 #1-#100" is judged, so its green seal turns red.
+ */
+export const recheckPulls = ({ pulls, sha, repo, oldTitle = '' }) =>
+  (pulls ?? [])
+    .filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo)
+    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle));
+
 /**
  * journey-seal-recheck.yml: the open pull requests whose head is `sha` and whose title names steps now (or named them
  * before an edit, OLD_TITLE), each with its seal re-run. A head no open pull request names is left alone.
@@ -375,8 +385,7 @@ async function recheck({ repo, token }) {
   const pulls = PR_NUMBER
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
-  const mine = (pulls ?? []).filter((p) => p?.state === 'open' && p?.head?.sha === SHA && p?.base?.repo?.full_name === repo);
-  const named = mine.filter((p) => titleSteps(p.title).length || titleSteps(OLD_TITLE).length);
+  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE });
   if (!named.length) return console.log(`no open pull request on ${SHA} names journey steps; the seal is left as it is`);
   console.log(
     `#${named.map((p) => p.number).join(', #')} on ${SHA} name journey steps: ${await rerunSealJob({ repo, sha: SHA, get, post })}`,
@@ -388,12 +397,12 @@ function report({ ok, lines }, how) {
   if (ok) return console.log(`journey steps: ${how}`);
   console.error(
     `::error title=Named journey steps not green on this head::${lines
-      .filter((l) => !/Left or replaced"$/.test(l))
+      .filter((l) => !/on a Left-or-replaced line$/.test(l))
       .join('; ')
       .slice(
         0,
         3000,
-      )}. A pull request whose title names journey steps needs each one passing in a finished Real-app journeys run on its exact head (dispatch real-app-journeys.yml on the branch with the journeys input naming the journey files, e.g. J-bank-13.pw.mjs, so they run with the ordinary limits rather than a full run's fail-fast; the seal re-runs when it finishes), or the step listed by its full id under a "Left or replaced" heading in the body.`,
+      )}. A pull request whose title names journey steps needs each one passing in a finished Real-app journeys run on its exact head (dispatch real-app-journeys.yml on the branch with the journeys input naming the journey files, e.g. J-bank-13.pw.mjs, so they run with the ordinary limits rather than a full run's fail-fast; the seal re-runs when it finishes), or the step exempted on its own body line, \`Left-or-replaced: J-bank-13 #1 #3\`, at column 0 outside code.`,
   );
   process.exit(1);
 }

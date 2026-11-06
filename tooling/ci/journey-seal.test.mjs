@@ -1,12 +1,15 @@
 // The planted cases of the journey-steps seal (journey-seal.mjs): a known-good shape seals; a red named step, a run on an
 // older head, a step missing from the report, a run still going, an earlier attempt's report and an unreadable report do
-// not; a step listed by its full id under "Left or replaced" seals without a run. tooling-tests.mjs runs this file.
+// not; a step exempted on a strict `Left-or-replaced:` line seals without a run, and anything else that looks like an
+// exemption fails closed. tooling-tests.mjs runs this file.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   currentReportArtifact,
   judgeSteps,
-  leftOrReplaced,
+  exemptions,
+  namesSteps,
+  recheckPulls,
   recheckStep,
   rerunSealJob,
   sealPull,
@@ -75,40 +78,46 @@ test('title parsing: lists, ranges, several journeys, case, and what is not a st
   assert.deepEqual(titleSteps('x (J-bank-13#1 #2)'), ['J-bank-13#1', 'J-bank-13#2'], "the report's own spelling names steps");
 });
 
-test('Left or replaced: full ids under the heading only, outside code, up to the next heading of its level', () => {
-  const body = [
-    '## Acceptance',
-    '- J-bank-13 #1 works',
-    '## Left or replaced',
-    '- **#7: inferences**, all mine',
-    '- J-bank-13 #3, replaced by J-bank-14 #2',
-    'None of the rest: J-bank-13 #8 #9 all pass.',
-    '<!-- - J-bank-13 #10 -->',
-    '1. **J-bank-15 #1**: not built',
-    '  - J-bank-13 #4: nested',
-    '### detail',
-    '- J-bank-13 #5',
-    '```',
-    '- J-bank-13 #6',
-    '```',
-    '## Proof',
-    '- J-bank-13 #2 left',
-  ].join('\n');
-  assert.deepEqual([...leftOrReplaced(body)].sort(), ['J-bank-13#3', 'J-bank-13#4', 'J-bank-13#5', 'J-bank-15#1']);
+test('exemption line: column 0, outside code and comments, step ids only; Markdown sections exempt nothing', () => {
+  const ok = (b) => [...exemptions(b).steps].sort();
+  const bad = (b) => exemptions(b).problems;
+  assert.deepEqual(ok('Left-or-replaced: J-bank-13 #3 #5, J-bank-14 #2\n'), ['J-bank-13#3', 'J-bank-13#5', 'J-bank-14#2']);
   assert.deepEqual(
-    [...leftOrReplaced('## Left or replaced\nNone. J-bank-13 #1 #2 #3 all pass.\n')],
-    [],
-    'prose under the heading exempts nothing',
+    ok('a\nLeft-or-replaced: J-bank-13 #1\nb\nLeft-or-replaced: J-bank-13#2\n'),
+    ['J-bank-13#1', 'J-bank-13#2'],
+    'several lines',
   );
-  assert.deepEqual(
-    [...leftOrReplaced('## Left or replaced\n- the issuer is not wired, so J-bank-13 #2 waits\n')],
-    [],
-    'only an item that opens with the id',
-  );
-  assert.deepEqual([...leftOrReplaced('### Left or replaced:\n- J-a-01 #1\n')], ['J-a-01#1'], 'any level, a trailing colon');
-  assert.deepEqual([...leftOrReplaced('**Left or replaced**\n- J-a-01 #1\n')], [], 'bold text is not a heading');
-  assert.deepEqual([...leftOrReplaced('```\n## Left or replaced\n- J-a-01 #1\n```\n')], [], 'a heading in code is not one');
-  assert.deepEqual([...leftOrReplaced(null)], []);
+  assert.deepEqual(ok('Left-or-replaced: J-bank-13 #1-#3\n'), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3']);
+  // The PR template's prose heading and anything under it exempt nothing, without being a problem.
+  const prose = '## Left or replaced\n- J-bank-13 #3: needs the issuer\n1. **J-bank-15 #1**\nNone. J-bank-13 #1 all pass.\n';
+  assert.deepEqual(ok(prose), []);
+  assert.deepEqual(bad(prose), []);
+  // Code and comments hide nothing and exempt nothing.
+  for (const b of [
+    '```\nLeft-or-replaced: J-bank-13 #1\n```\n',
+    '<!--\nLeft-or-replaced: J-bank-13 #1\n-->\n',
+    '- ```\n  x\n  ```\n~~~\nLeft-or-replaced: J-bank-13 #1\n~~~\n',
+  ]) {
+    assert.deepEqual(ok(b), [], b);
+    assert.deepEqual(bad(b), [], b);
+  }
+  // Anything else that looks like an exemption is a problem (the seal fails closed).
+  for (const b of [
+    ' Left-or-replaced: J-bank-13 #1',
+    '    Left-or-replaced: J-bank-13 #1',
+    '- Left-or-replaced: J-bank-13 #1',
+    '> Left-or-replaced: J-bank-13 #1',
+    'left-or-replaced: J-bank-13 #1',
+    'Left-or-replaced: J-bank-13 #1 needs the issuer',
+    'Left-or-replaced: #1',
+    'Left-or-replaced:',
+    'Left-or-replaced: J-bank-13 #1-#100',
+    'Left - or - replaced: J-bank-13 #1',
+  ]) {
+    assert.deepEqual(ok(b), [], b);
+    assert.equal(bad(b).length, 1, b);
+  }
+  assert.deepEqual(exemptions(null), { steps: new Set(), problems: [] });
 });
 
 test('a title naming no step is unaffected: no run is read', async () => {
@@ -132,7 +141,7 @@ test('planted fault: a named step red in the run fails (#7202, run 42162035136)'
   const states = Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((n) => [`J-bank-13#${n}`, 'failed']));
   const title =
     "svc-bank: J-bank-13 I get a card: eligibility and terms, virtual and single-use cards, a physical card's delivery and address, activation with step-up, a lost report, and cashback in IFC by rank tier (J-bank-13 #1 #2 #3 #4 #5 #6 #7)";
-  // #7202's own "Left or replaced" opened with "#7: inferences and limits" about a step it claimed built: no full id.
+  // #7202's own "Left or replaced" section opened with "#7: inferences and limits" about a step it claimed built.
   const body = '## Left or replaced\n\n- **#7: inferences and limits, all mine.**\n  - "In token" is read as IFC\n## Proof\n';
   const v = await judge({ title, body, runs: [run(42162035136 % 1e6, { conclusion: 'failure' })], reportOf: async () => ({ states }) });
   assert.equal(v.ok, false);
@@ -168,21 +177,18 @@ test('a skipped named step is not green', async () => {
   assert.equal(v.ok, false);
 });
 
-test('"Left or replaced" by full id passes without a run; a bare #n does not', async () => {
-  const left = await judge({
-    body: '## Left or replaced\n- J-bank-13 #2: needs the issuer\n',
-    runs: [run(1)],
-    reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed' } } }),
-  });
+test('a Left-or-replaced line passes its steps without a run; a malformed one fails the seal; a prose section exempts nothing', async () => {
+  const one = { runs: [run(1)], reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed' } } }) };
+  const left = await judge({ body: 'Left-or-replaced: J-bank-13 #2\n', ...one });
   assert.equal(left.ok, true, left.lines.join('\n'));
-  const both = await judge({ body: '## Left or replaced\n- J-bank-13 #1 #2\n', reportOf: () => assert.fail('nothing to read') });
+  assert.match(left.lines.join('\n'), /J-bank-13#2: exempted on a Left-or-replaced line/);
+  const both = await judge({ body: 'Left-or-replaced: J-bank-13 #1 #2\n', reportOf: () => assert.fail('nothing to read') });
   assert.equal(both.ok, true);
-  const bare = await judge({
-    body: '## Left or replaced\n- #2: needs the issuer\n',
-    runs: [run(1)],
-    reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed' } } }),
-  });
-  assert.equal(bare.ok, false);
+  const broken = await judge({ body: 'Left-or-replaced: J-bank-13 #2 needs the issuer\n', ...one });
+  assert.equal(broken.ok, false, 'a malformed line fails even though #1 passed');
+  assert.match(broken.lines.join('\n'), /looks like an exemption but isn't one/);
+  assert.equal((await judge({ body: '## Left or replaced\n- J-bank-13 #2: needs the issuer\n', ...one })).ok, false);
+  assert.equal((await judge({ body: 'Left-or-replaced: #2\n', ...one })).ok, false, 'a bare #n');
 });
 
 test('on a merge queue commit nothing waits: an unfinished run is passed over and the finished ones decide', async () => {
@@ -332,11 +338,7 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
 // The Codex read of #7229 at 2c5588fa (GPT-6 Astra): four ways to fool the reader, each a planted fault.
 test('Codex 1: an upper-case "TO" range names every step between, not only its ends', () => {
   assert.deepEqual(titleSteps('x (J-bank-13 #1 TO #4)'), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3', 'J-bank-13#4']);
-  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1 TO #3\n')].sort(), [
-    'J-bank-13#1',
-    'J-bank-13#2',
-    'J-bank-13#3',
-  ]);
+  assert.deepEqual([...exemptions('Left-or-replaced: J-bank-13 #1 TO #3\n').steps].sort(), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3']);
 });
 
 test('Codex 2: a step range the parser cannot read fails the seal closed', async () => {
@@ -349,15 +351,55 @@ test('Codex 2: a step range the parser cannot read fails the seal closed', async
   assert.deepEqual(titleProblems('x (J-wallet-05 #2, #6650)'), [], 'a lone issue number is not a range');
 });
 
-test('Codex 3: an indented code line under "Left or replaced" exempts nothing', () => {
-  assert.deepEqual([...leftOrReplaced('## Left or replaced\n\n    - J-bank-13 #1\n')], []);
-  assert.deepEqual([...leftOrReplaced('## Left or replaced\n\n\t- J-bank-13 #1\n')], [], 'a tab is four columns');
-  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #2\n  - J-bank-13 #3\n')].sort(), ['J-bank-13#2', 'J-bank-13#3']);
+test('Codex 3: an indented code line under a "Left or replaced" heading exempts nothing', () => {
+  for (const b of [
+    '## Left or replaced\n\n    - J-bank-13 #1\n',
+    '## Left or replaced\n\n\t- J-bank-13 #1\n',
+    '## Left or replaced\n- J-bank-13 #1\n',
+  ])
+    assert.deepEqual([...exemptions(b).steps], [], b);
 });
 
-test('Codex 4: a setext heading or a thematic break ends the section; a setext "Left or replaced" opens it', () => {
-  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1\n\nProof\n-----\n- J-bank-13 #2\n')], ['J-bank-13#1']);
-  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1\n\nProof\n=====\n- J-bank-13 #2\n')], ['J-bank-13#1']);
-  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1\n\n***\n- J-bank-13 #2\n')], ['J-bank-13#1']);
-  assert.deepEqual([...leftOrReplaced('Left or replaced\n----------------\n- J-bank-13 #4\n')], ['J-bank-13#4']);
+test('Codex 4: a setext heading or thematic break opens no exemption', () => {
+  for (const b of [
+    'Left or replaced\n----------------\n- J-bank-13 #4\n',
+    '## Left or replaced\n- J-bank-13 #1\n\nProof\n-----\n- J-bank-13 #2\n',
+  ])
+    assert.deepEqual([...exemptions(b).steps], [], b);
+});
+
+// Codex round 2 at bdcb884b: three more inputs that sealed with no run, each a planted fault. Each failed on bdcb884b.
+const r2 = (body) =>
+  judgeSteps({ sha: HEAD, repo: REPO, title: 'svc-bank: x (J-bank-13 #1)', body, runs: [], reportOf: async () => assert.fail('no run') });
+test('Codex round 2, 1a: an indented "Left or replaced" over --- exempts nothing', async () => {
+  assert.equal((await r2('    Left or replaced\n---\n- J-bank-13 #1')).ok, false);
+});
+test('Codex round 2, 1b: "Left or replaced" over a - - - break exempts nothing', async () => {
+  assert.equal((await r2('Left or replaced\n- - -\n- J-bank-13 #1')).ok, false);
+});
+test('Codex round 2, 2: a fence inside a list hides nothing and exempts nothing', async () => {
+  assert.equal((await r2('- ```\n  Left or replaced\n  ---\n  - J-bank-13 #1\n  ```')).ok, false);
+  assert.equal((await r2('- ```\n  Left-or-replaced: J-bank-13 #1\n  ```')).ok, false, 'not even the exact line, inside that fence');
+});
+test('Codex round 2, 3: an edit to an unreadable range re-runs a green seal', () => {
+  const pull = {
+    number: 5,
+    state: 'open',
+    head: { sha: HEAD },
+    base: { repo: { full_name: REPO } },
+    title: 'svc-bank: x (J-bank-13 #1-#100)',
+  };
+  assert.deepEqual(
+    recheckPulls({ pulls: [pull], sha: HEAD, repo: REPO, oldTitle: 'svc-bank: fix J-bank-13' }).map((p) => p.number),
+    [5],
+  );
+  assert.equal(namesSteps('svc-bank: fix J-bank-13'), false);
+  assert.equal(namesSteps('x (J-bank-13 #1-#100)'), true);
+  const plain = { ...pull, title: 'svc-bank: fix J-bank-13' };
+  assert.deepEqual(
+    recheckPulls({ pulls: [plain], sha: HEAD, repo: REPO, oldTitle: 'svc-bank: fix it' }),
+    [],
+    'still no re-run when no title names steps',
+  );
+  assert.deepEqual(recheckPulls({ pulls: [{ ...pull, state: 'closed' }], sha: HEAD, repo: REPO }), []);
 });
