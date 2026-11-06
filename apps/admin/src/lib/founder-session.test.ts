@@ -340,9 +340,11 @@ describe('founder admin session security boundaries', () => {
       await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
         code: 'admin.founder_required',
       });
+      // An answer the console can't read is not shown to be staff: the same refusal as any other non-founder.
       identity('auditor');
       await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
-        code: 'admin.upstream_invalid',
+        code: 'admin.founder_required',
+        status: 403,
       });
     });
   });

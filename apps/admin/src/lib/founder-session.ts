@@ -308,8 +308,9 @@ export async function assertCurrentFounder(
     const staff = staffTestStatusSchema.safeParse(
       await founderEdgeCall(config, 'identity', 'staffTestStatus', 'GET', {}, session.accessToken),
     );
-    if (!staff.success) throw new AdminSessionError('admin.upstream_invalid', 502);
-    if (staff.data.userId === session.userId && staff.data.role !== null) return;
+    // Only a well-formed answer naming this user and a TEST role admits. Anything else (no role, another user, an answer
+    // this console can't read) is not shown to be staff, so it gets the same refusal as any other non-founder.
+    if (staff.success && staff.data.userId === session.userId && staff.data.role !== null) return;
   }
   if (status.data.status === 'unconfigured') throw new AdminSessionError('admin.founders_unconfigured', 503);
   throw new AdminSessionError('admin.founder_required', 403);
