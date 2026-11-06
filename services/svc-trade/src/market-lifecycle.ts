@@ -463,7 +463,9 @@ export function deriveMarketLifecycleSnapshot(market: Market, options: MarketLif
   // a stored OPEN so a halted book is not published as open.
   const listing = listingLifecycleState(market);
   const stored = applied?.resolvedState ?? null;
-  const useStored = stored !== null && stored !== 'OPEN';
+  // A halted, delisted or pending listing wins over any stored mode: a restricted mode (limit-only, cancel-only ...) set
+  // by operators never re-opens a book the listing has shut.
+  const useStored = stored !== null && stored !== 'OPEN' && listing === null;
   const state: MarketLifecycleState = useStored ? stored : (listing ?? stored ?? 'OPEN');
   const reasonCategory = useStored && applied ? applied.reasonCategory : state === 'OPEN' ? 'NORMAL' : 'OPERATOR';
   const reasonCode =
