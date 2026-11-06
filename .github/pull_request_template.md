@@ -4,9 +4,9 @@ Title: <type>(<scope>): <what changed>
    A PR that changes a gate file (for example tooling/ci, .github/workflows,
    AGENTS.md, CLAUDE.md, .cursor/rules, tooling/agent-protocol, docs/agents) needs a ci: or gate: title.
 
-Keep it small. One service per PR. If describing it needs the word "and", it is
-two PRs. A slice is the exception: its contracts or events, one service and that
-service's screen land as one PR.
+One PR may carry one whole journey: every service, contracts and events it
+needs. Ledger-client money recipes and the security services and packages go in
+their own PR (AGENTS.md "Services and events" 1 and 2).
 -->
 
 ## What changed
@@ -38,7 +38,7 @@ service's screen land as one PR.
 ## Checks
 
 - [ ] Ran on my machine before pushing: affected tests, typecheck, `pnpm exec prettier --check` on changed files
-- [ ] Small and focused: one service (a slice may also carry its contracts or events and its screen)
+- [ ] Focused: one journey; any ledger-client money recipe or security service or package change is in its own PR
 - [ ] No balance held outside the ledger; value moves only through `packages/ledger-client`
 - [ ] Cross-service calls go through `packages/contracts` or `packages/events`
 - [ ] Migrations have a `.down.sql` reversal

@@ -34,7 +34,7 @@ Remove only your own worktree, never with `--force`. Never delete a branch. Neve
 
 ## 3 · Pull requests
 
-One service per PR. If describing it needs the word "and", it is two PRs. A slice is the exception: its contracts or events, one service and that service's screen land as one PR (owner decision 2026-10-22). Any other cross-service change is two PRs in order: the `packages/contracts` or `packages/events` PR first.
+One PR may carry one whole journey: every service, `packages/contracts` and `packages/events` that the journey needs (owner decision 2026-11-06). Money recipes in `packages/ledger-client`, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR (AGENTS.md "Services and events" 1 and 2).
 
 Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`, `docs/agents`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
 
