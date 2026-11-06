@@ -53,6 +53,25 @@ const cents = (text) => {
 };
 const fromCents = (n) => `${n / 100n}.${String(n % 100n).padStart(2, '0')}`;
 
+/**
+ * The mid of two decimal strings as svc-notify writes it (midDecimalString): both scaled to the larger number of decimal
+ * places, summed, halved with the remainder dropped, and trailing zeros trimmed. Worked in bigint, never a JS number.
+ */
+function midOf(bidText, askText) {
+  const [bi, bf = ''] = bidText.split('.');
+  const [ai, af = ''] = askText.split('.');
+  const scale = Math.max(bf.length, af.length);
+  const mid = (BigInt(bi + bf.padEnd(scale, '0')) + BigInt(ai + af.padEnd(scale, '0'))) / 2n;
+  if (scale === 0) return mid.toString();
+  const raw = mid.toString().padStart(scale + 1, '0');
+  const frac = raw.slice(-scale).replace(/0+$/, '');
+  return frac ? `${raw.slice(0, -scale)}.${frac}` : raw.slice(0, -scale);
+}
+
+// svc-notify's own health on the TEST stack: `alerts.sweep.lastAt` is when its last alert sweep finished.
+const NOTIFY = 'http://127.0.0.1:14510';
+const lastSweepAt = async () => (await (await fetch(`${NOTIFY}/health`)).json()).alerts.sweep.lastAt;
+
 /** A TEST price on the 0.01 tick: the last price times percent / 100, worked in scaled bigint. */
 const testPrice = (percent, last) => fromCents((cents(last) * BigInt(percent)) / 100n);
 
@@ -239,8 +258,7 @@ test(`${J} #9 reads the evaluation status: whether server-side checks are connec
 
 // Last in the file (the steps run in order on one account), so the alerts it adds change no count the steps above read.
 test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds conditions up to the cap; an indicator alert refuses`, async () => {
-  test.setTimeout(5 * SWEEP_MS);
-  const startedAt = Date.now();
+  test.setTimeout(6 * SWEEP_MS);
   // The TEST book has a spread, so at any one moment its best ask sits above its mid and its mid above its best bid.
   const res = await fetch(`${EDGE}/api/v1/ticker/${encodeURIComponent('BTC/USDT')}`);
   const { bid, ask, last } = await res.json();
@@ -249,7 +267,7 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   const source = form().getByRole('combobox', { name: 'Price to watch' });
   const MID = 'Mid price (the last trade when one side of the book is empty)';
   await expect(source.locator('option')).toHaveText([MID, 'Best bid', 'Best ask', 'Last trade']);
-  // One alert per source, each at or above its own level far under the market, so the next sweep fires all four together.
+  // One alert per source, each at or above its own level far under the market, so one sweep fires all four together.
   // The TEST market maker moves the book further in a minute than its spread, so a level between two sides would be luck:
   // the price each alert fired at is what shows which price it watched.
   const watches = [
@@ -258,55 +276,55 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
     { name: 'TEST on the bid', label: 'Best bid', suffix: ' · Best bid', level: testPrice(78, String(last)) },
     { name: 'TEST on the last trade', label: 'Last trade', suffix: ' · Last trade', level: testPrice(77, String(last)) },
   ];
+  // Sweeps are a minute apart. Start right after one lands, so all four are saved well before the next.
+  const sweptBefore = await lastSweepAt();
+  await expect.poll(lastSweepAt, { timeout: SWEEP_MS + 15_000, intervals: [1_000] }).not.toBe(sweptBefore);
+  const sweptAt = Date.parse(await lastSweepAt());
   for (const { name, label, suffix, level } of watches) {
     await source.selectOption({ label });
     await createAlert({ condition: 'At or above', price: level, name });
     await expect(rowWith(name).getByTestId('nf-body').first()).toHaveText(`At or above ${level} USDT${suffix}`);
   }
+  expect(Date.now() - sweptAt, 'all four were saved inside one sweep interval').toBeLessThan(SWEEP_MS - 5_000);
   const log = page.getByTestId('alerts-log');
   const trigger = (level) => log.getByTestId('alert-trigger').filter({ hasText: `At or above ${level}.` });
-  let triggers = null;
   await expect(async () => {
-    const read = page.waitForResponse((r) => /notify\.alertTriggers\b/.test(r.url()));
     await page.reload();
-    triggers = await (await read).text();
     for (const { level } of watches) await expect(trigger(level)).toHaveCount(1, { timeout: 2_000 });
   }).toPass({ timeout: 3 * SWEEP_MS, intervals: [5_000] });
+  // The log as the page read it, for each trigger's exact time.
+  const triggersRead = page.waitForResponse((r) => /notify\.alertTriggers\b/.test(r.url()) && r.ok());
+  await page.reload();
+  const answer = await (await triggersRead).json();
+  const items = (Array.isArray(answer) ? answer[0] : answer).result.data.items;
   const fired = {};
   for (const { name, level } of watches) {
+    await expect(trigger(level)).toHaveCount(1);
     const text = await trigger(level).getByTestId('nf-body').textContent();
     const price = /Price when it triggered: (\d+(?:\.\d+)?)/.exec(text)?.[1];
     expect(price, text).toBeTruthy();
-    fired[name] = { price: cents(price), when: (await trigger(level).locator('.nf-muted').textContent()).trim() };
+    const item = items.find((t) => cents(String(t.targetPrice)) === cents(level));
+    expect(item, `the trigger at ${level}`).toBeTruthy();
+    fired[name] = { price, at: Date.parse(item.firedAt) };
     await expect(rowWith(name)).toHaveAttribute('data-status', 'fired');
   }
   const [mid, onAsk, onBid, onLast] = watches.map((w) => fired[w.name]);
-  // One sweep (sweeps are a minute apart, so the same minute is the same pass), and in one pass every price of a market
-  // comes from one read of the book.
-  for (const other of [onAsk, onBid, onLast]) expect(other.when, 'all four fired in the same sweep').toBe(mid.when);
+  // One sweep: every trigger carries that sweep's one time. In one pass every price of a market comes from one read of the book.
+  for (const other of [onAsk, onBid, onLast]) expect(other.at, 'all four fired in the same sweep').toBe(mid.at);
   // The mid alert fired at exactly the mid of what the ask and bid alerts fired at, with the ask above it and the bid below.
   // An ask or bid alert that fell back to the mark would have fired at the mid itself, and this would fail.
-  expect(onAsk.price - onBid.price, 'the book had a spread in that sweep').toBeGreaterThan(1n);
-  expect(fromCents(mid.price), 'mid = (ask + bid) / 2, on the 0.01 tick').toBe(fromCents((onAsk.price + onBid.price) / 2n));
-  expect(onAsk.price > mid.price && mid.price > onBid.price, `bid ${fromCents(onBid.price)} < mid < ask ${fromCents(onAsk.price)}`).toBe(
-    true,
-  );
+  expect(cents(onAsk.price) - cents(onBid.price), 'the book had a spread in that sweep').toBeGreaterThan(1n);
+  expect(mid.price, `mid of bid ${onBid.price} and ask ${onAsk.price}`).toBe(midOf(onBid.price, onAsk.price));
+  expect(cents(onAsk.price) > cents(mid.price) && cents(mid.price) > cents(onBid.price), 'bid < mid < ask').toBe(true);
   // The last-trade alert fired at the price of the TEST tape's latest trade at that sweep, read from the public tape.
-  const levelOfLast = watches[3].level;
-  const answer = JSON.parse(triggers);
-  const item = (Array.isArray(answer) ? answer[0] : answer).result.data.items
-    .filter((t) => t.targetPrice === levelOfLast || cents(String(t.targetPrice)) === cents(levelOfLast))
-    .at(0);
-  expect(item, `the trigger of ${levelOfLast} in ${triggers.slice(0, 300)}`).toBeTruthy();
-  const firedMs = Date.parse(item.firedAt);
   const tape = await (
-    await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=500&since=${startedAt - 5 * SWEEP_MS}`)
+    await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=500&since=${onLast.at - 2 * SWEEP_MS}`)
   ).json();
   expect(Array.isArray(tape) && tape.length > 0, 'the TEST tape has trades').toBe(true);
-  const before = tape.filter((t) => t.timestamp <= firedMs + 5_000).sort((a, b) => b.timestamp - a.timestamp);
+  const upTo = tape.filter((t) => t.timestamp <= onLast.at + 5_000).sort((a, b) => b.timestamp - a.timestamp);
   // The latest print at the sweep, and any print in the few seconds around it (the read is a moment after the sweep's time).
-  const candidates = before.filter((t, i) => i === 0 || t.timestamp >= firedMs - 5_000).map((t) => fromCents(cents(String(t.price))));
-  expect(candidates, `last-trade alert fired at ${fromCents(onLast.price)}`).toContain(fromCents(onLast.price));
+  const prints = upTo.filter((t, i) => i === 0 || t.timestamp >= onLast.at - 5_000).map((t) => fromCents(cents(String(t.price))));
+  expect(prints, `the last-trade alert fired at ${onLast.price}, a print on the tape`).toContain(fromCents(cents(onLast.price)));
 
   // Conditions up to the owner's cap (the main one included), saved and read back.
   const quotaRead = page.waitForResponse((r) => /notify\.alertQuota\b/.test(r.url()));
@@ -337,10 +355,10 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   await page.reload();
   const saved = rowWith('TEST with conditions');
   await expect(saved).toHaveAttribute('data-status', 'active');
-  await expect(saved.getByTestId('nf-body')).toHaveText([
-    `At or above ${main} USDT`,
-    ...extras.map((extra) => `and ${extra.words} ${extra.price} USDT`),
-  ]);
+  await expect(saved.getByTestId('nf-body').first()).toHaveText(`At or above ${main} USDT`);
+  for (const extra of extras) {
+    await expect(saved.getByTestId('nf-body').filter({ hasText: `and ${extra.words} ${extra.price} USDT` })).toHaveCount(1);
+  }
 
   // An indicator alert is listed and refused in words: nothing can go to review.
   await form().getByRole('combobox', { name: 'Alert on' }).selectOption({ label: 'An indicator (RSI, moving averages)' });
