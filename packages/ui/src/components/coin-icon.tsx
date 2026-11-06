@@ -9,16 +9,6 @@ export interface CoinIconProps extends Omit<React.ComponentProps<'span'>, 'child
   size?: number;
 }
 
-/**
- * The artwork with every id (and each `url(#id)` that points at it) made unique to this icon, so many copies on one page
- * never resolve to another copy's clip path. Drawn inline, never as a `data:` image: an image that starts loading while
- * the page is being left is refused under the production policy's `connect-src` (#7216).
- */
-export function inlineCoinArt(svg: string, uid: string): string {
-  const ids = [...svg.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]!);
-  return ids.reduce((out, id) => out.split(`id="${id}"`).join(`id="${id}-${uid}"`).split(`url(#${id})`).join(`url(#${id}-${uid})`), svg);
-}
-
 /** True when we hold artwork for the asset (listed assets only, see coins/manifest.json). */
 export function hasCoinArt(asset: string): boolean {
   return asset.toUpperCase() in coinArt;
@@ -30,7 +20,6 @@ export function hasCoinArt(asset: string): boolean {
  * ticker text next to it names the asset.
  */
 export function CoinIcon({ asset, size = 32, className, style, ...props }: CoinIconProps) {
-  const uid = React.useId().replace(/[^a-zA-Z0-9_-]/g, '');
   const key = asset.toUpperCase();
   const svg = coinArt[key];
   const dim = { width: size, height: size, ...style };
@@ -46,9 +35,11 @@ export function CoinIcon({ asset, size = 32, className, style, ...props }: CoinI
         <span
           aria-hidden="true"
           className="block size-full [&>svg]:block [&>svg]:size-full"
-          // The artwork is this package's own generated constant (coins/coin-art.generated.ts), checked to hold no script,
-          // handler or external reference (coin-art.test.ts); nothing a person types reaches it.
-          dangerouslySetInnerHTML={{ __html: inlineCoinArt(svg, uid) }}
+          // Drawn inline, never as a data: image: Chromium reported a data: image that began loading while the page was
+          // being left under the production policy's connect-src, which refuses data: (#7216). The art is this package's
+          // own generated constant (coins/coin-art.generated.ts), with no script, handler, id or reference
+          // (coin-art.test.ts); nothing a person types reaches it.
+          dangerouslySetInnerHTML={{ __html: svg }}
         />
       </span>
     );
