@@ -15,13 +15,29 @@ const MATCHING = 'http://127.0.0.1:14505';
 const RUN = Date.now().toString(36);
 const run = journeyState(J);
 
-test.describe.configure({ mode: 'serial' });
+// Not serial: steps still to build stay red on their own and never stop the others from running (the run's
+// Left-or-replaced line names them). Steps share state through journeyState, and the stack runs one worker.
 
 /** The engine's own health answer, read straight from svc-matching (no console, no edge). */
 async function engineHealth() {
   const res = await fetch(`${MATCHING}/health`);
   expect(res.status).toBe(200);
   return res.json();
+}
+
+/** The engine's first health answer after a restart: it may still be replaying its journal when the restart returns. */
+async function engineBackUp() {
+  let body = null;
+  await expect
+    .poll(
+      async () => {
+        body = await engineHealth().catch(() => null);
+        return body !== null;
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(true);
+  return body;
 }
 
 /** The founder console's Health room, signed in as founder `key`. */
@@ -79,7 +95,7 @@ test(`${J} #1 opens matching and trade health: venue health from the engine; a m
   // A fresh engine has timed no order submit: its submit latency is a metric not yet read. The restart replays the
   // journal, so the books come back as they were (the engine's own restingOrders below says so).
   tool('local-test-stack.mjs', 'restart', 'matching');
-  const fresh = await engineHealth();
+  const fresh = await engineBackUp();
   expect(fresh.metrics.operations.submit.count).toBe(0);
 
   await health(page);
