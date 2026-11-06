@@ -49,10 +49,11 @@ const SHA40 = /^[0-9a-f]{40}$/;
 /**
  * A journey id, then one or more `#n` or `#a–#b`, with or without a space before the first (`J-bank-13#1` is how the
  * report keys a step), separated by spaces, commas, `and`, `&` or `/`. A number of three digits or more is an issue or
- * pull request (`J-wallet-05 #2, #6650`), never a step: no journey comes near 100 steps (the longest has 12).
+ * pull request (`J-wallet-05 #2, #6650`), never a step: no journey comes near 100 steps (the longest has 12). A range
+ * with such a number (`#1-#100`) can't be read as steps, and titleProblems names it so the seal fails closed.
  */
 const STEP_RUN = /\b(J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+)((?:(?:\s*(?:,|&|\/|\band\b)\s*|\s*)#\d+(?:\s*(?:[-–—]|\bto\b)\s*#?\d+)?)+)/gi;
-const NUMBER = /#(\d+)(?:\s*(?:[-–—]|\bto\b)\s*#?(\d+))?/g;
+const NUMBER = /#(\d+)(?:\s*(?:[-–—]|\bto\b)\s*#?(\d+))?/gi;
 const STEP_MAX = 99;
 /** A list item that opens with step ids (markup allowed before them): the ids and their `#` run only. */
 const LEFT_ITEM =
@@ -78,22 +79,36 @@ export function stepsIn(text) {
 /** The steps a pull request title names. */
 export const titleSteps = (title) => stepsIn(title);
 
+/** Step ranges in a title that can't be read as steps (an end past STEP_MAX): each fails the seal closed. */
+export function titleProblems(title) {
+  const out = [];
+  for (const m of String(title ?? '').matchAll(STEP_RUN))
+    for (const n of m[2].matchAll(NUMBER))
+      if (n[2] !== undefined && (Number(n[1]) > STEP_MAX || Number(n[2]) > STEP_MAX)) out.push(`${m[1]} ${n[0]}`.replace(/\s+/g, ' '));
+  return out;
+}
+
 /**
  * Step keys listed under a `Left or replaced` heading of a body: list items (`-`, `*`, `+` or `1.`, at any depth) that
  * open with full step ids, optionally in bold or code (`- J-bank-13 #3: needs the issuer`, `- **J-bank-13 #3**`). Only
  * that opening run counts, so prose under the heading ("None. J-bank-13 #1 #2 all pass") and a step an item merely
  * mentions ("- J-bank-13 #3, replaced by J-bank-14 #2" leaves only #3) never exempt anything. Fenced code and HTML
- * comments are skipped. (journey-verdict.mjs outsideCode also drops lines indented four spaces, which here would drop a
- * nested list item, so this reader keeps its own fence rule.)
+ * comments are skipped, and so is a line indented four columns or more (a tab is four): Markdown may read it as code,
+ * so it exempts nothing, even where it would be a nested item (fail closed). The section ends at the next ATX heading of
+ * its level or higher, at any setext underline (`-----`, `=====`) and at any thematic break (`***`, `___`, `- - -`);
+ * a setext heading `Left or replaced` opens it as an ATX one does.
  */
 export function leftOrReplaced(body) {
   const out = new Set();
   let fence = null;
   let level = 0; // 0: not in the section; else the heading level that opened it
+  let prev = '';
   for (const line of String(body ?? '')
     .replace(/\r/g, '')
     .replace(/<!--[\s\S]*?(?:-->|$)/g, (c) => c.replace(/[^\n]/g, ''))
     .split('\n')) {
+    const before = prev;
+    prev = line;
     const f = /^ {0,3}(`{3,}|~{3,})/.exec(line);
     if (fence) {
       if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !line.trim().slice(f[1].length).trim()) fence = null;
@@ -101,6 +116,13 @@ export function leftOrReplaced(body) {
     }
     if (f && !(f[1][0] === '`' && line.trim().slice(f[1].length).includes('`'))) {
       fence = f[1];
+      continue;
+    }
+    // A setext underline or a thematic break. Under a paragraph line it makes that line a heading.
+    const rule = /^ {0,3}(?:=+|-+|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})[ \t]*$/.test(line);
+    if (rule) {
+      const text = before.replace(/[*_`]/g, '').trim();
+      level = /^[=-]/.test(line.trim()) && /^left or replaced\s*:?$/i.test(text) ? (line.trim()[0] === '=' ? 1 : 2) : 0;
       continue;
     }
     const h = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$/.exec(line);
@@ -111,6 +133,7 @@ export function leftOrReplaced(body) {
       continue;
     }
     if (!level) continue;
+    if (/^[ \t]*/.exec(line)[0].replace(/\t/g, '    ').length >= 4) continue;
     const lead = LEFT_ITEM.exec(line);
     if (lead) for (const k of stepsIn(lead[1])) out.add(k);
   }
@@ -124,6 +147,13 @@ export function leftOrReplaced(body) {
  */
 export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitOnRunning = true }) {
   const named = titleSteps(title);
+  const unreadable = titleProblems(title);
+  if (unreadable.length)
+    return {
+      ok: false,
+      state: 'fail',
+      lines: [`the title's ${unreadable.join(', ')} can't be read as steps (a step number past ${STEP_MAX}); name the steps it means`],
+    };
   if (named.length === 0) return { ok: true, state: 'none', lines: ['the title names no journey step'] };
   const left = leftOrReplaced(body);
   const lines = [];

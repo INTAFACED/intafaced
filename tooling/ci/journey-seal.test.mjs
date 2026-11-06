@@ -11,6 +11,7 @@ import {
   rerunSealJob,
   sealPull,
   stepsIn,
+  titleProblems,
   titleSteps,
   JOURNEYS_WORKFLOW,
   SEAL,
@@ -326,4 +327,37 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
     rerunSealJob({ repo: 'o/r', sha: HEAD, get: done, post: async () => ({ status: 429, message: 'rate limit' }) }),
     /HTTP 429/,
   );
+});
+
+// The Codex read of #7229 at 2c5588fa (GPT-6 Astra): four ways to fool the reader, each a planted fault.
+test('Codex 1: an upper-case "TO" range names every step between, not only its ends', () => {
+  assert.deepEqual(titleSteps('x (J-bank-13 #1 TO #4)'), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3', 'J-bank-13#4']);
+  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1 TO #3\n')].sort(), [
+    'J-bank-13#1',
+    'J-bank-13#2',
+    'J-bank-13#3',
+  ]);
+});
+
+test('Codex 2: a step range the parser cannot read fails the seal closed', async () => {
+  assert.deepEqual(titleProblems('x (J-bank-13 #1-#100)'), ['J-bank-13 #1-#100']);
+  const v = await judge({ title: 'x (J-bank-13 #1-#100)', reportOf: () => assert.fail('nothing to read') });
+  assert.equal(v.ok, false);
+  assert.match(v.lines.join('\n'), /can't be read as steps/);
+  const mixed = await judge({ title: 'x (J-bank-13 #1 #2, J-bank-14 #3-#250)', runs: [run(1)], reportOf: reports({ 1: green }) });
+  assert.equal(mixed.ok, false, 'a readable step beside an unreadable range still fails');
+  assert.deepEqual(titleProblems('x (J-wallet-05 #2, #6650)'), [], 'a lone issue number is not a range');
+});
+
+test('Codex 3: an indented code line under "Left or replaced" exempts nothing', () => {
+  assert.deepEqual([...leftOrReplaced('## Left or replaced\n\n    - J-bank-13 #1\n')], []);
+  assert.deepEqual([...leftOrReplaced('## Left or replaced\n\n\t- J-bank-13 #1\n')], [], 'a tab is four columns');
+  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #2\n  - J-bank-13 #3\n')].sort(), ['J-bank-13#2', 'J-bank-13#3']);
+});
+
+test('Codex 4: a setext heading or a thematic break ends the section; a setext "Left or replaced" opens it', () => {
+  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1\n\nProof\n-----\n- J-bank-13 #2\n')], ['J-bank-13#1']);
+  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1\n\nProof\n=====\n- J-bank-13 #2\n')], ['J-bank-13#1']);
+  assert.deepEqual([...leftOrReplaced('## Left or replaced\n- J-bank-13 #1\n\n***\n- J-bank-13 #2\n')], ['J-bank-13#1']);
+  assert.deepEqual([...leftOrReplaced('Left or replaced\n----------------\n- J-bank-13 #4\n')], ['J-bank-13#4']);
 });
