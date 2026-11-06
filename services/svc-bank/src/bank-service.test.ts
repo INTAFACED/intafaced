@@ -3128,6 +3128,7 @@ describe('svc-bank money PG-hard', () => {
           'the PROPOSED floor on one dual-control request; written once, applied by copying it onto the account',
         'business_approvals.amount': 'a RECORD of one proposed/approved transfer; written once',
         'business_payroll_lines.amount': 'a RECORD of one payroll line; written once with the run',
+        'budgets.target': 'a POLICY: the monthly target the person chose for one spend category; spend is folded from the ledger',
         'recovery_sweeps.amount':
           'the PLAN of one recovery sweep round for one account, written before it posts; the ledger holds the balance',
       };

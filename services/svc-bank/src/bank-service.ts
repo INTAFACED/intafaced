@@ -5,6 +5,7 @@ import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
+import { BudgetService } from './analytics/budgets.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
@@ -90,6 +91,8 @@ export interface BankServices {
   readonly recovery: RecoveryClaimService;
   readonly earn: EarnService;
   readonly analytics: SpendAnalytics;
+  /** BK-acct-08: budgets by category (policy rows), left to spend and month comparison, every figure a ledger fold. */
+  readonly budgets: BudgetService;
   readonly portfolio: PortfolioService;
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
@@ -336,6 +339,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     riskWording: options.earnRiskWording,
   });
   const analytics = new SpendAnalytics(spaces, history);
+  const budgets = new BudgetService(sql, analytics);
   const portfolio = new PortfolioService(ledger, spaces, {
     ...(options.portfolio ?? {}),
     transferFees: { feesFor: (userId, txIds) => personalPay.feesFor(userId, txIds) },
@@ -452,6 +456,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     receivedHolds,
     earn,
     analytics,
+    budgets,
     portfolio,
     activity,
     activityRecords,

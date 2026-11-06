@@ -864,6 +864,12 @@ export type BankErrorCode =
   | 'bank.statement_pdf_one_month'
   /** More posted lines than a statement file will carry. Narrow the dates. */
   | 'bank.statement_too_large'
+  /** Left to spend needs a budget: none is set (BK-acct-08). */
+  | 'bank.budget_unset'
+  /** A budget's category, target or alert share is not one the bank takes (BK-acct-08). */
+  | 'bank.budget_invalid'
+  /** A month comparison takes two to twelve distinct months, none in the future (BK-acct-08). */
+  | 'bank.compare_months'
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A balance snapshot at a past date needs a past-balance read the ledger does not offer yet (PF-statements-01). */
