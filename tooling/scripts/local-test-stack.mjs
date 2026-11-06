@@ -2593,46 +2593,64 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
 export const CSP_KNOWN_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'csp-known-reports.json');
 const KNOWN_FIELDS = ['directive', 'blocked', 'page', 'step', 'source', 'issue', 'expires'];
 
+/** A report's page as a path without a trailing slash (`/` stays `/`), or null when it is no URL. */
+function cspPagePath(page) {
+  try {
+    return new URL(page).pathname.replace(/(.)\/+$/, '$1');
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Split recorded CSP rows into the ones a live entry of the known list names and the rest. An entry names one kind
- * exactly (directive, blocked source, page path) and must carry the step, the source, an open issue's URL and an expiry
- * date; a malformed entry throws, and an entry past its expiry (`today`, YYYY-MM-DD, UTC) names nothing, so its rows
- * fail again. Known rows are still printed; only `--fail` treats them differently.
+ * exactly (directive, blocked source, page path) and carries the step, the source, an issue URL, an expiry date and
+ * `max`, the most rows it may name in one run: a report does not say which step made it, so `max` keeps a second cause
+ * of the same kind from hiding behind the first. A malformed entry throws; an entry past its expiry (`today`,
+ * YYYY-MM-DD, UTC) names nothing, so its rows fail again. Returns the known rows grouped by entry, the rest, and the
+ * expired entries.
  */
 export function splitKnownCspRows(rows, known, today = new Date().toISOString().slice(0, 10)) {
   const entries = Array.isArray(known?.entries) ? known.entries : [];
   for (const [i, e] of entries.entries()) {
     const missing = KNOWN_FIELDS.filter((k) => typeof e?.[k] !== 'string' || e[k].trim() === '');
+    if (!Number.isInteger(e?.max) || e.max < 1) missing.push('max');
     if (missing.length) throw new Error(`csp-known-reports.json entry ${i} lacks ${missing.join(', ')}`);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(e.expires))
       throw new Error(`csp-known-reports.json entry ${i} expires "${e.expires}" is not YYYY-MM-DD`);
     if (!/^https:\/\/github\.com\/INTAFACED\/intafaced\/issues\/\d+$/.test(e.issue))
       throw new Error(`csp-known-reports.json entry ${i} issue "${e.issue}" is not an issue URL`);
-    if (!e.page.startsWith('/')) throw new Error(`csp-known-reports.json entry ${i} page "${e.page}" is not a path`);
+    if (!e.page.startsWith('/') || cspPagePath(`http://x${e.page}`) !== e.page)
+      throw new Error(`csp-known-reports.json entry ${i} page "${e.page}" is not a path without a trailing slash`);
   }
-  const live = entries.filter((e) => e.expires >= today);
-  const expired = entries.filter((e) => e.expires < today);
-  const pathOf = (page) => {
-    try {
-      return new URL(page).pathname;
-    } catch {
-      return null;
-    }
-  };
-  const known_ = [];
+  const live = [];
+  const expired = [];
+  for (const e of entries) (e.expires >= today ? live : expired).push(e);
+  const named = new Map(live.map((e) => [e, 0]));
   const unknown = [];
   for (const r of rows) {
-    const entry = live.find((e) => e.directive === r.directive && e.blocked === r.blocked && e.page === pathOf(r.page));
-    (entry ? known_ : unknown).push({ row: r, entry });
+    const entry = live.find((e) => e.directive === r.directive && e.blocked === r.blocked && e.page === cspPagePath(r.page));
+    if (entry && named.get(entry) < entry.max) named.set(entry, named.get(entry) + 1);
+    else unknown.push(r);
   }
-  return { known: known_, unknown: unknown.map((u) => u.row), expired };
+  const knownGroups = [...named].filter(([, n]) => n > 0).map(([entry, n]) => ({ entry, n }));
+  return { known: knownGroups, unknown, expired };
+}
+
+/** The known list from the tree, or a refusal naming what is wrong with it. */
+function readKnownCspList() {
+  try {
+    return fs.existsSync(CSP_KNOWN_PATH) ? JSON.parse(fs.readFileSync(CSP_KNOWN_PATH, 'utf8')) : { entries: [] };
+  } catch (error) {
+    throw new Error(`csp-known-reports.json is not readable JSON (${error.message})`);
+  }
 }
 
 /**
  * `csp-report [--fail] [--clear]`: the Content-Security-Policy violations the Customer app's browser reported to this
  * stack (csp-violations.jsonl), grouped by directive and blocked source. `--fail` exits 1 when there is any not named by
- * a live entry of csp-known-reports.json (each names its source, step, open issue and expiry), so a journey run that
- * broke the production policy is red; `--clear` empties the record (`start` does too, so each stack starts clean).
+ * a live entry of csp-known-reports.json (each names its source, step, issue, expiry and row cap), or when that list is
+ * malformed, so a journey run that broke the production policy is red; `--clear` empties the record (`start` does too, so each stack starts clean).
  */
 function cmdCspReport(args) {
   if (args.includes('--clear')) {
@@ -2654,6 +2672,16 @@ function cmdCspReport(args) {
           }
         })
     : [];
+  let split;
+  try {
+    split = splitKnownCspRows(rows, readKnownCspList());
+  } catch (error) {
+    say(`  csp-report: refused: ${error.message}`);
+    if (process.env.GITHUB_ACTIONS) console.log(`::error title=CSP known list::${error.message}`);
+    process.exit(1);
+  }
+  for (const e of split.expired)
+    say(`  csp-report: known entry ${e.directive} blocked ${e.blocked} on ${e.page} expired ${e.expires} (${e.issue}): remove it`);
   if (rows.length === 0) {
     say('  csp-report: no Content-Security-Policy violations recorded');
     return;
@@ -2672,17 +2700,15 @@ function cmdCspReport(args) {
       `    ${key}  ×${g.n}  on ${[...g.pages].slice(0, 3).join(', ')}${g.source ? `  from ${g.source}:${g.line}` : ''}${g.sample ? `  "${g.sample}"` : ''}`,
     );
   }
-  const known = fs.existsSync(CSP_KNOWN_PATH) ? JSON.parse(fs.readFileSync(CSP_KNOWN_PATH, 'utf8')) : { entries: [] };
-  const split = splitKnownCspRows(rows, known);
-  for (const e of split.expired)
-    say(`  csp-report: known entry for ${e.directive} blocked ${e.blocked} on ${e.page} expired ${e.expires} (${e.issue}); it fails again`);
-  for (const { row, entry } of split.known)
+  for (const { entry, n } of split.known)
     say(
-      `  csp-report: known until ${entry.expires}: ${row.directive} blocked ${row.blocked} on ${entry.page} (${entry.step}; ${entry.source}; ${entry.issue})`,
+      `  csp-report: known until ${entry.expires}: ${entry.directive} blocked ${entry.blocked} on ${entry.page} ×${n} of at most ${entry.max} (${entry.step}; ${entry.issue}; ${entry.source})`,
     );
-  for (const r of split.unknown)
-    if (process.env.GITHUB_ACTIONS)
-      console.log(`::error title=CSP violation::${r.directive} blocked ${r.blocked || '(inline)'} on ${r.page}`);
+  if (process.env.GITHUB_ACTIONS)
+    for (const key of new Set(split.unknown.map((r) => `${r.directive} blocked ${r.blocked || '(inline)'}`))) {
+      const these = split.unknown.filter((r) => `${r.directive} blocked ${r.blocked || '(inline)'}` === key);
+      console.log(`::error title=CSP violation::${key} (×${these.length}) on ${these[0].page}`);
+    }
   if (split.unknown.length === 0) {
     say(`  csp-report: every violation is a live known entry; none is new`);
     return;

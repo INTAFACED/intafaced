@@ -1086,6 +1086,7 @@ console.log('local-test-stack: customer folder override checks passed');
     directive: 'connect-src',
     blocked: 'data',
     page: '/trade',
+    max: 1,
     step: 'J-cex-spot-01 #3',
     source: 'a source',
     issue: 'https://github.com/INTAFACED/intafaced/issues/1',
@@ -1094,7 +1095,7 @@ console.log('local-test-stack: customer folder override checks passed');
   const row = (over = {}) => ({ directive: 'connect-src', blocked: 'data', page: 'http://127.0.0.1:3210/trade', ...over });
   const known = { entries: [entry] };
   let s = splitKnownCspRows([row()], known, '2026-11-13');
-  assert.equal(s.known.length, 1, 'named on its last day');
+  assert.deepEqual(s.known, [{ entry, n: 1 }], 'named on its last day');
   assert.equal(s.unknown.length, 0);
   s = splitKnownCspRows([row()], known, '2026-11-14');
   assert.deepEqual(s.unknown, [row()], 'past its expiry it fails again');
@@ -1104,7 +1105,22 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.equal(splitKnownCspRows([row({ directive: 'script-src-elem' })], known, '2026-11-06').unknown.length, 1, 'another directive');
   assert.equal(splitKnownCspRows([row(), row({ blocked: 'inline' })], known, '2026-11-06').unknown.length, 1, 'only the named kind passes');
   assert.equal(splitKnownCspRows([row()], { entries: [] }).unknown.length, 1, 'no list, every row fails');
-  for (const field of ['step', 'source', 'issue', 'expires'])
+  s = splitKnownCspRows([row(), row()], known, '2026-11-06');
+  assert.deepEqual([s.known[0].n, s.unknown.length], [1, 1], 'a row past the cap fails: a second cause of the same kind');
+  assert.equal(
+    splitKnownCspRows([row({ page: 'http://127.0.0.1:3210/trade/' })], known, '2026-11-06').unknown.length,
+    0,
+    'a trailing slash',
+  );
+  assert.equal(
+    splitKnownCspRows([row({ page: 'http://127.0.0.1:3210/trade/spot' })], known, '2026-11-06').unknown.length,
+    1,
+    'a deeper room',
+  );
+  for (const max of [0, 1.5, '1', undefined])
+    assert.throws(() => splitKnownCspRows([], { entries: [{ ...entry, max }] }), /max/, `max ${max}`);
+  assert.throws(() => splitKnownCspRows([], { entries: [{ ...entry, page: '/trade/' }] }), /trailing slash/);
+  for (const field of ['directive', 'blocked', 'page', 'step', 'source', 'issue', 'expires'])
     assert.throws(
       () => splitKnownCspRows([row()], { entries: [{ ...entry, [field]: '' }] }),
       new RegExp(field),

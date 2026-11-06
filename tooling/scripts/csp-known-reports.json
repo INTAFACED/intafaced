@@ -1,10 +1,11 @@
 {
-  "about": "CSP reports whose source is known and under an open issue. `local-test-stack.mjs csp-report --fail` passes a recorded row only when a live entry here names its directive, blocked source and page path exactly; past `expires` (UTC date) the entry names nothing and the row fails again. Every entry names the step, the source, an open issue and an expiry at most 14 days out (local-test-stack.test.mjs).",
+  "about": "CSP reports whose source is known and under an open issue. `local-test-stack.mjs csp-report --fail` passes a recorded row only when a live entry here names its directive, blocked source and page path exactly, and at most `max` such rows per run (a report does not say which step made it). Past `expires` (UTC date) an entry names nothing and its rows fail again. Every entry names the step, the source, an issue and an expiry at most 14 days out (local-test-stack.test.mjs). A gate file: changes take the guarded lane.",
   "entries": [
     {
       "directive": "connect-src",
       "blocked": "data",
       "page": "/trade",
+      "max": 1,
       "step": "J-cex-spot-01 #3",
       "source": "Initiator not yet found: a Chromium 156 enforce report with no script location, which the page's CDP Network and Audits domains and console never show. Last green commit 5cb13b0ad now reproduces it, so the cause is outside the tree (run 42166428453).",
       "issue": "https://github.com/INTAFACED/intafaced/issues/7216",

@@ -79,6 +79,7 @@ export const GATE_PATHS = [
   ['tooling/scripts/journey-freeze-guard.mjs', 'the journey harness guard: no journey leaks the platform posting freeze'],
   ['apps/customer/tests/real-app/journey.mjs', "every journey's test, wrapped by the posting-freeze guard"],
   ['tooling/scripts/tooling-tests.mjs', 'which tooling tests the Doctrine gates run'],
+  ['tooling/scripts/csp-known-reports.json', 'the CSP reports the Real-app journeys CSP step may pass, each time-boxed under an issue'],
   ['docs/runbooks/journey-baseline.json', "the steps the Real-app journeys run on main may fail, which decide that run's verdict"],
   ['docs/roadmap/journeys.json', 'the journey steps the journeys run, its verdict and the money rule read'],
 ];
