@@ -83,23 +83,19 @@ test('fails on (planted): the seal rule with a check dropped or the old money an
   const path = await import('node:path');
   const { pathToFileURL } = await import('node:url');
   const here = new URL('.', import.meta.url);
+  // Every relative import points back at the real file, so the copy loads from the temporary folder.
   const src = fs
     .readFileSync(new URL('review-marker.mjs', here), 'utf8')
-    .replace("'../scripts/gate-file-guard.mjs'", `'${new URL('../scripts/gate-file-guard.mjs', here).href}'`)
-    .replace("'./look-baselines.mjs'", `'${new URL('look-baselines.mjs', here).href}'`);
+    .replace(/(from\s+)'(\.\.?\/[^']+)'/g, (_, from, rel) => `${from}'${new URL(rel, here).href}'`);
+  const failClosed = "if (files.length === 0) return 'no changed files could be read for this head';";
+  const putBack = (line) => [failClosed, `${failClosed}\n  ${line}`];
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-marker-mutant-'));
   const mutants = {
     'gate-file check dropped': ['if (gate.length > 0) return `gate file: ${gate[0].file}`;', ''],
     'look-baseline check dropped': ['if (baseline) return `look baseline: ${baseline}`;', ''],
-    'money check put back': [
-      '  return null;\n}\n\n/** The pull request GitHub',
-      "  if (files.some((f) => f.startsWith('services/svc-pay/'))) return 'money';\n  return null;\n}\n\n/** The pull request GitHub",
-    ],
-    'security check put back': [
-      '  return null;\n}\n\n/** The pull request GitHub',
-      "  if (files.some((f) => f.startsWith('services/svc-edge/'))) return 'security';\n  return null;\n}\n\n/** The pull request GitHub",
-    ],
-    'empty list passes': ["if (files.length === 0) return 'no changed files could be read for this head';", ''],
+    'money check put back': putBack("if (files.some((f) => f.startsWith('services/svc-pay/'))) return 'money';"),
+    'security check put back': putBack("if (files.some((f) => f.startsWith('services/svc-edge/'))) return 'security';"),
+    'empty list passes': [failClosed, ''],
   };
   try {
     for (const [name, [from, to]] of Object.entries(mutants)) {

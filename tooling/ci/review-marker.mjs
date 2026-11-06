@@ -27,7 +27,7 @@
  * request. On a merge queue's commit (`merge_group`) the
  * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
- * review. A pull request that edits the workflow itself touches .github/, which always needs the review.
+ * review. A pull request that edits the workflow itself touches .github/workflows/, a gate file, which always needs the review.
  *
  * The comment and session helpers below (MARKER, sessionsForHead, commentSignoff, ...) stay exported for
  * review-signoff.mjs, which still runs until its retirement PR; nothing in the seal reads them any more.

@@ -1,6 +1,6 @@
 name: CI review
 
-# The independent review AGENTS.md "Check, then merge" item 8 requires for money, security, gate-file and look-baseline
+# The independent review AGENTS.md "Check, then merge" item 8 requires for gate-file and look-baseline
 # changes: every push to an in-repo pull request gets one review of its exact head, by the pinned reviewer CLI with no
 # tools, against tooling/ci/ci-review/REVIEW.md. The seal (tooling/ci/review-marker.mjs ciReviewVerdict) accepts only
 # this file's job `CI review` passing its step `Verdict` on the exact head, in a run started by pull_request_target, so
