@@ -246,7 +246,11 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
   } finally {
     await other.close();
   }
-  await page.reload();
+  // The bank's own row, read exactly (the page shows times to the minute): its address, first-saved time and cooling-off end.
+  const was = await bankRowOnReload(page, 'TEST cold wallet');
+  expect(was, "TEST cold wallet is in the bank's book").toBeTruthy();
+  expect(was.ref.toLowerCase()).toBe(ADDRESS.toLowerCase());
+  expect(was.coolingOffEndsAt).toBeTruthy();
   const cooling = savedRows(page).filter({ hasText: 'TEST cold wallet' });
   await expect(cooling).toContainText('Cooling off');
   await expect(cooling.locator('td').nth(5)).toHaveText(`Ends ${ends}`);
@@ -259,14 +263,21 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
   await expect(sheet).toContainText('Only the name changes. The address and its cooling-off period stay as they are.');
   await sheet.getByLabel('Label').fill('TEST renamed wallet');
   await sheet.getByRole('button', { name: 'Review' }).click();
-  const renamed = page.waitForResponse((res) => /\/api\/bank\/trpc\/ramps\.destinations\.rename$/.test(res.url()));
+  // A rename that asked for a fresh confirmation would send nothing, so the wait is short and the dialog is checked after.
+  const renamed = page.waitForResponse((res) => /\/api\/bank\/trpc\/ramps\.destinations\.rename$/.test(res.url()), { timeout: 30_000 });
   await sheet.getByRole('button', { name: 'Save name' }).click();
   expect((await renamed).status()).toBe(200);
   await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toHaveCount(0);
 
   // After a reload the bank's row carries the new name with the same first-saved time and the same cooling-off end, and
   // the bank still refuses to send to it until that same time: the clock did not restart.
-  await page.reload();
+  const after = await bankRowOnReload(page, 'TEST renamed wallet');
+  expect(after, "the renamed entry is in the bank's book").toBeTruthy();
+  expect(after.destinationId).toBe(was.destinationId);
+  expect(after.ref).toBe(was.ref);
+  expect(after.addedAt).toBe(was.addedAt);
+  expect(after.coolingOffEndsAt).toBe(was.coolingOffEndsAt);
+  expect(after.state).toBe(was.state);
   await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).toHaveCount(0);
   const kept = savedRows(page).filter({ hasText: 'TEST renamed wallet' });
   await expect(kept).toHaveCount(1);
@@ -293,6 +304,26 @@ test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing 
   await expect(savedRows(page)).toHaveCount(0);
   await expect(page.getByText('You have no saved withdrawal addresses.')).toBeVisible();
 });
+
+/** Reloads the page and returns the bank's own row for `label` from the address-book read that load makes. */
+async function bankRowOnReload(page, label) {
+  const read = page.waitForResponse(
+    (res) => res.request().method() === 'GET' && /\/api\/bank\/trpc\/ramps\.destinations\.list/.test(res.url()),
+  );
+  await page.reload();
+  const res = await read;
+  expect(res.status()).toBe(200);
+  const rows = [];
+  const walk = (value) => {
+    if (Array.isArray(value)) value.forEach(walk);
+    else if (value && typeof value === 'object') {
+      if (typeof value.destinationId === 'string' && typeof value.ref === 'string') rows.push(value);
+      else Object.values(value).forEach(walk);
+    }
+  };
+  walk(await res.json());
+  return rows.find((row) => row.label === label) ?? null;
+}
 
 /** The approval links mailed to this person so far, oldest first, from the stack's LOCAL-TEST outbox. */
 const approvalLinks = (email) =>
