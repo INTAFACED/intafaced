@@ -22,7 +22,16 @@ import type { Outcome } from './outcome';
 import type { RiskLimitsWrite, RiskSetBody } from './risk-limits-model';
 import { RISK_SET_ACTION_TYPE, RISK_SET_POLICY_VERSION, RISK_SET_TARGET_SERVICE, riskSetPayloadHash } from './risk-set-hash';
 import { BUST_ACTION_TYPE, BUST_POLICY_VERSION, BUST_TARGET_SERVICE, bustPayloadHash, type BustBody } from './bust-hash';
-import { parseOrderRead, parseSweepResult, parseTradeAudit, type OrderRead, type SweepResult, type TradeAuditRow } from './order-read';
+import {
+  parseOrderRead,
+  parseReconcileStatus,
+  parseSweepResult,
+  parseTradeAudit,
+  type OrderRead,
+  type ReconcileStatus,
+  type SweepResult,
+  type TradeAuditRow,
+} from './order-read';
 
 /**
  * svc-trade operator procedures reached through svc-edge (`/api/trade/trpc/admin.*`). Every read is audited by the
@@ -143,6 +152,11 @@ export function readOrder(ctx: TradeCtx, orderId: string): Promise<Outcome<Order
  */
 export function startReconcileSweep(ctx: TradeCtx, input: { clientRequestId: string; reason: string }): Promise<Outcome<SweepResult>> {
   return edgeCall(ctx, trpcSpec('trade', 'admin.orders.startReconcileSweep', 'mutation', input, parseSweepResult));
+}
+
+/** admin.orders.reconcileStatus: the last sweep and its counts, for the Health room's reconcile tile (J-cex-spot-20 #2). */
+export function readReconcileStatus(ctx: TradeCtx): Promise<Outcome<ReconcileStatus>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.orders.reconcileStatus', 'query', undefined, parseReconcileStatus));
 }
 
 /** identity actionApproval.propose for a trade bust, bound to the order's fill count and the reason (bust-hash.ts). */

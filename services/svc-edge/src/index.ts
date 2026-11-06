@@ -21,7 +21,7 @@ import {
   type RateLimitConfig,
 } from './hardening.js';
 import { KillSwitchState } from './kill-switch.js';
-import { httpMatchingApprovalRead, httpMatchingControl, registerMatchingOperatorRoutes } from './matching-proxy.js';
+import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
 import { createQuotaStore, decideGateway, parseSandboxHosts, sandboxOf } from './gateway-plane.js';
@@ -344,6 +344,8 @@ registerMatchingOperatorRoutes(app, {
     : !matchingSecret
       ? { code: 'matching_credential_unconfigured', key: 'MATCHING_EDGE_SIGNING_SECRET' }
       : null,
+  // The engine's health is public on its network: reading it needs MATCHING_URL only, never the signing secret.
+  healthRead: matchingUrl ? httpMatchingHealthRead(matchingUrl, env.UPSTREAM_TIMEOUT_MS) : null,
   readApproval: httpMatchingApprovalRead(env.IDENTITY_URL, env.UPSTREAM_TIMEOUT_MS),
 });
 

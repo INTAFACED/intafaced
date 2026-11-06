@@ -56,6 +56,12 @@ export const BLOCKERS = {
     'A trading restriction is applied by one operator. There is no two-person action type for it, so this desk will not apply it from a single click here.',
     'TRD-0036, TRD-0117',
   ),
+  matching_metrics_unread: b(
+    'matching_metrics_unread',
+    'svc-matching',
+    'This metric did not come back on the engine’s health answer, or the engine has timed no request of this kind since it started.',
+    'SP-order-02',
+  ),
   reconcile_route_missing: b(
     'reconcile_route_missing',
     'svc-trade',
