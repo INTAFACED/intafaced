@@ -53,6 +53,12 @@ export async function voidPayment(svc: PayServiceInternal, paymentId: string): P
     const row = await lockPayment(tx, paymentId);
     if (row.status === 'voided') return null;
     assertTransition(row, 'voided');
+    // Again under the payment lock: a capture that committed after the first look is seen here, before the intent.
+    if (await svc.ledger.getTxByKey(captureIdempotencyKey(paymentId))) {
+      throw new PayError(`Payment ${paymentId} has a capture on the book; it is not voided`, 'pay.void_not_authorized', {
+        status: 'captured',
+      });
+    }
     if (!row.rail_ref) throw new PayError(`Payment ${row.id} has no rail reference to void`, 'pay.invalid_transition');
     if (!(await voidInFlight(tx, row.id))) await appendEvent(tx, row.id, 'void.requested', { railRef: row.rail_ref });
     return row.rail_ref;

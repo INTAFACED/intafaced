@@ -1406,6 +1406,10 @@ export function createPayRouter(
                 assertAccess(ctx.principal?.userId, request.merchantId, 'trpc.payment.refund'),
                 () => new PayError(`Refund request ${input.requestId} not found`, 'pay.refund_request_not_found'),
               );
+              // The person who asked cancels their own request; nobody cancels someone else's.
+              if (request.makerUserId !== ctx.principal?.userId) {
+                throw new PayError('Only the person who asked for this refund can cancel it', 'pay.merchant_forbidden');
+              }
               return refundRequestOut(await refunds().cancel(input.requestId));
             }),
           ),
@@ -1421,7 +1425,7 @@ export function createPayRouter(
               if (caller.merchantId !== request.merchantId) {
                 throw new PayError(`Refund request ${input.requestId} not found`, 'pay.refund_request_not_found');
               }
-              return refundRequestOut(await refunds().retry(input.requestId));
+              return refundRequestOut(await refunds().retry(input.requestId, sandboxKeyEnv(ctx.principal).keyEnv));
             }),
           ),
         decide: scopedProcedure('pay:refund', { module: 'pay' })
@@ -1444,6 +1448,7 @@ export function createPayRouter(
                   checkerUserId: ctx.principal!.userId,
                   decision: input.decision,
                   reason: input.reason,
+                  ...sandboxKeyEnv(ctx.principal),
                 }),
               );
             }),
@@ -1458,7 +1463,9 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.capture');
-            return paymentOut(await pay.voidPayment(input.paymentId), 'owner', true);
+            // The caller's own projection (rail reference, pricing), as `payment.get` gives it, never the owner's by default.
+            const audience = await assertPaymentRead(ctx.principal!.userId, input.paymentId, payment.merchantId);
+            return paymentOut(await pay.voidPayment(input.paymentId), audience, true);
           }),
         ),
 
@@ -1474,9 +1481,10 @@ export function createPayRouter(
           wrap(async () => {
             const payment = await pay.getPayment(input.paymentId);
             await assertPaymentAccess(ctx.principal?.userId, input.paymentId, payment.merchantId, 'trpc.payment.refund');
+            const audience = await assertPaymentRead(ctx.principal!.userId, input.paymentId, payment.merchantId);
             if (payment.status === 'authorized' || payment.status === 'voided') {
               const voided = await pay.voidPayment(input.paymentId);
-              return { used: 'void' as const, amount: formatAmount(0n), payment: await paymentOut(voided, 'owner', true) };
+              return { used: 'void' as const, amount: formatAmount(0n), payment: await paymentOut(voided, audience, true) };
             }
             const refundId = `reverse:${input.paymentId}`;
             const history = await pay.history(input.paymentId, 200);
@@ -1484,7 +1492,7 @@ export function createPayRouter(
             const amount = done ? parseAmount(String(done.payload.amount)) : payment.capturedAmount - payment.refundedAmount;
             if (amount <= 0n) throw new PayError(`Payment ${input.paymentId} has nothing left to reverse`, 'pay.nothing_captured');
             const refunded = await pay.refund(input.paymentId, amount, { refundId, ...sandboxKeyEnv(ctx.principal) });
-            return { used: 'refund' as const, amount: formatAmount(amount), payment: await paymentOut(refunded, 'owner', true) };
+            return { used: 'refund' as const, amount: formatAmount(amount), payment: await paymentOut(refunded, audience, true) };
           }),
         ),
 
@@ -1529,6 +1537,7 @@ export function createPayRouter(
                 ...(r.amount === undefined ? {} : { amount: parseAmount(r.amount) }),
               })),
               makerUserId: ctx.principal!.userId,
+              ...sandboxKeyEnv(ctx.principal),
             });
             return { batchId: input.batchId, rows };
           }),

@@ -2,6 +2,7 @@ import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { PayGuardRefusal, type PartialPayGuards } from '../seams/guards.js';
+import { SandboxRailRefusal } from '../rails/posture.js';
 import { PayError } from '../payment-service/internal.js';
 import type { PaymentView } from '../payment-service.js';
 
@@ -60,7 +61,7 @@ export interface RefundBatchRow {
 /** What the refund door and a payment read look like from here. */
 export interface RefundDoor {
   getPayment(paymentId: string): Promise<PaymentView>;
-  refund(paymentId: string, amount: Amount, options: { refundId: string }): Promise<PaymentView>;
+  refund(paymentId: string, amount: Amount, options: { refundId: string; keyEnv?: 'sandbox' }): Promise<PaymentView>;
 }
 
 /** Most rows one bulk refund may carry (M-payments-core-04). */
@@ -297,6 +298,8 @@ export class RefundControl {
     checkerUserId: string;
     decision: 'approve' | 'reject';
     reason?: string;
+    /** The checker's key environment: a sandbox key never runs a refund on the live book. */
+    keyEnv?: 'sandbox';
   }): Promise<RefundRequest> {
     const decided = await transaction(this.sql, async (tx) => {
       const rows = await tx<
@@ -318,20 +321,19 @@ export class RefundControl {
       `;
       return toRequest(next[0]!);
     });
-    return decided.status === 'approved' ? this.execute(decided) : decided;
+    return decided.status === 'approved' ? this.execute(decided, input.keyEnv) : decided;
   }
 
   /** Runs an approved request's refund again under the same key (after an unknown outcome). */
-  async retry(requestId: string): Promise<RefundRequest> {
+  async retry(requestId: string, keyEnv?: 'sandbox'): Promise<RefundRequest> {
     const request = await this.get(requestId);
     if (request.status !== 'approved') throw closed(request);
-    return this.execute(request);
+    return this.execute(request, keyEnv);
   }
-
-  private async execute(request: RefundRequest): Promise<RefundRequest> {
+  private async execute(request: RefundRequest, keyEnv?: 'sandbox'): Promise<RefundRequest> {
     let outcome: { status: 'refunded' } | { status: 'failed'; code: string };
     try {
-      await this.door.refund(request.paymentId, parseAmount(request.amount), { refundId: request.refundId });
+      await this.door.refund(request.paymentId, parseAmount(request.amount), { refundId: request.refundId, ...(keyEnv ? { keyEnv } : {}) });
       outcome = { status: 'refunded' };
     } catch (error) {
       // A typed refusal is definite; anything else leaves the request approved and the refund to be checked.
@@ -359,6 +361,8 @@ export class RefundControl {
     batchId: string;
     rows: ReadonlyArray<{ paymentId: string; amount?: Amount }>;
     makerUserId: string;
+    /** The caller's key environment: a sandbox key never refunds a live payment. */
+    keyEnv?: 'sandbox';
   }): Promise<RefundBatchRow[]> {
     if (input.rows.length === 0 || input.rows.length > BULK_REFUND_MAX_ROWS) {
       throw new PayError(`A bulk refund carries 1 to ${BULK_REFUND_MAX_ROWS} rows`, 'pay.refund_batch_invalid', {
@@ -412,13 +416,13 @@ export class RefundControl {
           await this.request({ merchantId: input.merchantId, paymentId: row.paymentId, amount, refundId, makerUserId: input.makerUserId });
           throw new PayError('Above the approval rule: queued for approval', 'pay.refund_request_invalid');
         }
-        await this.door.refund(row.paymentId, amount, { refundId });
+        await this.door.refund(row.paymentId, amount, { refundId, ...(input.keyEnv ? { keyEnv: input.keyEnv } : {}) });
         outcome = 'refunded';
       } catch (error) {
         if (error instanceof PayError && error.code !== 'pay.refund_in_flight') {
           outcome = 'refused';
           code = error.code;
-        } else if (error instanceof PayGuardRefusal) {
+        } else if (error instanceof PayGuardRefusal || error instanceof SandboxRailRefusal) {
           outcome = 'refused';
           code = error.code;
         } else {

@@ -353,6 +353,12 @@ export function MerchantRefund({
     const result = await api.mutate('pay', 'payment.refundRequests.request', review.input, refundRequestSchema);
     if (!live() || operation.current !== action) return;
     operation.current = null;
+    // No answer: the same review stays open with the same refund key, so asking again replays the first request
+    // (the service answers the same request for the same key and amount) and never makes a second one.
+    if (!result.ok && (result.reason === 'uncertain' || result.reason === 'aborted')) {
+      update({ busy: false, failure: result });
+      return;
+    }
     admitted.current = null;
     draft.current = null;
     update({ review: null, draft: null, busy: false, queued: result.ok ? result.data : null, failure: result.ok ? null : result });

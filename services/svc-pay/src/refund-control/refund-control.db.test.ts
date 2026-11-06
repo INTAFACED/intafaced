@@ -356,4 +356,32 @@ describe('refund controls, void and reverse (J-merchant-06)', { timeout: 60_000 
       code: 'pay.refund_exceeds_captured',
     });
   });
+
+  it('a sandbox key never refunds a live payment through bulk or an approval', async () => {
+    const m = await merchant();
+    const p = await captured(m.id, '9');
+    const before = await clearing(m.id);
+    const rows = await control.bulk({
+      merchantId: m.id,
+      batchId: '44444444-4444-4444-8444-444444444444',
+      rows: [{ paymentId: p.id }],
+      makerUserId: OWNER,
+      keyEnv: 'sandbox',
+    });
+    expect(rows[0]).toMatchObject({ outcome: 'refused' });
+    await control.setRule(m.id, 'USDC', amt('1'), OWNER);
+    const r = await control.request({
+      merchantId: m.id,
+      paymentId: p.id,
+      amount: amt('9'),
+      refundId: `refund:${p.id}:sb`,
+      makerUserId: OWNER,
+    });
+    // A definite refusal: the request closes as failed, and nothing moved.
+    expect(await control.decide({ requestId: r.id, checkerUserId: FINANCE, decision: 'approve', keyEnv: 'sandbox' })).toMatchObject({
+      status: 'failed',
+    });
+    expect(await clearing(m.id)).toBe(before);
+    expect(await refundedEvents(p.id)).toBe(0);
+  });
 });
