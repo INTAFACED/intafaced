@@ -36,7 +36,7 @@ export function CoinIcon({ asset, size = 32, className, style, ...props }: CoinI
           aria-hidden="true"
           className="block size-full [&>svg]:block [&>svg]:size-full"
           // Drawn inline, never as a data: image: Chromium reported a data: image that began loading while the page was
-          // being left under the production policy's connect-src, which refuses data: (#7216). The art is this package's
+          // being left under the production policy's connect-src, which refuses data: (issue 7216). The art is this package's
           // own generated constant (coins/coin-art.generated.ts), with no script, handler, id or reference
           // (coin-art.test.ts); nothing a person types reaches it.
           dangerouslySetInnerHTML={{ __html: svg }}
