@@ -9,7 +9,6 @@ import { InstrumentService } from './instrument-service.js';
 import { ANY_COUNTRY } from './instruments.js';
 import { P2pError, P2pService } from './p2p-service.js';
 import { parsePairLimits, type BuyerCancelLimit } from './take-limits.js';
-import { awayFromUtcMidnight } from './utc-midnight-fixture.js';
 
 /**
  * J-p2p-06 #5 (P-trade-orders-15): an ad's own release window. It may only shorten the published release clock, it is
@@ -204,26 +203,27 @@ describe('svc-p2p ad release window and cancel count (J-p2p-06 #1 #5)', () => {
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('the buyer reads how many cancels count today, out of how many, and when the count starts again', async () => {
+  it('the buyer reads how many cancels count now, out of how many, and when the earliest stops counting', async () => {
     await expect(service({ limit: null, windowHours: null }).buyerCancelCount(TAKER)).rejects.toMatchObject({ code: 'p2p.config_unset' });
-    await awayFromUtcMidnight();
     const p2p = service({ limit: 2, windowHours: 24 });
-    const [row] = await sql<Array<{ midnight: Date }>>`
-      SELECT (date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day') AT TIME ZONE 'UTC' AS midnight
-    `;
-    const midnight = row!.midnight;
     const offer = await sellOffer(p2p);
-    expect(await p2p.buyerCancelCount(TAKER)).toEqual({ used: 0, cap: 2, windowHours: 24, resetsAt: midnight, restrictedUntil: null });
+    expect(await p2p.buyerCancelCount(TAKER)).toEqual({ used: 0, cap: 2, windowHours: 24, nextDropAt: null, restrictedUntil: null });
 
     // The seller's cancel is not the buyer's.
     await p2p.cancelTrade((await take(p2p, offer.id)).id, MAKER, 'TEST seller changed their mind');
     expect((await p2p.buyerCancelCount(TAKER)).used).toBe(0);
+    const first = await take(p2p, offer.id);
+    await p2p.cancelTrade(first.id, TAKER, 'TEST');
+    const [row] = await sql<
+      Array<{ until: Date }>
+    >`SELECT resolved_at + interval '24 hours' AS until FROM p2p.p2p_trades WHERE id = ${first.id}`;
+    const oldest = row!.until;
+    expect(await p2p.buyerCancelCount(TAKER)).toMatchObject({ used: 1, nextDropAt: oldest, restrictedUntil: null });
     await p2p.cancelTrade((await take(p2p, offer.id)).id, TAKER, 'TEST');
-    expect(await p2p.buyerCancelCount(TAKER)).toMatchObject({ used: 1, restrictedUntil: null });
-    await p2p.cancelTrade((await take(p2p, offer.id)).id, TAKER, 'TEST');
-    expect(await p2p.buyerCancelCount(TAKER)).toMatchObject({ used: 2, restrictedUntil: midnight });
+    // At the cap buying is paused until the oldest counted cancel leaves the window, the same instant a take is refused with.
+    expect(await p2p.buyerCancelCount(TAKER)).toMatchObject({ used: 2, nextDropAt: oldest, restrictedUntil: oldest });
     const refused = await refusal(take(p2p, offer.id));
     expect(refused.code).toBe('p2p.buying_restricted');
-    expect(refused.limit).toEqual({ until: midnight.toISOString(), cap: '2', windowHours: '24' });
+    expect(refused.limit).toEqual({ until: oldest.toISOString(), cap: '2', windowHours: '24' });
   });
 });

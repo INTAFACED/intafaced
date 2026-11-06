@@ -1777,57 +1777,50 @@ export class P2pService {
   }
 
   /**
-   * P-trade-orders-05: the buyer's cancels in the current counting window, on the database clock. Windows are fixed
-   * blocks of the owner's `windowHours`, which divides 24 (`parseBuyerCancelLimit`), so they start at UTC midnight;
-   * at 24 hours the window is the UTC day and the count starts again at each day boundary. Counted: the buyer's own cancels (`buyer.<reason>`) and payment windows
-   * they let run out; a seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
+   * P-trade-orders-05: the buyer's cancels counted over the last `windowHours` (their own cancels and payment windows
+   * they let run out), on the database clock, newest first, at most `limit` of them, each with when it stops counting.
+   * A seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
    */
-  private async buyerCancelWindow(
-    sql: Sql,
-    buyerId: string,
-    windowHours: number,
-  ): Promise<{ used: number; windowStart: Date; resetsAt: Date }> {
-    const [row] = await sql<{ used: string; window_start: Date; resets_at: Date }[]>`
-      WITH w AS (
-        SELECT to_timestamp(floor(extract(epoch FROM now()) / (${windowHours} * 3600)) * (${windowHours} * 3600)) AS start
-      )
-      SELECT (SELECT count(*) FROM p2p.p2p_trades t
-                WHERE t.buyer_id = ${buyerId}
-                  AND t.status = 'cancelled'
-                  AND (starts_with(t.resolution_reason, ${BUYER_CANCEL_REASON_PREFIX}) OR t.resolution_reason = ${BUYER_TIMEOUT_REASON})
-                  AND t.resolved_at >= w.start)::text AS used,
-             w.start AS window_start,
-             w.start + make_interval(hours => ${windowHours}) AS resets_at
-        FROM w
+  private async recentBuyerCancels(sql: Sql, buyerId: string, limit: number, windowHours: number): Promise<{ until: Date }[]> {
+    return sql<{ until: Date }[]>`
+      SELECT resolved_at + make_interval(hours => ${windowHours}) AS until
+        FROM p2p.p2p_trades
+       WHERE buyer_id = ${buyerId}
+         AND status = 'cancelled'
+         AND (starts_with(resolution_reason, ${BUYER_CANCEL_REASON_PREFIX}) OR resolution_reason = ${BUYER_TIMEOUT_REASON})
+         AND resolved_at > now() - make_interval(hours => ${windowHours})
+       ORDER BY resolved_at DESC
+       LIMIT ${limit}
     `;
-    return { used: Number(row!.used), windowStart: row!.window_start, resetsAt: row!.resets_at };
   }
 
   /**
-   * P-trade-orders-05: how many of the buyer's cancels count today, out of how many pause buying, and when the count
-   * starts again. A blank limit refuses `p2p.config_unset`, as a take does.
+   * P-trade-orders-05: how many of the buyer's cancels count now (within the last `windowHours`), out of how many
+   * pause buying, when the earliest of them stops counting, and until when buying is paused (null when it is not). A
+   * blank limit refuses `p2p.config_unset`, as a take does.
    */
   async buyerCancelCount(
     buyerId: string,
-  ): Promise<{ used: number; cap: number; windowHours: number; resetsAt: Date; restrictedUntil: Date | null }> {
+  ): Promise<{ used: number; cap: number; windowHours: number; nextDropAt: Date | null; restrictedUntil: Date | null }> {
     const cancels = this.takeLimits?.buyerCancels;
     if (!cancels || cancels.limit === null || cancels.windowHours === null) {
       throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
     }
-    const { used, resetsAt } = await this.buyerCancelWindow(this.sql, buyerId, cancels.windowHours);
+    const recent = await this.recentBuyerCancels(this.sql, buyerId, cancels.limit, cancels.windowHours);
+    const oldest = recent[recent.length - 1]?.until ?? null;
     return {
-      used,
+      used: recent.length,
       cap: cancels.limit,
       windowHours: cancels.windowHours,
-      resetsAt,
-      restrictedUntil: used >= cancels.limit ? resetsAt : null,
+      nextDropAt: oldest,
+      restrictedUntil: recent.length >= cancels.limit ? oldest : null,
     };
   }
 
   /**
-   * P-trade-orders-05: a buyer who cancelled the owner's number of orders in the current counting window (their own
-   * cancels and payment windows they let run out) may not buy until the window ends: no take of a sell ad, no new buy
-   * ad, and no seller fills their buy ad meanwhile. Selling is not paused. Read on the database clock, under the
+   * P-trade-orders-05: a buyer who cancelled the owner's number of orders within the window (their own cancels and
+   * payment windows they let run out) may not buy until the oldest of those leaves it: no take of a sell ad, no new
+   * buy ad, and no seller fills their buy ad meanwhile. Selling is not paused. Read on the database clock, under the
    * instrument-owner lock on a take.
    */
   private async assertBuyingNotRestricted(
@@ -1839,16 +1832,16 @@ export class P2pService {
     if (limit === null || windowHours === null) {
       throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
     }
-    const { used, resetsAt } = await this.buyerCancelWindow(sql, input.buyerId, windowHours);
-    if (used < limit) return;
+    const recent = await this.recentBuyerCancels(sql, input.buyerId, limit, windowHours);
+    if (recent.length < limit) return;
     // A retry of a take that already placed its trade is that trade (`p2p.trade_exists` below), never "paused,
     // nothing placed" because of cancels made since.
     if (input.tradeId && (await sql`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`).length > 0) return;
     // A seller taking a paused buyer's ad is told only that the ad takes no orders: the pause is the buyer's own.
     if (input.asMaker) throw new P2pError('This offer is not taking orders', 'p2p.offer_not_active');
-    // Buying returns when the counting window ends and the count starts again.
-    throw new P2pError(`You cancelled ${limit} orders in this ${windowHours}-hour window, so buying is paused`, 'p2p.buying_restricted', {
-      until: resetsAt.toISOString(),
+    // The latest `limit` cancels are all inside the window; buying returns when the oldest of them leaves it.
+    throw new P2pError(`You cancelled ${limit} orders within ${windowHours} hours, so buying is paused`, 'p2p.buying_restricted', {
+      until: recent[limit - 1]!.until.toISOString(),
       cap: String(limit),
       windowHours: String(windowHours),
     });

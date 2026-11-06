@@ -20,9 +20,9 @@ export interface PairBounds {
 export type PairLimitConfig = { status: 'unset' } | { status: 'invalid' } | { status: 'active'; pairs: ReadonlyMap<string, PairBounds> };
 
 /**
- * P-trade-orders-05. Cancels are counted in fixed windows of `windowHours` from UTC midnight (24 is the UTC day). A
- * buyer who has cancelled `limit` orders in the current window (their own cancels and payment windows they let run
- * out) may not buy again until the window ends, when the count starts again. Either value `null` is unset.
+ * P-trade-orders-05. A buyer who has cancelled `limit` orders within the last `windowHours` (their own cancels and
+ * payment windows they let run out) may not buy again until the oldest of those leaves the window. Either value
+ * `null` is unset.
  */
 export interface BuyerCancelLimit {
   limit: number | null;
@@ -57,14 +57,11 @@ export function parseActiveOrderCap(raw: number | null | undefined): number | nu
   return raw;
 }
 
-/**
- * Both whole numbers of 1 or more, and the window a divisor of 24 so every window starts and ends on a UTC day
- * boundary; anything else is unset, never a guess.
- */
+/** Both whole numbers of 1 or more, or the limit is unset. */
 export function parseBuyerCancelLimit(limit: number | null | undefined, windowHours: number | null | undefined): BuyerCancelLimit {
   const l = parseActiveOrderCap(limit);
   const w = parseActiveOrderCap(windowHours);
-  return l === null || w === null || 24 % w !== 0 ? { limit: null, windowHours: null } : { limit: l, windowHours: w };
+  return l === null || w === null ? { limit: null, windowHours: null } : { limit: l, windowHours: w };
 }
 
 /** `{"USDT/EUR":{"min":"10","max":"5000"}}`. Blank is unset; anything else that is not a full table is invalid. */

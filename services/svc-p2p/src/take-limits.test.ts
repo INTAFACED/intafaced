@@ -10,7 +10,6 @@ import { ANY_COUNTRY } from './instruments.js';
 import { P2pError, P2pService } from './p2p-service.js';
 import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits, pairLimitRefusal, type TakeLimits } from './take-limits.js';
 import { parseVerificationLimits, type VerificationLimitConfig } from './verification-limits.js';
-import { awayFromUtcMidnight } from './utc-midnight-fixture.js';
 
 /**
  * P-trade-orders-03 and P-disputes-security-15: a take over the ongoing-order cap, outside the pair's bounds, or over
@@ -46,15 +45,11 @@ describe('svc-p2p take limit parsing', () => {
     expect(parseActiveOrderCap(-2)).toBeNull();
   });
 
-  it('reads a cancel limit only when both are whole numbers and the window divides the UTC day', () => {
+  it('reads a cancel limit only when both the count and the window are whole numbers', () => {
     expect(parseBuyerCancelLimit(3, 24)).toEqual({ limit: 3, windowHours: 24 });
     expect(parseBuyerCancelLimit(3, null)).toEqual({ limit: null, windowHours: null });
     expect(parseBuyerCancelLimit(undefined, 24)).toEqual({ limit: null, windowHours: null });
     expect(parseBuyerCancelLimit(0, 24)).toEqual({ limit: null, windowHours: null });
-    // The window divides 24, so every window starts at a UTC day boundary.
-    expect(parseBuyerCancelLimit(3, 6)).toEqual({ limit: 3, windowHours: 6 });
-    expect(parseBuyerCancelLimit(3, 5)).toEqual({ limit: null, windowHours: null });
-    expect(parseBuyerCancelLimit(3, 48)).toEqual({ limit: null, windowHours: null });
   });
 
   it('reads a decimal-string pair table and refuses anything partial', () => {
@@ -319,12 +314,11 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
     });
   };
 
-  it('cancelled orders pause buying until the UTC day ends, when the count starts again; others’ cancels do not count', async () => {
-    await awayFromUtcMidnight();
+  it('cancelled orders pause buying until the oldest of them leaves the window; others’ cancels do not count', async () => {
     const p2p = service({ activeOrderCap: 5, pairLimits: PAIRS, buyerCancels: { limit: 2, windowHours: 24 } });
     const offer = await sellOffer(p2p);
     const placed = await take(p2p, offer.id);
-    // The seller's cancel is not the buyer's; then the buyer cancels two, and an older cancel sits in an earlier UTC day.
+    // The seller's cancel is not the buyer's; then the buyer cancels two, and an older cancel sits outside the window.
     await p2p.cancelTrade((await take(p2p, offer.id)).id, MAKER, 'TEST seller changed their mind');
     const old = await take(p2p, offer.id);
     await p2p.cancelTrade(old.id, TAKER, 'TEST');
@@ -338,10 +332,9 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
     await rewrite(lapsed.id, { reason: 'timeout.payment_window_elapsed' });
     const journal = ledger.journal().length;
 
-    // At 24 hours the counting window is the UTC day: buying returns at the next UTC midnight, on the database clock.
     const [oldest] = await sql<
       { until: Date }[]
-    >`SELECT (date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day') AT TIME ZONE 'UTC' AS until`;
+    >`SELECT resolved_at + interval '24 hours' AS until FROM p2p.p2p_trades WHERE id = ${first.id}`;
     // Each attempt starts only when awaited, so the second cannot reject unhandled while the first is pending.
     for (const attempt of [
       () => p2p.quoteTake({ offerId: offer.id, takerId: TAKER, method: 'sepa', amount: parseAmount('20') }),
@@ -355,7 +348,7 @@ describe('svc-p2p take limits (P-trade-orders-03, P-disputes-security-15)', () =
     // A retry of a take placed before the pause is that take.
     expect((await refusal(take(p2p, offer.id, '20', placed.id))).code).toBe('p2p.trade_exists');
 
-    // A cancel from before today's UTC midnight no longer counts: the count started again at the day boundary.
+    // Once the oldest of the two leaves the window, buying is back.
     await rewrite(first.id, { hoursAgo: 25 });
     expect((await take(p2p, offer.id)).status).toBe('escrowed');
   });

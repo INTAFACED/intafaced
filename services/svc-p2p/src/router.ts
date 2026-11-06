@@ -1685,9 +1685,9 @@ export function createP2pRouter(
         ),
 
       /**
-       * P-trade-orders-05. How many of the caller's cancels count in the current window (the UTC day at the TEST 24
-       * hours), out of how many pause buying, when the count starts again, and until when buying is paused (null when
-       * it is not). A blank limit refuses `p2p.config_unset`, as a take does. An API key reads it too: it is the
+       * P-trade-orders-05. How many of the caller's cancels count now (within the owner's window), out of how many
+       * pause buying, when the earliest of them stops counting (null when none counts), and until when buying is
+       * paused (null when it is not). A blank limit refuses `p2p.config_unset`, as a take does. An API key reads it too: it is the
        * caller's own standing.
        */
       limits: merchantApiProcedure('p2p:read')
@@ -1697,7 +1697,7 @@ export function createP2pRouter(
               used: z.number().int().nonnegative(),
               cap: z.number().int().positive(),
               windowHours: z.number().int().positive(),
-              resetsAt: z.string().datetime(),
+              nextDropAt: z.string().datetime().nullable(),
               restrictedUntil: z.string().datetime().nullable(),
             }),
           }),
@@ -1710,7 +1710,7 @@ export function createP2pRouter(
                 used: c.used,
                 cap: c.cap,
                 windowHours: c.windowHours,
-                resetsAt: c.resetsAt.toISOString(),
+                nextDropAt: c.nextDropAt?.toISOString() ?? null,
                 restrictedUntil: c.restrictedUntil?.toISOString() ?? null,
               },
             };
