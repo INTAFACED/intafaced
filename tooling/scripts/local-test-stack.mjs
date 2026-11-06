@@ -113,6 +113,7 @@ import {
 import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
 import { RailRecordError, readRail, recordRailMovement } from './local-test-rail-records.mjs';
 import { loadProfile, profileEnvFor } from './owner-settings.mjs';
+import { applyOwnerSwitches, readSwitches } from './local-test-owner-switch.mjs';
 import {
   localStackState,
   localPgBin,
@@ -1348,7 +1349,12 @@ function serviceDefs(secrets) {
     EDGE_ABSENT,
     testChain,
   };
-  return SERVICES.map((service) => service(ctx));
+  // A journey's LOCAL TEST owner switches (local-test-owner-switch.mjs) go on last; with none set, nothing changes.
+  const switches = readSwitches(STATE);
+  return SERVICES.map((service) => {
+    const def = service(ctx);
+    return switches[def.name] ? { ...def, env: () => applyOwnerSwitches(def.name, def.env(), switches) } : def;
+  });
 }
 
 // Screening comes from the caller's environment, else from a file that exists only on

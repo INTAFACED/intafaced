@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
+import { clearSwitches, setSwitches } from '../../../../tooling/scripts/local-test-owner-switch.mjs';
 
 // The parts of a real-app journey that are not the customer's browser: the stack's own tools (the TEST operators,
 // TEST funding, the other TEST trader) and the customer's own API through Edge, to read what the ledger holds.
@@ -72,6 +73,23 @@ export function restartWith(service, envKey, on) {
   } finally {
     if (before === undefined) delete process.env[envKey];
     else process.env[envKey] = before;
+  }
+}
+
+/**
+ * Runs `body` with owner settings of one stack service switched for it (tooling/scripts/local-test-owner-switch.mjs):
+ * `settings` is `{ NAME: 'blank' | 'test' | { value: '<text>' } }`, where blank leaves the setting unset so the service
+ * refuses with its own typed code, test sets the TEST profile's value, and a value is the step's own TEST value. Only a
+ * name the service's env.ts marks as an owner setting, or its TEST profile holds, is accepted. The service restarts with
+ * the switches; afterwards, passed or failed, every switch on that service is cleared and it restarts as before.
+ */
+export async function withOwnerSwitch(service, settings, body, { by = 'a real-app journey' } = {}) {
+  const assignments = Object.entries(settings).map(([name, choice]) => ({ name, choice }));
+  try {
+    await setSwitches(service, assignments, { by, stateDir: STATE });
+    return await body();
+  } finally {
+    await clearSwitches([service], { stateDir: STATE });
   }
 }
 
