@@ -700,3 +700,36 @@ describe('VWAP and POV engines', () => {
     expect(quiet.placed).toHaveLength(0);
   });
 });
+
+describe('TwapEngine.whenSaved (#7219)', () => {
+  it('waits for every save a tick queued, in order, including one onChange has not been handed yet', async () => {
+    const landed: string[] = [];
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const engine = new TwapEngine(makePorts(), {
+      // The first save is held back, so every later save waits in the engine's queue, not yet handed to onChange.
+      onChange: async (parent) => {
+        if (landed.length === 0) await held;
+        landed.push(`${parent.status}:${parent.nextSliceIndex}`);
+      },
+    });
+    const parent = engine.create(USER, baseInput(), LOT);
+    await engine.tick(parent.id);
+    expect(landed).toEqual([]);
+    let done = false;
+    const waiting = engine.whenSaved(parent.id).then(() => (done = true));
+    await Promise.resolve();
+    expect(done, 'nothing has landed yet').toBe(false);
+    release();
+    await waiting;
+    const now = engine.get(parent.id)!;
+    expect(landed[0]).toBe('active:0');
+    expect(landed.at(-1)).toBe(`${now.status}:${now.nextSliceIndex}`);
+    expect(landed.length, 'the create and every change the tick made').toBeGreaterThan(1);
+  });
+
+  it('resolves at once for a parent with no save waiting', async () => {
+    const engine = new TwapEngine(makePorts());
+    await expect(engine.whenSaved('none')).resolves.toBeUndefined();
+  });
+});

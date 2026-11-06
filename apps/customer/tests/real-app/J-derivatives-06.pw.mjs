@@ -267,23 +267,72 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
   const set = await answer.json();
   await expect(dialog).toBeHidden();
 
-  // The service holds the stop: the level as set, and the mark at which the margin ratio reaches it, which is where its
-  // close order goes in. For a long that mark lies between the liquidation price and the mark now.
-  expect(set).toMatchObject({ positionId, status: 'armed', level: LEVEL, closeOrder: null });
+  // The service holds the stop: the maintenance level as set (maintenance margin over equity), and a real close order
+  // resting now: reduce-only, the whole position, triggered on the mark at which the ratio reaches that level.
+  expect(set).toMatchObject({ positionId, status: 'armed', level: LEVEL });
   expect(set.triggerPrice, JSON.stringify(set)).toMatch(/^\d+(\.\d+)?$/);
+  expect(set.closeOrder, JSON.stringify(set)).toMatchObject({ status: 'armed', triggerPrice: set.triggerPrice });
+  const orders = await me.get('/api/v1/futures/conditional-orders');
+  expect(orders.status, JSON.stringify(orders.body)).toBe(200);
+  const closeOrder = (orders.body.orders ?? orders.body).find((o) => o.clientOrderId === set.closeOrder.clientOrderId);
+  expect(closeOrder, JSON.stringify(orders.body)).toMatchObject({
+    positionId,
+    kind: 'stop_market',
+    side: 'sell',
+    quantity: SIZE,
+    reduceOnly: true,
+    triggerSource: 'mark',
+    triggerPrice: set.triggerPrice,
+    status: 'armed',
+  });
   const held = await until(
     async () => {
       const [stop, list] = await Promise.all([me.get(route), me.get('/api/v1/positions')]);
       return { stop: stop.body, p: list.body.find((x) => x.id === positionId) };
     },
-    ({ stop, p }) => stop.status === 'armed' && p?.liquidationPrice != null && p?.markPrice != null,
+    ({ stop, p }) =>
+      stop.status === 'armed' &&
+      p?.liquidationPrice != null &&
+      p?.markPrice != null &&
+      p?.maintenanceMargin != null &&
+      p?.collateral != null &&
+      p?.unrealizedPnl != null,
     'the stop and the position read together',
   );
-  expect(held.stop).toMatchObject({ level: LEVEL, triggerPrice: set.triggerPrice });
-  expect(toUnits(held.stop.triggerPrice)).toBeGreaterThan(toUnits(held.p.liquidationPrice));
-  expect(toUnits(held.stop.triggerPrice)).toBeLessThan(toUnits(held.p.markPrice));
+  expect(held.stop).toMatchObject({
+    level: LEVEL,
+    triggerPrice: set.triggerPrice,
+    closeOrder: { clientOrderId: closeOrder.clientOrderId, status: 'armed' },
+  });
+  // For a long that mark lies between the liquidation price and the mark now ...
+  const trigger = toUnits(held.stop.triggerPrice);
+  expect(trigger).toBeGreaterThan(toUnits(held.p.liquidationPrice));
+  expect(trigger).toBeLessThan(toUnits(held.p.markPrice));
+  // ... and it is where the ratio reaches the level: the maintenance margin at that mark over the equity at that mark is
+  // the level, to a millionth of it. The maintenance rate at that mark is the published calculator's, for this size at
+  // that price against today's depth (the ladder has several tiers, and a smaller notional can sit on a lower one); the
+  // long's equity moves by its size times the move from the mark, on the position's own figures read now.
+  const ONE = 10n ** 18n;
+  const mark = toUnits(String(held.p.markPrice));
+  const size = toUnits(SIZE);
+  const atTrigger = await me.post('/api/v1/futures/calculator', {
+    symbol: SYMBOL,
+    side: 'long',
+    size: SIZE,
+    entryPrice: held.stop.triggerPrice,
+    leverage: LEVERAGE,
+  });
+  expect(atTrigger.status, JSON.stringify(atTrigger.body)).toBe(200);
+  expect(Number.isInteger(atTrigger.body.maintenanceBps), JSON.stringify(atTrigger.body)).toBe(true);
+  const maintenanceAt = (size * trigger * BigInt(atTrigger.body.maintenanceBps)) / ONE / 10_000n;
+  const equityAt = toUnits(String(held.p.collateral)) + toUnits(String(held.p.unrealizedPnl)) + (size * (trigger - mark)) / ONE;
+  expect(equityAt).toBeGreaterThan(0n);
+  const ratioAt = (maintenanceAt * ONE) / equityAt;
+  const wanted = toUnits(LEVEL) / 100n;
+  const off = ratioAt > wanted ? ratioAt - wanted : wanted - ratioAt;
+  expect(off * 1_000_000n, `ratio at the trigger ${fromUnits(ratioAt)} against ${fromUnits(wanted)}`).toBeLessThanOrEqual(wanted);
 
-  // Shown on the position: its row names the level and the close price, as the service holds them.
+  // Shown on the position: its row names the level and the close order's trigger, as the service holds them.
   const table = page.getByRole('grid', { name: 'Open futures positions' });
   const row = table.getByRole('row').filter({ hasText: SYMBOL }).first();
   const shown = row.getByTestId('risk-stop');

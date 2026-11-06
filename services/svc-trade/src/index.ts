@@ -806,6 +806,7 @@ const riskStops = createRiskStopService({
   figures: (userId, positionId, level) => positions.riskStopFigures(userId, positionId, level),
   fire: (input) => conditionalOrders.fireRiskStop(input),
   closeOrder: (userId, clientOrderId) => conditionalOrders.getByClientId(userId, clientOrderId),
+  sync: (input) => conditionalOrders.syncRiskStop(input),
 });
 const conditionalJobs = startConditionalOrderJobs({
   config: conditionalJobsConfig,
