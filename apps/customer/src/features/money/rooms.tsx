@@ -90,6 +90,7 @@ import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 import { StatementCentre } from './StatementCentre';
+import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
@@ -1656,6 +1657,8 @@ function StatementsRoom() {
   return (
     <BankPage room="Analytics" title={t('title')} description={t('description')}>
       <StatementCentre />
+      <StatementLetters />
+      <TaxStatements />
     </BankPage>
   );
 }

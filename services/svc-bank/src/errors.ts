@@ -488,6 +488,8 @@ export type BankErrorCode =
   | 'bank.destination_label_taken'
   /** No banking partner is wired, so there are no account details to show or request. The blocker is named `rail.bank`. */
   | 'rail.bank'
+  /** No tax calculation provider is wired, so no tax statement is produced (J-bank-16 #3). */
+  | 'vendor.tax'
   /** The owner has not published which currencies have account details. Nothing is listed; no list is invented. */
   | 'bank.account_details_currencies_unset'
   /** The currency asked for is not one the owner publishes account details for. */

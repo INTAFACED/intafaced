@@ -75,6 +75,7 @@ import {
 import { useNamedAccounts } from './portfolio-source';
 import { activityCsv, csvFileName } from './activity-csv';
 import { StatementPanel } from './StatementPanel';
+import { PeriodTotals } from './PeriodTotals';
 import { TaxEffects } from './TaxEffects';
 import { stamp } from './time';
 import { currentPreferences, usePreferences } from '../../shared/preferences';
@@ -550,6 +551,7 @@ function Body({
   return (
     <>
       <ExportButton feed={feed} rows={rows} copy={copy} sort={filters.sort} />
+      <PeriodTotals filters={filters} />
       <StatementPanel />
       <TaxEffects />
       <table data-testid="money-table" className="money-table money-table--activity">

@@ -1,7 +1,7 @@
 import { BankError } from '../errors.js';
 import { ActivityAccountUnknownError, ActivityService, ActivityUnavailableError, type ActivityItem } from '../activity/activity-service.js';
 import type { SpaceService } from '../spaces/space-service.js';
-import { signStatement, statementCsv, statementLines, statementPdf } from './statement-file.js';
+import { lineTotals, signStatement, statementCsv, statementLines, statementPdf, type LineTotal } from './statement-file.js';
 
 /**
  * `bank.statements.export` — a signed file of the caller's own posted lines.
@@ -36,6 +36,11 @@ export interface StatementFile {
   readonly sha256: string;
   readonly signature: string;
   readonly rowCount: number;
+  /**
+   * Per asset, the net of the file's lines (J-bank-16 #1), the same fold `activity.totals` makes over the same range. A
+   * background job's stored file is handed back without it; its PDF still prints the totals.
+   */
+  readonly totals?: LineTotal[];
   readonly generatedAt: string;
   readonly proof: {
     readonly holderUserId: string;
@@ -133,6 +138,33 @@ export class StatementService {
     return { from: input.from, to: input.to, format: input.format, report, assetId: space?.assetId ?? input.assetId, space };
   }
 
+  /**
+   * `bank.activity.totals` (J-bank-16 #1): per asset, the net of every posted line between two times, read the same way
+   * a statement reads them and folded by the same `lineTotals`, so the activity list and the statement agree. Past the
+   * statement's line cap it refuses `bank.statement_too_large` rather than total part of the range.
+   */
+  async totals(userId: string, input: { from: string; to: string; assetId?: string }): Promise<{ totals: LineTotal[]; lines: number }> {
+    const fromMs = Date.parse(input.from);
+    const toMs = Date.parse(input.to);
+    if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs > toMs) {
+      throw new BankError('The end is before the start', 'bank.statement_range');
+    }
+    if (toMs - fromMs > MAX_SPAN_MS) throw new BankError('A total covers at most 366 days', 'bank.statement_range');
+    let items: ActivityItem[];
+    try {
+      items = await this.activity.collect(userId, { from: input.from, to: input.to, assetId: input.assetId, limit: MAX_ROWS + 1 });
+    } catch (err) {
+      if (err instanceof ActivityUnavailableError) {
+        throw new BankError('Activity is not available, so no total can be worked out', 'bank.statement_unavailable');
+      }
+      throw err;
+    }
+    if (items.length > MAX_ROWS) {
+      throw new BankError(`A total covers at most ${MAX_ROWS} lines. Narrow the dates.`, 'bank.statement_too_large');
+    }
+    return { totals: lineTotals(items), lines: items.length };
+  }
+
   /** The file for a planned request, as of `now`: the same plan and the same `now` over the same lines give the same bytes. */
   async render(userId: string, plan: StatementPlan, now: Date): Promise<StatementFile> {
     if (!this.secret) {
@@ -195,6 +227,7 @@ export class StatementService {
       sha256: signed.sha256,
       signature: signed.signature,
       rowCount: items.length,
+      totals: lineTotals(items),
       generatedAt,
       proof: {
         holderUserId: userId,

@@ -435,6 +435,7 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.payee_invite_unwired': 'PRECONDITION_FAILED',
   'bank.linked_account_unverified': 'PRECONDITION_FAILED',
   'rail.bank': 'PRECONDITION_FAILED',
+  'vendor.tax': 'PRECONDITION_FAILED',
   'bank.account_details_currencies_unset': 'PRECONDITION_FAILED',
   'bank.eligibility_unset': 'PRECONDITION_FAILED',
   'bank.fx_rate_unset': 'PRECONDITION_FAILED',

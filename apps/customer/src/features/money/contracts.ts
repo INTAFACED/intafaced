@@ -179,6 +179,9 @@ export const payoffQuoteSchema = z.object({
 });
 export type PayoffQuote = z.infer<typeof payoffQuoteSchema>;
 /** A signed statement file from `bank.statements.export`: the whole account, or one space (BK-pots-02). */
+/** Per coin, the net of a set of posted lines (J-bank-16 #1): money in minus money out. Not a balance. */
+export const lineTotalSchema = z.object({ asset: z.string(), net: signedDecimalSchema, lines: z.number().int().nonnegative() });
+export type LineTotal = z.infer<typeof lineTotalSchema>;
 export const statementFileSchema = z.object({
   format: z.enum(['csv', 'pdf']),
   filename: z.string(),
@@ -186,7 +189,14 @@ export const statementFileSchema = z.object({
   bodyBase64: z.string(),
   sha256: z.string(),
   rowCount: z.number().int().nonnegative(),
+  totals: z.array(lineTotalSchema).optional(),
 });
+/** `bank.statements.totals`: the same fold over the same lines as a statement, for any range. */
+export const lineTotalsSchema = z.object({ totals: z.array(lineTotalSchema), lines: z.number().int().nonnegative() });
+/** `bank.statements.tax.list`: tax statements for a year (refused `vendor.tax` while no provider is connected). */
+export const taxStatementsSchema = z.object({ items: z.array(z.object({ id: z.string() })) });
+/** `bank.letters.request` (refused `rail.bank` while no banking partner is connected). */
+export const letterRequestSchema = z.object({ id: z.string() });
 /** One background export from `bank.statements.jobs` (PF-statements-02): what was asked, and where it is. */
 export const statementJobSchema = z.object({
   id: z.string(),
