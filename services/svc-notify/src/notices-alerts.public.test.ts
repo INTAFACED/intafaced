@@ -222,10 +222,49 @@ describe('watchlist alert', () => {
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
     const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify);
     const caller = createNotifyRouter(notify, alerts).createCaller(signed());
-    expect(await caller.notify.alertQuota()).toEqual({ kind: 'price', used: 0, max: null, burst: null });
+    expect(await caller.notify.alertQuota()).toEqual({ kind: 'price', used: 0, max: null, burst: null, maxConditions: null });
     await expect(caller.notify.createAlerts({ marketIds: ['BTC-USD'], direction: 'above', targetPrice: '100' })).rejects.toMatchObject({
       code: 'PRECONDITION_FAILED',
       cause: { code: 'notify.alert_quota_unset' },
     });
+  });
+});
+
+describe('alert price source and condition limit on the wire', () => {
+  it('stores the chosen source on createAlert, createAlerts and updateAlert, and an alert sent without one is on mark', async () => {
+    const caller = openCaller();
+    const plain = await caller.notify.createAlert({ marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
+    expect(plain.alert.source).toBe('mark');
+    const onAsk = await caller.notify.createAlert({ marketId: 'BTC-USD', direction: 'above', targetPrice: '100', source: 'ask' });
+    expect(onAsk.alert.source).toBe('ask');
+    const batch = await caller.notify.createAlerts({
+      marketIds: ['ETH-USD', 'SOL-USD'],
+      direction: 'below',
+      targetPrice: '50',
+      source: 'last',
+    });
+    expect(batch.alerts.map((a) => a.source)).toEqual(['last', 'last']);
+    const edited = await caller.notify.updateAlert({ id: onAsk.alert.id, source: 'bid' });
+    expect(edited.alert.source).toBe('bid');
+    // An edit that does not name the source keeps it.
+    expect((await caller.notify.updateAlert({ id: onAsk.alert.id, targetPrice: '120' })).alert.source).toBe('bid');
+    const listed = await caller.notify.alerts({ limit: 10 });
+    expect(listed.items.find((a) => a.id === onAsk.alert.id)?.source).toBe('bid');
+  });
+
+  it('refuses a source outside the four, creating nothing', async () => {
+    const caller = openCaller();
+    await expect(
+      caller.notify.createAlert({ marketId: 'BTC-USD', direction: 'above', targetPrice: '100', source: 'mid' as never }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+    expect((await caller.notify.alerts({ limit: 10 })).items).toEqual([]);
+  });
+
+  it('alertQuota carries the owner condition limit, and null while it is blank', async () => {
+    expect((await openCaller().notify.alertQuota()).maxConditions).toBeNull();
+    const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
+    const alerts = new AlertService(new MemoryAlertStore(), darkMarks(), notify, undefined, { ...TEST_ALERT_LIMITS, maxConditions: 3 });
+    const caller = createNotifyRouter(notify, alerts).createCaller(signed());
+    expect(await caller.notify.alertQuota()).toMatchObject({ kind: 'price', max: 1000, maxConditions: 3 });
   });
 });

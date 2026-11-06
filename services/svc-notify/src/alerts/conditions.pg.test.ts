@@ -22,6 +22,7 @@ const ALERT_MIGRATIONS = [
   '0021_notify_alert_triggers.sql',
   '0022_notify_alert_frequency.sql',
   '0026_notify_alert_burst.sql',
+  '0038_notify_alert_price_source.sql',
 ];
 
 const available = await postgresAvailable(URL);
@@ -92,6 +93,7 @@ describe.skipIf(!available)('PostgresAlertStore conditions and expiry', () => {
       expiresAt: null,
       extras: [{ condition: 'greater_than' as const, targetPrice: '80' }],
       frequency: 'once' as const,
+      source: 'mark' as const,
     };
     const edited = await store().replace(userId, row.id, next, NOW);
     expect(edited).toMatchObject({ ...next, lastSide: null, status: 'active' });
@@ -342,6 +344,7 @@ describe.skipIf(!available)('PostgresAlertStore frequency and migration 0022', (
         expiresAt: null,
         extras: [],
         frequency: 'once',
+        source: 'mark',
       },
       NOW,
     );
@@ -388,5 +391,41 @@ describe.skipIf(!available)('PostgresAlertStore burst auto-stop and migration 00
     // A window that has run out starts again; with no rule the counters are left alone.
     expect(await store.recordRepeat(userId, row.id, 3, at(40), null, rule)).toMatchObject({ burstCount: 1, status: 'active' });
     expect(await store.recordRepeat(userId, row.id, 4, at(41), null)).toMatchObject({ burstCount: 1, status: 'active' });
+  });
+});
+
+describe.skipIf(!available)('PostgresAlertStore price source and migration 0038', () => {
+  it('runs twice, keeps an existing row on mark, stores and edits the chosen source, and refuses one outside the four', async () => {
+    await sql!.unsafe(migration('0038_notify_alert_price_source.sql'));
+    await sql!.unsafe(migration('0038_notify_alert_price_source.sql'));
+    const store = new PostgresAlertStore(sql!);
+    const userId = fresh();
+    const legacy = randomUUID();
+    await sql!`INSERT INTO notify.price_alerts (id, user_id, market_id, direction, target_price) VALUES (${legacy}, ${userId}, 'BTC-USD', 'above', '100')`;
+    expect((await store.get(userId, legacy))!.source).toBe('mark');
+    const make = (source?: 'mark' | 'bid' | 'ask' | 'last') =>
+      store.create({ userId, marketId: 'BTC-USD', direction: 'above', targetPrice: '100', ...(source ? { source } : {}) });
+    expect((await make()).source).toBe('mark');
+    const ask = await make('ask');
+    expect(ask.source).toBe('ask');
+    expect((await store.listActiveByMarket('BTC-USD')).find((r) => r.id === ask.id)!.source).toBe('ask');
+    const edited = await store.replace(
+      userId,
+      ask.id,
+      {
+        direction: ask.direction,
+        targetPrice: ask.targetPrice,
+        condition: ask.condition,
+        name: null,
+        message: null,
+        expiresAt: null,
+        extras: [],
+        frequency: 'once',
+        source: 'bid',
+      },
+      NOW,
+    );
+    expect(edited!.source).toBe('bid');
+    await expect(sql!`UPDATE notify.price_alerts SET source = 'mid' WHERE id = ${ask.id}`).rejects.toThrow(/price_alerts_source_ck/);
   });
 });

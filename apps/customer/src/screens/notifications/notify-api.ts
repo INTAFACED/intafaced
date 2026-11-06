@@ -195,6 +195,10 @@ export type AlertDirection = 'above' | 'below';
 export const ALERT_CONDITIONS = ['crossing', 'crossing_up', 'crossing_down', 'greater_than', 'less_than'] as const;
 export type AlertCondition = (typeof ALERT_CONDITIONS)[number];
 
+/** The price an alert watches: the mark (mid of the book, the last trade when one side is empty), the bid, the ask or the last trade. */
+export const ALERT_SOURCES = ['mark', 'bid', 'ask', 'last'] as const;
+export type AlertSource = (typeof ALERT_SOURCES)[number];
+
 export const priceAlertSchema = z.object({
   id: z.string().guid(),
   userId: z.string(),
@@ -221,6 +225,8 @@ export const priceAlertSchema = z.object({
   updatedAt: date.optional(),
   // Why the platform stopped it: `burst` (it triggered too often). Null or absent for a pause by the person.
   stopReason: z.enum(['burst']).nullable().optional(),
+  // The price it watches. A service that does not send it watches the mark.
+  source: z.enum(ALERT_SOURCES).optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 export type AlertFrequency = 'once' | 'every_crossing';
@@ -255,6 +261,8 @@ export interface AlertIntent {
   extras?: AlertExtra[];
   /** Left out, the alert triggers once. `every_crossing` is for a crossing condition only. */
   frequency?: AlertFrequency;
+  /** Left out, the alert watches the mark. */
+  source?: AlertSource;
 }
 
 export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
@@ -273,7 +281,7 @@ const levelOfDirection = (direction: AlertDirection): AlertCondition => (directi
  */
 export function isIntent(
   row: Pick<PriceAlert, 'kind' | 'marketId' | 'direction' | 'targetPrice'> &
-    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency'>>,
+    Partial<Pick<PriceAlert, 'condition' | 'name' | 'message' | 'expiresAt' | 'extras' | 'frequency' | 'source'>>,
   intent: AlertIntent,
 ): boolean {
   const wanted = intent.condition ?? levelOfDirection(intent.direction);
@@ -284,6 +292,7 @@ export function isIntent(
     stored === wanted &&
     canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice) &&
     (row.frequency ?? 'once') === (intent.frequency ?? 'once') &&
+    (row.source ?? 'mark') === (intent.source ?? 'mark') &&
     (intent.name === undefined || (row.name ?? '') === intent.name) &&
     (intent.message === undefined || (row.message ?? '') === intent.message) &&
     (intent.expiresAt === undefined || (row.expiresAt != null && Date.parse(row.expiresAt) === Date.parse(intent.expiresAt))) &&
@@ -327,6 +336,7 @@ export function createPriceAlert(
       ...(intent.expiresAt ? { expiresAt: intent.expiresAt } : {}),
       ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
       ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
+      ...(intent.source && intent.source !== 'mark' ? { source: intent.source } : {}),
     },
     z.object({
       alert: priceAlertSchema.refine(
@@ -455,6 +465,8 @@ const alertQuotaSchema = z.object({
     .object({ windowMinutes: z.number().int().min(1), maxTriggers: z.number().int().min(1) })
     .nullable()
     .optional(),
+  // The most conditions one alert may hold, the main one included; null while the owner has not set it.
+  maxConditions: z.number().int().min(1).nullable().optional(),
 });
 export type AlertQuota = z.infer<typeof alertQuotaSchema>;
 
