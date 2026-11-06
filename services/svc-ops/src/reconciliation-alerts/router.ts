@@ -11,6 +11,8 @@ import {
   opsAlertResolveInputSchema,
   opsAlertSnoozeInputSchema,
   opsAlertUnsnoozeInputSchema,
+  opsAlertBusReceiptsInputSchema,
+  opsAlertBusReceiptsSchema,
   opsPlatformIncidentsInputSchema,
   opsPlatformIncidentsSchema,
   opsReconciliationPeriodsInputSchema,
@@ -158,6 +160,10 @@ export function createReconciliationAlertRoutes(
       .input(opsPlatformIncidentsInputSchema)
       .output(opsPlatformIncidentsSchema)
       .query(({ input }) => run(async (desk) => ({ bus: options.bus?.() ?? 'detached', incidents: await desk.incidents(input.limit) }))),
+    busReceipts: reader
+      .input(opsAlertBusReceiptsInputSchema)
+      .output(opsAlertBusReceiptsSchema)
+      .query(({ input }) => run(async (desk) => ({ bus: options.bus?.() ?? 'detached', ...(await desk.receipts(input.alertId)) }))),
     periods: reader
       .input(opsReconciliationPeriodsInputSchema)
       .output(opsReconciliationPeriodsSchema)

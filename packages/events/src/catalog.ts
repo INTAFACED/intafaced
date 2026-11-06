@@ -2430,34 +2430,6 @@ export const WIRING_SOCKETS = [
       'The escalation runner lives inside svc-ops and reads the stored group; no other service needs the event yet. Nothing pages anyone on main today, so no one is promised a page by it.',
   },
   {
-    event: 'coreOpsReconciliationAlertOpened',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertUpdated',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertResolved',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
-    event: 'coreOpsReconciliationAlertAccepted',
-    missing: 'subscriber',
-    class: 'A',
-    reason:
-      'No other service needs it yet: the alert is a durable svc-ops row that /alerts reads, and nothing outside svc-ops is promised a reaction. The subject exists so audit and a later consumer can follow without polling.',
-  },
-  {
     event: 'coreOpsComplianceCaseCreated',
     missing: 'publisher',
     class: 'A',

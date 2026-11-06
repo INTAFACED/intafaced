@@ -16,7 +16,8 @@ import { signIn, signUp, verify } from './desk.mjs';
 // reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event delivered twice is stored once.
 // #9 and #10 watch one TEST customer's USDT under a ceiling: TEST chain deposits put too much there, and the TEST chain taking a
 // transfer back makes svc-pay book a real ledger reversal (depositReverse), the corrective reversal #9 links.
-// #10's transition event received twice stays red by name: nothing consumes svc-ops' alert transition events yet.
+// #10's transition event received twice: svc-ops reads its own alert transition events back from the bus, one receipt per
+// event key, and the journey delivers one of them twice more.
 
 const tag = randomUUID().slice(0, 8);
 const state = {
@@ -552,6 +553,65 @@ function deliverRunFailedTwice(key) {
   });
   if (r.status !== 0) throw new Error(`delivering the run-failed event twice failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
   return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+/**
+ * Finds the alert transition event svc-ops published under `key` on the stack's bus (the `core-ops` stream) and delivers
+ * those exact bytes twice more, under two new message ids so the stream keeps both, as a redelivery after a lost
+ * acknowledgement reaches svc-ops. Then it waits until svc-ops' durable receipt consumer for that subject has acknowledged
+ * both, and returns the stream sequences and the consumer's state.
+ */
+function redeliverTransitionTwice(key, eventName, durable) {
+  const code = `
+    import { connect, AckPolicy, DeliverPolicy } from 'nats';
+    import { EVENT_CATALOG, decodeEnvelope } from './dist/index.js';
+    const subject = EVENT_CATALOG[process.env.EVENT_NAME].subject;
+    const nc = await connect({ servers: process.env.NATS_URL });
+    const js = nc.jetstream();
+    const jsm = await nc.jetstreamManager();
+    const stream = await jsm.streams.find(subject);
+    const reader = await js.consumers.get(stream, { filterSubjects: [subject], deliver_policy: DeliverPolicy.All });
+    let original = null;
+    const batch = await reader.fetch({ max_messages: 5000, expires: 5000 });
+    for await (const m of batch) {
+      if (decodeEnvelope(m.data).idempotencyKey === process.env.EVENT_KEY) original = m.data;
+      if (m.info.pending === 0) break;
+    }
+    if (!original) throw new Error('no event on ' + subject + ' carries the key ' + process.env.EVENT_KEY);
+    const acks = [];
+    for (const n of [1, 2]) acks.push(await js.publish(subject, original, { msgID: process.env.EVENT_KEY + ':redelivery:' + process.env.TAG + ':' + n }));
+    const seqs = acks.map((a) => a.seq);
+    let info;
+    for (let i = 0; i < 60; i++) {
+      info = await jsm.consumers.info(stream, process.env.DURABLE);
+      if (info.ack_floor.stream_seq >= Math.max(...seqs) && info.num_ack_pending === 0) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    console.log(JSON.stringify({ seqs, duplicate: acks.some((a) => a.duplicate), ackFloor: info.ack_floor.stream_seq, ackPending: info.num_ack_pending }));
+    await nc.drain();`;
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], {
+    cwd: path.join(ROOT, 'packages', 'events'),
+    env: { ...process.env, NATS_URL: 'nats://127.0.0.1:14232', EVENT_KEY: key, EVENT_NAME: eventName, DURABLE: durable, TAG: tag },
+    encoding: 'utf8',
+    timeout: 90_000,
+  });
+  if (r.status !== 0) throw new Error(`delivering the transition event twice failed: ${(r.stderr || r.stdout).slice(0, 500)}`);
+  return JSON.parse(r.stdout.trim().split('\n').pop());
+}
+
+/** The alert's receipts as the console shows them: { key, sequence, event, receivedAt } per row, oldest sequence first. */
+async function receiptsOf(page, alertId) {
+  await openAlert(page, alertId);
+  const section = page.getByTestId('alert-receipts');
+  await expect(section).toBeVisible({ timeout: 30_000 });
+  return section.getByTestId('alert-receipt').evaluateAll((rows) =>
+    rows.map((r) => ({
+      key: r.getAttribute('data-event-key'),
+      sequence: Number(r.getAttribute('data-sequence')),
+      event: r.getAttribute('data-event'),
+      receivedAt: r.getAttribute('data-received-at'),
+    })),
+  );
 }
 
 test.describe.serial('J-ops-console-07 reconcile the books', () => {
@@ -1503,13 +1563,47 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         await lifecycle(id, 'retire', 'Retired').catch(() => undefined);
     }
   });
-});
 
-// The other clause this stack cannot prove: svc-ops publishes each alert transition under its business key, but no service
-// consumes the core-ops reconciliation_alert subjects yet, so "a transition event received twice applies once" has no
-// receiver to show it. #10 shows svc-ops' own consumer of the ledger's run-failed event applying a double delivery once.
-test('J-ops-console-07 #10 a transition event received twice applies once', async () => {
-  throw new Error(
-    'Blocked: no consumer of intafaced.core-ops.reconciliation_alert.* exists on this stack, so no receiver can be shown applying a transition event once.',
-  );
+  test('J-ops-console-07 #10 a transition event received twice applies once', async ({ browser }) => {
+    test.setTimeout(300_000);
+    if (!state.fixAlertId) throw new Error('this step reads #9’s alert, and #9 did not open one, so it cannot run');
+    const { a } = await founders(browser);
+    const alertId = state.fixAlertId;
+    // svc-ops reads every transition of the alert back from the bus: one receipt for each sequence its outbox queued.
+    const version = Number(await (await openAlert(a, alertId)).getAttribute('data-version'));
+    let receipts;
+    let queued;
+    await expect
+      .poll(
+        async () => {
+          receipts = await receiptsOf(a, alertId);
+          queued = await a.getByTestId('alert-receipts').getAttribute('data-queued');
+          return { missing: await a.getByTestId('alert-receipts').getAttribute('data-missing'), queued: queued !== '' };
+        },
+        { message: 'svc-ops receives every queued transition of the alert back from the bus', timeout: 90_000, intervals: [3_000] },
+      )
+      .toEqual({ missing: '', queued: true });
+    await expect(a.getByTestId('alert-receipts')).toHaveAttribute('data-bus', 'attached');
+    await expect(a.getByTestId('alert-receipts-behind')).toHaveCount(0);
+    expect(receipts.map((r) => r.sequence).join(','), 'one receipt for each queued sequence, and no other').toBe(queued);
+    expect(new Set(receipts.map((r) => r.key)).size, 'one receipt per event key').toBe(receipts.length);
+    for (const r of receipts) expect(r.key).toBe(`ops:reconciliation-alert:${alertId}:${r.sequence}`);
+    expect(receipts.map((r) => r.event)).toEqual(expect.arrayContaining(['opened', 'resolved', 'updated']));
+
+    // The fix's resolved event, delivered twice more: the stream keeps both and svc-ops' consumer acknowledges both.
+    const fixed = receipts.find((r) => r.event === 'resolved');
+    const timelineBefore = await (await openAlert(a, alertId)).getByTestId('timeline-entry').count();
+    const delivered = redeliverTransitionTwice(fixed.key, 'coreOpsReconciliationAlertResolved', 'ops-recon-alert-receipt-resolved');
+    expect(delivered.seqs, 'the stream kept both deliveries').toHaveLength(2);
+    expect(delivered.duplicate, 'neither delivery was dropped by the stream as a duplicate').toBe(false);
+    expect(delivered.ackPending, JSON.stringify(delivered)).toBe(0);
+    expect(delivered.ackFloor, JSON.stringify(delivered)).toBeGreaterThanOrEqual(Math.max(...delivered.seqs));
+
+    // Applied once: the same one receipt, first received time unchanged, and the alert itself untouched.
+    const after = await receiptsOf(a, alertId);
+    expect(after, 'the two deliveries added and changed no receipt').toEqual(receipts);
+    const detail = await openAlert(a, alertId);
+    await expect(detail).toHaveAttribute('data-version', String(version));
+    await expect(detail.getByTestId('timeline-entry')).toHaveCount(timelineBefore);
+  });
 });

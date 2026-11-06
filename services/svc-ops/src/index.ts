@@ -51,7 +51,7 @@ import { createEvaluationFeedClient } from './reconciliation-alerts/feed-client.
 import { ingestReconciliationEvaluations } from './reconciliation-alerts/ingest.js';
 import { ReconciliationAlertStore } from './reconciliation-alerts/store.js';
 import { createCorrectiveTxClient } from './reconciliation-alerts/transactions-client.js';
-import { relayAlertEvents, subscribeRunFailed } from './reconciliation-alerts/events.js';
+import { relayAlertEvents, subscribeAlertReceipts, subscribeRunFailed } from './reconciliation-alerts/events.js';
 import { JetStreamEventBus } from '@intafaced/events';
 
 if (process.env.OPS_OUTREACH_RESTORE_QUARANTINED === '1') throw new Error('ops.crm.restore_quarantined');
@@ -340,7 +340,8 @@ reconciliationTimer.unref();
 
 /**
  * The event bus for reconciliation alerts: svc-ops owns the `core-ops` stream, publishes each queued transition from its
- * outbox and stores each `ledger.reconciliation_run.failed` as one platform incident. A failed connect or attach is
+ * outbox, stores one receipt per transition event the bus brings back, and stores each `ledger.reconciliation_run.failed` as
+ * one platform incident. A failed connect or attach is
  * logged, not fatal, and tried again; the outbox keeps every event and JetStream keeps the ledger's for the durable consumer.
  */
 const BUS_RETRY_MS = 15_000;
@@ -355,6 +356,7 @@ async function attachReconciliationBus(): Promise<void> {
       ownedStreams: ['core-ops'],
     });
     await subscribeRunFailed({ sql: crmSql, bus: connected, now: () => new Date() });
+    await subscribeAlertReceipts({ sql: crmSql, bus: connected, now: () => new Date() });
     reconciliationBus = connected;
   } catch (err) {
     app.log.warn({ err, code: 'ops.reconciliation_bus_unavailable' }, 'svc-ops could not attach to the event bus; trying again');

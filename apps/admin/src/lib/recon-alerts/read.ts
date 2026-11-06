@@ -1,9 +1,11 @@
 import 'server-only';
 import {
+  opsAlertBusReceiptsSchema,
   opsAlertDetailSchema,
   opsAlertListSchema,
   opsPlatformIncidentsSchema,
   opsReconciliationPeriodsSchema,
+  type OpsAlertBusReceipts,
   type OpsAlertCursor,
   type OpsAlertDetail,
   type OpsAlertList,
@@ -48,6 +50,12 @@ export async function readAlertsRoom(ctx: FounderCallContext, after: OpsAlertCur
 
 export async function readAlertDetail(ctx: FounderCallContext, alertId: string): Promise<Part<OpsAlertDetail>> {
   const result = await founderCall(ctx, 'ops', 'alerts.get', 'GET', { alertId }, parseWith(opsAlertDetailSchema));
+  return partFrom(result, (d) => d, labels);
+}
+
+/** The alert's transition events as svc-ops received them back from the bus, read on their own so a failure hides nothing else. */
+export async function readAlertReceipts(ctx: FounderCallContext, alertId: string): Promise<Part<OpsAlertBusReceipts>> {
+  const result = await founderCall(ctx, 'ops', 'alerts.busReceipts', 'GET', { alertId }, parseWith(opsAlertBusReceiptsSchema));
   return partFrom(result, (d) => d, labels);
 }
 

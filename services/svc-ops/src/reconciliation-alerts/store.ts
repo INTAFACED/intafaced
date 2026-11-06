@@ -18,6 +18,7 @@ import {
   type OpsAlertSnooze,
   type OpsAlertSource,
   type OpsAlertTimelineEntry,
+  type OpsAlertBusReceipt,
   type OpsPlatformIncident,
   type OpsReconciliationPeriods,
   type OpsReconciliationPeriodsInput,
@@ -697,6 +698,40 @@ export class ReconciliationAlertStore {
       occurredAt: iso(row.occurred_at),
       receivedAt: iso(row.received_at),
     }));
+  }
+
+  /**
+   * The transition events of one alert as svc-ops received them back from the bus, oldest sequence first, beside the
+   * sequences its outbox queued for that alert.
+   */
+  async receipts(alertId: string): Promise<{ queued: number[]; receipts: OpsAlertBusReceipt[] }> {
+    const queued = await this.sql<{ sequence: number }[]>`
+      SELECT sequence FROM ops.reconciliation_alert_events WHERE alert_id = ${alertId} ORDER BY sequence ASC
+    `;
+    const rows = await this.sql<
+      {
+        event_key: string;
+        sequence: number;
+        event: OpsAlertBusReceipt['event'];
+        transition: OpsAlertBusReceipt['transition'];
+        occurred_at: Date;
+        received_at: Date;
+      }[]
+    >`
+      SELECT event_key, sequence, event, transition, occurred_at, received_at
+        FROM ops.reconciliation_alert_receipts WHERE alert_id = ${alertId} ORDER BY sequence ASC, event_key ASC
+    `;
+    return {
+      queued: queued.map((row) => row.sequence),
+      receipts: rows.map((row) => ({
+        eventKey: row.event_key,
+        sequence: row.sequence,
+        event: row.event,
+        transition: row.transition,
+        occurredAt: iso(row.occurred_at),
+        receivedAt: iso(row.received_at),
+      })),
+    };
   }
 
   /** Why a resolve or accept does not fit the alert as it stands now. */

@@ -10,7 +10,7 @@ import { migrateOutreach } from '../db/migrate.js';
 import { approvalPayloadHash } from '../operator-desks.js';
 import { OpsService } from '../ops-service.js';
 import { createOpsRouter } from '../router.js';
-import { relayAlertEvents, subscribeRunFailed } from './events.js';
+import { relayAlertEvents, storeAlertReceipt, subscribeAlertReceipts, subscribeRunFailed } from './events.js';
 import type { EvaluationFeedPort } from './feed-client.js';
 import { ingestReconciliationEvaluations } from './ingest.js';
 import { evidenceHash, ReconciliationAlertStore } from './store.js';
@@ -355,6 +355,60 @@ if (!pg) {
             consecutiveIncomplete: 2,
           }),
         ]);
+
+        // svc-ops reads its own transition events back: one receipt per event key, and every event delivered twice
+        // (a redelivery after a lost acknowledgement) is stored once, with the first receipt left as it was.
+        await subscribeAlertReceipts({ sql, bus, now });
+        const sent = [...bus.published].filter((envelope) => envelope.idempotencyKey.startsWith('ops:reconciliation-alert:'));
+        expect(sent).toHaveLength(events.length);
+        const redeliver = async () => {
+          for (const envelope of sent) {
+            const name = events.find((event) => event.idempotency_key === envelope.idempotencyKey)!.name as Parameters<
+              typeof bus.publish
+            >[0];
+            await bus.publish(name, envelope.payload as never, { idempotencyKey: envelope.idempotencyKey });
+          }
+        };
+        // Before any delivery the outbox's sequences show, with no receipt beside them.
+        expect(await a.alerts.busReceipts({ alertId: usdc.id })).toEqual({ bus: 'attached', queued: [1, 2, 3, 4], receipts: [] });
+        await redeliver();
+        const first = await a.alerts.busReceipts({ alertId: usdc.id });
+        expect(first.queued).toEqual([1, 2, 3, 4]);
+        expect(first.bus).toBe('attached');
+        expect(first.receipts.map((r) => [r.sequence, r.event, r.transition])).toEqual([
+          [1, 'opened', null],
+          [2, 'resolved', null],
+          [3, 'updated', 'reopened'],
+          [4, 'resolved', null],
+        ]);
+        for (const receipt of first.receipts) expect(receipt.eventKey).toBe(`ops:reconciliation-alert:${usdc.id}:${receipt.sequence}`);
+        const eurReceipts = await a.alerts.busReceipts({ alertId: eur.id });
+        expect(eurReceipts.queued).toEqual([1, 3]);
+        expect(eurReceipts.receipts.map((r) => [r.sequence, r.event])).toEqual([
+          [1, 'opened'],
+          [3, 'accepted'],
+        ]);
+        await redeliver();
+        expect(await a.alerts.busReceipts({ alertId: usdc.id }), 'the second delivery changed nothing').toEqual(first);
+        const [{ count }] = await sql<{ count: number }[]>`SELECT count(*)::int AS count FROM ops.reconciliation_alert_receipts`;
+        expect(count).toBe(events.length);
+        await expect(sql`UPDATE ops.reconciliation_alert_receipts SET received_at = now()`).rejects.toThrow(/append-only/);
+        await expect(sql`DELETE FROM ops.reconciliation_alert_receipts`).rejects.toThrow(/append-only/);
+        // An envelope whose key is not the one its alert and sequence publish under is refused, never stored under it.
+        await expect(
+          storeAlertReceipt(
+            sql,
+            {
+              eventKey: 'ops:reconciliation-alert:other',
+              alertId: usdc.id,
+              sequence: 9,
+              event: 'resolved',
+              transition: null,
+              occurredAt: new Date().toISOString(),
+            },
+            now(),
+          ),
+        ).rejects.toThrow(/is not the key/);
       } finally {
         await sql.end();
         await database.drop();

@@ -1,5 +1,11 @@
 import Link from 'next/link';
-import type { OpsAlert, OpsAlertDetail, OpsAlertSource, OpsPlatformIncidents } from '@intafaced/contracts/ops-reconciliation-alerts';
+import type {
+  OpsAlert,
+  OpsAlertBusReceipts,
+  OpsAlertDetail,
+  OpsAlertSource,
+  OpsPlatformIncidents,
+} from '@intafaced/contracts/ops-reconciliation-alerts';
 import { formatAsOf, formatWhen } from '@/lib/as-of';
 import type { Part } from '@/lib/desk/part';
 import type { RefusalView } from '@/lib/desk/refusal-copy';
@@ -62,6 +68,77 @@ const severityLabel = (a: OpsAlert): string => (a.severity.status === 'set' ? a.
 
 const assetLabel = (a: OpsAlert): string =>
   a.assetId ?? (a.cause === 'error' ? 'No asset (the run could not finish)' : 'No asset (the run failed without asset evidence)');
+
+/**
+ * The alert's transition events as svc-ops received them back from the bus: one receipt per event key, so an event the bus
+ * delivered twice shows once. A sequence the outbox queued with no receipt is a transition the bus has not brought back yet.
+ */
+export function AlertBusReceipts({ part }: { part: Part<OpsAlertBusReceipts> }) {
+  if (part.kind === 'failed') return <Failed part={part} testId="alert-receipts-failed" />;
+  const { bus, queued, receipts } = part.data;
+  const received = new Set(receipts.map((r) => r.sequence));
+  const missing = queued.filter((sequence) => !received.has(sequence));
+  return (
+    <section
+      className="dk-stack"
+      aria-label="Events on the bus"
+      data-testid="alert-receipts"
+      data-bus={bus}
+      data-queued={queued.join(',')}
+      data-missing={missing.join(',')}
+    >
+      <h3>Events on the bus</h3>
+      {bus === 'detached' && (
+        <div className="adm-callout" data-tone="warn" role="status" data-testid="alert-receipts-detached">
+          <strong>svc-ops is not attached to the event bus.</strong>
+          <p>No transition event is published or received while it is detached; this list may be behind.</p>
+        </div>
+      )}
+      {missing.length > 0 && (
+        <p data-testid="alert-receipts-behind">
+          Not yet received back from the bus: sequence {missing.join(', ')} of the {queued.length} this alert&apos;s transitions queued.
+        </p>
+      )}
+      {receipts.length === 0 ? (
+        <p data-testid="alert-receipts-empty">svc-ops has received no transition event of this alert from the bus.</p>
+      ) : (
+        <div className="dk-table-wrap" role="region" aria-label="Events on the bus" tabIndex={0}>
+          <table className="adm-table">
+            <thead>
+              <tr>
+                <th scope="col">Sequence</th>
+                <th scope="col">Event</th>
+                <th scope="col">Event key</th>
+                <th scope="col">Happened</th>
+                <th scope="col">Received</th>
+              </tr>
+            </thead>
+            <tbody>
+              {receipts.map((r) => (
+                <tr
+                  key={r.eventKey}
+                  data-testid="alert-receipt"
+                  data-event-key={r.eventKey}
+                  data-sequence={r.sequence}
+                  data-event={r.event}
+                  data-received-at={r.receivedAt}
+                >
+                  <td>{r.sequence}</td>
+                  <td>{r.transition ? `${r.event} (${r.transition})` : r.event}</td>
+                  <td>
+                    <code>{r.eventKey}</code>
+                  </td>
+                  <td>{formatWhen(r.occurredAt)}</td>
+                  <td>{formatWhen(r.receivedAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
 
 function PlatformIncidents({ part }: { part: Part<OpsPlatformIncidents> }) {
   if (part.kind === 'failed') return <Failed part={part} testId="platform-incidents-failed" />;

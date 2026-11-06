@@ -315,6 +315,41 @@ export const opsPlatformIncidentsSchema = z
   .strict();
 export type OpsPlatformIncidents = z.infer<typeof opsPlatformIncidentsSchema>;
 
+/**
+ * One alert transition event as svc-ops received it back from the bus (`core-ops.reconciliation_alert.*`): the delivery
+ * check on its own outbox. The event's business key is the key, so the same event delivered twice is one receipt.
+ */
+export const opsAlertBusReceiptSchema = z
+  .object({
+    /** `ops:reconciliation-alert:<alertId>:<sequence>`. */
+    eventKey: z.string().min(1),
+    /** The alert's version after the transition the event carries. */
+    sequence: z.number().int().min(1),
+    event: z.enum(['opened', 'updated', 'resolved', 'accepted']),
+    /** For `updated`: acknowledged, snoozed, unsnoozed or reopened. Null otherwise. */
+    transition: z.enum(['acknowledged', 'snoozed', 'unsnoozed', 'reopened']).nullable(),
+    occurredAt: isoSchema,
+    receivedAt: isoSchema,
+  })
+  .strict();
+export type OpsAlertBusReceipt = z.infer<typeof opsAlertBusReceiptSchema>;
+
+export const opsAlertBusReceiptsInputSchema = z.object({ alertId: z.string().uuid() }).strict();
+export const opsAlertBusReceiptsSchema = z
+  .object({
+    /** Whether svc-ops is attached to the event bus now; detached, nothing new arrives and the list says so. */
+    bus: z.enum(['attached', 'detached']),
+    /**
+     * The sequences this alert's transitions queued in svc-ops' outbox, oldest first (a repeat count raises the version and
+     * queues none). A queued sequence with no receipt is a transition the bus has not brought back yet.
+     */
+    queued: z.array(z.number().int().min(1)),
+    /** Oldest sequence first. */
+    receipts: z.array(opsAlertBusReceiptSchema),
+  })
+  .strict();
+export type OpsAlertBusReceipts = z.infer<typeof opsAlertBusReceiptsSchema>;
+
 export const opsReconciliationPeriodsInputSchema = z
   .object({ controlId: z.string().uuid().optional(), limit: z.number().int().min(1).max(OPS_ALERT_LIST_MAX) })
   .strict();
