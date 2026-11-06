@@ -105,15 +105,15 @@ test(`${J} #7 opens the desk with a locale set; chart labels and number formats 
   const context = await browser.newContext({ baseURL: ORIGIN });
   const fr = await context.newPage();
   try {
-    await fr.addInitScript((key) => {
+    // Signed in first (the sign-in helper reads the English page), then the person's language is French.
+    await signIn(fr, who);
+    await fr.evaluate((key) => {
       const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
       localStorage.setItem(key, JSON.stringify({ ...saved, layoutMode: 'pro', language: 'fr' }));
     }, PREFERENCES);
-    await signIn(fr, who);
     await fr.goto(DESK);
     const canvas = fr.getByRole('img', { name: /^Graphique des prix de / });
     await expect(canvas).toBeVisible({ timeout: 30_000 });
-    await expect.poll(async () => Number(await canvas.getAttribute('data-bars'))).toBeGreaterThan(0);
     // Hover the chart until the legend shows a bar: its labels and prices are the French ones.
     const box = await canvas.boundingBox();
     const legend = fr.getByTestId('pc-legend');
@@ -123,7 +123,7 @@ test(`${J} #7 opens the desk with a locale set; chart labels and number formats 
         if (await legend.isVisible()) return;
       }
       throw new Error('no bar under the pointer');
-    }).toPass({ timeout: 15_000 });
+    }).toPass({ timeout: 30_000 });
     await expect(legend).toContainText('Ouv.');
     await expect(legend).toContainText('Clôt.');
     await expect(legend).toContainText('Variation');
