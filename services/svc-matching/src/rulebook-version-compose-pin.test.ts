@@ -22,10 +22,10 @@ import { describe, expect, it } from 'vitest';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const VERSION = 'MATCHING_RULEBOOK_VERSION';
 
-function matchingComposeBlock(): string {
+function composeBlock(service: string): string {
   const compose = readFileSync(join(ROOT, 'docker-compose.apps.yml'), 'utf8');
-  const start = compose.indexOf('\n  svc-matching:');
-  expect(start, 'svc-matching service missing from docker-compose.apps.yml').toBeGreaterThanOrEqual(0);
+  const start = compose.indexOf(`\n  ${service}:`);
+  expect(start, `${service} service missing from docker-compose.apps.yml`).toBeGreaterThanOrEqual(0);
   const rest = compose.slice(start + 1);
   const next = rest.search(/\n  svc-[a-z]+:/);
   return next === -1 ? rest : rest.slice(0, next);
@@ -35,10 +35,17 @@ describe('svc-matching takes no rulebook version from env', () => {
   const envTs = readFileSync(join(ROOT, 'services/svc-matching/src/env.ts'), 'utf8');
   const routerTs = readFileSync(join(ROOT, 'services/svc-matching/src/router.ts'), 'utf8');
   const rulebookTs = readFileSync(join(ROOT, 'services/svc-matching/src/rulebook.ts'), 'utf8');
-  const block = matchingComposeBlock();
+  const indexTs = readFileSync(join(ROOT, 'services/svc-matching/src/index.ts'), 'utf8');
+  const block = composeBlock('svc-matching');
+  const fixBlock = composeBlock('svc-fix');
 
   it('env.ts does not read MATCHING_RULEBOOK_VERSION', () => {
     expect(envTs).not.toContain(VERSION);
+  });
+
+  it('index.ts hands the router no version', () => {
+    expect(indexTs).not.toContain(VERSION);
+    expect(indexTs).not.toMatch(/rulebookVersion/);
   });
 
   it('the router serves the journal, never process.env', () => {
@@ -49,6 +56,12 @@ describe('svc-matching takes no rulebook version from env', () => {
   it('the svc-matching compose block sets no rulebook version', () => {
     expect(block).toMatch(/SERVICE_NAME:\s*svc-matching/);
     expect(block).not.toMatch(new RegExp(`^\\s*${VERSION}:`, 'm'));
+  });
+
+  it('svc-fix keeps its own empty pass-through for its certified refusal, with no invented version', () => {
+    expect(fixBlock).toMatch(/SERVICE_NAME:\s*svc-fix/);
+    expect(fixBlock).toMatch(new RegExp(`${VERSION}:\\s*\\$\\{${VERSION}:-\\}`));
+    expect(fixBlock).not.toMatch(new RegExp(`${VERSION}:\\s*\\$\\{${VERSION}:-.+\\}`));
   });
 
   it('a blank version id is still unpublished', () => {
