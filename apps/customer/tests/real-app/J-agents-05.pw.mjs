@@ -14,8 +14,9 @@ import { api, journeyState, tool } from './stack.mjs';
 // Approvals inbox, and the tool has not run. #5 and #6 are built (AG-approvals-01): edit, approve and reject in the inbox,
 // with the comment sent once to the person's own support request (svc-support), a wait after which a request expires
 // (a short TEST wait on a restart), and identity unavailable to svc-agents on a restart (LOCAL_STACK_AGENTS_IDENTITY=off).
-// #4 and #7 fail at their first missing part, quickly (UNBUILT): there is no notice and no automatic reviewer
-// (AG-approvals-01, -02).
+// #4 is built (AG-approvals-01): svc-agents publishes each held call once (agents.approval.requested) and svc-notify
+// writes one inbox row naming the action and linking to the Approvals inbox, which says phone notices are off
+// (vendor.push). #7 fails at its first missing part, quickly (UNBUILT): there is no automatic reviewer (AG-approvals-02).
 const J = 'J-agents-05';
 const agents = agentsRun(J);
 /** The run's own state file (the one agentsRun keeps): the support request the comments go to. */

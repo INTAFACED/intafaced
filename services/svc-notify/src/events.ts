@@ -11,6 +11,7 @@ import {
   copySkipped,
   copyStopped,
   agentUsageAlertCrossed,
+  agentApprovalRequested,
   supportTicketResolved,
   fillSettled,
   kycApproved,
@@ -920,6 +921,33 @@ export async function subscribeNotificationEvents(
           sourceSubject: agentUsageAlertCrossed.subject,
           sourceIdempotencyKey: payload.alertKey,
           outOfApp: payload.email,
+        }),
+      );
+    }),
+  );
+
+  // A held tool call of an own agent (J-agents-05 #4): svc-agents publishes it once per approval request, on the
+  // request's business key, so the owner gets one inbox row for it however often it is sent. The row names the action
+  // and links to the Approvals inbox, where the person decides; it never carries what the agent wants to write. Out of
+  // app it goes to every channel the person confirmed: push shows `vendor.push` until a push vendor is set, and the
+  // inbox row is written regardless.
+  attachments.push(
+    await attach(bus, 'agentApprovalRequested', agentApprovalRequested.subject, 'notify-agent-approval-requested', async (payload) => {
+      const titleKey =
+        payload.tool === 'support.ticket.comment'
+          ? 'notify.agents.approval.requested.comment.title'
+          : 'notify.agents.approval.requested.title';
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'agents.approval.requested',
+          titleKey,
+          bodyKey: 'notify.agents.approval.requested.body',
+          params: { tool: payload.tool, requestId: payload.requestId, agentId: payload.agentId, expiresAt: payload.expiresAt },
+          href: '/agents/approvals',
+          severity: 'action',
+          sourceSubject: agentApprovalRequested.subject,
+          sourceIdempotencyKey: payload.requestId,
         }),
       );
     }),
