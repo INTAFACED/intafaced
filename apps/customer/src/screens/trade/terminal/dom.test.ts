@@ -9,8 +9,8 @@ describe('DOM preview', () => {
   it('holds only round illustrative levels, asks over bids, each side on its own rows', () => {
     expect(SAMPLE.every((l) => /^\d+\.00$/.test(l.price))).toBe(true);
     expect(SAMPLE.every((l) => (l.bid === null) !== (l.ask === null))).toBe(true);
-    const asks = SAMPLE.filter((l) => l.ask !== null).map((l) => BigInt(l.price.replace(".", "")));
-    const bids = SAMPLE.filter((l) => l.bid !== null).map((l) => BigInt(l.price.replace(".", "")));
+    const asks = SAMPLE.filter((l) => l.ask !== null).map((l) => BigInt(l.price.replace('.', '')));
+    const bids = SAMPLE.filter((l) => l.bid !== null).map((l) => BigInt(l.price.replace('.', '')));
     expect(asks.every((a) => bids.every((b) => a > b))).toBe(true);
   });
 });

@@ -112,7 +112,9 @@ test(`${J} #3 opens the algo order list from the same view: parents and children
   await expect(row).toContainText(/\d+%/, OPENS);
   await expect(row).toContainText('TWAP');
   // Its children (the slices it placed) are listed under it, each with its order.
-  const algo = await (await api(state('trader'))).get(`/api/trade/trpc/algo.get?input=${encodeURIComponent(JSON.stringify({ algoId: state('algoId') }))}`);
+  const algo = await (
+    await api(state('trader'))
+  ).get(`/api/trade/trpc/algo.get?input=${encodeURIComponent(JSON.stringify({ algoId: state('algoId') }))}`);
   expect(algo.status, JSON.stringify(algo.body).slice(0, 300)).toBe(200);
   const children = algo.body.result.data.children ?? [];
   expect(children.length).toBeGreaterThan(0);

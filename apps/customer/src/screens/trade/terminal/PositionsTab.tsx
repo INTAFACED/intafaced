@@ -31,9 +31,7 @@ export function usePositions() {
     async (signal) => {
       const follows = await copy.follows(signal);
       if (!follows.ok) return follows;
-      const reads = await Promise.all(
-        follows.data.map(async (f) => ({ follow: f, read: await copy.copiedPositions(f.followId, signal) })),
-      );
+      const reads = await Promise.all(follows.data.map(async (f) => ({ follow: f, read: await copy.copiedPositions(f.followId, signal) })));
       const failed = reads.find((r) => !r.read.ok);
       if (failed && !failed.read.ok) return failed.read;
       return {

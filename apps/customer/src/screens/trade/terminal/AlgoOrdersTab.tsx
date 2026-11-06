@@ -13,7 +13,17 @@ import { terminalCopy } from './copy';
 type Ok = Extract<ParentRead, { ok: true }>;
 type Row =
   | { kind: 'parent'; id: string; read: Ok; pct: string | null }
-  | { kind: 'child'; id: string; orderId: string; index: number; qty: string | null; price: string | null; order: Order | null; symbol: string; side: 'buy' | 'sell' }
+  | {
+      kind: 'child';
+      id: string;
+      orderId: string;
+      index: number;
+      qty: string | null;
+      price: string | null;
+      order: Order | null;
+      symbol: string;
+      side: 'buy' | 'sell';
+    }
   | { kind: 'unread'; id: string; ref: string };
 
 const KIND_WORD = { twap: 'Kind twap', vwap: 'Kind vwap', pov: 'Kind pov', chase: 'Kind chase' } as const;
@@ -55,10 +65,18 @@ export function algoRows(parents: readonly ParentRead[], orders: readonly Order[
   });
 }
 
-function orderWord(order: Order | null): 'Row open' | 'Row partial' | 'Row filled' | 'Row cancelled' | 'Row expired' | 'Row rejected' | null {
+function orderWord(
+  order: Order | null,
+): 'Row open' | 'Row partial' | 'Row filled' | 'Row cancelled' | 'Row expired' | 'Row rejected' | null {
   if (!order) return null;
   if (order.status === 'open') return compareDecimals(order.filled, '0') === 1 ? 'Row partial' : 'Row open';
-  return order.status === 'closed' ? 'Row filled' : order.status === 'canceled' ? 'Row cancelled' : order.status === 'expired' ? 'Row expired' : 'Row rejected';
+  return order.status === 'closed'
+    ? 'Row filled'
+    : order.status === 'canceled'
+      ? 'Row cancelled'
+      : order.status === 'expired'
+        ? 'Row expired'
+        : 'Row rejected';
 }
 
 export function AlgoOrdersTab({ parents, orders }: { parents: Loadable<ParentRead[]>; orders: readonly Order[] }) {
@@ -97,7 +115,8 @@ export function AlgoOrdersTab({ parents, orders }: { parents: Loadable<ParentRea
       id: 'size',
       header: t('Size'),
       numeric: true,
-      cell: (r) => (r.kind === 'parent' ? fmtAmount(r.read.parent.totalQty) : r.kind === 'child' && r.qty !== null ? fmtAmount(r.qty) : null),
+      cell: (r) =>
+        r.kind === 'parent' ? fmtAmount(r.read.parent.totalQty) : r.kind === 'child' && r.qty !== null ? fmtAmount(r.qty) : null,
     },
     {
       id: 'price',

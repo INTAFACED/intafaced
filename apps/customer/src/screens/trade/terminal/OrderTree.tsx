@@ -87,8 +87,16 @@ export function OrderTree({ branches, rfqUnread = false }: { branches: readonly 
     p.exposure ? t('Exposure: {amount} {asset}', { amount: fmtAmount(p.exposure.amount), asset: p.exposure.asset }) : t('Exposure unknown');
 
   const child = (c: TreeChild) => (
-    <li key={c.id} role="treeitem" tabIndex={-1} aria-label={`${c.kind === 'slice' ? t('Slice {n}', { n: String(c.index + 1) }) : t('Quote {n}', { n: String(c.index) })} ${c.ref}`} className="flex flex-wrap items-center gap-2 py-1 ps-8 text-sm">
-      <span className="text-fg-2">{c.kind === 'slice' ? t('Slice {n}', { n: String(c.index + 1) }) : t('Quote {n}', { n: String(c.index) })}</span>
+    <li
+      key={c.id}
+      role="treeitem"
+      tabIndex={-1}
+      aria-label={`${c.kind === 'slice' ? t('Slice {n}', { n: String(c.index + 1) }) : t('Quote {n}', { n: String(c.index) })} ${c.ref}`}
+      className="flex flex-wrap items-center gap-2 py-1 ps-8 text-sm"
+    >
+      <span className="text-fg-2">
+        {c.kind === 'slice' ? t('Slice {n}', { n: String(c.index + 1) }) : t('Quote {n}', { n: String(c.index) })}
+      </span>
       <span className="font-mono text-xs">{c.ref}</span>
       {c.qty !== null ? <span>{fmtAmount(c.qty)}</span> : null}
       {c.price !== null ? <span>@ {fmtPrice(c.price, null)}</span> : null}
@@ -142,9 +150,24 @@ export function OrderTree({ branches, rfqUnread = false }: { branches: readonly 
         const title = t(BRANCH_WORD[b.kind]);
         const count = b.parents.length > 0 ? t('{n} open', { n: String(b.parents.length) }) : t('None open');
         const open = isOpen(id);
-        const reason = b.kind === 'rfq' && rfqUnread ? t('RFQ unread') : b.notRun ? t(NOT_RUN_WORD[b.notRun]) : b.kind in EMPTY_WORD ? t(EMPTY_WORD[b.kind as keyof typeof EMPTY_WORD]) : '';
+        const reason =
+          b.kind === 'rfq' && rfqUnread
+            ? t('RFQ unread')
+            : b.notRun
+              ? t(NOT_RUN_WORD[b.notRun])
+              : b.kind in EMPTY_WORD
+                ? t(EMPTY_WORD[b.kind as keyof typeof EMPTY_WORD])
+                : '';
         return (
-          <li key={id} role="treeitem" tabIndex={i === 0 ? 0 : -1} data-node={id} aria-label={`${title}, ${count}`} aria-expanded={open} className="flex flex-col py-1">
+          <li
+            key={id}
+            role="treeitem"
+            tabIndex={i === 0 ? 0 : -1}
+            data-node={id}
+            aria-label={`${title}, ${count}`}
+            aria-expanded={open}
+            className="flex flex-col py-1"
+          >
             <div className="flex items-center gap-2">
               <Toggle id={id} name={title} />
               <span className="font-semibold text-fg">{title}</span>

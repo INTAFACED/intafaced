@@ -64,7 +64,11 @@ function TerminalTabs({ userId }: { userId: string }) {
   );
   // The tree waits for the order book and the schedules; the RFQ branch shows what the board answered.
   const treeLoad: Loadable<null> =
-    open.status !== 'ready' ? (open as Loadable<null>) : schedules.status !== 'ready' ? (schedules as Loadable<null>) : { status: 'ready', data: null, asOf: open.asOf };
+    open.status !== 'ready'
+      ? (open as Loadable<null>)
+      : schedules.status !== 'ready'
+        ? (schedules as Loadable<null>)
+        : { status: 'ready', data: null, asOf: open.asOf };
 
   return (
     <Tabs defaultValue="orders">
