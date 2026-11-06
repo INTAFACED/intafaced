@@ -426,6 +426,17 @@ export class OwnApprovalRequestStore {
     return rows.length === 1;
   }
 
+  /**
+   * Marks a waiting request as not yet announced, so the person is told of it: a call the reviewer meant to run that
+   * could not be approved goes to the person after all (AG-approvals-02).
+   */
+  async announceAgain(ownerId: string, id: string): Promise<void> {
+    await this.sql`
+      UPDATE agents.own_agent_approval_requests SET published_at = NULL, updated_at = now()
+       WHERE owner_id = ${ownerId} AND id = ${id} AND status = 'waiting'
+    `;
+  }
+
   /** Lets the run be claimed again at once: the door could not be reached, so approving again retries it. */
   async releaseRun(ownerId: string, id: string): Promise<void> {
     await this.sql`

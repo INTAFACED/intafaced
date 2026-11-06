@@ -51,7 +51,8 @@ export function canMoveValue(tool: string): boolean {
  * Words in a call's input that try to steer whoever decides on it. The TEST engine refuses such a call: an input that
  * argues for its own approval is the case a reviewer exists to stop.
  */
-const STEERING = /\b(ignore|disregard|override|bypass)\b[^.]*\b(rules?|instructions?|reviewer|checks?)\b|\bapprove (this|me|it)\b/i;
+const STEERING =
+  /\b(ignore|disregard|override|bypass)\b[\s\S]{0,200}?\b(rules?|instructions?|reviewer|checks?)\b|\bapprove (this|me|it)\b/i;
 
 /** The TEST engine's raw answer for a call: by rule from its input, no model called. */
 function testEngineAnswer(args: Readonly<Record<string, string>>): { decision: string; reasonCode: string } {
@@ -93,7 +94,8 @@ export function readAnswer(valueTool: boolean, raw: unknown): OwnAgentReview {
 
 /** The call's input as a digest: the stored decision names what it decided on without keeping the text. */
 export function inputDigest(tool: string, args: Readonly<Record<string, string>>): string {
-  const sorted = Object.entries(args).sort(([a], [b]) => a.localeCompare(b));
+  // Code-unit order, the same on every runtime and locale.
+  const sorted = Object.entries(args).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return `sha256:${createHash('sha256')
     .update(JSON.stringify([tool, sorted]))
     .digest('hex')}`;

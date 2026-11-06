@@ -185,6 +185,16 @@ function approvalRefused(code: string): TRPCError['code'] | null {
   return ownerForbidden(code);
 }
 
+/** The person's own signed-in session: never an agent's token, an API key or a sub-account (assertPersonSetsLimits). */
+function isPersonSession(principal: Parameters<typeof assertPersonSetsLimits>[0]): boolean {
+  try {
+    assertPersonSetsLimits(principal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A closed request's typed refusal, as the agent's call reads it: the step ends there and the tool does not run. */
 function closedRequest(request: OwnApprovalRequestView): never {
   throw new TRPCError({ code: 'FORBIDDEN', message: request.refusalCode ?? 'agents.approval.decided' });
@@ -991,8 +1001,20 @@ export function ownRouter(
             if (latest.status === 'approved' && latest.ranAt !== null) {
               return { outcome: 'ran' as const, tool: input.tool, dataClass: held.dataClass, result: latest.result };
             }
+            // A call the reviewer approved whose run did not finish (the desk was not reached) is run again on the
+            // request's own key, as the person's approving again would: nobody else is told to decide it.
+            if (latest.status === 'approved' && latest.decidedBy === 'reviewer' && isPersonSession(ctx.principal)) {
+              const ran = await decideAndRun(ctx, { ...latest, agentId: agent.id }, 'reviewer');
+              return { outcome: 'ran' as const, tool: input.tool, dataClass: held.dataClass, result: ran.request.result };
+            }
             return { outcome: 'waiting' as const, tool: input.tool, dataClass: held.dataClass, request: latest };
           }
+          // The reviewer's stored decision on this call stands whatever the gates say now: a refused call stays
+          // refused on every retry, and is never reviewed again.
+          const reviewer = new OwnReviewerStore(sqlOf(sql));
+          const call = { tool: input.tool, input: input.input };
+          const storedReview = await guard(() => reviewer.find(ctx.principal.userId, session.id, input.requestId, call));
+          if (storedReview?.decision === 'refuse') throw new TRPCError({ code: 'FORBIDDEN', message: 'agents.review_refused' });
           const gate = await guard(() =>
             gateToolCall(sqlOf(sql), tooling.baseline, {
               ownerId: ctx.principal.userId,
@@ -1010,13 +1032,18 @@ export function ownRouter(
             // The automatic reviewer, when the person turned it on for this agent (AG-approvals-02): it decides in the
             // person's place, and can only add friction. Its decision is stored once per call before anything else, so
             // a retry reads it and is never reviewed again.
-            const reviewer = new OwnReviewerStore(sqlOf(sql));
             const engine = reviewerEngine(tooling.reviewerModel);
-            const call = { tool: input.tool, input: input.input };
             const review = await guard(async () => {
-              const stored = await reviewer.find(ctx.principal.userId, session.id, input.requestId, call);
-              if (stored) return stored;
+              if (storedReview) return storedReview;
               if (!(await reviewer.setting(ctx.principal.userId, agent.id, engine)).on) return null;
+              let decided = reviewCall(engine, call);
+              // A proceed runs the call only where it can run as the person's approval would: on the person's own
+              // signed-in session and through a wired approval door. Anywhere else the call goes to the person.
+              if (decided.decision === 'proceed' && !isPersonSession(ctx.principal)) {
+                decided = { ...decided, decision: 'needs_person', reasonCode: 'agents.review.not_person_session' };
+              } else if (decided.decision === 'proceed' && (!OWN_APPROVAL_DOORS.has(input.tool) || !tooling.supportDesk?.commentTicket)) {
+                decided = { ...decided, decision: 'needs_person', reasonCode: 'agents.review.door_not_wired' };
+              }
               return reviewer.record({
                 ownerId: ctx.principal.userId,
                 agentId: agent.id,
@@ -1024,7 +1051,7 @@ export function ownRouter(
                 requestId: input.requestId,
                 tool: input.tool,
                 args: input.input,
-                review: reviewCall(engine, call),
+                review: decided,
                 engine,
               });
             });
@@ -1047,8 +1074,18 @@ export function ownRouter(
             if (review) await reviewer.link(ctx.principal.userId, review.id, request.id);
             if (proceed) {
               // The reviewer's proceed runs the call once, exactly as the person's approval would, on the request's key.
-              const ran = await decideAndRun(ctx, { ...request, agentId: agent.id }, 'reviewer');
-              return { outcome: 'ran' as const, tool: input.tool, dataClass: gate.dataClass, result: ran.request.result };
+              try {
+                const ran = await decideAndRun(ctx, { ...request, agentId: agent.id }, 'reviewer');
+                return { outcome: 'ran' as const, tool: input.tool, dataClass: gate.dataClass, result: ran.request.result };
+              } catch (err) {
+                // Refused before it was approved (the owner's account, the session's guardrail): the call goes to the
+                // person after all, and they are told. Approved but not run: a retry runs it again on the same key.
+                const now = await requests.get(ctx.principal.userId, request.id);
+                if (now.status !== 'waiting') throw err;
+                await requests.announceAgain(ctx.principal.userId, request.id);
+                await runtime.publishApprovalRequests({ ownerId: ctx.principal.userId, requestId: request.id }).catch(() => undefined);
+                return { outcome: 'waiting' as const, tool: input.tool, dataClass: gate.dataClass, request: now };
+              }
             }
             // The person is told after the request's commit; a bus fault here never fails the call (the sweep sends it).
             await runtime.publishApprovalRequests({ ownerId: ctx.principal.userId, requestId: request.id }).catch(() => undefined);

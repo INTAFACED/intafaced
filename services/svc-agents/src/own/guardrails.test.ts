@@ -913,6 +913,51 @@ if (!available) {
       expect(await person.own.review.list({ id: agent.id, limit: 10 })).toEqual([]);
     });
 
+    it('a stored refusal holds on a retry even after the rule changes; a proceed with no approval door or not on the person’s session goes to the person', async () => {
+      const { person, notSession } = people(TEST_BASELINE, 3600, 'test-engine');
+      account = 'active';
+      const agent = await reviewed(person, true);
+      await expect(comment(person, agent, 'review:refuse-hold', steering)).rejects.toMatchObject({ message: 'agents.review_refused' });
+      // The rule no longer asks, so the gate would let the call go on: the stored refusal still ends it, and nothing runs.
+      await person.own.rules.save({ id: agent.id, tool: 'support.ticket.comment', choice: 'act_on_request' });
+      await expect(comment(person, agent, 'review:refuse-hold', steering)).rejects.toMatchObject({ message: 'agents.review_refused' });
+      expect(comments).toEqual([]);
+      await person.own.rules.save({ id: agent.id, tool: 'support.ticket.comment', choice: 'ask_before' });
+      // The help search has no approval door: a proceed would leave nothing to run it, so it goes to the person, told.
+      await person.own.consents.grant({ id: agent.id, dataClass: 'own_data' });
+      await person.own.rules.save({ id: agent.id, tool: 'support.kb.search', choice: 'ask_before' });
+      const search = await person.own.tool.try({
+        ...agent,
+        requestId: 'review:search',
+        tool: 'support.kb.search',
+        input: { kbQuery: 'TEST' },
+      });
+      expect(search).toMatchObject({ outcome: 'waiting', request: { status: 'waiting' } });
+      // A caller that is not the person's own signed-in session never has the reviewer run the call for them.
+      const notPerson = await notSession.own.tool.try({ ...agent, requestId: 'review:token', tool: 'support.ticket.comment', input: args });
+      expect(notPerson).toMatchObject({ outcome: 'waiting' });
+      const reasons = Object.fromEntries(
+        (await person.own.review.list({ id: agent.id, limit: 10 })).map((r) => [r.requestId, r.reasonCode]),
+      );
+      expect(reasons).toMatchObject({
+        'review:search': 'agents.review.door_not_wired',
+        'review:token': 'agents.review.not_person_session',
+      });
+      expect(comments).toEqual([]);
+    });
+
+    it('a proceed refused before approval (identity unreadable) goes to the person, who is told, and nothing is sent', async () => {
+      const { person, bus } = people(TEST_BASELINE, 3600, 'test-engine');
+      account = 'unreachable';
+      const agent = await reviewed(person, true);
+      const sent = await comment(person, agent, 'review:identity');
+      expect(sent).toMatchObject({ outcome: 'waiting', request: { status: 'waiting' } });
+      expect(bus.emitted('agentApprovalRequested').map((e) => e.payload.requestId)).toEqual([
+        sent.outcome === 'waiting' ? sent.request.id : '',
+      ]);
+      expect(comments).toEqual([]);
+    });
+
     it('a tool that can move value always goes to the person: check answers needs_person without asking the reviewer', async () => {
       const { person } = people(TEST_BASELINE, 3600, 'test-engine');
       const agent = await agentWithSession(person);

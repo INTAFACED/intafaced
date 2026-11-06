@@ -45,7 +45,7 @@ export function ReviewerPanel({ agent }: { agent: OwnAgent }) {
         <p className="muted">{t('intro')}</p>
         <p>{t('valueAlwaysAsks')}</p>
         <Read resource={setting.resource} retry={setting.reload}>
-          {(stored) => <ReviewerSwitch agent={agent} stored={stored} />}
+          {(stored) => <ReviewerSwitch key={`${stored.on}:${stored.engine}:${stored.updatedAt}`} agent={agent} stored={stored} />}
         </Read>
         <h3>{t('decisionsTitle')}</h3>
         <Read resource={decisions.resource} retry={decisions.reload}>
