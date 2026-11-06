@@ -2,7 +2,7 @@
 // Run by tooling/scripts/tooling-tests.mjs (the `tooling-tests` Doctrine gate).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRefs, planChecks, skipReason, SKIP_ENV } from './pre-push.mjs';
+import { configDrift, heavyWrapper, parseRefs, planChecks, skipReason, stepEnv, SKIP_ENV } from './pre-push.mjs';
 import { GATES, runOptions, selectGates } from '../ci/gates.mjs';
 
 const BASE = 'a'.repeat(40);
@@ -69,4 +69,32 @@ test('gates: a bad --jobs or --part is refused', () => {
   assert.throws(() => runOptions(['--jobs', '0']), /whole number/);
   assert.throws(() => runOptions(['--jobs']), /whole number/);
   assert.throws(() => runOptions(['--part', 'some']), /shared or exclusive/);
+});
+
+test('the steps run without the variables git sets to locate this repository', () => {
+  const env = stepEnv({ GIT_DIR: '/repo/.git', GIT_INDEX_FILE: '/repo/.git/index', PATH: '/bin', GIT_SSH_COMMAND: 'ssh' }, [
+    'GIT_DIR',
+    'GIT_INDEX_FILE',
+  ]);
+  assert.equal(env.GIT_DIR, undefined);
+  assert.equal(env.GIT_INDEX_FILE, undefined);
+  assert.equal(env.PATH, '/bin');
+  assert.equal(env.GIT_SSH_COMMAND, 'ssh');
+  assert.equal(env.FORCE_COLOR, '0');
+});
+
+test('the checks run in the Mac-wide heavy slot when its script exists, and `none` opts out', () => {
+  const yes = () => true;
+  const no = () => false;
+  assert.equal(heavyWrapper({}, '/Users/x', yes), '/Users/x/code/review/restart/heavy.sh');
+  assert.equal(heavyWrapper({}, '/Users/x', no), null);
+  assert.equal(heavyWrapper({ INTAFACED_HEAVY_WRAPPER: '/opt/cap.sh' }, '/Users/x', yes), '/opt/cap.sh');
+  assert.equal(heavyWrapper({ INTAFACED_HEAVY_WRAPPER: 'none' }, '/Users/x', yes), null);
+});
+
+test('a change to the shared config core settings during the checks is named', () => {
+  const before = { 'core.bare': 'false', 'core.hookspath': '.githooks', 'core.worktree': null };
+  assert.deepEqual(configDrift(before, { ...before }), []);
+  assert.deepEqual(configDrift(before, { ...before, 'core.bare': 'true' }), ['core.bare: false → true']);
+  assert.deepEqual(configDrift(before, { ...before, 'core.hookspath': null }), ['core.hookspath: .githooks → (unset)']);
 });

@@ -21,7 +21,7 @@
  */
 import { spawn, execFileSync } from 'node:child_process';
 import { appendFileSync, copyFileSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { availableParallelism } from 'node:os';
+import { availableParallelism, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { affectedFilters, classify, readEdges } from '../ci/ci-affected.mjs';
@@ -79,14 +79,60 @@ function gitPath(args) {
 
 const elapsed = (ms) => `${Math.floor(ms / 60000)}m${String(Math.round((ms % 60000) / 1000)).padStart(2, '0')}s`;
 
+/**
+ * The environment the steps run in: this one without the variables git exports into a hook to locate this repository
+ * (`git rev-parse --local-env-vars`: GIT_DIR, GIT_INDEX_FILE, …). With them, a gate that builds its own throwaway repo
+ * (secret-scan-mutation, empty-denominator, the tooling tests) writes into this one instead and fails, which is not what
+ * CI sees. Exported for its test.
+ */
+export function stepEnv(env, localVars) {
+  const out = { ...env, FORCE_COLOR: '0' };
+  for (const name of localVars) delete out[name];
+  return out;
+}
+
+/**
+ * The Mac-wide cap on heavy commands (a shared machine's slot script: `zsh <script> <command…>` waits for a free slot,
+ * then runs the command). When it exists, the checks run inside one slot so pushes do not pile onto the load.
+ * INTAFACED_HEAVY_WRAPPER names another script; set it to `none` to run without one.
+ */
+export function heavyWrapper(env, home, exists = existsSync) {
+  const named = env.INTAFACED_HEAVY_WRAPPER;
+  if (named === 'none') return null;
+  const path = named || join(home, 'code', 'review', 'restart', 'heavy.sh');
+  return exists(path) ? path : null;
+}
+
+/** The shared config's core settings a check must never change (2026-11-06: a gate's `git init` set core.bare). */
+export const GUARDED_CONFIG = ['core.bare', 'core.hookspath', 'core.worktree'];
+
+/** Names each guarded setting whose value differs between two snapshots. Exported for its test. */
+export function configDrift(before, after) {
+  return GUARDED_CONFIG.filter((k) => (before[k] ?? null) !== (after[k] ?? null)).map(
+    (k) => `${k}: ${before[k] ?? '(unset)'} → ${after[k] ?? '(unset)'}`,
+  );
+}
+
+function sharedConfig(commonDir) {
+  const out = {};
+  for (const k of GUARDED_CONFIG) {
+    try {
+      out[k] = execFileSync('git', ['config', '--file', join(commonDir, 'config'), '--get', k], { encoding: 'utf8' }).trim();
+    } catch {
+      out[k] = null;
+    }
+  }
+  return out;
+}
+
 /** Runs one step with its output in a log file; resolves { ok, ms, log }. */
-function step(name, cmd, args, { cwd, logDir, children }) {
+function step(name, cmd, args, { cwd, logDir, children, env }) {
   const log = join(logDir, `${name}.log`);
   const out = createWriteStream(log);
   const started = Date.now();
   console.log(`  … ${name}: ${[cmd, ...args].join(' ')}`);
   return new Promise((done) => {
-    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, FORCE_COLOR: '0' } });
+    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'], env });
     children.add(child);
     child.stdout.pipe(out, { end: false });
     child.stderr.pipe(out, { end: false });
@@ -199,6 +245,23 @@ async function main() {
     return;
   }
 
+  const wrapper = process.env.INTAFACED_PRE_PUSH_IN_SLOT === '1' ? null : heavyWrapper(process.env, homedir());
+  if (wrapper) {
+    // The same checks again, inside one heavy slot; the inner run repeats the cheap checks above and does the rest.
+    console.log(`  waiting for a heavy slot (${wrapper}) …`);
+    const child = spawn('zsh', [wrapper, process.execPath, fileURLToPath(import.meta.url)], {
+      cwd: top,
+      stdio: ['pipe', 'inherit', 'inherit'],
+      env: { ...process.env, INTAFACED_PRE_PUSH_IN_SLOT: '1' },
+    });
+    child.stdin.end(refs.map((r) => `${r.localRef} ${r.localSha} ${r.remoteRef} ${r.remoteSha}`).join('\n') + '\n');
+    process.on('SIGINT', () => child.kill('SIGINT'));
+    process.on('SIGTERM', () => child.kill('SIGTERM'));
+    const code = await new Promise((done) => child.on('close', (c) => done(c ?? 1)));
+    process.exit(code);
+  }
+
+  const configBefore = sharedConfig(commonDir);
   const logDir = join(gitDir, 'intafaced-pre-push');
   mkdirSync(logDir, { recursive: true });
   const children = new Set();
@@ -211,7 +274,7 @@ async function main() {
   process.on('SIGTERM', () => stop('SIGTERM'));
 
   const started = Date.now();
-  const ctx = { cwd: top, logDir, children };
+  const ctx = { cwd: top, logDir, children, env: stepEnv(process.env, git(['rev-parse', '--local-env-vars']).split('\n').filter(Boolean)) };
   const node = process.execPath;
   const results = [];
   const code = async () => {
@@ -240,6 +303,14 @@ async function main() {
     console.error("  restored packages/ledger-client/src/money.ts from the mutation gate's backup (it was stopped mid-run)");
   }
 
+  const drift = configDrift(configBefore, sharedConfig(commonDir));
+  if (drift.length) {
+    results.push({ name: 'shared-config', ok: false, ms: 0, log: join(commonDir, 'config') });
+    console.error(`\n  ✖ the shared git config (${join(commonDir, 'config')}) changed during the checks — every worktree reads it:`);
+    for (const d of drift) console.error(`      ${d}`);
+    console.error('    Put it back (git config --file <that file> <key> <old value>) and report which step did it.');
+  }
+
   const ms = Date.now() - started;
   const failed = results.filter((r) => !r.ok).map((r) => r.name);
   writeRunLog(commonDir, {
@@ -258,7 +329,7 @@ async function main() {
     process.exit(130);
   }
   if (failed.length) {
-    for (const r of results.filter((x) => !x.ok)) {
+    for (const r of results.filter((x) => !x.ok && x.log.endsWith('.log'))) {
       console.error(`\n── ${r.name} failed — last lines (full output: ${r.log}) ──\n${tail(r.log, 60)}`);
     }
     console.error(`\n  ✖ pre-push checks failed (${failed.join(', ')}) in ${elapsed(ms)} — push refused. CI would go red on the same.`);
