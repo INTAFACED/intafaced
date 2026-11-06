@@ -123,7 +123,7 @@ test(`${J} #1 the official channels page says whether a domain is on the publish
   await expect(page.getByText('We never ask for a verification code by text or phone.')).toBeVisible();
 
   // With no list published, the page says so, and the check box takes nothing.
-  restartWith('support', 'SUPPORT_OFFICIAL_CHANNELS', false);
+  restartWith('support', 'LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS', false);
   try {
     await page.goto('/help/official-channels');
     await expect(room.getByTestId('official-channels__unpublished')).toHaveText('The owner has not published the official channel list.');
@@ -134,7 +134,7 @@ test(`${J} #1 the official channels page says whether a domain is on the publish
     // The guides do not depend on the list.
     await expect(room.getByTestId('official-channels__guides').getByRole('link')).toHaveCount(4);
   } finally {
-    restartWith('support', 'SUPPORT_OFFICIAL_CHANNELS', true);
+    restartWith('support', 'LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS', true);
   }
   await page.goto('/help/official-channels');
   await expect(room.getByTestId('official-channels__list')).toContainText(domain);
