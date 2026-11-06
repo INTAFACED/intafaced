@@ -1575,10 +1575,13 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         )
         ON CONFLICT ON CONSTRAINT futures_conditional_orders_user_client_uq DO NOTHING
       `;
-    } else if (existing.status === 'armed' && input.triggerPrice != null && input.quantity > 0n) {
-      const price = formatAmount(input.triggerPrice);
+    } else if (existing.status === 'armed' && input.quantity > 0n) {
+      // A mark that cannot be worked out now clears the trigger rather than leaving an old one on show; only the stop's
+      // own tick fires this order, on fresh figures, so a cleared trigger never fires it.
+      const price = input.triggerPrice == null ? null : formatAmount(input.triggerPrice);
       const qty = formatAmount(input.quantity);
-      if (parseAmount(existing.trigger_price ?? '0') !== input.triggerPrice || parseAmount(existing.quantity) !== input.quantity) {
+      const was = existing.trigger_price == null ? null : parseAmount(existing.trigger_price);
+      if (was !== input.triggerPrice || parseAmount(existing.quantity) !== input.quantity) {
         await sql`
           UPDATE trade.futures_conditional_orders
           SET trigger_price = ${price}, quantity = ${qty}, updated_at = now()

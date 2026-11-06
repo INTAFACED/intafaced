@@ -75,6 +75,9 @@ function decimalField(field: string, raw: unknown, mode: 'required' | 'forbidden
   return parseDecimal(field, raw);
 }
 
+/** The client-id prefix of a pre-liquidation stop's close orders; no trader order may use it. */
+export const RISK_STOP_CLIENT_PREFIX = 'risk-stop:';
+
 export function requireClientKey(raw: unknown, field: string, code: string): string {
   if (typeof raw !== 'string') throw new FuturesError(`${field} is required (1–64 chars)`, code, 400);
   const id = raw.trim();
@@ -95,6 +98,11 @@ export function validateConditional(input: CreateConditionalInput): ParsedCondit
   }
   const quantity = decimalField('quantity', input.quantity, 'required');
   const clientOrderId = requireClientKey(input.clientOrderId, 'clientOrderId', 'trade.client_order_id_required');
+  if (clientOrderId.startsWith(RISK_STOP_CLIENT_PREFIX)) {
+    // The pre-liquidation stop's close orders are named `risk-stop:<position>:<generation>` (../risk-stop.ts); a trader's
+    // order under that name would be taken for the stop's own close order and moved or fired by its tick.
+    throw new FuturesError(`clientOrderId may not start with ${RISK_STOP_CLIENT_PREFIX}`, 'trade.client_order_id_reserved', 400);
+  }
   if (input.reduceOnly === false) {
     throw new FuturesError('a conditional exit cannot open or enlarge a position', 'trade.conditional_reduce_only_required', 400);
   }

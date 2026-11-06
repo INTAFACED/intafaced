@@ -562,6 +562,14 @@ describe('pre-liquidation stop', () => {
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
     expect(await closeOrders()).toMatchObject([{ status: 'armed', trigger_price: '93.5', quantity: '1' }]);
     expect(await stops.get(ALICE, positionId)).toMatchObject({ triggerPrice: '93.5', closeOrder: { triggerPrice: '93.5' } });
+    // The mark cannot be worked out on a tick: the order shows no trigger rather than the old one, and nothing fires.
+    stopAt = null;
+    expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await closeOrders()).toMatchObject([{ status: 'armed', trigger_price: null, quantity: '1' }]);
+    expect(await stops.get(ALICE, positionId)).toMatchObject({ triggerPrice: null, closeOrder: { status: 'armed', triggerPrice: null } });
+    stopAt = A('93.5');
+    expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await closeOrders()).toMatchObject([{ status: 'armed', trigger_price: '93.5' }]);
     // The trader takes the close order off: the stop goes with it rather than show a stop that would not act.
     const [order] = (await orders.list(ALICE)).filter((o) => o.clientOrderId === `risk-stop:${positionId}:1`);
     await orders.cancel(ALICE, order!.id);

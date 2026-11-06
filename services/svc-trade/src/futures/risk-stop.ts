@@ -25,6 +25,7 @@ import { SCALE, formatAmount, parseAmount, type Amount } from '@intafaced/ledger
 import type { Sql } from 'postgres';
 import { FuturesError, type RiskStopFigures } from './position-service.js';
 import type { ConditionalOrderView } from './conditional-orders/service.js';
+import { RISK_STOP_CLIENT_PREFIX } from './conditional-orders/validate.js';
 
 const ONE = SCALE;
 /** A close order in one of these states will not change again. */
@@ -153,7 +154,7 @@ function closingSide(side: 'long' | 'short'): 'buy' | 'sell' {
 }
 
 function closeId(positionId: string, generation: number): string {
-  return `risk-stop:${positionId}:${generation}`;
+  return `${RISK_STOP_CLIENT_PREFIX}${positionId}:${generation}`;
 }
 
 function requestId(raw: unknown): string {
