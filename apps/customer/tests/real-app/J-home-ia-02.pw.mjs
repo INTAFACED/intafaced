@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import http from 'node:http';
 import { test, expect } from './journey.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { nextCode } from './identity-factors.mjs';
@@ -239,9 +240,39 @@ function uuidOf(seed) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
+/**
+ * One request to Edge on a socket of its own, opened for it and closed after it. fetch keeps sockets alive between
+ * calls, and after #7's long merchant setup the next call could be written to one Edge had already closed as idle:
+ * "fetch failed: other side closed" before any answer (#7207). That call is a sign-in with a one-time code, which may not
+ * be sent twice, so the socket is never an idle one instead.
+ */
+function edgeRequest(route, { method, headers, body }) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      `${EDGE}${route}`,
+      {
+        method,
+        agent: false,
+        headers: { ...headers, ...(body === undefined ? {} : { 'content-length': Buffer.byteLength(body) }) },
+      },
+      (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => (text += chunk));
+        res.on('end', () => resolve({ status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, text }));
+        res.on('error', reject);
+      },
+    );
+    req.setTimeout(60_000, () => req.destroy(new Error(`${route}: no answer from Edge within 60 s`)));
+    req.on('error', reject);
+    if (body !== undefined) req.write(body);
+    req.end();
+  });
+}
+
 /** One authenticated call through Edge as `who`; the answer's data, or an error naming the refusal. */
 async function call(route, token, body) {
-  const res = await fetch(`${EDGE}${route}`, {
+  const res = await edgeRequest(route, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
       origin: ORIGIN,
@@ -250,7 +281,7 @@ async function call(route, token, body) {
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const text = await res.text();
+  const text = res.text;
   const json = (() => {
     try {
       return JSON.parse(text);
