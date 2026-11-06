@@ -27,6 +27,17 @@ export function KeySafety() {
   );
 }
 
+/** Outside apps given access to the account (I-signin-sessions-29): none can be authorised yet, and the section says so. */
+function ConnectedApps() {
+  const { t } = copy.useCopy();
+  return (
+    <section data-testid="security__card" className="api-keys__apps security__card" aria-labelledby="api-keys-apps">
+      <h2 id="api-keys-apps">{t('appsTitle')}</h2>
+      <p className="muted">{t('appsEmpty')}</p>
+    </section>
+  );
+}
+
 export function stateOf(key: ApiKeyRecord, now: number): 'stateRevoked' | 'stateEnded' | 'stateActive' {
   if (key.revoked) return 'stateRevoked';
   if (key.expiresAt !== null && Date.parse(key.expiresAt) <= now) return 'stateEnded';
@@ -241,6 +252,7 @@ export function ApiKeys() {
           )}
         </>
       )}
+      <ConnectedApps />
       {sheet && <RevokeSheet sheet={sheet} onClose={() => !sheet.busy && setSheet(null)} onSubmit={(reason) => void revoke(reason)} />}
     </div>
   );
