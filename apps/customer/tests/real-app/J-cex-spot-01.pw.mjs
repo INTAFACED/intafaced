@@ -377,6 +377,10 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   await expect(access.getByText('Verified to trade', { exact: true })).toBeVisible();
   await expect(access).toContainText('Your level: Full');
   await expect(access.getByText('Verify to trade')).toHaveCount(0);
+  // SPLIT A: let the markets poller's tickers read settle before the menu opens; menu, Escape and goto then run as on main.
+  await page.waitForResponse((r) => r.url().includes('/api/v1/tickers'), { timeout: 15_000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  console.log(`CDPDIAG ${new Date().toISOString()} SPLIT A tickers settled`);
   console.log(`CDPDIAG ${new Date().toISOString()} MENU open`);
   await page.getByRole('button', { name: 'Account menu' }).click();
   await expect(page.getByTestId('account-summary')).toContainText('Verification: Full');
