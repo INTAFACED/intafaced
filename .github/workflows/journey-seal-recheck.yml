@@ -19,10 +19,9 @@ on:
 
 permissions: {}
 
-# One re-check per head at a time; a newer edit or run on the same head replaces a waiting one (each reads the newest state).
-concurrency:
-  group: journey-seal-recheck-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
-  cancel-in-progress: true
+# No concurrency group: a group would let an event whose job is then skipped (an edit of the base branch only) cancel a
+# re-check that is waiting out a running seal, and GitHub keeps one pending run per group, dropping the rest. Two
+# re-checks on one head each re-run the seal once it is finished; the second reads the same state.
 
 jobs:
   recheck:

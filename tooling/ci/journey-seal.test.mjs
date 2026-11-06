@@ -69,7 +69,9 @@ test('title parsing: lists, ranges, several journeys, case, and what is not a st
   );
   assert.deepEqual(titleSteps('svc-bank: J-bank-13 I get a card'), [], 'a journey id with no step names none');
   assert.deepEqual(titleSteps('gate: money PRs are sealed (#7194)'), []);
-  assert.deepEqual(titleSteps('x (J-a-01 #1-#100000)').length, 51, 'a typo range is capped, never a hang');
+  assert.deepEqual(titleSteps('x (J-a-01 #1-#100000)'), [], 'a three-digit number is never a step');
+  assert.deepEqual(titleSteps('x (J-wallet-05 #2, #6650) (#7052)'), ['J-wallet-05#2'], 'an issue number after the steps is not one');
+  assert.deepEqual(titleSteps('x (J-bank-13#1 #2)'), ['J-bank-13#1', 'J-bank-13#2'], "the report's own spelling names steps");
 });
 
 test('Left or replaced: full ids under the heading only, outside code, up to the next heading of its level', () => {
@@ -79,7 +81,10 @@ test('Left or replaced: full ids under the heading only, outside code, up to the
     '## Left or replaced',
     '- **#7: inferences**, all mine',
     '- J-bank-13 #3, replaced by J-bank-14 #2',
-    '  - nested: J-bank-13 #4',
+    'None of the rest: J-bank-13 #8 #9 all pass.',
+    '<!-- - J-bank-13 #10 -->',
+    '1. **J-bank-15 #1**: not built',
+    '  - J-bank-13 #4: nested',
     '### detail',
     '- J-bank-13 #5',
     '```',
@@ -88,7 +93,17 @@ test('Left or replaced: full ids under the heading only, outside code, up to the
     '## Proof',
     '- J-bank-13 #2 left',
   ].join('\n');
-  assert.deepEqual([...leftOrReplaced(body)].sort(), ['J-bank-13#3', 'J-bank-13#4', 'J-bank-13#5', 'J-bank-14#2']);
+  assert.deepEqual([...leftOrReplaced(body)].sort(), ['J-bank-13#3', 'J-bank-13#4', 'J-bank-13#5', 'J-bank-15#1']);
+  assert.deepEqual(
+    [...leftOrReplaced('## Left or replaced\nNone. J-bank-13 #1 #2 #3 all pass.\n')],
+    [],
+    'prose under the heading exempts nothing',
+  );
+  assert.deepEqual(
+    [...leftOrReplaced('## Left or replaced\n- the issuer is not wired, so J-bank-13 #2 waits\n')],
+    [],
+    'only an item that opens with the id',
+  );
   assert.deepEqual([...leftOrReplaced('### Left or replaced:\n- J-a-01 #1\n')], ['J-a-01#1'], 'any level, a trailing colon');
   assert.deepEqual([...leftOrReplaced('**Left or replaced**\n- J-a-01 #1\n')], [], 'bold text is not a heading');
   assert.deepEqual([...leftOrReplaced('```\n## Left or replaced\n- J-a-01 #1\n```\n')], [], 'a heading in code is not one');
@@ -167,6 +182,15 @@ test('"Left or replaced" by full id passes without a run; a bare #n does not', a
     reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed' } } }),
   });
   assert.equal(bare.ok, false);
+});
+
+test('on a merge queue commit nothing waits: an unfinished run is passed over and the finished ones decide', async () => {
+  const runs = [run(1), run(2, { status: 'in_progress', conclusion: null })];
+  assert.equal((await judge({ runs, reportOf: reports({ 1: green, 2: new Error('must not read') }), waitOnRunning: false })).ok, true);
+  assert.equal(
+    (await judge({ runs: [run(2, { status: 'in_progress', conclusion: null })], reportOf: reports({}), waitOnRunning: false })).ok,
+    false,
+  );
 });
 
 test('a run on this head not finished (first attempt or re-run) holds the seal', async () => {
@@ -270,24 +294,36 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
     if (path.includes('check-runs')) return { check_runs: [seal({ status: polls++ < 2 ? 'in_progress' : 'completed' })] };
     return { status: 'completed' };
   };
-  const post = async (path) => (calls.push(`POST ${path}`), 201);
+  const post = async (path) => (calls.push(`POST ${path}`), { status: 201 });
   const msg = await rerunSealJob({ repo: 'o/r', sha: HEAD, get, post, sleep: async () => {}, log: () => {} });
   assert.equal(msg, 're-ran the seal job 9 of run 77');
   assert.deepEqual(
     calls.filter((c) => c.startsWith('POST')),
     ['POST /repos/o/r/actions/jobs/9/rerun'],
   );
+  const done = async () => ({ check_runs: [seal()], status: 'completed' });
+  await assert.rejects(rerunSealJob({ repo: 'o/r', sha: HEAD, get: done, post: async () => ({ status: 500 }), sleep: async () => {} }));
+  assert.match(
+    await rerunSealJob({
+      repo: 'o/r',
+      sha: HEAD,
+      get: done,
+      post: async () => ({ status: 403, message: 'This workflow is already running' }),
+    }),
+    /already re-running/,
+  );
+  // AGENTS.md "Check, then merge" 6: any other 403 (a missing permission, a rate limit) or a 429 stops and is reported.
   await assert.rejects(
     rerunSealJob({
       repo: 'o/r',
       sha: HEAD,
-      get: async () => ({ check_runs: [seal()], status: 'completed' }),
-      post: async () => 500,
-      sleep: async () => {},
+      get: done,
+      post: async () => ({ status: 403, message: 'Resource not accessible by integration' }),
     }),
+    /HTTP 403/,
   );
-  assert.match(
-    await rerunSealJob({ repo: 'o/r', sha: HEAD, get: async () => ({ check_runs: [seal()], status: 'completed' }), post: async () => 403 }),
-    /already re-running/,
+  await assert.rejects(
+    rerunSealJob({ repo: 'o/r', sha: HEAD, get: done, post: async () => ({ status: 429, message: 'rate limit' }) }),
+    /HTTP 429/,
   );
 });
