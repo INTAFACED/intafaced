@@ -309,3 +309,15 @@ export function setCardPinBinding(i: { actor: string; cardId: string; commandId:
     fields: { actor: i.actor, cardId: i.cardId, commandId: i.commandId },
   };
 }
+
+/**
+ * Activating a card that arrived (BK-cissue-04). One approval turns one card on: the card id is the whole operation, and a
+ * second use of the same approval is refused, as unfreezing is.
+ */
+export function activateCardBinding(i: { actor: string; cardId: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.activate',
+    operationKey: i.cardId,
+    fields: { actor: i.actor, cardId: i.cardId },
+  };
+}

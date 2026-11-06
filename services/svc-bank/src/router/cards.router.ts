@@ -10,7 +10,12 @@ import {
   setCardLimitsBinding,
   setCardPinBinding,
   unfreezeCardBinding,
+  activateCardBinding,
 } from '../step-up/money-out-fields.js';
+import { cardInactive } from '../cards/card-service.js';
+import { DELIVERY_SPEEDS } from '../cards/card-programme.js';
+import type { CardDelivery } from '../cards/card-orders.js';
+import { BankError } from '../errors.js';
 import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
@@ -60,7 +65,8 @@ export function createCardsRouter(c: BankRouterContext) {
     simulated: z.boolean(),
     /** Four digits. Not a card number and not part of one. */
     panTail: z.string(),
-    status: z.enum(['active', 'frozen', 'closed']),
+    /** `inactive`: issued but not activated yet (BK-cissue-04); it declines every authorisation until it is. */
+    status: z.enum(['active', 'inactive', 'frozen', 'closed']),
     cashbackBps: z.number().int(),
     perAuthorizationLimit: amountString,
     dailyLimit: amountString.nullable(),
@@ -82,6 +88,12 @@ export function createCardsRouter(c: BankRouterContext) {
         country: z.string(),
       })
       .nullable(),
+    /** Single-use (1) or n-use: captured payments before it closes itself. NULL is no limit. */
+    usesAllowed: z.number().int().nullable(),
+    designId: z.string().nullable(),
+    deliverySpeed: z.string().nullable(),
+    replacesCardId: z.string().nullable(),
+    replacedByCardId: z.string().nullable(),
   });
 
   const shippingAddressInput = z.object({
@@ -105,7 +117,7 @@ export function createCardsRouter(c: BankRouterContext) {
       issuer: c.issuer,
       simulated: c.simulated,
       panTail: c.panTail,
-      status: c.status,
+      status: presentStatus(c),
       cashbackBps: c.cashbackBps,
       perAuthorizationLimit: formatAmount(c.perAuthorizationLimit),
       dailyLimit: c.dailyLimit == null ? null : formatAmount(c.dailyLimit),
@@ -117,6 +129,89 @@ export function createCardsRouter(c: BankRouterContext) {
       abroad: c.abroad ?? true,
       cardType: c.cardType ?? 'virtual',
       shippingAddress: c.shippingAddress ?? null,
+      usesAllowed: c.usesAllowed ?? null,
+      designId: c.designId ?? null,
+      deliverySpeed: c.deliverySpeed ?? null,
+      replacesCardId: c.replacesCardId ?? null,
+      replacedByCardId: c.replacedByCardId ?? null,
+    };
+  }
+
+  function presentStatus(c: CardRecord): 'active' | 'inactive' | 'frozen' | 'closed' {
+    return c.status === 'active' && cardInactive(c) ? 'inactive' : c.status;
+  }
+
+  const deliveryOutput = z.object({
+    cardId: z.string(),
+    state: z.enum(['ordered', 'produced', 'shipped', 'delivered']),
+    designId: z.string().nullable(),
+    designName: z.string().nullable(),
+    speed: z.string(),
+    estimateDays: z.number().int(),
+    orderedAt: z.string(),
+    expectedBy: z.string(),
+    carrier: z.string().nullable(),
+    trackingRef: z.string().nullable(),
+    address: z.object({
+      name: z.string(),
+      line1: z.string(),
+      line2: z.string().nullable(),
+      city: z.string(),
+      region: z.string().nullable(),
+      postalCode: z.string(),
+      country: z.string(),
+    }),
+    history: z.array(
+      z.object({
+        address: z.object({
+          name: z.string(),
+          line1: z.string(),
+          line2: z.string().nullable(),
+          city: z.string(),
+          region: z.string().nullable(),
+          postalCode: z.string(),
+          country: z.string(),
+        }),
+        changedAt: z.string(),
+      }),
+    ),
+  });
+
+  function presentDelivery(d: CardDelivery) {
+    const address = (a: CardDelivery['address']) => ({
+      name: a.name,
+      line1: a.line1,
+      line2: a.line2 ?? null,
+      city: a.city,
+      region: a.region ?? null,
+      postalCode: a.postalCode,
+      country: a.country,
+    });
+    return {
+      cardId: d.cardId,
+      state: d.state,
+      designId: d.designId,
+      designName: d.designName,
+      speed: d.speed,
+      estimateDays: d.estimateDays,
+      orderedAt: d.orderedAt.toISOString(),
+      expectedBy: d.expectedBy.toISOString(),
+      carrier: d.carrier,
+      trackingRef: d.trackingRef,
+      address: address(d.address),
+      history: d.history.map((h) => ({ address: address(h.address), changedAt: h.changedAt.toISOString() })),
+    };
+  }
+
+  function addressFrom(a: z.infer<typeof shippingAddressInput>) {
+    return {
+      name: a.name,
+      line1: a.line1,
+      line2: a.line2 ?? null,
+      city: a.city,
+      region: a.region ?? null,
+      postalCode: a.postalCode,
+      country: a.country.toUpperCase(),
     };
   }
 
@@ -495,7 +590,190 @@ export function createCardsRouter(c: BankRouterContext) {
             replacementId: input.replacementId,
             reason: input.reason,
           });
+          await bank.cardOrders.afterReplace(replaced);
           return presentCard(replaced);
+        }),
+      ),
+
+    // ── Getting a card (J-bank-13; BK-cissue-01 to -04) ─────────────────────
+
+    /** The product list for a country: eligibility with its reason, the count limits, the terms, designs and speeds. */
+    catalogue: scopedProcedure('bank:read', { module: 'bank' })
+      .input(
+        z.object({
+          country: z
+            .string()
+            .trim()
+            .regex(/^[A-Za-z]{2}$/),
+        }),
+      )
+      .output(
+        z.object({
+          programme: z.object({ id: z.string(), simulated: z.boolean(), displayName: z.string() }),
+          network: z.string(),
+          country: z.string(),
+          eligible: z.boolean(),
+          reason: z.string().nullable(),
+          countries: z.array(z.string()),
+          products: z.array(z.object({ type: z.enum(['virtual', 'physical']), held: z.number().int(), limit: z.number().int() })),
+          terms: z.object({
+            version: z.string(),
+            text: z.string(),
+            textHash: z.string(),
+            acceptance: z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }).nullable(),
+          }),
+          designs: z.array(z.object({ id: z.string(), name: z.string() })),
+          speeds: z.array(z.object({ speed: z.enum(DELIVERY_SPEEDS), days: z.number().int() })),
+          deliveryCountries: z.array(z.string()),
+        }),
+      )
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const c = await bank.cardOrders.catalogue(ctx.principal.userId, input.country);
+          return {
+            ...c,
+            terms: {
+              ...c.terms,
+              acceptance: c.terms.acceptance ? { ...c.terms.acceptance, acceptedAt: c.terms.acceptance.acceptedAt.toISOString() } : null,
+            },
+          };
+        }),
+      ),
+
+    /** Accept the cardholder terms shown (`consent:<userId>:<version>`); accepting again returns the first acceptance. */
+    acceptTerms: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ termsVersion: z.string().min(1).max(64), textHash: z.string().min(1).max(100) }))
+      .output(z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const accepted = await bank.cardOrders.acceptTerms(ctx.principal.userId, input);
+          return { ...accepted, acceptedAt: accepted.acceptedAt.toISOString() };
+        }),
+      ),
+
+    /**
+     * Order a card: virtual (optionally single-use or n-use) or physical with a design, a delivery speed and an address.
+     * `cardId` is the request, so a retry is the same card. Step-up, when the owner's rule is on, binds the same terms as
+     * `cards.issue`.
+     */
+    order: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z.object({
+          cardId: z.string().guid(),
+          country: z
+            .string()
+            .trim()
+            .regex(/^[A-Za-z]{2}$/),
+          termsVersion: z.string().min(1).max(64),
+          assetId: z.string().min(1).max(16),
+          perAuthorizationLimit: amountString,
+          cardType: z.enum(['virtual', 'physical']),
+          usesAllowed: z.number().int().min(1).max(1000).nullable().optional(),
+          designId: z.string().min(1).max(32).optional(),
+          deliverySpeed: z.enum(DELIVERY_SPEEDS).optional(),
+          shippingAddress: shippingAddressInput.optional(),
+          stepUpApprovalId: stepUpApprovalField,
+        }),
+      )
+      .output(cardOutput)
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              issueCardBinding({
+                actor: ctx.principal.userId,
+                cardId: input.cardId,
+                assetId: input.assetId,
+                settlementAssetId: undefined,
+                cashbackBps: undefined,
+                perAuthorizationLimit: input.perAuthorizationLimit,
+                cardType: input.cardType,
+                shippingAddress: input.cardType === 'physical' ? shippingToken(input.shippingAddress) : '',
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          if (input.cardType === 'physical' && !input.shippingAddress) {
+            throw new BankError('A physical card needs a delivery address', 'bank.card_shipping_address_required');
+          }
+          const card = await bank.cardOrders.order({
+            cardId: input.cardId,
+            userId: ctx.principal.userId,
+            country: input.country,
+            termsVersion: input.termsVersion,
+            assetId: input.assetId,
+            perAuthorizationLimit: parseAmount(input.perAuthorizationLimit),
+            cardType: input.cardType,
+            ...(input.usesAllowed === undefined ? {} : { usesAllowed: input.usesAllowed }),
+            ...(input.designId === undefined ? {} : { designId: input.designId }),
+            ...(input.deliverySpeed === undefined ? {} : { deliverySpeed: input.deliverySpeed }),
+            ...(input.shippingAddress === undefined ? {} : { shippingAddress: addressFrom(input.shippingAddress) }),
+          });
+          return presentCard(card);
+        }),
+      ),
+
+    /** Captured payments a single-use or n-use card has used. */
+    uses: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid() }))
+      .output(z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }))
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          return { cardId: card.id, usesAllowed: card.usesAllowed ?? null, usesMade: await bank.cards.usesMade(card.id) };
+        }),
+      ),
+
+    /** A physical card's delivery: design, speed, the estimate, state, tracking, the address and its history. */
+    delivery: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid() }))
+      .output(deliveryOutput)
+      .query(({ ctx, input }) => guard(async () => presentDelivery(await bank.cardOrders.delivery(ctx.principal.userId, input.cardId)))),
+
+    /** Change the delivery address before print (`ship-update:<cardId>:<requestId>`); refused once produced. */
+    updateShipping: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid(), requestId: z.string().guid(), address: shippingAddressInput }))
+      .output(deliveryOutput)
+      .mutation(({ ctx, input }) =>
+        guard(async () =>
+          presentDelivery(
+            await bank.cardOrders.updateShipping({
+              userId: ctx.principal.userId,
+              cardId: input.cardId,
+              requestId: input.requestId,
+              address: addressFrom(input.address),
+            }),
+          ),
+        ),
+      ),
+
+    /**
+     * Activate a card that arrived (BK-cissue-04). Always behind a fresh step-up: with the owner's step-up rule off this
+     * refuses `bank.step_up_unavailable`, as revealing card details does, and the card stays inactive.
+     */
+    activate: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid(), stepUpApprovalId: stepUpApprovalField }))
+      .output(cardOutput)
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          if (!cardInactive(card)) return presentCard(card);
+          if (!stepUpEnforced) {
+            throw new BankError(
+              'Activating a card needs a fresh confirmation that it is you, and step-up is not switched on in this deployment.',
+              'bank.step_up_unavailable',
+            );
+          }
+          await requireStepUp(
+            ctx.principal,
+            activateCardBinding({ actor: ctx.principal.userId, cardId: input.cardId }),
+            input.stepUpApprovalId,
+            false,
+          );
+          return presentCard(await bank.cards.activate({ cardId: input.cardId, userId: ctx.principal.userId }));
         }),
       ),
 

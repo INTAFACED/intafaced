@@ -11,6 +11,8 @@ import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
 import { useSession } from '../session/session';
+import { CardJourney } from './CardJourney';
+import { cardOrderCopy } from './card-order-copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
 type CardDecision = z.infer<(typeof bankReads)['cards.authorizations']>[number];
@@ -496,6 +498,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
   const orderAssets = held.resource.status === 'ready' ? held.resource.data.assets : held.resource.status === 'failed' ? [] : undefined;
   const ordering = orderBlock(orderProgramme, orderAssets?.length);
   const { userId } = useSession();
+  const order = cardOrderCopy.useCopy();
   const [selected, choose] = useState<{ id: string; serial: number } | null>(() => {
     const id = readSelected(userId);
     return id ? { id, serial: 1 } : null;
@@ -549,6 +552,9 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
           )}
         </ResourceView>
       </div>
+      <a className="button button--primary" href="/bank/cards/new">
+        {order.t('getCard')}
+      </a>
       <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
         <section className="money-selected-card" aria-labelledby="money-selected-card-heading">
@@ -611,8 +617,9 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
             <>
               {other.length ? (
                 other.map((row, index) => (
-                  <article className="money-card-record" key={`${row.id}:${index}`}>
+                  <article className="money-card-record" key={row.id} data-testid={`card-${row.id}`} data-index={index}>
                     <CardIdentity card={row} />
+                    <CardJourney card={row} reload={refresh} />
                     <div className="money-card-record-actions">
                       <Button
                         variant="secondary"

@@ -126,6 +126,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST card simulator (no issuer, no network): cards can be issued, frozen and closed, so the console's
     // account close (J-ops-console-04 #7) can be proved against an account that holds a card. Never a live issuer.
     BANK_CARD_ISSUER: 'card-sim',
+    // LOCAL TEST card programme from the bank profile (J-bank-13): eligible countries, count limits, TEST cardholder terms,
+    // designs and delivery speeds. Unset, the card room refuses bank.card_eligibility_unset and no card can be ordered there.
+    BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
     BANK_ADDRESS_BOOK_CAP: '10',
     BANK_OFFRAMP_COOLING_HOURS: '24',
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a

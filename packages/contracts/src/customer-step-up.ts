@@ -230,6 +230,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     fixed: {},
   },
   {
+    scope: 'bank.step_up.cards.activate',
+    purpose: 'cards.activate',
+    clientFields: ['cardId'],
+    targetField: 'cardId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
+  {
     scope: 'bank.step_up.ramps.offramp',
     purpose: 'ramps.offramp',
     clientFields: ['offrampId', 'assetId', 'amount', 'kind', 'destinationRef', 'clientRef'],

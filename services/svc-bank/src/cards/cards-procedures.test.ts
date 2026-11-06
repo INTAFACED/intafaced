@@ -531,7 +531,8 @@ describe('customer card procedures (PG-hard)', () => {
       atm: true,
       abroad: false,
       simulated: true,
-      status: 'active',
+      // A replacement starts inactive until the person activates it (J-bank-13 #6, BK-cissue-04).
+      status: 'inactive',
     });
     expect(replaced.panTail).toMatch(/^\d{4}$/);
     const again = await user.cards.replace({ cardId, replacementId, reason: 'stolen' });

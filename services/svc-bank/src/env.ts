@@ -459,6 +459,14 @@ const schema = serviceEnvSchema
       BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
 
       /**
+       * Owner-published card programme terms as JSON (BK-cissue-01 to -03, J-bank-13): `{ network, countries: [ISO2],
+       * limits: { virtual, physical }, terms: { version, text }, designs: [{ id, name }], speeds: [{ speed, days }],
+       * deliveryCountries: [ISO2] }`. NO DEFAULT. Blank / unset / not in shape → the card room refuses
+       * `bank.card_eligibility_unset` and a live issuer issues nothing; the simulator's direct issue keeps working.
+       */
+      BANK_CARD_PROGRAMME_JSON: z.string().optional(),
+
+      /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
        * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
