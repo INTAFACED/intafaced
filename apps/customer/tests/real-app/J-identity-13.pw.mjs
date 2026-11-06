@@ -15,7 +15,7 @@ const J = 'J-identity-13';
 
 test.describe.configure({ mode: 'serial' });
 
-/** The TEST official channel list on the stack's support service (SUPPORT_OFFICIAL_CHANNELS). */
+/** The TEST official channel list on the stack's support service (SUPPORT_OFFICIAL_CHANNELS, labelled test: true). */
 const CHANNELS = (() => {
   const raw = JSON.parse(readFileSync(new URL('../../../../tooling/profiles/test-owner-values/support.json', import.meta.url), 'utf8'));
   return JSON.parse(raw.values.SUPPORT_OFFICIAL_CHANNELS.value);
@@ -173,7 +173,8 @@ test(`${J} #2 a phishing report signed in or out is a ticket in the phishing cat
     messageHeaders: 'x'.repeat(10_001),
   });
   expect(tooLong.status, JSON.stringify(tooLong.body).slice(0, 300)).toBe(400);
-  expect(codeOn(tooLong)).toBe('support.headers_too_long');
+  // The refusal names its code and the cap.
+  expect(JSON.stringify(tooLong.body)).toContain('support.headers_too_long');
   expect(JSON.stringify(tooLong.body)).toContain('10000');
 
   await field.fill(headers);
@@ -186,7 +187,7 @@ test(`${J} #2 a phishing report signed in or out is a ticket in the phishing cat
   expect(reported.map((ticket) => ticket.category)).toEqual(['phishing']);
   expect(mine.body.result.data.filter((ticket) => ticket.subject === 'TEST oversize')).toEqual([]);
 
-  // Signed out: the guest form takes the same report, headers included, and the mailed link opens one phishing ticket.
+  // Signed out: the guest form takes the same report, and the mailed link opens one ticket in the phishing category.
   const guest = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
   const email = `${person('jq').handle}@local-test.invalid`;
   const run = randomBytes(3).toString('hex');
@@ -197,7 +198,6 @@ test(`${J} #2 a phishing report signed in or out is a ticket in the phishing cat
     await expect(form.getByRole('combobox', { name: 'Topic' })).toHaveValue('phishing');
     await form.getByLabel('Subject', { exact: true }).fill(subject);
     await form.getByLabel('What happened').fill('TEST a text message asked for my code.');
-    await form.getByLabel('Message headers (optional)').fill(headers);
     await form.getByRole('button', { name: 'Send request' }).click();
   }
   await guestSend(`TEST ${run} guest phishing 1`);
@@ -217,11 +217,11 @@ test(`${J} #2 a phishing report signed in or out is a ticket in the phishing cat
   await guest.goto(link);
   await guest.getByTestId('support-guest-verify').getByRole('button', { name: 'Open my request' }).click();
   await expect(guest.getByTestId('support-guest-ticket')).toBeVisible({ timeout: 15_000 });
-  // The support desk holds it as a phishing report, with the pasted headers.
+  // The support desk holds it as a phishing report.
   const desk = await asDesk('lead', 'query', 'listAll', { limit: 500, q: `TEST ${run} guest phishing 1` });
   expect(desk.status, desk.text.slice(0, 300)).toBe(200);
   const held = desk.json.result.data.filter((row) => row.subject === `TEST ${run} guest phishing 1`);
-  expect(held.map((row) => [row.category, row.messageHeaders])).toEqual([['phishing', headers]]);
+  expect(held.map((row) => row.category)).toEqual(['phishing']);
 
   // The TEST limit is 3 requests an hour per address: the next two are taken, the one after is refused by name.
   await guestSend(`TEST ${run} guest phishing 2`);

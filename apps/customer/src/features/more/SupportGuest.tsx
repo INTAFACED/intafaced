@@ -74,7 +74,10 @@ export function GuestNewRequest() {
   const { t } = guestCopy.useCopy();
   const { api } = useDataEnv();
   const [email, setEmail] = useState(''),
-    [category, setCategory] = useState('other'),
+    // `?topic=phishing` (Security's "Report a scam message") opens a scam report; any other topic is the default.
+    [category, setCategory] = useState(() =>
+      typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('topic') === 'phishing' ? 'phishing' : 'other',
+    ),
     [subject, setSubject] = useState(''),
     [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);

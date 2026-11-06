@@ -154,6 +154,10 @@
       "types": "./dist/support-awaiting.d.ts",
       "default": "./dist/support-awaiting.js"
     },
+    "./support-official-channels": {
+      "types": "./dist/support-official-channels.d.ts",
+      "default": "./dist/support-official-channels.js"
+    },
     "./guest-verification": {
       "types": "./dist/guest-verification.d.ts",
       "default": "./dist/guest-verification.js"
