@@ -45,6 +45,9 @@ function useConvertBounds(api: RoomApi): Loadable<ConvertBounds> {
   return usePrivateRead<ConvertBounds>('otc-convert-bounds', (signal) => api.otcConvertBounds(signal), ROOM_INTERVALS.deskStatus);
 }
 
+/** The desk section's element id: Convert's "Use the quote desk" moves focus here (J-cex-spot-11 #9). */
+export const OTC_DESK_ID = 'cvt-otc';
+
 export function OtcConvert() {
   const { t } = convertCopy.useCopy();
   const { t: deskT } = otcCopy.useCopy();
@@ -188,7 +191,12 @@ export function OtcConvert() {
       : t('OTC settles within', { seconds: String(Math.round(q.settleWindowMs / 1000)) });
 
   return (
-    <section aria-label={t('OTC title')} className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3">
+    <section
+      id={OTC_DESK_ID}
+      tabIndex={-1}
+      aria-label={t('OTC title')}
+      className="flex flex-col gap-3 rounded-md border border-line bg-panel p-3"
+    >
       <h2 className="m-0 text-md font-medium text-fg">{t('OTC title')}</h2>
       <p className="m-0 text-sm text-fg-2">{t('OTC lead')}</p>
       <div data-testid="convert-otc-range" className="flex flex-wrap items-center gap-2 text-sm text-fg-2">
@@ -210,6 +218,11 @@ export function OtcConvert() {
           </>
         ) : null}
       </div>
+      {bounds.status === 'ready' && !range ? (
+        <p data-testid="convert-otc-closed" className="m-0 text-sm text-fg">
+          {t('OTC closed')}
+        </p>
+      ) : null}
       {pairs.status === 'loading' ? <Skeleton className="h-10 w-full" /> : null}
       {pairs.status === 'refused' ? <Refusal words={roomWords({ code: pairs.code })} size="inline" /> : null}
       {pairs.status !== 'loading' && pairs.status !== 'refused' && options.length === 0 ? (
