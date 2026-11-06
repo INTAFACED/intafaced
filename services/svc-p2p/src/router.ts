@@ -287,6 +287,8 @@ const tradeOutput = z.object({
   offerId: z.string().guid(),
   /** P-ads-merchant-07: the order was taken through a share link. */
   sharedFrom: z.boolean(),
+  /** P-trade-orders-15: the ad's own release window copied at take, or null when the published release clock applies. */
+  releaseWindowSeconds: z.number().int().positive().nullable(),
   sellerId: z.string(),
   buyerId: z.string(),
   asset: z.string(),
@@ -4312,6 +4314,7 @@ function toTradeOut(trade: Awaited<ReturnType<P2pService['getTrade']>>): TradeOu
     id: trade.id,
     offerId: trade.offerId,
     sharedFrom: trade.sharedFrom === true,
+    releaseWindowSeconds: trade.releaseWindowSeconds ?? null,
     sellerId: trade.sellerId,
     buyerId: trade.buyerId,
     asset: trade.asset,

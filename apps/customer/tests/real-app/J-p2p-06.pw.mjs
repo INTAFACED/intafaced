@@ -14,6 +14,8 @@ const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const AD = { price: '0.92', min: '10', max: '30', total: '200' };
 const PAYMENT_SECONDS = 180;
 const SWEEP_SECONDS = 30;
+/** J-p2p-06 #5: the short release window the seller's TEST ad sets for itself (the published clock is 1800 s). */
+const RELEASE_SECONDS = 60;
 const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
@@ -217,10 +219,12 @@ test('J-p2p-06 #4 the payment window passes in escrow: one refund to the seller,
   await expect(page.getByRole('row').filter({ hasText: tradeId.slice(0, 8) })).toContainText('Cancelled: payment time ran out');
 });
 
-test('J-p2p-06 #5 the release window passes after payment: a dispute opens once, and the escrow does not move', async () => {
+test('J-p2p-06 #5 the release window passes after payment: a dispute opens once, and the escrow does not move', async ({ page }) => {
+  // The ad's 60 s release window, then up to three sweeps, then one more sweep to see nothing more happens.
+  test.setTimeout((RELEASE_SECONDS + 5 * SWEEP_SECONDS + 120) * 1_000);
   const state = journey();
   const s = await sellerClient(state);
-  // At the stack's 1800 s release window this cannot be waited out; it needs a per-ad release window.
+  // At the stack's 1800 s release window this cannot be waited out; the seller's ad sets its own, shorter window.
   const ads = await s.raw.mutate('offers.create', {
     side: 'sell',
     asset: 'USDT',
@@ -232,10 +236,46 @@ test('J-p2p-06 #5 the release window passes after payment: a dispute opens once,
     totalAmount: '30',
     methods: [METHOD],
     terms: `TEST terms: ${J} short release`,
-    releaseWindowSeconds: 60,
+    releaseWindowSeconds: RELEASE_SECONDS,
     idempotencyKey: `${J}:short-release:${state.seller.handle}`,
   });
-  expect(ads.body?.result?.data?.releaseWindowSeconds, 'an ad has no release window of its own (P-trade-orders-15)').toBe(60);
+  expect(ads.body?.result?.data?.releaseWindowSeconds, 'an ad has no release window of its own (P-trade-orders-15)').toBe(RELEASE_SECONDS);
+  const offerId = ads.body.result.data.id;
+
+  // #2 paused this journey's buyer, so a second TEST buyer takes the order and marks it paid.
+  const buyer = await signUp(page, 'p2p06r');
+  await verify(page, buyer);
+  const b = await readyTaker(await api(buyer), buyer);
+  const taken = await b.mutate('trades.take', { offerId, tradeId: randomUUID(), amount: '10', method: METHOD });
+  expect(taken.releaseWindowSeconds).toBe(RELEASE_SECONDS);
+  const tradeId = taken.id;
+  const paid = await b.mutate('trades.markFiatSent', { tradeId });
+  expect(paid.status).toBe('fiat_sent');
+  // The release clock is the ad's window from the moment of payment, not the published 1800 s.
+  expect(Date.parse(paid.deadlineAt) - Date.now()).toBeLessThanOrEqual(RELEASE_SECONDS * 1_000);
+  const held = (await s.query('trades.get', { tradeId })).escrowHeld;
+  expect(held).toBe('10');
+  const sellerFree = await free(state.seller);
+  const buyerFree = await free(buyer);
+
+  // The window passes with the seller silent: the sweep opens a dispute, never a release.
+  await expect
+    .poll(async () => (await s.query('trades.get', { tradeId })).status, {
+      timeout: (RELEASE_SECONDS + 4 * SWEEP_SECONDS) * 1_000,
+      intervals: [10_000],
+    })
+    .toBe('disputed');
+  const disputed = await s.query('trades.get', { tradeId });
+  expect(disputed).toMatchObject({ resolution: null, resolvedAt: null, escrowHeld: held });
+
+  // Once: after another sweep there is still exactly one dispute on the order, opened by the clock, and nothing moved.
+  await new Promise((resolve) => setTimeout(resolve, (SWEEP_SECONDS + 5) * 1_000));
+  const mine = (await b.query('disputes.mine', { limit: 200 })).disputes.filter((d) => d.tradeId === tradeId);
+  expect(mine).toHaveLength(1);
+  expect(mine[0]).toMatchObject({ openedVia: 'timeout' });
+  expect(await s.query('trades.get', { tradeId })).toMatchObject({ status: 'disputed', resolution: null, escrowHeld: held });
+  expect(await free(state.seller)).toBe(sellerFree);
+  expect(await free(buyer)).toBe(buyerFree);
 });
 
 test('J-p2p-06 #6 a reminder before the wait is refused with the time left; after it, the seller gets one notice', async ({ page }) => {
