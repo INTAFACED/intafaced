@@ -4,7 +4,7 @@
 **Date:** 2026-11-06
 **Source:** owner decision 2026-11-06.
 **Area:** how work is split into pull requests (AGENTS.md "Services and events" items 1 and 2).
-**Amends:** owner decisions 2026-10-20 and 2026-10-22 (one service per PR), for this change only.
+**Amends:** owner decisions 2026-10-20 and 2026-10-22 (one service per PR).
 
 ## Decision
 
