@@ -170,6 +170,24 @@ describe('fees and convert desk (PG-hard)', () => {
     await expect(desk().convertQuotes(stranger(), { side: 'sell', limit: 10 })).rejects.toThrow();
   });
 
+  // Golden vector shared with apps/admin/src/lib/trade-ops/fees-versions-model.test.ts: the console's hash of a proposal is
+  // the one this service recomputes when it consumes the approval.
+  it('hashes a fee version proposal exactly as the founder console does', () => {
+    expect(
+      payloadHash({
+        actionType: 'trade.fee_schedule_set',
+        schedule: {
+          defaultPairGroup: 'all-others',
+          rows: [{ pairGroup: 'all-others', tierId: 'regular', zeroFee: false, makerBps: '8', takerBps: '10', minFee: null }],
+          tierProgram: { thresholds: [{ tierId: 'vip-1', minVolume30d: '500' }], snapshotTimeUtc: '10:42', downgradeGraceDays: 3 },
+        },
+        effectiveAt: '2026-11-06T10:42:00.000Z',
+        expectedVersion: '7',
+        reason: 'TEST golden fee version',
+      }),
+    ).toBe('sha256:df267bb64187d88019b2f182a8c62dae7c76452f092dc9adb3b09f4185cd6fb1');
+  });
+
   it('a fee schedule change moves nothing, and each order is charged exactly the version in force when it was placed', async () => {
     const book = new MemoryApprovalBook();
     const balances: string[] = [];
