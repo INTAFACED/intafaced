@@ -83,6 +83,15 @@ test('each shared part is found directly, through a computed subcommand, and thr
   assert.deepEqual([...directWorld("await call('POST', '/api/v1/bots/grid', body)")], ['book']);
   assert.deepEqual([...directWorld("await withKey(key, { method: 'POST', path: '/api/v1/algo', body })")], ['book']);
   assert.deepEqual([...directWorld("await me.post('/api/v1/orders/batch', [a, b])")], ['book']);
+  // The route after a template prefix or an origin, as `fetch(`${EDGE}/api/v1/orders`, { method: 'POST' })` sends it
+  // (J-developer-03-detail #7 was missed: its file declared none).
+  assert.deepEqual(
+    [...directWorld("const res = await fetch(`${EDGE}/api/v1/orders`, {\n    method: 'POST',\n    headers,\n    body,\n  });")],
+    ['book'],
+  );
+  assert.deepEqual([...directWorld('await fetch(\'http://127.0.0.1:14500/api/v1/bots/grid\', { method: "POST", body })')], ['book']);
+  assert.deepEqual([...directWorld('await client.post(`${EDGE}/api/v1/futures/orders`, body)')], ['book']);
+  assert.deepEqual([...directWorld("await call('POST', `${EDGE}/api/v1/algo`, body)")], ['book']);
   assert.deepEqual([...directWorld("const name = side === 'buy' ? 'Confirm buy' : 'Confirm sell';")], ['book']);
   // A computed subcommand counts as every part it could be; a stack script run by hand counts as the stack's tools.
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', which, 'on')")].sort(), ['freeze', 'gates']);
@@ -100,6 +109,8 @@ test('each shared part is found directly, through a computed subcommand, and thr
   // Seeing a button, reading a book, or acting on one named account is not a change to the shared world.
   assert.deepEqual([...directWorld("await expect(page.getByRole('button', { name: 'Open long' })).toBeVisible();")], []);
   assert.deepEqual([...directWorld("await me.get('/api/v1/orders/open?symbol=BTC%2FUSDT')")], []);
+  assert.deepEqual([...directWorld("await fetch(`${EDGE}/api/v1/orders/open`, { headers }); await page.goto('/x');")], []);
+  assert.deepEqual([...directWorld("await fetch(`${EDGE}/api/v1/orders`, { method: 'GET', headers });")], []);
   assert.deepEqual(
     [...directWorld("tool('local-test-gates.mjs', 'verify'); tool('local-test-stack.mjs', 'fund', email, 'USDT', '10')")],
     [],
