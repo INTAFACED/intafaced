@@ -82,7 +82,12 @@ export type CopyErrorCode =
   | 'trade.copy_lead_application_decided'
   | 'trade.copy_lead_application_not_found'
   | 'trade.copy_lead_reapply_wait_unset'
-  | 'trade.copy_lead_reapply_wait';
+  | 'trade.copy_lead_reapply_wait'
+  | 'trade.pool_nickname_invalid'
+  | 'trade.pool_contact_invalid'
+  | 'trade.pool_style_invalid'
+  | 'trade.pool_application_open'
+  | 'trade.pool_application_unknown';
 
 /**
  * Closed set for the customer desk and blank-law refusals.

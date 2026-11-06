@@ -748,6 +748,10 @@ const schema = serviceEnvSchema
        * Owner value. Never invent a wait; blank never means no wait.
        */
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
+      /** Owner values for pools (CB-copy-pro-share-06, -09): blank is unset and shown as "not set", never defaulted. */
+      TRADE_COPY_POOL_WHITELIST_BATCH_MAX: z.string().default(''),
+      TRADE_COPY_POOL_TAKEOVER_NAV_FLOOR: z.string().default(''),
+      TRADE_COPY_POOL_TAKEOVER_MARGIN_RATE_MAX: z.string().default(''),
 
       /**
        * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while

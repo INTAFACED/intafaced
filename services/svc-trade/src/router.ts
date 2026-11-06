@@ -46,6 +46,7 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import type { PoolDesk } from './copy/pool-desk.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
@@ -863,6 +864,7 @@ export function createTradeRouter(
   supportSummary?: SupportTradeSummaryReader,
   leadDesk?: LeadDesk,
   grid?: GridService,
+  poolDesk?: PoolDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -883,6 +885,19 @@ export function createTradeRouter(
       }
       if (err instanceof TradeOpsError)
         throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.message} [trade_ops.${err.code}]`, cause: err });
+      throw toTrpcError(err);
+    }
+  };
+  /** The pool desk's refusals carry their code at the end of the message, as the lead desk's do. */
+  const pool = async <T>(fn: (desk: PoolDesk) => T | Promise<T>): Promise<T> => {
+    try {
+      if (!poolDesk) throw new CopyError('Copy trading is not available', 'trade.copy_unavailable');
+      return await fn(poolDesk);
+    } catch (err) {
+      if (err instanceof CopyError && (err.code.startsWith('trade.pool_') || err.code === 'trade.copy_pnl_fee_forbidden')) {
+        const code = err.code === 'trade.copy_pnl_fee_forbidden' ? 'FORBIDDEN' : 'BAD_REQUEST';
+        throw new TRPCError({ code, message: `${err.message} [${err.code}]`, cause: err });
+      }
       throw toTrpcError(err);
     }
   };
@@ -1850,10 +1865,31 @@ export function createTradeRouter(
         .input(z.object({ displayName: z.string().max(200) }))
         .mutation(({ ctx, input }) => lead((desk) => desk.apply(ctx.principal, input))),
 
+      /** Apply to run a pool (CB-copy-pro-share-11), key `pool.apply:<userId>`; the same submit again answers it. */
+      applyPoolMaster: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.object({ nickname: z.string().max(200), contact: z.string().max(400), style: z.string().max(1000) }).strict())
+        .mutation(({ ctx, input }) => pool((desk) => desk.apply(ctx.principal, input))),
+
+      /** The caller's newest application to run a pool, or null. */
+      myPoolMasterApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) =>
+        pool((desk) => desk.mine(ctx.principal)),
+      ),
+
       /** The caller's newest lead application, or null. */
       myLeadApplication: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.mine(ctx.principal))),
 
       ops: router({
+        /**
+         * The founders' pooled masters, whitelists, takeovers and levels (CB-copy-pro-share-11, -06, -09, -03). A maximum
+         * profit-share ratio is never set: `setMaxRatio` always refuses `trade.copy_pnl_fee_forbidden`.
+         */
+        poolDesk: router({
+          read: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => pool((desk) => desk.read(ctx.principal))),
+          setMaxRatio: scopedProcedure('admin:write', { module: 'trade' })
+            .input(z.object({ ratio: z.string().max(40) }).strict())
+            .mutation(({ ctx }) => pool((desk) => desk.setMaxRatio(ctx.principal))),
+        }),
+
         /** The founders' lead desk (CB-ops-01): the queue, the criteria, two-founder approval, rejection, leads, audit. */
         leadDesk: router({
           queue: scopedProcedure('admin:read', { module: 'trade' }).query(({ ctx }) => lead((desk) => desk.queue(ctx.principal))),

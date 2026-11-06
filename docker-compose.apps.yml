@@ -742,6 +742,10 @@ services:
       TRADE_COPY_MIN_TIER: ${TRADE_COPY_MIN_TIER:-}
       # CB-copy-12 wait before a rejected lead applicant may apply again. Empty = applying again refuses.
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: ${TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS:-}
+      # CB-copy-pro-share-06, -09 pool owner values. Empty = not set, shown as such; no takeover runs.
+      TRADE_COPY_POOL_WHITELIST_BATCH_MAX: ${TRADE_COPY_POOL_WHITELIST_BATCH_MAX:-}
+      TRADE_COPY_POOL_TAKEOVER_NAV_FLOOR: ${TRADE_COPY_POOL_TAKEOVER_NAV_FLOOR:-}
+      TRADE_COPY_POOL_TAKEOVER_MARGIN_RATE_MAX: ${TRADE_COPY_POOL_TAKEOVER_MARGIN_RATE_MAX:-}
       # PTX-M21 fee/rebate schedule — pass-through, no compose default.
       # Blank host → order preview refuses (never invent bps).
       TRADE_FEE_SCHEDULE: ${TRADE_FEE_SCHEDULE:-}

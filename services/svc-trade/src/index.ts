@@ -41,6 +41,7 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { PoolDesk, parsePoolTakeoverThreshold, parsePoolWhitelistBatchMax } from './copy/pool-desk.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
@@ -565,6 +566,18 @@ export const appRouter = createTradeRouter(
     reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
   }),
   grid,
+  new PoolDesk({
+    sql,
+    now: () => new Date(),
+    owner: {
+      whitelistBatchMax: parsePoolWhitelistBatchMax(env.TRADE_COPY_POOL_WHITELIST_BATCH_MAX),
+      takeoverNavFloor: parsePoolTakeoverThreshold('TRADE_COPY_POOL_TAKEOVER_NAV_FLOOR', env.TRADE_COPY_POOL_TAKEOVER_NAV_FLOOR),
+      takeoverMarginRateMax: parsePoolTakeoverThreshold(
+        'TRADE_COPY_POOL_TAKEOVER_MARGIN_RATE_MAX',
+        env.TRADE_COPY_POOL_TAKEOVER_MARGIN_RATE_MAX,
+      ),
+    },
+  }),
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
