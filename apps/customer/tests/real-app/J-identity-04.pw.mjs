@@ -79,6 +79,112 @@ test(`${J}, part of #2: the refused passkey add goes ahead after the authenticat
   await expect(page.getByTestId('failure')).toHaveCount(0);
 });
 
+/** Everything this page keeps in local and session storage, as one string, to show a secret is not in it. */
+async function stored(page) {
+  return page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
+}
+
+test(`${J} #2 a security change opens the step-up sheet; its approval is single use and bound to this one action, and a refresh does not carry it`, async ({
+  page,
+}) => {
+  test.setTimeout(180_000);
+  const who = person('sx');
+  await virtualAuthenticator(page);
+  await signUpInBrowser(page, who);
+  await addPasskey(page);
+
+  // Count the step-ups this page asks for, and hold back the first rename call it sends: that call carries a fresh,
+  // unspent approval, which the steps below replay against the service exactly as the page sent it.
+  const asked = { begin: 0, complete: 0 };
+  page.on('request', (request) => {
+    if (request.method() !== 'POST') return;
+    if (/\/api\/identity\/trpc\/stepUp\.begin$/.test(request.url())) asked.begin += 1;
+    if (/\/api\/identity\/trpc\/stepUp\.complete$/.test(request.url())) asked.complete += 1;
+  });
+  let held = null;
+  await page.route('**/api/identity/trpc/renamePasskey', async (route) => {
+    if (held) return route.continue();
+    const request = route.request();
+    const headers = Object.fromEntries(
+      Object.entries(await request.allHeaders()).filter(([name]) => !['host', 'content-length', 'cookie'].includes(name.toLowerCase())),
+    );
+    held = { url: request.url(), headers, body: JSON.parse(request.postData() ?? '{}') };
+    await route.abort('connectionreset');
+  });
+  const send = (url, body) => page.request.post(url, { headers: held.headers, data: JSON.stringify(body) });
+  const answer = async (res) => ({ status: res.status(), text: await res.text() });
+
+  // Renaming is a security change: the page asks for a fresh factor first (the passkey answers), and only then sends.
+  const names = page.getByTestId('security__passkey-names');
+  await names.getByRole('button', { name: /^Rename passkey/ }).click();
+  await names.getByLabel('Name (1 to 64 characters)').fill('Work laptop');
+  await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect.poll(() => held, { timeout: 30_000 }).not.toBeNull();
+  expect(asked).toEqual({ begin: 1, complete: 1 });
+  const approval = held.body.stepUpApprovalId;
+  expect(typeof approval === 'string' && approval.length > 0, 'the rename carries the approval the step-up minted').toBe(true);
+  expect(held.body.label).toBe('Work laptop');
+  expect(await stored(page), 'the approval is never stored in the page').not.toContain(approval);
+
+  // Bound to this action: the same unspent approval with another name, or for another change, is refused.
+  const otherName = await answer(await send(held.url, { ...held.body, label: 'Not this name' }));
+  expect(otherName.status, otherName.text).toBe(412);
+  expect(otherName.text).toContain('identity.step_up_target');
+  const purposesUrl = held.url.replace(/renamePasskey$/, 'setPasskeyPurposes');
+  const otherAction = await answer(
+    await send(purposesUrl, {
+      credentialId: held.body.credentialId,
+      purposes: '',
+      clientRequestId: held.body.clientRequestId,
+      stepUpApprovalId: approval,
+    }),
+  );
+  expect(otherAction.status, otherAction.text).toBe(412);
+  expect(otherAction.text).toContain('identity.step_up_target');
+
+  // Single use: the change it was minted for runs once; sending the same approval again is refused as used.
+  const first = await answer(await send(held.url, held.body));
+  expect(first.status, first.text).toBe(200);
+  expect(first.text).toContain('Work laptop');
+  const again = await answer(await send(held.url, held.body));
+  expect(again.status, again.text).toBe(412);
+  expect(again.text).toContain('identity.step_up_used');
+
+  // A refresh carries nothing: the page holds no approval, and the next change asks for a fresh factor again.
+  await page.reload();
+  await expect(names).toContainText('Work laptop');
+  expect(await stored(page)).not.toContain(approval);
+  await names.getByRole('button', { name: /^Rename passkey/ }).click();
+  await names.getByLabel('Name (1 to 64 characters)').fill('Home laptop');
+  await names.getByRole('button', { name: 'Save with a passkey' }).click();
+  await expect(names).toContainText('Name saved.');
+  await expect(names).toContainText('Home laptop');
+  expect(asked).toEqual({ begin: 2, complete: 2 });
+  await page.unroute('**/api/identity/trpc/renamePasskey');
+
+  // The step-up sheet: adding a second passkey on this password sign-in is a security change, so the page opens
+  // "Confirm it's you" before anything changes, and the passkey answers it.
+  await virtualAuthenticator(page, 'usb');
+  await page.getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  const refusal = page.getByTestId('failure');
+  await expect(refusal).toContainText('Confirm it is you');
+  await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+  const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+  await expect(sheet).toContainText('This changes how you sign in');
+  await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+  await expect(sheet).toBeHidden();
+  await expect(names.getByTestId('security__row')).toHaveCount(2);
+
+  // After a refresh the confirmation is gone: starting the same kind of change asks to confirm again, before any change.
+  await page.reload();
+  await expect(names.getByTestId('security__row')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Add passkey' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Add passkey' }).click();
+  await expect(page.getByTestId('failure')).toContainText('Confirm it is you');
+  await expect(names.getByTestId('security__row')).toHaveCount(2);
+});
+
 test(`${J} #3 adds a passkey, names it, adds a second; each shows its type and label; the name holds 64 characters at most, an empty one is refused, and no limit shows as "no limit set"`, async ({
   page,
 }) => {
