@@ -99,6 +99,8 @@ const indexSourcesConfig = z
 const expectedVersion = z.string().regex(/^(?:0|[1-9]\d*)$/);
 /** A seed configuration value as typed: a string, or null when left blank (refused `mm.seed_unset` by name). */
 const seedValue = z.string().max(64).nullable();
+/** A programme term or plan value as typed: a string, or null when blank (refused by name, never filled in). */
+const typed = z.string().max(64).nullable();
 
 function fail(error: unknown): never {
   if (error instanceof TRPCError) throw error;
@@ -305,6 +307,99 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
             .strict(),
         )
         .mutation(({ ctx, input }) => ready().seedConfig.set(ctx.principal, input).catch(fail)),
+    }),
+    // J-cex-spot-20 #8 (RC-cex-spot-06): the maker incentive programme. Terms and members are two-person writes;
+    // clawback records are read only.
+    makerProgramme: router({
+      terms: operator.query(({ ctx }) => ready().makerProgramme.terms(ctx.principal).catch(fail)),
+      members: operator.query(({ ctx }) => ready().makerProgramme.members(ctx.principal).catch(fail)),
+      clawbacks: operator.query(({ ctx }) => ready().makerProgramme.clawbacks(ctx.principal).catch(fail)),
+      setTerms: operatorWrite
+        .input(
+          z
+            .object({
+              terms: z
+                .object({
+                  tiers: z
+                    .array(
+                      z
+                        .object({
+                          name: typed,
+                          minMakerVolume30d: typed,
+                          minUptimePct: typed,
+                          maxSpreadAtDepthBps: typed,
+                          rebateBps: typed,
+                        })
+                        .strict(),
+                    )
+                    .max(10),
+                  maxSpreadBps: typed,
+                  minDepth: typed,
+                  minUptimePct: typed,
+                  cancelToFillCeiling: typed,
+                  clawbackWindowDays: typed,
+                  equalAccessCriteria: z.string().max(2000).nullable(),
+                })
+                .strict(),
+              expectedVersion,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().makerProgramme.setTerms(ctx.principal, input).catch(fail)),
+      setMember: operatorWrite
+        .input(
+          z
+            .object({
+              member: z
+                .object({
+                  accountId: typed,
+                  tier: typed,
+                  status: z.enum(['active', 'suspended', 'exited']).nullable(),
+                  conflictDeclaration: z.string().max(2000).nullable(),
+                })
+                .strict(),
+              expectedVersion,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().makerProgramme.setMember(ctx.principal, input).catch(fail)),
+    }),
+    // J-cex-spot-20 #8 (RC-cex-spot-09): the launch-liquidity plan per market, a two-person write naming programme makers.
+    launchLiquidity: router({
+      plans: operator.query(({ ctx }) => ready().makerProgramme.plans(ctx.principal).catch(fail)),
+      planHistory: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().makerProgramme.planHistory(ctx.principal, input.market).catch(fail)),
+      setPlan: operatorWrite
+        .input(
+          z
+            .object({
+              market: id,
+              plan: z
+                .object({
+                  makers: z.array(z.object({ accountId: typed, capital: typed, asset: typed }).strict()).max(20),
+                  maxSpreadBps: typed,
+                  minDepth: typed,
+                  depthBandBps: typed,
+                  minUptimePct: typed,
+                  inventoryMin: typed,
+                  inventoryMax: typed,
+                  exitReviewDate: typed,
+                  exitUptimeBelowPct: typed,
+                  exitSpreadAboveBps: typed,
+                })
+                .strict(),
+              expectedVersion,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().makerProgramme.setPlan(ctx.principal, input).catch(fail)),
     }),
     fundingParams: router({
       get: operator
