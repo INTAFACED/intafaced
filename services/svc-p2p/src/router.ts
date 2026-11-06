@@ -235,6 +235,8 @@ const offerOutput = z.object({
   nonInstantMethods: z.array(z.object({ methodId: z.string(), windowSeconds: z.number().int().positive().nullable() })),
   /** P-disputes-security-09: the seller consented at post to non-instant methods. */
   acceptsNonInstant: z.boolean(),
+  /** P-trade-orders-15: the ad's own release window in seconds, or null when it keeps the published release clock. */
+  releaseWindowSeconds: z.number().int().positive().nullable(),
   terms: z.string(),
   status: z.enum(['active', 'paused', 'closed']),
   /** P-ads-merchant-18: why the service paused the ad (`method_removed`); null when active, closed or paused by hand. */
@@ -812,6 +814,8 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.dispute_before_settlement':
       // P-ads-merchant-19: cash in person has a locked price; post the ad at a fixed price.
       case 'p2p.floating_not_allowed_for_method':
+      // P-trade-orders-15: an ad's release window may only shorten the published release clock.
+      case 'p2p.release_window_out_of_bounds':
       case 'p2p.offer_limit_exceeded':
       case 'p2p.invalid_fee_bps':
       case 'p2p.invalid_escrow_deadline':
@@ -1370,6 +1374,11 @@ export function createP2pRouter(
                * posts under the terms its person accepted; when sent, it must be the published version.
                */
               advertiserTermsVersion: z.string().min(1).max(64).optional(),
+              /**
+               * P-trade-orders-15: this ad's release window in seconds, copied onto each order at take. It may only
+               * shorten the published release clock; outside 60 s and that clock refuses `p2p.release_window_out_of_bounds`.
+               */
+              releaseWindowSeconds: z.number().int().positive().optional(),
             })
             .refine((value) => value.offerId !== undefined || value.idempotencyKey !== undefined, {
               message: 'p2p.idempotency_key_required',
@@ -1398,6 +1407,7 @@ export function createP2pRouter(
                 makerTier: ctx.principal.tier,
                 ...(input.acceptsNonInstant === undefined ? {} : { acceptsNonInstant: input.acceptsNonInstant }),
                 ...(input.advertiserTermsVersion === undefined ? {} : { advertiserTermsVersion: input.advertiserTermsVersion }),
+                ...(input.releaseWindowSeconds === undefined ? {} : { releaseWindowSeconds: input.releaseWindowSeconds }),
               }),
             );
           }),
@@ -1669,6 +1679,39 @@ export function createP2pRouter(
           guard(async () => {
             const { checks } = await takeGate.eligibility(ctx);
             return { checks: [...checks], canTake: checks.every((check) => check.state === 'met') };
+          }),
+        ),
+
+      /**
+       * P-trade-orders-05. How many of the caller's cancels count in the current window (the UTC day at the TEST 24
+       * hours), out of how many pause buying, when the count starts again, and until when buying is paused (null when
+       * it is not). A blank limit refuses `p2p.config_unset`, as a take does. An API key reads it too: it is the
+       * caller's own standing.
+       */
+      limits: merchantApiProcedure('p2p:read')
+        .output(
+          z.object({
+            cancels: z.object({
+              used: z.number().int().nonnegative(),
+              cap: z.number().int().positive(),
+              windowHours: z.number().int().positive(),
+              resetsAt: z.string().datetime(),
+              restrictedUntil: z.string().datetime().nullable(),
+            }),
+          }),
+        )
+        .query(async ({ ctx }) =>
+          guard(async () => {
+            const c = await p2p.buyerCancelCount(ctx.principal.userId);
+            return {
+              cancels: {
+                used: c.used,
+                cap: c.cap,
+                windowHours: c.windowHours,
+                resetsAt: c.resetsAt.toISOString(),
+                restrictedUntil: c.restrictedUntil?.toISOString() ?? null,
+              },
+            };
           }),
         ),
     }),
@@ -4154,6 +4197,7 @@ function toOfferOut(
     methods: offer.methods,
     nonInstantMethods,
     acceptsNonInstant: offer.acceptsNonInstant,
+    releaseWindowSeconds: offer.releaseWindowSeconds ?? null,
     terms: offer.terms,
     status: offer.status,
     pauseReason: offer.pauseReason ?? null,

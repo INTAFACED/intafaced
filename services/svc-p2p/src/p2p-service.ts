@@ -244,6 +244,7 @@ export type P2pErrorCode =
   | 'p2p.quote_changed'
   | 'p2p.active_order_cap'
   | 'p2p.buying_restricted'
+  | 'p2p.release_window_out_of_bounds'
   | 'p2p.insufficient_balance'
   | 'p2p.offer_has_open_trades'
   | 'p2p.offer_private'
@@ -931,6 +932,8 @@ export interface OfferRecord {
   makerTier: string | null;
   /** P-disputes-security-09: the seller consented at post to methods whose money arrives within a settlement window. */
   acceptsNonInstant: boolean;
+  /** P-trade-orders-15: seconds the seller has to release once paid, before a dispute opens; null is the published clock. */
+  releaseWindowSeconds?: number | null;
   /** P-ads-merchant-07: `public` ads are on the board; `private` ones only reach their maker or a share link. */
   visibility: OfferVisibility;
   status: 'active' | 'paused' | 'closed';
@@ -1035,6 +1038,9 @@ export interface RemarkCaseSweepFailure {
 /** The longest remark a report quotes; the database checks the same. */
 export const REMARK_MAX = 280;
 
+/** P-trade-orders-15: an ad's own release window is at least this long, the published release clock's own floor. */
+export const RELEASE_WINDOW_MIN_SECONDS = 60;
+
 /** One removal notice the sweep could not hand to the bus. */
 export interface OfferPauseSweepFailure {
   readonly instrumentId: string;
@@ -1076,6 +1082,8 @@ export interface TradeRecord {
   settlement: MethodSettlement;
   /** P-ads-merchant-19: the cash-in-person release window copied at take, or null on a transfer method. */
   cashReleaseSeconds?: number | null;
+  /** P-trade-orders-15: the ad's own release window copied at take, or null when the ad kept the published clock. */
+  releaseWindowSeconds?: number | null;
 }
 
 export interface DisputeRecord {
@@ -1141,6 +1149,7 @@ interface TradeRow {
   non_instant?: boolean;
   settlement_window_seconds?: number | null;
   cash_release_seconds?: number | null;
+  release_window_seconds?: number | null;
 }
 
 interface OfferRow {
@@ -1159,6 +1168,7 @@ interface OfferRow {
   terms: string;
   maker_tier: string | null;
   accepts_non_instant?: boolean;
+  release_window_seconds?: number | null;
   status: 'active' | 'paused' | 'closed';
   pause_reason?: OfferPauseReason | null;
   close_reason?: OfferCloseReason | null;
@@ -1741,9 +1751,75 @@ export class P2pService {
   }
 
   /**
-   * P-trade-orders-05: a buyer who cancelled the owner's number of orders within the window (their own cancels and
-   * payment windows they let run out) may not buy until the oldest of those leaves it: no take of a sell ad, no new
-   * buy ad, and no seller fills their buy ad meanwhile. Selling is not paused. Read on the database clock, under the
+   * P-trade-orders-15: an ad's own release window, or null to keep the published release clock. It may only shorten
+   * that clock: below 60 s (the published clock's own floor) or above the published clock refuses
+   * `p2p.release_window_out_of_bounds` with both bounds.
+   */
+  private adReleaseWindow(seconds: number | undefined): number | null {
+    if (seconds === undefined) return null;
+    const max = this.deadlines.releaseSeconds;
+    if (!Number.isSafeInteger(seconds) || seconds < RELEASE_WINDOW_MIN_SECONDS || seconds > max) {
+      throw new P2pError(
+        `An ad's release window is between ${RELEASE_WINDOW_MIN_SECONDS} and ${max} seconds`,
+        'p2p.release_window_out_of_bounds',
+        { until: null, min: String(RELEASE_WINDOW_MIN_SECONDS), max: String(max) },
+      );
+    }
+    return seconds;
+  }
+
+  /**
+   * P-trade-orders-05: the buyer's cancels in the current counting window, on the database clock. Windows are fixed
+   * blocks of the owner's `windowHours` counted from UTC midnight, so at 24 hours the window is the UTC day and the
+   * count starts again at each day boundary. Counted: the buyer's own cancels (`buyer.<reason>`) and payment windows
+   * they let run out; a seller's cancel, an unfinished lock and a moderator's refund are not the buyer's doing.
+   */
+  private async buyerCancelWindow(
+    sql: Sql,
+    buyerId: string,
+    windowHours: number,
+  ): Promise<{ used: number; windowStart: Date; resetsAt: Date }> {
+    const [row] = await sql<{ used: string; window_start: Date; resets_at: Date }[]>`
+      WITH w AS (
+        SELECT to_timestamp(floor(extract(epoch FROM now()) / (${windowHours} * 3600)) * (${windowHours} * 3600)) AS start
+      )
+      SELECT (SELECT count(*) FROM p2p.p2p_trades t
+                WHERE t.buyer_id = ${buyerId}
+                  AND t.status = 'cancelled'
+                  AND (starts_with(t.resolution_reason, ${BUYER_CANCEL_REASON_PREFIX}) OR t.resolution_reason = ${BUYER_TIMEOUT_REASON})
+                  AND t.resolved_at >= w.start)::text AS used,
+             w.start AS window_start,
+             w.start + make_interval(hours => ${windowHours}) AS resets_at
+        FROM w
+    `;
+    return { used: Number(row!.used), windowStart: row!.window_start, resetsAt: row!.resets_at };
+  }
+
+  /**
+   * P-trade-orders-05: how many of the buyer's cancels count today, out of how many pause buying, and when the count
+   * starts again. A blank limit refuses `p2p.config_unset`, as a take does.
+   */
+  async buyerCancelCount(
+    buyerId: string,
+  ): Promise<{ used: number; cap: number; windowHours: number; resetsAt: Date; restrictedUntil: Date | null }> {
+    const cancels = this.takeLimits?.buyerCancels;
+    if (!cancels || cancels.limit === null || cancels.windowHours === null) {
+      throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
+    }
+    const { used, resetsAt } = await this.buyerCancelWindow(this.sql, buyerId, cancels.windowHours);
+    return {
+      used,
+      cap: cancels.limit,
+      windowHours: cancels.windowHours,
+      resetsAt,
+      restrictedUntil: used >= cancels.limit ? resetsAt : null,
+    };
+  }
+
+  /**
+   * P-trade-orders-05: a buyer who cancelled the owner's number of orders in the current counting window (their own
+   * cancels and payment windows they let run out) may not buy until the window ends: no take of a sell ad, no new buy
+   * ad, and no seller fills their buy ad meanwhile. Selling is not paused. Read on the database clock, under the
    * instrument-owner lock on a take.
    */
   private async assertBuyingNotRestricted(
@@ -1755,26 +1831,16 @@ export class P2pService {
     if (limit === null || windowHours === null) {
       throw new P2pError('How many cancelled orders pause buying is not set', 'p2p.config_unset');
     }
-    const buyerId = input.buyerId;
-    const recent = await sql<{ until: Date }[]>`
-      SELECT resolved_at + make_interval(hours => ${windowHours}) AS until
-        FROM p2p.p2p_trades
-       WHERE buyer_id = ${buyerId}
-         AND status = 'cancelled'
-         AND (starts_with(resolution_reason, ${BUYER_CANCEL_REASON_PREFIX}) OR resolution_reason = ${BUYER_TIMEOUT_REASON})
-         AND resolved_at > now() - make_interval(hours => ${windowHours})
-       ORDER BY resolved_at DESC
-       LIMIT ${limit}
-    `;
-    if (recent.length < limit) return;
+    const { used, resetsAt } = await this.buyerCancelWindow(sql, input.buyerId, windowHours);
+    if (used < limit) return;
     // A retry of a take that already placed its trade is that trade (`p2p.trade_exists` below), never "paused,
     // nothing placed" because of cancels made since.
     if (input.tradeId && (await sql`SELECT 1 FROM p2p.p2p_trades WHERE id = ${input.tradeId}`).length > 0) return;
     // A seller taking a paused buyer's ad is told only that the ad takes no orders: the pause is the buyer's own.
     if (input.asMaker) throw new P2pError('This offer is not taking orders', 'p2p.offer_not_active');
-    // The latest `limit` cancels are all inside the window; buying returns when the oldest of them leaves it.
-    throw new P2pError(`You cancelled ${limit} orders within ${windowHours} hours, so buying is paused`, 'p2p.buying_restricted', {
-      until: recent[limit - 1]!.until.toISOString(),
+    // Buying returns when the counting window ends and the count starts again.
+    throw new P2pError(`You cancelled ${limit} orders in this ${windowHours}-hour window, so buying is paused`, 'p2p.buying_restricted', {
+      until: resetsAt.toISOString(),
       cap: String(limit),
       windowHours: String(windowHours),
     });
@@ -2065,6 +2131,8 @@ export class P2pService {
     relistedFrom?: string;
     /** P-ads-merchant-07: who may see the ad from its first moment; absent is public. `relistOffer` keeps the closed ad's. */
     visibility?: OfferVisibility;
+    /** P-trade-orders-15: the ad's own release window; absent keeps the published release clock. */
+    releaseWindowSeconds?: number;
   }): Promise<OfferRecord> {
     this.assertTradingEnabled();
     this.assertSellNotLocked(input.side === 'sell');
@@ -2150,6 +2218,7 @@ export class P2pService {
     const verdict = checkOfferLimit({ status: standing, maxAmt: input.maxAmt, asset: input.asset, policy: this.offerLimits });
     if (!verdict.withinLimit) throw new P2pError(verdict.reason, 'p2p.offer_limit_exceeded');
 
+    const releaseWindowSeconds = this.adReleaseWindow(input.releaseWindowSeconds);
     const totalAmt = input.totalAmt ?? input.maxAmt;
     const clientOfferId = input.offerId;
     const idempotencyKey = input.idempotencyKey?.trim() || undefined;
@@ -2194,6 +2263,8 @@ export class P2pService {
       makerTier ?? '',
       // Only a consenting create adds a part, so every other create keeps the hash it had before consent existed.
       ...(input.acceptsNonInstant === true ? ['non-instant'] : []),
+      // Likewise only an ad with its own release window adds one.
+      ...(releaseWindowSeconds === null ? [] : [`release:${releaseWindowSeconds}`]),
     ]);
 
     let replayId: string | null = null;
@@ -2218,7 +2289,7 @@ export class P2pService {
           } else if (clientOfferId) {
             const existing = await tx<OfferRow[]>`SELECT * FROM p2p.offers WHERE id = ${clientOfferId}`;
             if (existing[0]) {
-              if (!sameCreate(toOffer(existing[0]), input, fiatCurrency, totalAmt, makerTier)) {
+              if (!sameCreate(toOffer(existing[0]), { ...input, releaseWindowSeconds }, fiatCurrency, totalAmt, makerTier)) {
                 throw new P2pError('p2p.idempotency_conflict', 'p2p.idempotency_conflict');
               }
               return { replayId: clientOfferId };
@@ -2229,7 +2300,7 @@ export class P2pService {
             INSERT INTO p2p.offers (
               id, maker_id, side, asset, fiat_currency, price_type, price,
               min_amt, max_amt, total_amt, remaining_amt, methods, terms, status, maker_tier, accepts_non_instant,
-              relisted_from, visibility
+              relisted_from, visibility, release_window_seconds
             )
             VALUES (
               ${offerId}, ${input.makerId}, ${input.side}, ${input.asset}, ${fiatCurrency},
@@ -2237,7 +2308,8 @@ export class P2pService {
               ${formatAmount(input.minAmt)}::numeric, ${formatAmount(input.maxAmt)}::numeric,
               ${formatAmount(totalAmt)}::numeric, ${formatAmount(totalAmt)}::numeric,
               ${tx.json((input.methods ?? []) as never)}, ${input.terms ?? ''}, 'active', ${makerTier},
-              ${input.acceptsNonInstant === true}, ${input.relistedFrom ?? null}, ${input.visibility ?? 'public'}
+              ${input.acceptsNonInstant === true}, ${input.relistedFrom ?? null}, ${input.visibility ?? 'public'},
+              ${releaseWindowSeconds}
             )
             RETURNING *
           `;
@@ -2442,6 +2514,7 @@ export class P2pService {
       idempotencyKey: `relist:${closed.id}`,
       ...(input.makerTier === undefined ? {} : { makerTier: input.makerTier }),
       acceptsNonInstant: closed.acceptsNonInstant,
+      ...(closed.releaseWindowSeconds == null ? {} : { releaseWindowSeconds: closed.releaseWindowSeconds }),
       relistedFrom: closed.id,
       // A private ad relisted stays private: relisting never puts on the board what its maker kept off it.
       visibility: closed.visibility,
@@ -3180,7 +3253,7 @@ export class P2pService {
             INSERT INTO p2p.p2p_trades (
               id, offer_id, taker_id, maker_id, seller_id, buyer_id, asset, fiat_currency,
               amount, price, fiat_amount, method, fee_bps, status, deadlines, deadline_at, created_at,
-              terms_snapshot, shared_from
+              terms_snapshot, shared_from, release_window_seconds
             )
             VALUES (
               ${input.tradeId}, ${offer.id}, ${input.takerId}, ${offer.makerId}, ${sellerId}, ${buyerId},
@@ -3188,7 +3261,7 @@ export class P2pService {
               ${formatAmount(priced.amount)}::numeric, ${formatAmount(priced.price)}::numeric,
               ${formatAmount(priced.fiatAmount)}::numeric, ${input.method}, ${feeBps},
               'created', ${tx.json(deadlines as never)}, ${deadlineAt}, ${now},
-              ${offer.terms}, ${sharedFrom}
+              ${offer.terms}, ${sharedFrom}, ${offer.releaseWindowSeconds ?? null}
             )
             ON CONFLICT (id) DO NOTHING
             RETURNING *
@@ -3415,9 +3488,11 @@ export class P2pService {
           // P-disputes-security-09: on a non-instant order the release timeout (which opens a dispute) never comes
           // before the payment window ends, so no dispute of any origin opens while the money may still be on its way.
           // P-ads-merchant-19: an order paid in cash in person takes the method row's release window, copied at take.
-          const released = trade.cashReleaseSeconds
-            ? new Date(now.getTime() + trade.cashReleaseSeconds * 1000)
-            : deadlineFor('fiat_sent', now, this.deadlines)!;
+          // P-trade-orders-15: an ad's own release window, copied at take, shortens the published clock; with both a
+          // cash window and an ad window the shorter holds.
+          const own = [trade.cashReleaseSeconds, trade.releaseWindowSeconds].filter((s): s is number => typeof s === 'number' && s > 0);
+          const released =
+            own.length > 0 ? new Date(now.getTime() + Math.min(...own) * 1000) : deadlineFor('fiat_sent', now, this.deadlines)!;
           const settledBy = trade.settlement.instant || !trade.deadlines.paymentBy ? null : new Date(trade.deadlines.paymentBy);
           const deadlineAt = settledBy && settledBy > released ? settledBy : released;
           const deadlines = withDeadline(trade.deadlines, 'fiat_sent', deadlineAt);
@@ -6283,6 +6358,7 @@ function toOffer(row: OfferRow): OfferRecord {
     terms: row.terms,
     makerTier: row.maker_tier ?? null,
     acceptsNonInstant: row.accepts_non_instant === true,
+    releaseWindowSeconds: row.release_window_seconds ?? null,
     status: row.status,
     pauseReason: row.pause_reason ?? null,
     closeReason: row.close_reason ?? null,
@@ -6324,6 +6400,7 @@ function toTrade(row: TradeRow): TradeRecord {
     termsSnapshot: row.terms_snapshot,
     settlement: row.non_instant ? { instant: false, windowSeconds: row.settlement_window_seconds ?? null } : { instant: true },
     cashReleaseSeconds: row.cash_release_seconds ?? null,
+    releaseWindowSeconds: row.release_window_seconds ?? null,
   };
 }
 
@@ -6508,6 +6585,7 @@ function sameCreate(
     methods?: unknown[];
     terms?: string;
     acceptsNonInstant?: boolean;
+    releaseWindowSeconds?: number | null;
   },
   fiatCurrency: string,
   totalAmt: Amount,
@@ -6526,7 +6604,8 @@ function sameCreate(
     offer.terms === (input.terms ?? '') &&
     JSON.stringify(offer.methods) === JSON.stringify(input.methods ?? []) &&
     (offer.makerTier ?? null) === makerTier &&
-    offer.acceptsNonInstant === (input.acceptsNonInstant === true)
+    offer.acceptsNonInstant === (input.acceptsNonInstant === true) &&
+    (offer.releaseWindowSeconds ?? null) === (input.releaseWindowSeconds ?? null)
   );
 }
 
