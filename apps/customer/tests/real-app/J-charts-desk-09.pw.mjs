@@ -68,9 +68,9 @@ function midOf(bidText, askText) {
   return frac ? `${raw.slice(0, -scale)}.${frac}` : raw.slice(0, -scale);
 }
 
-// svc-notify's own health on the TEST stack: `alerts.sweep.lastAt` is when its last alert sweep finished.
+// svc-notify's own readiness on the TEST stack: `alerts.sweep.lastAt` is when its last alert sweep finished.
 const NOTIFY = 'http://127.0.0.1:14510';
-const lastSweepAt = async () => (await (await fetch(`${NOTIFY}/health`)).json()).alerts.sweep.lastAt;
+const lastSweepAt = async () => (await (await fetch(`${NOTIFY}/ready`)).json()).alerts.sweep.lastAt;
 
 /** A TEST price on the 0.01 tick: the last price times percent / 100, worked in scaled bigint. */
 const testPrice = (percent, last) => fromCents((cents(last) * BigInt(percent)) / 100n);
