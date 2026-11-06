@@ -93,7 +93,8 @@ const messages = {
   'Funding next': 'Next funding',
   'Funding countdown': 'Time to next funding',
   'Funding mark': 'Mark price',
-  'Funding index': 'Index price',
+  'Funding mark close': 'Mark at period close',
+  'Funding index close': 'Index at period close',
   'Funding period': 'Funding period',
   'Funding mark source': 'Mark source',
   'Funding none title': 'No funding rate',
@@ -112,7 +113,7 @@ const messages = {
   'Funding interest': 'Interest component',
   'Funding cap': 'Rate cap',
   'Funding built from':
-    'The rate is the premium plus the interest component, held within the cap. The mark and index are the ones the period closed on.',
+    'The rate is the premium plus the interest component, held within the cap, from the mark and index sampled through the period. The figures at period close are its last sample.',
   'Funding index now': 'Index now',
   'Funding index unpublished': 'Index unpublished',
   'Funding last period': 'Last period',

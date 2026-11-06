@@ -26,7 +26,7 @@ const published: FundingRatePeriodRecord = {
 describe('presentFundingRate (J-derivatives-08 #1, #2)', () => {
   it('serves a computed period with every input it was built from', () => {
     const view = presentFundingRate({
-      snapshot: { published, last: published, indexNow: { price: '100.6', reason: null }, periodSeconds: 90 },
+      snapshot: { published, last: published, indexNow: { price: '100.6', reason: null }, periodSeconds: 90, nextBoundaryMs: 1_000 },
       s2s: null,
       liveMark: '101',
     });
@@ -36,11 +36,13 @@ describe('presentFundingRate (J-derivatives-08 #1, #2)', () => {
       interestComponent: '0.0001',
       cap: '0.003',
       clamped: false,
-      markPrice: '100.5',
-      indexPrice: '100.4999999',
+      markPrice: '101',
+      indexPrice: '100.6',
+      periodMarkPrice: '100.5',
+      periodIndexPrice: '100.4999999',
       periodId: published.periodId,
       fundingTimestamp: Date.parse(published.periodEnd!),
-      nextFundingTimestamp: Date.parse(published.periodEnd!) + 90_000,
+      nextFundingTimestamp: 1_000,
       indexNow: { price: '100.6', reason: null },
       lastPeriod: { periodId: published.periodId, status: 'published', code: null },
     });
@@ -59,17 +61,32 @@ describe('presentFundingRate (J-derivatives-08 #1, #2)', () => {
       rate: null,
     };
     const view = presentFundingRate({
-      snapshot: { published, last: refused, indexNow: { price: null, reason: 'trade.index_params_unset' }, periodSeconds: 90 },
+      snapshot: {
+        published,
+        last: refused,
+        indexNow: { price: null, reason: 'trade.index_params_unset' },
+        periodSeconds: 90,
+        nextBoundaryMs: null,
+      },
       s2s: null,
       liveMark: null,
     });
     expect(view?.fundingRate).toBe(published.rate);
     expect(view?.indexNow).toEqual({ price: null, reason: 'trade.index_params_unset' });
     expect(view?.lastPeriod).toMatchObject({ status: 'refused', code: 'trade.index_params_unset' });
+    // The internal refusal text stays inside: the public read names the code only.
+    expect(view?.lastPeriod).not.toHaveProperty('message');
+    expect(view?.indexPrice).toBeNull();
   });
 
   it('serves nothing when no rate was ever published, and a bare S2S rate without invented inputs', () => {
-    const blank = { published: null, last: null, indexNow: { price: null, reason: 'feed.market' }, periodSeconds: null };
+    const blank = {
+      published: null,
+      last: null,
+      indexNow: { price: null, reason: 'feed.market' },
+      periodSeconds: null,
+      nextBoundaryMs: null,
+    };
     expect(presentFundingRate({ snapshot: blank, s2s: null, liveMark: '1' })).toBeNull();
     const s2s = presentFundingRate({
       snapshot: blank,
@@ -90,6 +107,19 @@ describe('presentFundingRate (J-derivatives-08 #1, #2)', () => {
     expect(annualisedRate('-0.0002', 28_800)).toBe('-0.219');
     expect(annualisedRate('0.0001', 7)).toBeNull();
     expect(annualisedRate('0.0001', null)).toBeNull();
+  });
+});
+
+describe('the next funding boundary', () => {
+  it('is the first grid boundary after now, and unknown on a blank grid', async () => {
+    const { nextFundingBoundary } = await import('./futures-jobs.js');
+    const anchor = '2026-01-01T00:00:00.000Z';
+    const a = Date.parse(anchor);
+    expect(nextFundingBoundary(90, anchor, new Date(a + 100_000))).toBe(a + 180_000);
+    expect(nextFundingBoundary(90, anchor, new Date(a + 90_000))).toBe(a + 180_000);
+    expect(nextFundingBoundary(90, anchor, new Date(a - 1))).toBe(a);
+    expect(nextFundingBoundary(null, anchor, new Date(a))).toBeNull();
+    expect(nextFundingBoundary(90, null, new Date(a))).toBeNull();
   });
 });
 

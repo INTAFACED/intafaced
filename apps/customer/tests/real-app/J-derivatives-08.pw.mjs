@@ -259,7 +259,16 @@ test(`${J} #1 reads the contract strip and Funding tab: rate, countdown, premium
     SETTLE_MS,
   );
   const f = published.body;
-  for (const field of ['fundingRate', 'premium', 'interestComponent', 'cap', 'markPrice', 'indexPrice']) {
+  for (const field of [
+    'fundingRate',
+    'premium',
+    'interestComponent',
+    'cap',
+    'markPrice',
+    'indexPrice',
+    'periodMarkPrice',
+    'periodIndexPrice',
+  ]) {
     expect(f[field], field).toMatch(/^-?\d+(\.\d+)?$/);
   }
   expect(f.cap).toBe(TEST_PARAMS.cap);
@@ -269,10 +278,14 @@ test(`${J} #1 reads the contract strip and Funding tab: rate, countdown, premium
   const clamped = raw > cap ? cap : raw < -cap ? -cap : raw;
   expect(toUnits(f.fundingRate)).toBe(clamped);
   expect(f.clamped).toBe(clamped !== raw);
-  // The countdown counts to the end of the period now open: one period after the published one ended.
-  expect(f.nextFundingTimestamp).toBe(Date.parse(f.periodEnd) + TEST_PARAMS.periodSeconds * 1000);
+  // The countdown counts to the end of the period open now, a boundary of the TEST grid, within one period from now.
+  expect((f.nextFundingTimestamp - Date.parse(TEST_ANCHOR)) % (TEST_PARAMS.periodSeconds * 1000)).toBe(0);
+  expect(f.nextFundingTimestamp).toBeGreaterThan(Date.parse(f.periodEnd));
+  expect(f.nextFundingTimestamp - Date.now()).toBeLessThanOrEqual(TEST_PARAMS.periodSeconds * 1000 + 5_000);
   expect(f.indexNow).toMatchObject({ reason: null });
   expect(f.indexNow.price).toMatch(/^\d+(\.\d+)?$/);
+  // CCXT's indexPrice is the index now; what the rate was built from is the period's closing sample.
+  expect(f.indexPrice).toBe(f.indexNow.price);
 
   // The room: the strip names the rate and the countdown; the Funding tab names every input, as the service gave them.
   const tab = await fundingTab(page, long);
@@ -289,8 +302,8 @@ test(`${J} #1 reads the contract strip and Funding tab: rate, countdown, premium
         'Premium',
         'Interest component',
         'Rate cap',
-        'Mark price',
-        'Index price',
+        'Mark at period close',
+        'Index at period close',
         'Time to next funding',
       ]) {
         drawn[label] = (await valueOf(tab, label).innerText()).trim();
@@ -302,8 +315,8 @@ test(`${J} #1 reads the contract strip and Funding tab: rate, countdown, premium
       drawn.Premium === pct(now.premium) &&
       drawn['Interest component'] === pct(now.interestComponent) &&
       drawn['Rate cap'] === pct(now.cap) &&
-      drawn['Mark price'] === exact(now.markPrice) &&
-      drawn['Index price'] === exact(now.indexPrice),
+      drawn['Mark at period close'] === exact(now.periodMarkPrice) &&
+      drawn['Index at period close'] === exact(now.periodIndexPrice),
     'the Funding tab drawn from the published period',
     90_000,
   );

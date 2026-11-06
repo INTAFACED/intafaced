@@ -31,6 +31,8 @@ export const fundingRateSchema = z.object({
   nextFundingTimestamp: z.number().nullable(),
   // What a computed period's rate was built from (J-derivatives-08). Absent or null on a rate published without them.
   periodId: z.string().nullable().optional(),
+  periodMarkPrice: decimalSchema.nullable().optional(),
+  periodIndexPrice: decimalSchema.nullable().optional(),
   periodStart: z.string().nullable().optional(),
   periodEnd: z.string().nullable().optional(),
   premium: signedDecimalSchema.nullable().optional(),
@@ -44,7 +46,6 @@ export const fundingRateSchema = z.object({
       periodId: z.string(),
       status: z.string(),
       code: z.string().nullable(),
-      message: z.string().nullable(),
       periodStart: z.string().nullable(),
       periodEnd: z.string().nullable(),
     })

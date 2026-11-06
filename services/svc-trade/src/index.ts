@@ -1068,8 +1068,21 @@ registerPublicRest(app, {
   },
   onPairRulesReadError: (err) => app.log.warn({ err }, 'GET /api/v1/markets: pair rules read failed; pairRules/pairHalt null'),
   fundingRateForMarket: async (marketId, _symbol) => {
-    const [snapshot, liveMark] = await Promise.all([futuresJobs.fundingSnapshot(marketId), futuresJobs.markPrice(marketId)]);
-    return presentFundingRate({ snapshot, s2s: futuresJobs.getPublishedRate(marketId), liveMark });
+    const liveMark = await futuresJobs.markPrice(marketId);
+    const s2s = futuresJobs.getPublishedRate(marketId);
+    // A failed snapshot read (the period store, the index) must not take down the plain published rate: it is served
+    // without its inputs, and the index says it could not be read.
+    const snapshot = await futuresJobs.fundingSnapshot(marketId).catch((err: unknown) => {
+      app.log.warn({ err, marketId }, 'funding snapshot unreadable; serving the published rate without its inputs');
+      return {
+        published: null,
+        last: null,
+        indexNow: { price: null, reason: 'trade.funding_snapshot_unreadable' },
+        periodSeconds: null,
+        nextBoundaryMs: null,
+      };
+    });
+    return presentFundingRate({ snapshot, s2s, liveMark });
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,

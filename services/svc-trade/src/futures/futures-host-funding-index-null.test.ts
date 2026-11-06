@@ -21,7 +21,7 @@ const viewSource = readFileSync(join(here, 'funding-view.ts'), 'utf8');
 
 describe('live host funding quote does not invent index or next funding time', () => {
   it('hard-nulls indexPrice and nextFundingTimestamp', () => {
-    expect(indexSource).toMatch(/fundingRateForMarket:[\s\S]{0,300}presentFundingRate\(/);
+    expect(indexSource).toMatch(/fundingRateForMarket:[\s\S]{0,1200}presentFundingRate\(/);
     expect(viewSource).toMatch(/indexPrice:\s*null/);
     expect(viewSource).toMatch(/nextFundingTimestamp:\s*null/);
   });

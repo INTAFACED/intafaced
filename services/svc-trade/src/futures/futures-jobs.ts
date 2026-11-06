@@ -203,6 +203,18 @@ export interface FundingSnapshot {
   readonly last: FundingRatePeriodRecord | null;
   readonly indexNow: { readonly price: string | null; readonly reason: string | null };
   readonly periodSeconds: number | null;
+  /** The end of the funding period open now, on the owner's grid (anchor and length); null when either is blank. */
+  readonly nextBoundaryMs: number | null;
+}
+
+/** The first boundary of the owner's period grid after `at`. Null when the length or the anchor is blank. */
+export function nextFundingBoundary(periodSeconds: number | null, periodAnchor: string | null, at: Date): number | null {
+  if (periodSeconds == null || periodSeconds <= 0 || periodAnchor == null) return null;
+  const anchor = Date.parse(periodAnchor);
+  if (!Number.isFinite(anchor)) return null;
+  const len = periodSeconds * 1000;
+  const k = Math.floor((at.getTime() - anchor) / len) + 1;
+  return anchor + k * len;
 }
 
 export interface FuturesJobsHandle {
@@ -399,9 +411,10 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     deps.indexFeed ??
     (deps.testIndexFeed
       ? testSpotBookIndexFeed({
+          // Only a PAIRED spot book: a market with no pairing gets no quote, never its own book's mid (that is the mark).
           readBook: async (marketId) => {
-            const book = await markBook(marketId);
-            return book === null ? null : deps.matching.depth(book, 1);
+            const book = deps.markBookFor ? await deps.markBookFor(marketId) : null;
+            return book === null || book === marketId ? null : deps.matching.depth(book, 1);
           },
           now: deps.now,
         })
@@ -413,10 +426,14 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
   });
   const ratePeriods = sqlFundingRatePeriodStore(deps.sql);
   const fundingSnapshot = async (marketId: string): Promise<FundingSnapshot> => {
+    const at = deps.now ? deps.now() : new Date();
+    // With the computer off, the tick charges the S2S-published rate only: computed rows left from an earlier run are
+    // not the rate in force, so they are not served as it.
+    const computerOn = computerPollMs != null;
     const [published, last, index, pv] = await Promise.all([
-      ratePeriods.latest(marketId, 'published'),
-      ratePeriods.latest(marketId, null),
-      indexProvider.current(marketId, deps.now ? deps.now() : new Date()),
+      computerOn ? ratePeriods.latest(marketId, 'published') : Promise.resolve(null),
+      computerOn ? ratePeriods.latest(marketId, null) : Promise.resolve(null),
+      indexProvider.current(marketId, at),
       currentFundingParams(deps.sql, marketId),
     ]);
     return {
@@ -424,6 +441,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       last,
       indexNow: index.ok ? { price: formatAmount(index.price), reason: null } : { price: null, reason: index.code },
       periodSeconds: pv.params.periodSeconds,
+      nextBoundaryMs: nextFundingBoundary(pv.params.periodSeconds, pv.params.periodAnchor, at),
     };
   };
 

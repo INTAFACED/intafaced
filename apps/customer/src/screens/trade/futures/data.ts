@@ -43,8 +43,8 @@ export const FUTURES_INTERVALS = {
   markets: 300_000,
   strip: 5_000,
   positions: 5_000,
-  // A funding period can be short on a test stack; a new period's rate shows within this.
-  funding: 10_000,
+  // A new period's rate, and the index now, show within this (a funding period can be short on a test stack).
+  funding: 15_000,
   fundingRecords: 15_000,
   marginCalls: 30_000,
   adl: 60_000,

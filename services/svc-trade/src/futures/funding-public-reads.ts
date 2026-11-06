@@ -39,13 +39,12 @@ export async function sqlComputedFundingHistory(sql: Sql, marketId: string): Pro
            s.leg_count, (s.period_id IS NOT NULL) AS settled, a.paid::text AS paid, a.received::text AS received
       FROM trade.funding_rate_periods p
       LEFT JOIN trade.funding_periods s ON s.period_id = p.period_id
-      LEFT JOIN (
-        SELECT period_id,
-               coalesce(sum(paid) FILTER (WHERE paid > 0), 0) AS paid,
-               coalesce(-sum(paid) FILTER (WHERE paid < 0), 0) AS received
-          FROM trade.position_funding_applied
-         GROUP BY period_id
-      ) a ON a.period_id = p.period_id
+      LEFT JOIN LATERAL (
+        SELECT coalesce(sum(f.paid) FILTER (WHERE f.paid > 0), 0) AS paid,
+               coalesce(-sum(f.paid) FILTER (WHERE f.paid < 0), 0) AS received
+          FROM trade.position_funding_applied f
+         WHERE f.period_id = p.period_id
+      ) a ON true
      WHERE p.market_id = ${marketId} AND p.status = 'published' AND p.rate IS NOT NULL
        AND p.period_start IS NOT NULL AND p.period_end IS NOT NULL
      ORDER BY p.period_start ASC`;

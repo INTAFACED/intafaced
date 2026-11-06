@@ -20,10 +20,13 @@ export interface FundingRateView {
   readonly fundingTimestamp: number;
   readonly fundingDatetime: string;
   readonly nextFundingTimestamp: number | null;
-  /** The mark the period closed on (computed periods), or the live mark for an S2S-published rate. */
+  /** The mark now (CCXT `markPrice`). */
   readonly markPrice: string | null;
-  /** The index the period closed on. Null for an S2S-published rate, which carries none. */
+  /** The index now (CCXT `indexPrice`); null when there is none, with the reason in `indexNow`. */
   readonly indexPrice: string | null;
+  /** The mark and index the published period closed on: what its rate was built from. Null for an S2S rate. */
+  readonly periodMarkPrice: string | null;
+  readonly periodIndexPrice: string | null;
   readonly periodId: string | null;
   readonly periodStart: string | null;
   readonly periodEnd: string | null;
@@ -38,7 +41,6 @@ export interface FundingRateView {
     readonly periodId: string;
     readonly status: FundingRatePeriodRecord['status'];
     readonly code: string | null;
-    readonly message: string | null;
     readonly periodStart: string | null;
     readonly periodEnd: string | null;
   } | null;
@@ -72,7 +74,6 @@ export function presentFundingRate(input: {
         periodId: snapshot.last.periodId,
         status: snapshot.last.status,
         code: snapshot.last.code,
-        message: snapshot.last.message,
         periodStart: snapshot.last.periodStart,
         periodEnd: snapshot.last.periodEnd,
       }
@@ -81,15 +82,16 @@ export function presentFundingRate(input: {
   if (p && p.rate != null && p.periodEnd) {
     const endMs = Date.parse(p.periodEnd);
     const length = periodLengthSeconds(p);
-    // The period now open ends one period after the published one; with the owner's length unknown, nothing is shown.
-    const nextLength = snapshot.periodSeconds ?? null;
     return {
       fundingRate: p.rate,
       fundingTimestamp: endMs,
       fundingDatetime: p.periodEnd,
-      nextFundingTimestamp: nextLength == null ? null : endMs + nextLength * 1000,
-      markPrice: text(p.inputs.closingMark),
-      indexPrice: text(p.inputs.closingIndex),
+      // The end of the period open now, on the owner's grid; unknown when the grid is blank.
+      nextFundingTimestamp: snapshot.nextBoundaryMs,
+      markPrice: input.liveMark,
+      indexPrice: snapshot.indexNow.price,
+      periodMarkPrice: text(p.inputs.closingMark),
+      periodIndexPrice: text(p.inputs.closingIndex),
       periodId: p.periodId,
       periodStart: p.periodStart,
       periodEnd: p.periodEnd,
@@ -111,6 +113,8 @@ export function presentFundingRate(input: {
     nextFundingTimestamp: null,
     markPrice: input.liveMark,
     indexPrice: null,
+    periodMarkPrice: null,
+    periodIndexPrice: null,
     periodId: e.periodId,
     periodStart: null,
     periodEnd: e.periodEndIso ?? null,
