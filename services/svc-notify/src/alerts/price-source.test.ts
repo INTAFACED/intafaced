@@ -84,6 +84,24 @@ describe('trade ticker MarkSource by side', () => {
     });
   });
 
+  it('the mark and the sides of one instant come from one ticker read; another instant or no instant reads again', async () => {
+    const { marks, tickerReads } = tradeSource({ bid: '99', ask: '101.5', last: '100.25' });
+    const mark = await marks.quote(MARKET_ID, NOW);
+    const sides = await marks.quoteSides!(MARKET_ID, ['bid', 'ask', 'last'], NOW);
+    expect(tickerReads).toHaveLength(1);
+    // The mark is the exact mid of the bid and the ask the sides were read from.
+    expect(mark).toEqual({ kind: 'ok', price: '100.25', at: NOW });
+    expect([sides.get('bid'), sides.get('ask')]).toEqual([
+      { kind: 'ok', price: '99', at: NOW },
+      { kind: 'ok', price: '101.5', at: NOW },
+    ]);
+    await marks.quote(MARKET_ID, new Date(NOW.getTime() + 1));
+    expect(tickerReads).toHaveLength(2);
+    await marks.quote(MARKET_ID);
+    await marks.quote(MARKET_ID);
+    expect(tickerReads).toHaveLength(4);
+  });
+
   it('the refusal code is the stable string', () => {
     expect(NOTIFY_PRICE_SOURCE_UNAVAILABLE).toBe('notify.price_source_unavailable');
   });

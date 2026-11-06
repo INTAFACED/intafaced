@@ -145,8 +145,29 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
     return map;
   }
 
+  /**
+   * The ticker reads of one evaluation instant. A sweep passes the same `at` to the mark quote and to `quoteSides`, so the mark,
+   * the bid, the ask and the last of one market in one pass come from one body: an alert on a side and an alert on the mark
+   * are judged on the same book. Only the latest instant is kept; a call without `at` always reads afresh.
+   */
+  let readsAt: number | null = null;
+  const reads = new Map<string, ReturnType<typeof fetchTicker>>();
+  function readTicker(marketId: string, now: Date, shared: boolean): ReturnType<typeof fetchTicker> {
+    if (!shared) return fetchTicker(marketId, now);
+    if (readsAt !== now.getTime()) {
+      readsAt = now.getTime();
+      reads.clear();
+    }
+    let read = reads.get(marketId);
+    if (!read) {
+      read = fetchTicker(marketId, now);
+      reads.set(marketId, read);
+    }
+    return read;
+  }
+
   /** One ticker read for a market: the body and when it was quoted, or the refusal that stands for every price in it. */
-  async function readTicker(
+  async function fetchTicker(
     marketId: string,
     now: Date,
   ): Promise<{ kind: 'body'; body: TickerRow | null; quotedAt: Date } | Extract<MarkQuote, { kind: 'unavailable' }>> {
@@ -222,7 +243,7 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
     kind: 'live',
     async quote(marketId: string, at?: Date): Promise<MarkQuote> {
       const now = at ?? new Date();
-      const read = await readTicker(marketId, now);
+      const read = await readTicker(marketId, now, at !== undefined);
       if (read.kind === 'unavailable') return read;
       // JSON null is a 200 body. res.json() does not throw, and body.bid would.
       const priced = read.body === null ? null : priceFromTicker(read.body);
@@ -240,7 +261,7 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
       const out = new Map<AlertPriceSide, MarkQuote>();
       if (sides.length === 0) return out;
       // One ticker body serves every side, so the bid, the ask and the last of one pass come from the same snapshot.
-      const read = await readTicker(marketId, now);
+      const read = await readTicker(marketId, now, at !== undefined);
       for (const side of sides) {
         if (read.kind === 'unavailable') {
           out.set(side, read);
