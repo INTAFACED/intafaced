@@ -1333,6 +1333,42 @@
         }
       }
     },
+    "/api/v1/positions/{id}/risk-stop": {
+      "get": {
+        "operationId": "fetchPositionRiskStop",
+        "summary": "The pre-liquidation stop on one position, its close price and the margin ratio now",
+        "tags": ["derivatives"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "error", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with error trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      },
+      "put": {
+        "operationId": "setPositionRiskStop",
+        "summary": "Set or clear the pre-liquidation stop of one position",
+        "tags": ["derivatives"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "error", "code": "trade.unauthenticated" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with error trade.unauthenticated)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/futures/entry-protection": {
       "get": {
         "operationId": "fetchEntryProtection",

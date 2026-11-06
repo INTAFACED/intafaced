@@ -64,6 +64,7 @@ const messages = {
   'Action leverage': 'Leverage',
   'Action protect': 'Take profit / stop loss',
   'Action stop': 'Stop order',
+  'Action riskStop': 'Pre-liquidation stop',
   'Action reverse': 'Reverse',
   'Action close': 'Close',
   'Action retry close': 'Retry close',
@@ -294,6 +295,37 @@ const messages = {
   'Protect unreadable': 'Couldn’t read what is armed on this position. Saving is off until it can be read, since a save replaces both.',
   'Protect none': 'None set',
   'Protect leg': '{leg}: {status}',
+
+  // Pre-liquidation stop (D-margin-04)
+  'Risk stop title': 'Pre-liquidation stop',
+  'Risk stop description':
+    'Close {contract} {side} before it is liquidated: when its margin ratio (maintenance margin over equity) reaches the level you set, the platform places a market order that closes the whole position. The liquidation itself still applies.',
+  'Risk stop level': 'Close at margin ratio (%)',
+  'Risk stop level hint': 'Above the margin ratio now and below 100%, where the liquidation starts.',
+  'Risk stop now': 'Margin ratio now',
+  'Risk stop liquidation': 'Liquidation price',
+  'Risk stop current': 'On this position now',
+  'Risk stop none': 'No pre-liquidation stop set',
+  'Risk stop armed line': 'Closes at margin ratio {level}%',
+  'Risk stop price line': 'Close order at mark {price}',
+  'Risk stop price unknown': 'The close price cannot be worked out now: {reason}',
+  'Risk stop fired line': 'Reached at margin ratio {ratio}%: the close order is {status}',
+  'Risk stop fired failed':
+    'Reached at margin ratio {ratio}%, but its close order was {status} and the position is still open. Set the stop again to keep it guarded.',
+  'Risk stop ended line': 'The position closed before the stop was reached.',
+  'Risk stop unknown': 'Couldn’t read the pre-liquidation stop on this position.',
+  'Risk stop loading': 'Reading the pre-liquidation stop…',
+  'Risk stop ratio unknown': 'The margin ratio is not known now: {reason}',
+  'Risk stop problem empty': 'Enter a margin ratio in percent.',
+  'Risk stop problem invalid': 'Enter a percent above 0 and below 100, for example 50.',
+  'Risk stop problem reached': 'The margin ratio is already at or past that level, so the stop would close the position at once.',
+  'Risk stop save': 'Set stop',
+  'Risk stop clear': 'Remove stop',
+  'Risk stop cell': 'Stop {level}% · {price}',
+  'Risk stop cell no price': 'Stop {level}%',
+  'Risk stop cell closing': 'Stop reached: closing',
+  'Risk stop cell closed': 'Stop closed this position',
+  'Risk stop cell failed': 'Stop reached, close not done: set it again',
 } as const;
 
 export const positionsCopy = defineCopy('trade.futures.positions', messages);

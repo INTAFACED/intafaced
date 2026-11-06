@@ -6,7 +6,8 @@ import { fundedTrader, signIn } from './desk.mjs';
 // One test per step, titled "J-derivatives-06 #<n>", run in order on one TEST account funded with TEST USDT. The contract
 // is the TEST perpetual `local-test-gates.mjs futures` lists; its maintenance tiers are the stack's LOCAL TEST ladder. The
 // mark follows the stack's TEST book, which the TEST market maker walks, so every figure that needs the mark is compared
-// with the service's own answer read at the same moment. Not here yet: #3 to #7 (each lands with its own slice).
+// with the service's own answer read at the same moment. Not here yet: #3, #4, #6 and #7 (each lands with its own
+// slice; #3's floor waits on an owner decision).
 const J = 'J-derivatives-06';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -216,4 +217,88 @@ test(`${J} #2 adds margin to a position: the margin and liquidation price after,
   expect(toUnits(after.p.liquidationPrice)).toBeLessThan(toUnits(before.liquidationPrice));
   // Taken from the free balance once, to the last digit.
   expect(toUnits((await me.balances()).USDT.free)).toBe(freeBefore - toUnits(ADD));
+});
+
+test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance level, shown on the position`, async ({ page }) => {
+  const who = account();
+  const me = await api(who);
+  const { positionId } = run.read();
+  if (!positionId) throw new Error(`${J} #1 opened no position, so there is nothing to set a stop on`);
+  const route = `/api/v1/positions/${positionId}/risk-stop`;
+  const before = await me.get(route);
+  expect(before.status, JSON.stringify(before.body)).toBe(200);
+  expect(before.body).toMatchObject({ positionId, status: 'none', level: null, triggerPrice: null });
+  // The ratio now (maintenance over equity, in percent) is the service's, and a 5x long sits far below 50%.
+  expect(before.body.marginRatio, JSON.stringify(before.body)).toMatch(/^\d+(\.\d+)?$/);
+  expect(toUnits(before.body.marginRatio)).toBeLessThan(toUnits('50'));
+
+  // At 100% the liquidation itself starts: the service refuses a stop there in words, and stores nothing.
+  const late = await me.put(route, { level: '100', clientRequestId: `${J}-late-${Date.now()}` });
+  expect(late.status).toBe(400);
+  expect(late.body).toMatchObject({ error: 'trade.risk_stop_invalid' });
+  expect(late.body.message).toMatch(/after the liquidation/);
+  expect((await me.get(route)).body.status).toBe('none');
+
+  await signIn(page, who);
+  await page.goto(DESK);
+  await page.getByRole('tab', { name: 'Positions' }).click();
+  await page.getByRole('button', { name: `Manage ${SYMBOL}` }).click();
+  await page.getByRole('menuitem', { name: 'Pre-liquidation stop' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Pre-liquidation stop' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('places a market order that closes the whole position');
+  await expect(dialog.getByRole('term').filter({ hasText: /^Margin ratio now$/ })).toBeVisible();
+  await expect(dialog.getByRole('region', { name: 'On this position now' })).toContainText('No pre-liquidation stop set');
+  const level = dialog.getByLabel(/Close at margin ratio/);
+  const save = dialog.getByRole('button', { name: 'Set stop' });
+  // The dialog says so before anything is sent.
+  await level.fill('100');
+  await expect(dialog).toContainText('Enter a percent above 0 and below 100');
+  await expect(save).toBeDisabled();
+
+  const LEVEL = '50';
+  await level.fill(LEVEL);
+  await expect(save).toBeEnabled();
+  const sent = page.waitForResponse((r) => r.url().endsWith(`/positions/${positionId}/risk-stop`) && r.request().method() === 'PUT');
+  await save.click();
+  const answer = await sent;
+  expect(answer.status()).toBe(200);
+  const set = await answer.json();
+  await expect(dialog).toBeHidden();
+
+  // The service holds the stop: the level as set, and the mark at which the margin ratio reaches it, which is where its
+  // close order goes in. For a long that mark lies between the liquidation price and the mark now.
+  expect(set).toMatchObject({ positionId, status: 'armed', level: LEVEL, closeOrder: null });
+  expect(set.triggerPrice, JSON.stringify(set)).toMatch(/^\d+(\.\d+)?$/);
+  const held = await until(
+    async () => {
+      const [stop, list] = await Promise.all([me.get(route), me.get('/api/v1/positions')]);
+      return { stop: stop.body, p: list.body.find((x) => x.id === positionId) };
+    },
+    ({ stop, p }) => stop.status === 'armed' && p?.liquidationPrice != null && p?.markPrice != null,
+    'the stop and the position read together',
+  );
+  expect(held.stop).toMatchObject({ level: LEVEL, triggerPrice: set.triggerPrice });
+  expect(toUnits(held.stop.triggerPrice)).toBeGreaterThan(toUnits(held.p.liquidationPrice));
+  expect(toUnits(held.stop.triggerPrice)).toBeLessThan(toUnits(held.p.markPrice));
+
+  // Shown on the position: its row names the level and the close price, as the service holds them.
+  const table = page.getByRole('grid', { name: 'Open futures positions' });
+  const row = table.getByRole('row').filter({ hasText: SYMBOL }).first();
+  const shown = row.getByTestId('risk-stop');
+  await expect(shown).toContainText(`Stop ${LEVEL}%`);
+  const number = (text) => toUnits((/[\d,]+\.\d+/.exec(text)?.[0] ?? 'NaN').replace(/,/g, ''));
+  const half = 5n * 10n ** BigInt(17 - 8);
+  await until(
+    async () => number(await shown.innerText()),
+    (drawn) => drawn - toUnits(set.triggerPrice) <= half && toUnits(set.triggerPrice) - drawn <= half,
+    'the close price drawn on the row',
+  );
+
+  // Opened again, the dialog reads the stop back from the service, to the last digit.
+  await page.getByRole('button', { name: `Manage ${SYMBOL}` }).click();
+  await page.getByRole('menuitem', { name: 'Pre-liquidation stop' }).click();
+  const current = dialog.getByRole('region', { name: 'On this position now' });
+  await expect(current).toContainText(`Closes at margin ratio ${LEVEL}%`);
+  await expect(current).toContainText(`Close order at mark ${exact(set.triggerPrice, '').trim()}`);
 });
