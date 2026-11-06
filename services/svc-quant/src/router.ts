@@ -128,6 +128,7 @@ import { requireStudioOperator, resolveStudioAccount, STUDIO_SERVICE_ALLOWLIST }
 import { publicResultOf, reportOf } from './report/document.js';
 import type { ShareRepository } from './share/repository.js';
 import { withQuantSpan } from './tracing.js';
+import { createPreviewRouter } from './preview/preview.js';
 
 const simulatedStamp = z.object({
   environment: z.enum(['paper', 'backtest', 'shadow']),
@@ -1593,6 +1594,9 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           }),
         ),
     }),
+
+    /** The Algo dev Preview rooms' engine actions: always the typed Preview refusal, nothing stored (AL-order-01). */
+    preview: createPreviewRouter(),
 
     ops: router({
       runs: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })

@@ -125,6 +125,7 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
         { id: 'otc', href: '/otc', icon: 'merchant', group: 'Advanced' },
         { id: 'execution', href: '/execution', icon: 'markets', group: 'Advanced' },
         { id: 'algo', href: '/quant', icon: 'activity', group: 'Advanced' },
+        { id: 'algo-editor', href: '/quant/editor', icon: 'activity', group: 'Advanced' },
         {
           id: 'orders',
           href: '/money/activity?tab=orders',
