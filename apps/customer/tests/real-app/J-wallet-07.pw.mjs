@@ -1,3 +1,4 @@
+// World: none
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api, fund, journeyState, toUnits } from './stack.mjs';
