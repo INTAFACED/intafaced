@@ -68,7 +68,7 @@ type CloseHost = {
   feeTierAt: (userId: string) => Promise<string>;
   requireMarket: (input: { symbol?: string; marketId?: string }) => Promise<Market>;
   findOrder: (orderId: string) => Promise<OrderRecord | null>;
-  assertLifecycleAction: (market: Market, action: 'PLACE') => Promise<LifecycleAdmissionProof>;
+  assertLifecycleAction: (market: Market, action: 'PLACE', orderType?: string) => Promise<LifecycleAdmissionProof>;
   applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
   markRecoveryRequired: (orderId: string, reason: 'SUBMIT_UNKNOWN') => Promise<void>;
 };
@@ -136,7 +136,8 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
     );
   }
 
-  const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
+  // A flatten is a market close: a limit-only market refuses it (`trade.mode_limit_only`) before anything is sent.
+  const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE', 'market');
   // The fee tier is read before the engine is asked: once the flatten has printed, the row must be written whatever
   // else is down, so nothing that can fail is read between the two.
   const feeTier = market.paper ? REGULAR_FEE_TIER : await host.feeTierAt(userId);

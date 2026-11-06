@@ -43,6 +43,8 @@ const MODE_REASON: Readonly<Record<SettableMarketMode, string>> = {
 export interface MarketModeView {
   readonly symbol: string;
   readonly marketId: string;
+  /** The listing's own status (active, halted, delisted, pending). A non-active listing wins over any mode. */
+  readonly listingStatus: string;
   /** The mode the last applied transition left, or OPEN when none was ever written. */
   readonly mode: MarketLifecycleState;
   readonly transitionId: string | null;
@@ -82,40 +84,51 @@ function auditIdFor(transitionId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+type Row = { id: string; symbol: string; kind: string; status: string };
+
 export class MarketModeAdmin {
-  private readonly store: SqlMarketLifecycleEvidenceStore;
+  constructor(private readonly deps: MarketModeDeps) {}
 
-  constructor(private readonly deps: MarketModeDeps) {
-    this.store = new SqlMarketLifecycleEvidenceStore(deps.sql);
-  }
-
-  private async market(symbol: string): Promise<{ id: string; symbol: string }> {
-    const [row] = await this.deps.sql<Array<{ id: string; symbol: string }>>`
-      SELECT id, symbol FROM trade.markets WHERE symbol = ${symbol} LIMIT 1`;
+  private async market(sql: Sql, symbol: string, lock = false): Promise<Row> {
+    const [row] = lock
+      ? await sql<
+          Row[]
+        >`SELECT id, symbol, kind::text AS kind, status::text AS status FROM trade.markets WHERE symbol = ${symbol} FOR UPDATE`
+      : await sql<Row[]>`SELECT id, symbol, kind::text AS kind, status::text AS status FROM trade.markets WHERE symbol = ${symbol} LIMIT 1`;
     if (!row) throw new TradeOpsError('trade.market_not_found', `market ${symbol} not found`);
     return row;
   }
 
-  private async latest(marketId: string): Promise<MarketTransitionRecord | null> {
-    const [row] = await this.deps.sql<Array<{ transition: unknown }>>`
+  /**
+   * The last transition, by the same order the lifecycle read uses. A latest row that does not parse is not read as
+   * OPEN: the lifecycle read refuses it as recovery-required, and so does this door.
+   */
+  private async latest(sql: Sql, marketId: string): Promise<MarketTransitionRecord | null> {
+    const [row] = await sql<Array<{ transition: unknown }>>`
       SELECT transition FROM trade.market_lifecycle_evidence
        WHERE market_id = ${marketId} AND evidence_kind = 'TRANSITION'
        ORDER BY observed_at DESC LIMIT 1`;
-    const parsed = row ? marketTransitionRecordSchema.safeParse(row.transition) : null;
-    return parsed?.success ? parsed.data : null;
+    if (!row) return null;
+    const parsed = marketTransitionRecordSchema.safeParse(row.transition);
+    if (!parsed.success) throw new TradeOpsError('trade.market_mode_recovery_required', 'the last lifecycle transition does not parse');
+    return parsed.data;
   }
 
-  async get(principal: Principal, symbol: string): Promise<MarketModeView> {
-    requireOperator(principal);
-    const market = await this.market(symbol);
-    const last = await this.latest(market.id);
+  private view(market: Row, last: MarketTransitionRecord | null): MarketModeView {
     return {
       symbol: market.symbol,
       marketId: market.id,
+      listingStatus: market.status,
       mode: last?.resolvedState ?? 'OPEN',
       transitionId: last?.transitionId ?? null,
       effectiveAt: last?.effectiveAt ?? null,
     };
+  }
+
+  async get(principal: Principal, symbol: string): Promise<MarketModeView> {
+    requireOperator(principal);
+    const market = await this.market(this.deps.sql, symbol);
+    return this.view(market, await this.latest(this.deps.sql, market.id));
   }
 
   async set(principal: Principal, input: MarketModeSetInput): Promise<MarketModeView> {
@@ -124,52 +137,66 @@ export class MarketModeAdmin {
       throw new TradeOpsError('trade.market_mode_unsupported', `mode ${input.mode} is not set through this door`);
     }
     const reason = requireReason(input.reason);
-    const market = await this.market(input.symbol);
-    const idempotencyKey = `market-mode:${market.id}:${input.approvalId}`;
-    const transitionId = lifecycleTransitionId(market.id, input.expectedMode, input.mode, idempotencyKey);
-    // A retry of the approved change answers the first record: the approval was consumed by the first write.
-    const [done] = await this.deps.sql<Array<{ transition: unknown }>>`
-      SELECT transition FROM trade.market_lifecycle_evidence WHERE evidence_id = ${transitionId} LIMIT 1`;
-    if (done) return this.get(principal, market.symbol);
+    // One transaction, holding the market row: the stale check, the approval and the write see the same last state,
+    // so two approved changes against the same mode cannot both land. If the write then fails, the approval is spent
+    // and nothing changed; the operators approve again.
+    return this.deps.sql.begin(async (txn) => {
+      const tx = txn as unknown as Sql;
+      const market = await this.market(tx, input.symbol, true);
+      if (market.kind !== 'spot') {
+        throw new TradeOpsError('trade.market_mode_unsupported', `${market.symbol} is a ${market.kind} market; this door sets spot modes`);
+      }
+      const idempotencyKey = `market-mode:${market.id}:${input.approvalId}`;
+      const transitionId = lifecycleTransitionId(market.id, input.expectedMode, input.mode, idempotencyKey);
+      // A retry of the approved change answers its own first record (the approval was consumed by that write).
+      const [done] = await tx<Array<{ transition: unknown }>>`
+        SELECT transition FROM trade.market_lifecycle_evidence WHERE evidence_id = ${transitionId} LIMIT 1`;
+      if (done) return this.view(market, marketTransitionRecordSchema.parse(done.transition));
 
-    const last = await this.latest(market.id);
-    const current = last?.resolvedState ?? 'OPEN';
-    if (current !== input.expectedMode) {
-      throw new TradeOpsError('trade.market_mode_stale', `expected mode ${input.expectedMode}; the market is ${current}`);
-    }
-    if (current === input.mode) throw new TradeOpsError('trade.market_mode_unchanged', `the market is already ${current}`);
-    const consumed = await consumeApproval(this.deps.approvals, {
-      approvalId: input.approvalId,
-      actionType: MARKET_MODE_SET_ACTION,
-      targetId: `market-mode:${market.symbol}`,
-      expectedVersion: last?.transitionId ?? 'none',
-      payloadHash: marketModePayloadHash({ symbol: market.symbol, mode: input.mode, expectedMode: input.expectedMode, reason }),
-      operationId: input.operationId,
-    });
-    const at = this.deps.now().toISOString();
-    const record: MarketTransitionRecord = {
-      transitionId,
-      idempotencyKey,
-      marketId: market.id,
-      expectedState: input.expectedMode as MarketLifecycleState,
-      expectedRuleVersion: '1',
-      requestedState: input.mode,
-      resolvedState: input.mode,
-      reasonCategory: input.mode === 'OPEN' ? 'NORMAL' : 'OPERATOR',
-      reasonCode: MODE_REASON[input.mode],
-      actorId: principal.userId,
-      authorityRef: `approval:${input.approvalId}`,
-      approvalRefs: [`approval:${input.approvalId}`, `approver:${consumed.approverId}`],
-      requestedAt: at,
-      effectiveAt: at,
-      expiresAt: null,
-      recoveryEvidenceRefs: [],
-      outcome: { outcome: 'APPLIED', appliedTargets: [`market:${market.id}`], unresolvedTargets: [] },
-    };
-    await this.deps.sql.begin(async (tx) => {
-      await new SqlMarketLifecycleEvidenceStore(tx as unknown as Sql).appendTransition(record);
+      // A halted, delisted or pending listing wins over any mode; a mode is set only on an active listing.
+      if (market.status !== 'active') {
+        throw new TradeOpsError('trade.market_mode_listing_not_active', `${market.symbol} is ${market.status}; its listing state wins`);
+      }
+      const last = await this.latest(tx, market.id);
+      const current = last?.resolvedState ?? 'OPEN';
+      if (current !== input.expectedMode) {
+        throw new TradeOpsError('trade.market_mode_stale', `expected mode ${input.expectedMode}; the market is ${current}`);
+      }
+      if (current === input.mode) throw new TradeOpsError('trade.market_mode_unchanged', `the market is already ${current}`);
+      const consumed = await consumeApproval(this.deps.approvals, {
+        approvalId: input.approvalId,
+        actionType: MARKET_MODE_SET_ACTION,
+        targetId: `market-mode:${market.symbol}`,
+        expectedVersion: last?.transitionId ?? 'none',
+        payloadHash: marketModePayloadHash({ symbol: market.symbol, mode: input.mode, expectedMode: input.expectedMode, reason }),
+        operationId: input.operationId,
+      });
+      // The lifecycle read takes the latest transition by its time: a new one is never earlier than the one it follows.
+      const nowMs = this.deps.now().getTime();
+      const afterMs = last ? Date.parse(last.requestedAt) + 1 : nowMs;
+      const at = new Date(Math.max(nowMs, afterMs)).toISOString();
+      const record: MarketTransitionRecord = {
+        transitionId,
+        idempotencyKey,
+        marketId: market.id,
+        expectedState: input.expectedMode as MarketLifecycleState,
+        expectedRuleVersion: '1',
+        requestedState: input.mode,
+        resolvedState: input.mode,
+        reasonCategory: input.mode === 'OPEN' ? 'NORMAL' : 'OPERATOR',
+        reasonCode: MODE_REASON[input.mode],
+        actorId: principal.userId,
+        authorityRef: `approval:${input.approvalId}`,
+        approvalRefs: [`approval:${input.approvalId}`, `approver:${consumed.approverId}`],
+        requestedAt: at,
+        effectiveAt: at,
+        expiresAt: null,
+        recoveryEvidenceRefs: [],
+        outcome: { outcome: 'APPLIED', appliedTargets: [`market:${market.id}`], unresolvedTargets: [] },
+      };
+      const stored = await new SqlMarketLifecycleEvidenceStore(tx).appendTransition(record);
       await writeOperatorAudit(
-        tx as unknown as Sql,
+        tx,
         {
           id: auditIdFor(transitionId),
           kind: 'market_mode',
@@ -182,7 +209,7 @@ export class MarketModeAdmin {
         },
         new Date(at),
       );
-    });
-    return this.get(principal, market.symbol);
+      return this.view(market, stored);
+    }) as Promise<MarketModeView>;
   }
 }

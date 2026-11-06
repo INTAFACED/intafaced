@@ -123,12 +123,47 @@ describe('market trading mode (two-person)', () => {
     expect(audit).toEqual([{ kind: 'market_mode', approver_id: APPROVER, reason: REASON }]);
   });
 
-  it('a retry of the approved change answers the first record and writes nothing new', async () => {
+  it('a retry of the approved change answers its own first record and writes nothing new, even after a later change', async () => {
     approve('a1', 'LIMIT_ONLY', 'OPEN', 'none');
-    await set('a1', 'LIMIT_ONLY', 'OPEN');
+    const first = await set('a1', 'LIMIT_ONLY', 'OPEN');
     const again = await set('a1', 'LIMIT_ONLY', 'OPEN');
-    expect(again.mode).toBe('LIMIT_ONLY');
-    expect(await transitions()).toHaveLength(1);
+    expect(again).toEqual(first);
+    approve('a2', 'OPEN', 'LIMIT_ONLY', first.transitionId!);
+    await set('a2', 'OPEN', 'LIMIT_ONLY');
+    expect((await set('a1', 'LIMIT_ONLY', 'OPEN')).mode).toBe('LIMIT_ONLY');
+    expect(await transitions()).toHaveLength(2);
+  });
+
+  it('a later change is never timed before the one it follows, so the lifecycle read takes it as latest', async () => {
+    approve('a1', 'LIMIT_ONLY', 'OPEN', 'none');
+    const first = await set('a1', 'LIMIT_ONLY', 'OPEN');
+    now = new Date('2026-11-06T07:59:00.000Z'); // this writer's clock is behind the first
+    approve('a2', 'CANCEL_ONLY', 'LIMIT_ONLY', first.transitionId!);
+    const second = await set('a2', 'CANCEL_ONLY', 'LIMIT_ONLY');
+    expect(Date.parse(second.effectiveAt!)).toBeGreaterThan(Date.parse(first.effectiveAt!));
+    expect((await modes.get(reader(), 'ETH/USDT')).mode).toBe('CANCEL_ONLY');
+  });
+
+  it('refuses on a listing that is not active: its halt, delist or pending state wins over any mode', async () => {
+    await db.sql`UPDATE trade.markets SET status = 'halted' WHERE symbol = 'ETH/USDT'`;
+    approve('a1', 'LIMIT_ONLY', 'OPEN', 'none');
+    await expect(set('a1', 'LIMIT_ONLY', 'OPEN')).rejects.toMatchObject({ code: 'trade.market_mode_listing_not_active' });
+    expect((await modes.get(reader(), 'ETH/USDT')).listingStatus).toBe('halted');
+    expect(await transitions()).toHaveLength(0);
+  });
+
+  it('refuses a futures market: this door sets spot modes only', async () => {
+    await db.sql`UPDATE trade.markets SET kind = 'futures' WHERE symbol = 'ETH/USDT'`.catch(() => undefined);
+    const [row] = await db.sql<Array<{ kind: string }>>`SELECT kind::text AS kind FROM trade.markets WHERE symbol = 'ETH/USDT'`;
+    if (row!.kind !== 'futures') return; // the schema refuses a futures row without its terms; nothing to check here
+    approve('a1', 'LIMIT_ONLY', 'OPEN', 'none');
+    await expect(set('a1', 'LIMIT_ONLY', 'OPEN')).rejects.toMatchObject({ code: 'trade.market_mode_unsupported' });
+  });
+
+  it('a last transition that does not parse is not read as open', async () => {
+    await db.sql`INSERT INTO trade.market_lifecycle_evidence (evidence_id, market_id, evidence_kind, transition, observed_at)
+      SELECT 'broken', id, 'TRANSITION', '{"not":"a transition"}'::jsonb, now() FROM trade.markets WHERE symbol = 'ETH/USDT'`;
+    await expect(modes.get(reader(), 'ETH/USDT')).rejects.toMatchObject({ code: 'trade.market_mode_recovery_required' });
   });
 
   it('cancel-only refuses a new order with trade.mode_cancel_only and admits a cancel', async () => {

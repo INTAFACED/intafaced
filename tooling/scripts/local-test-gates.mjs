@@ -2085,7 +2085,7 @@ export async function setMarketMode(ctx, symbol, mode, { reason, sessions = null
   const current = data(await ctx.edge.query('trade', 'admin.marketMode.get', { symbol }, await pair.a.tradeOpsToken()));
   if (typeof current?.mode !== 'string') throw new Error(`trade admin.marketMode.get gave no mode for ${symbol}`);
   if (current.mode === mode) return current;
-  const body = { symbol, mode, expectedMode: current.mode, reason: reason ?? `${MARKERS.label}: TEST trading mode ${mode}` };
+  const body = { symbol, mode, expectedMode: current.mode, reason: (reason ?? `${MARKERS.label}: TEST trading mode ${mode}`).trim() };
   const ids = await twoPerson(ctx, pair, {
     actionType: MARKET_MODE_SET_ACTION,
     targetService: 'svc-trade',

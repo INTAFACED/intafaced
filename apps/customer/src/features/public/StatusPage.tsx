@@ -10,6 +10,16 @@ const whenUtc = (instant: string) => `${instant.slice(0, 16).replace('T', ' ')} 
 
 type CopyKey = Parameters<ReturnType<typeof statusCopy.useCopy>['t']>[0];
 
+/** The time the trading modes are as of, in UTC, or the honest line that no market reported one. */
+function ModesAsOf({ at }: { at: string | null }) {
+  const copy = statusCopy.useCopy();
+  return (
+    <p className="muted" data-testid="status-modes-asof">
+      {at ? `${copy.t('modesAsOf')} ${whenUtc(at)}` : copy.t('modesAsOfNone')}
+    </p>
+  );
+}
+
 /**
  * /status: public, signed-out. Components come from the founders' status page (readings and published notices); each
  * market row is the market's own reported mode. The page keeps no status of its own.
@@ -48,14 +58,7 @@ export function StatusPage() {
           </p>
         ) : null}
         {load.status === 'ready' && load.data.length === 0 ? <p role="status">{copy.t('none')}</p> : null}
-        {load.status === 'ready' && load.data.length > 0 ? (
-          <p className="muted" data-testid="status-modes-asof">
-            {(() => {
-              const at = modesAsOf(load.data);
-              return at ? `${copy.t('modesAsOf')} ${whenUtc(at)}` : copy.t('modesAsOfNone');
-            })()}
-          </p>
-        ) : null}
+        {load.status === 'ready' && load.data.length > 0 ? <ModesAsOf at={modesAsOf(load.data)} /> : null}
         {load.status === 'ready' && load.data.length > 0 ? (
           <table className="pub-table" data-testid="status-modes">
             <thead>
