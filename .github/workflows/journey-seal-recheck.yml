@@ -1,0 +1,54 @@
+name: Journey seal re-check
+
+# Re-runs the CI merge seal on a pull request's head when what its journey-steps step reads changes
+# (tooling/ci/journey-seal.mjs), so a pull request that names journey steps is never stuck red after its proof lands,
+# and never stays green after its proof turns red:
+#   - a Real-app journeys run on a branch finished (workflow_run): the seal reads the new run;
+#   - a pull request's title or body was edited (pull_request_target): the seal reads the new title and "Left or
+#     replaced" list. CI runs on pushes, not on edits, so without this an edit after a green seal would never be read.
+# Only open pull requests whose title names journey steps (or named them before the edit) are touched.
+#
+# Both triggers run the copy of this file and of the script on the default branch. Nothing here checks out, builds or
+# runs code from a pull request: the script reads the pull request and the seal's check runs through the API.
+on:
+  workflow_run:
+    workflows: [Real-app journeys]
+    types: [completed]
+  pull_request_target:
+    types: [edited]
+
+permissions: {}
+
+# One re-check per head at a time; a newer edit or run on the same head replaces a waiting one (each reads the newest state).
+concurrency:
+  group: journey-seal-recheck-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  recheck:
+    name: Re-run the seal on this head
+    # A run on main is never a pull request's head; an edit that changed neither the title nor the body changes nothing.
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' && (github.event.changes.title || github.event.changes.body))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # healthy run: seconds; waiting out a running seal takes up to 25 minutes (SEAL_POLLS in the script)
+    permissions:
+      contents: read
+      actions: write # re-run the seal job
+      checks: read # find the seal's check run on the head
+      pull-requests: read # the pull requests on the head, and their titles
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Re-run the seal
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OLD_TITLE: ${{ github.event.changes.title.from }}
+        run: node tooling/ci/journey-seal.mjs --recheck

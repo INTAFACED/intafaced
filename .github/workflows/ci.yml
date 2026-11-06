@@ -509,6 +509,31 @@ jobs:
           BUILD: ${{ needs.build.result }}
           T_FULL: ${{ needs.test-full.result }}
         run: node tooling/ci/ci-affected.mjs --seal
+      # A pull request whose title names journey steps (`J-bank-13 #1 #2`): each one passing in a finished Real-app
+      # journeys run on its exact head, or listed by its full id under a "Left or replaced" heading (owner decision
+      # 2026-11-06; #7202 merged with its named steps red in its own run). On a merge queue's commit, every queued pull
+      # request on its own head. journey-seal-recheck.yml re-runs this job when a journeys run finishes or a title or body
+      # is edited. The default branch's copy decides, as for the review below.
+      - name: Require the named journey steps on this exact head
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          REPO: ${{ github.repository }}
+          BASE: ${{ github.event.repository.default_branch }}
+        # Only the pull request that adds the script finds none on the default branch; it says so and passes that once.
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE"
+          git worktree add --detach "$RUNNER_TEMP/base" FETCH_HEAD
+          if [ -f "$RUNNER_TEMP/base/tooling/ci/journey-seal.mjs" ]; then
+            node "$RUNNER_TEMP/base/tooling/ci/journey-seal.mjs"
+          else
+            echo "::notice::the default branch has no tooling/ci/journey-seal.mjs yet, so no journey steps are read"
+          fi
       # On a pull request: its head. On a merge queue's commit (merge_group): every pull request in the group, each on its
       # own head, without waiting, since the queue only took pull requests whose seal had passed.
       - name: Require the CI review on this exact head
@@ -524,7 +549,5 @@ jobs:
           REPO: ${{ github.repository }}
           BASE: ${{ github.event.repository.default_branch }}
         # The default branch's copy decides which changes need the review. Editing this step is a .github/ change, which needs it.
-        run: |
-          git fetch --no-tags --depth=1 origin "$BASE"
-          git worktree add --detach "$RUNNER_TEMP/base" FETCH_HEAD
-          node "$RUNNER_TEMP/base/tooling/ci/review-marker.mjs"
+        # The step above made the default branch's worktree.
+        run: node "$RUNNER_TEMP/base/tooling/ci/review-marker.mjs"
