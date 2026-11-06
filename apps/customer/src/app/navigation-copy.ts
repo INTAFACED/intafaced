@@ -370,6 +370,9 @@ const messages = {
   'Keys for your own programs to read and trade': 'Keys for your own programs to read and trade',
   'A new key with only the permissions it needs': 'A new key with only the permissions it needs',
   'API key': 'API key',
+  'My account is compromised': 'My account is compromised',
+  'End every sign-in and key, freeze the account and work through a checklist':
+    'End every sign-in and key, freeze the account and work through a checklist',
   'One key: its end date, idle expiry and IP policy': 'One key: its end date, idle expiry and IP policy',
   Verification: 'Verification',
   'Verification status and documents': 'Verification status and documents',
@@ -799,6 +802,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Keys for your own programs to read and trade': 'Claves para que tus propios programas lean y operen',
     'A new key with only the permissions it needs': 'Una clave nueva con solo los permisos que necesita',
     'API key': 'Clave de API',
+    'My account is compromised': 'Mi cuenta está comprometida',
+    'End every sign-in and key, freeze the account and work through a checklist':
+      'Cierra cada sesión y clave, congela la cuenta y sigue una lista de pasos',
     'One key: its end date, idle expiry and IP policy': 'Una clave: su fecha de fin, su caducidad por inactividad y su política de IP',
     Verification: 'Verificación',
     'Verification status and documents': 'Estado de verificación y documentos',
@@ -1176,6 +1182,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Keys for your own programs to read and trade': 'Des clés pour que vos propres programmes lisent et négocient',
     'A new key with only the permissions it needs': 'Une nouvelle clé avec uniquement les autorisations nécessaires',
     'API key': 'Clé d’API',
+    'My account is compromised': 'Mon compte est compromis',
+    'End every sign-in and key, freeze the account and work through a checklist':
+      'Fermez chaque session et clé, gelez le compte et suivez une liste d’étapes',
     'One key: its end date, idle expiry and IP policy': 'Une clé : sa date de fin, son expiration après inactivité et sa politique IP',
     Verification: 'Vérification',
     'Verification status and documents': 'Statut de vérification et documents',

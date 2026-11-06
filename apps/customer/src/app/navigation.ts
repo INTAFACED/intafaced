@@ -1085,6 +1085,14 @@ export const rooms: readonly Room[] = [
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
   { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
   {
+    path: '/uc/safe/compromised',
+    title: 'My account is compromised',
+    description: 'End every sign-in and key, freeze the account and work through a checklist',
+    area: 'person',
+    hidden: true,
+    screen: 'account',
+  },
+  {
     path: '/uc/safe/api-keys',
     title: 'API keys',
     description: 'Keys for your own programs to read and trade',

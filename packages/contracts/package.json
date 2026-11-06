@@ -98,6 +98,10 @@
       "types": "./dist/identity-account-status.d.ts",
       "default": "./dist/identity-account-status.js"
     },
+    "./identity-compromise": {
+      "types": "./dist/identity-compromise.d.ts",
+      "default": "./dist/identity-compromise.js"
+    },
     "./identity-appeals": {
       "types": "./dist/identity-appeals.d.ts",
       "default": "./dist/identity-appeals.js"

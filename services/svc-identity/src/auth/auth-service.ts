@@ -90,6 +90,14 @@ import { queuePasswordChangedNotice } from './password-changed-notice.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
 import { applySelfFreeze, redeemFreezeLink, type FreezeLinkResult } from './freeze-link.js';
 import {
+  markCompromiseReviewed,
+  openCompromiseCase,
+  readCompromiseCase,
+  reportStolenFunds,
+  type OpenedCase,
+} from '../account/compromise.js';
+import type { CompromiseCase, CompromiseReviewItem } from '@intafaced/contracts/identity-compromise';
+import {
   cancelMfaReset,
   completeDueMfaReset,
   confirmMfaReset,
@@ -2207,6 +2215,49 @@ export class AuthService {
     if (result.changed) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
     this.log.warn({ userId: input.userId, reason: result.reason, changed: result.changed }, 'auth.self_frozen');
     return { frozen: true, reason: result.reason, since: result.since, changed: result.changed };
+  }
+
+  /**
+   * "My account is compromised" (I-signin-sessions-28, J-identity-13 #3). The same bar as the owner's own freeze: a
+   * signed-in person (never an API key or sub-account) and the current password, counted as a guess. Then, in one
+   * transaction, every session and API key ends, the owner's freeze (reason `compromise`) is set and one case opens
+   * (`account/compromise.ts`). While a case is open this returns it and ends nothing more. Moves no money.
+   */
+  async startCompromise(input: { userId: string; actor: FactorActor; password: string }): Promise<OpenedCase> {
+    if (input.actor.delegated) {
+      throw new AuthError('Sign in yourself to secure your account; an API key or sub-account cannot', 'auth.mfa_required');
+    }
+    const rows = await this.sql<Array<{ password_hash: string; status: string }>>`
+      SELECT password_hash, status FROM users WHERE id = ${input.userId}`;
+    const user = rows[0];
+    if (!user) throw new AuthError('User not found', 'auth.not_found');
+    if (user.status === 'closed') throw new AuthError('Account is closed', 'auth.account_frozen');
+    await this.reserve(input.userId, 'password');
+    if (!(await verifyPassword(user.password_hash, input.password))) {
+      throw new AuthError('Invalid credentials', 'auth.invalid_credentials');
+    }
+    await recordSuccess(this.sql, input.userId, 'password');
+    const opened = await transaction(this.sql, (tx) => openCompromiseCase(tx, input.userId));
+    if (opened.sessionsEnded > 0) await syncNavigatorSessionsClosedForUser(this.sql, input.userId);
+    this.log.warn({ userId: input.userId, caseId: opened.caseId, changed: opened.changed }, 'identity.compromise_started');
+    return opened;
+  }
+
+  /** The person's open compromised-account case, or null (J-identity-13 #3 to #5). */
+  async compromiseCase(userId: string): Promise<CompromiseCase | null> {
+    return readCompromiseCase(this.sql, userId);
+  }
+
+  /** A stolen-funds report as a note on the open case (J-identity-13 #5). Moves no money. */
+  async reportStolenFunds(input: { userId: string; actor: FactorActor; body: string; clientRequestId: string }) {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return reportStolenFunds(this.sql, input);
+  }
+
+  /** The person reviewed their devices or addresses while the case is open (J-identity-13 #4). */
+  async markCompromiseReviewed(input: { userId: string; actor: FactorActor; item: CompromiseReviewItem }) {
+    if (input.actor.delegated) throw new AuthError('Sign in yourself; an API key or sub-account cannot', 'auth.mfa_required');
+    return markCompromiseReviewed(this.sql, input);
   }
 
   /**
