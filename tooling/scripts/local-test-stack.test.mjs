@@ -1079,6 +1079,48 @@ console.log('local-test-stack: customer folder override checks passed');
   }
 }
 
+// A known CSP report is named exactly, carries its source, step, open issue and expiry, and fails again once expired.
+{
+  const { splitKnownCspRows, CSP_KNOWN_PATH } = await import('./local-test-stack.mjs');
+  const entry = {
+    directive: 'connect-src',
+    blocked: 'data',
+    page: '/trade',
+    step: 'J-cex-spot-01 #3',
+    source: 'a source',
+    issue: 'https://github.com/INTAFACED/intafaced/issues/1',
+    expires: '2026-11-13',
+  };
+  const row = (over = {}) => ({ directive: 'connect-src', blocked: 'data', page: 'http://127.0.0.1:3210/trade', ...over });
+  const known = { entries: [entry] };
+  let s = splitKnownCspRows([row()], known, '2026-11-13');
+  assert.equal(s.known.length, 1, 'named on its last day');
+  assert.equal(s.unknown.length, 0);
+  s = splitKnownCspRows([row()], known, '2026-11-14');
+  assert.deepEqual(s.unknown, [row()], 'past its expiry it fails again');
+  assert.equal(s.expired.length, 1);
+  assert.equal(splitKnownCspRows([row({ page: 'http://127.0.0.1:3210/home' })], known, '2026-11-06').unknown.length, 1, 'another page');
+  assert.equal(splitKnownCspRows([row({ blocked: 'blob' })], known, '2026-11-06').unknown.length, 1, 'another source');
+  assert.equal(splitKnownCspRows([row({ directive: 'script-src-elem' })], known, '2026-11-06').unknown.length, 1, 'another directive');
+  assert.equal(splitKnownCspRows([row(), row({ blocked: 'inline' })], known, '2026-11-06').unknown.length, 1, 'only the named kind passes');
+  assert.equal(splitKnownCspRows([row()], { entries: [] }).unknown.length, 1, 'no list, every row fails');
+  for (const field of ['step', 'source', 'issue', 'expires'])
+    assert.throws(
+      () => splitKnownCspRows([row()], { entries: [{ ...entry, [field]: '' }] }),
+      new RegExp(field),
+      `an entry without ${field}`,
+    );
+  assert.throws(() => splitKnownCspRows([], { entries: [{ ...entry, expires: 'next week' }] }), /YYYY-MM-DD/);
+  assert.throws(() => splitKnownCspRows([], { entries: [{ ...entry, issue: '#1' }] }), /issue URL/);
+  assert.throws(() => splitKnownCspRows([], { entries: [{ ...entry, page: 'http://127.0.0.1:3210/trade' }] }), /not a path/);
+  // The list in the tree is well formed, and every entry in it expires within 14 days of today.
+  const tree = JSON.parse(readFileSync(CSP_KNOWN_PATH, 'utf8'));
+  splitKnownCspRows([], tree);
+  const horizon = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  for (const e of tree.entries) assert.ok(e.expires <= horizon, `${e.step} expires ${e.expires}, more than 14 days out`);
+  console.log('local-test-stack: known CSP reports are exact, time-boxed and fail again once expired');
+}
+
 // A build stamp vouches only for the checkout that made it, at source no commit has changed since, with the same
 // uncommitted edits (B16, 30 Oct: a branch change and a shared state folder kept an older build "up to date"). A running
 // service or console started on an older build is restarted onto the new one.

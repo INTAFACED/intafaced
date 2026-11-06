@@ -2589,10 +2589,50 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
   server.listen(port, HOST);
 }
 
+/** The written, time-boxed list of CSP reports whose source is known and under an open issue (csp-known-reports.json). */
+export const CSP_KNOWN_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'csp-known-reports.json');
+const KNOWN_FIELDS = ['directive', 'blocked', 'page', 'step', 'source', 'issue', 'expires'];
+
+/**
+ * Split recorded CSP rows into the ones a live entry of the known list names and the rest. An entry names one kind
+ * exactly (directive, blocked source, page path) and must carry the step, the source, an open issue's URL and an expiry
+ * date; a malformed entry throws, and an entry past its expiry (`today`, YYYY-MM-DD, UTC) names nothing, so its rows
+ * fail again. Known rows are still printed; only `--fail` treats them differently.
+ */
+export function splitKnownCspRows(rows, known, today = new Date().toISOString().slice(0, 10)) {
+  const entries = Array.isArray(known?.entries) ? known.entries : [];
+  for (const [i, e] of entries.entries()) {
+    const missing = KNOWN_FIELDS.filter((k) => typeof e?.[k] !== 'string' || e[k].trim() === '');
+    if (missing.length) throw new Error(`csp-known-reports.json entry ${i} lacks ${missing.join(', ')}`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(e.expires))
+      throw new Error(`csp-known-reports.json entry ${i} expires "${e.expires}" is not YYYY-MM-DD`);
+    if (!/^https:\/\/github\.com\/INTAFACED\/intafaced\/issues\/\d+$/.test(e.issue))
+      throw new Error(`csp-known-reports.json entry ${i} issue "${e.issue}" is not an issue URL`);
+    if (!e.page.startsWith('/')) throw new Error(`csp-known-reports.json entry ${i} page "${e.page}" is not a path`);
+  }
+  const live = entries.filter((e) => e.expires >= today);
+  const expired = entries.filter((e) => e.expires < today);
+  const pathOf = (page) => {
+    try {
+      return new URL(page).pathname;
+    } catch {
+      return null;
+    }
+  };
+  const known_ = [];
+  const unknown = [];
+  for (const r of rows) {
+    const entry = live.find((e) => e.directive === r.directive && e.blocked === r.blocked && e.page === pathOf(r.page));
+    (entry ? known_ : unknown).push({ row: r, entry });
+  }
+  return { known: known_, unknown: unknown.map((u) => u.row), expired };
+}
+
 /**
  * `csp-report [--fail] [--clear]`: the Content-Security-Policy violations the Customer app's browser reported to this
- * stack (csp-violations.jsonl), grouped by directive and blocked source. `--fail` exits 1 when there is any, so a journey
- * run that broke the production policy is red; `--clear` empties the record (`start` does too, so each stack starts clean).
+ * stack (csp-violations.jsonl), grouped by directive and blocked source. `--fail` exits 1 when there is any not named by
+ * a live entry of csp-known-reports.json (each names its source, step, open issue and expiry), so a journey run that
+ * broke the production policy is red; `--clear` empties the record (`start` does too, so each stack starts clean).
  */
 function cmdCspReport(args) {
   if (args.includes('--clear')) {
@@ -2631,7 +2671,21 @@ function cmdCspReport(args) {
     say(
       `    ${key}  ×${g.n}  on ${[...g.pages].slice(0, 3).join(', ')}${g.source ? `  from ${g.source}:${g.line}` : ''}${g.sample ? `  "${g.sample}"` : ''}`,
     );
-    if (process.env.GITHUB_ACTIONS) console.log(`::error title=CSP violation::${key} (×${g.n}) on ${[...g.pages][0]}`);
+  }
+  const known = fs.existsSync(CSP_KNOWN_PATH) ? JSON.parse(fs.readFileSync(CSP_KNOWN_PATH, 'utf8')) : { entries: [] };
+  const split = splitKnownCspRows(rows, known);
+  for (const e of split.expired)
+    say(`  csp-report: known entry for ${e.directive} blocked ${e.blocked} on ${e.page} expired ${e.expires} (${e.issue}); it fails again`);
+  for (const { row, entry } of split.known)
+    say(
+      `  csp-report: known until ${entry.expires}: ${row.directive} blocked ${row.blocked} on ${entry.page} (${entry.step}; ${entry.source}; ${entry.issue})`,
+    );
+  for (const r of split.unknown)
+    if (process.env.GITHUB_ACTIONS)
+      console.log(`::error title=CSP violation::${r.directive} blocked ${r.blocked || '(inline)'} on ${r.page}`);
+  if (split.unknown.length === 0) {
+    say(`  csp-report: every violation is a live known entry; none is new`);
+    return;
   }
   if (args.includes('--fail')) process.exit(1);
 }
