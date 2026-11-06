@@ -59,7 +59,7 @@ import {
   startConditionalOrderJobs,
 } from './futures/conditional-orders/index.js';
 import { createReverseService } from './futures/reverse.js';
-import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
+import { listCallerLiquidations, listFundingPayments, listFundingStatement, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
 import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { registerPrivateRest } from './private-rest.js';
@@ -134,6 +134,9 @@ import { presentFuturesJobsHealth } from './futures/futures-jobs-health.js';
 import { sqlMarginModeSwitchAudit } from './futures/margin-mode.js';
 import { MaintainedBook } from '@intafaced/venue-adapter';
 import { registerInternalFundingRate } from './futures/internal-funding-rate.js';
+import { presentFundingRate } from './futures/funding-view.js';
+import { sqlComputedFundingHistory, sqlFundingSeries } from './futures/funding-public-reads.js';
+import { testIndexFeedEnabled } from './futures/test-index-feed.js';
 import { writeOperatorAudit } from './admin/common.js';
 import { loadLiquidationFeeFraction } from './futures/liquidation-fee.js';
 import { memoryFundingHistory, registerFundingHistory } from './futures/funding-history.js';
@@ -636,6 +639,8 @@ const futuresJobs = startFuturesJobs({
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'futures job tick failed'),
   matchedLiquidation,
+  // LOCAL TEST stand-in for feed.market (J-derivatives-08): refused outside APP_ENV dev or test.
+  testIndexFeed: testIndexFeedEnabled(process.env),
 });
 const profitSource = optionalProfitSourceFromConfig(env.TRADE_FUTURES_PROFIT_SOURCE);
 const maxLeverage = parseConfiguredMaxLeverage(env.TRADE_FUTURES_MAX_LEVERAGE);
@@ -1057,16 +1062,8 @@ registerPublicRest(app, {
   },
   onPairRulesReadError: (err) => app.log.warn({ err }, 'GET /api/v1/markets: pair rules read failed; pairRules/pairHalt null'),
   fundingRateForMarket: async (marketId, _symbol) => {
-    const entry = futuresJobs.getPublishedRate(marketId);
-    if (!entry) return null;
-    return {
-      fundingRate: entry.rate,
-      fundingTimestamp: entry.asOfMs,
-      fundingDatetime: new Date(entry.asOfMs).toISOString(),
-      nextFundingTimestamp: null,
-      markPrice: await futuresJobs.markPrice(marketId),
-      indexPrice: null,
-    };
+    const [snapshot, liveMark] = await Promise.all([futuresJobs.fundingSnapshot(marketId), futuresJobs.markPrice(marketId)]);
+    return presentFundingRate({ snapshot, s2s: futuresJobs.getPublishedRate(marketId), liveMark });
   },
   futuresTestSeed: env.TRADE_FUTURES_TEST_SEED,
   futuresMatchingEnabled: env.TRADE_FUTURES_MATCHING_ENABLED,
@@ -1252,7 +1249,14 @@ registerInternalFundingRate(app, {
 });
 registerFundingHistory(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
-  historyForMarket: async (marketId) => fundingHistory.list(marketId),
+  // S2S-published rows and computed periods (with their inputs and settlement), one list; none at all is still null.
+  historyForMarket: async (marketId) => {
+    const computed = await sqlComputedFundingHistory(sql, marketId);
+    const published = fundingHistory.list(marketId) ?? [];
+    const all = [...published, ...computed.filter((c) => !published.some((p) => p.periodId === c.periodId))];
+    return all.length === 0 ? null : all;
+  },
+  seriesForMarket: (marketId, limit) => sqlFundingSeries(sql, marketId, limit),
 });
 registerDeveloperPortalRest(app, {
   hosts: parseDeveloperHosts(env.TRADE_DEVELOPER_HOSTS),
@@ -1487,6 +1491,7 @@ registerPrivateRest(app, {
   orderHolds: (orders) => readOrderHolds(sql, orders),
   findClientOrder: (principal, input) => trade.findClientOrder(principal, input),
   listFundingPayments: (principal, positionId, cursor) => listFundingPayments(sql, principal.userId, positionId, cursor),
+  listFundingStatement: (principal) => listFundingStatement(sql, principal.userId),
   listLiquidations: (principal) => listCallerLiquidations(sql, principal.userId),
   positionLiquidation: (principal, positionId) => loadPositionLiquidation(sql, principal.userId, positionId),
   listFuturesPayouts: async (principal) => ({ payouts: await listPayoutsForUser(sql, principal.userId) }),

@@ -174,6 +174,11 @@ export interface FundingRatePeriodStore {
   recent(input: { marketId: string | null; limit: number }): Promise<readonly FundingRatePeriodRecord[]>;
   /** The end of the market's latest published period, or null when none is published. */
   latestPublishedEnd(marketId: string): Promise<Date | null>;
+  /**
+   * The market's most recently computed period with `status` (any status when null), or null. "Most recently" is the
+   * last computation: a refused period computed again moves up, a published one is never computed again.
+   */
+  latest(marketId: string, status: FundingPeriodStatus | null): Promise<FundingRatePeriodRecord | null>;
   /** A published period of the market that overlaps `[start, end)` and is not exactly that window, or null. */
   overlappingPublished(marketId: string, start: Date, end: Date): Promise<FundingRatePeriodRecord | null>;
 }
@@ -261,6 +266,16 @@ export function sqlFundingRatePeriodStore(sql: Sql): FundingRatePeriodStore {
       const [row] = await sql<{ end: Date | null }[]>`
         SELECT max(period_end) AS end FROM trade.funding_rate_periods WHERE market_id = ${marketId} AND status = 'published'`;
       return row?.end ?? null;
+    },
+    async latest(marketId, status) {
+      const [row] = await sql<PeriodRow[]>`
+        SELECT period_id, market_id, period_start, period_end, status, code, message, rate, premium, base_component, cap,
+               clamped, params_version::text, inputs, attempts, computed_at
+          FROM trade.funding_rate_periods
+         WHERE market_id = ${marketId} AND ${status === null ? sql`true` : sql`status = ${status}`}
+         ORDER BY computed_at DESC, period_id DESC
+         LIMIT 1`;
+      return row ? presentPeriod(row) : null;
     },
     async overlappingPublished(marketId, start, end) {
       const [row] = await sql<PeriodRow[]>`
@@ -546,11 +561,11 @@ export async function computeFundingPeriod(
 
   // 3. Samples. A gap is excluded and counts against the minimum.
   const rows = await deps.samples.window(marketId, periodStart, periodEnd);
-  const valid: Array<{ at: Date; premium: Amount }> = [];
+  const valid: Array<{ at: Date; premium: Amount; mark: Amount; index: Amount }> = [];
   const gapReasons: Record<string, number> = {};
   for (const r of rows) {
     if (r.mark != null && r.index != null && r.mark > 0n && r.index > 0n) {
-      valid.push({ at: r.sampledAt, premium: premiumOf({ mark: r.mark, index: r.index }) });
+      valid.push({ at: r.sampledAt, premium: premiumOf({ mark: r.mark, index: r.index }), mark: r.mark, index: r.index });
     } else {
       const reason = r.gapReason ?? 'missing_value';
       gapReasons[reason] = (gapReasons[reason] ?? 0) + 1;
@@ -580,8 +595,14 @@ export async function computeFundingPeriod(
   const raw = trimmed.premium + baseAmt;
   const { rate, clamped } = clampToCap(raw, capAmt);
   const rateText = formatAmount(rate);
+  // The mark and index the period closed on: its last valid sample (rows are oldest first). Shown with the rate so a
+  // trader sees what it was built from; the premium itself is the trimmed mean over every kept sample.
+  const closing = valid[valid.length - 1]!;
   const inputs = {
     ...counts,
+    closingSampleAt: closing.at.toISOString(),
+    closingMark: formatAmount(closing.mark),
+    closingIndex: formatAmount(closing.index),
     trimmedPerTail: trimmed.trimmedPerTail,
     keptSamples: trimmed.kept,
     droppedPremiums: trimmed.dropped.map(formatAmount),

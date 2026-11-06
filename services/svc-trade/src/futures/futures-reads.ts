@@ -64,6 +64,8 @@ export async function loadMarketBySymbol(sql: Sql, symbol: string, seedEnabled: 
 }
 
 export interface FundingPaymentRow {
+  /** The funding period this payment settled: its key, the same one the ledger leg is keyed by. */
+  periodId: string;
   time: string;
   rate: string | null;
   rateReason: string | null;
@@ -126,6 +128,7 @@ function paymentFromRow(row: AppliedRow): FundingPaymentRow {
   const amount = formatAmount(paid < 0n ? -paid : paid);
   const rate = canonicalRate(row.rate);
   return {
+    periodId: row.period_id,
     time: row.applied_at.toISOString(),
     rate: rate.rate,
     rateReason: rate.rateReason,
@@ -184,6 +187,52 @@ export async function listFundingPayments(
   // `cursor` still drops rows the caller has already seen. nextCursor stays
   // null so a client does not walk off the end into a second empty page.
   return { payments, nextCursor: null };
+}
+
+export interface FundingStatementRow extends FundingPaymentRow {
+  positionId: string;
+  symbol: string;
+  side: 'long' | 'short';
+  asset: string;
+}
+
+export interface FundingStatement {
+  /** Every funding payment on every position the caller holds or held, by position, then period. */
+  rows: FundingStatementRow[];
+  /** Per margin asset: what was paid, what was received, and received minus paid. */
+  totals: { asset: string; paid: string; received: string; net: string }[];
+}
+
+/**
+ * The caller's funding statement (J-derivatives-08 #5): each position's funding payments by period, from the same
+ * record the payments list reads (`position_funding_applied`, what the ledger was asked to move), and their sums.
+ */
+export async function listFundingStatement(sql: Sql, userId: string): Promise<FundingStatement> {
+  const rows = await sql<Array<AppliedRow & { position_id: string; symbol: string; side: 'long' | 'short'; margin_asset: string }>>`
+    SELECT a.applied_at, a.period_id, a.paid::text AS paid, r.rate,
+           p.id::text AS position_id, m.symbol, p.side, p.margin_asset
+      FROM trade.position_funding_applied a
+      JOIN trade.positions p ON p.id = a.position_id
+      JOIN trade.markets m ON m.id = p.market_id
+      LEFT JOIN trade.funding_period_rates r ON r.period_id = a.period_id
+     WHERE p.user_id = ${userId}
+     ORDER BY p.opened_at ASC, p.id ASC, a.applied_at ASC, a.period_id ASC
+  `;
+  const out: FundingStatementRow[] = [];
+  const sums = new Map<string, { paid: bigint; received: bigint }>();
+  for (const row of rows) {
+    const paid = parseAmount(row.paid);
+    if (paid === 0n) continue;
+    out.push({ ...paymentFromRow(row), positionId: row.position_id, symbol: row.symbol, side: row.side, asset: row.margin_asset });
+    const sum = sums.get(row.margin_asset) ?? { paid: 0n, received: 0n };
+    if (paid > 0n) sum.paid += paid;
+    else sum.received -= paid;
+    sums.set(row.margin_asset, sum);
+  }
+  const totals = [...sums.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([asset, t]) => ({ asset, paid: formatAmount(t.paid), received: formatAmount(t.received), net: formatAmount(t.received - t.paid) }));
+  return { rows: out, totals };
 }
 
 export interface LiquidationRungWire {

@@ -1,4 +1,12 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FundingRateView } from './futures/funding-view.js';
+
+/** The CCXT fields every served rate has, plus what a computed period adds (`funding-view.ts`). */
+type FundingRateServed = Pick<
+  FundingRateView,
+  'fundingRate' | 'fundingTimestamp' | 'fundingDatetime' | 'nextFundingTimestamp' | 'markPrice' | 'indexPrice'
+> &
+  Partial<FundingRateView>;
 import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES, type TradingSchedule } from '@intafaced/contracts';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
@@ -113,27 +121,7 @@ export interface PublicRestDeps {
    * Published funding rate for a futures market. Null → not served (never invent zero).
    * Spot markets never call this.
    */
-  fundingRateForMarket?: (
-    marketId: string,
-    symbol: string,
-  ) =>
-    | Promise<{
-        fundingRate: string;
-        fundingTimestamp: number;
-        fundingDatetime: string;
-        nextFundingTimestamp: number | null;
-        markPrice: string | null;
-        indexPrice: string | null;
-      } | null>
-    | {
-        fundingRate: string;
-        fundingTimestamp: number;
-        fundingDatetime: string;
-        nextFundingTimestamp: number | null;
-        markPrice: string | null;
-        indexPrice: string | null;
-      }
-    | null;
+  fundingRateForMarket?: (marketId: string, symbol: string) => Promise<FundingRateServed | null> | FundingRateServed | null;
   /**
    * Algo create vs slice-scheduler flags for the capabilities note.
    * Omitted → shipped defaults (create on, jobs off). Callers that have env
@@ -1047,7 +1035,9 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
     if (!quote) {
       return sendCcxt(reply, notSupported(`no published funding rate for ${market.symbol}`, 'trade.funding_rate_unavailable'));
     }
+    // What the rate was built from (J-derivatives-08 #1) and the index now (#2), then the CCXT fields as served.
     return reply.code(200).send({
+      ...quote,
       symbol: market.symbol,
       markPrice: quote.markPrice,
       indexPrice: quote.indexPrice,

@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FundingStatement } from './futures/futures-reads.js';
 import { requireScope, type Principal } from '@intafaced/auth';
 import { attachConvertExportRoute } from './convert/convert-history-rest.js';
 import { attachStatementRoutes, type StatementRestDeps } from './statements/statement-rest.js';
@@ -393,9 +394,18 @@ export interface PrivateRestDeps {
     positionId: string,
     cursor: string | undefined,
   ): Promise<{
-    payments: readonly { time: string; rate: string | null; rateReason: string | null; amount: string; direction: 'paid' | 'received' }[];
+    payments: readonly {
+      periodId: string;
+      time: string;
+      rate: string | null;
+      rateReason: string | null;
+      amount: string;
+      direction: 'paid' | 'received';
+    }[];
     nextCursor: string | null;
   }>;
+  /** The caller's funding statement: every funding payment by position and period, and the sums per asset. */
+  listFundingStatement?(principal: Principal): Promise<FundingStatement>;
   /** The caller's liquidation rungs. adlRank stays null until a rank is actually computed. */
   listLiquidations?(principal: Principal): Promise<{ events: readonly unknown[] }>;
   /** D-margin-06: one owned position's liquidation rung timeline. Absent: the door answers 503 unwired. */
@@ -1990,6 +2000,23 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     try {
       requireScope(principal, 'trade:read');
       return reply.code(200).send(await deps.listFuturesPayouts(principal));
+    } catch (err) {
+      if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+      const sent = sendDomainError(reply, err);
+      if (sent) return sent;
+      throw err;
+    }
+  });
+
+  app.get('/api/v1/futures/funding-statement', privateRead, async (req, reply) => {
+    const principal = requirePrincipal(req, reply);
+    if (!principal) return;
+    if (!deps.listFundingStatement) {
+      return reply.code(503).send({ error: 'trade.funding_statement_unwired', message: 'the funding statement is not wired on this process' });
+    }
+    try {
+      requireScope(principal, 'trade:read');
+      return reply.code(200).send(await deps.listFundingStatement(principal));
     } catch (err) {
       if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
       const sent = sendDomainError(reply, err);
