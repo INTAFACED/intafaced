@@ -2,7 +2,18 @@
 // Run by tooling/scripts/tooling-tests.mjs (the `tooling-tests` Doctrine gate).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { configDrift, elapsed, heavyWrapper, parseRefs, planChecks, skipReason, stepEnv, SKIP_ENV } from './pre-push.mjs';
+import {
+  configDrift,
+  elapsed,
+  heavyWrapper,
+  INFRA_SUITES,
+  testRuns,
+  parseRefs,
+  planChecks,
+  skipReason,
+  stepEnv,
+  SKIP_ENV,
+} from './pre-push.mjs';
 import { GATES, runOptions, selectGates } from '../ci/gates.mjs';
 
 const BASE = 'a'.repeat(40);
@@ -109,4 +120,30 @@ test('durations print as minutes and seconds, never 60 seconds', () => {
   assert.equal(elapsed(59_600), '1m00s');
   assert.equal(elapsed(119_600), '2m00s');
   assert.equal(elapsed(125_000), '2m05s');
+});
+
+test('vitest packages run without the infrastructure suites, other test scripts run as they are', () => {
+  const pkgs = [
+    { name: '@intafaced/svc-support', testScript: 'vitest run' },
+    { name: '@intafaced/svc-fix', testScript: 'node scripts/run-mvn.mjs test' },
+    { name: '@intafaced/no-tests', testScript: '' },
+  ];
+  const runs = testRuns(pkgs, { hasTestDb: false });
+  assert.deepEqual(
+    runs.map((r) => r.name),
+    ['test', 'test-other'],
+  );
+  assert.ok(runs[0].args.includes('--filter=@intafaced/svc-support'));
+  assert.ok(!runs[0].args.includes('--filter=@intafaced/svc-fix'));
+  for (const g of INFRA_SUITES) assert.ok(runs[0].args.includes(g), g);
+  assert.ok(runs[1].args.includes('--filter=@intafaced/svc-fix'));
+  assert.ok(!runs[1].args.includes('--'));
+  assert.ok(runs.every((r) => !r.args.includes('--filter=@intafaced/no-tests')));
+});
+
+test('with a test database the infrastructure suites run too', () => {
+  const runs = testRuns([{ name: 'a', testScript: 'vitest run' }], { hasTestDb: true });
+  assert.equal(runs.length, 1);
+  assert.ok(!runs[0].args.includes('--exclude'));
+  assert.deepEqual(testRuns([], { hasTestDb: false }), []);
 });

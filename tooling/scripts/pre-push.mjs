@@ -68,6 +68,42 @@ export function planChecks(files, base, edges = readEdges()) {
   return { kind, typecheck: affectedFilters(files, edges, base), test: [`[${base}]`], gaps };
 }
 
+/**
+ * Test files that need CI's infrastructure (Postgres with the service roles, NATS, Redis, the dev chains; CI's
+ * .github/actions/test-infra). On a laptop without TEST_DATABASE_URL they time out or throw instead of skipping, so
+ * a vitest package runs without them and CI runs them. With TEST_DATABASE_URL set, they run here too.
+ */
+export const INFRA_SUITES = ['**/*.pg.test.ts', '**/*.db.test.ts', '**/*.sql.test.ts', '**/*.onchain.test.ts', '**/*.live.test.ts'];
+
+/**
+ * The test runs for the changed packages: one turbo run over the vitest packages (leaving out INFRA_SUITES unless a
+ * test database is configured) and one over the rest, as they are. `packages` is [{ name, testScript }].
+ */
+export function testRuns(packages, { hasTestDb }) {
+  const withTests = packages.filter((p) => p.testScript);
+  const vitest = withTests.filter((p) => !hasTestDb && /^vitest run\b/.test(p.testScript.trim()));
+  const rest = withTests.filter((p) => !vitest.includes(p));
+  const common = ['--continue', '--concurrency=3', '--output-logs=errors-only'];
+  const runs = [];
+  if (vitest.length) {
+    runs.push({
+      name: 'test',
+      args: [
+        'run',
+        'test',
+        ...vitest.map((p) => `--filter=${p.name}`),
+        ...common,
+        '--',
+        '--passWithNoTests',
+        ...INFRA_SUITES.flatMap((g) => ['--exclude', g]),
+      ],
+    });
+  }
+  if (rest.length)
+    runs.push({ name: vitest.length ? 'test-other' : 'test', args: ['run', 'test', ...rest.map((p) => `--filter=${p.name}`), ...common] });
+  return runs;
+}
+
 function git(args, opts = {}) {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim();
 }
@@ -251,7 +287,31 @@ async function main() {
   const jobs = Math.max(2, Math.min(6, Math.floor(availableParallelism() / 2)));
   const turbo = join(top, 'node_modules', '.bin', 'turbo');
   const tcArgs = ['run', 'typecheck', ...plan.typecheck.map((f) => `--filter=${f}`), '--output-logs=errors-only'];
-  const testArgs = ['run', 'test', ...plan.test.map((f) => `--filter=${f}`), '--continue', '--concurrency=3', '--output-logs=errors-only'];
+  // The changed packages (turbo's own reading of `[<merge-base>]`) and their test scripts.
+  let changed = [];
+  if (plan.kind !== 'docs') {
+    const listed = JSON.parse(
+      execFileSync(turbo, ['ls', ...plan.test.map((f) => `--filter=${f}`), '--output=json'], { cwd: top, encoding: 'utf8' }),
+    );
+    changed = listed.packages.items.map(({ name, path }) => {
+      let testScript = '';
+      try {
+        testScript = JSON.parse(readFileSync(join(top, path, 'package.json'), 'utf8')).scripts?.test ?? '';
+      } catch {
+        testScript = '';
+      }
+      return { name, testScript };
+    });
+  }
+  const hasTestDb = Boolean(process.env.TEST_DATABASE_URL);
+  const tests = testRuns(changed, { hasTestDb });
+  if (plan.kind !== 'docs') {
+    plan.gaps.push(
+      hasTestDb
+        ? 'TEST_DATABASE_URL is set, so the infrastructure suites run here against it; CI runs them against its own Postgres, NATS, Redis and chains'
+        : `CI runs the infrastructure suites (${INFRA_SUITES.join(' ')}) against its Postgres, NATS, Redis and chains; this leaves them out (set TEST_DATABASE_URL to run them)`,
+    );
+  }
 
   console.log(
     `\n══ PRE-PUSH CHECKS — ${branch} @ ${head.slice(0, 12)}, ${files.length} file(s) changed since ${base.slice(0, 12)}: ${plan.kind} ══`,
@@ -261,7 +321,8 @@ async function main() {
     console.log(`  gates: node tooling/ci/gates.mjs --jobs ${jobs} --part shared, then --part exclusive`);
     if (plan.kind !== 'docs') {
       console.log(`  typecheck: turbo ${tcArgs.join(' ')}`);
-      console.log(`  test: turbo ${testArgs.join(' ')}`);
+      for (const t of tests) console.log(`  ${t.name}: turbo ${t.args.join(' ')}`);
+      if (!tests.length) console.log('  test: no changed package has a test script');
     } else console.log('  docs only: nothing to typecheck or test (as CI)');
     return;
   }
@@ -324,7 +385,10 @@ async function main() {
     const tc = await step('typecheck', turbo, tcArgs, ctx);
     results.push(tc);
     if (interrupted) return;
-    results.push(await step('test', turbo, testArgs, ctx));
+    for (const t of tests) {
+      if (interrupted) return;
+      results.push(await step(t.name, turbo, t.args, ctx));
+    }
   };
   const [gates] = await Promise.all([
     step('gates', node, ['tooling/ci/gates.mjs', '--jobs', String(jobs), '--part', 'shared'], ctx),
