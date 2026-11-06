@@ -84,6 +84,7 @@ import { orderIdFor } from './spot/ids.js';
 import type { OrderHold } from './spot/order-holds.js';
 import type { EdgeTrust } from './edge-trust.js';
 import { carryPlacementBody, schemaBodyOf } from './spot/placement-extras.js';
+import { refuseRetailPriceImprovement } from './spot/rpi.js';
 import { readBracketFromBody } from './spot/bracket-place.js';
 import type { OrderLink } from './spot/order-links.js';
 import { readOcoFromBody } from './spot/oco-place.js';
@@ -2547,6 +2548,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
       try {
         refuseExitLegs(rawItem);
         const now = (deps.now ?? (() => new Date()))();
+        refuseRetailPriceImprovement(rawItem);
         const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
         refuseUnsupportedPlacementOptions(parsed.data, now, replay);
         input = withFeeCurrency(mapCreateOrderBody(parsed.data), await feeCurrencyFor(deps, parsed.data, rawItem));
@@ -2877,6 +2879,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let stopTrigger: string | null = null;
     try {
       const now = (deps.now ?? (() => new Date()))();
+      refuseRetailPriceImprovement(rawBody);
       const replay = await isDeadlineReplay(deps, principal, parsed.data, now);
       refuseUnsupportedPlacementOptions(parsed.data, now, replay);
       const feeCurrency = await feeCurrencyFor(deps, parsed.data, rawBody);
@@ -3200,6 +3203,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     let input: PlaceOrderInput;
     try {
       refuseOptionsOnReplacement(parsed.data);
+      refuseRetailPriceImprovement(rawBody);
       if (hasSpentExpiry(parsed.data, (deps.now ?? (() => new Date()))())) {
         throw new TradeError('the order expiry is not in the future; nothing was replaced', 'trade.invalid_expiry');
       }

@@ -112,6 +112,9 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
           value={turnoverText(row?.quoteVolume24h ?? null, market.quote)}
           loading={loading}
         />
+        {/* SP-markets-data-04 is blocked on the engine's priority-class note and the owner's retail decision: the layer
+            is named, never implied, and the place door refuses an order that asks for it (`trade.rpi_unavailable`). */}
+        <Stat label={t('Price improvement')} value={t('Price improvement not available')} loading={false} />
       </div>
       {status ? <div className="dk-ticker-status">{status}</div> : null}
     </header>

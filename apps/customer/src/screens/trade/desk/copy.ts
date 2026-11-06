@@ -226,6 +226,8 @@ const messages = {
   'Log in to trade': 'Log in to trade',
   'Checking the order': 'Checking the order…',
   'Trading mode': 'Trading mode',
+  'Price improvement': 'Retail price improvement',
+  'Price improvement not available': 'Not available: priority class not specified',
   'Trading mode value': 'Cash spot · {state}',
   'Trading mode no orders': 'Cash spot · {state}, no new orders on this desk',
   'Mode OPEN': 'Open',

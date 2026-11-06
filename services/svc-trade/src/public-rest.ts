@@ -19,6 +19,7 @@ import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { publicRead } from './route-inventory.js';
+import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -1056,6 +1057,13 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       fundingDatetime: quote.fundingDatetime,
       nextFundingTimestamp: quote.nextFundingTimestamp,
     });
+  });
+
+  // Market analytics read from the same public tape (SP-markets-data-03 b; J-cex-spot-14 #9).
+  registerMarketAnalyticsRoute(app, {
+    marketBySymbol: (symbol) => deps.marketBySymbol(symbol),
+    publicTape: (marketId, limit, sinceMs) => deps.publicTape(marketId, limit, sinceMs),
+    now: () => new Date(now()),
   });
 }
 

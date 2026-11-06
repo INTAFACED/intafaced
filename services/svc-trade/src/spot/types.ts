@@ -309,6 +309,8 @@ export type TradeErrorCode =
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
   | 'trade.mode_limit_only'
+  /** The retail price improvement layer has no priority class (SP-markets-data-04): an order asking for it is refused. */
+  | 'trade.rpi_unavailable'
   /** Cancel-only mode: a new order is refused; cancel works. */
   | 'trade.mode_cancel_only'
   /** Post-only mode: an order that would take liquidity is refused. */

@@ -135,7 +135,13 @@ test(`${J} #3 a market order on a limit-only market is refused as limit-only, an
     await page.waitForTimeout(1000);
     expect(orderSends(sent)).toHaveLength(0);
     // The door itself refuses the same order with the typed code, before any hold.
-    const market = await client.post('/api/v1/orders', { symbol: LIMITED, side: 'buy', type: 'market', amount: '0.001' });
+    const market = await client.post('/api/v1/orders', {
+      symbol: LIMITED,
+      side: 'buy',
+      type: 'market',
+      amount: '0.001',
+      clientOrderId: `${J}-3m-${who.handle}`,
+    });
     expect(market.status).toBe(400);
     expect(JSON.stringify(market.body)).toContain('trade.mode_limit_only');
     expect(held(await client.balances(), 'USDC')).toBe(before);
@@ -280,21 +286,34 @@ test(`${J} #9 /trade/analytics/:pair shows the aggressor differential and window
 });
 
 test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label reads USD`, async ({ page }) => {
+  const who = await account(page);
+  // A USD-quoted pair the service lists: its desk names the quote USD, from the listing, not from a stand-in.
+  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  const usd = markets.find((m) => m.quote === 'USD' && m.spot && !m.paper);
+  expect(usd, 'a USD-quoted spot pair on the list').toBeTruthy();
+  await signIn(page, who);
+  await page.goto(deskPath(usd.symbol));
+  await expect(page.getByTestId('dk-pair')).toHaveText(`${usd.base}/USD`);
+  // The equity class is not listed without a licence: the markets page names it, with its blocker, and lists no row.
+  expect(markets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
   await page.goto('/trade');
-  const list = page.getByRole('table').first();
-  const usd = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
-  await expect(usd.first()).toBeVisible();
-  // The equity class is not offered without a licence: its row says so, not a price.
-  await expect(list.getByText('Not available: licence not named')).toBeVisible({ timeout: UNBUILT_MS });
+  await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Tokenized equities');
+  await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Not available: licence not named');
 });
 
 test(`${J} #11 the retail price improvement layer reads "Not available: priority class not specified", and no order accepts that flag`, async ({
   page,
 }) => {
   const who = await account(page);
-  await openDesk(page, who, 'BTC/USDT');
-  await expect(page.getByText('Not available: priority class not specified')).toBeVisible({ timeout: UNBUILT_MS });
   const client = await api(who);
+  await page.goto('/trade');
+  await expect(page.getByTestId('mkt-not-offered-rpi')).toContainText('Not available: priority class not specified');
+  await openDesk(page, who, 'BTC/USDT');
+  await expect(page.getByTestId('dk-ticker')).toContainText('Retail price improvement');
+  await expect(page.getByTestId('dk-ticker')).toContainText('Not available: priority class not specified');
+  // An order that asks for the layer is refused with its typed code, before any hold, and is not stored.
+  const before = await client.balances();
+  const clientOrderId = `${J}-11-${who.handle}`;
   const res = await client.post('/api/v1/orders', {
     symbol: 'BTC/USDT',
     side: 'buy',
@@ -302,8 +321,10 @@ test(`${J} #11 the retail price improvement layer reads "Not available: priority
     amount: '0.0001',
     price: '1',
     rpi: true,
-    clientOrderId: `${J}-11-${who.handle}`,
+    clientOrderId,
   });
-  expect(res.status).toBeGreaterThanOrEqual(400);
-  expect((await openOrders(who)).filter((o) => o.clientOrderId === `${J}-11-${who.handle}`)).toHaveLength(0);
+  expect(res.status).toBe(400);
+  expect(JSON.stringify(res.body)).toContain('trade.rpi_unavailable');
+  expect(await client.balances()).toEqual(before);
+  expect((await openOrders(who)).filter((o) => o.clientOrderId === clientOrderId)).toHaveLength(0);
 });
