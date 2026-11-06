@@ -27,7 +27,10 @@ export interface DeskMarket {
   minAmount: string | null;
   /** Smallest order value in the quote asset. */
   minCost: string | null;
-  /** Can be traded right now (listed, orderable, session open, state OPEN). */
+  /**
+   * The form is on (listed, orderable, session open, and a mode this desk places in: OPEN, or a restricted mode whose
+   * refusal the desk's own preview says in words before Confirm, as limit-only refuses a market order).
+   */
   open: boolean;
   /** The listed lifecycle state (OPEN, POST_ONLY, HALTED ...), or null when the listing names none. */
   state: string | null;
@@ -41,7 +44,7 @@ export interface DeskMarket {
 const published = (value: string | undefined): string | null => (value && value !== 'not set' ? value : null);
 
 export function toDeskMarket(listing: DeskListing): DeskMarket {
-  const stateOpen = listing.lifecycle ? listing.lifecycle.state === 'OPEN' : true;
+  const stateOpen = listing.lifecycle ? (DESK_MODES as readonly string[]).includes(listing.lifecycle.state) : true;
   return {
     symbol: listing.symbol,
     base: listing.base,
@@ -61,17 +64,29 @@ export const NAMED_MODES = ['OPEN', 'POST_ONLY', 'LIMIT_ONLY', 'CANCEL_ONLY', 'R
 export type NamedMode = (typeof NAMED_MODES)[number];
 
 /**
+ * The modes the desk keeps its form on in. Limit-only and post-only take some orders; cancel-only takes none, and the
+ * form stays so the person is told why in words before Confirm (`trade.mode_cancel_only`), and open orders still cancel.
+ */
+export const DESK_MODES = ['OPEN', 'POST_ONLY', 'LIMIT_ONLY', 'CANCEL_ONLY'] as const;
+/** Restricted modes in which no new order is taken at all. */
+const NO_NEW_ORDERS: ReadonlySet<string> = new Set(['CANCEL_ONLY', 'REDUCE_ONLY', 'HALTED']);
+
+/**
  * What the ticker says about trading here. 'open' only when the desk takes orders (market.open), so the strip never
  * reads Open while the form refuses. A named state the desk does not trade in (POST_ONLY, HALTED ...) is named, with
  * no new orders; any other state is 'closed' (never shown raw); a listing with no state is 'unlisted'.
  */
 export type TradingMode =
-  { kind: 'open' } | { kind: 'named'; mode: Exclude<NamedMode, 'OPEN'> } | { kind: 'closed' } | { kind: 'unlisted' };
+  { kind: 'open' } | { kind: 'named'; mode: Exclude<NamedMode, 'OPEN'>; newOrders: boolean } | { kind: 'closed' } | { kind: 'unlisted' };
 export function tradingMode(market: Pick<DeskMarket, 'open' | 'state'>): TradingMode {
-  if (market.open) return { kind: 'open' };
+  if (market.open && (market.state === null || market.state === 'OPEN')) return { kind: 'open' };
   if (market.state === null) return { kind: 'unlisted' };
   if (market.state !== 'OPEN' && (NAMED_MODES as readonly string[]).includes(market.state))
-    return { kind: 'named', mode: market.state as Exclude<NamedMode, 'OPEN'> };
+    return {
+      kind: 'named',
+      mode: market.state as Exclude<NamedMode, 'OPEN'>,
+      newOrders: market.open && !NO_NEW_ORDERS.has(market.state),
+    };
   return { kind: 'closed' };
 }
 

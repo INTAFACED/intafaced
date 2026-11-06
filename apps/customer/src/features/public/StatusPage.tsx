@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useDataEnv, useSource } from '../../data/hooks';
 import { refusalCopy } from '../../data';
-import { knownMode, maintenanceFetcher, marketModesFetcher, type MaintenanceWindow, type MarketMode } from './status';
+import { knownMode, maintenanceFetcher, marketModesFetcher, modesAsOf, type MaintenanceWindow, type MarketMode } from './status';
 import { statusCopy } from './status-copy';
 import { StatusComponents } from './StatusComponents';
 import './status-page.css';
@@ -49,7 +49,15 @@ export function StatusPage() {
         ) : null}
         {load.status === 'ready' && load.data.length === 0 ? <p role="status">{copy.t('none')}</p> : null}
         {load.status === 'ready' && load.data.length > 0 ? (
-          <table className="pub-table">
+          <p className="muted" data-testid="status-modes-asof">
+            {(() => {
+              const at = modesAsOf(load.data);
+              return at ? `${copy.t('modesAsOf')} ${whenUtc(at)}` : copy.t('modesAsOfNone');
+            })()}
+          </p>
+        ) : null}
+        {load.status === 'ready' && load.data.length > 0 ? (
+          <table className="pub-table" data-testid="status-modes">
             <thead>
               <tr>
                 <th>{copy.t('colMarket')}</th>
@@ -61,7 +69,7 @@ export function StatusPage() {
               {load.data.map((row) => {
                 const mode = knownMode(row.state);
                 return (
-                  <tr key={row.symbol}>
+                  <tr key={row.symbol} data-testid={`status-mode-${row.symbol}`} data-state={row.state ?? 'none'}>
                     <td>{row.symbol}</td>
                     <td>{mode ? copy.t(mode) : row.state === null ? copy.t('notReported') : row.state}</td>
                     <td>

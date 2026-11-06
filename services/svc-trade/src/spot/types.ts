@@ -309,6 +309,10 @@ export type TradeErrorCode =
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
   | 'trade.mode_limit_only'
+  /** Cancel-only mode: a new order is refused; cancel works. */
+  | 'trade.mode_cancel_only'
+  /** Post-only mode: an order that would take liquidity is refused. */
+  | 'trade.mode_post_only'
   | 'trade.market_halted'
   /** Matching operator halt of ALL markets. New submits refuse; cancel stays. Distinct from one-market halt. */
   | 'trade.venue_halted'

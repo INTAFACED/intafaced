@@ -25,9 +25,17 @@ describe('trading mode', () => {
     expect(modeOf({ state: 'OPEN' }, { orderable: false })).toEqual({ kind: 'closed' });
   });
 
-  it('names a state the desk does not trade in, with no new orders', () => {
-    expect(modeOf({ state: 'POST_ONLY' })).toEqual({ kind: 'named', mode: 'POST_ONLY' });
-    expect(modeOf({ state: 'HALTED' })).toEqual({ kind: 'named', mode: 'HALTED' });
+  it('names a restricted mode, and keeps the form on where the desk can still place or explain', () => {
+    expect(modeOf({ state: 'POST_ONLY' })).toEqual({ kind: 'named', mode: 'POST_ONLY', newOrders: true });
+    expect(modeOf({ state: 'LIMIT_ONLY' })).toEqual({ kind: 'named', mode: 'LIMIT_ONLY', newOrders: true });
+    expect(toDeskMarket(listing({ state: 'LIMIT_ONLY' })).open).toBe(true);
+    // Cancel-only: the form stays so the refusal is said in words before Confirm, and no new order is taken.
+    expect(modeOf({ state: 'CANCEL_ONLY' })).toEqual({ kind: 'named', mode: 'CANCEL_ONLY', newOrders: false });
+    expect(toDeskMarket(listing({ state: 'CANCEL_ONLY' })).open).toBe(true);
+    expect(modeOf({ state: 'HALTED' })).toEqual({ kind: 'named', mode: 'HALTED', newOrders: false });
+    expect(toDeskMarket(listing({ state: 'HALTED' })).open).toBe(false);
+    // A restricted mode on a shut session is still named, with no new orders.
+    expect(modeOf({ state: 'LIMIT_ONLY' }, { sessionOpen: false })).toEqual({ kind: 'named', mode: 'LIMIT_ONLY', newOrders: false });
   });
 
   it('any other listed state is closed, never shown raw', () => {
