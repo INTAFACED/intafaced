@@ -183,8 +183,9 @@ export function buildJourneys(ozDir) {
 }
 
 /**
- * The journeys still to build: a journey with a `Deferred:` line, and a step whose Slices cell says DEFERRED, wait for
- * launch prep (legal and compliance work, owner decision 2026-10-27), so they leave the count and the slice order.
+ * The journeys still to build: a journey with a `Deferred:` line, and a step whose Slices cell says DEFERRED, leave the
+ * count and the slice order. Most wait for launch prep (legal and compliance work, owner decision 2026-10-27); a few are
+ * set aside by another owner decision, which their Slices cell names (J-agents-12 #2, OWNER 107).
  */
 export function liveJourneys(journeys) {
   return journeys
@@ -616,7 +617,7 @@ export function progress(slices, commits, now, allJourneys = [], passed = null) 
         `- Every slice started (ready to prove, builders' claim): ${ready.length} of ${journeys.length} journeys.`,
         ...(deferredSteps
           ? [
-              `- Deferred to launch prep and not counted: ${n(allJourneys.length - journeys.length, 'journey')} and ${n(deferredSteps, 'step')}.`,
+              `- Deferred (launch prep, or set aside by an owner decision) and not counted: ${n(allJourneys.length - journeys.length, 'journey')} and ${n(deferredSteps, 'step')}.`,
             ]
           : []),
         '',
