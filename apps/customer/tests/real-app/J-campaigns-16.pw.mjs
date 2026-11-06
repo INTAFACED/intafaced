@@ -1,4 +1,4 @@
-// World: none
+// World: book
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

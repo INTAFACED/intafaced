@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { JOURNEY_DIR, WORLD, declaredWorld, directWorld, fileWorld, helperWorld, scan, worldFiles } from './journey-world.mjs';
+import { JOURNEY_DIR, WORLD, declaredWorld, directWorld, fileWorld, helperWorld, scan } from './journey-world.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const REAL = path.join(ROOT, JOURNEY_DIR);
@@ -50,14 +50,13 @@ test('planted: the run-1247 leak. J-copy-bots-otc-30 rests a bid and J-ops-conso
   assert.equal(cli.status, 1);
   assert.match(cli.stderr, /J-copy-bots-otc-30\.pw\.mjs: changes book but does not declare it/);
   assert.match(cli.stderr, /J-ops-console-08\.pw\.mjs: changes .*market.*restart|J-ops-console-08\.pw\.mjs: changes .*restart.*market/);
-  // Declared as the real files are, the same three pass, and the two that change the world are the ones kept apart.
+  // Declared as the real files are, the same three pass.
   const fixed = plant({
     'J-copy-bots-otc-30.pw.mjs': real('J-copy-bots-otc-30.pw.mjs'),
     'J-ops-console-08.pw.mjs': real('J-ops-console-08.pw.mjs'),
     'J-portfolio-04.pw.mjs': real('J-portfolio-04.pw.mjs'),
   });
   assert.equal(run(fixed).status, 0);
-  assert.deepEqual(worldFiles(fixed), ['J-copy-bots-otc-30.pw.mjs', 'J-ops-console-08.pw.mjs']);
 });
 
 test('planted: a file with no World line fails, naming the line it needs', () => {
@@ -71,7 +70,7 @@ test('each shared part is found directly, through a computed subcommand, and thr
   assert.deepEqual([...directWorld("tool('local-test-market.mjs', 'move', 'BTC/USDT', '+1%')")], ['market']);
   assert.deepEqual([...directWorld("tool('local-test-market.mjs', cmd)")], ['market']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'restart', 'trade')")], ['restart']);
-  assert.deepEqual([...directWorld("tool('local-test-stack.mjs', what, 'trade')")], ['restart']);
+  assert.deepEqual([...directWorld("tool('local-test-stack.mjs', what, 'trade')")].sort(), ['restart', 'stack']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'age-addresses')")], ['stack']);
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', 'risk', 'BTC/USDT')")], ['gates']);
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', 'posting-freeze', 'on')")], ['freeze']);
@@ -80,6 +79,16 @@ test('each shared part is found directly, through a computed subcommand, and thr
   assert.deepEqual([...directWorld('await me.post(`/api/v1/futures/orders/split`, body)')], ['book']);
   assert.deepEqual([...directWorld("await page.getByRole('button', { name: 'Sell BTC' }).click();")], ['book']);
   assert.deepEqual([...directWorld("await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();")], ['book']);
+  // Sent another way: through an API-key helper, a hand-built request, or a button named by a computed name.
+  assert.deepEqual([...directWorld("await call('POST', '/api/v1/bots/grid', body)")], ['book']);
+  assert.deepEqual([...directWorld("await withKey(key, { method: 'POST', path: '/api/v1/algo', body })")], ['book']);
+  assert.deepEqual([...directWorld("await me.post('/api/v1/orders/batch', [a, b])")], ['book']);
+  assert.deepEqual([...directWorld("const name = side === 'buy' ? 'Confirm buy' : 'Confirm sell';")], ['book']);
+  // A computed subcommand counts as every part it could be; a stack script run by hand counts as the stack's tools.
+  assert.deepEqual([...directWorld("tool('local-test-gates.mjs', which, 'on')")].sort(), ['freeze', 'gates']);
+  assert.deepEqual([...directWorld("tool('local-test-market.mjs', 'ensure')")], ['market']);
+  assert.deepEqual([...directWorld("execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-loan'])")], ['stack']);
+  assert.deepEqual([...directWorld("import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';")], []);
   // Seeing a button, reading a book, or acting on one named account is not a change to the shared world.
   assert.deepEqual([...directWorld("await expect(page.getByRole('button', { name: 'Open long' })).toBeVisible();")], []);
   assert.deepEqual([...directWorld("await me.get('/api/v1/orders/open?symbol=BTC%2FUSDT')")], []);
@@ -105,6 +114,10 @@ test('a helper passes on what the helpers it calls change, however deep', () => 
       'export function bystander() {',
       '  return 1;',
       '}',
+      // The same name as desk.mjs's openDesk, which places orders: a call by that name counts both.
+      'export function openDesk() {',
+      '  return 1;',
+      '}',
     ].join('\n'),
   });
   const helpers = helperWorld(dir);
@@ -112,6 +125,7 @@ test('a helper passes on what the helpers it calls change, however deep', () => 
   assert.deepEqual([...helpers.get('bystander')], []);
   assert.deepEqual([...fileWorld('await top();', helpers)], ['market']);
   assert.deepEqual([...fileWorld('await bystander();', helpers)], []);
+  assert.ok(helpers.get('openDesk').has('book'), 'a harmless openDesk does not hide the one that places orders');
 });
 
 test('the World line: none, known parts only, and none never mixed with a part', () => {

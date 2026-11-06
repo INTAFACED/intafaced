@@ -1,4 +1,4 @@
-// World: gates
+// World: freeze, gates
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';

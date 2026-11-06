@@ -1,4 +1,4 @@
-// World: book, market, restart
+// World: book, market, restart, stack
 import { test, expect } from './journey.mjs';
 import {
   EDGE,

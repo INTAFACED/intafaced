@@ -14,7 +14,7 @@
 //
 // and this scan finds what the file (and every journey helper it calls) actually does, and fails a file whose line
 // leaves out anything it does, or that has no line. Declaring more than it does is allowed: it only costs speed.
-// The runner puts back what a file changed before the next file starts (apps/customer/tests/real-app/journey.mjs).
+// The journeys put back what a file changed before the next file starts (apps/customer/tests/real-app/world-restore.mjs).
 //
 // Usage: node tooling/scripts/journey-world.mjs [--dir <journey folder>] [--suggest]
 //   Exits 1 naming every file whose declaration is missing or short. --suggest prints the line each file needs.
@@ -42,19 +42,27 @@ const PER_ACCOUNT = {
   'local-test-chain.mjs': new Set(['status', 'fund']),
 };
 const RESTARTS = new Set(['restart', 'stop', 'start', 'second-worker', 'chain-reorg']);
-const MARKET_MOVES = new Set(['move', 'stop', 'start', 'delist']);
+// Every market-maker command but `status` changes what the maker quotes or whether it runs.
+const MARKET_READS = new Set(['status']);
 
-/** Order, algo and bot writes on a shared book, as journeys and helpers send them. */
+// The order, algo, bot and position routes on a shared book. A write to one, however it is sent, is a change to the book.
+const BOOK_ROUTE = String.raw`\/api\/(?:v1\/(?:orders|futures\/orders|algo|bots\/|positions)|trade\/trpc\/algo\.create)`;
 const BOOK = [
-  /\.post\(\s*['`]\/api\/v1\/orders(\/split)?['`?]/,
-  /\.post\(\s*['`]\/api\/v1\/futures\/orders(\/split)?['`?]/,
-  /\.post\(\s*['`]\/api\/v1\/algo['`?]/,
-  /\.post\(\s*['`]\/api\/trade\/trpc\/algo\.create/,
-  /\.post\(\s*['`]\/api\/v1\/bots\//,
-  /\.post\(\s*['`]\/api\/v1\/positions['`?]/, // The same through the screens: a click on the button that places, opens, closes or swaps.
+  // `me.post('/api/v1/orders', …)`, `client.post(…)`.
+  new RegExp(String.raw`\.post\(\s*['\x60]` + BOOK_ROUTE),
+  // `call('POST', '/api/v1/bots/grid', …)`, `http('POST', …)`, `fetch(…, { method: 'POST' … })` near the route.
+  new RegExp(String.raw`['"]POST['"]\s*,\s*['\x60]` + BOOK_ROUTE),
+  new RegExp(String.raw`method:\s*['"]POST['"][^;]{0,200}?path:\s*['\x60]` + BOOK_ROUTE, 's'),
+  new RegExp(String.raw`path:\s*['\x60]` + BOOK_ROUTE + String.raw`[^;]{0,200}?method:\s*['"]POST['"]`, 's'),
+  // The same through the screens: a click on the button that places, opens, closes or swaps…
   /getByRole\(\s*'button',\s*\{\s*name:\s*['`/]\^?(?:Buy|Sell|Open long|Open short|Close position|Confirm (?:open|close|buy|sell|swap)|Place order|Place as|Swap)\b[^\n]*?\)\s*\)?\s*\.(?:dbl)?click\(/,
+  // …and a helper that names such a button by a computed name (desk.mjs `confirm`: 'Confirm buy' : 'Confirm sell').
+  /['`](?:Confirm (?:buy|sell|open long|open short)|Place order)['`]\s*[:)]/,
+  /`(?:Buy|Sell|Confirm|Open) \$\{/,
 ];
 const FREEZE = [/ledger-freeze/, /tool\(\s*'local-test-gates\.mjs',\s*'posting-freeze'/];
+// A stack script run some other way than `tool(…)` (execFileSync, spawnSync, a path joined by hand): its own tools.
+const STACK_SCRIPT = /['`][^'`\n]*\blocal-test[a-z-]*\.mjs['`]/g;
 
 /** The world parts one piece of source touches directly (not through helpers). */
 export function directWorld(src) {
@@ -62,16 +70,32 @@ export function directWorld(src) {
   if (BOOK.some((re) => re.test(src))) found.add('book');
   if (FREEZE.some((re) => re.test(src))) found.add('freeze');
   if (/\brestartWith\(/.test(src)) found.add('restart');
+  const viaTool = new Set();
   for (const m of src.matchAll(/\btool\(\s*'([a-z-]+\.mjs)'\s*(?:,\s*('([a-z-]+)'|[^,)]+))?/g)) {
+    viaTool.add(m.index);
     const [, script, , literal] = m;
-    const sub = literal ?? null; // null: a subcommand the source computes, which counts as the widest it could be
+    // A subcommand the source computes counts as every part it could be.
+    const sub = literal ?? null;
     if (sub && PER_ACCOUNT[script]?.has(sub)) continue;
-    if (script === 'local-test-market.mjs') found.add(sub === null || MARKET_MOVES.has(sub) ? 'market' : 'stack');
-    else if (script === 'local-test-chain.mjs') found.add(sub === 'gate' ? 'gates' : 'restart');
-    else if (script === 'local-test-gates.mjs') found.add(sub === 'posting-freeze' ? 'freeze' : 'gates');
-    else if (script === 'local-test-stack.mjs')
-      found.add(sub !== null && RESTARTS.has(sub) ? 'restart' : sub === null ? 'restart' : 'stack');
-    else found.add('stack');
+    if (script === 'local-test-market.mjs') {
+      if (sub === null || !MARKET_READS.has(sub)) found.add('market');
+    } else if (script === 'local-test-chain.mjs') {
+      if (sub === null || sub === 'gate') found.add('gates');
+      if (sub !== 'gate') found.add('restart');
+    } else if (script === 'local-test-gates.mjs') {
+      if (sub === null || sub === 'posting-freeze') found.add('freeze');
+      if (sub !== 'posting-freeze') found.add('gates');
+    } else if (script === 'local-test-stack.mjs') {
+      if (sub === null || RESTARTS.has(sub)) found.add('restart');
+      if (sub === null || !RESTARTS.has(sub)) found.add('stack');
+    } else found.add('stack');
+  }
+  // A stack script named outside `tool(…)` and outside an import: run by hand, so it counts as the stack's tools.
+  for (const m of src.matchAll(STACK_SCRIPT)) {
+    const before = src.slice(Math.max(0, m.index - 80), m.index);
+    if (/\btool\(\s*$/.test(before) || /\bfrom\s*$|\bimport\(\s*$|^\s*import\b[^\n]*$/.test(before.split('\n').at(-1) + '')) continue;
+    if (/local-test-(device|state)\.mjs/.test(m[0])) continue; // read-only helpers: the TEST device key and the state path
+    found.add('stack');
   }
   return found;
 }
@@ -107,22 +131,25 @@ export function topLevelFunctions(src) {
  * modules (every `.mjs` that is not a journey file or the Playwright config), worked to a fixed point.
  */
 export function helperWorld(dir) {
-  const fns = new Map();
+  // Keyed by module and name; a call by name counts every module's function of that name (two helpers may share one).
+  const fns = [];
   for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.mjs') && !f.endsWith('.pw.mjs') && !f.endsWith('.config.mjs')))
     for (const { name, body } of topLevelFunctions(fs.readFileSync(path.join(dir, f), 'utf8')))
-      fns.set(name, { body, world: directWorld(body), file: f });
-  for (let changed = true; changed;) {
+      fns.push({ name, body, world: directWorld(body), call: new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\s*\\(`) });
+  for (let changed = true; changed; ) {
     changed = false;
-    for (const fn of fns.values())
-      for (const [callee, other] of fns)
-        if (other !== fn && other.world.size && new RegExp(`\\b${callee.replace(/\$/g, '\\$')}\\s*\\(`).test(fn.body))
+    for (const fn of fns)
+      for (const other of fns)
+        if (other !== fn && other.world.size && other.call.test(fn.body))
           for (const part of other.world)
             if (!fn.world.has(part)) {
               fn.world.add(part);
               changed = true;
             }
   }
-  return new Map([...fns].map(([name, fn]) => [name, fn.world]));
+  const byName = new Map();
+  for (const fn of fns) byName.set(fn.name, new Set([...(byName.get(fn.name) ?? []), ...fn.world]));
+  return byName;
 }
 
 /** What a journey file touches: its own source, and every helper function it calls. */
@@ -173,13 +200,6 @@ export function scan(dir = JOURNEY_DIR) {
       const missing = declared ? [...does].filter((p) => !declared.has(p)) : [...does];
       return { file, does, declared: declared ?? null, missing, error };
     });
-}
-
-/** The files that change the shared world, which the runner keeps apart: every file declaring a part. */
-export function worldFiles(dir = JOURNEY_DIR) {
-  return scan(dir)
-    .filter((r) => r.declared === null || r.declared.size > 0)
-    .map((r) => r.file);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -1,4 +1,4 @@
-// World: none
+// World: book
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';

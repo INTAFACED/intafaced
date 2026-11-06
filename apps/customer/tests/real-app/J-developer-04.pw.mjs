@@ -1,4 +1,4 @@
-// World: restart, freeze
+// World: book, restart, freeze
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { EDGE, fund, json, journeyState, staffFreeze, staffRestore, toUnits, tool } from './stack.mjs';

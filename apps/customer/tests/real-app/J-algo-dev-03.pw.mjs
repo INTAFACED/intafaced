@@ -1,4 +1,4 @@
-// World: none
+// World: book
 import { test, expect } from './journey.mjs';
 import { journeyState } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';

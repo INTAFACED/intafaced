@@ -1,4 +1,4 @@
-// World: gates
+// World: freeze, gates
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
