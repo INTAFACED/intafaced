@@ -470,6 +470,14 @@ test(`${J} #6 reports it lost or stolen: the old card closes once, a new inactiv
   const holding = await api.usdt();
   expect(toUnits(before.free) - toUnits(holding.free)).toBe(toUnits('3'));
   const countBefore = (await cards()).length;
+  // Every hold still open on the card when it is reported: this 3 USDT, and #5's approved 1 USDT, never captured. The
+  // report reverses each one (BK-cissue-04: "open holds follow the existing reverse path").
+  const auths = await api.query('cards.authorizations', { cardId: physicalId, limit: 50 });
+  expect(auths.ok, JSON.stringify(auths.body ?? {}).slice(0, 300)).toBe(true);
+  const open = auths.data.filter((row) => row.decision === 'approved' && row.status === 'pending');
+  expect(open.map((row) => row.amount).sort()).toEqual(['1', '3']);
+  const openTotal = open.reduce((sum, row) => sum + toUnits(row.amount), 0n);
+  const afterReport = fromUnits(toUnits(holding.free) + openTotal);
 
   await signInPerson(page);
   await page.goto('/bank/cards');
@@ -487,9 +495,9 @@ test(`${J} #6 reports it lost or stolen: the old card closes once, a new inactiv
   const fresh = await cardOf(replacementId);
   expect(fresh).toMatchObject({ status: 'inactive', cardType: 'physical', replacesCardId: physicalId });
   expect((await cards()).length).toBe(countBefore + 1);
-  // The hold came back to the person's available balance, once.
+  // Every open hold came back to the person's available balance, once.
   const released = await api.usdt();
-  expect(released.free).toBe(before.free);
+  expect(released.free).toBe(afterReport);
   await expect(card).toContainText('Closed');
   await expect(panel(page, fresh)).toContainText('Not activated');
 
@@ -498,7 +506,7 @@ test(`${J} #6 reports it lost or stolen: the old card closes once, a new inactiv
   expect(retry.ok, JSON.stringify(retry.body ?? {}).slice(0, 300)).toBe(true);
   expect(retry.data.id).toBe(replacementId);
   expect((await cards()).length).toBe(countBefore + 1);
-  expect((await api.usdt()).free).toBe(before.free);
+  expect((await api.usdt()).free).toBe(afterReport);
   // The old card authorises nothing.
   expect(await authorize(physicalId, '1')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_not_active' });
 });
