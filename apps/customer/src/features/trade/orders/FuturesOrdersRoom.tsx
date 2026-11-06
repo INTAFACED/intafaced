@@ -20,6 +20,7 @@ import { futuresRefusal } from '../../../screens/trade/futures/refusals';
 import { tabsCopy } from '../../../screens/trade/futures/tabs-copy';
 import { useSession } from '../../session/session';
 import { futuresOrdersCopy, type FuturesOrdersT } from './futures-orders-copy';
+import { appendPage } from './history-query';
 import { ordersCopy } from './orders-copy';
 import './orders.css';
 
@@ -170,12 +171,7 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
       setOlderBusy(false);
       if (ticket !== reads.current) return;
       if (!result.ok) return setOlderFailed(true);
-      const seen = new Set(execState.rows.map((row) => row.id));
-      setExecState({
-        status: 'ready',
-        rows: [...execState.rows, ...result.data.executions.filter((row) => !seen.has(row.id))],
-        next: result.data.next,
-      });
+      setExecState({ status: 'ready', rows: appendPage(execState.rows, result.data.executions).rows, next: result.data.next });
       return;
     }
     if (orderState.status !== 'ready' || !orderState.next) return setOlderBusy(false);
@@ -311,7 +307,8 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
     },
   ];
 
-  const filtering = params.symbol !== '' || params.origin !== '' || params.label !== '' || params.kind !== '';
+  const filtering =
+    params.symbol !== '' || (params.view === 'executions' ? params.kind !== '' : params.origin !== '' || params.label !== '');
   const state = params.view === 'executions' ? execState : orderState;
   const none = filtering
     ? t('noneFiltered')
@@ -340,7 +337,11 @@ export function FuturesOrdersRoom({ path }: { path: string }) {
           value={params.view}
           label={t('viewLabel')}
           labels={{ open: t('viewOpen'), history: t('viewHistory'), executions: t('viewExecutions') }}
-          onChange={(view) => setParams({ ...params, view: view as View })}
+          onChange={(view) =>
+            // Executions filter by contract and kind; orders by contract, origin and label. A filter the next view can't
+            // use is dropped, so nothing hidden narrows the list.
+            setParams(view === 'executions' ? { ...params, view, origin: '', label: '' } : { ...params, view: view as View, kind: '' })
+          }
         />
         <form
           className="orders-filters"

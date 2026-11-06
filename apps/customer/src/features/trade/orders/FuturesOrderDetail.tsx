@@ -14,6 +14,8 @@ import './orders.css';
 
 type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 type Read<T> = { status: 'loading' } | { status: 'failed'; failure: Refusal } | { status: 'missing' } | { status: 'ready'; data: T };
+/** The fills one order page lists, newest first; an order with more says so. */
+const FILLS_SHOWN = 200;
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -44,6 +46,7 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
   const { timeZone } = usePreferences();
   const [order, setOrder] = useState<Read<FuturesOrder>>({ status: 'loading' });
   const [fills, setFills] = useState<Read<FuturesExecution[]>>({ status: 'loading' });
+  const [moreFills, setMoreFills] = useState(false);
   const [revision, setRevision] = useState(0);
 
   useEffect(() => {
@@ -56,9 +59,11 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
       else if (result.code === 'trade.futures_order_not_found') setOrder({ status: 'missing' });
       else setOrder({ status: 'failed', failure: result });
     });
-    void api.executions({ limit: 200, orderId }, controller.signal).then((result) => {
-      if (result.ok) setFills({ status: 'ready', data: result.data.executions });
-      else setFills({ status: 'failed', failure: result });
+    void api.executions({ limit: FILLS_SHOWN, orderId }, controller.signal).then((result) => {
+      if (result.ok) {
+        setFills({ status: 'ready', data: result.data.executions });
+        setMoreFills(result.data.next !== null);
+      } else setFills({ status: 'failed', failure: result });
     });
     return () => controller.abort();
   }, [orderId, userId, revision]);
@@ -162,6 +167,7 @@ export function FuturesOrderDetail({ orderId }: { orderId: string }) {
               ))}
             </ul>
           ) : null}
+          {fills.status === 'ready' && moreFills ? <p className="muted">{t('executionsMore', { count: FILLS_SHOWN })}</p> : null}
         </section>
       </div>
     </Page>

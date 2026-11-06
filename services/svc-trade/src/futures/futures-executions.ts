@@ -140,12 +140,13 @@ export async function listFuturesExecutions(
       SELECT 'adl:' || a.pair_id || ':' || p.id::text AS id, 'adl' AS kind, m.symbol,
              CASE WHEN p.side = 'long' THEN 'sell' ELSE 'buy' END AS side,
              a.size::text AS qty, a.bankruptcy_price::text AS price, NULL AS fee, NULL AS fee_role,
-             CASE WHEN p.id = a.candidate_position_id THEN a.candidate_profit::text ELSE NULL END AS realized_pnl,
+             -- The candidate realises its profit; the bankrupt side closes at its bankruptcy price and loses the margin taken.
+             CASE WHEN p.id = a.candidate_position_id THEN a.candidate_profit::text ELSE (-a.bankrupt_margin_taken)::text END AS realized_pnl,
              NULL AS order_id, NULL AS origin, NULL AS order_label, p.id::text AS position_id, a.applied_at AS at
         FROM trade.futures_adl_pairs a
         JOIN trade.positions p ON p.id IN (a.bankrupt_position_id, a.candidate_position_id)
         JOIN trade.markets m ON m.id = p.market_id
-       WHERE a.state = 'applied' AND p.user_id = ${userId}
+       WHERE a.state = 'applied' AND (a.bankrupt_user_id = ${userId} OR a.candidate_user_id = ${userId}) AND p.user_id = ${userId}
     )
     SELECT *, (EXTRACT(EPOCH FROM at) * 1000000)::bigint::text AS at_key FROM executions
      WHERE TRUE

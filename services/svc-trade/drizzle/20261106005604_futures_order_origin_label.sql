@@ -49,6 +49,6 @@ UPDATE "trade"."futures_orders" o
 
 -- The orders room reads a user's orders newest first, by label and by origin.
 CREATE INDEX IF NOT EXISTS "futures_orders_user_created_idx"
-  ON "trade"."futures_orders" ("user_id", "created_at" DESC, "id");
+  ON "trade"."futures_orders" ("user_id", "created_at" DESC, "id" DESC);
 CREATE INDEX IF NOT EXISTS "futures_orders_user_label_idx"
   ON "trade"."futures_orders" ("user_id", "order_label") WHERE "order_label" IS NOT NULL;

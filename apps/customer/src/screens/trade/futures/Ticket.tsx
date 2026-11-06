@@ -240,7 +240,7 @@ export function Ticket(props: TicketProps) {
   const openOff = gate(shown) ?? typeOff ?? protectOff ?? labelOff;
   // Above the max-order the review names a split: it may be placed as those children when nothing else refuses.
   const splitShown = splitPreview(shown);
-  const splitOff = splitShown ? (gate(splitShown) ?? typeOff ?? (protecting ? ('protectionSplit' as const) : null)) : null;
+  const splitOff = splitShown ? (gate(splitShown) ?? typeOff ?? (protecting ? ('protectionSplit' as const) : null) ?? labelOff) : null;
   const reviewOff = reduceOnly
     ? ('reduceOnly' as const)
     : (reviewBlock({ planeOff, signedOut, markKnown: markNow !== null, markStale, size, leverage: lev }) ??

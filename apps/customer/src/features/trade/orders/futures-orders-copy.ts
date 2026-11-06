@@ -112,6 +112,7 @@ const messages = {
   executionsHeading: 'Fills of this order',
   executionsNone: 'Nothing has filled.',
   executionsFailed: 'The fills couldn’t be read.',
+  executionsMore: 'This order has more fills than the newest {count} shown here.',
   executionLine: '{qty} at {price}',
 } as const;
 

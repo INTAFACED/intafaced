@@ -63,7 +63,6 @@ const messages = {
   'Origin liquidation': 'Liquidation',
   'Origin reverse': 'Reverse',
   'Order label': 'Label',
-  'Order not cancellable': 'A liquidation order is the venue’s and cannot be cancelled',
   'Cancel failed': 'Not cancelled. {reason}',
   Buy: 'Buy',
   Sell: 'Sell',

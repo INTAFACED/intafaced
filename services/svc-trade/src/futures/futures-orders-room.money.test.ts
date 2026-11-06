@@ -457,7 +457,7 @@ describe('svc-trade futures orders room: origin, label, pages and executions (PG
       });
     });
 
-    it('an applied ADL pair is an execution on both sides at its bankruptcy price', async () => {
+    it('an applied ADL pair is an execution on both sides at its bankruptcy price: the candidate realises its profit, the bankrupt side loses the margin taken', async () => {
       const svc = build();
       const buy = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
       const sell = await svc.place(principal(BOB), order({ userId: BOB, side: 'sell', qty: A('1') }));
@@ -476,7 +476,7 @@ describe('svc-trade futures orders room: origin, label, pages and executions (PG
       const aliceAdl = (await listFuturesExecutions(sql, ALICE, { limit: 50, kind: 'adl' })).executions;
       const bobAdl = (await listFuturesExecutions(sql, BOB, { limit: 50, kind: 'adl' })).executions;
       expect(aliceAdl).toEqual([
-        expect.objectContaining({ kind: 'adl', side: 'sell', qty: '1', price: '91', realizedPnl: null, fee: null }),
+        expect.objectContaining({ kind: 'adl', side: 'sell', qty: '1', price: '91', realizedPnl: '-9', fee: null }),
       ]);
       expect(bobAdl).toEqual([expect.objectContaining({ kind: 'adl', side: 'buy', qty: '1', price: '91', realizedPnl: '9' })]);
     });

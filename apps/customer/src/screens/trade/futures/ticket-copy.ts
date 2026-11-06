@@ -98,7 +98,7 @@ export const ticketCopy = defineCopy('trade.futures.ticket', {
   'Leverage reduce hint': 'A reduce-only order keeps the position’s own leverage.',
   'Entry protection reduce': 'A take profit or stop loss attaches to an order that opens or adds, not to a reduce-only order.',
   'Order label': 'Label (optional)',
-  'Order label hint': 'Your own tag for this order, to find it in the orders room or cancel by it. Up to 36 letters, digits and . _ : -',
+  'Order label hint': 'Your own tag for this order, to find it in the orders room. Up to 36 letters, digits and . _ : -',
   'Order label invalid': 'A label is up to 36 letters, digits and . _ : - with no spaces.',
   'Off reduce review': 'A reduce-only order commits no new margin, so there is no cost to review: the confirm step shows what it sends.',
   'Reduce buy': 'Buy, reduce only',
