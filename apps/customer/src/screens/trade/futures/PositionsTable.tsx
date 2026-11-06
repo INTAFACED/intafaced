@@ -98,6 +98,7 @@ export function PositionsTable({
   onOpen,
   onChanged,
   onReverse,
+  leverageCapFor,
 }: {
   positions: Loadable<Position[]>;
   marginCalls: Loadable<MarginCalls>;
@@ -109,6 +110,8 @@ export function PositionsTable({
   onOpen(p: Position): void;
   onChanged(): void;
   onReverse?(p: Position): void;
+  /** The published leverage cap of a contract, where the room read it; the leverage dialog shows it. */
+  leverageCapFor?(symbol: string): string | null;
 }) {
   const { t } = positionsCopy.useCopy();
   const refresh = useFuturesRefresh();
@@ -214,7 +217,7 @@ export function PositionsTable({
           position={p}
           compact
           free={freeFor(p.symbol, balances)}
-          leverageCap={null}
+          leverageCap={leverageCapFor?.(p.symbol) ?? null}
           planeOff={planeOff}
           stale={stale}
           onChanged={onChanged}

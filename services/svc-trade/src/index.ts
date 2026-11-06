@@ -1434,6 +1434,7 @@ registerPrivateRest(app, {
   marginSummary: (principal, asset) => positions.marginSummary(principal.userId, asset),
   readAccountMode: (principal) => positions.readAccountMode(principal.userId),
   writeAccountMode: (principal, input) => positions.writeAccountMode(principal.userId, input),
+  previewLeverage: (principal, positionId, leverage) => positions.previewLeverage(principal.userId, positionId, parseAmount(leverage)),
   setLeverage: (principal, input) =>
     positions.setLeverage(
       {

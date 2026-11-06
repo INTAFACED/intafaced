@@ -494,6 +494,29 @@ export const futuresSplitSchema = z.object({
 });
 export type FuturesSplit = z.infer<typeof futuresSplitSchema>;
 
+/** What a leverage change would post or release on one isolated position, read before confirming (svc-trade). */
+export const leveragePreviewSchema = z.object({
+  positionId: z.string(),
+  symbol: z.string(),
+  asset: z.string(),
+  leverageCap: z.string(),
+  currentLeverage: z.string(),
+  leverage: z.string(),
+  currentMargin: z.string(),
+  newMargin: z.string(),
+  difference: z.string(),
+  direction: z.enum(['post', 'release', 'none']),
+});
+export type LeveragePreview = z.infer<typeof leveragePreviewSchema>;
+
+/** The account's futures position mode: one-way or hedge, or unset until the trader chooses (svc-trade). */
+export const positionModeSchema = z.object({
+  mode: z.enum(['one_way', 'hedge']).nullable(),
+  source: z.string(),
+  code: z.string().optional(),
+});
+export type PositionMode = z.infer<typeof positionModeSchema>;
+
 export function createFuturesApi(api: ApiClient) {
   return {
     markets: (signal?: AbortSignal) => api.rest('/markets', z.array(listingSchema), { query: { limit: 500 }, signal }),
@@ -536,6 +559,26 @@ export function createFuturesApi(api: ApiClient) {
         method: 'POST',
         body: { quantity: input.quantity, clientCloseId: input.clientCloseId },
       }),
+    leveragePreview: (positionId: string, leverage: string, signal?: AbortSignal) =>
+      api.rest(`/positions/${encodeURIComponent(positionId)}/leverage-preview`, leveragePreviewSchema, { query: { leverage }, signal }),
+    positionMode: (signal?: AbortSignal) => api.rest('/futures/position-mode', positionModeSchema, { signal }),
+    setPositionMode: (input: { mode: 'one_way' | 'hedge'; clientModeId: string }) =>
+      api.rest('/futures/position-mode', positionModeSchema, { method: 'PUT', body: input }),
+    closeAll: (input: { clientBatchId: string }) =>
+      api.rest(
+        '/futures/positions/close-all',
+        z.object({
+          results: z.array(
+            z.object({
+              positionId: z.string(),
+              status: z.enum(['closed', 'refused']),
+              code: z.string().optional(),
+              reason: z.string().optional(),
+            }),
+          ),
+        }),
+        { method: 'POST', body: input },
+      ),
     setLeverage: (input: { symbol: string; positionId: string; leverage: string; clientAdjustmentId: string }) =>
       api.rest('/futures/leverage', positionSchema, { method: 'POST', body: input }),
     addMargin: (input: { symbol: string; positionId: string; amount: string; clientAdjustmentId: string }) =>

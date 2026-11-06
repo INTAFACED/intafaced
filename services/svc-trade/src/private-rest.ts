@@ -347,6 +347,8 @@ export interface PrivateRestDeps {
     principal: Principal,
     input: { symbol: string; leverage: string; positionId?: string; clientAdjustmentId: string },
   ): Promise<Position>;
+  /** What a leverage change on one position would post or release, read before confirming. Nothing is written. */
+  previewLeverage?(principal: Principal, positionId: string, leverage: string): Promise<unknown>;
   /**
    * Append-only record of a refused margin-mode switch. The door never updates
    * `margin_mode`. Production wires the SQL audit; tests may pass memory.
@@ -2319,6 +2321,36 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     }
   };
 
+  app.get<{ Params: { id: string }; Querystring: { leverage?: string } }>(
+    '/api/v1/positions/:id/leverage-preview',
+    privateRead,
+    async (req, reply) => {
+      const principal = requirePrincipal(req, reply);
+      if (!principal) return;
+      if (!deps.previewLeverage) {
+        return reply.code(500).send({ error: 'trade.desk_door_unwired', message: 'leverage preview is not wired on this process' });
+      }
+      const raw = typeof req.query.leverage === 'string' ? req.query.leverage.trim() : '';
+      if (!raw) {
+        return reply.code(400).send({ ...badRequest('leverage is required — a preview does not default', 'trade.leverage_required').body });
+      }
+      try {
+        parseAmount(raw);
+      } catch (err) {
+        const message = err instanceof MoneyError ? err.message : 'malformed leverage';
+        return reply.code(400).send({ ...badRequest(message, 'trade.leverage_invalid').body });
+      }
+      try {
+        requireScope(principal, 'trade:read');
+        return reply.code(200).send(await deps.previewLeverage(principal, req.params.id, raw));
+      } catch (err) {
+        if (err instanceof FuturesError) return reply.code(err.status).send(presentFuturesErrorWire(err));
+        const sent = sendDomainError(reply, err);
+        if (sent) return sent;
+        throw err;
+      }
+    },
+  );
   app.post('/api/v1/positions/leverage', privateWrite, async (req, reply) => leverageHandler(req, reply));
   app.post('/api/v1/futures/leverage', privateWrite, async (req, reply) => leverageHandler(req, reply));
 

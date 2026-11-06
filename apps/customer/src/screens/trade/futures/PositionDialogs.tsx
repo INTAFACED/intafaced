@@ -20,7 +20,7 @@ import {
 } from '@intafaced/ui';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
-import type { ConditionalOrder, PositionPreview, Reverse, RiskStop, StopInput } from './api';
+import type { ConditionalOrder, LeveragePreview, PositionPreview, Reverse, RiskStop, StopInput } from './api';
 import { useConditionalOrders, useFuturesApi, useFuturesRefresh } from './data';
 import { futuresRefusal } from './refusals';
 import { positionsCopy } from './positions-copy';
@@ -241,8 +241,9 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
   const nonce = useRef<{ key: string; nonce: string } | null>(null);
   const { writer, send, check } = useSend(position, onDone, onRefusal);
   const problem = amountProblem(value, { cap });
+  const preview = useLeveragePreview(position.id, problem === null ? value : '');
   const submit = () => {
-    if (position.id === null || problem) return;
+    if (position.id === null || problem || preview.status !== 'ready') return;
     nonce.current = pickNonce(nonce.current, `leverage:${position.id}:${value}`, newNonce);
     const input = {
       symbol: position.symbol,
@@ -268,7 +269,7 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
           </Button>
           <Button
             loading={writer.busy}
-            disabled={problem !== null || writer.note.state !== 'none' || position.id === null}
+            disabled={problem !== null || preview.status !== 'ready' || writer.note.state !== 'none' || position.id === null}
             onClick={submit}
           >
             {t('Leverage button')}
@@ -296,10 +297,81 @@ export function LeverageDialog({ position, cap, onClose, onDone, onRefusal }: Di
           </Button>
         ))}
       </div>
+      <LeverageDifference preview={preview} t={t} />
       <p className="text-warn">{t('Leverage warning')}</p>
       <p className="text-fg-2">{t('Margin recompute')}</p>
       <WriteNotice writer={writer} onCheck={() => void check()} />
     </Frame>
+  );
+}
+
+type LeveragePreviewState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; data: LeveragePreview }
+  | { status: 'refused'; title: string; body: string };
+
+/** The service's answer to "what would this leverage do", for the value typed; nothing until a valid value is in. */
+function useLeveragePreview(positionId: string | null, leverage: string): LeveragePreviewState {
+  const api = useFuturesApi();
+  const [state, setState] = useState<LeveragePreviewState>({ status: 'idle' });
+  useEffect(() => {
+    if (positionId === null || leverage === '') {
+      setState({ status: 'idle' });
+      return;
+    }
+    const controller = new AbortController();
+    setState({ status: 'loading' });
+    const timer = setTimeout(() => {
+      void api.leveragePreview(positionId, leverage, controller.signal).then((read) => {
+        if (controller.signal.aborted) return;
+        if (read.ok) setState({ status: 'ready', data: read.data });
+        else {
+          const words = futuresRefusal(read);
+          setState({ status: 'refused', title: words.title, body: words.body });
+        }
+      });
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [api, positionId, leverage]);
+  return state;
+}
+
+/** The margin difference, stated before confirming: what the position holds now, what it would hold, and what moves. */
+function LeverageDifference({ preview, t }: { preview: LeveragePreviewState; t: T }) {
+  if (preview.status === 'idle') return null;
+  if (preview.status === 'loading') return <p className="text-fg-2">{t('Leverage preview loading')}</p>;
+  if (preview.status === 'refused')
+    return (
+      <p role="alert" className="text-error-text">
+        {preview.title}. {preview.body}
+      </p>
+    );
+  const p = preview.data;
+  const money = (v: string) => `${fmtAmount(v, { places: 18 })} ${p.asset}`;
+  return (
+    <section aria-label={t('Leverage difference label')} className="rounded-sm border border-line p-3">
+      <KeyValue
+        density="dense"
+        items={[
+          { label: t('Leverage difference cap'), value: `${p.leverageCap}x` },
+          { label: t('Leverage difference now'), value: money(p.currentMargin) },
+          { label: t('Leverage difference after'), value: money(p.newMargin) },
+          {
+            label:
+              p.direction === 'post'
+                ? t('Leverage difference post')
+                : p.direction === 'release'
+                  ? t('Leverage difference release')
+                  : t('Leverage difference none'),
+            value: money(p.difference),
+          },
+        ]}
+      />
+    </section>
   );
 }
 

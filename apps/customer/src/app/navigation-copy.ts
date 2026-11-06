@@ -259,6 +259,9 @@ const messages = {
   'Your trade context': 'Your trade context',
   'Open orders': 'Open orders',
   'Manage working orders': 'Manage working orders',
+  Positions: 'Positions',
+  'Every position by product, its details, position mode, leverage and close all':
+    'Every position by product, its details, position mode, leverage and close all',
   'Order history': 'Order history',
   'Past trading orders': 'Past trading orders',
   Pay: 'Pay',

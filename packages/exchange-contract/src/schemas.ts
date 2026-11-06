@@ -582,6 +582,15 @@ export const positionSchema = z.object({
    * fieldReasons) when the position has no fill that recorded one. Absent when the answer did not read them.
    */
   fees: decimal.nullable().optional(),
+  /**
+   * The price at which closing pays back the fees the fills paid: entry plus fees over size for a long, minus for a
+   * short, at 18 places, rounded away from the entry. Null with a reason when the fees were not read or recorded.
+   */
+  breakEvenPrice: decimal.nullable().optional(),
+  /** This position's maintenance margin over its equity (margin plus unrealised PnL), as an 18-digit ratio. */
+  marginRatio: decimal.nullable().optional(),
+  /** The formula `unrealizedPnl` was worked out by, in words. */
+  pnlFormula: z.string().optional(),
   /** Set on a repeated close of a position this caller already closed. */
   replayed: z.boolean().optional(),
   /** Why a field above is null. Absent when that field has a value. */

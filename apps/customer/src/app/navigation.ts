@@ -407,6 +407,13 @@ export const rooms: readonly Room[] = [
     area: 'trade',
   },
   {
+    path: '/trade/positions',
+    title: 'Positions',
+    description: 'Every position by product, its details, position mode, leverage and close all',
+    door: 'Trade',
+    area: 'trade',
+  },
+  {
     path: '/trade/orders',
     title: 'Order history',
     description: 'Past orders by side, state and date, with each order’s fills and fees',

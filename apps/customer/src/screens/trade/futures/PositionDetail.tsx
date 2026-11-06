@@ -38,6 +38,16 @@ function MarginCallPanel({ call, t }: { call: MarginCall | null | undefined; t: 
   );
 }
 
+/** An 18-place ratio as a percent with 16 places, so not a digit the service gave is lost. */
+export function exactPercent(ratio: string): string {
+  const negative = ratio.startsWith('-');
+  const [whole = '0', frac = ''] = ratio.replace(/^-/, '').split('.');
+  const units = BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0').slice(0, 18) || '0');
+  const step = 10n ** 16n;
+  const head = (units / step).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '−' : ''}${head}.${(units % step).toString().padStart(16, '0')}`;
+}
+
 export function PositionDetail({
   position,
   marginCall,
@@ -73,6 +83,17 @@ export function PositionDetail({
     { label: t('KV contract size'), value: amount(position.contractSize) },
     { label: t('KV entry'), value: price(position.entryPrice) },
     {
+      label: t('KV break-even'),
+      value: position.breakEvenPrice == null ? null : fmtAmount(position.breakEvenPrice, { places: 18 }),
+      hint:
+        position.breakEvenPrice == null
+          ? t('Break-even unknown')
+          : position.side === 'long'
+            ? t('Break-even formula long')
+            : t('Break-even formula short'),
+    },
+    { label: t('KV fees'), value: position.fees == null ? null : fmtAmount(position.fees, { places: 18 }) },
+    {
       label: t('KV mark'),
       value: price(position.markPrice),
       hint: position.markPrice === null ? t('Positions mark unavailable') : undefined,
@@ -87,14 +108,18 @@ export function PositionDetail({
       value: pnl === null ? null : `${pnl} (${fmtPctPoints(position.percentage)})`,
       hint: pnl === null ? t('Positions mark unavailable') : undefined,
     },
+    ...(position.pnlFormula ? [{ label: t('KV pnl formula'), value: position.pnlFormula }] : []),
     { label: t('KV realised'), value: signedAmount(position.realizedPnl, 8) },
     {
       label: t('KV ratio'),
+      // The service's own ratio, every digit, when it gave one; the row's two-place figure otherwise.
       value:
-        row.health.marginRatioPct === null
-          ? null
-          : t('Ratio value', { pct: row.health.marginRatioPct, band: t(`Band ${row.health.band}`) }),
-      hint: why,
+        position.marginRatio != null
+          ? t('Ratio value', { pct: exactPercent(position.marginRatio), band: t(`Band ${row.health.band}`) })
+          : row.health.marginRatioPct === null
+            ? null
+            : t('Ratio value', { pct: row.health.marginRatioPct, band: t(`Band ${row.health.band}`) }),
+      hint: position.marginRatio != null ? t('Ratio formula') : why,
     },
     { label: t('KV liquidation'), value: price(position.liquidationPrice) },
     { label: t('KV distance'), value: row.distancePct === null ? null : fmtPctPoints(row.distancePct, { signed: false }) },

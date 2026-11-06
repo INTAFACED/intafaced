@@ -1398,6 +1398,41 @@ export class PositionService {
     return this.presentListed(row, figures.get(row.id));
   }
 
+  /**
+   * What a leverage change on one isolated position would do, before it is confirmed: the published cap, the margin
+   * the position holds now and the margin it would hold, worked out by the same formula `setLeverage` posts by, and the
+   * difference that would be posted (more margin taken from the free balance) or released. Nothing is written.
+   */
+  async previewLeverage(userId: string, positionId: string, leverage: Amount): Promise<LeveragePreview> {
+    const cap = this.requireLeverageCap();
+    const check = checkLeverage(leverage, cap);
+    if (!check.ok) throw new FuturesError(check.reason ?? 'leverage refused', check.code ?? 'trade.leverage_invalid', 400);
+    const id = positionId.trim();
+    if (!id) throw new FuturesError('position id is required', 'trade.bad_request', 400);
+    const row = await this.ownRow(userId, id);
+    if (row.status !== 'open') throw new FuturesError(`position is ${row.status}`, 'trade.position_not_open', 400);
+    if (row.margin_mode !== 'isolated') {
+      throw new FuturesError('live re-leverage is isolated-only — margin mode is set at open', 'trade.cross_margin_unsupported', 400);
+    }
+    if (row.leverage == null) throw new FuturesError('leverage was not recorded on this position', 'leverage_not_recorded', 400);
+    const currentMargin = parseAmount(row.margin_current ?? row.margin_initial);
+    const target = initialMargin({ size: parseAmount(row.size), entryPrice: parseAmount(row.entry_price), leverage });
+    const unchanged = parseAmount(row.leverage) === leverage;
+    const difference = unchanged ? 0n : target - currentMargin;
+    return {
+      positionId: row.id,
+      symbol: row.symbol,
+      asset: row.margin_asset,
+      leverageCap: formatAmount(cap),
+      currentLeverage: formatAmount(parseAmount(row.leverage)),
+      leverage: formatAmount(leverage),
+      currentMargin: formatAmount(currentMargin),
+      newMargin: formatAmount(unchanged ? currentMargin : target),
+      difference: formatAmount(difference < 0n ? -difference : difference),
+      direction: difference > 0n ? 'post' : difference < 0n ? 'release' : 'none',
+    };
+  }
+
   /** One position row of this user, with its market's symbol and contract size; missing or not theirs is the same 404. */
   private async ownRow(userId: string, id: string): Promise<PositionRow> {
     const [row] = await this.sql<PositionRow[]>`
@@ -3333,6 +3368,21 @@ function replayReduceOnly(outcome: ReduceOnlyOutcome): Position {
   return outcome.position;
 }
 
+/** A leverage change's effect on one isolated position, read before it is confirmed (`previewLeverage`). */
+export interface LeveragePreview {
+  readonly positionId: string;
+  readonly symbol: string;
+  readonly asset: string;
+  readonly leverageCap: string;
+  readonly currentLeverage: string;
+  readonly leverage: string;
+  readonly currentMargin: string;
+  readonly newMargin: string;
+  /** The amount that would move, always positive; `direction` says which way. */
+  readonly difference: string;
+  readonly direction: 'post' | 'release' | 'none';
+}
+
 export interface CloseAllItem {
   readonly positionId: string;
   readonly status: 'closed' | 'refused';
@@ -3352,6 +3402,10 @@ function isoOf(value: Date | string | null | undefined): string | null {
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
 }
+
+/** The formula a position's unrealised PnL is worked out by, said on the wire so a client shows the one used. */
+export const PNL_FORMULA_LONG = '(mark price − entry price) × size';
+export const PNL_FORMULA_SHORT = '(entry price − mark price) × size';
 
 /** The customer position view. Exported so the support summary presents a position exactly as the customer's own list does. */
 export function presentPosition(row: PositionRow, extras?: PresentExtras): Position {
@@ -3448,6 +3502,28 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
   if (extras?.fees === null) fieldReasons.fees = 'fees_not_recorded';
   if (updatedAt == null && updatedReason) fieldReasons.updatedAt = updatedReason;
 
+  // Break-even: the price at which closing the position pays back the fees its fills paid, so (price − entry) × size
+  // equals the fees for a long and (entry − price) × size for a short. Worked out at the wire's 18 places and rounded
+  // away from the entry, so a close at the shown price never falls short of the fees by a fraction of a unit.
+  let breakEvenPrice: string | null = null;
+  if (!settled && extras?.fees != null && size > 0n) {
+    const fees = parseAmount(extras.fees);
+    const per = (fees * SCALE + size - 1n) / size;
+    breakEvenPrice = formatAmount(row.side === 'long' ? entry + per : entry - per);
+  } else if (settled) fieldReasons.breakEvenPrice = 'position_closed';
+  else if (extras?.fees === undefined) fieldReasons.breakEvenPrice = 'fees_not_read';
+  else fieldReasons.breakEvenPrice = 'fees_not_recorded';
+
+  // This position's own margin ratio: its maintenance margin over its equity (margin plus unrealised PnL), the same
+  // 18-digit ratio the account's margin summary gives. Null with the reason of whichever figure is missing.
+  let marginRatio: string | null = null;
+  if (!settled && maintenanceMargin != null && unrealized != null) {
+    const equity = marginCurrent + unrealized;
+    if (equity > 0n) marginRatio = formatAmount((parseAmount(maintenanceMargin) * SCALE) / equity);
+    else fieldReasons.marginRatio = 'equity_not_positive';
+  } else if (settled) fieldReasons.marginRatio = 'position_closed';
+  else fieldReasons.marginRatio = maintenanceMargin == null ? (maintenanceReason ?? 'maintenance_unknown') : (unrealizedReason ?? 'mark_missing');
+
   return {
     id: row.id,
     symbol: row.symbol,
@@ -3476,6 +3552,9 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
     closedAt,
     updatedAt,
     ...(extras?.fees !== undefined ? { fees: extras.fees } : {}),
+    breakEvenPrice,
+    marginRatio,
+    pnlFormula: row.side === 'long' ? PNL_FORMULA_LONG : PNL_FORMULA_SHORT,
     ...(extras?.replayed === true ? { replayed: true } : {}),
     fieldReasons,
   };
