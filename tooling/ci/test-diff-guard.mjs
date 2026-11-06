@@ -150,7 +150,7 @@ export function judgeBaselines(changes, body) {
 
 // 7. Step tests come from a test-writer. STEP_TITLE is the scoreboard's (tooling/ci/journey-verdict.mjs).
 /** PRs numbered below this were opened before rule 7 and get it as a notice. */
-export const FIRST_STEP_PR = 7300;
+export const FIRST_STEP_PR = 7297;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 const TEST_CALL = /^(\s*)test(?:\.(?:only|skip|fixme|fail))?\(\s*(?:`((?:[^`\\]|\\.)*)`|(['"])((?:(?!\3)[^\\]|\\.)*)\3)/;
 const JOURNEY_CONST = /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(['"`])(J-[a-z0-9-]+-\d+)\2\s*;?\s*$/;
