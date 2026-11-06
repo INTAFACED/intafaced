@@ -4,14 +4,19 @@ import { Button } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { refusalCopy } from '../../data';
 import { decodeBase64, lastFullMonth, monthIsOver, monthRange, saveFile, shortFingerprint } from '../../screens/money/statement-model';
-import { statementFileSchema } from './contracts';
+import { statementFileSchema, statementJobSchema } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { dayIsOver, dayRange, last30Days, STATEMENT_REPORTS, utcDay, type StatementReport } from './statement-centre-model';
 import { statementCentreCopy } from './statement-centre-copy';
+import { statementDocumentsCopy } from './statement-documents-copy';
+import { StatementDocuments } from './StatementDocuments';
 import './bank-depth.css';
 
 type Said =
-  { kind: 'done'; name: string; count: number; fingerprint: string } | { kind: 'refused'; words: string; code: string | null } | null;
+  | { kind: 'done'; name: string; count: number; fingerprint: string }
+  | { kind: 'asked' }
+  | { kind: 'refused'; words: string; code: string | null }
+  | null;
 
 /** The bank's typed statement refusals, each in words. */
 const REFUSAL_KEYS = {
@@ -22,6 +27,10 @@ const REFUSAL_KEYS = {
   'bank.statement_balances_unavailable': 'balancesUnavailable',
 } as const;
 
+function refusedWords(t: (key: (typeof REFUSAL_KEYS)[keyof typeof REFUSAL_KEYS]) => string, code: string | null, reason: string) {
+  return code && code in REFUSAL_KEYS ? t(REFUSAL_KEYS[code as keyof typeof REFUSAL_KEYS]) : refusalCopy(code ?? reason).title;
+}
+
 /**
  * `/bank/statements` (PF-statements-01): the statement and export centre. One signed door, `bank.statements.export`,
  * makes each file of the person's own posted lines: a month's account statement, the ledger or the trades between two
@@ -29,7 +38,9 @@ const REFUSAL_KEYS = {
  */
 export function StatementCentre() {
   const { t } = statementCentreCopy.useCopy();
+  const documents = statementDocumentsCopy.useCopy();
   const { api } = useSession();
+  const [version, setVersion] = useState(0);
   const [report, setReport] = useState<StatementReport>('statement');
   const [month, setMonth] = useState(() => lastFullMonth(new Date()));
   const [days, setDays] = useState(() => last30Days(new Date()));
@@ -78,15 +89,35 @@ export function StatementCentre() {
     setBusy(false);
     if (!result.ok) {
       const code = result.code ?? null;
-      const words =
-        code && code in REFUSAL_KEYS ? t(REFUSAL_KEYS[code as keyof typeof REFUSAL_KEYS]) : refusalCopy(code ?? result.reason).title;
-      setSaid({ kind: 'refused', words, code });
+      setSaid({ kind: 'refused', words: refusedWords(t, code, result.reason), code });
       return;
     }
     const bytes = decodeBase64(result.data.bodyBase64);
     if (!bytes) return setSaid({ kind: 'refused', words: t('unreadable'), code: null });
     saveFile(bytes, result.data.contentType, result.data.filename);
     setSaid({ kind: 'done', name: result.data.filename, count: result.data.rowCount, fingerprint: shortFingerprint(result.data.sha256) });
+  }
+
+  /** The same request, made in the background (PF-statements-02): it appears in the documents below. */
+  async function makeLater() {
+    if (busy || !range || problem) return;
+    setBusy(true);
+    setSaid(null);
+    const result = await api.mutate(
+      'bank',
+      'statements.jobs.create',
+      { from: range.from, to: range.to, format, report },
+      statementJobSchema,
+    );
+    setBusy(false);
+    if (!result.ok) {
+      const code = result.code ?? null;
+      const words = code === 'bank.statement_jobs_unset' ? documents.t('off') : refusedWords(t, code, result.reason);
+      setSaid({ kind: 'refused', words, code });
+      return;
+    }
+    setSaid({ kind: 'asked' });
+    setVersion((n) => n + 1);
   }
 
   return (
@@ -141,6 +172,9 @@ export function StatementCentre() {
             <Download size={16} aria-hidden="true" />
             {t('download')}
           </Button>
+          <Button type="button" variant="ghost" disabled={busy || problem !== null} onClick={() => void makeLater()}>
+            {documents.t('makeLater')}
+          </Button>
         </div>
         <p role="status" aria-live="polite" data-testid="statement-centre-status">
           {problem ??
@@ -148,7 +182,9 @@ export function StatementCentre() {
               ? t('preparing')
               : said?.kind === 'done'
                 ? t('done', { name: said.name, count: String(said.count), fingerprint: said.fingerprint })
-                : '')}
+                : said?.kind === 'asked'
+                  ? documents.t('asked')
+                  : '')}
         </p>
         {said?.kind === 'refused' && (
           <p role="alert" className="error-text" data-code={said.code ?? undefined}>
@@ -156,6 +192,7 @@ export function StatementCentre() {
           </p>
         )}
       </form>
+      <StatementDocuments version={version} />
     </DepthPanel>
   );
 }

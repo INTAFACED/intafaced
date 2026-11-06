@@ -52,6 +52,26 @@ export interface StatementFile {
   };
 }
 
+/** What a person asks a statement file for. */
+export interface StatementRequest {
+  readonly from: string;
+  readonly to: string;
+  readonly assetId?: string;
+  readonly spaceId?: string;
+  readonly format: 'csv' | 'pdf';
+  readonly report?: StatementReport;
+}
+
+/** A request that passed every check: the report it names, and the caller's own space when it names one. */
+export interface StatementPlan {
+  readonly from: string;
+  readonly to: string;
+  readonly format: 'csv' | 'pdf';
+  readonly report: Exclude<StatementReport, 'balances'>;
+  readonly assetId: string | undefined;
+  readonly space: { readonly id: string; readonly name: string; readonly assetId: string } | null;
+}
+
 export class StatementService {
   constructor(
     private readonly activity: ActivityService,
@@ -59,18 +79,16 @@ export class StatementService {
     private readonly spaces?: Pick<SpaceService, 'find'>,
   ) {}
 
-  async export(
-    userId: string,
-    input: {
-      from: string;
-      to: string;
-      assetId?: string;
-      spaceId?: string;
-      format: 'csv' | 'pdf';
-      report?: StatementReport;
-      now?: Date;
-    },
-  ): Promise<StatementFile> {
+  async export(userId: string, input: StatementRequest & { now?: Date }): Promise<StatementFile> {
+    return this.render(userId, await this.plan(userId, input), input.now ?? new Date());
+  }
+
+  /**
+   * Every refusal a file could meet before a line is read: the report, the secret, the range, one month per PDF, and the
+   * caller's own space. A background export (PF-statements-02) runs this when it is asked, so a request that would be
+   * refused is refused then, and never sits in the queue.
+   */
+  async plan(userId: string, input: StatementRequest): Promise<StatementPlan> {
     const report = input.report ?? 'statement';
     if (report === 'balances') {
       throw new BankError(
@@ -112,7 +130,16 @@ export class StatementService {
       }
       space = { id: found.id, name: found.name, assetId: found.assetId };
     }
-    const assetId = space?.assetId ?? input.assetId;
+    return { from: input.from, to: input.to, format: input.format, report, assetId: space?.assetId ?? input.assetId, space };
+  }
+
+  /** The file for a planned request, as of `now`: the same plan and the same `now` over the same lines give the same bytes. */
+  async render(userId: string, plan: StatementPlan, now: Date): Promise<StatementFile> {
+    if (!this.secret) {
+      throw new BankError('Statements are not available until the service secret is set', 'bank.statement_unavailable');
+    }
+    const { report, space, assetId } = plan;
+    const input = { from: plan.from, to: plan.to, format: plan.format, spaceId: space?.id };
     let items: ActivityItem[];
     try {
       items = await this.activity.collect(userId, {
@@ -138,7 +165,7 @@ export class StatementService {
       throw new BankError(`A statement holds at most ${MAX_ROWS} lines. Narrow the dates.`, 'bank.statement_too_large');
     }
     if (report === 'trades') items = items.filter(isTradeLine);
-    const generatedAt = (input.now ?? new Date()).toISOString();
+    const generatedAt = now.toISOString();
     const bytes =
       input.format === 'csv'
         ? Buffer.from(statementCsv(items), 'utf8')

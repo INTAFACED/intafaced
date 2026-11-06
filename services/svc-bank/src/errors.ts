@@ -836,6 +836,12 @@ export type BankErrorCode =
   | 'bank.statement_unavailable'
   /** A balance snapshot at a past date needs a past-balance read the ledger does not offer yet (PF-statements-01). */
   | 'bank.statement_balances_unavailable'
+  /** Background exports are not switched on in this deployment: no worker interval or claim lease is set (PF-statements-02). */
+  | 'bank.statement_jobs_unset'
+  /** No export job of the caller's with that id (PF-statements-02). */
+  | 'bank.statement_job_not_found'
+  /** The export job has no file yet: it is queued, rendering or failed (PF-statements-02). */
+  | 'bank.statement_job_not_ready'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
   | 'bank.ops_audit_unavailable'
   /** New borrowing or new supply is paused for this asset by the desk (BK-loan-07). Repay and withdraw still work. */

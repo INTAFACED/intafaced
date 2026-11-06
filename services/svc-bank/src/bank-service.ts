@@ -37,6 +37,7 @@ import { PortfolioService, type PortfolioServiceOptions } from './portfolio/port
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
 import { StatementService } from './statements/statement-service.js';
+import { StatementJobService, type StatementJobsConfig } from './statements/statement-jobs.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
 import { parseAccountTerms, type AccountTerms } from './account-home/account-terms.js';
 import { CurrencyService } from './account-home/currencies.js';
@@ -92,6 +93,8 @@ export interface BankServices {
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
   readonly statements: StatementService;
+  /** PF-statements-02: background exports, made by a worker and listed in the document centre. */
+  readonly statementJobs: StatementJobService;
   readonly accountDetails: AccountDetailsService;
   /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
   readonly accountTerms: () => AccountTerms;
@@ -250,6 +253,8 @@ export interface BankServiceOptions {
   identityRecovery?: IdentityRecoveryPort;
   /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
   activity?: ActivityServiceOptions;
+  /** PF-statements-02: the export worker's claim lease. Left out, background exports are off. */
+  statementJobs?: StatementJobsConfig;
   /** Public handles for receipts. Unset = receipts name `bank.party_handles_unset` and requests refuse. */
   handles?: PartyHandlePort;
   /** Inbox events for payment requests. Unset = the request is stored and the notice names `bank.pay_request_notify_unwired`. */
@@ -340,6 +345,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });
   const statements = new StatementService(activity, options.activity?.cursorSecret, spaces);
+  const statementJobs = new StatementJobService(sql, statements, options.statementJobs ?? { leaseMs: null });
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   const accountTerms = () => parseAccountTerms(options.accountTerms);
@@ -444,6 +450,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activity,
     activityRecords,
     statements,
+    statementJobs,
     accountDetails,
     accountTerms,
     currencies,
