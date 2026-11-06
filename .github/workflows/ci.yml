@@ -314,8 +314,11 @@ jobs:
             sort -u | head -n 10 | cut -c1-300 | sed 's/^/::error title=Type error::/'
 
   test-full:
-    # A run-everything change (full, and every push to main) splits the suite eight ways, one job each, by the package
-    # lists in tooling/ci/test-shards.mjs. Any other change is one job, `changed`: the changed packages, their
+    # A run-everything change (full, and every push to main) splits the suite sixteen ways, one job each, by the package
+    # lists in tooling/ci/test-shards.mjs: four shards of whole packages, then one shard per piece of the packages too
+    # slow for one shard (SPLIT there; vitest's --shard runs a piece). (Failure it prevents: svc-pay alone kept shard 3
+    # of 8 at 12 to 14 minutes, the long pole of every run-everything run, measured 6 Nov 2026.) Any other change is one
+    # job, `changed`: the changed packages, their
     # dependents and the readers in tooling/ci/test-read-edges.json. The seal reads the matrix as one job (green only
     # when every shard is) and fails a skipped one unless the classifier said there was nothing to test.
     name: Tests (${{ matrix.shard }})
@@ -375,6 +378,8 @@ jobs:
             echo 'protocol=true' >> "$GITHUB_OUTPUT"
           else
             node tooling/ci/test-shards.mjs --shard "$SHARD" > "$RUNNER_TEMP/filters.txt"
+            node tooling/ci/test-shards.mjs --vitest-shard "$SHARD" > "$RUNNER_TEMP/piece.txt"
+            if [ -s "$RUNNER_TEMP/piece.txt" ]; then echo "piece $(cat "$RUNNER_TEMP/piece.txt") of its package's test files"; fi
             if grep -qx '@intafaced/svc-protocol' "$RUNNER_TEMP/filters.txt"; then echo 'protocol=true' >> "$GITHUB_OUTPUT"; fi
           fi
           echo "packages for $SHARD:"; cat "$RUNNER_TEMP/filters.txt"
@@ -415,12 +420,15 @@ jobs:
       # The filters are this shard's packages (test-shards.mjs) or, for a `changed` run, the dependents of the changed
       # packages plus the readers in test-read-edges.json (ci-affected.mjs --filters); turbo builds what those tests
       # depend on (^build).
+      # A piece shard passes vitest its `--shard=<k>/<m>` (after turbo's --), so it runs its share of the package's files.
       - name: Run pnpm test --continue
         run: |
           set -o pipefail
           filters=()
           while IFS= read -r f; do filters+=("--filter=$f"); done < "$RUNNER_TEMP/filters.txt"
-          pnpm test --continue --concurrency=3 "${filters[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
+          piece=()
+          if [ -s "$RUNNER_TEMP/piece.txt" ]; then piece=(-- "--shard=$(cat "$RUNNER_TEMP/piece.txt")"); fi
+          pnpm test --continue --concurrency=3 "${filters[@]}" "${piece[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       # Makes a red run readable without the full log. The Postgres service
       # container dumps its own log after the last step, so the tail of the job

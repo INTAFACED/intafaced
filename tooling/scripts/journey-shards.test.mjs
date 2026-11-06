@@ -1,16 +1,20 @@
 // Proves the journey shard split without a run. Run: node --test tooling/scripts/journey-shards.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  JOURNEY_DIR,
   estimateDurations,
   fileDurations,
   journeyFiles,
   longestDurations,
+  planCovers,
   planShards,
   shardCount,
+  shardTarget,
   stepCounts,
   targetFiles,
   timedSteps,
@@ -204,7 +208,7 @@ test('the shard count keeps each shard near the target, within its floor and cei
   const min = 60_000;
   assert.equal(shardCount(236 * min, 25 * min), 10);
   assert.equal(shardCount(10 * min, 25 * min), 8);
-  assert.equal(shardCount(5000 * min, 25 * min), 24);
+  assert.equal(shardCount(5000 * min, 25 * min), 48);
   assert.equal(shardCount(200 * min, 25 * min), 8);
   assert.equal(shardCount(201 * min, 25 * min), 9);
 });
@@ -228,4 +232,69 @@ test('a targeted run refuses a name that is not a journey file, and an empty lis
   assert.throws(() => targetFiles('*.pw.mjs', files), /not a journey file/);
   assert.throws(() => targetFiles(' , ', files), /names no journey file/);
   assert.throws(() => targetFiles(undefined, files), /names no journey file/);
+});
+
+test('each shard aims at the longest file less the setup spread, within 10 and 25 minutes', () => {
+  const min = 60_000;
+  // Main's runs of 6 Nov 2026: J-wallet-05 took 25.9 minutes, about 513 minutes in all, so 32 shards.
+  assert.equal(
+    shardTarget(
+      new Map([
+        ['J-wallet-05.pw.mjs', 25.9 * min],
+        ['J-bank-04.pw.mjs', 19.1 * min],
+      ]),
+    ),
+    15.9 * min,
+  );
+  assert.equal(shardCount(513 * min, 15.9 * min), 33);
+  assert.equal(shardTarget(new Map([['a', 12 * min]])), 10 * min, 'never below 10 minutes');
+  assert.equal(shardTarget(new Map([['a', 50 * min]])), 25 * min, 'never above 25 minutes');
+  assert.equal(shardTarget(new Map()), 10 * min, 'no durations at all');
+});
+
+test('the coverage check passes a plan that runs every file once', () => {
+  const files = ['a.pw.mjs', 'b.pw.mjs', 'c.pw.mjs'];
+  assert.deepEqual(planCovers(planShards(files, new Map(), 2), files), []);
+});
+
+test('the coverage check names a dropped file, a repeated file, a stranger and an empty shard (planted faults)', () => {
+  const files = ['a.pw.mjs', 'b.pw.mjs', 'c.pw.mjs'];
+  assert.deepEqual(planCovers([{ files: ['a.pw.mjs'] }, { files: ['b.pw.mjs'] }], files), ['c.pw.mjs is in no shard']);
+  assert.deepEqual(planCovers([{ files: ['a.pw.mjs', 'c.pw.mjs'] }, { files: ['b.pw.mjs', 'c.pw.mjs'] }], files), [
+    'c.pw.mjs is in shards 1, 2',
+  ]);
+  assert.deepEqual(planCovers([{ files: ['a.pw.mjs', 'a.pw.mjs', 'b.pw.mjs', 'c.pw.mjs'] }], files), ['a.pw.mjs is in shards 1, 1']);
+  assert.deepEqual(planCovers([{ files: ['a.pw.mjs', 'b.pw.mjs', 'c.pw.mjs', 'x.pw.mjs'] }], files), [
+    'x.pw.mjs is not a journey file of this run',
+  ]);
+  assert.deepEqual(planCovers([{ files: ['a.pw.mjs', 'b.pw.mjs', 'c.pw.mjs'] }, { files: [] }], files), ['shard 2 has no file']);
+});
+
+// The real journey list, through the planner as the workflow runs it, at every shard count it may pick: every file runs
+// exactly once. Then the same check, planted with one file dropped and one repeated, must fail.
+test('every real journey file runs exactly once at every shard count, and a dropped or repeated file fails', () => {
+  const files = journeyFiles(JOURNEY_DIR);
+  assert.ok(files.length >= 8, `found ${files.length} journey files`);
+  const durations = new Map(files.map((f, i) => [f, ((i * 7919) % 1500) * 1000]));
+  for (let n = 1; n <= Math.min(48, files.length); n++) {
+    const plan = planShards(files, durations, n);
+    assert.equal(plan.length, n);
+    assert.deepEqual(planCovers(plan, files), [], `${n} shards`);
+  }
+  const plan = planShards(files, durations, 32);
+  const dropped = plan.map((bin, i) => ({ files: i === 0 ? bin.files.slice(1) : bin.files }));
+  assert.deepEqual(planCovers(dropped, files), [`${plan[0].files[0]} is in no shard`]);
+  const repeated = plan.map((bin, i) => ({ files: i === 1 ? [...bin.files, plan[0].files[0]] : bin.files }));
+  assert.deepEqual(planCovers(repeated, files), [`${plan[0].files[0]} is in shards 1, 2`]);
+});
+
+test('the planner as the workflow calls it prints shards that hold every real journey file exactly once', () => {
+  const out = execFileSync(process.execPath, ['tooling/scripts/journey-shards.mjs', '--shards', 'auto'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const shards = JSON.parse(out).map((s) => s.split(' '));
+  const printed = shards.flat().sort();
+  assert.deepEqual(printed, journeyFiles(JOURNEY_DIR));
+  assert.equal(new Set(printed).size, printed.length);
 });
