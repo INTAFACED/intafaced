@@ -238,6 +238,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.card_issue_conflict': 'CONFLICT',
   'bank.card_command_conflict': 'CONFLICT',
   'bank.card_replace_conflict': 'CONFLICT',
+  'bank.cashback_rate_unset': 'PRECONDITION_FAILED',
+  'bank.rank_unavailable': 'SERVICE_UNAVAILABLE',
   'bank.card_eligibility_unset': 'PRECONDITION_FAILED',
   'bank.card_not_eligible': 'PRECONDITION_FAILED',
   'bank.card_count_limit': 'PRECONDITION_FAILED',

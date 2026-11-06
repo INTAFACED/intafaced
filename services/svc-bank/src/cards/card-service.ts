@@ -27,7 +27,8 @@ import {
   type ConversionQuote,
 } from './conversion.js';
 import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
-import type { CardProgrammeTerms } from './card-programme.js';
+import type { CardProgrammeTerms, CardTier, CashbackRates } from './card-programme.js';
+import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
 
 /**
  * CARDS (§8.1) — the LEDGER half: authorise, hold, capture, reverse, cash back.
@@ -383,6 +384,12 @@ export interface CardServiceOptions {
    */
   readonly programmeTerms?: CardProgrammeTerms | null;
   /**
+   * Cashback by rank card tier (RC-bank-02): the owner's rate table, identity's rank door, and whether the card simulator
+   * pays (the TEST stand-in, `BANK_CARD_SIM_CASHBACK=test`, refused at boot outside dev/test). Absent: no tier rate, no
+   * simulator cashback, exactly as before.
+   */
+  readonly cashback?: { readonly rates?: CashbackRates | null; readonly rankTier?: RankTierPort; readonly simulatorPays?: boolean };
+  /**
    * After a card's status really changes, in the same transaction as the card's row: a shared pot's log names who did
    * it (BK-acct-09). Throwing rolls the row back. Absent = nothing else is told.
    */
@@ -410,6 +417,9 @@ export class CardService {
   private readonly onCaptureSettled: CaptureSettledHook | null;
   private readonly onStatusChanged: CardStatusHook | null;
   private readonly programmeTerms: CardProgrammeTerms | null;
+  private readonly cashbackRates: CashbackRates | null;
+  private readonly rankTier: RankTierPort;
+  private readonly simulatorPays: boolean;
 
   constructor(
     private readonly sql: Sql,
@@ -424,6 +434,9 @@ export class CardService {
     this.onCaptureSettled = options.onCaptureSettled ?? null;
     this.onStatusChanged = options.onStatusChanged ?? null;
     this.programmeTerms = options.programmeTerms ?? null;
+    this.cashbackRates = options.cashback?.rates ?? null;
+    this.rankTier = options.cashback?.rankTier ?? unconfiguredRankTier();
+    this.simulatorPays = options.cashback?.simulatorPays === true;
   }
 
   /** The owner's published programme terms, or null (BK-cissue-01). */
@@ -1603,42 +1616,68 @@ export class CardService {
    */
   private rewardsIssuerConnected(card: CardRecord): boolean {
     const programme = this.issuer.programme;
+    // The test stack's stand-in (J-bank-13 #7): the simulator pays, from the same pot and recipe, only when the boot-guarded
+    // TEST switch is on and the card is the simulator's own. Never in production: the switch refuses to start there.
+    if (this.simulatorPays && programme.id === 'card-sim' && card.issuer === 'card-sim') return true;
     if (programme.simulated || card.simulated) return false;
     if (programme.id === 'none' || programme.id === 'card-sim') return false;
     if (card.issuer === 'none' || card.issuer === 'card-sim') return false;
     return card.issuer === programme.id;
   }
 
-  private async payCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
-    const amount = cashbackOn(captured, card.cashbackBps);
-    // Zero is not a refusal and not a payment. A card with no cashback rate, or
-    // a purchase too small to earn one atomic unit at that rate, earns nothing —
-    // and posting a zero-value transaction to say so would be noise in the book.
-    if (amount <= 0n) return { status: 'none', amount: 0n };
-
-    // No issuer is connected. Do not call rewardPay and do not write a cashback
-    // row — that row would be a rewards balance. The capture already stands.
-    if (!this.rewardsIssuerConnected(card)) {
-      return { status: 'refused', amount, reason: 'bank.rewards_issuer_unset' };
+  /**
+   * The rate this capture earns (RC-bank-02). An operator's per-card rate wins when one was set; otherwise the owner's
+   * rate for the person's rank card tier, on a card funded in the table's asset. Null means no rate applies (another
+   * asset, no table): nothing is earned. A tier with no published rate, or no tier read, refuses by name.
+   */
+  private async cashbackRate(card: CardRecord): Promise<{ bps: number } | { refused: string }> {
+    if (card.cashbackBps > 0) return { bps: card.cashbackBps };
+    const rates = this.cashbackRates;
+    if (!rates || rates.assetId !== card.assetId) return { bps: 0 };
+    let tier: CardTier;
+    try {
+      tier = await this.rankTier.cardTierOf(card.userId);
+    } catch (err) {
+      return { refused: err instanceof BankError ? err.code : 'bank.rank_unavailable' };
     }
+    const bps = rates.rates[tier];
+    return bps === undefined ? { refused: 'bank.cashback_rate_unset' } : { bps };
+  }
 
-    const claimed = await this.sql<
-      Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>
-    >`
-      INSERT INTO bank.card_cashback (authorization_id, rate_bps, amount)
-      VALUES (${authorization.id}, ${card.cashbackBps}, ${formatAmount(amount)}::numeric)
-      ON CONFLICT (authorization_id) DO NOTHING
-      RETURNING id, status, ledger_tx_id, amount::text AS amount, rejection_code
-    `;
-
-    const row =
-      claimed[0] ??
+  private async payCashback(card: CardRecord, authorization: AuthorizationRecord, captured: Amount): Promise<CashbackOutcome> {
+    type CashbackRow = { id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null };
+    const readRow = async () =>
       (
-        await this.sql<Array<{ id: string; status: string; ledger_tx_id: string | null; amount: string; rejection_code: string | null }>>`
+        await this.sql<CashbackRow[]>`
           SELECT id, status, ledger_tx_id, amount::text AS amount, rejection_code
             FROM bank.card_cashback WHERE authorization_id = ${authorization.id}
         `
-      )[0]!;
+      )[0];
+
+    // A row already claimed for this authorisation is the decision: its amount, never a re-rate.
+    let row = await readRow();
+    if (!row) {
+      const rate = await this.cashbackRate(card);
+      if ('refused' in rate) return { status: 'refused', amount: 0n, reason: rate.refused };
+      const amount = cashbackOn(captured, rate.bps);
+      // Zero is not a refusal and not a payment. A card with no cashback rate, or
+      // a purchase too small to earn one atomic unit at that rate, earns nothing —
+      // and posting a zero-value transaction to say so would be noise in the book.
+      if (amount <= 0n) return { status: 'none', amount: 0n };
+
+      // No issuer is connected. Do not call rewardPay and do not write a cashback
+      // row — that row would be a rewards balance. The capture already stands.
+      if (!this.rewardsIssuerConnected(card)) {
+        return { status: 'refused', amount, reason: 'bank.rewards_issuer_unset' };
+      }
+
+      await this.sql`
+        INSERT INTO bank.card_cashback (authorization_id, rate_bps, amount)
+        VALUES (${authorization.id}, ${rate.bps}, ${formatAmount(amount)}::numeric)
+        ON CONFLICT (authorization_id) DO NOTHING
+      `;
+      row = (await readRow())!;
+    }
 
     // The row's amount, not a re-rate. A later change to the card's bps must
     // not post a different reward than the one this authorisation claimed.
@@ -1741,6 +1780,86 @@ export class CardService {
       }),
     );
     return { ledgerTxId: posted.id };
+  }
+
+  /**
+   * The person's cashback by rank card tier (RC-bank-02, J-bank-13 #7): their tier and its rate, every tier's rate, the
+   * asset it is paid in, what was paid on their spend (summed from settled reward records, each a ledger transaction) and
+   * what was earned and not paid (a short pot, or a post not yet through). Refuses `bank.cashback_rate_unset` with no
+   * table, `bank.rank_unavailable` with no tier. `paying` says whether this programme pays at all.
+   */
+  async cashbackSummary(userId: string): Promise<{
+    tier: CardTier;
+    rateBps: number | null;
+    assetId: string;
+    rates: Array<{ tier: CardTier; bps: number }>;
+    paid: Amount;
+    unpaid: Amount;
+    payments: Array<{
+      authorizationId: string;
+      cardId: string;
+      amount: Amount;
+      status: string;
+      rejectionCode: string | null;
+      ledgerTxId: string | null;
+    }>;
+    paying: boolean;
+    simulated: boolean;
+  }> {
+    const rates = this.cashbackRates;
+    if (!rates) throw new BankError('The owner has not published cashback rates by card tier', 'bank.cashback_rate_unset');
+    const tier = await this.rankTier.cardTierOf(userId);
+    const programme = this.issuer.programme;
+    const paying =
+      (this.simulatorPays && programme.id === 'card-sim') ||
+      (!programme.simulated && programme.id !== 'none' && programme.id !== 'card-sim');
+    const rows = await this.sql<
+      Array<{
+        authorization_id: string;
+        card_id: string;
+        amount: string;
+        status: string;
+        rejection_code: string | null;
+        ledger_tx_id: string | null;
+      }>
+    >`
+      SELECT cb.authorization_id, a.card_id, cb.amount::text AS amount, cb.status, cb.rejection_code, cb.ledger_tx_id
+        FROM bank.card_cashback cb
+        JOIN bank.card_authorizations a ON a.id = cb.authorization_id
+        JOIN bank.cards c ON c.id = a.card_id
+       WHERE c.user_id = ${userId} AND c.asset_id = ${rates.assetId}
+       ORDER BY cb.created_at DESC
+       LIMIT 50
+    `;
+    // The totals over every reward record, not the 50 listed.
+    const [totals] = await this.sql<Array<{ paid: string; unpaid: string }>>`
+      SELECT COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'settled'), 0)::text AS paid,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status <> 'settled'), 0)::text AS unpaid
+        FROM bank.card_cashback cb
+        JOIN bank.card_authorizations a ON a.id = cb.authorization_id
+        JOIN bank.cards c ON c.id = a.card_id
+       WHERE c.user_id = ${userId} AND c.asset_id = ${rates.assetId}
+    `;
+    return {
+      tier,
+      rateBps: rates.rates[tier] ?? null,
+      assetId: rates.assetId,
+      rates: (['none', 'standard', 'metal', 'obsidian'] as const)
+        .filter((t) => rates.rates[t] !== undefined)
+        .map((t) => ({ tier: t, bps: rates.rates[t]! })),
+      paid: parseAmount(totals?.paid ?? '0'),
+      unpaid: parseAmount(totals?.unpaid ?? '0'),
+      payments: rows.map((r) => ({
+        authorizationId: r.authorization_id,
+        cardId: r.card_id,
+        amount: parseAmount(r.amount),
+        status: r.status,
+        rejectionCode: r.rejection_code,
+        ledgerTxId: r.ledger_tx_id,
+      })),
+      paying,
+      simulated: programme.simulated,
+    };
   }
 
   /** What the pot can currently pay. A ledger read, like every other figure here. */

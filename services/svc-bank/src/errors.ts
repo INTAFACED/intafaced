@@ -303,6 +303,10 @@ export type BankErrorCode =
   | 'bank.card_command_conflict'
   /** A replacement id was reused for a different card, or the reason disagreed. */
   | 'bank.card_replace_conflict'
+  /** The owner has not published a cashback rate for this rank card tier. */
+  | 'bank.cashback_rate_unset'
+  /** The rank service could not say which card tier this person has. */
+  | 'bank.rank_unavailable'
   /** The owner has not published the card programme (countries, card limits, terms), so no card can be ordered. */
   | 'bank.card_eligibility_unset'
   /** Cards are not offered to residents of the country given. */

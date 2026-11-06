@@ -597,6 +597,45 @@ export function createCardsRouter(c: BankRouterContext) {
         }),
       ),
 
+    /**
+     * Cashback by rank card tier (RC-bank-02, J-bank-13 #7): the caller's tier and its rate, every tier's rate, the asset
+     * it is paid in, and what their card spend was paid (each payment a reward record with its ledger transaction).
+     */
+    cashback: scopedProcedure('bank:read', { module: 'bank' })
+      .output(
+        z.object({
+          tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
+          rateBps: z.number().int().nullable(),
+          assetId: z.string(),
+          rates: z.array(z.object({ tier: z.enum(['none', 'standard', 'metal', 'obsidian']), bps: z.number().int() })),
+          paid: amountString,
+          unpaid: amountString,
+          payments: z.array(
+            z.object({
+              authorizationId: z.string(),
+              cardId: z.string(),
+              amount: amountString,
+              status: z.string(),
+              rejectionCode: z.string().nullable(),
+              ledgerTxId: z.string().nullable(),
+            }),
+          ),
+          paying: z.boolean(),
+          simulated: z.boolean(),
+        }),
+      )
+      .query(({ ctx }) =>
+        guard(async () => {
+          const c = await bank.cards.cashbackSummary(ctx.principal.userId);
+          return {
+            ...c,
+            paid: formatAmount(c.paid),
+            unpaid: formatAmount(c.unpaid),
+            payments: c.payments.map((p) => ({ ...p, amount: formatAmount(p.amount) })),
+          };
+        }),
+      ),
+
     // ── Getting a card (J-bank-13; BK-cissue-01 to -04) ─────────────────────
 
     /** The product list for a country: eligibility with its reason, the count limits, the terms, designs and speeds. */

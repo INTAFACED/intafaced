@@ -7,6 +7,7 @@ import { useBankRead } from './components';
 import { bankWrites } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { cardOrderCopy } from './card-order-copy';
+import { useHoldings } from './holdings';
 import { Refusal } from './CardJourney';
 import './bank-depth.css';
 
@@ -19,7 +20,6 @@ import './bank-depth.css';
 
 type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const DECIMAL = /^\d+(\.\d{1,18})?$/;
-const ASSET = 'USDT';
 
 export function CardOrderRoom() {
   const { t } = cardOrderCopy.useCopy();
@@ -28,6 +28,11 @@ export function CardOrderRoom() {
   const nameOf = (code: string) => countries.find((c) => c.code === code)?.name ?? code;
   const [country, setCountry] = useState('DE');
   const catalogue = useBankRead('cards.catalogue', { country });
+  // The balances the person holds: a card draws on one of them, and earns cashback in the asset it draws on.
+  const held = useHoldings();
+  const assets = held.resource.status === 'ready' ? held.resource.data.assets.map((a) => a.assetId) : [];
+  const [chosenAsset, setAsset] = useState<string | null>(null);
+  const asset = chosenAsset ?? (assets.includes('USDT') ? 'USDT' : (assets[0] ?? 'USDT'));
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
@@ -95,7 +100,7 @@ export function CardOrderRoom() {
       cardId: requestId,
       country,
       termsVersion: c.terms.version,
-      assetId: ASSET,
+      assetId: asset,
       perAuthorizationLimit: limit,
       cardType,
       ...(physical
@@ -214,8 +219,18 @@ export function CardOrderRoom() {
               </label>
             ))}
           </fieldset>
+          <label className="field">
+            <span>{t('funding')}</span>
+            <select value={asset} onChange={(event) => setAsset(event.target.value)}>
+              {(assets.length ? assets : [asset]).map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
           <Field
-            label={t('limit', { asset: ASSET })}
+            label={t('limit', { asset })}
             inputMode="decimal"
             value={limit}
             onChange={(event) => setLimit(event.target.value.trim())}

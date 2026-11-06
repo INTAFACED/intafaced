@@ -129,6 +129,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST card programme from the bank profile (J-bank-13): eligible countries, count limits, TEST cardholder terms,
     // designs and delivery speeds. Unset, the card room refuses bank.card_eligibility_unset and no card can be ordered there.
     BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
+    // LOCAL TEST cashback by rank card tier (J-bank-13 #7): the profile's TEST rates in IFC, and the card simulator's
+    // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
+    // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).
+    BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
+    BANK_CARD_SIM_CASHBACK: 'test',
     BANK_ADDRESS_BOOK_CAP: '10',
     BANK_OFFRAMP_COOLING_HOURS: '24',
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a

@@ -19,7 +19,10 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // card with a design and a speed, and its delivery address changed before print and refused once produced. Steps 5 and
 // 6 (BK-cissue-04): activation with a fresh authenticator code (the owner's step-up rule on, for that restart), then a
 // lost report that closes the card once, reverses its open hold once and leaves one new inactive card. Step 7
-// (RC-bank-02) is not built: card-sim pays no cashback by design, so the step waits on an owner decision and fails at once.
+// (RC-bank-02, owner decision 2026-11-06: add cashback): an IFC card's spend is paid cashback in IFC at the rate for the
+// person's rank card tier, from the one reward pot, which the two TEST founders fund from IFC trade fees the platform
+// earned. The simulator pays it only through the stack's TEST stand-in (BANK_CARD_SIM_CASHBACK=test, refused outside
+// dev/test); a simulated card elsewhere still pays none.
 const J = 'J-bank-13';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const ADDRESS = { name: 'Ada TEST', line1: '1 TEST Strasse', city: 'Berlin', postalCode: '10115', country: 'DE' };
@@ -82,9 +85,12 @@ async function bank(who = person()) {
         body: JSON.stringify(input),
       }).then(answer),
     async usdt() {
+      return this.holding('USDT');
+    },
+    async holding(asset) {
       const res = await fetch(`${EDGE}/api/v1/account/balance`, { headers }).then(json);
       if (res.status !== 200) throw new Error(`balance read refused: ${res.status}`);
-      return res.body.balances.USDT ?? { free: '0', used: '0' };
+      return res.body.balances[asset] ?? { free: '0', used: '0' };
     },
   };
   kept.set(who.email, { client, at: Date.now() });
@@ -477,13 +483,87 @@ test(`${J} #6 reports it lost or stolen: the old card closes once, a new inactiv
   expect(await authorize(physicalId, '1')).toMatchObject({ decision: 'declined', declineCode: 'bank.card_not_active' });
 });
 
-test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, async () => {
-  // Not built: an owner decision. Cashback is paid only on a connected, non-simulated issuer's captures, and every
-  // simulated card refuses it with bank.rewards_issuer_unset even with the pot funded (services/svc-bank/README.md, Cards;
-  // `rewardsIssuerConnected` in card-service.ts). The only issuer on this stack is the simulator, so a person here cannot
-  // see cashback paid on a card spend. This step checks the row as written and fails at once until that is decided.
-  const { virtualId } = run.read();
-  if (!virtualId) throw new Error(`${J} #2 issued no virtual card, so there is no spend to read`);
-  const summary = await (await bank()).query('cards.cashback');
-  expect(summary.ok, `cards.cashback is not built: card-sim pays no cashback by design (${J} #7 waits on an owner decision)`).toBe(true);
+/** Founder A asks to sweep earned trade fees into the one reward pot; founder B approves, which posts it (as J-campaigns-02). */
+async function fundRewardPot(reference, asset, amount) {
+  const { ctx, sessions } = await founders();
+  const a = await sessions.a.campaignsOpsToken();
+  const b = await sessions.b.campaignsOpsToken();
+  const asked = await ctx.edge.mutate('campaigns', 'ops.pot.request', { reference, sourceModule: 'trade', asset, amount }, a);
+  expect(asked.status, asked.text.slice(0, 300)).toBe(200);
+  const funded = await ctx.edge.mutate('campaigns', 'ops.pot.approve', { reference }, b);
+  expect(funded.status, funded.text.slice(0, 300)).toBe(200);
+  expect(funded.json.result.data.state).toBe('posted');
+}
+
+test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const who = person();
+  const api = await bank();
+  // The person's tier, its rate and every tier's rate, from the bank (the stack publishes TEST rates in IFC).
+  const before = await api.query('cards.cashback');
+  expect(before.ok, JSON.stringify(before.body ?? {}).slice(0, 300)).toBe(true);
+  expect(before.data).toMatchObject({ assetId: 'IFC', paying: true, simulated: true });
+  const { tier, rateBps } = before.data;
+  expect(rateBps, `a TEST rate for tier ${tier}`).not.toBeNull();
+
+  // The reward pot is funded from trade fees the platform earned in IFC: the person buys TEST IFC on the stack's
+  // IFC/USDT book, paying the taker fee in IFC, and the two TEST founders sweep that much into the pot.
+  expect(fund(who.email, 'USDT', '60').tx).toBeTruthy();
+  const totpCode = await code();
+  const login = await fetch(`${EDGE}/api/identity/trpc/auth.login`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ deviceKey: DEVICE_KEY, identifier: who.email, password: who.password, ...(totpCode ? { totpCode } : {}) }),
+  }).then(json);
+  const token = login.body.result.data.accessToken;
+  const order = await fetch(`${EDGE}/api/v1/orders`, {
+    method: 'POST',
+    headers: { origin: ORIGIN, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ symbol: 'IFC/USDT', type: 'market', side: 'buy', amount: '50', clientOrderId: `${J}-ifc-${Date.now()}` }),
+  }).then(json);
+  expect(order.status, JSON.stringify(order.body).slice(0, 300)).toBeLessThan(300);
+  const spend = '4';
+  const earned = (toUnits(spend) * BigInt(rateBps)) / 10_000n;
+  await fundRewardPot(`TEST-${J}-${Date.now().toString(36)}`, 'IFC', fromUnits(earned));
+
+  // A virtual card that draws on IFC, ordered in the card room.
+  await signInPerson(page);
+  await page.goto('/bank/cards/new');
+  await page.getByLabel('Country you live in').selectOption('DE');
+  await page.getByRole('radio', { name: 'Virtual card' }).check();
+  await page.getByLabel('Card draws on').selectOption('IFC');
+  await page.getByLabel('Limit per payment (IFC)').fill('20');
+  await page.getByRole('button', { name: 'Issue virtual card' }).click();
+  const result = page.getByTestId('card-order-result');
+  await expect(result).toContainText('Virtual card issued');
+  const cardId = await result.getAttribute('data-card-id');
+  expect(await cardOf(cardId)).toMatchObject({ assetId: 'IFC', status: 'active' });
+
+  // A TEST spend of 4 IFC: authorised, then captured. Cashback is paid once, in IFC, at the tier's rate.
+  const ifcBefore = toUnits((await api.holding('IFC')).free);
+  const held = await authorize(cardId, spend);
+  expect(held).toMatchObject({ decision: 'approved' });
+  const rows = await api.query('cards.authorizations', { cardId, limit: 50 });
+  const ref = rows.data.find((row) => row.id === held.authorizationId).authorizationRef;
+  const captured = await capture(cardId, ref, spend);
+  expect(captured.cashback).toMatchObject({ status: 'paid', amount: fromUnits(earned) });
+  const ifcAfter = toUnits((await api.holding('IFC')).free);
+  expect(ifcBefore - ifcAfter).toBe(toUnits(spend) - earned);
+  const after = await api.query('cards.cashback');
+  expect(toUnits(after.data.paid) - toUnits(before.data.paid)).toBe(earned);
+  expect(after.data.payments.filter((p) => p.authorizationId === held.authorizationId)).toEqual([
+    expect.objectContaining({ status: 'settled', amount: fromUnits(earned) }),
+  ]);
+
+  // The card page shows it: the tier, its rate in IFC, the tier table, and the cashback paid.
+  await page.goto('/bank/cards');
+  const panelCashback = page.getByTestId('card-cashback');
+  const tierName = { none: 'None', standard: 'Standard', metal: 'Metal', obsidian: 'Obsidian' }[tier];
+  await expect(panelCashback).toContainText(`Your rank’s card tier: ${tierName}`);
+  const percent = rateBps % 100 === 0 ? String(rateBps / 100) : (rateBps / 100).toString();
+  await expect(panelCashback).toContainText(`${percent}% cashback in IFC on spend from your IFC card`);
+  const table = panelCashback.getByRole('table', { name: 'Cashback by card tier' });
+  await expect(table.getByRole('row')).toHaveCount(after.data.rates.length + 1);
+  await expect(panelCashback.getByTestId('card-cashback-paid')).toHaveAttribute('data-paid', after.data.paid);
+  await expect(panelCashback.getByTestId('card-cashback-paid')).toContainText(`Cashback paid: ${after.data.paid} IFC`);
 });

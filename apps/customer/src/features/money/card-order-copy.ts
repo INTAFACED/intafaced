@@ -96,6 +96,22 @@ const en = {
   stolen: 'Stolen',
   reportConfirm: 'Report and replace',
   reported: 'Card closed. A replacement is on its way; activate it when it arrives.',
+  funding: 'Card draws on',
+  cashbackTitle: 'Cashback',
+  cashbackTier: 'Your rank’s card tier: {tier}',
+  cashbackRate: '{percent}% cashback in {asset} on spend from your {asset} card',
+  cashbackNoRate: 'No cashback rate is published for your tier.',
+  cashbackTable: 'Cashback by card tier',
+  cashbackTierHead: 'Card tier',
+  cashbackRateHead: 'Cashback',
+  cashbackPaid: 'Cashback paid: {amount} {asset}',
+  cashbackUnpaid: 'Earned, not paid yet: {amount} {asset}',
+  cashbackSimulated: 'Paid on spend from the simulation record’s cards.',
+  cashbackOff: 'Cashback needs rail.card. It is switched off in this build.',
+  tierNone: 'None',
+  tierStandard: 'Standard',
+  tierMetal: 'Metal',
+  tierObsidian: 'Obsidian',
 } as const;
 
 export const cardOrderCopy = defineCopy('customer.money.card-order', en);

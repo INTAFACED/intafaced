@@ -11,7 +11,7 @@ import { CardControlPanels, CardFace, OrderCard } from './CardPanels';
 import { maskedPan, orderBlock, type OrderBlock } from './card-controls';
 import { useHoldings } from './holdings';
 import { useSession } from '../session/session';
-import { CardJourney } from './CardJourney';
+import { CardCashback, CardJourney } from './CardJourney';
 import { cardOrderCopy } from './card-order-copy';
 
 type CardRecord = z.infer<typeof cardSchema>;
@@ -555,6 +555,7 @@ export function OwnerCards({ open }: { open: (spec: ActionSpec) => void }) {
       <a className="button button--primary" href="/bank/cards/new">
         {order.t('getCard')}
       </a>
+      <CardCashback />
       <OrderCard open={open} programme={orderProgramme} assets={orderAssets} />
       {selected && (
         <section className="money-selected-card" aria-labelledby="money-selected-card-heading">

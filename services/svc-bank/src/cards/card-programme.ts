@@ -87,3 +87,60 @@ export function requireProgramme(terms: CardProgrammeTerms | null): CardProgramm
 export function termsTextHash(text: string): string {
   return `sha256:${createHash('sha256').update(text, 'utf8').digest('hex')}`;
 }
+
+/**
+ * THE OWNER'S CASHBACK RATES BY RANK CARD TIER (RC-bank-02), paid in one asset (the platform token, IFC).
+ *
+ * `BANK_CARD_CASHBACK_RATES_JSON`: `{ "assetId": "IFC", "rates": { "<tier>": <bps> } }` over the rank perks' card tiers.
+ * NO DEFAULT. Blank or out of shape refuses `bank.cashback_rate_unset`; a tier with no rate refuses the same for that tier.
+ * A rate applies to spend on a card funded in that asset, so the reward is a share of what left the person's balance in
+ * the same asset: nothing is converted and no price is consulted.
+ */
+export const BANK_CARD_CASHBACK_RATES_ENV = 'BANK_CARD_CASHBACK_RATES_JSON';
+export const CARD_TIERS = ['none', 'standard', 'metal', 'obsidian'] as const;
+export type CardTier = (typeof CARD_TIERS)[number];
+
+const ratesShape = z
+  .object({
+    assetId: z.string().regex(/^[A-Z0-9]{2,16}$/),
+    rates: z.partialRecord(z.enum(CARD_TIERS), z.number().int().min(0).max(10_000)),
+  })
+  .strict();
+export type CashbackRates = { readonly assetId: string; readonly rates: Partial<Record<CardTier, number>> };
+
+export function parseCashbackRates(raw: string | undefined | null): CashbackRates | null {
+  if (raw === undefined || raw === null || raw.trim() === '') return null;
+  try {
+    const checked = ratesShape.safeParse(JSON.parse(raw));
+    if (!checked.success || Object.keys(checked.data.rates).length === 0) return null;
+    return checked.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * THE SIMULATOR'S CASHBACK STAND-IN, AND IT IS A TEST FIXTURE (J-bank-13 #7).
+ *
+ * A simulated card pays no cashback (`bank.rewards_issuer_unset`): a reward for a purchase no issuer saw would be platform
+ * money paid for nothing. `BANK_CARD_SIM_CASHBACK=test` lets the local test stack's card simulator pay it anyway, from the
+ * same reward pot, through the same `rewardPay`, so the journey can show cashback on card spend. Like the payout stand-in,
+ * it is refused at boot in any process whose raw `APP_ENV` is not exactly `dev` or `test`, or with `NODE_ENV=production`.
+ * Unset (the default) is `off`.
+ */
+export const CARD_SIM_CASHBACK_SETTINGS = ['off', 'test'] as const;
+export type CardSimCashbackSetting = (typeof CARD_SIM_CASHBACK_SETTINGS)[number];
+
+export function cardSimCashbackFor(
+  setting: CardSimCashbackSetting,
+  env: { APP_ENV?: string | undefined; NODE_ENV?: string | undefined },
+): boolean {
+  if (setting === 'off') return false;
+  const devOrTest = env.APP_ENV === 'dev' || env.APP_ENV === 'test';
+  if (!devOrTest || env.NODE_ENV === 'production') {
+    throw new Error(
+      'BANK_CARD_SIM_CASHBACK=test is the local test stack’s stand-in and refuses to start outside APP_ENV=dev or test, or under NODE_ENV=production',
+    );
+  }
+  return true;
+}

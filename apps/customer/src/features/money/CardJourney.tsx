@@ -328,3 +328,69 @@ export function CardJourney({ card, reload }: { card: CardRecord; reload: () => 
     </div>
   );
 }
+
+const TIER_KEY = { none: 'tierNone', standard: 'tierStandard', metal: 'tierMetal', obsidian: 'tierObsidian' } as const;
+
+/** Basis points as a percentage, exactly: 125 is "1.25", 100 is "1". */
+export function percentOf(bps: number): string {
+  const whole = Math.floor(bps / 100);
+  const part = String(bps % 100)
+    .padStart(2, '0')
+    .replace(/0+$/, '');
+  return part ? `${whole}.${part}` : String(whole);
+}
+
+/**
+ * Cashback on card spend (J-bank-13 #7, RC-bank-02): the person's rank card tier and its rate, every tier's rate, and
+ * what their spend was paid, all from the bank (`cards.cashback`). Nothing here works a figure out but the percentage.
+ */
+export function CardCashback() {
+  const { t } = cardOrderCopy.useCopy();
+  const read = useBankRead('cards.cashback', undefined);
+  if (read.resource.status === 'loading') return null;
+  if (read.resource.status === 'failed') {
+    return (
+      <section className="form-stack" data-testid="card-cashback">
+        <h3 className="bd-subhead">{t('cashbackTitle')}</h3>
+        <Refusal failure={read.resource.failure} />
+      </section>
+    );
+  }
+  const c = read.resource.data;
+  return (
+    <section className="form-stack" data-testid="card-cashback" data-tier={c.tier}>
+      <h3 className="bd-subhead">{t('cashbackTitle')}</h3>
+      <p>{t('cashbackTier', { tier: t(TIER_KEY[c.tier]) })}</p>
+      <p>{c.rateBps === null ? t('cashbackNoRate') : t('cashbackRate', { percent: percentOf(c.rateBps), asset: c.assetId })}</p>
+      <table aria-label={t('cashbackTable')}>
+        <thead>
+          <tr>
+            <th scope="col">{t('cashbackTierHead')}</th>
+            <th scope="col">{t('cashbackRateHead')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {c.rates.map((row) => (
+            <tr key={row.tier} data-current={row.tier === c.tier ? 'yes' : 'no'}>
+              <td>{t(TIER_KEY[row.tier])}</td>
+              <td>{percentOf(row.bps)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {c.paying ? (
+        <>
+          <p data-testid="card-cashback-paid" data-paid={c.paid}>
+            {t('cashbackPaid', { amount: c.paid, asset: c.assetId })}
+          </p>
+          {c.unpaid !== '0' && <p>{t('cashbackUnpaid', { amount: c.unpaid, asset: c.assetId })}</p>}
+          {c.simulated && <p className="money-caption">{t('cashbackSimulated')}</p>}
+        </>
+      ) : (
+        <p data-testid="card-cashback-paid" data-code="rail.card">
+          {t('cashbackOff')}
+        </p>
+      )}
+    </section>
+  );
+}

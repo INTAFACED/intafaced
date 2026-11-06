@@ -276,7 +276,7 @@ export const features: readonly Feature[] = [
     status: 'blocked',
     reason:
       'Eligibility, card limits and cardholder terms are owner values (blank refuses bank.card_eligibility_unset); a real card needs rail.card and printing needs hardware, so cards here are simulation records',
-    unlock: 'J-bank-13 #1 to #6 passing on main',
+    unlock: 'J-bank-13 #1 to #7 passing on main',
     tab: 'money',
   },
   {

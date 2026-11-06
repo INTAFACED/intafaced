@@ -1053,6 +1053,26 @@ export const bankReads = {
   'cards.programme': programmeSchema,
   'cards.catalogue': cardCatalogueSchema,
   'cards.delivery': cardDeliverySchema,
+  'cards.cashback': z.object({
+    tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
+    rateBps: z.number().int().nullable(),
+    assetId: z.string(),
+    rates: z.array(z.object({ tier: z.enum(['none', 'standard', 'metal', 'obsidian']), bps: z.number().int() })),
+    paid: money,
+    unpaid: money,
+    payments: z.array(
+      z.object({
+        authorizationId: z.string(),
+        cardId: z.string(),
+        amount: money,
+        status: z.string(),
+        rejectionCode: z.string().nullable(),
+        ledgerTxId: z.string().nullable(),
+      }),
+    ),
+    paying: z.boolean(),
+    simulated: z.boolean(),
+  }),
   'cards.uses': z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }),
   'cards.list': z.array(cardSchema),
   'cards.authorizations': z.array(
