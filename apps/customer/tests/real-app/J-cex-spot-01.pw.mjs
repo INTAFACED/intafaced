@@ -53,6 +53,18 @@ test.beforeEach(async ({ page }) => {
   await cdp
     .send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true })
     .catch((e) => console.log(`CDPDIAG autoattach ${e.message}`));
+  // Every browser target (prerender, popup, worker, other page) with its URL and life.
+  const browserCdp = await page.context().browser().newBrowserCDPSession();
+  for (const ev of ['Target.targetCreated', 'Target.targetInfoChanged', 'Target.targetDestroyed'])
+    browserCdp.on(ev, (e) => console.log(`CDPDIAG ${t()} ${ev} ${JSON.stringify(e.targetInfo ?? e).slice(0, 400)}`));
+  await browserCdp.send('Target.setDiscoverTargets', { discover: true });
+  // Every request of #3's page, any URL, so the menu's window is complete.
+  if (test.info().title.includes('#3'))
+    cdp.on('Network.requestWillBeSent', (e) =>
+      console.log(
+        `CDPDIAG ${t()} any ${e.type} ${e.request.method} ${e.request.url.slice(0, 140)} frame=${e.frameId} init=${e.initiator.type}`,
+      ),
+    );
   page.on('worker', (w) => console.log(`CDPDIAG ${t()} worker ${w.url()}`));
   page.on('framenavigated', (f) => console.log(`CDPDIAG ${t()} nav ${f === page.mainFrame() ? 'main' : 'sub'} ${f.url()}`));
   page.on('frameattached', (f) => console.log(`CDPDIAG ${t()} frameattached ${f.url()}`));
@@ -365,9 +377,12 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   await expect(access.getByText('Verified to trade', { exact: true })).toBeVisible();
   await expect(access).toContainText('Your level: Full');
   await expect(access.getByText('Verify to trade')).toHaveCount(0);
+  console.log(`CDPDIAG ${new Date().toISOString()} MENU open`);
   await page.getByRole('button', { name: 'Account menu' }).click();
   await expect(page.getByTestId('account-summary')).toContainText('Verification: Full');
+  console.log(`CDPDIAG ${new Date().toISOString()} MENU escape`);
   await page.keyboard.press('Escape');
+  console.log(`CDPDIAG ${new Date().toISOString()} MENU goto`);
   await page.goto('/verification');
   await expect(page.getByTestId('verification__level-tag')).toContainText('Full');
   await expect(page.getByTestId('verification__level-tag')).not.toContainText('Not verified');
