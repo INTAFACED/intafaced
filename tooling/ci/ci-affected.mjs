@@ -146,10 +146,11 @@ export function runsEverything(env) {
   return (env.GITHUB_REF === 'refs/heads/main' && env.GITHUB_EVENT_NAME === 'push') || env.GITHUB_EVENT_NAME === 'merge_group';
 }
 
-export const SHARD_COUNT = 8;
+export const SHARD_COUNT = 16;
 
 /**
- * The test job's matrix. A run-everything run is split SHARD_COUNT ways (tooling/ci/test-shards.mjs); an affected run is
+ * The test job's matrix. A run-everything run is split SHARD_COUNT ways (tooling/ci/test-shards.mjs: the whole packages in
+ * the first shards, then one shard per piece of each package in its SPLIT); an affected run is
  * one job, `changed`. The seal reads the matrix as one job: it is green only when every shard is.
  */
 export function shardMatrix(flags) {
@@ -318,7 +319,13 @@ function selfTest() {
   );
   assert(sealNeeded({ full: true, affected: false }, { ...ok, 'tests-full': 'failure' }).length === 1, 'full run red');
   assert(sealNeeded({ full: true, affected: false }, { ...ok, build: 'failure', 'tests-full': 'success' }).length === 1, 'build red');
-  assert(same(shardMatrix({ full: true }), ['1/8', '2/8', '3/8', '4/8', '5/8', '6/8', '7/8', '8/8']), 'a full run is split eight ways');
+  assert(
+    same(
+      shardMatrix({ full: true }),
+      Array.from({ length: 16 }, (_, i) => `${i + 1}/16`),
+    ),
+    'a full run is split sixteen ways',
+  );
   assert(same(shardMatrix({ full: false, affected: true }), ['changed']), 'an affected run is one job');
   console.log('✓ ci-affected --self-test OK (' + (cases.length + 18) + ' fixtures)');
 }

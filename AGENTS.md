@@ -1,6 +1,6 @@
 # Rules for agents
 
-INTAFACED is an exchange, a bank and a payments platform on one custodial ledger. You own an outcome: build it, prove it in the running app, and merge it. This page is the rules; the linked files hold procedures. Where another file disagrees with this page, this page wins; where the original spec disagrees with the code, the code wins.
+INTAFACED is an exchange, a bank and a payments platform on one custodial ledger. You own an outcome: build it, prove it in the running app, and merge it. This page is the rules; the linked files hold procedures. Where another file disagrees with this page, this page wins. Agreed acceptance criteria win; report conflicts.
 
 ## The floor
 
@@ -18,7 +18,7 @@ INTAFACED is an exchange, a bank and a payments platform on one custodial ledger
 Within the floor, these win over any agent's or reviewer's preference.
 
 - **Standing green light** (2026-10-19): push branches, open PRs, delete files through a PR, and merge once the checks allow it. Nothing waits for a person.
-- **One PR may carry one whole journey across services** (2026-11-06). Ledger-client money recipes, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR, reviewed like every other PR.
+- **One PR may carry one whole journey across services** (2026-11-06). Keep a journey together when it can be reviewed and reverted safely, money and security code included (2026-11-06, the owner's woke sweep).
 - **Money, security and supply-chain code are reviewed like every other PR** (supply chain: `.github/`, the lockfile, `.npmrc`, `pnpm-workspace.yaml`, Dockerfiles, `.dockerignore`, compose files, `tsconfig.base.json`, `tooling/infra/`) until Launch hardening, the phase that must pass before any real money moves (2026-11-06). Gate files and look baselines keep their extra review.
 - **The front end is React** (`apps/customer` with Vite, `apps/admin` with Next.js). Never reintroduce Vue.
 - **Nothing is hidden.** Parked means visible with its real blocker named. No "coming soon": every room gets its full layout and every control, with an honest empty or refusal state. `/chain`, `/dex` and `/protocol` stay visible with honest labels. Never call Base INTACHAIN mainnet, and never set `audited: true` (the audit is external).
@@ -27,10 +27,10 @@ Within the floor, these win over any agent's or reviewer's preference.
 
 ## How work flows
 
-1. **Own one outcome,** usually one whole journey in `docs/roadmap/journeys.json`, the most valuable unblocked one first. Start any path whose dependencies are met. If another open PR touches your files, take a different part.
+1. **Own one outcome,** usually one whole journey in `docs/roadmap/journeys.json`, the most valuable unblocked one first. Start any path whose dependencies are met. Check active work once before editing; coordinate conflicting edits; independent changes in shared files are fine.
 2. **Work on your own branch** in your own worktree or clone (`pnpm wt <branch>`), never a shared checkout.
-3. **Test first.** Write the journey's test (`apps/customer/tests/real-app/<journey>.pw.mjs`, one test per step, checking what the step's words say), see it fail, then build until it passes. Never change a step's words to fit the code. How: [`docs/agents/build-slice.md`](docs/agents/build-slice.md).
-4. **Before you open a PR,** merge current `origin/main`, and run what CI will run for your change: affected tests, typecheck, `pnpm exec prettier --check` on changed files, and `node tooling/ci/gates.mjs`. Prove the steps in the running app (`pnpm local:stack`, or a Real-app journeys run on the branch's exact head). A change to the journey stack's shared setup proves with the full journeys run. If you can't prove it, say exactly why: that is a gap, not a pass.
+3. **Prove what was agreed.** Write the journey's test (`apps/customer/tests/real-app/<journey>.pw.mjs`, one test per step, checking what the step's words say). Choose the order; before merging, prove the acceptance criteria, the money invariants and the failure branches. Never change a step's words to fit the code. How: [`docs/agents/build-slice.md`](docs/agents/build-slice.md).
+4. **Before you open a PR,** merge current `origin/main`. Run targeted checks while developing (affected tests, typecheck, `pnpm exec prettier --check` on changed files, and `node tooling/ci/gates.mjs`); let CI validate the pushed head; run full local suites only to diagnose. Prove the steps in the running app (`pnpm local:stack`, or a Real-app journeys run on the branch's exact head). A change to the journey stack's shared setup proves with the full journeys run. If you can't prove it, say exactly why: that is a gap, not a pass.
 5. **Review your diff** with an automated code review (for example `/code-review`), and answer each finding in the PR body: fixed, or why not.
 6. **Open the PR ready, with auto-merge on** from your own account. The body says what changed, why, the proof (commands and what you saw), which of the journey's steps are left or replaced, and how to revert. One PR per concern, merged in pieces that are safe to undo.
 7. **The required checks decide the merge** on the exact head: the `CI merge seal`, Gitleaks and Dependency audit. Nothing is run by hand to override a red.
@@ -50,7 +50,7 @@ Within the floor, these win over any agent's or reviewer's preference.
 
 ## GitHub and git
 
-- **On a 403 or 429 from GitHub,** stop GitHub calls and report the exact response. Don't retry in a loop, switch accounts or create a token; keep working locally. The one exception, `403 This workflow is already running` on a re-run, means wait for that run, then re-run.
+- **On a 403 or 429 from GitHub,** stop the refused action; honor rate-limit resets; never bypass a refusal. Report the exact response. Don't retry in a loop, switch accounts or create a token; keep working locally. The one exception, `403 This workflow is already running` on a re-run, means wait for that run, then re-run.
 - **Never delete a branch** or force-push someone else's. Remove only your own worktree (`git worktree remove <path>`, never `--force`), and stop the services you started.
 - **No status boards or tracker recooks.**
 

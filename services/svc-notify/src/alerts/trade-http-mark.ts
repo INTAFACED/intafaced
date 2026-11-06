@@ -218,43 +218,46 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
     }
   }
 
+  /** The mark of one ticker read: mid when two-sided, else last. */
+  function markOf(read: Awaited<ReturnType<typeof readTicker>>, now: Date): MarkQuote {
+    if (read.kind === 'unavailable') return read;
+    // JSON null is a 200 body. res.json() does not throw, and body.bid would.
+    const priced = read.body === null ? null : priceFromTicker(read.body);
+    if (!priced) {
+      return {
+        kind: 'unavailable',
+        reason: 'stale',
+        detail: 'trade ticker has no usable bid/ask/last',
+      };
+    }
+    return refuseIfMarkAged({ kind: 'ok', price: priced.price, at: read.quotedAt }, now);
+  }
+
   return {
     kind: 'live',
     async quote(marketId: string, at?: Date): Promise<MarkQuote> {
       const now = at ?? new Date();
-      const read = await readTicker(marketId, now);
-      if (read.kind === 'unavailable') return read;
-      // JSON null is a 200 body. res.json() does not throw, and body.bid would.
-      const priced = read.body === null ? null : priceFromTicker(read.body);
-      if (!priced) {
-        return {
-          kind: 'unavailable',
-          reason: 'stale',
-          detail: 'trade ticker has no usable bid/ask/last',
-        };
-      }
-      return refuseIfMarkAged({ kind: 'ok', price: priced.price, at: read.quotedAt }, now);
+      return markOf(await readTicker(marketId, now), now);
     },
-    async quoteSides(marketId: string, sides: readonly AlertPriceSide[], at?: Date): Promise<ReadonlyMap<AlertPriceSide, MarkQuote>> {
+    async quoteBook(marketId: string, sides: readonly AlertPriceSide[], at?: Date) {
       const now = at ?? new Date();
-      const out = new Map<AlertPriceSide, MarkQuote>();
-      if (sides.length === 0) return out;
-      // One ticker body serves every side, so the bid, the ask and the last of one pass come from the same snapshot.
+      // One ticker body serves the mark and every side, so one pass judges every alert of a market on the same book.
       const read = await readTicker(marketId, now);
+      const bySide = new Map<AlertPriceSide, MarkQuote>();
       for (const side of sides) {
         if (read.kind === 'unavailable') {
-          out.set(side, read);
+          bySide.set(side, read);
           continue;
         }
         const priced = read.body === null ? null : priceFromTickerSide(read.body, side);
-        out.set(
+        bySide.set(
           side,
           priced
             ? refuseIfMarkAged({ kind: 'ok', price: priced.price, at: read.quotedAt }, now)
             : { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE },
         );
       }
-      return out;
+      return { mark: markOf(read, now), sides: bySide };
     },
   };
 }
