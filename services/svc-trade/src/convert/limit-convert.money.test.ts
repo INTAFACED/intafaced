@@ -26,7 +26,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { TradeService, readyTestAdmission } from '../controls/test-admission.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
-import { rateReached } from '../spot/trade-service/limit-convert.js';
+import { LIMIT_CONVERT_LIST_SIZE, rateReached } from '../spot/trade-service/limit-convert.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');
@@ -237,6 +237,38 @@ describe('limit convert (PG-hard)', () => {
     await trade.sweepLimitConverts();
     expect(fills()).toHaveLength(0);
     expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('a waiting limit stays listed behind any number of newer ended ones, while only the latest ended ones are', async () => {
+    const trade = service();
+    const limit = await place(trade);
+    // More newer cancelled rows than one list holds, each written after the waiting one.
+    const cols = (
+      await db.sql<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns WHERE table_schema = 'trade' AND table_name = 'convert_limits'`
+    ).map((c) => c.column_name);
+    const pick = cols.map((c) =>
+      c === 'id'
+        ? `(md5(id::text || n::text))::uuid`
+        : c === 'client_limit_id'
+          ? `'newer-' || n`
+          : c === 'status'
+            ? `'cancelled'`
+            : c === 'created_at'
+              ? `created_at + make_interval(secs => n)`
+              : `"${c}"`,
+    );
+    await db.sql.unsafe(
+      `INSERT INTO trade.convert_limits (${cols.map((c) => `"${c}"`).join(', ')})
+       SELECT ${pick.join(', ')} FROM trade.convert_limits, generate_series(1, $2::int) AS n WHERE id = $1`,
+      [limit.id, LIMIT_CONVERT_LIST_SIZE + 1],
+    );
+    const list = await trade.limitConverts(alice());
+    expect(list.filter((l) => l.status === 'waiting').map((l) => l.id)).toEqual([limit.id]);
+    expect(list.filter((l) => l.status === 'cancelled')).toHaveLength(LIMIT_CONVERT_LIST_SIZE);
+    // Still cancellable, and its hold comes back.
+    expect((await trade.cancelLimitConvert(alice(), limit.id)).status).toBe('cancelled');
+    expect(await free(ALICE, 'USDT')).toBe(amt('100'));
   });
 
   it("another person's limit is not found and stays held", async () => {

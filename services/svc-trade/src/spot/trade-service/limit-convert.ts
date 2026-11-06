@@ -90,7 +90,10 @@ interface Row {
   updated_at: Date;
 }
 
-/** At most this many rows per list: the waiting ones and the latest ended ones. A page size, not a money figure. */
+/**
+ * At most this many ended rows (filled, cancelled, ended) per list, newest first. Every live row (placing, waiting,
+ * triggered, cancelling) is listed whatever its age, since its source is held or about to be. A page size, not a money figure.
+ */
 export const LIMIT_CONVERT_LIST_SIZE = 50;
 
 const businessIdOf = (id: string) => `convert-limit:${id}`;
@@ -259,9 +262,14 @@ async function load(svc: TradeServiceInternal, id: string): Promise<Row> {
 }
 
 export async function listLimitConverts(svc: TradeServiceInternal, principal: Principal): Promise<LimitConvertWire[]> {
-  const rows = await svc.sql<Row[]>`SELECT * FROM trade.convert_limits WHERE user_id = ${principal.userId}
-    ORDER BY created_at DESC LIMIT ${LIMIT_CONVERT_LIST_SIZE}`;
-  return rows.map(present);
+  // Every live row, however many newer rows ended since: money set aside stays visible and cancellable.
+  const live = await svc.sql<Row[]>`SELECT * FROM trade.convert_limits WHERE user_id = ${principal.userId}
+    AND status IN ('placing', 'waiting', 'triggered', 'cancelling') ORDER BY created_at DESC, id DESC`;
+  const ended = await svc.sql<Row[]>`SELECT * FROM trade.convert_limits WHERE user_id = ${principal.userId}
+    AND status IN ('filled', 'cancelled', 'ended') ORDER BY created_at DESC, id DESC LIMIT ${LIMIT_CONVERT_LIST_SIZE}`;
+  return [...live, ...ended]
+    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime() || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+    .map(present);
 }
 
 export async function cancelLimitConvert(svc: TradeServiceInternal, principal: Principal, id: string): Promise<LimitConvertWire> {
