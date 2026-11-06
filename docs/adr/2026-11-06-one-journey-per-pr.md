@@ -4,7 +4,7 @@
 **Date:** 2026-11-06
 **Source:** owner decision 2026-11-06.
 **Area:** how work is split into pull requests (AGENTS.md "Services and events" items 1 and 2).
-**Replaces:** the one-service-per-PR rule (owner decision 2026-10-20) and the contracts-or-events-PR-first order (owner decision 2026-10-22), for this rule only.
+**Amends:** owner decisions 2026-10-20 and 2026-10-22 (one service per PR), for this change only.
 
 ## Decision
 
@@ -14,7 +14,7 @@
 ## What does not change
 
 - Two open PRs may touch one service when their files do not overlap; if another open PR touches the same files, take a different part. `Main trust` stays the safety net: a breaking commit is reverted first.
-- Services never read each other's tables, and publish only subjects declared in `packages/events/src/catalog.ts` (AGENTS.md "Services and events" items 3 and 4).
+- Services never read each other's tables, and publish only subjects declared in `packages/events/src/catalog.ts` (AGENTS.md "Services and events" item 3).
 - Review levels, required checks and the merge seal are untouched by this decision.
 
 ## Undo
