@@ -103,11 +103,30 @@ test(`${J} #1 opens matching and trade health: venue health from the engine; a m
   await health(page);
   const venue = page.getByRole('region', { name: 'Venue / matching' });
   await expect(venue).toHaveAttribute('data-tile-state', 'live');
-  // Every figure is the engine's own: halt state, markets, resting orders, admission and hold-halted markets.
-  const engine = await engineHealth();
+  // Every figure is the engine's own: halt state, markets, resting orders, admission and hold-halted markets. The stack's
+  // market maker re-quotes every few seconds, so the resting count moves (run 42247381475: 44 read, 46 shown). It is
+  // compared inside a still window: the engine read before and after the page load agree, and the page must show
+  // exactly that.
+  let engine = null;
+  await expect
+    .poll(
+      async () => {
+        const before = await engineHealth();
+        await page.reload();
+        const shown = await page
+          .getByRole('region', { name: 'Venue / matching' })
+          .locator('[data-metric=resting-orders]')
+          .getAttribute('data-value');
+        const after = await engineHealth();
+        if (before.restingOrders !== after.restingOrders) return 'moving';
+        engine = after;
+        return shown === String(after.restingOrders) ? 'equal' : `shown ${shown}, engine ${after.restingOrders}`;
+      },
+      { timeout: 90_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe('equal');
   await expect(venue.locator('[data-metric=venue-halted]')).toHaveText(engine.venueHalted ? 'Halted' : 'Running');
   await expect(venue.locator('[data-metric=markets]')).toHaveAttribute('data-value', String(engine.markets));
-  await expect(venue.locator('[data-metric=resting-orders]')).toHaveAttribute('data-value', String(engine.restingOrders));
   await expect(venue.locator('[data-metric=admission]')).toHaveText(engine.admissionOpen ? 'Open' : `Closed: ${engine.admissionReason}`);
   await expect(venue.locator('[data-metric=hold-halted]')).toHaveAttribute('data-value', engine.holdHalted.join(','));
   await expect(venue.locator('[data-metric=engine-started]')).toHaveAttribute('data-value', engine.metrics.startedAt);

@@ -5,10 +5,12 @@ import {
   customerStatusOf,
   orderIdsIn,
   parseOrderRead,
+  parseReconcileStatus,
   parseSweepResult,
   parseTradeAudit,
   rejectText,
   statusLabel,
+  sweepLeftOpen,
   sweepLine,
 } from './order-read';
 
@@ -103,6 +105,31 @@ describe('sweep result and audit rows (J-cex-spot-18 #3, #5)', () => {
     expect(parseSweepResult({ checked: -1, released: 0, releasedOrderIds: [], ...empty, ranAt: 'x' })).toBeNull();
     // A list the service did not send is not read as "none".
     expect(parseSweepResult({ checked: 1, released: 0, releasedOrderIds: [], ranAt: 'x' })).toBeNull();
+  });
+
+  it('reads the last sweep for the Health tile: none ever, a sweep, or nothing of another shape (J-cex-spot-20 #2)', () => {
+    const empty = {
+      firstSightedOrderIds: [],
+      waitingOrderIds: [],
+      failedClosedOrderIds: [],
+      terminalizedNoHoldOrderIds: [],
+      otherActionOrderIds: [],
+      unreadableOrderIds: [],
+      erroredAfterActingOrderIds: [],
+    };
+    expect(parseReconcileStatus({ lastSweepAt: null, result: null })).toEqual({ kind: 'none' });
+    const result = { checked: 4, released: 0, releasedOrderIds: [], ...empty, ranAt: '2026-11-06T10:00:00.000Z' };
+    expect(parseReconcileStatus({ lastSweepAt: '2026-11-06T10:00:00.000Z', result })).toMatchObject({
+      kind: 'swept',
+      at: '2026-11-06T10:00:00.000Z',
+      result: { checked: 4, released: 0 },
+    });
+    expect(sweepLeftOpen(parseSweepResult(result)!)).toEqual([]);
+    const open = { ...result, erroredAfterActingOrderIds: [ORDER], unreadableOrderIds: [ORDER, ORDER] };
+    expect(sweepLeftOpen(parseSweepResult(open)!)).toEqual(['1 failed after acting (read these first)', '2 could not be read']);
+    // A time with no readable result is not "no sweep".
+    expect(parseReconcileStatus({ lastSweepAt: '2026-11-06T10:00:00.000Z', result: { checked: 4 } })).toBeNull();
+    expect(parseReconcileStatus({ lastSweepAt: null, result })).toBeNull();
   });
 
   it('reads audit rows and refuses a row of another shape', () => {
