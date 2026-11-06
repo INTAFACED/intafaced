@@ -142,7 +142,13 @@ function Propose({ markets, configs }: { markets: ReadonlyArray<{ id: string; sy
           </select>
         </label>
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" aria-label="Enabled" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          <input
+            type="checkbox"
+            className="adm-native-check"
+            aria-label="Enabled"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
           <span>Enabled</span>
         </label>
         <Field label="Half spread (bps)" value={half} onChange={setHalf} inputMode="numeric" />
