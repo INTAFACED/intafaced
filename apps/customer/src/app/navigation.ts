@@ -52,6 +52,12 @@ export const rooms: readonly Room[] = [
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
   {
+    path: '/help/official-channels',
+    title: 'Official channels',
+    description: 'Our real web addresses, email senders and support channels, and scam guides',
+    area: 'public',
+  },
+  {
     path: '/help/category/:id',
     title: 'Help topic',
     description: 'Sections of one help topic',
