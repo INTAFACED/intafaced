@@ -315,7 +315,7 @@ jobs:
 
   test-full:
     # A run-everything change (full, and every push to main) splits the suite sixteen ways, one job each, by the package
-    # lists in tooling/ci/test-shards.mjs: four shards of whole packages, then one shard per piece of the packages too
+    # lists in tooling/ci/test-shards.mjs: the first shards hold whole packages, then one shard per piece of the packages too
     # slow for one shard (SPLIT there; vitest's --shard runs a piece). (Failure it prevents: svc-pay alone kept shard 3
     # of 8 at 12 to 14 minutes, the long pole of every run-everything run, measured 6 Nov 2026.) Any other change is one
     # job, `changed`: the changed packages, their

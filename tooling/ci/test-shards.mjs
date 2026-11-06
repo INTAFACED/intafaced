@@ -224,6 +224,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const all = testPackages();
     const list = shardList(all, Number(m[2]));
     const problems = coverage(list, all);
+    // A SPLIT name that matches no package would quietly turn its pieces into whole-package shards.
+    for (const name of Object.keys(SPLIT))
+      if (!all.some((p) => p.name === name)) problems.push(`${name} is in SPLIT but has no test script`);
     if (problems.length) {
       for (const p of problems) console.error(`::error::the test shards do not run every package once: ${p}`);
       process.exit(1);

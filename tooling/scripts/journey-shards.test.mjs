@@ -236,17 +236,18 @@ test('a targeted run refuses a name that is not a journey file, and an empty lis
 
 test('each shard aims at the longest file less the setup spread, within 10 and 25 minutes', () => {
   const min = 60_000;
-  // Main's runs of 6 Nov 2026: J-wallet-05 took 25.9 minutes, about 513 minutes in all, so 32 shards.
+  // Main's last three runs of 6 Nov 2026, as the planner reads them: J-wallet-05 at most 26.1 minutes, about 513 minutes
+  // in all, so 32 shards.
   assert.equal(
     shardTarget(
       new Map([
-        ['J-wallet-05.pw.mjs', 25.9 * min],
+        ['J-wallet-05.pw.mjs', 26.1 * min],
         ['J-bank-04.pw.mjs', 19.1 * min],
       ]),
     ),
-    15.9 * min,
+    966_000,
   );
-  assert.equal(shardCount(513 * min, 15.9 * min), 33);
+  assert.equal(shardCount(513 * min, 966_000), 32);
   assert.equal(shardTarget(new Map([['a', 12 * min]])), 10 * min, 'never below 10 minutes');
   assert.equal(shardTarget(new Map([['a', 50 * min]])), 25 * min, 'never above 25 minutes');
   assert.equal(shardTarget(new Map()), 10 * min, 'no durations at all');
