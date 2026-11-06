@@ -551,6 +551,18 @@ async function preflight(maker, symbols) {
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
 
 /**
+ * Whether a `move`'s jump is done: every old quote came down and the new ladder rests on both sides. Until then the
+ * jump stays pending and the next cycle makes it again, old quotes first (failure it prevents: J-derivatives-02 #2
+ * restarted svc-trade during the cycle that jumped BTC/USDT back after J-copy-bots-otc-19 #1's `move`, so its cancels
+ * and quotes all failed but the jump was marked done; the next, ordinary cycle's post-only bids then met the stale
+ * shifted asks and were all refused, the old bids came down, and with no bid the perpetual had no mark: #5 and #6
+ * previewed with no slippage cap and no tier, main runs 1136 and 1270, #7110).
+ */
+export function jumpSettled({ left, rested }) {
+  return left.length === 0 && rested.has('buy') && rested.has('sell');
+}
+
+/**
  * Whether the taker crosses `symbol` on loop cycle `cycle` (from 1): every third cycle, the markets taking turns by
  * the parity of their symbol's length, so each market trades every sixth cycle. The first crossing is on cycle 1 for
  * the even-length symbols, BTC/USDT among them (failure it prevents:
@@ -803,8 +815,8 @@ async function runLoop(opts, home) {
       // may take: post-only, they were refused by any order resting in the path and the price never got there.
       const shift = leader ? undefined : (shifts.get(m.symbol) ?? 0n);
       const jump = shift !== undefined && quotedShift.has(m.symbol) && quotedShift.get(m.symbol) !== shift;
+      const left = [];
       if (jump && previous?.length) {
-        const left = [];
         for (const id of previous) {
           const r = m.swap
             ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
@@ -813,17 +825,26 @@ async function runLoop(opts, home) {
         }
         previous = left;
       }
-      if (shift !== undefined) quotedShift.set(m.symbol, shift);
       const ids = [];
+      const restedSides = new Set();
       let refused = null;
       for (const q of ladder) {
         // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
         // that level is quoted again next cycle.
         const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
-        if (r.status === 201 && r.json?.id) ids.push(r.json.id);
-        else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
-        else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
+        const id =
+          r.status === 201 && r.json?.id
+            ? r.json.id
+            : m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)
+              ? r.json.orderId
+              : null;
+        if (id) {
+          ids.push(id);
+          restedSides.add(q.side);
+        } else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
       }
+      // The shift counts as quoted only once its jump is done; otherwise the next cycle jumps again (`jumpSettled`).
+      if (shift !== undefined && (!jump || jumpSettled({ left, rested: restedSides }))) quotedShift.set(m.symbol, shift);
       // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
       // 409 means it is already gone: filled or cancelled).
       const stale = [];

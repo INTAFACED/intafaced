@@ -21,6 +21,7 @@ import {
   shiftedMid,
   quoteOrder,
   crossesOn,
+  jumpSettled,
   fromScaled,
   HISTORY_EDGE_WINDOW_MS,
   TAPE_CLIENT_PREFIX,
@@ -270,6 +271,16 @@ assert.deepEqual(crossCycles('BTC/USDT'), [1, 7, 13, 19]);
 assert.deepEqual(crossCycles('ETH/USDT'), [1, 7, 13, 19]);
 assert.deepEqual(crossCycles('ETH/BTC'), [4, 10, 16]);
 assert.deepEqual(crossCycles('BTC/USDT:USDT'), [4, 10, 16]);
+
+// A `move`'s jump is done only once every old quote came down and the new ladder rests on both sides; a jump whose
+// cancels or quotes failed (svc-trade restarting) stays pending, so the next cycle jumps again instead of resting
+// post-only quotes against the stale shifted ladder and leaving one side empty (#7110).
+const both = new Set(['buy', 'sell']);
+assert.equal(jumpSettled({ left: [], rested: both }), true);
+assert.equal(jumpSettled({ left: ['old-1'], rested: both }), false, 'an old quote still resting');
+assert.equal(jumpSettled({ left: [], rested: new Set() }), false, 'no new quote rested');
+assert.equal(jumpSettled({ left: [], rested: new Set(['sell']) }), false, 'no bid rested');
+assert.equal(jumpSettled({ left: [], rested: new Set(['buy']) }), false, 'no ask rested');
 
 console.log('local-test-market: guard and price-walk checks passed');
 
