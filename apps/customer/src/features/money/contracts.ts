@@ -1005,6 +1005,27 @@ export const recoveryWrites = {
   }),
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
+/** BK-acct-08 (J-bank-16 #4): one budget with this month's spend, folded from the ledger by the bank. */
+export const budgetSchema = z.object({
+  assetId: z.string(),
+  category: z.string(),
+  period: z.string(),
+  target: money,
+  spent: money,
+  progressBps: z.number().int(),
+  alertBps: z.number().int(),
+  alert: z.enum(['new', 'seen']).nullable(),
+  alertShownAt: z.string().nullable(),
+});
+/** BK-acct-08 (J-bank-16 #5): months side by side by category; a month with no movement is "0". */
+export const monthCompareSchema = z.object({
+  assetId: z.string(),
+  months: z.array(z.string()),
+  categories: z.array(z.object({ category: z.string(), byMonth: z.array(money), change: z.string() })),
+  totalOutflow: z.array(money),
+  totalInflow: z.array(money),
+});
+export const leftToSpendSchema = z.object({ assetId: z.string(), period: z.string(), target: money, spent: money, left: z.string() });
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1134,6 +1155,9 @@ export const bankReads = {
   }),
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
+  'analytics.budgets': z.array(budgetSchema),
+  'analytics.leftToSpend': leftToSpendSchema,
+  'analytics.compare': monthCompareSchema,
   'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
@@ -1150,6 +1174,8 @@ export const spaceLockStateSchema = z.object({
   unlockRequestedAt: z.string().datetime({ offset: true }).nullable(),
 });
 export const bankWrites = {
+  'analytics.setBudget': budgetSchema,
+  'analytics.budgetAlertShown': budgetSchema,
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
   'ramps.destinations.rename': destinationSchema,
   'spaces.archive': z.object({ archived: z.literal(true) }),

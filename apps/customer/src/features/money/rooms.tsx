@@ -76,6 +76,7 @@ import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
 import { splitAnalytics } from './analytics-model';
+import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
@@ -1716,6 +1717,12 @@ function Analytics() {
   return (
     <BankPage room="Analytics" description={copyText('rooms.ledger.movements.by.asset.and.date.movement')}>
       <StatementsLink />
+      {assetId && (
+        <>
+          <AnalyticsBudgets assetId={assetId} />
+          <AnalyticsCompare assetId={assetId} />
+        </>
+      )}
       <Section title={copyText('rooms.movement.window')}>
         <div className="money-analytics-form">
           <label className="field">

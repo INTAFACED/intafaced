@@ -13,7 +13,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // Steps 1 to 3 (BK-acct-07): a month's PDF statement with every posted line, its hash proof and the same per-coin total
 // the activity list shows for those days, and a range across months refused; a search of the activity, and a bank
 // letter refused `rail.bank` (no banking partner); tax statements refused `vendor.tax` (no tax provider).
-// Steps 4 and 5 (BK-acct-08), 6 (BK-acct-04) and 7 (RC-bank-01) are not built yet: each checks its room and fails fast.
+// Steps 4 and 5 (BK-acct-08): after a TEST payment of 80 USDT to a second TEST person, a budget of 100 on transfers with
+// an alert at 80 percent reads 80 percent with the alert once per month, deposits count as money in, and two months
+// compare side by side with left to spend. Steps 6 (BK-acct-04) and 7 (RC-bank-01) are not built yet: each fails fast.
 const J = 'J-bank-16';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -162,21 +164,117 @@ test(`${J} #3 opens tax statements: "needs the tax vendor" with vendor.tax`, asy
   await expect(notice).toContainText('vendor.tax');
 });
 
-// Not built yet (BK-acct-08, BK-acct-04, RC-bank-01): each checks the room its step names and fails fast.
+/** One of the person's own svc-bank reads through Edge. */
+async function bankRead(client, procedure, input) {
+  const res = await client.get(`/api/bank/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`);
+  return {
+    status: res.status,
+    data: res.body?.result?.data,
+    code: res.body?.error?.data?.cause?.code ?? res.body?.error?.data?.intafacedCode,
+    body: res.body,
+  };
+}
 
 test(`${J} #4 opens Analytics with a budget of 100 and spend of 80: progress 80 percent, the alert once per period, deposits as money in`, async ({
+  browser,
   page,
 }) => {
-  await signIn(page, person());
+  test.setTimeout(240_000);
+  const who = person();
+  const client = await api(who);
+  // Spend of 80 this month: the person pays 80 TEST USDT to a second TEST person from their main account.
+  const payeeContext = await browser.newContext();
+  const payeePage = await payeeContext.newPage();
+  const payee = await signUp(payeePage, 'bk16p');
+  await payeeContext.close();
+  const payeeId = (await (await api(payee)).get('/api/identity/trpc/rank.get')).body.result.data.userId;
+  const spaces = await bankRead(client, 'spaces.list', { limit: 50 });
+  const main = spaces.data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  const sent = await client.post('/api/bank/trpc/transfers.toUser', {
+    transferId: `${J}-spend-${who.email}`,
+    fromSpaceId: main.id,
+    toUserId: payeeId,
+    amount: '80',
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 300)).toBe(200);
+
+  // No budget yet: left to spend is refused by name.
+  expect(await bankRead(client, 'analytics.leftToSpend', { assetId: 'USDT' })).toMatchObject({ code: 'bank.budget_unset' });
+
+  await signIn(page, who);
   await page.goto('/bank/analytics');
-  await expect(page.getByTestId('analytics-budgets')).toBeVisible({ timeout: 5_000 });
+  const budgets = page.getByTestId('analytics-budgets');
+  await expect(budgets.getByTestId('left-to-spend')).toHaveAttribute('data-code', 'bank.budget_unset');
+  await budgets.getByLabel('Category').selectOption('transfers');
+  await budgets.getByLabel('Monthly target (USDT)').fill('100');
+  await budgets.getByLabel('Alert at (percent of target)').fill('80');
+  await budgets.getByRole('button', { name: 'Save budget' }).click();
+
+  // Progress 80 percent, from the bank's fold of this month's lines, and the alert shown.
+  const row = budgets.getByTestId('budget-transfers');
+  await expect(row).toHaveAttribute('data-progress-bps', '8000');
+  await expect(row).toContainText('Transfers: 80 of 100 USDT spent this month · 80%');
+  await expect(row.getByTestId('budget-alert')).toHaveText('You have used 80% of your Transfers budget this month.');
+  await expect(budgets.getByTestId('left-to-spend')).toHaveAttribute('data-left', '20');
+  await expect.poll(async () => (await bankRead(client, 'analytics.budgets', { assetId: 'USDT' })).data?.[0]?.alert).toBe('seen');
+  const [budget] = (await bankRead(client, 'analytics.budgets', { assetId: 'USDT' })).data;
+  expect(budget).toMatchObject({ category: 'transfers', target: '100', spent: '80', progressBps: 8000, alertBps: 8000, alert: 'seen' });
+
+  // Once per period: the next visit this month shows no alert, only when it was shown.
+  await page.reload();
+  await expect(row).toHaveAttribute('data-progress-bps', '8000');
+  await expect(row.getByTestId('budget-alert')).toHaveCount(0);
+  await expect(row.getByTestId('budget-alert-seen')).toBeVisible();
+  const still = (await bankRead(client, 'analytics.budgets', { assetId: 'USDT' })).data[0];
+  expect(still.alertShownAt).toBe(budget.alertShownAt);
+
+  // Deposits are money in, not outflow: this month's two TEST deposits are in the inflow, and the outflow is the 80.
+  const now = new Date();
+  const spend = await bankRead(client, 'analytics.spend', { assetId: 'USDT', from: monthStart(now).toISOString(), to: now.toISOString() });
+  expect(spend.data.totalOutflow).toBe('80');
+  expect(spend.data.outflowByCategory.transfers).toBe('80');
+  expect(toUnits(spend.data.totalInflow)).toBeGreaterThanOrEqual(toUnits('150.25'));
+  await expect(budgets.getByTestId('analytics-money-in')).toHaveAttribute('data-inflow', spend.data.totalInflow);
+  run.write({ payeeId });
 });
 
 test(`${J} #5 compares two months and reads "left to spend": each category per month side by side`, async ({ page }) => {
-  await signIn(page, person());
+  test.setTimeout(180_000);
+  const who = person();
+  const client = await api(who);
+  const now = new Date();
+  const thisM = thisMonth();
+  const lastM = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
+  const read = await bankRead(client, 'analytics.compare', { assetId: 'USDT', months: [lastM, thisM] });
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+  expect(read.data.categories.find((r) => r.category === 'transfers')).toEqual({
+    category: 'transfers',
+    byMonth: ['0', '80'],
+    change: '80',
+  });
+
+  await signIn(page, who);
   await page.goto('/bank/analytics');
-  await expect(page.getByTestId('analytics-compare')).toBeVisible({ timeout: 5_000 });
+  const compare = page.getByTestId('analytics-compare');
+  await expect(compare.getByLabel('First month')).toHaveValue(lastM);
+  await expect(compare.getByLabel('Second month')).toHaveValue(thisM);
+  const table = compare.getByRole('table', { name: 'Spend by category per month' });
+  await expect(table.getByRole('columnheader')).toHaveText(['Category', lastM, thisM, 'Change']);
+  // Each category per month side by side, a month with no movement as 0, as the bank folded them.
+  for (const row of read.data.categories) {
+    await expect(table.locator(`tr[data-category="${row.category}"] td`)).toHaveText([...row.byMonth, row.change]);
+  }
+  await expect(table.locator('tr[data-category="transfers"]')).toContainText('Transfers');
+
+  // Left to spend: the budget of 100 less this month's 80.
+  const left = await bankRead(client, 'analytics.leftToSpend', { assetId: 'USDT' });
+  expect(left.data).toMatchObject({ target: '100', spent: '80', left: '20', period: thisM });
+  const tile = page.getByTestId('analytics-budgets').getByTestId('left-to-spend');
+  await expect(tile).toHaveAttribute('data-left', '20');
+  await expect(tile).toHaveText('Left to spend this month: 20 USDT of 100 USDT');
 });
+
+// Not built yet (BK-acct-04, RC-bank-01): each checks the room its step names and fails fast.
 
 test(`${J} #6 opens Limits, fees and plan: daily send limit, used today and remaining; a blank fee table says "not set"; plan from the owner's table`, async ({
   page,
