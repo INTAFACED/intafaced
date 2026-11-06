@@ -19,6 +19,8 @@ import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
+import { CompromiseDeviceReview } from './CompromiseDeviceReview';
+import { CompromisedEntry } from './CompromisedEntry';
 import { SecurityLock } from './SecurityLock';
 import { MfaResetWaiting } from './MfaResetWaiting';
 import { TrustedDevices } from './TrustedDevices';
@@ -821,6 +823,7 @@ export function Security() {
             </p>
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
+          <CompromiseDeviceReview />
           <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
           <PasskeyNames revision={passkeyRevision} />
           <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
@@ -835,6 +838,7 @@ export function Security() {
           <ChangePassword onChanged={() => setSeatVersion((value) => value + 1)} />
           <RecoveryKeys />
           <SecurityLock />
+          <CompromisedEntry />
           <FreezeAccount />
           <CloseAccount />
           <section data-testid="security__card" className="security__sessions security__card">

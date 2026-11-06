@@ -141,6 +141,7 @@ import type { ProfileService } from './profile/profile-service.js';
 import { createProfileRouter } from './profile/profile-router.js';
 import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
+import { createCompromiseRouter } from './account/compromise-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
 import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
@@ -1226,7 +1227,7 @@ export function createIdentityRouter(
     }),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
-    account: createAccountRouter(options.account),
+    account: createAccountRouter(options.account, createCompromiseRouter(auth, privilegedUserIds)),
     accountClosure: createAccountClosureRouter(options.closure),
 
     users: router({

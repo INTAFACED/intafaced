@@ -152,6 +152,8 @@ export * from './identity-kyc-levels.js';
 export * from './identity-kyc-cases.js';
 export * from './pay-withdrawal-tier-limits.js';
 export * from './identity-account-status.js';
+export * from './identity-compromise.js';
+export * from './support-official-channels.js';
 export * from './identity-appeals.js';
 export * from './identity-signin-challenge.js';
 export * from './identity-kyc-capabilities.js';
