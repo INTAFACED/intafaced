@@ -39,6 +39,8 @@ import {
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
+import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
+import { isInteractiveFounderPrincipal } from './auth/action-approval-audience.js';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
 import { signInChallengeProofSchema, signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
 import {
@@ -1211,6 +1213,17 @@ export function createIdentityRouter(
         if (view === null) throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
         return { userId: ctx.principal.userId, handle: view.handle, emailVerified: view.emailVerified };
       }),
+
+    /**
+     * The caller's TEST staff role on a local or test stack (`IDENTITY_STAFF_TEST_ROSTER`), for the console's admission.
+     * Self-only: the user id comes from the session. Production has no roster, so this is always `role: null` there,
+     * and the console never asks it outside APP_ENV dev or test either.
+     */
+    staffTestStatus: protectedProcedure.output(staffTestStatusSchema).query(async ({ ctx }) => {
+      // Same gate a founder's session has: a second factor, never an API key, never a sub-account.
+      if (!isInteractiveFounderPrincipal(ctx.principal)) return { userId: ctx.principal.userId, role: null };
+      return { userId: ctx.principal.userId, role: await auth.staffTestRole(ctx.principal.userId) };
+    }),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
     account: createAccountRouter(options.account),

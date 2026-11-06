@@ -42,9 +42,13 @@ import {
   PAY_STEP_UP_ACCESS_TTL_SECONDS,
   PAY_STEP_UP_FACTOR_TTL_SECONDS,
   scopesForFounderSession,
+  scopesForStaffTestSession,
   SESSION_SCOPES,
+  staffTestRoleFor,
   type PayStepUpScope,
   type Scope,
+  type StaffTestRoleName,
+  type StaffTestRoster,
   type TokenConfig,
 } from '@intafaced/auth';
 import type { EventBus } from '@intafaced/events';
@@ -634,6 +638,8 @@ export class AuthService {
   private founderSessionScopes: readonly Scope[] = [];
   /** The config string whose sha256 is written on each founder issuance. */
   private founderSessionConfigValue = '';
+  /** The labelled TEST staff roster; undefined (production, or none set) grants no staff scope. */
+  private staffTestRoster: StaffTestRoster | undefined;
 
   constructor(
     private readonly sql: Sql,
@@ -1136,7 +1142,43 @@ export class AuthService {
     const granted = scopes.filter(
       (scope) => (FOUNDER_SESSION_SCOPE_ALLOWLIST as readonly string[]).includes(scope) && !base.includes(scope),
     );
-    return { scopes, founder, granted };
+    if (founder || this.staffTestRoster === undefined) return { scopes, founder, granted };
+    // Local and test stacks only (the roster refused boot anywhere else): a TEST staff member's session gets the role's
+    // TEST scopes, on the same gates a founder's has. A founder never takes a staff path.
+    const role = await this.staffTestRole(userId, query);
+    return {
+      scopes: scopesForStaffTestSession(scopes, {
+        roster: this.staffTestRoster,
+        role,
+        mfa,
+        apiKey: gates.apiKey === true,
+        subAccount: gates.subAccount === true,
+      }),
+      founder,
+      granted,
+    };
+  }
+
+  /**
+   * The labelled TEST staff roster (`IDENTITY_STAFF_TEST_ROSTER`, parsed by `parseStaffTestRoster` with the raw APP_ENV,
+   * so it is undefined everywhere but a local or test stack). Undefined grants no staff session anything.
+   */
+  useStaffTestRoster(roster: StaffTestRoster | undefined): void {
+    this.staffTestRoster = roster;
+  }
+
+  /**
+   * The caller's TEST staff role: their confirmed email's entry in the TEST roster, or null. With no roster (production)
+   * it is always null and reads nothing. An unconfirmed email never counts, so a sign-up alone cannot take a role.
+   */
+  async staffTestRole(userId: string, query?: Sql): Promise<StaffTestRoleName | null> {
+    if (this.staffTestRoster === undefined) return null;
+    const rows = await (query ?? this.sql)<Array<{ email: string | null; email_verified_at: Date | string | null }>>`
+      SELECT email::text AS email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row || row.email_verified_at === null) return null;
+    return staffTestRoleFor(this.staffTestRoster, row.email);
   }
 
   /** One audit row for a live founder issuance. A non-founder writes nothing. */
