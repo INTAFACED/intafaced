@@ -1,3 +1,4 @@
+// World: stack
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ROOT, journeyState, tool } from './stack.mjs';
