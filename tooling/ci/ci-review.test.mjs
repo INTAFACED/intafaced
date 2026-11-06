@@ -63,21 +63,21 @@ const SECURITY_PR = [
   'packages/config/src/freeze-authority.ts',
   'packages/db/src/migrate.ts',
 ];
-const SUPPLY_CHAIN_PR = ['pnpm-lock.yaml', '.github/actions/test-infra/action.yml', 'apps/customer/Dockerfile'];
+const SUPPLY_CHAIN_PR = ['pnpm-lock.yaml', '.github/actions/test-infra/action.yml', 'apps/customer/Dockerfile']; // security code under 2026-11-06
 const sealRule = (reason) => {
   assert.match(reason(GATE_PR) ?? '', /^gate file: \.github\/workflows\/ci\.yml$/, 'a gate-file PR still needs item 8');
   assert.match(reason(BASELINE_PR) ?? '', /^look baseline: /, 'a look-baseline PR still needs item 8');
-  for (const f of SUPPLY_CHAIN_PR) assert.match(reason([f]) ?? '', /^supply chain: /, `a supply-chain PR (${f}) still needs item 8`);
+  for (const f of SUPPLY_CHAIN_PR) assert.equal(reason([f]), null, `a supply-chain PR (${f}) no longer needs item 8`);
   assert.equal(reason(MONEY_PR), null, 'a money-only PR no longer needs item 8');
   assert.equal(reason(SECURITY_PR), null, 'a security-only PR no longer needs item 8');
   assert.match(reason([]) ?? '', /no changed files/, 'an unreadable file list still fails closed');
 };
 
-test('a gate-file, supply-chain or look-baseline PR still needs item 8; a money-only or security-only PR does not', () => {
+test('a gate-file or look-baseline PR still needs item 8; a money-only, security-only or supply-chain PR does not', () => {
   sealRule(reviewReason);
 });
 
-test('fails on (planted): the seal rule with a check dropped or narrowed, or the old money and security check put back', async () => {
+test('fails on (planted): the seal rule with a check dropped, or the old money, security or lockfile check put back', async () => {
   // Each mutant is review-marker.mjs with one line changed, loaded from a temporary copy; sealRule must refuse every one.
   const fs = await import('node:fs');
   const os = await import('node:os');
@@ -94,9 +94,7 @@ test('fails on (planted): the seal rule with a check dropped or narrowed, or the
   const mutants = {
     'gate-file check dropped': ['if (gate.length > 0) return `gate file: ${gate[0].file}`;', ''],
     'look-baseline check dropped': ['if (baseline) return `look baseline: ${baseline}`;', ''],
-    'supply-chain check dropped': ['if (supply) return `supply chain: ${supply}`;', ''],
-    'lockfile left out of the supply chain': ['  /^pnpm-lock\\.yaml$/,\n', ''],
-    '.github/ narrowed to workflows': ['  /^\\.github\\//,', '  /^\\.github\\/workflows\\//,'],
+    'lockfile check put back': putBack("if (files.includes('pnpm-lock.yaml')) return 'supply chain';"),
     'money check put back': putBack("if (files.some((f) => f.startsWith('services/svc-pay/'))) return 'money';"),
     'security check put back': putBack("if (files.some((f) => f.startsWith('services/svc-edge/'))) return 'security';"),
     'empty list passes': [failClosed, ''],

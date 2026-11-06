@@ -10,10 +10,9 @@ Until now, a PR that changed money code (`packages/ledger-client` and every pack
 
 ## Decision
 
-1. **What changes.** A PR that changes money or security code, and no gate file, supply-chain path or look baseline, no longer needs the extra `/security-review` or the independent review (item 8). The seal treats it like every other PR.
+1. **What changes.** A PR that changes money or security code, and no gate file or look baseline, no longer needs the extra `/security-review` or the independent review (item 8). The seal treats it like every other PR.
 2. **What keeps its review.**
    - A gate-file PR (`GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) still gets `/security-review` and still needs the independent review.
-   - A supply-chain PR still gets `/security-review` and still needs the independent review. Supply-chain paths are `SUPPLY_CHAIN_PATHS` in `tooling/ci/review-marker.mjs`: `.github/` (workflows and actions), the lockfile, `pnpm-workspace.yaml`, `.npmrc`, Dockerfiles and `.dockerignore`, compose files, `tsconfig.base.json` and `tooling/infra/`.
    - A look-baseline PR (`<package>/look-baselines/<room>/`, named on a `Baseline-change:` line) still needs the independent review.
    - A PR whose changed files can't be read still fails the seal (fail closed).
 3. **What stays as it is.**
@@ -35,4 +34,4 @@ Until now, a PR that changed money code (`packages/ledger-client` and every pack
 ## Consequences
 
 - Money and security PRs merge on their checks alone. The deep review they lose moves to launch hardening, which comes before real money.
-- The money and security paths, the ledger-client dependency test and the manifest reads are removed from `review-marker.mjs`, because the seal no longer uses them. The supply-chain entries of the old `SECURITY_PATHS` stay, as `SUPPLY_CHAIN_PATHS`. `tooling/ci/journey-verdict.mjs` keeps its own `dependsOnLedgerClient` for the regression-issue money rule.
+- `SECURITY_PATHS`, the ledger-client dependency test and the manifest reads are removed from `review-marker.mjs`, because the seal no longer uses them. `tooling/ci/journey-verdict.mjs` keeps its own `dependsOnLedgerClient` for the regression-issue money rule.

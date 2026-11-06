@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Merge-seal step: a pull request that changes gate-file, supply-chain or look-baseline paths is sealed only when
+ * Merge-seal step: a pull request that changes gate-file or look-baseline paths is sealed only when
  * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head.
  *
  *   node tooling/ci/review-marker.mjs --self-test
@@ -22,12 +22,12 @@
  * once it passes (ci-review.mjs), so nobody re-runs it by hand. Same requirement, later verdict: a head without the
  * review still fails.
  *
- * Only gate-file, supply-chain and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
+ * Only gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
  * 2026-10-26). Money and security code no longer does (owner decision 2026-11-06): it is sealed on its checks alone, like every other pull
  * request. On a merge queue's commit (`merge_group`) the
  * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
- * review. A pull request that edits the workflow itself touches .github/, which always needs the review.
+ * review. A pull request that edits the workflow itself touches .github/workflows/, a gate file, which always needs the review.
  *
  * The comment and session helpers below (MARKER, sessionsForHead, commentSignoff, ...) stay exported for
  * review-signoff.mjs, which still runs until its retirement PR; nothing in the seal reads them any more.
@@ -295,33 +295,14 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
 }
 
 /**
- * Supply-chain paths: the workflows and actions, what changes the dependency tree or the registry, the images and
- * compose files, the shared compiler settings and the infra config. They keep the independent review; owner decision
- * 2026-11-06 drops it only for money and security code.
- */
-export const SUPPLY_CHAIN_PATHS = [
-  /^\.github\//,
-  /^pnpm-lock\.yaml$/,
-  /^pnpm-workspace\.yaml$/,
-  /(^|\/)\.npmrc$/,
-  /(^|\/)Dockerfile[^/]*$/,
-  /(^|\/)\.dockerignore$/,
-  /(^|\/)docker-compose[^/]*\.ya?ml$/,
-  /^tsconfig\.base\.json$/,
-  /^tooling\/infra\//,
-];
-
-/**
  * Why this change needs the independent review, or null when it does not: a gate file (gate-file-guard.mjs GATE_PATHS),
- * a supply-chain path (SUPPLY_CHAIN_PATHS) or a look baseline. Money and security code alone does not (owner decision
+ * or a look baseline. Money and security code alone does not (owner decision
  * 2026-11-06). An empty file list fails closed.
  */
 export function reviewReason(files) {
   if (files.length === 0) return 'no changed files could be read for this head';
   const gate = gateFilesTouched(files);
   if (gate.length > 0) return `gate file: ${gate[0].file}`;
-  const supply = files.find((f) => SUPPLY_CHAIN_PATHS.some((re) => re.test(f)));
-  if (supply) return `supply chain: ${supply}`;
   const baseline = files.find((f) => BASELINE.test(f));
   if (baseline) return `look baseline: ${baseline}`;
   return null;
@@ -569,7 +550,7 @@ async function selfTest() {
     console.error('review-marker commit-session self-test failed:', got);
     process.exit(1);
   }
-  // Gate files, supply-chain paths and look baselines need the review; money and security code alone no longer does
+  // Gate files and look baselines need the review; money and security code alone no longer does
   // (2026-11-06). Every case the old rule had is kept, with its expected result under the new one.
   const reasonCases = [
     [['docs/x.md'], false],
@@ -593,15 +574,15 @@ async function selfTest() {
     [['AGENTS.md'], true],
     [['services/svc-support/CLAUDE.md'], true],
     [['services/svc-pay/src/a.ts', 'services/svc-pay/CLAUDE.md'], true], // money plus a gate file
-    [['pnpm-lock.yaml'], true], // supply chain
-    [['.npmrc'], true],
-    [['apps/customer/Dockerfile'], true],
-    [['docker-compose.apps.yml'], true],
-    [['tsconfig.base.json'], true],
-    [['.github/actions/test-infra/action.yml'], true],
-    [['pnpm-workspace.yaml'], true],
-    [['tooling/infra/migrate-all.mjs'], true],
-    [['services/svc-edge/src/a.ts', 'pnpm-lock.yaml'], true], // security plus the lockfile
+    [['pnpm-lock.yaml'], false], // security code in AGENTS.md (owner decision 2026-11-06)
+    [['.npmrc'], false], // the seal's old security list
+    [['apps/customer/Dockerfile'], false],
+    [['docker-compose.apps.yml'], false],
+    [['tsconfig.base.json'], false],
+    [['.github/actions/test-infra/action.yml'], false], // .github/ outside GATE_PATHS
+    [['pnpm-workspace.yaml'], false],
+    [['tooling/infra/migrate-all.mjs'], false],
+    [['services/svc-edge/src/a.ts', 'pnpm-lock.yaml'], false], // security plus the lockfile
     [['apps/customer/look-baselines/home/390x844.png'], true], // look baselines
     [['packages/ui/look-baselines/kit-buttons/phone/a.png'], true],
     [[], true],
@@ -666,7 +647,7 @@ async function mergeGroupSelfTest(reviewers) {
   // 4: a gate file with no review. 5: a gate file with only a PASS comment and an `Independent review` status from the
   // shared login. 6: closed. 7: a gate file whose CI review said FAIL. 8: a gate file reviewed against a side branch.
   // 9: money (svc-pay) and 10: security (svc-edge), no review: sealed on their checks alone. 11: a look baseline and
-  // 12: the lockfile, no review.
+  // 12: the lockfile, no review (security code).
   const world = {
     1: { files: ['docs/x.md'] },
     2: { files: ['tooling/ci/x.mjs'], runs: reviewed(2) },
@@ -703,7 +684,7 @@ async function mergeGroupSelfTest(reviewers) {
     [[1, 9, 10], true, 'a money PR and a security PR with no review merge through the queue'],
     [[1, 4], false, 'a gate-file PR with no review never merges through the queue'],
     [[9, 11], false, 'nor does a look-baseline PR with no review'],
-    [[9, 12], false, 'nor does a supply-chain PR with no review'],
+    [[9, 12], true, 'a lockfile PR with no review merges through the queue too'],
     [[4, 1], false, 'nor when it is not the last in the group'],
     [[2, 5], false, 'a PASS comment and status from the shared login count for nothing in the queue either'],
     [[2, 7], false, 'a FAIL verdict holds in the queue'],
@@ -1122,9 +1103,7 @@ async function main() {
   if (PR_NUMBER) {
     reason = reviewReason(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
     if (reason === null) {
-      console.log(
-        'independent review not required: no gate file, supply-chain path or look baseline changed (owner decisions 2026-10-22 and 2026-11-06)',
-      );
+      console.log('independent review not required: no gate file or look baseline changed (owner decisions 2026-10-22 and 2026-11-06)');
       return;
     }
     console.log(`independent review required (${reason})`);
