@@ -60,7 +60,7 @@ HTTP: `GET /health` (process liveness — does **not** echo `INDEXER_CHAIN_ID` /
 
 **Publishes — nothing. Consumes — nothing.** This service is not on the bus at all, and its compose entry declares no `nats` dependency for that reason.
 
-That is a deliberate scope line rather than an omission. A `intafaced.indexer.book.updated` subject is an obvious future addition, and adding one is a `packages/events` PR first (§15.2) — the catalog is a contract, and this PR is one service. Until then the read path is pull-only: `apps/web` queries `book` / `fills` / `positions`, and a live feed is the ws-gateway's job (§5.2), fed from the same projection.
+That is a deliberate scope line rather than an omission. A `intafaced.indexer.book.updated` subject is an obvious future addition, and adding one is a `packages/events` change (it may ride in the journey's PR) — the catalog is a contract. Until then the read path is pull-only: `apps/web` queries `book` / `fills` / `positions`, and a live feed is the ws-gateway's job (§5.2), fed from the same projection.
 
 What this service does consume is a **chain**, through the `ChainSource` port (`src/chain/source.ts`) — not the event bus.
 

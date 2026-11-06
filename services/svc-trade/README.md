@@ -147,7 +147,7 @@ that holds them.
 | `intafaced.identity.xp.earned` | an order reaches a terminal state having filled at least partly (§5.2 step 4) | `trade.order.xp:<orderId>` |
 
 This service publishes **no subject of its own**. `intafaced.trade.*` is not in `packages/events/src/catalog.ts`,
-and adding one is a contracts/events PR that comes first (§15.2) — so the only thing emitted here is a subject the
+and adding one is a `packages/events` change, which may land in the journey's PR — so the only thing emitted here is a subject the
 catalog already declares. svc-identity is the only writer of rank state (§4.1); this service says what happened
 and has no opinion about what it is worth.
 

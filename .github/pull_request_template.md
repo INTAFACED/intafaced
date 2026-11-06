@@ -6,7 +6,8 @@ Title: <type>(<scope>): <what changed>
 
 One PR may carry one whole journey: every service, contracts and events it
 needs. Ledger-client money recipes and the security services and packages go in
-their own PR (AGENTS.md "Services and events" 1 and 2).
+their own PR (AGENTS.md "Services and events" 1 and 2). One concern per PR
+(AGENTS.md Git 1).
 -->
 
 ## What changed

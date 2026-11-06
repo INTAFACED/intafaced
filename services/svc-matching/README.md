@@ -65,7 +65,7 @@ the public contract but is a svc-trade concern — it is a stop with inverted tr
 > **SOCKET §13 — gRPC transport.** §5.1 specifies gRPC, and the Rust port depends on the interface staying narrow.
 > The callable surface is `submit`, `cancel`, and native `amend`, already decimal-string in and out. A `.proto` in
 > `packages/contracts` plus a thin server in front of the same `MatchingEngine` is the whole change; nothing under
-> `src/engine/` moves. That proto is a contracts PR (§15.2) and cannot ship inside a service PR.
+> `src/engine/` moves. That proto is a `packages/contracts` change; it may ship in the same PR as this service's change (AGENTS.md "Services and events" 1).
 
 ---
 
