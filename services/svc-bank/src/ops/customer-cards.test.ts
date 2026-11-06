@@ -9,7 +9,7 @@ import { presentCard } from '../cards/card-view.js';
 
 /**
  * `bank.ops.customerCards` through the real router and edge context: the console reads one customer's cards with
- * `admin:treasury` only, every status including closed, through the owner list's own query; every read is logged with operator
+ * `admin:read` only, every status including closed, through the owner list's own query; every read is logged with operator
  * and customer before any card is read, and a customer's own session is refused.
  */
 
@@ -103,7 +103,7 @@ describe('console customer cards', () => {
       }),
       card('cccccccc-cccc-4ccc-8ccc-cccccccccccc', OTHER, 'active'),
     ]);
-    const caller = as(OPERATOR, ['admin:treasury']);
+    const caller = as(OPERATOR, ['admin:read']);
     const out = await caller.ops.customerCards({ userId: CUSTOMER, limit: 50 });
     expect(asked).toEqual([{ userId: CUSTOMER, limit: 50 }]);
     expect(out.userId).toBe(CUSTOMER);
@@ -127,7 +127,7 @@ describe('console customer cards', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const rows = [card(OPEN, CUSTOMER, 'frozen', { dailyLimit: amt('100'), usesAllowed: 1 }), card(CLOSED, CUSTOMER, 'closed')];
     const { as } = build(rows);
-    const out = await as(OPERATOR, ['admin:treasury']).ops.customerCards({ userId: CUSTOMER, limit: 50 });
+    const out = await as(OPERATOR, ['admin:read']).ops.customerCards({ userId: CUSTOMER, limit: 50 });
     expect(out.cards).toEqual(
       rows.map((r) => {
         const { shippingAddress: _home, ...view } = presentCard(r);
@@ -147,29 +147,27 @@ describe('console customer cards', () => {
       },
     };
     const router = createBankRouter({ cards } as unknown as BankServices);
-    const out = await router.createCaller(signed(OPERATOR, ['admin:treasury'])).ops.customerCards({ userId: CUSTOMER, limit: 10 });
+    const out = await router.createCaller(signed(OPERATOR, ['admin:read'])).ops.customerCards({ userId: CUSTOMER, limit: 10 });
     expect(out.cards).toEqual([]);
     expect(order).toEqual(['audit', 'read']);
     info.mockRestore();
   });
 
-  it('refuses a customer session, even for their own id, and an operator without the treasury scope, and reads nothing', async () => {
+  it('refuses a customer session, even for their own id, and an operator without admin:read, and reads nothing', async () => {
     const { as, asked } = build([card(CLOSED, CUSTOMER, 'closed')]);
     await expect(as(CUSTOMER, ['bank:read', 'bank:write']).ops.customerCards({ userId: CUSTOMER, limit: 50 })).rejects.toMatchObject({
       code: 'FORBIDDEN',
     });
-    await expect(as(OPERATOR, ['admin:compliance', 'admin:read']).ops.customerCards({ userId: CUSTOMER, limit: 50 })).rejects.toMatchObject(
-      {
-        code: 'FORBIDDEN',
-      },
-    );
+    await expect(as(OPERATOR, ['support:ops', 'market:ops']).ops.customerCards({ userId: CUSTOMER, limit: 50 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
     expect(asked).toEqual([]);
   });
 
   it('refuses a blank page size by its code, a smuggled field and a non-uuid customer, and reads nothing', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const { as, asked } = build([card(CLOSED, CUSTOMER, 'closed')]);
-    const op = as(OPERATOR, ['admin:treasury']);
+    const op = as(OPERATOR, ['admin:read']);
     await expect(op.ops.customerCards({ userId: CUSTOMER })).rejects.toMatchObject({
       code: 'BAD_REQUEST',
       cause: expect.objectContaining({ code: 'bank.cards_list_limit_unset' }),
@@ -187,7 +185,7 @@ describe('console customer cards', () => {
       throw new Error('log sink down');
     });
     const { as, asked } = build([card(CLOSED, CUSTOMER, 'closed')]);
-    await expect(as(OPERATOR, ['admin:treasury']).ops.customerCards({ userId: CUSTOMER, limit: 50 })).rejects.toMatchObject({
+    await expect(as(OPERATOR, ['admin:read']).ops.customerCards({ userId: CUSTOMER, limit: 50 })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
       cause: expect.objectContaining({ code: 'bank.ops_audit_unavailable' }),
     });

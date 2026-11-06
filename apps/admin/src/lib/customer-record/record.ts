@@ -1,4 +1,4 @@
-import { BANK_CUSTOMER_BALANCES, FORBID_BANK_TREASURY } from '@/lib/ops-desk/catalog';
+import { BANK_CUSTOMER_BALANCES, FORBID_BANK_OPS } from '@/lib/ops-desk/catalog';
 import type { KycSelfieForCompliance } from '@intafaced/contracts/identity-kyc-selfie';
 import type { Column, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import type { CustomerTab } from './tabs';
@@ -233,7 +233,7 @@ function customerCards(userId: string): ReadSpec {
       col('replacedByCardId', 'Replaced by card id', 'text', { nullable: true, detail: true }),
     ],
     emptyText: 'svc-bank has issued no card to this account: it has never been issued or ordered one.',
-    forbiddenText: FORBID_BANK_TREASURY,
+    forbiddenText: FORBID_BANK_OPS,
     refusals: {
       'bank.ops_audit_unavailable':
         'svc-bank could not record that you asked, so it read nothing. It writes that record before it reads any card, and refuses when it cannot.',

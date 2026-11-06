@@ -128,7 +128,7 @@ describe('cards tab', () => {
     expect(shown).toEqual(expect.arrayContaining(['id', 'status']));
     expect(plan.reads[0]!.columns.map((c) => c.key)).not.toContain('shippingAddress');
     expect(plan.reads[0]!.note).toContain('When 200 are shown, older cards may exist');
-    expect(plan.reads[0]!.forbiddenText).toContain('admin:treasury');
+    expect(plan.reads[0]!.forbiddenText).toContain('admin:read');
     expect(plan.reads[0]!.refusals?.['bank.ops_audit_unavailable']).toContain('read nothing');
     expect(plan.unwired.map((u) => u.id)).toEqual(['cards.payments']);
     expect(plan.unwired.map((u) => u.id)).not.toContain('cards.list');

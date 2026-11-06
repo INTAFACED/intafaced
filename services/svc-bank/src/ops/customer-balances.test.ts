@@ -10,7 +10,7 @@ import { flattenBreakdown } from './customer-balances.js';
 
 /**
  * `bank.ops.customerBalances` and `bank.ops.customerBalanceEntries` through the real router and edge context: the finance-treasury
- * desk reads a customer's balances with `admin:treasury` only, every read is logged with operator and customer before any figure
+ * desk reads a customer's balances with `admin:read` and their entries with `admin:treasury` only, every read is logged with operator and customer before any figure
  * is read, and a customer's own session is refused.
  */
 
@@ -78,7 +78,7 @@ describe('finance-treasury customer balances', () => {
   it('shows the same split as the customer, one column per lock kind, and logs the read first', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const { as } = build([row('USDT', 'available', '70'), row('USDT', 'hold', '20', 'order:a'), row('USDT', 'stake', '10', 'earn:p')]);
-    const out = await as(OPERATOR, ['admin:treasury']).ops.customerBalances({ userId: CUSTOMER });
+    const out = await as(OPERATOR, ['admin:read']).ops.customerBalances({ userId: CUSTOMER });
     expect(out.assets).toEqual([{ assetId: 'USDT', total: '100', available: '70', hold: '20', escrow: '0', stake: '10', collateral: '0' }]);
     const line = JSON.parse(String(info.mock.calls.at(-1)?.[0]));
     expect(line).toMatchObject({
@@ -90,18 +90,23 @@ describe('finance-treasury customer balances', () => {
     info.mockRestore();
   });
 
-  it('refuses a customer session and an operator without the treasury scope, and reads nothing', async () => {
+  it('refuses a customer session and an operator without the scope, and reads nothing; entries still need admin:treasury', async () => {
     const { as, asked } = build([row('USDT', 'available', '5')]);
     await expect(as(CUSTOMER, ['bank:read']).ops.customerBalances({ userId: CUSTOMER })).rejects.toBeDefined();
-    await expect(as(OPERATOR, ['admin:compliance']).ops.customerBalances({ userId: CUSTOMER })).rejects.toBeDefined();
+    await expect(as(OPERATOR, ['support:ops', 'market:ops']).ops.customerBalances({ userId: CUSTOMER })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
     await expect(as(CUSTOMER, ['bank:read']).ops.customerBalanceEntries({ userId: CUSTOMER, assetId: 'USDT' })).rejects.toBeDefined();
+    await expect(as(OPERATOR, ['admin:read']).ops.customerBalanceEntries({ userId: CUSTOMER, assetId: 'USDT' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
     expect(asked).toEqual([]);
   });
 
   it('refuses a smuggled field and a non-uuid customer', async () => {
     const { as } = build([]);
-    await expect(as(OPERATOR, ['admin:treasury']).ops.customerBalances({ userId: 'nope' })).rejects.toBeDefined();
-    await expect(as(OPERATOR, ['admin:treasury']).ops.customerBalances({ userId: CUSTOMER, extra: 1 } as never)).rejects.toBeDefined();
+    await expect(as(OPERATOR, ['admin:read']).ops.customerBalances({ userId: 'nope' })).rejects.toBeDefined();
+    await expect(as(OPERATOR, ['admin:read']).ops.customerBalances({ userId: CUSTOMER, extra: 1 } as never)).rejects.toBeDefined();
   });
 
   it('refuses the read when the audit line cannot be written', async () => {
@@ -109,7 +114,7 @@ describe('finance-treasury customer balances', () => {
       throw new Error('log sink down');
     });
     const { as, asked } = build([row('USDT', 'available', '5')]);
-    await expect(as(OPERATOR, ['admin:treasury']).ops.customerBalances({ userId: CUSTOMER })).rejects.toMatchObject({
+    await expect(as(OPERATOR, ['admin:read']).ops.customerBalances({ userId: CUSTOMER })).rejects.toMatchObject({
       code: 'SERVICE_UNAVAILABLE',
     });
     expect(asked).toEqual([]);

@@ -13,7 +13,7 @@ import type { Column, DeskPage, DeskSpec, DeskSection, OpsDeskId, ReadSpec, Unav
  */
 
 const FORBID_BANK = 'svc-bank did not accept your founder session for this read (it needs bank:read).';
-const FORBID_BANK_OPS = 'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read).';
+export const FORBID_BANK_OPS = 'svc-bank did not accept your founder session for this read (it needs the operator permission admin:read).';
 
 const col = (key: string, label: string, kind: Column['kind'], extra: Partial<Column> = {}): Column => ({ key, label, kind, ...extra });
 const text = (key: string, label: string, extra?: Partial<Column>) => col(key, label, 'text', extra);
@@ -684,7 +684,7 @@ export const BANK_CUSTOMER_BALANCES: ReadSpec = {
     amount('collateral', 'Collateral'),
   ],
   emptyText: 'The ledger holds no balance for this customer. That means no coin has ever been posted to them, not that the id is right.',
-  forbiddenText: FORBID_BANK_TREASURY,
+  forbiddenText: FORBID_BANK_OPS,
   refusals: CUSTOMER_BALANCE_REFUSALS,
 };
 
