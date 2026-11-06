@@ -12,7 +12,7 @@ import {
 } from './action-approval-consume.js';
 import { MARKET_OPS_SCOPE, MarketError, type VendorService } from './vendor-service.js';
 import type { CommerceService } from './commerce/commerce-service.js';
-import { assertMyPurchasesListLimit } from './commerce/commerce-service.js';
+import { assertMyPurchasesListLimit, LISTING_REVIEW_STATES } from './commerce/commerce-service.js';
 import {
   MARKET_PURCHASE_NOT_FOUND,
   MARKET_REFUND_FORBIDDEN,
@@ -255,6 +255,9 @@ export const listingOut = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
+
+/** A catalogue or own-list row: the listing and its review state (`listingReviewState`), the same for every kind. */
+export const reviewedListingOut = listingOut.extend({ reviewState: z.enum(LISTING_REVIEW_STATES) });
 
 /**
  * A listing stores no copy-leader, bot or signal id, so this read has no
@@ -890,7 +893,7 @@ export function createMarketRouter(
      */
     myListings: scopedProcedure('market:read', { module: 'market' })
       .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(listingOut))
+      .output(z.array(reviewedListingOut))
       .query(async ({ ctx, input }) => {
         requireCommerce(commerce);
         try {
@@ -1002,7 +1005,7 @@ export function createMarketRouter(
      */
     listings: publicProcedure
       .input(z.object({ limit: z.number().int().positive().max(50).optional() }).optional())
-      .output(z.array(listingOut))
+      .output(z.array(reviewedListingOut))
       .query(async ({ input }) => {
         requireCommerce(commerce);
         try {
@@ -1032,7 +1035,7 @@ export function createMarketRouter(
       )
       .output(
         z.object({
-          items: z.array(listingOut.extend({ vendorListingCount: z.number().int().nonnegative() })),
+          items: z.array(reviewedListingOut.extend({ vendorListingCount: z.number().int().nonnegative() })),
           nextCursor: z.string().nullable(),
         }),
       )
@@ -1079,7 +1082,7 @@ export function createMarketRouter(
           })
           .optional(),
       )
-      .output(z.array(listingOut.extend({ category: z.string().min(1).max(32) })))
+      .output(z.array(reviewedListingOut.extend({ category: z.string().min(1).max(32) })))
       .query(async ({ input }) => {
         requireCommerce(commerce);
         try {
