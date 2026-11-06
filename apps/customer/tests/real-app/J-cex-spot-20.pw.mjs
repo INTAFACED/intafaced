@@ -599,7 +599,7 @@ test(`${J} #8 opens the launch liquidity plan record and the maker incentive pro
   await refusedBeforeFiling(planForm, 'trade.launch_plan_unset', 'exit criteria: review date is not set');
   // A maker who is not in the programme is refused.
   const stranger = '00000000-0000-4000-8000-000000000000';
-  await fillAll(planForm, { 'Exit review date': '2027-02-01', 'Maker 1 account': stranger });
+  await fillAll(planForm, { 'Exit review date': '2030-02-01', 'Maker 1 account': stranger });
   await planForm.getByRole('button', { name: 'Propose plan' }).click();
   await refusedBeforeFiling(planForm, 'trade.launch_plan_maker_unknown', stranger);
   await fillAll(planForm, { 'Maker 1 account': maker });
@@ -622,7 +622,7 @@ test(`${J} #8 opens the launch liquidity plan record and the maker incentive pro
   await expect(written.locator('[data-col=min-uptime]')).toHaveText('95%');
   await expect(written.locator('[data-col=inventory-band]')).toHaveText('-2.5 to 2.5');
   await expect(written.locator('[data-col=exit-criteria]')).toHaveText(
-    'review 2027-02-01; exit if uptime below 80% or spread above 100 bps',
+    'review 2030-02-01; exit if uptime below 80% or spread above 100 bps',
   );
   // Every other market: its own plan with every field, or "No plan recorded"; never an invented plan.
   for (const m of await markets.all()) {

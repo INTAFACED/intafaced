@@ -44,13 +44,14 @@ export function proposeApproval(
 }
 
 /**
- * The approved request `approvalId`, checked against exactly what is about to be written; its operation id is the write's
- * client request id, so svc-trade consumes it under the id identity bound. Refuses anything else, and writes nothing.
+ * The approved request `approvalId`, checked against exactly what is about to be written at the version the approval was
+ * bound to (so a retry after a lost reply reaches svc-trade, which answers it from its request record); its operation id
+ * is the write's client request id. Refuses anything else, and writes nothing.
  */
 export async function approvedFor(
   ctx: TradeCtx,
   approvalId: string,
-  want: { actionType: string; targetId: string; payloadHash: string },
+  want: { actionType: string; targetId: string; payloadHashAt: (expectedVersion: string) => string },
 ): Promise<Outcome<ActionApproval>> {
   const approval = await readMatchingApproval(ctx, approvalId);
   if (approval.kind !== 'ok') return approval;
@@ -65,7 +66,7 @@ export async function approvedFor(
     );
   if (a.actionType !== want.actionType || a.targetService !== MAKER_PROGRAMME_TARGET_SERVICE || a.targetId !== want.targetId)
     return refused('trade_ops.approval_mismatch', 'That approval is for a different change. Nothing was written.', 409);
-  if (a.payloadHash !== want.payloadHash)
+  if (a.payloadHash !== want.payloadHashAt(a.expectedVersion))
     return refused('trade_ops.approval_mismatch', 'That approval is for different values or an older version. Nothing was written.', 409);
   return approval;
 }

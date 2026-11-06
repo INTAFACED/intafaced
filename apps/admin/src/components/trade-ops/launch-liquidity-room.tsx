@@ -9,7 +9,8 @@ import type { MarketPlan, MemberRow } from '@/lib/trade-ops/maker-programme-view
 const TABLE = 'w-full border-collapse text-sm [&_td]:py-1 [&_td]:pe-3 [&_th]:py-1 [&_th]:pe-3 [&_th]:text-start [&_td]:text-start';
 const MAKER_ROWS = 2;
 
-function Plans({ markets }: { markets: readonly MarketPlan[] }) {
+function Plans({ markets, members }: { markets: readonly MarketPlan[]; members: readonly MemberRow[] }) {
+  const memberStatus = new Map(members.map((m) => [m.accountId, m.status]));
   if (markets.length === 0)
     return (
       <p className="text-sm text-fg-2" data-plans="none">
@@ -53,8 +54,17 @@ function Plans({ markets }: { markets: readonly MarketPlan[] }) {
               <td data-col="state">{plan.state}</td>
               <td data-col="makers">
                 {plan.makers.map((m) => (
-                  <span key={m.accountId} data-maker={m.accountId} className="if-num block">
-                    {m.accountId}
+                  <span key={m.accountId} className="block">
+                    <span data-maker={m.accountId} className="if-num">
+                      {m.accountId}
+                    </span>
+                    {/* A maker suspended or exited since the plan was approved is named, never hidden. */}
+                    {memberStatus.get(m.accountId!) !== 'active' ? (
+                      <span data-maker-status={m.accountId} className="text-fg-2">
+                        {' '}
+                        (now {memberStatus.get(m.accountId!) ?? 'not a member'})
+                      </span>
+                    ) : null}
                   </span>
                 ))}
               </td>
@@ -190,7 +200,11 @@ export function LaunchLiquidityRoom({ markets, members }: { markets: readonly Ma
   return (
     <div className="flex flex-col gap-6" data-room="launch-liquidity">
       <PageSection title="Plans per market">
-        <Plans markets={markets} />
+        <Plans markets={markets} members={members} />
+        <p className="text-xs text-fg-2">
+          A written plan is approved. Moving it to active when its market opens, and to exited, follows the market&apos;s listing lifecycle,
+          which is not connected here; no plan is shown active or exited until that is built.
+        </p>
       </PageSection>
       <PageSection title="Propose a plan">
         <ProposePlan markets={markets} members={members} />

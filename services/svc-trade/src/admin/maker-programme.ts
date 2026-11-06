@@ -218,7 +218,7 @@ export class MakerProgrammeAdmin {
     const rows = await this.deps.sql<MemberDb[]>`
       SELECT account_id::text, version::text, tier, status, conflict_declaration, terms_version::text, operator_id, approver_id,
              approval_id, updated_at
-        FROM trade.maker_programme_members ORDER BY updated_at DESC, account_id LIMIT 500`;
+        FROM trade.maker_programme_members ORDER BY updated_at DESC, account_id`;
     return { members: rows.map(memberOf) };
   }
 
@@ -258,12 +258,14 @@ export class MakerProgrammeAdmin {
   async plans(principal: Principal): Promise<{ markets: MarketPlan[] }> {
     requireOperator(principal);
     const sql = this.deps.sql;
-    const markets = await sql<Array<{ id: string; symbol: string; status: string }>>`
-      SELECT id::text, symbol, status::text FROM trade.markets WHERE kind = 'spot' ORDER BY symbol`;
-    const plans = await sql<PlanDb[]>`
-      SELECT DISTINCT ON (p.market_id) ${PLAN_COLUMNS(sql)}
-        FROM trade.launch_liquidity_plans p JOIN trade.markets m ON m.id = p.market_id
-       ORDER BY p.market_id, p.version DESC`;
+    const [markets, plans] = await Promise.all([
+      sql<Array<{ id: string; symbol: string; status: string }>>`
+        SELECT id::text, symbol, status::text FROM trade.markets WHERE kind = 'spot' ORDER BY symbol`,
+      sql<PlanDb[]>`
+        SELECT DISTINCT ON (p.market_id) ${PLAN_COLUMNS(sql)}
+          FROM trade.launch_liquidity_plans p JOIN trade.markets m ON m.id = p.market_id
+         ORDER BY p.market_id, p.version DESC`,
+    ]);
     const byMarket = new Map(plans.map((p) => [p.market_id, planOf(p)]));
     return { markets: markets.map((m) => ({ market: m.id, symbol: m.symbol, status: m.status, plan: byMarket.get(m.id) ?? null })) };
   }
@@ -429,14 +431,20 @@ export class MakerProgrammeAdmin {
     const fingerprint = payloadHash({ kind: 'launch_liquidity_plan', ...body });
     const prior = await loadRequest(this.deps.sql, clientRequestId, 'launch_liquidity_plan', fingerprint);
     if (prior) return prior as PlanRow;
+    // A plan's exit review is ahead of it: a review date already past is refused before any approval is spent.
+    if (plan.exitReviewDate! <= new Date().toISOString().slice(0, 10)) {
+      throw new TradeOpsError(LAUNCH_PLAN_INVALID, 'exit criteria: review date is after today');
+    }
     return this.deps.sql.begin(async (tx) => {
       const q = tx as unknown as Sql;
       // One writer per market at a time, as the seeding configuration does.
       const [market] = await q<Array<{ id: string; symbol: string }>>`
         SELECT id::text, symbol FROM trade.markets WHERE id = ${input.market} AND kind = 'spot' FOR UPDATE`;
       if (!market) throw new TradeOpsError('market_not_found', 'no such spot market');
-      // Every maker is an active member of the programme, read in this transaction.
+      // Every maker is an active member of the programme, read in this transaction under each member's own lock (the
+      // lock setMember takes, in a fixed order), so a suspension committing alongside cannot slip under this plan.
       const accounts = plan.makers.map((m) => m.accountId!);
+      for (const a of [...accounts].sort()) await q`SELECT pg_advisory_xact_lock(hashtext(${`trade.maker_programme_members:${a}`}))`;
       const active = await q<Array<{ account_id: string }>>`
         SELECT account_id::text FROM trade.maker_programme_members
          WHERE account_id = ANY(${accounts}::uuid[]) AND status = 'active'`;
@@ -461,7 +469,8 @@ export class MakerProgrammeAdmin {
       });
       const next = (BigInt(version) + 1n).toString();
       const writtenAt = new Date();
-      // Written under a second operator's approval, so the version is approved; it becomes active when its market opens.
+      // Written under a second operator's approval, so the version is approved. Moving a plan to active or exited with its
+      // market's listing lifecycle is a separate change; nothing here writes those states.
       await q`INSERT INTO trade.launch_liquidity_plans (
         market_id, version, state, makers, max_spread_bps, min_depth, depth_band_bps, min_uptime_pct, inventory_min,
         inventory_max, exit_review_date, exit_uptime_below_pct, exit_spread_above_bps, operator_id, approver_id, approval_id,

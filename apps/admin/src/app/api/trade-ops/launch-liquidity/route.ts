@@ -26,6 +26,8 @@ const bad = (code: string, message: string) => refused(code, message, 400);
 async function planReq(
   ctx: TradeCtx,
   body: Record<string, unknown>,
+  /** The approval's own version on apply; on propose, the market's current version is read. */
+  boundVersion?: string,
 ): Promise<Outcome<{ market: string; plan: PlanInput; expectedVersion: string; payloadHash: string }>> {
   const market = typeof body.market === 'string' ? body.market : '';
   if (!UUID.test(market)) return bad('trade_ops.plan_market_missing', 'Choose a market.');
@@ -41,16 +43,16 @@ async function planReq(
   const active = new Set(members.data.filter((m) => m.status === 'active').map((m) => m.accountId));
   const unknown = check.value.makers.find((m) => !active.has(m.accountId!));
   if (unknown) return bad(LAUNCH_PLAN_MAKER_UNKNOWN, `Maker ${unknown.accountId} is not an active member of the maker programme.`);
-  const expectedVersion = row.plan?.version ?? '0';
+  const expectedVersion = boundVersion ?? row.plan?.version ?? '0';
   return ok({ market, plan: check.value, expectedVersion, payloadHash: planPayloadHash(market, expectedVersion, check.value) });
 }
 
 async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Outcome<unknown>> {
   if (body.action !== 'propose' && body.action !== 'apply') return bad('trade_ops.bad_action', 'Unknown launch-liquidity action.');
-  const req = await planReq(ctx, body);
-  if (req.kind !== 'ok') return req;
-  const { market, plan, expectedVersion, payloadHash } = req.data;
   if (body.action === 'propose') {
+    const req = await planReq(ctx, body);
+    if (req.kind !== 'ok') return req;
+    const { market, expectedVersion, payloadHash } = req.data;
     const filed = await proposeApproval(ctx, {
       actionType: LAUNCH_PLAN_ACTION_TYPE,
       targetId: market,
@@ -62,8 +64,16 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
   }
   const approvalId = typeof body.approvalId === 'string' ? body.approvalId.trim() : '';
   if (!TOKEN.test(approvalId)) return bad('trade_ops.approval_id_invalid', 'Enter the id of an APPROVED request.');
-  const approval = await approvedFor(ctx, approvalId, { actionType: LAUNCH_PLAN_ACTION_TYPE, targetId: market, payloadHash });
+  const first = await planReq(ctx, body);
+  if (first.kind !== 'ok') return first;
+  const { market, plan } = first.data;
+  const approval = await approvedFor(ctx, approvalId, {
+    actionType: LAUNCH_PLAN_ACTION_TYPE,
+    targetId: market,
+    payloadHashAt: (v) => planPayloadHash(market, v, plan),
+  });
   if (approval.kind !== 'ok') return approval;
+  const expectedVersion = approval.data.expectedVersion;
   return writePlan(ctx, { market, plan, expectedVersion, approvalId, clientRequestId: approval.data.operationId });
 }
 

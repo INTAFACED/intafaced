@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS trade.maker_clawbacks (
   finding_ref text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+-- One clawback per finding, period and account: the business key the settlement change writes under.
+CREATE UNIQUE INDEX IF NOT EXISTS maker_clawbacks_finding_key ON trade.maker_clawbacks (period, account_id, finding_ref);
 CREATE INDEX IF NOT EXISTS maker_clawbacks_created_idx ON trade.maker_clawbacks (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS trade.launch_liquidity_plans (

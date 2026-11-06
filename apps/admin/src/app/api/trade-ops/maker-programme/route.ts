@@ -96,12 +96,16 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
   }
   const approvalId = typeof body.approvalId === 'string' ? body.approvalId.trim() : '';
   if (!TOKEN.test(approvalId)) return bad('trade_ops.approval_id_invalid', 'Enter the id of an APPROVED request.');
-  const approval = await approvedFor(ctx, approvalId, { actionType, targetId, payloadHash });
+  // Checked at the version the approval was bound to, so a retry after a lost reply reaches svc-trade's request record.
+  const value = req.data.value;
+  const approval = await approvedFor(ctx, approvalId, {
+    actionType,
+    targetId,
+    payloadHashAt: (v) => (terms ? termsPayloadHash(v, value as TermsInput) : memberPayloadHash(v, value as MemberInput)),
+  });
   if (approval.kind !== 'ok') return approval;
-  const write = { expectedVersion, approvalId, clientRequestId: approval.data.operationId };
-  return terms
-    ? writeTerms(ctx, { ...write, terms: req.data.value as TermsInput })
-    : writeMember(ctx, { ...write, member: req.data.value as MemberInput });
+  const write = { expectedVersion: approval.data.expectedVersion, approvalId, clientRequestId: approval.data.operationId };
+  return terms ? writeTerms(ctx, { ...write, terms: value as TermsInput }) : writeMember(ctx, { ...write, member: value as MemberInput });
 }
 
 export const POST = (req: Request) => tradeOpsRoute(req, handler);

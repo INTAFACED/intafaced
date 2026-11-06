@@ -77,7 +77,7 @@ const PLAN: PlanInput = {
   minUptimePct: '95',
   inventoryMin: '-2.5',
   inventoryMax: '2.5',
-  exitReviewDate: '2027-02-01',
+  exitReviewDate: '2030-02-01',
   exitUptimeBelowPct: '80',
   exitSpreadAboveBps: '100',
 };
@@ -232,6 +232,10 @@ describe('maker programme and launch-liquidity plans (two-person)', () => {
       message: expect.stringContaining('exit criteria'),
     });
     await expect(writePlan('p-band', { ...PLAN, inventoryMin: '3' })).rejects.toMatchObject({ code: 'trade.launch_plan_invalid' });
+    await expect(writePlan('p-past', { ...PLAN, exitReviewDate: '2020-01-01' })).rejects.toMatchObject({
+      code: 'trade.launch_plan_invalid',
+      message: expect.stringContaining('review date'),
+    });
     await expect(writePlan('p-unknown')).rejects.toMatchObject({
       code: LAUNCH_PLAN_MAKER_UNKNOWN,
       message: expect.stringContaining(MAKER),
@@ -260,7 +264,7 @@ describe('maker programme and launch-liquidity plans (two-person)', () => {
       makers: PLAN.makers,
       inventoryMin: '-2.5',
       inventoryMax: '2.5',
-      exitReviewDate: '2027-02-01',
+      exitReviewDate: '2030-02-01',
       approverId: APPROVER,
     });
     const again = await admin.setPlan(writer(), { market, plan: PLAN, expectedVersion: '0', approvalId: 'p1', clientRequestId: 'op-p1' });

@@ -166,7 +166,8 @@ function ProposeTerms({ terms }: { terms: TermsRow | null }) {
   );
 }
 
-function Members({ members }: { members: readonly MemberRow[] }) {
+function Members({ members, terms }: { members: readonly MemberRow[]; terms: TermsRow | null }) {
+  const tiers = new Set((terms?.tiers ?? []).map((t) => t.name));
   if (members.length === 0)
     return (
       <p className="text-sm text-fg-2" data-members="none">
@@ -188,7 +189,11 @@ function Members({ members }: { members: readonly MemberRow[] }) {
         {members.map((m) => (
           <tr key={m.accountId} data-member={m.accountId} data-status={m.status}>
             <td className="if-num">{m.accountId}</td>
-            <td data-col="tier">{m.tier}</td>
+            <td data-col="tier">
+              {m.tier}
+              {/* A tier the current terms dropped is named, never shown as current. */}
+              {terms && !tiers.has(m.tier) ? <span className="text-fg-2"> (not in terms v{terms.version})</span> : null}
+            </td>
             <td data-col="status">{m.status}</td>
             <td data-col="conflict">{m.conflictDeclaration}</td>
             <td data-col="version">
@@ -321,7 +326,7 @@ export function MakerProgrammeRoom({
         <ProposeTerms terms={terms} />
       </PageSection>
       <PageSection title="Members">
-        <Members members={members} />
+        <Members members={members} terms={terms} />
         <ProposeMember terms={terms} members={members} />
       </PageSection>
       <PageSection title="Clawback records">
