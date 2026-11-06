@@ -55,7 +55,19 @@ const post = (body: unknown) =>
 
 describe('orders route: the reconcile sweep (J-cex-spot-18 #3)', () => {
   it('sends one run under the page’s request id and the reason, and returns the service’s counts', async () => {
-    const counts = { checked: 4, released: 1, releasedOrderIds: [ORDER], failedClosedOrderIds: [], unreadableOrderIds: [], ranAt: 'x' };
+    const counts = {
+      checked: 4,
+      released: 1,
+      releasedOrderIds: [ORDER],
+      firstSightedOrderIds: [],
+      waitingOrderIds: [],
+      failedClosedOrderIds: [],
+      terminalizedNoHoldOrderIds: [],
+      otherActionOrderIds: [],
+      unreadableOrderIds: [],
+      erroredAfterActingOrderIds: [],
+      ranAt: 'x',
+    };
     fetchMock.mockImplementation(async () => json({ result: { data: { json: counts } } }));
     const res = await post({ action: 'sweep', clientRequestId: 'sweep:abc', reason: REASON });
     expect(await res.json()).toMatchObject({ kind: 'ok', data: { checked: 4, released: 1, releasedOrderIds: [ORDER] } });

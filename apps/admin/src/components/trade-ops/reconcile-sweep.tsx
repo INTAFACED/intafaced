@@ -59,8 +59,19 @@ export function ReconcileSweep() {
               data-released-orders={run.releasedOrderIds.join(',')}
             >
               <span className="if-num">{run.ranAt.slice(11, 19)} UTC</span> · {sweepLine(run)}
+              {run.firstSightedOrderIds.length > 0
+                ? ` · ${run.firstSightedOrderIds.length} missing from the book, seen for the first time: a later sweep may release them`
+                : ''}
+              {run.waitingOrderIds.length > 0 ? ` · ${run.waitingOrderIds.length} waiting for a second look` : ''}
               {run.failedClosedOrderIds.length > 0 ? ` · ${run.failedClosedOrderIds.length} kept: fills could not prove no fill` : ''}
+              {run.terminalizedNoHoldOrderIds.length > 0 ? ` · ${run.terminalizedNoHoldOrderIds.length} ended with no hold left` : ''}
+              {run.otherActionOrderIds.length > 0 ? ` · ${run.otherActionOrderIds.length} other repairs, named in the audit` : ''}
               {run.unreadableOrderIds.length > 0 ? ` · ${run.unreadableOrderIds.length} not read: nothing done to them` : ''}
+              {run.erroredAfterActingOrderIds.length > 0 ? (
+                <strong data-sweep-errored={run.erroredAfterActingOrderIds.join(',')}>
+                  {` · ${run.erroredAfterActingOrderIds.length} failed after acting: read each order before anything else (${run.erroredAfterActingOrderIds.join(', ')})`}
+                </strong>
+              ) : null}
             </li>
           ))}
         </ol>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { payloadHash } from './common.js';
-import { BUST_ACTION_TYPE, bustApprovalBody, bustAuditId, parseSweepLimit, parseSweepMinAgeSeconds } from './bust.js';
+import { BUST_ACTION_TYPE, bustApprovalBody, bustAuditId, parseSweepEnabled, parseSweepLimit, parseSweepMinAgeSeconds } from './bust.js';
 
 describe('trade bust approval body (J-cex-spot-18 #4)', () => {
   it('binds the action, the order, its fill count and the reason, and nothing else', () => {
@@ -27,5 +27,10 @@ describe('sweep owner values (J-cex-spot-18 #3)', () => {
     expect(parseSweepMinAgeSeconds('15')).toBe(15);
     expect(parseSweepMinAgeSeconds('86400')).toBe(86_400);
     for (const raw of [undefined, '', '0', '86401', '1e3']) expect(parseSweepMinAgeSeconds(raw)).toBeNull();
+  });
+
+  it('reads the sweep switch as on only when it says so', () => {
+    for (const raw of ['true', 'TRUE', '1', 'on', 'yes']) expect(parseSweepEnabled(raw)).toBe(true);
+    for (const raw of [undefined, '', 'false', '0', 'off', 'maybe']) expect(parseSweepEnabled(raw)).toBe(false);
   });
 });

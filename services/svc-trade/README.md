@@ -321,20 +321,33 @@ await trade.reconcileOrder(orderId);
 
 ### Operator reconcile sweep (J-cex-spot-18 #3)
 
-`admin.orders.startReconcileSweep({ clientRequestId, reason })` runs the single-order reconcile above over plain resting
-limit orders that hold funds, in its sweep mode (`reconcileOrder(id, { leaveLive: true })`): an order the engine lists as
-live is left exactly as it is; one the engine no longer has is released once, and only when `trade.fills` prove no fill.
-Stop, OCO, bracket and iceberg orders, seeded orders, and orders changed within the age floor are not looked at. Each run
-is kept in `trade.operator_reconcile_sweeps` under its `clientRequestId` (the same request returns the same counts).
-Owner values, blank refuses `reconcile_sweep_unconfigured`: `TRADE_OPERATOR_SWEEP_LIMIT` (orders per run, 1 to 10000) and
-`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS` (1 s to 1 day). The scheduled job below is separate and unchanged.
+`admin.orders.startReconcileSweep({ clientRequestId, reason })` checks plain resting limit orders that hold funds (stop,
+OCO, bracket, iceberg and seeded orders are not looked at), listing each market's book once. An order the engine lists is
+left exactly as it is. An order the engine no longer has is released only on a later sweep's **second sighting** of that
+miss, at least the owner's age floor after the first (`trade.operator_sweep_sightings`): a fill the engine made reaches
+`trade.fills` late, on the bus, so one look at an empty book and empty fills is not proof. The release is then the
+single-order reconcile's (`reconcileOrder(id, { leaveLive: true })`): once, through the order's cancel path, and only when
+`trade.fills` prove no fill. A fill that never reaches trade at all is not something either look can see.
+
+One sweep runs at a time (advisory lock; a duplicate of a running request refuses `reconcile_sweep_in_flight`). A request
+id is kept with its reason: the same request returns its stored counts, the id with another reason refuses
+`client_request_conflict`. The run, its stored answer and its summary audit row are one transaction. The result names each
+order's outcome: released, first sighted, waiting, kept (fills unproven), ended with no hold, other, not read, and
+failed after acting (logged with the order id).
+
+Switch and owner values, each refusing when off or blank: `TRADE_OPERATOR_SWEEP_ENABLED` (off by default;
+`reconcile_sweep_disabled`), `TRADE_OPERATOR_SWEEP_LIMIT` (orders per run, 1 to 10000) and
+`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS` (the wait between sightings, 1 s to 1 day; both `reconcile_sweep_unconfigured`).
+The scheduled job below (`TRADE_RECONCILE_JOBS_ENABLED`) is separate and unchanged.
 
 ### Trade bust (J-cex-spot-18 #4)
 
 `admin.orders.bust({ orderId, approvalId, clientRequestId, reason })` consumes identity's two-person approval of
 `trade.bust` (targetService `svc-trade`, expectedVersion the order's fill count, payload `bustApprovalBody` in
 `src/admin/bust.ts`), then refuses `trade_bust_recipe_missing`: no ledger-client recipe reverses a fill yet, so nothing
-moves. The refusal is audited once per request (`orders.bust_refused`, with both operators).
+moves. The approval book can only consume, so the approval is spent either way. The operator carrying it out must not be
+its approver (`approval_executor_is_approver`). Each refusal is audited once per request with the proposer, the approver
+and the executor.
 
 ### Scheduled engine ↔ ledger reconcile (A10)
 

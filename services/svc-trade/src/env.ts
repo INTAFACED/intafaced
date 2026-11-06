@@ -26,6 +26,11 @@ const schema = serviceEnvSchema
        * J-cex-spot-18 #3: the most orders one operator reconcile sweep looks at (whole number, 1 to 10000). Owner value:
        * blank refuses `reconcile_sweep_unconfigured` (admin/service.ts startReconcileSweep), never a guessed size.
        */
+      /**
+       * J-cex-spot-18 #3: the operator reconcile sweep's kill switch. Off unless set to true; off, the sweep refuses
+       * `reconcile_sweep_disabled`. Separate from TRADE_RECONCILE_JOBS_ENABLED (the scheduled job), which stays as it is.
+       */
+      TRADE_OPERATOR_SWEEP_ENABLED: z.string().default(''),
       TRADE_OPERATOR_SWEEP_LIMIT: z.string().default(''),
       /**
        * J-cex-spot-18 #3: how long (whole seconds, 1 to 86400) an order must have gone unchanged before a sweep looks at

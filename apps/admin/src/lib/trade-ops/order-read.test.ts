@@ -88,17 +88,21 @@ describe('order read (J-cex-spot-18 #1, #2)', () => {
 
 describe('sweep result and audit rows (J-cex-spot-18 #3, #5)', () => {
   it('reads the sweep counts and refuses counts that disagree with their ids', () => {
-    const r = parseSweepResult({
-      checked: 3,
-      released: 1,
-      releasedOrderIds: [ORDER],
+    const empty = {
+      firstSightedOrderIds: [],
+      waitingOrderIds: [],
       failedClosedOrderIds: [],
+      terminalizedNoHoldOrderIds: [],
+      otherActionOrderIds: [],
       unreadableOrderIds: [],
-      ranAt: 'x',
-    });
+      erroredAfterActingOrderIds: [],
+    };
+    const r = parseSweepResult({ checked: 3, released: 1, releasedOrderIds: [ORDER], ...empty, ranAt: 'x' });
     expect(r && sweepLine(r)).toBe('3 orders checked · 1 holds released');
-    expect(parseSweepResult({ checked: 3, released: 2, releasedOrderIds: [ORDER], ranAt: 'x' })).toBeNull();
-    expect(parseSweepResult({ checked: -1, released: 0, releasedOrderIds: [], ranAt: 'x' })).toBeNull();
+    expect(parseSweepResult({ checked: 3, released: 2, releasedOrderIds: [ORDER], ...empty, ranAt: 'x' })).toBeNull();
+    expect(parseSweepResult({ checked: -1, released: 0, releasedOrderIds: [], ...empty, ranAt: 'x' })).toBeNull();
+    // A list the service did not send is not read as "none".
+    expect(parseSweepResult({ checked: 1, released: 0, releasedOrderIds: [], ranAt: 'x' })).toBeNull();
   });
 
   it('reads audit rows and refuses a row of another shape', () => {

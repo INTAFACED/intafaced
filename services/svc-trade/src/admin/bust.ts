@@ -28,20 +28,51 @@ export function bustAuditId(clientRequestId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/** What one operator reconcile sweep did (admin.orders.startReconcileSweep). */
+/** What one operator reconcile sweep did (admin.orders.startReconcileSweep). Each order is in at most one list. */
 export interface SweepResult {
   /** Orders looked at. */
   readonly checked: number;
   /** Orders whose hold was released, once each. */
   readonly released: number;
   readonly releasedOrderIds: readonly string[];
-  /** Orders the book no longer has whose fills could not prove no fill: their holds stay. */
+  /** Missing from the book, seen missing for the first time by this sweep: a later sweep a floor on may release them. */
+  readonly firstSightedOrderIds: readonly string[];
+  /** Missing from the book, first seen by an earlier sweep less than the floor ago: still waiting. */
+  readonly waitingOrderIds: readonly string[];
+  /** Missing from the book, but trade.fills could not prove no fill: their holds stay. */
   readonly failedClosedOrderIds: readonly string[];
-  /** Orders whose book or ledger read failed: nothing was done to them. */
+  /** Missing from the book with no hold left: terminalized, nothing released (no hold was invented). */
+  readonly terminalizedNoHoldOrderIds: readonly string[];
+  /** Any other reconcile action, named in each order's audit row. */
+  readonly otherActionOrderIds: readonly string[];
+  /** The book or the row could not be read: nothing was done to them. */
   readonly unreadableOrderIds: readonly string[];
+  /** The reconcile threw after it had acted on the order (its row is no longer open): read it before anything else. */
+  readonly erroredAfterActingOrderIds: readonly string[];
   readonly limit: number;
   readonly minAgeSeconds: number;
   readonly ranAt: string;
+}
+
+/** The sweep's working lists, one per outcome. */
+export interface SweepLists {
+  released: string[];
+  firstSighted: string[];
+  waiting: string[];
+  keptUnprovenFills: string[];
+  terminalizedNoHold: string[];
+  otherActions: string[];
+  unreadable: string[];
+  erroredAfterActing: string[];
+}
+
+/** One structured line per sweep error, with the order or market it was about (never swallowed). */
+export function sweepLog(event: string, fields: Record<string, unknown> & { error?: unknown }): void {
+  const { error, ...rest } = fields;
+  const message = error instanceof Error ? error.message : error === undefined ? undefined : String(error);
+  console.error(
+    JSON.stringify({ service: 'svc-trade', event: `reconcile_sweep.${event}`, ...rest, ...(message ? { error: message } : {}) }),
+  );
 }
 
 /** Parses the owner's sweep size (1 to 10000 orders). Blank or anything else is unset: null, and the sweep refuses. */
@@ -58,4 +89,10 @@ export function parseSweepMinAgeSeconds(raw: string | undefined): number | null 
   if (!/^[1-9]\d{0,4}$/.test(text)) return null;
   const seconds = Number(text);
   return seconds <= 86_400 ? seconds : null;
+}
+
+/** The sweep's kill switch: on only for 1, true, on or yes. Anything else, blank included, is off. */
+export function parseSweepEnabled(raw: string | undefined): boolean {
+  const text = raw?.trim().toLowerCase() ?? '';
+  return text === '1' || text === 'true' || text === 'on' || text === 'yes';
 }

@@ -145,8 +145,19 @@ export interface SweepResult {
   readonly checked: number;
   readonly released: number;
   readonly releasedOrderIds: readonly string[];
+  /** Missing from the book, seen for the first time: a later sweep a floor on may release them. */
+  readonly firstSightedOrderIds: readonly string[];
+  /** Missing from the book, first seen less than the floor ago: still waiting. */
+  readonly waitingOrderIds: readonly string[];
+  /** Missing from the book, but fills could not prove no fill: holds kept. */
   readonly failedClosedOrderIds: readonly string[];
+  /** Missing from the book with no hold left: ended, nothing released. */
+  readonly terminalizedNoHoldOrderIds: readonly string[];
+  readonly otherActionOrderIds: readonly string[];
+  /** Not read: nothing was done to them. */
   readonly unreadableOrderIds: readonly string[];
+  /** The reconcile failed after it acted on the order: read each one before anything else. */
+  readonly erroredAfterActingOrderIds: readonly string[];
   readonly ranAt: string;
 }
 
@@ -156,15 +167,22 @@ const ids = (v: unknown): v is string[] => Array.isArray(v) && v.every(str);
 export function parseSweepResult(v: unknown): SweepResult | null {
   if (!rec(v) || !count(v.checked) || !count(v.released) || !ids(v.releasedOrderIds) || !str(v.ranAt)) return null;
   if (v.releasedOrderIds.length !== v.released) return null;
-  const failed = v.failedClosedOrderIds ?? [];
-  const unreadable = v.unreadableOrderIds ?? [];
-  if (!ids(failed) || !ids(unreadable)) return null;
+  const lists = {
+    firstSightedOrderIds: v.firstSightedOrderIds,
+    waitingOrderIds: v.waitingOrderIds,
+    failedClosedOrderIds: v.failedClosedOrderIds,
+    terminalizedNoHoldOrderIds: v.terminalizedNoHoldOrderIds,
+    otherActionOrderIds: v.otherActionOrderIds,
+    unreadableOrderIds: v.unreadableOrderIds,
+    erroredAfterActingOrderIds: v.erroredAfterActingOrderIds,
+  };
+  // Every list must be there: a missing one would read as "none", which is a guess.
+  if (!Object.values(lists).every(ids)) return null;
   return {
     checked: v.checked,
     released: v.released,
     releasedOrderIds: v.releasedOrderIds,
-    failedClosedOrderIds: failed,
-    unreadableOrderIds: unreadable,
+    ...(lists as Record<keyof typeof lists, string[]>),
     ranAt: v.ranAt,
   };
 }

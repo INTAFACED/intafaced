@@ -105,7 +105,7 @@ test.beforeAll(async ({ browser }) => {
   if (!group.memberIds.includes(agent)) await desk('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
   await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
   const customerId = (await api(customer)).userId;
-  run.write({ customer, customerId, ticketId: ticket.id, reported: reported.id, live: live.id, orphan: orphan.id, placedAt: Date.now() });
+  run.write({ customer, customerId, ticketId: ticket.id, reported: reported.id, live: live.id, orphan: orphan.id });
 });
 
 const orderRead = (page) => page.locator('[data-order-read]');
@@ -156,10 +156,8 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
 });
 
 test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts; a second run releases none`, async ({ page }) => {
-  const { customer, orphan, live, placedAt } = run.read();
-  // A sweep looks only at orders unchanged for the owner's age floor (the stack's TEST value is 15 s,
-  // tooling/scripts/local-stack-services/trade.mjs), so a fill not yet recorded is never read as "never filled".
-  await page.waitForTimeout(Math.max(0, placedAt + 20_000 - Date.now()));
+  test.setTimeout(180_000);
+  const { customer, orphan, live } = run.read();
   const orphanOrder = await customerOrder(customer, orphan);
   const hold = times(orphanOrder.price, orphanOrder.amount);
   // LOCAL TEST fault: the book forgets the orphan's entry; the trade service still holds its funds.
@@ -184,6 +182,13 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
     return result;
   };
 
+  // The first look sees the orphan missing from the book and releases nothing yet: an empty book and an empty fill
+  // record are proof only on a second look at least the owner's wait apart (the stack's TEST wait is 15 s).
+  const sighted = await runSweep();
+  expect((await sighted.getAttribute('data-released-orders')).split(',')).not.toContain(orphan);
+  expect(await usdtUsed(customer)).toBe(usedBefore);
+  await page.waitForTimeout(20_000);
+
   const first = await runSweep();
   const checked = Number(await first.getAttribute('data-checked'));
   expect(checked).toBeGreaterThan(0);
@@ -197,6 +202,7 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   // The live order on the book was checked and left alone.
   expect((await customerOrder(customer, live)).status).toBe('open');
 
+  // A second run after the release releases none.
   const second = await runSweep();
   await expect(second).toHaveAttribute('data-released', '0');
   await expect(second).toContainText('0 holds released');

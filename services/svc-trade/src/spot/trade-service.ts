@@ -120,6 +120,7 @@ import * as holds from './trade-service/holds.js';
 import * as events from './trade-service/events.js';
 import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
+import { settlementOrderId } from './oco-legs.js';
 import * as twap from './trade-service/algo.js';
 import * as buyback from './trade-service/buyback.js';
 import { orderIdFor } from './ids.js';
@@ -1707,6 +1708,15 @@ export class TradeService {
    * Fail closed means: never mint a hold from this path; never mark filled without fills;
    * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill.
    */
+  /**
+   * The order ids the engine lists as resting on one market (OCO legs read as their parent), from one non-destructive
+   * list. The operator sweep reads each market once with it. A full page throws: absence cannot be proven from it.
+   */
+  async engineLiveOrderIds(marketId: string): Promise<ReadonlySet<string>> {
+    const listed = await this.matching.listOrders(marketId);
+    return new Set(listed.orders.map((o) => settlementOrderId(o.orderId)));
+  }
+
   async reconcileOrder(orderId: string, opts: reconcile.ReconcileOptions = {}): Promise<ReconcileResult> {
     return reconcile.reconcileOrder(this.internal, orderId, opts);
   }

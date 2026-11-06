@@ -45,7 +45,7 @@ import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from '.
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
 import { parseMetricsWindowSeconds } from './admin/copy-bots-otc.js';
-import { parseSweepLimit, parseSweepMinAgeSeconds } from './admin/bust.js';
+import { parseSweepEnabled, parseSweepLimit, parseSweepMinAgeSeconds } from './admin/bust.js';
 import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
@@ -557,6 +557,7 @@ export const appRouter = createTradeRouter(
     metricsWindowSeconds: parseMetricsWindowSeconds(env.TRADE_OPS_METRICS_WINDOW_SECONDS),
     sweepLimit: parseSweepLimit(env.TRADE_OPERATOR_SWEEP_LIMIT),
     sweepMinAgeSeconds: parseSweepMinAgeSeconds(env.TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS),
+    sweepEnabled: parseSweepEnabled(env.TRADE_OPERATOR_SWEEP_ENABLED),
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),

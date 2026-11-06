@@ -13,7 +13,7 @@ import { TradeOpsAdmin } from './service.js';
 
 export function wireTradeOpsAdmin(deps: {
   sql: Sql;
-  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket'>;
+  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket' | 'engineLiveOrderIds'>;
   ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
   approvals: ApprovalBook;
   feeSchedule?: OwnerFeeSchedule;
@@ -22,6 +22,7 @@ export function wireTradeOpsAdmin(deps: {
   metricsWindowSeconds?: number | null;
   sweepLimit?: number | null;
   sweepMinAgeSeconds?: number | null;
+  sweepEnabled?: boolean;
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
@@ -29,6 +30,8 @@ export function wireTradeOpsAdmin(deps: {
     metricsWindowSeconds: deps.metricsWindowSeconds ?? null,
     sweepLimit: deps.sweepLimit ?? null,
     sweepMinAgeSeconds: deps.sweepMinAgeSeconds ?? null,
+    sweepEnabled: deps.sweepEnabled ?? false,
+    engineLiveOrderIds: (marketId) => deps.trade.engineLiveOrderIds(marketId),
     ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,
