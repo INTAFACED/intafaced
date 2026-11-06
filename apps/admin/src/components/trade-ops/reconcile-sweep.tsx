@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { tradeOpsAction } from '@/lib/trade-ops/client';
 import { parseSweepResult, sweepLine, type SweepResult } from '@/lib/trade-ops/order-read';
 import type { Outcome } from '@/lib/trade-ops/outcome';
@@ -13,6 +13,9 @@ import { ConfirmAction } from './confirm-action';
  */
 export function ReconcileSweep() {
   const [runs, setRuns] = useState<SweepResult[]>([]);
+  // One press is one request id. While its answer is unknown (the connection ended), a resend carries the same id, so the
+  // service answers with the run it already made instead of starting a second sweep (as account-controls.tsx does).
+  const pending = useRef<string | null>(null);
   return (
     <section aria-label="Reconcile sweep" className="flex flex-col gap-2 border border-line p-3">
       <h2 className="text-sm font-medium">Reconcile sweep</h2>
@@ -33,11 +36,10 @@ export function ReconcileSweep() {
             </>
           }
           run={async (reason) => {
-            const outcome: Outcome<unknown> = await tradeOpsAction('orders', {
-              action: 'sweep',
-              clientRequestId: `sweep:${crypto.randomUUID()}`,
-              reason,
-            });
+            const clientRequestId = pending.current ?? `sweep:${crypto.randomUUID()}`;
+            pending.current = clientRequestId;
+            const outcome: Outcome<unknown> = await tradeOpsAction('orders', { action: 'sweep', clientRequestId, reason });
+            if (outcome.kind !== 'unknown') pending.current = null;
             if (outcome.kind === 'ok') {
               const result = parseSweepResult(outcome.data);
               if (result) setRuns((prev) => [...prev, result]);

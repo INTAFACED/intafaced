@@ -178,11 +178,13 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
     const dialog = page.getByRole('alertdialog');
     await dialog.getByLabel('Reason (kept in the audit)').fill(`TEST ${J} reported order problem`);
     await dialog.getByRole('button', { name: 'Start reconcile sweep' }).click();
-    const result = sweep.locator('[data-sweep-result]').nth(runs++);
-    await expect(result).toBeVisible({ timeout: 60_000 });
-    // The dialog stays open on its result; closing it is how the next run is started.
+    // The service confirms in the dialog, which stays open on its result. While it is open the page behind it is inert
+    // (out of the accessibility tree), so the run's counts are read once it is closed (run 42206331204).
+    await expect(dialog.getByRole('status')).toContainText('Swept', { timeout: 60_000 });
     await dialog.getByRole('button', { name: 'Close' }).click();
     await expect(dialog).toHaveCount(0);
+    const result = sweep.locator('[data-sweep-result]').nth(runs++);
+    await expect(result).toBeVisible();
     return result;
   };
 

@@ -6,6 +6,8 @@ export interface PickerItem {
   asset: string;
   /** Plain name when we can say it without guessing. */
   name: string | null;
+  /** A line under the ticker: what applies to this coin here (a limit). */
+  note?: ReactNode;
   /** Right-aligned detail: a price, or a balance. */
   detail?: ReactNode;
   disabled?: boolean;
@@ -89,6 +91,7 @@ export function AssetPicker({
                     {item.asset}
                   </span>
                   {item.name ? <span className="picker__name">{item.name}</span> : null}
+                  {item.note ? <span className="picker__name">{item.note}</span> : null}
                 </span>
                 {item.detail ? <span className="picker__detail">{item.detail}</span> : null}
               </button>

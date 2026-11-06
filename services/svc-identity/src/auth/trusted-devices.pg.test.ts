@@ -161,6 +161,12 @@ if (!available) {
       const session = await auth.deviceApprove({ flowId: waiting.flowId, secret: waiting.secret, code: codesTo(who.email)[0]! });
       expect(session).toMatchObject({ userId: who.userId, deviceKey: expect.any(String) });
       expect(await count(`SELECT count(*)::int AS n FROM trusted_devices WHERE user_id = '${who.userId}' AND removed_at IS NULL`)).toBe(2);
+      // One "new device sign-in" notice (J-identity-06 #7): its inbox event and its mail to the proved address. Signing up
+      // on the first browser queued none.
+      const newDeviceEvents = `SELECT count(*)::int AS n FROM security_factor_events WHERE user_id = '${who.userId}' AND change = 'new_device'`;
+      const newDeviceMail = `SELECT count(*)::int AS n FROM mail_outbox WHERE user_id = '${who.userId}' AND purpose = 'factor-changed' AND detail = 'new_device'`;
+      expect(await count(newDeviceEvents)).toBe(1);
+      expect(await count(newDeviceMail)).toBe(1);
 
       // Once only.
       expect((await refused(auth.deviceComplete({ flowId: waiting.flowId, secret: waiting.secret }))).code).toBe(
@@ -170,6 +176,9 @@ if (!available) {
         (await refused(auth.deviceApprove({ flowId: waiting.flowId, secret: waiting.secret, code: codesTo(who.email)[0]! }))).code,
       ).toBe('auth.device_authorisation_used');
       await auth.login({ identifier: who.email, password: PASSWORD, deviceKey: session.deviceKey! });
+      // The refused repeats and the trusted sign-in after them queued no second notice.
+      expect(await count(newDeviceEvents)).toBe(1);
+      expect(await count(newDeviceMail)).toBe(1);
     });
 
     it('locks after the owner count of wrong codes, and refuses a request without its secret', async () => {
@@ -233,6 +242,10 @@ if (!available) {
       expect((await refused(auth.deviceComplete({ flowId: waiting.flowId, secret: waiting.secret }))).code).toBe(
         'auth.device_authorisation_used',
       );
+      // Approved twice, completed once: one "new device sign-in" notice (J-identity-06 #7).
+      expect(
+        await count(`SELECT count(*)::int AS n FROM security_factor_events WHERE user_id = '${who.userId}' AND change = 'new_device'`),
+      ).toBe(1);
     });
 
     it('refuses approval from a session that is not on a trusted device, and a flow locked by wrong codes', async () => {

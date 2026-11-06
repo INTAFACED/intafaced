@@ -13,6 +13,7 @@ export const CHART_SCALAR_KEYS = [
   'brushPointCap',
   'delayedBoundarySeconds',
   'renderBudgetMs',
+  'orderProtectionBps',
 ] as const;
 export type ChartScalarKey = (typeof CHART_SCALAR_KEYS)[number];
 
@@ -37,6 +38,11 @@ export const CHART_SCALARS: readonly ChartScalarInfo[] = [
     key: 'renderBudgetMs',
     label: 'Render budget (ms)',
     meaning: 'Longest single main-thread task the chart may hold while ticks stream.',
+  },
+  {
+    key: 'orderProtectionBps',
+    label: 'Order protection distance (basis points)',
+    meaning: 'How far from the last price a chart order may be moved before the person must confirm the distance.',
   },
 ];
 

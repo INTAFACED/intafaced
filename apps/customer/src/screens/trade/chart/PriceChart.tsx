@@ -240,20 +240,20 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
     shown.current = null;
     main.current =
       mode === 'line'
-        ? api.addSeries(lib.LineSeries, { color: c.accent, lineWidth: 2, priceFormat: priceFormat(tickSize) })
+        ? api.addSeries(lib.LineSeries, { color: c.accent, lineWidth: 2, priceFormat: priceFormat(tickSize, language) })
         : api.addSeries(lib.CandlestickSeries, {
             upColor: c.up,
             downColor: c.down,
             wickUpColor: c.up,
             wickDownColor: c.down,
             borderVisible: false,
-            priceFormat: priceFormat(tickSize),
+            priceFormat: priceFormat(tickSize, language),
           });
     // The axis follows the first series on it (the averages were added first), so they carry the price format too.
-    averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles', priceFormat: priceFormat(tickSize) }));
+    averages.current.forEach((s) => s.applyOptions({ visible: mode === 'candles', priceFormat: priceFormat(tickSize, language) }));
     setReady((n) => n + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, tickSize, ready === 0]);
+  }, [mode, tickSize, language, ready === 0]);
 
   // Feed candles: `update` for the newest ones, a full reset only when the window moved.
   useEffect(() => {
@@ -334,7 +334,7 @@ export function PriceChart({ candles, mode, interval, resetKey, tickSize, orderL
 
   const byTime = useMemo(() => new Map(candles.map((c) => [Math.floor(c.t / 1000), c])), [candles]);
   const focus = (hover !== null ? byTime.get(hover) : undefined) ?? candles[candles.length - 1];
-  const legend = focus ? legendValues(focus, tickSize) : null;
+  const legend = focus ? legendValues(focus, tickSize, language) : null;
 
   return (
     <div className="pc-root" role="img" aria-label={labels.chart}>

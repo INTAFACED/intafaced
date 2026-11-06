@@ -107,7 +107,8 @@ export function useGetStarted({ portfolio }: StartedInputs, enabled: boolean): S
   const passkeys = useProbe(enabled, 'passkeys', 'identity', 'webauthn.list', { limit: 10 }, passkeysAnswer);
   const alerts = useProbe(enabled, 'alerts', 'notify', 'notify.alerts', { limit: 100 }, alertsAnswer);
   const moneyIn = useEver(enabled, 'money-in', { kind: MONEY_IN, direction: 'in' });
-  const trades = useEver(enabled, 'trade', { kind: ['trade'] });
+  // A conversion is a first trade too; Activity only names it apart (svc-bank `convert`).
+  const trades = useEver(enabled, 'trade', { kind: ['trade', 'convert'] });
 
   return useMemo(() => {
     const verify = fromProbe(kyc, verificationStatus);
