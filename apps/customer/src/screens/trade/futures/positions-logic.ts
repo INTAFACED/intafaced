@@ -10,7 +10,7 @@ import { healthOf, isLive, liquidationDistancePct, stateOf, type Health, type Po
 import type { BlockReason } from '../buy/write-lock';
 import type { WriteOutcome } from './write';
 
-export type ActionKey = 'add' | 'reduce' | 'leverage' | 'protect' | 'stop' | 'reverse' | 'close';
+export type ActionKey = 'add' | 'reduce' | 'leverage' | 'protect' | 'stop' | 'riskStop' | 'reverse' | 'close';
 export type GateReason = 'planeOff' | 'noId' | 'notLive' | 'writerLocked' | 'liquidating' | 'stale';
 
 export interface RowModel {
@@ -116,6 +116,8 @@ export function gateActions(input: GateInput): Record<ActionKey, GateReason | nu
     protect: needsMark,
     // A stop is judged on a live price too; one armed on an old read could fire at once.
     stop: needsMark,
+    // A pre-liquidation stop is checked against the margin ratio at the mark, so it needs a fresh one as well.
+    riskStop: needsMark,
     // A reverse is reviewed against the mark (the open's margin, fee and liquidation price), so it needs a fresh one.
     reverse: needsMark,
     // Retry close on a closing position is the same key; staleness does not make it unsafe.
@@ -246,4 +248,20 @@ export function tally(state: CloseAllState): { done: number; refused: number; un
     else if (kind === 'uncertain') unknown += 1;
   }
   return { done, refused, unknown, total: state.order.length };
+}
+
+/**
+ * What is wrong with a typed pre-liquidation stop level (a percent of margin ratio), before anything is sent: blank, not
+ * a percent strictly between 0 and 100, or at or under the ratio the service reports now (it would close at once).
+ * The service checks the same again; this only says it in words first.
+ */
+export function riskStopProblem(level: string, ratioNowPct: string | null): 'empty' | 'invalid' | 'reached' | null {
+  const typed = level.trim();
+  if (typed === '') return 'empty';
+  if (!/^\d+(\.\d{1,16})?$/.test(typed)) return 'invalid';
+  const value = dec(typed);
+  if (value === null || value <= 0n || value >= dec('100')!) return 'invalid';
+  const now = ratioNowPct === null ? null : dec(ratioNowPct);
+  if (now !== null && value <= now) return 'reached';
+  return null;
 }

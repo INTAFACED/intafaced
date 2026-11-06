@@ -20,7 +20,7 @@ import {
 } from '@intafaced/ui';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
-import type { ConditionalOrder, PositionPreview, Reverse, StopInput } from './api';
+import type { ConditionalOrder, PositionPreview, Reverse, RiskStop, StopInput } from './api';
 import { useConditionalOrders, useFuturesApi, useFuturesRefresh } from './data';
 import { futuresRefusal } from './refusals';
 import { positionsCopy } from './positions-copy';
@@ -36,6 +36,7 @@ import {
   pickNonce,
   remainingIds,
   resultOf,
+  riskStopProblem,
   settleOf,
   signedAmount,
   startCloseAll,
@@ -1144,6 +1145,125 @@ export function StopDialog({ position, onClose, onRefusal }: Omit<DialogBase, 'o
   );
 }
 
+/** What a position's pre-liquidation stop is, in words: its level and close price, that it fired, or none. */
+export function riskStopLines(stop: RiskStop, t: T): string[] {
+  if (stop.status === 'none') return [t('Risk stop none')];
+  if (stop.status === 'ended') return [t('Risk stop ended line')];
+  if (stop.status === 'fired') {
+    const status = stop.closeOrder?.status ?? '—';
+    const ratio = stop.firedRatio === null ? '—' : fmtAmount(stop.firedRatio, { places: 4 });
+    return [t(status === 'failed' || status === 'cancelled' ? 'Risk stop fired failed' : 'Risk stop fired line', { ratio, status })];
+  }
+  return [
+    t('Risk stop armed line', { level: stop.level ?? '—' }),
+    stop.triggerPrice === null
+      ? t('Risk stop price unknown', { reason: stop.triggerPriceReason ?? '—' })
+      : t('Risk stop price line', { price: fmtAmount(stop.triggerPrice, { places: 18 }) }),
+  ];
+}
+
+/**
+ * A pre-liquidation stop: the trader picks a margin-ratio level, and the service closes the whole position with one
+ * market order when the ratio reaches it. The dialog shows the ratio now and the stop as the service holds it.
+ */
+export function RiskStopDialog({ position, onClose, onDone, onRefusal }: DialogBase) {
+  const { t } = positionsCopy.useCopy();
+  const api = useFuturesApi();
+  const [read, setRead] = useState<{ status: 'loading' } | { status: 'ready'; stop: RiskStop } | { status: 'error' }>({
+    status: 'loading',
+  });
+  const [level, setLevel] = useState('');
+  const nonce = useRef<{ key: string; nonce: string } | null>(null);
+  const { writer, send, check } = useSend(position, onDone, onRefusal);
+  const id = position.id;
+  useEffect(() => {
+    if (id === null) return;
+    let live = true;
+    void api.riskStop(id).then((result) => {
+      if (live) setRead(result.ok ? { status: 'ready', stop: result.data } : { status: 'error' });
+    });
+    return () => {
+      live = false;
+    };
+  }, [api, id]);
+  const stop = read.status === 'ready' ? read.stop : null;
+  const problem = riskStopProblem(level, stop?.marginRatio ?? null);
+  const go = (value: string | null) => {
+    if (id === null) return;
+    nonce.current = pickNonce(nonce.current, `risk-stop:${id}:${value ?? 'clear'}`, newNonce);
+    void send({
+      op: 'risk-stop',
+      input: { symbol: position.symbol, positionId: id, level: value, clientRequestId: `risk-stop:${nonce.current.nonce}`.slice(0, 64) },
+    });
+  };
+  const idle = writer.note.state === 'none' && !writer.busy;
+  return (
+    <Frame
+      title={t('Risk stop title')}
+      onClose={onClose}
+      description={t('Risk stop description', { contract: position.symbol, side: sideWord(t, position.side) })}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t('Cancel')}
+          </Button>
+          {stop?.status === 'armed' ? (
+            <Button variant="secondary" disabled={!idle} onClick={() => go(null)}>
+              {t('Risk stop clear')}
+            </Button>
+          ) : null}
+          <Button
+            loading={writer.busy}
+            disabled={problem !== null || !idle || id === null || stop === null}
+            onClick={() => go(level.trim())}
+          >
+            {t('Risk stop save')}
+          </Button>
+        </>
+      }
+    >
+      {read.status === 'loading' ? <p className="text-fg-2">{t('Risk stop loading')}</p> : null}
+      {read.status === 'error' ? <p className="text-warn">{t('Risk stop unknown')}</p> : null}
+      {stop ? (
+        <KeyValue
+          density="dense"
+          items={[
+            {
+              label: t('Risk stop now'),
+              value:
+                stop.marginRatio === null
+                  ? t('Risk stop ratio unknown', { reason: stop.marginRatioReason ?? '—' })
+                  : `${fmtAmount(stop.marginRatio, { places: 4 })}%`,
+            },
+            {
+              label: t('Risk stop liquidation'),
+              value: stop.liquidationPrice === null ? '—' : fmtPrice(stop.liquidationPrice, null),
+            },
+          ]}
+        />
+      ) : null}
+      <Field
+        label={t('Risk stop level')}
+        error={level !== '' && problem && problem !== 'empty' ? t(`Risk stop problem ${problem}`) : undefined}
+        hint={t('Risk stop level hint')}
+      >
+        <Input kind="decimal" value={level} onValueChange={setLevel} precision={16} trailing="%" />
+      </Field>
+      <WriteNotice writer={writer} onCheck={() => void check()} />
+      <section aria-label={t('Risk stop current')} className="flex flex-col gap-1 rounded-sm border border-line p-3">
+        <h3 className="text-sm font-medium">{t('Risk stop current')}</h3>
+        {stop
+          ? riskStopLines(stop, t).map((line) => (
+              <p key={line} className="m-0 text-fg-2">
+                {line}
+              </p>
+            ))
+          : null}
+      </section>
+    </Frame>
+  );
+}
+
 /** The row buttons and their dialogs. Every disabled button says why, in words next to it. */
 export function PositionRowActions({
   position,
@@ -1153,7 +1273,7 @@ export function PositionRowActions({
   locked = false,
   stale = false,
   onChanged,
-  only = ['add', 'reduce', 'leverage', 'protect', 'stop', 'reverse', 'close'],
+  only = ['add', 'reduce', 'leverage', 'protect', 'stop', 'riskStop', 'reverse', 'close'],
   compact = false,
   onReverse,
 }: {
@@ -1189,6 +1309,7 @@ export function PositionRowActions({
     leverage: t('Action leverage'),
     protect: t('Action protect'),
     stop: t('Action stop'),
+    riskStop: t('Action riskStop'),
     reverse: t('Action reverse'),
     close: closing ? t('Action retry close') : t('Action close'),
   };
@@ -1238,6 +1359,7 @@ export function PositionRowActions({
       {open === 'leverage' ? <LeverageDialog {...common} cap={leverageCap} /> : null}
       {open === 'protect' ? <ProtectionDialog {...common} /> : null}
       {open === 'stop' ? <StopDialog {...common} /> : null}
+      {open === 'riskStop' ? <RiskStopDialog {...common} /> : null}
       {open === 'reverse' ? <ReverseDialog {...common} /> : null}
       {open === 'close' ? <CloseDialog {...common} /> : null}
     </div>
