@@ -24,9 +24,7 @@ function settleOf(symbol: string): string {
 }
 
 type ModeState =
-  | { status: 'loading' }
-  | { status: 'ready'; mode: PositionMode }
-  | { status: 'refused'; title: string; body: string; code: string | null };
+  { status: 'loading' } | { status: 'ready'; mode: PositionMode } | { status: 'refused'; title: string; body: string; code: string | null };
 
 /**
  * One-way or hedge, for the whole futures account. A flat account switches; with an open position the service refuses
@@ -38,9 +36,9 @@ function PositionModeControl() {
   const [state, setState] = useState<ModeState>({ status: 'loading' });
   const [choice, setChoice] = useState<Mode | null>(null);
   const [busy, setBusy] = useState(false);
-  const [answer, setAnswer] = useState<{ kind: 'switched'; mode: Mode } | { kind: 'refused'; title: string; body: string; code: string | null } | null>(
-    null,
-  );
+  const [answer, setAnswer] = useState<
+    { kind: 'switched'; mode: Mode } | { kind: 'refused'; title: string; body: string; code: string | null } | null
+  >(null);
   const key = useRef<{ mode: Mode; id: string } | null>(null);
 
   const read = async (signal?: AbortSignal) => {

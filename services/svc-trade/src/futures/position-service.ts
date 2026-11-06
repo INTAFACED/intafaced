@@ -3522,7 +3522,9 @@ export function presentPosition(row: PositionRow, extras?: PresentExtras): Posit
     if (equity > 0n) marginRatio = formatAmount((parseAmount(maintenanceMargin) * SCALE) / equity);
     else fieldReasons.marginRatio = 'equity_not_positive';
   } else if (settled) fieldReasons.marginRatio = 'position_closed';
-  else fieldReasons.marginRatio = maintenanceMargin == null ? (maintenanceReason ?? 'maintenance_unknown') : (unrealizedReason ?? 'mark_missing');
+  else
+    fieldReasons.marginRatio =
+      maintenanceMargin == null ? (maintenanceReason ?? 'maintenance_unknown') : (unrealizedReason ?? 'mark_missing');
 
   return {
     id: row.id,
