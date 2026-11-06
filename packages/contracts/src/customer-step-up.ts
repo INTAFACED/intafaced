@@ -262,6 +262,16 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     decimalFields: ['perAuthorizationLimit'],
     fixed: {},
   },
+  {
+    scope: 'bank.step_up.cards.updateShipping',
+    purpose: 'cards.updateShipping',
+    clientFields: ['cardId', 'requestId', 'shippingAddress'],
+    targetField: 'cardId',
+    targetRequired: true,
+    emptyOk: [],
+    decimalFields: [],
+    fixed: {},
+  },
 
   {
     scope: 'bank.step_up.ramps.offramp',

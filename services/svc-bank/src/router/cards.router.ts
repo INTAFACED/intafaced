@@ -12,6 +12,7 @@ import {
   unfreezeCardBinding,
   activateCardBinding,
   orderCardBinding,
+  updateCardShippingBinding,
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
 import { DELIVERY_SPEEDS } from '../cards/card-programme.js';
@@ -738,19 +739,39 @@ export function createCardsRouter(c: BankRouterContext) {
 
     /** Change the delivery address before print (`ship-update:<cardId>:<requestId>`); refused once produced. */
     updateShipping: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ cardId: z.string().guid(), requestId: z.string().guid(), address: shippingAddressInput }))
+      .input(
+        z.object({
+          cardId: z.string().guid(),
+          requestId: z.string().guid(),
+          address: shippingAddressInput,
+          stepUpApprovalId: stepUpApprovalField,
+        }),
+      )
       .output(deliveryOutput)
       .mutation(({ ctx, input }) =>
-        guard(async () =>
-          presentDelivery(
+        guard(async () => {
+          // Where a card goes is bound at the order; moving it later needs the same fresh confirmation when the rule is on.
+          if (stepUpEnforced) {
+            await requireStepUp(
+              ctx.principal,
+              updateCardShippingBinding({
+                actor: ctx.principal.userId,
+                cardId: input.cardId,
+                requestId: input.requestId,
+                shippingAddress: shippingToken(input.address),
+              }),
+              input.stepUpApprovalId,
+            );
+          }
+          return presentDelivery(
             await bank.cardOrders.updateShipping({
               userId: ctx.principal.userId,
               cardId: input.cardId,
               requestId: input.requestId,
               address: addressFrom(input.address),
             }),
-          ),
-        ),
+          );
+        }),
       ),
 
     /**

@@ -354,3 +354,12 @@ export function orderCardBinding(i: {
     },
   };
 }
+
+/** Changing an ordered card's delivery address (BK-cissue-03): binds the request and the new address, as the order did. */
+export function updateCardShippingBinding(i: { actor: string; cardId: string; requestId: string; shippingAddress: string }): DoorBinding {
+  return {
+    actionType: 'bank.step_up.cards.updateShipping',
+    operationKey: i.requestId,
+    fields: { actor: i.actor, cardId: i.cardId, requestId: i.requestId, shippingAddress: i.shippingAddress },
+  };
+}
