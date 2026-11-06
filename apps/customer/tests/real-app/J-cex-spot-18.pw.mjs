@@ -110,7 +110,7 @@ test.beforeAll(async ({ browser }) => {
   if (!group.memberIds.includes(agent)) await desk('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
   await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
   const customerId = (await api(customer)).userId;
-  run.write({ customer, customerId, ticketId: ticket.id, reported: reported.id, live: live.id, orphan: orphan.id });
+  run.write({ customer, customerId, ticketId: ticket.id, reported: reported.id, live: live.id, orphan: orphan.id, placedAt: Date.now() });
 });
 
 const orderRead = (page) => page.locator('[data-order-read]');
@@ -162,7 +162,10 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
 
 test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts; a second run releases none`, async ({ page }) => {
   test.setTimeout(300_000);
-  const { customer, orphan, live } = run.read();
+  const { customer, orphan, live, placedAt } = run.read();
+  // A sweep looks only at orders unchanged for the owner's age floor (the stack's TEST value is 15 s,
+  // tooling/scripts/local-stack-services/trade.mjs): the first sweep must already see the orphan.
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, placedAt + 20_000 - Date.now())));
   const orphanOrder = await customerOrder(customer, orphan);
   const hold = times(orphanOrder.price, orphanOrder.amount);
   // LOCAL TEST fault: the order leaves the book and its cancel is lost on the way to svc-trade (run 42212975613: a cancel
