@@ -361,7 +361,7 @@ test(`${J} #3 orders a physical card with a design and a speed: design choice, d
   });
   const tracking = delivery.getByTestId('card-tracking');
   await expect(tracking).toHaveAttribute('data-code', read.data.notConnected);
-  await expect(tracking).toContainText('Tracking no tracking number yet.');
+  await expect(tracking).toContainText('Tracking: No tracking number yet.');
   await expect(tracking).toContainText('Printing and delivery need hardware. It is switched off in this build.');
   await expect(tracking.getByTestId('card-tracking-ref')).toHaveCount(0);
   run.write({ physicalId });
@@ -539,17 +539,17 @@ async function rankOf(token) {
 
 /**
  * XP awarded through svc-identity's one award door (`rank.awardXp`, service-signed), as the modules that earn XP
- * (trading, P2P, the academy) call it. A TEST stand-in for a season of activity: one key per person, so a retry awards
- * nothing more.
+ * (trading, P2P, the academy) call it. A TEST stand-in for a season of activity: one key per person and rank, so a
+ * retry awards nothing more.
  */
-async function awardXp(userId, xpDelta) {
+async function awardXp(userId, xpDelta, rank) {
   const { ctx } = await founders();
   const raw = JSON.stringify({
     userId,
     sourceModule: 'local-test-stack',
     action: 'test.rank_up',
     xpDelta,
-    idempotencyKey: `${J}:rank-up:${userId}`,
+    idempotencyKey: `${J}:rank-up:${userId}:${rank}`,
   });
   const res = await fetch(`${ctx.url('identity')}/trpc/rank.awardXp`, {
     method: 'POST',
@@ -608,14 +608,7 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
   const firstBps = before.data.rateBps;
   expect(firstBps, `a TEST rate for tier ${start.cardTier}`).not.toBeNull();
   expect(firstBps).toBe(rateOf(start.cardTier));
-  // The rank that comes next on the ladder gives a card tier whose TEST rate differs, so a bank that ignored rank fails.
-  expect(start.cardTier, 'a new account starts below the standard card tier').toBe('none');
-  const secondBps = rateOf('standard');
-  expect(secondBps, 'a TEST rate for tier standard').not.toBeNull();
-  expect(secondBps).not.toBe(firstBps);
   const first = earnedAt(firstBps);
-  const second = earnedAt(secondBps);
-  expect(second).not.toBe(first);
 
   // A virtual card that draws on IFC, ordered in the card room.
   await earnFeesIntoPot(who, token, first);
@@ -637,13 +630,23 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
   expect(one.cashback).toMatchObject({ status: 'paid', amount: fromUnits(first) });
   expect(ifcBefore - toUnits((await api.holding('IFC')).free)).toBe(toUnits(spend) - first);
 
-  // The person's rank rises to the one whose perk is the standard card tier (identity's ladder: rank 3 at 4,000 XP).
-  await awardXp(start.userId, 4_000 - Number(start.xp));
-  const risen = await rankOf(token);
-  expect(risen).toMatchObject({ cardTier: 'standard' });
-  expect(risen.rank).toBeGreaterThan(start.rank);
+  // The person's rank rises, one rank at a time by the XP identity says the next rank needs, until it gives the next
+  // card tier on identity's ladder. That tier's TEST rate differs, so a bank that ignored rank would fail here.
+  let risen = start;
+  while (risen.cardTier === start.cardTier) {
+    expect(risen.nextRankAt, `identity's ladder has a card tier above ${start.cardTier}`).not.toBeNull();
+    await awardXp(start.userId, Number(risen.nextRankAt), risen.rank + 1);
+    const next = await rankOf(token);
+    expect(next.rank).toBeGreaterThan(risen.rank);
+    risen = next;
+  }
+  const secondBps = rateOf(risen.cardTier);
+  expect(secondBps, `a TEST rate for tier ${risen.cardTier}`).not.toBeNull();
+  expect(secondBps).not.toBe(firstBps);
+  const second = earnedAt(secondBps);
+  expect(second).not.toBe(first);
   const mid = await api.query('cards.cashback');
-  expect(mid.data).toMatchObject({ tier: 'standard', rateBps: secondBps });
+  expect(mid.data).toMatchObject({ tier: risen.cardTier, rateBps: secondBps });
 
   // The same spend now pays at the new tier's rate, once.
   await earnFeesIntoPot(who, token, second);
@@ -666,7 +669,8 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
   // The card page shows it: the tier the rank now gives, its rate in IFC, the tier table, and the cashback paid.
   await page.goto('/bank/cards');
   const panelCashback = page.getByTestId('card-cashback');
-  await expect(panelCashback).toContainText('Your rank’s card tier: Standard');
+  const tierName = { none: 'None', standard: 'Standard', metal: 'Metal', obsidian: 'Obsidian' }[risen.cardTier];
+  await expect(panelCashback).toContainText(`Your rank’s card tier: ${tierName}`);
   const percent = (secondBps / 100).toString();
   await expect(panelCashback).toContainText(`${percent}% cashback in IFC on spend from your IFC card`);
   const table = panelCashback.getByRole('table', { name: 'Cashback by card tier' });

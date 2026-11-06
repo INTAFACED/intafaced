@@ -78,7 +78,7 @@ const en = {
   expectedBy: 'Expected by {date}',
   tracking: 'Tracking',
   trackingRef: '{carrier}: {ref}',
-  trackingNone: 'no tracking number yet.',
+  trackingNone: 'No tracking number yet.',
   deliverTo: 'Delivering to',
   history: 'Earlier addresses',
   changeAddress: 'Change delivery address',

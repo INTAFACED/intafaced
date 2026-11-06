@@ -7,6 +7,7 @@ import { useBankRead } from './components';
 import { bankWrites, type cardSchema } from './contracts';
 import { cardOrderCopy } from './card-order-copy';
 import { StepUpConfirm } from './StepUpConfirm';
+import './bank-depth.css';
 
 /**
  * Each card's own panels on /bank/cards for getting a card (J-bank-13): its status in words, how many payments a
@@ -159,9 +160,11 @@ function Delivery({ card }: { card: CardRecord }) {
       <p>{t('deliveryState', { state })}</p>
       <p data-testid="card-delivery-estimate">{t('expectedBy', { date: dateOf(d.expectedBy) })}</p>
       <div data-testid="card-tracking" data-code={d.notConnected ?? undefined}>
-        <strong>{t('tracking')}</strong>{' '}
+        <strong>{t('tracking')}:</strong>{' '}
         {d.trackingRef ? (
-          <span data-testid="card-tracking-ref">{t('trackingRef', { carrier: d.carrier ?? '', ref: d.trackingRef })}</span>
+          <span data-testid="card-tracking-ref">
+            {d.carrier ? t('trackingRef', { carrier: d.carrier, ref: d.trackingRef }) : d.trackingRef}
+          </span>
         ) : (
           t('trackingNone')
         )}
