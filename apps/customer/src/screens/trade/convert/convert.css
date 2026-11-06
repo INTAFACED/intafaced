@@ -260,6 +260,35 @@
     text-align: center;
   }
 
+  /* Limit convert (J-cex-spot-11 #8) */
+  .cvt-limit {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-3);
+  }
+  .cvt-limit__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-2);
+    font: 400 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
+    color: var(--if-fg-2);
+  }
+  .cvt-limit__list :where(h3, ul) {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .cvt-limit__list h3 {
+    font-weight: 500;
+    color: var(--if-fg);
+  }
+  .cvt-limit__list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--if-space-2);
+  }
+
   /* Questions */
   .cvt-breakdown {
     padding: 0 var(--if-space-1);

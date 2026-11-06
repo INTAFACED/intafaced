@@ -308,6 +308,7 @@ const trade = new TradeService(sql, ledger, matching, perks, bus, {
   // CB-bots-10: required by default; a blank level refuses every bot create, a bad value stops the boot.
   botVerification,
   convertEnabled: env.TRADE_CONVERT_ENABLED,
+  convertLimitSweepMs: env.TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS,
   standingInstructionsEnabled: env.TRADE_STANDING_INSTRUCTION_ENABLED,
   convertSpreadBps: env.TRADE_CONVERT_SPREAD_BPS,
   convertQuoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
@@ -925,6 +926,15 @@ if (parseCopyPlaceMirrorFlag(process.env.TRADE_COPY_PLACE_MIRROR)) {
     if (result.refused > 0) app.log.warn(result, 'copy mirror sweep — some leader fills were not copied (reasons on the mirror trail)');
   });
 }
+// The limit-convert sweep (J-cex-spot-11 #8): blank interval, no sweep, and no limit convert can be placed.
+const limitConvertJobs = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'limit convert sweep tick failed') });
+if (env.TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS !== null) {
+  limitConvertJobs.every('trade.convert_limit_sweep', env.TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS, async () => {
+    await trade.sweepLimitConverts({
+      onFailed: (id, err) => app.log.error({ err, limitConvertId: id }, 'limit convert sweep — this one is tried again next tick'),
+    });
+  });
+}
 // The grid's tick runs with the algo scheduler: off, a grid places its first levels and then waits.
 const gridJobs = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'grid tick failed') });
 if (env.TRADE_ALGO_JOBS_ENABLED) gridJobs.every('trade.grid_tick', env.TRADE_ALGO_JOBS_INTERVAL_MS, () => grid.tickAll());
@@ -1473,6 +1483,7 @@ registerPrivateRest(app, {
   listAdlDisclosureEvents: async (principal, limit) =>
     (await adlDisclosureEvents.listForUser(principal.userId, limit)).map(presentAdlActionDisclosureWire),
   convertExport: (principal, query) => trade.convertExport(principal, query),
+  convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
   algo: trade,
@@ -1540,6 +1551,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       mmSeedJobs.stop();
       algoJobs.stop();
       copyMirrorJobs.stopAll();
+      limitConvertJobs.stopAll();
       gridJobs.stopAll();
       optionsExerciseJobs.stop();
       reconcileJobs.stop();
