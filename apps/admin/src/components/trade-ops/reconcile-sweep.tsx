@@ -49,7 +49,7 @@ export function ReconcileSweep() {
         />
       </div>
       {runs.length === 0 ? (
-        <p className="text-xs text-fg-3">No sweep run from this page yet.</p>
+        <p className="text-xs text-fg-3">No sweep has run from this page.</p>
       ) : (
         <ol className="flex flex-col gap-1 text-sm">
           {runs.map((run) => (
