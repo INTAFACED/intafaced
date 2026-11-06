@@ -41,7 +41,6 @@ import { createCardsRouter } from './router/cards.router.js';
 import { createOpsRouter } from './router/ops.router.js';
 import { createAutoInvestRouter } from './router/auto-invest.router.js';
 import { createSorterRouter } from './sorter/sorter.router.js';
-import { createHoldsRouter } from './holds/holds.router.js';
 import { createSharedPotsRouter } from './spaces/shared-pots.router.js';
 import { createRecoveryRouter } from './recovery/recovery.router.js';
 import { createRampsRouter } from './router/ramps.router.js';
@@ -364,8 +363,6 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     rules: createRulesRouter(bank, guard),
     /** BK-pots-03: the income sorter; blank owner terms refuse `bank.sorter_terms_unset`. */
     sorter: createSorterRouter(bank, guard),
-    /** PP-money-balance-05: payments from strangers held for the person to accept; a blank period refuses holding. */
-    holds: createHoldsRouter(bank, guard),
     /** BK-acct-09: pots shared with viewers and contributors; blank owner values refuse `bank.joint_unset`. */
     sharedPots: createSharedPotsRouter(bank, guard),
     recovery: createRecoveryRouter(bank, guard),

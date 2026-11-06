@@ -24,6 +24,8 @@ import type {
   Reverse,
   ReverseRequest,
   ProtectionInput,
+  RiskStop,
+  RiskStopInput,
   StopInput,
 } from './api';
 import { futuresRefusal, type FuturesRefusal } from './refusals';
@@ -45,7 +47,9 @@ export type Intent =
   /** Arm one stop on a position. Its client id names it, so a second send replays the one armed. */
   | { op: 'place-trigger'; input: StopInput }
   /** Reverse a position under one request id: a second send carries it on or answers how it ended, never twice. */
-  | { op: 'reverse'; input: ReverseRequest };
+  | { op: 'reverse'; input: ReverseRequest }
+  /** Set or clear a pre-liquidation stop. Its request id names it, so a second send answers with the stop as it stands. */
+  | { op: 'risk-stop'; input: RiskStopInput };
 
 export type Operation = Intent['op'];
 
@@ -64,6 +68,8 @@ export function intentId(intent: Intent): string {
     case 'place-trigger':
       return intent.input.clientOrderId;
     case 'reverse':
+      return intent.input.clientRequestId;
+    case 'risk-stop':
       return intent.input.clientRequestId;
     default:
       return intent.input.clientAdjustmentId;
@@ -194,6 +200,8 @@ export interface WriteResult {
   trigger?: ConditionalOrder;
   /** A reverse as it stands: finished, or still working after a few sends. */
   reverse?: Reverse;
+  /** A pre-liquidation stop as it stands after a set or a clear. */
+  riskStop?: RiskStop;
 }
 
 /** A reverse still working is sent again a few times, a moment apart, while its close settles. */
@@ -218,6 +226,10 @@ async function sendAdjustment(
     const armed = await api.createConditional(intent.input);
     return armed.ok ? { ok: true, data: { trigger: armed.data } } : armed;
   }
+  if (intent.op === 'risk-stop') {
+    const set = await api.setRiskStop(intent.input);
+    return set.ok ? { ok: true, data: { riskStop: set.data } } : set;
+  }
   if (intent.op === 'reverse') {
     let answer = await api.reverse(intent.input);
     for (let sent = 1; answer.ok && REVERSE_WORKING.has(answer.data.status) && sent <= REVERSE_RESENDS; sent += 1) {
@@ -236,7 +248,10 @@ export function send(api: FuturesApi, intent: Intent): Promise<ApiResult<WriteRe
 
 function sendPosition(
   api: FuturesApi,
-  intent: Exclude<Intent, { op: 'open' | 'reduce' | 'close' | 'protection' | 'cancel-trigger' | 'place-trigger' | 'reverse' }>,
+  intent: Exclude<
+    Intent,
+    { op: 'open' | 'reduce' | 'close' | 'protection' | 'cancel-trigger' | 'place-trigger' | 'reverse' | 'risk-stop' }
+  >,
 ): Promise<ApiResult<Position>> {
   switch (intent.op) {
     case 'leverage':
@@ -259,6 +274,7 @@ export type WriteOutcome =
       protection?: Protection;
       trigger?: ConditionalOrder;
       reverse?: Reverse;
+      riskStop?: RiskStop;
     }
   | { kind: 'refused'; refusal: FuturesRefusal }
   /**

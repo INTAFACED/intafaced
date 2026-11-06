@@ -66,15 +66,6 @@ export {
   type ReceiveContactList,
 } from '../../data/receive-contacts';
 export {
-  answerWaitingPayment,
-  fetchReceiveRule,
-  fetchWaitingPayments,
-  setReceiveRule,
-  type ReceivedHold,
-  type ReceiveRule,
-  type StrangerRule,
-} from '../../data/received-holds';
-export {
   changeHandle,
   fetchHandleSettings,
   setHandleDiscoverable,

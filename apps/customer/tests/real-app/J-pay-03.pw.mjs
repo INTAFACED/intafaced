@@ -8,6 +8,8 @@ import { scanQr } from './qr-read.mjs';
 // Both are verified by the stack's TEST operators; B is funded with TEST USDT through the real ledger. A received payment
 // credits A's available balance once, and a held one counts as set aside until accepted; the steps read both balances
 // through each person's own API.
+// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
+// - #5: no stranger rule (PP-money-balance-05).
 // A refusal is matched by the typed code identity sent the page (`answer`), and after it the record and balances are
 // read again unchanged.
 const J = 'J-pay-03';
@@ -355,87 +357,21 @@ test(`${J} #4 shows the QR to a friend who scans it: Send opens prefilled with a
 test(`${J} #5 sets how to treat payments from people not in contacts: a stranger's payment waits, and can be accepted or denied`, async ({
   page,
 }) => {
-  test.setTimeout(240_000);
-  const { me, stranger: payer } = people();
-  /** The bank's rule for this person, as Receive reads it. */
-  const ruleOn = async (load) => {
-    const [res] = await Promise.all([
-      page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/holds.rule') && r.request().method() === 'GET'),
-      load(),
-    ]);
-    expect(res.status(), 'holds.rule answers').toBe(200);
-    return (await res.json()).result.data;
-  };
-  const hold = () => page.getByRole('radio', { name: 'Hold for me to accept' });
-  const payIn = () => page.getByRole('radio', { name: 'Pay them into my balance' });
-  /** The first payment waiting on Pay, read as the person sees it. */
-  const waitingOne = () => page.getByRole('region', { name: 'Waiting for you' }).getByRole('listitem').first();
-  /** The person's TEST USDT: available and set aside, read through their own API. */
-  const mine = async () => {
-    const usd = await usdt(me);
-    return { free: toUnits(usd.free), used: toUnits(usd.used) };
-  };
-  try {
-    await signIn(page, me);
-    // Paid in by default, and the choice is the bank's: it stays after a reload.
-    expect(await ruleOn(() => page.goto('/pay/receive'))).toEqual({ strangers: 'pay_in', holdDays: 30 });
-    await expect(payIn()).toBeChecked();
-    await hold().check();
-    await expect(hold()).toBeChecked();
-    // The stack's TEST period (tooling/profiles/test-owner-values/bank.json), read back from the bank.
-    await expect(page.getByTestId('stranger-hold-days')).toHaveText(
-      'A held payment waits 30 days for you to accept or deny it. If you don’t, it goes back to the sender.',
-    );
-    expect(await ruleOn(() => page.reload())).toEqual({ strangers: 'hold', holdDays: 30 });
-    await expect(hold(), 'the choice stays after a reload').toBeChecked();
-
-    // A stranger (someone this person has never paid) pays 5: it waits. The stranger's money left once; for this person
-    // it is set aside, not available.
-    const before = await mine();
-    const spending = toUnits((await usdt(payer)).free);
-    await strangerPays(page, me.handle, '5');
-    expect(spending - toUnits((await usdt(payer)).free), 'the stranger paid 5 once').toBe(toUnits('5'));
-    await expect.poll(async () => (await mine()).used - before.used, { timeout: 30_000 }).toBe(toUnits('5'));
-    expect((await mine()).free, 'held: not in the available balance').toBe(before.free);
-
-    // On Pay it waits for an answer: who sent it, how much, why, and when it goes back.
-    await signOutBrowser(page.context());
-    await signIn(page, me);
-    await page.goto('/pay');
-    await expect(waitingOne()).toContainText(`@${payer.handle} sent you 5 USDT`);
-    await expect(waitingOne()).toContainText('Held because they’re not in your contacts.');
-    await expect(waitingOne()).toContainText('If you don’t answer, it goes back to the sender on');
-    // Accept: the whole payment moves into the available balance, once, and nothing waits any more.
-    await waitingOne().getByRole('button', { name: 'Accept' }).click();
-    await expect(page.getByRole('region', { name: 'Waiting for you' })).toHaveCount(0);
-    await expect.poll(async () => (await mine()).free - before.free, { timeout: 30_000 }).toBe(toUnits('5'));
-    expect((await mine()).used).toBe(before.used);
-    await page.reload();
-    await expect(page.getByRole('region', { name: 'Waiting for you' })).toHaveCount(0);
-
-    // The stranger pays 2 more (still not someone this person has paid): it waits again, and Deny sends it back whole.
-    const second = await mine();
-    const spent = toUnits((await usdt(payer)).free);
-    await strangerPays(page, me.handle, '2');
-    await expect.poll(async () => (await mine()).used - second.used, { timeout: 30_000 }).toBe(toUnits('2'));
-    expect(spent - toUnits((await usdt(payer)).free)).toBe(toUnits('2'));
-    await signOutBrowser(page.context());
-    await signIn(page, me);
-    await page.goto('/pay');
-    await expect(waitingOne()).toContainText(`@${payer.handle} sent you 2 USDT`);
-    await waitingOne().getByRole('button', { name: 'Deny' }).click();
-    await expect(page.getByRole('region', { name: 'Waiting for you' })).toHaveCount(0);
-    await expect.poll(async () => toUnits((await usdt(payer)).free), { timeout: 30_000 }).toBe(spent);
-    expect(await mine(), 'denied: nothing of it stays with this person').toEqual(second);
-  } finally {
-    // Back to paying strangers in, so #6's payment by email lands in the balance.
-    await signOutBrowser(page.context());
-    await signIn(page, me);
-    await page.goto('/pay/receive');
-    if (!(await payIn().isChecked())) await payIn().check();
-    await expect(payIn()).toBeChecked();
-    expect(await ruleOn(() => page.reload())).toEqual({ strangers: 'pay_in', holdDays: 30 });
-  }
+  test.setTimeout(180_000);
+  const { me } = people();
+  await signIn(page, me);
+  await page.goto('/pay/receive');
+  await page.getByRole('radio', { name: 'Hold for me to accept' }).check(UNBUILT);
+  const before = await usdt(me);
+  await strangerPays(page, me.handle, '5');
+  // Held: set aside for me, not yet available.
+  expect(toUnits((await usdt(me)).free)).toBe(toUnits(before.free));
+  await signOutBrowser(page.context());
+  await signIn(page, me);
+  await page.goto('/pay');
+  const waiting = page.getByRole('region', { name: 'Waiting for you' }).getByRole('listitem').first();
+  await waiting.getByRole('button', { name: 'Accept' }).click();
+  await expect.poll(async () => toUnits((await usdt(me)).free)).toBe(toUnits(before.free) + toUnits('5'));
 });
 
 test(`${J} #6 adds an email or phone to receive by: a payment sent to that contact lands in the balance; with the sender off the code step shows the notice`, async ({

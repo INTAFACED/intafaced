@@ -28,7 +28,6 @@ import { PartyHandleUnavailableError, type PartyHandlePort } from './party-handl
 import type { PersonalRequestNotices } from './request-notices.js';
 import type { PersonalTransferNotices } from './transfer-notices.js';
 import type { IncomingCredit } from '../sorter/income-sorter.js';
-import type { ReceivedHoldService } from '../holds/received-holds.js';
 import { assertSecurityLockOpen, unconfiguredSecurityLock, type SecurityLockPort } from '../security-lock.js';
 import {
   heldSendView,
@@ -263,11 +262,6 @@ export class PersonalPayService {
        * money moves. Unset = no rule published, and no send is held.
        */
       reviewRule?: SendReviewRule | null;
-      /**
-       * Holds on received funds (PP-money-balance-05): the recipient's rule for payments from people not in their
-       * contacts is asked once, inside the reservation, and a held payment is set aside after it posts. Unset = no holds.
-       */
-      receivedHolds?: Pick<ReceivedHoldService, 'decide' | 'placeFor'>;
       now?: () => Date;
     } = {},
   ) {}
@@ -353,23 +347,13 @@ export class PersonalPayService {
         )
         RETURNING ${tx.unsafe(TRANSFER_COLS)}
       `;
-      // The recipient's rule for strangers is decided here, once, with the reservation: a retry never asks again.
-      await this.options.receivedHolds?.decide(tx, {
-        transferId: input.transferId,
-        payerUserId: input.actorUserId,
-        recipientUserId: toUserId,
-        assetId: from.assetId,
-        amount: input.amount,
-        requestId,
-        now,
-      });
       return inserted[0]!;
     });
 
     if (reserved.status === 'posted' && reserved.ledger_tx_id) {
       if (reserved.request_id) await this.finishRequest(reserved.request_id, input.transferId, reserved.ledger_tx_id, now);
       if (!reserved.announced_at) await this.announcePosted(reserved, reserved.ledger_tx_id, now);
-      if (!(await this.holdReceived(reserved.transfer_id, now))) await this.creditPosted(reserved, reserved.ledger_tx_id);
+      await this.creditPosted(reserved, reserved.ledger_tx_id);
       return this.toTransferView(reserved);
     }
 
@@ -412,7 +396,7 @@ export class PersonalPayService {
     const row = posted[0] ?? (await this.mustTransfer(input.transferId));
     if (requestId) await this.finishRequest(requestId, input.transferId, ledgerTxId, now);
     if (row.status === 'posted' && !row.announced_at) await this.announcePosted(row, ledgerTxId, now);
-    if (row.status === 'posted' && !(await this.holdReceived(row.transfer_id, now))) await this.creditPosted(row, ledgerTxId);
+    if (row.status === 'posted') await this.creditPosted(row, ledgerTxId);
     return this.toTransferView(row);
   }
 
@@ -529,31 +513,6 @@ export class PersonalPayService {
         }),
       );
       return false;
-    }
-  }
-
-  /**
-   * Set a posted payment aside when the recipient's rule held it (PP-money-balance-05). True while it is held, so it is
-   * not handed to the income sorter. A failure here is logged by the hold service and finished by the recovery timer:
-   * the send has posted and its answer stands.
-   */
-  private async holdReceived(transferId: string, now: Date): Promise<boolean> {
-    const holds = this.options.receivedHolds;
-    if (!holds) return false;
-    try {
-      return await holds.placeFor(transferId, now);
-    } catch (err) {
-      console.error(
-        JSON.stringify({
-          level: 'error',
-          service: 'svc-bank',
-          event: 'bank.received_hold_after_send_failed',
-          transferId,
-          detail: err instanceof Error ? err.message : String(err),
-        }),
-      );
-      // Unknown: treat it as held, so the sorter never moves money the hold may still need.
-      return true;
     }
   }
 

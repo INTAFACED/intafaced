@@ -180,11 +180,6 @@
       "service": "bank",
       "value": "{\"USDT\": \"50\"}",
       "note": "Made-up TEST review line: a USDT send to another person above 50 is held for a review, so the held state can be seen (J-pay-01 #6); not the owner rule. The stack sets it only when a journey asks (LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on)."
-    },
-    "BANK_STRANGER_HOLD_DAYS": {
-      "service": "bank",
-      "value": "30",
-      "note": "Made-up TEST period: a payment from someone not in the recipient's contacts, held for them to accept, waits 30 days before it goes back to the sender (J-pay-03 #5); not the owner rule. Nothing is held unless the person chooses to hold such payments."
     }
   }
 }

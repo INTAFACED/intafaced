@@ -30,6 +30,7 @@ import {
   type MarginCall,
   type MarginSummary,
   type OrderTypeCatalogue,
+  type RiskStop,
   type RiskTiers,
   type TickerStrip,
 } from './api';
@@ -251,6 +252,65 @@ export function useMarginCalls(positions: readonly Position[], enabled: boolean)
             return { ok: true, data: out };
           },
           FUTURES_INTERVALS.marginCalls,
+          enabled,
+        ),
+      [env, api, key, enabled],
+    ),
+  );
+}
+
+/** Pre-liquidation stops of live positions, by position id; a position missing from the map was not asked (past the cap). */
+export type RiskStops = Record<string, RiskStop>;
+
+/**
+ * Each live position's pre-liquidation stop, read as often as its stop orders (a fired one is followed to its close).
+ * Any failure fails the read: a stop that cannot be read is never shown as "none".
+ */
+function riskStopIds(positions: readonly Position[]): string {
+  return positions
+    .filter(isLive)
+    .map((p) => p.id)
+    .filter((id): id is string => id !== null)
+    .slice(0, MARGIN_CALL_CAP)
+    .join(',');
+}
+
+/**
+ * Read the stops again now, after a stop was set or cleared: their read is keyed by the positions it covers, so the
+ * room's shared refresh cannot name it. One read per position, one after another, as the margin calls are read, so a
+ * poll stays inside the tab's request budget.
+ */
+export function useRefreshRiskStops(positions: readonly Position[]): () => void {
+  const env = useDataEnv();
+  const key = riskStopIds(positions);
+  return useMemo(
+    () => () => {
+      if (env.userId) env.poller.refresh(`futures-risk-stops:${key}:${env.userId}`);
+    },
+    [env, key],
+  );
+}
+
+export function useRiskStops(positions: readonly Position[], enabled: boolean): Loadable<RiskStops> {
+  const env = useDataEnv();
+  const api = useFuturesApi();
+  const key = riskStopIds(positions);
+  return useSource(
+    useMemo(
+      () =>
+        privateSource<RiskStops>(
+          env,
+          `futures-risk-stops:${key}`,
+          async (signal) => {
+            const out: RiskStops = {};
+            for (const id of key ? key.split(',') : []) {
+              const result = await api.riskStop(id, signal);
+              if (!result.ok) return result;
+              out[id] = result.data;
+            }
+            return { ok: true, data: out };
+          },
+          FUTURES_INTERVALS.conditional,
           enabled,
         ),
       [env, api, key, enabled],

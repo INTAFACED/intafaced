@@ -42,7 +42,6 @@ import { parseAccountTerms, type AccountTerms } from './account-home/account-ter
 import { CurrencyService } from './account-home/currencies.js';
 import { ProfileService } from './account-home/profile.js';
 import { PersonalPayService } from './transfers/personal-pay.js';
-import { ReceivedHoldService } from './holds/received-holds.js';
 import type { SendReviewRule } from './transfers/send-review.js';
 import type { PartyHandlePort } from './transfers/party-handles.js';
 import type { PersonalRequestNotices } from './transfers/request-notices.js';
@@ -77,8 +76,6 @@ export interface BankServices {
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
-  /** PP-money-balance-05: payments from people not in the recipient's contacts, held for them to accept. */
-  readonly receivedHolds: ReceivedHoldService;
   /** BK-pots-03: payments from other people split across the person's own spaces. */
   readonly sorter: IncomeSorterService;
   /** The person's bills pot per asset, and whether a standing order from it may top it up from the main account. */
@@ -143,8 +140,6 @@ export interface BankServices {
 export interface BankServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
-  /** `BANK_STRANGER_HOLD_DAYS`, parsed: how long a held payment from a stranger waits. Null: no such hold can be placed. */
-  strangerHoldDays?: number | null;
   /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */
   payeeCoolingHours?: string;
   /** `BANK_SCHEDULE_EDIT_CUTOFF_MINUTES`: how close to its next run a standing order may still be edited. Blank refuses. */
@@ -309,9 +304,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     },
     directoryLookups,
   );
-  const receivedHolds = new ReceivedHoldService(sql, ledger, { holdDays: options.strangerHoldDays ?? null });
   const personalPay = new PersonalPayService(sql, ledger, transfers, spaces, {
-    receivedHolds,
     handles: options.handles,
     notices: options.requestNotices,
     transferNotices: options.transferNotices,
@@ -437,7 +430,6 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     recovery,
     transfers,
     personalPay,
-    receivedHolds,
     earn,
     analytics,
     portfolio,

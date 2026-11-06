@@ -37,6 +37,8 @@ import {
   useFuturesOrders,
   useFuturesRefresh,
   useMarginCalls,
+  useRefreshRiskStops,
+  useRiskStops,
   useOpenPositions,
   useCollateral,
   useRiskTiers,
@@ -68,6 +70,8 @@ export default function FuturesScreen({ search }: ScreenProps) {
   const positions = useOpenPositions();
   const closed = useClosedPositions(tab === 'history' || tab === 'adl');
   const calls = useMarginCalls(positions.status === 'ready' ? positions.data : [], positions.status === 'ready');
+  const riskStops = useRiskStops(positions.status === 'ready' ? positions.data : [], positions.status === 'ready' && tab === 'positions');
+  const refreshRiskStops = useRefreshRiskStops(positions.status === 'ready' ? positions.data : []);
   const balances = useBalances();
   const disclosure = useAdlDisclosure();
   const events = useAdlEvents(tab === 'adl');
@@ -165,11 +169,15 @@ export default function FuturesScreen({ search }: ScreenProps) {
           <PositionsTable
             positions={positions}
             marginCalls={calls}
+            riskStops={riskStops}
             freeBalances={balances}
             planeOff={planeOff}
             now={now}
             onOpen={(p) => setSelectedId(p.id)}
-            onChanged={refresh}
+            onChanged={() => {
+              refresh();
+              refreshRiskStops();
+            }}
             onReverse={setReversing}
           />
         </TabsPanel>

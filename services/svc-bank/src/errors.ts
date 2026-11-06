@@ -747,11 +747,6 @@ export type BankErrorCode =
   | 'bank.personal_send_review_door'
   | 'bank.personal_send_rejected'
   | 'bank.held_send_decided'
-  /** PP-money-balance-05: no release period is published, so payments from strangers cannot be held. */
-  | 'bank.stranger_hold_period_unset'
-  | 'bank.received_hold_not_found'
-  | 'bank.received_hold_not_ready'
-  | 'bank.received_hold_decided'
   | 'bank.personal_transfer_not_found'
   | 'bank.personal_note_invalid'
   /** A personal-send reference is not printable ASCII of 1 to 64 characters. */
