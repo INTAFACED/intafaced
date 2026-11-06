@@ -83,7 +83,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { localStackState, assertActiveLocalStack, localPgBin } from './local-test-state.mjs';
 import { GuardError, assertLocalTarget as assertMarketTarget } from './local-test-market.mjs';
-import { FOUNDER_VAULT_NAME, enrolledFounderPair, recordFounderStep, withFounderSteps } from './local-test-founders.mjs';
+import { FOUNDER_VAULT_NAME, claimFounderStep, enrolledFounderPair, pruneFounderSteps, spendFounderSteps } from './local-test-founders.mjs';
 import { TEST_AGREEMENTS, TEST_ELIGIBILITY_RULES } from './local-test-futures-terms.mjs';
 import { LOCAL_TEST_DEVICE_KEY } from './local-test-device.mjs';
 import { leakedFreezePlan } from './journey-freeze-guard.mjs';
@@ -634,13 +634,12 @@ export function stepAfterRefusal(sentStep, current) {
  * process recorded, written back before the lock is let go; null while both steps in the window are spent.
  */
 export function reserveFounderStep(ctx, op) {
-  return withFounderSteps(ctx.paths.stateDir, (steps) => {
-    const recorded = Number(steps[op.founderKey] ?? 0);
-    const held = Number(op.lastStep ?? 0);
-    const last = Math.max(Number.isFinite(recorded) ? recorded : 0, Number.isFinite(held) ? held : 0);
-    const step = nextTotpStep(last, stepOf(ctx));
-    return { next: step === null ? null : { ...steps, [op.founderKey]: step }, result: step };
-  });
+  const current = stepOf(ctx);
+  pruneFounderSteps(ctx.paths.stateDir, current - 2);
+  const held = Number(op.lastStep ?? 0);
+  for (let step = Math.max(Number.isFinite(held) ? held + 1 : current, current); step <= current + TOTP_SKEW_STEPS; step += 1)
+    if (claimFounderStep(ctx.paths.stateDir, op.founderKey, step)) return step;
+  return null;
 }
 
 /** The step on this context's clock (`ctx.clock`, for tests) or the wall clock. */
@@ -681,6 +680,8 @@ export async function operatorLogin(ctx, op) {
       `operator ${op.handle}: identity refused TOTP step ${refused} at step ${current} (auth.mfa_invalid); signing in once more at the next window`,
     );
     op.lastStep = stepAfterRefusal(refused, current);
+    // Every step identity may hold now is marked used for all processes, not only this one.
+    if (op.founderKey) spendFounderSteps(ctx.paths.stateDir, op.founderKey, refused, op.lastStep);
     input.totpCode = await freshCode(ctx, op);
     res = await ctx.edge.mutate('identity', 'auth.login', input);
     retried = ` (retried at TOTP step ${op.lastStep} after step ${refused} was refused)`;
@@ -798,16 +799,14 @@ export async function approverSessions(ctx) {
   });
 }
 
-/** The founder pair as operators, each at the last TOTP step any local tool used, and the writer that records them. */
+/**
+ * The founder pair as operators. Each code's step is claimed for every process when it is taken (freshCode,
+ * claimFounderStep), so there is nothing left to save after a sign-in.
+ */
 function founderOps(ctx, pair) {
   const ops = {};
   for (const { key, ...f } of pair) ops[key] = { ...f, founderKey: key, lastStep: 0 };
-  // Each code's step is recorded when it is taken (freshCode); this keeps a refused step's successor recorded too, and
-  // never moves a recorded step back.
-  const saveSteps = () => {
-    for (const key of Object.keys(ops)) recordFounderStep(ctx.paths.stateDir, key, ops[key].lastStep);
-  };
-  return { ops, saveSteps };
+  return { ops, saveSteps: () => {} };
 }
 
 /**
@@ -820,13 +819,9 @@ function founderOps(ctx, pair) {
 export async function consoleTreasuryToken(ctx, { ttlSeconds }) {
   const a = founderSignIns(readJson(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), null)).find((f) => f.key === 'a');
   if (!a) return null;
+  // The step is claimed before the code is sent (freshCode), so a refused login still never hands it to another tool.
   const op = { ...a, founderKey: 'a', lastStep: 0 };
-  try {
-    await operatorLogin(ctx, op);
-  } finally {
-    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
-    recordFounderStep(ctx.paths.stateDir, 'a', op.lastStep);
-  }
+  await operatorLogin(ctx, op);
   return mintSessionToken(ctx, op, ['admin:treasury'], ttlSeconds);
 }
 
@@ -3047,32 +3042,27 @@ export async function scopedConsoleSession(ctx, without) {
   if (!a) throw new Error('the founder pair is not enrolled on this stack');
   const scopes = scopesWithout(await stackFounderScopes(ctx.paths.stateDir), without);
   const op = { ...a, founderKey: 'a', lastStep: 0 };
-  let reply;
-  try {
-    // As the console's server signs in: no Origin, so identity returns the refresh token in the body (a browser
-    // sign-in gets it only as a cookie), and the console session needs it.
-    assertActiveLocalStack();
-    const login = await fetch(`${ctx.url('edge')}/api/identity/trpc/auth.login`, {
-      redirect: 'error',
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        identifier: op.email ?? op.handle,
-        password: op.password,
-        deviceKey: LOCAL_TEST_DEVICE_KEY,
-        totpCode: await freshCode(ctx, op),
-      }),
-      signal: AbortSignal.timeout(30_000),
-    });
-    const res = { status: login.status, json: await login.json().catch(() => null) };
-    reply = data(res);
-    // Never print the reply: a half-good one carries a live token.
-    if (!reply?.accessToken || !reply?.refreshToken)
-      throw new Error(`founder a login refused (${res.status}): ${res.json?.error ? refusalText(res) : 'no session in the reply'}`);
-  } finally {
-    // Identity may have spent the step even when the login then failed: never hand it to the next tool.
-    recordFounderStep(ctx.paths.stateDir, 'a', op.lastStep);
-  }
+  // The step is claimed before the code is sent (freshCode), so a refused login never hands it to another tool.
+  // As the console's server signs in: no Origin, so identity returns the refresh token in the body (a browser
+  // sign-in gets it only as a cookie), and the console session needs it.
+  assertActiveLocalStack();
+  const login = await fetch(`${ctx.url('edge')}/api/identity/trpc/auth.login`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      identifier: op.email ?? op.handle,
+      password: op.password,
+      deviceKey: LOCAL_TEST_DEVICE_KEY,
+      totpCode: await freshCode(ctx, op),
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const res = { status: login.status, json: await login.json().catch(() => null) };
+  const reply = data(res);
+  // Never print the reply: a half-good one carries a live token.
+  if (!reply?.accessToken || !reply?.refreshToken)
+    throw new Error(`founder a login refused (${res.status}): ${res.json?.error ? refusalText(res) : 'no session in the reply'}`);
   op.userId = reply.userId;
   op.sessionId = decodeJwtPayload(reply.accessToken).sid;
   const minted = await mintSessionToken(ctx, op, scopes, SCOPED_SESSION_TTL_SECONDS);

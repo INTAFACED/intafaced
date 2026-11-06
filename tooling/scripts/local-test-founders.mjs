@@ -12,19 +12,7 @@
  * .env.founder.local or .env.founder-secrets.local. Never enrols a test operator.
  */
 import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  closeSync,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-  writeSync,
-} from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { GuardError, enrolFounderAccounts, generateInvites, randomPassword } from './local-founder-seed.mjs';
 import { readLatestEmailConfirmToken } from './local-test-state.mjs';
@@ -32,85 +20,57 @@ import { readLatestEmailConfirmToken } from './local-test-state.mjs';
 export { GuardError };
 
 export const FOUNDER_VAULT_NAME = 'founders.json';
-/** Each founder's last used TOTP step (a, b), shared with local-test-gates.mjs so no tool replays a code. */
-export const FOUNDER_STEPS_NAME = 'founder-totp-steps.json';
 export const PIN_STAMP_NAME = 'identity-founder-pin.json';
-/** How long one holder may keep the steps lock before another process counts it as abandoned (a killed worker). */
-export const FOUNDER_STEPS_LOCK_STALE_MS = 10_000;
-/** How long a process waits for the steps lock before it gives up with an error naming the lock. */
-const FOUNDER_STEPS_LOCK_WAIT_MS = 15_000;
-const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+/** One empty file per TOTP step a founder has used: `<key>-<step>`, under the stack's state folder. */
+export const FOUNDER_STEPS_DIR = 'founder-totp-steps';
 
 /**
- * Runs `fn(steps)` with the founders' TOTP steps file read under a lock that every process on the stack takes (the
- * journey workers, the world, the gates CLI, the freeze guard's lift), and writes back what `fn` returns as `next`.
- * Without it two processes could both read step N and both send step N + 1; identity accepts the first and refuses
- * the second as a replay (auth.mfa_invalid). Failure it prevents: J-copy-bots-otc-10 #4's founder sign-in to the
- * console refused in full run 1343 (#7209). The lock is a file created exclusively; one left by a process that died
- * holding it is taken over after FOUNDER_STEPS_LOCK_STALE_MS. The work inside is two small file reads and one write.
+ * Claims TOTP step `step` for founder `key`: true for the one process that claims it first, false for every other.
+ * The claim is the exclusive creation of the step's own file, which the file system makes atomic across processes, so
+ * no lock is needed and nothing can be left holding one. Every process on the stack (the journey workers, the world,
+ * the gates CLI, the freeze guard's lift) claims a step before it sends a code for it, so two processes never send the
+ * same step; identity would accept the first and refuse the second as a replay (auth.mfa_invalid). Failure it
+ * prevents: J-copy-bots-otc-10 #4's founder sign-in to the console refused in full run 1343 (#7209), after two
+ * processes read the same last step from one shared file and both sent the next.
  */
-export function withFounderSteps(stateDir, fn, { now = Date.now } = {}) {
-  const file = path.join(stateDir, FOUNDER_STEPS_NAME);
-  const lock = `${file}.lock`;
-  mkdirSync(stateDir, { recursive: true, mode: 0o700 });
-  const until = now() + FOUNDER_STEPS_LOCK_WAIT_MS;
-  let fd;
-  for (;;) {
-    try {
-      fd = openSync(lock, 'wx', 0o600);
-      writeSync(fd, String(process.pid));
-      break;
-    } catch (err) {
-      if (err.code !== 'EEXIST') throw err;
-      let age = 0;
-      try {
-        age = now() - statSync(lock).mtimeMs;
-      } catch {
-        continue; // released between the open and the stat: try again at once
-      }
-      if (age > FOUNDER_STEPS_LOCK_STALE_MS) {
-        try {
-          unlinkSync(lock);
-        } catch {
-          /* another process took it over first */
-        }
-        continue;
-      }
-      if (now() > until) throw new Error(`the founders' TOTP steps lock ${lock} is held past ${FOUNDER_STEPS_LOCK_WAIT_MS} ms`);
-      pause(20);
-    }
-  }
+export function claimFounderStep(stateDir, key, step) {
+  const dir = path.join(stateDir, FOUNDER_STEPS_DIR);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   try {
-    let steps = {};
-    try {
-      steps = JSON.parse(readFileSync(file, 'utf8'));
-    } catch {
-      /* none yet, or unreadable: counts as no step used */
-    }
-    const { next, result } = fn(steps);
-    if (next) {
-      const tmp = `${file}.${process.pid}.tmp`;
-      writePrivate(tmp, `${JSON.stringify(next, null, 2)}\n`);
-      renameSync(tmp, file);
-    }
-    return result;
-  } finally {
-    closeSync(fd);
-    try {
-      unlinkSync(lock);
-    } catch {
-      /* already taken over as stale */
-    }
+    closeSync(openSync(path.join(dir, `${key}-${step}`), 'wx', 0o600));
+    return true;
+  } catch (err) {
+    if (err.code === 'EEXIST') return false;
+    throw err;
   }
 }
 
-/** Records that founder `key` used TOTP step `step`, never moving the recorded step back. */
-export function recordFounderStep(stateDir, key, step) {
-  withFounderSteps(stateDir, (steps) => {
-    const recorded = Number(steps[key] ?? 0);
-    const kept = Number.isFinite(recorded) ? recorded : 0;
-    return { next: step > kept ? { ...steps, [key]: step } : null };
-  });
+/**
+ * Marks founder `key`'s steps from `from` through `to` as used (identity may hold them), whoever claimed them first.
+ * Steps before `to - 2` are left out: no code for them can be sent again.
+ */
+export function spendFounderSteps(stateDir, key, from, to) {
+  for (let step = Math.max(from, to - 2); step <= to; step += 1) claimFounderStep(stateDir, key, step);
+}
+
+/** Removes the claims of steps before `before`: a code for them is past identity's window and is never sent again. */
+export function pruneFounderSteps(stateDir, before) {
+  const dir = path.join(stateDir, FOUNDER_STEPS_DIR);
+  let names = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const step = Number(/^[ab]-(\d+)$/.exec(name)?.[1]);
+    if (Number.isFinite(step) && step < before)
+      try {
+        unlinkSync(path.join(dir, name));
+      } catch {
+        /* another process pruned it first */
+      }
+  }
 }
 
 export const VAULT_KIND = 'intafaced-local-test-founders';
@@ -519,12 +479,12 @@ export async function enrolTestStackFounders({
     vaultLabel: vaultPath,
   });
   assertVaultShape(vault);
-  // A confirm here used the current TOTP step. Record it where the gates and the world look (founderTotp in
-  // local-test-gates.mjs), or their first sign-in in the same 30 seconds is refused as a replay (auth.mfa_invalid).
+  // A confirm here used the current TOTP step. Claim it, and the one before, where the gates and the world claim theirs
+  // (claimFounderStep), or their first sign-in in the same 30 seconds is refused as a replay (auth.mfa_invalid).
   const fresh = vault.founders.filter((f) => f.totpConfirmed === true && !confirmedBefore.has(f.key)).map((f) => f.key);
   if (fresh.length) {
     const step = Math.floor(now().getTime() / 30_000);
-    for (const key of fresh) recordFounderStep(stateDir, key, step);
+    for (const key of fresh) spendFounderSteps(stateDir, key, step - 1, step);
   }
   return vault;
 }
