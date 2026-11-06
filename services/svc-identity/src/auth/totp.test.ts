@@ -7,6 +7,7 @@ import {
   hotp,
   matchTotpStep,
   totp,
+  totpStepOffset,
   totpUri,
   verifyTotp,
 } from './totp.js';
@@ -123,6 +124,18 @@ describe('verification', () => {
     const code = totp(secret, { at: now });
     expect(matchTotpStep(secret, code, { at: now })).toBe(counter);
     expect(matchTotpStep(secret, '000000', { at: now })).toBeNull();
+  });
+
+  it('totpStepOffset tells an old code, a fresh one and a clock ahead apart, and refuses a wrong code', () => {
+    const now = new Date('2020-01-01T00:10:00.000Z');
+    const ago = (s: number) => new Date(now.getTime() + s * 1000);
+    expect(totpStepOffset(secret, totp(secret, { at: now }), { at: now })).toBe(0);
+    expect(totpStepOffset(secret, totp(secret, { at: ago(-150) }), { at: now })).toBe(-5);
+    expect(totpStepOffset(secret, totp(secret, { at: ago(90) }), { at: now })).toBe(3);
+    // Outside the reach it says nothing, and it never widens what login accepts.
+    expect(totpStepOffset(secret, totp(secret, { at: ago(-30 * 21) }), { at: now })).toBeNull();
+    expect(matchTotpStep(secret, totp(secret, { at: ago(-150) }), { at: now })).toBeNull();
+    expect(totpStepOffset(secret, totp(generateSecret(), { at: now }), { at: now, reach: 0 })).toBeNull();
   });
 });
 

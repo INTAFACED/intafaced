@@ -132,6 +132,26 @@ export function matchTotpStep(
   return null;
 }
 
+/**
+ * For the log of a refused code only: how many steps from now the code was
+ * made (negative = an older code, positive = a clock ahead), searched up to
+ * `reach` steps either side, or null when it matches none of them (a wrong
+ * code or another secret's). Lets a refusal be told apart from clock skew or a
+ * late code without logging the code. Never use it to accept a code.
+ */
+export function totpStepOffset(
+  secretBase32: string,
+  code: string,
+  options: TotpOptions & { at?: Date; reach?: number } = {},
+): number | null {
+  const { step } = { ...DEFAULTS, ...options };
+  const at = options.at ?? new Date();
+  const matched = matchTotpStep(secretBase32, code, { ...options, at, window: options.reach ?? 20 });
+  if (matched === null) return null;
+  const counter = BigInt(Math.floor(Math.floor(at.getTime() / 1000) / step));
+  return Number(matched - counter);
+}
+
 /** Verify a submitted code (boolean wrapper over {@link matchTotpStep}). */
 export function verifyTotp(secretBase32: string, code: string, options: TotpOptions & { at?: Date; window?: number } = {}): boolean {
   return matchTotpStep(secretBase32, code, options) !== null;

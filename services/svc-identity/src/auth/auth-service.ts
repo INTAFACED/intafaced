@@ -129,7 +129,7 @@ import {
 import type { MerchantEmailInviteClaimer } from './merchant-email-invite-claim.js';
 
 export { isEmailConfirmed };
-import { generateRecoveryCodes, generateSecret, matchTotpStep, totpUri } from './totp.js';
+import { generateRecoveryCodes, generateSecret, matchTotpStep, totpStepOffset, totpUri } from './totp.js';
 import { encryptTotpSecret, materializeTotpSecret, parseTotpSecretKey } from './totp-crypto.js';
 import { apiKeyOriginAllowed } from './api-key-origin.js';
 import { currentRequestIp, currentUserAgent } from './request-meta.js';
@@ -1217,8 +1217,27 @@ export class AuthService {
       return null;
     }
     const left = await this.tryRedeemRecoveryCode(userId, code);
-    if (left === null) throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    if (left === null) {
+      this.logTotpRefusal(userId, secret === null ? { reason: 'secret_unreadable' } : { reason: 'no_match', stepOffset: totpStepOffset(secret, code) });
+      throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
+    }
     return { recoveryCodesLeft: left };
+  }
+
+  /**
+   * One warn line when a TOTP code is refused, saying which check refused it
+   * (#7209: every branch answers `auth.mfa_invalid`, so the answer alone can't
+   * tell a wrong code from a replayed step or a clock off by minutes). It
+   * carries the user id and step numbers only, never the code or the secret.
+   */
+  private logTotpRefusal(
+    userId: string,
+    detail:
+      | { reason: 'secret_unreadable' }
+      | { reason: 'no_match'; stepOffset: number | null }
+      | { reason: 'replay'; matchedStep: string; lastStep: string },
+  ): void {
+    this.log.warn({ userId, ...detail }, 'identity.totp_refused');
   }
 
   async register(input: RegisterInput): Promise<SessionTokens> {
@@ -2283,6 +2302,7 @@ export class AuthService {
   private async consumeTotpCode(userId: string, secret: string, code: string, at?: Date): Promise<void> {
     const matched = matchTotpStep(secret, code, at ? { at } : {});
     if (matched === null) {
+      this.logTotpRefusal(userId, { reason: 'no_match', stepOffset: totpStepOffset(secret, code, at ? { at } : {}) });
       throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
     }
     await transaction(this.sql, async (tx) => {
@@ -2293,6 +2313,7 @@ export class AuthService {
       const lastRaw = rows[0].totp_last_step;
       const lastStep = lastRaw === null || lastRaw === undefined ? null : BigInt(lastRaw);
       if (lastStep !== null && matched <= lastStep) {
+        this.logTotpRefusal(userId, { reason: 'replay', matchedStep: matched.toString(), lastStep: lastStep.toString() });
         throw new AuthError('Invalid two-factor code', 'auth.mfa_invalid');
       }
       // A replay guard, not a change to the record: updated_at stays (the restore watermark reads it as a write).
