@@ -21,6 +21,7 @@ import {
   type RateLimitConfig,
 } from './hardening.js';
 import { KillSwitchState } from './kill-switch.js';
+import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_STATUS_UPSTREAM_PATH } from './adapter-status-door.js';
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
@@ -347,6 +348,38 @@ registerMatchingOperatorRoutes(app, {
   // The engine's health is public on its network: reading it needs MATCHING_URL only, never the signing secret.
   healthRead: matchingUrl ? httpMatchingHealthRead(matchingUrl, env.UPSTREAM_TIMEOUT_MS) : null,
   readApproval: httpMatchingApprovalRead(env.IDENTITY_URL, env.UPSTREAM_TIMEOUT_MS),
+});
+
+// The FIX and SBE adapters' own status (J-cex-spot-20 #3), each signed with its own read key.
+registerAdapterStatusRoute(app, {
+  tokens: tokenConfig,
+  sessionLive,
+  fix: adapterRead(
+    env.FIX_STATUS_URL,
+    env.FIX_STATUS_READ_SECRET,
+    {
+      path: FIX_STATUS_UPSTREAM_PATH,
+      service: 'svc-fix',
+      code: 'fix_status_unconfigured',
+      urlKey: 'FIX_STATUS_URL',
+      secretKey: 'FIX_STATUS_READ_SECRET',
+    },
+    env.UPSTREAM_TIMEOUT_MS,
+    edgeS2s,
+  ),
+  sbe: adapterRead(
+    env.WS_STATUS_URL,
+    env.WS_STATUS_READ_SECRET,
+    {
+      path: SBE_STATUS_UPSTREAM_PATH,
+      service: 'svc-ws',
+      code: 'ws_status_unconfigured',
+      urlKey: 'WS_STATUS_URL',
+      secretKey: 'WS_STATUS_READ_SECRET',
+    },
+    env.UPSTREAM_TIMEOUT_MS,
+    edgeS2s,
+  ),
 });
 
 registerWidgetRampRoute(app);

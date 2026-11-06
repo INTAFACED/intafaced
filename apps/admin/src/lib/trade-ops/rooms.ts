@@ -81,6 +81,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     label: 'Maker programme',
     job: 'Maker tiers, rebates, obligations and members, written with a second founder; clawback records.',
   },
+  {
+    id: 'adapters',
+    href: '/trade-ops/adapters',
+    label: 'FIX and SBE',
+    job: 'FIX sessions, the CompID to account mapping and SBE consumers, from each adapter’s own status.',
+  },
   { id: 'orders', href: '/trade-ops/orders', label: 'Orders', job: 'Open orders across accounts; open one; seeded or customer.' },
   { id: 'positions', href: '/trade-ops/positions', label: 'Positions', job: 'Look up positions and their margin state.' },
   {

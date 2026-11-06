@@ -228,11 +228,24 @@ test(`${J} #3 opens FIX sessions and SBE consumers: sessions, CompID mapping and
     await expect(row).toContainText(s.senderCompId);
     await expect(row).toContainText(s.targetCompId);
     await expect(row.locator('[data-col=state]')).toHaveText(s.state);
-    await expect(row.locator('[data-col=account]')).toHaveText(s.accountId ?? 'Not mapped');
+    // A drop-copy session carries no orders, so it maps to no account; an order-entry one shows the account svc-fix
+    // submits its orders as, or that none is mapped.
+    await expect(row.locator('[data-col=account]')).toHaveText(
+      s.role === 'drop-copy' ? 'Drop copy (no orders)' : (s.accountId ?? 'Not mapped'),
+    );
+  }
+  // The CompID mapping, row for row as svc-fix holds it.
+  const map = page.getByRole('region', { name: 'CompID mapping' });
+  await expect(map).toHaveAttribute('data-read', 'ok');
+  expect(status.fix.compIdMapSet).toBe(true);
+  await expect(map.locator('tr[data-compid]')).toHaveCount(status.fix.compIdMap.length);
+  for (const m of status.fix.compIdMap) {
+    await expect(map.locator(`tr[data-compid="${m.compId}"] [data-col=account]`)).toHaveText(m.accountId);
   }
   await expect(sbe.locator('tr[data-consumer]')).toHaveCount(status.sbe.consumers.length);
+  await expect(sbe.locator('[data-codec]')).toHaveAttribute('data-codec', status.sbe.codecLinked ? 'linked' : 'unlinked');
   for (const c of status.sbe.consumers) {
-    await expect(sbe.locator(`tr[data-consumer="${c.id}"] [data-col=last-sequence]`)).toHaveText(String(c.lastSequence));
+    await expect(sbe.locator(`tr[data-consumer="${c.id}"] [data-col=last-sequence]`)).toHaveText(c.lastSequence ?? 'None sent');
   }
   // Adapters carry orders and market data only: no balance, margin or Greeks column anywhere in the room.
   for (const word of [/balance/i, /greeks/i, /delta/i, /margin/i]) {

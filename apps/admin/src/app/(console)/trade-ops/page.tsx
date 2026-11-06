@@ -244,6 +244,14 @@ export default async function HealthPage() {
       <PageSection title="Rooms">
         <HealthRooms />
         <p className="mt-2 text-sm">
+          <Link href="/trade-ops/adapters" className="font-medium underline-offset-2 hover:underline">
+            Open FIX and SBE
+          </Link>{' '}
+          <span className="text-xs text-fg-2">
+            The FIX sessions, the CompID mapping and the SBE consumers, from each adapter’s own status.
+          </span>
+        </p>
+        <p className="mt-2 text-sm">
           <Link href="/more-ops/venue-economics" className="font-medium underline-offset-2 hover:underline">
             Open venue unit economics
           </Link>{' '}
