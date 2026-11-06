@@ -3,6 +3,8 @@ import { AuthError, hasScope, requireMfa, requireScope } from '@intafaced/auth';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import {
+  merchantAnalyticsDeclinesInputSchema,
+  merchantAnalyticsDeclinesSchema,
   merchantAnalyticsFeesSchema,
   merchantAnalyticsInputSchema,
   merchantAnalyticsVolumeSchema,
@@ -277,6 +279,10 @@ export function merchantPortalExtensions(deps: {
         .input(merchantAnalyticsInputSchema)
         .output(merchantAnalyticsFeesSchema)
         .query(({ ctx, input }) => wrapPortal(async () => analytics.fees(ctx.principal?.userId, input))),
+      declines: read
+        .input(merchantAnalyticsDeclinesInputSchema)
+        .output(merchantAnalyticsDeclinesSchema)
+        .query(({ ctx, input }) => wrapPortal(async () => analytics.declines(ctx.principal?.userId, input))),
     }),
   };
 }
