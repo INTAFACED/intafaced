@@ -1438,6 +1438,8 @@ describe('svc-p2p payment instruments', () => {
         'merchants.todos': { limit: 50 },
         // P-trade-orders-05: the caller's own cancel count; it reads trade rows only, no instrument field.
         'access.limits': undefined,
+        // P-ads-merchant-10: the owner's ranking weights; reads env only.
+        'offers.rankingPolicy': undefined,
         'offers.bulk': { action: 'pause', offerIds: [crypto.randomUUID()], idempotencyKey: `bulk:${crypto.randomUUID()}` },
       };
 

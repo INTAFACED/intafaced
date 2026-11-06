@@ -66,6 +66,7 @@ import {
   pairLimitRefusal,
   type TakeLimits,
 } from './take-limits.js';
+import { rankOrder, type RankingPolicy } from './ranking.js';
 import { completionRates, toAppeal, type AppealRecord, type AppealRow, type CompletionRates } from './completion-rate.js';
 import {
   ORDER_TABS,
@@ -840,6 +841,8 @@ export interface P2pServiceOptions {
    * values, where blank refuses every take `p2p.config_unset`; omitted is a service built without them (tests).
    */
   takeLimits?: TakeLimits;
+  /** P-ads-merchant-10: the owner's board ranking weights; absent or blank ranks by price alone. */
+  ranking?: RankingPolicy;
   /**
    * P-trade-orders-15. The wait before (and between) seller reminders and how many an order may send. `index.ts`
    * always passes the owner's values, where blank refuses every reminder `p2p.config_unset`; omitted is unset too.
@@ -1465,6 +1468,7 @@ export class P2pService {
   private readonly securityChangeLockSeconds: number | null;
   private readonly reviewEditWindowSeconds: number | undefined;
   private readonly takeLimits: TakeLimits | undefined;
+  private readonly ranking: RankingPolicy;
   private readonly reminders: ReminderPolicy;
   private readonly offerEditsPerDay: number | null | undefined;
   private readonly shareLinkMaxSeconds: number | null;
@@ -1510,6 +1514,7 @@ export class P2pService {
     this.securityChangeLockSeconds = options.securityChangeLockSeconds ?? null;
     this.reviewEditWindowSeconds = options.reviewEditWindowSeconds;
     this.takeLimits = options.takeLimits;
+    this.ranking = options.ranking ?? { status: 'off', weights: null };
     this.reminders = options.reminders ?? { waitSeconds: null, max: null };
     this.offerEditsPerDay = options.offerEditsPerDay;
     this.shareLinkMaxSeconds = options.shareLinkMaxSeconds ?? null;
@@ -5762,6 +5767,11 @@ export class P2pService {
     return sameQuoteOrConflict(row, input);
   }
 
+  /** P-ads-merchant-10: why the board's ranked order is as it is: the owner's weights (or none) and the order read. */
+  rankingPolicy(): { status: RankingPolicy['status']; weights: RankingPolicy['weights']; order: string[] } {
+    return { status: this.ranking.status, weights: this.ranking.weights, order: rankOrder(this.ranking) };
+  }
+
   async listOfferBoard(
     filter: {
       asset?: string;
@@ -5803,6 +5813,7 @@ export class P2pService {
         minFiat,
         fiatAmount,
         sort,
+        rankByCompletion: this.ranking.status === 'active',
         viewerId: filter.viewerId ?? null,
         limit,
         cursor: filter.cursor ?? null,

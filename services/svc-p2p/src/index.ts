@@ -43,6 +43,7 @@ import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { instrumentKeyHealth } from './instrument-key-provider.js';
 import { parseVerificationLimits } from './verification-limits.js';
 import { parseActiveOrderCap, parseBuyerCancelLimit, parsePairLimits } from './take-limits.js';
+import { parseRankWeights } from './ranking.js';
 import { parseReminderPolicy } from './seller-reminders.js';
 import { parseToleranceBps } from './amount-mismatch.js';
 import { parseAdContentRules } from './ad-content-rules.js';
@@ -177,6 +178,8 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
     buyerCancels: parseBuyerCancelLimit(env.P2P_BUYER_CANCEL_LIMIT, env.P2P_BUYER_CANCEL_WINDOW_HOURS),
   },
   reminders: parseReminderPolicy(env.P2P_REMIND_WAIT_SECONDS, env.P2P_REMIND_MAX),
+  // P-ads-merchant-10: blank ranks the board by price alone (a ranking rule, so blank is rule off).
+  ranking: parseRankWeights(env.P2P_RANK_WEIGHTS),
   // P-ads-merchant-06: blank refuses every ad edit; a positive whole number caps a person's edits per UTC day.
   offerEditsPerDay: parseActiveOrderCap(env.P2P_OFFER_EDITS_PER_DAY),
   // P-ads-merchant-07: blank refuses every new share link.

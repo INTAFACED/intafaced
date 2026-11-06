@@ -1435,6 +1435,24 @@ export function createP2pRouter(
         .output(z.array(offerOutput))
         .query(async ({ ctx, input }) => guard(async () => (await presentBoard(ctx.principal.userId, input, false)).offers)),
 
+      /**
+       * P-ads-merchant-10. Why the ranked board (`sort: 'rank'`) reads as it does: the owner's weights, or none ("rule
+       * off", the price order), and the order the board reads in. `invalid` is a set value that is not a full, known
+       * table, which also ranks by price alone.
+       */
+      rankingPolicy: merchantApiProcedure('p2p:read')
+        .output(
+          z.object({
+            status: z.enum(['off', 'invalid', 'active']),
+            weights: z.object({ completionRate30d: z.string() }).nullable(),
+            order: z.array(z.string()),
+          }),
+        )
+        .query(() => {
+          const policy = p2p.rankingPolicy();
+          return { status: policy.status, weights: policy.weights ? { ...policy.weights } : null, order: policy.order };
+        }),
+
       /** Cursor page: the customer board reads this, filtered and sorted here, and continues with `nextCursor`. */
       page: merchantApiProcedure('p2p:read')
         .input(z.object({ ...offerListShape, cursor: z.string().max(500).nullable().optional() }).optional())

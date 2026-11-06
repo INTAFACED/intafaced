@@ -40,6 +40,8 @@ export interface BoardOffer {
   createdAt: Date;
   /** Postgres `to_char` instant, microsecond precision. Cursor keyset uses this, not a JS Date. */
   createdAtExact: string;
+  /** P-ads-merchant-10: the maker's completion rate in basis points under a weighted `rank` (-1 no rate), else 0. */
+  rankBp: number;
 }
 
 export class DepthError extends Error {
@@ -126,8 +128,12 @@ export async function eitherBlocked(sql: Sql, a: string, b: string): Promise<boo
   return Boolean(rows[0]);
 }
 
-/** Board order (P-trade-orders-01): fixed-price ads by price, then floating ads, which have no fiat price to rank by. */
-export const BOARD_SORTS = ['price_asc', 'price_desc'] as const;
+/**
+ * Board order (P-trade-orders-01): fixed-price ads by price, then floating ads, which have no fiat price to rank by.
+ * `rank` (P-ads-merchant-10) is cheapest first and, with the owner's weights set, the maker's 30-day completion rate
+ * next at an equal price; with them blank it is the price order.
+ */
+export const BOARD_SORTS = ['price_asc', 'price_desc', 'rank'] as const;
 export type BoardSort = (typeof BOARD_SORTS)[number];
 
 export interface OfferCursor {
@@ -136,11 +142,17 @@ export interface OfferCursor {
   price: string;
   createdAt: string;
   id: string;
+  /** `rank` only: the maker's completion rate in basis points, -1 for no rate (0 under the other sorts). */
+  rankBp: number;
 }
 
 /** Opaque keyset position. It carries its sort, so a cursor read under another sort refuses instead of skipping rows. */
-export function encodeOfferCursor(offer: Pick<BoardOffer, 'priceType' | 'price' | 'createdAtExact' | 'id'>, sort: BoardSort): string {
+export function encodeOfferCursor(
+  offer: Pick<BoardOffer, 'priceType' | 'price' | 'createdAtExact' | 'id'> & { rankBp?: number },
+  sort: BoardSort,
+): string {
   const parts = [sort, offer.priceType === 'float' ? '1' : '0', formatAmount(offer.price), offer.createdAtExact, offer.id];
+  if (sort === 'rank') parts.push(String(offer.rankBp ?? -1));
   return Buffer.from(parts.join('\n'), 'utf8').toString('base64url');
 }
 
@@ -151,9 +163,11 @@ export function decodeOfferCursor(cursor: string): OfferCursor {
   } catch {
     throw new DepthError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
   }
-  const [sort, float, price, createdAt, id, extra] = raw.split('\n');
+  const [sort, float, price, createdAt, id, rank, extra] = raw.split('\n');
+  const isRank = sort === 'rank';
   if (
     extra !== undefined ||
+    (isRank ? rank === undefined || !/^(-1|\d{1,5})$/.test(rank) || Number(rank) > 10_000 : rank !== undefined) ||
     !(BOARD_SORTS as readonly string[]).includes(sort ?? '') ||
     (float !== '0' && float !== '1') ||
     !price ||
@@ -167,7 +181,7 @@ export function decodeOfferCursor(cursor: string): OfferCursor {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)) {
     throw new DepthError('p2p.offer_cursor_invalid', 'p2p.offer_cursor_invalid');
   }
-  return { sort: sort as BoardSort, float: float === '1', price, createdAt, id };
+  return { sort: sort as BoardSort, float: float === '1', price, createdAt, id, rankBp: isRank ? Number(rank) : 0 };
 }
 
 export interface BoardFilter {
@@ -180,6 +194,8 @@ export interface BoardFilter {
   /** A fiat amount the ad can take whole: fixed price, and within its limits and what is left. */
   fiatAmount?: Amount | null;
   sort?: BoardSort;
+  /** P-ads-merchant-10: the owner's weights are set, so `rank` orders an equal price by the maker's completion rate. */
+  rankByCompletion?: boolean;
   viewerId?: string | null;
   limit: number;
   cursor?: string | null;
@@ -209,6 +225,7 @@ interface BoardRow {
   relisted_from?: string | null;
   created_at: Date;
   created_at_exact: string;
+  rank_bp?: number;
 }
 
 export function boardRowToOffer(row: BoardRow): BoardOffer {
@@ -236,6 +253,7 @@ export function boardRowToOffer(row: BoardRow): BoardOffer {
     relistedFrom: row.relisted_from ?? null,
     createdAt: row.created_at instanceof Date ? row.created_at : new Date(row.created_at),
     createdAtExact: row.created_at_exact,
+    rankBp: Number(row.rank_bp ?? 0),
   };
 }
 
@@ -246,10 +264,31 @@ export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<B
   const minFiat = filter.minFiat == null ? null : formatAmount(filter.minFiat);
   const fiatAmount = filter.fiatAmount == null ? null : formatAmount(filter.fiatAmount);
   const desc = sort === 'price_desc';
+  // P-ads-merchant-10: under `rank` with the weights set, the maker's 30-day completion rate in basis points (the
+  // profile's definition, completion-rate.ts), -1 for no counted order; 0 everywhere else, so it never reorders.
+  const byCompletion = sort === 'rank' && filter.rankByCompletion === true;
   return sql<BoardRow[]>`
     SELECT p2p.offers.*,
-           to_char(p2p.offers.created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') AS created_at_exact
+           to_char(p2p.offers.created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') AS created_at_exact,
+           r.rank_bp
       FROM p2p.offers
+      CROSS JOIN LATERAL (
+        SELECT CASE
+                 WHEN NOT ${byCompletion}::boolean THEN 0
+                 WHEN count(*) = 0 THEN -1
+                 ELSE (count(*) FILTER (WHERE t.status = 'released') * 10000 / count(*))::int
+               END AS rank_bp
+          FROM p2p.p2p_trades t
+         WHERE ${byCompletion}::boolean
+           AND (t.seller_id = p2p.offers.maker_id OR t.buyer_id = p2p.offers.maker_id)
+           AND t.escrowed_at IS NOT NULL
+           AND t.status IN ('released', 'cancelled', 'disputed')
+           AND t.created_at >= now() - interval '30 days'
+           AND NOT EXISTS (
+             SELECT 1 FROM p2p.completion_appeals a
+              WHERE a.user_id = p2p.offers.maker_id AND a.trade_id = t.id AND a.status = 'accepted'
+           )
+      ) r
      WHERE status = 'active'
        AND remaining_amt >= min_amt
        -- P-ads-merchant-07: private ads are not on the board, except to their own maker.
@@ -301,16 +340,23 @@ export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<B
          OR (
            (price_type = 'float') = ${cursor?.float ?? false}::boolean
            AND price = ${cursor?.price ?? '0'}::numeric
+           AND r.rank_bp < ${cursor?.rankBp ?? 0}::int
+         )
+         OR (
+           (price_type = 'float') = ${cursor?.float ?? false}::boolean
+           AND price = ${cursor?.price ?? '0'}::numeric
+           AND r.rank_bp = ${cursor?.rankBp ?? 0}::int
            AND to_char(created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') > ${cursor?.createdAt ?? ''}::text
          )
          OR (
            (price_type = 'float') = ${cursor?.float ?? false}::boolean
            AND price = ${cursor?.price ?? '0'}::numeric
+           AND r.rank_bp = ${cursor?.rankBp ?? 0}::int
            AND to_char(created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') = ${cursor?.createdAt ?? ''}::text
            AND id > ${cursor?.id ?? '00000000-0000-0000-0000-000000000000'}::uuid
          )
        )
-     ORDER BY (price_type = 'float') ASC, price ${desc ? sql`DESC` : sql`ASC`}, created_at ASC, id ASC
+     ORDER BY (price_type = 'float') ASC, price ${desc ? sql`DESC` : sql`ASC`}, r.rank_bp DESC, created_at ASC, id ASC
      LIMIT ${filter.limit}
   `;
 }

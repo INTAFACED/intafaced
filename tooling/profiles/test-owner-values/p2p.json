@@ -16,6 +16,11 @@
       "value": "24",
       "note": "Hours the cancelled orders are counted over."
     },
+    "P2P_RANK_WEIGHTS": {
+      "service": "p2p",
+      "value": "{\"completionRate30d\":\"1\"}",
+      "note": "TEST ranking weight: the maker's 30-day completion rate orders ads at an equal price; J-p2p-05 #6 reads it and sees a higher-completion ad ranked above."
+    },
     "P2P_REMIND_WAIT_SECONDS": {
       "service": "p2p",
       "value": "5",

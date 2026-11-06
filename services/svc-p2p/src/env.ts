@@ -120,6 +120,12 @@ const schema = serviceEnvSchema
       P2P_PAIR_LIMITS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
 
       /**
+       * P-ads-merchant-10. The board's ranking weights, JSON of factor to positive decimal string; the one factor weighed
+       * today is `completionRate30d`. Empty is "rule off": the ranked board is the price order. No default.
+       */
+      P2P_RANK_WEIGHTS: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().optional()),
+
+      /**
        * P-ads-merchant-01. The advertiser terms version a person accepts before
        * posting an ad. Empty is unset: every post then refuses `p2p.config_unset`
        * naming this setting. Changing it asks every advertiser to accept again.
