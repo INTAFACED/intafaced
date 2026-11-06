@@ -1,3 +1,4 @@
+// World: none
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { agentsRun, createOwnAgent, OWN_AGENT, tableIn } from './agents.mjs';

@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, connectWallet, dexRun, seededWallet } from './dex.mjs';
 import { bodyRows, tableIn } from './tables.mjs';

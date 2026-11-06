@@ -1,3 +1,4 @@
+// World: restart
 import { readFileSync, existsSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { asDesk, ensureDeskGroup } from './help-centre.mjs';

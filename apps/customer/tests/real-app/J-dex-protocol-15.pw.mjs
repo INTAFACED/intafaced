@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
 import { toUnits } from './stack.mjs';
