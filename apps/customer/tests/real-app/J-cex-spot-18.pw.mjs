@@ -36,7 +36,8 @@ async function customerFills(who, id) {
 
 async function place(who, body) {
   const res = await (await api(who)).post('/api/v1/orders', { symbol: SYMBOL, timeInForce: 'GTC', ...body });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  // A new order answers 201 Created (run 42196142904); any other answer is a refusal to read.
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(201);
   return res.body;
 }
 
