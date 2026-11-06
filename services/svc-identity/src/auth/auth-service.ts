@@ -171,6 +171,7 @@ import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS, REFRESH_RECOVERY_SECONDS_CEILING }
 import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import { credentialsFor, type PasskeyPurpose } from './passkey-purposes.js';
 import type { RankService } from '../rank/rank-service.js';
+import { effectiveIdleSeconds, endOldestBeyondLimit, type SessionLimits } from './session-limits.js';
 
 /**
  * AUTH (§4.1, §9).
@@ -199,6 +200,7 @@ export class AuthError extends Error {
       | 'auth.mfa_already_enrolled'
       | 'auth.session_invalid'
       | 'auth.session_reused'
+      | 'auth.session_idle'
       | 'auth.not_found'
       | 'auth.kyc_not_pending'
       | 'auth.kyc_self_review'
@@ -641,6 +643,13 @@ export class AuthService {
   private founderSessionConfigValue = '';
   /** The labelled TEST staff roster; undefined (production, or none set) grants no staff scope. */
   private staffTestRoster: StaffTestRoster | undefined;
+  /** The owner's idle sign-out and device limit (I-signin-sessions-06); both unset until index.ts sets them. */
+  private sessionLimits: SessionLimits = { idleSeconds: null, maxConcurrent: null };
+
+  /** Sets the owner's idle sign-out and device limit, parsed at start by `parseSessionLimits`. */
+  setSessionLimits(limits: SessionLimits): void {
+    this.sessionLimits = limits;
+  }
 
   constructor(
     private readonly sql: Sql,
@@ -1720,14 +1729,24 @@ export class AuthService {
       async (tx) => {
         const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
-        return tx<
+        // The owner's device limit (I-signin-sessions-06): a sign-in beyond it ends the oldest device, under the users lock.
+        const endedIds = await endOldestBeyondLimit(tx, userId, this.sessionLimits.maxConcurrent);
+        const rows = await tx<
           Array<{ id: string; family_id: string }>
         >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id, family_id`;
+        return { rows, endedIds };
       },
       { isolation: 'read committed' },
     );
-    const sessionId = inserted[0]!.id;
-    const familyId = inserted[0]!.family_id;
+    if (inserted.endedIds.length > 0) {
+      await Promise.all(inserted.endedIds.map((id) => syncNavigatorSessionClosed(this.sql, id)));
+      this.log.warn(
+        { userId, endedSessions: inserted.endedIds.length, maxDevices: this.sessionLimits.maxConcurrent },
+        'identity.security.session_limit',
+      );
+    }
+    const sessionId = inserted.rows[0]!.id;
+    const familyId = inserted.rows[0]!.family_id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
@@ -1766,8 +1785,11 @@ export class AuthService {
       ip: string | null;
       user_agent: string | null;
       trusted_device_id: string | null;
+      idle_signout_seconds: number | null;
+      idle_for: number;
     };
     type RefreshOutcome =
+      | { kind: 'idle'; sessionId: string }
       | { kind: 'reuse'; userId: string; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
@@ -1784,7 +1806,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id, u.idle_signout_seconds, floor(extract(epoch FROM now() - coalesce(s.last_used_at, s.created_at)))::int AS idle_for FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1827,6 +1849,13 @@ export class AuthService {
       if (session.user_status !== 'active') {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
+      }
+      // Idle sign-out (I-signin-sessions-06): the shorter of the owner's and the person's own, measured by the database
+      // clock from this sign-in's last refresh. Past it, this sign-in ends and the person signs in again.
+      const idleLimit = effectiveIdleSeconds(this.sessionLimits.idleSeconds, session.idle_signout_seconds);
+      if (idleLimit !== null && session.idle_for > idleLimit) {
+        await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
+        return { kind: 'idle', sessionId: session.id };
       }
       const rotatedAt = new Date();
       await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
@@ -1904,6 +1933,10 @@ export class AuthService {
     if (result.kind === 'expired') {
       await syncNavigatorSessionClosed(this.sql, result.sessionId);
       throw new AuthError('Session expired', 'auth.session_invalid');
+    }
+    if (result.kind === 'idle') {
+      await syncNavigatorSessionClosed(this.sql, result.sessionId);
+      throw new AuthError('Signed out after being idle', 'auth.session_idle');
     }
     await syncNavigatorSessionClosed(this.sql, result.previousSessionId);
     void syncNavigatorSessionOpen(this.sql, result.tokens.sessionId, result.tokens.userId);

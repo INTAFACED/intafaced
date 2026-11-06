@@ -1238,3 +1238,29 @@ console.log('local-test-stack: customer folder override checks passed');
   assert.match(source, /await cmdStop\(names\);\s*await cmdStart\(\[\]\);/);
   console.log('local-test-stack: with no TEST chain the indexer is left out and named, and the start still passes');
 }
+
+// The identity process has no idle sign-out and no device limit on a normal start, so no other journey loses a sign-in
+// to them; LOCAL_STACK_IDENTITY_SESSION_LIMITS=on sets both from the identity profile, verbatim, for J-identity-06 #4.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const profile = loadProfile().values;
+  const before = process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS;
+  try {
+    delete process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS;
+    const normal = localTestServiceEnvs().find((service) => service.name === 'identity');
+    for (const name of ['SESSION_IDLE_SECONDS', 'SESSION_MAX_CONCURRENT']) {
+      assert.equal(name in normal.env, false, `${name} must stay unset on a normal start`);
+    }
+    process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS = 'on';
+    const limited = localTestServiceEnvs().find((service) => service.name === 'identity');
+    for (const name of ['SESSION_IDLE_SECONDS', 'SESSION_MAX_CONCURRENT']) {
+      assert.equal(profile[name]?.service, 'identity', `${name} is not in the identity profile`);
+      assert.equal(limited.env[name], profile[name].value, `identity env ${name} differs from the identity profile`);
+    }
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS;
+    else process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS = before;
+  }
+  console.log('local-test-stack: identity idle sign-out and device limit are off unless switched on, then from the profile');
+}
