@@ -20,9 +20,8 @@ import {
 } from './spread-book.js';
 import { fromWireSpread, readSpreadListing, spreadIdentity, toWireSpread, type SpreadListingInput } from './spread-instrument.js';
 import {
-  RULEBOOK_EFFECTIVE_INVALID,
-  RULEBOOK_IMMUTABLE,
-  currentRulebook,
+  rulebookEffectivePast,
+  rulebookImmutableRefuse,
   presentPublishedRulebook,
   presentRulebookHistory,
   type RulebookDraft,
@@ -480,12 +479,23 @@ export class MatchingEngine {
 
   /**
    * Whether a draft may be published, read before any approval is spent: `same` when this exact version is already
-   * published (a retry returns the first), `immutable` when the id is published with other text.
+   * published (a retry returns the first), `immutable` when the id is published with other text, `effective_past` when
+   * its effective time has already gone by.
    */
-  rulebookPrecheck(draft: RulebookDraft): 'new' | 'same' | 'immutable' {
+  rulebookPrecheck(
+    draft: RulebookDraft,
+  ):
+    | { readonly kind: 'new' }
+    | { readonly kind: 'same'; readonly published: RulebookVersion }
+    | { readonly kind: 'refused'; readonly rejected: { readonly code: string; readonly message: string } } {
     const existing = this.rulebook.find((v) => v.version === draft.version);
-    if (!existing) return 'new';
-    return existing.digest === draft.digest ? 'same' : 'immutable';
+    if (existing) {
+      return existing.digest === draft.digest
+        ? { kind: 'same', published: existing }
+        : { kind: 'refused', rejected: rulebookImmutableRefuse(draft.version) };
+    }
+    const past = rulebookEffectivePast(draft, this.clock());
+    return past ? { kind: 'refused', rejected: past } : { kind: 'new' };
   }
 
   /**
@@ -506,31 +516,17 @@ export class MatchingEngine {
       if (existing) {
         if (existing.digest === draft.digest)
           return { accepted: true, version: existing.version, alreadyPublished: true, published: existing };
-        return {
-          accepted: false,
-          version: draft.version,
-          alreadyPublished: false,
-          rejected: {
-            code: RULEBOOK_IMMUTABLE,
-            message: `${draft.version} is published and never changes; publish the change as a new version`,
-          },
-        };
+        return { accepted: false, version: draft.version, alreadyPublished: false, rejected: rulebookImmutableRefuse(draft.version) };
       }
       const now = this.clock();
-      if (draft.effectiveAt !== null && Date.parse(draft.effectiveAt) < now.getTime()) {
-        return {
-          accepted: false,
-          version: draft.version,
-          alreadyPublished: false,
-          rejected: { code: RULEBOOK_EFFECTIVE_INVALID, message: 'a version cannot take effect before it is published' },
-        };
-      }
+      const past = rulebookEffectivePast(draft, now);
+      if (past) return { accepted: false, version: draft.version, alreadyPublished: false, rejected: past };
       const at = now.toISOString();
       const version: RulebookVersion = {
         version: draft.version,
         effectiveAt: draft.effectiveAt ?? at,
         publishedAt: at,
-        supersedes: currentRulebook(this.rulebook, now)?.version ?? null,
+        supersedes: this.rulebook.at(-1)?.version ?? null,
         digest: draft.digest,
         sections: draft.sections,
         operatorId: operatorId as string,

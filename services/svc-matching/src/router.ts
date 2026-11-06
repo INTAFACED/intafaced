@@ -55,8 +55,8 @@ import { bindPostOnlyTif, postOnlyCannotRest } from './engine/post-only.js';
 import { reconcile } from './reconcile.js';
 import { readSpreadListing, spreadIdentity, toWireSpread } from './engine/spread-instrument.js';
 import {
-  RULEBOOK_IMMUTABLE,
   RULEBOOK_PUBLISH_ACTION,
+  rulebookImmutableRefuse,
   readRulebookDraft,
   rulebookApprovalFields,
   rulebookApprovalTarget,
@@ -1933,15 +1933,10 @@ export function registerRoutes(
     }
     const read = readRulebookDraft(parsed.data);
     if (!read.ok) return reply.code(200).send({ accepted: false, rejected: read.rejected });
-    if (engine.rulebookPrecheck(read.draft) === 'immutable') {
-      return reply.code(200).send({
-        accepted: false,
-        rejected: {
-          code: RULEBOOK_IMMUTABLE,
-          message: `${read.draft.version} is published and never changes; publish the change as a new version`,
-        },
-      });
-    }
+    // A version already published, with this text or other text, needs no new request; a time gone by is refused too.
+    const pre = engine.rulebookPrecheck(read.draft);
+    if (pre.kind === 'same') return reply.code(200).send({ accepted: false, rejected: rulebookImmutableRefuse(read.draft.version) });
+    if (pre.kind === 'refused') return reply.code(200).send({ accepted: false, rejected: pre.rejected });
     return reply.code(200).send({
       accepted: true,
       version: read.draft.version,
@@ -1969,21 +1964,11 @@ export function registerRoutes(
     if (!read.ok) return reply.code(200).send({ accepted: false, version: null, rejected: read.rejected });
     const draft = read.draft;
     const pre = engine.rulebookPrecheck(draft);
-    if (pre === 'immutable') {
-      return reply.code(200).send({
-        accepted: false,
-        version: draft.version,
-        rejected: {
-          code: RULEBOOK_IMMUTABLE,
-          message: `${draft.version} is published and never changes; publish the change as a new version`,
-        },
-      });
-    }
-    if (pre === 'same') {
-      const view = engine.rulebookHistory().versions.find((v) => v.version === draft.version);
-      return reply
-        .code(200)
-        .send({ accepted: true, version: draft.version, alreadyPublished: true, published: view ?? null, rejected: null });
+    // Refused before the single-use approval is spent: other text under a published id, or a time gone by.
+    if (pre.kind === 'refused') return reply.code(200).send({ accepted: false, version: draft.version, rejected: pre.rejected });
+    if (pre.kind === 'same') {
+      const view = engine.rulebookHistory().versions.find((v) => v.version === pre.published.version) ?? null;
+      return reply.code(200).send({ accepted: true, version: draft.version, alreadyPublished: true, published: view, rejected: null });
     }
     const authz = await consumeVenueKill(
       { operatorId: auth.userId, approvalId: parsed.data.approvalId, operationId: parsed.data.operationId },

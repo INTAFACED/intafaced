@@ -18,7 +18,9 @@ export function RulebookRoom() {
 }
 
 export function RulebookView({ load }: { load: Loadable<Rulebook> }) {
-  const { t } = rulebookCopy.useCopy();
+  const { t, renderedLocale } = rulebookCopy.useCopy();
+  // Dates in the language the page's words render in, always in UTC.
+  const at = (iso: string) => rulebookTime(iso, renderedLocale);
   const data = load.status === 'ready' ? load.data : null;
   const current = data?.current.published ? data.current : null;
 
@@ -56,12 +58,12 @@ export function RulebookView({ load }: { load: Loadable<Rulebook> }) {
               <dt>{t('effective')}</dt>
               <dd>
                 <time data-effective-at dateTime={current.effectiveAt}>
-                  {rulebookTime(current.effectiveAt)}
+                  {at(current.effectiveAt)}
                 </time>
               </dd>
               <dt>{t('published')}</dt>
               <dd>
-                <time dateTime={current.publishedAt}>{rulebookTime(current.publishedAt)}</time>
+                <time dateTime={current.publishedAt}>{at(current.publishedAt)}</time>
               </dd>
             </dl>
           ) : null
@@ -99,7 +101,7 @@ export function RulebookView({ load }: { load: Loadable<Rulebook> }) {
                   <h2>{t('upcomingTitle')}</h2>
                   <ul>
                     {upcoming.map((u) => (
-                      <li key={u.version}>{t('upcomingLine', { version: u.version, at: rulebookTime(u.effectiveAt) })}</li>
+                      <li key={u.version}>{t('upcomingLine', { version: u.version, at: at(u.effectiveAt) })}</li>
                     ))}
                   </ul>
                 </section>
@@ -115,7 +117,7 @@ export function RulebookView({ load }: { load: Loadable<Rulebook> }) {
                       {v.status === 'current'
                         ? t('statusCurrent')
                         : v.status === 'upcoming'
-                          ? t('statusUpcoming', { at: rulebookTime(v.effectiveAt) })
+                          ? t('statusUpcoming', { at: at(v.effectiveAt) })
                           : t('statusSuperseded')}
                       {' · '}
                       {v.supersedes === null ? t('changedAll') : t('changed', { sections: v.changedSections.join(', ') })}

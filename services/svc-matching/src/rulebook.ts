@@ -2,7 +2,8 @@
  * Versioned public rulebook door (M00, RC-cex-spot-08). Halt/delist stay on their own doors.
  * The published rulebook is owner-authored text journaled by svc-matching (`rulebook_version` records, published
  * through a two-person approval). No version published is unpublished; nothing here invents rule text, fees, or haircuts.
- * `readRulebook` reads a version id (the one in force, from the journal); blank is unpublished.
+ * `readRulebook` and the claim guards below read a bare version id (blank is unpublished); best-execution and
+ * certified-venue claims refuse either way, since a version id is not evidence for them.
  */
 import { createHash } from 'node:crypto';
 import { userCopy } from './user-copy.js';
@@ -174,8 +175,12 @@ export function readRulebookDraft(
   const rawAt = typeof input.effectiveAt === 'string' ? input.effectiveAt.trim() : '';
   if (rawAt) {
     const ms = Date.parse(rawAt);
-    if (!Number.isFinite(ms)) {
-      return { ok: false, rejected: { code: RULEBOOK_EFFECTIVE_INVALID, message: 'the effective time is not a date and time' } };
+    // A time with no zone would be read in this host's zone: the owner states UTC (Z) or an explicit offset.
+    if (!Number.isFinite(ms) || !/(?:Z|[+-]\d{2}:?\d{2})$/i.test(rawAt)) {
+      return {
+        ok: false,
+        rejected: { code: RULEBOOK_EFFECTIVE_INVALID, message: 'the effective time is not a date and time with Z or an offset' },
+      };
     }
     effectiveAt = new Date(ms).toISOString();
   }
@@ -187,7 +192,7 @@ export interface RulebookVersion {
   readonly version: string;
   readonly effectiveAt: string;
   readonly publishedAt: string;
-  /** The version that was current when this one was published; null for the first. */
+  /** The version published just before this one, which it replaces; null for the first. */
   readonly supersedes: string | null;
   readonly digest: string;
   readonly sections: RulebookSections;
@@ -196,15 +201,37 @@ export interface RulebookVersion {
   readonly approvalId: string;
 }
 
-/** The version in force at `now`: the latest effective time not after `now`; ties go to the later publish. */
+/**
+ * The version in force at `now`: the latest PUBLISHED version whose effective time has come. A later publish replaces
+ * every earlier one, a scheduled one included: a scheduled version replaced before its date never takes effect, so a
+ * correction can never be overridden by an older schedule. `versions` is in publish order.
+ */
 export function currentRulebook(versions: readonly RulebookVersion[], now: Date): RulebookVersion | null {
-  const t = now.getTime();
-  let best: RulebookVersion | null = null;
-  for (const v of versions) {
-    if (Date.parse(v.effectiveAt) > t) continue;
-    if (best === null || Date.parse(v.effectiveAt) >= Date.parse(best.effectiveAt)) best = v;
+  for (let i = versions.length - 1; i >= 0; i--) {
+    if (Date.parse(versions[i]!.effectiveAt) <= now.getTime()) return versions[i]!;
   }
-  return best;
+  return null;
+}
+
+/** Versions published after the one in force (so not replaced), waiting for their effective time, soonest first. */
+function upcomingRulebooks(versions: readonly RulebookVersion[], now: Date): RulebookVersion[] {
+  const current = currentRulebook(versions, now);
+  const after = current === null ? 0 : versions.indexOf(current) + 1;
+  return versions
+    .slice(after)
+    .filter((v) => Date.parse(v.effectiveAt) > now.getTime())
+    .sort((a, b) => Date.parse(a.effectiveAt) - Date.parse(b.effectiveAt));
+}
+
+/** `matching.rulebook_immutable`: a published version id never takes other text. */
+export function rulebookImmutableRefuse(version: string): RulebookRejected {
+  return { code: RULEBOOK_IMMUTABLE, message: `${version} is published and never changes; publish the change as a new version` };
+}
+
+/** A version may not take effect before it is published. */
+export function rulebookEffectivePast(draft: RulebookDraft, now: Date): RulebookRejected | null {
+  if (draft.effectiveAt === null || Date.parse(draft.effectiveAt) >= now.getTime()) return null;
+  return { code: RULEBOOK_EFFECTIVE_INVALID, message: 'a version cannot take effect before it is published' };
 }
 
 export type RulebookStatus = 'current' | 'upcoming' | 'superseded';
@@ -232,10 +259,7 @@ export type RulebookPublishedView =
 /** Public `GET /rulebook`: the version in force with its sections, and any published future version. */
 export function presentPublishedRulebook(versions: readonly RulebookVersion[], now: Date): RulebookPublishedView {
   const current = currentRulebook(versions, now);
-  const upcoming = versions
-    .filter((v) => Date.parse(v.effectiveAt) > now.getTime())
-    .sort((a, b) => Date.parse(a.effectiveAt) - Date.parse(b.effectiveAt))
-    .map((v) => ({ version: v.version, effectiveAt: v.effectiveAt }));
+  const upcoming = upcomingRulebooks(versions, now).map((v) => ({ version: v.version, effectiveAt: v.effectiveAt }));
   if (current === null) return { published: false, version: null, rejected: rulebookUnpublishedRefuse(), upcoming };
   return {
     published: true,
@@ -250,17 +274,14 @@ export function presentPublishedRulebook(versions: readonly RulebookVersion[], n
 /** Public `GET /rulebook/versions`: every version, newest publish first, with the sections that changed from the one it superseded. */
 export function presentRulebookHistory(versions: readonly RulebookVersion[], now: Date) {
   const current = currentRulebook(versions, now);
+  const upcoming = new Set(upcomingRulebooks(versions, now).map((v) => v.version));
   const byVersion = new Map(versions.map((v) => [v.version, v]));
   return {
     current: current?.version ?? null,
     versions: [...versions].reverse().map((v) => {
       const previous = v.supersedes === null ? null : (byVersion.get(v.supersedes) ?? null);
       const status: RulebookStatus =
-        current !== null && v.version === current.version
-          ? 'current'
-          : Date.parse(v.effectiveAt) > now.getTime()
-            ? 'upcoming'
-            : 'superseded';
+        current !== null && v.version === current.version ? 'current' : upcoming.has(v.version) ? 'upcoming' : 'superseded';
       return {
         version: v.version,
         status,

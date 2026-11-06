@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { ActionApproval } from '@intafaced/contracts';
 import { PageSection } from './kit';
 import { OutcomeNotice } from './outcome-notice';
@@ -29,6 +30,7 @@ const emptyDraft = (): RulebookDraft => ({
 
 export function RulebookRoom({ initial }: { initial: RulebookDeskView }) {
   const history = initial.history;
+  const router = useRouter();
   const [draft, setDraft] = useState<RulebookDraft>(emptyDraft);
   const [busy, setBusy] = useState(false);
   const [proposed, setProposed] = useState<Outcome<Filed> | null>(null);
@@ -57,6 +59,13 @@ export function RulebookRoom({ initial }: { initial: RulebookDeskView }) {
       approvalId: filed.filed.approval.approvalId,
     });
     setPublished(o);
+    if (o.kind === 'ok') {
+      // The request is spent: clear it, and read the versions again so "In force" and the history show the new one.
+      setFiled(null);
+      setProposed(null);
+      setDraft(emptyDraft());
+      router.refresh();
+    }
     setBusy(false);
   }
 

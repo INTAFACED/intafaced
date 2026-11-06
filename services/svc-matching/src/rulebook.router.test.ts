@@ -243,6 +243,14 @@ describe('POST /operator/rulebook/check and /publish', () => {
       payload: { version: 'TEST-v1', sections: { ...sections('TEST-v1'), matching: 'TEST changed.' } },
     });
     expect(check.json()).toMatchObject({ accepted: false, rejected: { code: RULEBOOK_IMMUTABLE } });
+    // The same text again needs no new request either: check refuses it rather than file a no-op approval.
+    const same = await app.inject({
+      method: 'POST',
+      url: '/operator/rulebook/check',
+      headers: edgeHeaders(),
+      payload: { version: 'TEST-v1', sections: sections('TEST-v1') },
+    });
+    expect(same.json()).toMatchObject({ accepted: false, rejected: { code: RULEBOOK_IMMUTABLE } });
     const retry = await publish(app, { version: 'TEST-v1', sections: sections('TEST-v1') });
     expect(retry.json()).toMatchObject({ accepted: true, alreadyPublished: true });
     expect(approvals.calls()).toBe(1);
@@ -250,11 +258,38 @@ describe('POST /operator/rulebook/check and /publish', () => {
     await app.close();
   });
 
-  it('refuses an effective time before publish', async () => {
-    const { app, now, journal } = await mount();
+  it('refuses an effective time before publish, or one with no zone, before any approval is spent', async () => {
+    const { app, now, journal, approvals } = await mount();
     const res = await publish(app, { version: 'TEST-v1', effectiveAt: new Date(now.t - DAY).toISOString(), sections: sections('TEST-v1') });
     expect(res.json()).toMatchObject({ accepted: false, rejected: { code: 'matching.rulebook_effective_invalid' } });
+    const noZone = await publish(app, { version: 'TEST-v1', effectiveAt: '2026-12-01T00:00:00', sections: sections('TEST-v1') });
+    expect(noZone.json()).toMatchObject({ accepted: false, rejected: { code: 'matching.rulebook_effective_invalid' } });
+    expect(approvals.calls()).toBe(0);
     expect(journal.length).toBe(0);
+    await app.close();
+  });
+
+  it('a later publish replaces an earlier scheduled one: it names it as replaced, and the schedule never takes effect', async () => {
+    const { app, now } = await mount();
+    await publish(app, { version: 'TEST-v1', sections: sections('TEST-v1') });
+    const nextWeek = new Date(now.t + 7 * DAY).toISOString();
+    await publish(app, { version: 'TEST-v2', effectiveAt: nextWeek, sections: { ...sections('TEST-v1'), fees: 'TEST v2 fees.' } });
+    // A correction published now replaces both: v2's date arriving must not bring v2 back.
+    const v3 = { ...sections('TEST-v1'), fees: 'TEST v2 fees.', matching: 'TEST v3 matching.' };
+    await publish(app, { version: 'TEST-v3', sections: v3 });
+    let history = (await app.inject({ method: 'GET', url: '/rulebook/versions' })).json();
+    expect(history.versions[0]).toMatchObject({
+      version: 'TEST-v3',
+      status: 'current',
+      supersedes: 'TEST-v2',
+      changedSections: ['matching'],
+    });
+    expect(history.versions[1]).toMatchObject({ version: 'TEST-v2', status: 'superseded' });
+    now.t += 8 * DAY;
+    const read = (await app.inject({ method: 'GET', url: '/rulebook' })).json();
+    expect(read).toMatchObject({ published: true, version: 'TEST-v3', upcoming: [] });
+    history = (await app.inject({ method: 'GET', url: '/rulebook/versions' })).json();
+    expect(history.current).toBe('TEST-v3');
     await app.close();
   });
 

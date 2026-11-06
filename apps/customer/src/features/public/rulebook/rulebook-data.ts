@@ -62,9 +62,9 @@ export const rulebookFetcher =
     return { ok: true, data: { current: current.data, history: history.data } };
   };
 
-/** An ISO time as the page writes it, in UTC so every reader sees the same moment: "6 Nov 2026, 12:00 UTC". */
-export function rulebookTime(iso: string, locale?: string): string {
+/** An ISO time in the page's language, in UTC so every reader sees the same moment: "6 Nov 2026, 12:00 UTC". */
+export function rulebookTime(iso: string, locale: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return `${d.toLocaleString(locale ?? 'en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`;
+  return `${d.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC`;
 }
