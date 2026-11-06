@@ -156,7 +156,12 @@ test(`${J} #3 opens FIX sessions and SBE consumers: sessions, CompID mapping and
   await expect(sbe).toHaveAttribute('data-read', 'ok');
 
   // The adapter's own status, read through the edge's operator door; the room shows exactly that, row for row.
-  const status = JSON.parse(tool('local-test-gates.mjs', 'adapter-status').split('\n').find((l) => l.startsWith('ADAPTER_STATUS_JSON ')).slice(20));
+  const status = JSON.parse(
+    tool('local-test-gates.mjs', 'adapter-status')
+      .split('\n')
+      .find((l) => l.startsWith('ADAPTER_STATUS_JSON '))
+      .slice(20),
+  );
   expect(status.fix.sessions.length).toBeGreaterThan(0);
   await expect(fix.locator('tr[data-session]')).toHaveCount(status.fix.sessions.length);
   for (const s of status.fix.sessions) {
@@ -186,7 +191,7 @@ test(`${J} #5 writes the internal book seeding configuration: an operator-writte
   const room = page.locator('[data-room=seeding]');
   await expect(room).toBeVisible();
   const { ask, bid } = await bestPrices(SYMBOL);
-  const mid = fromUnits((toUnits(ask) + toUnits(bid)) / 2n / toUnits('1') * toUnits('1'));
+  const mid = fromUnits(((toUnits(ask) + toUnits(bid)) / 2n / toUnits('1')) * toUnits('1'));
   const form = room.getByRole('form', { name: 'Seeding configuration' });
   await form.getByLabel('Market').selectOption(SYMBOL);
   await form.getByLabel('Enabled').check();
@@ -229,7 +234,15 @@ test(`${J} #4 opens seeded liquidity: seeded orders flagged and the seeded share
   // The approved configuration (#5) places three levels a side on the house account, each marked as seeded.
   await page.goto(`${ADMIN}/trade-ops/orders?market=${encodeURIComponent(SYMBOL)}`);
   const seeded = page.locator('[data-order-row][data-origin="House seed"]');
-  await expect.poll(async () => { await page.reload(); return seeded.count(); }, { timeout: 120_000 }).toBe(6);
+  await expect
+    .poll(
+      async () => {
+        await page.reload();
+        return seeded.count();
+      },
+      { timeout: 120_000 },
+    )
+    .toBe(6);
 
   await page.goto(`${ADMIN}/trade-ops/markets`);
   const row = page.locator(`[data-market-row="${SYMBOL}"]`);
@@ -305,13 +318,22 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
   for (const f of fills) fees[f.fee.currency] = (fees[f.fee.currency] ?? 0n) + toUnits(f.fee.cost);
   for (const [asset, fee] of Object.entries(fees)) {
     expect(fee).toBeGreaterThan(0n);
-    await expect.poll(async () => { await page.reload(); return (await collected(asset)) - (before[asset] ?? 0n); }, { timeout: 60_000 }).toBeGreaterThanOrEqual(fee);
+    await expect
+      .poll(
+        async () => {
+          await page.reload();
+          return (await collected(asset)) - (before[asset] ?? 0n);
+        },
+        { timeout: 60_000 },
+      )
+      .toBeGreaterThanOrEqual(fee);
   }
 
   // Every other line is a figure or a named blocker, never a blank and never a zero standing in for a missing read.
   const revenue = page.locator('[data-testid=revenue-table], [data-testid=revenue-empty], [data-testid=revenue-unavailable]');
   await expect(revenue).toHaveCount(1);
-  if ((await page.getByTestId('revenue-unavailable').count()) > 0) await expect(page.getByTestId('revenue-unavailable')).toContainText(/Code: [a-z_.]+/i);
+  if ((await page.getByTestId('revenue-unavailable').count()) > 0)
+    await expect(page.getByTestId('revenue-unavailable')).toContainText(/Code: [a-z_.]+/i);
   for (const category of ['liquidity', 'insurance_default_capital', 'custody', 'data', 'support', 'compliance', 'infrastructure']) {
     await expect(page.getByTestId(`cost-${category}`)).toContainText(/Not entered|\d/);
   }
@@ -337,7 +359,9 @@ test(`${J} #8 opens the launch liquidity plan record and the maker incentive pro
     const state = await m.getAttribute('data-plan-state');
     expect(['none', 'draft', 'approved', 'active', 'exited']).toContain(state);
     if (state === 'none') await expect(m).toContainText('No plan recorded');
-    else for (const col of ['makers', 'capital', 'max-spread', 'min-depth', 'min-uptime', 'inventory-band', 'exit-criteria']) await expect(m.locator(`[data-col=${col}]`)).not.toBeEmpty();
+    else
+      for (const col of ['makers', 'capital', 'max-spread', 'min-depth', 'min-uptime', 'inventory-band', 'exit-criteria'])
+        await expect(m.locator(`[data-col=${col}]`)).not.toBeEmpty();
   }
 
   await page.goto(`${ADMIN}/trade-ops/maker-programme`);
@@ -349,7 +373,8 @@ test(`${J} #8 opens the launch liquidity plan record and the maker incentive pro
   if (termsState === 'unset') await expect(terms).toContainText('trade.maker_programme_term_unset');
   else {
     await expect(terms.locator('[data-tier]').first()).toBeVisible();
-    for (const col of ['max-spread', 'min-depth', 'min-uptime', 'cancel-ratio-ceiling', 'clawback-window']) await expect(terms.locator(`[data-obligation=${col}]`)).not.toBeEmpty();
+    for (const col of ['max-spread', 'min-depth', 'min-uptime', 'cancel-ratio-ceiling', 'clawback-window'])
+      await expect(terms.locator(`[data-obligation=${col}]`)).not.toBeEmpty();
   }
   // Clawback records: each with its period, account, amount and state, or an empty list that says so.
   const clawbacks = programme.getByRole('region', { name: 'Clawback records' });
