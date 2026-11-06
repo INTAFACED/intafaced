@@ -629,3 +629,46 @@ describe('idle multiplexed sessions', () => {
     expect(idle.session.idleExpired(idle.clock.now + 1_000)).toBe(true);
   });
 });
+
+describe('server times on answers (DV-websocket-01, J-developer-09 #3)', () => {
+  it('an ack echoes the request id and carries when the frame arrived and when the answer left, as ISO strings', async () => {
+    const slow = rig({
+      resolver: {
+        async resolve(input) {
+          // Resolving the market takes 250 ms of server time: the ack's out time must be after its in time.
+          slow.clock.now += 250;
+          return input === BTC ? { id: BTC, symbol: 'BTC/USDT' } : null;
+        },
+      },
+    });
+    await slow.depth.refreshMarkets();
+    expect(slow.session.start()).toBe(true);
+    const arrived = slow.clock.now;
+    await slow.send({ op: 'subscribe', id: 'req-7', channels: [{ ch: 'book', market: BTC }] });
+    const [ack] = slow.socket.acks();
+    expect(ack).toMatchObject({ op: 'ack', for: 'subscribe', id: 'req-7' });
+    expect(ack.serverTimeIn).toBe(new Date(arrived).toISOString());
+    expect(ack.serverTimeOut).toBe(new Date(arrived + 250).toISOString());
+  });
+
+  it('a refused frame carries the server times too, so a client can time every answer', async () => {
+    const at = r.clock.now;
+    await r.send({ op: 'subscribe', id: 'bad-1', channels: 'book' });
+    expect(r.socket.errors()).toEqual([
+      expect.objectContaining({
+        op: 'error',
+        code: 'bad_request',
+        id: 'bad-1',
+        serverTimeIn: new Date(at).toISOString(),
+        serverTimeOut: new Date(at).toISOString(),
+      }),
+    ]);
+  });
+
+  it('no JSON number but integer sequences: the times are strings', async () => {
+    await r.send({ op: 'subscribe', id: 'n', channels: [{ ch: 'ticker' }] });
+    const [ack] = r.socket.acks();
+    expect(typeof ack.serverTimeIn).toBe('string');
+    expect(typeof ack.serverTimeOut).toBe('string');
+  });
+});

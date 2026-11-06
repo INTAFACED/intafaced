@@ -124,6 +124,14 @@ type ResultBase = {
 type Result = ResultBase &
   ({ readonly ok: true; readonly note?: string } | { readonly ok: false; readonly code: MuxErrorCode; readonly message: string });
 
+/**
+ * The server's two clocks on an answer: when the operation's frame arrived (`serverTimeIn`) and when its answer left
+ * (`serverTimeOut`). ISO 8601 UTC strings, so the only JSON numbers on this door stay the integer sequences.
+ */
+export function serverTimes(receivedAtMs: number, sentAtMs: number): { serverTimeIn: string; serverTimeOut: string } {
+  return { serverTimeIn: new Date(receivedAtMs).toISOString(), serverTimeOut: new Date(Math.max(receivedAtMs, sentAtMs)).toISOString() };
+}
+
 export class MuxSession {
   readonly #socket: MuxSocket;
   readonly #deps: MuxSessionDeps;
@@ -197,6 +205,9 @@ export class MuxSession {
   /** One inbound text frame. Never throws. */
   onMessage(text: string): void {
     if (this.#closed) return;
+    // When the frame arrived, before any work: the ack carries it next to the time it left, so a client can tell
+    // network latency from server time (DV-websocket-01).
+    const receivedAt = this.#clock();
     const parsed = parseOp(text);
     const cost = parsed.ok ? parsed.channels.length : 1;
     const budget = this.#takeBudget(cost);
@@ -206,6 +217,7 @@ export class MuxSession {
         'bad_request',
         `an operation of ${cost} channels costs ${cost}, above the published budget of ${rate} operations a second`,
         parsed.id,
+        receivedAt,
       );
       this.#closeSocket(CLOSE_POLICY, resolveWsCopy(WS_COPY.muxRateLimited));
       return;
@@ -215,7 +227,7 @@ export class MuxSession {
       return;
     }
     if (!parsed.ok) {
-      this.#sendError(parsed.code, parsed.message, parsed.id);
+      this.#sendError(parsed.code, parsed.message, parsed.id, receivedAt);
       return;
     }
     if (this.#pendingOps >= MUX_MAX_PENDING_OPS) {
@@ -226,10 +238,10 @@ export class MuxSession {
     // Strictly in order: subscribe-then-unsubscribe must mean what it says even
     // though resolving a market is asynchronous.
     this.#chain = this.#chain
-      .then(() => this.#run(parsed))
+      .then(() => this.#run(parsed, receivedAt))
       .catch((err: unknown) => {
         this.#deps.log.warn({ err: String(err) }, 'ws: mux operation failed');
-        this.#sendError('unavailable', 'operation failed', parsed.id);
+        this.#sendError('unavailable', 'operation failed', parsed.id, receivedAt);
       })
       .finally(() => {
         this.#pendingOps -= 1;
@@ -243,7 +255,7 @@ export class MuxSession {
       this.#closeSocket(CLOSE_POLICY, resolveWsCopy(WS_COPY.muxRateLimited));
       return;
     }
-    this.#sendError('bad_request', 'binary frames are not accepted; send JSON text', undefined);
+    this.#sendError('bad_request', 'binary frames are not accepted; send JSON text', undefined, this.#clock());
   }
 
   /** The socket is gone. Releases every hub seat. Idempotent. */
@@ -276,7 +288,7 @@ export class MuxSession {
 
   // ── Operations ───────────────────────────────────────────────────────────
 
-  async #run(op: Extract<ParsedOp, { ok: true }>): Promise<void> {
+  async #run(op: Extract<ParsedOp, { ok: true }>, receivedAt: number): Promise<void> {
     const results: Result[] = [];
     for (let i = 0; i < op.channels.length; i += 1) {
       if (this.#closed) return;
@@ -291,6 +303,7 @@ export class MuxSession {
     const ack: Record<string, unknown> = { op: 'ack', for: op.verb };
     if (op.id !== undefined) ack.id = op.id;
     ack.results = results;
+    Object.assign(ack, serverTimes(receivedAt, this.#clock()));
     this.#sendControl(JSON.stringify(ack));
   }
 
@@ -510,8 +523,10 @@ export class MuxSession {
 
   // ── Frames out ───────────────────────────────────────────────────────────
 
-  #sendError(code: MuxErrorCode, message: string, id: string | undefined): void {
-    this.#sendControl(JSON.stringify({ op: 'error', code, message, ...(id === undefined ? {} : { id }) }));
+  #sendError(code: MuxErrorCode, message: string, id: string | undefined, receivedAt: number): void {
+    this.#sendControl(
+      JSON.stringify({ op: 'error', code, message, ...(id === undefined ? {} : { id }), ...serverTimes(receivedAt, this.#clock()) }),
+    );
   }
 
   #sendControl(frame: string): void {
