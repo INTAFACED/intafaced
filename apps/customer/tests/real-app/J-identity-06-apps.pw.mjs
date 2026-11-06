@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 
@@ -19,7 +20,7 @@ test(`${J} #6 Connected apps and API access lists both keys with prefix, permiss
     const apps = page.getByRole('region', { name: 'Connected apps' });
     await expect(apps.getByRole('heading', { name: 'Connected apps' })).toBeVisible();
     await expect(apps).toContainText('No connected apps.');
-    await expect(apps).toContainText('No outside app can be given access to this account yet');
+    await expect(apps).toContainText('This platform gives no outside app access to an account, so there is none to remove');
     await expect(apps.getByRole('listitem')).toHaveCount(0);
     await expect(apps.getByRole('button')).toHaveCount(0);
 

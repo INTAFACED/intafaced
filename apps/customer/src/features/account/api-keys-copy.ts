@@ -20,7 +20,7 @@ const messages = {
   empty: 'You have no API keys.',
   appsTitle: 'Connected apps',
   appsEmpty:
-    'No connected apps. No outside app can be given access to this account yet, so there is none to remove. Your own programs use the API keys on this page.',
+    'No connected apps. This platform gives no outside app access to an account, so there is none to remove. Your own programs use the API keys on this page.',
   loading: 'Reading your keys',
   colName: 'Name',
   colPrefix: 'Prefix',
