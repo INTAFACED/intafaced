@@ -81,6 +81,7 @@ import bank from './local-stack-services/bank.mjs';
 import blueprint from './local-stack-services/blueprint.mjs';
 import edge from './local-stack-services/edge.mjs';
 import execution from './local-stack-services/execution.mjs';
+import fix from './local-stack-services/fix.mjs';
 import identity, { confirmLocalFounderEmails } from './local-stack-services/identity.mjs';
 import indexer from './local-stack-services/indexer.mjs';
 import ledger from './local-stack-services/ledger.mjs';
@@ -111,6 +112,7 @@ import {
   writeFounderPinStamp,
 } from './local-test-founders.mjs';
 import { consoleTreasuryToken, makeContext } from './local-test-gates.mjs';
+import { ensureToolchain } from '../../services/svc-fix/scripts/ensure-toolchain.mjs';
 import { RailRecordError, readRail, recordRailMovement } from './local-test-rail-records.mjs';
 import { loadProfile, profileEnvFor } from './owner-settings.mjs';
 import {
@@ -193,6 +195,11 @@ const PORTS = {
   // LOCAL TEST statements of each rail stand-in's own records, read by svc-ledger's per-rail outside controls
   // (local-test-rail-statements.mjs).
   'rail-statements': 14525,
+  // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status), then its
+  // order-entry and drop-copy FIX sockets (local-stack-services/fix.mjs).
+  fix: 14526,
+  fixOrderEntry: 14527,
+  fixDropCopy: 14528,
   customer: 3210,
   invitation: 3220,
   // LOCAL TEST stand-in for the apex host (the host check); the real apex site is not in this repo.
@@ -339,6 +346,8 @@ const SECRET_NAMES = [
   'identityApiKeySigning', // identity's sealing key for API-key request-signing secrets (API_KEY_SIGNING_ENC_KEY, 32 bytes as hex)
   'identityKycDoc', // identity's key for the KYC document vault (IDENTITY_KYC_DOC_KEY, 32 bytes as hex); this stack's own, valid nowhere else
   'identityPayQr', // identity's TEST pay QR signing key (IDENTITY_PAY_QR_KEY carries it after `local-test:`); this stack's own, valid nowhere else
+  'fixStatusRead', // the read key svc-edge signs svc-fix's adapter status with (FIX_STATUS_READ_SECRET on both); this stack's own
+  'wsStatusRead', // the read key svc-edge signs svc-ws's SBE consumer list with (WS_STATUS_READ_SECRET on both); this stack's own
   'tradeVipProofKey', // trade's key for VIP application proof files (TRADE_VIP_PROOF_KEY, 32 bytes as hex); this stack's own, valid nowhere else
 ];
 
@@ -379,7 +388,7 @@ export function loadOrCreateSecrets() {
 
 /**
  * The stack's services that speak S2S v3 (packages/contracts SERVICE_NAMES). svc-blueprint and svc-protocol have no
- * S2S role, and svc-fix is not started here.
+ * S2S role.
  */
 export const S2S_SERVICES = [
   'svc-academy',
@@ -388,6 +397,7 @@ export const S2S_SERVICES = [
   'svc-campaigns',
   'svc-edge',
   'svc-execution',
+  'svc-fix',
   'svc-identity',
   'svc-ledger',
   'svc-market',
@@ -1032,10 +1042,69 @@ function ensureInvitationBuilt(rebuild) {
   );
 }
 
+// ── svc-fix, the FIX adapter (Java) ─────────────────────────────────────────
+
+const FIX_ROOT = path.join(REPO, 'services', 'svc-fix');
+const FIX_JAR = path.join(FIX_ROOT, 'target', 'svc-fix-0.0.0.jar');
+/** Beside the jar (target/ is ignored by git, so the journeys' shared build carries both): the inputs it was built from. */
+const FIX_JAR_INPUTS = path.join(FIX_ROOT, 'target', 'stack-jar-inputs.sha256');
+/** The pinned JDK and Maven (services/svc-fix/scripts/ensure-toolchain.mjs), in this stack's state, never in the repo. */
+const javaTools = () => path.join(STATE, 'java-tools');
+
+/** A hash of everything the jar is built from: the pom, the QuickFIX/J pin and the main sources. */
+export function fixJarInputs(root = FIX_ROOT) {
+  const walk = (dir) =>
+    fs.existsSync(dir)
+      ? fs
+          .readdirSync(dir, { withFileTypes: true })
+          .flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]))
+      : [];
+  const files = [path.join(root, 'pom.xml'), path.join(root, 'PIN.quickfixj'), ...walk(path.join(root, 'src', 'main'))].sort();
+  const hash = crypto.createHash('sha256');
+  for (const f of files) hash.update(path.relative(root, f)).update('\0').update(fs.readFileSync(f)).update('\0');
+  return hash.digest('hex');
+}
+
+/** Builds svc-fix's shaded jar when its inputs changed since the last build, or on --rebuild. */
+function ensureFixJar(rebuild) {
+  const want = fixJarInputs();
+  const have = fs.existsSync(FIX_JAR_INPUTS) ? fs.readFileSync(FIX_JAR_INPUTS, 'utf8').trim() : '';
+  if (!rebuild && fs.existsSync(FIX_JAR) && have === want) return;
+  say('  build: svc-fix (the FIX adapter, Java)…');
+  const tc = ensureToolchain(javaTools());
+  const logPath = path.join(P.logs, 'build-fix.log');
+  const fd = fs.openSync(logPath, 'a', 0o600);
+  const r = spawnSync(tc.MVN, ['-q', '-B', `-Dmaven.repo.local=${tc.MAVEN_REPO}`, '-DskipTests', 'package'], {
+    cwd: FIX_ROOT,
+    env: { ...baseEnv(), JAVA_HOME: tc.JAVA_HOME, PATH: `${path.join(tc.JAVA_HOME, 'bin')}:${PNPM_PATH}` },
+    stdio: ['ignore', fd, fd],
+  });
+  fs.closeSync(fd);
+  if (r.status !== 0 || !fs.existsSync(FIX_JAR)) fail(`svc-fix did not build (see ${logPath})`);
+  fs.writeFileSync(FIX_JAR_INPUTS, `${want}\n`);
+}
+
+/**
+ * The Java that runs svc-fix: the pinned JDK this stack fetched to build it, else a runner's own Java 21 (a CI shard runs
+ * the shared build's jar and builds nothing), else the pinned JDK, fetched now.
+ */
+function javaBin() {
+  try {
+    const own = JSON.parse(fs.readFileSync(path.join(javaTools(), 'env.json'), 'utf8')).JAVA_HOME;
+    if (own && fs.existsSync(path.join(own, 'bin', 'java'))) return path.join(own, 'bin', 'java');
+  } catch {
+    /* not fetched here */
+  }
+  const runner = process.env.JAVA_HOME_21_X64;
+  if (runner && fs.existsSync(path.join(runner, 'bin', 'java'))) return path.join(runner, 'bin', 'java');
+  return path.join(ensureToolchain(javaTools()).JAVA_HOME, 'bin', 'java');
+}
+
 /** `admin: false` leaves the founder console alone (the journeys' shared build, whose public artifact must not carry it). */
 function ensureBuilt(rebuild, { admin = true } = {}) {
   const act = activeCustomerDist();
   if (act.error) fail(`customer folder override is unusable: ${act.error}\n  Fix it, or run: pnpm local:stack customer-dist --clear`);
+  ensureFixJar(rebuild);
   const { head, edits, stamp, override, missing, backend } = buildPlan(rebuild, act);
   if (override) say(`  build: customer app is ${act.dir} (override); not building it`);
   if (backend === 'none') {
@@ -1273,6 +1342,8 @@ const SERVICES = [
   indexer,
   campaigns,
   ws,
+  // After ws and before edge: the edge's adapter status door reads both (startDependencies).
+  fix,
   edge,
 ];
 
@@ -1595,7 +1666,9 @@ async function startNodeService(def) {
   for (const d of ['matching', 'execution']) fs.mkdirSync(path.join(P.data, d), { recursive: true, mode: 0o700 });
   if (def.name === 'identity') writeFounderPinStamp(STATE, env);
   const entry = path.join(REPO, 'services', `svc-${def.name}`, 'dist', def.entry ?? 'index.js');
-  const pid = startProc(def.name, [process.execPath, entry], env, path.join(REPO, 'services', `svc-${def.name}`), { build });
+  // A Java service (svc-fix) runs its shaded jar (ensureFixJar) on a Java runtime (javaBin); every other one is Node.
+  const argv = def.java ? [javaBin(), '-cp', FIX_JAR, def.java.main] : [process.execPath, entry];
+  const pid = startProc(def.name, argv, env, path.join(REPO, 'services', `svc-${def.name}`), { build });
   if (def.name === 'ops') {
     // Which founder pair svc-ops read at start, so a later start can tell when the pair changed.
     const procs = readProcs();
@@ -2231,6 +2304,8 @@ function cmdPlan(flags) {
     port: Number(d.env().HTTP_PORT),
     url: `http://${HOST}:${d.env().HTTP_PORT}`,
     schema: SCHEMAS.find((s) => serviceOfSchema(s) === d.name) ?? null,
+    // A Java service is built as its jar (ensureFixJar), not as a Node package.
+    java: Boolean(d.java),
     running: ownedAlive(procs[d.name]),
   }));
   const edgeEnv = defs.find((d) => d.name === 'edge').env();

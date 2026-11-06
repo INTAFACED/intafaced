@@ -19,6 +19,7 @@
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs engine-drop <SYMBOL> <orderId>   LOCAL TEST fault: one resting order leaves the book and its cancel is lost (restarts trade; trade keeps its hold)
  *   node tooling/scripts/local-test-gates.mjs trade-audit --kind <k> --account <userId>   svc-trade operator audit rows, as one JSON line
+ *   node tooling/scripts/local-test-gates.mjs adapter-status   read-only: svc-fix's and svc-ws's own status, read from each adapter, as one JSON line
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two founders)
  *   node tooling/scripts/local-test-gates.mjs posting-freeze lift-leaked   lift a LOCAL TEST freeze a journey left on
@@ -1236,6 +1237,32 @@ export async function tradeAudit(ctx, { kind, account }) {
 
 /** The one line `trade-audit` prints its rows on; every other line it prints is the stack's own log. */
 export const TRADE_AUDIT_LINE = 'TRADE_AUDIT_JSON ';
+
+/**
+ * The protocol adapters' own status, read straight from each adapter (not through the edge or the console), signed as
+ * svc-edge with this stack's read keys: svc-fix's FIX sessions and CompID map, and svc-ws's SBE consumers
+ * (J-cex-spot-20 #3). A read only.
+ */
+export async function adapterStatus(ctx) {
+  const read = async (service, url, secret) => {
+    const res = await fetch(url, {
+      redirect: 'error',
+      headers: ctx.contracts.serviceAuthHeadersForBody('svc-edge', secret, ''),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const body = await res.json().catch(() => null);
+    if (res.status !== 200 || !body) throw new Error(`${service} status answered ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+    return body;
+  };
+  const [fix, sbe] = await Promise.all([
+    read('svc-fix', `${ctx.url('fix')}/internal/status`, ctx.secrets.fixStatusRead),
+    read('svc-ws', `${ctx.url('ws')}/internal/sbe/consumers`, ctx.secrets.wsStatusRead),
+  ]);
+  return { fix, sbe };
+}
+
+/** The one line `adapter-status` prints the adapters' status on. */
+export const ADAPTER_STATUS_LINE = 'ADAPTER_STATUS_JSON ';
 
 // ── The platform posting freeze (svc-ledger, two founders) ─────────────────
 
@@ -3383,6 +3410,8 @@ async function main() {
       const account = flag('--account');
       if (!kind || !account) die('usage: local-test-gates.mjs trade-audit --kind <kind> --account <userId>', 2);
       say(`${TRADE_AUDIT_LINE}${JSON.stringify(await tradeAudit(ctx, { kind, account }))}`);
+    } else if (cmd === 'adapter-status') {
+      say(`${ADAPTER_STATUS_LINE}${JSON.stringify(await adapterStatus(ctx))}`);
     } else if (cmd === 'posting-freeze') {
       // lift-leaked: the journey harness's guard lifts a LOCAL TEST freeze a journey left on (journey-freeze-guard.mjs).
       const r =

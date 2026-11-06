@@ -29,6 +29,7 @@ import { leaseRangeFromEnv } from './private/cod.js';
 import { HttpTradeCancelPort } from './private/cod-cancel.js';
 import { NewConnectionWindow } from './new-connection-window.js';
 import { createWebSocketGateway } from './ws/gateway.js';
+import { SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
 import { customerOriginsFromEnv } from './customer-origin.js';
 import { CandleHub } from './mux/candle-hub.js';
 import { createMuxGateway, type MuxGateway } from './mux/gateway.js';
@@ -459,6 +460,8 @@ registerRoutes(app, {
   pollMs: env.WS_POLL_INTERVAL_MS,
 });
 registerTapeLabelDoor(app);
+const sbeConsumers = new SbeConsumers();
+registerSbeStatusDoor(app, { consumers: sbeConsumers, secret: env.WS_STATUS_READ_SECRET, codecLinked: () => sbeCodec.linked });
 
 /**
  * The market list is fetched before the port opens, not lazily on the first
@@ -497,6 +500,7 @@ const gateway = createWebSocketGateway({
   log: app.log,
   enabled: isEnabled,
   admitNewConnection: () => newConnections.admit(),
+  sbeConsumers,
 });
 
 const customerOrigins = customerOriginsFromEnv(env);
