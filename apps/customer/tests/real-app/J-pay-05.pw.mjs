@@ -209,6 +209,69 @@ test(`${J} #5 the payer declines a third request with Report and block: Declined
   throw new Error(`${J} #5: no service opens a case or a block from a declined request`);
 });
 
-test(`${J} #6 a fourth request's period passes: both lists show Expired, and a pay racing a decline lets exactly one win`, async () => {
-  throw new Error(`${J} #6: not built in the app yet`);
+test(`${J} #6 a fourth request's period passes: both lists show Expired, and a pay racing a decline lets exactly one win`, async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { payee, payer } = people();
+  // The fourth request: payable until the next minute but one, which this test then waits out.
+  const fourth = await ask(page, { amount: '3', note: 'Fourth, TEST', payBy: localInput(120_000) });
+  const { expiresAt } = await request(payee, fourth);
+  const wait = Date.parse(expiresAt) + 2_000 - Date.now();
+  if (wait > 0) await page.waitForTimeout(wait);
+  for (const [who, list] of [
+    [payee, 'ask-sent'],
+    [payer, 'ask-received'],
+  ]) {
+    expect((await request(who, fourth)).status).toBe('expired');
+    await signIn(page, who);
+    await page.goto('/pay/request');
+    const row = page.getByTestId(list).locator(`li[data-request-id="${fourth}"]`);
+    await expect(row).toHaveAttribute('data-status', 'expired');
+    await expect(row).toContainText('Expired');
+  }
+  // An expired request can't be paid.
+  const spaces = await trpc(payer, 'GET', 'bank/trpc/spaces.list', { limit: 200 });
+  const from = spaces.find((space) => space.assetId === 'USDT' && space.kind === 'primary');
+  const late = await refusal(payer, 'bank/trpc/transfers.toUser', {
+    transferId: crypto.randomUUID(),
+    fromSpaceId: from.id,
+    toUserId: (await request(payee, fourth)).payeeUserId,
+    amount: '3',
+    requestId: fourth,
+  });
+  expect(late.status, 'an expired request was paid').not.toBe(200);
+
+  // A pay and a decline of the same open request at the same moment: exactly one wins, and money moved only if the pay won.
+  const racing = await trpc(payee, 'POST', 'bank/trpc/personalRequest.create', {
+    payerUserId: (await request(payee, fourth)).payerUserId,
+    assetId: 'USDT',
+    amount: '2',
+    note: 'Race, TEST',
+    expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+    idempotencyKey: `${J}-race-${Date.now()}`,
+  });
+  const before = { payee: await usdt(payee), payer: await usdt(payer) };
+  const [paid, declined] = await Promise.all([
+    refusal(payer, 'bank/trpc/transfers.toUser', {
+      transferId: crypto.randomUUID(),
+      fromSpaceId: from.id,
+      toUserId: racing.payeeUserId,
+      amount: '2',
+      requestId: racing.requestId,
+    }),
+    refusal(payer, 'bank/trpc/personalRequest.decline', { requestId: racing.requestId }),
+  ]);
+  const won = [paid, declined].filter((r) => r.status === 200);
+  expect(won, `pay ${paid.status} ${paid.code}, decline ${declined.status} ${declined.code}`).toHaveLength(1);
+  const final = await request(payee, racing.requestId);
+  if (paid.status === 200) {
+    expect(final.status).toBe('paid');
+    expect(await usdt(payer)).toBe(before.payer - toUnits('2'));
+    expect(await usdt(payee)).toBe(before.payee + toUnits('2'));
+  } else {
+    expect(final.status).toBe('declined');
+    expect(await usdt(payer)).toBe(before.payer);
+    expect(await usdt(payee)).toBe(before.payee);
+  }
 });
