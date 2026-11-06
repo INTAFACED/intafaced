@@ -21,6 +21,8 @@ const messages = {
   endedOthers: 'Signed out {count} other devices.',
   endedNoOthers: 'No other devices were signed in.',
   refresh: 'Refresh',
+  showMore: 'Show more ({count} idle for over a day)',
+  showFewer: 'Show fewer',
   window: 'Showing up to {limit} devices.',
 } as const;
 
