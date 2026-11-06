@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { ORIGIN, ROOT, api, fund, journeyState, signUpInBrowser, tool } from './stack.mjs';
+import { ORIGIN, ROOT, api, fromUnits, fund, journeyState, signUpInBrowser, tool, toUnits } from './stack.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 
 // J-ops-console-07: reconcile the books on the founder console's /ledger page. Steps 1-4 (OPS-reconciliation-01): define a
 // control, set its policy and dynamic account set, run it now with two founders, and run it at a past instant. Define, change
@@ -13,7 +14,8 @@ import { ORIGIN, ROOT, api, fund, journeyState, signUpInBrowser, tool } from './
 // control, failing asset and period from the ledger's settled evaluations, on the console's /ledger/alerts room. Steps 9-10
 // (OPS-reconciliation-04): resolve as fixed with booked ledger transaction ids and accept with two founders; a repeat failure
 // reopens, a passing run resolves, an ERROR run is a platform alert, and a run-failed event delivered twice is stored once.
-// #9's corrective reversal stays red by name: no reversal can be booked on this stack until J-ops-console-05's desk exists.
+// #9 and #10 watch one TEST customer's USDT under a ceiling: TEST chain deposits put too much there, and the TEST chain taking a
+// transfer back makes svc-pay book a real ledger reversal (depositReverse), the corrective reversal #9 links.
 // #10's transition event received twice stays red by name: nothing consumes svc-ops' alert transition events yet.
 
 const tag = randomUUID().slice(0, 8);
@@ -25,7 +27,7 @@ const state = {
   outsideRuns: [],
   floorId: null,
   pairId: null,
-  // #9 and #10: the customer-USDT floor that is resolved, reopens and passes, its alert and payer; the USDC floor accepted.
+  // #9 and #10: the one customer's USDT ceiling that is resolved, reopens and passes, its alert and customer; the USDC floor accepted.
   fixId: null,
   fixAlertId: null,
   fixPayer: null,
@@ -236,6 +238,103 @@ const accountsRead = (answer) => Number(/(\d+) accounts? and/.exec(answer)?.[1] 
 
 /** A floor no TEST book reaches, so a min threshold on it must FAIL. */
 const HIGH_FLOOR = '1000000000000';
+
+/** #9 and #10: the ceiling over the one TEST customer's USDT, and the TEST chain coin and network their deposits use. */
+const CEILING = '50';
+const CHAIN_ASSET = 'USDT';
+const CHAIN_NETWORK = 'TEST Ethereum';
+const CHAIN_NETWORK_ID = 'ethereum';
+
+/**
+ * A new verified TEST customer with a TEST USDT deposit address on TEST Ethereum, read from their own Deposit page.
+ * Returns their sign-in, user id and address.
+ */
+async function chainCustomer(browser) {
+  const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const who = await signUp(page, 'ops07r');
+  await verify(page, who);
+  await signIn(page, who);
+  await page.goto('/uc/recharge');
+  await page.mouse.move(0, 600);
+  await page.getByRole('combobox', { name: /^Asset Coins you hold/ }).selectOption(CHAIN_ASSET);
+  await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: CHAIN_NETWORK });
+  await page.getByRole('checkbox', { name: `I will send only ${CHAIN_ASSET} on ${CHAIN_NETWORK}.` }).check();
+  await page.getByRole('button', { name: 'Show my deposit address' }).click();
+  const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
+  expect(address, 'the customer reads a deposit address').toMatch(/^\S{8,}$/);
+  const { userId } = await api(who);
+  await page.context().close();
+  return { ...who, userId, address };
+}
+
+/** A decimal cell as scaled units, or null for any other text. */
+const units = (text) => (/^-?\d+(\.\d{1,18})?$/.test(text) ? toUnits(text) : null);
+
+/** The TEST chain transfer `label` of this run: the same label is the same transfer, in a deposit and in its reorg. */
+const chainLabel = (label) => `ops07-${tag}-${label}`;
+
+/** One TEST chain delivery of `amount` USDT to the customer's address at full depth, as transfer `label`. */
+function chainDeposit(who, amount, label) {
+  const out = tool('local-test-stack.mjs', 'chain-deposit', who.address, CHAIN_ASSET, amount, '6', '--tx', chainLabel(label));
+  expect(out, out).toContain('"received":true');
+  return /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
+}
+
+/** The customer's whole USDT on the ledger (available and in use), as a plain decimal string, read through their own API. */
+async function usdtOf(who) {
+  return fromUnits(toUnits((await (await api(who)).balances())[CHAIN_ASSET]?.total ?? '0'));
+}
+
+/**
+ * The TEST chain takes transfer `label` back (a reorg, as a chain watcher reports it), and svc-pay reverses its credit on the
+ * ledger with `depositReverse` under the key `deposit.reverse:crypto-native:<network>:<tx>:<index>`. The founder on `page`
+ * finds that reversal on the console's ledger lookup by its key and reads its transaction id, as finance would before
+ * linking it. Returns `{ tx }`.
+ */
+async function correctiveReversal(page, who, label, amount) {
+  const out = tool('local-test-stack.mjs', 'chain-reorg', who.address, '--tx', chainLabel(label));
+  expect(out, out).toContain('TEST chain reorg delivered');
+  const txHash = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
+  expect(txHash, out).toBeTruthy();
+  // The customer's own deposit record says the transfer was reversed.
+  await expect
+    .poll(
+      async () => {
+        const input = encodeURIComponent(JSON.stringify({ txId: txHash, limit: 10 }));
+        const res = await (await api(who)).get(`/api/bank/trpc/deposits.list?input=${input}`);
+        return (res.body?.result?.data?.items ?? []).filter((item) => item.txHash === txHash).map((item) => item.status);
+      },
+      { message: 'the customer’s deposit record shows the transfer reversed', timeout: 60_000 },
+    )
+    .toEqual(['reversed']);
+  const businessKey = `deposit.reverse:crypto-native:${CHAIN_NETWORK_ID}:${txHash}:0`;
+  await page.goto(`${ADMIN}/ledger`, { waitUntil: 'load' });
+  const lookup = page.getByTestId('ledger-lookup');
+  await lookup.getByLabel('Look up by').selectOption('businessKey');
+  await lookup.getByLabel('Business key', { exact: true }).fill(businessKey);
+  await lookup.getByRole('button', { name: 'Look up' }).click();
+  const found = lookup.getByTestId('ledger-lookup-transaction');
+  await expect(found).toBeVisible({ timeout: 30_000 });
+  await expect(lookup.getByTestId('ledger-lookup-business-key')).toHaveText(businessKey);
+  // A reversal: the ledger booked it as deposit.reversed, and one posting takes the amount back from an account that held the
+  // customer's whole balance before it (the customer's own USDT account; the console shows ledger account ids, not names).
+  await expect(found).toContainText('deposit.reversed');
+  const lines = await lookup
+    .getByTestId('ledger-lookup-postings')
+    .locator('tbody tr')
+    .evaluateAll((rows) => rows.map((r) => [...r.querySelectorAll('td')].map((td) => td.textContent.trim())));
+  const before = toUnits(CEILING) + toUnits(amount);
+  expect(
+    lines.some(
+      ([, , asset, , moved, from, to]) =>
+        asset === CHAIN_ASSET && units(moved) === toUnits(amount) && units(from) === before && units(to) === toUnits(CEILING),
+    ),
+    `a posting takes ${amount} ${CHAIN_ASSET} from the customer's ${fromUnits(before)}: ${JSON.stringify(lines)}`,
+  ).toBe(true);
+  const tx = (await lookup.getByTestId('ledger-lookup-tx-id').innerText()).trim();
+  expect(tx).toMatch(/^[0-9a-f-]{36}$/);
+  return { tx };
+}
 
 /**
  * Pause, resume or retire a control with two founders: A asks on the lifecycle desk, B approves the packet on their own console,
@@ -1093,36 +1192,31 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const section = await openLedger(a);
     await requireTreasury(section);
 
-    // A floor over every customer's USDT, set 5 above what the book holds now, so it fails until 5 USDT more is deposited.
+    // One TEST customer receives two TEST chain deposits, 50 and 20 USDT; a ceiling of 50 USDT over that customer's accounts
+    // alone fails on the 20 too many. Only this journey moves that customer's money, so other journeys on the shared stack never
+    // change the figures.
+    state.fixPayer = await chainCustomer(browser);
+    const { fixPayer } = state;
+    chainDeposit(fixPayer, '50', 'keep');
+    chainDeposit(fixPayer, '20', 'wrong');
+    await expect.poll(() => usdtOf(fixPayer), { message: 'both TEST deposits are credited', timeout: 60_000 }).toBe('70');
     state.fixId = await define(section, {
       template: 'threshold',
-      explanation: `LOCAL TEST customer USDT floor ${tag}`,
+      explanation: `LOCAL TEST customer USDT ceiling ${tag}`,
       fill: async (form) => {
         await form.getByLabel('Owner type').selectOption('user');
-        await form.getByLabel('Threshold bound').selectOption('min');
-        await form.getByLabel(/^Threshold by asset/).fill('USDT=0');
+        await form.getByLabel('Owner id starts with').fill(fixPayer.userId);
+        await form.getByLabel('Threshold bound').selectOption('max');
+        await form.getByLabel(/^Threshold by asset/).fill(`USDT=${CEILING}`);
         await setPolicy(form, { tolerance: '0' });
       },
     });
     try {
       await expect(row(section, state.fixId).getByTestId('rc-state')).toHaveText('Active');
-      const probe = await twoFounderRun(state.fixId);
-      expect(probe).toMatch(/Run [0-9a-f-]{36}: PASS\./);
-      const held = scaled(evidence(probe, 'USDT').observed);
-      const floor = held + 5n * 10n ** 18n;
-      const floorText = `${floor / 10n ** 18n}.${(floor % 10n ** 18n).toString().padStart(18, '0')}`.replace(/\.?0+$/, '');
-      const update = await openLedger(a);
-      await choose(update, state.fixId);
-      const form = update.getByTestId('rc-form-update');
-      await form.getByLabel(/^Threshold by asset/).fill(`USDT=${floorText}`);
-      await form.getByLabel(/^Why/).fill(`LOCAL TEST J-ops-console-07 raise floor ${tag}`);
-      await form.getByRole('button', { name: 'Save changes' }).click();
-      await expect(form.getByTestId('rc-saved')).toBeVisible({ timeout: 30_000 });
-
       const fail = await twoFounderRun(state.fixId);
       expect(fail).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
-      expect(scaled(evidence(fail, 'USDT').difference)).toBe(held - floor);
-      const [opened] = await awaitAlerts(a, state.fixId, (rows) => rows.length === 1, 'svc-ops opens the customer floor’s alert');
+      expect(evidence(fail, 'USDT')).toEqual({ observed: '70', expected: CEILING, difference: '20', tolerance: '0' });
+      const [opened] = await awaitAlerts(a, state.fixId, (rows) => rows.length === 1, 'svc-ops opens the customer ceiling’s alert');
       expect(opened).toMatchObject({ asset: 'USDT', state: 'open', occurrences: 1, cause: 'fail', team: 'finance' });
       state.fixAlertId = opened.id;
 
@@ -1149,14 +1243,11 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       ).toEqual(openedAs);
       await expect(afterUnknown.getByTestId('alert-resolved')).toHaveCount(0);
 
-      // The corrective booking: a TEST deposit of 2 USDT to a new customer, posted through the ledger's deposit recipe. (The
-      // reversal desk that books a true reversal is J-ops-console-05, not on this stack; any booked transaction id is what svc-ops
-      // checks.) 2 is short of the 5 the floor wants, so the next run fails again (#10).
-      state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
-      await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
-      const booked = fund(state.fixPayer.email, 'USDT', '2');
-      expect(booked.tx, `the deposit names its ledger transaction: ${booked.out}`).toMatch(/^[0-9a-f-]{36}$/);
-      const resolved = await resolveWith(a, opened.id, [booked.tx.toUpperCase()], `LOCAL TEST fixed by deposit ${tag}`);
+      // The corrective reversal: the TEST chain takes the 20 USDT transfer back, and svc-pay books the ledger's depositReverse
+      // under its business key. Finance finds that reversal on the console's ledger lookup by the key and links its id.
+      const booked = await correctiveReversal(a, fixPayer, 'wrong', '20');
+      await expect.poll(() => usdtOf(fixPayer), { message: 'the reversal takes the 20 back', timeout: 60_000 }).toBe(CEILING);
+      const resolved = await resolveWith(a, opened.id, [booked.tx.toUpperCase()], `LOCAL TEST fixed by reversal ${tag}`);
       await expect(resolved).toHaveAttribute('data-state', 'resolved', { timeout: 30_000 });
       const record = resolved.getByTestId('alert-resolved');
       await expect(record).toHaveAttribute('data-resolution', 'fixed');
@@ -1272,8 +1363,12 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     let errorId;
     try {
       // The same failure after the fix: the resolved alert reopens (no second alert), its count rises and the acknowledgement
-      // and resolution are cleared on the alert while the timeline keeps them.
-      expect(await twoFounderRun(state.fixId)).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      // and resolution are cleared on the alert while the timeline keeps them. The same 20 USDT too many arrives again.
+      chainDeposit(state.fixPayer, '20', 'again');
+      await expect.poll(() => usdtOf(state.fixPayer), { message: 'the second 20 is credited', timeout: 60_000 }).toBe('70');
+      const repeat = await twoFounderRun(state.fixId);
+      expect(repeat).toMatch(/Run [0-9a-f-]{36}: FAIL\./);
+      expect(evidence(repeat, 'USDT').difference).toBe('20');
       const reopened = await awaitAlerts(
         a,
         state.fixId,
@@ -1334,8 +1429,9 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(kept.getByTestId('alert-accepted')).toHaveAttribute('data-evidence-hash', state.acceptAlert.evidenceHash);
       await expect(kept.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
 
-      // The rest of the 5 USDT arrives: the next run passes and resolves the reopened alert by itself, naming that run.
-      expect(fund(state.fixPayer.email, 'USDT', '3').tx, 'the rest is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+      // The chain takes the second 20 back too: the next run passes and resolves the reopened alert by itself, naming that run.
+      await correctiveReversal(a, state.fixPayer, 'again', '20');
+      await expect.poll(() => usdtOf(state.fixPayer), { message: 'the second reversal takes the 20 back', timeout: 60_000 }).toBe(CEILING);
       const pass = await twoFounderRun(state.fixId);
       expect(pass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(evidence(pass, 'USDT').difference).toBe('0');
@@ -1407,16 +1503,6 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         await lifecycle(id, 'retire', 'Retired').catch(() => undefined);
     }
   });
-});
-
-// The clause this stack cannot prove: the corrective transaction linked at #9 must be a reversal. A ledger reversal is booked
-// only by J-ops-console-05's reversal desk (OPS-ledger-desk-02), which is not built, so #9 links a TEST deposit instead and
-// this clause stays red, by name, until that desk books one here. It sits outside the serial journey so its red never
-// skips #10.
-test('J-ops-console-07 #9 the fix links a corrective reversal booked in the ledger', async () => {
-  throw new Error(
-    'Blocked: no reversal can be booked on this stack. J-ops-console-05 (OPS-ledger-desk-02) is not built, so #9 resolved with a TEST deposit, not a reversal.',
-  );
 });
 
 // The other clause this stack cannot prove: svc-ops publishes each alert transition under its business key, but no service
