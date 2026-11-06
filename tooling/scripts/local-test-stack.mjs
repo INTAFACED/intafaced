@@ -1133,6 +1133,12 @@ GRANT USAGE ON SCHEMA public TO svc_support;`,
 const supportCatalogueFile = () => path.join(STATE, 'support-catalogue');
 const supportCatalogueWas = () => (fs.existsSync(supportCatalogueFile()) ? fs.readFileSync(supportCatalogueFile(), 'utf8').trim() : 'on');
 const supportCatalogueWanted = () => (supportCatalogueOff() ? 'off' : 'on');
+/**
+ * LOCAL_STACK_SUPPORT_CATALOGUE_KEEP=on with LOCAL_STACK_SUPPORT_CATALOGUE=off: a restart of support that is already on
+ * the empty-catalogue database keeps that database as it is, so a journey can restart svc-support mid-way and read what
+ * it wrote before (J-support-public-12 #1, #6). Without it every such start makes the database new.
+ */
+const keepSupportEmptyCatalogue = () => process.env.LOCAL_STACK_SUPPORT_CATALOGUE_KEEP === 'on' && supportCatalogueWas() === 'off';
 
 // ── Service definitions ─────────────────────────────────────────────────────
 
@@ -2079,7 +2085,8 @@ async function cmdStart(flags) {
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
-  if (supportCatalogueOff() && toStart.some((d) => d.name === 'support')) await resetSupportEmptyCatalogue(secrets);
+  if (supportCatalogueOff() && !keepSupportEmptyCatalogue() && toStart.some((d) => d.name === 'support'))
+    await resetSupportEmptyCatalogue(secrets);
   if (toStart.some((d) => d.name === 'support')) writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
   await startNats();
   ensureStreams();
@@ -2092,7 +2099,7 @@ async function cmdStart(flags) {
       SCHEMAS.filter((s) => extra.includes(serviceOfSchema(s))),
     );
   if (extra.includes('support')) {
-    if (supportCatalogueOff()) await resetSupportEmptyCatalogue(secrets);
+    if (supportCatalogueOff() && !keepSupportEmptyCatalogue()) await resetSupportEmptyCatalogue(secrets);
     writePrivate(supportCatalogueFile(), `${supportCatalogueWanted()}\n`);
   }
   // Vault before identity starts, so the first boot already has the invite hashes.
