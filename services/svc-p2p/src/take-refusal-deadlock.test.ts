@@ -94,6 +94,8 @@ const migrations = [
   '20261030125739_p2p_ad_lifecycle.sql',
   '20261030135324_p2p_private_ads.sql',
   '20261030194000_p2p_presence_console.sql',
+  // P-trade-orders-15: an ad's own release window, copied onto the order at take.
+  '20261106120000_p2p_ad_release_window.sql',
 ].map((file) => readFileSync(join(here, '..', 'drizzle', file), 'utf8'));
 
 const SELLER = '11111111-1111-4111-8111-111111111111';

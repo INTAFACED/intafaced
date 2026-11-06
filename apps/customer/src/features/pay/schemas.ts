@@ -31,6 +31,8 @@ export const sendInput = z.object({
   amount: positiveAmount,
   /** Shown to the recipient as well as the sender. Omitted means no note. */
   note: z.string().min(1).max(140).optional(),
+  /** The open payment request this send settles; its transfer id is then `request:<requestId>`. */
+  requestId: id.optional(),
   /** The single-use fresh confirmation for exactly this send, when the bank's money-out rule asks for one. */
   stepUpApprovalId: z.string().min(1).max(64).optional(),
 });
