@@ -6,7 +6,7 @@
 
 ## Context
 
-Until now, a PR that changed money code (`packages/ledger-client` and every package that depends on it directly) or security code (`svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `config`, `db`) needed two reviews that other PRs did not. It needed `/security-review`, and the seal waited for the independent review (the `CI review` job, AGENTS.md item 8). No real money moves on the platform yet. The owner chose to stop these two extras now and to do the deep money and security work in one phase before any real money moves.
+Until now, a PR that changed money code (`packages/ledger-client` and every package that depends on it directly) or security code needed two reviews that other PRs did not. AGENTS.md named security code as `services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`, `.github/` and the lockfile. The seal's own list (`SECURITY_PATHS` in `tooling/ci/review-marker.mjs`) also covered `packages/ledger-client`, `pnpm-workspace.yaml`, `.npmrc`, Dockerfiles, `.dockerignore`, compose files, `tsconfig.base.json` and `tooling/infra/`. It needed `/security-review`, and the seal waited for the independent review (the `CI review` job, AGENTS.md item 8). No real money moves on the platform yet. The owner chose to stop these two extras now and to do the deep money and security work in one phase before any real money moves.
 
 ## Decision
 
