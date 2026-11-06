@@ -44,34 +44,34 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1502 slices left in 21 modules. 284 need no other slice. 47 sit in a dependency loop that the lane untangles first. 358 end in a refusal that names an outside service (built, switched on later). Size: 707 L, 689 M, 106 S.
+1519 slices left in 21 modules. 285 need no other slice. 47 sit in a dependency loop that the lane untangles first. 363 end in a refusal that names an outside service (built, switched on later). Size: 714 L, 699 M, 106 S.
 
 ### Journey map
 
-Done is defined by 460 journeys (3037 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
+Done is defined by 465 journeys (3088 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
-| merchant       | 42       | 6       | 15      | 21      | 242   | 5                   |
+| merchant       | 42       | 7       | 14      | 21      | 242   | 5                   |
 | dex-protocol   | 32       | 5       | 16      | 11      | 277   | 0                   |
-| copy-bots-otc  | 30       | 5       | 13      | 12      | 206   | 1                   |
-| bank           | 28       | 4       | 15      | 9       | 164   | 7                   |
-| derivatives    | 24       | 1       | 13      | 10      | 165   | 0                   |
-| identity       | 21       | 4       | 11      | 6       | 133   | 1                   |
+| bank           | 30       | 8       | 13      | 9       | 180   | 7                   |
+| copy-bots-otc  | 30       | 5       | 13      | 12      | 205   | 1                   |
+| derivatives    | 26       | 7       | 9       | 10      | 186   | 0                   |
+| agents         | 21       | 2       | 12      | 7       | 134   | 3                   |
+| identity       | 21       | 7       | 8       | 6       | 133   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 117   | 0                   |
-| pay            | 21       | 2       | 11      | 8       | 121   | 1                   |
-| wallet         | 21       | 4       | 9       | 8       | 110   | 0                   |
+| pay            | 21       | 4       | 9       | 8       | 121   | 1                   |
+| wallet         | 21       | 6       | 7       | 8       | 110   | 0                   |
 | academy        | 20       | 4       | 9       | 7       | 135   | 0                   |
-| agents         | 20       | 2       | 11      | 7       | 120   | 3                   |
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
-| cex-spot       | 20       | 2       | 13      | 5       | 169   | 0                   |
+| cex-spot       | 20       | 4       | 11      | 5       | 169   | 0                   |
 | more-catalogue | 20       | 5       | 10      | 5       | 127   | 1                   |
-| ops-console    | 20       | 4       | 13      | 3       | 176   | 7                   |
+| ops-console    | 20       | 5       | 12      | 3       | 176   | 7                   |
 | support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
-| charts-desk    | 19       | 1       | 10      | 8       | 120   | 0                   |
+| charts-desk    | 19       | 3       | 8       | 8       | 120   | 0                   |
 | developer      | 18       | 4       | 9       | 5       | 116   | 0                   |
-| algo-dev       | 16       | 1       | 8       | 7       | 104   | 0                   |
-| portfolio      | 16       | 2       | 9       | 5       | 93    | 3                   |
+| algo-dev       | 16       | 1       | 8       | 7       | 105   | 0                   |
+| portfolio      | 16       | 3       | 8       | 5       | 93    | 3                   |
 | home-ia        | 11       | 3       | 5       | 3       | 58    | 0                   |
 
 ### By module
@@ -82,17 +82,17 @@ Done is defined by 460 journeys (3037 steps) in `modules/<module>/acceptance/jou
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
 | ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
-| bank           | 98     | 40           | 7                             | 57    |
+| bank           | 105    | 40           | 12                            | 59    |
 | identity       | 90     | 17           | 30                            | 27    |
 | wallet         | 77     | 25           | 27                            | 26    |
+| derivatives    | 73     | 13           | 20                            | 35    |
 | p2p            | 70     | 12           | 2                             | 40    |
-| derivatives    | 67     | 12           | 20                            | 32    |
 | academy        | 60     | 3            | 14                            | 34    |
 | cex-spot       | 53     | 5            | 13                            | 33    |
 | support-public | 52     | 10           | 15                            | 21    |
 | more-catalogue | 51     | 3            | 22                            | 19    |
+| agents         | 50     | 1            | 10                            | 24    |
 | pay            | 49     | 7            | 3                             | 19    |
-| agents         | 46     | 1            | 10                            | 22    |
 | developer      | 42     | 12           | 1                             | 23    |
 | campaigns      | 41     | 2            | 11                            | 23    |
 | charts-desk    | 41     | 6            | 2                             | 27    |
@@ -106,25 +106,25 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Lane                          | Slices | Need nothing | In the trader journey | In an Order 1 journey | In no journey |
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
-| svc-pay merchant              | 232    | 36           | 11                    | 36                    | 35            |
-| svc-bank                      | 195    | 53           | 35                    | 37                    | 25            |
-| svc-trade spot                | 163    | 41           | 42                    | 48                    | 6             |
-| svc-identity                  | 136    | 29           | 68                    | 39                    | 11            |
+| svc-pay merchant              | 232    | 36           | 11                    | 42                    | 35            |
+| svc-bank                      | 202    | 53           | 35                    | 58                    | 25            |
+| svc-trade spot                | 164    | 41           | 42                    | 54                    | 7             |
+| svc-identity                  | 136    | 29           | 68                    | 50                    | 11            |
 | svc-protocol                  | 75     | 4            | 1                     | 19                    | 4             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |
+| svc-trade futures             | 62     | 11           | 0                     | 25                    | 0             |
 | svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
-| svc-trade futures             | 56     | 10           | 0                     | 9                     | 0             |
-| svc-agents                    | 49     | 2            | 0                     | 8                     | 3             |
-| svc-ops                       | 42     | 11           | 4                     | 1                     | 12            |
-| svc-notify                    | 39     | 15           | 3                     | 11                    | 1             |
-| svc-support                   | 36     | 7            | 2                     | 10                    | 3             |
+| svc-agents                    | 52     | 2            | 0                     | 8                     | 3             |
+| svc-ops                       | 42     | 11           | 4                     | 2                     | 12            |
+| svc-notify                    | 39     | 15           | 3                     | 13                    | 1             |
+| svc-support                   | 36     | 7            | 2                     | 13                    | 3             |
 | svc-pay wallet                | 32     | 9            | 14                    | 9                     | 6             |
 | svc-quant                     | 31     | 4            | 0                     | 9                     | 0             |
-| ledger                        | 25     | 9            | 7                     | 4                     | 3             |
-| svc-matching                  | 21     | 2            | 4                     | 2                     | 3             |
+| ledger                        | 25     | 9            | 7                     | 7                     | 3             |
+| svc-matching                  | 21     | 2            | 4                     | 6                     | 3             |
 | svc-execution                 | 20     | 3            | 5                     | 0                     | 13            |
-| customer: trade               | 19     | 1            | 3                     | 4                     | 1             |
-| svc-edge                      | 19     | 1            | 2                     | 4                     | 5             |
+| customer: trade               | 19     | 1            | 3                     | 5                     | 1             |
+| svc-edge                      | 19     | 1            | 2                     | 5                     | 5             |
 | customer: more                | 16     | 2            | 3                     | 7                     | 0             |
 | svc-market                    | 15     | 0            | 0                     | 6                     | 0             |
 | svc-token                     | 15     | 2            | 0                     | 4                     | 0             |
@@ -183,15 +183,24 @@ First milestone. Lanes take these before their other slices.
 - `HM-navigation-01` Avatar menu with profile summary, account entries and a real account mode (M, depth 1, journey order 1)
 - `HM-navigation-02` Top bar doors: Home, Assets, Bank, Trade, Pay, More, with complete dropdowns (M, depth 1, journey order 1)
 - `I-kyc-compliance-01` KYC case record, reason codes and history (L, depth 1, journey order 1, refuses for an outside service)
+- `I-signin-sessions-01` Step-up for security changes (contracts first) (M, depth 1, journey order 1)
 - `I-signin-sessions-03` Password reset with equal work and handle recovery (M, depth 1, journey order 1, refuses for an outside service)
 - `I-signin-sessions-05` Sessions as sign-in families: device list, sign out others (M, depth 1, journey order 1)
 - `I-signin-sessions-21` Social and wallet-linked sign-in: honest refusal (S, depth 1, journey order 1, refuses for an outside service)
+- `I-signin-sessions-26` Official channels page and scam guides (S, depth 1, journey order 1)
+- `I-signin-sessions-27` Report phishing and scams from the product (S, depth 1, journey order 1)
+- `I-signin-sessions-29` Connected apps and API access (S, depth 1, journey order 1)
 - `OPS-ledger-desk-01` Ledger read desk: transaction browser, account browser, business-key trace, statistics (L, depth 1, journey order 1)
+- `PF-activity-01` Activity feed with every balance-changing kind, and filters for date, asset, type, account, address and year (L, depth 1, journey order 1)
+- `PF-activity-02` Activity detail: link from a purchase to the asset history, linked entries by reference, and trade history by order type (M, depth 1, journey order 1)
+- `PF-activity-03` Notes and report description on an entry, and activity types grouped by tax effect (M, depth 1, journey order 1)
 - `PF-balances-01` Exact balance breakdown by lock kind, and the ledger entries behind every balance (customer, finance-treasury and support views) (L, depth 1, journey order 1)
 - `PF-cost-basis-01` Lot source from ledger legs: cost basis, average price and fees in basis and proceeds (L, depth 1, journey order 1)
 - `W-balances-04` Membership subscription tier (decision-gated) (S, depth 1, journey order 1)
 - `W-balances-05` One supported asset and network registry (L, depth 1, journey order 1)
+- `W-balances-07` Founder ledger inspection, manual adjustments and reconciliation (M, depth 1, journey order 1)
 - `W-deposit-01` Custody deposit port adapter, address issue and memo/tag display (L, depth 1, journey order 1, refuses for an outside service)
+- `W-security-accounts-03` Emergency freeze of account or workspace (M, depth 1, journey order 1)
 - `W-withdraw-05` Per-tier withdrawal limits and remaining allowance (D-148) (L, depth 1, journey order 1)
 - `W-withdraw-06` Withdrawal state machine, status vocabulary, history list and failure reasons (L, depth 1, journey order 1)
 - `W-withdraw-08` Address book: list, save, rename, delete (M, depth 1, journey order 1)
@@ -203,24 +212,15 @@ First milestone. Lanes take these before their other slices.
 - `I-account-lifecycle-02` Notification preferences by category and channel (M, depth 1, journey order 2, refuses for an outside service)
 - `I-account-lifecycle-13` Staff freeze, suspension and closure with customer-visible reason (L, depth 1, journey order 2)
 - `I-kyc-compliance-20` Business verification entry, entity types and requirements per type (L, depth 1, journey order 2)
-- `I-signin-sessions-01` Step-up for security changes (contracts first) (M, depth 1, journey order 2)
-- `I-signin-sessions-26` Official channels page and scam guides (S, depth 1, journey order 2)
-- `I-signin-sessions-27` Report phishing and scams from the product (S, depth 1, journey order 2)
-- `I-signin-sessions-29` Connected apps and API access (S, depth 1, journey order 2)
 - `OPS-accounts-desk-01` Staff holds on funds and the closure balance sweep (L, depth 1, journey order 2, refuses for an outside service)
 - `OPS-accounts-desk-03` Account product tiers and account limits with overrides (L, depth 1, journey order 2, refuses for an outside service)
 - `OPS-ledger-desk-04` Ledger integrity check, response runbook and typed write-block reasons (M, depth 1, journey order 2)
 - `OPS-ledger-desk-05` Backups, restore gates and joint restore watermarks (L, depth 1, journey order 2)
-- `PF-activity-01` Activity feed with every balance-changing kind, and filters for date, asset, type, account, address and year (L, depth 1, journey order 2)
-- `PF-activity-02` Activity detail: link from a purchase to the asset history, linked entries by reference, and trade history by order type (M, depth 1, journey order 2)
-- `PF-activity-03` Notes and report description on an entry, and activity types grouped by tax effect (M, depth 1, journey order 2)
 - `PF-balances-02` Allocation by asset, asset class and type; holdings change over a period (M, depth 1, journey order 2)
 - `PF-overview-03` Display currency, account selector and cash by currency with in-place convert (M, depth 1, journey order 2)
 - `W-balances-02` Small-balance (dust) conversion and its record (M, depth 1, journey order 2)
 - `W-balances-03` Transfers between own wallets and accounts with history (S, depth 1, journey order 2)
-- `W-balances-07` Founder ledger inspection, manual adjustments and reconciliation (M, depth 1, journey order 2)
 - `W-deposit-08` Misrouted and unsupported deposit recovery desk (M, depth 1, journey order 2)
-- `W-security-accounts-03` Emergency freeze of account or workspace (M, depth 1, journey order 2)
 - `I-account-lifecycle-05` Organisation account: create, members, roles, segregated accounts, lifecycle (L, depth 1, journey order 3)
 - `I-signin-sessions-31` Auth secret and signing-key rotation with overlap (M, depth 1, journey order 3)
 - `PF-balances-03` Hide small balances with an owner-set threshold and convert them in bulk (L, depth 1, journey order 3)
@@ -230,6 +230,7 @@ First milestone. Lanes take these before their other slices.
 - `W-security-accounts-06` Sub-accounts: lifecycle, trading features, balances (M, depth 1, journey order 3)
 - `W-security-accounts-07` Transfers between master, sub and organisation accounts, and sub-account wallets (M, depth 1, journey order 3)
 - `SP-order-03` Reference checks: operational depth against two named competitors (acceptance only) (S, depth 1)
+- `SP-markets-data-02` Listing lifecycle: intake, delisting notices, opening window and higher-risk zone (L, depth 2, journey order 1, refuses for an outside service) · needs SP-developer-status-01
 - `SP-order-entry-04` Time in force, self-trade mode, client id and tag, and quantity-unit flags (M, depth 2, journey order 1) · needs SP-order-entry-01
 - `C-chart-core-02` Chart type switcher: candles, bars, line, area, columns and derived series (L, depth 2, journey order 1) · needs C-chart-core-01
 - `C-chart-core-03` Interval switch, history loading, zoom and navigation (M, depth 2, journey order 1) · needs C-chart-core-01
@@ -241,7 +242,10 @@ First milestone. Lanes take these before their other slices.
 - `I-kyc-compliance-10` KYC attempt limits and lockout (S, depth 2, journey order 1) · needs I-kyc-compliance-01
 - `I-signin-sessions-02` Passkey sign-in options without account enumeration (S, depth 2, journey order 1) · needs I-signin-sessions-01
 - `I-signin-sessions-04` Password policy, breached-password screening and change password (M, depth 2, journey order 1) · needs I-signin-sessions-03
+- `I-signin-sessions-06` Session lifetime, idle sign-out and concurrent session limit (M, depth 2, journey order 1) · needs I-signin-sessions-05
 - `I-signin-sessions-07` Trusted devices and new-device sign-in authorisation (L, depth 2, journey order 1, refuses for an outside service) · needs I-signin-sessions-01, I-signin-sessions-03
+- `I-signin-sessions-09` Passkey management: rename, type labels, per-account limit (S, depth 2, journey order 1) · needs I-signin-sessions-01
+- `I-signin-sessions-11` Authenticator app lifecycle: replace, disable, rename, keep codes (M, depth 2, journey order 1) · needs I-signin-sessions-01
 - `I-signin-sessions-18` Register with email or phone (L, depth 2, journey order 1, refuses for an outside service) · needs I-signin-sessions-03
 - `I-signin-sessions-20` One-time code delivery, resend, lockout and channel fallback (M, depth 2, journey order 1, refuses for an outside service) · needs I-signin-sessions-03
 - `I-signin-sessions-32` Auth messages catalogue and hosted error pages (M, depth 2, journey order 1) · needs I-signin-sessions-03
@@ -255,11 +259,14 @@ First milestone. Lanes take these before their other slices.
 - `SP-lifecycle-history-02` Edit and cancel, fill roles, trigger explanation and batch cancel (L, depth 3, journey order 1) · needs SP-conditional-algo-01, SP-order-entry-04
 - `SP-markets-data-01` Public market data: instrument stream, depth, OHLCVT, spreads and price definitions (L, depth 3, journey order 1) · needs SP-markets-data-02
 - `SP-ops-01` Listing desk: market state controls and halt or freeze of in-flight orders (L, depth 3, journey order 1, refuses for an outside service) · needs SP-developer-status-01, SP-markets-data-02
+- `C-trade-dom-01` Time and sales, depth chart, ladder view and the DOM tied to the chart symbol (L, depth 3, journey order 1) · needs C-chart-core-01, C-workspace-01
 - `HM-dashboard-04` Recent activity on Home with a link to the full Activity room (S, depth 3, journey order 1) · needs HM-dashboard-03
+- `I-account-lifecycle-07` Link and unlink sign-in methods (M, depth 3, journey order 1, refuses for an outside service) · needs I-account-lifecycle-01, I-account-lifecycle-03
 - `I-kyc-compliance-04` Verification level ladder and what each level unlocks (M, depth 3, journey order 1) · needs I-kyc-compliance-05
 - `I-kyc-compliance-08` Guided individual verification and accepted ID documents (L, depth 3, journey order 1, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-05
 - `I-signin-sessions-08` Security event notices (events first) (M, depth 3, journey order 1, refuses for an outside service) · needs I-signin-sessions-05, I-signin-sessions-06, I-signin-sessions-07
 - `I-signin-sessions-10` Passkey as second step and per-purpose security keys (M, depth 3, journey order 1) · needs I-signin-sessions-01, I-signin-sessions-09
+- `I-signin-sessions-13` Authenticator troubleshooting and move to a new phone (S, depth 3, journey order 1) · needs I-signin-sessions-11
 - `I-signin-sessions-19` Sign in by identifier and by one-time code (L, depth 3, journey order 1, refuses for an outside service) · needs I-signin-sessions-03, I-signin-sessions-20
 - `I-signin-sessions-30` Bot, brute-force and challenge protection controls (M, depth 3, journey order 1) · needs I-signin-sessions-06
 - `W-balances-01` Balances, available/locked breakdown, wallet-type grouping, per-network totals (M, depth 3, journey order 1) · needs W-deposit-05
@@ -268,32 +275,41 @@ First milestone. Lanes take these before their other slices.
 - `W-withdraw-02` Withdrawal network catalogue, default network, tag rules, minimum, maximum and step (L, depth 3, journey order 1) · needs W-balances-05, W-deposit-04
 - `W-withdraw-17` Counterparty VASP directory and private-wallet ownership proof (M, depth 3, journey order 1) · needs W-withdraw-08, W-withdraw-16
 - `SP-order-01` Spot desk completeness: market orders, pro book, per-order detail and positions (M, depth 4, journey order 1) · needs SP-conditional-algo-01, SP-lifecycle-history-02
+- `C-trade-dom-02` Ladder trading, buy and sell with live spread, instant placement setting, one-click close and cancel, presets (L, depth 4, journey order 1) · needs C-trade-dom-01, C-trade-dom-05
 - `I-kyc-compliance-07` KYC capability model with a terminal inactive state (M, depth 4, journey order 1) · needs I-kyc-compliance-01, I-kyc-compliance-04
 - `I-kyc-compliance-09` Selfie, face match and liveness (M, depth 4, journey order 1, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-08, I-kyc-compliance-10
 - `I-kyc-compliance-11` Proof of address request, submission and accepted documents (M, depth 4, journey order 1, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-05, I-kyc-compliance-08
 - `I-kyc-compliance-17` Restriction states and reasons shown to the customer (M, depth 4, journey order 1) · needs I-kyc-compliance-03, I-kyc-compliance-22
+- `I-signin-sessions-12` Self-service second-factor reset and recovery codes (L, depth 4, journey order 1, refuses for an outside service) · needs I-signin-sessions-01, I-signin-sessions-03, I-signin-sessions-08
 - `I-signin-sessions-25` Anti-phishing code (M, depth 4, journey order 1) · needs I-signin-sessions-01, I-signin-sessions-08
+- `I-signin-sessions-28` Compromised-account response and stolen-funds report (M, depth 4, journey order 1) · needs I-signin-sessions-05, I-signin-sessions-08
 - `PF-overview-01` Portfolio home: holdings table with price, cost basis and unrealised result; value breakdown; valuation disclosure; best and worst movers (L, depth 4, journey order 1) · needs PF-cost-basis-01, PF-cost-basis-03
 - `PF-performance-01` Unrealised and realised profit and loss, and the indicator label with its method (L, depth 4, journey order 1) · needs PF-cost-basis-01, PF-cost-basis-03
 - `W-withdraw-01` Withdrawal request, review, confirm with step-up, success panel (L, depth 4, journey order 1) · needs W-withdraw-02
+- `SP-convert-buy-01` Convert quote, limit mode and large-order OTC routing (L, depth 5, journey order 1) · needs SP-ops-02, SP-order-entry-04
+- `SP-convert-buy-02` Convert source account, asset rules and maintenance (M, depth 5, journey order 1) · needs SP-ops-02
+- `SP-markets-data-03` Quoted currencies, market analytics, tokenized equities and maker rebate tiers (L, depth 5, journey order 1, refuses for an outside service) · needs SP-fees-vip-01, SP-markets-data-02, SP-ops-02
 - `SP-order-entry-02` Market order sizing by value, protection and spread limit (M, depth 5, journey order 1) · needs SP-ops-02, SP-order-entry-01
 - `SP-order-entry-03` Price band, pair rules, minimums and open-order caps (L, depth 5, journey order 1) · needs SP-ops-02, SP-order-entry-01
+- `C-trade-dom-03` Chart order entry: projected line, create at price, order and position lines, drag to reprice, drag protection (L, depth 5, journey order 1) · needs C-trade-dom-02, C-trade-dom-05
 - `I-kyc-compliance-18` Email and phone verification screens (S, depth 5, journey order 1, refuses for an outside service) · needs I-kyc-compliance-03, I-kyc-compliance-20, I-kyc-compliance-23
+- `I-signin-sessions-14` Factor status and Security centre checklist (M, depth 5, journey order 1) · needs I-signin-sessions-09, I-signin-sessions-11, I-signin-sessions-25
+- `W-balances-08` Historical balance snapshots and proof of reserves (M, depth 5, journey order 1) · needs W-custody-ops-04
 - `W-deposit-11` Custody-refuse-then-full deposit journey and unhidden Deposit room (M, depth 5, journey order 1, refuses for an outside service) · needs W-deposit-01, W-withdraw-01
+- `SP-convert-buy-03` Convert history, cash-currency conversion through crypto and the convert API (L, depth 6, journey order 1) · needs SP-convert-buy-01, SP-convert-buy-02
 - `SP-fees-vip-02` Fee visibility: my rate, fill detail, public schedule and fee API (M, depth 6, journey order 1) · needs SP-fees-vip-01, SP-fees-vip-03
+- `SP-markets-data-04` Retail price improvement liquidity layer (blocked on an engine note) (L, depth 6, journey order 1, refuses for an outside service) · needs SP-markets-data-03
 - `I-kyc-compliance-06` Eligibility at registration: age, residence, nationality, account type (M, depth 6, journey order 1) · needs I-kyc-compliance-18
 - `I-signin-sessions-22` Account status page and blocked-action reasons (M, depth 6, journey order 1) · needs I-signin-sessions-08, I-signin-sessions-13, I-signin-sessions-16
+- `W-balances-09` Custody and safeguarding disclosures (S, depth 6, journey order 1) · needs W-balances-08
 - `SP-conditional-algo-01` Triggered stop orders: stop-market, stop-limit and pending list (L, depth 2, journey order 2) · needs SP-order-entry-01
-- `SP-markets-data-02` Listing lifecycle: intake, delisting notices, opening window and higher-risk zone (L, depth 2, journey order 2, refuses for an outside service) · needs SP-developer-status-01
 - `C-chart-core-04` Chart settings, legend, crosshair, data window and price-line overlays (L, depth 2, journey order 2) · needs C-alerts-scan-01, C-chart-core-01, C-embed-feed-ops-01
+- `I-account-lifecycle-03` Sub-account lifecycle: types, freeze control, delete (M, depth 2, journey order 2) · needs I-account-lifecycle-01
 - `I-account-lifecycle-08` Self-service account freeze (M, depth 2, journey order 2, refuses for an outside service) · needs I-account-lifecycle-01
 - `I-account-lifecycle-10` Close account: request, checks, cooling-off (M, depth 2, journey order 2) · needs I-account-lifecycle-01
 - `I-account-lifecycle-12` Appeal a restriction, ban or closure (L, depth 2, journey order 2) · needs I-account-lifecycle-01, I-account-lifecycle-02
 - `I-kyc-compliance-21` Business application: sections, draft, save and resume, submit (L, depth 2, journey order 2) · needs I-kyc-compliance-20
 - `I-kyc-compliance-26` Business account benefits and limits (S, depth 2, journey order 2) · needs I-kyc-compliance-20
-- `I-signin-sessions-06` Session lifetime, idle sign-out and concurrent session limit (M, depth 2, journey order 2) · needs I-signin-sessions-05
-- `I-signin-sessions-09` Passkey management: rename, type labels, per-account limit (S, depth 2, journey order 2) · needs I-signin-sessions-01
-- `I-signin-sessions-11` Authenticator app lifecycle: replace, disable, rename, keep codes (M, depth 2, journey order 2) · needs I-signin-sessions-01
 - `OPS-accounts-desk-02` Console account state control (freeze, unfreeze, close, reopen), staff detail edit and customer archive (L, depth 2, journey order 2, refuses for an outside service) · needs OPS-accounts-desk-01
 - `OPS-ledger-desk-02` Reverse a transaction and post a reviewed manual adjustment (L, depth 2, journey order 2) · needs OPS-change-control-01, OPS-ledger-desk-01
 - `PF-cost-basis-02` Lots list, own-account transfers carry basis, deposits and rewards valued at the time (L, depth 2, journey order 2) · needs PF-cost-basis-01
@@ -303,15 +319,12 @@ First milestone. Lanes take these before their other slices.
 - `W-withdraw-07` Cancel a pending withdrawal and returned-withdrawal recovery (M, depth 2, journey order 2) · needs W-withdraw-06
 - `W-withdraw-14` Internal off-chain settlement between platform accounts (M, depth 2, journey order 2) · needs W-withdraw-05
 - `SP-conditional-algo-02` OCO pair, attached TP/SL bracket and OTO close (L, depth 3, journey order 2) · needs SP-conditional-algo-01, SP-order-entry-01
-- `C-trade-dom-01` Time and sales, depth chart, ladder view and the DOM tied to the chart symbol (L, depth 3, journey order 2) · needs C-chart-core-01, C-workspace-01
 - `HM-navigation-05` Simple and Pro as one account-level preference record (also the base for tiles, hide-amounts and theme) (M, depth 3, journey order 2) · needs HM-dashboard-01, HM-navigation-01, HM-shell-02, HM-widgets-01
-- `I-account-lifecycle-07` Link and unlink sign-in methods (M, depth 3, journey order 2, refuses for an outside service) · needs I-account-lifecycle-01, I-account-lifecycle-03
 - `I-account-lifecycle-09` Unfreeze and reactivate (M, depth 3, journey order 2, refuses for an outside service) · needs I-account-lifecycle-08
 - `I-account-lifecycle-14` Founder accounts desk: search, account detail and export (L, depth 3, journey order 2) · needs I-account-lifecycle-08
 - `I-kyc-compliance-03` Request for information (RFI) with deadline (M, depth 3, journey order 2, refuses for an outside service) · needs I-kyc-compliance-01, I-kyc-compliance-02
 - `I-kyc-compliance-22` Business document checklist and upload rules (M, depth 3, journey order 2, refuses for an outside service) · needs I-kyc-compliance-20, I-kyc-compliance-21
 - `I-kyc-compliance-25` Business status lifecycle and rejection feedback with in-place correction (M, depth 3, journey order 2, refuses for an outside service) · needs I-kyc-compliance-20, I-kyc-compliance-21
-- `I-signin-sessions-13` Authenticator troubleshooting and move to a new phone (S, depth 3, journey order 2) · needs I-signin-sessions-11
 - `OPS-ledger-desk-03` Unidentified deposits in suspense and the in-flight money view (L, depth 3, journey order 2, refuses for an outside service) · needs OPS-accounts-desk-01, OPS-ledger-desk-02
 - `PF-cost-basis-03` Cost basis method per account or asset, and specific-lot matching per sale (L, depth 3, journey order 2) · needs PF-cost-basis-01, PF-cost-basis-02
 - `PF-cost-basis-04` Customer-entered entry price, and the missing-basis warning with a guided fix (M, depth 3, journey order 2) · needs PF-cost-basis-01, PF-cost-basis-02
@@ -321,43 +334,30 @@ First milestone. Lanes take these before their other slices.
 - `RC-cex-spot-08` Published trading rulebook versions (M, depth 4, journey order 2) · needs SP-developer-status-02, SP-ops-01
 - `SP-ops-02` Fee schedule and pair risk limits: versioned operator writes (L, depth 4, journey order 2) · needs SP-fees-vip-01, SP-ops-01
 - `SP-ops-03` Support order lookup and trade bust with reconciliation (L, depth 4, journey order 2) · needs SP-ops-01
-- `C-trade-dom-02` Ladder trading, buy and sell with live spread, instant placement setting, one-click close and cancel, presets (L, depth 4, journey order 2) · needs C-trade-dom-01, C-trade-dom-05
 - `I-account-lifecycle-11` Re-registration block after closure (M, depth 4, journey order 2) · needs I-account-lifecycle-10, I-account-lifecycle-14
 - `I-kyc-compliance-13` Enhanced due diligence and source-of-funds tasks (L, depth 4, journey order 2) · needs I-kyc-compliance-01, I-kyc-compliance-02, I-kyc-compliance-03
 - `I-kyc-compliance-23` Beneficial owners, authorised persons and attestations (L, depth 4, journey order 2, refuses for an outside service) · needs I-kyc-compliance-19, I-kyc-compliance-20, I-kyc-compliance-21
-- `I-signin-sessions-12` Self-service second-factor reset and recovery codes (L, depth 4, journey order 2, refuses for an outside service) · needs I-signin-sessions-01, I-signin-sessions-03, I-signin-sessions-08
-- `I-signin-sessions-28` Compromised-account response and stolen-funds report (M, depth 4, journey order 2) · needs I-signin-sessions-05, I-signin-sessions-08
 - `RC-cex-spot-01` Firm and session pre-trade credit on the spot door (L, depth 5, journey order 2) · needs SP-ops-01, SP-ops-02
-- `SP-convert-buy-01` Convert quote, limit mode and large-order OTC routing (L, depth 5, journey order 2) · needs SP-ops-02, SP-order-entry-04
-- `SP-convert-buy-02` Convert source account, asset rules and maintenance (M, depth 5, journey order 2) · needs SP-ops-02
 - `SP-fees-vip-03` VIP tiers by volume and assets, snapshot schedule and benefits (L, depth 5, journey order 2) · needs SP-fees-vip-01, SP-ops-02
 - `SP-lifecycle-history-03` Dead-man switch, statement exports and ledger history (L, depth 5, journey order 2) · needs SP-ops-03, SP-order-entry-04
-- `SP-markets-data-03` Quoted currencies, market analytics, tokenized equities and maker rebate tiers (L, depth 5, journey order 2, refuses for an outside service) · needs SP-fees-vip-01, SP-markets-data-02, SP-ops-02
-- `C-trade-dom-03` Chart order entry: projected line, create at price, order and position lines, drag to reprice, drag protection (L, depth 5, journey order 2) · needs C-trade-dom-02, C-trade-dom-05
 - `HM-shell-03` One shared service-off notice and typed refusal on every shell action (M, depth 5, journey order 2, refuses for an outside service) · needs HM-notifications-02, HM-shell-01
-- `I-signin-sessions-14` Factor status and Security centre checklist (M, depth 5, journey order 2) · needs I-signin-sessions-09, I-signin-sessions-11, I-signin-sessions-25
 - `I-signin-sessions-16` Withdrawal hold after security changes (identity decision) (M, depth 5, journey order 2) · needs I-signin-sessions-11, I-signin-sessions-12, I-signin-sessions-18
 - `PF-performance-02` P&L views, transfers setting and fees booked into realised result (M, depth 5, journey order 2) · needs PF-cost-basis-01, PF-performance-01
 - `PF-performance-03` Cumulative P&L chart, breakdown by asset, market and day, and the change-in-value bridge (L, depth 5, journey order 2) · needs PF-cost-basis-01, PF-cost-basis-02, PF-overview-02, PF-performance-01
-- `W-balances-08` Historical balance snapshots and proof of reserves (M, depth 5, journey order 2) · needs W-custody-ops-04
 - `RC-cex-spot-02` Pro desk flatten control (S, depth 6, journey order 2) · needs SP-order-01, SP-order-entry-02
 - `RC-cex-spot-06` Maker incentive programme: tiers, obligations, monitoring and clawback (L, depth 6, journey order 2) · needs SP-fees-vip-01, SP-markets-data-03, SP-ops-02, SP-ops-04
-- `SP-convert-buy-03` Convert history, cash-currency conversion through crypto and the convert API (L, depth 6, journey order 2) · needs SP-convert-buy-01, SP-convert-buy-02
 - `SP-convert-buy-04` Buy and sell card: payment step, sell quote and target price (L, depth 6, journey order 2, refuses for an outside service) · needs SP-convert-buy-01, SP-order-entry-01
-- `SP-markets-data-04` Retail price improvement liquidity layer (blocked on an engine note) (L, depth 6, journey order 2, refuses for an outside service) · needs SP-markets-data-03
 - `SP-order-02` FIX and SBE adapters, matching and trade health, and market maker seed honesty (M, depth 6, journey order 2) · needs SP-ops-03, SP-ops-04
 - `I-kyc-compliance-14` One account per person: duplicates, identity transfer, personal vs business exclusivity (L, depth 6, journey order 2) · needs I-kyc-compliance-01, I-kyc-compliance-02, I-kyc-compliance-16
 - `I-signin-sessions-15` Fund password (M, depth 6, journey order 2) · needs I-signin-sessions-01, I-signin-sessions-16
 - `I-signin-sessions-17` Personal withdrawal limits, large-withdrawal protection, channel restrictions (L, depth 6, journey order 2) · needs I-signin-sessions-16
 - `I-signin-sessions-23` Change email or phone screens (M, depth 6, journey order 2, refuses for an outside service) · needs I-signin-sessions-01, I-signin-sessions-08, I-signin-sessions-16
-- `W-balances-09` Custody and safeguarding disclosures (S, depth 6, journey order 2) · needs W-balances-08
 - `RC-cex-spot-09` Launch-liquidity plan record per market (M, depth 7, journey order 2) · needs RC-cex-spot-06, SP-markets-data-02, SP-ops-01
 - `RC-cex-spot-17` Internal book seeding: operator-written config and console (M, depth 7, journey order 2, refuses for an outside service) · needs RC-cex-spot-01, SP-ops-02, SP-order-02
 - `SP-fees-vip-04` Fee currency, VIP application, fee-change notices and fiat buy fees (L, depth 7, journey order 2, refuses for an outside service) · needs SP-convert-buy-04, SP-fees-vip-01, SP-fees-vip-03, SP-order-entry-04
 - `I-signin-sessions-24` Operator session tools, recovery link and support-assisted recovery (L, depth 7, journey order 2, refuses for an outside service) · needs I-signin-sessions-12, I-signin-sessions-22
 - `RC-cex-spot-11` Pay trading fees in IFC with the published decay discount (L, depth 8, journey order 2) · needs SP-fees-vip-02, SP-fees-vip-04, SP-order-entry-04
 - `SP-developer-status-02` Developer portal: overview, announcements, error format and changelog (M, depth 2, journey order 3) · needs SP-developer-status-01
-- `I-account-lifecycle-03` Sub-account lifecycle: types, freeze control, delete (M, depth 2, journey order 3) · needs I-account-lifecycle-01
 - `W-withdraw-10` Allowlist default-deny, one-time-send policy and governed changes (L, depth 2, journey order 3) · needs W-security-accounts-04, W-withdraw-08
 - `W-withdraw-11` Multi-approval for withdrawals (N-of-M, amount locked at submit) (L, depth 2, journey order 3) · needs W-security-accounts-04, W-withdraw-06
 - `W-withdraw-12` Create a withdrawal through a scoped API key (D-167) (M, depth 2, journey order 3) · needs W-security-accounts-01, W-withdraw-05
