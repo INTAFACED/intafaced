@@ -102,6 +102,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     ...(process.env.LOCAL_STACK_AGENTS_ASSISTANT_MODEL === 'off'
       ? {}
       : { AGENTS_OWN_ASSISTANT_MODEL: testValue('AGENTS_OWN_ASSISTANT_MODEL') }),
+    // LOCAL TEST automatic reviewer on the TEST engine (J-agents-05 #7). `LOCAL_STACK_AGENTS_REVIEWER_MODEL=off` on a
+    // restart leaves it blank, so a journey sees the owner.decision notice and every call going to the person.
+    ...(process.env.LOCAL_STACK_AGENTS_REVIEWER_MODEL === 'off' ? {} : { AGENTS_REVIEWER_MODEL: testValue('AGENTS_REVIEWER_MODEL') }),
     // LOCAL TEST wait of a held own-agent call (J-agents-05 #5 #6). `LOCAL_STACK_AGENTS_APPROVAL_TTL=off` on a start or
     // restart leaves it blank (holding refuses agents.approval.ttl_unset); `=short` uses the short TEST wait, so a journey
     // can watch a request expire.
