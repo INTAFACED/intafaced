@@ -22,6 +22,19 @@ CREATE TABLE IF NOT EXISTS "pay"."refund_approval_rules" (
   PRIMARY KEY ("merchant_id", "asset_code")
 );
 
+-- Every change to the rule, append-only: who set what, when. Nothing here is ever updated or deleted.
+CREATE TABLE IF NOT EXISTS "pay"."refund_approval_rule_changes" (
+  "id"            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "seq"           bigserial NOT NULL,
+  "merchant_id"   uuid NOT NULL REFERENCES "pay"."merchants"("id"),
+  "asset_code"    text NOT NULL,
+  "old_threshold" numeric(60, 18),
+  "new_threshold" numeric(60, 18),
+  "changed_by"    text NOT NULL,
+  "changed_at"    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "refund_rule_changes_merchant_idx" ON "pay"."refund_approval_rule_changes" ("merchant_id", "seq" DESC);
+
 CREATE TABLE IF NOT EXISTS "pay"."refund_requests" (
   "id"               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "seq"              bigserial NOT NULL,

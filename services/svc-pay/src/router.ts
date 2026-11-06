@@ -91,7 +91,7 @@ import type { RailRegistry } from './rails/registry.js';
 import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
-import { isInteractivePrincipal, requireMerchantPermission, seesFullPricing } from './merchant-ops/roles.js';
+import { isInteractivePrincipal, requireMerchantPermission, resolveMerchantCaller, seesFullPricing } from './merchant-ops/roles.js';
 import { RefundControl, BULK_REFUND_MAX_ROWS, type RefundRequest } from './refund-control/service.js';
 import { maskRailRef, PaymentPrivacy, seesClearRailRef } from './merchant-ops/payment-views.js';
 import { paymentPrivacyProcedures } from './merchant-ops/payment-views-router.js';
@@ -1327,7 +1327,13 @@ export function createPayRouter(
           .output(z.object({ assetId: z.string(), threshold: amountSchema }).nullable())
           .mutation(({ ctx, input }) =>
             wrap(async () => {
-              await assertAccess(ctx.principal?.userId, input.merchantId, 'trpc.payment.refund');
+              // The business owner alone, never a team member or a platform grant: the rule is what makes a second
+              // person check a refund, so the people it checks cannot change it.
+              if (!portalSql) throw new PayError('Refund controls need the pay database', 'pay.refund_request_not_found');
+              const caller = await resolveMerchantCaller(portalSql, ctx.principal as never);
+              if (caller.role !== 'owner' || caller.merchantId !== input.merchantId) {
+                throw new PayError('Only the business owner can change the refund approval rule', 'pay.merchant_forbidden');
+              }
               const rule = await refunds().setRule(
                 input.merchantId,
                 input.assetId,
@@ -3183,6 +3189,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.refund_id_conflict':
       case 'pay.refund_open_dispute':
       case 'pay.refund_request_closed':
+      case 'pay.refund_rule_change_blocked':
       case 'pay.void_not_authorized':
       case 'pay.void_in_flight':
       case 'pay.void_outcome_unknown':

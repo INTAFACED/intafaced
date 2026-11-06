@@ -235,9 +235,9 @@ export function BulkRefund({ merchantId, payments, onDone }: { merchantId: strin
   const [report, setReport] = useState<{ batchId: string; ids: string[]; out: z.infer<typeof bulkOut> } | null>(
     bulkReports.get(merchantId) ?? null,
   );
-  if (candidates.length === 0 && !report) return null;
   // A batch sent whose answer has not come back: "Run again" sends the same batch, never a new one.
   const [unanswered, setUnanswered] = useState<{ batchId: string; ids: string[] } | null>(null);
+  if (candidates.length === 0 && !report) return null;
   async function run(batch: { batchId: string; ids: string[] }) {
     setBusy(true);
     if (!(await payStepUp.ensure('refund'))) {

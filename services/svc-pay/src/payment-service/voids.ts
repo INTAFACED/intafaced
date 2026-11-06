@@ -73,20 +73,24 @@ export async function voidPayment(svc: PayServiceInternal, paymentId: string): P
     );
   }
 
-  // (3) The rail's definite answer.
-  return transaction(svc.sql, async (tx) => {
+  // (3) The rail's definite answer, recorded and committed before any refusal is thrown, so a refusal clears the intent
+  // and the payment is an authorisation again (capture works), and the rail's word is on the record.
+  const outcome = await transaction(svc.sql, async (tx) => {
     const row = await lockPayment(tx, paymentId);
-    if (row.status === 'voided') return svc.view(tx, row);
+    if (row.status === 'voided') return { ok: true as const, view: await svc.view(tx, row) };
     await appendEvent(tx, row.id, 'rail.void', railPayload(result));
     if (!result.ok || result.status !== 'voided') {
       await appendEvent(tx, row.id, 'void.refused', { failureCode: result.failureCode ?? null });
-      throw new PayError(result.failureReason ?? 'Rail refused to void', 'pay.rail_failed', { failureCode: result.failureCode });
+      return { ok: false as const };
     }
     assertTransition(row, 'voided');
     await appendEvent(tx, row.id, 'voided', { railRef });
     await tx`UPDATE pay.payments SET status = 'voided', updated_at = now() WHERE id = ${row.id}`;
-    return svc.view(tx, { ...row, status: 'voided' });
+    return { ok: true as const, view: await svc.view(tx, { ...row, status: 'voided' }) };
   });
+  if (!outcome.ok)
+    throw new PayError(result.failureReason ?? 'Rail refused to void', 'pay.rail_failed', { failureCode: result.failureCode });
+  return outcome.view;
 }
 
 /** Whether a void was asked of the rail and its answer is not on record yet. */

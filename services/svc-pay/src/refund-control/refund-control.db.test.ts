@@ -68,7 +68,7 @@ describe('refund controls, void and reverse (J-merchant-06)', { timeout: 60_000 
     await truncatePayForTest(
       sql,
       'pay',
-      `TRUNCATE pay.refund_batch_rows, pay.refund_requests, pay.refund_approval_rules, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
+      `TRUNCATE pay.refund_batch_rows, pay.refund_requests, pay.refund_approval_rule_changes, pay.refund_approval_rules, pay.checkout_sessions, pay.payment_links, pay.settlements, pay.payment_events, pay.payments, pay.payment_profiles, pay.merchants RESTART IDENTITY CASCADE`,
     );
     ledger = new MemoryLedger();
     card = new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
@@ -304,5 +304,46 @@ describe('refund controls, void and reverse (J-merchant-06)', { timeout: 60_000 
     const c = await captured(m.id, '7');
     await sql`UPDATE pay.payments SET status = 'authorized' WHERE id = ${c.id}`;
     await expect(pay.voidPayment(c.id)).rejects.toMatchObject({ code: 'pay.void_not_authorized' });
+  });
+
+  it('void: a definite rail refusal is recorded, clears the intent, and the payment can still be captured', async () => {
+    const m = await merchant();
+    const p = await authorised(m.id, '30');
+    const real = card.void.bind(card);
+    card.void = async (ref) => ({
+      ok: false,
+      railRef: ref,
+      status: 'failed',
+      amount: amt('30'),
+      assetId: 'USDC',
+      at: new Date(),
+      failureCode: 'void.declined',
+      failureReason: 'TEST refusal',
+    });
+    await expect(pay.voidPayment(p.id)).rejects.toMatchObject({ code: 'pay.rail_failed' });
+    card.void = real;
+    const events = (await sql`SELECT event FROM pay.payment_events WHERE payment_id = ${p.id} AND event LIKE '%void%' ORDER BY seq`).map(
+      (r) => r.event,
+    );
+    expect(events).toEqual(['void.requested', 'rail.void', 'void.refused']);
+    expect((await pay.capture(p.id)).status).toBe('captured');
+  });
+
+  it('the rule cannot be loosened while a refund waits for approval; every change is kept', async () => {
+    const m = await merchant();
+    await control.setRule(m.id, 'USDC', amt('5'), OWNER);
+    const p = await captured(m.id, '20');
+    await control.request({ merchantId: m.id, paymentId: p.id, amount: amt('10'), refundId: `refund:${p.id}:w`, makerUserId: OWNER });
+    await expect(control.setRule(m.id, 'USDC', null, OWNER)).rejects.toMatchObject({ code: 'pay.refund_rule_change_blocked' });
+    await expect(control.setRule(m.id, 'USDC', amt('50'), OWNER)).rejects.toMatchObject({ code: 'pay.refund_rule_change_blocked' });
+    // Tightening is always allowed.
+    expect(await control.setRule(m.id, 'USDC', amt('2'), OWNER)).toMatchObject({ threshold: '2' });
+    const changes =
+      await sql`SELECT old_threshold::text AS o, new_threshold::text AS n FROM pay.refund_approval_rule_changes WHERE merchant_id = ${m.id} ORDER BY seq`;
+    // Compared as exact decimals (scaled bigint), never as floats.
+    expect(changes.map((c) => [c.o === null ? null : amt(c.o), amt(c.n)])).toEqual([
+      [null, amt('5')],
+      [amt('5'), amt('2')],
+    ]);
   });
 });

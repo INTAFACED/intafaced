@@ -128,18 +128,49 @@ export class RefundControl {
     return r ? { merchantId, assetId, threshold: formatAmount(parseAmount(r.threshold)), setBy: r.set_by, setAt: r.set_at } : null;
   }
 
-  /** Sets the rule, or clears it with `null` (no rule: every refund runs at once, as before). */
+  /**
+   * Sets the rule, or clears it with `null`. Every change is kept, append-only. Loosening it (clearing it or raising the
+   * threshold) is refused while any refund on this business and asset waits for approval, so a rule is never lowered to
+   * let a queued refund through without its checker.
+   */
   async setRule(merchantId: string, assetId: string, threshold: Amount | null, userId: string): Promise<RefundRule | null> {
-    if (threshold === null) {
-      await this.sql`DELETE FROM pay.refund_approval_rules WHERE merchant_id = ${merchantId}::uuid AND asset_code = ${assetId}`;
-      return null;
-    }
-    if (threshold <= 0n) throw new PayError('A refund approval threshold must be above zero', 'pay.invalid_amount');
-    await this.sql`
-      INSERT INTO pay.refund_approval_rules (merchant_id, asset_code, threshold, set_by)
-      VALUES (${merchantId}::uuid, ${assetId}, ${formatAmount(threshold)}, ${userId})
-      ON CONFLICT (merchant_id, asset_code) DO UPDATE SET threshold = EXCLUDED.threshold, set_by = EXCLUDED.set_by, set_at = now()
-    `;
+    if (threshold !== null && threshold <= 0n) throw new PayError('A refund approval threshold must be above zero', 'pay.invalid_amount');
+    await transaction(this.sql, async (tx) => {
+      await tx`SELECT id FROM pay.merchants WHERE id = ${merchantId}::uuid FOR UPDATE`;
+      const current = await tx<Array<{ threshold: string }>>`
+        SELECT threshold::text AS threshold FROM pay.refund_approval_rules WHERE merchant_id = ${merchantId}::uuid AND asset_code = ${assetId}
+      `;
+      const old = current[0] ? parseAmount(current[0].threshold) : null;
+      const loosens = old !== null && (threshold === null || threshold > old);
+      if (loosens) {
+        const waiting = await tx<Array<{ id: string }>>`
+          SELECT id FROM pay.refund_requests
+           WHERE merchant_id = ${merchantId}::uuid AND asset_code = ${assetId} AND status IN ('queued', 'approved') LIMIT 1
+        `;
+        if (waiting[0]) {
+          throw new PayError(
+            'A refund is waiting for approval; the rule cannot be loosened until it is decided',
+            'pay.refund_rule_change_blocked',
+            {
+              requestId: waiting[0].id,
+            },
+          );
+        }
+      }
+      if (threshold === null) {
+        await tx`DELETE FROM pay.refund_approval_rules WHERE merchant_id = ${merchantId}::uuid AND asset_code = ${assetId}`;
+      } else {
+        await tx`
+          INSERT INTO pay.refund_approval_rules (merchant_id, asset_code, threshold, set_by)
+          VALUES (${merchantId}::uuid, ${assetId}, ${formatAmount(threshold)}, ${userId})
+          ON CONFLICT (merchant_id, asset_code) DO UPDATE SET threshold = EXCLUDED.threshold, set_by = EXCLUDED.set_by, set_at = now()
+        `;
+      }
+      await tx`
+        INSERT INTO pay.refund_approval_rule_changes (merchant_id, asset_code, old_threshold, new_threshold, changed_by)
+        VALUES (${merchantId}::uuid, ${assetId}, ${old === null ? null : formatAmount(old)}, ${threshold === null ? null : formatAmount(threshold)}, ${userId})
+      `;
+    });
     return this.rule(merchantId, assetId);
   }
 

@@ -290,6 +290,8 @@ export type PayErrorCode =
   | 'pay.refund_request_invalid'
   /** Bulk refund: a batch with no rows, more than the cap, or a payment twice. */
   | 'pay.refund_batch_invalid'
+  /** The refund approval rule cannot be loosened while a refund waits for approval. */
+  | 'pay.refund_rule_change_blocked'
   /** A redelivered chargeback names a different amount than the opening already planned for that dispute. */
   | 'pay.chargeback_plan_conflict'
   /** Merchant pots cannot cover the dispute and the insurance fund cannot cover the rest. */
