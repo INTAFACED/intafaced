@@ -50,6 +50,7 @@ import {
 } from './bust.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
 import { MarketModeAdmin } from './market-mode.js';
+import { SeedConfigAdmin } from './seed-config.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
 import {
   assertPriceRangeWhole,
@@ -155,6 +156,7 @@ export class TradeOpsAdmin {
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
   /** A market's trading mode, set by two operators (SP-developer-status-01, J-cex-spot-14 #3 #4). */
   readonly marketMode: MarketModeAdmin;
+  readonly seedConfig: SeedConfigAdmin;
   /** VIP application review and trial grants (SP-fees-vip-04, J-cex-spot-10 #7). */
   readonly vipApplications: VipReviewAdmin;
   /** Copy, bots and OTC counts, customer lookup and quote desk (CB-ops-05, CB-ops-04). */
@@ -180,6 +182,7 @@ export class TradeOpsAdmin {
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.marketMode = new MarketModeAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
+    this.seedConfig = new SeedConfigAdmin({ sql: deps.sql, approvals: deps.approvals });
     this.futuresContracts = new FuturesContractsAdmin({
       sql: deps.sql,
       approvals: deps.approvals,
@@ -1032,11 +1035,19 @@ export class TradeOpsAdmin {
       operationId: clientRequestId,
     });
     const next = (BigInt(version) + 1n).toString();
+    // The on/off switch keeps the market's seeding configuration as the last version had it (J-cex-spot-20 #5): it
+    // turns the seed on or off, never blanks the values an operator wrote.
     await this.deps.sql`INSERT INTO trade.operator_mm_seed (
-      id, market_id, version, enabled, operator_id, approver_id, approval_id
-    ) VALUES (
-      ${randomUUID()}, ${input.market}, ${next}::bigint, ${input.enabled}, ${principal.userId}, ${consumed.approverId}, ${input.approvalId}
-    )`;
+      id, market_id, version, enabled, operator_id, approver_id, approval_id,
+      half_spread_bps, step_bps, levels, qty_per_level, mid_source, configured_mid
+    )
+    SELECT ${randomUUID()}, ${input.market}, ${next}::bigint, ${input.enabled}, ${principal.userId}, ${consumed.approverId}, ${input.approvalId},
+           p.half_spread_bps, p.step_bps, p.levels, p.qty_per_level, p.mid_source, p.configured_mid
+      FROM (SELECT 1) AS one
+      LEFT JOIN LATERAL (
+        SELECT half_spread_bps, step_bps, levels, qty_per_level, mid_source, configured_mid
+          FROM trade.operator_mm_seed WHERE market_id = ${input.market} ORDER BY version DESC LIMIT 1
+      ) AS p ON true`;
     const result = { market: input.market, enabled: input.enabled, version: next };
     await storeRequest(this.deps.sql, clientRequestId, 'mm_seed', fingerprint, result);
     await writeOperatorAudit(this.deps.sql, {
