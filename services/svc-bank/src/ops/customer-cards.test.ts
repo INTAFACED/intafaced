@@ -5,6 +5,7 @@ import { parseAmount as amt } from '@intafaced/ledger-client';
 import { createBankRouter } from '../router.js';
 import type { BankServices } from '../bank-service.js';
 import type { CardRecord } from '../cards/card-service.js';
+import { presentCard } from '../cards/card-view.js';
 
 /**
  * `bank.ops.customerCards` through the real router and edge context: the console reads one customer's cards with
@@ -71,9 +72,9 @@ const OPEN = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const CLOSED = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
 function build(rows: CardRecord[]) {
-  const asked: Array<{ userId: string; limit: number | undefined }> = [];
+  const asked: Array<{ userId: string; limit: number }> = [];
   const cards = {
-    cardsOf: async (userId: string, limit?: number) => {
+    cardsPage: async (userId: string, limit: number) => {
       asked.push({ userId, limit });
       return rows.filter((r) => r.userId === userId).slice(0, limit);
     },
@@ -88,7 +89,18 @@ describe('console customer cards', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => void order.push('audit'));
     const { as, asked } = build([
       card(OPEN, CUSTOMER, 'active', { activatedAt: null }),
-      card(CLOSED, CUSTOMER, 'closed'),
+      card(CLOSED, CUSTOMER, 'closed', {
+        cardType: 'physical',
+        shippingAddress: {
+          name: 'TEST',
+          line1: '1 Home Street',
+          line2: null,
+          city: 'Berlin',
+          region: null,
+          postalCode: '10115',
+          country: 'DE',
+        },
+      }),
       card('cccccccc-cccc-4ccc-8ccc-cccccccccccc', OTHER, 'active'),
     ]);
     const caller = as(OPERATOR, ['admin:treasury']);
@@ -99,9 +111,11 @@ describe('console customer cards', () => {
       [OPEN, 'inactive'],
       [CLOSED, 'closed'],
     ]);
-    expect(out.cards[1]).toMatchObject({ simulated: true, panTail: '4242', perAuthorizationLimit: '50', cardType: 'virtual' });
+    expect(out.cards[1]).toMatchObject({ simulated: true, panTail: '4242', perAuthorizationLimit: '50', cardType: 'physical' });
+    expect(out.cards[1]).not.toHaveProperty('shippingAddress');
     const text = JSON.stringify(out);
     expect(text).not.toContain('issuer-secret-ref');
+    expect(text).not.toContain('Home Street');
     expect(text).not.toMatch(/shippingAddress|issuerRef|pan"|cvv|pin"/i);
     expect(order).toEqual(['audit']);
     const line = JSON.parse(String(info.mock.calls.at(-1)?.[0]));
@@ -109,11 +123,25 @@ describe('console customer cards', () => {
     info.mockRestore();
   });
 
+  it("gives the owner's own view of each card, field for field, without the shipping address", async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const rows = [card(OPEN, CUSTOMER, 'frozen', { dailyLimit: amt('100'), usesAllowed: 1 }), card(CLOSED, CUSTOMER, 'closed')];
+    const { as } = build(rows);
+    const out = await as(OPERATOR, ['admin:treasury']).ops.customerCards({ userId: CUSTOMER, limit: 50 });
+    expect(out.cards).toEqual(
+      rows.map((r) => {
+        const { shippingAddress: _home, ...view } = presentCard(r);
+        return view;
+      }),
+    );
+    info.mockRestore();
+  });
+
   it('writes the audit line before the cards are read', async () => {
     const order: string[] = [];
     const info = vi.spyOn(console, 'info').mockImplementation(() => void order.push('audit'));
     const cards = {
-      cardsOf: async () => {
+      cardsPage: async () => {
         order.push('read');
         return [];
       },

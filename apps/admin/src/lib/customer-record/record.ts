@@ -185,7 +185,8 @@ function depositTravelRule(userId: string): ReadSpec {
   };
 }
 
-const CARD_LIMIT = 50;
+/** svc-bank's cap on one page of cards (`ops.customerCards`, max 200). */
+const CARD_LIMIT = 200;
 const CARD_STATUS_WORDS: Readonly<Record<string, string>> = {
   active: 'Active',
   inactive: 'Issued, not activated yet',
@@ -193,12 +194,12 @@ const CARD_STATUS_WORDS: Readonly<Record<string, string>> = {
   closed: 'Closed',
 };
 
-/** Every card svc-bank issued to the account, every status (a closed one included), newest first (J-ops-console-04 #7). */
+/** The account's cards, every status (a closed one included), newest first, up to svc-bank's 200 (J-ops-console-04 #7). */
 function customerCards(userId: string): ReadSpec {
   return {
     id: 'cards.list',
     title: 'Cards issued to this account',
-    note: 'Every card svc-bank issued to this account, newest first, in every status, closed ones included, as svc-bank holds it now. A simulated card is the test card simulator: no real card exists. No card number, security code or PIN is read here; svc-bank logs that you read this account’s cards before it reads them.',
+    note: 'The cards svc-bank issued to this account, newest first, in every status, closed ones included, as svc-bank holds it now: up to the newest 200 in one read. When 200 are shown, older cards may exist and are not shown here. A simulated card is the test card simulator: no real card exists. No card number, security code, PIN or shipping address is read here; svc-bank logs that you read this account’s cards before it reads them.',
     module: 'bank',
     plainName: 'svc-bank’s cards for this account',
     procedure: 'ops.customerCards',

@@ -55,11 +55,6 @@ describe('what each tab reads', () => {
   });
   it('names procedures the owning services serve today', () => {
     expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');
-    // Cards: svc-bank's operator read of one customer's cards, treasury scope, the owner list's own query for the named id.
-    expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerCards: customerCardsProcedure(bank, guard)');
-    const cards = service('svc-bank/src/ops/customer-cards.ts');
-    expect(cards).toContain("scopedProcedure('admin:treasury')");
-    expect(cards).toContain('bank.cards.cardsOf(input.userId, page)');
     // The tickets blocker: svc-support's account read goes by ticket, strictly.
     expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().guid() }).strict())');
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
@@ -124,11 +119,15 @@ describe('cards tab', () => {
     replacesCardId: null,
     replacedByCardId: null,
   };
-  it('reads svc-bank ops.customerCards for this account, with a page size, as the cards.list read', () => {
+  it('reads svc-bank ops.customerCards for this account, at svc-bank’s page cap, as the cards.list read', () => {
     const plan = tabPlan('cards', USER);
-    expect(plan.reads.map((r) => [r.id, r.module, r.procedure, r.input])).toEqual([
-      ['cards.list', 'bank', 'ops.customerCards', { userId: USER, limit: 50 }],
+    expect(plan.reads.map((r) => [r.id, r.module, r.procedure, r.input, r.shape, r.rowsKey, r.idKey, r.page])).toEqual([
+      ['cards.list', 'bank', 'ops.customerCards', { userId: USER, limit: 200 }, 'list', 'cards', 'id', 200],
     ]);
+    const shown = plan.reads[0]!.columns.filter((c) => !c.detail).map((c) => c.key);
+    expect(shown).toEqual(expect.arrayContaining(['id', 'status']));
+    expect(plan.reads[0]!.columns.map((c) => c.key)).not.toContain('shippingAddress');
+    expect(plan.reads[0]!.note).toContain('When 200 are shown, older cards may exist');
     expect(plan.reads[0]!.forbiddenText).toContain('admin:treasury');
     expect(plan.reads[0]!.refusals?.['bank.ops_audit_unavailable']).toContain('read nothing');
     expect(plan.unwired.map((u) => u.id)).toEqual(['cards.payments']);
