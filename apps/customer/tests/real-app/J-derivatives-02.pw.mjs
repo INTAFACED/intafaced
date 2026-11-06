@@ -311,6 +311,28 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   await expect(ticket.getByText('Protection price', { exact: true })).toBeVisible();
   const market = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
   expect(market.status, JSON.stringify(market.body)).toBe(200);
+  if (market.body.slippageCapBps == null) {
+    // DIAG #7215 (never merged): what the books and the maker looked like when the preview had no mark.
+    const { readFileSync } = await import('node:fs');
+    const { stackFile, EDGE, ORIGIN } = await import('./stack.mjs');
+    const at = new Date().toISOString();
+    console.log('DIAG7215 at', at, 'preview', JSON.stringify(market.body).slice(0, 1500));
+    for (const sym of ['BTC/USDT', SYMBOL]) {
+      const b = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(sym)}?limit=6`, { headers: { origin: ORIGIN } }).then((r) =>
+        r.text(),
+      );
+      console.log('DIAG7215 book', sym, b.slice(0, 1500));
+    }
+    const again = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
+    console.log('DIAG7215 preview again', JSON.stringify(again.body).slice(0, 400));
+    for (const f of ['logs/market.log', 'logs/trade.log']) {
+      try {
+        console.log(`DIAG7215 ${f} tail\n` + readFileSync(stackFile(f), 'utf8').split('\n').slice(-120).join('\n'));
+      } catch (err) {
+        console.log('DIAG7215 no', f, err.message);
+      }
+    }
+  }
   expect(market.body).toMatchObject({ type: 'market', slippageCapBps: 50, maxOrderNotional: String(MAX_ORDER), split: null });
   const mark = toUnits(market.body.markPrice);
   expect(toUnits(market.body.orderPrice)).toBe(mark + (mark * 50n) / 10_000n);
