@@ -28,7 +28,7 @@ import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
-import { readRequestReminderTerms } from './transfers/request-reminders.js';
+import { readRequestReminderPolicy } from './transfers/request-reminders.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
@@ -150,7 +150,7 @@ const onrampPartner = onrampPartnerFor(
 
 const bank = createBankServices(sql, ledger, history, {
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
-  requestReminders: readRequestReminderTerms(env.BANK_REQUEST_REMIND_WINDOW_SECONDS, env.BANK_REQUEST_REMIND_CAP),
+  requestReminders: readRequestReminderPolicy(env.BANK_REQUEST_REMIND_SPACING_SECONDS, env.BANK_REQUEST_REMIND_CAP),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
   onrampPartner,
   nativeAssetId: env.TOKEN_ASSET_ID,

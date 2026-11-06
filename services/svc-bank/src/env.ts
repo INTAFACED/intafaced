@@ -305,11 +305,12 @@ const schema = serviceEnvSchema
       BANK_PERSONAL_SEND_REVIEW_JSON: z.string().optional(),
 
       /**
-       * REQUEST REMINDERS (PP-send-request-13, J-pay-05 #4): at most BANK_REQUEST_REMIND_CAP reminders of one request in any
-       * BANK_REQUEST_REMIND_WINDOW_SECONDS. Set both or neither. Blank means no reminder terms are published: every reminder
-       * refuses `bank.personal_request_remind_terms_unset`. Anything malformed refuses boot.
+       * REQUEST REMINDERS (PP-send-request-13, ENGINE-SPEC PR-4, J-pay-05 #4): reminders of one request are spaced at least
+       * BANK_REQUEST_REMIND_SPACING_SECONDS apart and capped at BANK_REQUEST_REMIND_CAP per request. Set both or neither.
+       * Blank means no reminder policy is published: every reminder refuses `bank.reminder_policy_unset`. Anything
+       * malformed refuses boot.
        */
-      BANK_REQUEST_REMIND_WINDOW_SECONDS: z.string().optional(),
+      BANK_REQUEST_REMIND_SPACING_SECONDS: z.string().optional(),
       BANK_REQUEST_REMIND_CAP: z.string().optional(),
 
       /**

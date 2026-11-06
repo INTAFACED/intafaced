@@ -788,9 +788,11 @@ export type BankErrorCode =
   | 'bank.personal_reference_invalid'
   | 'bank.personal_request_not_found'
   | 'bank.personal_request_closed'
-  /** No reminder terms are published (BANK_REQUEST_REMIND_WINDOW_SECONDS and BANK_REQUEST_REMIND_CAP are blank). */
-  | 'bank.personal_request_remind_terms_unset'
-  /** The request had the most reminders its terms allow in the window; the message names the next allowed time. */
+  /** No reminder policy is published (BANK_REQUEST_REMIND_SPACING_SECONDS and BANK_REQUEST_REMIND_CAP are blank). */
+  | 'bank.reminder_policy_unset'
+  /** The last reminder of this request was too recent; the message names when the next one is allowed. */
+  | 'bank.personal_request_remind_too_soon'
+  /** This request had every reminder the policy allows. */
   | 'bank.personal_request_remind_capped'
   | 'bank.personal_request_expired'
   | 'bank.personal_request_not_payer'

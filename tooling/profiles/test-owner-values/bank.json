@@ -196,15 +196,15 @@
       "value": "{\"assetId\": \"IFC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
       "note": "TEST cashback rates by rank card tier, paid in IFC on spend from an IFC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. Made up for the local test stack; not an owner decision."
     },
-    "BANK_REQUEST_REMIND_WINDOW_SECONDS": {
-      "service": "bank",
-      "value": "3600",
-      "note": "TEST: one reminder of a request per hour (J-pay-05 #4)."
-    },
     "BANK_REQUEST_REMIND_CAP": {
       "service": "bank",
-      "value": "1",
-      "note": "TEST: one reminder of a request per hour (J-pay-05 #4)."
+      "value": "3",
+      "note": "TEST: three reminders per request (J-pay-05 #4)."
+    },
+    "BANK_REQUEST_REMIND_SPACING_SECONDS": {
+      "service": "bank",
+      "value": "3600",
+      "note": "TEST: reminders of one request an hour apart (J-pay-05 #4)."
     }
   }
 }

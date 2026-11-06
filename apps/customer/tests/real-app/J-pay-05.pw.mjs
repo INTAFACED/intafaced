@@ -188,13 +188,13 @@ test(`${J} #4 the payee reminds on a second request: once per window, and over t
   const pressedAt = Date.now();
   await room.getByTestId('person-request-remind').click();
   await expect(room.getByTestId('person-request-reminded')).toHaveText('Reminder sent.');
-  // A second reminder in the same window is over the cap: refused by its code, naming when the next one is allowed.
+  // A second reminder inside the window is refused by its code, naming when the next one is allowed.
   await room.getByTestId('person-request-remind').click();
   const refused = room.getByTestId('person-request-refused');
-  await expect(refused).toContainText('bank.personal_request_remind_capped');
+  await expect(refused).toContainText('bank.personal_request_remind_too_soon');
   const next = /next reminder is allowed at (\S+?)\s*\(/.exec(await refused.innerText())?.[1];
   expect(next, 'the refusal names no next allowed time').toBeTruthy();
-  // The stack's TEST terms are one reminder an hour, so the next is allowed an hour after the first.
+  // The stack's TEST policy spaces reminders an hour apart, so the next is allowed an hour after the first.
   const nextAt = Date.parse(next);
   expect(nextAt).toBeGreaterThanOrEqual(pressedAt + 3_600_000 - 60_000);
   expect(nextAt).toBeLessThanOrEqual(Date.now() + 3_600_000);

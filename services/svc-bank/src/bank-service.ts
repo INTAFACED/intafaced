@@ -1,4 +1,4 @@
-import type { RequestReminderTerms } from './transfers/request-reminders.js';
+import type { RequestReminderPolicy } from './transfers/request-reminders.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -150,8 +150,8 @@ export interface BankServices {
 export interface BankServiceOptions {
   /** `BANK_PERSONAL_SEND_REVIEW_JSON`, parsed: the owner's send review rule. Unset, no send is held. */
   sendReviewRule?: SendReviewRule | null;
-  /** `BANK_REQUEST_REMIND_WINDOW_SECONDS` and `BANK_REQUEST_REMIND_CAP`, read together. Unset, every reminder refuses. */
-  requestReminders?: RequestReminderTerms | null;
+  /** `BANK_REQUEST_REMIND_SPACING_SECONDS` and `BANK_REQUEST_REMIND_CAP`, read together. Unset, every reminder refuses. */
+  requestReminders?: RequestReminderPolicy | null;
   /** `BANK_STRANGER_HOLD_DAYS`, parsed: how long a held payment from a stranger waits. Null: no such hold can be placed. */
   strangerHoldDays?: number | null;
   /** `BANK_PAYEE_COOLING_HOURS`: how long a new bank-rail recipient waits. Blank refuses; zero is no wait. */

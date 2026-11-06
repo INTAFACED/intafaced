@@ -8,7 +8,7 @@
  * `bankTransfer` has no fee leg, and a second post could succeed without the
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
-import type { RequestReminderTerms } from './request-reminders.js';
+import type { RequestReminderPolicy } from './request-reminders.js';
 import { grantedLimits } from './limit-requests.js';
 import type { Sql, TransactionSql } from 'postgres';
 import {
@@ -269,8 +269,8 @@ export class PersonalPayService {
        * contacts is asked once, inside the reservation, and a held payment is set aside after it posts. Unset = no holds.
        */
       receivedHolds?: Pick<ReceivedHoldService, 'decide' | 'placeFor'>;
-      /** The owner's reminder terms (J-pay-05 #4). Unset = none published, and every reminder refuses. */
-      requestReminders?: RequestReminderTerms | null;
+      /** The owner's reminder policy (PP-send-request-13, J-pay-05 #4). Unset = none published, and every reminder refuses. */
+      requestReminders?: RequestReminderPolicy | null;
       now?: () => Date;
     } = {},
   ) {}
@@ -1021,27 +1021,31 @@ export class PersonalPayService {
          WHERE request_id = ${requestId} AND idempotency_key = ${idempotencyKey}
       `;
       if (prior[0]) return prior[0];
-      // A new reminder: the owner's terms decide whether one may go out now. The request row is locked first, so two
-      // reminders at the same moment are counted one after the other and the cap holds.
-      const terms = this.options.requestReminders ?? null;
-      if (terms === null) {
+      // A new reminder: the owner's policy decides whether one may go out now. The request row is locked first, so two
+      // reminders at the same moment are counted one after the other and the spacing and the cap hold.
+      const policy = this.options.requestReminders ?? null;
+      if (policy === null) {
         throw new BankError(
-          'No reminder terms are published, so a reminder cannot be sent (bank.personal_request_remind_terms_unset)',
-          'bank.personal_request_remind_terms_unset',
+          'No reminder policy is published, so a reminder cannot be sent (bank.reminder_policy_unset)',
+          'bank.reminder_policy_unset',
         );
       }
       await tx`SELECT 1 FROM bank.personal_requests WHERE id = ${requestId} FOR UPDATE`;
-      const since = new Date(now.getTime() - terms.windowSeconds * 1000);
-      const recent = await tx<Array<{ created_at: Date }>>`
-        SELECT created_at FROM bank.personal_request_reminds
-         WHERE request_id = ${requestId} AND created_at > ${since}
-         ORDER BY created_at ASC
+      const sent = await tx<Array<{ n: number; last: Date | null }>>`
+        SELECT count(*)::int AS n, max(created_at) AS last FROM bank.personal_request_reminds WHERE request_id = ${requestId}
       `;
-      if (recent.length >= terms.cap) {
-        const nextAllowedAt = new Date(recent[recent.length - terms.cap]!.created_at.getTime() + terms.windowSeconds * 1000);
+      const { n, last } = sent[0]!;
+      if (n >= policy.cap) {
         throw new BankError(
-          `This request was reminded ${recent.length} time(s) in the last ${terms.windowSeconds} s, the most allowed; the next reminder is allowed at ${nextAllowedAt.toISOString()} (bank.personal_request_remind_capped)`,
+          `This request has had all ${policy.cap} reminder(s) allowed (bank.personal_request_remind_capped)`,
           'bank.personal_request_remind_capped',
+        );
+      }
+      if (last !== null && now.getTime() < last.getTime() + policy.spacingSeconds * 1000) {
+        const nextAllowedAt = new Date(last.getTime() + policy.spacingSeconds * 1000);
+        throw new BankError(
+          `This request was reminded too recently; the next reminder is allowed at ${nextAllowedAt.toISOString()} (bank.personal_request_remind_too_soon)`,
+          'bank.personal_request_remind_too_soon',
         );
       }
       const next = await tx<Array<{ sequence: number }>>`
