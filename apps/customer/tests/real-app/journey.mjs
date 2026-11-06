@@ -4,7 +4,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
-import { LEDGER, ROOT } from './stack.mjs';
+import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
+import { enterFile } from './world-restore.mjs';
 
 // Every journey imports `test` (and `expect`) from here, never from '@playwright/test' directly
 // (tooling/scripts/journey-freeze-guard.test.mjs fails a file that does), and so does every helper that asserts, so a
@@ -55,7 +56,46 @@ export const expect = new Proxy(baseExpect, {
   apply: (target, self, args) => Reflect.apply(inFastStep() ? fastExpect : target, self, args),
 });
 
-export const test = base.extend({
+// Every sign-in or sign-up a journey sends from Node, through any helper, names an account whose resting orders come down
+// before the next file (stack.mjs recordSignIn). Browser pages are watched the same way (the `browser` fixture below).
+const nodeFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  try {
+    recordSignIn(typeof input === 'string' ? input : input?.url, typeof init?.body === 'string' ? init.body : undefined);
+  } catch {
+    /* recording never stops a request */
+  }
+  return nodeFetch(input, init);
+};
+const watchSignIns = (context) => context.on('request', (req) => recordSignIn(req.url(), req.postData() ?? undefined));
+
+const extended = base.extend({
+  // Every context a journey opens, through the `page` fixture or its own browser.newContext(), reports its sign-ins.
+  browser: [
+    async ({ browser }, use) => {
+      const newContext = browser.newContext.bind(browser);
+      browser.newContext = async (...args) => {
+        const context = await newContext(...args);
+        watchSignIns(context);
+        return context;
+      };
+      await use(browser);
+    },
+    { scope: 'worker' },
+  ],
+  context: async ({ context }, use) => {
+    watchSignIns(context);
+    await use(context);
+  },
+  // No journey file leaves the shared world changed for the file after it: its resting orders, algos and bots come down,
+  // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
+  worldBetweenFiles: [
+    async ({}, use, testInfo) => {
+      await enterFile(testInfo.file);
+      await use();
+    },
+    { auto: true, timeout: 150_000 },
+  ],
   // No journey leaves the platform posting freeze on for the journeys after it (journey-freeze-guard.mjs).
   postingFreezeGuard: [
     async ({}, use, testInfo) => {
@@ -81,3 +121,24 @@ export const test = base.extend({
   navigationTimeout: async ({ navigationTimeout }, use, testInfo) =>
     use(failsFast(FAST_PLAN, testInfo.title) ? FAIL_FAST.testMs : navigationTimeout),
 });
+
+/**
+ * A file's own `test.beforeAll` runs before any test-scoped fixture, so `worldBetweenFiles` alone would put back the last
+ * file's world after this file's first hook had already acted (its account then counted as the last file's and its
+ * orders taken down). Each beforeAll therefore enters its file first. Playwright reads a hook's fixtures from its source
+ * text, so the wrapper answers with the hook's own; the hook's location in a report reads as this file.
+ */
+const beforeAll = extended.beforeAll;
+extended.beforeAll = (...args) => {
+  const hook = args.pop();
+  const entered = async (fixtures, testInfo) => {
+    // The restore gets its own time on top of the hook's, as the worldBetweenFiles fixture does.
+    if (testInfo.timeout > 0) testInfo.setTimeout(testInfo.timeout + 150_000);
+    await enterFile(testInfo.file);
+    return hook(fixtures, testInfo);
+  };
+  entered.toString = () => hook.toString();
+  return beforeAll(...args, entered);
+};
+
+export const test = extended;

@@ -1,3 +1,4 @@
+// World: none
 import { createHash } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, api, fund, journeyState } from './stack.mjs';

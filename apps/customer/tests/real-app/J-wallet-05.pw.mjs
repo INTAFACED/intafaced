@@ -1,3 +1,4 @@
+// World: restart, gates, stack
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnits, tool } from './stack.mjs';
