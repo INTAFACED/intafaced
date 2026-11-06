@@ -1026,6 +1026,24 @@ export const monthCompareSchema = z.object({
   totalInflow: z.array(money),
 });
 export const leftToSpendSchema = z.object({ assetId: z.string(), period: z.string(), target: money, spent: money, left: z.string() });
+/** BK-acct-04 (J-bank-16 #6): the owner's plans and the person's own; a paid plan names its blocker. */
+const planSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  tier: z.string(),
+  price: money,
+  assetId: z.string(),
+  period: z.literal('month'),
+});
+export const plansSchema = z.object({
+  plans: z.array(planSchema.extend({ blocker: z.literal('bank.plan_fee_unwired').nullable() })),
+  current: planSchema,
+});
+/** BK-acct-04: the owner's account fee table; `set: false` is none published. */
+export const accountFeesSchema = z.object({
+  set: z.boolean(),
+  lines: z.array(z.object({ id: z.string(), label: z.string(), fee: money, assetId: z.string() })),
+});
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1158,6 +1176,14 @@ export const bankReads = {
   'analytics.budgets': z.array(budgetSchema),
   'analytics.leftToSpend': leftToSpendSchema,
   'analytics.compare': monthCompareSchema,
+  'plans.list': plansSchema,
+  'fees.account': accountFeesSchema,
+  'fees.schedule.get': z.object({
+    published: z.boolean(),
+    entries: z.array(
+      z.object({ assetId: z.string(), fee: money, free: z.boolean(), feeBlocker: z.string().nullable(), publishedAt: z.string() }),
+    ),
+  }),
   'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,

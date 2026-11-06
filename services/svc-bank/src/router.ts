@@ -35,6 +35,7 @@ import { createSpacesRouter } from './router/spaces.router.js';
 import { createTransfersRouter } from './router/transfers.router.js';
 import { createEarnRouter } from './router/earn.router.js';
 import { createAnalyticsRouter } from './router/analytics.router.js';
+import { createLimitsRouters } from './router/limits.router.js';
 import { createPortfolioRouter } from './router/portfolio.router.js';
 import { createLoansRouter } from './router/loans.router.js';
 import { createCardsRouter } from './router/cards.router.js';
@@ -93,6 +94,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
   const transfers = createTransfersRouter(c);
   const earn = createEarnRouter(c);
   const analytics = createAnalyticsRouter(c);
+  const limitsTables = createLimitsRouters(c);
   const portfolio = createPortfolioRouter(c);
   const loans = createLoansRouter(c);
   const cards = createCardsRouter(c);
@@ -125,6 +127,8 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
      * (the page says no schedule is published); a published zero is `free`, never inferred from blank.
      */
     fees: router({
+      /** BK-acct-04 (J-bank-16 #6): the owner's account fee table; none published says "not set". */
+      account: limitsTables.accountFees,
       schedule: router({
         get: scopedProcedure('bank:read', { module: 'bank' })
           .output(
@@ -337,6 +341,7 @@ export function createBankRouter(bank: BankServices, options: BankRouterOptions 
     autoInvest,
     business,
     analytics,
+    plans: limitsTables.plans,
     portfolio,
     activity: createActivityRouter(bank),
     statements: createStatementsRouter(bank),

@@ -41,6 +41,8 @@ export const transferQuoteSchema = z.object({
   perTransferLimit: amount,
   dailyLimit: amount,
   spentToday: amount,
+  /** The daily limit less what was sent today, from the bank (BK-acct-04). Older bank builds leave it out. */
+  remainingToday: amount.optional(),
   fee: amount,
   feeBlocker: z.string().nullable(),
   withinPerTransfer: z.boolean(),

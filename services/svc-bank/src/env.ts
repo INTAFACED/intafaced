@@ -459,6 +459,17 @@ const schema = serviceEnvSchema
        * panel refuses `bank.account_terms_unset` and never claims a fee-free account. Boot stays up; the read is the refuse.
        */
       BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
+      /**
+       * The owner's plan table as JSON (BK-acct-04, J-bank-16 #6): `{ "defaultPlanId", "plans": [{ "id", "name", "tier",
+       * "price", "assetId", "period": "month" }] }`. NO DEFAULT. Blank / unset / not in shape → `plans.list` refuses
+       * `bank.plans_unset`.
+       */
+      BANK_PLANS_JSON: z.string().optional(),
+      /**
+       * The owner's account fee table as JSON (BK-acct-04, J-bank-16 #6): `{ "lines": [{ "id", "label", "fee", "assetId" }] }`.
+       * Blank means none is published: the fee schedule says "not set" and nothing is charged from it.
+       */
+      BANK_FEE_SCHEDULE_JSON: z.string().optional(),
 
       /**
        * Owner-published card programme terms as JSON (BK-cissue-01 to -03, J-bank-13): `{ network, countries: [ISO2],

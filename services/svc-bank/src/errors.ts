@@ -870,6 +870,10 @@ export type BankErrorCode =
   | 'bank.budget_invalid'
   /** A month comparison takes two to twelve distinct months, none in the future (BK-acct-08). */
   | 'bank.compare_months'
+  /** No plan table is published (BANK_PLANS_JSON), so plans cannot be shown (BK-acct-04). */
+  | 'bank.plans_unset'
+  /** A paid plan is a fee posting, and no plan-fee recipe exists in ledger-client yet (BK-acct-04). */
+  | 'bank.plan_fee_unwired'
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A balance snapshot at a past date needs a past-balance read the ledger does not offer yet (PF-statements-01). */

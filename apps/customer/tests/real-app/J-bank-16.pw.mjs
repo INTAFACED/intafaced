@@ -167,7 +167,8 @@ test(`${J} #3 opens tax statements: "needs the tax vendor" with vendor.tax`, asy
 
 /** One of the person's own svc-bank reads through Edge. */
 async function bankRead(client, procedure, input) {
-  const res = await client.get(`/api/bank/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`);
+  const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+  const res = await client.get(`/api/bank/trpc/${procedure}${query}`);
   return {
     status: res.status,
     data: res.body?.result?.data,
@@ -275,18 +276,132 @@ test(`${J} #5 compares two months and reads "left to spend": each category per m
   await expect(tile).toHaveText('Left to spend this month: 20 USDT of 100 USDT');
 });
 
-// Not built yet (BK-acct-04, RC-bank-01): each checks the room its step names and fails fast.
-
 test(`${J} #6 opens Limits, fees and plan: daily send limit, used today and remaining; a blank fee table says "not set"; plan from the owner's table`, async ({
   page,
 }) => {
-  await signIn(page, person());
+  test.setTimeout(180_000);
+  const who = person();
+  const client = await api(who);
+  // The bank's own quote: the daily limit the stack publishes, the 80 sent to a person in #4, and what is left.
+  const quote = await bankRead(client, 'transfers.quote', { assetId: 'USDT', amount: '0' });
+  expect(quote.status, JSON.stringify(quote.body).slice(0, 300)).toBe(200);
+  expect(quote.data.spentToday).toBe('80');
+  expect(toUnits(quote.data.remainingToday)).toBe(toUnits(quote.data.dailyLimit) - toUnits('80'));
+
+  await signIn(page, who);
   await page.goto('/bank/limits');
-  await expect(page.getByTestId('bank-limits')).toBeVisible({ timeout: 5_000 });
+  const room = page.getByTestId('bank-limits');
+  await room.getByLabel('Coin').selectOption('USDT');
+  const today = room.getByTestId('bank-limits-today');
+  await expect(today).toHaveAttribute('data-daily', quote.data.dailyLimit);
+  await expect(today).toHaveAttribute('data-used', '80');
+  await expect(today).toHaveAttribute('data-remaining', quote.data.remainingToday);
+  await expect(today).toContainText(`Daily send limit: ${quote.data.dailyLimit} USDT`);
+  await expect(today).toContainText('Sent today: 80 USDT');
+  await expect(today).toContainText(`Left to send today: ${quote.data.remainingToday} USDT`);
+
+  // The owner has published no account fee table on this stack: the page says "not set", from the bank's answer.
+  const fees = await bankRead(client, 'fees.account', undefined);
+  expect(fees.data).toEqual({ set: false, lines: [] });
+  const accountFees = room.getByTestId('bank-account-fees');
+  await expect(accountFees).toHaveAttribute('data-state', 'not-set');
+  await expect(accountFees).toHaveText('Account fees: not set. The bank has published no account fee table, so none is charged.');
+
+  // The plan: tier and billing from the owner's (TEST) plan table, the person on its default plan.
+  const plans = await bankRead(client, 'plans.list', undefined);
+  expect(plans.status, JSON.stringify(plans.body).slice(0, 300)).toBe(200);
+  const mine = plans.data.current;
+  await expect(room.getByTestId('bank-plan-current')).toHaveText(
+    `Your plan: ${mine.name} · tier ${mine.tier} · ${mine.price} ${mine.assetId} a month`,
+  );
+  const table = room.getByRole('table', { name: 'Plans' });
+  await expect(table.locator('tbody tr')).toHaveCount(plans.data.plans.length);
+  for (const plan of plans.data.plans) {
+    const row = table.locator(`tr[data-plan="${plan.id}"]`);
+    await expect(row).toContainText(plan.name);
+    await expect(row).toContainText(plan.tier);
+    await expect(row).toContainText(`${plan.price} ${plan.assetId} a month`);
+    await expect(row).toHaveAttribute('data-blocker', plan.blocker ?? '');
+  }
 });
 
-test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ page }) => {
-  await signIn(page, person());
+let jobCtx;
+/** One of the bank's job procedures, signed as its scheduler would sign it (the stack has no timer), as in J-bank-08. */
+async function job(procedure, input) {
+  jobCtx ??= import('../../../../tooling/scripts/local-test-gates.mjs').then((gates) => gates.makeContext({ log: () => {} }));
+  const ctx = await jobCtx;
+  const raw = JSON.stringify(input);
+  const res = await fetch(`${ctx.url('bank')}/trpc/${procedure}`, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'content-type': 'application/json', ...ctx.contracts.serviceAuthHeadersForBody('svc-bank', ctx.secrets.internal, raw) },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const parsed = await res.json().catch(() => null);
+  expect(res.status, `${procedure}: ${JSON.stringify(parsed).slice(0, 300)}`).toBe(200);
+  return parsed.result.data;
+}
+const DAY = 86_400_000;
+
+test(`${J} #7 receives a dormancy-fee notice: a pre-debit notice and no fee after a full withdrawal`, async ({ browser, page }) => {
+  test.setTimeout(240_000);
+  // A second TEST account of the person's own, so the dormancy run reads one account whose whole history this step knows:
+  // 20 TEST USDT arrived today and nothing else.
+  const who = await signUp(page, 'bk16d');
+  await verify(page, who);
+  expect(fund(who.email, 'USDT', '20').tx).toBeTruthy();
+  const client = await api(who);
+  const userId = (await client.get('/api/identity/trpc/rank.get')).body.result.data.userId;
+
+  // The owner's (TEST) rule, as the bank publishes it: a fee after a run of days with no activity, noticed ahead.
+  const rules = await bankRead(client, 'dormancy.rules', undefined);
+  expect(rules.status, JSON.stringify(rules.body).slice(0, 300)).toBe(200);
+  const rule = rules.data.find((r) => r.assetId === 'USDT');
+  expect(rule).toMatchObject({ fee: '5' });
+
+  // The bank's dormancy run, as its scheduler would call it on a day this account has been quiet for the rule's days. It
+  // is run for this one account, so no other account on the stack is touched.
+  const asOf = new Date(Date.now() + (rule.inactiveDays + 1) * DAY);
+  const first = await job('jobs.runDormancy', { at: asOf.toISOString(), userIds: [userId] });
+  const debitDate = new Date(asOf.getTime() + rule.noticeLeadDays * DAY).toISOString().slice(0, 10);
+  expect(first.noticed).toEqual([{ userId, assetId: 'USDT', fee: '5', debitDate }]);
+  // Run again: the same notice, not a second one.
+  expect((await job('jobs.runDormancy', { at: asOf.toISOString(), userIds: [userId] })).noticed).toEqual([]);
+
+  // The pre-debit notice, on Activity: the amount and the date, read from the bank.
+  await signIn(page, who);
   await page.goto('/money/activity');
-  await expect(page.getByTestId('dormancy-notice')).toBeVisible({ timeout: 5_000 });
+  const notice = page.getByTestId('dormancy-notice');
+  await expect(notice).toHaveAttribute('data-state', 'noticed');
+  await expect(notice).toHaveAttribute('data-fee', '5');
+  await expect(notice).toHaveAttribute('data-debit-date', debitDate);
+  await expect(notice).toContainText(`Dormancy fee notice: 5 USDT will be taken on ${debitDate}`);
+  await expect(notice).toContainText(`no activity for ${rule.inactiveDays} days`);
+
+  // The person takes out everything before that date: the whole 20 TEST USDT, paid to their other TEST account.
+  const other = (await (await api(person())).get('/api/identity/trpc/rank.get')).body.result.data.userId;
+  const main = (await bankRead(client, 'spaces.list', { limit: 50 })).data.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  expect(main.balance).toBe('20');
+  const out = await client.post('/api/bank/trpc/transfers.toUser', {
+    transferId: `${J}-all-${userId}`,
+    fromSpaceId: main.id,
+    toUserId: other,
+    amount: '20',
+  });
+  expect(out.status, JSON.stringify(out.body).slice(0, 300)).toBe(200);
+
+  // The debit date comes: nothing is there, so no fee is taken, and the notice says why.
+  const linesBefore = await activityLines(who, new Date(Date.now() - DAY).toISOString(), new Date(Date.now() + DAY).toISOString());
+  const debit = await job('jobs.runDormancy', { at: `${debitDate}T00:01:00.000Z`, userIds: [userId] });
+  expect(debit.settled).toEqual([{ userId, assetId: 'USDT', debitDate, outcome: 'skipped_zero' }]);
+  expect((await bankRead(client, 'spaces.list', { limit: 50 })).data.find((s) => s.id === main.id).balance).toBe('0');
+  const linesAfter = await activityLines(who, new Date(Date.now() - DAY).toISOString(), new Date(Date.now() + DAY).toISOString());
+  expect(linesAfter.map((l) => l.txId)).toEqual(linesBefore.map((l) => l.txId));
+  expect((await bankRead(client, 'dormancy.notices', undefined)).data).toEqual([
+    expect.objectContaining({ assetId: 'USDT', fee: '5', debitDate, state: 'skipped_zero', ledgerTxId: null }),
+  ]);
+  await page.reload();
+  await expect(notice).toHaveAttribute('data-state', 'skipped_zero');
+  await expect(notice).toContainText(`No dormancy fee was taken on ${debitDate}: the balance was 0.`);
 });

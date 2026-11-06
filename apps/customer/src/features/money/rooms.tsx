@@ -77,6 +77,7 @@ import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
 import { splitAnalytics } from './analytics-model';
 import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
+import { LimitsRoom, limitsCopy } from './LimitsRoom';
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
@@ -1652,6 +1653,15 @@ function CalendarRoom() {
     </BankPage>
   );
 }
+/** `/bank/limits`: sending limits from the bank's quote, the fee schedules and the plan (BK-acct-04, J-bank-16 #6). */
+function LimitsPage() {
+  return (
+    <BankPage room="Overview" title={limitsCopy.t('title')} description={limitsCopy.t('description')}>
+      <LimitsRoom />
+    </BankPage>
+  );
+}
+
 /** `/bank/statements`: the statement and export centre, inside the Analytics room (J-portfolio-11, PF-statements-01). */
 function StatementsRoom() {
   const { t } = statementCentreCopy.useCopy();
@@ -2159,6 +2169,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Analytics />;
     case '/bank/statements':
       return <StatementsRoom />;
+    case '/bank/limits':
+      return <LimitsPage />;
     case '/bank/business':
       return <Business open={open} />;
     case '/uc/record':

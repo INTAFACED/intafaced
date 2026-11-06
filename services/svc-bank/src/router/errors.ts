@@ -478,6 +478,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.budget_unset': 'PRECONDITION_FAILED',
   'bank.budget_invalid': 'BAD_REQUEST',
   'bank.compare_months': 'BAD_REQUEST',
+  'bank.plans_unset': 'PRECONDITION_FAILED',
+  'bank.plan_fee_unwired': 'PRECONDITION_FAILED',
   'bank.personal_transfer_terms_unset': 'PRECONDITION_FAILED',
   'bank.personal_transfer_fee_unwired': 'PRECONDITION_FAILED',
   'bank.pay_request_notify_unwired': 'PRECONDITION_FAILED',

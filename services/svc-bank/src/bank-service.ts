@@ -6,6 +6,7 @@ import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
 import { SpendAnalytics } from './analytics/spend.js';
 import { BudgetService } from './analytics/budgets.js';
+import { parseFeeTable, parsePlans, type FeeLine, type PlanTable } from './plans/plans.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
@@ -102,6 +103,8 @@ export interface BankServices {
   readonly accountDetails: AccountDetailsService;
   /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
   readonly accountTerms: () => AccountTerms;
+  /** BK-acct-04: the owner's plan table (null is blank) and account fee table (null is none published). */
+  readonly accountTables: { readonly plans: PlanTable | null; readonly fees: FeeLine[] | null };
   /** The currencies on an account: labels over ledger accounts (BK-acct-01). */
   readonly currencies: CurrencyService;
   /** Which profile a bank call is for, proved against the caller's own business memberships (J-bank-01 #7). */
@@ -219,6 +222,9 @@ export interface BankServiceOptions {
   accountDetails?: AccountDetailsOptions;
   /** Owner-published base-tier account terms as JSON (`BANK_ACCOUNT_TERMS_JSON`). No default: blank refuses. */
   accountTerms?: string | undefined;
+  /** BK-acct-04: the owner's plan table and account fee table (raw JSON; blank refuses or says not set). */
+  plans?: string | undefined;
+  feeTable?: string | undefined;
   /** Owner-published staking risk wording as JSON (`BANK_EARN_RISK_WORDING_JSON`, BK-earn-04). No default: blank refuses. */
   earnRiskWording?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
@@ -464,6 +470,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     statementJobs,
     accountDetails,
     accountTerms,
+    accountTables: { plans: parsePlans(options.plans), fees: parseFeeTable(options.feeTable) },
     currencies,
     profiles,
     assetPauses,

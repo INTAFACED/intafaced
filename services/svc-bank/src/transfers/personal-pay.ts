@@ -83,6 +83,8 @@ export interface TransferQuote {
   readonly perTransferLimit: string;
   readonly dailyLimit: string;
   readonly spentToday: string;
+  /** The daily limit less what was sent today, never below zero (BK-acct-04). */
+  readonly remainingToday: string;
   readonly fee: string;
   readonly feeBlocker: 'bank.personal_transfer_fee_unwired' | null;
   readonly withinPerTransfer: boolean;
@@ -646,6 +648,7 @@ export class PersonalPayService {
       perTransferLimit: formatAmount(per),
       dailyLimit: formatAmount(daily),
       spentToday: formatAmount(spent),
+      remainingToday: formatAmount(daily > spent ? daily - spent : 0n),
       fee: formatAmount(fee),
       feeBlocker: fee > 0n ? 'bank.personal_transfer_fee_unwired' : null,
       withinPerTransfer: amount <= per,
