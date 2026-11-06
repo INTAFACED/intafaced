@@ -367,9 +367,10 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
   const listed = await me.get(`/api/trade/trpc/convert.list?input=${encodeURIComponent(JSON.stringify(window))}`);
   expect(listed.status, JSON.stringify(listed.body).slice(0, 300)).toBe(200);
   const rows = listed.body.result.data.rows;
-  // The record holds the quotes never taken (#3's, #4's expired one); the panel lists only conversions.
-  expect(rows.some((r) => r.status === 'quoted' || r.status === 'expired')).toBe(true);
-  const taken = rows.filter((r) => r.status !== 'quoted' && r.status !== 'expired');
+  // The record holds the quotes never taken (#3's, #4's expired one); the panel lists only conversions. Each row's
+  // state is its `lifecycle` (svc-trade convert-history-router.ts), the field the panel filters on.
+  expect(rows.some((r) => r.lifecycle === 'quoted' || r.lifecycle === 'expired')).toBe(true);
+  const taken = rows.filter((r) => r.lifecycle !== 'quoted' && r.lifecycle !== 'expired');
   const row = recent.getByRole('row').filter({ hasText: fromUnits(toUnits(paid)).replace(/\.?0+$/, '') });
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('USDT');
