@@ -22,6 +22,8 @@ import {
   quoteOrder,
   crossesOn,
   quotesInTheWay,
+  stackNotActive,
+  STACK_INACTIVE_LIMIT_MS,
   fromScaled,
   HISTORY_EDGE_WINDOW_MS,
   TAPE_CLIENT_PREFIX,
@@ -290,6 +292,12 @@ const resting = [
 ];
 assert.deepEqual(quotesInTheWay(resting, fresh), ['old-ask-under-bid', 'old-ask-at-bid', 'old-bid-at-ask']);
 assert.deepEqual(quotesInTheWay(resting, []), []);
+// A service restarting makes the stack guard refuse; the market waits that out (#7110), and only that refusal.
+assert.equal(stackNotActive(new Error('refusing: selected local stack is not active (trade is not listening)')), true);
+assert.equal(stackNotActive(new Error('refusing: some other guard')), false);
+assert.equal(stackNotActive(new Error('ledger.insufficient_funds')), false);
+assert.equal(stackNotActive(undefined), false);
+assert.ok(STACK_INACTIVE_LIMIT_MS >= 60_000 && STACK_INACTIVE_LIMIT_MS <= 10 * 60_000);
 
 console.log('local-test-market: guard and price-walk checks passed');
 
