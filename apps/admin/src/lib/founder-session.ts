@@ -297,15 +297,21 @@ export async function assertCurrentFounder(
   const raw = await founderEdgeCall(config, 'identity', 'accountControls.operatorStatus', 'GET', {}, session.accessToken);
   const status = accountOperatorEntitlementSchema.safeParse(raw);
   if (!status.success) throw new AdminSessionError('admin.upstream_invalid', 502);
-  if (status.data.status === 'unconfigured') throw new AdminSessionError('admin.founders_unconfigured', 503);
   if (status.data.status === 'enabled' && status.data.userId === session.userId) return;
-  if (status.data.status === 'not_operator' && status.data.userId === session.userId && isExplicitDevOrTest(env.APP_ENV)) {
+  // The console reads its own APP_ENV; the local stack starts it with APP_ENV dev beside identity's. A console started
+  // with anything else never asks, so a TEST staff member then gets admin.founder_required, the production answer.
+  if (
+    (status.data.status === 'not_operator' || status.data.status === 'unconfigured') &&
+    status.data.userId === session.userId &&
+    isExplicitDevOrTest(env.APP_ENV)
+  ) {
     const staff = staffTestStatusSchema.safeParse(
       await founderEdgeCall(config, 'identity', 'staffTestStatus', 'GET', {}, session.accessToken),
     );
     if (!staff.success) throw new AdminSessionError('admin.upstream_invalid', 502);
     if (staff.data.userId === session.userId && staff.data.role !== null) return;
   }
+  if (status.data.status === 'unconfigured') throw new AdminSessionError('admin.founders_unconfigured', 503);
   throw new AdminSessionError('admin.founder_required', 403);
 }
 

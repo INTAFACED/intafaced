@@ -44,6 +44,7 @@ import {
   scopesForFounderSession,
   scopesForStaffTestSession,
   SESSION_SCOPES,
+  staffTestClaim,
   staffTestRoleFor,
   type PayStepUpScope,
   type Scope,
@@ -1125,7 +1126,13 @@ export class AuthService {
     mfa: boolean,
     query: Sql | undefined,
     gates: { readonly apiKey?: boolean; readonly subAccount?: boolean },
-  ): Promise<{ scopes: Scope[]; founder: boolean; granted: Scope[] }> {
+  ): Promise<{
+    scopes: Scope[];
+    founder: boolean;
+    granted: Scope[];
+    /** A TEST staff member's `staffPermissions` claim (local and test stacks only); absent for everyone else. */
+    staff?: { readonly staffPermissions: readonly string[]; readonly staffEnv: string };
+  }> {
     let founder = false;
     try {
       founder = (await this.founderDirectory?.isFounder(userId, query)) === true;
@@ -1146,17 +1153,23 @@ export class AuthService {
     // Local and test stacks only (the roster refused boot anywhere else): a TEST staff member's session gets the role's
     // TEST scopes, on the same gates a founder's has. A founder never takes a staff path.
     const role = await this.staffTestRole(userId, query);
-    return {
-      scopes: scopesForStaffTestSession(scopes, {
-        roster: this.staffTestRoster,
-        role,
-        mfa,
-        apiKey: gates.apiKey === true,
-        subAccount: gates.subAccount === true,
-      }),
-      founder,
-      granted,
-    };
+    const staffScopes = scopesForStaffTestSession(scopes, {
+      roster: this.staffTestRoster,
+      role,
+      mfa,
+      apiKey: gates.apiKey === true,
+      subAccount: gates.subAccount === true,
+    });
+    if (staffScopes.length === scopes.length) return { scopes, founder, granted };
+    // Only a session that took the role's scopes (second factor, not a key, not a sub-account) carries its permissions.
+    const staff = staffTestClaim(this.staffTestRoster, role);
+    // The trail of who held which TEST desk scope: one warn line in identity's log (the only sink AuthService has), never a
+    // secret. Founders keep their own audit table. A warn, too, because staff scopes on a session are TEST-only.
+    this.log.warn(
+      { userId, role, scopes: staffScopes.filter((scope) => !scopes.includes(scope)), staffEnv: staff?.staffEnv ?? null },
+      'TEST staff session scopes granted (local or test stack only)',
+    );
+    return { scopes: staffScopes, founder, granted, ...(staff ? { staff } : {}) };
   }
 
   /**
@@ -1202,10 +1215,21 @@ export class AuthService {
    * Step-up does not call this: a step-up token never receives founder scopes.
    */
   private async scopesFor(userId: string, mfa: boolean, sessionId: string, extra: readonly Scope[] = [], query?: Sql): Promise<Scope[]> {
+    return (await this.sessionGrant(userId, mfa, sessionId, extra, query)).scopes;
+  }
+
+  /** `scopesFor`, with a TEST staff member's `staffPermissions` claim beside the scopes (local and test stacks only). */
+  private async sessionGrant(
+    userId: string,
+    mfa: boolean,
+    sessionId: string,
+    extra: readonly Scope[] = [],
+    query?: Sql,
+  ): Promise<{ scopes: Scope[]; staff?: { readonly staffPermissions: readonly string[]; readonly staffEnv: string } }> {
     const pay = await this.scopesForNewAccessToken(userId);
     const decided = await this.founderScopesOn([...pay, ...extra], userId, mfa, query, {});
     await this.recordFounderScopeGrant(query ?? this.sql, userId, sessionId, decided.founder, decided.granted);
-    return decided.scopes;
+    return { scopes: decided.scopes, ...(decided.staff ? { staff: decided.staff } : {}) };
   }
 
   private resetDeps() {
@@ -1710,9 +1734,9 @@ export class AuthService {
       this.log.warn({ userId, reason: err instanceof Error ? err.name : 'error' }, 'merchant email invite claim failed');
     });
     const tier = await this.kycTier(userId);
-    const scopes = await this.scopesFor(userId, options.mfa, sessionId);
+    const { scopes, staff } = await this.sessionGrant(userId, options.mfa, sessionId);
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
-      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null },
+      { userId, sessionId, scopes, tier, mfa: options.mfa, familyId, trustedDeviceId: options.trustedDeviceId ?? null, ...staff },
       this.tokens,
     );
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
@@ -1836,6 +1860,7 @@ export class AuthService {
           mfa: session.mfa,
           familyId: session.family_id,
           trustedDeviceId: session.trusted_device_id,
+          ...decided.staff,
         },
         this.tokens,
       );

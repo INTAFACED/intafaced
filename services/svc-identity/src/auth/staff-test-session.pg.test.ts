@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { parseStaffTestRoster, STAFF_TEST_ROLE_NAMES, verifyAccessToken } from '@intafaced/auth';
+import { parseStaffTestRoster, STAFF_TEST_ROLE_NAMES, staffTestClaim, verifyAccessToken } from '@intafaced/auth';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import postgres from 'postgres';
@@ -119,11 +119,32 @@ if (!databaseUrl) {
       const auth = buildAuth();
       auth.useStaffTestRoster(ROSTER);
       const who = await staffAccount(auth, `local-test-staff-${role}@local-test.invalid`);
-      const scopes = await scopesOf((await login(auth, who.handle, who.secret)).accessToken);
+      const session = await login(auth, who.handle, who.secret);
+      const scopes = await scopesOf(session.accessToken);
       const granted = scopes.filter((s) => STAFF_SCOPES.includes(s));
       expect(granted.sort()).toEqual([...ROSTER.roles[role].sessionScopes].sort());
       expect(scopes).not.toContain('admin:treasury');
       expect(await auth.staffTestRole(who.userId)).toBe(role);
+      // The role's TEST mapping rides on the token as the local staff permissions claim, on sign-in and on refresh.
+      const claim = staffTestClaim(ROSTER, role)!;
+      for (const token of [session.accessToken, (await auth.refresh(session.refreshToken)).accessToken]) {
+        const principal = await verifyAccessToken(token, tokenConfig);
+        expect(principal.staffEnv).toBe('local');
+        expect(principal.staffPermissions).toEqual(claim.staffPermissions);
+      }
+    });
+
+    it('gives a TEST member no staff scope and no claim on a session without a second factor', async () => {
+      const auth = buildAuth();
+      auth.useStaffTestRoster(ROSTER);
+      const handle = `nf${process.pid}x${++counter}`;
+      const { userId } = await auth.register({ handle, email: 'local-test-staff-finance@local-test.invalid', password: PASSWORD });
+      await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${userId}`;
+      expect(await auth.staffTestRole(userId)).toBe('finance');
+      const principal = await verifyAccessToken((await login(auth, handle)).accessToken, tokenConfig);
+      expect(principal.mfa).toBe(false);
+      expect(principal.staffPermissions).toBeUndefined();
+      expect(principal.scopes.filter((s) => STAFF_SCOPES.includes(s))).toEqual([]);
     });
 
     it('gives no staff scope to an unconfirmed email, or to someone not on the roster', async () => {
@@ -146,8 +167,10 @@ if (!databaseUrl) {
       const auth = buildAuth();
       auth.useStaffTestRoster(undefined);
       const who = await staffAccount(auth, `local-test-staff-${role}@local-test.invalid`);
-      const scopes = await scopesOf((await login(auth, who.handle, who.secret)).accessToken);
+      const session = await login(auth, who.handle, who.secret);
+      const scopes = await scopesOf(session.accessToken);
       expect(scopes.filter((s) => STAFF_SCOPES.includes(s))).toEqual([]);
+      expect((await verifyAccessToken(session.accessToken, tokenConfig)).staffPermissions).toBeUndefined();
       expect(await auth.staffTestRole(who.userId)).toBeNull();
     });
   });

@@ -13,9 +13,10 @@
  *      `identity.staff_test_roster_refused`, so a process that holds one cannot boot outside a test stack. Blank is no
  *      roster, everywhere: production keeps the null mappings and the founder-only console.
  *   2. Every label says TEST: the roster's own `label`, and each role's.
- *   3. A TEST role grants only session scopes from `FOUNDER_SESSION_SCOPE_ALLOWLIST` (never `admin:treasury`, a `pay:`
- *      scope or anything that moves money from a session), and only staff permissions for `local` or `staging`, never
- *      `production`.
+ *   3. A TEST role grants only session scopes from `FOUNDER_SESSION_SCOPE_ALLOWLIST`, the same list a founder's session
+ *      draws from (so never `admin:treasury`, `trade:withdraw`, `bank:card` or a `pay:` scope; `admin:write` is in it,
+ *      and on a test stack it opens the same TEST-money doors it opens to a TEST founder), and only staff permissions for
+ *      `local` or `staging`, never `production`.
  *   4. A member is an email on the `local-test.invalid` domain (RFC 2606: it can never be a real person's address), with
  *      exactly one TEST role, listed once.
  *   5. A TEST role's scopes go only on a confirmed-email, second-factor, interactive session: never an API key, never a
@@ -27,7 +28,12 @@
 import { FOUNDER_SESSION_SCOPE_ALLOWLIST, type Scope } from './scopes.js';
 import {
   BUILTIN_STAFF_ROLE_MAPPINGS,
+  builtinStaffRoleForAssignment,
   isStaffPermission,
+  resolveStaffPermissions,
+  staffPermissionsForEnv,
+  type StaffAreaVerb,
+  type StaffRole,
   type BuiltinStaffRoleMapping,
   type BuiltinStaffRoleName,
   type StaffPermission,
@@ -68,7 +74,10 @@ export type StaffTestRoster = {
   readonly members: readonly { readonly email: string; readonly role: StaffTestRoleName }[];
 };
 
-/** True only when `APP_ENV` is exactly `dev` or `test`. Same rule as `@intafaced/config` `isExplicitDevOrTest`. */
+/**
+ * True only when `APP_ENV` is exactly `dev` or `test`. The same two literals as `@intafaced/config` `isExplicitDevOrTest`
+ * (the test pins them); a copy so this package stays free of dependencies, since browser-safe contracts import it.
+ */
 export function isStaffTestStack(appEnv: string | null | undefined): boolean {
   return appEnv === 'dev' || appEnv === 'test';
 }
@@ -197,4 +206,30 @@ export function scopesForStaffTestSession(
     if (!out.includes(scope)) out.push(scope);
   }
   return out;
+}
+
+/** The environment a TEST staff session's permissions are minted for: a local or test stack is `local`. */
+export const STAFF_TEST_ENV = 'local' as const;
+
+/**
+ * The staff role a TEST member holds: support, compliance and finance are the built-in roles with the roster's TEST
+ * mappings (`staffRoleMappingsFor`), and risk is a custom TEST role from the same roster.
+ */
+export function staffTestRoleOf(roster: StaffTestRoster, name: StaffTestRoleName): StaffRole {
+  if (name === 'risk')
+    return { id: 'test:risk', name: 'risk', kind: 'custom', allow: roster.roles.risk.allow, deny: roster.roles.risk.deny };
+  return builtinStaffRoleForAssignment(name, staffRoleMappingsFor(roster));
+}
+
+/**
+ * The `staffPermissions` claim for a TEST member's session: the role's `<area>:<verb>` permissions for `local`, with
+ * `staffEnv: 'local'`. No roster, no role, or a role that allows nothing in `local` is no claim.
+ */
+export function staffTestClaim(
+  roster: StaffTestRoster | undefined,
+  role: StaffTestRoleName | null,
+): { readonly staffPermissions: StaffAreaVerb[]; readonly staffEnv: typeof STAFF_TEST_ENV } | undefined {
+  if (roster === undefined || role === null) return undefined;
+  const staffPermissions = staffPermissionsForEnv(resolveStaffPermissions([staffTestRoleOf(roster, role)]), STAFF_TEST_ENV);
+  return staffPermissions.length > 0 ? { staffPermissions, staffEnv: STAFF_TEST_ENV } : undefined;
 }

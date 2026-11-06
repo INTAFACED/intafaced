@@ -40,7 +40,6 @@ import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
-import { isInteractiveFounderPrincipal } from './auth/action-approval-audience.js';
 import { rankPerksSchema, rankStateSchema, accountControlResultSchema } from '@intafaced/contracts';
 import { signInChallengeProofSchema, signInChallengeSchema } from '@intafaced/contracts/identity-signin-challenge';
 import {
@@ -1221,7 +1220,8 @@ export function createIdentityRouter(
      */
     staffTestStatus: protectedProcedure.output(staffTestStatusSchema).query(async ({ ctx }) => {
       // Same gate a founder's session has: a second factor, never an API key, never a sub-account.
-      if (!isInteractiveFounderPrincipal(ctx.principal)) return { userId: ctx.principal.userId, role: null };
+      const interactive = ctx.principal.mfa === true && !ctx.principal.kid && !ctx.principal.sub_account;
+      if (!interactive) return { userId: ctx.principal.userId, role: null };
       return { userId: ctx.principal.userId, role: await auth.staffTestRole(ctx.principal.userId) };
     }),
 

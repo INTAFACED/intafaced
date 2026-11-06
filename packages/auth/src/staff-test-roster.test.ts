@@ -6,8 +6,10 @@ import {
   STAFF_TEST_ROLE_NAMES,
   StaffTestRosterError,
   parseStaffTestRoster,
+  isStaffTestStack,
   scopesForStaffTestSession,
   staffRoleMappingsFor,
+  staffTestClaim,
   staffTestRoleFor,
   type StaffTestRoleName,
 } from './staff-test-roster.js';
@@ -180,5 +182,34 @@ describe('a hand-built roster cannot slip a scope past the allowlist', () => {
     const stack = parseStaffTestRoster(roster(), 'test')!;
     const forged = { ...stack, roles: { ...stack.roles, support: { ...stack.roles.support, sessionScopes: ['admin:treasury' as never] } } };
     expect(scopesForStaffTestSession([], { roster: forged, role: 'support' as StaffTestRoleName, mfa: true })).toEqual([]);
+  });
+});
+
+describe('the staff permissions a TEST session carries', () => {
+  const stack = parseStaffTestRoster(STACK_ROSTER, 'test')!;
+
+  it.each(STAFF_TEST_ROLE_NAMES)('%s: its TEST mapping becomes the local claim', (name) => {
+    const claim = staffTestClaim(stack, name)!;
+    expect(claim.staffEnv).toBe('local');
+    const local = stack.roles[name].allow.filter((p) => p.endsWith(':local')).map((p) => p.slice('staff:'.length, -':local'.length));
+    expect([...claim.staffPermissions].sort()).toEqual([...local].sort());
+  });
+
+  it('support cannot read cards and finance can (J-ops-console-02 #3 needs a staff member without the cards permission)', () => {
+    expect(staffTestClaim(stack, 'support')!.staffPermissions).not.toContain('cards:read');
+    expect(staffTestClaim(stack, 'finance')!.staffPermissions).toContain('cards:read');
+  });
+
+  it('no roster or no role is no claim', () => {
+    expect(staffTestClaim(undefined, 'support')).toBeUndefined();
+    expect(staffTestClaim(stack, null)).toBeUndefined();
+  });
+});
+
+describe('isStaffTestStack', () => {
+  it('is true for exactly dev and test, as @intafaced/config isExplicitDevOrTest is', () => {
+    expect(isStaffTestStack('dev')).toBe(true);
+    expect(isStaffTestStack('test')).toBe(true);
+    for (const v of PRODUCTION_LIKE) expect(isStaffTestStack(v)).toBe(false);
   });
 });
