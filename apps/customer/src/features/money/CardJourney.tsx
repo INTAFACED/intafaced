@@ -7,6 +7,7 @@ import { useBankRead } from './components';
 import { bankWrites, type cardSchema } from './contracts';
 import { cardOrderCopy } from './card-order-copy';
 import { StepUpConfirm } from './StepUpConfirm';
+import './bank-depth.css';
 
 /**
  * Each card's own panels on /bank/cards for getting a card (J-bank-13): its status in words, how many payments a
@@ -158,9 +159,16 @@ function Delivery({ card }: { card: CardRecord }) {
       <p>{t('deliverySpeed', { speed })}</p>
       <p>{t('deliveryState', { state })}</p>
       <p data-testid="card-delivery-estimate">{t('expectedBy', { date: dateOf(d.expectedBy) })}</p>
-      <div data-testid="card-tracking" data-code={d.trackingRef ? '' : 'hardware'}>
-        <strong>{t('tracking')}</strong>{' '}
-        {d.trackingRef ? t('trackingRef', { carrier: d.carrier ?? '', ref: d.trackingRef }) : t('hardware')}
+      <div data-testid="card-tracking" data-code={d.notConnected ?? undefined}>
+        <strong>{t('tracking')}:</strong>{' '}
+        {d.trackingRef ? (
+          <span data-testid="card-tracking-ref">
+            {d.carrier ? t('trackingRef', { carrier: d.carrier, ref: d.trackingRef }) : d.trackingRef}
+          </span>
+        ) : (
+          t('trackingNone')
+        )}
+        {d.notConnected === 'hardware' && <p>{t('hardware')}</p>}
       </div>
       <p data-testid="card-delivery-address">
         {t('deliverTo')}: {addressLine(d.address)}
@@ -284,6 +292,9 @@ export function CardJourney({ card, reload }: { card: CardRecord; reload: () => 
   const { t } = cardOrderCopy.useCopy();
   const [dialog, setDialog] = useState<'activate' | 'report' | null>(null);
   const [replaced, setReplaced] = useState<string | null>(null);
+  // The report's result comes from the bank's own record too (closed, with the card that replaced it), so it still shows
+  // after the list reloads and this panel is drawn again.
+  const replacedBy = replaced ?? (card.status === 'closed' && card.cardType === 'physical' ? (card.replacedByCardId ?? null) : null);
   return (
     <div className="form-stack" data-testid="card-journey">
       <p data-testid="card-status" data-status={card.status}>
@@ -299,8 +310,8 @@ export function CardJourney({ card, reload }: { card: CardRecord; reload: () => 
           </Button>
         )}
       </div>
-      {replaced && (
-        <p role="status" data-testid="card-report-result" data-card-id={replaced}>
+      {replacedBy && (
+        <p role="status" data-testid="card-report-result" data-card-id={replacedBy}>
           {t('reported')}
         </p>
       )}

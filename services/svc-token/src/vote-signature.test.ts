@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { serviceAuthHeadersForBody, WALLET_SIGNATURE_VERIFY_PATH } from '@intafaced/contracts';
 import { createIdentityVoteSignatures, voteMessage } from './vote-signature.js';
 
@@ -21,7 +21,15 @@ describe('voteMessage', () => {
 });
 
 describe('createIdentityVoteSignatures', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('posts a service-signed body to identity and reads its answer', async () => {
+    // One fixed second for the call and for the headers it is compared with, so every header, the timestamp and the
+    // signature over it included, is compared exactly (a real clock crossing a second between the two failed: #7264).
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-06T09:00:00.500Z'));
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const port = createIdentityVoteSignatures('http://identity.test/', 's'.repeat(32), async (url, init) => {
       calls.push({ url: String(url), init: init! });
@@ -33,7 +41,7 @@ describe('createIdentityVoteSignatures', () => {
     expect(calls[0]!.init.body).toBe(JSON.stringify(input));
     const expected = serviceAuthHeadersForBody('svc-token', 's'.repeat(32), JSON.stringify(input));
     for (const [name, value] of Object.entries(expected)) {
-      if (!/timestamp|nonce|signature/i.test(name)) expect((calls[0]!.init.headers as Record<string, string>)[name]).toBe(value);
+      expect((calls[0]!.init.headers as Record<string, string>)[name], name).toBe(value);
     }
     expect(calls[0]!.init.redirect).toBe('error');
   });
