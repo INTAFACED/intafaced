@@ -449,6 +449,18 @@ export function PaymentDetailView({
                                 ],
                               ] as const)
                             : []),
+                          // M-adv-payments-core-02: the fee in the parts it was stored with, which add up to it exactly.
+                          ...(fee.kind === 'rule'
+                            ? fee.parts
+                              ? fee.parts.map(
+                                  (part) =>
+                                    [
+                                      t(`pay_feePart_${part.kind}`, { percent: fee.percent }),
+                                      <Money value={part.amount} asset={fee.assetId} />,
+                                    ] as const,
+                                )
+                              : ([[t('pay_feeParts'), <NotConfigured>{t('pay_feePartsNotRecorded')}</NotConfigured>]] as const)
+                            : []),
                         ] as const)),
                   ]}
                 />

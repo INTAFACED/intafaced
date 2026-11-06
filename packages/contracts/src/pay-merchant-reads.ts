@@ -106,6 +106,12 @@ export const payMerchantFailureSchema = z
   .strict();
 export type PayMerchantFailure = z.infer<typeof payMerchantFailureSchema>;
 
+/** One part of a stored fee. A `maximum` part is what a maximum fee took off; every other part is added. */
+export const payFeePartSchema = z
+  .object({ kind: z.enum(['percent', 'flat', 'minimum', 'maximum']), amount: payAmountStringSchema })
+  .strict();
+export type PayFeePart = z.infer<typeof payFeePartSchema>;
+
 /**
  * The pricing row written when the fee was decided. `fee` is that stored
  * amount. `null` on the parent means no row was stored (older payments, or a
@@ -125,6 +131,13 @@ export const payRecordedPricingSnapshotSchema = z
     bookedFee: payAmountStringSchema.nullable(),
     reserveAmount: payAmountStringSchema.nullable(),
     recordedAt: payTimestampSchema,
+    /**
+     * The stored fee in its parts (M-adv-payments-core-02): the percentage part, the flat part, and what a minimum added
+     * or a maximum took off. svc-pay builds them from the stored row so they add up to `fee` exactly (a `maximum` part is
+     * taken off; control/snapshots.ts feeParts), and the page checks the sum again. Null when the row does not split
+     * exactly, and the page then says the split is not recorded.
+     */
+    parts: z.array(payFeePartSchema).min(1).max(4).nullable(),
   })
   .strict();
 export type PayRecordedPricingSnapshot = z.infer<typeof payRecordedPricingSnapshotSchema>;

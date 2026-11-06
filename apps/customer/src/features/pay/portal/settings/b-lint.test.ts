@@ -72,7 +72,7 @@ describe('what these pages may call', () => {
     expect(names.length).toBeGreaterThanOrEqual(20);
     for (const name of names)
       expect(name).toMatch(
-        /^(merchantOps\.(webhooks\.|exports\.|team\.list)|merchantAnalytics\.(volume|fees)|merchantMetrics\.series|apiKeys\.(list|create|revoke)|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)/,
+        /^(merchantOps\.(webhooks\.|exports\.|team\.list)|merchantAnalytics\.(volume|fees|declines)|merchantMetrics\.series|apiKeys\.(list|create|revoke)|setApiKeyRequestSigning|rotateSigningSecret|bindApiKeyIpAllowlist|unbindApiKeyIpAllowlist)/,
       );
     expect(clients).not.toMatch(/admin:|operator|killswitch/i);
     expect(clients).not.toMatch(new RegExp(['founder', 'Admin'].join(''), 'i'));

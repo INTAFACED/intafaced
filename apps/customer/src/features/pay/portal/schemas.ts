@@ -38,6 +38,11 @@ export const pricingSnapshotSchema = z.union([
     bookedFee: amount.nullable(),
     reserveAmount: amount.nullable(),
     recordedAt: timestamp,
+    /** The stored fee in its parts, adding up to `fee` (a `maximum` part is taken off); null when not split exactly. Absent on an older service. */
+    parts: z
+      .array(z.object({ kind: z.enum(['percent', 'flat', 'minimum', 'maximum']), amount }))
+      .nullable()
+      .optional(),
   }),
   z.object({ fee: amount }),
 ]);
