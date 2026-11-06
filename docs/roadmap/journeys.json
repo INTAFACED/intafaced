@@ -528,7 +528,7 @@
     "order": 2,
     "steps": [
       { "n": 1, "slices": ["AG-sessions-04"], "noSlice": false },
-      { "n": 2, "slices": ["AG-sessions-04"], "noSlice": false },
+      { "n": 2, "slices": ["AG-sessions-04"], "noSlice": false, "deferred": true },
       { "n": 3, "slices": ["AG-sessions-04"], "noSlice": false },
       { "n": 4, "slices": ["AG-sessions-04"], "noSlice": false },
       { "n": 5, "slices": ["AG-sessions-04"], "noSlice": false }
@@ -655,6 +655,31 @@
     ]
   },
   {
+    "id": "J-agents-21",
+    "title": "I let my own AI assistant trade on a capped account I can revoke",
+    "module": "agents",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 2, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 3, "slices": ["AG-outside-01", "BK-ownmove-01", "I-account-lifecycle-03"], "noSlice": false },
+      { "n": 4, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 5, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 6, "slices": ["AG-outside-02", "DV-keys-05", "DV-tools-02"], "noSlice": false },
+      { "n": 7, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 8, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 9, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 10, "slices": ["AG-outside-03"], "noSlice": false },
+      { "n": 11, "slices": ["AG-outside-04", "AG-audit-01", "DV-keys-06"], "noSlice": false },
+      { "n": 12, "slices": ["AG-outside-02"], "noSlice": false },
+      { "n": 13, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 14, "slices": ["AG-outside-01"], "noSlice": false },
+      { "n": 15, "slices": ["AG-outside-04", "AG-control-02"], "noSlice": false }
+    ]
+  },
+  {
     "id": "J-algo-dev-01",
     "title": "Build my first strategy, save it and backtest it on history",
     "module": "algo-dev",
@@ -705,7 +730,8 @@
       { "n": 5, "slices": ["AL-editor-01"], "noSlice": false },
       { "n": 6, "slices": ["AL-limits-01"], "noSlice": false },
       { "n": 7, "slices": ["AL-limits-01"], "noSlice": false },
-      { "n": 8, "slices": ["RC-algo-dev-05"], "noSlice": false }
+      { "n": 8, "slices": ["RC-algo-dev-05"], "noSlice": false },
+      { "n": 9, "slices": ["AL-limits-01"], "noSlice": false }
     ]
   },
   {
@@ -1120,7 +1146,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-cissue-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cissue-02"], "noSlice": false },
@@ -1137,7 +1163,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-cctl-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cctl-02"], "noSlice": false },
@@ -1168,7 +1194,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-acct-07"], "noSlice": false },
       { "n": 2, "slices": ["BK-acct-07"], "noSlice": false },
@@ -1201,7 +1227,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-safe-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-safe-02"], "noSlice": false },
@@ -1364,6 +1390,42 @@
       { "n": 2, "slices": ["BK-earn-04"], "noSlice": false },
       { "n": 3, "slices": ["BK-ord-01"], "noSlice": false },
       { "n": 4, "slices": ["BK-xfer-11"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-bank-29",
+    "title": "I pay by card from my crypto and stablecoins, converted at checkout",
+    "module": "bank",
+    "persona": "retail",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["BK-ccrypto-01"], "noSlice": false },
+      { "n": 2, "slices": ["BK-ccrypto-01"], "noSlice": false },
+      { "n": 3, "slices": ["BK-ccrypto-02"], "noSlice": false },
+      { "n": 4, "slices": ["BK-ccrypto-02"], "noSlice": false },
+      { "n": 5, "slices": ["BK-ccrypto-02"], "noSlice": false },
+      { "n": 6, "slices": ["BK-ccrypto-03"], "noSlice": false },
+      { "n": 7, "slices": ["BK-ccrypto-03"], "noSlice": false },
+      { "n": 8, "slices": ["BK-ccrypto-03"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-bank-30",
+    "title": "My salary is paid in by direct deposit",
+    "module": "bank",
+    "persona": "retail",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["BK-salary-01"], "noSlice": false },
+      { "n": 2, "slices": ["BK-salary-01", "BK-acct-03"], "noSlice": false },
+      { "n": 3, "slices": ["BK-salary-02"], "noSlice": false },
+      { "n": 4, "slices": ["BK-salary-02", "BK-salary-03"], "noSlice": false },
+      { "n": 5, "slices": ["BK-salary-03"], "noSlice": false },
+      { "n": 6, "slices": ["BK-salary-03"], "noSlice": false },
+      { "n": 7, "slices": ["BK-salary-03"], "noSlice": false },
+      { "n": 8, "slices": ["BK-salary-03"], "noSlice": false }
     ]
   },
   {
@@ -1882,7 +1944,7 @@
     "module": "cex-spot",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-convert-buy-02"], "noSlice": false },
       { "n": 2, "slices": ["SP-convert-buy-02"], "noSlice": false },
@@ -1939,7 +2001,7 @@
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-markets-data-02", "SP-developer-status-01"], "noSlice": false },
       { "n": 2, "slices": ["SP-developer-status-01"], "noSlice": false },
@@ -2277,7 +2339,7 @@
     "module": "charts-desk",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["C-trade-dom-01"], "noSlice": false },
       { "n": 2, "slices": ["C-trade-dom-01"], "noSlice": false },
@@ -2295,7 +2357,7 @@
     "module": "charts-desk",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["C-trade-dom-03"], "noSlice": false },
       { "n": 2, "slices": ["C-trade-dom-03"], "noSlice": false },
@@ -2381,7 +2443,7 @@
       { "n": 3, "slices": ["CB-copy-23"], "noSlice": false },
       { "n": 4, "slices": ["CB-copy-02"], "noSlice": false },
       { "n": 5, "slices": ["CB-copy-03"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-22"], "noSlice": false },
+      { "n": 6, "slices": ["CB-copy-22"], "noSlice": false, "deferred": true },
       { "n": 7, "slices": ["CB-copy-04", "CB-copy-03"], "noSlice": false },
       { "n": 8, "slices": ["CB-copy-10"], "noSlice": false }
     ]
@@ -2939,7 +3001,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-orders-03"], "noSlice": false },
       { "n": 2, "slices": ["D-orders-03"], "noSlice": false },
@@ -2956,7 +3018,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-account-04", "D-orders-09"], "noSlice": false },
       { "n": 2, "slices": ["D-account-01", "D-orders-09"], "noSlice": false },
@@ -2973,7 +3035,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-margin-04", "D-account-01"], "noSlice": false },
       { "n": 2, "slices": ["D-margin-04"], "noSlice": false },
@@ -2990,7 +3052,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-margin-06"], "noSlice": false },
       { "n": 2, "slices": ["D-margin-04"], "noSlice": false },
@@ -3007,7 +3069,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-instruments-01", "D-instruments-02"], "noSlice": false },
       { "n": 2, "slices": ["D-instruments-01", "D-data-03"], "noSlice": false },
@@ -3077,7 +3139,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-instruments-05"], "noSlice": false },
       { "n": 2, "slices": ["D-instruments-05"], "noSlice": false },
@@ -3280,6 +3342,47 @@
       { "n": 3, "slices": ["D-funded-03"], "noSlice": false },
       { "n": 4, "slices": ["D-funded-04"], "noSlice": false },
       { "n": 5, "slices": ["D-funded-04"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-25",
+    "title": "I trade spot and perps from one trading account with cross margin",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["D-cross-01"], "noSlice": false },
+      { "n": 2, "slices": ["D-cross-01", "BK-ownmove-01", "I-account-lifecycle-03"], "noSlice": false },
+      { "n": 3, "slices": ["D-cross-01"], "noSlice": false },
+      { "n": 4, "slices": ["D-cross-02"], "noSlice": false },
+      { "n": 5, "slices": ["D-cross-03"], "noSlice": false },
+      { "n": 6, "slices": ["D-cross-03", "D-margin-01"], "noSlice": false },
+      { "n": 7, "slices": ["D-cross-03"], "noSlice": false },
+      { "n": 8, "slices": ["D-cross-03"], "noSlice": false },
+      { "n": 9, "slices": ["D-cross-03"], "noSlice": false },
+      { "n": 10, "slices": ["D-cross-01", "D-cross-03"], "noSlice": false },
+      { "n": 11, "slices": ["D-cross-01"], "noSlice": false },
+      { "n": 12, "slices": ["D-cross-05"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-26",
+    "title": "My spending money stays untouched when my cross account is liquidated",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["D-cross-04", "D-cross-06"], "noSlice": false },
+      { "n": 2, "slices": ["D-cross-04"], "noSlice": false },
+      { "n": 3, "slices": ["D-cross-04", "D-margin-06"], "noSlice": false },
+      { "n": 4, "slices": ["D-cross-04"], "noSlice": false },
+      { "n": 5, "slices": ["D-cross-04", "BK-ccrypto-02"], "noSlice": false },
+      { "n": 6, "slices": ["D-cross-04", "D-margin-08"], "noSlice": false },
+      { "n": 7, "slices": ["D-cross-05"], "noSlice": false },
+      { "n": 8, "slices": ["D-cross-05"], "noSlice": false },
+      { "n": 9, "slices": ["D-cross-05"], "noSlice": false }
     ]
   },
   {
@@ -4407,7 +4510,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["I-signin-sessions-14"], "noSlice": false },
       { "n": 2, "slices": ["I-signin-sessions-01"], "noSlice": false },
@@ -4442,7 +4545,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["I-signin-sessions-05"], "noSlice": false },
       { "n": 2, "slices": ["I-signin-sessions-05"], "noSlice": false },
@@ -4552,7 +4655,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["I-signin-sessions-26"], "noSlice": false },
       { "n": 2, "slices": ["I-signin-sessions-27"], "noSlice": false },
@@ -4782,7 +4885,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["M-payments-core-05"], "noSlice": false },
       { "n": 2, "slices": ["M-payments-core-05"], "noSlice": false },
@@ -5807,7 +5910,7 @@
     "module": "ops-console",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["OPS-reconciliation-01"], "noSlice": false },
       { "n": 2, "slices": ["OPS-reconciliation-01"], "noSlice": false },
@@ -6566,7 +6669,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-07", "PP-money-balance-04"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-07"], "noSlice": false },
@@ -6614,7 +6717,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-12", "PP-order-02"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-12", "PP-order-02"], "noSlice": false },
@@ -6914,7 +7017,7 @@
     "module": "portfolio",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["PF-activity-01"], "noSlice": false },
       { "n": 2, "slices": ["PF-activity-01"], "noSlice": false },
@@ -7685,7 +7788,7 @@
     "module": "wallet",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["W-security-accounts-03"], "noSlice": false },
       { "n": 2, "slices": ["W-security-accounts-03"], "noSlice": false },
@@ -7726,7 +7829,7 @@
     "module": "wallet",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["W-balances-07"], "noSlice": false },
       { "n": 2, "slices": ["W-balances-07"], "noSlice": false },
