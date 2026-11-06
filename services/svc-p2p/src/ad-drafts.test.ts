@@ -142,6 +142,28 @@ describe('svc-p2p drafts and ads waiting for review (J-p2p-05 #1)', () => {
     expect((await refusal(p2p.submitForListing(d.id, OTHER))).code).toBe('p2p.not_a_party');
   });
 
+  it('submitting re-runs the post checks: with trading off it refuses and the draft stays a draft', async () => {
+    const p2p = service('none');
+    const d = await draft(p2p, 'draft-key-4');
+    p2p.setTradingEnabled(false);
+    expect((await refusal(p2p.submitForListing(d.id, MAKER))).code).toBe('p2p.trading_disabled');
+    expect((await p2p.listOwnOffers(MAKER, 'draft', 50)).map((o) => o.id)).toEqual([d.id]);
+    expect(announced()).toHaveLength(0);
+  });
+
+  it('a draft or an ad waiting for review, once closed, is never relisted past review', async () => {
+    const p2p = service('required');
+    const d = await draft(p2p, 'draft-key-5');
+    await p2p.closeOffer(d.id, MAKER);
+    expect((await refusal(p2p.relistOffer({ offerId: d.id, makerId: MAKER }))).code).toBe('p2p.offer_never_listed');
+    const waiting = await draft(p2p, 'draft-key-6');
+    await p2p.submitForListing(waiting.id, MAKER);
+    await p2p.closeOffer(waiting.id, MAKER);
+    expect((await refusal(p2p.relistOffer({ offerId: waiting.id, makerId: MAKER }))).code).toBe('p2p.offer_never_listed');
+    expect(await onBoard(p2p, waiting.id)).toBe(false);
+    expect(announced()).toHaveLength(0);
+  });
+
   it('with review none a submitted draft is listed and announced once; a blank switch refuses and the draft stays', async () => {
     const blank = await refusal(service(null).submitForListing((await draft(service(null), 'draft-key-2')).id, MAKER));
     expect(blank.code).toBe('p2p.config_unset');

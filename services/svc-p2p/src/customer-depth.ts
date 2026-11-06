@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { countedTrades } from './completion-rate.js';
 
 export interface BoardOffer {
   id: string;
@@ -267,28 +268,26 @@ export async function selectOfferBoard(sql: Sql, filter: BoardFilter): Promise<B
   // P-ads-merchant-10: under `rank` with the weights set, the maker's 30-day completion rate in basis points (the
   // profile's definition, completion-rate.ts), -1 for no counted order; 0 everywhere else, so it never reorders.
   const byCompletion = sort === 'rank' && filter.rankByCompletion === true;
+  // Only the ranked board with the weight set reads trades; every other board reads a constant 0.
+  const rank = byCompletion
+    ? sql`
+      CROSS JOIN LATERAL (
+        SELECT CASE
+                 WHEN count(*) = 0 THEN -1
+                 -- rounded half up, as the profile's percent (completion-rate.ts percentString)
+                 ELSE ((count(*) FILTER (WHERE t.status = 'released') * 20000 + count(*)) / (count(*) * 2))::int
+               END AS rank_bp
+          FROM p2p.p2p_trades t
+         WHERE ${countedTrades(sql, sql`p2p.offers.maker_id`)}
+           AND t.created_at >= now() - interval '30 days'
+      ) r`
+    : sql`CROSS JOIN (SELECT 0 AS rank_bp) r`;
   return sql<BoardRow[]>`
     SELECT p2p.offers.*,
            to_char(p2p.offers.created_at AT TIME ZONE 'UTC', 'YYYYMMDDHH24MISSUS') AS created_at_exact,
            r.rank_bp
       FROM p2p.offers
-      CROSS JOIN LATERAL (
-        SELECT CASE
-                 WHEN NOT ${byCompletion}::boolean THEN 0
-                 WHEN count(*) = 0 THEN -1
-                 ELSE (count(*) FILTER (WHERE t.status = 'released') * 10000 / count(*))::int
-               END AS rank_bp
-          FROM p2p.p2p_trades t
-         WHERE ${byCompletion}::boolean
-           AND (t.seller_id = p2p.offers.maker_id OR t.buyer_id = p2p.offers.maker_id)
-           AND t.escrowed_at IS NOT NULL
-           AND t.status IN ('released', 'cancelled', 'disputed')
-           AND t.created_at >= now() - interval '30 days'
-           AND NOT EXISTS (
-             SELECT 1 FROM p2p.completion_appeals a
-              WHERE a.user_id = p2p.offers.maker_id AND a.trade_id = t.id AND a.status = 'accepted'
-           )
-      ) r
+      ${rank}
      WHERE status = 'active'
        AND remaining_amt >= min_amt
        -- P-ads-merchant-07: private ads are not on the board, except to their own maker.

@@ -23,7 +23,8 @@ const en = {
   ownerWindow: 'Your active offers on the board. Your paused offers are listed below them.',
   pendingTitle: 'Waiting for review',
   pendingNone: 'You have no ads waiting for review.',
-  pendingWaiting: 'Waiting for review. It goes on the board once it is approved; until then nobody can see or take it.',
+  pendingWaiting:
+    'Waiting for review. Reviewing ads is not built yet, so nothing can approve it: it stays off the board and nobody can see or take it. You can close it.',
   pausedTitle: 'Paused offers',
   pausedNone: 'You have no paused offers.',
   pausedByYou: 'Paused by you. Resume it to put it back on the board.',
@@ -77,7 +78,8 @@ const es = {
   ownerWindow: 'Tus ofertas activas en el tablón. Tus ofertas en pausa aparecen debajo.',
   pendingTitle: 'En revisión',
   pendingNone: 'No tienes anuncios en revisión.',
-  pendingWaiting: 'En revisión. Saldrá en el tablón cuando se apruebe; hasta entonces nadie puede verlo ni tomarlo.',
+  pendingWaiting:
+    'En revisión. La revisión de anuncios aún no existe, así que nada puede aprobarlo: sigue fuera del tablón y nadie puede verlo ni tomarlo. Puedes cerrarlo.',
   pausedTitle: 'Ofertas en pausa',
   pausedNone: 'No tienes ofertas en pausa.',
   pausedByYou: 'La pausaste tú. Reanúdala para volver a mostrarla en el tablón.',
@@ -134,7 +136,7 @@ const fr = {
   pendingTitle: 'En attente de vérification',
   pendingNone: 'Vous n’avez aucune annonce en attente de vérification.',
   pendingWaiting:
-    'En attente de vérification. Elle sera sur le tableau une fois approuvée ; d’ici là personne ne peut la voir ni la prendre.',
+    'En attente de vérification. La vérification des annonces n’existe pas encore, donc rien ne peut l’approuver : elle reste hors du tableau et personne ne peut la voir ni la prendre. Vous pouvez la fermer.',
   pausedTitle: 'Offres en pause',
   pausedNone: 'Vous n’avez aucune offre en pause.',
   pausedByYou: 'Mise en pause par vous. Reprenez-la pour la remettre sur le tableau.',

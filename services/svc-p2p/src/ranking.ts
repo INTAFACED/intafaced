@@ -3,7 +3,10 @@
  *
  * `P2P_RANK_WEIGHTS` is a JSON object of factor to weight, each weight a positive decimal string. The one factor
  * weighed today is `completionRate30d`, the maker's 30-day completion rate (`completion-rate.ts`, the same definition
- * the profile shows). With one factor its weight orders ads at an equal price: the higher rate first. Blank is "rule
+ * the profile shows). With one factor, setting it turns on the tiebreak at an equal price (the higher rate first); the
+ * weight's size changes nothing until a second factor exists to weigh it against, and the policy read says so by naming
+ * the order. The rate is read live, so a trade that finishes between two pages can move an ad across the page edge:
+ * keyset paging never repeats a row within one stable board, but a rate that changes mid-paging can. Blank is "rule
  * off": the ranked board is the price order (price, then creation, then id), and the policy read says so. Anything
  * that is not a full, known table is `invalid` and also ranks by price alone, never by a guessed weight.
  */

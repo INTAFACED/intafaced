@@ -788,6 +788,7 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'p2p.edit_quota_reached':
         return new TRPCError({ code: 'TOO_MANY_REQUESTS', message: err.message, cause: err });
       case 'p2p.offer_not_active':
+      case 'p2p.offer_never_listed':
       case 'p2p.offer_update_empty':
       case 'p2p.offer_cursor_invalid':
       case 'p2p.reason_required':
@@ -1472,7 +1473,7 @@ export function createP2pRouter(
         .input(z.object({ offerId: z.string().guid() }))
         .output(offerOutput)
         .mutation(async ({ ctx, input }) =>
-          guard(async () => presentOffer(await p2p.submitForListing(input.offerId, ctx.principal.userId))),
+          guard(async () => presentOffer(await p2p.submitForListing(input.offerId, ctx.principal.userId, ctx.principal.tier))),
         ),
 
       /**

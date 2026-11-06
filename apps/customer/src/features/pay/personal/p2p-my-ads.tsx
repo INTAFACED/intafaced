@@ -31,6 +31,7 @@ export function MyAdsLifecycle({
   return (
     <>
       <EditQuota pay={pay} userId={userId} revision={revision} />
+      <DraftOffers pay={pay} userId={userId} revision={revision} choose={choose} side={side} onChanged={onChanged} />
       <ClosedOffers pay={pay} userId={userId} revision={revision} choose={choose} side={side} onChanged={onChanged} />
     </>
   );
@@ -168,6 +169,102 @@ function ClosedOffer({
           </p>
           <Button variant="secondary" disabled={busy} onClick={() => void relist()}>
             <Copy k={busy ? 'relisting' : 'relist'} />
+          </Button>
+        </div>
+      )}
+      {result && !result.ok ? <PayFailure result={result} /> : null}
+    </li>
+  );
+}
+
+/**
+ * P-ads-merchant-06 part 2: the person's drafts, off the board. Each is submitted for listing here, through every check
+ * a new ad passes; opened, it can be closed.
+ */
+function DraftOffers({
+  pay,
+  userId,
+  revision,
+  choose,
+  side,
+  onChanged,
+}: {
+  pay: PersonalPayApi;
+  userId: string | null;
+  revision: number;
+  choose: (id: string, from: HTMLElement) => void;
+  side: (offer: Offer) => React.ReactNode;
+  onChanged: () => void;
+}) {
+  const { Copy, t } = myAdsCopy.useCopy();
+  const drafts = useResource((signal) => pay.draftOffers(signal), `pay:draft-offers:${userId}:${revision}`);
+  return (
+    <section className="stack" aria-label={t('draftsTitle')} data-testid="draft-offers">
+      <h3>
+        <Copy k="draftsTitle" />
+      </h3>
+      <PayState resource={drafts.resource} retry={drafts.reload} empty={t('draftsNone')}>
+        {(offers) => (
+          <ul className="p2p-offer-list">
+            {offers.map((offer) => (
+              <DraftOffer key={offer.id} offer={offer} pay={pay} choose={choose} side={side} onChanged={onChanged} />
+            ))}
+          </ul>
+        )}
+      </PayState>
+    </section>
+  );
+}
+
+function DraftOffer({
+  offer,
+  pay,
+  choose,
+  side,
+  onChanged,
+}: {
+  offer: Offer;
+  pay: PersonalPayApi;
+  choose: (id: string, from: HTMLElement) => void;
+  side: (offer: Offer) => React.ReactNode;
+  onChanged: () => void;
+}) {
+  const { Copy } = myAdsCopy.useCopy();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ApiResult<Offer> | null>(null);
+  async function submit() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const outcome = await pay.submitForListing(offer.id);
+      setResult(outcome);
+      if (outcome.ok) onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+  const submitted = result?.ok ? result.data : null;
+  return (
+    <li className="p2p-offer-row" data-offer-id={offer.id}>
+      <div className="p2p-offer-maker">
+        <strong>{side(offer)}</strong>
+        <Status value={offer.status} />
+      </div>
+      <p className="muted" data-testid="draft-body">
+        <Copy k="draftBody" />
+      </p>
+      <StateSince offer={offer} />
+      {submitted ? (
+        <p role="status" data-testid="draft-submitted" data-status={submitted.status}>
+          <Copy k={submitted.status === 'active' ? 'submittedListed' : 'submittedPending'} />
+        </p>
+      ) : (
+        <div className="actions">
+          <Button variant="primary" disabled={busy} onClick={() => void submit()} data-testid="submit-for-listing">
+            <Copy k={busy ? 'submitting' : 'submitForListing'} />
+          </Button>
+          <Button variant="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
+            <Copy k="openDraft" />
           </Button>
         </div>
       )}

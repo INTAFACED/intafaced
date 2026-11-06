@@ -1228,6 +1228,29 @@ export function createPersonalPayApi(
         { signal },
       );
     },
+    /** P-ads-merchant-06 part 2: the person's own drafts (off the board), newest first. */
+    async draftOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query(
+        'p2p',
+        'offers.mine',
+        { status: 'draft', limit: PAUSED_OFFERS_SHOWN },
+        z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
+        { signal },
+      );
+    },
+    /**
+     * P-ads-merchant-06 part 2: lists a draft under today's checks; it waits for review when the owner requires review.
+     * A second press, or a retry after a lost reply, returns the ad as it is.
+     */
+    async submitForListing(offerId: string): Promise<ApiResult<s.Offer>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return guard.run(`${userId}:submit:${offerId}`, () => api.mutate('p2p', 'offers.submitForListing', { offerId }, s.offerSchema));
+    },
     /** The person's own paused ads (the board lists active ads only), newest first. */
     async pausedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
       const denied = signedIn();

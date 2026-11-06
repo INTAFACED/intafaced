@@ -8,7 +8,7 @@
  * Rates go on the wire as decimal-string percents with two places ("95.24").
  * No counted order is null (no rate), never "0.00" or "100.00".
  */
-import type { Sql } from 'postgres';
+import type { Fragment, Sql } from 'postgres';
 
 export const COMPLETION_DEFINITION = {
   numerator: 'Orders released (completed), including releases by a dispute ruling.',
@@ -40,6 +40,22 @@ export interface CompletionRates {
   readonly countedTotal: number;
 }
 
+/**
+ * The trades `t` that count toward `user`'s rate (`COMPLETION_DEFINITION`'s denominator, any window). `user` is a user
+ * id or a column fragment, so the profile read and the ranked board (customer-depth.ts) share one definition.
+ */
+export function countedTrades(sql: Sql, user: string | Fragment): Fragment {
+  return sql`
+    (t.seller_id = ${user} OR t.buyer_id = ${user})
+    AND t.escrowed_at IS NOT NULL
+    AND t.status IN ('released', 'cancelled', 'disputed')
+    AND NOT EXISTS (
+      SELECT 1 FROM p2p.completion_appeals a
+       WHERE a.user_id = ${user} AND a.trade_id = t.id AND a.status = 'accepted'
+    )
+  `;
+}
+
 export async function completionRates(sql: Sql, userId: string): Promise<CompletionRates> {
   const rows = await sql<Array<{ c30: number; n30: number; ct: number; nt: number }>>`
     SELECT count(*) FILTER (WHERE t.status = 'released' AND t.created_at >= now() - interval '30 days')::int AS c30,
@@ -47,13 +63,7 @@ export async function completionRates(sql: Sql, userId: string): Promise<Complet
            count(*) FILTER (WHERE t.status = 'released')::int AS ct,
            count(*)::int AS nt
       FROM p2p.p2p_trades t
-     WHERE (t.seller_id = ${userId} OR t.buyer_id = ${userId})
-       AND t.escrowed_at IS NOT NULL
-       AND t.status IN ('released', 'cancelled', 'disputed')
-       AND NOT EXISTS (
-         SELECT 1 FROM p2p.completion_appeals a
-          WHERE a.user_id = ${userId} AND a.trade_id = t.id AND a.status = 'accepted'
-       )
+     WHERE ${countedTrades(sql, userId)}
   `;
   const r = rows[0];
   const c30 = Number(r?.c30 ?? 0);

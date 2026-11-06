@@ -485,7 +485,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             )}
           </PayState>
           {mine ? <PausedOffers pay={pay} userId={userId} revision={pausedRevision} choose={choose} /> : null}
-          {mine ? <PendingOffers pay={pay} userId={userId} revision={pausedRevision} /> : null}
+          {mine ? <PendingOffers pay={pay} userId={userId} revision={pausedRevision} choose={choose} /> : null}
           {mine ? (
             <MyAdsLifecycle
               pay={pay}
@@ -917,7 +917,17 @@ function PausedOffers({
  * P-ads-merchant-06 part 2: the person's ads waiting for review. Off the board and not takeable, each says why it is not
  * listed and since when.
  */
-function PendingOffers({ pay, userId, revision }: { pay: PersonalPayApi; userId: string | null; revision: number }) {
+function PendingOffers({
+  pay,
+  userId,
+  revision,
+  choose,
+}: {
+  pay: PersonalPayApi;
+  userId: string | null;
+  revision: number;
+  choose: (id: string, from: HTMLElement) => void;
+}) {
   const { Copy, t } = offerCopy.useCopy();
   const pending = useResource((signal) => pay.pendingOffers(signal), `pay:pending-offers:${userId}:${revision}`);
   return (
@@ -943,6 +953,9 @@ function PendingOffers({ pay, userId, revision }: { pay: PersonalPayApi; userId:
                   {t('pendingWaiting')}
                 </p>
                 <StateSince offer={offer} />
+                <Button className="p2p-offer-inspect" variant="secondary" onClick={(event) => choose(offer.id, event.currentTarget)}>
+                  <Copy k="inspect" />
+                </Button>
               </li>
             ))}
           </ul>
