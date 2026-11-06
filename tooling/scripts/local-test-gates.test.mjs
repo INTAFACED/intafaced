@@ -728,6 +728,18 @@ for (const args of [['posting-freeze'], ['posting-freeze', 'maybe']]) {
   assert.match(r.stderr, /usage: local-test-gates\.mjs posting-freeze on\|off/);
   assert.doesNotMatch(r.stderr, /refusing/);
 }
+// engine-drop and trade-audit (J-cex-spot-18 #3, #5): usage is checked before the stack is, so a typo drops nothing.
+for (const [args, usage] of [
+  [['engine-drop'], /usage: local-test-gates\.mjs engine-drop <SYMBOL> <orderId>/],
+  [['engine-drop', 'BTC/USDT'], /usage: local-test-gates\.mjs engine-drop <SYMBOL> <orderId>/],
+  [['trade-audit', '--kind', 'orders.get'], /usage: local-test-gates\.mjs trade-audit --kind <kind> --account <userId>/],
+  [['trade-audit', '--account', 'u-1'], /usage: local-test-gates\.mjs trade-audit --kind <kind> --account <userId>/],
+]) {
+  const r = spawnSync(process.execPath, [script, ...args], { env: { ...process.env, HOME: tmpdir() }, encoding: 'utf8' });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, usage);
+  assert.doesNotMatch(r.stderr, /refusing/);
+}
 // scoped-session: the founder scopes come from the stack's own identity definition, never a copy, and less one only.
 {
   const identityDef = readFileSync(resolve(here, 'local-stack-services/identity.mjs'), 'utf8');

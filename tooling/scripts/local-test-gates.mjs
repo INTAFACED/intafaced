@@ -17,6 +17,8 @@
  *   node tooling/scripts/local-test-gates.mjs withdraw-terms  publish TEST withdrawal limits, the fee quote policy, the network rules and the custody policy in svc-pay, and list the TEST fraud address in svc-bank
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
+ *   node tooling/scripts/local-test-gates.mjs engine-drop <SYMBOL> <orderId>   LOCAL TEST fault: the book forgets one resting order (trade keeps its hold)
+ *   node tooling/scripts/local-test-gates.mjs trade-audit --kind <k> --account <userId>   svc-trade operator audit rows, as one JSON line
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs posting-freeze on|off   the platform posting freeze in svc-ledger (two founders)
  *   node tooling/scripts/local-test-gates.mjs posting-freeze lift-leaked   lift a LOCAL TEST freeze a journey left on
@@ -1118,6 +1120,50 @@ export async function setBookHalt(ctx, symbol, halted) {
   ctx.log(`matching ${action} ${symbol}: accepted (operator ${body.operatorId}, confirmed by ${body.confirmOperatorId}; ${MARKERS.label})`);
   return { symbol, marketId: market.id, halted: body.halted, approvalId: ids.approvalId };
 }
+
+/**
+ * LOCAL TEST fault for J-cex-spot-18 #3: the book forgets one resting order while svc-trade still holds its funds, the
+ * orphan hold an operator reconcile sweep exists to find. The cancel goes straight to svc-matching, signed as svc-trade
+ * (the only caller its order routes accept), so trade's own cancel path never runs and the hold stays. Refuses on any
+ * stack that is not the active local one.
+ */
+export async function dropEngineOrder(ctx, symbol, orderId) {
+  const market = (await listMarkets(ctx)).find((m) => m.symbol === symbol);
+  if (!market) throw new Error(`no market ${symbol}`);
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const route = `/markets/${encodeURIComponent(market.id)}/orders/${encodeURIComponent(orderId)}`;
+  const res = await fetch(`${ctx.url('matching')}${route}`, {
+    redirect: 'error',
+    method: 'DELETE',
+    headers: ctx.contracts.serviceAuthHeadersForBody('svc-trade', ctx.secrets.internal, ''),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.status !== 200 || body.cancelled !== true)
+    throw new Error(`matching dropped no order ${orderId} on ${symbol} (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
+  ctx.log(`matching ${symbol}: order ${orderId} dropped from the book (${MARKERS.label} fault; trade still holds its funds)`);
+  return { symbol, marketId: market.id, orderId };
+}
+
+/** svc-trade's operator audit rows (admin.audit.feed) of one kind on one account, oldest first, every page, as founder A. */
+export async function tradeAudit(ctx, { kind, account }) {
+  const pair = await approverSessions(ctx);
+  const rows = [];
+  let cursor = null;
+  for (let page = 0; page < 50; page++) {
+    const got = data(
+      await ctx.edge.query('trade', 'admin.audit.feed', { kind, accountId: account, cursor, limit: 200 }, await pair.a.tradeOpsToken()),
+    );
+    if (!Array.isArray(got?.rows)) throw new Error(`trade admin.audit.feed gave no rows: ${JSON.stringify(got).slice(0, 300)}`);
+    rows.push(...got.rows);
+    if (!got.nextCursor) return rows;
+    cursor = got.nextCursor;
+  }
+  throw new Error('trade admin.audit.feed: more than 50 pages; narrow the kind or the account');
+}
+
+/** The one line `trade-audit` prints its rows on; every other line it prints is the stack's own log. */
+export const TRADE_AUDIT_LINE = 'TRADE_AUDIT_JSON ';
 
 // ── The platform posting freeze (svc-ledger, two founders) ─────────────────
 
@@ -3083,6 +3129,12 @@ async function main() {
     die('usage: local-test-gates.mjs posting-freeze on|off|lift-leaked', 2);
   if (cmd === 'sandbox-funds' && process.argv[3] !== 'set' && process.argv[3] !== 'unset')
     die('usage: local-test-gates.mjs sandbox-funds set|unset', 2);
+  if (cmd === 'engine-drop' && (!process.argv[3] || !process.argv[4])) die('usage: local-test-gates.mjs engine-drop <SYMBOL> <orderId>', 2);
+  if (cmd === 'trade-audit') {
+    const args = process.argv.slice(3);
+    const value = (name) => (args.indexOf(name) >= 0 ? args[args.indexOf(name) + 1] : undefined);
+    if (!value('--kind') || !value('--account')) die('usage: local-test-gates.mjs trade-audit --kind <kind> --account <userId>', 2);
+  }
   let ctx;
   try {
     ctx = await makeContext({ shareSessions: true });
@@ -3090,7 +3142,7 @@ async function main() {
     die(String(err.message ?? err));
   }
   // scoped-session prints only its JSON, which a journey parses.
-  if (cmd !== 'scoped-session') say(`LOCAL TEST GATES — ${MARKERS.label}`);
+  if (cmd !== 'scoped-session' && cmd !== 'trade-audit') say(`LOCAL TEST GATES — ${MARKERS.label}`);
   try {
     if (cmd === 'scoped-session') {
       const flag = process.argv.indexOf('--without');
@@ -3201,6 +3253,21 @@ async function main() {
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
+    } else if (cmd === 'engine-drop') {
+      const [symbol, orderId] = process.argv.slice(3);
+      if (!symbol || !orderId) die('usage: local-test-gates.mjs engine-drop <SYMBOL> <orderId>', 2);
+      const r = await dropEngineOrder(ctx, symbol, orderId);
+      say(`  ${r.symbol} order ${r.orderId} dropped from the book`);
+    } else if (cmd === 'trade-audit') {
+      const args = process.argv.slice(3);
+      const flag = (name) => {
+        const at = args.indexOf(name);
+        return at >= 0 ? args[at + 1] : undefined;
+      };
+      const kind = flag('--kind');
+      const account = flag('--account');
+      if (!kind || !account) die('usage: local-test-gates.mjs trade-audit --kind <kind> --account <userId>', 2);
+      say(`${TRADE_AUDIT_LINE}${JSON.stringify(await tradeAudit(ctx, { kind, account }))}`);
     } else if (cmd === 'posting-freeze') {
       // lift-leaked: the journey harness's guard lifts a LOCAL TEST freeze a journey left on (journey-freeze-guard.mjs).
       const r =

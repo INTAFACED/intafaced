@@ -50,7 +50,9 @@ async function desk(who, kind, procedure, input) {
 /** The stack's own audit read of order lookups on one customer (svc-trade admin.audit.feed, as founder A). */
 function lookupAudit(customerId, orderId) {
   const out = tool('local-test-gates.mjs', 'trade-audit', '--kind', 'orders.get', '--account', customerId);
-  return JSON.parse(out).filter((row) => row.objectId === orderId);
+  const line = out.split('\n').find((l) => l.startsWith('TRADE_AUDIT_JSON '));
+  if (!line) throw new Error(`trade-audit printed no rows line: ${out.slice(-300)}`);
+  return JSON.parse(line.slice('TRADE_AUDIT_JSON '.length)).filter((row) => row.objectId === orderId);
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -103,7 +105,7 @@ test.beforeAll(async ({ browser }) => {
   if (!group.memberIds.includes(agent)) await desk('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
   await desk('lead', 'mutation', 'ticketSetGroup', { ticketId: ticket.id, groupId: group.id });
   const customerId = (await api(customer)).userId;
-  run.write({ customer, customerId, ticketId: ticket.id, reported: reported.id, live: live.id, orphan: orphan.id });
+  run.write({ customer, customerId, ticketId: ticket.id, reported: reported.id, live: live.id, orphan: orphan.id, placedAt: Date.now() });
 });
 
 const orderRead = (page) => page.locator('[data-order-read]');
@@ -154,7 +156,10 @@ test(`${J} #2 reads the same order as the customer sees it: the customer's view 
 });
 
 test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts; a second run releases none`, async ({ page }) => {
-  const { customer, orphan, live } = run.read();
+  const { customer, orphan, live, placedAt } = run.read();
+  // A sweep looks only at orders unchanged for the owner's age floor (the stack's TEST value is 15 s,
+  // tooling/scripts/local-stack-services/trade.mjs), so a fill not yet recorded is never read as "never filled".
+  await page.waitForTimeout(Math.max(0, placedAt + 20_000 - Date.now()));
   const orphanOrder = await customerOrder(customer, orphan);
   const hold = times(orphanOrder.price, orphanOrder.amount);
   // LOCAL TEST fault: the book forgets the orphan's entry; the trade service still holds its funds.

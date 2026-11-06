@@ -319,6 +319,23 @@ await trade.reconcileOrder(orderId);
 // tests: src/spot/order-route-reconcile.test.ts
 ```
 
+### Operator reconcile sweep (J-cex-spot-18 #3)
+
+`admin.orders.startReconcileSweep({ clientRequestId, reason })` runs the single-order reconcile above over plain resting
+limit orders that hold funds, in its sweep mode (`reconcileOrder(id, { leaveLive: true })`): an order the engine lists as
+live is left exactly as it is; one the engine no longer has is released once, and only when `trade.fills` prove no fill.
+Stop, OCO, bracket and iceberg orders, seeded orders, and orders changed within the age floor are not looked at. Each run
+is kept in `trade.operator_reconcile_sweeps` under its `clientRequestId` (the same request returns the same counts).
+Owner values, blank refuses `reconcile_sweep_unconfigured`: `TRADE_OPERATOR_SWEEP_LIMIT` (orders per run, 1 to 10000) and
+`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS` (1 s to 1 day). The scheduled job below is separate and unchanged.
+
+### Trade bust (J-cex-spot-18 #4)
+
+`admin.orders.bust({ orderId, approvalId, clientRequestId, reason })` consumes identity's two-person approval of
+`trade.bust` (targetService `svc-trade`, expectedVersion the order's fill count, payload `bustApprovalBody` in
+`src/admin/bust.ts`), then refuses `trade_bust_recipe_missing`: no ledger-client recipe reverses a fill yet, so nothing
+moves. The refusal is audited once per request (`orders.bust_refused`, with both operators).
+
 ### Scheduled engine ↔ ledger reconcile (A10)
 
 Default **OFF**. Builds the counterpart view from `trade.orders` (open/pending) + **live** hold balances, POSTs matching `POST /reconcile`, and:

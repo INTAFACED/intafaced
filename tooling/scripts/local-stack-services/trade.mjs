@@ -70,6 +70,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_MARKET_SLIPPAGE_CAP_BPS: '50',
     // House edge on Convert quotes; convert.quote refuses trade.convert_spread_unset without it: 20 bps.
     TRADE_CONVERT_SPREAD_BPS: '20',
+    // LOCAL TEST, not owner decisions: the operator reconcile sweep's size and age floor (J-cex-spot-18 #3). Blank, the
+    // sweep refuses reconcile_sweep_unconfigured. 15 s is the stack's own guess at how long a fill takes to be recorded.
+    TRADE_OPERATOR_SWEEP_LIMIT: '500',
+    TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS: '15',
     // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
     TRADE_CONVERT_QUOTE_TTL_MS: '15000',
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in
