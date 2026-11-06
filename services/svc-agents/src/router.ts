@@ -358,6 +358,8 @@ export interface AgentsRouterDeps {
   readonly ownAssistantModel?: string | null;
   /** Owner value: how long an own agent's held call waits for the person, in seconds (AG-approvals-01). Blank refuses holding. */
   readonly ownApprovalTtlSeconds?: number | null;
+  /** AGENTS_REVIEWER_MODEL: the automatic reviewer's model (AG-approvals-02); blank sends every call to the person. */
+  readonly ownReviewerModel?: string | null;
   /** Agents schema. Absent on route stubs that never list sessions or the catalogue. */
   readonly sql?: Sql;
   /** Caller's balances. Read-only: the plan path calls `balances` and nothing else. */
@@ -4043,6 +4045,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       tokenLifetimeMinutes: deps.ownTokenLifetimeMinutes ?? null,
       assistantModel: deps.ownAssistantModel ?? null,
       approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
+      reviewerModel: deps.ownReviewerModel ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

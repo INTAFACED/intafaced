@@ -42,6 +42,14 @@ describe('what an edit changes', () => {
     const start = editStart(withAll);
     expect(editDiff(withAll, { ...start, name: '  ', message: '', expires: '' })).toEqual({ name: null, message: null, expiresAt: null });
   });
+  it('starts from the price the alert watches (the mark when none is stored) and sends a changed one', () => {
+    expect(editStart(row()).source).toBe('mark');
+    const onBid = row({ source: 'bid' });
+    const start = editStart(onBid);
+    expect(start.source).toBe('bid');
+    expect(editDiff(onBid, start)).toEqual({});
+    expect(editDiff(onBid, { ...start, source: 'ask' })).toEqual({ source: 'ask' });
+  });
   it('reads a stop time back in the same spelling the field gives, so an untouched one is no change', () => {
     const withExpiry = row({ expiresAt: '2026-11-01T10:00:00.000Z' });
     expect(editDiff(withExpiry, editStart(withExpiry))).toEqual({});
@@ -102,6 +110,12 @@ describe('edit and delete', () => {
     expect((await submitEdit(client(stale), ID, { targetPrice: '70000' }, USER)).kind).toBe('unknown');
     const cleared = vi.fn(async () => trpc({ alert: row({ name: null }) }));
     expect((await submitEdit(client(cleared), ID, { name: null }, USER)).kind).toBe('edited');
+    // A changed source is sent, and an answer still on the old source is not believed.
+    const onAsk = vi.fn(async () => trpc({ alert: row({ source: 'ask' }) }));
+    expect((await submitEdit(client(onAsk), ID, { source: 'ask' }, USER)).kind).toBe('edited');
+    expect(body(onAsk)).toEqual({ id: ID, source: 'ask' });
+    const stillMark = vi.fn(async () => trpc({ alert: row() }));
+    expect((await submitEdit(client(stillMark), ID, { source: 'ask' }, USER)).kind).toBe('unknown');
   });
   it('maps the refusals of a change', async () => {
     const edit = (response: Response) =>

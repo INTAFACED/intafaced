@@ -1,8 +1,8 @@
 import { useId, useState } from 'react';
 import { alertsCopy } from './alerts-copy';
-import { editDiff, editStart, expiryProblem, priceProblem } from './alerts-model';
+import { editDiff, editStart, expiryProblem, priceProblem, SOURCE_KEY } from './alerts-model';
 import { Button } from './deps';
-import { ALERT_CONDITIONS, type AlertCondition, type AlertEdit, type PriceAlert } from './notify-api';
+import { ALERT_CONDITIONS, ALERT_SOURCES, type AlertCondition, type AlertEdit, type PriceAlert } from './notify-api';
 
 const CONDITION_KEY = {
   greater_than: 'above',
@@ -83,6 +83,25 @@ export function AlertEditPanel({
           {priceBad ? copy.t(form.price.trim() === '' ? 'priceEmpty' : 'priceInvalid') : copy.t('priceHint')}
         </small>
       </label>
+      {alert.kind === 'price' ? (
+        <label className="nf-field">
+          <span>{copy.t('sourceLabel')}</span>
+          <select
+            value={form.source}
+            disabled={busy}
+            onChange={(event) => {
+              const next = ALERT_SOURCES.find((value) => value === event.target.value);
+              if (next) setForm({ ...form, source: next });
+            }}
+          >
+            {ALERT_SOURCES.map((value) => (
+              <option key={value} value={value}>
+                {copy.t(SOURCE_KEY[value])}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
       <label className="nf-field">
         <span>{copy.t('nameLabel')}</span>
         <input autoComplete="off" value={form.name} disabled={busy} onChange={(event) => setForm({ ...form, name: event.target.value })} />
