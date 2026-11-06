@@ -400,12 +400,40 @@ test('J-p2p-05 #5 an ad that hides itself says why, and comes back once the caus
   expect(offer.hideReason, 'an automatic hide reason on the ad (P-ads-merchant-09) is not built').toBeDefined();
 });
 
-test('J-p2p-05 #6 the board says why an ad sits where it does', async () => {
-  // P-ads-merchant-10: the ranking policy and its weights.
+test('J-p2p-05 #6 the board says why an ad sits where it does: price, then creation, ties by id; with weights set a higher-completion ad ranks above at equal price', async ({
+  page,
+}) => {
+  // P-ads-merchant-10: the ranking policy and its weights (TEST weight: completion rate over 30 days).
+  test.setTimeout(300_000);
   const state = journey();
-  const s = p2p(await api(state.seller));
-  const res = await s.raw.query('offers.rankingPolicy');
-  expect(res.status, 'offers.rankingPolicy (P-ads-merchant-10) is not built').toBe(200);
+  const b = await readyTaker(await api(state.buyer), state.buyer, await restorePasskey(state.buyerPasskey));
+  const policy = await b.raw.query('offers.rankingPolicy');
+  expect(policy.status, 'offers.rankingPolicy (P-ads-merchant-10) is not built').toBe(200);
+  // The board reads why: by price, then (the weights being set) the maker's 30-day completion rate, then creation, then id.
+  expect(policy.body.result.data).toMatchObject({
+    order: ['price', 'completionRate30d', 'createdAt', 'id'],
+    weights: { completionRate30d: expect.any(String) },
+  });
+
+  // Two TEST sellers post at the same price: the first has no finished order, the second completes one with the buyer.
+  const price = '0.8137';
+  const quiet = await seller(page, 'p2p05q');
+  const quietAd = await sellAd(quiet.s, quiet.who, 'rank-quiet', { price });
+  const busy = await seller(page, 'p2p05k');
+  const busyAd = await sellAd(busy.s, busy.who, 'rank-busy', { price });
+  const trade = await b.mutate('trades.take', { offerId: busyAd.id, tradeId: randomUUID(), amount: '15', method: METHOD });
+  run.write({ buyerPasskey: b.passkey().saved() });
+  await b.mutate('trades.markFiatSent', { tradeId: trade.id });
+  expect((await busy.s.mutate('trades.confirmReceived', { tradeId: trade.id })).status).toBe('released');
+
+  const order = async (sort) =>
+    (await b.query('offers.page', { asset: 'USDT', fiatCurrency: 'EUR', side: 'sell', sort, limit: 200 })).offers
+      .filter((offer) => offer.id === quietAd.id || offer.id === busyAd.id)
+      .map((offer) => offer.id);
+  // By price alone the older ad comes first at an equal price.
+  expect(await order('price_asc')).toEqual([quietAd.id, busyAd.id]);
+  // Ranked with the weights set, the maker with the higher completion rate comes first at that price.
+  expect(await order('rank')).toEqual([busyAd.id, quietAd.id]);
 });
 
 test('J-p2p-05 #7 a long absence delists ads once, and the person sees why and how to relist', async () => {
