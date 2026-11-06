@@ -154,6 +154,16 @@ if (!available) {
       await auth.refresh(again.refreshToken);
     });
 
+    it("judges by the tab's own report of when the person last used the page, when it sends one", async () => {
+      auth.useSessionLimits({ idleSeconds: 600 });
+      const who = await account();
+      // A timer refresh 14 minutes after the last one, from a person still using the page: it stays signed in.
+      await idleFor(who.session.sessionId, 840);
+      const kept = await auth.refresh(who.session.refreshToken, { idleSeconds: 30 });
+      // A tab open but untouched for 11 minutes, refreshed a moment ago: it ends.
+      expect(((await refusal(auth.refresh(kept.refreshToken, { idleSeconds: 660 }))) as AuthError).code).toBe('auth.session_idle');
+    });
+
     it('with no owner limit, an old but unexpired sign-in still refreshes', async () => {
       const who = await account();
       await idleFor(who.session.sessionId, 86_400 * 3);

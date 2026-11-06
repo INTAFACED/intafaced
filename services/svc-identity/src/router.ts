@@ -1841,11 +1841,19 @@ export function createIdentityRouter(
         }),
 
       refresh: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
+        .input(
+          z
+            .object({
+              refreshToken: z.string().min(1).optional(),
+              /** Seconds since the person last used the page, from the tab's own silent refresh (J-identity-06 #4). */
+              idleSeconds: z.number().int().min(0).max(31_536_000).optional(),
+            })
+            .optional(),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken));
+            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken), { idleSeconds: input?.idleSeconds });
             return sessionWire(ctx, session);
           } catch (err) {
             if (

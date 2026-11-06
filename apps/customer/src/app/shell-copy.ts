@@ -38,6 +38,8 @@ const messages = {
   'Not signed out yet. Reloading would sign you back in.': 'Not signed out yet. Reloading would sign you back in.',
   Retry: 'Retry',
   'You were signed out because your sign-in was used elsewhere.': 'You were signed out because your sign-in was used elsewhere.',
+  'You were signed out because this sign-in was not used for longer than your idle sign-out time.':
+    'You were signed out because this sign-in was not used for longer than your idle sign-out time.',
   'This account is frozen, so you were signed out. Contact support to find out why.':
     'This account is frozen, so you were signed out. Contact support to find out why.',
   'Sign out': 'Sign out',

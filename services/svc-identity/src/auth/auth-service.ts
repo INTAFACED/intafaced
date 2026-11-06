@@ -1694,7 +1694,10 @@ export class AuthService {
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
   }
 
-  async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
+  async refresh(
+    refreshToken: string,
+    options: { device?: string; ip?: string; idleSeconds?: number | undefined } = {},
+  ): Promise<SessionTokens> {
     const hash = hashToken(refreshToken);
     // Resolve the owner grant before the row lock. A pay round trip must not
     // sit inside the session transaction.
@@ -1783,7 +1786,7 @@ export class AuthService {
         return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
       }
       // Idle past the limit that applies (the owner's, or the customer's shorter one): the sign-in ends here.
-      if (await idleExpired(tx, this.sessionLimits, session.user_id, session.last_used_at)) {
+      if (await idleExpired(tx, this.sessionLimits, session.user_id, session.last_used_at, options.idleSeconds)) {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'idle', sessionId: session.id };
       }

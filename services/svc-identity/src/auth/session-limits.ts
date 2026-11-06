@@ -11,8 +11,8 @@
  *
  * A customer may choose a shorter idle time than the owner's, never a longer one (`identity.session_setting_out_of_range`).
  * The choice is kept in `session_settings`, one row per account; clearing it goes back to the owner's limit.
- * Idle time is measured from the session row's `last_used_at`, which every refresh renews by rotating into a new row,
- * with the database's clock, not the app's.
+ * Idle time is the time since the person last used the page, as their tab reports it, or without a report the time
+ * since the last refresh (see `idleExpired`).
  */
 import type { Sql, TransactionSql } from 'postgres';
 
@@ -53,12 +53,22 @@ export function effectiveIdleSeconds(policy: SessionLimitsPolicy, chosen: number
 }
 
 /**
- * True when a session last used at `lastUsedAt` has been idle past the limit that applies, by the database's clock.
- * The caller holds the session row lock.
+ * True when the sign-in has been idle past the limit that applies. The person's own tab reports how long since they last
+ * used the page (it keeps that time across reloads, and sends it on every refresh); when it does, that decides, because
+ * the tab refreshes on a timer whether or not anyone is there, so the time since the last refresh says nothing about the
+ * person. With no report (a browser that kept no record of use), the time since the session row was last used decides,
+ * by the database's clock. The caller holds the session row lock.
  */
-export async function idleExpired(tx: Q, policy: SessionLimitsPolicy, userId: string, lastUsedAt: Date): Promise<boolean> {
-  const idle = effectiveIdleSeconds(policy, await chosenIdleSeconds(tx, userId));
-  if (idle === null) return false;
+export async function idleExpired(
+  tx: Q,
+  policy: SessionLimitsPolicy,
+  userId: string,
+  lastUsedAt: Date,
+  reportedIdleSeconds?: number | undefined,
+): Promise<boolean> {
+  if (policy.idleSeconds === undefined) return false;
+  const idle = effectiveIdleSeconds(policy, await chosenIdleSeconds(tx, userId))!;
+  if (reportedIdleSeconds !== undefined) return reportedIdleSeconds > idle;
   const [row] = await tx<Array<{ idle: boolean }>>`SELECT (now() - ${lastUsedAt}::timestamptz) > make_interval(secs => ${idle}) AS idle`;
   return row?.idle === true;
 }
@@ -70,10 +80,14 @@ export async function idleExpired(tx: Q, policy: SessionLimitsPolicy, userId: st
 export async function endFamiliesOverLimit(tx: Q, policy: SessionLimitsPolicy, userId: string): Promise<string[]> {
   const cap = policy.maxConcurrent;
   if (cap === undefined) return [];
+  // Live families, oldest sign-in first: a family's first row is its sign-in (each refresh adds a row to it), so the
+  // order is when each device signed in, not when it last refreshed.
   const live = await tx<Array<{ family_id: string }>>`
     SELECT family_id FROM sessions
-    WHERE user_id = ${userId} AND revoked = false AND expires_at > now()
-    GROUP BY family_id ORDER BY min(created_at), family_id
+    WHERE user_id = ${userId}
+    GROUP BY family_id
+    HAVING bool_or(revoked = false AND expires_at > now())
+    ORDER BY min(created_at), family_id
   `;
   const over = live.length - cap + 1;
   if (over <= 0) return [];

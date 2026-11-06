@@ -1,3 +1,4 @@
+import { browserIdleSeconds, watchActivity } from './idle-clock';
 import { z } from 'zod';
 import { createApiClient, type ApiResult } from '../../shared/api';
 
@@ -39,9 +40,11 @@ const BACKOFF_MAX_MS = 60_000;
  * Why a refresh ended the session, when the server said so. Shown to the person; never guessed. `subaccount_ended`: the
  * tab acted as a sub-account and is back on the main account, because the sub-account could not be confirmed again.
  */
-export type SessionNotice = 'reused' | 'frozen' | 'subaccount_ended';
+export type SessionNotice = 'reused' | 'frozen' | 'idle' | 'subaccount_ended';
 export function noticeFor(code: string | undefined): SessionNotice | null {
-  return code === 'auth.session_reused' ? 'reused' : code === 'auth.account_frozen' ? 'frozen' : null;
+  if (code === 'auth.session_reused') return 'reused';
+  if (code === 'auth.account_frozen') return 'frozen';
+  return code === 'auth.session_idle' ? 'idle' : null;
 }
 
 export type RefreshOutcome =
@@ -94,7 +97,14 @@ function browserLocks(): LockManagerLike | undefined {
  * - A reply we cannot trust is retried once, inside the same flight and lock, 1.5 s later (see REFRESH_RETRY_MS).
  */
 export function createSessionRefresher(
-  options: { fetch?: typeof fetch; locks?: LockManagerLike | null; timeoutMs?: number; retryDelayMs?: number } = {},
+  options: {
+    fetch?: typeof fetch;
+    locks?: LockManagerLike | null;
+    timeoutMs?: number;
+    retryDelayMs?: number;
+    /** Seconds since the person last used the page, sent on every refresh (idle-clock.ts); undefined sends nothing. */
+    idleSeconds?: () => number | undefined;
+  } = {},
 ) {
   const api = createApiClient({
     credentials: 'include',
@@ -103,7 +113,11 @@ export function createSessionRefresher(
   });
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
-  const attempt = async () => mapRefreshResult(await api.mutate('identity', 'auth.refresh', {}, sessionSchema));
+  const idleSeconds = options.idleSeconds ?? (() => browserIdleSeconds());
+  const attempt = async () => {
+    const idle = idleSeconds();
+    return mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle === undefined ? {} : { idleSeconds: idle }, sessionSchema));
+  };
   async function once(): Promise<RefreshOutcome> {
     const first = await attempt();
     if (first.kind !== 'unavailable') return first;
@@ -269,6 +283,8 @@ export function createSessionController(
     /** Ask for a sub-account token on the given main-account session (`auth.subAccountSession`). */
     enterSubAccount?: (main: Session, subAccountId: string) => Promise<ApiResult<Session>>;
     tabMemory?: TabMemory;
+    /** Starts recording real use of the page for idle sign-out (idle-clock.ts); returns the stop function. */
+    watchActivity?: () => () => void;
   } = {},
 ) {
   const memory = options.tabMemory ?? browserTabMemory();
@@ -277,6 +293,8 @@ export function createSessionController(
   const logoutRequest = options.logout ?? (() => requestLogout());
   const now = options.now ?? Date.now;
   const openChannel = options.openChannel ?? browserChannel;
+  const watch = options.watchActivity ?? watchActivity;
+  let stopWatching: (() => void) | null = null;
   let state: SessionState = { session: null, restoring: true, restoreFailed: false, notice: null };
   let epoch = 0;
   let active = false;
@@ -531,6 +549,7 @@ export function createSessionController(
     /** Idempotent: the boot refresh runs once however often this is called (React StrictMode mounts twice). */
     start(): Promise<void> {
       active = true;
+      stopWatching ??= watch();
       if (!channel) {
         channel = openChannel();
         if (channel) channel.onmessage = (event) => heard(event.data);
@@ -541,6 +560,8 @@ export function createSessionController(
     },
     stop() {
       active = false;
+      stopWatching?.();
+      stopWatching = null;
       disarm();
       if (reentryTimer !== undefined) clearTimeout(reentryTimer);
       reentryTimer = undefined;

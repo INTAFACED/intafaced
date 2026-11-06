@@ -85,6 +85,12 @@ export function SessionLimits() {
         ) : (
           <Failure result={failure} />
         ))}
+      {state.ownerIdleSeconds === null && state.chosenIdleSeconds !== null && (
+        // A choice kept from when a limit was set: it can still be cleared, so it never comes back on its own.
+        <Button type="button" variant="secondary" disabled={busy} onClick={() => void send(null)}>
+          {t('clear')}
+        </Button>
+      )}
       {state.ownerIdleSeconds !== null && (
         <form className="stack" onSubmit={submit} noValidate>
           <Field label={t('field')} name="minutes" inputMode="numeric" error={problem ? t('invalid') : undefined} disabled={busy} />

@@ -18,7 +18,8 @@ const view = z
   .strict();
 
 async function requireDeviceSession(sql: Sql, userId: string, sessionId: string): Promise<void> {
-  const [row] = await sql`SELECT 1 FROM sessions WHERE id = ${sessionId} AND user_id = ${userId}`;
+  const [row] =
+    await sql`SELECT 1 FROM sessions WHERE id = ${sessionId} AND user_id = ${userId} AND revoked = false AND expires_at > now()`;
   if (!row) throw new TRPCError({ code: 'FORBIDDEN', message: 'Sign in on a device to manage how your sign-ins end' });
 }
 

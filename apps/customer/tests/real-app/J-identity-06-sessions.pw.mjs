@@ -49,12 +49,13 @@ async function signIn(page, who) {
   await expect(page).not.toHaveURL(/\/login/);
 }
 
-/** The account's live sign-in families, oldest first. */
+/** The account's live sign-in families, in the order they signed in (a family's first row is its sign-in). */
 async function liveFamilies(sql, email) {
   const rows = await sql`
     SELECT s.family_id FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE lower(u.email) = lower(${email}) AND s.revoked = false AND s.expires_at > now()
-    GROUP BY s.family_id ORDER BY min(s.created_at)`;
+    WHERE lower(u.email) = lower(${email})
+    GROUP BY s.family_id HAVING bool_or(s.revoked = false AND s.expires_at > now())
+    ORDER BY min(s.created_at)`;
   return rows.map((row) => row.family_id);
 }
 
@@ -100,15 +101,20 @@ test(`${J} #4 sets a shorter idle sign-out: a shorter value than the owner's app
     );
     await expect(limits.getByTestId('session-limits__chosen')).toHaveText('You chose 5 minutes: your sign-ins end after that long unused.');
 
-    // And it applies: this sign-in, unused for six minutes (well inside the owner's 60), ends at its next refresh.
-    const [mine] = await liveFamilies(sql, who.email);
-    await sql`UPDATE sessions SET last_used_at = now() - interval '6 minutes' WHERE family_id = ${mine} AND revoked = false`;
+    // And it applies: the person leaves the page unused for six minutes (well inside the owner's 60). The page records
+    // when it was last used (idle-clock.ts) and its next refresh says so; that refresh ends the sign-in.
+    await page.evaluate(() => localStorage.setItem('ifc-last-activity', String(Date.now() - 6 * 60_000)));
     await page.reload();
     await expect(signedOut(page)).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByText('You were signed out because this sign-in was not used for longer than your idle sign-out time.'),
+    ).toBeVisible();
     expect(await liveFamilies(sql, who.email), 'the idle sign-in has ended').toEqual([]);
 
     // The owner's limit of three devices: three sign-ins stay, the fourth ends the oldest.
+    // Back in use: the first browser signs in again and is used now.
     await signIn(page, who);
+    await page.evaluate(() => localStorage.setItem('ifc-last-activity', String(Date.now())));
     const browsers = [page];
     for (let i = 0; i < 2; i++) {
       const context = await browser.newContext();
