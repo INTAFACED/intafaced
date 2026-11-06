@@ -511,6 +511,13 @@ export type TradeErrorCode =
    */
   | 'trade.reconcile_unknown_engine_miss'
   | 'trade.convert_disabled'
+  /**
+   * A cash currency to a coin (or back) has no direct market; the two linked legs through a crypto leg are not built,
+   * so nothing is quoted (J-cex-spot-11 #11, SP-convert-buy-03).
+   */
+  | 'trade.convert_two_leg_unbuilt'
+  /** Neither a direct market nor a cash-through-crypto route joins the two assets. */
+  | 'trade.convert_pair_unlisted'
   | 'trade.standing_instruction_disabled'
   | 'trade.convert_no_liquidity'
   /** House inventory short at settle. Customer hold was released; request a new quote. Never the customer's shortfall. */

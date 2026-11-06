@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fakeMarket } from '../public-rest.js';
-import { convertPairs } from './pairs.js';
+import { convertPairs, convertRoute } from './pairs.js';
 
 const AT = new Date('2026-11-06T05:00:00.000Z');
 const btc = fakeMarket({ id: 'm-btc', symbol: 'BTC/USDT', baseAsset: 'BTC', quoteAsset: 'USDT' });
@@ -17,7 +17,12 @@ describe('convert.pairs (J-cex-spot-11 #1)', () => {
         { asset: 'USDT', maxPerConvert: { amount: '100000', asset: 'USDT' } },
       ],
       restricted: [],
+      paused: false,
     });
+  });
+
+  it('the Convert kill-switch off says paused, with the same coins listed (J-cex-spot-11 #7)', () => {
+    expect(convertPairs([btc], AT, 100_000, true)).toMatchObject({ paused: true, assets: [{ asset: 'BTC' }, { asset: 'USDT' }] });
   });
 
   it('a blank max-order is no limit set, never an invented one', () => {
@@ -31,6 +36,23 @@ describe('convert.pairs (J-cex-spot-11 #1)', () => {
   });
 
   it('no market a quote accepts: nothing offered', () => {
-    expect(convertPairs([halted], AT, 100_000)).toEqual({ assets: [], restricted: ['SOL', 'USDT'] });
+    expect(convertPairs([halted], AT, 100_000)).toEqual({ assets: [], restricted: ['SOL', 'USDT'], paused: false });
+  });
+});
+
+describe('convert.route (J-cex-spot-11 #11)', () => {
+  it('a direct market is bought or sold', () => {
+    expect(convertRoute([btc], AT, 'USDT', 'BTC')).toEqual({ kind: 'direct', symbol: 'BTC/USDT', side: 'buy' });
+    expect(convertRoute([btc], AT, 'BTC', 'USDT')).toEqual({ kind: 'direct', symbol: 'BTC/USDT', side: 'sell' });
+  });
+
+  it('a cash currency to a coin with no direct market refuses by name: the two-leg plan is not built', () => {
+    expect(() => convertRoute([btc], AT, 'EUR', 'BTC')).toThrow(expect.objectContaining({ code: 'trade.convert_two_leg_unbuilt' }));
+    expect(() => convertRoute([btc], AT, 'BTC', 'GBP')).toThrow(expect.objectContaining({ code: 'trade.convert_two_leg_unbuilt' }));
+  });
+
+  it('two assets no market or cash route joins refuse as unlisted, never as a two-leg plan', () => {
+    expect(() => convertRoute([btc], AT, 'DOGE', 'BTC')).toThrow(expect.objectContaining({ code: 'trade.convert_pair_unlisted' }));
+    expect(() => convertRoute([btc, halted], AT, 'EUR', 'SOL')).toThrow(expect.objectContaining({ code: 'trade.convert_pair_unlisted' }));
   });
 });

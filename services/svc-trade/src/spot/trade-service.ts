@@ -113,7 +113,7 @@ import {
 } from './types.js';
 import * as listings from './trade-service/listings.js';
 import * as convert from './trade-service/convert.js';
-import { convertPairs, type ConvertPairs } from '../convert/pairs.js';
+import { convertPairs, convertRoute, type ConvertPairs, type ConvertRoute } from '../convert/pairs.js';
 import * as orderPlace from './trade-service/order-place.js';
 import * as orderChange from './trade-service/order-change.js';
 import * as fillFlow from './trade-service/fills.js';
@@ -1073,7 +1073,13 @@ export class TradeService {
     requireScope(principal, 'trade:read');
     const listed = await this.markets(500);
     const resolved = resolveAdmissionLimits();
-    return convertPairs(listed, this.now(), 'limits' in resolved ? resolved.limits.maxOrder : null);
+    return convertPairs(listed, this.now(), 'limits' in resolved ? resolved.limits.maxOrder : null, !this.convertEnabled);
+  }
+
+  /** How `from` converts to `to`: one direct market, or a typed refusal (J-cex-spot-11 #11). Quotes nothing. */
+  async convertRoute(principal: Principal, input: { from: string; to: string }): Promise<ConvertRoute> {
+    requireScope(principal, 'trade:read');
+    return convertRoute(await this.markets(500), this.now(), input.from, input.to);
   }
 
   convertList(principal: Principal, input: ConvertListQuery) {

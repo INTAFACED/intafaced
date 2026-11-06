@@ -32,12 +32,13 @@ import {
 } from '../buy/deps';
 import { usePendingNote } from '../buy/order-flow';
 import { useAvailable, useMarketLimits } from '../buy/quote-flow';
-import { dec, fractionDigits, toPlaces } from '../buy/trade-math';
+import { dec, fractionDigits, mulDown, toPlaces } from '../buy/trade-math';
 import { TradeSubNav } from '../TradeSubNav';
 import { convertCopy } from './copy';
 import { KeyValue, StatusChip, type KeyValueItem } from './deps';
-import { OtcConvert } from './OtcConvert';
+import { OTC_DESK_ID, OtcConvert } from './OtcConvert';
 import { RecentConversions } from './RecentConversions';
+import { RouteCard } from './RouteCard';
 import { useConvertPairs } from './use-pairs';
 import { canAccept, holdProgress, spreadPercent, validUntilClock } from './breakdown';
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
@@ -112,7 +113,12 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
   const all = useMemo(() => (markets.status === 'ready' ? edges(markets.data) : []), [markets]);
   const pair = useMemo(() => defaultPair(all, asked), [all, asked]);
   const [chosen, setChosen] = useState<{ from: string; to: string } | null>(null);
-  const shown = chosen && edgeFor(all, chosen.from, chosen.to) ? chosen : pair;
+  // Asked for a pair no market joins (a cash currency to a coin): the service names why, and nothing is priced (#11).
+  const routeAsked =
+    asked.from && asked.to && !chosen && markets.status === 'ready' && !edgeFor(all, asked.from, asked.to)
+      ? { from: asked.from, to: asked.to }
+      : null;
+  const shown = routeAsked ?? (chosen && edgeFor(all, chosen.from, chosen.to) ? chosen : pair);
 
   let card: React.ReactNode;
   if (markets.status === 'loading')
@@ -137,7 +143,8 @@ export default function TradeConvertScreen({ search }: ScreenProps) {
         <StateBlock kind="refused" title={copy.title} body={copy.body} code={copy.reference} action={copy.action} />
       </div>
     );
-  } else if (!shown)
+  } else if (routeAsked) card = <RouteCard key={`${routeAsked.from}>${routeAsked.to}`} from={routeAsked.from} to={routeAsked.to} />;
+  else if (!shown)
     card = (
       <div data-testid="cvt-card" className="cvt-card">
         <StateBlock
@@ -249,6 +256,20 @@ function ConvertCard({
     () => planConvert({ edge, amount, price, minAmount: limitRow?.minAmount ?? null, minCost: limitRow?.minCost ?? null }),
     [edge, amount, price, limitRow],
   );
+  // Only coins the service would quote now; each names its per-conversion limit, or that none is set.
+  const offered = pairs.status === 'ready' ? new Map(pairs.data.assets.map((a) => [a.asset, a.maxPerConvert])) : null;
+  // The operator paused Convert: no price is asked for; the way on is Spot (J-cex-spot-11 #7).
+  const pausedByService = pairs.status === 'ready' && pairs.data.paused;
+  // Over the per-conversion limit: not priced here; the quote desk takes large amounts (J-cex-spot-11 #9).
+  const fromLimit = offered?.get(from) ?? null;
+  const tooLarge = useMemo(() => {
+    const typed = dec(amount);
+    const cap = dec(fromLimit?.amount);
+    if (!fromLimit || typed === null || cap === null) return false;
+    if (fromLimit.asset === from) return typed > cap;
+    const at = dec(price);
+    return at !== null && mulDown(typed, at) > cap;
+  }, [amount, fromLimit, from, price]);
   const insufficient = useMemo(() => {
     const typed = dec(amount);
     const have = dec(available.value);
@@ -266,7 +287,7 @@ function ConvertCard({
         : null;
 
   const request =
-    plan.ok && !insufficient && session && note.state === 'none'
+    plan.ok && !insufficient && !pausedByService && !tooLarge && session && note.state === 'none'
       ? {
           symbol: market.symbol,
           side: edge.side,
@@ -282,6 +303,7 @@ function ConvertCard({
       : null;
   const { state, secondsLeft, expired, retry } = useQuote(tools, request);
   const quote = state.status === 'ready' ? state.quote : null;
+  const paused = pausedByService || (state.status === 'refused' && state.code === 'trade.convert_disabled');
   // A second look at the answer itself: a quote that costs more than the customer holds is never offered for review.
   const quoteOverBalance = (() => {
     if (!quote || available.state !== 'ready') return false;
@@ -309,8 +331,6 @@ function ConvertCard({
 
   const toList = toAssets(all, from);
   const fromList = fromAssets(all);
-  // Only coins the service would quote now; each names its per-conversion limit, or that none is set.
-  const offered = pairs.status === 'ready' ? new Map(pairs.data.assets.map((a) => [a.asset, a.maxPerConvert])) : null;
   const pickerItems = (assets: string[], showBalance: boolean): PickerItem[] =>
     assets
       .filter((asset) => offered === null || offered.has(asset))
@@ -459,7 +479,9 @@ function ConvertCard({
     !signedOut &&
     note.state === 'none' &&
     available.state === 'ready' &&
-    !accepting;
+    !accepting &&
+    !paused &&
+    !tooLarge;
   const rate = quote ? priceText(quote.avgPrice, market) : null;
 
   if (result)
@@ -599,6 +621,36 @@ function ConvertCard({
           </a>
         </div>
       ) : null}
+      {paused ? (
+        <div className="cvt-note" role="alert" data-testid="cvt-paused" data-code="trade.convert_disabled">
+          <p>
+            <strong>{t('Paused title')}.</strong> {t('Paused body')}
+          </p>
+          <a className="text-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
+            {t('Use Spot')}
+          </a>
+        </div>
+      ) : null}
+      {tooLarge && fromLimit ? (
+        <div className="cvt-note" role="note" data-testid="cvt-too-large">
+          <p>
+            <strong>{t('Too large title')}.</strong>{' '}
+            {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: fromLimit.asset })}
+          </p>
+          <a
+            className="text-link"
+            href={`#${OTC_DESK_ID}`}
+            onClick={(event) => {
+              event.preventDefault();
+              const desk = document.getElementById(OTC_DESK_ID);
+              desk?.scrollIntoView({ block: 'start' });
+              desk?.focus();
+            }}
+          >
+            {t('Use the quote desk')}
+          </a>
+        </div>
+      ) : null}
       {quote ? (
         <div className="cvt-breakdown" data-testid="cvt-breakdown" aria-label={t('Price details')} role="group">
           <KeyValue density="dense" items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
@@ -636,7 +688,7 @@ function ConvertCard({
         <p className="cvt-rate cvt-rate--wait">{t('Getting your price')}</p>
       ) : null}
 
-      {state.status === 'refused' ? (
+      {state.status === 'refused' && !paused ? (
         <StateBlock
           kind="refused"
           className="buy-state"

@@ -220,8 +220,11 @@ export const positionPreviewSchema = z.object({
 export const convertPairsSchema = z.object({
   assets: z.array(z.object({ asset: z.string(), maxPerConvert: z.object({ amount: decimalSchema, asset: z.string() }).nullable() })),
   restricted: z.array(z.string()),
+  /** The operator paused Convert: every quote refuses, so the room says so before asking for one. */
+  paused: z.boolean().default(false),
 });
 export type ConvertPairs = z.infer<typeof convertPairsSchema>;
+export const convertRouteSchema = z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) });
 
 /** One stored convert quote as `convert.list` reads it. A quote that was never accepted shows as `quoted` or `expired`. */
 export const convertHistoryRowSchema = z.object({
@@ -249,6 +252,9 @@ export type ConvertQuoteInput =
 export function createToolApi(api: ApiClient) {
   return {
     convertPairs: (signal?: AbortSignal) => api.query('trade', 'convert.pairs', undefined, convertPairsSchema, { signal }),
+    /** How one asset converts to another; refuses by name where no route is built (a cash currency through a coin). */
+    convertRoute: (input: { from: string; to: string }, signal?: AbortSignal) =>
+      api.query('trade', 'convert.route', input, convertRouteSchema, { signal }),
     convertQuote: (input: ConvertQuoteInput) => api.query('trade', 'convert.quote', input, convertQuoteSchema),
     /** The service refuses without a window (92 days at most) and a limit, so the caller always names both. */
     convertList: (input: { from: string; to: string; limit: number; cursor?: string }, signal?: AbortSignal) =>

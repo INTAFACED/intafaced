@@ -169,6 +169,7 @@ const convertPairsOutput = z.object({
     }),
   ),
   restricted: z.array(z.string()),
+  paused: z.boolean(),
 });
 
 const convertQuoteOutput = z.object({
@@ -1102,6 +1103,12 @@ export function createTradeRouter(
       pairs: scopedProcedure('trade:read', { module: 'trade' })
         .output(convertPairsOutput)
         .query(({ ctx }) => guard(async () => trade.convertPairs(ctx.principal))),
+
+      /** How one asset converts to another: a direct market, or a typed refusal such as a two-leg cash route (#11). */
+      route: scopedProcedure('trade:read', { module: 'trade' })
+        .input(z.object({ from: z.string().regex(/^[A-Z0-9]{2,12}$/), to: z.string().regex(/^[A-Z0-9]{2,12}$/) }))
+        .output(z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) }))
+        .query(({ ctx, input }) => guard(async () => trade.convertRoute(ctx.principal, input))),
 
       quote: scopedProcedure('trade:read', { module: 'trade' })
         .input(
