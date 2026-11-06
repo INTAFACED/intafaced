@@ -125,6 +125,22 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // reported to count USDT margin in full. Without it every futures open refuses trade.haircut_unset.
     TRADE_COLLATERAL_HAIRCUT_BPS: '0',
     TRADE_FUTURES_INDEX_SPOT_MARKETS: 'BTC/USDT:USDT=BTC/USDT',
+    // Funding, off unless a journey restarts trade with `LOCAL_STACK_TRADE_FUNDING_MARKET=<the TEST perpetual's id>`
+    // (J-derivatives-08; the id is read at runtime, since the TEST listing has none fixed). Then, LOCAL TEST and not owner
+    // decisions: the funding jobs run for that market only, the rate computer polls every 2 s, the tick every 60 s (the
+    // env's floor), the |rate| bound is 0.0075, and the TEST index feed (svc-trade futures/test-index-feed.ts, refused
+    // outside APP_ENV dev or test) stands in for `feed.market` with the TEST spot book's mid. Every funding number
+    // (base, cap, cadence, period) still comes from admin.fundingParams, which the journey publishes and blanks again.
+    // Off, as for every other journey, no funding job is scheduled and no position pays or receives funding.
+    ...(process.env.LOCAL_STACK_TRADE_FUNDING_MARKET
+      ? {
+          TRADE_FUTURES_FUNDING_MARKET_IDS: process.env.LOCAL_STACK_TRADE_FUNDING_MARKET,
+          TRADE_FUTURES_FUNDING_INTERVAL_MS: '60000',
+          TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS: '2000',
+          TRADE_FUTURES_FUNDING_MAX_ABS_RATE: '0.0075',
+          TRADE_FUTURES_TEST_INDEX_FEED: 'spot-book',
+        }
+      : {}),
     // LOCAL TEST, not owner decisions: copy trading's leader fee share, country list, risk disclosure and lead-page
     // metric definitions, read from the labelled TEST profile so the copy journeys run on TEST money. Each one
     // blank refuses by name (services/svc-trade/src/env.ts); production stays blank until the owner sets it.

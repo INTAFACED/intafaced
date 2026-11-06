@@ -2066,6 +2066,75 @@ export async function setFeeSchedule(ctx, schedule, { effectiveAt, reason, sessi
   return row;
 }
 
+// ── 2c''. TEST funding numbers and index sources (two-person approval) ───
+
+export const FUNDING_PARAMS_SET_ACTION = 'trade.funding_params_set';
+export const INDEX_SOURCES_SET_ACTION = 'trade.index_sources_set';
+
+/** The hash svc-trade recomputes when it consumes a funding numbers or index source approval (admin/funding-desk.ts). */
+export function fundingDeskPayloadHash({ actionType, market, change, expectedVersion, reason }) {
+  const body = { actionType, market, change, expectedVersion, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+async function fundingDeskSet(ctx, { actionType, get, set, field, market, change, reason, sessions }) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('trade', get, { market }, await pair.a.tradeOpsToken()));
+  if (typeof current?.version !== 'string') throw new Error(`trade ${get} gave no version`);
+  const body = { market, [field]: change, expectedVersion: current.version, reason: (reason ?? `${MARKERS.label}: TEST ${field}`).trim() };
+  const ids = await twoPerson(ctx, pair, {
+    actionType,
+    targetService: 'svc-trade',
+    targetId: market,
+    expectedVersion: body.expectedVersion,
+    payloadHash: fundingDeskPayloadHash({ actionType, market, change, expectedVersion: body.expectedVersion, reason: body.reason }),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  // svc-trade binds the approval to the operation: the write's clientRequestId is the proposal's operationId.
+  const res = await ctx.edge.mutate(
+    'trade',
+    set,
+    { ...body, approvalId: ids.approvalId, clientRequestId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (typeof row?.version !== 'string') throw new Error(`trade ${set} refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(`${field} for market ${market}: version ${row.version} (${MARKERS.label}); approval ${ids.approvalId}`);
+  return row;
+}
+
+/**
+ * Write one new version of a futures market's funding numbers (`admin.fundingParams.set`) as two TEST operators would.
+ * `params` is the whole set, normalised as svc-trade stores it (a null is blank: the period refuses); returns the view.
+ */
+export async function setFundingParams(ctx, market, params, { reason, sessions } = {}) {
+  return fundingDeskSet(ctx, {
+    actionType: FUNDING_PARAMS_SET_ACTION,
+    get: 'admin.fundingParams.get',
+    set: 'admin.fundingParams.set',
+    field: 'params',
+    market,
+    change: params,
+    reason,
+    sessions,
+  });
+}
+
+/** Write one new version of a futures market's index source list (`admin.indexSources.set`), approved by two TEST operators. */
+export async function setIndexSources(ctx, market, config, { reason, sessions } = {}) {
+  return fundingDeskSet(ctx, {
+    actionType: INDEX_SOURCES_SET_ACTION,
+    get: 'admin.indexSources.get',
+    set: 'admin.indexSources.set',
+    field: 'config',
+    market,
+    change: config,
+    reason,
+    sessions,
+  });
+}
+
 // ── 2c'''. VIP application review (two-person approval) ──────────────────
 
 export const VIP_REVIEW_ACTION = 'trade.vip_application_review';
