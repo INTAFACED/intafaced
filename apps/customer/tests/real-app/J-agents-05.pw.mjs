@@ -29,6 +29,12 @@ const state = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 test.describe.configure({ mode: 'default' });
 
 const main = (page) => page.getByRole('main');
+/**
+ * The action's own status in `scope`, never a loading status beside it: a re-read shows "Loading…" while the action's
+ * status is on screen (Lane B's run 42134908912: both were there together for a strict locator). Still strict: two
+ * action statuses at once fail.
+ */
+const actionStatus = (scope) => scope.getByRole('status').filter({ hasNotText: /^Loading/ });
 const rules = (page) => main(page).getByRole('form', { name: 'Rules' });
 const tryTool = (page) => main(page).getByRole('region', { name: 'Try a tool' });
 const consentCard = (page) => page.getByRole('dialog', { name: /^Allow this agent to use/ });
@@ -370,7 +376,7 @@ test(`${J} #5 edits the payload then approves: a new request for the new payload
   const dialog = page.getByRole('dialog', { name: 'Edit the request' });
   await dialog.getByRole('textbox', { name: /^Comment/ }).fill('TEST comment, edited');
   await dialog.getByRole('button', { name: 'Save as a new request' }).click();
-  await expect(main(page).getByRole('status')).toContainText('Saved as a new request.');
+  await expect(actionStatus(main(page))).toContainText('Saved as a new request.');
 
   // A new request exists for the new payload; the old one reads replaced and is no longer approvable.
   await expect(inbox(page).getByRole('row').filter({ hasText: 'Replaced by your edit' })).toHaveCount(1);
@@ -399,7 +405,7 @@ test(`${J} #5 edits the payload then approves: a new request for the new payload
 
   // Approving runs the tool once: one comment on the person's request with the edited text, one call in the session log.
   await editedRow.getByRole('button', { name: 'Approve', exact: true }).click();
-  await expect(main(page).getByRole('status')).toHaveText('Approved: the tool ran once.');
+  await expect(actionStatus(main(page))).toHaveText('Approved: the tool ran once.');
   await expect(editedRow).toContainText('Approved · ran once');
   const comments = await ticketComments();
   expect(comments).toHaveLength(1);
@@ -411,7 +417,7 @@ test(`${J} #5 edits the payload then approves: a new request for the new payload
 
   // A repeated approve returns the first result: the same comment, and the tool does not run again.
   await editedRow.getByRole('button', { name: 'Approve again' }).click();
-  await expect(main(page).getByRole('status')).toHaveText('Already approved: the first result is shown.');
+  await expect(actionStatus(main(page))).toHaveText('Already approved: the first result is shown.');
   await expect(main(page).getByTestId('first-result')).toContainText(comments[0].id);
   const repeat = await ownCall('approval.approve', { requestId: edited.id });
   expect(repeat.status).toBe(200);
@@ -432,7 +438,7 @@ test(`${J} #6 rejects another request and lets a third expire: the step ends wit
   await openInbox(page);
   const rejectRow = inbox(page).locator(`[data-request-id="${toReject.id}"]`);
   await rejectRow.getByRole('button', { name: 'Reject' }).click();
-  await expect(main(page).getByRole('status')).toContainText('Rejected.');
+  await expect(actionStatus(main(page))).toContainText('Rejected.');
   await expect(rejectRow).toContainText('Rejected');
   await expect(rejectRow.locator('code')).toHaveText('agents.approval.rejected');
   // The step ends with a typed refusal the run can read: the agent's same call now answers with it, and nothing ran.
@@ -500,7 +506,7 @@ test(`${J} #7 turns on the automatic reviewer for no-value tools: "proceed" runs
   await expect(panel.getByRole('note')).toContainText('TEST engine');
   await expect(reviewer).toHaveAttribute('aria-checked', 'false');
   await reviewer.click();
-  await expect(panel.getByRole('status')).toHaveText('Automatic reviewer on.');
+  await expect(actionStatus(panel)).toHaveText('Automatic reviewer on.');
   await expect(reviewer).toHaveAttribute('aria-checked', 'true');
   const agent = await ownAgent();
   expect(await ownRead('reviewer.get', { id: agent.id })).toMatchObject({ on: true, engine: 'test' });
