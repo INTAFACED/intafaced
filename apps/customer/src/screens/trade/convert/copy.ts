@@ -65,7 +65,7 @@ const messages = {
   'Too large body': 'Up to {amount} {asset} converts in one go. For more, the quote desk names one price for the whole size.',
   'Use the quote desk': 'Use the quote desk',
   'Two leg title': 'Cash to a coin in two steps isn’t offered',
-  'Two leg body': '{from} to {to} would need two linked steps through a coin, and those aren’t built yet. Nothing was priced.',
+  'Two leg body': '{from} to {to} would need two linked steps through a coin, which this platform doesn’t offer. Nothing was priced.',
   'Route unlisted title': 'These two can’t be converted',
   'Route unlisted body': 'No market joins {from} and {to}. Nothing was priced.',
   'Choose other coins': 'Choose other coins',

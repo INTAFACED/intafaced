@@ -164,6 +164,22 @@
           }
         },
         {
+          "name": "createConvertQuote",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/convert/quote", "host": ["{{baseUrl}}"], "path": ["api", "v1", "convert", "quote"] }
+          }
+        },
+        {
+          "name": "acceptConvertQuote",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/convert/accept", "host": ["{{baseUrl}}"], "path": ["api", "v1", "convert", "accept"] }
+          }
+        },
+        {
           "name": "cancelOrder",
           "request": {
             "method": "DELETE",
