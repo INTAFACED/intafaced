@@ -27,6 +27,7 @@ import { FuturesError, type RiskStopFigures } from './position-service.js';
 import {
   RISK_STOP_CLOSING,
   RISK_STOP_INVALID,
+  RISK_STOP_PRICE_UNKNOWN,
   RISK_STOP_RATIO_UNKNOWN,
   RISK_STOP_REACHED,
   RISK_STOP_TRIGGER_OFF,
@@ -139,6 +140,8 @@ describe('pre-liquidation stop', () => {
   /** The ratio the figures answer with (maintenance over equity, 1 = 100%), or null with a reason. */
   let ratio: bigint | null;
   let ratioReason: string | null;
+  /** The mark at which the ratio reaches a level, as the figures answer it. */
+  let stopAt: bigint | null;
 
   async function figures(userId: string, positionId: string, level: bigint | null): Promise<RiskStopFigures> {
     const [row] = await POSITION_SQL(sql, positionId);
@@ -156,7 +159,7 @@ describe('pre-liquidation stop', () => {
       liquidationPrice: '90.5',
       marginRatio: ratio,
       ratioReason: ratio === null ? ratioReason : null,
-      stopPrice: level === null ? null : A('95.25'),
+      stopPrice: level === null ? null : stopAt,
       stopPriceReason: null,
     };
   }
@@ -168,6 +171,7 @@ describe('pre-liquidation stop', () => {
       figures,
       fire: (input) => orders.fireRiskStop(input),
       closeOrder: (userId, clientOrderId) => orders.getByClientId(userId, clientOrderId),
+      sync: (input) => orders.syncRiskStop(input),
       ...extra,
     });
   }
@@ -193,6 +197,7 @@ describe('pre-liquidation stop', () => {
     seq = 5000;
     ratio = A('0.05');
     ratioReason = null;
+    stopAt = A('95.25');
     book = new MatchedFuturesOrders({
       sql,
       ledger,
@@ -281,6 +286,19 @@ describe('pre-liquidation stop', () => {
     return rows.map((r) => ({ ...r, level: r.level === null ? null : formatAmount(A(r.level)) }));
   }
 
+  async function closeOrders() {
+    const rows = await sql<
+      { client_order_id: string; status: string; trigger_price: string | null; quantity: string; cancel_reason: string | null }[]
+    >`
+      SELECT client_order_id, status, trigger_price, quantity, cancel_reason FROM trade.futures_conditional_orders ORDER BY created_at, client_order_id
+    `;
+    return rows.map((r) => ({
+      ...r,
+      trigger_price: r.trigger_price === null ? null : formatAmount(A(r.trigger_price)),
+      quantity: formatAmount(A(r.quantity)),
+    }));
+  }
+
   async function refusal(promise: Promise<unknown>): Promise<string> {
     try {
       await promise;
@@ -312,13 +330,19 @@ describe('pre-liquidation stop', () => {
     );
     expect(await refusal(stops.set(BOB, positionId, { level: '50', clientRequestId: 'bob' }))).toBe('trade.position_not_found');
     expect(await refusal(stops.set(ALICE, positionId, { level: '50', clientRequestId: '' }))).toBe('trade.idempotency_key_required');
+    // With no mark for the level there is no close order to place, so no stop.
+    stopAt = null;
+    expect(await refusal(set('50'))).toBe(RISK_STOP_PRICE_UNKNOWN);
+    stopAt = A('95.25');
     expect(await stopRows()).toEqual([]);
+    expect(await closeOrders()).toEqual([]);
     expect(await stops.get(ALICE, positionId)).toMatchObject({ status: 'none', level: null, triggerPrice: null, marginRatio: '5' });
   });
 
-  it('a set stop shows its level, the close price and the ratio now; the same request replays and a new one replaces it', async () => {
+  it("a set stop rests its close order at once at the level's mark; the same request replays and a new one replaces it", async () => {
     const positionId = await aliceLong();
     const stops = stopService();
+    const first = `risk-stop:${positionId}:1`;
     const armed = await stops.set(ALICE, positionId, { level: '62.5', clientRequestId: 'set-1' });
     expect(armed).toMatchObject({
       positionId,
@@ -327,17 +351,43 @@ describe('pre-liquidation stop', () => {
       marginRatio: '5',
       triggerPrice: '95.25',
       liquidationPrice: '90.5',
-      closeOrder: null,
+      closeOrder: { clientOrderId: first, status: 'armed', triggerPrice: '95.25', orderId: null },
+    });
+    // A real order in the trader's conditional orders: reduce-only, stop-market, the whole position, on the mark.
+    expect((await orders.list(ALICE)).find((o) => o.clientOrderId === first)).toMatchObject({
+      positionId,
+      kind: 'stop_market',
+      side: 'sell',
+      quantity: '1',
+      reduceOnly: true,
+      triggerSource: 'mark',
+      triggerPrice: '95.25',
+      status: 'armed',
     });
     expect(await stops.get(ALICE, positionId)).toMatchObject({ status: 'armed', level: '62.5', triggerPrice: '95.25' });
-    // The same request id answers with the stop as it stands, even with another body.
+    // The same request id answers with the stop as it stands, even with another body, and writes no second order.
     expect(await stops.set(ALICE, positionId, { level: '70', clientRequestId: 'set-1' })).toMatchObject({ level: '62.5' });
-    expect(await stopRows()).toEqual([{ status: 'armed', level: '0.625', generation: 1, close_client_order_id: null }]);
-    expect(await stops.set(ALICE, positionId, { level: '70', clientRequestId: 'set-2' })).toMatchObject({ level: '70' });
-    expect(await stopRows()).toEqual([{ status: 'armed', level: '0.7', generation: 2, close_client_order_id: null }]);
-    // Blank clears it: no stop, and the tick has nothing to act on.
+    expect(await stopRows()).toEqual([{ status: 'armed', level: '0.625', generation: 1, close_client_order_id: first }]);
+    expect(await closeOrders()).toHaveLength(1);
+    stopAt = A('94');
+    expect(await stops.set(ALICE, positionId, { level: '70', clientRequestId: 'set-2' })).toMatchObject({
+      level: '70',
+      closeOrder: { clientOrderId: `risk-stop:${positionId}:2`, status: 'armed', triggerPrice: '94' },
+    });
+    expect(await stopRows()).toEqual([
+      { status: 'armed', level: '0.7', generation: 2, close_client_order_id: `risk-stop:${positionId}:2` },
+    ]);
+    expect(await closeOrders()).toMatchObject([
+      { client_order_id: first, status: 'cancelled', cancel_reason: 'risk_stop_replaced' },
+      { client_order_id: `risk-stop:${positionId}:2`, status: 'armed', trigger_price: '94' },
+    ]);
+    // Blank clears it: no stop, its close order comes off, and the tick has nothing to act on.
     const submitted = engine.submits.length;
     expect(await stops.set(ALICE, positionId, { level: null, clientRequestId: 'clear' })).toMatchObject({ status: 'none', level: null });
+    expect((await closeOrders()).map((o) => [o.status, o.cancel_reason])).toEqual([
+      ['cancelled', 'risk_stop_replaced'],
+      ['cancelled', 'risk_stop_cleared'],
+    ]);
     ratio = A('0.9');
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
     expect(engine.submits).toHaveLength(submitted);
@@ -357,7 +407,7 @@ describe('pre-liquidation stop', () => {
     mark = A('96');
     const clientOrderId = `risk-stop:${positionId}:1`;
     scriptFill(bid, '1', '96');
-    // One tick: the stop is claimed, and its close order is written and placed at once.
+    // One tick: the stop is claimed, and its resting close order is claimed and placed at once.
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 1 });
     const [cond] = await sql<{ id: string; status: string; kind: string; side: string; quantity: string; reduce_only: boolean }[]>`
       SELECT id, status, kind, side, quantity, reduce_only FROM trade.futures_conditional_orders WHERE client_order_id = ${clientOrderId}
@@ -401,9 +451,9 @@ describe('pre-liquidation stop', () => {
     ratio = A('0.75');
     await expect(stops.evaluate({ enabled: true })).rejects.toThrow('process died after the claim');
     expect(await stopRows()).toMatchObject([{ status: 'fired', close_client_order_id: `risk-stop:${positionId}:1` }]);
-    expect(await sql`SELECT 1 FROM trade.futures_conditional_orders`).toHaveLength(0);
+    expect(await closeOrders()).toMatchObject([{ client_order_id: `risk-stop:${positionId}:1`, status: 'armed' }]);
 
-    // Next tick: the claimed stop's order is written once, under the same id; a third tick writes nothing more.
+    // Next tick: the claimed stop's resting order is fired once, under the same id; a third tick places nothing more.
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
     const rows = await sql<{ client_order_id: string }[]>`SELECT client_order_id FROM trade.futures_conditional_orders`;
@@ -441,13 +491,71 @@ describe('pre-liquidation stop', () => {
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 1 });
     ratio = A('0.05');
     const again = await stops.set(ALICE, positionId, { level: '40', clientRequestId: 'gen-2' });
-    expect(again).toMatchObject({ status: 'armed', level: '40', closeOrder: null });
-    expect(await stopRows()).toMatchObject([{ status: 'armed', generation: 2, close_client_order_id: null }]);
+    expect(again).toMatchObject({
+      status: 'armed',
+      level: '40',
+      closeOrder: { clientOrderId: `risk-stop:${positionId}:2`, status: 'armed' },
+    });
+    expect(await stopRows()).toMatchObject([{ status: 'armed', generation: 2, close_client_order_id: `risk-stop:${positionId}:2` }]);
 
     await sql`UPDATE trade.positions SET status = 'closed', closed_at = now() WHERE id = ${positionId}`;
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
     expect(await stopRows()).toMatchObject([{ status: 'ended' }]);
     expect(await refusal(stops.set(ALICE, positionId, { level: '40', clientRequestId: 'gen-3' }))).toBe('trade.position_not_open');
+  });
+
+  it('the mark crossing the trigger fires the resting order once; the stop reads fired and nothing is placed twice', async () => {
+    const positionId = await aliceLong();
+    const stops = stopService();
+    await stops.set(ALICE, positionId, { level: '50', clientRequestId: 'cross-1' });
+    const bid = await carolBid('1', '95');
+    const submitted = engine.submits.length;
+    // The mark falls through 95.25 while the figures still read the ratio under the level.
+    mark = A('95');
+    scriptFill(bid, '1', '95');
+    await orders.evaluate({ enabled: true });
+    expect(await closeOrders()).toMatchObject([{ client_order_id: `risk-stop:${positionId}:1`, status: 'filled' }]);
+    expect(engine.submits.slice(submitted)).toHaveLength(1);
+    expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    await orders.evaluate({ enabled: true });
+    expect(engine.submits.slice(submitted)).toHaveLength(1);
+    expect(await stopRows()).toMatchObject([{ status: 'done' }]);
+    expect(await stops.get(ALICE, positionId)).toMatchObject({ status: 'fired', closeOrder: { status: 'filled' } });
+    expect((await POSITION_SQL(sql, positionId))[0]!.status).toBe('closed');
+  });
+
+  it("the resting order follows the level's mark and the size as they move; cancelling it clears the stop", async () => {
+    const positionId = await aliceLong();
+    const stops = stopService();
+    await stops.set(ALICE, positionId, { level: '50', clientRequestId: 'move-1' });
+    // Margin was added: the mark at which the ratio reaches 50% is lower now, and the order follows on the next tick.
+    stopAt = A('93.5');
+    expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await closeOrders()).toMatchObject([{ status: 'armed', trigger_price: '93.5', quantity: '1' }]);
+    expect(await stops.get(ALICE, positionId)).toMatchObject({ triggerPrice: '93.5', closeOrder: { triggerPrice: '93.5' } });
+    // The trader takes the close order off: the stop goes with it rather than show a stop that would not act.
+    const [order] = (await orders.list(ALICE)).filter((o) => o.clientOrderId === `risk-stop:${positionId}:1`);
+    await orders.cancel(ALICE, order!.id);
+    expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await stopRows()).toMatchObject([{ status: 'cleared', level: null }]);
+    expect(await stops.get(ALICE, positionId)).toMatchObject({ status: 'none', level: null });
+  });
+
+  it('a crash after the stop is stored and before its close order is written is mended on the next tick, once', async () => {
+    const positionId = await aliceLong();
+    const stops = stopService({
+      sync: async () => {
+        throw new Error('process died before the close order');
+      },
+    });
+    await expect(stops.set(ALICE, positionId, { level: '50', clientRequestId: 'mend-1' })).rejects.toThrow('process died');
+    expect(await stopRows()).toMatchObject([{ status: 'armed', close_client_order_id: `risk-stop:${positionId}:1` }]);
+    expect(await closeOrders()).toEqual([]);
+    const tick = stopService();
+    expect(await tick.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await tick.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await closeOrders()).toMatchObject([{ client_order_id: `risk-stop:${positionId}:1`, status: 'armed', trigger_price: '95.25' }]);
   });
 
   for (const level of ['70', null] as const) {
