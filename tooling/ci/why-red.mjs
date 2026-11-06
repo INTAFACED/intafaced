@@ -51,7 +51,7 @@ export function runIdOf(check) {
 /**
  * One line per pull_request run, red or running in a job other than the seal, whose current attempt started more than
  * STALE_MS after the run was made. The sign-off workflow's own re-run of the seal never counts (it reads only the
- * jobs' results), and a prompt confirmation re-run (AGENTS.md "Check, then merge" 3) is not stale.
+ * jobs' results), and a prompt confirmation re-run (AGENTS.md, "How work flows" 8) is not stale.
  */
 export function staleLines(runs = {}, checks = []) {
   const out = [];
@@ -255,11 +255,11 @@ export function summarize({ sha, checks: all, annotations, failedSteps, statuses
     );
   else if (reviewIn)
     out.push(
-      `REVIEW: an "${REVIEW_STATUS}" status is on this head, but the seal no longer reads statuses or comments (AGENTS.md item 8): it waits for the "CI review" job's Verdict on this exact head, which runs on every push and re-runs the seal when it passes. Read that job: a FAIL there lists its findings; fix them and push. Nothing else to do.`,
+      `REVIEW: an "${REVIEW_STATUS}" status is on this head, but the seal no longer reads statuses or comments (AGENTS.md, "Where a mistake costs more"): it waits for the "CI review" job's Verdict on this exact head, which runs on every push and re-runs the seal when it passes. Read that job: a FAIL there lists its findings; fix them and push. Nothing else to do.`,
     );
   else
     out.push(
-      `REVIEW: every other check is green; the seal waits for the "CI review" job's Verdict on ${sha} (AGENTS.md item 8), which runs on every push to an in-repo pull request and re-runs the seal when it passes. If that job failed its Verdict step, its summary lists the blocking findings: fix them and push a new head. If it failed before a verdict, re-run it once. A comment or a status counts for nothing.`,
+      `REVIEW: every other check is green; the seal waits for the "CI review" job's Verdict on ${sha} (AGENTS.md, "Where a mistake costs more"), which runs on every push to an in-repo pull request and re-runs the seal when it passes. If that job failed its Verdict step, its summary lists the blocking findings: fix them and push a new head. If it failed before a verdict, re-run it once. A comment or a status counts for nothing.`,
     );
   return out;
 }

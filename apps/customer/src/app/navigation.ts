@@ -292,6 +292,13 @@ export const rooms: readonly Room[] = [
     area: 'money',
   },
   { path: '/bank/cards', title: 'Cards', description: 'Card issuer availability and controls', door: 'Money', area: 'money' },
+  {
+    path: '/bank/cards/new',
+    title: 'Get a card',
+    description: 'Cards on offer where you live, the cardholder terms and a new card',
+    door: 'Money',
+    area: 'money',
+  },
   { path: '/bank/ramps', title: 'Cash and crypto', description: 'Onramps and offramps', door: 'Money', area: 'money' },
   { path: '/bank/ramps/new', title: 'Add money', description: 'Pay in by bank transfer, bank or card', door: 'Money', area: 'money' },
   {

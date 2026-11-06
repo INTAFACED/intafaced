@@ -9,8 +9,8 @@ import { subject, type Verb } from './subject.js';
  * and version. Nothing publishes a subject that is not in this file — that is
  * what makes the bus a contract rather than a rumour mill.
  *
- * Adding an event = a contracts/events PR (§15.2), reviewed before the
- * producing service is touched.
+ * Adding an event may land in the same PR as the services of the one journey
+ * that needs it (AGENTS.md, "The owner's decisions", owner decision 2026-11-06).
  */
 
 export interface EventDef<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {

@@ -17,8 +17,8 @@ import { DepthNoBookError, type DepthSource } from './source.js';
  * cannot rebuild a book: `intafaced.matching.order.accepted` carries
  * `{orderId, marketId, sequence}` — no side, no price, no quantity
  * (packages/events/src/catalog.ts). Deriving depth from the bus would need a
- * wider payload, which is a `packages/events` PR that must land on its own
- * first (§15.2). Until it does, the only complete and correctly-sequenced
+ * wider payload, which is a `packages/events` change. Until it lands, the
+ * only complete and correctly-sequenced
  * source of L2 depth in the platform is `GET /markets/:id/depth`. Native L3
  * is a separate `GET /markets/:id/depth/l3` — never synthesized from L2.
  *

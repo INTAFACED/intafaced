@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Merge-seal step: a pull request that changes money, security, gate-file or look-baseline paths is sealed only when
+ * Merge-seal step: a pull request that changes gate-file or look-baseline paths is sealed only when
  * the `CI review` job (.github/workflows/ci-review.yml) passed its `Verdict` step on the pull request's exact head.
  *
  *   node tooling/ci/review-marker.mjs --self-test
@@ -22,11 +22,12 @@
  * once it passes (ci-review.mjs), so nobody re-runs it by hand. Same requirement, later verdict: a head without the
  * review still fails.
  *
- * Only money, security, gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
- * 2026-10-26). Every other pull request is sealed on its checks alone. On a merge queue's commit (`merge_group`) the
+ * Only gate-file and look-baseline changes need it (owner decisions 2026-10-22 and, for baselines,
+ * 2026-10-26). Money and security code no longer does (owner decision 2026-11-06): it is sealed on its checks alone, like every other pull
+ * request. On a merge queue's commit (`merge_group`) the
  * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
- * review. A pull request that edits the workflow itself touches .github/, which always needs the review.
+ * review. A pull request that edits the workflow itself touches .github/workflows/, a gate file, which always needs the review.
  *
  * The comment and session helpers below (MARKER, sessionsForHead, commentSignoff, ...) stay exported for
  * review-signoff.mjs, which still runs until its retirement PR; nothing in the seal reads them any more.
@@ -47,7 +48,7 @@ export const STATUS_CONTEXT = 'Independent review';
 
 const SESSION_ID = /session_[A-Za-z0-9]+/g;
 /**
- * A commit's session trailer, the `<Tool>-Session: <link>` line AGENTS.md item 8 names. Any word before `-Session:`
+ * A commit's session trailer, the `<Tool>-Session: <link>` line AGENTS.md, "Where a mistake costs more" names. Any word before `-Session:`
  * counts, so a renamed trailer still names its author (more author sessions, never fewer).
  */
 const SESSION_TRAILER = /^[A-Za-z]+-Session:/i;
@@ -75,7 +76,7 @@ export function sessionsForHead(commits, sha) {
   return commitSessions(list.map((c) => c?.commit?.message));
 }
 
-/** A `Reviewer session:` line whose first word is the session, bare or as a link (docs/agents/reviewer-brief.md). */
+/** A `Reviewer session:` line whose first word is the session, bare or as a link (tooling/ci/ci-review/REVIEW.md). */
 const REVIEWER_LINE = /^Reviewer session:\s*<?(?:https?:\/\/[^\s>]*\/)?(session_[A-Za-z0-9]+)\b/i;
 
 /**
@@ -99,14 +100,14 @@ export function reviewerLineSessions(body) {
 
 /**
  * Why a PASS does not count for the session it names, or null when it does. A PASS must name its reviewing session on
- * a line of its own, `Reviewer session: session_…` (AGENTS.md item 8; a gate since OWNER 138 (1)(a), 31 Oct): without
+ * a line of its own, `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more"; a gate since OWNER 138 (1)(a), 31 Oct): without
  * one, nothing shows another session reviewed. A PASS that names the PR's own session does not count either (owner
  * decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's session-trailer commit lines. `authorSessions` is
  * that Set, or null when the commits could not be read whole; then no PASS counts.
  */
 export function sessionRefusal(body, authorSessions) {
   if (reviewerLineSessions(body).length === 0)
-    return 'it names no reviewing session; add a line of its own `Reviewer session: session_…` (AGENTS.md item 8)';
+    return 'it names no reviewing session; add a line of its own `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more")';
   if (!(authorSessions instanceof Set)) return "the pull request's commits could not be read whole, so its sessions are unknown";
   for (const id of passSessions(body)) {
     if (authorSessions.has(id)) return `it names the pull request's own session (${id}); another session must review`;
@@ -148,7 +149,7 @@ export function commentSignoff({ comments, authorSessions = null, ...who }) {
 
 export const hasCommentSignoff = (args) => commentSignoff(args).ok;
 
-/** The one workflow, job and step whose result seals a head (AGENTS.md item 8). */
+/** The one workflow, job and step whose result seals a head (AGENTS.md, "Where a mistake costs more"). */
 export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
 export const REVIEW_JOB = 'CI review';
 export const VERDICT_STEP = 'Verdict';
@@ -294,60 +295,16 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
 }
 
 /**
- * Security code by path: the services AGENTS.md names, ledger-client and auth, config (freeze authority, sanctions
- * screening, the money kill switch, production posture) and db (columns, migrations), the workflows, what changes the
- * dependency tree or the registry, the images and compose files, the shared compiler settings and the infra config.
+ * Why this change needs the independent review, or null when it does not: a gate file (gate-file-guard.mjs GATE_PATHS),
+ * or a look baseline. Money and security code alone does not (owner decision
+ * 2026-11-06). An empty file list fails closed.
  */
-export const SECURITY_PATHS = [
-  /^services\/svc-(edge|ops|protocol|fix)\//,
-  /^packages\/(ledger-client|auth|config|db)\//,
-  /^\.github\//,
-  /^pnpm-lock\.yaml$/,
-  /^pnpm-workspace\.yaml$/,
-  /(^|\/)\.npmrc$/,
-  /(^|\/)Dockerfile[^/]*$/,
-  /(^|\/)\.dockerignore$/,
-  /(^|\/)docker-compose[^/]*\.ya?ml$/,
-  /^tsconfig\.base\.json$/,
-  /^tooling\/infra\//,
-];
-
-const LEDGER_CLIENT = '@intafaced/ledger-client';
-
-/**
- * The folder a file's money check reads package.json from (`services/svc-pay`, `tooling/pay-sim`), or null for a file
- * at the top of the repo or of tooling/. A tooling folder with no package.json (tooling/scripts runs the local stack
- * and its ledger recipes) fails closed in reviewReason.
- */
-export function packageRootOf(file) {
-  const m = /^(apps|services|packages|tooling)\/([^/]+)\//.exec(file);
-  return m ? `${m[1]}/${m[2]}` : null;
-}
-
-export function dependsOnLedgerClient(manifest) {
-  return ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some(
-    (k) => manifest?.[k] && Object.hasOwn(manifest[k], LEDGER_CLIENT),
-  );
-}
-
-/**
- * Why this change needs the independent review, or null when it does not. Money code is ledger-client and every
- * package that depends on it directly, on the default branch or on the head. `manifests` maps a package root to the
- * package.json objects read for it; a root with none counts as money (fail closed), and so does an empty file list.
- */
-export function reviewReason(files, manifests) {
+export function reviewReason(files) {
   if (files.length === 0) return 'no changed files could be read for this head';
-  const security = files.find((f) => SECURITY_PATHS.some((re) => re.test(f)));
-  if (security) return `security: ${security}`;
   const gate = gateFilesTouched(files);
   if (gate.length > 0) return `gate file: ${gate[0].file}`;
   const baseline = files.find((f) => BASELINE.test(f));
   if (baseline) return `look baseline: ${baseline}`;
-  for (const root of new Set(files.map(packageRootOf).filter(Boolean))) {
-    const found = manifests.get(root) ?? [];
-    if (found.length === 0) return `money: no package.json could be read for ${root}`;
-    if (found.some(dependsOnLedgerClient)) return `money: ${root} depends on ${LEDGER_CLIENT}`;
-  }
   return null;
 }
 
@@ -431,10 +388,7 @@ export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
       lines.push(`#${n}: is ${pull.state}, not a queued pull request`);
       continue;
     }
-    const files = await io.files(n, sha);
-    // The manifests on main, on the pull request's head and on the group's head: a package another pull request in the
-    // group makes depend on ledger-client is money code for this one too.
-    const reason = reviewReason(files, await io.manifests(files, sha));
+    const reason = reviewReason(await io.files(n, sha));
     if (reason === null) {
       lines.push(`#${n} (${sha}): independent review not required`);
       continue;
@@ -596,53 +550,50 @@ async function selfTest() {
     console.error('review-marker commit-session self-test failed:', got);
     process.exit(1);
   }
-  const money = { dependencies: { [LEDGER_CLIENT]: 'workspace:*' } };
-  const plain = { dependencies: { react: '19' } };
-  const manifests = new Map([
-    ['services/svc-pay', [money]],
-    ['services/svc-support', [plain]],
-    ['apps/admin', [plain, money]],
-    ['services/svc-new', []],
-    ['tooling/pay-sim', [money]],
-    ['apps/customer', [plain]],
-    ['packages/ui', [plain]],
-  ]);
+  // Gate files and look baselines need the review; money and security code alone no longer does
+  // (2026-11-06). Every case the old rule had is kept, with its expected result under the new one.
   const reasonCases = [
     [['docs/x.md'], false],
     [['services/svc-support/src/a.ts', 'docs/x.md'], false],
-    [['services/svc-pay/src/a.ts'], true],
-    [['apps/admin/src/a.tsx'], true], // depends on the head or on the default branch
-    [['services/svc-edge/src/a.ts'], true],
-    [['packages/ledger-client/src/a.ts'], true],
-    [['packages/config/src/freeze-authority.ts'], true],
-    [['packages/db/src/migrate.ts'], true],
-    [['.github/CODEOWNERS'], true],
-    [['pnpm-lock.yaml'], true],
+    [['services/svc-pay/src/a.ts'], false], // money: depends on ledger-client
+    [['apps/admin/src/a.tsx'], false], // money on the head or on the default branch
+    [['services/svc-edge/src/a.ts'], false], // security
+    [['packages/ledger-client/src/a.ts'], false],
+    [['packages/config/src/freeze-authority.ts'], false],
+    [['packages/db/src/migrate.ts'], false],
+    [['services/svc-new/src/a.ts'], false], // no package.json: was money by fail-closed, now no money check runs
+    [['services/svc-unread/src/a.ts'], false], // unreadable package.json: likewise
+    [['tooling/scripts/local-test-gates.mjs'], false], // tooling without a package.json: likewise
+    [['tooling/pay-sim/src/cli.ts'], false],
+    [['tooling/coverage.yaml'], false],
+    [['apps/customer/src/assets/logo.png'], false],
+    [['apps/customer/src/screens/home/index.tsx'], false],
+    [['.github/CODEOWNERS'], true], // gate files
+    [['.github/workflows/ci.yml'], true],
     [['tooling/ci/dependency-audit.mjs'], true],
     [['AGENTS.md'], true],
     [['services/svc-support/CLAUDE.md'], true],
-    [['services/svc-new/src/a.ts'], true],
-    [['services/svc-unread/src/a.ts'], true],
-    [['tooling/scripts/local-test-gates.mjs'], true],
-    [['tooling/pay-sim/src/cli.ts'], true],
-    [['tooling/coverage.yaml'], false],
-    [['.npmrc'], true],
-    [['apps/customer/Dockerfile'], true],
-    [['docker-compose.apps.yml'], true],
-    [['tsconfig.base.json'], true],
-    [['apps/customer/look-baselines/home/390x844.png'], true],
+    [['services/svc-pay/src/a.ts', 'services/svc-pay/CLAUDE.md'], true], // money plus a gate file
+    [['pnpm-lock.yaml'], false], // security code in AGENTS.md (owner decision 2026-11-06)
+    [['.npmrc'], false], // the seal's old security list
+    [['apps/customer/Dockerfile'], false],
+    [['docker-compose.apps.yml'], false],
+    [['tsconfig.base.json'], false],
+    [['.github/actions/test-infra/action.yml'], false], // .github/ outside GATE_PATHS
+    [['pnpm-workspace.yaml'], false],
+    [['tooling/infra/migrate-all.mjs'], false],
+    [['services/svc-edge/src/a.ts', 'pnpm-lock.yaml'], false], // security plus the lockfile
+    [['apps/customer/look-baselines/home/390x844.png'], true], // look baselines
     [['packages/ui/look-baselines/kit-buttons/phone/a.png'], true],
-    [['apps/customer/src/assets/logo.png'], false],
-    [['apps/customer/src/screens/home/index.tsx'], false],
     [[], true],
   ];
   for (const [files, want] of reasonCases) {
-    if ((reviewReason(files, manifests) !== null) !== want) {
+    if ((reviewReason(files) !== null) !== want) {
       console.error('review-marker review-reason self-test failed for', JSON.stringify(files));
       process.exit(1);
     }
   }
-  await mergeGroupSelfTest(reviewers, manifests);
+  await mergeGroupSelfTest(reviewers);
   console.log('review-marker self-test ok');
 }
 
@@ -662,7 +613,7 @@ export function reviewJob(sha, verdict = 'success', { status = 'completed' } = {
 }
 
 /** The merge queue seal, offline: a fake GitHub per case. */
-async function mergeGroupSelfTest(reviewers, manifests) {
+async function mergeGroupSelfTest(reviewers) {
   const fail = (what) => {
     console.error('review-marker merge-group self-test failed:', what);
     process.exit(1);
@@ -692,22 +643,28 @@ async function mergeGroupSelfTest(reviewers, manifests) {
       jobs: [[reviewJob(shaOf(n), verdict)]],
     },
   ];
-  // 1: docs only. 2: money (svc-pay), CI review passed. 3: security (.github), CI review passed.
-  // 4: money with no review. 5: money with only a PASS comment and an `Independent review` status from the shared
-  // login. 6: closed. 7: money whose CI review said FAIL.
+  // 1: docs only. 2: a gate file (tooling/ci), CI review passed. 3: a workflow (.github), CI review passed.
+  // 4: a gate file with no review. 5: a gate file with only a PASS comment and an `Independent review` status from the
+  // shared login. 6: closed. 7: a gate file whose CI review said FAIL. 8: a gate file reviewed against a side branch.
+  // 9: money (svc-pay) and 10: security (svc-edge), no review: sealed on their checks alone. 11: a look baseline and
+  // 12: the lockfile, no review (security code).
   const world = {
     1: { files: ['docs/x.md'] },
-    2: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(2) },
+    2: { files: ['tooling/ci/x.mjs'], runs: reviewed(2) },
     3: { files: ['.github/workflows/ci.yml'], runs: reviewed(3) },
-    4: { files: ['services/svc-pay/src/a.ts'] },
+    4: { files: ['tooling/ci/x.mjs'] },
     5: {
-      files: ['services/svc-pay/src/a.ts'],
+      files: ['tooling/ci/x.mjs'],
       comments: [{ user: { login: reviewers[0] }, body: `Independent review: PASS ${shaOf(5)}\nReviewer session: session_R1` }],
       statuses: [{ context: STATUS_CONTEXT, state: 'success' }],
     },
     6: { files: ['docs/x.md'], state: 'closed' },
-    7: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(7, 'failure') },
-    8: { files: ['services/svc-pay/src/a.ts'], runs: reviewed(8, 'success', 'side/b') },
+    7: { files: ['tooling/ci/x.mjs'], runs: reviewed(7, 'failure') },
+    8: { files: ['tooling/ci/x.mjs'], runs: reviewed(8, 'success', 'side/b') },
+    9: { files: ['services/svc-pay/src/a.ts'] },
+    10: { files: ['services/svc-edge/src/a.ts', 'packages/auth/src/a.ts'] },
+    11: { files: ['apps/customer/look-baselines/home/390x844.png'] },
+    12: { files: ['pnpm-lock.yaml'] },
   };
   const io = {
     pull: async (n) => ({
@@ -717,15 +674,17 @@ async function mergeGroupSelfTest(reviewers, manifests) {
       user: { login: 'author' },
     }),
     files: async (n) => world[n].files,
-    manifests: async () => manifests,
     reviewRuns: async (sha) => world[Number(sha.replace(/^c+/, ''))].runs ?? [],
     attempts: async (run) => run.jobs,
   };
   const group = async (numbers, opts = {}) =>
     sealMergeGroup({ commits: numbers.map((n) => sq(`t${n}`, n)), headRef: ref(numbers.at(-1)), io, ...opts });
   const cases = [
-    [[1, 2, 3], true, 'docs, a reviewed money PR and a reviewed security PR'],
-    [[1, 4], false, 'a money PR with no review never merges through the queue'],
+    [[1, 2, 3], true, 'docs, a reviewed gate-file PR and a reviewed workflow PR'],
+    [[1, 9, 10], true, 'a money PR and a security PR with no review merge through the queue'],
+    [[1, 4], false, 'a gate-file PR with no review never merges through the queue'],
+    [[9, 11], false, 'nor does a look-baseline PR with no review'],
+    [[9, 12], true, 'a lockfile PR with no review merges through the queue too'],
     [[4, 1], false, 'nor when it is not the last in the group'],
     [[2, 5], false, 'a PASS comment and status from the shared login count for nothing in the queue either'],
     [[2, 7], false, 'a FAIL verdict holds in the queue'],
@@ -786,21 +745,6 @@ async function readChangedFiles(repo, number, sha, token) {
     if (batch.length < 100) return (await headIs()) ? files : [];
   }
   return [];
-}
-
-/** package.json of each touched package, on the default branch and on the head. */
-async function readManifests(repo, files, refs, token) {
-  const out = new Map();
-  for (const root of new Set(files.map(packageRootOf).filter(Boolean))) {
-    const found = [];
-    for (const ref of refs) {
-      const path = `/repos/${repo}/contents/${root}/package.json?ref=${encodeURIComponent(ref)}`;
-      const file = await api(path, token, { missingOk: true });
-      if (file?.content) found.push(JSON.parse(Buffer.from(file.content, 'base64').toString('utf8')));
-    }
-    out.set(root, found);
-  }
-  return out;
 }
 
 /** The commits between a merge group's base and head, oldest first (at most 250: groupPulls refuses the cap). */
@@ -1098,11 +1042,9 @@ async function readAttempts(repo, run, token) {
  *   REPO=owner/name node tooling/ci/review-marker.mjs --merge-group-dry-run <base sha> <head sha> <pr of head> --via-gh
  */
 async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
-  const { default_branch: branch } = await api(`/repos/${repo}`, token);
   const io = {
     pull: (n) => api(`/repos/${repo}/pulls/${n}`, token),
     files: (n, sha) => readChangedFiles(repo, n, sha, token),
-    manifests: (files, sha) => readManifests(repo, files, [branch, sha, head], token),
     reviewRuns: (sha, branch) => readReviewRuns(repo, sha, token, branch),
     attempts: (run) => readAttempts(repo, run, token),
     tree: (sha) => readTree(repo, sha, token),
@@ -1113,7 +1055,7 @@ async function mainMergeGroup({ repo, token, base, head, headRef, dryRun }) {
   for (const l of lines) console.log(`  ${l}`);
   if (!ok) {
     console.error(
-      `::error title=Review sign-off missing in the merge group::${lines.filter((l) => !/not required|found$/.test(l)).join('; ')}. Each queued pull request that needs the independent review must carry a passing CI review for its own head (AGENTS.md item 8).`,
+      `::error title=Review sign-off missing in the merge group::${lines.filter((l) => !/not required|found$/.test(l)).join('; ')}. Each queued pull request that needs the independent review must carry a passing CI review for its own head (AGENTS.md, "Where a mistake costs more").`,
     );
     process.exit(1);
   }
@@ -1159,11 +1101,9 @@ async function main() {
     process.exit(1);
   }
   if (PR_NUMBER) {
-    const { default_branch: base } = await api(`/repos/${REPO}`, GH_TOKEN);
-    const files = await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN);
-    reason = reviewReason(files, await readManifests(REPO, files, [base, HEAD_SHA], GH_TOKEN));
+    reason = reviewReason(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
     if (reason === null) {
-      console.log('independent review not required: no money, security or gate file changed (owner decision 2026-10-22)');
+      console.log('independent review not required: no gate file or look baseline changed (owner decisions 2026-10-22 and 2026-11-06)');
       return;
     }
     console.log(`independent review required (${reason})`);
@@ -1188,7 +1128,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, REVIEW_POLL_MS));
   }
   console.error(
-    `::error title=Review sign-off missing::No passing CI review on ${HEAD_SHA}. This change needs one (${reason}): ${verdict.why}. The CI review job runs on every push to an in-repo pull request and re-runs this seal when it passes (AGENTS.md item 8); a comment or a status counts for nothing.`,
+    `::error title=Review sign-off missing::No passing CI review on ${HEAD_SHA}. This change needs one (${reason}): ${verdict.why}. The CI review job runs on every push to an in-repo pull request and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
   );
   process.exit(1);
 }

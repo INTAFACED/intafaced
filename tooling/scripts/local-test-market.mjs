@@ -552,6 +552,32 @@ async function preflight(maker, symbols) {
 /** Crossing side for the nth crossing in a market: buy, sell, buy, sell... so the taker's balances stay flat. */
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
 
+/** How long the market waits out a stack whose services are not all up (a restart) before it ends. */
+export const STACK_INACTIVE_LIMIT_MS = 5 * 60_000;
+
+/** Whether `err` is the stack guard's refusal because a service is not up (`assertActiveLocalStack`), nothing else. */
+export function stackNotActive(err) {
+  return /^refusing: selected local stack is not active \(/.test(String(err?.message ?? ''));
+}
+
+/**
+ * The ids of resting quotes (open orders with `id`, `side` and a decimal `price`) that the new `ladder` would meet: a
+ * sell at or under its best bid, or a buy at or over its best ask. A post-only quote that meets one is refused.
+ */
+export function quotesInTheWay(rows, ladder) {
+  const bids = ladder.filter((q) => q.side === 'buy').map((q) => toScaled(q.price));
+  const asks = ladder.filter((q) => q.side === 'sell').map((q) => toScaled(q.price));
+  const bestBid = bids.length ? bids.reduce((a, b) => (b > a ? b : a)) : null;
+  const bestAsk = asks.length ? asks.reduce((a, b) => (b < a ? b : a)) : null;
+  return rows
+    .filter((o) => {
+      if (typeof o?.price !== 'string' && typeof o?.price !== 'number') return false;
+      const price = toScaled(String(o.price));
+      return (o.side === 'sell' && bestBid !== null && price <= bestBid) || (o.side === 'buy' && bestAsk !== null && price >= bestAsk);
+    })
+    .map((o) => o.id);
+}
+
 /**
  * Whether the taker crosses `symbol` on loop cycle `cycle` (from 1): every third cycle, the markets taking turns by
  * the parity of their symbol's length, so each market trades every sixth cycle. The first crossing is on cycle 1 for
@@ -757,103 +783,144 @@ async function runLoop(opts, home) {
           clientOrderId: `LTEST-${runId}-${(counter += 1)}`,
         });
 
+  /** When the stack was first found not active in a row of cycles (`stackNotActive`), or null while it is. */
+  let inactiveSince = null;
   while (!STOP.requested) {
     cycle += 1;
     /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
     const mids = new Map();
     const shifts = readShifts(p);
-    for (const { market: m, leader } of order) {
-      let mid;
-      if (leader) {
-        const book = await maker
-          .http('GET', `/api/v1/orderbook/${encodeURIComponent(leader)}?limit=1`, null, { auth: false })
-          .catch(() => null);
-        mid = (book?.status === 200 ? bookMid(book.json) : null) ?? mids.get(leader) ?? walks.get(m.symbol).next();
-      } else {
-        // A `move` shift applies to a walked market; a follower is quoted round its leader's book, so it moves with it.
-        mid = shiftedMid(walks.get(m.symbol).next(), shifts.get(m.symbol), m.tick);
-      }
-      mids.set(m.symbol, mid);
-      const cfg = TEST_PRICES[m.symbol];
-      const ladder = buildLadder({
-        mid,
-        tick: m.tick,
-        lot: m.lot,
-        minAmount: m.minAmount,
-        minCost: m.minCost,
-        levels: opts.levels,
-        halfSpreadBps: 6n,
-        stepBps: 9n,
-        levelNotional: toScaled(cfg.notional),
-      });
-      // The new ladder goes up before the old one comes down, so the book never stands empty between two quotes
-      // (failure it prevents: a person's market buy landing in that gap was refused for want of a reference price).
-      // The first cycle takes over whatever an earlier run left resting the same way; if that cannot be read, it clears
-      // them first, as before.
-      let previous = quoted.get(m.symbol);
-      if (!previous && m.swap) {
-        previous = (await openFuturesQuoteIds(maker, m)) ?? undefined;
-      } else if (!previous) {
-        const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
-        const rows = Array.isArray(open.json) ? open.json : null;
-        if (open.status === 200 && rows && rows.length < 100) previous = rows.map((o) => o.id);
-        else await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
-      }
-      // A `move` is a jump: the old ladder comes down before the new one goes up. Overlapped, the old bids and the new
-      // asks would stand together and the book's mid would sit halfway, a price the jump never quoted (failure it
-      // prevents: a grid bot read that mid as in range and bought levels the market then left behind). The jump's quotes
-      // may take: post-only, they were refused by any order resting in the path and the price never got there.
-      const shift = leader ? undefined : (shifts.get(m.symbol) ?? 0n);
-      const jump = shift !== undefined && quotedShift.has(m.symbol) && quotedShift.get(m.symbol) !== shift;
-      if (jump && previous?.length) {
-        const left = [];
-        for (const id of previous) {
+    /** The market being quoted, so a cycle the stack's guard stops part-way can be taken over cleanly next time. */
+    let current = null;
+    try {
+      for (const { market: m, leader } of order) {
+        current = m.symbol;
+        let mid;
+        if (leader) {
+          const book = await maker
+            .http('GET', `/api/v1/orderbook/${encodeURIComponent(leader)}?limit=1`, null, { auth: false })
+            .catch(() => null);
+          mid = (book?.status === 200 ? bookMid(book.json) : null) ?? mids.get(leader) ?? walks.get(m.symbol).next();
+        } else {
+          // A `move` shift applies to a walked market; a follower is quoted round its leader's book, so it moves with it.
+          mid = shiftedMid(walks.get(m.symbol).next(), shifts.get(m.symbol), m.tick);
+        }
+        mids.set(m.symbol, mid);
+        const cfg = TEST_PRICES[m.symbol];
+        const ladder = buildLadder({
+          mid,
+          tick: m.tick,
+          lot: m.lot,
+          minAmount: m.minAmount,
+          minCost: m.minCost,
+          levels: opts.levels,
+          halfSpreadBps: 6n,
+          stepBps: 9n,
+          levelNotional: toScaled(cfg.notional),
+        });
+        // The new ladder goes up before the old one comes down, so the book never stands empty between two quotes
+        // (failure it prevents: a person's market buy landing in that gap was refused for want of a reference price).
+        // The first cycle takes over whatever an earlier run left resting the same way; if that cannot be read, it clears
+        // them first, as before. Of those, it takes down first only the quotes the new ladder would meet: that run may
+        // have quoted a price this one does not (a `move` it died before jumping back from), and this run's post-only
+        // quotes on that side would be refused, so the stale side came down with nothing behind it (failure it prevents:
+        // svc-trade's restart in J-derivatives-02 #2 ended the market, the restarted one quoted 65,296 bids into the dead
+        // run's 64,610 asks left from J-copy-bots-otc-19's move, every bid was refused, and with no bid the perpetual had
+        // no mark for #5 and #6, #7110). The rest stay up until the new ladder is up, so the book is never empty.
+        let previous = quoted.get(m.symbol);
+        if (!previous && m.swap) {
+          previous = (await openFuturesQuoteIds(maker, m)) ?? undefined;
+        } else if (!previous) {
+          const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
+          const rows = Array.isArray(open.json) ? open.json : null;
+          if (open.status === 200 && rows && rows.length < 100) {
+            const meet = new Set(quotesInTheWay(rows, ladder));
+            previous = rows.filter((o) => !meet.has(o.id)).map((o) => o.id);
+            for (const id of meet) {
+              const r = await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+              if (r.status >= 300 && r.status !== 404 && r.status !== 409) previous.push(id);
+            }
+          } else await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
+        }
+        // A `move` is a jump: the old ladder comes down before the new one goes up. Overlapped, the old bids and the new
+        // asks would stand together and the book's mid would sit halfway, a price the jump never quoted (failure it
+        // prevents: a grid bot read that mid as in range and bought levels the market then left behind). The jump's quotes
+        // may take: post-only, they were refused by any order resting in the path and the price never got there.
+        const shift = leader ? undefined : (shifts.get(m.symbol) ?? 0n);
+        const jump = shift !== undefined && quotedShift.has(m.symbol) && quotedShift.get(m.symbol) !== shift;
+        if (jump && previous?.length) {
+          const left = [];
+          for (const id of previous) {
+            const r = m.swap
+              ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
+              : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+            if (r.status >= 300 && r.status !== 404 && r.status !== 409) left.push(id);
+          }
+          previous = left;
+        }
+        if (shift !== undefined) quotedShift.set(m.symbol, shift);
+        const ids = [];
+        let rested = 0;
+        let refused = null;
+        for (const q of ladder) {
+          // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
+          // that level is quoted again next cycle.
+          const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
+          if (r.status === 201 && r.json?.id) {
+            ids.push(r.json.id);
+            // A post-only quote that would take is answered 201 but not open: it does not rest. A jump's quote may fill.
+            if (r.json.status === 'open') rested += 1;
+            else if (r.json.status !== 'closed')
+              refused = `${r.status} ${r.json.status} ${(r.json.rejectCode ?? '').toString().slice(0, 120)}`.trim();
+          } else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) {
+            ids.push(r.json.orderId);
+            rested += 1;
+          } else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
+        }
+        // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
+        // 409 means it is already gone: filled or cancelled).
+        const stale = [];
+        for (const id of previous ?? []) {
           const r = m.swap
             ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
             : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
-          if (r.status >= 300 && r.status !== 404 && r.status !== 409) left.push(id);
+          if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
         }
-        previous = left;
+        quoted.set(m.symbol, [...ids, ...stale]);
+        log(
+          `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
+        );
+        if (cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
+          // Alternate per market (failure it prevents: every symbol here has the same name length, so a
+          // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
+          // every crossing then failed with 400 ledger.insufficient_funds).
+          const n = (crossings.get(m.symbol) ?? 0) + 1;
+          crossings.set(m.symbol, n);
+          const side = crossingSide(n);
+          // Top the taker up through the real ledger if either leg is under half its target.
+          await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
+          const best = ladder.find((q) => q.level === 0 && q.side === (side === 'buy' ? 'sell' : 'buy'));
+          const r = await place(taker, m, side, best.price, best.amount, 'IOC');
+          const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
+          log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
+        }
       }
-      if (shift !== undefined) quotedShift.set(m.symbol, shift);
-      const ids = [];
-      let refused = null;
-      for (const q of ladder) {
-        // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
-        // that level is quoted again next cycle.
-        const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
-        if (r.status === 201 && r.json?.id) ids.push(r.json.id);
-        else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
-        else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
+      inactiveSince = null;
+    } catch (err) {
+      // Every write first checks that the stack's services are up (`assertActiveLocalStack`), so while one restarts
+      // (svc-trade in J-derivatives-02 #2) the check refuses. That refusal stops this cycle and writes nothing; it used to
+      // end the process, and the market started again cold (`local:market ensure`), quoting into the dead run's ladder
+      // with nothing behind it (#7110). The market part-way through comes back by takeover next cycle, so a quote this
+      // cycle placed and did not record still comes down. A stack still not active after STACK_INACTIVE_LIMIT_MS ends
+      // the market, as before.
+      if (!stackNotActive(err)) throw err;
+      inactiveSince ??= Date.now();
+      if (Date.now() - inactiveSince > STACK_INACTIVE_LIMIT_MS) throw err;
+      if (current) {
+        quoted.delete(current);
+        quotedShift.delete(current);
       }
-      // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
-      // 409 means it is already gone: filled or cancelled).
-      const stale = [];
-      for (const id of previous ?? []) {
-        const r = m.swap
-          ? await maker.http('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`)
-          : await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
-        if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
-      }
-      quoted.set(m.symbol, [...ids, ...stale]);
-      const rested = ids.length;
-      log(
-        `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
-      );
-      if (cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
-        // Alternate per market (failure it prevents: every symbol here has the same name length, so a
-        // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
-        // every crossing then failed with 400 ledger.insufficient_funds).
-        const n = (crossings.get(m.symbol) ?? 0) + 1;
-        crossings.set(m.symbol, n);
-        const side = crossingSide(n);
-        // Top the taker up through the real ledger if either leg is under half its target.
-        await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
-        const best = ladder.find((q) => q.level === 0 && q.side === (side === 'buy' ? 'sell' : 'buy'));
-        const r = await place(taker, m, side, best.price, best.amount, 'IOC');
-        const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
-        log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
-      }
+      log(`stack not active (${err.message}); this cycle wrote nothing more, trying again next cycle`);
     }
     fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
     const steps = Object.fromEntries([...walks].filter(([k]) => !TEST_PRICES[k]?.follows).map(([k, w]) => [k, w.steps]));

@@ -1,8 +1,8 @@
 /**
  * @intafaced/contracts — shared zod schemas and tRPC routers.
  *
- * §15.2: "One service per task; cross-service needs = contracts/events PR first."
- * A change here is reviewed on its own, before either side implements it.
+ * A change here may land in the same PR as the services of the one journey that
+ * needs it (AGENTS.md, "The owner's decisions", owner decision 2026-11-06).
  */
 export * from './trpc.js';
 export * from './p2p-delist.js';

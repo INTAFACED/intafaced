@@ -293,6 +293,11 @@ const WORDS: Readonly<Record<string, Words>> = {
     body: 'Only an armed take profit, stop loss or stop can be cancelled. This one has fired, filled or ended: see what it did in the Orders tab.',
     retryable: false,
   },
+  'trade.futures_order_not_cancellable': {
+    title: 'A liquidation order can’t be cancelled',
+    body: 'The venue placed it to bring the position back within margin, and it stays until the liquidation ends. Nothing changed.',
+    retryable: false,
+  },
   'trade.conditional_not_found': {
     title: 'That order was not found',
     body: 'It may belong to another account. Refresh the Orders tab.',

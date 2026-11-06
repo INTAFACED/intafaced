@@ -69,7 +69,9 @@
       { "n": 5, "slices": ["AC-assignments-03"], "noSlice": false },
       { "n": 6, "slices": ["AC-assignments-02"], "noSlice": false },
       { "n": 7, "slices": ["AC-progress-02"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, assignments)"
   },
   {
     "id": "J-academy-05",
@@ -146,7 +148,9 @@
       { "n": 3, "slices": ["AC-rooms-03"], "noSlice": false },
       { "n": 4, "slices": ["AC-rooms-03"], "noSlice": false },
       { "n": 5, "slices": ["AC-rooms-03"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, live sessions)"
   },
   {
     "id": "J-academy-10",
@@ -162,7 +166,9 @@
       { "n": 4, "slices": ["AC-notifications-01"], "noSlice": false },
       { "n": 5, "slices": ["AC-notifications-02"], "noSlice": false },
       { "n": 6, "slices": ["AC-notifications-02"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, cohorts)"
   },
   {
     "id": "J-academy-11",
@@ -195,11 +201,29 @@
       { "n": 1, "slices": ["AC-quizzes-01"], "noSlice": false },
       { "n": 2, "slices": ["AC-quizzes-02"], "noSlice": false },
       { "n": 3, "slices": ["AC-quizzes-01"], "noSlice": false },
-      { "n": 4, "slices": ["AC-assignments-01"], "noSlice": false },
-      { "n": 5, "slices": ["AC-assignments-03"], "noSlice": false },
+      {
+        "n": 4,
+        "slices": ["AC-assignments-01"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, assignments and gradebook)"
+      },
+      {
+        "n": 5,
+        "slices": ["AC-assignments-03"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, assignments and gradebook)"
+      },
       { "n": 6, "slices": ["AC-release-access-01"], "noSlice": false },
       { "n": 7, "slices": ["AC-release-access-02"], "noSlice": false },
-      { "n": 8, "slices": ["AC-assignments-04"], "noSlice": false }
+      {
+        "n": 8,
+        "slices": ["AC-assignments-04"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, assignments and gradebook)"
+      }
     ]
   },
   {
@@ -210,13 +234,37 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": ["AC-assignments-02"], "noSlice": false },
-      { "n": 2, "slices": ["AC-assignments-02"], "noSlice": false },
-      { "n": 3, "slices": ["AC-assignments-02"], "noSlice": false },
+      {
+        "n": 1,
+        "slices": ["AC-assignments-02"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, grading and gradebook)"
+      },
+      {
+        "n": 2,
+        "slices": ["AC-assignments-02"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, grading and gradebook)"
+      },
+      {
+        "n": 3,
+        "slices": ["AC-assignments-02"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, grading and gradebook)"
+      },
       { "n": 4, "slices": ["AC-quizzes-04"], "noSlice": false },
       { "n": 5, "slices": ["AC-quizzes-04"], "noSlice": false },
       { "n": 6, "slices": ["AC-quizzes-04"], "noSlice": false },
-      { "n": 7, "slices": ["AC-assignments-04"], "noSlice": false }
+      {
+        "n": 7,
+        "slices": ["AC-assignments-04"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, grading and gradebook)"
+      }
     ]
   },
   {
@@ -248,8 +296,20 @@
       { "n": 1, "slices": ["AC-enrolment-03"], "noSlice": false },
       { "n": 2, "slices": ["AC-enrolment-03"], "noSlice": false },
       { "n": 3, "slices": ["AC-enrolment-02"], "noSlice": false },
-      { "n": 4, "slices": ["AC-enrolment-04"], "noSlice": false },
-      { "n": 5, "slices": ["AC-notifications-01"], "noSlice": false },
+      {
+        "n": 4,
+        "slices": ["AC-enrolment-04"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, cohorts)"
+      },
+      {
+        "n": 5,
+        "slices": ["AC-notifications-01"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): the academy's full-school parts, cohorts)"
+      },
       { "n": 6, "slices": ["AC-notifications-02"], "noSlice": false },
       { "n": 7, "slices": ["AC-enrolment-03", "AC-analytics-02"], "noSlice": false }
     ]
@@ -310,12 +370,42 @@
     "tier": "advanced",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": ["RC-academy-05", "RC-academy-09"], "noSlice": false },
-      { "n": 2, "slices": ["RC-academy-05", "RC-academy-04"], "noSlice": false },
-      { "n": 3, "slices": ["RC-academy-09", "RC-academy-05"], "noSlice": false },
+      {
+        "n": 1,
+        "slices": ["RC-academy-05", "RC-academy-09"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)"
+      },
+      {
+        "n": 2,
+        "slices": ["RC-academy-05", "RC-academy-04"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)"
+      },
+      {
+        "n": 3,
+        "slices": ["RC-academy-09", "RC-academy-05"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)"
+      },
       { "n": 4, "slices": ["RC-academy-06"], "noSlice": false },
-      { "n": 5, "slices": ["RC-academy-02"], "noSlice": false },
-      { "n": 6, "slices": ["RC-academy-08"], "noSlice": false }
+      {
+        "n": 5,
+        "slices": ["RC-academy-02"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)"
+      },
+      {
+        "n": 6,
+        "slices": ["RC-academy-08"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)"
+      }
     ]
   },
   {
@@ -332,7 +422,9 @@
       { "n": 4, "slices": ["RC-academy-12"], "noSlice": false },
       { "n": 5, "slices": ["RC-academy-13"], "noSlice": false },
       { "n": 6, "slices": ["RC-academy-14"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): social extras, seasons)"
   },
   {
     "id": "J-agents-01",
@@ -1089,7 +1181,7 @@
       { "n": 1, "slices": ["BK-loan-01", "BK-loan-02"], "noSlice": false },
       { "n": 2, "slices": ["BK-loan-01"], "noSlice": false },
       { "n": 3, "slices": ["BK-loan-01"], "noSlice": false },
-      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 4, "slices": ["LOAN-01"], "noSlice": false },
       { "n": 5, "slices": ["BK-loan-02"], "noSlice": false }
     ]
   },
@@ -1101,12 +1193,12 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": ["BK-loan-04"], "noSlice": false },
-      { "n": 2, "slices": ["BK-loan-04"], "noSlice": false },
+      { "n": 1, "slices": ["BK-loan-04", "LOAN-03"], "noSlice": false },
+      { "n": 2, "slices": ["LOAN-03", "BK-loan-04"], "noSlice": false },
       { "n": 3, "slices": ["BK-loan-03"], "noSlice": false },
       { "n": 4, "slices": ["BK-loan-03"], "noSlice": false },
       { "n": 5, "slices": ["BK-loan-03", "BK-loan-04"], "noSlice": false },
-      { "n": 6, "slices": ["BK-loan-04"], "noSlice": false }
+      { "n": 6, "slices": ["LOAN-03", "BK-loan-04"], "noSlice": false }
     ]
   },
   {
@@ -1119,8 +1211,8 @@
     "steps": [
       { "n": 1, "slices": ["BK-loan-06"], "noSlice": false },
       { "n": 2, "slices": ["BK-loan-05"], "noSlice": false },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 3, "slices": ["LOAN-01", "LOAN-07"], "noSlice": false },
+      { "n": 4, "slices": ["LOAN-05"], "noSlice": false },
       { "n": 5, "slices": ["BK-loan-05"], "noSlice": false },
       { "n": 6, "slices": ["BK-loan-06"], "noSlice": false }
     ]
@@ -1336,13 +1428,13 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": ["BK-loan-02"], "noSlice": false },
+      { "n": 1, "slices": ["LOAN-06"], "noSlice": false },
+      { "n": 2, "slices": ["LOAN-02", "BK-loan-02"], "noSlice": false },
       { "n": 3, "slices": ["BK-loan-07"], "noSlice": false },
-      { "n": 4, "slices": ["BK-loan-04"], "noSlice": false },
-      { "n": 5, "slices": [], "noSlice": true },
-      { "n": 6, "slices": [], "noSlice": true },
-      { "n": 7, "slices": [], "noSlice": true }
+      { "n": 4, "slices": ["BK-loan-04", "LOAN-04"], "noSlice": false },
+      { "n": 5, "slices": ["LOAN-04"], "noSlice": false },
+      { "n": 6, "slices": ["LOAN-06"], "noSlice": false },
+      { "n": 7, "slices": ["LOAN-05"], "noSlice": false }
     ]
   },
   {
@@ -3982,7 +4074,9 @@
       { "n": 5, "slices": ["D-lend-earn-08"], "noSlice": false },
       { "n": 6, "slices": ["D-order-controls-02"], "noSlice": false },
       { "n": 7, "slices": ["RC-dex-protocol-07"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "the core (the 67 spine journeys) passes (OWNER 183 (3): the chain; also (2) own-chain extras, validator staking)"
   },
   {
     "id": "J-dex-protocol-17",
@@ -4148,7 +4242,9 @@
       { "n": 6, "slices": ["D-launch-listing-09"], "noSlice": false },
       { "n": 7, "slices": ["D-launch-listing-07"], "noSlice": false },
       { "n": 8, "slices": ["D-launch-listing-07"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): own-chain extras, fair-launch auction)"
   },
   {
     "id": "J-dex-protocol-26",
@@ -4158,9 +4254,27 @@
     "tier": "advanced",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": ["RC-dex-protocol-11"], "noSlice": false },
-      { "n": 2, "slices": ["RC-dex-protocol-11"], "noSlice": false },
-      { "n": 3, "slices": ["RC-dex-protocol-11"], "noSlice": false },
+      {
+        "n": 1,
+        "slices": ["RC-dex-protocol-11"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras, crews (the crew vault))"
+      },
+      {
+        "n": 2,
+        "slices": ["RC-dex-protocol-11"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras, crews (the crew vault))"
+      },
+      {
+        "n": 3,
+        "slices": ["RC-dex-protocol-11"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): social extras, crews (the crew vault))"
+      },
       { "n": 4, "slices": ["RC-dex-protocol-12"], "noSlice": false },
       { "n": 5, "slices": ["RC-dex-protocol-12"], "noSlice": false },
       { "n": 6, "slices": ["RC-dex-protocol-12"], "noSlice": false },
@@ -4176,10 +4290,34 @@
     "tier": "advanced",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": ["RC-dex-protocol-06"], "noSlice": false },
-      { "n": 2, "slices": ["RC-dex-protocol-06"], "noSlice": false },
-      { "n": 3, "slices": ["RC-dex-protocol-06"], "noSlice": false },
-      { "n": 4, "slices": ["RC-dex-protocol-06"], "noSlice": false },
+      {
+        "n": 1,
+        "slices": ["RC-dex-protocol-06"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): NFT minting and sales)"
+      },
+      {
+        "n": 2,
+        "slices": ["RC-dex-protocol-06"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): NFT minting and sales)"
+      },
+      {
+        "n": 3,
+        "slices": ["RC-dex-protocol-06"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): NFT minting and sales)"
+      },
+      {
+        "n": 4,
+        "slices": ["RC-dex-protocol-06"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): NFT minting and sales)"
+      },
       { "n": 5, "slices": ["RC-bank-03"], "noSlice": false },
       { "n": 6, "slices": ["RC-bank-03"], "noSlice": false },
       { "n": 7, "slices": ["RC-bank-03", "RC-bank-02"], "noSlice": false }
@@ -4193,9 +4331,27 @@
     "tier": "advanced",
     "order": 3,
     "steps": [
-      { "n": 1, "slices": ["RC-dex-protocol-10"], "noSlice": false },
-      { "n": 2, "slices": ["RC-dex-protocol-10"], "noSlice": false },
-      { "n": 3, "slices": ["RC-dex-protocol-10"], "noSlice": false },
+      {
+        "n": 1,
+        "slices": ["RC-dex-protocol-10"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): own-chain extras, asset issuance)"
+      },
+      {
+        "n": 2,
+        "slices": ["RC-dex-protocol-10"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): own-chain extras, asset issuance)"
+      },
+      {
+        "n": 3,
+        "slices": ["RC-dex-protocol-10"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): own-chain extras, asset issuance)"
+      },
       { "n": 4, "slices": ["D-launch-listing-07"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["RC-dex-protocol-09"], "noSlice": false },
       { "n": 6, "slices": ["RC-dex-protocol-09"], "noSlice": false },
@@ -4218,7 +4374,13 @@
       { "n": 5, "slices": ["D-swap-intents-03", "D-swap-08"], "noSlice": false },
       { "n": 6, "slices": ["D-launch-listing-03"], "noSlice": false },
       { "n": 7, "slices": ["D-launch-listing-04"], "noSlice": false },
-      { "n": 8, "slices": ["D-launch-listing-06"], "noSlice": false },
+      {
+        "n": 8,
+        "slices": ["D-launch-listing-06"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "the core (the 67 spine journeys) passes (OWNER 183 (3): the chain (INTACHAIN listing rooms))"
+      },
       { "n": 9, "slices": ["D-bridge-chain-03"], "noSlice": false },
       { "n": 10, "slices": ["D-bridge-chain-04"], "noSlice": false }
     ]
@@ -4280,7 +4442,13 @@
       { "n": 5, "slices": ["D-fees-governance-04"], "noSlice": false },
       { "n": 6, "slices": ["D-developer-compliance-02"], "noSlice": false },
       { "n": 7, "slices": ["D-launch-listing-03"], "noSlice": false },
-      { "n": 8, "slices": ["RC-dex-protocol-13"], "noSlice": false },
+      {
+        "n": 8,
+        "slices": ["RC-dex-protocol-13"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (OWNER 183 (2): own-chain extras, buyback)"
+      },
       { "n": 9, "slices": ["RC-dex-protocol-20"], "noSlice": false }
     ]
   },
@@ -5288,7 +5456,9 @@
       { "n": 3, "slices": ["M-adv-in-person-03"], "noSlice": false },
       { "n": 4, "slices": ["M-adv-in-person-04"], "noSlice": false },
       { "n": 5, "slices": ["M-adv-in-person-05"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the shop-floor card terminal)"
   },
   {
     "id": "J-merchant-32",
@@ -5305,7 +5475,9 @@
       { "n": 5, "slices": ["M-adv-in-person-08"], "noSlice": false },
       { "n": 6, "slices": ["M-adv-in-person-09"], "noSlice": false },
       { "n": 7, "slices": ["M-adv-reporting-recon-03"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the shop-floor card terminal)"
   },
   {
     "id": "J-merchant-33",
@@ -5335,7 +5507,9 @@
       { "n": 4, "slices": ["M-adv-orchestration-04"], "noSlice": false },
       { "n": 5, "slices": ["M-adv-orchestration-05"], "noSlice": false },
       { "n": 6, "slices": ["M-adv-money-out-10"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): multi-processor routing)"
   },
   {
     "id": "J-merchant-35",
@@ -5352,7 +5526,9 @@
       { "n": 5, "slices": ["M-adv-platforms-onboarding-06"], "noSlice": false },
       { "n": 6, "slices": ["M-adv-platforms-onboarding-07"], "noSlice": false },
       { "n": 7, "slices": ["M-adv-org-access-06"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): white-label platforms)"
   },
   {
     "id": "J-merchant-36",
@@ -5372,7 +5548,9 @@
       { "n": 8, "slices": ["M-adv-platforms-onboarding-12", "M-rep-04"], "noSlice": false },
       { "n": 9, "slices": ["M-adv-banking-cards-03"], "noSlice": false },
       { "n": 10, "slices": ["M-adv-disputes-risk-05"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): white-label platforms)"
   },
   {
     "id": "J-merchant-37",
@@ -5386,7 +5564,9 @@
       { "n": 2, "slices": ["M-adv-platforms-onboarding-02"], "noSlice": false },
       { "n": 3, "slices": ["M-adv-platforms-onboarding-13"], "noSlice": false },
       { "n": 4, "slices": ["M-adv-banking-cards-04"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): white-label platforms)"
   },
   {
     "id": "J-merchant-38",
@@ -5458,7 +5638,9 @@
       { "n": 1, "slices": ["RC-merchant-06"], "noSlice": false },
       { "n": 2, "slices": ["RC-merchant-06"], "noSlice": false },
       { "n": 3, "slices": ["RC-merchant-06"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): white-label platforms)"
   },
   {
     "id": "J-more-catalogue-01",
@@ -5540,7 +5722,9 @@
       { "n": 5, "slices": ["MC-mining-03"], "noSlice": false },
       { "n": 6, "slices": ["MC-mining-03"], "noSlice": false },
       { "n": 7, "slices": ["RC-more-catalogue-16", "RC-more-catalogue-17"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the mining pool)"
   },
   {
     "id": "J-more-catalogue-06",
@@ -5556,7 +5740,9 @@
       { "n": 4, "slices": ["MC-mining-04"], "noSlice": false },
       { "n": 5, "slices": ["MC-mining-04"], "noSlice": false },
       { "n": 6, "slices": ["MC-mining-04"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the mining pool)"
   },
   {
     "id": "J-more-catalogue-07",
@@ -5572,7 +5758,9 @@
       { "n": 4, "slices": ["MC-mining-06"], "noSlice": false },
       { "n": 5, "slices": ["MC-mining-06"], "noSlice": false },
       { "n": 6, "slices": ["MC-mining-06"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the mining pool)"
   },
   {
     "id": "J-more-catalogue-08",
@@ -5586,7 +5774,9 @@
       { "n": 2, "slices": ["MC-mining-05"], "noSlice": false },
       { "n": 3, "slices": ["MC-mining-05"], "noSlice": false },
       { "n": 4, "slices": ["MC-mining-05"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): the mining pool)"
   },
   {
     "id": "J-more-catalogue-09",
@@ -5701,7 +5891,9 @@
       { "n": 5, "slices": ["MC-predict-03"], "noSlice": false },
       { "n": 6, "slices": ["MC-predict-03"], "noSlice": false },
       { "n": 7, "slices": ["RC-more-catalogue-02", "RC-more-catalogue-03"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)"
   },
   {
     "id": "J-more-catalogue-16",
@@ -5719,7 +5911,9 @@
       { "n": 6, "slices": ["MC-predict-04"], "noSlice": false },
       { "n": 7, "slices": ["RC-more-catalogue-01"], "noSlice": false },
       { "n": 8, "slices": ["MC-predict-05"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)"
   },
   {
     "id": "J-more-catalogue-17",
@@ -5737,7 +5931,9 @@
       { "n": 6, "slices": ["MC-predict-07"], "noSlice": false },
       { "n": 7, "slices": ["MC-predict-07"], "noSlice": false },
       { "n": 8, "slices": ["MC-predict-07"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)"
   },
   {
     "id": "J-more-catalogue-18",
@@ -5754,7 +5950,9 @@
       { "n": 5, "slices": ["MC-blueprint-01"], "noSlice": false },
       { "n": 6, "slices": ["MC-blueprint-01"], "noSlice": false },
       { "n": 7, "slices": ["RC-more-catalogue-15"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): social extras, Blueprint cards)"
   },
   {
     "id": "J-more-catalogue-19",
@@ -5768,7 +5966,9 @@
       { "n": 2, "slices": ["RC-more-catalogue-11"], "noSlice": false },
       { "n": 3, "slices": ["RC-more-catalogue-12"], "noSlice": false },
       { "n": 4, "slices": ["RC-more-catalogue-13", "RC-copy-bots-otc-16"], "noSlice": false }
-    ]
+    ],
+    "parked": true,
+    "parkedUntil": "after launch (OWNER 183 (2): social extras, crews and mentors)"
   },
   {
     "id": "J-more-catalogue-20",
@@ -5780,7 +5980,13 @@
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },
       { "n": 2, "slices": ["RC-more-catalogue-05"], "noSlice": false },
-      { "n": 3, "slices": ["RC-more-catalogue-06"], "noSlice": false },
+      {
+        "n": 3,
+        "slices": ["RC-more-catalogue-06"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)"
+      },
       { "n": 4, "slices": ["RC-more-catalogue-07"], "noSlice": false },
       { "n": 5, "slices": ["RC-more-catalogue-09"], "noSlice": false },
       { "n": 6, "slices": ["RC-more-catalogue-04"], "noSlice": false },
@@ -5795,9 +6001,9 @@
     "tier": "core",
     "order": 1,
     "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 1, "slices": ["OPS-ORD-01"], "noSlice": false },
+      { "n": 2, "slices": ["OPS-ORD-01"], "noSlice": false },
+      { "n": 3, "slices": ["OPS-ORD-01"], "noSlice": false },
       { "n": 4, "slices": ["OPS-service-health-01"], "noSlice": false },
       { "n": 5, "slices": ["OPS-founder-01"], "noSlice": false },
       { "n": 6, "slices": ["OPS-admin-access-08"], "noSlice": false },
@@ -6214,11 +6420,11 @@
     "tier": "core",
     "order": 2,
     "steps": [
-      { "n": 1, "slices": [], "noSlice": true },
-      { "n": 2, "slices": [], "noSlice": true },
-      { "n": 3, "slices": [], "noSlice": true },
-      { "n": 4, "slices": [], "noSlice": true, "deferred": true },
-      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 1, "slices": ["OPS-ORD-02"], "noSlice": false },
+      { "n": 2, "slices": ["OPS-ORD-02"], "noSlice": false },
+      { "n": 3, "slices": ["OPS-ORD-02"], "noSlice": false },
+      { "n": 4, "slices": ["OPS-ORD-02"], "noSlice": false, "deferred": true },
+      { "n": 5, "slices": ["OPS-ORD-02"], "noSlice": false },
       { "n": 6, "slices": ["OPS-admin-access-07"], "noSlice": false, "deferred": true }
     ]
   },
@@ -6251,7 +6457,13 @@
       { "n": 1, "slices": ["RC-ops-console-06"], "noSlice": false },
       { "n": 2, "slices": ["RC-ops-console-06"], "noSlice": false },
       { "n": 3, "slices": ["RC-ops-console-14"], "noSlice": false },
-      { "n": 4, "slices": ["RC-ops-console-08"], "noSlice": false },
+      {
+        "n": 4,
+        "slices": ["RC-ops-console-08"],
+        "noSlice": false,
+        "parked": true,
+        "parkedUntil": "after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)"
+      },
       { "n": 5, "slices": ["RC-ops-console-09"], "noSlice": false },
       { "n": 6, "slices": ["RC-ops-console-07"], "noSlice": false },
       { "n": 7, "slices": ["RC-ops-console-11"], "noSlice": false },

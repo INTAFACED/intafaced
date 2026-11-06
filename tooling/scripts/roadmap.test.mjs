@@ -9,12 +9,17 @@ import {
   buildJourneys,
   dependsOn,
   journeyOrder,
+  keepParkedNeeds,
   laneFor,
+  liveJourneys,
+  parkedJourneys,
   parseJourneys,
+  sliceIdCandidates,
   parseSpec,
   passedSteps,
   progress,
   queue,
+  render,
   untangle,
 } from './roadmap.mjs';
 
@@ -252,6 +257,133 @@ test('a deferred journey or step leaves the scoreboard and the slice order', () 
   assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 1 journey and 2 steps\./);
 });
 
+test('a parked journey or step stays in the map, leaves the count and the slice order, and comes back unparked (OWNER 183)', () => {
+  const text = JOURNEY.replace('- Order: 2', '- Order: 2\n- Parked: until after launch (OWNER 183 (2): the mining pool)').replace(
+    '| 2 | Places a limit buy | It rests | SP-order-entry-01, SP-lifecycle-history-01 | none |',
+    '| 2 | Places a limit buy | It rests | PARKED until after launch (OWNER 183; was SP-order-entry-01, SP-lifecycle-history-01) | none |',
+  );
+  const journeys = parseJourneys(text, 'cex-spot');
+  assert.equal(journeys.length, 2, 'parked journeys stay in the map');
+  assert.equal(journeys[1].parked, true);
+  assert.equal(journeys[1].parkedUntil, 'after launch (OWNER 183 (2): the mining pool)');
+  assert.equal(journeys[0].steps[1].parked, true);
+  assert.equal(journeys[0].steps[1].parkedUntil, 'after launch (OWNER 183)');
+  assert.deepEqual(
+    journeys[0].steps[1].slices,
+    ['SP-order-entry-01', 'SP-lifecycle-history-01'],
+    'a parked step keeps its slices (money rule)',
+  );
+  assert.deepEqual(
+    liveJourneys(journeys).map((j) => [j.id, j.steps.map((st) => st.n)]),
+    [['J-cex-spot-01', [1, 3]]],
+  );
+  const order = journeyOrder(journeys);
+  assert.equal(order.has('SP-lifecycle-history-01'), false, 'a slice only a parked step names leaves the order');
+  assert.equal(order.has('SP-order-entry-01'), false);
+  const parked = parkedJourneys(journeys);
+  assert.deepEqual(
+    parked.whole.map((j) => j.id),
+    ['J-cex-spot-02'],
+  );
+  assert.deepEqual(
+    parked.steps.map(({ j, st }) => `${j.id}#${st.n}`),
+    ['J-cex-spot-01#2'],
+  );
+  const page = progress([], [], '2026-10-20T09:00:00Z', journeys, new Set(['J-cex-spot-01#1', 'J-cex-spot-01#3']));
+  assert.match(page, /Passing in the real app on main: 1 of 1 journeys \(2 of 2 steps\)\./);
+  assert.match(page, /Parked by the owner \(OWNER 183\) and not counted: 1 whole journey and 2 steps\./);
+  assert.doesNotMatch(page, /Deferred/);
+  const map = render([], journeys);
+  assert.match(map, /### Parked/);
+  assert.match(map, /J-cex-spot-02 I retry safely \| whole journey \| after launch/);
+  assert.match(map, /J-cex-spot-01 I sign up and trade \| steps #2 \| after launch \(OWNER 183\)/);
+  // Unparked: the same map without the marks is all live again.
+  assert.deepEqual(
+    liveJourneys(parseJourneys(JOURNEY, 'cex-spot')).map((j) => j.steps.length),
+    [3, 1],
+  );
+  assert.doesNotMatch(render([], parseJourneys(JOURNEY, 'cex-spot')), /### Parked/);
+  // A live step that still names the slice keeps it in the order: a capability another journey needs is never parked.
+  const keep = journeys.map((j) => (j.id === 'J-cex-spot-02' ? { ...j, parked: undefined } : j));
+  assert.equal(journeyOrder(keep).get('SP-order-entry-01'), 2);
+  assert.throws(() => parseJourneys(JOURNEY.replace('- Order: 2', '- Order: 2\n- Parked: maybe'), 'cex-spot'), /Parked: until <when>/);
+  assert.throws(
+    () =>
+      parseJourneys(
+        JOURNEY.replace('| 3 | Shares the order | A link | NO-SLICE |', '| 3 | Shares the order | A link | PARKED |'),
+        'cex-spot',
+      ),
+    /PARKED with no "until <when>"/,
+  );
+});
+
+test('a slice only parked steps name keeps the order of a live slice that needs it (OWNER 183: needed capabilities stay)', () => {
+  const journeys = [
+    { id: 'J-a-01', order: 1, steps: [{ n: 1, slices: ['A-live-01'] }] },
+    { id: 'J-a-02', order: 3, parked: true, steps: [{ n: 1, slices: ['A-parked-01', 'A-parked-02', 'A-parked-03'] }] },
+  ];
+  const slices = [
+    { id: 'A-live-01', order: 1, depends: ['A-parked-01'] },
+    { id: 'A-parked-01', order: 0, depends: ['A-parked-02'] },
+    { id: 'A-parked-02', order: 0, depends: [] },
+    { id: 'A-parked-03', order: 0, depends: [] },
+  ];
+  const kept = new Map(keepParkedNeeds(slices, journeys).map((s) => [s.id, s]));
+  assert.equal(kept.get('A-parked-01').order, 1);
+  assert.deepEqual(kept.get('A-parked-01').keptFor, ['A-live-01']);
+  assert.equal(kept.get('A-parked-02').order, 1, 'through another parked slice');
+  assert.deepEqual(kept.get('A-parked-02').keptFor, ['A-parked-01']);
+  assert.equal(kept.get('A-parked-03').order, 0, 'a parked slice no live slice needs stays parked');
+  assert.equal(kept.get('A-parked-03').keptFor, undefined);
+  // Unparked, the journey's own order applies and nothing is marked kept.
+  assert.equal(keepParkedNeeds(slices, [journeys[0], { ...journeys[1], parked: undefined }]), slices);
+});
+
+test('needed slices are kept through a slice no journey names, and for a live journey with no Order (review of #7197)', () => {
+  const journeys = [
+    { id: 'J-a-01', order: 1, steps: [{ n: 1, slices: ['A-live-01'] }] },
+    { id: 'J-a-03', order: 0, steps: [{ n: 1, slices: ['A-live-02'] }] },
+    { id: 'J-a-02', order: 3, parked: true, steps: [{ n: 1, slices: ['A-parked-01', 'A-parked-02'] }] },
+  ];
+  const slices = [
+    { id: 'A-live-01', order: 1, depends: ['A-free-01'] },
+    { id: 'A-free-01', order: 0, depends: ['A-parked-01'] },
+    { id: 'A-live-02', order: 0, depends: ['A-parked-02'] },
+    { id: 'A-parked-01', order: 0, depends: [] },
+    { id: 'A-parked-02', order: 0, depends: [] },
+  ];
+  const kept = new Map(keepParkedNeeds(slices, journeys).map((s) => [s.id, s]));
+  assert.equal(kept.get('A-parked-01').order, 1, 'through A-free-01, which no journey names');
+  assert.deepEqual(kept.get('A-parked-01').keptFor, ['A-free-01']);
+  assert.equal(kept.get('A-free-01').keptFor, undefined, 'only parked-only slices are marked');
+  assert.deepEqual(kept.get('A-parked-02').keptFor, ['A-live-02'], 'kept for a live journey with no Order');
+  assert.equal(kept.get('A-parked-02').order, 0, 'no order to give, but marked kept');
+});
+
+test('a journey whose every step is parked one by one counts as parked, and the counts add up', () => {
+  const journeys = parseJourneys(
+    JOURNEY.replace(
+      '| 1 | Presses twice | One order | SP-order-entry-01 | none |',
+      '| 1 | Presses twice | One order | PARKED until after launch (OWNER 183; was SP-order-entry-01) | none |',
+    ).replace(
+      '| 3 | Shares the order | A link | NO-SLICE | none |',
+      '| 3 | Shares the order | A link | DEFERRED until launch prep (was SP-share-01) | none |',
+    ),
+    'cex-spot',
+  );
+  const parked = parkedJourneys(journeys);
+  assert.deepEqual(
+    parked.whole.map((j) => j.id),
+    ['J-cex-spot-02'],
+  );
+  assert.equal(parked.stepCount, 1);
+  const page = progress([], [], '2026-10-20T09:00:00Z', journeys, null);
+  assert.match(page, /1 journeys, 2 steps\./);
+  assert.match(page, /Deferred \(launch prep, or set aside by an owner decision\) and not counted: 0 journeys and 1 step\./);
+  assert.match(page, /Parked by the owner \(OWNER 183\) and not counted: 1 whole journey and 1 step\./);
+  assert.match(render([], journeys), /J-cex-spot-02 I retry safely \| whole journey \| after launch \(OWNER 183\)/);
+});
+
 test('a skipped step, a step with no tests, or a failing duplicate title does not pass', () => {
   const passed = passedSteps({
     suites: [
@@ -278,4 +410,54 @@ test('a step whose Slices cell is empty counts as NO-SLICE; a journey id used tw
     writeFileSync(join(dir, 'modules', m, 'acceptance', 'journeys.md'), '## J-a-01: x\n- Order: 1\n');
   }
   assert.throws(() => buildJourneys(dir), /journey id J-a-01 is used twice/);
+});
+
+test('a step names upper-case and one-segment slice ids (OPS-ORD-01, LOAN-03), and only ids that are a slice heading', () => {
+  const text = [
+    '## J-a-01: x',
+    '- Order: 1',
+    '| 1 | does | sees | OPS-ORD-01 | none |',
+    '| 2 | does | sees | LOAN-03, CS-orders-02 | none |',
+    // Requirement ids share the shape (TRD-0082, ORD-001); with the headings known they are not slices.
+    '| 3 | does | sees | TRD-0082 ORD-001 | none |',
+    '| 4 | does | sees | NO-SLICE | none |',
+  ].join('\n');
+  const known = new Set(['OPS-ORD-01', 'LOAN-03', 'CS-orders-02']);
+  const [j] = parseJourneys(text, 'a', known);
+  assert.deepEqual(
+    j.steps.map((s) => [s.n, s.slices, s.noSlice]),
+    [
+      [1, ['OPS-ORD-01'], false],
+      [2, ['LOAN-03', 'CS-orders-02'], false],
+      [3, [], true],
+      [4, [], true],
+    ],
+  );
+  // From a spec folder: buildJourneys knows the slices from the spec headings.
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  mkdirSync(join(dir, 'modules', 'a', 'acceptance'), { recursive: true });
+  mkdirSync(join(dir, 'modules', 'a', 'specs'), { recursive: true });
+  writeFileSync(join(dir, 'modules', 'a', 'acceptance', 'journeys.md'), text);
+  writeFileSync(join(dir, 'modules', 'a', 'specs', 'a-ops.md'), '### OPS-ORD-01. One\n\n### LOAN-03. Two\n');
+  const [built] = buildJourneys(dir);
+  assert.deepEqual(
+    built.steps.map((s) => s.slices),
+    [['OPS-ORD-01'], ['LOAN-03'], [], []],
+  );
+});
+
+test('a joined range names both slices; an id may touch `_`; a requirement id inside an id is not a slice', () => {
+  assert.deepEqual(
+    sliceIdCandidates('bots engine (CB-bots-02-CB-bots-19); feed').filter((id) => /^CB-bots-\d+$/.test(id)),
+    ['CB-bots-02', 'CB-bots-19'],
+  );
+  assert.deepEqual(sliceIdCandidates('_BK-loan-01_', { longest: true }), ['BK-loan-01']);
+  assert.deepEqual(sliceIdCandidates('see OPS-ORD-01.', { longest: true }), ['OPS-ORD-01']);
+  const known = new Set(['CB-copy-20', 'CB-bots-02', 'CB-bots-19']);
+  assert.deepEqual(dependsOn('bots engine (CB-bots-02-CB-bots-19); derivatives liquidation feed.', known, 'CB-copy-20'), [
+    'CB-bots-02',
+    'CB-bots-19',
+  ]);
+  const [j] = parseJourneys(['## J-a-01: x', '- Order: 1', '| 1 | does | sees | CB-bots-02-CB-bots-19 | none |'].join('\n'), 'a', known);
+  assert.deepEqual(j.steps[0].slices, ['CB-bots-02', 'CB-bots-19']);
 });

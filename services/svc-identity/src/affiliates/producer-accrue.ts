@@ -7,7 +7,7 @@
  * behind service credentials, so a fill/fee can claim commission without
  * inventing rates.
  *
- * Path fence: does not wire svc-trade / svc-pay callers (one service per PR).
+ * Path fence: does not wire svc-trade / svc-pay callers.
  * Does not invent IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON.
  */
 

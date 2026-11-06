@@ -1,3 +1,4 @@
+import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
 import type { z } from 'zod';
 import Fastify from 'fastify';
 import postgres from 'postgres';
@@ -21,6 +22,9 @@ import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from '
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
+import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './cards/card-programme.js';
+import { createIdentityRankTier } from './cards/rank-tier.js';
+import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
@@ -190,6 +194,15 @@ const bank = createBankServices(sql, ledger, history, {
     pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
     cursorSecret: env.INTERNAL_SERVICE_SECRET,
   },
+  // Background exports (PF-statements-02): off until both the worker interval and the claim lease are set. The TEST render
+  // hold is a fault for J-portfolio-11 #5 and boot refuses it outside an explicit dev or test process.
+  statementJobs: {
+    leaseMs: env.BANK_STATEMENT_JOBS_INTERVAL_MS === null ? null : env.BANK_STATEMENT_JOBS_LEASE_MS,
+    testRenderHoldMs: parseStatementJobsTestHold(env.BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS, {
+      APP_ENV: process.env.APP_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    }),
+  },
   loans: {
     // Marks are READ from svc-trade's public REST. svc-trade belongs to another
     // stream; nothing here imports it, shares a table with it, or writes to it.
@@ -222,6 +235,14 @@ const bank = createBankServices(sql, ledger, history, {
    */
   cards: {
     issuer: cardIssuerFor(env.BANK_CARD_ISSUER, { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
+    programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
+    /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */
+    cashback: {
+      rates: parseCashbackRates(env.BANK_CARD_CASHBACK_RATES_JSON),
+      ...(env.IDENTITY_URL ? { rankTier: createIdentityRankTier(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) } : {}),
+      simulatorPays: cardSimCashbackFor(env.BANK_CARD_SIM_CASHBACK, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    },
     /**
      * THE JIT CONVERSION RATE (§18), and what this wiring does NOT claim.
      *
@@ -718,6 +739,13 @@ jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
  * with it) is where the payer approves.
  */
 jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.paid(b));
+/**
+ * The printer's and courier's side of a physical card (BK-cissue-03, J-bank-13 #4): a card produced, shipped, delivered.
+ * A signed job door, never a customer or a staff session. No printer or courier is connected (`hardware`): on any
+ * programme but the simulator it refuses `bank.card_printer_unset`, and on the test stack only a test calls it, as the
+ * stand-in printer would.
+ */
+jobDoor('/internal/jobs/card-sim/shipment', cardShipmentJobBody, (b) => bank.cardOrders.recordShipment(b));
 if (onrampPartner) registerPayinSimPage(app, bank.addMoney, onrampPartner);
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 
@@ -806,6 +834,13 @@ const recoveryJobs = startBankRecoveryJobs({
   onSkip: (message) => app.log.info(message),
 });
 
+const statementJobWorker = startStatementJobWorker({
+  jobs: bank.statementJobs,
+  intervalMs: env.BANK_STATEMENT_JOBS_INTERVAL_MS,
+  onWarn: (message) => app.log.warn(message),
+  onError: (err) => app.log.error({ err }, 'bank statement export tick failed'),
+});
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 if (!env.IDENTITY_URL) {
   app.log.warn(
@@ -834,6 +869,7 @@ app.log.info(
     rampFiatLeg: rampProgramme.fiatLeg,
     rampFiatVia: rampProgramme.fiatVia,
     recoveryJobs: recoveryJobs.list().length > 0,
+    statementJobs: statementJobWorker.running,
   },
   'svc-bank ready',
 );
@@ -842,6 +878,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       recoveryJobs.stop();
+      statementJobWorker.stop();
       await app.close();
       await bus.close();
       if (recoveryLock) await recoveryLock.end({ timeout: 5 });

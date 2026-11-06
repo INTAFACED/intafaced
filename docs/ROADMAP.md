@@ -14,7 +14,7 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 
 - **Lanes.** A lane is one service, or one app area, so two lanes never edit the same files. A lane keeps one thread across many slices and takes its next slice from its queue (`node tooling/scripts/roadmap.mjs --lane "<lane>"`). Trader-journey slices go first.
 - **Slice ids.** A PR that builds a slice names its id in the title (for example `svc-trade: SP-order-entry-02 market order by value`), so progress is counted from merged PRs, not typed (`node tooling/scripts/roadmap.mjs --progress`).
-- **How to build and review a slice:** `docs/agents/build-slice.md`, with the lane brief and the reviewer brief beside it. A slice lands as one PR: its contracts or events, one service and that service's screen (owner decision 2026-10-22).
+- **How to build and review a slice:** `docs/agents/build-slice.md`, with the lane brief and the reviewer brief beside it. One PR may carry one whole journey: every service, contracts and events it needs; ledger-client money recipes and the security services and packages go in their own PR (owner decision 2026-11-06).
 - **Before building a slice,** re-read its spec and re-check every cited `file:line` against today's main. The specs were written against main of 2026-10-18; drop what is already built and say so in the PR.
 - **Journeys.** Each cross-module journey has one owner whose job is keeping it green in the real app: trader first; then bank to fund to trade to withdraw; merchant payout to bank; one portfolio.
 - **Front end.** Build on the default design tokens. Look choices go to the owner in one batch per phase, as two or three rendered options side by side; without an answer the default stays.
@@ -45,35 +45,75 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ## Generated: what is left, by module, lane and journey
 
-1519 slices left in 21 modules. 285 need no other slice. 47 sit in a dependency loop that the lane untangles first. 363 end in a refusal that names an outside service (built, switched on later). Size: 714 L, 699 M, 106 S.
+1519 slices left in 21 modules. 272 need no other slice. 47 sit in a dependency loop that the lane untangles first. 363 end in a refusal that names an outside service (built, switched on later). Size: 714 L, 699 M, 106 S.
 
 ### Journey map
 
-Done is defined by 465 journeys (3088 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 33 steps still need a capability no slice covers yet.
+Done is defined by 443 journeys (2922 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 19 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
-| merchant       | 42       | 7       | 14      | 21      | 242   | 5                   |
-| dex-protocol   | 32       | 5       | 16      | 11      | 277   | 0                   |
-| bank           | 30       | 8       | 13      | 9       | 180   | 7                   |
+| merchant       | 35       | 7       | 14      | 14      | 200   | 5                   |
+| bank           | 30       | 8       | 13      | 9       | 180   | 0                   |
 | copy-bots-otc  | 30       | 5       | 13      | 12      | 205   | 1                   |
+| dex-protocol   | 30       | 5       | 16      | 9       | 250   | 0                   |
 | derivatives    | 26       | 7       | 9       | 10      | 186   | 0                   |
 | agents         | 21       | 2       | 12      | 7       | 134   | 3                   |
 | identity       | 21       | 7       | 8       | 6       | 133   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 117   | 0                   |
 | pay            | 21       | 4       | 9       | 8       | 121   | 1                   |
 | wallet         | 21       | 6       | 7       | 8       | 110   | 0                   |
-| academy        | 20       | 4       | 9       | 7       | 135   | 0                   |
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
 | cex-spot       | 20       | 4       | 11      | 5       | 169   | 0                   |
-| more-catalogue | 20       | 5       | 10      | 5       | 127   | 1                   |
-| ops-console    | 20       | 5       | 12      | 3       | 176   | 7                   |
+| ops-console    | 20       | 5       | 12      | 3       | 175   | 0                   |
 | support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
 | charts-desk    | 19       | 3       | 8       | 8       | 120   | 0                   |
 | developer      | 18       | 4       | 9       | 5       | 116   | 0                   |
+| academy        | 16       | 4       | 8       | 4       | 97    | 0                   |
 | algo-dev       | 16       | 1       | 8       | 7       | 105   | 0                   |
 | portfolio      | 16       | 3       | 8       | 5       | 93    | 3                   |
 | home-ia        | 11       | 3       | 5       | 3       | 58    | 0                   |
+| more-catalogue | 11       | 4       | 5       | 2       | 69    | 1                   |
+
+### Parked
+
+Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built later, and not counted above. 22 whole journeys (138 steps) and 28 steps of live journeys. A slice a live step still names keeps its place in the lane queues.
+
+| Journey                                                                                              | Parked                   | Until                                                                                                            |
+| ---------------------------------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| J-academy-04 Hand in an assignment and read the feedback                                             | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, assignments)                                       |
+| J-academy-09 Go to a live session and take part                                                      | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, live sessions)                                     |
+| J-academy-10 Accept an invitation, join my cohort, and stay informed                                 | whole journey            | after launch (OWNER 183 (2): the academy's full-school parts, cohorts)                                           |
+| J-academy-20 Compete in a season and earn from learning                                              | whole journey            | after launch (OWNER 183 (2): social extras, seasons)                                                             |
+| J-dex-protocol-16 Stake with a validator on INTACHAIN and look at INTACORE                           | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain; also (2) own-chain extras, validator staking) |
+| J-dex-protocol-25 Run a fair-launch auction and deploy a spot token with a genesis allocation        | whole journey            | after launch (OWNER 183 (2): own-chain extras, fair-launch auction)                                              |
+| J-merchant-31 Set up a card terminal and take an in-person payment                                   | whole journey            | after launch (OWNER 183 (2): the shop-floor card terminal)                                                       |
+| J-merchant-32 Run the shop floor: cart, tips, offline, shifts, saved cards and QR                    | whole journey            | after launch (OWNER 183 (2): the shop-floor card terminal)                                                       |
+| J-merchant-34 Route payments across processors                                                       | whole journey            | after launch (OWNER 183 (2): multi-processor routing)                                                            |
+| J-merchant-35 A platform onboards its sub-merchants                                                  | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-merchant-36 A platform splits payments, pays its sub-merchants and watches them                    | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-merchant-37 Give sub-merchants embedded money screens                                              | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-merchant-42 Founder checks that white-label tenants are isolated and fair                          | whole journey            | after launch (OWNER 183 (2): white-label platforms)                                                              |
+| J-more-catalogue-05 Point my miner at the pool                                                       | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-06 Watch my fleet and get told when a worker goes quiet                             | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-07 See my mining rewards and get paid                                               | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-08 Seal, plan and pay a mining window                                               | whole journey            | after launch (OWNER 183 (2): the mining pool)                                                                    |
+| J-more-catalogue-15 Read a prediction market and place a Yes or No order                             | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
+| J-more-catalogue-16 Manage my orders and positions until a market settles                            | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
+| J-more-catalogue-17 Use the controls Predict keeps parked, and set my limits                         | whole journey            | the core (the 67 spine journeys) passes (OWNER 183 (3): Predict)                                                 |
+| J-more-catalogue-18 Make my Blueprint, share its card, and see who opened it                         | whole journey            | after launch (OWNER 183 (2): social extras, Blueprint cards)                                                     |
+| J-more-catalogue-19 Join a crew and see my mentor matches                                            | whole journey            | after launch (OWNER 183 (2): social extras, crews and mentors)                                                   |
+| J-academy-12 Add a quiz and an assignment, schedule release, and set the gradebook                   | steps #4, #5, #8         | after launch (OWNER 183 (2): the academy's full-school parts, assignments and gradebook)                         |
+| J-academy-13 Grade work, fix a quiz, and download the gradebook                                      | steps #1, #2, #3, #7     | after launch (OWNER 183 (2): the academy's full-school parts, grading and gradebook)                             |
+| J-academy-15 Enrol people in bulk, run cohorts, and send a course email                              | steps #4, #5             | after launch (OWNER 183 (2): the academy's full-school parts, cohorts)                                           |
+| J-academy-19 Join a live lobby, a specialist room or a crew session                                  | steps #1, #2, #3, #5, #6 | after launch (OWNER 183 (2): social extras (crews) and the academy's live sessions)                              |
+| J-dex-protocol-26 Hold a crew vault, set up inheritance and name recovery guardians                  | steps #1, #2, #3         | after launch (OWNER 183 (2): social extras, crews (the crew vault))                                              |
+| J-dex-protocol-27 Mint and sell NFTs, and spend with the Sovereign Card                              | steps #1, #2, #3, #4     | after launch (OWNER 183 (2): NFT minting and sales)                                                              |
+| J-dex-protocol-28 Issue assets, raise funds and use the treasury yield vault                         | steps #1, #2, #3         | after launch (OWNER 183 (2): own-chain extras, asset issuance)                                                   |
+| J-dex-protocol-29 Run the protocol desk: metrics, labels, quoters, listings and pool control         | steps #8                 | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain (INTACHAIN listing rooms))                     |
+| J-dex-protocol-32 Account for protocol revenue, rebates and the IFC buyback                          | steps #8                 | after launch (OWNER 183 (2): own-chain extras, buyback)                                                          |
+| J-more-catalogue-20 Understand and use IFC: stake, real yield, supply and burns                      | steps #3                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
+| J-ops-console-24 Watch capital and counterparties, run a buyback, plan a wind-down and keep evidence | steps #4                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
 
 ### By module
 
@@ -83,13 +123,13 @@ Done is defined by 465 journeys (3088 steps) in `modules/<module>/acceptance/jou
 | copy-bots-otc  | 125    | 42           | 18                            | 47    |
 | ops-console    | 118    | 25           | 42                            | 66    |
 | dex-protocol   | 111    | 4            | 102                           | 40    |
-| bank           | 105    | 40           | 12                            | 59    |
+| bank           | 105    | 28           | 12                            | 59    |
 | identity       | 90     | 17           | 30                            | 27    |
 | wallet         | 77     | 25           | 27                            | 26    |
 | derivatives    | 73     | 13           | 20                            | 35    |
 | p2p            | 70     | 12           | 2                             | 40    |
 | academy        | 60     | 3            | 14                            | 34    |
-| cex-spot       | 53     | 5            | 13                            | 33    |
+| cex-spot       | 53     | 4            | 13                            | 33    |
 | support-public | 52     | 10           | 15                            | 21    |
 | more-catalogue | 51     | 3            | 22                            | 19    |
 | agents         | 50     | 1            | 10                            | 24    |
@@ -107,16 +147,16 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Lane                          | Slices | Need nothing | In the trader journey | In an Order 1 journey | In no journey |
 | ----------------------------- | ------ | ------------ | --------------------- | --------------------- | ------------- |
-| svc-pay merchant              | 232    | 36           | 11                    | 42                    | 35            |
-| svc-bank                      | 202    | 53           | 35                    | 58                    | 25            |
-| svc-trade spot                | 164    | 41           | 42                    | 54                    | 7             |
+| svc-pay merchant              | 232    | 35           | 11                    | 43                    | 58            |
+| svc-bank                      | 202    | 45           | 35                    | 58                    | 22            |
+| svc-trade spot                | 164    | 41           | 42                    | 54                    | 17            |
 | svc-identity                  | 136    | 29           | 68                    | 50                    | 11            |
-| svc-protocol                  | 75     | 4            | 1                     | 19                    | 4             |
+| svc-protocol                  | 75     | 4            | 1                     | 19                    | 7             |
 | svc-p2p                       | 62     | 10           | 0                     | 19                    | 1             |
 | svc-trade futures             | 62     | 11           | 0                     | 25                    | 0             |
-| svc-academy                   | 60     | 3            | 0                     | 19                    | 3             |
-| svc-agents                    | 52     | 2            | 0                     | 8                     | 3             |
-| svc-ops                       | 42     | 11           | 4                     | 2                     | 12            |
+| svc-academy                   | 60     | 3            | 0                     | 22                    | 15            |
+| svc-agents                    | 52     | 2            | 0                     | 8                     | 4             |
+| svc-ops                       | 42     | 10           | 4                     | 3                     | 11            |
 | svc-notify                    | 39     | 15           | 3                     | 13                    | 1             |
 | svc-support                   | 36     | 7            | 2                     | 13                    | 3             |
 | svc-pay wallet                | 32     | 9            | 14                    | 9                     | 6             |
@@ -126,20 +166,20 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | svc-execution                 | 20     | 3            | 5                     | 0                     | 13            |
 | customer: trade               | 19     | 1            | 3                     | 5                     | 1             |
 | svc-edge                      | 19     | 1            | 2                     | 5                     | 5             |
-| customer: more                | 16     | 2            | 3                     | 7                     | 0             |
+| customer: more                | 16     | 2            | 3                     | 7                     | 1             |
 | svc-market                    | 15     | 0            | 0                     | 6                     | 0             |
-| svc-token                     | 15     | 2            | 0                     | 4                     | 0             |
+| svc-token                     | 15     | 2            | 0                     | 4                     | 2             |
 | customer shell                | 12     | 5            | 3                     | 6                     | 1             |
 | svc-tax                       | 12     | 2            | 7                     | 2                     | 3             |
-| customer: pay                 | 11     | 1            | 1                     | 5                     | 0             |
-| admin: ops-desk               | 10     | 6            | 0                     | 3                     | 3             |
+| customer: pay                 | 11     | 1            | 1                     | 5                     | 1             |
+| admin: ops-desk               | 10     | 3            | 0                     | 3                     | 0             |
 | svc-indexer                   | 10     | 1            | 0                     | 6                     | 1             |
 | svc-ws                        | 10     | 2            | 3                     | 2                     | 0             |
 | customer: account             | 8      | 1            | 1                     | 2                     | 0             |
-| svc-blueprint                 | 8      | 0            | 0                     | 0                     | 1             |
-| customer: protocol            | 7      | 1            | 0                     | 3                     | 1             |
+| svc-blueprint                 | 8      | 0            | 0                     | 0                     | 7             |
+| customer: protocol            | 7      | 1            | 0                     | 3                     | 2             |
 | svc-dex                       | 7      | 0            | 0                     | 3                     | 0             |
-| svc-mining-pool               | 7      | 0            | 0                     | 4                     | 0             |
+| svc-mining-pool               | 7      | 0            | 0                     | 0                     | 3             |
 | contracts                     | 6      | 2            | 2                     | 2                     | 0             |
 | customer: public              | 5      | 2            | 0                     | 2                     | 0             |
 | svc-fix                       | 5      | 0            | 1                     | 0                     | 0             |
@@ -148,11 +188,11 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 | admin: founder-ops            | 2      | 1            | 1                     | 0                     | 0             |
 | admin: protocol-desk          | 2      | 0            | 0                     | 0                     | 0             |
 | config                        | 2      | 2            | 0                     | 0                     | 2             |
-| customer: money               | 2      | 1            | 1                     | 0                     | 1             |
+| customer: money               | 2      | 0            | 1                     | 0                     | 0             |
 | acceptance (Polish)           | 1      | 1            | 1                     | 0                     | 1             |
 | admin: console-status-banner  | 1      | 0            | 0                     | 1                     | 0             |
 | admin: flag-state             | 1      | 0            | 0                     | 0                     | 0             |
-| admin: jurisdiction-board     | 1      | 0            | 0                     | 0                     | 1             |
+| admin: jurisdiction-board     | 1      | 1            | 0                     | 0                     | 0             |
 | admin: launch-sequence        | 1      | 0            | 0                     | 0                     | 0             |
 | admin: module-state-inspector | 1      | 0            | 0                     | 1                     | 0             |
 | admin: modules                | 1      | 0            | 0                     | 0                     | 0             |
@@ -166,7 +206,7 @@ A lane is one service, or one app area, so two lanes never edit the same files. 
 
 | Journey                  | Slices | Need nothing |
 | ------------------------ | ------ | ------------ |
-| trader                   | 225    | 56           |
+| trader                   | 225    | 55           |
 | bank-fund-trade-withdraw | 51     | 17           |
 | merchant-payout-to-bank  | 84     | 23           |
 | one-portfolio            | 35     | 9            |
@@ -206,7 +246,6 @@ First milestone. Lanes take these before their other slices.
 - `W-withdraw-06` Withdrawal state machine, status vocabulary, history list and failure reasons (L, depth 1, journey order 1)
 - `W-withdraw-08` Address book: list, save, rename, delete (M, depth 1, journey order 1)
 - `W-withdraw-13` Withdrawal hold after card, ACH or PayPal purchase (M, depth 1, journey order 1)
-- `RC-cex-spot-07` Venue unit economics report (M, depth 1, journey order 2)
 - `HM-dashboard-02` Net worth over time on Home (Phantom #65): stored daily value, range switch and honest empty state (L, depth 1, journey order 2)
 - `HM-shell-02` Theme: follow system, light or dark (rendered options first, owner picks) (M, depth 1, journey order 2)
 - `I-account-lifecycle-01` Display and locale saved on the account; UID display (S, depth 1, journey order 2)
@@ -319,6 +358,7 @@ First milestone. Lanes take these before their other slices.
 - `W-security-accounts-02` Register a custom token or asset (M, depth 2, journey order 2) · needs W-balances-05
 - `W-withdraw-07` Cancel a pending withdrawal and returned-withdrawal recovery (M, depth 2, journey order 2) · needs W-withdraw-06
 - `W-withdraw-14` Internal off-chain settlement between platform accounts (M, depth 2, journey order 2) · needs W-withdraw-05
+- `RC-cex-spot-07` Venue unit economics report (M, depth 3, journey order 2) · needs OPS-ORD-01
 - `SP-conditional-algo-02` OCO pair, attached TP/SL bracket and OTO close (L, depth 3, journey order 2) · needs SP-conditional-algo-01, SP-order-entry-01
 - `HM-navigation-05` Simple and Pro as one account-level preference record (also the base for tiles, hide-amounts and theme) (M, depth 3, journey order 2) · needs HM-dashboard-01, HM-navigation-01, HM-shell-02, HM-widgets-01
 - `I-account-lifecycle-09` Unfreeze and reactivate (M, depth 3, journey order 2, refuses for an outside service) · needs I-account-lifecycle-08

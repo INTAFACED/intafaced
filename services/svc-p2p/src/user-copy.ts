@@ -4,7 +4,7 @@
  * Reasons on the wire are catalog keys resolved through `@intafaced/i18n`.
  * Mode is `prod` so a missing key cannot throw on a take or register path. A
  * key that is not in the catalog yet refuses as the key name — greppable,
- * never blank, never invented English. Catalog rows land in a separate PR;
+ * never blank, never invented English. Catalog rows may land in another PR;
  * this service must not wait on them or invent sentences here.
  */
 import { createTranslator, type ParamValue } from '@intafaced/i18n';
