@@ -77,7 +77,7 @@ async function approveAsB(browser, approvalId, payloadHash) {
 }
 
 /** The value next to `label` in a filed request's key/value list. */
-const filed = (scope, label) => scope.locator(`[data-filed] [data-field="${label}"]`);
+const filed = (scope, label) => scope.locator(`[data-field="${label}"]`);
 
 test.beforeAll(async ({ browser }) => {
   if (run.read().customer) return;
@@ -314,9 +314,9 @@ test(`${J} #6 opens the published trading rulebook: versioned rulebook text cust
   await expect(room.getByRole('alert')).toContainText('matching.rulebook_section_unset');
   await form.getByLabel('Section: market data').fill(`TEST market data rules for ${version}.`);
   await form.getByRole('button', { name: 'Propose version' }).click();
-  // The filed request's key/value list sits inside the room (`filed` looks for [data-filed] below its scope).
-  const approvalId = (await filed(room, 'Approval id').textContent()).trim();
-  const payloadHash = (await filed(room, 'Payload hash').textContent()).trim();
+  const request = room.locator('[data-filed]');
+  const approvalId = (await filed(request, 'Approval id').textContent()).trim();
+  const payloadHash = (await filed(request, 'Payload hash').textContent()).trim();
   await approveAsB(browser, approvalId, payloadHash);
   await room.getByRole('button', { name: 'Publish approved version' }).click();
   // Wait for svc-matching's answer before reading the room again, so the reload never cuts the publish short.

@@ -171,7 +171,7 @@ export function RulebookRoom({ initial }: { initial: RulebookDeskView }) {
             <OutcomeNotice outcome={proposed} doneText="Request filed" />
             {proposed.kind === 'ok' ? (
               <div data-filed className="flex flex-col gap-2">
-                <dl data-filed="request" className="grid gap-x-4 gap-y-1 text-sm md:grid-cols-[max-content_1fr]">
+                <dl className="grid gap-x-4 gap-y-1 text-sm md:grid-cols-[max-content_1fr]">
                   <dt className="text-fg-2">Version</dt>
                   <dd className="if-num">{proposed.data.version}</dd>
                   <dt className="text-fg-2">Approval id</dt>
