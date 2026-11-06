@@ -170,13 +170,17 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   await page.goto(`${ADMIN}/trade-ops/orders`);
   const sweep = page.getByRole('region', { name: 'Reconcile sweep' });
 
+  let runs = 0;
   const runSweep = async () => {
     await sweep.getByRole('button', { name: 'Start reconcile sweep' }).click();
     const dialog = page.getByRole('alertdialog');
     await dialog.getByLabel('Reason (kept in the audit)').fill(`TEST ${J} reported order problem`);
     await dialog.getByRole('button', { name: 'Start reconcile sweep' }).click();
-    const result = sweep.locator('[data-sweep-result]').last();
+    const result = sweep.locator('[data-sweep-result]').nth(runs++);
     await expect(result).toBeVisible({ timeout: 60_000 });
+    // The dialog stays open on its result; closing it is how the next run is started.
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toHaveCount(0);
     return result;
   };
 
