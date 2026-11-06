@@ -17,7 +17,7 @@ import type { AccountRef, Amount, LedgerTx, MemoryLedger } from '@intafaced/ledg
  *
  * §13 SOCKET: the production adapter needs a `ledger.history` procedure on
  * svc-ledger, which is a `packages/contracts` + svc-ledger change (it may land
- * in the journey's PR; AGENTS.md "Services and events" 1).
+ * in the journey's PR; AGENTS.md, "The owner's decisions").
  * `HttpLedgerHistory` in `../ledger-client.ts` is written against that shape and
  * fails loudly rather than returning an empty answer if it is not there yet — an
  * analytics view that silently reports zero spending is worse than one that is

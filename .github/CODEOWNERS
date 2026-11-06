@@ -13,7 +13,7 @@
 #   gh api /repos/INTAFACED/intafaced/codeowners/errors
 #
 # This file requests reviews; it does not enforce them. Merging follows
-# AGENTS.md ("Check, then merge"), not code-owner approval.
+# AGENTS.md, not code-owner approval.
 
 *                                    @Phantom-X-007 @ZenYoda3
 
@@ -23,7 +23,7 @@
 /services/svc-identity/              @Phantom-X-007 @ZenYoda3
 /services/svc-token/                 @Phantom-X-007 @ZenYoda3
 #
-# Money and security code named in AGENTS.md ("Check, then merge" item 3): a red
+# Money and security code named in AGENTS.md: a red
 # in these always blocks the merge. Every package that depends directly on
 # @intafaced/ledger-client is listed (checked 2026-10-20 from package.json).
 /services/svc-edge/                  @Phantom-X-007 @ZenYoda3

@@ -438,7 +438,7 @@ which is exactly why it is the right place to be strict.
 > 0.025 bps, which is not representable. **SOCKET §13 — amount-level fee discounting**: applying the discount to
 > the fee _amount_ keeps all 18 decimal places and is exactly what `feeCharge`'s token branch already does. It
 > needs `tradeFill` to accept fee amounts instead of bps, which is a `packages/ledger-client` change and
-> therefore its own PR (AGENTS.md "Services and events" 2).
+> therefore its own PR (AGENTS.md, "The owner's decisions").
 
 ### Volume tiers (`tierProgram`, J-cex-spot-10 #5-#6)
 
