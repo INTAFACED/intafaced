@@ -1,3 +1,4 @@
+import { parseStatementJobsTestHold, startStatementJobWorker } from './statements/statement-jobs.js';
 import type { z } from 'zod';
 import Fastify from 'fastify';
 import postgres from 'postgres';
@@ -192,6 +193,15 @@ const bank = createBankServices(sql, ledger, history, {
   activity: {
     pages: createLedgerHistoryPages(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s),
     cursorSecret: env.INTERNAL_SERVICE_SECRET,
+  },
+  // Background exports (PF-statements-02): off until both the worker interval and the claim lease are set. The TEST render
+  // hold is a fault for J-portfolio-11 #5 and boot refuses it outside an explicit dev or test process.
+  statementJobs: {
+    leaseMs: env.BANK_STATEMENT_JOBS_INTERVAL_MS === null ? null : env.BANK_STATEMENT_JOBS_LEASE_MS,
+    testRenderHoldMs: parseStatementJobsTestHold(env.BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS, {
+      APP_ENV: process.env.APP_ENV,
+      NODE_ENV: process.env.NODE_ENV,
+    }),
   },
   loans: {
     // Marks are READ from svc-trade's public REST. svc-trade belongs to another
@@ -824,6 +834,13 @@ const recoveryJobs = startBankRecoveryJobs({
   onSkip: (message) => app.log.info(message),
 });
 
+const statementJobWorker = startStatementJobWorker({
+  jobs: bank.statementJobs,
+  intervalMs: env.BANK_STATEMENT_JOBS_INTERVAL_MS,
+  onWarn: (message) => app.log.warn(message),
+  onError: (err) => app.log.error({ err }, 'bank statement export tick failed'),
+});
+
 await app.listen({ host: env.HTTP_HOST, port: env.HTTP_PORT });
 if (!env.IDENTITY_URL) {
   app.log.warn(
@@ -852,6 +869,7 @@ app.log.info(
     rampFiatLeg: rampProgramme.fiatLeg,
     rampFiatVia: rampProgramme.fiatVia,
     recoveryJobs: recoveryJobs.list().length > 0,
+    statementJobs: statementJobWorker.running,
   },
   'svc-bank ready',
 );
@@ -860,6 +878,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     void (async () => {
       recoveryJobs.stop();
+      statementJobWorker.stop();
       await app.close();
       await bus.close();
       if (recoveryLock) await recoveryLock.end({ timeout: 5 });

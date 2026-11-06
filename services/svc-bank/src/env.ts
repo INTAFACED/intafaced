@@ -3,6 +3,7 @@ import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
+import { parseStatementJobsInterval, parseStatementJobsLease } from './statements/statement-jobs.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
@@ -648,6 +649,41 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
         }),
+
+      /** How often the background export worker looks for queued jobs (PF-statements-02). Unset or blank: background exports are off and asking for one refuses `bank.statement_jobs_unset`. */
+      BANK_STATEMENT_JOBS_INTERVAL_MS: z
+        .unknown()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseStatementJobsInterval(v);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_INTERVAL_MS',
+            });
+            return z.NEVER;
+          }
+        }),
+
+      /** How long one worker claim on an export job lasts before the job is re-queued on the same key (PF-statements-02). Unset or blank: background exports are off. */
+      BANK_STATEMENT_JOBS_LEASE_MS: z
+        .unknown()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseStatementJobsLease(v);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_LEASE_MS',
+            });
+            return z.NEVER;
+          }
+        }),
+
+      /** TEST only (J-portfolio-11 #5): a wait inside every export render. Checked against the raw APP_ENV at boot (index.ts). */
+      BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS: z.string().optional(),
     }),
   );
 

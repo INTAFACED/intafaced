@@ -187,6 +187,24 @@ export const statementFileSchema = z.object({
   sha256: z.string(),
   rowCount: z.number().int().nonnegative(),
 });
+/** One background export from `bank.statements.jobs` (PF-statements-02): what was asked, and where it is. */
+export const statementJobSchema = z.object({
+  id: z.string(),
+  report: z.enum(['statement', 'ledger', 'trades']),
+  format: z.enum(['csv', 'pdf']),
+  from: z.string(),
+  to: z.string(),
+  state: z.enum(['queued', 'rendering', 'ready', 'failed']),
+  attempts: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  filename: z.string().nullable(),
+  sha256: z.string().nullable(),
+  rowCount: z.number().int().nonnegative().nullable(),
+  errorCode: z.string().nullable(),
+});
+export type StatementJob = z.infer<typeof statementJobSchema>;
+/** The document centre: whether background exports are on here, and the person's own jobs, newest first. */
+export const statementJobsSchema = z.object({ enabled: z.boolean(), items: z.array(statementJobSchema) });
 /** `bank.loans.statement` (BK-loan-06): one loan's signed CSV over a period; a month still running is provisional. */
 export const loanStatementSchema = z.object({
   format: z.literal('csv'),
