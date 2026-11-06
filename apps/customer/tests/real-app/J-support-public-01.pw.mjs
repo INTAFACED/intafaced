@@ -1,4 +1,4 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
 import {
   contactChannels,
