@@ -413,8 +413,8 @@ export type EraseReceipt = z.infer<typeof eraseReceiptSchema>;
 
 /**
  * The shape svc-blueprint must implement. A breaking change here is a compile
- * error in this package, caught in the contracts PR before a consumer is
- * touched (§15.2).
+ * error in this package, caught at compile time here before a consumer
+ * runs.
  */
 export interface BlueprintContract {
   onboard(input: OnboardInput): Promise<OnboardOutput>;

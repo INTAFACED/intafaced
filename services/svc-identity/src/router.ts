@@ -154,8 +154,8 @@ import { revokeCauseOf } from './auth/revoke-all-api-keys.js';
  * svc-identity's API (§4.1).
  *
  * The contract shape lives in `packages/contracts` — this implements it. A
- * breaking change there is a compile error here, caught in the contracts PR
- * before any consumer is touched (§15.2).
+ * breaking change there is a compile error here, caught at compile time
+ * before any consumer runs.
  */
 
 /** Only the canonical encoding of non-empty bytes, as `kyc.storeDocument` takes it; anything else refuses BAD_REQUEST. */
