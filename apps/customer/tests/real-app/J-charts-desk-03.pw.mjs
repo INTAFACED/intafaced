@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { EDGE } from './stack.mjs';
 import { chartBars, expectLines, F } from './charts-desk-studies.mjs';
