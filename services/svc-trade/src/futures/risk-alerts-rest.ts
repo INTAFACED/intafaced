@@ -61,7 +61,9 @@ export function registerRiskAlertsRest(app: FastifyInstance, deps: RiskAlertsRes
       const body = (req.body ?? {}) as Record<string, unknown>;
       return reply
         .code(200)
-        .send(await deps.alerts.set(principal.userId, { enabled: body.enabled, levels: body.levels, clientRequestId: body.clientRequestId }));
+        .send(
+          await deps.alerts.set(principal.userId, { enabled: body.enabled, levels: body.levels, clientRequestId: body.clientRequestId }),
+        );
     } catch (err) {
       return fail(err, reply);
     }

@@ -126,7 +126,8 @@ export function createRiskAlertService(deps: RiskAlertDeps) {
   const { sql } = deps;
   const now = deps.now ?? (() => new Date());
   const warn =
-    deps.warn ?? ((message: string, fields: Record<string, string>) => console.warn(JSON.stringify({ level: 'warn', msg: message, ...fields })));
+    deps.warn ??
+    ((message: string, fields: Record<string, string>) => console.warn(JSON.stringify({ level: 'warn', msg: message, ...fields })));
 
   async function levelsRow(userId: string): Promise<LevelsRow | null> {
     const [row] = await sql<LevelsRow[]>`
