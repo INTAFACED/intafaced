@@ -4,7 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { test, expect } from './journey.mjs';
 import { agentsRun, openFounderDesk, openNavigatorSession, tableIn } from './agents.mjs';
-import { api, ROOT } from './stack.mjs';
+import { api, ROOT, withOwnerSwitch } from './stack.mjs';
 
 // J-agents-15, in the founder console (docs/roadmap/journeys.json): find out why an agent action failed for a customer.
 // One test per step, titled "J-agents-15 #<n>", run in order. The customer is a TEST account who, in their own signed-in
@@ -108,16 +108,19 @@ test(`${J} #2 enters a reason and searches: rows with refusal code and tool, no 
 }) => {
   test.setTimeout(180_000);
   // With the owner's reason list blank there is no reason to enter: the search refuses by its code and shows no rows.
-  try {
-    await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', false);
-    await search(page, false);
-    await expect(desk(page).getByRole('combobox', { name: 'Reason' }).getByRole('option')).toHaveCount(1);
-    await expect(desk(page).getByRole('alert')).toContainText('(agents.log_read_reason_unset)');
-    await expect(rows(page)).toHaveCount(0);
-    await expect(main(page).getByTestId('log-read-total')).toHaveCount(0);
-  } finally {
-    await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', true);
-  }
+  // The stack's owner switch blanks it for this block only and puts the TEST list back afterwards, passed or failed.
+  await withOwnerSwitch(
+    'agents',
+    { AGENTS_LOG_READ_REASONS: 'blank' },
+    async () => {
+      await search(page, false);
+      await expect(desk(page).getByRole('combobox', { name: 'Reason' }).getByRole('option')).toHaveCount(1);
+      await expect(desk(page).getByRole('alert')).toContainText('(agents.log_read_reason_unset)');
+      await expect(rows(page)).toHaveCount(0);
+      await expect(main(page).getByTestId('log-read-total')).toHaveCount(0);
+    },
+    { by: `${J} #2` },
+  );
 
   await search(page, true);
   await expect(main(page).getByTestId('log-read-audit')).toHaveText('1 audit row written for this read');
