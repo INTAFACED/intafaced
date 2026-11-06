@@ -167,8 +167,39 @@ test(`${J} #3 the payer pays: one transfer, Paid for both, a notice to the payee
   await expect(page.getByTestId('person-request-status')).toHaveText('Paid');
 });
 
-test(`${J} #4 the payee reminds on a second request: once per window, and over the cap it refuses with the next allowed time`, async () => {
-  throw new Error(`${J} #4: svc-bank's reminders have no window or cap and no next allowed time (personal-pay.ts remindRequest)`);
+test(`${J} #4 the payee reminds on a second request: once per window, and over the cap it refuses with the next allowed time`, async ({
+  page,
+}) => {
+  const { payer } = people();
+  const second = await ask(page, { amount: '5', note: 'Second, TEST' });
+  run.write({ ...run.read(), second });
+  const noticesOf = async () => {
+    await signIn(page, payer);
+    await page.goto('/notifications');
+    return page.locator(`a[data-testid="nf-row"][href="/pay/request/${second}"]`);
+  };
+  await expect(await noticesOf(), 'the payer was not told of the second request').toHaveCount(1);
+
+  // The payee reminds once: it goes out, and the payer has a second notice for the same request.
+  const { payee } = people();
+  await signIn(page, payee);
+  await page.goto(`/pay/request/${second}`);
+  const room = page.getByTestId('person-request');
+  const pressedAt = Date.now();
+  await room.getByTestId('person-request-remind').click();
+  await expect(room.getByTestId('person-request-reminded')).toHaveText('Reminder sent.');
+  // A second reminder in the same window is over the cap: refused by its code, naming when the next one is allowed.
+  await room.getByTestId('person-request-remind').click();
+  const refused = room.getByTestId('person-request-refused');
+  await expect(refused).toContainText('bank.personal_request_remind_capped');
+  const next = /next reminder is allowed at (\S+?)\s*\(/.exec(await refused.innerText())?.[1];
+  expect(next, 'the refusal names no next allowed time').toBeTruthy();
+  // The stack's TEST terms are one reminder an hour, so the next is allowed an hour after the first.
+  const nextAt = Date.parse(next);
+  expect(nextAt).toBeGreaterThanOrEqual(pressedAt + 3_600_000 - 60_000);
+  expect(nextAt).toBeLessThanOrEqual(Date.now() + 3_600_000);
+  await expect(await noticesOf(), 'the reminder did not go out exactly once').toHaveCount(2);
+  expect((await request(payer, second)).status).toBe('open');
 });
 
 test(`${J} #5 the payer declines a third request with Report and block: Declined, a case and an active block; the payee sees only Declined`, async () => {

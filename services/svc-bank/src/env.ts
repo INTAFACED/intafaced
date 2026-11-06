@@ -305,6 +305,14 @@ const schema = serviceEnvSchema
       BANK_PERSONAL_SEND_REVIEW_JSON: z.string().optional(),
 
       /**
+       * REQUEST REMINDERS (PP-send-request-13, J-pay-05 #4): at most BANK_REQUEST_REMIND_CAP reminders of one request in any
+       * BANK_REQUEST_REMIND_WINDOW_SECONDS. Set both or neither. Blank means no reminder terms are published: every reminder
+       * refuses `bank.personal_request_remind_terms_unset`. Anything malformed refuses boot.
+       */
+      BANK_REQUEST_REMIND_WINDOW_SECONDS: z.string().optional(),
+      BANK_REQUEST_REMIND_CAP: z.string().optional(),
+
+      /**
        * HOLDS ON RECEIVED FUNDS (PP-money-balance-05): whole days (1 to 365) a payment from someone not in the recipient's
        * contacts, held for them to accept, waits before it goes back to the sender. Blank means the class cannot place
        * holds (RH-3): choosing "hold" refuses `bank.stranger_hold_period_unset`. Anything else refuses boot.

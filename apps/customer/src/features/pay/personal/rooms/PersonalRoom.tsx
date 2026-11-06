@@ -151,11 +151,13 @@ function PersonRequestRoom({ request, onChange }: { request: PersonRequest; onCh
   const { timeZone } = usePreferences();
   const requests = useMemo(() => createPersonRequestsApi(api), [api]);
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
-  const [busy, setBusy] = useState<'pay' | 'decline' | null>(null);
+  const [busy, setBusy] = useState<'pay' | 'decline' | 'remind' | null>(null);
+  const [reminded, setReminded] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   // One send id per opened request: pressing Pay again sends the same transfer, which svc-bank answers with its first receipt.
   const transferId = useMemo(() => crypto.randomUUID(), [request.requestId]);
   const asked = userId !== null && userId.toLowerCase() === request.payerUserId.toLowerCase();
+  const asker = userId !== null && userId.toLowerCase() === request.payeeUserId.toLowerCase();
   const open = request.status === 'open';
 
   async function refresh() {
@@ -181,6 +183,18 @@ function PersonRequestRoom({ request, onChange }: { request: PersonRequest; onCh
     });
     if (!sent.ok) setRefused(sent.code ? `${sent.message} (${sent.code})` : sent.message);
     await refresh();
+    setBusy(null);
+  }
+  async function remindIt() {
+    setBusy('remind');
+    setRefused(null);
+    setReminded(false);
+    // One key per press: svc-bank's terms decide whether this reminder may go out now.
+    const result = await requests.remind(request.requestId, crypto.randomUUID());
+    if (result.ok) {
+      onChange(result.data);
+      setReminded(true);
+    } else setRefused(result.code ? `${result.message} (${result.code})` : result.message);
     setBusy(null);
   }
   async function declineIt() {
@@ -225,6 +239,24 @@ function PersonRequestRoom({ request, onChange }: { request: PersonRequest; onCh
               {busy === 'decline' ? t('askDeclining') : t('askDecline')}
             </Button>
           </div>
+        )}
+        {asker && open && (
+          <div className="pay-row-actions">
+            <Button
+              variant="secondary"
+              size={40}
+              disabled={busy !== null}
+              onClick={() => void remindIt()}
+              data-testid="person-request-remind"
+            >
+              {busy === 'remind' ? t('askReminding') : t('askRemind')}
+            </Button>
+          </div>
+        )}
+        {reminded && (
+          <p className="pay-hint" role="status" data-testid="person-request-reminded">
+            {t('askReminded')}
+          </p>
         )}
         {refused && (
           <p className="pay-reason__body" role="alert" data-testid="person-request-refused">

@@ -8,6 +8,7 @@
  * `bankTransfer` has no fee leg, and a second post could succeed without the
  * transfer or the other way round. An empty terms row is not a zero fee.
  */
+import type { RequestReminderTerms } from './request-reminders.js';
 import { grantedLimits } from './limit-requests.js';
 import type { Sql, TransactionSql } from 'postgres';
 import {
@@ -268,6 +269,8 @@ export class PersonalPayService {
        * contacts is asked once, inside the reservation, and a held payment is set aside after it posts. Unset = no holds.
        */
       receivedHolds?: Pick<ReceivedHoldService, 'decide' | 'placeFor'>;
+      /** The owner's reminder terms (J-pay-05 #4). Unset = none published, and every reminder refuses. */
+      requestReminders?: RequestReminderTerms | null;
       now?: () => Date;
     } = {},
   ) {}
@@ -1018,14 +1021,37 @@ export class PersonalPayService {
          WHERE request_id = ${requestId} AND idempotency_key = ${idempotencyKey}
       `;
       if (prior[0]) return prior[0];
+      // A new reminder: the owner's terms decide whether one may go out now. The request row is locked first, so two
+      // reminders at the same moment are counted one after the other and the cap holds.
+      const terms = this.options.requestReminders ?? null;
+      if (terms === null) {
+        throw new BankError(
+          'No reminder terms are published, so a reminder cannot be sent (bank.personal_request_remind_terms_unset)',
+          'bank.personal_request_remind_terms_unset',
+        );
+      }
+      await tx`SELECT 1 FROM bank.personal_requests WHERE id = ${requestId} FOR UPDATE`;
+      const since = new Date(now.getTime() - terms.windowSeconds * 1000);
+      const recent = await tx<Array<{ created_at: Date }>>`
+        SELECT created_at FROM bank.personal_request_reminds
+         WHERE request_id = ${requestId} AND created_at > ${since}
+         ORDER BY created_at ASC
+      `;
+      if (recent.length >= terms.cap) {
+        const nextAllowedAt = new Date(recent[recent.length - terms.cap]!.created_at.getTime() + terms.windowSeconds * 1000);
+        throw new BankError(
+          `This request was reminded ${recent.length} time(s) in the last ${terms.windowSeconds} s, the most allowed; the next reminder is allowed at ${nextAllowedAt.toISOString()} (bank.personal_request_remind_capped)`,
+          'bank.personal_request_remind_capped',
+        );
+      }
       const next = await tx<Array<{ sequence: number }>>`
         SELECT COALESCE(MAX(sequence), 1) + 1 AS sequence
           FROM bank.personal_request_reminds WHERE request_id = ${requestId}
       `;
       const sequence = next[0]!.sequence;
       const inserted = await tx<Array<{ sequence: number; published_at: Date | null }>>`
-        INSERT INTO bank.personal_request_reminds (request_id, idempotency_key, sequence)
-        VALUES (${requestId}, ${idempotencyKey}, ${sequence})
+        INSERT INTO bank.personal_request_reminds (request_id, idempotency_key, sequence, created_at)
+        VALUES (${requestId}, ${idempotencyKey}, ${sequence}, ${now})
         ON CONFLICT (request_id, idempotency_key) DO NOTHING
         RETURNING sequence, published_at
       `;

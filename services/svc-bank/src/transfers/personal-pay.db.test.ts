@@ -124,6 +124,8 @@ describe('personal send and request (Postgres)', () => {
       spaceLimit: '10',
       recipients: memoryRecipientState(),
       handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+      // Labelled TEST reminder terms: two reminders of one request in any hour.
+      requestReminders: { windowSeconds: 3600, cap: 2 },
       requestNotices: {
         created: async (input) => {
           created.push(input);
@@ -320,6 +322,61 @@ describe('personal send and request (Postgres)', () => {
     expect(await owed()).toEqual(['send-owed-young']);
     expect(await bank.personalPay.announceUnannounced(50)).toEqual([]);
     expect(postedNotices).toHaveLength(1);
+  });
+
+  it('reminds at most the cap in a window, then refuses with the next allowed time; a replayed key is not a new reminder', async () => {
+    await ready();
+    const at = new Date('2026-11-20T10:00:00.000Z');
+    const personal = new PersonalPayService(db.sql, ledger, bank.transfers, bank.spaces, {
+      handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+      requestReminders: { windowSeconds: 3600, cap: 2 },
+    });
+    const opened = await personal.createRequest({
+      payeeUserId: ADA,
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: parseAmount('2'),
+      expiresAt: new Date('2026-12-01T00:00:00.000Z'),
+      idempotencyKey: 'request-key-remind-cap',
+      now: at,
+    });
+    const later = (seconds: number) => new Date(at.getTime() + seconds * 1000);
+    await personal.remindRequest(ADA, opened.requestId, 'remind-cap-1', later(10));
+    await personal.remindRequest(ADA, opened.requestId, 'remind-cap-2', later(20));
+    // The same key again is the same reminder, not a third.
+    await personal.remindRequest(ADA, opened.requestId, 'remind-cap-2', later(30));
+    await expect(personal.remindRequest(ADA, opened.requestId, 'remind-cap-3', later(40))).rejects.toMatchObject({
+      code: 'bank.personal_request_remind_capped',
+      message: expect.stringContaining('next reminder is allowed at 2026-11-20T11:00:10.000Z'),
+    });
+    // Once the first reminder leaves the window, one more is allowed.
+    await personal.remindRequest(ADA, opened.requestId, 'remind-cap-3', later(3611));
+    const rows = await db.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM bank.personal_request_reminds WHERE request_id = ${opened.requestId}
+    `;
+    expect(rows[0]!.n).toBe(3);
+  });
+
+  it('with no reminder terms published, a reminder refuses by its code and nothing is written', async () => {
+    await ready();
+    const personal = new PersonalPayService(db.sql, ledger, bank.transfers, bank.spaces, {
+      handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+    });
+    const opened = await personal.createRequest({
+      payeeUserId: ADA,
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: parseAmount('2'),
+      expiresAt: new Date('2026-12-01T00:00:00.000Z'),
+      idempotencyKey: 'request-key-remind-unset',
+    });
+    await expect(personal.remindRequest(ADA, opened.requestId, 'remind-unset-1')).rejects.toMatchObject({
+      code: 'bank.personal_request_remind_terms_unset',
+    });
+    const rows = await db.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM bank.personal_request_reminds WHERE request_id = ${opened.requestId}
+    `;
+    expect(rows[0]!.n).toBe(0);
   });
 
   it('a notice that hangs does not hold the send: it answers, and the row stays owed', async () => {

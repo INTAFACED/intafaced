@@ -788,6 +788,10 @@ export type BankErrorCode =
   | 'bank.personal_reference_invalid'
   | 'bank.personal_request_not_found'
   | 'bank.personal_request_closed'
+  /** No reminder terms are published (BANK_REQUEST_REMIND_WINDOW_SECONDS and BANK_REQUEST_REMIND_CAP are blank). */
+  | 'bank.personal_request_remind_terms_unset'
+  /** The request had the most reminders its terms allow in the window; the message names the next allowed time. */
+  | 'bank.personal_request_remind_capped'
   | 'bank.personal_request_expired'
   | 'bank.personal_request_not_payer'
   | 'bank.personal_request_not_payee'

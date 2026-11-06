@@ -48,6 +48,9 @@ const en = {
   askStatusCancelled: 'Cancelled',
   askStatusExpired: 'Expired',
   askRefused: 'Not done',
+  askRemind: 'Send a reminder',
+  askReminding: 'Sending…',
+  askReminded: 'Reminder sent.',
   // Scheduled
   scheduledTitle: 'Scheduled payments',
   scheduledLine: 'Payments set to go out on a date you pick.',
