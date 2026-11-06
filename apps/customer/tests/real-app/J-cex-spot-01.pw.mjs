@@ -382,6 +382,9 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   await expect(page.getByTestId('account-summary')).toContainText('Verification: Full');
   console.log(`CDPDIAG ${new Date().toISOString()} MENU escape`);
   await page.keyboard.press('Escape');
+  // SPLIT B: Escape, then let every open read settle before leaving /trade.
+  await page.waitForLoadState('networkidle').catch(() => {});
+  console.log(`CDPDIAG ${new Date().toISOString()} SPLIT B idle`);
   console.log(`CDPDIAG ${new Date().toISOString()} MENU goto`);
   await page.goto('/verification');
   await expect(page.getByTestId('verification__level-tag')).toContainText('Full');
