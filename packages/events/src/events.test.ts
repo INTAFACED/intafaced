@@ -1308,6 +1308,14 @@ function catalogFixtures(): { [K in EventName]: PayloadOf<K> } {
       assetId: 'USDT',
       email: false,
     },
+    agentApprovalRequested: {
+      requestId: uid(),
+      userId: uid(),
+      agentId: uid(),
+      sessionId: uid(),
+      tool: 'support.ticket.comment',
+      expiresAt: '2026-11-05T21:00:00.000Z',
+    },
     personalRequestCreated: {
       requestId: uid(),
       payerUserId: uid(),
