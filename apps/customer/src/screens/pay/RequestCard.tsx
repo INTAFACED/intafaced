@@ -32,6 +32,7 @@ import { personalCopy } from './personal-copy';
 import { absoluteLink, canShare, copyText, shareLink } from './share';
 import { QrCode } from './QrCode';
 import type { IdentityState } from './identity-state';
+import { AskAPerson, RequestLists } from './ServerRequests';
 
 const DOLLAR_COINS = ['USDT', 'USDC', 'USD'];
 
@@ -48,6 +49,7 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
   const { t } = personalCopy.useCopy();
   const [assets, setAssets] = useState<{ owner: string | null; value: 'loading' | 'error' | string[] }>({ owner: null, value: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     void pay.spaces(controller.signal).then((result) => {
@@ -85,6 +87,8 @@ export function RequestCard({ identity }: { identity: IdentityState }) {
   const payeeId = identity.status === 'handles' ? identity.handle : (userId ?? '');
   return (
     <div className="pay-body" data-testid="request-card">
+      {loaded.length === 0 ? null : <AskAPerson assets={loaded} onSent={() => setRevision((n) => n + 1)} />}
+      <RequestLists revision={revision} />
       <p className="pay-hint">{t('reqIntro')}</p>
       {loaded.length === 0 ? (
         <StateBlock kind="empty" title={t('reqNoAssetsTitle')} body={t('reqNoAssetsBody')} />

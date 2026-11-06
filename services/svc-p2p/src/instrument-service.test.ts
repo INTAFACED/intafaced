@@ -1436,6 +1436,8 @@ describe('svc-p2p payment instruments', () => {
         'merchants.presence': undefined,
         'merchants.setPresence': { mode: 'scheduled', timezone: 'UTC', windows: [{ day: 1, start: '09:00', end: '17:00' }] },
         'merchants.todos': { limit: 50 },
+        // P-trade-orders-05: the caller's own cancel count; it reads trade rows only, no instrument field.
+        'access.limits': undefined,
         'offers.bulk': { action: 'pause', offerIds: [crypto.randomUUID()], idempotencyKey: `bulk:${crypto.randomUUID()}` },
       };
 

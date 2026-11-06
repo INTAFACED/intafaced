@@ -19,6 +19,8 @@ export const chartOwnerValuesSchema = z.object({
   delayedBoundarySeconds: count,
   /** The longest main-thread task the chart may hold while ticks stream, in ms; blank while the owner has not set it. */
   renderBudgetMs: count,
+  /** How far from the last price, in basis points, a chart order may be moved before the person confirms the distance. */
+  orderProtectionBps: count,
   /** The market's data class, for the `?symbol=` asked; null when ops has not set it. */
   dataClass: z.enum(['real_time', 'delayed', 'end_of_day']).nullable(),
 });
