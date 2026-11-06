@@ -79,12 +79,20 @@ export function stepsIn(text) {
   return [...out].sort(byStep);
 }
 
+/**
+ * A title GitHub's Revert button makes, `Revert "<old title>"`: it undoes those steps and names none of its own, so it
+ * is judged as naming none and seals without a run (the floor: a break is fixed or undone fast). Only a title that starts
+ * with it; one that merely contains it is read as usual.
+ */
+const REVERT_TITLE = /^Revert "/;
+
 /** The steps a pull request title names. */
-export const titleSteps = (title) => stepsIn(title);
+export const titleSteps = (title) => (REVERT_TITLE.test(String(title ?? '')) ? [] : stepsIn(title));
 
 /** Step ranges in a title that can't be read as steps (an end past STEP_MAX): each fails the seal closed. */
 export function titleProblems(title) {
   const out = [];
+  if (REVERT_TITLE.test(String(title ?? ''))) return out;
   for (const m of String(title ?? '').matchAll(STEP_RUN))
     for (const n of m[2].matchAll(NUMBER))
       if (n[2] !== undefined && (Number(n[1]) > STEP_MAX || Number(n[2]) > STEP_MAX)) out.push(`${m[1]} ${n[0]}`.replace(/\s+/g, ' '));
@@ -310,30 +318,43 @@ export const SEAL = 'CI merge seal';
 const SEAL_POLL_MS = 20_000;
 const SEAL_POLLS = 75; // 25 minutes: a running seal may be waiting out the CI review (review-marker.mjs, 20 minutes)
 
+/** The workflow file that holds the seal job. */
+export const CI_WORKFLOW = 'ci.yml';
+
 /**
  * What to do about a head's seal once its steps' inputs changed (a journeys run finished, a title or body was edited):
  * re-run it whatever its colour, since a newer run or an edit can turn a green seal red as well as a red one green.
- * `checkRuns`: the head's check runs named SEAL; `runStatus`: the status of the CI run holding the newest, once read.
+ * Read through the Actions API with the workflow's own GITHUB_TOKEN (`actions: read` and `write`), not the Checks API:
+ * `runs` are CI_WORKFLOW's pull_request runs on the head, and `jobs` the newest run's latest-attempt jobs, once read.
  * Pure, so the table is testable.
  */
-export function recheckStep(checkRuns, runStatus) {
-  const seal = (checkRuns ?? []).filter((c) => c.name === SEAL).sort((a, b) => b.id - a.id)[0];
-  if (!seal || seal.status === 'queued') return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
-  if (seal.status !== 'completed') return { act: 'wait', msg: 'the seal is running and may have read the steps before this change' };
-  const runId = /\/actions\/runs\/(\d+)/.exec(seal.details_url ?? '')?.[1];
-  const jobId = /\/job\/(\d+)/.exec(seal.details_url ?? '')?.[1] ?? String(seal.id);
-  if (!runId) return { act: 'fail', msg: `the seal check run ${seal.id} names no workflow run` };
-  if (runStatus === undefined) return { act: 'run', runId, msg: `reading run ${runId}` };
-  if (runStatus !== 'completed') return { act: 'wait', runId, msg: `run ${runId} is still finishing` };
-  return { act: 'rerun', runId, jobId };
+export function recheckStep(runs, jobs) {
+  const run = (runs ?? []).filter((r) => r?.event === 'pull_request').sort((a, b) => b.id - a.id)[0];
+  if (!run) return { act: 'done', msg: 'CI has not run on this head; its seal will read the steps itself' };
+  const runId = String(run.id);
+  if (jobs === undefined) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
+  const seal = (jobs ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
+  if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
+    if (run.status === 'completed') return { act: 'fail', msg: `run ${runId} finished with no ${SEAL} job` };
+    return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
+  }
+  if (seal.status !== 'completed') return { act: 'wait', runId, msg: 'the seal is running and may have read the steps before this change' };
+  if (run.status !== 'completed') return { act: 'wait', runId, msg: `run ${runId} is still finishing` };
+  return { act: 'rerun', runId, jobId: String(seal.id) };
 }
 
 /** Re-run the seal job on `sha` (recheckStep). `post`/`get` are the API (tests pass their own). */
 export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
   for (let poll = 1; ; poll++) {
-    const c = await get(`/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
-    let step = recheckStep(c?.check_runs);
-    if (step.act === 'run') step = recheckStep(c.check_runs, (await get(`/repos/${repo}/actions/runs/${step.runId}`))?.status);
+    const runs = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&event=pull_request&per_page=100`))
+      ?.workflow_runs;
+    if (!Array.isArray(runs)) throw new Error(`${CI_WORKFLOW} runs on ${sha}: not a list`);
+    let step = recheckStep(runs);
+    if (step.act === 'jobs') {
+      const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
+      if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
+      step = recheckStep(runs, jobs);
+    }
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {

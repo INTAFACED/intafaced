@@ -9,7 +9,7 @@ name: Journey seal re-check
 # Only open pull requests whose title names journey steps (or named them before the edit) are touched.
 #
 # Both triggers run the copy of this file and of the script on the default branch. Nothing here checks out, builds or
-# runs code from a pull request: the script reads the pull request and the seal's check runs through the API.
+# runs code from a pull request: the script reads the pull request, and CI's runs and jobs on the head, through the API.
 on:
   workflow_run:
     workflows: [Real-app journeys]
@@ -35,8 +35,7 @@ jobs:
     timeout-minutes: 30 # healthy run: seconds; waiting out a running seal takes up to 25 minutes (SEAL_POLLS in the script)
     permissions:
       contents: read
-      actions: write # re-run the seal job
-      checks: read # find the seal's check run on the head
+      actions: write # find the seal job through the Actions API (ci.yml's runs and jobs on the head) and re-run it; no Checks API
       pull-requests: read # the pull requests on the head, and their titles
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

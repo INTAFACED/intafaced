@@ -279,27 +279,25 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
     details_url: 'https://github.com/o/r/actions/runs/77/job/9',
     ...over,
   });
-  assert.equal(recheckStep([]).act, 'done');
-  assert.equal(recheckStep([seal({ status: 'queued' })]).act, 'done');
-  assert.equal(recheckStep([seal({ status: 'in_progress' })]).act, 'wait');
-  assert.equal(recheckStep([seal()]).act, 'run');
-  assert.equal(recheckStep([seal()], 'in_progress').act, 'wait');
-  assert.deepEqual(recheckStep([seal()], 'completed'), { act: 'rerun', runId: '77', jobId: '9' }, 'a green seal is re-run too');
-  assert.equal(recheckStep([seal({ conclusion: 'failure' })], 'completed').act, 'rerun');
-  assert.equal(recheckStep([seal({ details_url: '' })]).act, 'fail');
-  assert.equal(
-    recheckStep([seal({ id: 1, status: 'in_progress' }), seal({ id: 2 })], 'completed').jobId,
-    '9',
-    'the newest seal check run decides',
-  );
-  assert.equal(recheckStep([seal({ id: 2, status: 'in_progress' }), seal({ id: 1 })]).act, 'wait');
+  const ci = (over) => ({ id: 77, event: 'pull_request', status: 'completed', ...over });
+  assert.equal(recheckStep([]).act, 'done', 'no CI run yet');
+  assert.equal(recheckStep([ci({ event: 'merge_group' })]).act, 'done', 'only pull_request runs');
+  assert.deepEqual(recheckStep([ci()]), { act: 'jobs', runId: '77', msg: "reading run 77's jobs" });
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], []).act, 'done', 'the seal job has not started');
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], [seal({ status: 'queued' })]).act, 'done');
+  assert.equal(recheckStep([ci()], []).act, 'fail', 'a finished run with no seal job');
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], [seal({ status: 'in_progress' })]).act, 'wait');
+  assert.equal(recheckStep([ci({ status: 'in_progress' })], [seal()]).act, 'wait', 'the run must finish before a job re-runs');
+  assert.deepEqual(recheckStep([ci()], [seal()]), { act: 'rerun', runId: '77', jobId: '9' }, 'a green seal is re-run too');
+  assert.equal(recheckStep([ci()], [seal({ conclusion: 'failure' })]).act, 'rerun');
+  assert.equal(recheckStep([ci({ id: 76 }), ci({ id: 78 })], [seal()]).runId, '78', 'the newest CI run decides');
 
   const calls = [];
   let polls = 0;
   const get = async (path) => {
     calls.push(`GET ${path}`);
-    if (path.includes('check-runs')) return { check_runs: [seal({ status: polls++ < 2 ? 'in_progress' : 'completed' })] };
-    return { status: 'completed' };
+    if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: [ci()] };
+    return { jobs: [seal({ status: polls++ < 2 ? 'in_progress' : 'completed' })] };
   };
   const post = async (path) => (calls.push(`POST ${path}`), { status: 201 });
   const msg = await rerunSealJob({ repo: 'o/r', sha: HEAD, get, post, sleep: async () => {}, log: () => {} });
@@ -308,7 +306,8 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
     calls.filter((c) => c.startsWith('POST')),
     ['POST /repos/o/r/actions/jobs/9/rerun'],
   );
-  const done = async () => ({ check_runs: [seal()], status: 'completed' });
+  assert.equal(calls.filter((c) => c.includes('check-runs')).length, 0, 'the Checks API is never read');
+  const done = async (path) => (path.includes('/runs?') ? { workflow_runs: [ci()] } : { jobs: [seal()] });
   await assert.rejects(rerunSealJob({ repo: 'o/r', sha: HEAD, get: done, post: async () => ({ status: 500 }), sleep: async () => {} }));
   assert.match(
     await rerunSealJob({
@@ -402,4 +401,22 @@ test('Codex round 2, 3: an edit to an unreadable range re-runs a green seal', ()
     'still no re-run when no title names steps',
   );
   assert.deepEqual(recheckPulls({ pulls: [{ ...pull, state: 'closed' }], sha: HEAD, repo: REPO }), []);
+});
+
+// The fresh reviewer at bdcb884b (comment 6678783654): GitHub's Revert button titles a PR `Revert "<old title>"`. It
+// undoes those steps and names none of its own, so it seals like a title that names none (the floor: undo breaks fast).
+test('a Revert-button title names no steps and seals without a run', async () => {
+  const title = 'Revert "svc-bank: J-bank-13 I get a card (J-bank-13 #1 #2 #3) (#7202)"';
+  assert.deepEqual(titleSteps(title), []);
+  assert.deepEqual(titleProblems('Revert "x (J-bank-13 #1-#100)"'), []);
+  assert.equal(namesSteps(title), false);
+  const v = await judge({ title, reportOf: () => assert.fail('no run is read') });
+  assert.equal(v.ok, true);
+  assert.equal(v.state, 'none');
+  assert.deepEqual(
+    titleSteps('svc-bank: Revert "J-bank-13 #1" (J-bank-13 #2)'),
+    ['J-bank-13#1', 'J-bank-13#2'],
+    'only a title that starts with it',
+  );
+  assert.deepEqual(titleSteps('Reverted J-bank-13 #1 and rebuilt it'), ['J-bank-13#1']);
 });
