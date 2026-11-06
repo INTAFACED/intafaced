@@ -948,6 +948,17 @@ const schema = serviceEnvSchema
           }
         }),
       /**
+       * LOCAL AND TEST STACKS ONLY: the labelled TEST staff roster (`@intafaced/auth` `parseStaffTestRoster`), one
+       * TEST member per role (support, compliance, risk, finance), each role's TEST session scopes and staff
+       * permissions. Read raw at boot with the raw `APP_ENV`: a non-blank value refuses boot
+       * (`identity.staff_test_roster_refused`) unless APP_ENV is exactly dev or test. NO DEFAULT and never set in
+       * production: there the real staff roster and the built-in role mappings stay blank owner settings, every
+       * built-in role refuses `identity.role_mapping_unset`, and the console admits founders only. The owner and
+       * counsel set the real ones at launch prep (who is staff; what support, compliance and finance may do; whether
+       * risk is a built-in role). The TEST value lives in tooling/profiles/test-owner-values/identity.json.
+       */
+      IDENTITY_STAFF_TEST_ROSTER: z.string().optional(),
+      /**
        * Account closure. Unset, blank, false, off, or 0 stays off.
        * Do not set this in compose or in a local env file. The lead turns it on.
        */

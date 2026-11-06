@@ -33,19 +33,24 @@ async function ops() {
 async function inMode(symbol, mode, body) {
   const { ctx, sessions } = await ops();
   let changed = false;
+  let failed = null;
   try {
     const set = await gates.setMarketMode(ctx, symbol, mode, { sessions, reason: `${J}: TEST ${mode} for one step` });
     changed = true;
     expect(set.mode).toBe(mode);
     await body();
-  } finally {
-    // Always try to reopen: the change may have gone through even if the tool then failed.
-    try {
-      await gates.setMarketMode(ctx, symbol, 'OPEN', { sessions, reason: `${J}: TEST back to Open after the step` });
-    } catch (err) {
-      if (changed) throw err;
-    }
+  } catch (err) {
+    failed = err;
   }
+  // Always try to reopen: the change may have gone through even if the tool then failed. The step's own failure is
+  // the one reported; a failed reopen is added to it, never put in its place.
+  try {
+    await gates.setMarketMode(ctx, symbol, 'OPEN', { sessions, reason: `${J}: TEST back to Open after the step` });
+  } catch (err) {
+    if (failed) throw new AggregateError([failed, err], `${J}: the step failed, and ${symbol} could not be put back to Open`);
+    if (changed) throw err;
+  }
+  if (failed) throw failed;
 }
 
 /** The journey's account, made on first use: verified, funded with TEST 2000 USDC through the real ledger. */

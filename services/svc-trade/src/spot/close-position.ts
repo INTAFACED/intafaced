@@ -136,8 +136,8 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
     );
   }
 
-  // A flatten is a market close: a limit-only market refuses it (`trade.mode_limit_only`) before anything is sent.
-  const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE', 'market');
+  // A flatten is a close, which limit-only admits (its allowed actions keep CLOSE), so no order type is passed here.
+  const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
   // The fee tier is read before the engine is asked: once the flatten has printed, the row must be written whatever
   // else is down, so nothing that can fail is read between the two.
   const feeTier = market.paper ? REGULAR_FEE_TIER : await host.feeTierAt(userId);

@@ -32,9 +32,9 @@ describe('marketModesFetcher', () => {
 });
 
 describe('modesAsOf', () => {
-  it('is the latest observed time, and none when no market reported one', () => {
+  it('is the oldest observed time, so no row reads fresher than it is, and none when no market reported one', () => {
     const row = (observedAt: string | null) => ({ symbol: 'X/Y', state: 'OPEN', reasonCode: null, observedAt });
-    expect(modesAsOf([row('2026-11-06T07:30:00Z'), row('2026-11-06T07:31:00Z'), row(null)])).toBe('2026-11-06T07:31:00.000Z');
+    expect(modesAsOf([row('2026-11-06T07:30:00Z'), row('2026-11-06T07:31:00Z'), row(null)])).toBe('2026-11-06T07:30:00.000Z');
     expect(modesAsOf([row(null)])).toBeNull();
     expect(modesAsOf([row('not a time')])).toBeNull();
   });

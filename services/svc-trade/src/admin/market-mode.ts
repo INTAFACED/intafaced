@@ -100,8 +100,8 @@ export class MarketModeAdmin {
   }
 
   /**
-   * The last transition, by the same order the lifecycle read uses. A latest row that does not parse is not read as
-   * OPEN: the lifecycle read refuses it as recovery-required, and so does this door.
+   * The last transition, by the same order the lifecycle read uses. A latest row that does not parse, or one left
+   * partial or unknown, is not read as OPEN: the lifecycle read refuses it as recovery-required, and so does this door.
    */
   private async latest(sql: Sql, marketId: string): Promise<MarketTransitionRecord | null> {
     const [row] = await sql<Array<{ transition: unknown }>>`
@@ -111,6 +111,14 @@ export class MarketModeAdmin {
     if (!row) return null;
     const parsed = marketTransitionRecordSchema.safeParse(row.transition);
     if (!parsed.success) throw new TradeOpsError('trade.market_mode_recovery_required', 'the last lifecycle transition does not parse');
+    // A partial or unknown transition has no resolved state (the contract keeps it null), so it is never read as OPEN:
+    // it needs its recovery evidence first, and a newer APPLIED row written here would hide it and reopen placement.
+    if (parsed.data.outcome.outcome === 'PARTIAL' || parsed.data.outcome.outcome === 'OUTCOME_UNKNOWN') {
+      throw new TradeOpsError(
+        'trade.market_mode_recovery_required',
+        `the last lifecycle transition is ${parsed.data.outcome.outcome}; it needs recovery evidence first`,
+      );
+    }
     return parsed.data;
   }
 
@@ -159,6 +167,10 @@ export class MarketModeAdmin {
       }
       const last = await this.latest(tx, market.id);
       const current = last?.resolvedState ?? 'OPEN';
+      // A state this door does not set (halted, reduce-only, expiring, an auction ...) is lifted only by its own door.
+      if (!(SETTABLE_MARKET_MODES as readonly string[]).includes(current)) {
+        throw new TradeOpsError('trade.market_mode_not_settable', `${market.symbol} is ${current}; this door does not lift that state`);
+      }
       if (current !== input.expectedMode) {
         throw new TradeOpsError('trade.market_mode_stale', `expected mode ${input.expectedMode}; the market is ${current}`);
       }

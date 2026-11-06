@@ -68,13 +68,21 @@ export type NamedMode = (typeof NAMED_MODES)[number];
  * form stays so the person is told why in words before Confirm (`trade.mode_cancel_only`), and open orders still cancel.
  */
 export const DESK_MODES = ['OPEN', 'POST_ONLY', 'LIMIT_ONLY', 'CANCEL_ONLY'] as const;
+/**
+ * Whether the desk offers Flatten (a market close): OPEN, or limit-only, whose allowed actions keep CLOSE. Post-only and
+ * cancel-only refuse it at the service, so the button is not offered there.
+ */
+export function flattenOn(market: Pick<DeskMarket, 'open' | 'state'>): boolean {
+  return market.open && (market.state === null || market.state === 'OPEN' || market.state === 'LIMIT_ONLY');
+}
 /** Restricted modes in which no new order is taken at all. */
 const NO_NEW_ORDERS: ReadonlySet<string> = new Set(['CANCEL_ONLY', 'REDUCE_ONLY', 'HALTED']);
 
 /**
- * What the ticker says about trading here. 'open' only when the desk takes orders (market.open), so the strip never
- * reads Open while the form refuses. A named state the desk does not trade in (POST_ONLY, HALTED ...) is named, with
- * no new orders; any other state is 'closed' (never shown raw); a listing with no state is 'unlisted'.
+ * What the ticker says about trading here. 'open' only when the form is on and the state is OPEN (or unnamed), so the
+ * strip never reads Open while the form refuses. Any other named state (LIMIT_ONLY, CANCEL_ONLY, HALTED ...) is named,
+ * with `newOrders` true only where the desk still takes some new orders (limit-only, post-only); any other state is
+ * 'closed' (never shown raw); a listing with no state is 'unlisted'.
  */
 export type TradingMode =
   { kind: 'open' } | { kind: 'named'; mode: Exclude<NamedMode, 'OPEN'>; newOrders: boolean } | { kind: 'closed' } | { kind: 'unlisted' };
