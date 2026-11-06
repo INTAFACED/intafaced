@@ -528,7 +528,7 @@
     "order": 2,
     "steps": [
       { "n": 1, "slices": ["AG-sessions-04"], "noSlice": false },
-      { "n": 2, "slices": ["AG-sessions-04"], "noSlice": false },
+      { "n": 2, "slices": ["AG-sessions-04"], "noSlice": false, "deferred": true },
       { "n": 3, "slices": ["AG-sessions-04"], "noSlice": false },
       { "n": 4, "slices": ["AG-sessions-04"], "noSlice": false },
       { "n": 5, "slices": ["AG-sessions-04"], "noSlice": false }
@@ -705,7 +705,8 @@
       { "n": 5, "slices": ["AL-editor-01"], "noSlice": false },
       { "n": 6, "slices": ["AL-limits-01"], "noSlice": false },
       { "n": 7, "slices": ["AL-limits-01"], "noSlice": false },
-      { "n": 8, "slices": ["RC-algo-dev-05"], "noSlice": false }
+      { "n": 8, "slices": ["RC-algo-dev-05"], "noSlice": false },
+      { "n": 9, "slices": ["AL-limits-01"], "noSlice": false }
     ]
   },
   {
@@ -1120,7 +1121,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-cissue-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cissue-02"], "noSlice": false },
@@ -1137,7 +1138,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-cctl-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-cctl-02"], "noSlice": false },
@@ -1168,7 +1169,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-acct-07"], "noSlice": false },
       { "n": 2, "slices": ["BK-acct-07"], "noSlice": false },
@@ -1201,7 +1202,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-safe-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-safe-02"], "noSlice": false },
@@ -1882,7 +1883,7 @@
     "module": "cex-spot",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-convert-buy-02"], "noSlice": false },
       { "n": 2, "slices": ["SP-convert-buy-02"], "noSlice": false },
@@ -1939,7 +1940,7 @@
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-markets-data-02", "SP-developer-status-01"], "noSlice": false },
       { "n": 2, "slices": ["SP-developer-status-01"], "noSlice": false },
@@ -2277,7 +2278,7 @@
     "module": "charts-desk",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["C-trade-dom-01"], "noSlice": false },
       { "n": 2, "slices": ["C-trade-dom-01"], "noSlice": false },
@@ -2295,7 +2296,7 @@
     "module": "charts-desk",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["C-trade-dom-03"], "noSlice": false },
       { "n": 2, "slices": ["C-trade-dom-03"], "noSlice": false },
@@ -2381,7 +2382,7 @@
       { "n": 3, "slices": ["CB-copy-23"], "noSlice": false },
       { "n": 4, "slices": ["CB-copy-02"], "noSlice": false },
       { "n": 5, "slices": ["CB-copy-03"], "noSlice": false },
-      { "n": 6, "slices": ["CB-copy-22"], "noSlice": false },
+      { "n": 6, "slices": ["CB-copy-22"], "noSlice": false, "deferred": true },
       { "n": 7, "slices": ["CB-copy-04", "CB-copy-03"], "noSlice": false },
       { "n": 8, "slices": ["CB-copy-10"], "noSlice": false }
     ]
@@ -2939,7 +2940,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-orders-03"], "noSlice": false },
       { "n": 2, "slices": ["D-orders-03"], "noSlice": false },
@@ -2956,7 +2957,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-account-04", "D-orders-09"], "noSlice": false },
       { "n": 2, "slices": ["D-account-01", "D-orders-09"], "noSlice": false },
@@ -2973,7 +2974,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-margin-04", "D-account-01"], "noSlice": false },
       { "n": 2, "slices": ["D-margin-04"], "noSlice": false },
@@ -2990,7 +2991,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-margin-06"], "noSlice": false },
       { "n": 2, "slices": ["D-margin-04"], "noSlice": false },
@@ -3007,7 +3008,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-instruments-01", "D-instruments-02"], "noSlice": false },
       { "n": 2, "slices": ["D-instruments-01", "D-data-03"], "noSlice": false },
@@ -3077,7 +3078,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-instruments-05"], "noSlice": false },
       { "n": 2, "slices": ["D-instruments-05"], "noSlice": false },
@@ -4407,7 +4408,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["I-signin-sessions-14"], "noSlice": false },
       { "n": 2, "slices": ["I-signin-sessions-01"], "noSlice": false },
@@ -4442,7 +4443,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["I-signin-sessions-05"], "noSlice": false },
       { "n": 2, "slices": ["I-signin-sessions-05"], "noSlice": false },
@@ -4552,7 +4553,7 @@
     "module": "identity",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["I-signin-sessions-26"], "noSlice": false },
       { "n": 2, "slices": ["I-signin-sessions-27"], "noSlice": false },
@@ -4782,7 +4783,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["M-payments-core-05"], "noSlice": false },
       { "n": 2, "slices": ["M-payments-core-05"], "noSlice": false },
@@ -5807,7 +5808,7 @@
     "module": "ops-console",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["OPS-reconciliation-01"], "noSlice": false },
       { "n": 2, "slices": ["OPS-reconciliation-01"], "noSlice": false },
@@ -6566,7 +6567,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-07", "PP-money-balance-04"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-07"], "noSlice": false },
@@ -6614,7 +6615,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-12", "PP-order-02"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-12", "PP-order-02"], "noSlice": false },
@@ -6914,7 +6915,7 @@
     "module": "portfolio",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["PF-activity-01"], "noSlice": false },
       { "n": 2, "slices": ["PF-activity-01"], "noSlice": false },
@@ -7685,7 +7686,7 @@
     "module": "wallet",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["W-security-accounts-03"], "noSlice": false },
       { "n": 2, "slices": ["W-security-accounts-03"], "noSlice": false },
@@ -7726,7 +7727,7 @@
     "module": "wallet",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["W-balances-07"], "noSlice": false },
       { "n": 2, "slices": ["W-balances-07"], "noSlice": false },
