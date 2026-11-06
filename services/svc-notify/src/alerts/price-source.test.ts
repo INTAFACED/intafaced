@@ -50,7 +50,7 @@ function tradeSource(ticker: Record<string, unknown> | null) {
 describe('trade ticker MarkSource by side', () => {
   it('quotes bid, ask and last from one ticker read, and the mark as before', async () => {
     const { marks, tickerReads } = tradeSource({ bid: '99', ask: '101', last: '100.25' });
-    const sides = await marks.quoteSides!(MARKET_ID, ['bid', 'ask', 'last'], NOW);
+    const sides = (await marks.quoteBook!(MARKET_ID, ['bid', 'ask', 'last'], NOW)).sides;
     expect(tickerReads).toHaveLength(1);
     expect(sides.get('bid')).toEqual({ kind: 'ok', price: '99', at: NOW });
     expect(sides.get('ask')).toEqual({ kind: 'ok', price: '101', at: NOW });
@@ -64,19 +64,21 @@ describe('trade ticker MarkSource by side', () => {
     ['last', { bid: '99', ask: '101' }],
   ] as const)('a ticker without %s refuses by code and does not fall back', async (side, ticker) => {
     const { marks } = tradeSource(ticker);
-    expect((await marks.quoteSides!(MARKET_ID, [side], NOW)).get(side)).toEqual(REFUSED);
+    expect((await marks.quoteBook!(MARKET_ID, [side], NOW)).sides.get(side)).toEqual(REFUSED);
     // The mark still prices this ticker; only the side asked for is missing.
     expect((await marks.quote(MARKET_ID, NOW)).kind).toBe('ok');
   });
 
-  it('a ticker read that fails refuses every side with its own reason, and asking for no side reads nothing', async () => {
+  it('a ticker read that fails refuses every side with its own reason, and asking for no side still reads once for the mark', async () => {
     const { marks, tickerReads } = tradeSource(null);
-    const sides = await marks.quoteSides!(MARKET_ID, ['bid', 'ask'], NOW);
+    const sides = (await marks.quoteBook!(MARKET_ID, ['bid', 'ask'], NOW)).sides;
     expect(sides.get('bid')).toEqual(REFUSED);
     expect(sides.get('ask')).toEqual(REFUSED);
-    expect((await marks.quoteSides!(MARKET_ID, [], NOW)).size).toBe(0);
-    expect(tickerReads).toHaveLength(1);
-    const unknown = await marks.quoteSides!('22222222-2222-2222-2222-222222222222', ['bid'], NOW);
+    const bare = await marks.quoteBook!(MARKET_ID, [], NOW);
+    expect(bare.sides.size).toBe(0);
+    expect(bare.mark).toMatchObject({ kind: 'unavailable', reason: 'stale' });
+    expect(tickerReads).toHaveLength(2);
+    const unknown = (await marks.quoteBook!('22222222-2222-2222-2222-222222222222', ['bid'], NOW)).sides;
     expect(unknown.get('bid')).toMatchObject({
       kind: 'unavailable',
       reason: 'refused',
@@ -84,22 +86,21 @@ describe('trade ticker MarkSource by side', () => {
     });
   });
 
-  it('the mark and the sides of one instant come from one ticker read; another instant or no instant reads again', async () => {
+  it('quoteBook reads the mark and the sides from one ticker body: the mark is the exact mid of that bid and ask', async () => {
     const { marks, tickerReads } = tradeSource({ bid: '99', ask: '101.5', last: '100.25' });
-    const mark = await marks.quote(MARKET_ID, NOW);
-    const sides = await marks.quoteSides!(MARKET_ID, ['bid', 'ask', 'last'], NOW);
+    const book = await marks.quoteBook!(MARKET_ID, ['bid', 'ask', 'last'], NOW);
     expect(tickerReads).toHaveLength(1);
-    // The mark is the exact mid of the bid and the ask the sides were read from.
-    expect(mark).toEqual({ kind: 'ok', price: '100.25', at: NOW });
-    expect([sides.get('bid'), sides.get('ask')]).toEqual([
+    // The mid of the bid and ask in that body, floored at the finer of their two decimal places (midDecimalString).
+    expect(book.mark).toEqual({ kind: 'ok', price: '100.2', at: NOW });
+    expect([book.sides.get('bid'), book.sides.get('ask'), book.sides.get('last')]).toEqual([
       { kind: 'ok', price: '99', at: NOW },
       { kind: 'ok', price: '101.5', at: NOW },
+      { kind: 'ok', price: '100.25', at: NOW },
     ]);
-    await marks.quote(MARKET_ID, new Date(NOW.getTime() + 1));
-    expect(tickerReads).toHaveLength(2);
-    await marks.quote(MARKET_ID);
-    await marks.quote(MARKET_ID);
-    expect(tickerReads).toHaveLength(4);
+    // Every call reads afresh: nothing is kept between calls.
+    await marks.quote(MARKET_ID, NOW);
+    await marks.quoteBook!(MARKET_ID, ['bid'], NOW);
+    expect(tickerReads).toHaveLength(3);
   });
 
   it('the refusal code is the stable string', () => {
@@ -108,8 +109,8 @@ describe('trade ticker MarkSource by side', () => {
 });
 
 /**
- * A live source with a fixed price per side; `null` is a side the book does not have. Records each mark call and each
- * `quoteSides` call. `sides: false` builds a port that cannot name a side at all.
+ * A live source with a fixed price per side; `null` is a side the book does not have. Records each mark-only call and each
+ * `quoteBook` call. `sides: false` builds a port that cannot name a side at all.
  */
 function sidedSource(prices: Record<AlertPriceSource, string | null>, sides = true) {
   const markCalls: number[] = [];
@@ -123,9 +124,9 @@ function sidedSource(prices: Record<AlertPriceSource, string | null>, sides = tr
     },
     ...(sides
       ? {
-          async quoteSides(_marketId: string, asked: readonly AlertPriceSide[], at?: Date) {
+          async quoteBook(_marketId: string, asked: readonly AlertPriceSide[], at?: Date) {
             sideCalls.push([...asked]);
-            return new Map(asked.map((side) => [side, priced(prices[side], at)] as const));
+            return { mark: priced(prices.mark, at), sides: new Map(asked.map((side) => [side, priced(prices[side], at)] as const)) };
           },
         }
       : {}),
@@ -161,8 +162,8 @@ describe('sweep by source', () => {
     expect(byId.get(onAsk.id)).toMatchObject({ kind: 'fire', markPrice: '101' });
     expect((await alerts.get('u1', onAsk.id))!.status).toBe('fired');
     expect((await alerts.get('u1', onBid.id))!.status).toBe('active');
-    // One mark quote and one read for every side the alerts chose, not one per alert or per side.
-    expect(markCalls).toHaveLength(1);
+    // One read of the book for the mark and every side the alerts chose, not one per alert or per side.
+    expect(markCalls).toHaveLength(0);
     expect(sideCalls).toHaveLength(1);
     expect([...sideCalls[0]!].sort()).toEqual(['ask', 'bid']);
   });

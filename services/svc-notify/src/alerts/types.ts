@@ -264,11 +264,15 @@ export type MarkSource = {
   /** The mark: mid of bid and ask when the book is two-sided, else last. */
   quote(marketId: string, at?: Date): Promise<MarkQuote>;
   /**
-   * The named sides of one market, from one read, so they share a snapshot. A port that cannot name a side leaves this out,
-   * and every alert on a side then refuses `notify.price_source_unavailable`: a port can never answer a side with the mark.
-   * A side missing from the returned map refuses the same way.
+   * The mark and the named sides of one market, from one read, so every alert of the market is judged on the same book. A port
+   * that cannot name a side leaves this out, and every alert on a side then refuses `notify.price_source_unavailable`: a port
+   * can never answer a side with the mark. A side missing from the returned map refuses the same way.
    */
-  quoteSides?(marketId: string, sides: readonly AlertPriceSide[], at?: Date): Promise<ReadonlyMap<AlertPriceSide, MarkQuote>>;
+  quoteBook?(
+    marketId: string,
+    sides: readonly AlertPriceSide[],
+    at?: Date,
+  ): Promise<{ readonly mark: MarkQuote; readonly sides: ReadonlyMap<AlertPriceSide, MarkQuote> }>;
 };
 
 export type AlertRefuseCode =
