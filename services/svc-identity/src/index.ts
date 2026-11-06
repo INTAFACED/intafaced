@@ -62,6 +62,7 @@ import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
 import { createSessionFamiliesRouter } from './session-families-router.js';
+import { createSessionLimitsRouter } from './session-limits-router.js';
 import { createGrantsRouter } from './grants-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
 import { createSessionRevokeRouter } from './session-revoke-router.js';
@@ -485,6 +486,8 @@ const appeals = new AccountAppeals(sql, {
 });
 auth.useFounderDirectory({ isFounder: (userId, query) => founderControls.isLiveFounder(userId, query) });
 auth.useFounderSessionScopes(env.IDENTITY_FOUNDER_SESSION_SCOPES);
+// Idle sign-out and the limit on signed-in devices (J-identity-06 #4): both blank until the owner publishes them.
+auth.useSessionLimits({ idleSeconds: env.SESSION_IDLE_SECONDS, maxConcurrent: env.SESSION_MAX_CONCURRENT });
 
 const referral = new ReferralService(sql);
 /** One-tap share tags (RC-campaigns-06): a blank key or visit limit refuses by name; malformed ones stop the service. */
@@ -749,6 +752,7 @@ export const appRouter = mergeRouters(
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
   createSessionFamiliesRouter(sql),
+  createSessionLimitsRouter(sql, () => auth.sessionLimitsPolicy()),
   createListSessionsRouter(sql),
   createPanicRevokeRouter(sql),
   createApiKeyProductRouter(sql, auth, auth),

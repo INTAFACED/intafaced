@@ -33,7 +33,7 @@
  *   `auth.csrf_origin_required` and does not rotate or revoke. An Origin
  *   outside the allowlist is HTTP 403 `edge.origin_not_allowed`. An empty
  *   allowlist matches no Origin.
- * - Refuse codes: `auth.session_invalid`, `auth.session_reused` (HTTP 401,
+ * - Refuse codes: `auth.session_invalid`, `auth.session_reused`, `auth.session_idle` (HTTP 401,
  *   `error.data.intafacedCode`).
  */
 import { Readable } from 'node:stream';

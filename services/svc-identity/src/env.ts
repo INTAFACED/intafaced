@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authEnvSchema, edgeEnvSchema, internalServiceEnvSchema, loadEnv, s2sEnvSchema, serviceEnvSchema } from '@intafaced/config';
 import { founderSessionScopesFromEnv } from '@intafaced/auth';
+import { ownerSessionNumber } from './auth/session-limits.js';
 import { assertWebauthnPosture } from './webauthn-posture.js';
 import { parseInviteExpiry, parseInviteHashes } from './auth/founder-enrolment.js';
 import { parseRefreshRecoverySeconds } from './auth/refresh-cookie.js';
@@ -961,6 +962,37 @@ const schema = serviceEnvSchema
         }
         return v;
       }, z.boolean().default(false)),
+      /**
+       * Owner idle sign-out, in seconds (I-signin-sessions-06, J-identity-06 #4): a sign-in not refreshed for longer
+       * ends at its next refresh (`auth.session_idle`). NO DEFAULT: blank means no idle limit beyond the refresh
+       * token's own expiry, and a customer cannot choose a shorter one (`identity.session_idle_unset`). 60 to 2592000.
+       */
+      SESSION_IDLE_SECONDS: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return ownerSessionNumber(raw, 'SESSION_IDLE_SECONDS', 60, 2_592_000);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'SESSION_IDLE_SECONDS invalid' });
+            return z.NEVER;
+          }
+        }),
+      /**
+       * Owner limit on devices signed in at once (I-signin-sessions-06, J-identity-06 #4): a new sign-in beyond it ends
+       * the oldest. NO DEFAULT: blank means no limit, and Security says "No limit on signed-in devices is set". 1 to 50.
+       */
+      SESSION_MAX_CONCURRENT: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return ownerSessionNumber(raw, 'SESSION_MAX_CONCURRENT', 1, 50);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : 'SESSION_MAX_CONCURRENT invalid' });
+            return z.NEVER;
+          }
+        }),
       /**
        * Owner-published cooling-off, in days, from 1 to 90.
        * Blank or unset refuses `identity.close_cooling_off_unset`. Never a default.

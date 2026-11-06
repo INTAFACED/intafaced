@@ -12,6 +12,15 @@ function testValue(name) {
   return entry.value;
 }
 
+/** The TEST idle sign-out and device limit, only when a journey asks for them on a restart (J-identity-06 #4). */
+function sessionLimits() {
+  const asked = process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS;
+  if (asked === undefined || asked === '' || asked === 'off') return {};
+  if (asked === 'on')
+    return { SESSION_IDLE_SECONDS: testValue('SESSION_IDLE_SECONDS'), SESSION_MAX_CONCURRENT: testValue('SESSION_MAX_CONCURRENT') };
+  throw new Error(`LOCAL_STACK_IDENTITY_SESSION_LIMITS is "${asked}"; leave it unset (or off) for both blank, or set it to on.`);
+}
+
 /**
  * LOCAL TEST ONLY. A founder's address is confirmed like anyone's, so a new browser in the console is mailed its approval
  * code. Only a console sign-in from a new browser needs it, so a failure is named and the stack still starts.
@@ -79,6 +88,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL-TEST, and the merchant populate step reads it back through auth.confirmEmail.
     // `LOCAL_STACK_IDENTITY_MAIL=off` on a start or restart leaves the transport out, as a build with no mail provider
     // runs, so the sign-up page's "email is switched off" notice can be seen (J-identity-01 #4).
+    // LOCAL TEST ONLY. Idle sign-out and the limit on signed-in devices stay blank on the stack, as the owner has not
+    // published them, so journeys that sign in many times are never cut off. `LOCAL_STACK_IDENTITY_SESSION_LIMITS=on` on
+    // a restart sets the profile's TEST values for the one journey that proves them (J-identity-06 #4).
+    ...sessionLimits(),
     ...(process.env.LOCAL_STACK_IDENTITY_MAIL === 'off'
       ? {}
       : { IDENTITY_MAIL_TRANSPORT: 'local-outbox', IDENTITY_LOCAL_MAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }),

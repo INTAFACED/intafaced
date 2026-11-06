@@ -503,6 +503,7 @@ export function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.session_invalid':
     case 'auth.session_reused':
+    case 'auth.session_idle':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.handle_taken':
     case 'auth.email_taken':
@@ -1850,7 +1851,7 @@ export function createIdentityRouter(
             if (
               !input?.refreshToken &&
               err instanceof AuthError &&
-              (err.code === 'auth.session_reused' || err.code === 'auth.session_invalid')
+              (err.code === 'auth.session_reused' || err.code === 'auth.session_invalid' || err.code === 'auth.session_idle')
             ) {
               ctx.refreshCookie?.clear();
             }

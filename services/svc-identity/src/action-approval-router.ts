@@ -79,6 +79,7 @@ function factorToTrpc(err: AuthError): TRPCError {
     case 'auth.mfa_required':
     case 'auth.session_invalid':
     case 'auth.session_reused':
+    case 'auth.session_idle':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.too_many_attempts':
       return new TRPCError({ code: 'TOO_MANY_REQUESTS', message, cause: err });

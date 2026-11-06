@@ -87,6 +87,7 @@ import {
 import { handleRetiredByOther, lockHandleClaim } from '../profile/handle-settings.js';
 import { queueServiceMail } from './service-mail.js';
 import { queuePasswordChangedNotice } from './password-changed-notice.js';
+import { endFamiliesOverLimit, idleExpired, type SessionLimitsPolicy } from './session-limits.js';
 import { queueFactorChangedNotice } from './factor-changed-notice.js';
 import { applySelfFreeze, redeemFreezeLink, type FreezeLinkResult } from './freeze-link.js';
 import {
@@ -194,6 +195,7 @@ export class AuthError extends Error {
       | 'auth.mfa_already_enrolled'
       | 'auth.session_invalid'
       | 'auth.session_reused'
+      | 'auth.session_idle'
       | 'auth.not_found'
       | 'auth.kyc_not_pending'
       | 'auth.kyc_self_review'
@@ -632,6 +634,8 @@ export class AuthService {
   private founderDirectory: { isFounder(userId: string, query?: Sql): Promise<boolean> } | undefined;
   /** Lead-published founder grant. Blank grants nothing. */
   private founderSessionScopes: readonly Scope[] = [];
+  /** Owner idle sign-out and device limit (I-signin-sessions-06); both blank until published. */
+  private sessionLimits: SessionLimitsPolicy = {};
   /** The config string whose sha256 is written on each founder issuance. */
   private founderSessionConfigValue = '';
 
@@ -1098,6 +1102,16 @@ export class AuthService {
    * The lead's founder-session grant. Blank grants nothing. A scope outside
    * the allowlist is refused here as well as at env parse.
    */
+  /** The owner's idle sign-out and limit on signed-in devices (session-limits.ts). Blank fields mean not published. */
+  useSessionLimits(policy: SessionLimitsPolicy): void {
+    this.sessionLimits = { ...policy };
+  }
+
+  /** The policy the session-limits door reads. */
+  sessionLimitsPolicy(): SessionLimitsPolicy {
+    return this.sessionLimits;
+  }
+
   useFounderSessionScopes(input: { readonly scopes: readonly Scope[]; readonly configValue: string } | undefined): void {
     const scopes = input?.scopes ?? [];
     for (const scope of scopes) {
@@ -1649,11 +1663,14 @@ export class AuthService {
   ): Promise<SessionTokens> {
     const refreshToken = generateToken(48);
     const expiresAt = new Date(Date.now() + this.tokens.refreshTtlSeconds * 1000);
+    let endedOverLimit: string[] = [];
     const inserted = await transaction(
       this.sql,
       async (tx) => {
         const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
+        // Beyond the owner's limit on signed-in devices, the oldest sign-ins end first (J-identity-06 #4).
+        endedOverLimit = await endFamiliesOverLimit(tx, this.sessionLimits, userId);
         return tx<
           Array<{ id: string; family_id: string }>
         >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id, family_id`;
@@ -1662,6 +1679,7 @@ export class AuthService {
     );
     const sessionId = inserted[0]!.id;
     const familyId = inserted[0]!.family_id;
+    for (const ended of endedOverLimit) await syncNavigatorSessionClosed(this.sql, ended);
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
@@ -1700,9 +1718,11 @@ export class AuthService {
       ip: string | null;
       user_agent: string | null;
       trusted_device_id: string | null;
+      last_used_at: Date;
     };
     type RefreshOutcome =
       | { kind: 'reuse'; userId: string; sessionId: string }
+      | { kind: 'idle'; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
       | { kind: 'grace'; tokens: SessionTokens }
@@ -1718,7 +1738,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id, s.last_used_at FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1761,6 +1781,11 @@ export class AuthService {
       if (session.user_status !== 'active') {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
+      }
+      // Idle past the limit that applies (the owner's, or the customer's shorter one): the sign-in ends here.
+      if (await idleExpired(tx, this.sessionLimits, session.user_id, session.last_used_at)) {
+        await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
+        return { kind: 'idle', sessionId: session.id };
       }
       const rotatedAt = new Date();
       await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
@@ -1837,6 +1862,10 @@ export class AuthService {
     if (result.kind === 'expired') {
       await syncNavigatorSessionClosed(this.sql, result.sessionId);
       throw new AuthError('Session expired', 'auth.session_invalid');
+    }
+    if (result.kind === 'idle') {
+      await syncNavigatorSessionClosed(this.sql, result.sessionId);
+      throw new AuthError('Signed out after being idle', 'auth.session_idle');
     }
     await syncNavigatorSessionClosed(this.sql, result.previousSessionId);
     void syncNavigatorSessionOpen(this.sql, result.tokens.sessionId, result.tokens.userId);

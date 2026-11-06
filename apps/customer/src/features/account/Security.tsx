@@ -22,6 +22,7 @@ import { FreezeAccount } from './FreezeAccount';
 import { SecurityLock } from './SecurityLock';
 import { MfaResetWaiting } from './MfaResetWaiting';
 import { TrustedDevices } from './TrustedDevices';
+import { SessionLimits } from './SessionLimits';
 import { securityCopy as copy } from './security-copy';
 import { refusalCopy } from '../../data/refusals';
 import {
@@ -822,6 +823,7 @@ export function Security() {
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
           <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
+          <SessionLimits />
           <PasskeyNames revision={passkeyRevision} />
           <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />
           <AntiPhishing />

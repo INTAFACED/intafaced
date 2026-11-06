@@ -300,6 +300,16 @@
       "service": "identity",
       "value": "5",
       "note": "TEST: five wrong codes and that code stops working (J-pay-03 #6). Not an owner decision."
+    },
+    "SESSION_IDLE_SECONDS": {
+      "service": "identity",
+      "value": "3600",
+      "note": "TEST idle sign-out of one hour, set only when a journey restarts identity with LOCAL_STACK_IDENTITY_SESSION_LIMITS=on (J-identity-06 #4); not an owner decision."
+    },
+    "SESSION_MAX_CONCURRENT": {
+      "service": "identity",
+      "value": "3",
+      "note": "TEST limit of three signed-in devices, set only when a journey restarts identity with LOCAL_STACK_IDENTITY_SESSION_LIMITS=on (J-identity-06 #4); not an owner decision."
     }
   }
 }
