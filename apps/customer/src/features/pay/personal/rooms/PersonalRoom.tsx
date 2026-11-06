@@ -10,6 +10,8 @@ import { cameraRefusal, payTarget, readCode, scanImage, ScanError, type ScanRefu
 import { decodedSegment, requestRoomHref, type PersonalRoomMatch } from './rooms';
 import { roomsCopy } from './rooms-copy';
 import { fetchHeldSend, type HeldSend } from '../../held-send';
+import { isServerRequestId } from '../requests';
+import { ServerRequestRoom } from '../../../../screens/pay/ServerRequests';
 
 /** The room's layout: headline on the left, one card on the right, the way Send and Receive sit. */
 function Frame({ title, line, children }: { title: string; line: string; children: ReactNode }) {
@@ -84,6 +86,13 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
   const { timeZone } = usePreferences();
   const [gone, setGone] = useState(false);
   const entry = useMemo(() => (userId && id ? (readRequests(userId).find((row) => row.id === id) ?? null) : null), [userId, id, gone]);
+  // A request the bank keeps (PP-send-request-12): one this device did not make as a link, with a request id.
+  if (id && !entry && !gone && isServerRequestId(id))
+    return (
+      <Frame title={t('serverRequestTitle')} line={t('serverRequestLine')}>
+        <ServerRequestRoom id={id} />
+      </Frame>
+    );
   return (
     <Frame title={t('requestTitle')} line={t('requestLine')}>
       {entry ? (

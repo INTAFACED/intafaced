@@ -123,6 +123,50 @@ export interface PersonalRequestView {
   readonly notice: { readonly delivered: boolean; readonly blocker: string | null };
 }
 
+/** The owner's manual reminder rule (PP-send-request-13): at most `cap` reminders per request in any `windowSeconds`. */
+export interface RemindPolicy {
+  readonly cap: number;
+  readonly windowSeconds: number;
+}
+
+/** What a reminder did: how many went out in the window now, the owner's cap, and when the next one may go. */
+export interface ReminderFacts {
+  readonly sentInWindow: number;
+  readonly cap: number;
+  readonly windowSeconds: number;
+  readonly nextAllowedAt: string | null;
+}
+
+export const REPORT_REASONS = ['scam', 'spam', 'harassment', 'other'] as const;
+export type ReportReason = (typeof REPORT_REASONS)[number];
+
+/** The payer's own record of a report on a request: the safety case and whether the asker is blocked. Never the payee's. */
+export interface RequestSafetyView {
+  readonly caseId: string;
+  readonly reason: ReportReason;
+  readonly state: 'open' | 'closed';
+  readonly openedAt: string;
+  readonly blocked: boolean;
+}
+
+/** `BANK_REQUEST_REMIND_POLICY_JSON` `{ "cap": 1, "windowSeconds": 86400 }`. Blank or unreadable is no rule (null), never a default. */
+export function parseRemindPolicy(raw: string | undefined): RemindPolicy | null {
+  if (!raw || !raw.trim()) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== 'object') return null;
+  const { cap, windowSeconds } = value as Record<string, unknown>;
+  if (typeof cap !== 'number' || !Number.isInteger(cap) || cap < 1 || cap > 100) return null;
+  if (typeof windowSeconds !== 'number' || !Number.isInteger(windowSeconds) || windowSeconds < 60 || windowSeconds > 90 * 86_400)
+    return null;
+  if (Object.keys(value).length !== 2) return null;
+  return { cap, windowSeconds };
+}
+
 export interface TransferFact {
   readonly note: string | null;
   readonly reference: string | null;
@@ -268,6 +312,8 @@ export class PersonalPayService {
        * contacts is asked once, inside the reservation, and a held payment is set aside after it posts. Unset = no holds.
        */
       receivedHolds?: Pick<ReceivedHoldService, 'decide' | 'placeFor'>;
+      /** The owner's manual reminder rule (PP-send-request-13). Unset refuses every reminder (`bank.reminder_policy_unset`). */
+      remindPolicy?: RemindPolicy | null;
       now?: () => Date;
     } = {},
   ) {}
@@ -927,6 +973,13 @@ export class PersonalPayService {
     if (!space) {
       throw new BankError('This recipient cannot receive payments', 'bank.recipient_cannot_receive');
     }
+    // A person who blocked this asker on a report is not asked again. The refusal does not say a block exists.
+    const blocked = await this.sql<Array<{ key: string }>>`
+      SELECT key FROM bank.personal_request_blocks WHERE user_id = ${input.payerUserId} AND blocked_user_id = ${input.payeeUserId}
+    `;
+    if (blocked[0]) {
+      throw new BankError('This person cannot be asked for money (bank.personal_request_unavailable)', 'bank.personal_request_unavailable');
+    }
     const handles = await this.requireHandles(input.payeeUserId, input.payerUserId);
     const inserted = await this.sql<RequestRow[]>`
       INSERT INTO bank.personal_requests (
@@ -1000,7 +1053,12 @@ export class PersonalPayService {
     return this.closeRequest(actorUserId, requestId, 'payer', 'declined', at);
   }
 
-  async remindRequest(actorUserId: string, requestId: string, idempotencyKey: string, at?: Date): Promise<PersonalRequestView> {
+  async remindRequest(
+    actorUserId: string,
+    requestId: string,
+    idempotencyKey: string,
+    at?: Date,
+  ): Promise<PersonalRequestView & { reminder: ReminderFacts }> {
     const now = this.now(at);
     const row = await this.mustRequest(requestId);
     this.assertParty(row, actorUserId, 'payee');
@@ -1012,27 +1070,50 @@ export class PersonalPayService {
         'bank.personal_request_claim_held',
       );
     }
+    const policy = this.options.remindPolicy ?? null;
+    if (!policy) {
+      throw new BankError(
+        'No reminder rule is published, so no reminder can be sent (bank.reminder_policy_unset)',
+        'bank.reminder_policy_unset',
+      );
+    }
+    const windowStart = new Date(now.getTime() - policy.windowSeconds * 1000);
     const claimed = await this.sql.begin(async (tx) => {
+      // One reminder decision at a time per request, so two at once cannot both pass the cap.
+      await tx`SELECT id FROM bank.personal_requests WHERE id = ${requestId} FOR UPDATE`;
       const prior = await tx<Array<{ sequence: number; published_at: Date | null }>>`
         SELECT sequence, published_at FROM bank.personal_request_reminds
          WHERE request_id = ${requestId} AND idempotency_key = ${idempotencyKey}
       `;
-      if (prior[0]) return prior[0];
+      if (prior[0]) return { ...prior[0], fresh: false };
+      const recent = await tx<Array<{ created_at: Date }>>`
+        SELECT created_at FROM bank.personal_request_reminds
+         WHERE request_id = ${requestId} AND created_at > ${windowStart}
+         ORDER BY created_at ASC
+      `;
+      if (recent.length >= policy.cap) {
+        const nextAllowedAt = new Date(recent[recent.length - policy.cap]!.created_at.getTime() + policy.windowSeconds * 1000);
+        throw new BankError(
+          `${policy.cap} reminder${policy.cap === 1 ? '' : 's'} already went out in this window; the next is allowed at ${nextAllowedAt.toISOString()} (bank.personal_request_remind_capped)`,
+          'bank.personal_request_remind_capped',
+        );
+      }
       const next = await tx<Array<{ sequence: number }>>`
         SELECT COALESCE(MAX(sequence), 1) + 1 AS sequence
           FROM bank.personal_request_reminds WHERE request_id = ${requestId}
       `;
       const sequence = next[0]!.sequence;
       const inserted = await tx<Array<{ sequence: number; published_at: Date | null }>>`
-        INSERT INTO bank.personal_request_reminds (request_id, idempotency_key, sequence)
-        VALUES (${requestId}, ${idempotencyKey}, ${sequence})
+        INSERT INTO bank.personal_request_reminds (request_id, idempotency_key, sequence, created_at)
+        VALUES (${requestId}, ${idempotencyKey}, ${sequence}, ${now})
         ON CONFLICT (request_id, idempotency_key) DO NOTHING
         RETURNING sequence, published_at
       `;
-      return inserted[0] ?? prior[0] ?? { sequence, published_at: null };
+      return { ...(inserted[0] ?? { sequence, published_at: null }), fresh: true };
     });
+    const reminder = await this.reminderFacts(requestId, policy, now);
     if (claimed.published_at) {
-      return this.toRequestView(row, now, { delivered: true, blocker: null });
+      return { ...this.toRequestView(row, now, { delivered: true, blocker: null }), reminder };
     }
     const notice = await this.publishCreated(row, claimed.sequence);
     if (notice.delivered) {
@@ -1041,7 +1122,114 @@ export class PersonalPayService {
          WHERE request_id = ${requestId} AND idempotency_key = ${idempotencyKey}
       `;
     }
-    return this.toRequestView(row, now, notice);
+    return { ...this.toRequestView(row, now, notice), reminder };
+  }
+
+  /** The asker's reminder count in the owner's window and when the next may go; refuses while no rule is published. */
+  async reminders(actorUserId: string, requestId: string, at?: Date): Promise<ReminderFacts> {
+    const now = this.now(at);
+    const row = await this.mustRequest(requestId);
+    this.assertParty(row, actorUserId, 'payee');
+    const policy = this.options.remindPolicy ?? null;
+    if (!policy) {
+      throw new BankError(
+        'No reminder rule is published, so no reminder can be sent (bank.reminder_policy_unset)',
+        'bank.reminder_policy_unset',
+      );
+    }
+    return this.reminderFacts(requestId, policy, now);
+  }
+
+  private async reminderFacts(requestId: string, policy: RemindPolicy, now: Date): Promise<ReminderFacts> {
+    const windowStart = new Date(now.getTime() - policy.windowSeconds * 1000);
+    const recent = await this.sql<Array<{ created_at: Date }>>`
+      SELECT created_at FROM bank.personal_request_reminds
+       WHERE request_id = ${requestId} AND created_at > ${windowStart}
+       ORDER BY created_at ASC
+    `;
+    const nextAllowedAt =
+      recent.length >= policy.cap
+        ? new Date(recent[recent.length - policy.cap]!.created_at.getTime() + policy.windowSeconds * 1000).toISOString()
+        : null;
+    return { sentInWindow: recent.length, cap: policy.cap, windowSeconds: policy.windowSeconds, nextAllowedAt };
+  }
+
+  /**
+   * The person asked to pay declines and reports the request, and may block the asker (PP-send-request-13). Three
+   * separate idempotent writes, each with its own key: the decline, the case (`report:<requestId>`), the block
+   * (`block:<userId>:<askerId>`). A retry finishes whatever a crash left; the asker only ever sees Declined.
+   */
+  async reportRequest(
+    actorUserId: string,
+    requestId: string,
+    input: { reason: ReportReason; block: boolean },
+    at?: Date,
+  ): Promise<{ request: PersonalRequestView; safety: RequestSafetyView }> {
+    const now = this.now(at);
+    const row = await this.mustRequest(requestId);
+    this.assertParty(row, actorUserId, 'payer');
+    if (!REPORT_REASONS.includes(input.reason)) {
+      throw new BankError(
+        'A report needs one of the listed reasons (bank.personal_request_report_reason)',
+        'bank.personal_request_report_reason',
+      );
+    }
+    const request =
+      row.status === 'declined'
+        ? this.toRequestView(row, now, { delivered: true, blocker: null })
+        : await this.declineRequest(actorUserId, requestId, now);
+    const key = `report:${requestId}`;
+    await this.sql`
+      INSERT INTO bank.personal_request_reports (key, request_id, reporter_user_id, reported_user_id, reason, created_at)
+      VALUES (${key}, ${requestId}, ${actorUserId}, ${row.payee_user_id}, ${input.reason}, ${now})
+      ON CONFLICT (key) DO NOTHING
+    `;
+    const report = await this.reportFor(requestId);
+    if (!report) throw new BankError(`Report on request ${requestId} disappeared after insert`, 'bank.personal_request_not_found');
+    if (input.block) {
+      await this.sql`
+        INSERT INTO bank.personal_request_blocks (key, user_id, blocked_user_id, report_id, created_at)
+        VALUES (${`block:${actorUserId}:${row.payee_user_id}`}, ${actorUserId}, ${row.payee_user_id}, ${report.id}, ${now})
+        ON CONFLICT DO NOTHING
+      `;
+    }
+    return { request, safety: await this.safetyView(actorUserId, row.payee_user_id, report) };
+  }
+
+  /** The payer's report and block on a request, or null when they filed none. The asker gets not-found, never the record. */
+  async requestSafety(actorUserId: string, requestId: string): Promise<RequestSafetyView | null> {
+    const row = await this.mustRequest(requestId);
+    if (row.payer_user_id !== actorUserId) {
+      throw new BankError(`Request ${requestId} not found (bank.personal_request_not_found)`, 'bank.personal_request_not_found');
+    }
+    const report = await this.reportFor(requestId);
+    return report ? this.safetyView(actorUserId, row.payee_user_id, report) : null;
+  }
+
+  private async reportFor(
+    requestId: string,
+  ): Promise<{ id: string; reason: ReportReason; state: 'open' | 'closed'; created_at: Date } | null> {
+    const rows = await this.sql<Array<{ id: string; reason: ReportReason; state: 'open' | 'closed'; created_at: Date }>>`
+      SELECT id, reason, state, created_at FROM bank.personal_request_reports WHERE request_id = ${requestId}
+    `;
+    return rows[0] ?? null;
+  }
+
+  private async safetyView(
+    userId: string,
+    askerId: string,
+    report: { id: string; reason: ReportReason; state: 'open' | 'closed'; created_at: Date },
+  ): Promise<RequestSafetyView> {
+    const blocks = await this.sql<Array<{ key: string }>>`
+      SELECT key FROM bank.personal_request_blocks WHERE user_id = ${userId} AND blocked_user_id = ${askerId}
+    `;
+    return {
+      caseId: report.id,
+      reason: report.reason,
+      state: report.state,
+      openedAt: report.created_at.toISOString(),
+      blocked: blocks.length > 0,
+    };
   }
 
   private async closeRequest(
