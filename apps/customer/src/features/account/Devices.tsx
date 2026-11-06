@@ -7,10 +7,9 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { devicesCopy as copy } from './devices-copy';
 import { byFamily, deviceName, deviceList, familyEnded, othersEnded } from './devices-api';
+import { idleSince } from './identity-session-guards';
 
 const LIMIT = 100;
-/** A device not used for a day folds behind "Show more" (journey J-identity-06 #1); this device never folds. */
-const IDLE_FOLD_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Devices in Security (slice I-signin-sessions-05): one row per sign-in with browser, country and last activity, sign out one
@@ -65,7 +64,8 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
   const devices = byFamily(resource.data.sessions);
   const others = devices.filter((device) => !device.isCurrent).length;
   const now = Date.now();
-  const idle = (device: (typeof devices)[number]) => !device.isCurrent && now - Date.parse(device.lastUsedAt) > IDLE_FOLD_MS;
+  // A device not used for a day folds behind "Show more" (journey J-identity-06 #1); this device never folds.
+  const idle = (device: (typeof devices)[number]) => !device.isCurrent && idleSince(device.lastUsedAt, now);
   const folded = devices.filter(idle).length;
   const shown = showIdle ? devices : devices.filter((device) => !idle(device));
   return (

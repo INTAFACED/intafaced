@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import type { ApiClient, ApiResult } from '../../shared/api';
@@ -45,7 +45,8 @@ export function IdentitySessions() {
   const [showOlder, setShowOlder] = useState(false);
   const seats = resource.status === 'ready' && resource.data ? resource.data.sessions : null;
   // The newest five used within a day stay in view; the rest fold behind "Show N more". This device is always in view.
-  const split = useMemo(() => (seats ? splitSessions(seats, thisDevice, VISIBLE_SESSIONS, Date.now()) : null), [seats, thisDevice]);
+  // Worked out on every render, so a session crossing the one-day line folds without waiting for a new list.
+  const split = seats ? splitSessions(seats, thisDevice, VISIBLE_SESSIONS, Date.now()) : null;
   const moreControl = seats
     ? sessionMoreControl({ hidden: split?.older.length ?? 0, expanded: showOlder, returned: seats.length, limit, maxLimit: MAX_LIMIT })
     : 'none';

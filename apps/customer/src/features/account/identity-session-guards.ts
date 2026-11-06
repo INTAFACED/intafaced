@@ -95,6 +95,11 @@ export const VISIBLE_SESSIONS = 5;
 
 /** A session not used for a day folds behind "Show N more" (journey J-identity-06 #1). */
 export const IDLE_FOLD_MS = 24 * 60 * 60 * 1000;
+/** Not used for more than a day before `now`. A time that cannot be read counts as idle, never as recent. */
+export function idleSince(lastUsedAt: string, now: number): boolean {
+  const used = Date.parse(lastUsedAt);
+  return !Number.isFinite(used) || now - used > IDLE_FOLD_MS;
+}
 
 /**
  * The newest five sessions (and this device's own, whatever its age) stay in view; the rest fold behind "Show N more".
@@ -121,11 +126,7 @@ export function splitSessions<T extends { id: string; createdAt: string; lastUse
   );
   const recent: T[] = [];
   const older: T[] = [];
-  const idle = (seat: T) => {
-    if (now === undefined) return false;
-    const used = Date.parse(seat.lastUsedAt ?? seat.createdAt);
-    return !Number.isFinite(used) || now - used > IDLE_FOLD_MS;
-  };
+  const idle = (seat: T) => now !== undefined && idleSince(lastUse(seat), now);
   for (const seat of seats) (seat.id.toLowerCase() === currentId || (newest.has(seat) && !idle(seat)) ? recent : older).push(seat);
   return { recent, older };
 }
