@@ -192,6 +192,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // carry. Identity adds these only to a founder's own signed-in session with a second factor, never to an API key or a
     // sub-account. admin:treasury and every pay: scope stay off.
     IDENTITY_FOUNDER_SESSION_SCOPES: 'admin:read,admin:write,admin:compliance,market:ops,support:ops,support:lookup,campaigns:ops',
+    // LOCAL TEST staff roster (OWNER 44): one labelled TEST member per role (support, compliance, risk, finance), each
+    // with TEST session scopes and staff permissions, so staff journeys sign in to the console as staff, not as a founder.
+    // Identity refuses it at boot unless APP_ENV is exactly dev or test; production keeps the roster and mappings blank.
+    // `LOCAL_STACK_IDENTITY_STAFF_ROSTER=off` on a start or restart leaves it blank, so the founder-only console can be seen.
+    ...(process.env.LOCAL_STACK_IDENTITY_STAFF_ROSTER === 'off'
+      ? {}
+      : { IDENTITY_STAFF_TEST_ROSTER: testValue('IDENTITY_STAFF_TEST_ROSTER') }),
     // Sub-account cap: an explicit LOCAL TEST value, not an owner limit (the owner has not published one; blank
     // refuses every create with auth.sub_account_cap_unset). 10 live sub-accounts per account on this stack only.
     IDENTITY_MAX_SUB_ACCOUNTS: '10',
