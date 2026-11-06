@@ -47,8 +47,8 @@ public final class AdapterStatus {
             String targetCompId,
             String state,
             String accountId,
-            int nextSenderSeq,
-            int nextTargetSeq) {}
+            Integer nextSenderSeq,
+            Integer nextTargetSeq) {}
 
     /**
      * The rows for one acceptor's sessions. The counterparty's CompID is the session's TargetCompID (it arrives as
@@ -73,10 +73,15 @@ public final class AdapterStatus {
                     id.getTargetCompID(),
                     on ? LOGGED_ON : NOT_LOGGED_ON,
                     account,
-                    session == null ? 0 : session.getExpectedSenderNum(),
-                    session == null ? 0 : session.getExpectedTargetNum()));
+                    sequence(session == null ? -1 : session.getExpectedSenderNum()),
+                    sequence(session == null ? -1 : session.getExpectedTargetNum())));
         }
         return out;
+    }
+
+    /** QuickFIX/J answers -1 when its store could not be read: that sequence is unread (null), never a number. */
+    private static Integer sequence(int raw) {
+        return raw < 0 ? null : raw;
     }
 
     /** The status body. {@code compIdAccounts} null = FIX_COMPID_ACCOUNT_JSON is blank (every order then refuses). */
@@ -94,8 +99,8 @@ public final class AdapterStatus {
             sb.append(",\"targetCompId\":").append(Json.string(s.targetCompId()));
             sb.append(",\"state\":").append(Json.string(s.state()));
             sb.append(",\"accountId\":").append(s.accountId() == null ? "null" : Json.string(s.accountId()));
-            sb.append(",\"nextSenderSeq\":").append(s.nextSenderSeq());
-            sb.append(",\"nextTargetSeq\":").append(s.nextTargetSeq());
+            sb.append(",\"nextSenderSeq\":").append(s.nextSenderSeq() == null ? "null" : s.nextSenderSeq().toString());
+            sb.append(",\"nextTargetSeq\":").append(s.nextTargetSeq() == null ? "null" : s.nextTargetSeq().toString());
             sb.append('}');
         }
         sb.append("],\"compIdMapSet\":").append(compIdAccounts != null);

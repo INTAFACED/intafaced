@@ -94,6 +94,12 @@ class AdapterStatusTest {
         for (String word : List.of("balance", "margin", "greeks", "delta")) {
             assertFalse(json.toLowerCase().contains(word), word);
         }
+        String unread = AdapterStatus.json(
+                List.of(new AdapterStatus.SessionRow(
+                        AdapterStatus.DROP_COPY, "FIX.4.4", "A", "B", AdapterStatus.NOT_LOGGED_ON, null, null, null)),
+                null,
+                Instant.EPOCH);
+        assertTrue(unread.contains("\"nextSenderSeq\":null,\"nextTargetSeq\":null"));
         String unset = AdapterStatus.json(List.of(), null, Instant.EPOCH);
         assertTrue(unset.contains("\"compIdMapSet\":false,\"compIdMap\":[]"));
     }

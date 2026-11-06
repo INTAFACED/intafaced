@@ -461,7 +461,13 @@ registerRoutes(app, {
 });
 registerTapeLabelDoor(app);
 const sbeConsumers = new SbeConsumers();
-registerSbeStatusDoor(app, { consumers: sbeConsumers, secret: env.WS_STATUS_READ_SECRET, codecLinked: () => sbeCodec.linked });
+registerSbeStatusDoor(app, {
+  consumers: sbeConsumers,
+  secret: env.WS_STATUS_READ_SECRET,
+  verifier: s2s.serviceVerifier,
+  mode: s2s.s2sMode,
+  codecLinked: () => sbeCodec.linked,
+});
 
 /**
  * The market list is fetched before the port opens, not lazily on the first

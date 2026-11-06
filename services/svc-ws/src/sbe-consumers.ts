@@ -4,7 +4,7 @@
  * Greeks. The id is this process's own counter, so it names no customer and no address.
  */
 import type { FastifyInstance } from 'fastify';
-import { verifyServiceHeaders } from '@intafaced/contracts';
+import { verifyServiceRequest, type ServiceAuthMode, type ServiceVerifier } from '@intafaced/contracts';
 
 export interface SbeConsumerRow {
   readonly id: string;
@@ -57,13 +57,17 @@ const CALLER = 'svc-edge';
 
 /**
  * `GET /internal/sbe/consumers`, signed as svc-edge with the dedicated read key `WS_STATUS_READ_SECRET` (svc-ws holds
- * no fleet secret). Blank key: `ws_status_unconfigured`, and the tape itself is untouched.
+ * no fleet secret), or by svc-edge's own key when S2S is on (`keypair` takes the key alone). Neither configured:
+ * `ws_status_unconfigured`, and the tape itself is untouched.
  */
 export function registerSbeStatusDoor(
   app: FastifyInstance,
   options: {
     readonly consumers: SbeConsumers;
     readonly secret: string | undefined;
+    /** svc-ws's S2S v3 verifier and mode (s2sFromEnv); absent while S2S is off. */
+    readonly verifier?: ServiceVerifier | undefined;
+    readonly mode?: ServiceAuthMode | undefined;
     readonly codecLinked: () => boolean;
     readonly now?: () => Date;
   },
@@ -71,7 +75,8 @@ export function registerSbeStatusDoor(
   const now = options.now ?? (() => new Date());
   app.get(SBE_STATUS_PATH, async (req, reply) => {
     const secret = options.secret;
-    if (!secret) {
+    const keyOnly = options.verifier !== undefined && options.mode === 'keypair';
+    if (!secret && !keyOnly) {
       return reply.code(503).send({
         ok: false,
         error: {
@@ -80,11 +85,11 @@ export function registerSbeStatusDoor(
         },
       });
     }
-    const auth = verifyServiceHeaders(req.headers, secret, {
-      mode: 'require',
-      rawBody: { retained: true, bytes: Buffer.alloc(0) },
-      now: now(),
-    });
+    // A GET carries no body: the signature binds the empty one.
+    const auth = verifyServiceRequest(
+      { method: req.method, url: req.url, headers: req.headers, body: '' },
+      { verifier: options.verifier, legacySecret: secret, mode: options.mode, bodyBindMode: 'require' },
+    );
     if (!auth.service) {
       return reply
         .code(401)

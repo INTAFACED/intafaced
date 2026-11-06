@@ -10,7 +10,14 @@ import { createSbeCodec, type JavaSbeCodec } from '@intafaced/sbe-codec';
 import type { DepthSnapshot } from '@intafaced/market-data';
 import { DepthHub } from './depth/hub.js';
 import type { DepthSource } from './depth/source.js';
-import { serviceAuthHeadersForBody } from '@intafaced/contracts';
+import { generateKeyPairSync } from 'node:crypto';
+import {
+  createServiceSigner,
+  createServiceVerifier,
+  s2sRequestHeaders,
+  serviceAuthHeadersForBody,
+  type Keyring,
+} from '@intafaced/contracts';
 import { SBE_STATUS_PATH, SbeConsumers, registerSbeStatusDoor } from './sbe-consumers.js';
 import { TradeHub } from './trade/hub.js';
 import { createWebSocketGateway, type WebSocketGateway } from './ws/gateway.js';
@@ -191,5 +198,51 @@ describe('SBE consumer status', () => {
     expect(blank.statusCode).toBe(503);
     expect(blank.json()).toMatchObject({ error: { code: 'ws_status_unconfigured' } });
     await bare.close();
+  });
+
+  it("in keypair mode takes svc-edge's own key alone, bound to this path, and refuses the shared form", async () => {
+    const key = (svc: 'svc-edge' | 'svc-trade') => {
+      const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+      return {
+        svc,
+        pkcs8: privateKey.export({ format: 'der', type: 'pkcs8' }).toString('base64url'),
+        x: publicKey.export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
+      };
+    };
+    const edge = key('svc-edge');
+    const trade = key('svc-trade');
+    const keyring: Keyring = [edge, trade].map((k) => ({ kid: `${k.svc}.t`, svc: k.svc, use: 's2s' as const, x: k.x }));
+    const signed = (k: typeof edge, path: string) =>
+      s2sRequestHeaders(createServiceSigner({ service: k.svc, kid: `${k.svc}.t`, privateKey: k.pkcs8, keyring }), {
+        audience: 'svc-ws',
+        method: 'GET',
+        url: new URL(`http://ws.test${path}`),
+        body: '',
+        context: { contentType: '' },
+      });
+    const keyed = Fastify({ logger: false });
+    registerSbeStatusDoor(keyed, {
+      consumers: new SbeConsumers(),
+      secret: undefined,
+      verifier: createServiceVerifier({ self: 'svc-ws', keyring, bootSecond: 0 }),
+      mode: 'keypair',
+      codecLinked: () => false,
+    });
+    try {
+      const ok = await keyed.inject({ method: 'GET', url: SBE_STATUS_PATH, headers: signed(edge, SBE_STATUS_PATH) });
+      expect(ok.statusCode).toBe(200);
+      expect(ok.json()).toMatchObject({ consumers: [] });
+      // Another path's signature, another service's key, and the shared form are each refused.
+      expect((await keyed.inject({ method: 'GET', url: SBE_STATUS_PATH, headers: signed(edge, '/health') })).statusCode).toBe(401);
+      expect((await keyed.inject({ method: 'GET', url: SBE_STATUS_PATH, headers: signed(trade, SBE_STATUS_PATH) })).statusCode).toBe(403);
+      const shared = await keyed.inject({
+        method: 'GET',
+        url: SBE_STATUS_PATH,
+        headers: serviceAuthHeadersForBody('svc-edge', READ_KEY, ''),
+      });
+      expect(shared.statusCode).toBe(401);
+    } finally {
+      await keyed.close();
+    }
   });
 });

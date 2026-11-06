@@ -75,6 +75,9 @@ describe('FIX and SBE room (J-cex-spot-20 #3)', () => {
     expect(html).toContain('aria-label="FIX sessions" data-read="refused"');
     expect(html).toContain('fix_status_unconfigured');
     expect(html).not.toContain('data-session=');
+    // One alert for the one failed read, though two regions come from it.
+    expect(html.match(/role="alert"/g)).toHaveLength(1);
+    expect(html).toContain('aria-label="CompID mapping" data-read="refused"');
     expect(html).toContain('data-consumer="sbe-1"');
   });
 

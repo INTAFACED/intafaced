@@ -105,8 +105,9 @@ export interface FixSession {
   readonly targetCompId: string;
   readonly state: string;
   readonly accountId: string | null;
-  readonly nextSenderSeq: number;
-  readonly nextTargetSeq: number;
+  /** Null when the FIX engine could not read its store. */
+  readonly nextSenderSeq: number | null;
+  readonly nextTargetSeq: number | null;
 }
 
 export function parseFixStatus(raw: unknown): {
@@ -124,7 +125,12 @@ export function parseFixStatus(raw: unknown): {
     const x = s as Record<string, unknown>;
     if (x.role !== 'order-entry' && x.role !== 'drop-copy') return null;
     if (!isText(x.beginString) || !isText(x.senderCompId) || !isText(x.targetCompId) || !isText(x.state)) return null;
-    if (!(x.accountId === null || isText(x.accountId)) || !isCount(x.nextSenderSeq) || !isCount(x.nextTargetSeq)) return null;
+    if (
+      !(x.accountId === null || isText(x.accountId)) ||
+      !(x.nextSenderSeq === null || isCount(x.nextSenderSeq)) ||
+      !(x.nextTargetSeq === null || isCount(x.nextTargetSeq))
+    )
+      return null;
     sessions.push({
       role: x.role,
       beginString: x.beginString,

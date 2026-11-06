@@ -7,12 +7,25 @@ import { sessionAccount, type AdapterHalf, type AdapterStatus } from '@/lib/trad
  * reported it. Each region carries its own read state; a refused or unread adapter says why, by code, and shows no rows.
  * The adapters carry orders and market data only, so no column here is a money or risk figure.
  */
-function Region<T>({ title, half, children }: { title: string; half: AdapterHalf<T>; children: (data: T) => ReactNode }) {
+function Region<T>({
+  title,
+  half,
+  children,
+  sameReadAs,
+}: {
+  title: string;
+  half: AdapterHalf<T>;
+  children: (data: T) => ReactNode;
+  /** A second region from the same read: its refusal points at the first instead of raising the same alert twice. */
+  sameReadAs?: string;
+}) {
   return (
     <section aria-label={title} data-read={half.read} className="flex flex-col gap-2 border-b border-line pbe-4">
       <h2 className="m-0 text-base font-medium text-fg">{title}</h2>
       {half.read === 'ok' ? (
         children(half.data)
+      ) : sameReadAs ? (
+        <p className="m-0 text-sm text-warn">Not read: {sameReadAs} above says why.</p>
       ) : (
         <p role="alert" className="m-0 text-sm text-warn">
           {half.read === 'unknown' ? 'No answer' : 'Refused'}: <code>{half.code}</code> {half.error}
@@ -62,8 +75,8 @@ export function AdaptersRoom({ status }: { status: AdapterStatus }) {
                       <td className="if-num break-all" data-col="account">
                         {sessionAccount(s)}
                       </td>
-                      <td className="if-num">{s.nextSenderSeq}</td>
-                      <td className="if-num">{s.nextTargetSeq}</td>
+                      <td className="if-num">{s.nextSenderSeq ?? 'Unread'}</td>
+                      <td className="if-num">{s.nextTargetSeq ?? 'Unread'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -73,11 +86,12 @@ export function AdaptersRoom({ status }: { status: AdapterStatus }) {
         )}
       </Region>
 
-      <Region title="CompID mapping" half={status.fix}>
+      <Region title="CompID mapping" half={status.fix} sameReadAs="FIX sessions">
         {(fix) =>
           !fix.compIdMapSet ? (
             <p className="m-0 text-sm text-warn">
-              <code>FIX_COMPID_ACCOUNT_JSON</code> is blank on svc-fix, so every FIX order refuses <code>matching_account_unmapped</code>.
+              <code>FIX_COMPID_ACCOUNT_JSON</code> on svc-fix is blank or not a map of CompID to account, so every FIX order refuses{' '}
+              <code>matching_account_unmapped</code>.
             </p>
           ) : (
             <table className="w-full text-sm">

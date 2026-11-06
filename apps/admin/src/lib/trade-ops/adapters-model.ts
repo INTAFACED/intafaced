@@ -12,8 +12,9 @@ export interface FixSessionRow {
   readonly targetCompId: string;
   readonly state: string;
   readonly accountId: string | null;
-  readonly nextSenderSeq: number;
-  readonly nextTargetSeq: number;
+  /** Null when the FIX engine could not read its store. */
+  readonly nextSenderSeq: number | null;
+  readonly nextTargetSeq: number | null;
 }
 
 export interface FixStatus {
@@ -70,7 +71,12 @@ function parseFix(r: Record<string, unknown>): FixStatus | null {
     const x = s && typeof s === 'object' ? (s as Record<string, unknown>) : null;
     if (!x || (x.role !== 'order-entry' && x.role !== 'drop-copy')) return null;
     if (!text(x.beginString) || !text(x.senderCompId) || !text(x.targetCompId) || !text(x.state)) return null;
-    if (!(x.accountId === null || text(x.accountId)) || !count(x.nextSenderSeq) || !count(x.nextTargetSeq)) return null;
+    if (
+      !(x.accountId === null || text(x.accountId)) ||
+      !(x.nextSenderSeq === null || count(x.nextSenderSeq)) ||
+      !(x.nextTargetSeq === null || count(x.nextTargetSeq))
+    )
+      return null;
     sessions.push({
       role: x.role,
       beginString: x.beginString,
