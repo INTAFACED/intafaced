@@ -27,13 +27,16 @@ function reader(): Principal {
 
 export function wireTradeOpsAdmin(deps: {
   sql: Sql;
-  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket' | 'convertPairs'>;
+  trade: Pick<TradeService, 'cancelOrder' | 'reconcileOrder' | 'listMarket' | 'engineLiveOrderIds' | 'convertPairs'>;
   ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
   approvals: ApprovalBook;
   feeSchedule?: OwnerFeeSchedule;
   vipProofKey?: Buffer | null;
   otcLaw?: OtcDeskLaw;
   metricsWindowSeconds?: number | null;
+  sweepLimit?: number | null;
+  sweepMinAgeSeconds?: number | null;
+  sweepEnabled?: boolean;
   /** Convert's owner values; what Convert offers now is read from `trade` as a reader principal. */
   convert?: Omit<ConvertOwnerValues, 'pairs'>;
 }): TradeOpsAdmin {
@@ -41,12 +44,16 @@ export function wireTradeOpsAdmin(deps: {
     sql: deps.sql,
     ...(deps.otcLaw ? { otcLaw: deps.otcLaw } : {}),
     metricsWindowSeconds: deps.metricsWindowSeconds ?? null,
+    sweepLimit: deps.sweepLimit ?? null,
+    sweepMinAgeSeconds: deps.sweepMinAgeSeconds ?? null,
+    sweepEnabled: deps.sweepEnabled ?? false,
+    engineLiveOrderIds: (marketId) => deps.trade.engineLiveOrderIds(marketId),
     ...(deps.convert ? { convert: { ...deps.convert, pairs: () => deps.trade.convertPairs(reader()) } } : {}),
     ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,
     approvals: deps.approvals,
-    reconcileOrder: (orderId) => deps.trade.reconcileOrder(orderId),
+    reconcileOrder: (orderId, opts) => deps.trade.reconcileOrder(orderId, opts),
     listMarket: (input) => deps.trade.listMarket(input),
     cancelOrder: async (orderId, userId) => {
       const owner: Principal = {

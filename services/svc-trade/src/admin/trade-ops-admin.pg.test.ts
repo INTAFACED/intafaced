@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { MemoryLedger, formatAmount, orderHoldAccount, parseAmount as amt, recipes, userAvailable } from '@intafaced/ledger-client';
@@ -17,6 +17,7 @@ import { READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor, PUBLISHE
 import { TradingControls } from '../controls/trading-controls.js';
 import { MemoryApprovalBook, payloadHash } from './common.js';
 import { TradeOpsAdmin } from './service.js';
+import { BUST_ACTION_TYPE, bustApprovalBody } from './bust.js';
 import { currentRisk, currentRiskForMarkets } from './risk.js';
 import { readOpenInterestLimits } from '../futures/open-interest-limits.js';
 import { readPriceRangeSettings, sqlPriceBandStore } from '../futures/dynamic-price-band.js';
@@ -873,7 +874,7 @@ describe('trade operator procedures', () => {
     expect(await admin.seedEnabled(marketId)).toBe(true);
   });
 
-  it('reports a drifted order repair, refuses a sweep while the flag is off, and has no sweep status yet', async () => {
+  it('reports a drifted order repair, refuses a sweep while its switch is off, and has no sweep status yet', async () => {
     expect(await admin.reconcileStatus(operator())).toEqual({ lastSweepAt: null, result: null });
     await fund(ALICE, '1000');
     const order = await trade.placeOrder(principalFor(ALICE), {
@@ -891,12 +892,393 @@ describe('trade operator procedures', () => {
     expect(await held(ALICE, order.id)).toBe('0');
     const replay = await admin.reconcile(operatorWriter(), { orderId: order.id, clientRequestId: 'recon-1' });
     expect(replay).toEqual(verdict);
-    await expect(admin.startReconcileSweep(operatorWriter(), { clientRequestId: 'sweep-1' })).rejects.toMatchObject({
-      code: 'reconcile_jobs_disabled',
+    // The sweep's switch is off by default: it refuses and looks at nothing.
+    await expect(admin.startReconcileSweep(operatorWriter(), { clientRequestId: 'sweep-1', reason: 'TEST sweep' })).rejects.toMatchObject({
+      code: 'reconcile_sweep_disabled',
     });
     expect(process.env.TRADE_RECONCILE_JOBS_ENABLED ?? '').not.toBe('true');
     expect(await admin.reconcileStatus(operator())).toEqual({ lastSweepAt: null, result: null });
     await expect(admin.reconcile(customer(), { orderId: order.id, clientRequestId: 'recon-c' })).rejects.toBeInstanceOf(AuthError);
+  });
+
+  describe('operator reconcile sweep (J-cex-spot-18 #3)', () => {
+    let lists: string[] = [];
+    function sweeper(
+      values: {
+        limit?: number | null;
+        minAge?: number | null;
+        enabled?: boolean;
+        reconcile?: (orderId: string, opts?: { leaveLive?: boolean }) => Promise<import('../spot/types.js').ReconcileResult>;
+      } = {},
+    ): TradeOpsAdmin {
+      return new TradeOpsAdmin({
+        sql: db.sql,
+        approvals: book,
+        ledger,
+        reconcileOrder: values.reconcile ?? ((orderId, opts) => trade.reconcileOrder(orderId, opts)),
+        engineLiveOrderIds: async (market) => {
+          lists.push(market);
+          return trade.engineLiveOrderIds(market);
+        },
+        cancelOrder: async (orderId, userId) => {
+          await trade.cancelOrder(principalFor(userId), orderId);
+        },
+        sweepEnabled: values.enabled ?? true,
+        sweepLimit: values.limit === undefined ? 100 : values.limit,
+        sweepMinAgeSeconds: values.minAge === undefined ? 60 : values.minAge,
+      });
+    }
+    beforeEach(() => {
+      lists = [];
+    });
+    const restingBuy = (clientOrderId: string, price = '100') =>
+      trade.placeOrder(principalFor(ALICE), { marketId, side: 'buy', type: 'limit', qty: amt('1'), price: amt(price), clientOrderId });
+    const age = (orderId: string) => db.sql`UPDATE trade.orders SET updated_at = now() - interval '10 minutes' WHERE id = ${orderId}`;
+    /** The first sighting of an engine miss, moved back past the floor: the next sweep is its second look. */
+    const ageSighting = (orderId: string) =>
+      db.sql`UPDATE trade.operator_sweep_sightings SET first_seen_at = now() - interval '10 minutes' WHERE order_id = ${orderId}`;
+    const available = async () => formatAmount((await ledger.balance(userAvailable(ALICE, 'USDT'))).amount);
+    const sweep = (admin2: TradeOpsAdmin, clientRequestId: string, reason = 'TEST sweep') =>
+      admin2.startReconcileSweep(operatorWriter(), { clientRequestId, reason });
+
+    it('releases an orphan hold only on a second sighting a floor after the first, once, and leaves the live order alone', async () => {
+      await fund(ALICE, '1000');
+      const live = await restingBuy('sweep-live');
+      const orphan = await restingBuy('sweep-orphan', '90');
+      await age(live.id);
+      await age(orphan.id);
+      // The book no longer has the orphan; the trade service still holds its funds.
+      matching.scriptCancelMiss(orphan.id);
+      const availableBefore = await available();
+      const liveHold = await held(ALICE, live.id);
+      const orphanHold = await held(ALICE, orphan.id);
+      expect(amt(orphanHold) > 0n).toBe(true);
+
+      // First look: an empty book and an empty trade.fills are not proof yet. Nothing is released.
+      const first = await sweep(sweeper(), 'sweep-a');
+      expect(first).toMatchObject({ checked: 2, released: 0, firstSightedOrderIds: [orphan.id] });
+      expect(await held(ALICE, orphan.id)).toBe(orphanHold);
+      // A look again inside the floor still waits.
+      expect(await sweep(sweeper(), 'sweep-a2')).toMatchObject({ released: 0, waitingOrderIds: [orphan.id] });
+
+      await ageSighting(orphan.id);
+      const second = await sweep(sweeper(), 'sweep-b');
+      expect(second).toMatchObject({ checked: 2, released: 1, releasedOrderIds: [orphan.id], failedClosedOrderIds: [] });
+      expect(await held(ALICE, orphan.id)).toBe('0');
+      expect(amt(await available()) - amt(availableBefore)).toBe(amt(orphanHold));
+      expect(await held(ALICE, live.id)).toBe(liveHold);
+      const [liveRow] = await db.sql<Array<{ status: string }>>`SELECT status::text FROM trade.orders WHERE id = ${live.id}`;
+      expect(liveRow!.status).toBe('open');
+
+      const third = await sweep(sweeper(), 'sweep-c');
+      expect(third).toMatchObject({ released: 0, releasedOrderIds: [] });
+      expect(amt(await available()) - amt(availableBefore)).toBe(amt(orphanHold));
+
+      // The same request again is the same run: its counts, and nothing runs.
+      expect(await sweep(sweeper(), 'sweep-b')).toEqual(second);
+      const runs = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_reconcile_sweeps`;
+      expect(runs[0]!.n).toBe('4');
+      const audit = await db.sql<Array<{ kind: string; object_id: string }>>`
+        SELECT kind, object_id FROM trade.operator_audit WHERE kind IN ('orders.reconcile', 'orders.reconcile_sweep') ORDER BY occurred_at, kind`;
+      expect(audit.filter((row) => row.kind === 'orders.reconcile').map((row) => row.object_id)).toEqual([orphan.id]);
+      expect(audit.filter((row) => row.kind === 'orders.reconcile_sweep').map((row) => row.object_id)).toEqual([
+        'sweep-a',
+        'sweep-a2',
+        'sweep-b',
+        'sweep-c',
+      ]);
+      expect((await admin.reconcileStatus(operator())).lastSweepAt).not.toBeNull();
+    });
+
+    it('keeps the hold of a long-resting order whose fill reached trade.fills after the first look (an unrecorded fill)', async () => {
+      await fund(ALICE, '1000');
+      const filled = await restingBuy('sweep-late-fill', '95');
+      await age(filled.id);
+      const hold = await held(ALICE, filled.id);
+      // The engine filled it and dropped it from the book; its fill is still on the bus.
+      matching.scriptCancelMiss(filled.id);
+      const first = await sweep(sweeper(), 'sweep-late-1');
+      expect(first).toMatchObject({ released: 0, firstSightedOrderIds: [filled.id] });
+      expect(await held(ALICE, filled.id)).toBe(hold);
+      // The fill lands.
+      await db.sql`INSERT INTO trade.fills (
+        id, order_id, counter_order_id, market_id, user_id, side, liquidity, price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence
+      ) VALUES (
+        ${randomUUID()}, ${filled.id}, ${randomUUID()}, ${marketId}, ${ALICE}, 'buy', 'maker', 95, 1, 95, 'USDT', 0, 0, 3
+      )`;
+      await ageSighting(filled.id);
+      const second = await sweep(sweeper(), 'sweep-late-2');
+      expect(second).toMatchObject({ released: 0, failedClosedOrderIds: [filled.id] });
+      expect(await held(ALICE, filled.id)).toBe(hold);
+    });
+
+    it('runs one sweep for a request id however often it is sent at once, and refuses the id with another reason', async () => {
+      await fund(ALICE, '1000');
+      const orphan = await restingBuy('sweep-race', '90');
+      await age(orphan.id);
+      matching.scriptCancelMiss(orphan.id);
+      const slow = sweeper({
+        reconcile: async (orderId, opts) => {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          return trade.reconcileOrder(orderId, opts);
+        },
+      });
+      await sweep(slow, 'sweep-race-0');
+      await ageSighting(orphan.id);
+      const [a, b] = await Promise.allSettled([sweep(slow, 'sweep-race-1'), sweep(slow, 'sweep-race-1')]);
+      const answers = [a, b].filter((r) => r.status === 'fulfilled').map((r) => (r as PromiseFulfilledResult<unknown>).value);
+      const refusals = [a, b].filter((r) => r.status === 'rejected').map((r) => (r as PromiseRejectedResult).reason?.code);
+      expect(answers.length + refusals.length).toBe(2);
+      expect(refusals.every((code) => code === 'reconcile_sweep_in_flight')).toBe(true);
+      expect(answers[0]).toMatchObject({ released: 1, releasedOrderIds: [orphan.id] });
+      const rows = await db.sql`SELECT 1 FROM trade.operator_reconcile_sweeps WHERE client_request_id = 'sweep-race-1'`;
+      expect(rows).toHaveLength(1);
+      expect(await db.sql`SELECT 1 FROM trade.operator_audit WHERE kind = 'orders.reconcile' AND object_id = ${orphan.id}`).toHaveLength(1);
+      // Asked again after it ended: the stored answer.
+      expect(await sweep(slow, 'sweep-race-1')).toMatchObject({ released: 1, releasedOrderIds: [orphan.id] });
+      await expect(sweep(slow, 'sweep-race-1', 'TEST another reason')).rejects.toMatchObject({ code: 'client_request_conflict' });
+    });
+
+    it('reports an error thrown after the reconcile acted apart from one that did nothing, and a no-hold terminal as what it did', async () => {
+      await fund(ALICE, '1000');
+      const acted = await restingBuy('sweep-acted', '90');
+      const untouched = await restingBuy('sweep-untouched', '91');
+      const noHold = await restingBuy('sweep-nohold', '92');
+      for (const o of [acted, untouched, noHold]) {
+        await age(o.id);
+        matching.scriptCancelMiss(o.id);
+      }
+      const errors: string[] = [];
+      const spy = vi.spyOn(console, 'error').mockImplementation((line: unknown) => {
+        errors.push(String(line));
+      });
+      const odd = sweeper({
+        reconcile: async (orderId, opts) => {
+          if (orderId === acted.id) {
+            await trade.reconcileOrder(orderId, opts);
+            throw new Error('TEST audit write failed after finalize');
+          }
+          if (orderId === untouched.id) throw new Error('TEST ledger unreachable');
+          return {
+            orderId,
+            case: 'open_engine_no_hold',
+            action: 'fail_closed',
+            holdBefore: '0',
+            engineLive: false,
+            detail: 'TEST terminalized with no hold',
+          };
+        },
+      });
+      await sweep(odd, 'sweep-odd-0');
+      for (const o of [acted, untouched, noHold]) await ageSighting(o.id);
+      const result = await sweep(odd, 'sweep-odd-1');
+      spy.mockRestore();
+      expect(result.erroredAfterActingOrderIds).toEqual([acted.id]);
+      expect(result.unreadableOrderIds).toEqual([untouched.id]);
+      expect(result.terminalizedNoHoldOrderIds).toEqual([noHold.id]);
+      expect(result.failedClosedOrderIds).toEqual([]);
+      expect(errors.some((line) => line.includes('errored_after_acting') && line.includes(acted.id))).toBe(true);
+      expect(errors.some((line) => line.includes('not_read') && line.includes(untouched.id))).toBe(true);
+    });
+
+    it('starts the wait again when the book lists the order between two misses (CI review run 42229413718, finding 1)', async () => {
+      await fund(ALICE, '1000');
+      const order = await restingBuy('sweep-flicker', '90');
+      await age(order.id);
+      const hold = await held(ALICE, order.id);
+      // A transient miss (an engine restart, a list taken mid-replay): first sighted, and the floor passes.
+      matching.scriptCancelMiss(order.id);
+      expect(await sweep(sweeper(), 'sweep-flicker-1')).toMatchObject({ firstSightedOrderIds: [order.id] });
+      await ageSighting(order.id);
+      // The book lists it again: the miss was not continuous, and the sighting goes.
+      matching.scriptLive(order.id, marketId);
+      expect(await sweep(sweeper(), 'sweep-flicker-2')).toMatchObject({ released: 0, firstSightedOrderIds: [], waitingOrderIds: [] });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${order.id}`).toHaveLength(0);
+      // Then it really leaves the book (its fill may still be on the bus): a first sighting again, nothing released.
+      matching.scriptCancelMiss(order.id);
+      expect(await sweep(sweeper(), 'sweep-flicker-3')).toMatchObject({ released: 0, firstSightedOrderIds: [order.id] });
+      expect(await held(ALICE, order.id)).toBe(hold);
+    });
+
+    it('drops the sighting when the reconcile’s own list finds the order live', async () => {
+      await fund(ALICE, '1000');
+      const order = await restingBuy('sweep-left-live', '90');
+      await age(order.id);
+      matching.scriptCancelMiss(order.id);
+      await sweep(sweeper(), 'sweep-left-1');
+      await ageSighting(order.id);
+      const leftLive = sweeper({
+        reconcile: async (orderId) => ({
+          orderId,
+          case: 'open_engine_live_left',
+          action: 'none',
+          holdBefore: '90',
+          engineLive: true,
+          detail: 'TEST listed again by the reconcile',
+        }),
+      });
+      expect(await sweep(leftLive, 'sweep-left-2')).toMatchObject({ released: 0 });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${order.id}`).toHaveLength(0);
+    });
+
+    it('counts a market whose book list is a full page as not read, and records no sighting there (finding 2)', async () => {
+      await fund(ALICE, '1000');
+      const order = await restingBuy('sweep-full-page', '90');
+      await age(order.id);
+      const full = Array.from({ length: 500 }, (_, i) => ({
+        marketId,
+        orderId: randomUUID(),
+        accountId: '',
+        kind: 'book' as const,
+        side: 'buy' as const,
+        price: '1',
+        remaining: '1',
+        sequence: i + 1,
+        version: 1,
+      }));
+      const spy = vi.spyOn(matching, 'listOrders').mockResolvedValue({ marketId, orders: full });
+      const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const result = await sweep(sweeper(), 'sweep-full');
+      spy.mockRestore();
+      quiet.mockRestore();
+      expect(result).toMatchObject({ checked: 1, released: 0, unreadableOrderIds: [order.id], firstSightedOrderIds: [] });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${order.id}`).toHaveLength(0);
+    });
+
+    it('does not look at an order changed within the floor, even when the book no longer lists it (finding 3)', async () => {
+      await fund(ALICE, '1000');
+      const fresh = await restingBuy('sweep-fresh', '90');
+      const hold = await held(ALICE, fresh.id);
+      matching.scriptCancelMiss(fresh.id);
+      expect(await sweep(sweeper(), 'sweep-fresh-1')).toMatchObject({ checked: 0, firstSightedOrderIds: [] });
+      expect(await db.sql`SELECT 1 FROM trade.operator_sweep_sightings WHERE order_id = ${fresh.id}`).toHaveLength(0);
+      expect(await held(ALICE, fresh.id)).toBe(hold);
+    });
+
+    it('lists each market’s book once per sweep, not once per order', async () => {
+      await fund(ALICE, '1000');
+      for (const id of ['sweep-one-1', 'sweep-one-2', 'sweep-one-3']) await age((await restingBuy(id, '80')).id);
+      const result = await sweep(sweeper(), 'sweep-one');
+      expect(result.checked).toBe(3);
+      expect(lists).toEqual([marketId]);
+    });
+
+    it('refuses while switched off, with each owner value blank, and for a reader, and records nothing', async () => {
+      await expect(sweep(sweeper({ enabled: false }), 'sweep-off')).rejects.toMatchObject({ code: 'reconcile_sweep_disabled' });
+      for (const values of [{ limit: null }, { minAge: null }]) {
+        await expect(sweep(sweeper(values), 'sweep-u')).rejects.toMatchObject({ code: 'reconcile_sweep_unconfigured' });
+      }
+      await expect(sweeper().startReconcileSweep(operator(), { clientRequestId: 'sweep-r', reason: 'TEST sweep' })).rejects.toBeInstanceOf(
+        AuthError,
+      );
+      const runs = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_reconcile_sweeps`;
+      expect(runs[0]!.n).toBe('0');
+    });
+  });
+
+  describe('trade bust (J-cex-spot-18 #4)', () => {
+    async function filledOrder(): Promise<string> {
+      await fund(ALICE, '1000');
+      const order = await trade.placeOrder(principalFor(ALICE), {
+        marketId,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('100'),
+        clientOrderId: 'bust-me',
+      });
+      await db.sql`INSERT INTO trade.fills (
+        id, order_id, counter_order_id, market_id, user_id, side, liquidity, price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence
+      ) VALUES (
+        ${randomUUID()}, ${order.id}, ${randomUUID()}, ${marketId}, ${ALICE}, 'buy', 'taker', 100, 0.5, 50, 'USDT', 0, 0, 5
+      )`;
+      return order.id;
+    }
+    const reason = 'TEST customer reported a wrong fill';
+
+    it('with a second operator approval, refuses trade_bust_recipe_missing, moves nothing and audits both operators once', async () => {
+      const orderId = await filledOrder();
+      const holdBefore = await held(ALICE, orderId);
+      const fillsBefore = await db.sql<Array<{ id: string }>>`SELECT id FROM trade.fills WHERE order_id = ${orderId}`;
+      allow({
+        approvalId: 'bust-1',
+        actionType: BUST_ACTION_TYPE,
+        targetId: orderId,
+        expectedVersion: '1',
+        body: bustApprovalBody({ orderId, expectedVersion: '1', reason }),
+        operationId: 'bust-req-1',
+      });
+      await expect(
+        admin.bust(operatorWriter(), { orderId, approvalId: 'bust-1', clientRequestId: 'bust-req-1', reason }),
+      ).rejects.toMatchObject({ code: 'trade_bust_recipe_missing' });
+      expect(await held(ALICE, orderId)).toBe(holdBefore);
+      expect(await db.sql`SELECT id FROM trade.fills WHERE order_id = ${orderId}`).toEqual(fillsBefore);
+      const audit = await db.sql<Array<{ operator_id: string; approver_id: string; account_id: string }>>`
+        SELECT operator_id::text, approver_id::text, account_id::text FROM trade.operator_audit WHERE kind = 'orders.bust_refused'`;
+      expect(audit).toEqual([{ operator_id: OP, approver_id: APPROVER, account_id: ALICE }]);
+      const [detail] = await db.sql<Array<{ detail: { requesterId: string; code: string } }>>`
+        SELECT detail FROM trade.operator_audit WHERE kind = 'orders.bust_refused'`;
+      expect(detail!.detail).toMatchObject({ requesterId: OP, code: 'trade_bust_recipe_missing' });
+      // The approval is spent: the same request again is refused as reused, and writes no second row.
+      await expect(
+        admin.bust(operatorWriter(), { orderId, approvalId: 'bust-1', clientRequestId: 'bust-req-1', reason }),
+      ).rejects.toMatchObject({ code: 'approval_reused' });
+      expect(await db.sql`SELECT 1 FROM trade.operator_audit WHERE kind = 'orders.bust_refused'`).toHaveLength(1);
+    });
+
+    it('refuses when the operator carrying it out is the one who approved it, and records the proposer', async () => {
+      const orderId = await filledOrder();
+      book.put({
+        approvalId: 'bust-self',
+        actionType: BUST_ACTION_TYPE,
+        targetService: 'svc-trade',
+        targetId: orderId,
+        expectedVersion: '1',
+        payloadHash: payloadHash(bustApprovalBody({ orderId, expectedVersion: '1', reason })),
+        requesterId: BOB,
+        approverId: OP,
+      });
+      await expect(
+        admin.bust(operatorWriter(), { orderId, approvalId: 'bust-self', clientRequestId: 'bust-self-1', reason }),
+      ).rejects.toMatchObject({ code: 'approval_executor_is_approver' });
+      const [row] = await db.sql<Array<{ approver_id: string; detail: { requesterId: string; code: string } }>>`
+        SELECT approver_id::text, detail FROM trade.operator_audit WHERE kind = 'orders.bust_refused'`;
+      expect(row).toMatchObject({ approver_id: OP, detail: { requesterId: BOB, code: 'approval_executor_is_approver' } });
+    });
+
+    it('refuses with no approval, with an approval for another reason, for an order with no fill, and for a reader', async () => {
+      // Placed before the fill below is recorded, so the stub book's sequence stays ahead of trade.fills.
+      await fund(ALICE, '1000');
+      const unfilled = await trade.placeOrder(principalFor(ALICE), {
+        marketId,
+        side: 'buy',
+        type: 'limit',
+        qty: amt('1'),
+        price: amt('90'),
+        clientOrderId: 'bust-unfilled',
+      });
+      const orderId = await filledOrder();
+      await expect(
+        admin.bust(operatorWriter(), { orderId, approvalId: 'none', clientRequestId: 'bust-req-2', reason }),
+      ).rejects.toMatchObject({ code: 'approval_missing' });
+      allow({
+        approvalId: 'bust-other',
+        actionType: BUST_ACTION_TYPE,
+        targetId: orderId,
+        expectedVersion: '1',
+        body: bustApprovalBody({ orderId, expectedVersion: '1', reason: 'TEST a different reason' }),
+      });
+      await expect(
+        admin.bust(operatorWriter(), { orderId, approvalId: 'bust-other', clientRequestId: 'bust-req-3', reason }),
+      ).rejects.toMatchObject({ code: 'approval_mismatch' });
+      await expect(
+        admin.bust(operatorWriter(), { orderId: unfilled.id, approvalId: 'x', clientRequestId: 'bust-req-4', reason }),
+      ).rejects.toMatchObject({ code: 'trade_bust_no_fill' });
+      await expect(admin.bust(operator(), { orderId, approvalId: 'x', clientRequestId: 'bust-req-5', reason })).rejects.toBeInstanceOf(
+        AuthError,
+      );
+      expect(await db.sql`SELECT 1 FROM trade.operator_audit WHERE kind = 'orders.bust_refused'`).toHaveLength(0);
+    });
   });
 
   it('records halt then resume in order and refuses an edit', async () => {
@@ -987,7 +1369,9 @@ describe('trade operator procedures', () => {
       admin.setSeed(reader, { market: marketId, enabled: true, approvalId: 'x', clientRequestId: 'ro-seed' }),
     ).rejects.toBeInstanceOf(AuthError);
     await expect(admin.reconcile(reader, { orderId: order.id, clientRequestId: 'ro-recon' })).rejects.toBeInstanceOf(AuthError);
-    await expect(admin.startReconcileSweep(reader, { clientRequestId: 'ro-sweep' })).rejects.toBeInstanceOf(AuthError);
+    await expect(admin.startReconcileSweep(reader, { clientRequestId: 'ro-sweep', reason: 'TEST sweep' })).rejects.toBeInstanceOf(
+      AuthError,
+    );
     expect((await trade.findOrder(order.id))?.status).toBe('open');
     expect(await held(ALICE, order.id)).toBe('10');
     const [risk] = await db.sql<Array<{ n: string }>>`SELECT count(*)::text AS n FROM trade.operator_risk_limits`;

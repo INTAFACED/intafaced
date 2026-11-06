@@ -73,6 +73,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_CONVERT_ENABLED: process.env.LOCAL_STACK_TRADE_CONVERT === 'off' ? 'false' : 'true',
     // House edge on Convert quotes; convert.quote refuses trade.convert_spread_unset without it: 20 bps.
     TRADE_CONVERT_SPREAD_BPS: '20',
+    // LOCAL TEST, not owner decisions: the operator reconcile sweep (J-cex-spot-18 #3) is switched on here, with a size and
+    // an age floor. Off or blank, the sweep refuses (reconcile_sweep_disabled, reconcile_sweep_unconfigured). 15 s is the
+    // stack's own guess at how long a fill takes to reach trade.fills; a hold is released only on a second sighting of
+    // its order's engine miss at least that long after the first.
+    TRADE_OPERATOR_SWEEP_ENABLED: 'true',
+    TRADE_OPERATOR_SWEEP_LIMIT: '500',
+    TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS: '15',
     // LOCAL TEST, not an owner decision: how often the limit-convert sweep prices each waiting limit convert. Without it
     // no sweep runs and placing one refuses trade.convert_limit_unset; every 2 s so J-cex-spot-11 #8 sees its fill soon.
     TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS: '2000',

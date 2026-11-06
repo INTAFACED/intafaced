@@ -62,6 +62,8 @@ import { NoopDropCopyIngest, type DropCopyFillWire, type DropCopyHitchSource, ty
 import { NoSubAccounts, type SubAccountOwnershipSource } from './sub-account-ownership.js';
 import { type EmailProofSource } from './email-proof.js';
 import {
+  MATCHING_RESTING_ORDERS_PAGE,
+  MatchingUnavailableError,
   type EngineCancellation,
   type EngineFill,
   type EngineSubmitRequest,
@@ -122,6 +124,7 @@ import * as holds from './trade-service/holds.js';
 import * as events from './trade-service/events.js';
 import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
+import { settlementOrderId } from './oco-legs.js';
 import * as twap from './trade-service/algo.js';
 import * as buyback from './trade-service/buyback.js';
 import { orderIdFor } from './ids.js';
@@ -1754,8 +1757,26 @@ export class TradeService {
    * Fail closed means: never mint a hold from this path; never mark filled without fills;
    * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill.
    */
-  async reconcileOrder(orderId: string): Promise<ReconcileResult> {
-    return reconcile.reconcileOrder(this.internal, orderId);
+  /**
+   * The order ids the engine lists as resting on one market (OCO legs read as their parent), from one non-destructive
+   * list. The operator sweep reads each market once with it. A full page throws (checked below): absence cannot be proven
+   * from it, so the sweep counts that market as not read.
+   */
+  async engineLiveOrderIds(marketId: string): Promise<ReadonlySet<string>> {
+    const listed = await this.matching.listOrders(marketId);
+    // svc-matching answers at most MATCHING_RESTING_ORDERS_PAGE orders and no cursor: a page that full may be cut short,
+    // so an order missing from it is not proven missing from the book. The HTTP client refuses such a page too; this
+    // check holds for any MatchingClient.
+    if (listed.orders.length >= MATCHING_RESTING_ORDERS_PAGE) {
+      throw new MatchingUnavailableError(
+        `svc-matching listed ${listed.orders.length} resting orders on ${marketId}, a full page; absence cannot be proven`,
+      );
+    }
+    return new Set(listed.orders.map((o) => settlementOrderId(o.orderId)));
+  }
+
+  async reconcileOrder(orderId: string, opts: reconcile.ReconcileOptions = {}): Promise<ReconcileResult> {
+    return reconcile.reconcileOrder(this.internal, orderId, opts);
   }
 
   async marketById(marketId: string): Promise<Market | null> {

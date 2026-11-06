@@ -164,8 +164,11 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         .mutation(({ ctx, input }) => ready().reconcile(ctx.principal, input).catch(fail)),
       reconcileStatus: operator.query(({ ctx }) => ready().reconcileStatus(ctx.principal).catch(fail)),
       startReconcileSweep: operatorWrite
-        .input(z.object({ clientRequestId }).strict())
+        .input(z.object({ clientRequestId, reason }).strict())
         .mutation(({ ctx, input }) => ready().startReconcileSweep(ctx.principal, input).catch(fail)),
+      bust: operatorWrite
+        .input(z.object({ orderId: id, approvalId: z.string().trim().min(1).max(128), clientRequestId, reason }).strict())
+        .mutation(({ ctx, input }) => ready().bust(ctx.principal, input).catch(fail)),
     }),
     risk: router({
       get: operator
