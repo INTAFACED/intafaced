@@ -1,4 +1,4 @@
-// The CI review and the seal keyed to it (AGENTS.md item 8), offline. The planted cases of setup step 4 (project-state
+// The CI review and the seal keyed to it (AGENTS.md, "Where a mistake costs more"), offline. The planted cases of setup step 4 (project-state
 // research/factory-2026-11/PHASE-2-OPTIONS.md section 4): a reviewed gate-file PR passes; one with no verdict fails;
 // a PASS comment from the shared login (ZenYoda3) counts for nothing; plus a verdict on an older head, a FAIL followed by
 // a passing re-run, an empty commit pushed after a FAIL, and a run of a branch's own copy of the workflow.
@@ -51,7 +51,7 @@ test('the PR changes a gate file, so the seal requires the review', () => {
   assert.match(reviewReason(GATE_FILES), /^gate file: tooling\/ci\/dependency-audit\.mjs$/);
 });
 
-// Which changes the seal waits on (AGENTS.md "Check, then merge" 2, owner decision 2026-11-06): gate files and look
+// Which changes the seal waits on (AGENTS.md, "Where a mistake costs more", owner decision 2026-11-06): gate files and look
 // baselines still need the independent review; money and security code alone no longer does.
 const GATE_PR = ['services/svc-pay/src/payout.ts', '.github/workflows/ci.yml'];
 const BASELINE_PR = ['apps/customer/look-baselines/home/390x844.png'];

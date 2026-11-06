@@ -346,7 +346,7 @@ export const NOT_GATES = {
   'why-red.mjs':
     'not a check: a read-only helper that prints why a PR head is not green (failing checks, their error annotations, and whether the seal only waits for the independent review), so agents do not read whole job logs. It needs a GitHub token and a PR, so a laptop verify cannot run it; `node tooling/ci/why-red.mjs --self-test` runs in the `changes` job.',
   'ci-review.mjs':
-    "runs only inside ci-review.yml (the CI review job, AGENTS.md item 8): reads one PR head's diff through the API, asks the pinned reviewer CLI with no tools, and turns its answer into the job's `Verdict` step. Needs the event payload, a GitHub token and the review key, so a laptop verify has no input; `tooling/ci/ci-review.test.mjs` tests its answer reader and the seal's verdict reader.",
+    "runs only inside ci-review.yml (the CI review job, AGENTS.md, 'Where a mistake costs more'): reads one PR head's diff through the API, asks the pinned reviewer CLI with no tools, and turns its answer into the job's `Verdict` step. Needs the event payload, a GitHub token and the review key, so a laptop verify has no input; `tooling/ci/ci-review.test.mjs` tests its answer reader and the seal's verdict reader.",
   'ci-review.test.mjs':
     'not a gate: the node:test file of ci-review.mjs and of review-marker.mjs ciReviewVerdict, the planted cases of the CI review (a reviewed gate-file PR seals; no verdict, a PASS comment, an older head, a FAIL re-run and a branch copy of the workflow do not) and of which changes need it (gate files and look baselines do; money-only and security-only changes do not). tooling-tests.mjs runs it with every other tooling test.',
   'review-marker.mjs':

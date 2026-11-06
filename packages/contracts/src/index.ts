@@ -2,7 +2,7 @@
  * @intafaced/contracts — shared zod schemas and tRPC routers.
  *
  * A change here may land in the same PR as the services of the one journey that
- * needs it (AGENTS.md "Services and events" 1, owner decision 2026-11-06).
+ * needs it (AGENTS.md, "The owner's decisions", owner decision 2026-11-06).
  */
 export * from './trpc.js';
 export * from './p2p-delist.js';

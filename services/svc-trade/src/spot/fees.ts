@@ -69,8 +69,8 @@ export function fillReceivablesSurviveFees(input: {
  * AMOUNT rather than to the RATE keeps all 18 decimal places, and is exactly
  * the change `feeCharge`'s token branch already makes for IFC-settled fees. It
  * needs `tradeFill` to accept fee amounts instead of bps, which is a
- * `packages/ledger-client` change and therefore its own PR (AGENTS.md
- * "Services and events" 2).
+ * `packages/ledger-client` change and therefore its own PR (AGENTS.md,
+ * "The owner's decisions").
  */
 export function effectiveFeeBps(publishedBps: number, discountBps: number): number {
   if (!Number.isInteger(publishedBps) || publishedBps < 0 || publishedBps >= 10_000) {
