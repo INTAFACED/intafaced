@@ -58,7 +58,7 @@ async function proposalBody(ctx: TradeCtx, body: Record<string, unknown>): Promi
   if (!base)
     return refused(
       'trade_ops.fee_no_base_version',
-      'No version is stored yet, so there is nothing to start from: the boot schedule applies until a first version is written.',
+      'No version is stored, so there is nothing to start from: the boot schedule applies until a first version is written.',
       409,
     );
   if (basis !== read.data.version)

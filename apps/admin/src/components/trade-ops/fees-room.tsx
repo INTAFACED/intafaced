@@ -68,7 +68,7 @@ function Versions({ history, now }: { history: FeeHistory; now: Date }) {
   if (groups.length === 0)
     return (
       <p className="text-sm text-fg-2" data-fees="no-versions">
-        No version is stored yet: customers are charged the boot schedule until a first version is written.
+        No version is stored: customers are charged the boot schedule until a first version is written.
       </p>
     );
   return (
@@ -429,7 +429,7 @@ function Notice({ scheduled }: { scheduled: readonly FeeVersionRow[] }) {
   return (
     <div className="flex flex-col gap-3" data-fees="notice">
       {scheduled.length === 0 ? (
-        <p className="text-sm text-fg-2">No version is scheduled: a notice comes before a change, so there is nothing to announce yet.</p>
+        <p className="text-sm text-fg-2">No version is scheduled: a notice comes before a change, so there is nothing to announce.</p>
       ) : null}
       <div className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col gap-1 text-sm">
@@ -743,7 +743,7 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
             }}
           />
         ) : history ? (
-          <p className="text-sm text-fg-2">No version is stored yet, so there is nothing to start a proposal from.</p>
+          <p className="text-sm text-fg-2">No version is stored, so there is nothing to start a proposal from.</p>
         ) : (
           <p className="text-sm text-fg-2">The fee versions could not be read, so nothing can be proposed.</p>
         )}
