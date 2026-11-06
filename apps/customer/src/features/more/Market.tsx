@@ -62,7 +62,11 @@ export const listingSchema = listingBase.superRefine(subscriptionHasPeriod);
  * operator review, or taken down by an operator. A catalogue row and a seller's own row always carry one.
  */
 export const LISTING_REVIEW_STATES = ['in_review', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
-const reviewedListingSchema = listingBase.extend({ reviewState: z.enum(LISTING_REVIEW_STATES) }).superRefine(subscriptionHasPeriod);
+// Read as a string: a state svc-market adds later, or a row with none, shows as not reported instead of failing the room.
+const reviewedListingSchema = listingBase.extend({ reviewState: z.string().optional() }).superRefine(subscriptionHasPeriod);
+type ListingReviewState = (typeof LISTING_REVIEW_STATES)[number];
+const isReviewState = (value: string | undefined): value is ListingReviewState =>
+  (LISTING_REVIEW_STATES as readonly string[]).includes(value ?? '');
 const REVIEW_COPY = {
   in_review: 'market.review.state.in.review',
   approved: 'market.review.state.approved',
@@ -552,9 +556,15 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                             <dt>
                               <Text k="market.review" />
                             </dt>
-                            <dd data-review-state={row.reviewState}>
-                              <Text k={REVIEW_COPY[row.reviewState]} />
-                            </dd>
+                            {isReviewState(row.reviewState) ? (
+                              <dd data-review-state={row.reviewState}>
+                                <Text k={REVIEW_COPY[row.reviewState]} />
+                              </dd>
+                            ) : (
+                              <dd data-review-state="unreported">
+                                <Text k="market.review.state.unreported" />
+                              </dd>
+                            )}
                           </div>
                         </dl>
                       </div>

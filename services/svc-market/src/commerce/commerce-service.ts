@@ -126,8 +126,8 @@ export type ListingSort = 'newest' | 'priceAsc' | 'priceDesc' | 'title';
  * The public catalogue only ever holds approved sellers' live listings, so a public row reads `approved`; the seller's
  * own list shows every state. A rejected or suspended seller's state reaches only that seller (see `eligibilityFor`).
  */
-export type ListingReviewState = 'in_review' | 'approved' | 'rejected' | 'suspended' | 'taken_down';
 export const LISTING_REVIEW_STATES = ['in_review', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
+export type ListingReviewState = (typeof LISTING_REVIEW_STATES)[number];
 
 export function listingReviewState(
   listingStatus: ListingStatus,

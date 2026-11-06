@@ -304,14 +304,26 @@ test(`${J} #3 every kind of listing shows its review state: svc-market's own, on
     .getByRole('article')
     .filter({ has: page.getByRole('button', { name: /^View / }) });
   const review = (card) => card.locator('[data-review-state]');
+  // svc-market's words for each state, as the customer copy names them (en).
+  const words = {
+    in_review: 'In review by the Market’s operators',
+    approved: 'Approved by the Market’s operators',
+    rejected: 'Rejected by the Market’s operators',
+    suspended: 'Seller suspended by the Market’s operators',
+    taken_down: 'Taken down by the Market’s operators',
+  };
   const showsItsState = async (rows) => {
-    await expect(cards).toHaveCount(rows.length);
-    // Every card shows a review state, and it is the one svc-market gave that listing, in words.
-    await expect(cards.locator('[data-review-state]')).toHaveCount(rows.length);
+    // Every card on screen shows a review state (no card without one, none unreported). Counts are not pinned to the
+    // read above: another journey on the shared stack may list or take down a listing in between.
+    await expect(cards.first()).toBeVisible();
+    const shown = await cards.count();
+    await expect(cards.locator('[data-review-state]')).toHaveCount(shown);
+    await expect(cards.locator('[data-review-state="unreported"]')).toHaveCount(0);
+    // Each listing svc-market answered shows the state svc-market gave it, in words.
     for (const row of rows) {
       const card = cards.filter({ has: page.getByRole('heading', { level: 3, name: row.title, exact: true }) }).first();
       await expect(review(card)).toHaveAttribute('data-review-state', row.reviewState);
-      await expect(review(card)).toHaveText('Approved by the Market’s operators');
+      await expect(review(card)).toHaveText(words[row.reviewState]);
     }
   };
   await showsItsState(everyRow);
@@ -322,10 +334,16 @@ test(`${J} #3 every kind of listing shows its review state: svc-market's own, on
 
   // The same in each category of the taxonomy: its listings carry their review state from svc-market's category read.
   const select = page.getByRole('combobox', { name: 'Category' });
-  for (const slug of ['data', 'bots']) {
+  const taxonomy = (await marketRead(null, 'listingCategories', {})).body.result.data.categories;
+  expect(taxonomy.length).toBeGreaterThan(0);
+  for (const slug of taxonomy) {
     const filedUnder = (await marketRead(null, 'listingsByCategory', { category: slug, limit: 50 })).body.result.data;
     expect(filedUnder.map((row) => row.reviewState)).toEqual(filedUnder.map(() => 'approved'));
     await select.selectOption({ value: slug });
+    if (filedUnder.length === 0) {
+      await expect(page.getByRole('main').getByText('No listing is filed under this category yet.')).toBeVisible();
+      continue;
+    }
     await showsItsState(filedUnder);
   }
 });
