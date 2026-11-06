@@ -87,7 +87,10 @@ test('each shared part is found directly, through a computed subcommand, and thr
   // A computed subcommand counts as every part it could be; a stack script run by hand counts as the stack's tools.
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', which, 'on')")].sort(), ['freeze', 'gates']);
   assert.deepEqual([...directWorld("tool('local-test-market.mjs', 'ensure')")], ['market']);
-  assert.deepEqual([...directWorld("execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-loan'])")], ['stack']);
+  assert.deepEqual(
+    [...directWorld("execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-loan'])")],
+    ['stack'],
+  );
   assert.deepEqual([...directWorld("import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';")], []);
   // Seeing a button, reading a book, or acting on one named account is not a change to the shared world.
   assert.deepEqual([...directWorld("await expect(page.getByRole('button', { name: 'Open long' })).toBeVisible();")], []);

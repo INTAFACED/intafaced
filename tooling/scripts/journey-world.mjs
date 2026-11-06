@@ -136,7 +136,7 @@ export function helperWorld(dir) {
   for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.mjs') && !f.endsWith('.pw.mjs') && !f.endsWith('.config.mjs')))
     for (const { name, body } of topLevelFunctions(fs.readFileSync(path.join(dir, f), 'utf8')))
       fns.push({ name, body, world: directWorld(body), call: new RegExp(`\\b${name.replace(/\$/g, '\\$')}\\s*\\(`) });
-  for (let changed = true; changed; ) {
+  for (let changed = true; changed;) {
     changed = false;
     for (const fn of fns)
       for (const other of fns)
