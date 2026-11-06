@@ -227,6 +227,34 @@ export function bandEdgeQuote(quote, band, { tick, lot }) {
   return { ...quote, price: fromScaled(edge), amount: fromScaled(amount) };
 }
 
+/**
+ * The maker quote a crossing trade meets, or null (exported for tests). It is the other side's level-0 quote of this
+ * cycle's ladder, resting at the ladder's own price and amount, and only when the book's top level on that side, read
+ * just before the crossing, is exactly that quote: the same price and the same size. The taker's IOC takes every order
+ * at that price or better, best first, so with anything else at or ahead of the maker's quote (a person's order one cent
+ * above the best bid, a person's order at the same price queued first, or the maker's quote part-filled), it would
+ * trade with someone other than the maker. Then there is no crossing. (Failure it prevents: run 42171557580, J-cex-spot-01
+ * #7 to #11, a person's TEST buy one cent above the best bid part-filled by test_taker. Main's crossing priced at the
+ * level-0 quote whether or not anything was ahead of it, and this head's earlier fallback to a deeper resting quote
+ * swept further.)
+ */
+export function crossingQuote(ladder, resting, side, book) {
+  const want = side === 'buy' ? 'sell' : 'buy';
+  const top = ladder.find((q) => q.level === 0 && q.side === want);
+  if (!top) return null;
+  const same = (x, y) => {
+    try {
+      return toScaled(String(x)) === toScaled(String(y));
+    } catch {
+      return false;
+    }
+  };
+  if (!resting.some((q) => q.side === want && q.level === 0 && same(q.price, top.price) && same(q.amount, top.amount))) return null;
+  const level = (want === 'buy' ? book?.bids : book?.asks)?.[0];
+  if (!Array.isArray(level) || !same(level[0], top.price) || !same(level[1], top.amount)) return null;
+  return top;
+}
+
 /** The price band svc-trade's order check names for this order ({ low, high }), or null when it names none. */
 async function bandOf(client, m, side, price, amount) {
   const r = await client
@@ -941,18 +969,23 @@ async function runLoop(opts, home) {
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
           // every crossing then failed with 400 ledger.insufficient_funds).
           const n = (crossings.get(m.symbol) ?? 0) + 1;
-          const side = crossingSide(n);
           // Top the taker up through the real ledger if either leg is under half its target.
           await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
-          // The best quote that rests on the other side, so the crossing meets a price that is in the book.
-          const other = resting.filter((q) => q.side === (side === 'buy' ? 'sell' : 'buy'));
-          const best = other.sort((x, y) => x.level - y.level)[0];
-          if (!best) {
-            log(`${m.symbol} no crossing this cycle: none of the maker's ${side === 'buy' ? 'asks' : 'bids'} rests`);
+          // The book's top on both sides, read just before the crossing, so it meets only the maker's own quote.
+          const book = await maker
+            .http('GET', `/api/v1/orderbook/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false })
+            .catch(() => null);
+          // This crossing's side first; if it can't meet only the maker, the other side, so one side the maker can't
+          // cross on doesn't stop the tape.
+          const turn = [n, n + 1].find((k) => crossingQuote(ladder, resting, crossingSide(k), book?.status === 200 ? book.json : null));
+          if (turn === undefined) {
+            log(`${m.symbol} no crossing this cycle: the book's top is not the maker's own level-0 quote on either side`);
             continue;
           }
-          // Counted only once placed: a skipped crossing keeps its side for next time, so buys and sells still alternate.
-          crossings.set(m.symbol, n);
+          const side = crossingSide(turn);
+          const best = crossingQuote(ladder, resting, side, book.json);
+          // Counted only once placed, as the side placed: buys and sells still alternate.
+          crossings.set(m.symbol, turn);
           const r = await place(taker, m, side, best.price, best.amount, 'IOC');
           const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
           log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
