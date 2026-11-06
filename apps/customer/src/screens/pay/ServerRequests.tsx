@@ -337,7 +337,7 @@ export function RequestLists({ revision }: { revision: number }) {
 type Load = { kind: 'loading' } | { kind: 'missing' } | { kind: 'error' } | { kind: 'ok'; request: ServerRequest };
 
 /** One request kept by the bank (/pay/request/:requestId): the payer pays, declines or reports; the asker reminds or cancels. */
-export function ServerRequestRoom({ id }: { id: string }) {
+export function ServerRequestRoom({ id, onMissing }: { id: string; onMissing?: () => void }) {
   const { api, userId } = useSession();
   const requests = useMemo(() => createRequestsApi(api), [api]);
   const pay = useMemo(() => createPersonalPayApi(api, userId), [api, userId]);
@@ -356,6 +356,7 @@ export function ServerRequestRoom({ id }: { id: string }) {
   const [reminders, setReminders] = useState<ReminderFacts | 'unset' | null>(null);
   const [receipt, setReceipt] = useState<string | null>(null);
   const remindKey = useRef<string | null>(null);
+  const confirmingCode = useRef(false);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   useEffect(() => {
@@ -379,8 +380,12 @@ export function ServerRequestRoom({ id }: { id: string }) {
     });
     return () => controller.abort();
   }, [requests, id, userId, attempt]);
+  useEffect(() => {
+    if (load.kind === 'missing') onMissing?.();
+  }, [load.kind, onMissing]);
 
   if (load.kind === 'loading') return <div className="pay-block" aria-busy="true" data-testid="request-room-loading" />;
+  if (load.kind === 'missing' && onMissing) return null;
   if (load.kind === 'missing')
     return (
       <StateBlock
@@ -429,8 +434,17 @@ export function ServerRequestRoom({ id }: { id: string }) {
   }
 
   async function confirmCode() {
-    if (!stepUp || busy) return;
-    const code = stepUp.code.trim();
+    if (!stepUp || busy || confirmingCode.current) return;
+    confirmingCode.current = true;
+    try {
+      await confirmOnce(stepUp.code);
+    } finally {
+      confirmingCode.current = false;
+    }
+  }
+
+  async function confirmOnce(typed: string) {
+    const code = typed.trim();
     const input = {
       transferId: requestTransferId(request.requestId),
       toUserId: request.payeeUserId,
@@ -466,7 +480,8 @@ export function ServerRequestRoom({ id }: { id: string }) {
     setProblem(null);
     const result = await requests.remind(request.requestId, remindKey.current);
     setBusy(false);
-    remindKey.current = null;
+    // A definite answer ends this reminder; a lost reply keeps its key, so trying again is the same reminder.
+    if (result.ok || result.code !== undefined) remindKey.current = null;
     if (result.ok) {
       setReminders(result.data.reminder);
       setNote(t('reminded'));
@@ -546,6 +561,11 @@ export function ServerRequestRoom({ id }: { id: string }) {
       {request.status === 'paid' ? <p className="pay-hint">{t('closedPaid')}</p> : null}
       {request.status === 'expired' ? <p className="pay-hint">{t('closedExpired')}</p> : null}
       {request.status === 'declined' && iPay ? <p className="pay-hint">{t('declined', { handle: payee })}</p> : null}
+      {iPay && !open && !safety && !reporting ? (
+        <Button variant="ghost" size={40} onClick={() => setReporting({ reason: 'scam', block: true })} disabled={busy}>
+          {t('reportOnly')}
+        </Button>
+      ) : null}
 
       {iPay && safety ? (
         <div
@@ -621,7 +641,7 @@ export function ServerRequestRoom({ id }: { id: string }) {
         </section>
       ) : null}
 
-      {iPay && open && reporting ? (
+      {iPay && reporting ? (
         <section className="pay-block" aria-label={t('reportTitle')} data-testid="request-report">
           <h3 className="pay-section-title">{t('reportTitle')}</h3>
           <p className="pay-hint">{t('reportBody', { handle: payee })}</p>

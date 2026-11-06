@@ -1013,4 +1013,74 @@ describe('personal send and request (Postgres)', () => {
     expect(await available(BOB)).toBe('18');
     expect((await ada.personalRequest.get({ requestId: opened.requestId })).status).toBe('paid');
   });
+
+  it('a blocked asker cannot remind about another open request, and an expired request can still be reported and blocked', async () => {
+    await ready();
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const t0 = new Date('2026-11-06T10:00:00.000Z');
+    const other = await bank.personalPay.createRequest({
+      payeeUserId: ADA,
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: parseAmount('2'),
+      expiresAt: new Date('2026-12-01T00:00:00.000Z'),
+      idempotencyKey: 'request-block-other',
+      now: t0,
+    });
+    const short = await bank.personalPay.createRequest({
+      payeeUserId: ADA,
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: parseAmount('3'),
+      expiresAt: new Date('2026-11-06T11:00:00.000Z'),
+      idempotencyKey: 'request-block-short',
+      now: t0,
+    });
+    // Expired: reported as it stands, not declined, with the case and the block written.
+    const reported = await bank.personalPay.reportRequest(
+      BOB,
+      short.requestId,
+      { reason: 'harassment', block: true },
+      new Date('2026-11-06T12:00:00.000Z'),
+    );
+    expect(reported.request.status).toBe('expired');
+    expect(reported.safety).toMatchObject({ reason: 'harassment', blocked: true });
+    await expect(
+      bank.personalPay.remindRequest(ADA, other.requestId, 'remind-after-block', new Date('2026-11-06T12:00:00.000Z')),
+    ).rejects.toMatchObject({
+      code: 'bank.personal_request_unavailable',
+    });
+    const rows = await db.sql`SELECT 1 FROM bank.personal_request_reminds WHERE request_id = ${other.requestId}`;
+    expect(rows).toHaveLength(0);
+    expect((await bob.personalRequest.get({ requestId: other.requestId })).status).toBe('open');
+  });
+
+  it('a reminder whose notice could not go out does not use up the window', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '3',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-remind-lost',
+    });
+    const failing = new PersonalPayService(db.sql, ledger, bank.transfers, bank.spaces, {
+      handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+      notices: {
+        created: async () => {
+          throw new Error('bus down');
+        },
+        paid: async () => {},
+      },
+      remindPolicy: { cap: 1, windowSeconds: 86_400 },
+    });
+    const at = new Date('2026-11-06T10:00:00.000Z');
+    const lost = await failing.remindRequest(ADA, opened.requestId, 'remind-lost-1', at);
+    expect(lost.notice.delivered).toBe(false);
+    expect(lost.reminder.sentInWindow).toBe(0);
+    const sent = await bank.personalPay.remindRequest(ADA, opened.requestId, 'remind-lost-2', at);
+    expect(sent.notice.delivered).toBe(true);
+    expect(sent.reminder.sentInWindow).toBe(1);
+  });
 });

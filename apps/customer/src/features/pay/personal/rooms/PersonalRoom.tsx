@@ -85,12 +85,14 @@ function RequestRoom({ id, slice }: { id: string | null; slice: string }) {
   const { userId } = useSession();
   const { timeZone } = usePreferences();
   const [gone, setGone] = useState(false);
+  const [notAtBank, setNotAtBank] = useState(false);
   const entry = useMemo(() => (userId && id ? (readRequests(userId).find((row) => row.id === id) ?? null) : null), [userId, id, gone]);
   // A request the bank keeps (PP-send-request-12): one this device did not make as a link, with a request id.
-  if (id && !entry && !gone && isServerRequestId(id))
+  if (id && !entry && !gone && !notAtBank && isServerRequestId(id))
     return (
       <Frame title={t('serverRequestTitle')} line={t('serverRequestLine')}>
-        <ServerRequestRoom id={id} />
+        {/* A payment link made on another device has an id like a request's: the bank does not know it, so this falls back. */}
+        <ServerRequestRoom id={id} onMissing={() => setNotAtBank(true)} />
       </Frame>
     );
   return (

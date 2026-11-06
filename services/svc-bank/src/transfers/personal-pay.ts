@@ -974,12 +974,7 @@ export class PersonalPayService {
       throw new BankError('This recipient cannot receive payments', 'bank.recipient_cannot_receive');
     }
     // A person who blocked this asker on a report is not asked again. The refusal does not say a block exists.
-    const blocked = await this.sql<Array<{ key: string }>>`
-      SELECT key FROM bank.personal_request_blocks WHERE user_id = ${input.payerUserId} AND blocked_user_id = ${input.payeeUserId}
-    `;
-    if (blocked[0]) {
-      throw new BankError('This person cannot be asked for money (bank.personal_request_unavailable)', 'bank.personal_request_unavailable');
-    }
+    await this.assertNotBlocked(input.payerUserId, input.payeeUserId);
     const handles = await this.requireHandles(input.payeeUserId, input.payerUserId);
     const inserted = await this.sql<RequestRow[]>`
       INSERT INTO bank.personal_requests (
@@ -1070,14 +1065,9 @@ export class PersonalPayService {
         'bank.personal_request_claim_held',
       );
     }
-    const policy = this.options.remindPolicy ?? null;
-    if (!policy) {
-      throw new BankError(
-        'No reminder rule is published, so no reminder can be sent (bank.reminder_policy_unset)',
-        'bank.reminder_policy_unset',
-      );
-    }
-    const windowStart = new Date(now.getTime() - policy.windowSeconds * 1000);
+    const policy = this.remindPolicy();
+    // A person who blocked this asker is not reminded either. The refusal does not say a block exists.
+    await this.assertNotBlocked(row.payer_user_id, row.payee_user_id);
     const claimed = await this.sql.begin(async (tx) => {
       // One reminder decision at a time per request, so two at once cannot both pass the cap.
       await tx`SELECT id FROM bank.personal_requests WHERE id = ${requestId} FOR UPDATE`;
@@ -1085,16 +1075,11 @@ export class PersonalPayService {
         SELECT sequence, published_at FROM bank.personal_request_reminds
          WHERE request_id = ${requestId} AND idempotency_key = ${idempotencyKey}
       `;
-      if (prior[0]) return { ...prior[0], fresh: false };
-      const recent = await tx<Array<{ created_at: Date }>>`
-        SELECT created_at FROM bank.personal_request_reminds
-         WHERE request_id = ${requestId} AND created_at > ${windowStart}
-         ORDER BY created_at ASC
-      `;
-      if (recent.length >= policy.cap) {
-        const nextAllowedAt = new Date(recent[recent.length - policy.cap]!.created_at.getTime() + policy.windowSeconds * 1000);
+      if (prior[0]) return prior[0];
+      const facts = await this.reminderFacts(tx, requestId, policy, now);
+      if (facts.nextAllowedAt) {
         throw new BankError(
-          `${policy.cap} reminder${policy.cap === 1 ? '' : 's'} already went out in this window; the next is allowed at ${nextAllowedAt.toISOString()} (bank.personal_request_remind_capped)`,
+          `${policy.cap} reminder${policy.cap === 1 ? '' : 's'} already went out in this window; the next is allowed at ${facts.nextAllowedAt} (bank.personal_request_remind_capped)`,
           'bank.personal_request_remind_capped',
         );
       }
@@ -1109,10 +1094,10 @@ export class PersonalPayService {
         ON CONFLICT (request_id, idempotency_key) DO NOTHING
         RETURNING sequence, published_at
       `;
-      return { ...(inserted[0] ?? { sequence, published_at: null }), fresh: true };
+      return inserted[0] ?? { sequence, published_at: null };
     });
-    const reminder = await this.reminderFacts(requestId, policy, now);
     if (claimed.published_at) {
+      const reminder = await this.reminderFacts(this.sql, requestId, policy, now);
       return { ...this.toRequestView(row, now, { delivered: true, blocker: null }), reminder };
     }
     const notice = await this.publishCreated(row, claimed.sequence);
@@ -1121,7 +1106,14 @@ export class PersonalPayService {
         UPDATE bank.personal_request_reminds SET published_at = ${now}
          WHERE request_id = ${requestId} AND idempotency_key = ${idempotencyKey}
       `;
+    } else {
+      // The payer was not told, so this reminder does not use up the window: the asker may try again.
+      await this.sql`
+        DELETE FROM bank.personal_request_reminds
+         WHERE request_id = ${requestId} AND idempotency_key = ${idempotencyKey} AND published_at IS NULL
+      `;
     }
+    const reminder = await this.reminderFacts(this.sql, requestId, policy, now);
     return { ...this.toRequestView(row, now, notice), reminder };
   }
 
@@ -1130,6 +1122,10 @@ export class PersonalPayService {
     const now = this.now(at);
     const row = await this.mustRequest(requestId);
     this.assertParty(row, actorUserId, 'payee');
+    return this.reminderFacts(this.sql, requestId, this.remindPolicy(), now);
+  }
+
+  private remindPolicy(): RemindPolicy {
     const policy = this.options.remindPolicy ?? null;
     if (!policy) {
       throw new BankError(
@@ -1137,12 +1133,22 @@ export class PersonalPayService {
         'bank.reminder_policy_unset',
       );
     }
-    return this.reminderFacts(requestId, policy, now);
+    return policy;
   }
 
-  private async reminderFacts(requestId: string, policy: RemindPolicy, now: Date): Promise<ReminderFacts> {
+  private async assertNotBlocked(payerUserId: string, askerUserId: string): Promise<void> {
+    const blocked = await this.sql<Array<{ key: string }>>`
+      SELECT key FROM bank.personal_request_blocks WHERE user_id = ${payerUserId} AND blocked_user_id = ${askerUserId}
+    `;
+    if (blocked[0]) {
+      throw new BankError('This person cannot be asked for money (bank.personal_request_unavailable)', 'bank.personal_request_unavailable');
+    }
+  }
+
+  /** Reminders in the owner's window (each counted from when its row was written), and when the next may go. */
+  private async reminderFacts(db: Sql | TransactionSql, requestId: string, policy: RemindPolicy, now: Date): Promise<ReminderFacts> {
     const windowStart = new Date(now.getTime() - policy.windowSeconds * 1000);
-    const recent = await this.sql<Array<{ created_at: Date }>>`
+    const recent = await db<Array<{ created_at: Date }>>`
       SELECT created_at FROM bank.personal_request_reminds
        WHERE request_id = ${requestId} AND created_at > ${windowStart}
        ORDER BY created_at ASC
@@ -1155,9 +1161,9 @@ export class PersonalPayService {
   }
 
   /**
-   * The person asked to pay declines and reports the request, and may block the asker (PP-send-request-13). Three
-   * separate idempotent writes, each with its own key: the decline, the case (`report:<requestId>`), the block
-   * (`block:<userId>:<askerId>`). A retry finishes whatever a crash left; the asker only ever sees Declined.
+   * The person asked to pay reports the request, and may block the asker (PP-send-request-13): an open request is
+   * declined first, then the case (`report:<requestId>`) and the block (`block:<userId>:<askerId>`) are written together.
+   * A retry finishes whatever a crash left; the asker only ever sees the request's own status.
    */
   async reportRequest(
     actorUserId: string,
@@ -1174,25 +1180,29 @@ export class PersonalPayService {
         'bank.personal_request_report_reason',
       );
     }
+    // An open request is declined; one already paid, expired, cancelled or declined is reported as it stands.
     const request =
-      row.status === 'declined'
-        ? this.toRequestView(row, now, { delivered: true, blocker: null })
-        : await this.declineRequest(actorUserId, requestId, now);
-    const key = `report:${requestId}`;
-    await this.sql`
-      INSERT INTO bank.personal_request_reports (key, request_id, reporter_user_id, reported_user_id, reason, created_at)
-      VALUES (${key}, ${requestId}, ${actorUserId}, ${row.payee_user_id}, ${input.reason}, ${now})
-      ON CONFLICT (key) DO NOTHING
-    `;
-    const report = await this.reportFor(requestId);
-    if (!report) throw new BankError(`Report on request ${requestId} disappeared after insert`, 'bank.personal_request_not_found');
-    if (input.block) {
-      await this.sql`
-        INSERT INTO bank.personal_request_blocks (key, user_id, blocked_user_id, report_id, created_at)
-        VALUES (${`block:${actorUserId}:${row.payee_user_id}`}, ${actorUserId}, ${row.payee_user_id}, ${report.id}, ${now})
+      effectiveStatus(row, now) === 'open'
+        ? await this.declineRequest(actorUserId, requestId, now)
+        : this.toRequestView(row, now, { delivered: row.notice_blocker === null, blocker: row.notice_blocker });
+    // The case and the block are one write: a crash leaves both or neither, and a retry finishes it.
+    await this.sql.begin(async (tx) => {
+      await tx`
+        INSERT INTO bank.personal_request_reports (key, request_id, reporter_user_id, reported_user_id, reason, created_at)
+        VALUES (${`report:${requestId}`}, ${requestId}, ${actorUserId}, ${row.payee_user_id}, ${input.reason}, ${now})
         ON CONFLICT DO NOTHING
       `;
-    }
+      if (input.block) {
+        await tx`
+          INSERT INTO bank.personal_request_blocks (key, user_id, blocked_user_id, report_id, created_at)
+          SELECT ${`block:${actorUserId}:${row.payee_user_id}`}, ${actorUserId}, ${row.payee_user_id}, id, ${now}
+            FROM bank.personal_request_reports WHERE request_id = ${requestId}
+          ON CONFLICT DO NOTHING
+        `;
+      }
+    });
+    const report = await this.reportFor(requestId);
+    if (!report) throw new BankError(`Report on request ${requestId} disappeared after insert`, 'bank.personal_request_not_found');
     return { request, safety: await this.safetyView(actorUserId, row.payee_user_id, report) };
   }
 
