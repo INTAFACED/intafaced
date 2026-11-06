@@ -236,7 +236,12 @@ describe('G6: every Merchants page is founder-gated before it reads anything', (
       }),
     );
     expect(await outcome(run)).toBe('redirect:/login');
-    expect(seen.every((u) => u.includes('accountControls.operatorStatus'))).toBe(true);
+    // Only identity's two admission reads, never a merchant read: the founder check and, with APP_ENV test (stubbed
+    // above), the TEST staff check (founder-session.ts, local and test stacks only).
+    expect(seen.length).toBeGreaterThan(0);
+    expect(
+      seen.every((u) => u.includes('/identity/') && (u.includes('accountControls.operatorStatus') || u.includes('staffTestStatus'))),
+    ).toBe(true);
   });
 
   it.each(PAGES)('%s with the merchants module switched off redirects away without touching a service', async (_n, run) => {

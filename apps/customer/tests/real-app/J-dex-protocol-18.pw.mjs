@@ -1,3 +1,4 @@
+// World: book
 import { test, expect } from './journey.mjs';
 import { UNBUILT, dexRun } from './dex.mjs';
 import { fundedTrader, signIn } from './desk.mjs';

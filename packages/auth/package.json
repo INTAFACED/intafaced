@@ -17,6 +17,10 @@
     "./staff-permissions": {
       "types": "./dist/staff-permissions.d.ts",
       "default": "./dist/staff-permissions.js"
+    },
+    "./staff-test-roster": {
+      "types": "./dist/staff-test-roster.d.ts",
+      "default": "./dist/staff-test-roster.js"
     }
   },
   "scripts": {
