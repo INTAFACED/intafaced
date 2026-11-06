@@ -207,6 +207,25 @@ describe('getting a card (J-bank-13, PG-hard)', () => {
     expect((await orders.delivery(user, card.id)).address.line1).toBe('9 TEST Allee');
   });
 
+  it('names hardware as not connected on every delivery read, and shows the carrier and number the printer reports', async () => {
+    await accept();
+    const card = await physical();
+    expect(await orders.delivery(user, card.id)).toMatchObject({
+      state: 'ordered',
+      carrier: null,
+      trackingRef: null,
+      notConnected: 'hardware',
+    });
+    await orders.recordShipment({ cardId: card.id, state: 'produced' });
+    await orders.recordShipment({ cardId: card.id, state: 'shipped', carrier: 'TEST Post', trackingRef: 'TEST-1' });
+    expect(await orders.delivery(user, card.id)).toMatchObject({
+      state: 'shipped',
+      carrier: 'TEST Post',
+      trackingRef: 'TEST-1',
+      notConnected: 'hardware',
+    });
+  });
+
   it('on a lost report closes the card once, reverses its open hold once, and leaves one new inactive card', async () => {
     await accept();
     const card = await physical();

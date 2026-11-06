@@ -799,6 +799,13 @@ export type BankErrorCode =
   | 'bank.personal_request_self'
   | 'bank.personal_request_list_limit_unset'
   | 'bank.personal_request_payer_unknown'
+  /** The person asked blocked the asker on a report; the refusal does not say so. */
+  | 'bank.personal_request_unavailable'
+  /** The owner's reminder cap for the window is used; the message carries the next allowed time. */
+  | 'bank.personal_request_remind_capped'
+  | 'bank.personal_request_report_reason'
+  /** No reminder rule is published (`BANK_REQUEST_REMIND_POLICY_JSON` blank). */
+  | 'bank.reminder_policy_unset'
   | 'bank.pay_request_notify_unwired'
   /** No notices port for posted sends: the send stands, its notice stays owed. */
   | 'bank.transfer_notify_unwired'

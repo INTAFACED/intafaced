@@ -330,12 +330,18 @@ describe('svc-market listing eligibility', () => {
       const called: string[] = [];
       let active = 0;
       let peak = 0;
+      // Each lookup holds until the window's two lookups have both started (or 1 s has passed), so the peak measures whether
+      // they run together, not whether a fixed 20 ms outlasted the gap between them (under load it did not: #7119). A
+      // directory that looked them up one by one still peaks at 1.
+      let bothStarted: () => void = () => {};
+      const started = new Promise<void>((resolve) => (bothStarted = resolve));
       const reading = new VendorService(sql, {
         async entitlementOf(userId: string): Promise<VendorEntitlement> {
           called.push(userId);
           active += 1;
           peak = Math.max(peak, active);
-          await new Promise((resolve) => setTimeout(resolve, 20));
+          if (active === 2) bothStarted();
+          await Promise.race([started, new Promise((resolve) => setTimeout(resolve, 1_000))]);
           active -= 1;
           throw new Error('stake outage');
         },

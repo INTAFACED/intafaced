@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
 import type { OrderBook as WireBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { buildBook, buyShare, type BookRow } from './book-math';
 import { deskCopy } from './copy';
@@ -120,6 +120,9 @@ interface BookProps {
   zone: Preferences['timeZone'];
   onPick: (pick: BookPick) => void;
   onPickPrice: (price: string) => void;
+  /** The widget's place on the desk (C-workspace-01): its attributes, and the arrange controls when arranging. */
+  frame?: HTMLAttributes<HTMLDivElement> & { 'data-widget'?: string };
+  chrome?: ReactNode;
 }
 
 function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'onPickPrice'>) {
@@ -293,7 +296,7 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   );
 }
 
-function Tape({
+export function Tape({
   market,
   zone,
   onPickPrice,
@@ -363,11 +366,12 @@ function Tape({
 }
 
 /** Right column (UI-SPEC 5.7): Order book and Last trades. Trades are fetched only while their tab is showing. */
-export const BookPanel = memo(function BookPanel({ market, book, ticker, zone, onPick, onPickPrice }: BookProps) {
+export const BookPanel = memo(function BookPanel({ market, book, ticker, zone, onPick, onPickPrice, frame, chrome }: BookProps) {
   const { t } = deskCopy.useCopy();
   const [tab, setTab] = useState<'book' | 'trades'>('book');
   return (
-    <div data-testid="dk-book" className="dk-panel dk-book">
+    <div data-testid="dk-book" className="dk-panel dk-book" {...frame}>
+      {chrome}
       <Tabs value={tab} onValueChange={(value) => setTab(value as 'book' | 'trades')} className="dk-fill">
         <TabsList divider className="dk-tabs">
           <TabsTab value="book">{t('Order book')}</TabsTab>
