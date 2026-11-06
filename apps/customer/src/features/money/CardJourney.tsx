@@ -292,6 +292,9 @@ export function CardJourney({ card, reload }: { card: CardRecord; reload: () => 
   const { t } = cardOrderCopy.useCopy();
   const [dialog, setDialog] = useState<'activate' | 'report' | null>(null);
   const [replaced, setReplaced] = useState<string | null>(null);
+  // The report's result comes from the bank's own record too (closed, with the card that replaced it), so it still shows
+  // after the list reloads and this panel is drawn again.
+  const replacedBy = replaced ?? (card.status === 'closed' && card.cardType === 'physical' ? (card.replacedByCardId ?? null) : null);
   return (
     <div className="form-stack" data-testid="card-journey">
       <p data-testid="card-status" data-status={card.status}>
@@ -307,8 +310,8 @@ export function CardJourney({ card, reload }: { card: CardRecord; reload: () => 
           </Button>
         )}
       </div>
-      {replaced && (
-        <p role="status" data-testid="card-report-result" data-card-id={replaced}>
+      {replacedBy && (
+        <p role="status" data-testid="card-report-result" data-card-id={replacedBy}>
           {t('reported')}
         </p>
       )}
