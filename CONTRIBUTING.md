@@ -4,15 +4,11 @@ People and AI agents share one repo. This file is how that stays clean. The rule
 
 ---
 
-## 1 · The model: GitHub Flow
+## 1 · How a change lands
 
-- `main` is always deployable. Every change is a short-lived branch, then a pull request, then a squash merge.
-- No direct pushes to `main`. `.githooks/pre-push` blocks `git push` to `main` and requires `format:check`; `pnpm install` turns the hook on (`package.json` `prepare`). `--no-verify` skips the hook, so do not use it.
-- No long-lived branches. A branch older than about two days is a merge conflict waiting to happen. Split the work instead.
-- If `main` is red, diagnose the failure and coordinate a focused fix without competing edits. Never weaken a gate to get a green result.
-- Do not turn on required approvals or code-owner reviews. Review is asked for, not waited on (see section 3).
+The rules are in [`AGENTS.md`](AGENTS.md): read it first. In short: a short-lived branch in your own worktree, a pull request with its proof, the required checks green on its exact head, then a squash merge. No direct pushes to `main`: `.githooks/pre-push` blocks them and requires `format:check` (`pnpm install` turns the hook on); never use `--no-verify`. Never bypass a required check, and never weaken a gate to get green.
 
-Branch names: `feat/<scope>-<what>`, `fix/<scope>-<what>`, `chore/<what>`, `docs/<what>`. The scope is a service or package, for example `feat/svc-identity-rank-events`.
+Branch names: `feat/<scope>-<what>`, `fix/<scope>-<what>`, `chore/<what>`, `docs/<what>`. PR titles: `<type>(<scope>): <what changed>`; a gate-file change needs a `ci:` or `gate:` title. Fill in the template. Don't turn on required approvals or code-owner reviews, and don't open PRs whose only job is status.
 
 ---
 
@@ -32,29 +28,7 @@ Remove only your own worktree, never with `--force`. Never delete a branch. Neve
 
 ---
 
-## 3 · Pull requests
-
-One PR may carry one whole journey: every service, `packages/contracts` and `packages/events` that the journey needs (owner decision 2026-11-06). Money recipes in `packages/ledger-client`, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR (AGENTS.md "Services and events" 1 and 2). One concern per PR (AGENTS.md Git 1).
-
-Title: `<type>(<scope>): <what changed>`, for example `feat(svc-identity): rank recalculation on XP events`. A PR that changes a gate file (for example `tooling/ci`, `.github/workflows`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules`, `tooling/agent-protocol`, `docs/agents`; full list: `GATE_PATHS` in `tooling/scripts/gate-file-guard.mjs`) needs a `ci:` or `gate:` title. Fill in the template: what changed, why, how you know it works.
-
-Review: the author checks their own change and runs an automated code review on it (for example `/code-review`), answering each finding in the PR body, and, for a gate-file or look-baseline change, an independent reviewer in a different session checks the exact head commit (AGENTS.md, "Check, then merge" item 2). When you review, look in this order:
-
-1. Does it touch money? Read every line, and check the tests cover the failure branches.
-2. Does it cross a service boundary without `packages/contracts` or `packages/events`? Reject.
-3. Does it hold a balance outside the ledger? Reject.
-4. Is anything "temporary" or faked to look live? Reject.
-5. Everything else.
-
-Do not open PRs whose only job is status or a board update.
-
-Merge: squash, one commit per PR. Merge only when the required checks (`CI merge seal`, Gitleaks and Dependency audit) are green on the exact head and, for a gate-file or look-baseline change, the independent review passed that same head (AGENTS.md, "Check, then merge"). A red is confirmed by one re-run, never by a skip; a test that fails and then passes is flaky and gets an owner. There is no bypass.
-
----
-
-## 4 · Checks
-
-Run these on your machine before you push: affected tests, typecheck, and `pnpm exec prettier --check` on the files you changed. `pnpm verify` is a broad local check (gates, format, build, typecheck, test).
+## 3 · Checks
 
 CI job names, so you can find a failure fast:
 
@@ -68,13 +42,11 @@ CI job names, so you can find a failure fast:
 | `Definition of Done`                         | the per-service gate (`pnpm gate`)                                                                               |
 | `Gitleaks` / `Dependency audit`              | secrets and known vulnerabilities                                                                                |
 
-The merge gate blocks on failures your PR introduces; the rules are in AGENTS.md ("Check, then merge"). GitHub itself requires Gitleaks, Dependency audit and Doctrine gates to pass; a gate PASS does not override them, and you never bypass them.
-
-A 403 or 429 from GitHub means stop: report the response, keep working locally, and follow `tooling/agent-protocol/AGENT_PROTOCOL.md` section 3 before you resume. A merge is not a launch: deploys, live credentials, purchases and real funds need the owner.
+Which checks a change needs, and what to do with a red, is in AGENTS.md.
 
 ---
 
-## 5 · Day one
+## 4 · Day one
 
 ```bash
 gh repo clone Phantom-X-007/intafaced && cd intafaced
@@ -88,7 +60,7 @@ Then make your first change in a worktree (`pnpm wt feat/my-first-change`). Infr
 
 ---
 
-## 6 · Commits
+## 5 · Commits
 
 Conventional commits, because the scope prefix makes `git log` scannable:
 
