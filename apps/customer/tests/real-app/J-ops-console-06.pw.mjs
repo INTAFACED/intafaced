@@ -5,7 +5,7 @@ import { ADMIN, founderCode, founderSignIn } from './admin.mjs';
 import { forgetSession } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, paidCardPayment, payApiOf, signInWithCode, uuidOf, verifiedBusiness } from './merchant.mjs';
 import { unconfirmedAccount } from './p2p.mjs';
-import { fund } from './stack.mjs';
+import { fund, toUnits } from './stack.mjs';
 
 // J-ops-console-06: watch payments and send a payout by operator instruction (OPS-payments-desk-01 to -04). Written from
 // the journey row's words (project-state operation-zero/modules/ops-console/acceptance/journeys.md) before the feature,
@@ -80,13 +80,19 @@ async function traceKey(page, key) {
   return (await found.innerText()).trim();
 }
 
-/** Two founders, each signed in on their own browser context: A requests, B approves. */
+/** How much a balance went down from `start` to `now`, exactly, as scaled bigint units (every decimal place kept). */
+const heldSince = (start, now) => toUnits(start) - toUnits(now);
+
+/** Two founders, each signed in on their own browser context: A requests, B approves. Their handles come with them. */
 async function founders(browser) {
   const a = await (await browser.newContext()).newPage();
-  await founderSignIn(a, 'a');
+  const aWho = await founderSignIn(a, 'a');
   const b = await (await browser.newContext()).newPage();
-  await founderSignIn(b, 'b');
-  return { a, b };
+  const bWho = await founderSignIn(b, 'b');
+  expect(aWho.handle, 'founder A has a handle in the stack vault').toBeTruthy();
+  expect(bWho.handle, 'founder B has a handle in the stack vault').toBeTruthy();
+  expect(bWho.handle).not.toBe(aWho.handle);
+  return { a, b, aHandle: aWho.handle, bHandle: bWho.handle };
 }
 
 /**
@@ -396,18 +402,18 @@ test(`${J} #6 a TEST payout exists first as waiting_for_validation, the hold pos
   await expect(detail.getByTestId('operator-payout-partner-calls')).toContainText('No partner call yet');
   // The hold posted once, under the instruction's first business key: the customer's balance is down by exactly 10.
   expect(await traceKey(page, payoutKey(no, 1))).toBeTruthy();
-  expect(BigInt(start.split('.')[0]) - BigInt((await ledgerBalance(page, userId)).split('.')[0])).toBe(10n);
+  expect(heldSince(start, await ledgerBalance(page, userId))).toBe(toUnits('10'));
   // Opening and reloading the instruction posts nothing more.
   await openInstruction(page, no);
   await page.reload({ waitUntil: 'load' });
-  expect(BigInt(start.split('.')[0]) - BigInt((await ledgerBalance(page, userId)).split('.')[0])).toBe(10n);
+  expect(heldSince(start, await ledgerBalance(page, userId))).toBe(toUnits('10'));
 });
 
 test(`${J} #7 a different approver approves with a step-up token: the partner call carries the business reference, a confirmed answer settles, a definite failure reverses the hold`, async ({
   browser,
 }) => {
   test.setTimeout(420_000);
-  const { a, b } = await founders(browser);
+  const { a, b, aHandle, bHandle } = await founders(browser);
 
   // Confirmed: settled under the instruction's business reference.
   const ok = await fundedCustomer('jpay7a');
@@ -416,8 +422,11 @@ test(`${J} #7 a different approver approves with a step-up token: the partner ca
   let detail = await approveAsB(b, settledNo);
   await expect(detail.getByTestId('operator-payout-status')).toHaveText('settled', { timeout: 60_000 });
   expect(await partnerCalls(detail)).toEqual([{ reference: payoutKey(settledNo, 1), answer: 'confirmed' }]);
-  await expect(detail.getByTestId('operator-payout-approved-by')).toContainText((await founderHandle(b)) ?? '');
-  expect(BigInt(start.split('.')[0]) - BigInt((await ledgerBalance(a, ok.userId)).split('.')[0])).toBe(10n);
+  // Approved by founder B, the different approver, and not by the requester A.
+  const approvedBy = detail.getByTestId('operator-payout-approved-by');
+  await expect(approvedBy).toContainText(bHandle);
+  await expect(approvedBy).not.toContainText(aHandle);
+  expect(heldSince(start, await ledgerBalance(a, ok.userId))).toBe(toUnits('10'));
 
   // A definite failure: the hold is reversed and the customer has their money back.
   const bad = await fundedCustomer('jpay7b');
@@ -428,12 +437,6 @@ test(`${J} #7 a different approver approves with a step-up token: the partner ca
   expect(await partnerCalls(detail)).toEqual([{ reference: payoutKey(failedNo, 1), answer: 'failed' }]);
   expect(await ledgerBalance(a, bad.userId)).toBe(badStart);
 });
-
-/** The handle the console shows for the founder signed in on `page`. */
-async function founderHandle(page) {
-  const who = page.getByTestId('console-signed-in-as');
-  return (await who.count()) ? (await who.innerText()).trim() : null;
-}
 
 test(`${J} #8 a partner timeout keeps the instruction processing with its hold and a retry reuses the reference; after a proven failure the next attempt is n+1 with a new reference`, async ({
   browser,
@@ -448,7 +451,7 @@ test(`${J} #8 a partner timeout keeps the instruction processing with its hold a
   // The partner timed out: processing, the hold stays.
   await expect(detail.getByTestId('operator-payout-status')).toHaveText('processing', { timeout: 60_000 });
   expect(await partnerCalls(detail)).toEqual([{ reference: payoutKey(no, 1), answer: 'timeout' }]);
-  expect(BigInt(start.split('.')[0]) - BigInt((await ledgerBalance(a, userId)).split('.')[0])).toBe(10n);
+  expect(heldSince(start, await ledgerBalance(a, userId))).toBe(toUnits('10'));
 
   // A retry reuses the same reference; this time the partner proves the attempt failed.
   detail = await openInstruction(a, no);
@@ -469,7 +472,7 @@ test(`${J} #8 a partner timeout keeps the instruction processing with its hold a
   expect(calls.at(-1)).toEqual({ reference: payoutKey(no, 2), answer: 'confirmed' });
   expect(calls.filter((c) => c.reference === payoutKey(no, 2))).toHaveLength(1);
   // One payout of 10, however many attempts: the customer is down by exactly 10.
-  expect(BigInt(start.split('.')[0]) - BigInt((await ledgerBalance(a, userId)).split('.')[0])).toBe(10n);
+  expect(heldSince(start, await ledgerBalance(a, userId))).toBe(toUnits('10'));
 });
 
 test(`${J} #9 approving one’s own instruction is action_approval.same_person; a waiting one retires with audit and no money moves; a dispatched one is refused`, async ({
@@ -591,6 +594,6 @@ test(`${J} #11 terminating a stuck money workflow with two founders stops the sa
   await expect(theirs).toContainText('held for review');
   await expect(theirs.getByTestId('payment-workflow-intent')).toContainText(payoutKey(no, 1));
   // Terminating posted nothing: the hold is still there and the customer is still down by exactly 10.
-  expect(BigInt(start.split('.')[0]) - BigInt((await ledgerBalance(a, userId)).split('.')[0])).toBe(10n);
+  expect(heldSince(start, await ledgerBalance(a, userId))).toBe(toUnits('10'));
   expect(await traceKey(a, `ops:payout-reverse:${no}:1`)).toBeNull();
 });
