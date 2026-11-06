@@ -30,6 +30,7 @@ import {
   priceOnProtectionSide,
   requestHash,
   requireClientKey,
+  RISK_STOP_CLIENT_PREFIX,
   triggerCrossed,
   validateConditional,
   type AttachmentLeg,
@@ -1381,6 +1382,9 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       FROM trade.futures_conditional_orders o
       JOIN trade.markets m ON m.id = o.market_id
       WHERE o.status = 'armed'
+        -- A pre-liquidation stop's close order rests here to be seen and claimed, but only its own tick fires it: that
+        -- tick moves its trigger with the margin first, so a trigger left over from before a margin change never fires.
+        AND NOT starts_with(o.client_order_id, ${RISK_STOP_CLIENT_PREFIX})
       ORDER BY o.created_at, o.id
     `;
     let fired = 0;
@@ -1484,6 +1488,24 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         503,
       );
     }
+    // The stop's close order normally rests already (`syncRiskStop`): claim it under its book key, as the fired loop
+    // claims a crossed trigger, so the order the trader saw is the one that closes, and only one claim ever wins.
+    const resting = await findByClient(input.userId, input.clientOrderId);
+    if (resting) {
+      if (resting.status === 'armed') {
+        const claimed = await sql<{ id: string }[]>`
+          UPDATE trade.futures_conditional_orders
+          SET status = 'triggered', trigger_key = ${bookKey(resting.id)}, quantity = ${formatAmount(input.quantity)},
+              trigger_price = COALESCE(${input.mark == null ? null : formatAmount(input.mark)}, trigger_price), updated_at = now()
+          WHERE id = ${resting.id} AND status = 'armed' AND trigger_key IS NULL
+          RETURNING id
+        `;
+        const row = claimed.length === 1 ? await findByClient(input.userId, input.clientOrderId) : null;
+        if (row && row.status === 'triggered' && row.trigger_key === bookKey(row.id)) await executeClaimed(row);
+      }
+      const after = await findByClient(input.userId, input.clientOrderId);
+      return present(after ?? resting);
+    }
     const id = randomUUID();
     const inserted = await sql<{ id: string }[]>`
       INSERT INTO trade.futures_conditional_orders (
@@ -1503,6 +1525,88 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     if (inserted.length === 1 && row.status === 'triggered' && row.trigger_key === bookKey(row.id)) await executeClaimed(row);
     const after = await findByClient(input.userId, input.clientOrderId);
     return present(after ?? row);
+  }
+
+  /**
+   * Keeps a pre-liquidation stop's close order resting as the stop stands (`../risk-stop.ts`). Every other armed order
+   * of an earlier stop on this position (`risk-stop:<position>:*`) comes off. With a current client id, its order is
+   * written armed if it is not there yet (a crash between arming the stop and writing it is mended on the next tick),
+   * and while it is still armed its trigger and size follow the stop's mark and the position. Safe to run again.
+   */
+  async function syncRiskStop(input: {
+    userId: string;
+    marketId: string;
+    positionId: string;
+    clientOrderId: string | null;
+    side: ConditionalSide;
+    quantity: Amount;
+    triggerPrice: Amount | null;
+    cancelReason: string;
+  }): Promise<ConditionalOrderView | null> {
+    const prefix = `${RISK_STOP_CLIENT_PREFIX}${input.positionId}:`;
+    // Re-checked inside each write, so a set() that committed a newer stop between the read below and a write here is
+    // seen by that write, and this caller's stale view changes nothing.
+    const stillStands = sql`EXISTS (
+      SELECT 1 FROM trade.futures_risk_stops s
+      WHERE s.position_id = ${input.positionId} AND s.user_id = ${input.userId}
+        AND ${
+          input.clientOrderId == null
+            ? sql`s.status <> 'armed'`
+            : sql`s.status = 'armed' AND s.close_client_order_id = ${input.clientOrderId}`
+        }
+    )`;
+    // Only for the stop as it stands now: a caller that read an earlier stop (a tick racing a new level) changes nothing.
+    const [current] = await sql<{ close_client_order_id: string | null; status: string }[]>`
+      SELECT close_client_order_id, status FROM trade.futures_risk_stops
+      WHERE position_id = ${input.positionId} AND user_id = ${input.userId}
+    `;
+    const stands =
+      input.clientOrderId == null
+        ? !current || current.status !== 'armed'
+        : current?.status === 'armed' && current.close_client_order_id === input.clientOrderId;
+    if (!stands) return input.clientOrderId == null ? null : getByClientId(input.userId, input.clientOrderId);
+    await sql`
+      UPDATE trade.futures_conditional_orders
+      SET status = 'cancelled', cancel_reason = ${input.cancelReason}, updated_at = now()
+      WHERE user_id = ${input.userId} AND position_id = ${input.positionId} AND status = 'armed'
+        AND starts_with(client_order_id, ${prefix})
+        AND client_order_id IS DISTINCT FROM ${input.clientOrderId}
+        AND (${stillStands} OR NOT EXISTS (
+          SELECT 1 FROM trade.futures_risk_stops s WHERE s.position_id = ${input.positionId} AND s.user_id = ${input.userId}
+        ))
+    `;
+    if (input.clientOrderId == null) return null;
+    const existing = await findByClient(input.userId, input.clientOrderId);
+    if (!existing) {
+      if (input.triggerPrice == null || input.quantity <= 0n) return null;
+      await sql`
+        INSERT INTO trade.futures_conditional_orders (
+          id, user_id, market_id, position_id, client_order_id, kind, side, quantity, trigger_price,
+          trigger_source, reduce_only, attachment, part_leg, status, request_hash
+        )
+        SELECT
+          ${randomUUID()}, ${input.userId}, ${input.marketId}, ${input.positionId}, ${input.clientOrderId}, 'stop_market',
+          ${input.side}, ${formatAmount(input.quantity)}, ${formatAmount(input.triggerPrice)},
+          'mark', true, null, false, 'armed', ${`${RISK_STOP_CLIENT_PREFIX}${input.clientOrderId}`}
+        WHERE ${stillStands}
+        ON CONFLICT ON CONSTRAINT futures_conditional_orders_user_client_uq DO NOTHING
+      `;
+    } else if (existing.status === 'armed' && input.quantity > 0n) {
+      // A mark that cannot be worked out now clears the trigger rather than leaving an old one on show; only the stop's
+      // own tick fires this order, on fresh figures, so a cleared trigger never fires it.
+      const price = input.triggerPrice == null ? null : formatAmount(input.triggerPrice);
+      const qty = formatAmount(input.quantity);
+      const was = existing.trigger_price == null ? null : parseAmount(existing.trigger_price);
+      if (was !== input.triggerPrice || parseAmount(existing.quantity) !== input.quantity) {
+        await sql`
+          UPDATE trade.futures_conditional_orders
+          SET trigger_price = ${price}, quantity = ${qty}, updated_at = now()
+          WHERE id = ${existing.id} AND status = 'armed' AND trigger_key IS NULL
+        `;
+      }
+    }
+    const row = await findByClient(input.userId, input.clientOrderId);
+    return row ? present(row) : null;
   }
 
   /** A conditional order by its client id, or null when none was written under it. */
@@ -1533,6 +1637,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     listEntryProtection,
     evaluate,
     fireRiskStop,
+    syncRiskStop,
     getByClientId,
     placeResting,
   };
