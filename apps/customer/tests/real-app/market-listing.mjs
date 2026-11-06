@@ -74,5 +74,35 @@ export async function testStrategyListing(page, { title, price = '10', assetId =
     }),
     'createStrategyListing',
   );
-  return { seller, listing };
+  // The journey starts from a listing two founders approved (it waits in applied until they do).
+  await reviewListing(listing.id);
+  return { seller, listing: { ...listing, reviewState: 'approved' } };
+}
+
+/**
+ * Two TEST founders decide one listing in svc-market's review, through its own door (MC-market-03): founder a proposes
+ * in identity, founder b approves, founder a runs `ops.listingReview.decide` with `market:ops`. A new listing of every
+ * kind waits in `applied` until this runs; only an approved listing is public or sold. Returns svc-market's answer.
+ */
+export async function reviewListing(listingId, decision = 'approved', reason = 'TEST listing meets the TEST criteria (journey setup)') {
+  const gates = await gatesTool();
+  const ctx = await gates.makeContext({ log: () => {} });
+  const pair = await gates.approverSessions(ctx);
+  const ids = await gates.twoPerson(ctx, pair, {
+    actionType: 'market.listing.review',
+    targetService: 'svc-market',
+    targetId: listingId,
+    expectedVersion: '1',
+    payloadHash: gates.matchingPayloadHash('market.listing.review', { listingId, decision, reason }),
+    policyVersion: gates.MARKERS.policyVersion,
+  });
+  const res = await ctx.edge.mutate(
+    'market',
+    'ops.listingReview.decide',
+    { listingId, decision, reason, ...ids },
+    await pair.a.marketOpsToken(),
+  );
+  const row = res.json?.result?.data;
+  expect(row, `listing review refused (${res.status}): ${gates.refusalText(res)}`).toMatchObject({ listingId, reviewState: decision });
+  return row;
 }

@@ -4,7 +4,7 @@ import { test, expect } from './journey.mjs';
 import { api, fund, journeyState, ORIGIN, toUnits, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
-import { approvedSeller, testStrategyListing } from './market-listing.mjs';
+import { approvedSeller, reviewListing, testStrategyListing } from './market-listing.mjs';
 
 // J-more-catalogue-02, in the running app (docs/roadmap/journeys.json): find a strategy in the Market and buy it. One test
 // per step, titled "J-more-catalogue-02 #<n>". The buyer is a TEST account on the local stack, verified and funded with
@@ -237,8 +237,10 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
     const filed = (await client.get(`/api/market/trpc/myListings?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`)).body.result
       .data;
     expect(filed.filter((row) => row.title === title)).toEqual([
-      expect.objectContaining({ offerType: 'one_time', price: '5', status: 'active' }),
+      expect.objectContaining({ offerType: 'one_time', price: '5', status: 'active', reviewState: 'applied' }),
     ]);
+    // A new listing waits for the founders' review (MC-market-03); two TEST founders approve it through svc-market.
+    await reviewListing(filed.find((row) => row.title === title).id);
   } finally {
     await sellerContext.close();
   }
@@ -306,10 +308,10 @@ test(`${J} #3 every kind of listing shows its review state: svc-market's own, on
   const review = (card) => card.locator('[data-review-state]');
   // svc-market's words for each state, as the customer copy names them (en).
   const words = {
-    in_review: 'In review by the Market’s operators',
+    applied: 'Waiting for review by the Market’s operators',
+    reviewing: 'In review by the Market’s operators',
     approved: 'Approved by the Market’s operators',
     rejected: 'Rejected by the Market’s operators',
-    suspended: 'Seller suspended by the Market’s operators',
     taken_down: 'Taken down by the Market’s operators',
   };
   const showsItsState = async (rows) => {
