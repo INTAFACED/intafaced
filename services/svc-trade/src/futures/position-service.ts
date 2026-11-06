@@ -41,6 +41,7 @@ import {
   parseAmount,
   positionCollateralAccount,
   recipes,
+  SCALE as LEDGER_SCALE,
   userAvailable,
   type Amount,
   type LedgerClient,
@@ -1438,7 +1439,7 @@ export class PositionService {
     } else {
       const equity = parseAmount(String(collateral)) + parseAmount(String(unrealized));
       if (equity <= 0n) ratioReason = 'equity_not_positive';
-      else marginRatio = (parseAmount(String(maintenance)) * 10n ** 18n) / equity;
+      else marginRatio = (parseAmount(String(maintenance)) * LEDGER_SCALE) / equity;
     }
     let stopPrice: Amount | null = null;
     let stopPriceReason: string | null = null;

@@ -16,12 +16,12 @@
  * the next tick; a crash after the order finds the same order. A new level is a new generation, so a stop re-armed
  * after it fired never reuses the first close's id.
  */
-import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { SCALE, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { FuturesError, type RiskStopFigures } from './position-service.js';
 import type { ConditionalOrderView } from './conditional-orders/service.js';
 
-const ONE = 10n ** 18n;
+const ONE = SCALE;
 /** A close order in one of these states will not change again. */
 const CLOSE_FINAL = new Set(['filled', 'failed', 'cancelled']);
 const HUNDRED = 100n;
