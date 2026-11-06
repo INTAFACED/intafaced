@@ -240,11 +240,10 @@ test(`${J} #9 reads the evaluation status: whether server-side checks are connec
 // Last in the file (the steps run in order on one account), so the alerts it adds change no count the steps above read.
 test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds conditions up to the cap; an indicator alert refuses`, async () => {
   test.setTimeout(4 * SWEEP_MS);
-  // The book's two sides as Edge serves them, and a level halfway between: at or above it holds on the ask, not the bid.
+  // The TEST book has a spread, so its best ask sits above its best bid at any one moment.
   const res = await fetch(`${EDGE}/api/v1/ticker/${encodeURIComponent('BTC/USDT')}`);
-  const { bid, ask } = await res.json();
+  const { bid, ask, last } = await res.json();
   expect(cents(String(ask)) - cents(String(bid)), 'the TEST book has a spread').toBeGreaterThan(2n);
-  const level = fromCents((cents(String(bid)) + cents(String(ask))) / 2n);
   // The sources offered, as the person reads them.
   const source = form().getByRole('combobox', { name: 'Price to watch' });
   await expect(source.locator('option')).toHaveText([
@@ -253,20 +252,40 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
     'Best ask',
     'Last trade',
   ]);
-  for (const [name, side] of [
-    ['TEST on the ask', 'Best ask'],
-    ['TEST on the bid', 'Best bid'],
+  // Two alerts at or above levels far under the market, so the next sweep fires both from one read of the book. The TEST
+  // market maker moves the book further in a minute than its spread, so a level between the two sides would be luck; the
+  // price each one fired at is what shows which side it watched.
+  const onAsk = testPrice(80, String(last));
+  const onBid = testPrice(79, String(last));
+  for (const [name, side, level] of [
+    ['TEST on the ask', 'Best ask', onAsk],
+    ['TEST on the bid', 'Best bid', onBid],
   ]) {
     await source.selectOption({ label: side });
     await createAlert({ condition: 'At or above', price: level, name });
     await expect(rowWith(name).getByTestId('nf-body').first()).toHaveText(`At or above ${level} USDT · ${side}`);
   }
-  // The sweep reads each alert's own side: the ask is at or above the level, the bid is not.
+  const log = page.getByTestId('alerts-log');
+  const trigger = (level) => log.getByTestId('alert-trigger').filter({ hasText: `At or above ${level}.` });
   await expect(async () => {
     await page.reload();
-    await expect(rowWith('TEST on the ask')).toHaveAttribute('data-status', 'fired', { timeout: 2_000 });
+    await expect(trigger(onAsk)).toHaveCount(1, { timeout: 2_000 });
+    await expect(trigger(onBid)).toHaveCount(1, { timeout: 2_000 });
   }).toPass({ timeout: 3 * SWEEP_MS, intervals: [5_000] });
-  await expect(rowWith('TEST on the bid')).toHaveAttribute('data-status', 'active');
+  const firedAt = async (level) => {
+    const text = await trigger(level).getByTestId('nf-body').textContent();
+    const price = /Price when it triggered: (\d+(?:\.\d+)?)/.exec(text)?.[1];
+    expect(price, text).toBeTruthy();
+    return { price: cents(price), when: (await trigger(level).locator('.nf-muted').textContent()).trim() };
+  };
+  const [askFire, bidFire] = [await firedAt(onAsk), await firedAt(onBid)];
+  // One sweep (sweeps are a minute apart, so the same minute is the same pass), one read of the book: the ask alert fired at
+  // a higher price than the bid alert, by no more than a spread. Had either fallen back to the mark, the two would match.
+  expect(askFire.when, 'both fired in the same sweep').toBe(bidFire.when);
+  expect(askFire.price > bidFire.price, `ask ${fromCents(askFire.price)} above bid ${fromCents(bidFire.price)}`).toBe(true);
+  expect((askFire.price - bidFire.price) * 100n < askFire.price, 'apart by a spread, not a market move').toBe(true);
+  await expect(rowWith('TEST on the ask')).toHaveAttribute('data-status', 'fired');
+  await expect(rowWith('TEST on the bid')).toHaveAttribute('data-status', 'fired');
   // More conditions, up to the owner's cap (the main one included), and no further.
   const quotaRead = page.waitForResponse((r) => /notify\.alertQuota\b/.test(r.url()));
   await page.reload();
