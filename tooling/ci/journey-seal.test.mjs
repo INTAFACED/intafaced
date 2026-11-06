@@ -8,6 +8,8 @@ import {
   currentReportArtifact,
   judgeSteps,
   exemptions,
+  bareJourneys,
+  loadJourneys,
   namesSteps,
   recheckPulls,
   recheckStep,
@@ -390,12 +392,13 @@ test('Codex round 2, 3: an edit to an unreadable range re-runs a green seal', ()
     title: 'svc-bank: x (J-bank-13 #1-#100)',
   };
   assert.deepEqual(
-    recheckPulls({ pulls: [pull], sha: HEAD, repo: REPO, oldTitle: 'svc-bank: fix J-bank-13' }).map((p) => p.number),
+    recheckPulls({ pulls: [pull], sha: HEAD, repo: REPO, oldTitle: 'svc-bank: fix the card room' }).map((p) => p.number),
     [5],
   );
-  assert.equal(namesSteps('svc-bank: fix J-bank-13'), false);
+  assert.equal(namesSteps('svc-bank: fix the card room'), false);
+  assert.equal(namesSteps('svc-bank: fix J-bank-13'), true, 'a journey named with no step numbers names its steps (#7265)');
   assert.equal(namesSteps('x (J-bank-13 #1-#100)'), true);
-  const plain = { ...pull, title: 'svc-bank: fix J-bank-13' };
+  const plain = { ...pull, title: 'svc-bank: fix the card room' };
   assert.deepEqual(
     recheckPulls({ pulls: [plain], sha: HEAD, repo: REPO, oldTitle: 'svc-bank: fix it' }),
     [],
@@ -498,4 +501,61 @@ test('the recheck skips a finished CI run with no seal job and re-runs the newes
     rerunSealJob({ repo: 'o/r', sha: HEAD, get: get3, post: async () => ({ status: 201 }), sleep: async () => {} }),
     /no CI run on this head has a CI merge seal job/,
   );
+});
+
+// #7265 merged at 09:25:36 UTC 6 Nov with J-charts-desk-15 #1 red in full run 42189311428: its title named the journey
+// with no step numbers, and the seal read that as naming no step (seal job 127800080421). A journey named without step
+// numbers now names every step main's docs/roadmap/journeys.json lists for it; one that list doesn't have fails, typed.
+const T7265 =
+  'customer,svc-trade: J-charts-desk-15 place and move orders from the chart (preview line, plus button, order lines, drag to replace, protection distance, halt refusal)';
+const desk15 = new Map([['J-charts-desk-15', [1, 2, 3, 4]]]);
+test('planted fault (#7265): a journey named with no step numbers names all its steps, and a red one fails', async () => {
+  assert.deepEqual(bareJourneys(T7265), ['J-charts-desk-15']);
+  const states = {
+    'J-charts-desk-15#1': 'failed',
+    'J-charts-desk-15#2': 'passed',
+    'J-charts-desk-15#3': 'passed',
+    'J-charts-desk-15#4': 'passed',
+  };
+  const v = await judge({
+    title: T7265,
+    journeys: desk15,
+    runs: [run(1, { conclusion: 'failure' })],
+    reportOf: reports({ 1: { states } }),
+  });
+  assert.equal(v.ok, false);
+  assert.match(v.lines.join('\n'), /J-charts-desk-15#1: failed in run 1/);
+  assert.match(v.lines.join('\n'), /Left-or-replaced: J-charts-desk-15 #1$/m);
+  const green = Object.fromEntries(Object.keys(states).map((k) => [k, 'passed']));
+  assert.equal((await judge({ title: T7265, journeys: desk15, runs: [run(1)], reportOf: reports({ 1: { states: green } }) })).ok, true);
+  assert.equal(
+    (await judge({ title: T7265, journeys: desk15, reportOf: async () => assert.fail('no run') })).ok,
+    false,
+    'no run: not green',
+  );
+});
+
+test("a journey named with no step numbers that main's journeys.json lacks fails with a typed error", async () => {
+  const v = await judge({ title: 'svc-x: J-new-journey-01 first slice', journeys: desk15, reportOf: async () => assert.fail('no run') });
+  assert.equal(v.ok, false);
+  assert.match(
+    v.lines.join('\n'),
+    /J-new-journey-01 is named with no step numbers and docs\/roadmap\/journeys.json on main has no such journey: name the steps/,
+  );
+});
+
+test('bare journeys: an id the title also names with steps is not bare; a Revert title names none; namesSteps sees them', () => {
+  assert.deepEqual(bareJourneys('svc-bank: J-bank-13 I get a card (J-bank-13 #1 #2)'), []);
+  assert.deepEqual(bareJourneys('x: J-bank-13 and J-bank-14 #2'), ['J-bank-13']);
+  assert.deepEqual(bareJourneys('fix(journeys): j-Merchant-01 declares stack'), ['J-merchant-01']);
+  assert.deepEqual(bareJourneys('Revert "x: J-bank-13 cards"'), []);
+  assert.deepEqual(bareJourneys('ci: 12 J-bank steps'), []);
+  assert.equal(namesSteps(T7265), true, 'an edit to such a title re-runs the seal');
+});
+
+test("the journeys list is read from main's docs/roadmap/journeys.json beside the script", () => {
+  const book = loadJourneys();
+  assert.ok(book.size > 100, `read ${book.size} journeys`);
+  assert.ok((book.get('J-charts-desk-15') ?? []).includes(1));
+  assert.throws(() => loadJourneys('/nonexistent/journeys.json'), /is missing/);
 });

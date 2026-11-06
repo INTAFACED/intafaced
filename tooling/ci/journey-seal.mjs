@@ -39,10 +39,10 @@
  *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { JOURNEYS_ARTIFACT, readReport } from './journey-verdict.mjs';
 import { groupPulls } from './review-marker.mjs';
 
@@ -90,6 +90,30 @@ const isRevert = (title) => REVERT_TITLE.test(String(title ?? '').trim());
 
 /** The steps a pull request title names. */
 export const titleSteps = (title) => (isRevert(title) ? [] : stepsIn(title));
+
+/**
+ * Journey ids a title names with no step numbers anywhere in it (`J-charts-desk-15 place and move orders`). Each names
+ * every step of that journey (journeyStepsFor), so a title can't skip the seal by leaving its numbers out: #7265 merged
+ * at 09:25:36 UTC 6 Nov with J-charts-desk-15 #1 red in full run 42189311428, because its title named the journey with
+ * no steps and the seal read that as naming none (seal job 127800080421). A Revert-button title names none.
+ */
+export function bareJourneys(title) {
+  if (isRevert(title)) return [];
+  const withSteps = new Set(stepsIn(title).map((k) => k.split('#')[0]));
+  const ids = [...String(title ?? '').matchAll(/\bJ-[a-z0-9]+(?:-[a-z0-9]+)*-\d+\b/gi)].map((m) => m[0].toLowerCase().replace(/^j-/, 'J-'));
+  return [...new Set(ids)].filter((id) => !withSteps.has(id)).sort(byStep);
+}
+
+/**
+ * Every journey's step numbers, from docs/roadmap/journeys.json beside this script: in CI that is the default branch's
+ * copy (the seal runs main's script from its own worktree), so a pull request can't shrink the list it is judged by.
+ * Map of id → [n]. Unreadable: throws, and the seal fails closed.
+ */
+export function loadJourneys(file = fileURLToPath(new URL('../../docs/roadmap/journeys.json', import.meta.url))) {
+  if (!existsSync(file)) throw new Error(`${file} is missing, so a journey named without step numbers can't be read`);
+  const list = JSON.parse(readFileSync(file, 'utf8'));
+  return new Map((Array.isArray(list) ? list : (list.journeys ?? [])).map((j) => [j.id, (j.steps ?? []).map((st) => st.n)]));
+}
 
 /** Step ranges in a title that can't be read as steps (an end past STEP_MAX): each fails the seal closed. */
 export function titleProblems(title) {
@@ -161,8 +185,20 @@ const leaveLine = (keys) =>
  * filters again). `reportOf(run)`: { states } of the run's current-attempt report, or { error }. Pure but for reportOf.
  * Returns { ok, state: 'none'|'pass'|'wait'|'fail', lines: [...] }.
  */
-export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitOnRunning = true }) {
-  const named = titleSteps(title);
+export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitOnRunning = true, journeys }) {
+  const bare = bareJourneys(title);
+  const book = bare.length ? (journeys ?? loadJourneys()) : new Map();
+  const unknown = bare.filter((id) => !(book.get(id) ?? []).length);
+  if (unknown.length)
+    return {
+      ok: false,
+      state: 'fail',
+      lines: unknown.map(
+        (id) =>
+          `${id} is named with no step numbers and docs/roadmap/journeys.json on main has no such journey: name the steps it delivers (\`${id} #1 #2\`)`,
+      ),
+    };
+  const named = [...new Set([...titleSteps(title), ...bare.flatMap((id) => book.get(id).map((n) => `${id}#${n}`))])].sort(byStep);
   const unreadable = titleProblems(title);
   if (unreadable.length)
     return {
@@ -332,7 +368,7 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
     repo,
     title: pull.title,
     body: pull.body,
-    runs: titleSteps(pull.title).length ? await io.runs(head) : [],
+    runs: namesSteps(pull.title) ? await io.runs(head) : [],
     reportOf: (r) => io.reportOf(r),
     waitOnRunning,
   });
@@ -404,7 +440,7 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
 }
 
 /** A title the seal judges: it names steps, or holds a range that can't be read as steps (which fails the seal). */
-export const namesSteps = (title) => titleSteps(title).length > 0 || titleProblems(title).length > 0;
+export const namesSteps = (title) => titleSteps(title).length > 0 || titleProblems(title).length > 0 || bareJourneys(title).length > 0;
 
 /**
  * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`).
