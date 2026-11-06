@@ -1455,6 +1455,11 @@ export const tierRedefineRequestId = (tier, expectedVersion) =>
   populateUuid(
     `merchant-tier-redefine-${tier.id}-v${expectedVersion}-${crypto.createHash('sha256').update(canonicalJson(tier)).digest('hex').slice(0, 16)}`,
   );
+/** The tier fee layer's key names its rules too, so a changed TEST rule at the same layer version is a new change, never a replay. */
+export const tierPricingLayerRequestId = (tierId, expectedVersion, rules) =>
+  populateUuid(
+    `merchant-tier-layer-${tierId}-v${expectedVersion}-${crypto.createHash('sha256').update(canonicalJson(rules)).digest('hex').slice(0, 16)}`,
+  );
 export const tierAssignRequestId = (merchantId, tierId, expectedVersion) =>
   populateUuid(`merchant-tier-assign-${merchantId}-${tierId}-v${expectedVersion}`);
 
@@ -3263,7 +3268,7 @@ async function populateTierPricing(ctx, tier, merchantId) {
   if (applies) return record('merchant', what, 'exists', `a ${applies.assetCode} rule applies to ${merchantId}`);
   const pair = await operatorPair(ctx);
   if (!pair.ok) return record('merchant', what, 'refused', pair.refusal);
-  const { planPricingLayer, tierLayerRequestId } = await import('./local-test-merchant-pricing.mjs');
+  const { planPricingLayer } = await import('./local-test-merchant-pricing.mjs');
   const read = await pair.gctx.edge.query(
     'pay',
     'founderAdmin.control.pricing.rules',
@@ -3281,7 +3286,7 @@ async function populateTierPricing(ctx, tier, merchantId) {
     submitProc: 'founderAdmin.control.configure.submit',
     confirmProc: 'founderAdmin.control.configure.confirm',
     input: {
-      requestId: tierLayerRequestId(tier.id, plan.expectedVersion),
+      requestId: tierPricingLayerRequestId(tier.id, plan.expectedVersion, rules),
       change: target.change,
       reason,
       expectedVersion: plan.expectedVersion,

@@ -52,23 +52,25 @@ export async function signInWithCode(page, who, destination) {
 export const MERCHANT_TIER_BUDGET_MS = 300_000;
 
 /**
- * Puts a business on its TEST tier through the two founders (`tooling/scripts/local-test-merchant-pricing.mjs`) and returns
- * what they read back. Asynchronous, so the worker keeps answering Playwright while the founders sign in, which can wait out
- * TOTP steps.
+ * Runs a founders' TEST script (`tooling/scripts/<script>`) and returns the JSON on its last stdout line. Asynchronous, so
+ * the worker keeps answering Playwright while the founders sign in, which can wait out TOTP steps.
  */
-export async function merchantTier(merchantId, kind = 'open') {
+export async function foundersScript(script, args) {
   // The founders' sign-in can wait out TOTP steps: the test calling this gets that time on top of its own limit, so a slow
   // sign-in ends with the script's own error (its refusal, or this bound), never as the test's timeout (review of #7066).
   // A step on the run's fail-fast plan keeps its short limit (journey.mjs failFastStep): it is expected to fail.
   const info = test.info();
   if (info.timeout > FAIL_FAST.testMs) info.setTimeout(info.timeout + MERCHANT_TIER_BUDGET_MS);
-  const { stdout } = await promisify(execFile)(
-    process.execPath,
-    [path.join(ROOT, 'tooling/scripts/local-test-merchant-pricing.mjs'), merchantId, '--tier', kind],
-    { cwd: ROOT, encoding: 'utf8', timeout: MERCHANT_TIER_BUDGET_MS },
-  );
+  const { stdout } = await promisify(execFile)(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: MERCHANT_TIER_BUDGET_MS,
+  });
   return JSON.parse(stdout.trim().split('\n').pop());
 }
+
+/** Puts a business on its TEST tier through the two founders (`local-test-merchant-pricing.mjs`); returns what they read back. */
+export const merchantTier = (merchantId, kind = 'open') => foundersScript('local-test-merchant-pricing.mjs', [merchantId, '--tier', kind]);
 
 /** Step 1 of setup, as the owner fills it: a TEST business with the stack's TEST starter fee. Stays on onboarding and
  * returns the new merchant's id. The stack enforces merchant controls (PAY_MERCHANT_CONTROLS=required), so the founders

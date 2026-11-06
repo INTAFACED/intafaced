@@ -61,6 +61,7 @@ import {
   MERCHANT_PAYOUT_DESTINATION,
   MERCHANT_PAYOUT_PAYMENT_N,
   MERCHANT_TIER_PRICING_RULE,
+  tierPricingLayerRequestId,
   MERCHANT_TIERS,
   assignTierTarget,
   defineTierTarget,
@@ -669,6 +670,14 @@ try {
     'every TEST DATA payment fits one payment',
   );
   assert.equal(MERCHANT_TIER_PRICING_RULE.assetCode, 'USDT');
+  // The fee layer's key is a business key over the tier, the version and the rules: a changed TEST rule is a new change.
+  const rules = [MERCHANT_TIER_PRICING_RULE];
+  assert.equal(tierPricingLayerRequestId(tier1.id, '0', rules), tierPricingLayerRequestId(tier1.id, '0', rules));
+  assert.notEqual(tierPricingLayerRequestId(tier1.id, '0', rules), tierPricingLayerRequestId(tier1.id, '1', rules));
+  assert.notEqual(
+    tierPricingLayerRequestId(tier1.id, '0', rules),
+    tierPricingLayerRequestId(tier1.id, '0', [{ ...MERCHANT_TIER_PRICING_RULE, minFee: '0.6' }]),
+  );
   assert.ok(
     Number(tier1.founderThresholds[0].amount) >= Number(tier1.approvalThresholds[0].amount),
     'svc-pay refuses a founder bar under the approval bar',

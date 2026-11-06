@@ -16,6 +16,15 @@ describe('fee parts from the stored snapshot row', () => {
     ]);
   });
 
+  it('shows no 0% part beside a flat fee, and keeps one part when the fee has neither', () => {
+    expect(feeParts({ fee: '0.3', bpsFee: '0', flatFee: '0.3', feeBeforeClamp: '0.3' })).toEqual([{ kind: 'flat', amount: '0.3' }]);
+    expect(feeParts({ fee: '0', bpsFee: '0', flatFee: null, feeBeforeClamp: '0' })).toEqual([{ kind: 'percent', amount: '0' }]);
+    expect(feeParts({ fee: '0.5', bpsFee: '0', flatFee: '0.3', feeBeforeClamp: '0.3' })).toEqual([
+      { kind: 'flat', amount: '0.3' },
+      { kind: 'minimum', amount: '0.2' },
+    ]);
+  });
+
   it('names what a minimum added and what a maximum took off', () => {
     expect(feeParts({ fee: '0.5', bpsFee: '0.25', flatFee: null, feeBeforeClamp: '0.25' })).toEqual([
       { kind: 'percent', amount: '0.25' },

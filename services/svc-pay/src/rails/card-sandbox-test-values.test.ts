@@ -40,7 +40,7 @@ describe('sandbox card test values match the card-sandbox rail', () => {
 
   it.each(SANDBOX_CARD_TEST_VALUES.filter((value) => value.failureCode !== null))(
     'the $id token ends the authorization failed with $failureCode',
-    async ({ token, failureCode }) => {
+    async ({ id, token, failureCode }) => {
       const rail = new CardSandboxAdapter({ secret: 'sandbox-test-values-rail-secret-32-chars', toleranceSeconds: 300 });
       const result = await rail.authorize({
         paymentId: '7b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e11',
@@ -50,7 +50,14 @@ describe('sandbox card test values match the card-sandbox rail', () => {
         method: 'card',
         instrument: { kind: 'card', token },
       });
-      expect(result).toMatchObject({ ok: false, status: 'failed' });
+      // The rail's own code, compared as before: a listed code passes through unchanged, the unlisted one is the
+      // rail's TEST code that no catalogue lists.
+      const railCode: Record<string, string> = {
+        decline: 'card.declined',
+        acquirer_outage: 'acquirer.unavailable',
+        unlisted_reason: 'card.test_unlisted_reason',
+      };
+      expect(result).toMatchObject({ ok: false, status: 'failed', failureCode: railCode[id] });
       // The code the page names is the one the payment then carries on every read: the catalogue's (merchant-failure.ts).
       expect(safeFailure(result.ok ? null : result.failureCode)?.code).toBe(failureCode);
     },

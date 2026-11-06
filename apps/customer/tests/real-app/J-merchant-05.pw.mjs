@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, ROOT, journeyState, tool } from './stack.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
-import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
+import { businessReadyPerson, foundersScript, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 
 // J-merchant-05, in the running app (docs/roadmap/journeys.json): see a payment arrive and read everything about it.
@@ -693,17 +692,9 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
 /**
  * Gives the business a TEST merchant-layer fee of 1.00% + 0.50 USDT through the two-founder door and returns what the
  * founders read back (`tooling/scripts/local-test-merchant-fee-parts.mjs`). Signing the two founders in can wait out
- * TOTP steps, so it gets longer than `tool`'s two minutes.
+ * TOTP steps, so it gets longer than `tool`'s two minutes and runs without blocking the worker.
  */
-function feeInTwoParts(merchantId) {
-  const out = execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-merchant-fee-parts.mjs'), merchantId], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 300_000,
-  });
-  return JSON.parse(out.trim().split('\n').pop());
-}
+const feeInTwoParts = (merchantId) => foundersScript('local-test-merchant-fee-parts.mjs', [merchantId]);
 
 /** A decimal string as a whole number of 10^-18 units, so parts and totals are compared exactly. */
 function units(value) {
@@ -797,7 +788,7 @@ test(`${J} #5 reads the fees and the decline reasons: a TEST 1.50 fee shows its 
   // Last, as it waits on the stack: the fee in its parts. svc-pay stores a payment's fee only while its merchant
   // controls are required, as the journey stack runs them (PAY_MERCHANT_CONTROLS, local-stack-services/pay.mjs).
   // The business's own TEST fee: 1.00% + 0.50 USDT, set by one founder and confirmed by another; the founders read it back.
-  const fee = feeInTwoParts(merchantId);
+  const fee = await feeInTwoParts(merchantId);
   expect(fee, JSON.stringify(fee)).toMatchObject({ merchantId, holds: true, rules: 1 });
 
   // A 100 USDT TEST payment, paid: its stored fee is 1.50, in a 1.00 percentage part and a 0.50 flat part that add up.

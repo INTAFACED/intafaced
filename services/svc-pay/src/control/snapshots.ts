@@ -97,7 +97,9 @@ export function feeParts(row: {
   }
   if (fee < 0n || bps < 0n || flat < 0n || before < 0n) return null;
   if (bps + flat !== before) return null;
-  const parts: FeePart[] = [{ kind: 'percent', amount: formatAmount(bps) }];
+  // A 0% band shows no percentage part beside its flat part; a fee with neither keeps its 0 percentage part, so the
+  // split is never empty (the contract's parts hold at least one).
+  const parts: FeePart[] = bps > 0n || flat === 0n ? [{ kind: 'percent', amount: formatAmount(bps) }] : [];
   if (flat > 0n) parts.push({ kind: 'flat', amount: formatAmount(flat) });
   if (fee > before) parts.push({ kind: 'minimum', amount: formatAmount(fee - before) });
   if (fee < before) parts.push({ kind: 'maximum', amount: formatAmount(before - fee) });
