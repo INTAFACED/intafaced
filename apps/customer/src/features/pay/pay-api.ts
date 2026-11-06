@@ -1215,6 +1215,19 @@ export function createPersonalPayApi(
         { signal },
       );
     },
+    /** P-ads-merchant-06 part 2: the person's own ads waiting for review (off the board), newest first. */
+    async pendingOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
+      const denied = signedIn();
+      if (denied) return denied;
+      if (!p2pCurrent()) return p2pDeparted();
+      return api.query(
+        'p2p',
+        'offers.mine',
+        { status: 'pending', limit: PAUSED_OFFERS_SHOWN },
+        z.array(s.offerSchema.refine((offer) => offer.makerId === userId, 'An ad in this list is not this account’s')),
+        { signal },
+      );
+    },
     /** The person's own paused ads (the board lists active ads only), newest first. */
     async pausedOffers(signal?: AbortSignal): Promise<ApiResult<s.Offer[]>> {
       const denied = signedIn();

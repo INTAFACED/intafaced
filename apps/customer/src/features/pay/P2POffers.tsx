@@ -485,6 +485,7 @@ export function P2POffers({ pay, userId, mine }: { pay: PersonalPayApi; userId: 
             )}
           </PayState>
           {mine ? <PausedOffers pay={pay} userId={userId} revision={pausedRevision} choose={choose} /> : null}
+          {mine ? <PendingOffers pay={pay} userId={userId} revision={pausedRevision} /> : null}
           {mine ? (
             <MyAdsLifecycle
               pay={pay}
@@ -906,6 +907,45 @@ function PausedOffers({
               ))}
             </ul>
           </>
+        )}
+      </PayState>
+    </section>
+  );
+}
+
+/**
+ * P-ads-merchant-06 part 2: the person's ads waiting for review. Off the board and not takeable, each says why it is not
+ * listed and since when.
+ */
+function PendingOffers({ pay, userId, revision }: { pay: PersonalPayApi; userId: string | null; revision: number }) {
+  const { Copy, t } = offerCopy.useCopy();
+  const pending = useResource((signal) => pay.pendingOffers(signal), `pay:pending-offers:${userId}:${revision}`);
+  return (
+    <section className="stack" aria-label={t('pendingTitle')} data-testid="pending-offers">
+      <h3>
+        <Copy k="pendingTitle" />
+      </h3>
+      <PayState resource={pending.resource} retry={pending.reload} empty={t('pendingNone')}>
+        {(offers) => (
+          <ul className="p2p-offer-list">
+            {offers.map((offer) => (
+              <li key={offer.id} className="p2p-offer-row" data-offer-id={offer.id}>
+                <div className="p2p-offer-maker">
+                  <strong>
+                    <OfferSide offer={offer} own />
+                  </strong>
+                  <span className="muted" lang="zxx">
+                    {offerMethods(offer).join(', ') || payCopy.t('noUsableMethodsDeclared')}
+                  </span>
+                  <Status value={offer.status} />
+                </div>
+                <p className="muted" data-testid="pending-reason">
+                  {t('pendingWaiting')}
+                </p>
+                <StateSince offer={offer} />
+              </li>
+            ))}
+          </ul>
         )}
       </PayState>
     </section>

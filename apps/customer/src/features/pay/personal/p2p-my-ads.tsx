@@ -182,7 +182,19 @@ export function StateSince({ offer }: { offer: Offer }) {
   if (!offer.statusSince) return null;
   return (
     <p className="muted" data-testid="state-since">
-      <Copy k={offer.status === 'active' ? 'listedSince' : offer.status === 'paused' ? 'pausedSince' : 'closedSince'} />{' '}
+      <Copy
+        k={
+          offer.status === 'active'
+            ? 'listedSince'
+            : offer.status === 'paused'
+              ? 'pausedSince'
+              : offer.status === 'pending'
+                ? 'waitingSince'
+                : offer.status === 'draft'
+                  ? 'draftSince'
+                  : 'closedSince'
+        }
+      />{' '}
       <PayTime value={offer.statusSince} />
     </p>
   );
