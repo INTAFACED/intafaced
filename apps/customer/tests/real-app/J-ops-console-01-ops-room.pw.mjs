@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
-import { signUp, verify } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { uuidOf } from './merchant.mjs';
 import { api } from './stack.mjs';
 
@@ -61,7 +61,9 @@ test('J-ops-console-01 #2 a business user gets the pointer page, the merchant ad
   });
   expect(res.status, `business.create: ${JSON.stringify(res.body).slice(0, 300)}`).toBe(200);
 
-  // The person switches to the business in the account menu, so the app is in Business mode.
+  // The person signs in again, as J-home-ia-07 does after the verification, and switches to the business in the account menu,
+  // so the app is in Business mode.
+  await signIn(page, person);
   await page.goto('/home');
   await page.getByRole('button', { name: 'Account menu' }).click();
   await page.getByTestId('profile-business').filter({ hasText: name }).click();
