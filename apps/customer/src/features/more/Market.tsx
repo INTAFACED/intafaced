@@ -39,24 +39,37 @@ function MarketPrice({ price, assetId }: { price: string; assetId: string }) {
     </div>
   );
 }
-export const listingSchema = z
-  .object({
-    id: uuid,
-    vendorId: uuid,
-    title: z.string(),
-    description: z.string(),
-    offerType: z.enum(['one_time', 'subscription']),
-    assetId: z.string().min(1),
-    price: decimalSchema,
-    periodSeconds: z.number().int().positive().nullable(),
-    status: z.enum(['active', 'archived']),
-    createdAt: time,
-    updatedAt: time,
-  })
-  .superRefine((row, ctx) => {
-    if (row.offerType === 'subscription' && row.periodSeconds === null)
-      ctx.addIssue({ code: 'custom', message: copyText('market.subscription.period.is.missing') });
-  });
+const listingBase = z.object({
+  id: uuid,
+  vendorId: uuid,
+  title: z.string(),
+  description: z.string(),
+  offerType: z.enum(['one_time', 'subscription']),
+  assetId: z.string().min(1),
+  price: decimalSchema,
+  periodSeconds: z.number().int().positive().nullable(),
+  status: z.enum(['active', 'archived', 'taken_down']),
+  createdAt: time,
+  updatedAt: time,
+});
+const subscriptionHasPeriod = (row: { offerType: string; periodSeconds: number | null }, ctx: z.RefinementCtx) => {
+  if (row.offerType === 'subscription' && row.periodSeconds === null)
+    ctx.addIssue({ code: 'custom', message: copyText('market.subscription.period.is.missing') });
+};
+export const listingSchema = listingBase.superRefine(subscriptionHasPeriod);
+/**
+ * Where a listing stands in svc-market's review (`listingReviewState`), the same for every kind of listing: its seller's
+ * operator review, or taken down by an operator. A catalogue row and a seller's own row always carry one.
+ */
+export const LISTING_REVIEW_STATES = ['in_review', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
+const reviewedListingSchema = listingBase.extend({ reviewState: z.enum(LISTING_REVIEW_STATES) }).superRefine(subscriptionHasPeriod);
+const REVIEW_COPY = {
+  in_review: 'market.review.state.in.review',
+  approved: 'market.review.state.approved',
+  rejected: 'market.review.state.rejected',
+  suspended: 'market.review.state.suspended',
+  taken_down: 'market.review.state.taken.down',
+} as const;
 const purchaseSchema = z.object({
   id: uuid,
   listingId: uuid,
@@ -177,8 +190,8 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
       async (signal) => {
         if (!mine && !strategy)
           return category
-            ? api.query('market', 'listingsByCategory', { category, limit }, z.array(listingSchema), { signal })
-            : api.query('market', 'listings', { limit }, z.array(listingSchema), { signal });
+            ? api.query('market', 'listingsByCategory', { category, limit }, z.array(reviewedListingSchema), { signal })
+            : api.query('market', 'listings', { limit }, z.array(reviewedListingSchema), { signal });
         const owner = await api.query(
           'market',
           'mine',
@@ -196,7 +209,7 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
           'myListings',
           { limit },
           z
-            .array(listingSchema)
+            .array(reviewedListingSchema)
             .refine(
               (rows) => rows.every((row) => row.vendorId === vendorId),
               copyText('market.listing.ownership.does.not.match.this.seller'),
@@ -535,6 +548,14 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                               <dd lang="zxx">{row.status}</dd>
                             </div>
                           )}
+                          <div>
+                            <dt>
+                              <Text k="market.review" />
+                            </dt>
+                            <dd data-review-state={row.reviewState}>
+                              <Text k={REVIEW_COPY[row.reviewState]} />
+                            </dd>
+                          </div>
                         </dl>
                       </div>
                       <div className="market-catalogue-decision">

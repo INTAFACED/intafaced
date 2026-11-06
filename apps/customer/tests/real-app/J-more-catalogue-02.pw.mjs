@@ -11,8 +11,6 @@ import { approvedSeller, testStrategyListing } from './market-listing.mjs';
 // doors (market-listing.mjs: a TEST seller stakes, applies, is approved by the stack's TEST operators, and lists). The
 // purchase is held, then released or refunded once; the steps read the buyer's ledger
 // balance to check each moves once.
-// Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #3, its second part: no review state for listings of other kinds (RC-more-catalogue-19).
 const J = 'J-more-catalogue-02';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -289,11 +287,46 @@ test(`${J} #3 browses vendor listings by category: the taxonomy is svc-market's,
   expect(sorts.join(' ')).not.toMatch(/promot|featur|rank|placement|return|profit|performance/i);
 });
 
-test(`${J} #3 every kind of listing shows its review state (RC-more-catalogue-19, not built)`, async ({ page }) => {
+test(`${J} #3 every kind of listing shows its review state: svc-market's own, on every card in every category`, async ({ page }) => {
+  // svc-market answers each catalogue row with its review state. A row reaches the public catalogue only when its seller
+  // passed the operators' four-eyes review and the listing is not taken down, so every public row reads `approved`.
+  const everyRow = (await marketRead(null, 'listings', { limit: 50 })).body.result.data;
+  expect(everyRow.length).toBeGreaterThan(0);
+  expect(everyRow.map((row) => row.reviewState)).toEqual(everyRow.map(() => 'approved'));
+  // Both kinds are there: this run's strategy subscription and a one-time listing (#3's TEST data listing).
+  expect(everyRow.filter((row) => row.id === run.read().listingId)).toEqual([expect.objectContaining({ offerType: 'subscription' })]);
+  expect(everyRow.some((row) => row.offerType === 'one_time' && row.title.startsWith('TEST data listing'))).toBe(true);
+
   await openMarket(page);
-  // Not built: svc-market reviews strategy listings only, so a listing of another kind carries no review state (RC-19).
-  const card = page.getByRole('article').filter({ hasText: 'TEST data listing' }).first();
-  await expect(card.locator('[data-review-state]')).toBeVisible(UNBUILT);
+  const cards = page
+    .getByRole('main')
+    .getByRole('article')
+    .filter({ has: page.getByRole('button', { name: /^View / }) });
+  const review = (card) => card.locator('[data-review-state]');
+  const showsItsState = async (rows) => {
+    await expect(cards).toHaveCount(rows.length);
+    // Every card shows a review state, and it is the one svc-market gave that listing, in words.
+    await expect(cards.locator('[data-review-state]')).toHaveCount(rows.length);
+    for (const row of rows) {
+      const card = cards.filter({ has: page.getByRole('heading', { level: 3, name: row.title, exact: true }) }).first();
+      await expect(review(card)).toHaveAttribute('data-review-state', row.reviewState);
+      await expect(review(card)).toHaveText('Approved by the Market’s operators');
+    }
+  };
+  await showsItsState(everyRow);
+  const strategy = cards.filter({ hasText: run.read().title });
+  await expect(review(strategy)).toHaveAttribute('data-review-state', 'approved');
+  const data = cards.filter({ hasText: 'TEST data listing' }).first();
+  await expect(review(data)).toHaveAttribute('data-review-state', 'approved');
+
+  // The same in each category of the taxonomy: its listings carry their review state from svc-market's category read.
+  const select = page.getByRole('combobox', { name: 'Category' });
+  for (const slug of ['data', 'bots']) {
+    const filedUnder = (await marketRead(null, 'listingsByCategory', { category: slug, limit: 50 })).body.result.data;
+    expect(filedUnder.map((row) => row.reviewState)).toEqual(filedUnder.map(() => 'approved'));
+    await select.selectOption({ value: slug });
+    await showsItsState(filedUnder);
+  }
 });
 
 test(`${J} #4 presses Buy on the strategy: the charge into the held account once, the record shows held, and the seller sees nothing yet`, async ({

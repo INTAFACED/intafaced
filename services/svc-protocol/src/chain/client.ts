@@ -160,7 +160,10 @@ export class ProtocolChain {
       nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
       rpcUrls: { default: { http: [config.rpcUrl] } },
     });
-    this.client = createPublicClient({ chain, transport: http(config.rpcUrl) }) as PublicClient;
+    // The block number is never cached (viem keeps it for the polling interval, about 4 s, by default). Reads pin to it,
+    // so a cached one made a contract, an approval or an owner change mined a moment ago read as absent, and /ready
+    // answered from it with the node down (#7192).
+    this.client = createPublicClient({ chain, transport: http(config.rpcUrl), cacheTime: 0 }) as PublicClient;
   }
 
   /**

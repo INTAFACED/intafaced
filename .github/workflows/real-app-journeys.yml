@@ -82,8 +82,10 @@ env:
 jobs:
   # Splits the journey files across the shards by their times in the last finished runs on main, so the shards end
   # together (tooling/scripts/journey-shards.mjs; Playwright's own --shard split by count left one shard 33 minutes
-  # behind the shortest in run 338), and picks how many shards keep each near 25 minutes of journeys (8 to 24), so the
-  # suite can grow without a shard reaching its limit. If planning fails for any reason the run falls back to 8 shards
+  # behind the shortest in run 338), and picks how many shards keep each near the longest journey file's time less the
+  # spread of a shard's setup, 10 to 25 minutes of journeys (8 to 48 shards; 32 on main's runs of 6 Nov), so no shard
+  # but the longest file's is the run's long pole and the suite can grow without a shard reaching its limit. The plan is
+  # checked to run every journey file exactly once before it is used. If planning fails for any reason the run falls back to 8 shards
   # and Playwright's split, so a broken planner never stops a run; on a suite that needs more shards, journeys past a
   # shard's limit then count as not run and the time-limit issue names the shards. A targeted run (JOURNEYS_TARGET) never
   # falls back: a name that is not a journey file fails this job, and no shard runs.
