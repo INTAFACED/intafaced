@@ -216,6 +216,8 @@ export default function AlertsPage() {
                     : quotaState === 'full'
                       ? 'reasonQuotaFull'
                       : null;
+  // An indicator alert is refused, so the price rule's own fields lock with it: nothing typed there could be saved.
+  const priceFormLocked = blockedReason !== null || alertKind !== 'price';
 
   if (mode !== 'Personal') {
     return (
@@ -631,7 +633,7 @@ export default function AlertsPage() {
             <span>{copy.t('conditionLabel')}</span>
             <select
               value={condition}
-              disabled={blockedReason !== null}
+              disabled={priceFormLocked}
               onChange={(event) => setCondition(ALERT_CONDITIONS.find((c) => c === event.target.value) ?? 'greater_than')}
             >
               {ALERT_CONDITIONS.map((value) => (
@@ -645,7 +647,7 @@ export default function AlertsPage() {
             <span>{copy.t('sourceLabel')}</span>
             <select
               value={source}
-              disabled={blockedReason !== null}
+              disabled={priceFormLocked}
               onChange={(event) => setSource(ALERT_SOURCES.find((value) => value === event.target.value) ?? 'mark')}
             >
               {ALERT_SOURCES.map((value) => (
@@ -657,12 +659,7 @@ export default function AlertsPage() {
           </label>
           {isCrossing(condition) ? (
             <label className="nf-check" data-testid="alerts-repeat">
-              <input
-                type="checkbox"
-                checked={repeat}
-                disabled={blockedReason !== null}
-                onChange={(event) => setRepeat(event.target.checked)}
-              />
+              <input type="checkbox" checked={repeat} disabled={priceFormLocked} onChange={(event) => setRepeat(event.target.checked)} />
               <span>{copy.t('repeatLabel')}</span>
             </label>
           ) : null}
@@ -674,7 +671,7 @@ export default function AlertsPage() {
               autoComplete="off"
               maxLength={64}
               value={price}
-              disabled={blockedReason !== null}
+              disabled={priceFormLocked}
               aria-invalid={problem !== null}
               aria-describedby={`${priceId}-help`}
               onChange={(event) => {
@@ -692,7 +689,7 @@ export default function AlertsPage() {
               <select
                 aria-label={copy.t('extraLabel')}
                 value={extra.condition}
-                disabled={blockedReason !== null}
+                disabled={priceFormLocked}
                 onChange={(event) => {
                   const condition = event.target.value === 'less_than' ? 'less_than' : 'greater_than';
                   setExtras(extras.map((row, i) => (i === index ? { ...row, condition } : row)));
@@ -707,7 +704,7 @@ export default function AlertsPage() {
                 maxLength={64}
                 aria-label={copy.t('extraPriceLabel')}
                 value={extra.price}
-                disabled={blockedReason !== null}
+                disabled={priceFormLocked}
                 aria-invalid={touched && priceProblem(extra.price) !== null}
                 onChange={(event) => {
                   setExtras(extras.map((row, i) => (i === index ? { ...row, price: event.target.value } : row)));
@@ -715,12 +712,7 @@ export default function AlertsPage() {
                 }}
               />
               {touched && priceProblem(extra.price) !== null ? <small className="nf-error">{copy.t('priceInvalid')}</small> : null}
-              <Button
-                variant="ghost"
-                size={32}
-                disabled={blockedReason !== null}
-                onClick={() => setExtras(extras.filter((_, i) => i !== index))}
-              >
+              <Button variant="ghost" size={32} disabled={priceFormLocked} onClick={() => setExtras(extras.filter((_, i) => i !== index))}>
                 {copy.t('extraRemove')}
               </Button>
             </div>
@@ -729,7 +721,7 @@ export default function AlertsPage() {
             <Button
               variant="secondary"
               size={32}
-              disabled={blockedReason !== null || atConditionCap}
+              disabled={priceFormLocked || atConditionCap}
               onClick={() => setExtras([...extras, { condition: 'less_than', price: '' }])}
             >
               {copy.t('extraAdd')}
@@ -750,17 +742,12 @@ export default function AlertsPage() {
           ) : null}
           <label className="nf-field">
             <span>{copy.t('nameLabel')}</span>
-            <input autoComplete="off" value={name} disabled={blockedReason !== null} onChange={(event) => setName(event.target.value)} />
+            <input autoComplete="off" value={name} disabled={priceFormLocked} onChange={(event) => setName(event.target.value)} />
             <small className="nf-muted">{copy.t('nameHint')}</small>
           </label>
           <label className="nf-field">
             <span>{copy.t('messageLabel')}</span>
-            <input
-              autoComplete="off"
-              value={message}
-              disabled={blockedReason !== null}
-              onChange={(event) => setMessage(event.target.value)}
-            />
+            <input autoComplete="off" value={message} disabled={priceFormLocked} onChange={(event) => setMessage(event.target.value)} />
             <small className="nf-muted">
               {copy.t('messageHint', { market: '{market}', price: '{price}', condition: '{condition}', time: '{time}' })}
             </small>
@@ -770,7 +757,7 @@ export default function AlertsPage() {
             <input
               type="datetime-local"
               value={expires}
-              disabled={blockedReason !== null}
+              disabled={priceFormLocked}
               aria-invalid={expiryProblem(expires) !== null}
               onChange={(event) => setExpires(event.target.value)}
             />

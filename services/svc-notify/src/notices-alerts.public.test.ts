@@ -260,6 +260,18 @@ describe('alert price source and condition limit on the wire', () => {
     expect((await caller.notify.alerts({ limit: 10 })).items).toEqual([]);
   });
 
+  it('a side on a kind that watches the mark is a typed BAD_REQUEST on create and on edit, never a 500', async () => {
+    const caller = openCaller();
+    await expect(
+      caller.notify.createAlert({ kind: 'whale', marketId: 'BTC-USD', direction: 'above', targetPrice: '100', source: 'bid' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringMatching(/^alert\.invalid_source: /) });
+    const whale = await caller.notify.createAlert({ kind: 'whale', marketId: 'BTC-USD', direction: 'above', targetPrice: '100' });
+    await expect(caller.notify.updateAlert({ id: whale.alert.id, source: 'ask' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: expect.stringMatching(/^alert\.invalid_source: /),
+    });
+  });
+
   it('alertQuota carries the owner condition limit, and null while it is blank', async () => {
     expect((await openCaller().notify.alertQuota()).maxConditions).toBeNull();
     const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });

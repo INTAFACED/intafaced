@@ -542,6 +542,10 @@ const NO_ALERT_SERVICE = { markSource: 'dark', canFire: false, code: 'alert.pric
 /** The refusals an edit or pause can raise, as tRPC errors. Anything else is not ours to hide. */
 function alertManagerError(err: unknown): unknown {
   if (err instanceof TRPCError) return err;
+  // A value the caller sent that the alert cannot hold (a side on a kind that watches the mark): theirs to fix, named by code.
+  if (err instanceof AlertValidationError) {
+    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
+  }
   if (err instanceof NotifyPriceUnsetError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   if (err instanceof AlertNotEditableError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   if (err instanceof AlertLimitError) {
@@ -1801,6 +1805,9 @@ export function createNotifyRouter(
                 message: err.message,
                 cause: err,
               });
+            }
+            if (err instanceof AlertValidationError) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
             }
             throw err;
           }

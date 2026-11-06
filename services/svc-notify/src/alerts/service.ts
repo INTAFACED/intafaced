@@ -745,12 +745,19 @@ export class AlertService {
     const actives = await this.store.listActiveByMarket(marketId);
     const results: EvaluateMarketReport['results'][number][] = [];
     // Every side a price alert here chose, quoted from one read in this pass. `mark` is the quote above, shared by every other kind.
-    const sides = [...new Set(actives.flatMap((a) => (a.kind === 'price' && a.source !== 'mark' ? [a.source] : [])))];
+    const sides = [
+      ...new Set(
+        actives.flatMap((a) => {
+          const route = quoteRoute(a);
+          return route.kind === 'side' ? [route.side] : [];
+        }),
+      ),
+    ];
     const bySide = await this.sourcedSides(marketId, sides, at);
 
     for (const alert of actives) {
-      const ownQuote =
-        alert.kind === 'whale' ? whaleQuote : alert.kind === 'price' && alert.source !== 'mark' ? sideQuote(bySide, alert.source) : quote;
+      const route = quoteRoute(alert);
+      const ownQuote = route.kind === 'whale' ? whaleQuote : route.kind === 'side' ? sideQuote(bySide, route.side) : quote;
       const applied = await this.applyEvaluation(alert, ownQuote, at);
       results.push({
         alertId: alert.id,
@@ -783,11 +790,12 @@ export class AlertService {
       };
     }
     const evaluation = alert.kind === 'whale' ? this.whaleEvaluationStatus() : this.evaluationStatus();
+    const route = quoteRoute(alert);
     const quote =
-      alert.kind === 'whale'
+      route.kind === 'whale'
         ? await this.sourcedWhaleQuote(alert.marketId, at)
-        : alert.kind === 'price' && alert.source !== 'mark'
-          ? sideQuote(await this.sourcedSides(alert.marketId, [alert.source], at), alert.source)
+        : route.kind === 'side'
+          ? sideQuote(await this.sourcedSides(alert.marketId, [route.side], at), route.side)
           : await this.sourcedQuote(alert.marketId, at);
     const applied = await this.applyEvaluation(alert, quote, at);
     const refreshed = (await this.store.get(userId, alertId)) ?? alert;
@@ -903,6 +911,16 @@ export class AlertService {
 }
 
 const sideUnavailable: MarkQuote = { kind: 'unavailable', reason: 'refused', detail: NOTIFY_PRICE_SOURCE_UNAVAILABLE };
+
+/**
+ * Which quote an alert is judged on: a whale alert its flow mark, a price alert on a side that side, every other alert the mark.
+ * The sweep and the public evaluate door both read it here, so they can never judge one alert on different prices.
+ */
+function quoteRoute(alert: PriceAlert): { kind: 'whale' } | { kind: 'side'; side: AlertPriceSide } | { kind: 'mark' } {
+  if (alert.kind === 'whale') return { kind: 'whale' };
+  if (alert.kind === 'price' && alert.source !== 'mark') return { kind: 'side', side: alert.source };
+  return { kind: 'mark' };
+}
 
 /** The quote of one side from `sourcedSides`; a side it did not answer refuses, never falls back to the mark. */
 function sideQuote(bySide: ReadonlyMap<AlertPriceSide, MarkQuote>, side: AlertPriceSide): MarkQuote {

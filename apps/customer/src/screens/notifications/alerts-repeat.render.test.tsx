@@ -216,7 +216,11 @@ describe('the price an alert watches, other alert kinds, and the condition cap',
     await choose(selectBy('indicator'), 'indicator');
     expect(host.querySelector('[data-testid="alerts-kind-refused"]')!.textContent).toContain('Indicator alerts are not offered');
     expect(button('Review alert').disabled).toBe(true);
+    // The price rule's own fields lock with it: the price to watch and adding a condition.
+    expect(selectBy('bid').disabled).toBe(true);
+    expect(button('Add a condition').disabled).toBe(true);
     await choose(selectBy('indicator'), 'price');
+    expect(selectBy('bid').disabled).toBe(false);
     expect(host.querySelector('[data-testid="alerts-kind-refused"]')).toBeNull();
   });
   it('stops adding conditions at the owner\u2019s cap, and says so', async () => {
