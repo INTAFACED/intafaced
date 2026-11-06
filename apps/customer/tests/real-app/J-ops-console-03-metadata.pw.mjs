@@ -1,3 +1,4 @@
+// World: freeze
 import { expect, test } from './journey.mjs';
 import { randomBytes } from 'node:crypto';
 import { ADMIN, founderSignIn } from './admin.mjs';

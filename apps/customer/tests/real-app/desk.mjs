@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { expect } from './journey.mjs';
-import { api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, signOutBrowser } from './stack.mjs';
+import { actedAs, api, bestPrices, fromUnits, fund, signUpInBrowser, toUnits, signOutBrowser } from './stack.mjs';
 
 // What a person does on the spot desk in the running app, shared by the cex-spot journeys. Each journey keeps its own
 // run file; these helpers take the account they act as.
 
 export async function signIn(page, who) {
+  actedAs(who);
   await page.goto('/login');
   await page.fill('input[name=identifier]', who.email);
   await page.fill('input[name=password]', who.password);

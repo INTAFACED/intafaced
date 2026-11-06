@@ -13,6 +13,7 @@ import {
   isStaffPermission,
   type StaffPermission,
 } from '@intafaced/auth/staff-permissions';
+import { STAFF_TEST_ROLE_NAMES } from '@intafaced/auth/staff-test-roster';
 import { ACTION_APPROVAL_POLICY_UNSET } from './action-approval-policy.js';
 
 /**
@@ -491,3 +492,12 @@ export const staffAccessSchema = z
   })
   .strict();
 export type StaffAccess = z.infer<typeof staffAccessSchema>;
+
+// ── The TEST staff role (local and test stacks only) ─────────────────────────
+
+/**
+ * `staffTestStatus`: the caller's role in the labelled TEST staff roster (`@intafaced/auth` `staff-test-roster`), for
+ * the console's admission on a local or test stack. Production has no roster, so `role` is always null there.
+ */
+export const staffTestStatusSchema = z.object({ userId: z.string().min(1), role: z.enum(STAFF_TEST_ROLE_NAMES).nullable() }).strict();
+export type StaffTestStatus = z.infer<typeof staffTestStatusSchema>;

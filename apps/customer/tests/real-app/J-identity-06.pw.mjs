@@ -1,3 +1,4 @@
+// World: none
 import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -57,7 +58,16 @@ function sessionsList(page) {
   return { list, rows: list.getByRole('listitem') };
 }
 
-/** One account signed up in this browser (Chrome on macOS) and signed in on a second browser (Firefox on Windows). */
+/** The system this test's own Chrome reports, as Security names it: the runner's, not the machine the test was written on. */
+async function ownSystem(page) {
+  const agent = await page.evaluate(() => navigator.userAgent);
+  if (/Mac OS X/.test(agent)) return 'macOS';
+  if (/Windows/.test(agent)) return 'Windows';
+  if (/Linux/.test(agent)) return 'Linux';
+  throw new Error(`this browser reports no system Security names: ${agent}`);
+}
+
+/** One account signed up in this browser (Chrome on this machine) and signed in on a second browser (Firefox on Windows). */
 async function twoDevices(browser, page, prefix) {
   const who = person(prefix);
   await signUpInBrowser(page, who);
@@ -95,7 +105,7 @@ test(`${J} #1 Security lists one row per device with its last use and no session
     const mine = shown.filter({ hasText: 'This device' });
     const theirs = shown.filter({ hasText: 'Firefox on Windows' });
     await expect(mine).toHaveCount(1);
-    await expect(mine).toContainText('Chrome on macOS');
+    await expect(mine).toContainText(`Chrome on ${await ownSystem(page)}`);
     await expect(theirs).toHaveCount(1);
     for (const row of [mine, theirs]) await expect(row).toContainText(/Last active \d{1,2} [A-Z][a-z]{2}, \d\d:\d\d/);
     // No session id or family id anywhere on the card, in its text or its markup.

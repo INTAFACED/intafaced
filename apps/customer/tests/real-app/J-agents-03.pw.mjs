@@ -1,3 +1,4 @@
+// World: restart
 import { test, expect } from './journey.mjs';
 import { OWN_AGENT, UNBUILT, agentsRun, openAgents, openOwnAgent } from './agents.mjs';
 import { signIn, signUp } from './desk.mjs';

@@ -1,3 +1,4 @@
+// World: restart, stack
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
