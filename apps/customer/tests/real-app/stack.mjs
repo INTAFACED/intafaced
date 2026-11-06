@@ -33,6 +33,61 @@ const STATE = localStackState();
 export const stackFile = (name) => path.join(STATE, name);
 const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
 
+/**
+ * The shared-world state of this worker's current journey file (journey.mjs, `worldBetweenFiles`): which file it is,
+ * the options the market maker was running with when it began, and the TEST accounts it signed up or acted as. Kept in
+ * the stack's own state folder (mode 600), one per worker slot, so it outlives the run: a worker Playwright starts again
+ * after a failed step carries on with the same file, and the next run on the same stack first puts back what the last
+ * run's last file left. A file run again straight after itself is the same file, and is not put back.
+ */
+const WORLD_FILE = path.join(STATE, 'run', `journey-world-${process.env.TEST_PARALLEL_INDEX ?? '0'}.json`);
+export const worldState = {
+  read() {
+    try {
+      const state = JSON.parse(readFileSync(WORLD_FILE, 'utf8'));
+      return { file: state.file ?? null, makerArgs: state.makerArgs ?? null, accounts: state.accounts ?? [] };
+    } catch {
+      return { file: null, makerArgs: null, accounts: [] };
+    }
+  },
+  write(state) {
+    mkdirSync(path.dirname(WORLD_FILE), { recursive: true, mode: 0o700 });
+    writeFileSync(WORLD_FILE, JSON.stringify(state), { mode: 0o600 });
+  },
+};
+/** Record that this journey file acts as TEST account `who` (an email or handle and its password), so its resting
+ * orders come down before the next file. */
+export function actedAs(who) {
+  const identifier = who?.email ?? who?.identifier;
+  if (!identifier || !who?.password) return;
+  const state = worldState.read();
+  if (state.accounts.some((a) => a.email === identifier)) return;
+  worldState.write({ ...state, accounts: [...state.accounts, { email: identifier, password: who.password }] });
+}
+
+/**
+ * Records the account behind a sign-in or sign-up request, from its own body, whichever helper or page sent it (an
+ * identity `auth.login` or `auth.register`, as JSON or a tRPC batch). Journeys sign people in through many local
+ * helpers; reading the request itself misses none of them.
+ */
+export function recordSignIn(url, body) {
+  if (typeof url !== 'string' || !/\/api\/identity\/trpc\/[^?]*auth\.(login|register)/.test(url) || typeof body !== 'string') return;
+  let parsed;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return;
+  }
+  const inputs = [];
+  const walk = (v, depth = 0) => {
+    if (!v || typeof v !== 'object' || depth > 4) return;
+    if (typeof v.password === 'string' && (typeof v.identifier === 'string' || typeof v.email === 'string')) inputs.push(v);
+    for (const child of Object.values(v)) walk(child, depth + 1);
+  };
+  walk(parsed);
+  for (const input of inputs) actedAs({ email: input.identifier ?? input.email, password: input.password });
+}
+
 /** One file per journey run, so a later step (a new worker after a failure) finds the account an earlier step made. */
 export function journeyState(id) {
   const file = path.join(RUN, `${id}.json`);
@@ -167,6 +222,7 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose =
  * password; the country and birth date are TEST answers. Lands signed in, off /register.
  */
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
+  actedAs(who);
   const seen = mailedCodes(who.email).length;
   await page.goto('/register');
   if (accountType === 'business') await page.getByRole('radio', { name: /Business/ }).check();
@@ -203,6 +259,7 @@ export async function json(res) {
  * with an authenticator signs in with a fresh code from it (`totpCode`).
  */
 export async function api(who, { totpCode } = {}) {
+  actedAs(who);
   const signIn = () =>
     fetch(`${EDGE}/api/identity/trpc/auth.login`, {
       method: 'POST',

@@ -171,6 +171,13 @@ describe('groupActivity: only the same orderId groups lines', () => {
     expect(groups[0]!.main.amount).toBe('0.0000999');
   });
 
+  it("a conversion: its fill groups with its hold like a trade, and the row keeps the fill's own kind, Convert", () => {
+    const groups = rowsOf([L(21, 'convert', 'in', 'BTC', '0.001', 'c1'), L(0, 'order_hold', 'out', 'USDT', '67.5', 'c1')]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ kind: 'trade', counter: null, notes: [money('out', 'USDT', '67.5')] });
+    expect([groups[0]!.main.kind, groups[0]!.main.asset, groups[0]!.main.amount]).toEqual(['convert', 'BTC', '0.001']);
+  });
+
   it('multi-maker sweep: the fills add up exactly, in one row', () => {
     const groups = rowsOf([
       L(0, 'order_hold', 'out', 'USDT', '100.5', 'o1'),
@@ -404,6 +411,7 @@ describe('titleOf', () => {
     expect(titleOf(item({ kind: 'staking', direction: 'out' }), t, withHandle)).toBe('Staked');
     expect(titleOf(item({ kind: 'staking', direction: 'in' }), t, withHandle)).toBe('Unstaked');
     expect(titleOf(item({ kind: 'reward', direction: 'in' }), t, withHandle)).toBe('Reward');
+    expect(titleOf(item({ kind: 'convert', direction: 'in' }), t, withHandle)).toBe('Convert');
     expect(titleOf(item({ kind: 'other' }), t, withHandle)).toBe('Other activity');
   });
 });

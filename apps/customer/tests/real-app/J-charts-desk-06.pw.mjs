@@ -1,3 +1,4 @@
+// World: none
 import { test, expect } from './journey.mjs';
 import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
 

@@ -316,6 +316,8 @@ export const cardDeliverySchema = z.object({
   expectedBy: z.string(),
   carrier: z.string().nullable(),
   trackingRef: z.string().nullable(),
+  /** What the bank says delivery cannot do in this build: `hardware` while no printer or courier is connected. */
+  notConnected: z.enum(['hardware']).nullable(),
   address: shippingAddressSchema,
   history: z.array(z.object({ address: shippingAddressSchema, changedAt: z.string() })),
 });

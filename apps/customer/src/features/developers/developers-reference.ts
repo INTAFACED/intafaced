@@ -187,6 +187,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
   // Spot: private
   { name: 'createOrder', method: 'POST', path: '/api/v1/orders', product: 'spot', access: 'private', summary: 'Place an order' },
   {
+    name: 'createConvertQuote',
+    method: 'POST',
+    path: '/api/v1/convert/quote',
+    product: 'spot',
+    access: 'private',
+    summary: 'A firm convert price for an amount of one coin into another; nothing is held',
+  },
+  {
+    name: 'acceptConvertQuote',
+    method: 'POST',
+    path: '/api/v1/convert/accept',
+    product: 'spot',
+    access: 'private',
+    summary: 'Convert at a quoted price; the same quote id again answers the same conversion',
+  },
+  {
     name: 'cancelOrder',
     method: 'DELETE',
     path: '/api/v1/orders/:id',

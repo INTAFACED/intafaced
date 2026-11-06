@@ -1,3 +1,4 @@
+// World: stack
 import { test, expect } from './journey.mjs';
 import { forgetSession } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, refusedPayCalls, signInWithCode, verifiedBusiness } from './merchant.mjs';

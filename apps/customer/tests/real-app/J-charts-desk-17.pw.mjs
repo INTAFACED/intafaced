@@ -1,3 +1,4 @@
+// World: none
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { EDGE, signOutBrowser } from './stack.mjs';
@@ -256,8 +257,18 @@ test(`${J} #3 reorders, collapses, resizes and maximises indicator panes, and mo
   await expect.poll(order).toEqual(['rsi-1', 'volume-1']);
   await expect.poll(() => paneOf('rsi-1')).toBe(1);
   await expect.poll(() => paneOf('volume-1')).toBe(2);
-  // Collapse: Volume keeps a strip only; expanding it gives it back its height.
-  const open = await heights();
+  // Collapse: Volume keeps a strip only; expanding it gives it back its height. The heights it is measured against are
+  // read once the library has laid the reordered panes out: every pane drawn, and two reads in a row the same (read at
+  // once, pane 2 could still be 0 px, and "under 40% of 0" can never pass: main runs 42179200864 and 42181495113).
+  let open = [];
+  await expect
+    .poll(async () => {
+      const now = await heights();
+      const settled = now.length > 2 && now.every((h) => h > 0) && now.every((h, n) => h === open[n]);
+      open = now;
+      return settled;
+    })
+    .toBe(true);
   await press(VOL, 'Collapse');
   await expect.poll(async () => (await heights())[2]).toBeLessThan(open[2] * 0.4);
   await expect(pane(VOL)).toHaveAttribute('data-pane-state', 'collapsed');
