@@ -30,8 +30,38 @@ export async function founderSignIn(page, key = 'a') {
   await page.getByLabel('Email or handle').fill(founder.handle ?? founder.email);
   await page.getByLabel('Password').fill(founder.password);
   await page.getByLabel('Authenticator or recovery code').fill(await founderTotp(ctx, key, founder.totpSecret));
+  const replies = [];
+  page.on('response', async (r) => {
+    if (r.request().method() === 'POST' && /session|login/.test(r.url()))
+      replies.push(`${new Date().toISOString()} ${r.status()} ${r.url()} ${(await r.text().catch(() => '')).slice(0, 300)}`);
+  });
+  const sentAt = new Date().toISOString();
   await page.locator('button[type=submit]').click();
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  try {
+    await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+  } catch (err) {
+    // DIAG #7209 (never merged): what identity and the steps file said when a founder's console sign-in was refused.
+    const { readFileSync } = await import('node:fs');
+    console.log(`DIAG7209 founder ${key} sent ${sentAt}; console replies:\n${replies.join('\n')}`);
+    try {
+      console.log('DIAG7209 steps', readFileSync(path.join(ctx.paths.stateDir, 'founder-totp-steps.json'), 'utf8'));
+    } catch (e) {
+      console.log('DIAG7209 no steps file', e.message);
+    }
+    try {
+      const lines = readFileSync(path.join(ctx.paths.stateDir, 'logs/identity.log'), 'utf8').split('\n');
+      console.log(
+        'DIAG7209 identity log (login, mfa, totp, refused):\n' +
+          lines
+            .filter((l) => /login|mfa|totp|refus|throttl|attempt/i.test(l))
+            .slice(-60)
+            .join('\n'),
+      );
+    } catch (e) {
+      console.log('DIAG7209 no identity log', e.message);
+    }
+    throw err;
+  }
   return { userId: founder.userId, handle: founder.handle };
 }
 
