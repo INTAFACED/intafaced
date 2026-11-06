@@ -76,6 +76,7 @@ function MarketLatency({ h, symbols }: { h: MatchingHealth; symbols: ReadonlyMap
           <span
             key={id}
             data-metric="latency-submit-market"
+            data-market-id={id}
             data-market-symbol={symbol}
             data-state="read"
             data-count={reading.count}
