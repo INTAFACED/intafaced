@@ -505,7 +505,7 @@ async function refundedSoFar(sql: Sql, paymentId: string, except?: string): Prom
     SELECT COALESCE(SUM((payload->>'amount')::numeric), 0)::text AS total
       FROM pay.payment_events e
      WHERE e.payment_id = ${paymentId}::uuid
-       AND (${except ?? null}::text IS NULL OR e.payload->>'refundId' <> ${except ?? null}::text)
+       AND (${except ?? null}::text IS NULL OR e.payload->>'refundId' IS DISTINCT FROM ${except ?? null}::text)
        AND (
          e.event = 'refunded'
          OR (
@@ -513,7 +513,7 @@ async function refundedSoFar(sql: Sql, paymentId: string, except?: string): Prom
            AND NOT EXISTS (
              SELECT 1 FROM pay.payment_events d
               WHERE d.payment_id = e.payment_id AND d.event IN ('refunded', 'refund.reversed')
-                AND d.payload->>'refundId' = e.payload->>'refundId'
+                AND d.payload->>'refundId' IS NOT DISTINCT FROM e.payload->>'refundId'
            )
          )
        )

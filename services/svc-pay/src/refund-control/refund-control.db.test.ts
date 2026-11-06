@@ -384,4 +384,14 @@ describe('refund controls, void and reverse (J-merchant-06)', { timeout: 60_000 
     expect(await clearing(m.id)).toBe(before);
     expect(await refundedEvents(p.id)).toBe(0);
   });
+
+  it('a refund with no key counts toward the rule like any other (keyless then keyed is still counted whole)', async () => {
+    const m = await merchant();
+    await control.setRule(m.id, 'USDC', amt('10'), OWNER);
+    const p = await captured(m.id, '50');
+    await pay.refund(p.id, amt('10'));
+    const before = await clearing(m.id);
+    await expect(pay.refund(p.id, amt('10'), { refundId: `refund:${p.id}:k` })).rejects.toBeInstanceOf(PayGuardRefusal);
+    expect(await clearing(m.id)).toBe(before);
+  });
 });
