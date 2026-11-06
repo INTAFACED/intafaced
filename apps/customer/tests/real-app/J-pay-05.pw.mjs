@@ -10,7 +10,7 @@ const AMOUNT = '12';
 const NOTE = 'Concert tickets, TEST';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
-test.describe.configure({ mode: 'serial' });
+test.describe.configure({ mode: 'default' });
 
 /** A tRPC answer through the person's own session, or a thrown error naming what was refused. */
 async function trpc(who, method, route, input) {
@@ -79,6 +79,9 @@ test.beforeAll(async ({ browser }) => {
   const payer = await signUp(page, 'rq5r');
   await verify(page, payer);
   expect(fund(payer.email, 'USDT', '30').tx, 'the payer was not funded with TEST 30 USDT').toBeTruthy();
+  // The payee holds a USDT space (TEST 1 USDT), the coin Request offers to be paid in. Every check below is a change in
+  // a balance, so this starting amount never counts as a payment.
+  expect(fund(payee.email, 'USDT', '1').tx, 'the payee was not given a USDT space').toBeTruthy();
   run.write({ payee, payer });
   await page.close();
 });
