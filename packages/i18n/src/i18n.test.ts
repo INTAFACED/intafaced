@@ -99,7 +99,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A run refused at its agent's monthly hard limit (J-agents-02 #6) adds one refusal key.
     // An own agent's monthly spend alert in the inbox (J-agents-02 #6) adds a title and a body key.
     // The guest verification email for a support request (SP-tickets-01) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(307);
+    // A held tool call of an own agent in the inbox (J-agents-05 #4) adds two title keys and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(310);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
