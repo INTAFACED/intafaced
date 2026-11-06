@@ -234,6 +234,8 @@ export type OwnApprovalRequestView = {
   readonly createdAt: string;
   readonly expiresAt: string;
   readonly decidedAt: string | null;
+  /** Who approved or rejected it: the person, or the automatic reviewer's proceed (AG-approvals-02). */
+  readonly decidedBy: 'person' | 'reviewer' | null;
   readonly replacedBy: string | null;
   readonly result: unknown;
   readonly ranAt: string | null;
@@ -250,6 +252,7 @@ interface RequestRow {
   created_at: Date;
   expires_at: Date;
   decided_at: Date | null;
+  decided_by: 'person' | 'reviewer' | null;
   replaced_by: string | null;
   result_json: unknown;
   ran_at: Date | null;
@@ -288,6 +291,7 @@ const requestView = (row: RequestRow): OwnApprovalRequestView => ({
   createdAt: row.created_at.toISOString(),
   expiresAt: row.expires_at.toISOString(),
   decidedAt: row.decided_at?.toISOString() ?? null,
+  decidedBy: row.decided_by,
   replacedBy: row.replaced_by,
   result: row.result_json ?? null,
   ranAt: row.ran_at?.toISOString() ?? null,
@@ -318,7 +322,7 @@ export class OwnApprovalRequestStore {
   private readonly columns = () => this.sql`
     id, session_id::text AS session_id, tool, input_json,
     CASE WHEN status = 'waiting' AND expires_at <= now() THEN 'expired' ELSE status END AS status,
-    rule_id::text AS rule_id, created_at, expires_at, decided_at, replaced_by::text AS replaced_by, result_json, ran_at, failure_code
+    rule_id::text AS rule_id, created_at, expires_at, decided_at, decided_by, replaced_by::text AS replaced_by, result_json, ran_at, failure_code
   `;
 
   async hold(input: {
@@ -330,13 +334,19 @@ export class OwnApprovalRequestStore {
     args: Readonly<Record<string, string>>;
     ruleId: string | null;
     ttlSeconds: number;
+    /**
+     * False when the automatic reviewer decides the request (AG-approvals-02): it is stored as already announced, so no
+     * notice tells the person about a call that is not theirs to decide.
+     */
+    notifyPerson?: boolean;
   }): Promise<OwnApprovalRequestView> {
     const key = `agents:approve:${input.sessionId}:${input.requestId}`;
+    const publishedAt = input.notifyPerson === false ? this.sql`now()` : this.sql`NULL`;
     const inserted = await this.sql<RequestRow[]>`
       INSERT INTO agents.own_agent_approval_requests
-        (agent_id, owner_id, session_id, tool, input_json, rule_id, request_key, expires_at)
+        (agent_id, owner_id, session_id, tool, input_json, rule_id, request_key, expires_at, published_at)
       VALUES (${input.agentId}, ${input.ownerId}, ${input.sessionId}, ${input.tool}, ${this.sql.json({ ...input.args })},
-              ${input.ruleId}, ${key}, now() + make_interval(secs => ${input.ttlSeconds}))
+              ${input.ruleId}, ${key}, now() + make_interval(secs => ${input.ttlSeconds}), ${publishedAt})
       ON CONFLICT (owner_id, request_key) DO NOTHING
       RETURNING ${this.columns()}
     `;
@@ -386,9 +396,13 @@ export class OwnApprovalRequestStore {
    * (its first result, or none yet if its run did not finish, so the caller runs it again on the same key). One that
    * is rejected, expired or replaced refuses with that state's code and is never approved.
    */
-  async approve(ownerId: string, id: string): Promise<{ call: ApprovedCall; alreadyApproved: boolean }> {
+  async approve(
+    ownerId: string,
+    id: string,
+    by: 'person' | 'reviewer' = 'person',
+  ): Promise<{ call: ApprovedCall; alreadyApproved: boolean }> {
     const claimed = await this.sql<RequestRow[]>`
-      UPDATE agents.own_agent_approval_requests SET status = 'approved', decided_at = now(), updated_at = now()
+      UPDATE agents.own_agent_approval_requests SET status = 'approved', decided_at = now(), decided_by = ${by}, updated_at = now()
        WHERE owner_id = ${ownerId} AND id = ${id} AND status = 'waiting' AND expires_at > now()
       RETURNING ${this.columns()}
     `;
@@ -458,7 +472,7 @@ export class OwnApprovalRequestStore {
   /** Rejects a waiting request; rejecting it again returns it. Any other state refuses with its code. */
   async reject(ownerId: string, id: string): Promise<OwnApprovalRequestView> {
     const rejected = await this.sql<RequestRow[]>`
-      UPDATE agents.own_agent_approval_requests SET status = 'rejected', decided_at = now(), updated_at = now()
+      UPDATE agents.own_agent_approval_requests SET status = 'rejected', decided_at = now(), decided_by = 'person', updated_at = now()
        WHERE owner_id = ${ownerId} AND id = ${id} AND status = 'waiting' AND expires_at > now()
       RETURNING ${this.columns()}
     `;
