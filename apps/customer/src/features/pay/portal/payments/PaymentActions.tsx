@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { z } from 'zod';
+import type { z } from 'zod';
+import { payBulkRefundOutSchema, payRefundControlPaymentSchema, payReverseOutSchema } from '@intafaced/contracts/pay-refund-control';
 import { Button, ReviewDialog as Dialog } from '@intafaced/ui';
 import { defineCopy } from '../../../../shared/i18n';
 import type { ApiResult } from '../../../../shared/api';
@@ -55,21 +56,10 @@ const en = {
 } as const;
 const copy = defineCopy('pay.portal.payment-actions', en);
 
-const paymentOut = z.object({ id: z.string(), status: z.string(), refundedAmount: z.string(), assetId: z.string() });
-const reverseOut = z.object({ used: z.enum(['void', 'refund']), amount: z.string(), payment: paymentOut });
-const bulkOut = z.object({
-  batchId: z.string(),
-  rows: z.array(
-    z.object({
-      row: z.number(),
-      paymentId: z.string(),
-      amount: z.string().nullable(),
-      refundId: z.string(),
-      outcome: z.enum(['pending', 'refunded', 'refused', 'unknown']),
-      refusalCode: z.string().nullable(),
-    }),
-  ),
-});
+// The answers' shapes are svc-pay's own, from the contracts package.
+const paymentOut = payRefundControlPaymentSchema;
+const reverseOut = payReverseOutSchema;
+const bulkOut = payBulkRefundOutSchema;
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 

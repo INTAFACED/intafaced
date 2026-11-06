@@ -92,6 +92,7 @@ import { RAIL_CAPABILITIES, RAIL_MODES } from './rails/rail-adapter.js';
 import { PublicCheckoutUnavailable, SandboxRailRefusal } from './rails/posture.js';
 import { guardRefusalToTrpc, PayGuardRefusal } from './seams/guards.js';
 import { isInteractivePrincipal, requireMerchantPermission, resolveMerchantCaller, seesFullPricing } from './merchant-ops/roles.js';
+import { payRefundRequestSchema } from '@intafaced/contracts/pay-refund-control';
 import { RefundControl, BULK_REFUND_MAX_ROWS, type RefundRequest } from './refund-control/service.js';
 import { maskRailRef, PaymentPrivacy, seesClearRailRef } from './merchant-ops/payment-views.js';
 import { paymentPrivacyProcedures } from './merchant-ops/payment-views-router.js';
@@ -164,24 +165,8 @@ const amountSchema = z.string().regex(/^\d+(\.\d{1,18})?$/, 'amounts are unsigne
 
 const assetIdSchema = z.string().min(1).max(16);
 
-/** J-merchant-06: a refund that waits for approval, and what became of it. */
-const refundRequestSchema = z.object({
-  id: z.string(),
-  merchantId: z.string(),
-  paymentId: z.string(),
-  assetId: z.string(),
-  amount: amountSchema,
-  refundId: z.string(),
-  status: z.enum(['queued', 'approved', 'refunded', 'failed', 'rejected', 'cancelled', 'voided']),
-  makerUserId: z.string(),
-  checkerUserId: z.string().nullable(),
-  checkerReason: z.string().nullable(),
-  failureCode: z.string().nullable(),
-  voidReason: z.string().nullable(),
-  createdAt: z.string(),
-  decidedAt: z.string().nullable(),
-  closedAt: z.string().nullable(),
-});
+/** J-merchant-06: a refund that waits for approval, and what became of it (packages/contracts). */
+const refundRequestSchema = payRefundRequestSchema;
 
 const paymentView = z.object({
   id: z.string().guid(),
