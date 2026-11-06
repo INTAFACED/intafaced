@@ -28,13 +28,20 @@ test.beforeEach(async ({ page }) => {
     cdp.on('Network.requestWillBeSent', (e) => {
       const u = e.request.url;
       if (u.startsWith('data:') || u.includes('__csp-report') || u.startsWith('blob:'))
-        console.log(`CDPDIAG ${t()} ${where} req ${e.type} ${u.slice(0, 160)} doc=${e.documentURL} init=${JSON.stringify(e.initiator).slice(0, 1500)} post=${(e.request.postData ?? '').slice(0, 600)}`);
+        console.log(
+          `CDPDIAG ${t()} ${where} req ${e.type} ${u.slice(0, 160)} doc=${e.documentURL} init=${JSON.stringify(e.initiator).slice(0, 1500)} post=${(e.request.postData ?? '').slice(0, 600)}`,
+        );
     });
     cdp.on('Network.loadingFailed', (e) => {
-      if (e.blockedReason || /csp|blocked/i.test(e.errorText ?? '')) console.log(`CDPDIAG ${t()} ${where} failed ${e.type} ${e.errorText} ${e.blockedReason} ${e.requestId}`);
+      if (e.blockedReason || /csp|blocked/i.test(e.errorText ?? ''))
+        console.log(`CDPDIAG ${t()} ${where} failed ${e.type} ${e.errorText} ${e.blockedReason} ${e.requestId}`);
     });
     cdp.on('Audits.issueAdded', (e) => console.log(`CDPDIAG ${t()} ${where} issue ${JSON.stringify(e.issue).slice(0, 1500)}`));
-    cdp.on('Log.entryAdded', (e) => console.log(`CDPDIAG ${t()} ${where} log ${e.entry.source} ${e.entry.level} ${e.entry.text.slice(0, 400)} ${e.entry.url ?? ''}:${e.entry.lineNumber ?? ''}`));
+    cdp.on('Log.entryAdded', (e) =>
+      console.log(
+        `CDPDIAG ${t()} ${where} log ${e.entry.source} ${e.entry.level} ${e.entry.text.slice(0, 400)} ${e.entry.url ?? ''}:${e.entry.lineNumber ?? ''}`,
+      ),
+    );
     cdp.on('Runtime.consoleAPICalled', () => {});
     await cdp.send('Network.enable').catch(() => {});
     await cdp.send('Audits.enable').catch(() => {});
@@ -43,7 +50,9 @@ test.beforeEach(async ({ page }) => {
   const cdp = await page.context().newCDPSession(page);
   await watch(cdp, 'page');
   cdp.on('Target.attachedToTarget', (e) => console.log(`CDPDIAG ${t()} attached ${e.targetInfo.type} ${e.targetInfo.url}`));
-  await cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }).catch((e) => console.log(`CDPDIAG autoattach ${e.message}`));
+  await cdp
+    .send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true })
+    .catch((e) => console.log(`CDPDIAG autoattach ${e.message}`));
   page.on('worker', (w) => console.log(`CDPDIAG ${t()} worker ${w.url()}`));
   page.on('framenavigated', (f) => console.log(`CDPDIAG ${t()} nav ${f === page.mainFrame() ? 'main' : 'sub'} ${f.url()}`));
   page.on('frameattached', (f) => console.log(`CDPDIAG ${t()} frameattached ${f.url()}`));
