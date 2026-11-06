@@ -29,6 +29,8 @@ import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
  *   GET /api/v1/orderbook/:symbol?limit=
  *   GET /api/v1/ticker/:symbol
  *   GET /api/v1/tickers?limit=
+ *   GET /api/v1/spreads?limit=
+ *   GET /api/v1/analytics/:symbol?window=
  *   GET /api/v1/trades/:symbol?limit=&since=
  *   GET /api/v1/ohlcv/:symbol?timeframe=&since=&limit=
  *   GET /api/v1/funding-rate/:symbol
@@ -547,6 +549,12 @@ export function presentOrderBook(symbol: string, depth: EngineDepth, nowMs: numb
  * null if it never traded) and, on `/tickers` only, `sparkline`: up to 24 hourly
  * closes, oldest first, silent hours repeat the previous real close, never null.
  */
+/** Best ask minus best bid, exact: never a rounded or guessed figure, and null when either side is empty. */
+export function spreadOf(bid: readonly [string, string] | null, ask: readonly [string, string] | null): string | null {
+  if (!bid || !ask) return null;
+  return formatAmount(parseAmount(ask[0]) - parseAmount(bid[0]));
+}
+
 export function presentTicker(
   symbol: string,
   depth: EngineDepth,
@@ -583,6 +591,8 @@ export function presentTicker(
     average: null as string | null,
     baseVolume: dec(stats?.baseVolume),
     quoteVolume: dec(stats?.quoteVolume),
+    /** Not stock CCXT: best ask minus best bid from the book, exact in decimal; null without both sides. */
+    spread: spreadOf(bestBid, bestAsk),
     /** Not stock CCXT: where the 24 h stats really begin (ms), null if never traded. */
     windowStart: stats?.windowStart ?? (null as number | null),
     ...(opts.sparkline ? { sparkline: (stats?.sparkline ?? []).map((v) => formatAmount(v)) } : {}),
@@ -936,6 +946,36 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       }),
     );
 
+    return reply.code(200).send(out);
+  });
+
+  /**
+   * GET /api/v1/spreads?limit= — the top-of-book spread per listed market, read from each book (SP-markets-data-01 d).
+   * A market whose book is down or has no book is left out, never shown as a zero spread. Limit is required.
+   */
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/spreads', publicRead, async (req, reply) => {
+    const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
+    if (limit === undefined) {
+      return sendCcxt(reply, badRequest('spreads limit is unset — refuse to invent one', 'trade.spreads_limit_unset'));
+    }
+    const markets = await deps.markets(limit);
+    const ts = now();
+    const out: Array<{ symbol: string; bid: string | null; ask: string | null; spread: string | null; timestamp: number }> = [];
+    await Promise.all(
+      markets.map(async (market) => {
+        let depth: EngineDepth;
+        try {
+          depth = await deps.depth(market.id, 1);
+        } catch (err) {
+          if (err instanceof MatchingUnavailableError || err instanceof MatchingNoBookError) return;
+          throw err;
+        }
+        const bid = depth.bids[0] ?? null;
+        const ask = depth.asks[0] ?? null;
+        out.push({ symbol: market.symbol, bid: bid ? bid[0] : null, ask: ask ? ask[0] : null, spread: spreadOf(bid, ask), timestamp: ts });
+      }),
+    );
+    out.sort((a, b) => a.symbol.localeCompare(b.symbol));
     return reply.code(200).send(out);
   });
 
