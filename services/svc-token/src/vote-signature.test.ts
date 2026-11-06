@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { serviceAuthHeadersForBody, WALLET_SIGNATURE_VERIFY_PATH } from '@intafaced/contracts';
+import {
+  SERVICE_SIGNATURE_HEADER,
+  SERVICE_TIMESTAMP_HEADER,
+  serviceAuthHeadersForBody,
+  serviceBodyDigest,
+  signServiceCallWithBody,
+  WALLET_SIGNATURE_VERIFY_PATH,
+} from '@intafaced/contracts';
 import { createIdentityVoteSignatures, voteMessage } from './vote-signature.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -31,10 +38,19 @@ describe('createIdentityVoteSignatures', () => {
     expect(await port.verify(input)).toEqual({ state: 'linked', address: `0x${'cd'.repeat(20)}` });
     expect(calls[0]!.url).toBe(`http://identity.test${WALLET_SIGNATURE_VERIFY_PATH}`);
     expect(calls[0]!.init.body).toBe(JSON.stringify(input));
+    const sent = calls[0]!.init.headers as Record<string, string>;
     const expected = serviceAuthHeadersForBody('svc-token', 's'.repeat(32), JSON.stringify(input));
+    // The timestamp is the second the call was signed, and the signature covers it: both are read from what was sent
+    // (#7264: matched by name, they could tick to the next second between the call and this line).
     for (const [name, value] of Object.entries(expected)) {
-      if (!/timestamp|nonce|signature/i.test(name)) expect((calls[0]!.init.headers as Record<string, string>)[name]).toBe(value);
+      if (name !== SERVICE_TIMESTAMP_HEADER && name !== SERVICE_SIGNATURE_HEADER) expect(sent[name]).toBe(value);
     }
+    const signedAt = Number(sent[SERVICE_TIMESTAMP_HEADER]);
+    expect(Number.isInteger(signedAt)).toBe(true);
+    expect(Math.abs(signedAt - Math.floor(Date.now() / 1000))).toBeLessThanOrEqual(5);
+    expect(sent[SERVICE_SIGNATURE_HEADER]).toBe(
+      signServiceCallWithBody('svc-token', 's'.repeat(32), signedAt, serviceBodyDigest(JSON.stringify(input))),
+    );
     expect(calls[0]!.init.redirect).toBe('error');
   });
 
