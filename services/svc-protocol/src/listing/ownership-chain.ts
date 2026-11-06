@@ -58,7 +58,8 @@ export function ownershipChain(chain: ProtocolChain, identity: ChainIdentityRead
           `${token} holds no contract code on chain ${chain.config.chainId}, so it has no owner to prove.`,
         );
       try {
-        const blockNumber = await chain.client.getBlockNumber();
+        // The node's block now, not viem's cached one, or an ownership transfer just mined reads as the old owner (#7192).
+        const blockNumber = await chain.client.getBlockNumber({ cacheTime: 0 });
         const { data } = await chain.client.call({
           to: token,
           data: encodeFunctionData({ abi: ownableAbi, functionName: 'owner' }),
