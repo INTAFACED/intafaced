@@ -54,11 +54,7 @@ export type UpcomingMaintenance =
     };
 
 /** The nearest window for one market from the board's read, or `none`. */
-export function upcomingMaintenanceFor(
-  symbol: string,
-  read: MarketMaintenanceRead | null,
-  now: Date,
-): UpcomingMaintenance {
+export function upcomingMaintenanceFor(symbol: string, read: MarketMaintenanceRead | null, now: Date): UpcomingMaintenance {
   if (read === null) return { status: 'unavailable' };
   const component = marketComponentId(symbol);
   if (component === null) return { status: 'none' };

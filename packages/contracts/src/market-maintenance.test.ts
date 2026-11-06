@@ -21,8 +21,20 @@ describe('market maintenance (J-cex-spot-14 #5)', () => {
     const read: MarketMaintenanceRead = {
       windows: [
         { id: id(1), title: 'later', markets: ['market-btc-usdc'], startsAt: '2026-11-06T12:00:00.000Z', endsAt: null },
-        { id: id(2), title: 'soon', markets: ['market-btc-usdc'], startsAt: '2026-11-06T10:00:00.000Z', endsAt: '2026-11-06T11:00:00.000Z' },
-        { id: id(3), title: 'ended', markets: ['market-btc-usdc'], startsAt: '2026-11-06T07:00:00.000Z', endsAt: '2026-11-06T08:00:00.000Z' },
+        {
+          id: id(2),
+          title: 'soon',
+          markets: ['market-btc-usdc'],
+          startsAt: '2026-11-06T10:00:00.000Z',
+          endsAt: '2026-11-06T11:00:00.000Z',
+        },
+        {
+          id: id(3),
+          title: 'ended',
+          markets: ['market-btc-usdc'],
+          startsAt: '2026-11-06T07:00:00.000Z',
+          endsAt: '2026-11-06T08:00:00.000Z',
+        },
         { id: id(4), title: 'other market', markets: ['market-eth-usdc'], startsAt: '2026-11-06T09:30:00.000Z', endsAt: null },
       ],
     };
@@ -33,7 +45,10 @@ describe('market maintenance (J-cex-spot-14 #5)', () => {
       startsAt: '2026-11-06T10:00:00.000Z',
       endsAt: '2026-11-06T11:00:00.000Z',
     });
-    expect(upcomingMaintenanceFor('BTC/USDC', read, new Date('2026-11-06T10:00:00.000Z'))).toMatchObject({ status: 'in_progress', noticeId: id(2) });
+    expect(upcomingMaintenanceFor('BTC/USDC', read, new Date('2026-11-06T10:00:00.000Z'))).toMatchObject({
+      status: 'in_progress',
+      noticeId: id(2),
+    });
     expect(upcomingMaintenanceFor('SOL/USDC', read, NOW)).toEqual({ status: 'none' });
   });
 });

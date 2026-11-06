@@ -85,7 +85,9 @@ export function StatusPage() {
                         <span className="muted" data-testid={`status-maintenance-${row.symbol}`}>
                           {' '}
                           {copy.t('marketMaintenance')}{' '}
-                          {row.maintenance.startsAt !== null ? whenUtc(new Date(row.maintenance.startsAt).toISOString()) : copy.t('windowNotSet')}{' '}
+                          {row.maintenance.startsAt !== null
+                            ? whenUtc(new Date(row.maintenance.startsAt).toISOString())
+                            : copy.t('windowNotSet')}{' '}
                           {copy.t('windowTo')}{' '}
                           {row.maintenance.endsAt !== null ? whenUtc(new Date(row.maintenance.endsAt).toISOString()) : copy.t('endNotSet')}
                         </span>

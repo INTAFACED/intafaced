@@ -71,7 +71,12 @@ describe('market maintenance windows (J-cex-spot-14 #5)', () => {
     const open = await h.publish(maintenance('m-2', { components: ['market-eth-usdc', 'api'], startsAt: '2026-11-06T10:30:00.000Z' }));
     const read = await h.board.marketMaintenance();
     expect(read.windows).toEqual([
-      expect.objectContaining({ id: soon.id, markets: ['market-btc-usdc'], startsAt: '2026-11-06T10:00:00.000Z', endsAt: '2026-11-06T11:00:00.000Z' }),
+      expect.objectContaining({
+        id: soon.id,
+        markets: ['market-btc-usdc'],
+        startsAt: '2026-11-06T10:00:00.000Z',
+        endsAt: '2026-11-06T11:00:00.000Z',
+      }),
       expect.objectContaining({ id: open.id, markets: ['market-eth-usdc'], endsAt: null }),
     ]);
     // Once its end has passed, a window is no longer served.
@@ -89,7 +94,9 @@ describe('market maintenance windows (J-cex-spot-14 #5)', () => {
   it('an incident never names a market component, and a malformed market id is unknown', async () => {
     const h = harness('2026-11-06T09:00:00.000Z');
     expect(
-      await refusal(h.publish({ kind: 'incident', title: 't', body: 'b', clientRequestId: 'i-1', impact: 'minor', components: ['market-btc-usdc'] })),
+      await refusal(
+        h.publish({ kind: 'incident', title: 't', body: 'b', clientRequestId: 'i-1', impact: 'minor', components: ['market-btc-usdc'] }),
+      ),
     ).toBe('notify.notice_component_unknown');
     expect(await refusal(h.publish(maintenance('m-4', { components: ['market-btc'] })))).toBe('notify.notice_component_unknown');
   });

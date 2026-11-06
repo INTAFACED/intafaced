@@ -25,7 +25,11 @@ describe('toStatusMap', () => {
       { symbol: 'BTC/USDC', upcomingMaintenance: { status: 'scheduled', startsAt: '2026-11-06T10:00:00.000Z', endsAt: null } },
       { symbol: 'SOL/USDC', upcomingMaintenance: { status: 'unavailable' } },
     ]);
-    expect(flagged['BTC/USDC']?.maintenance).toEqual({ status: 'scheduled', startsAt: Date.parse('2026-11-06T10:00:00.000Z'), endsAt: null });
+    expect(flagged['BTC/USDC']?.maintenance).toEqual({
+      status: 'scheduled',
+      startsAt: Date.parse('2026-11-06T10:00:00.000Z'),
+      endsAt: null,
+    });
     expect(flagged['SOL/USDC']?.maintenance).toBeNull();
   });
   it('keeps FX pairs out of Spot, and everything in when the read failed', () => {
