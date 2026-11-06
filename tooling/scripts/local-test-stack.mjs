@@ -2426,6 +2426,7 @@ function serveCustomer(port = PORTS.customer, site = SITES.customer) {
       });
       req.on('end', () => {
         const rows = cspReportRows(body);
+        console.error(`DIAG csp POST ${new Date().toISOString()} ${JSON.stringify(req.headers)} ${body.slice(0, 1500)}`);
         try {
           if (rows.length) {
             fs.mkdirSync(path.dirname(P.cspViolations), { recursive: true });
@@ -2627,6 +2628,7 @@ function cmdCspReport(args) {
     groups.set(key, g);
   }
   say(`  csp-report: ${rows.length} Content-Security-Policy violation(s), ${groups.size} kind(s)`);
+  for (const r of rows) say(`    DIAG row ${JSON.stringify(r)}`);
   for (const [key, g] of groups) {
     say(
       `    ${key}  ×${g.n}  on ${[...g.pages].slice(0, 3).join(', ')}${g.source ? `  from ${g.source}:${g.line}` : ''}${g.sample ? `  "${g.sample}"` : ''}`,
