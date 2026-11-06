@@ -113,14 +113,14 @@ describe('GET /api/bank-ops/customer', () => {
     expect(json.entries.part.message).toContain('do not add up to the balance');
   });
 
-  it('a session without the treasury permission is shown the refusal in words', async () => {
+  it('a session without the operator read permission is shown the refusal in words', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => trpcErr(403, 'scope denied', 'scope.denied')),
     );
     const json = await (await customer.GET(get(`/api/bank-ops/customer?user=${CUSTOMER}`))).json();
     expect(json.part).toMatchObject({ kind: 'failed', forbidden: true });
-    expect(json.part.message).toContain('admin:treasury');
+    expect(json.part.message).toContain('admin:read');
   });
 
   it('an id svc-bank could never hold is refused here with 400 and nothing is sent', async () => {
