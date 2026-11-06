@@ -76,7 +76,7 @@ async function approveAsB(browser, approvalId, payloadHash) {
 }
 
 /** The value next to `label` in a filed request's key/value list. */
-const filed = (scope, label) => scope.locator(`[data-filed] [data-field="${label}"]`);
+const filed = (scope, label) => scope.locator(`[data-field="${label}"]`);
 
 test.beforeAll(async ({ browser }) => {
   if (run.read().customer) return;
