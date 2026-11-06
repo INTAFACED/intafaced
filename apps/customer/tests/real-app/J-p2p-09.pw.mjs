@@ -1,4 +1,4 @@
-// World: gates, restart
+// World: freeze, gates, restart
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
