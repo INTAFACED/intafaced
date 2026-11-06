@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../shared/ui';
 import { ServiceOffNotice, NOT_CONNECTED_CODES, type NotConnectedCode } from '../../shared/service-off';
 import { useSession } from '../session/session';
@@ -90,6 +90,10 @@ export function TaxStatements() {
   const thisYear = new Date().getUTCFullYear();
   const [year, setYear] = useState(thisYear);
   const [tax, setTax] = useState<Tax>({ kind: 'loading' });
+  // The copy function is new on every render; reading it through a ref keeps the read from restarting each render,
+  // which left the panel on "Opening tax statements…" for good (J-bank-16 #3).
+  const words = useRef(t);
+  words.current = t;
 
   useEffect(() => {
     let live = true;
@@ -98,12 +102,12 @@ export function TaxStatements() {
       if (!live) return;
       if (result.ok) return setTax({ kind: 'list', count: result.data.items.length });
       const code = outside(result.code);
-      setTax(code ? { kind: 'off', code } : { kind: 'refused', words: t('taxRefused'), code: result.code ?? null });
+      setTax(code ? { kind: 'off', code } : { kind: 'refused', words: words.current('taxRefused'), code: result.code ?? null });
     });
     return () => {
       live = false;
     };
-  }, [api, year, t]);
+  }, [api, year]);
 
   return (
     <DepthPanel title={t('taxTitle')} lead={t('taxLead')}>

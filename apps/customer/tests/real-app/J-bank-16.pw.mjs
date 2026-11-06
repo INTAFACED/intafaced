@@ -69,11 +69,12 @@ test(`${J} #1 exports a month as PDF: every posted line, a hash proof and the sa
   expect(fund(who.email, 'USDT', '50.25').tx).toBeTruthy();
   await signIn(page, who);
 
-  // This month's posted lines, as the bank lists them: the two TEST deposits, and whatever else the stack posted.
+  // This month's posted lines, as the bank lists them: the two TEST deposits (the stack's fund tool posts them on its
+  // `local-test` rail, which the bank lists as TEST welcome funds), and whatever else the stack posted.
   const lines = await activityLines(who, monthStart().toISOString(), new Date(nextMonthStart().getTime() - 1).toISOString());
   expect(
     lines
-      .filter((line) => line.kind === 'deposit')
+      .filter((line) => line.kind === 'welcome_funds')
       .map((line) => line.amount)
       .sort(),
   ).toEqual(['100', '50.25']);
@@ -139,10 +140,10 @@ test(`${J} #2 searches transactions and asks for a letter: search results, and a
   const rows = page.getByTestId('money-table').getByTestId('money-act');
   await expect(rows.first()).toBeVisible();
   // A search by amount finds the one line, and a search for nothing of the person's finds nothing.
-  await search.getByRole('searchbox').fill('50.25');
+  await search.getByRole('searchbox', { name: 'Search activity' }).fill('50.25');
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText('50.25');
-  await search.getByRole('searchbox').fill('no-such-line-TEST');
+  await search.getByRole('searchbox', { name: 'Search activity' }).fill('no-such-line-TEST');
   await expect(page.getByTestId('money-state')).toContainText('Nothing matches');
 
   // A bank letter needs a banking partner, and none is connected: refused in words, with its code, nothing made.
