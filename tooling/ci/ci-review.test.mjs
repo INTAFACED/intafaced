@@ -1,5 +1,5 @@
 // The CI review and the seal keyed to it (AGENTS.md item 8), offline. The planted cases of setup step 4 (project-state
-// research/factory-2026-11/PHASE-2-OPTIONS.md section 4): a reviewed money PR passes; a money PR with no verdict fails;
+// research/factory-2026-11/PHASE-2-OPTIONS.md section 4): a reviewed gate-file PR passes; one with no verdict fails;
 // a PASS comment from the shared login (ZenYoda3) counts for nothing; plus a verdict on an older head, a FAIL followed by
 // a passing re-run, an empty commit pushed after a FAIL, and a run of a branch's own copy of the workflow.
 import test from 'node:test';
@@ -24,8 +24,7 @@ import { buildPrompt, readAnswer, eventPull, indexHead, VERDICT_SCHEMA, MAX_DIFF
 const HEAD = 'a'.repeat(40);
 const OLDER = 'b'.repeat(40);
 const NEXT = 'd'.repeat(40);
-const money = new Map([['services/svc-pay', [{ dependencies: { '@intafaced/ledger-client': 'workspace:*' } }]]]);
-const MONEY_FILES = ['services/svc-pay/src/payout.ts'];
+const GATE_FILES = ['tooling/ci/dependency-audit.mjs'];
 
 const run = (over = {}) => ({
   id: 1,
@@ -48,17 +47,78 @@ const world = (runs, extra = {}) => ({
   comments: async () => extra.comments ?? [],
 });
 
-test('the PR is money, so the seal requires the review', () => {
-  assert.match(reviewReason(MONEY_FILES, money), /^money: services\/svc-pay depends on/);
+test('the PR changes a gate file, so the seal requires the review', () => {
+  assert.match(reviewReason(GATE_FILES), /^gate file: tooling\/ci\/dependency-audit\.mjs$/);
 });
 
-test('passes on: a reviewed money PR', async () => {
+// Which changes the seal waits on (AGENTS.md "Check, then merge" 2, owner decision 2026-11-06): gate files and look
+// baselines still need the independent review; money and security code alone no longer does.
+const GATE_PR = ['services/svc-pay/src/payout.ts', '.github/workflows/ci.yml'];
+const BASELINE_PR = ['apps/customer/look-baselines/home/390x844.png'];
+const MONEY_PR = ['services/svc-pay/src/payout.ts', 'packages/ledger-client/src/recipes/x.ts', 'apps/admin/src/a.tsx'];
+const SECURITY_PR = [
+  'services/svc-edge/src/a.ts',
+  'services/svc-ops/src/a.ts',
+  'packages/auth/src/a.ts',
+  'packages/config/src/freeze-authority.ts',
+  'packages/db/src/migrate.ts',
+];
+const SUPPLY_CHAIN_PR = ['pnpm-lock.yaml', '.github/actions/test-infra/action.yml', 'apps/customer/Dockerfile']; // security code under 2026-11-06
+const sealRule = (reason) => {
+  assert.match(reason(GATE_PR) ?? '', /^gate file: \.github\/workflows\/ci\.yml$/, 'a gate-file PR still needs item 8');
+  assert.match(reason(BASELINE_PR) ?? '', /^look baseline: /, 'a look-baseline PR still needs item 8');
+  for (const f of SUPPLY_CHAIN_PR) assert.equal(reason([f]), null, `a supply-chain PR (${f}) no longer needs item 8`);
+  assert.equal(reason(MONEY_PR), null, 'a money-only PR no longer needs item 8');
+  assert.equal(reason(SECURITY_PR), null, 'a security-only PR no longer needs item 8');
+  assert.match(reason([]) ?? '', /no changed files/, 'an unreadable file list still fails closed');
+};
+
+test('a gate-file or look-baseline PR still needs item 8; a money-only, security-only or supply-chain PR does not', () => {
+  sealRule(reviewReason);
+});
+
+test('fails on (planted): the seal rule with a check dropped, or the old money, security or lockfile check put back', async () => {
+  // Each mutant is review-marker.mjs with one line changed, loaded from a temporary copy; sealRule must refuse every one.
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { pathToFileURL } = await import('node:url');
+  const here = new URL('.', import.meta.url);
+  // Every relative import points back at the real file, so the copy loads from the temporary folder.
+  const src = fs
+    .readFileSync(new URL('review-marker.mjs', here), 'utf8')
+    .replace(/(from\s+)'(\.\.?\/[^']+)'/g, (_, from, rel) => `${from}'${new URL(rel, here).href}'`);
+  const failClosed = "if (files.length === 0) return 'no changed files could be read for this head';";
+  const putBack = (line) => [failClosed, `${failClosed}\n  ${line}`];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-marker-mutant-'));
+  const mutants = {
+    'gate-file check dropped': ['if (gate.length > 0) return `gate file: ${gate[0].file}`;', ''],
+    'look-baseline check dropped': ['if (baseline) return `look baseline: ${baseline}`;', ''],
+    'lockfile check put back': putBack("if (files.includes('pnpm-lock.yaml')) return 'supply chain';"),
+    'money check put back': putBack("if (files.some((f) => f.startsWith('services/svc-pay/'))) return 'money';"),
+    'security check put back': putBack("if (files.some((f) => f.startsWith('services/svc-edge/'))) return 'security';"),
+    'empty list passes': [failClosed, ''],
+  };
+  try {
+    for (const [name, [from, to]] of Object.entries(mutants)) {
+      assert.ok(src.includes(from), `mutant "${name}" no longer applies: review-marker.mjs changed`);
+      const file = path.join(dir, `${name.replace(/\W+/g, '-')}.mjs`);
+      fs.writeFileSync(file, src.replace(from, to));
+      const mutant = await import(pathToFileURL(file).href);
+      assert.throws(() => sealRule(mutant.reviewReason), assert.AssertionError, `the "${name}" mutant passed`);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true });
+  }
+});
+
+test('passes on: a reviewed gate-file PR', async () => {
   const v = await lookForSignoff({ sha: HEAD, base: 'main', io: world([run({ jobs: [[reviewJob(HEAD, 'success')]] })]) });
   assert.equal(v.ok, true, v.why);
   assert.equal(v.state, 'pass');
 });
 
-test('fails on (planted): a money PR with no verdict', async () => {
+test('fails on (planted): a gate-file PR with no verdict', async () => {
   const none = await lookForSignoff({ sha: HEAD, base: 'main', io: world([]) });
   assert.equal(none.ok, false);
   assert.equal(none.state, 'none');
@@ -87,14 +147,13 @@ test('fails on (planted): a PASS comment from ZenYoda3 counts for nothing', asyn
   const v = await lookForSignoff({ sha: HEAD, base: 'main', io: world([], { comments, statuses }) });
   assert.equal(v.ok, false);
   // And in the merge queue.
-  const sq = { commit: { message: 'feat(svc-pay): payout (#7)' } };
+  const sq = { commit: { message: 'ci: dependency audit (#7)' } };
   const g = await sealMergeGroup({
     commits: [sq],
     headRef: `refs/heads/gh-readonly-queue/main/pr-7-${'c'.repeat(40)}`,
     io: {
       pull: async () => ({ state: 'open', head: { sha: HEAD }, user: { login: 'ZenYoda3' } }),
-      files: async () => MONEY_FILES,
-      manifests: async () => money,
+      files: async () => GATE_FILES,
       ...world([], { comments, statuses }),
     },
   });
