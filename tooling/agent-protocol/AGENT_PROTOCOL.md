@@ -16,9 +16,9 @@ If the task is ambiguous, ship refuse-closed: an unset price, limit, provider or
 
 ## 1 · Scope of a task
 
-**One journey may be one PR.** One PR may carry one whole journey: every `services/*` directory, `packages/contracts` and `packages/events` change that the journey needs (owner decision 2026-11-06, AGENTS.md "Services and events" item 1).
+**One journey may be one PR.** One PR may carry one whole journey: every `services/*` directory, `packages/contracts` and `packages/events` change that the journey needs (owner decision 2026-11-06, AGENTS.md, "The owner's decisions").
 
-Money recipes in `packages/ledger-client`, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR (AGENTS.md "Services and events" item 2).
+Money recipes in `packages/ledger-client`, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR (AGENTS.md, "The owner's decisions").
 
 ---
 
