@@ -151,6 +151,11 @@ await sql`SELECT changelog FROM notify.notices LIMIT 1`.catch(() => {
 await sql`SELECT audience FROM notify.notices LIMIT 1`.catch(() => {
   throw new Error('notify.notices has no audience column — run migration 0034_notify_notice_audiences before starting svc-notify');
 });
+await sql`SELECT source FROM notify.price_alerts LIMIT 1`.catch(() => {
+  throw new Error(
+    'notify.price_alerts has no source column — run migration 20261106031241_notify_alert_price_source before starting svc-notify',
+  );
+});
 
 // Consumer only — trade / p2p / identity / token / bank own their streams.
 // `ownedStreams: []` matches svc-ws: we never create a stream for subjects we do

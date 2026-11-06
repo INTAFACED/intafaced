@@ -8,6 +8,7 @@ import {
   isIntent,
   type AlertCondition,
   type AlertEdit,
+  type AlertSource,
   type AlertEvaluation,
   type AlertIntent,
   type PriceAlert,
@@ -148,13 +149,21 @@ export const canEdit = (alert: Pick<PriceAlert, 'status' | 'kind'>): boolean =>
   alert.kind === 'price' && (alert.status === 'active' || alert.status === 'stopped');
 
 /** The values an edit form starts from, as the form's own fields (a stop time in the person's local date-time spelling). */
-export function editStart(alert: PriceAlert): { condition: AlertCondition; price: string; name: string; message: string; expires: string } {
+export function editStart(alert: PriceAlert): {
+  condition: AlertCondition;
+  price: string;
+  name: string;
+  message: string;
+  expires: string;
+  source: AlertSource;
+} {
   return {
     condition: alert.condition ?? (alert.direction === 'below' ? 'less_than' : 'greater_than'),
     price: alert.targetPrice,
     name: alert.name ?? '',
     message: alert.message ?? '',
     expires: alert.expiresAt ? localDateTime(alert.expiresAt) : '',
+    source: alert.source ?? 'mark',
   };
 }
 
@@ -176,9 +185,16 @@ export function editDiff(alert: PriceAlert, form: ReturnType<typeof editStart>):
   if (!samePrice(form.price, start.price)) edit.targetPrice = form.price.trim();
   if (form.name.trim() !== start.name) edit.name = form.name.trim() === '' ? null : form.name.trim();
   if (form.message.trim() !== start.message) edit.message = form.message.trim() === '' ? null : form.message.trim();
+  if (form.source !== start.source) edit.source = form.source;
   if (form.expires !== start.expires) edit.expiresAt = form.expires.trim() === '' ? null : (expiryIso(form.expires) ?? null);
   return edit;
 }
+
+/** The copy key that names each price an alert may watch. */
+export const SOURCE_KEY = { mark: 'sourceMark', bid: 'sourceBid', ask: 'sourceAsk', last: 'sourceLast' } as const satisfies Record<
+  AlertSource,
+  string
+>;
 
 // ── Finding an alert in a long list ─────────────────────────────────────────────────────────────────────────────
 
