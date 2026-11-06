@@ -1508,10 +1508,6 @@
     flex-direction: column;
     min-height: 0;
   }
-  .dk-layouts {
-    position: relative;
-    display: inline-flex;
-  }
   .dk-layouts-btn,
   .dk-layouts-actions button,
   .dk-arrange-move,
@@ -1529,17 +1525,8 @@
     border-color: var(--if-accent);
   }
   .dk-layouts-pop {
-    position: absolute;
-    inset-block-start: calc(100% + var(--if-space-2));
-    inset-inline-end: 0;
-    z-index: 30;
     display: grid;
     gap: var(--if-space-3);
-    min-inline-size: 15rem;
-    padding: var(--if-space-3);
-    border: 1px solid var(--if-line);
-    border-radius: var(--if-r-sm);
-    background: var(--if-raised);
     color: var(--if-fg);
     font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
   }

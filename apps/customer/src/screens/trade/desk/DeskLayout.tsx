@@ -1,5 +1,6 @@
 import { useCallback, useId, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { deskCopy } from './copy';
+import { Popover, PopoverContent, PopoverTrigger } from './deps';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import {
   DEFAULT_LAYOUT,
@@ -61,86 +62,72 @@ export function DeskLayoutMenu({ desk }: { desk: DeskLayoutState }) {
   const id = useId();
   const presetName = (preset: PresetId) => (preset === 'classic' ? t('Classic') : t('Advanced'));
   return (
-    <div className="dk-layouts">
-      <button
-        type="button"
-        className="dk-layouts-btn"
-        aria-expanded={open}
-        aria-controls={id}
-        onClick={() => {
-          setOpen((value) => !value);
-          setConfirming(false);
-        }}
-      >
-        {t('Layouts')}
-      </button>
-      {open ? (
-        <div
-          id={id}
-          role="dialog"
-          aria-label={t('Desk layout')}
-          className="dk-layouts-pop"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') setOpen(false);
-          }}
-        >
-          <fieldset className="dk-layouts-presets">
-            <legend>{t('Desk preset')}</legend>
-            {(['classic', 'advanced'] as const).map((preset) => (
-              <label key={preset} className="dk-layouts-preset">
-                <input
-                  type="radio"
-                  name={`${id}-preset`}
-                  checked={desk.layout.preset === preset}
-                  onChange={() => desk.choosePreset(preset)}
-                />
-                {presetName(preset)}
-              </label>
-            ))}
-          </fieldset>
-          {isUntouched(desk.layout) ? null : <p className="dk-layouts-note">{t('Arranged on this device')}</p>}
-          <div className="dk-layouts-actions">
-            <button
-              type="button"
-              onClick={() => {
-                desk.setArranging(true);
-                setOpen(false);
-              }}
-            >
-              {t('Arrange widgets')}
-            </button>
-            <button type="button" onClick={() => setConfirming(true)}>
-              {t('Reset desk')}
-            </button>
-          </div>
-          {confirming ? (
-            <div role="alertdialog" aria-label={t('Reset the desk?')} className="dk-layouts-confirm">
-              <p>
-                {t('Reset the desk to the {preset} preset? The arrangement on this device is replaced.', {
-                  preset: presetName(desk.layout.preset),
-                })}
-              </p>
-              <div className="dk-layouts-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    desk.reset();
-                    desk.setArranging(false);
-                    setConfirming(false);
-                    setOpen(false);
-                  }}
-                >
-                  {t('Reset')}
-                </button>
-                <button type="button" onClick={() => setConfirming(false)}>
-                  {t('Cancel')}
-                </button>
-              </div>
-            </div>
-          ) : null}
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setConfirming(false);
+      }}
+    >
+      <PopoverTrigger className="dk-layouts-btn">{t('Layouts')}</PopoverTrigger>
+      {/* A portal above the page, so the ticker strip never clips it. */}
+      <PopoverContent align="end" aria-label={t('Desk layout')} className="dk-layouts-pop">
+        <fieldset className="dk-layouts-presets">
+          <legend>{t('Desk preset')}</legend>
+          {(['classic', 'advanced'] as const).map((preset) => (
+            <label key={preset} className="dk-layouts-preset">
+              <input
+                type="radio"
+                name={`${id}-preset`}
+                checked={desk.layout.preset === preset}
+                onChange={() => desk.choosePreset(preset)}
+              />
+              {presetName(preset)}
+            </label>
+          ))}
+        </fieldset>
+        {isUntouched(desk.layout) ? null : <p className="dk-layouts-note">{t('Arranged on this device')}</p>}
+        <div className="dk-layouts-actions">
+          <button
+            type="button"
+            onClick={() => {
+              desk.setArranging(true);
+              setOpen(false);
+            }}
+          >
+            {t('Arrange widgets')}
+          </button>
+          <button type="button" onClick={() => setConfirming(true)}>
+            {t('Reset desk')}
+          </button>
         </div>
-      ) : null}
-    </div>
+        {confirming ? (
+          <div role="alertdialog" aria-label={t('Reset the desk?')} className="dk-layouts-confirm">
+            <p>
+              {t('Reset the desk to the {preset} preset? The arrangement on this device is replaced.', {
+                preset: presetName(desk.layout.preset),
+              })}
+            </p>
+            <div className="dk-layouts-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  desk.reset();
+                  desk.setArranging(false);
+                  setConfirming(false);
+                  setOpen(false);
+                }}
+              >
+                {t('Reset')}
+              </button>
+              <button type="button" onClick={() => setConfirming(false)}>
+                {t('Cancel')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 
