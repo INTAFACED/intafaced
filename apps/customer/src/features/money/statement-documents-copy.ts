@@ -4,7 +4,7 @@ const en = {
   title: 'Your documents',
   lead: 'Long exports are made in the background. Ask once: the same request is the same document, and it waits here until you download it.',
   makeLater: 'Make in the background',
-  asked: 'Asked for. It shows in your documents and is ready to download once it is made.',
+  asked: 'Asked for. It is in your documents below, with a Download button when it is made.',
   empty: 'No documents yet. Ask for an export in the background and it appears here.',
   off: 'Background exports are switched off in this build, so none can be asked for. Direct downloads above still work.',
   loadFailed: 'Your documents could not be read just now.',
@@ -19,7 +19,7 @@ const en = {
   range: '{from} to {to} (UTC)',
   download: 'Download',
   downloaded: 'Downloaded {name}.',
-  notReady: 'That document is not ready yet.',
+  notReady: 'That document is still being made, so it has no file to download.',
   notFound: 'That document is not yours or no longer exists.',
   unfinished: 'A background export covers dates that have ended. End it today or earlier.',
 } as const;
@@ -43,7 +43,7 @@ const es: Record<keyof typeof en, string> = {
   range: 'Del {from} al {to} (UTC)',
   download: 'Descargar',
   downloaded: 'Descargado {name}.',
-  notReady: 'Ese documento aún no está listo.',
+  notReady: 'Ese documento se está preparando, así que no tiene archivo para descargar.',
   notFound: 'Ese documento no es tuyo o ya no existe.',
   unfinished: 'Una exportación en segundo plano cubre fechas ya terminadas. Termínala hoy o antes.',
 };
@@ -67,7 +67,7 @@ const fr: Record<keyof typeof en, string> = {
   range: 'Du {from} au {to} (UTC)',
   download: 'Télécharger',
   downloaded: 'Téléchargé {name}.',
-  notReady: 'Ce document n’est pas encore prêt.',
+  notReady: 'Ce document est en préparation, il n’a donc pas de fichier à télécharger.',
   notFound: 'Ce document n’est pas à vous ou n’existe plus.',
   unfinished: 'Un export en arrière-plan couvre des dates terminées. Terminez-le aujourd’hui ou avant.',
 };
