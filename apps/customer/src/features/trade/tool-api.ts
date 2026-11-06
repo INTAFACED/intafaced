@@ -224,6 +224,22 @@ export const convertPairsSchema = z.object({
   paused: z.boolean().default(false),
 });
 export type ConvertPairs = z.infer<typeof convertPairsSchema>;
+/** One limit convert as `convert.limits` reads it (J-cex-spot-11 #8). */
+export const limitConvertSchema = z.object({
+  id: z.string(),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  fromAsset: z.string(),
+  toAsset: z.string(),
+  amount: decimalSchema,
+  targetRate: decimalSchema,
+  status: z.enum(['placing', 'waiting', 'triggered', 'filled', 'cancelling', 'cancelled', 'ended']),
+  paid: decimalSchema.nullable(),
+  received: decimalSchema.nullable(),
+  endCode: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type LimitConvert = z.infer<typeof limitConvertSchema>;
 export const convertRouteSchema = z.object({ kind: z.literal('direct'), symbol: z.string(), side: z.enum(['buy', 'sell']) });
 
 /** One stored convert quote as `convert.list` reads it. A quote that was never accepted shows as `quoted` or `expired`. */
@@ -252,6 +268,10 @@ export type ConvertQuoteInput =
 export function createToolApi(api: ApiClient) {
   return {
     convertPairs: (signal?: AbortSignal) => api.query('trade', 'convert.pairs', undefined, convertPairsSchema, { signal }),
+    convertLimits: (signal?: AbortSignal) => api.query('trade', 'convert.limits', undefined, z.array(limitConvertSchema), { signal }),
+    convertLimitPlace: (input: { symbol: string; side: 'buy' | 'sell'; amount: string; targetRate: string; clientLimitId: string }) =>
+      api.mutate('trade', 'convert.limitPlace', input, limitConvertSchema),
+    convertLimitCancel: (id: string) => api.mutate('trade', 'convert.limitCancel', { id }, limitConvertSchema),
     /** How one asset converts to another; refuses by name where no route is built (a cash currency through a coin). */
     convertRoute: (input: { from: string; to: string }, signal?: AbortSignal) =>
       api.query('trade', 'convert.route', input, convertRouteSchema, { signal }),

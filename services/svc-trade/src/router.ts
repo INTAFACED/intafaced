@@ -172,6 +172,25 @@ const convertPairsOutput = z.object({
   paused: z.boolean(),
 });
 
+const limitConvertOutput = z.object({
+  id: z.string(),
+  clientLimitId: z.string(),
+  symbol: z.string(),
+  side: z.enum(['buy', 'sell']),
+  fromAsset: z.string(),
+  toAsset: z.string(),
+  amount: decimal,
+  targetRate: decimal,
+  status: z.enum(['placing', 'waiting', 'triggered', 'filled', 'cancelling', 'cancelled', 'ended']),
+  quoteId: z.string().nullable(),
+  fillId: z.string().nullable(),
+  paid: decimal.nullable(),
+  received: decimal.nullable(),
+  endCode: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
 const convertQuoteOutput = z.object({
   quoteId: z.string(),
   symbol: z.string(),
@@ -1103,6 +1122,41 @@ export function createTradeRouter(
       pairs: scopedProcedure('trade:read', { module: 'trade' })
         .output(convertPairsOutput)
         .query(({ ctx }) => guard(async () => trade.convertPairs(ctx.principal))),
+
+      /** Place a limit convert: the source held until a quote reaches the target rate, then settled once (#8). */
+      limitPlace: scopedProcedure('trade:write', { module: 'trade' })
+        .input(
+          z.object({
+            symbol: z.string().min(3),
+            side: z.enum(['buy', 'sell']),
+            amount: decimal,
+            targetRate: decimal,
+            clientLimitId: z.string().min(8).max(64),
+          }),
+        )
+        .output(limitConvertOutput)
+        .mutation(({ ctx, input }) =>
+          guard(async () =>
+            trade.placeLimitConvert(ctx.principal, {
+              symbol: input.symbol,
+              side: input.side,
+              amount: parseAmount(input.amount),
+              targetRate: parseAmount(input.targetRate),
+              clientLimitId: input.clientLimitId,
+            }),
+          ),
+        ),
+
+      /** The caller's limit converts, newest first: waiting, filled, ended and cancelled. */
+      limits: scopedProcedure('trade:read', { module: 'trade' })
+        .output(z.array(limitConvertOutput))
+        .query(({ ctx }) => guard(async () => trade.limitConverts(ctx.principal))),
+
+      /** Cancel a waiting limit convert: its hold released once. */
+      limitCancel: scopedProcedure('trade:write', { module: 'trade' })
+        .input(z.object({ id: z.string().uuid() }))
+        .output(limitConvertOutput)
+        .mutation(({ ctx, input }) => guard(async () => trade.cancelLimitConvert(ctx.principal, input.id))),
 
       /** How one asset converts to another: a direct market, or a typed refusal such as a two-leg cash route (#11). */
       route: scopedProcedure('trade:read', { module: 'trade' })

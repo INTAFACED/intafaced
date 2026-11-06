@@ -114,6 +114,7 @@ import {
 import * as listings from './trade-service/listings.js';
 import * as convert from './trade-service/convert.js';
 import { convertPairs, convertRoute, type ConvertPairs, type ConvertRoute } from '../convert/pairs.js';
+import * as limitConvert from '../convert/limit-convert.js';
 import * as orderPlace from './trade-service/order-place.js';
 import * as orderChange from './trade-service/order-change.js';
 import * as fillFlow from './trade-service/fills.js';
@@ -243,6 +244,11 @@ export interface TradeServiceOptions {
   feeSchedule?: OwnerFeeSchedule;
   /** Mirror of the `trade.convert` flag. OFF refuses convert quote + execute. */
   convertEnabled?: boolean;
+  /**
+   * How often the limit-convert sweep runs (`TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS`). Null or omitted: no sweep watches
+   * a target rate, so placing a limit convert refuses `trade.convert_limit_unset` (J-cex-spot-11 #8).
+   */
+  convertLimitSweepMs?: number | null;
   /**
    * Opens the svc-bank standing-instruction convert door. Default OFF: identity
    * must be able to decide the `standing_instruction` authority first.
@@ -558,6 +564,7 @@ export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] 
   botVerification: TradeService['botVerification'];
   algoMarkPolicy: TradeService['algoMarkPolicy'];
   convertEnabled: TradeService['convertEnabled'];
+  convertLimitSweepMs: TradeService['convertLimitSweepMs'];
   convertSpreadBps: TradeService['convertSpreadBps'];
   convertQuoteTtlMs: TradeService['convertQuoteTtlMs'];
   convertStore: TradeService['convertStore'];
@@ -674,6 +681,7 @@ export class TradeService {
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
   private readonly convertEnabled: boolean;
+  private readonly convertLimitSweepMs: number | null;
   private readonly standingInstructionsEnabled: boolean;
   private readonly convertSpreadBps: number | null;
   private readonly convertQuoteTtlMs: number | null;
@@ -734,6 +742,7 @@ export class TradeService {
     this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
+    this.convertLimitSweepMs = options.convertLimitSweepMs ?? null;
     this.standingInstructionsEnabled = options.standingInstructionsEnabled ?? false;
     this.convertSpreadBps = options.convertSpreadBps ?? null;
     this.convertQuoteTtlMs = options.convertQuoteTtlMs ?? null;
@@ -1074,6 +1083,27 @@ export class TradeService {
     const listed = await this.markets(500);
     const resolved = resolveAdmissionLimits();
     return convertPairs(listed, this.now(), 'limits' in resolved ? resolved.limits.maxOrder : null, !this.convertEnabled);
+  }
+
+  /** A limit convert: the source held until a quote reaches the target rate, then settled once (J-cex-spot-11 #8). */
+  async placeLimitConvert(principal: Principal, input: limitConvert.PlaceLimitConvertInput): Promise<limitConvert.LimitConvertWire> {
+    requireScope(principal, 'trade:write');
+    return limitConvert.placeLimitConvert(this.internal, principal, input);
+  }
+
+  async limitConverts(principal: Principal): Promise<limitConvert.LimitConvertWire[]> {
+    requireScope(principal, 'trade:read');
+    return limitConvert.listLimitConverts(this.internal, principal);
+  }
+
+  async cancelLimitConvert(principal: Principal, id: string): Promise<limitConvert.LimitConvertWire> {
+    requireScope(principal, 'trade:write');
+    return limitConvert.cancelLimitConvert(this.internal, principal, id);
+  }
+
+  /** The limit-convert sweep's tick (index.ts job host). */
+  sweepLimitConverts(opts?: { onFailed?: (id: string, err: unknown) => void }): Promise<limitConvert.LimitSweepResult> {
+    return limitConvert.sweepLimitConverts(this.internal, opts);
   }
 
   /** How `from` converts to `to`: one direct market, or a typed refusal (J-cex-spot-11 #11). Quotes nothing. */

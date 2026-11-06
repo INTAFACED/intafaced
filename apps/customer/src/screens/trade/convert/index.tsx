@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDownUp, ChevronDown, History, Info } from 'lucide-react';
 import '../buy/buy.css';
 import './convert.css';
-import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger } from '@intafaced/ui';
+import { Accordion, AccordionItem, AccordionPanel, AccordionTrigger, Tabs, TabsList, TabsTab } from '@intafaced/ui';
 import { AssetPicker, type PickerItem } from '../buy/AssetPicker';
 import {
   AlertDialog,
@@ -39,6 +39,7 @@ import { KeyValue, StatusChip, type KeyValueItem } from './deps';
 import { OTC_DESK_ID, OtcConvert } from './OtcConvert';
 import { RecentConversions } from './RecentConversions';
 import { RouteCard } from './RouteCard';
+import { LimitConvert } from './LimitConvert';
 import { useConvertPairs } from './use-pairs';
 import { canAccept, holdProgress, spreadPercent, validUntilClock } from './breakdown';
 import { defaultPair, edgeFor, edges, fromAssets, planConvert, reviewAmount, spendCap, toAssets, type Edge } from './convert-model';
@@ -222,6 +223,7 @@ function ConvertCard({
   const edge = edgeFor(all, from, to) as Edge;
   const { market } = edge;
   const [amount, setAmount] = useState('');
+  const [mode, setMode] = useState<'instant' | 'limit'>('instant');
   const [picker, setPicker] = useState<'from' | 'to' | null>(null);
   const [reviewing, setReviewing] = useState<Reviewing>(null);
   const [accepting, setAccepting] = useState(false);
@@ -287,7 +289,7 @@ function ConvertCard({
         : null;
 
   const request =
-    plan.ok && !insufficient && !pausedByService && !tooLarge && session && note.state === 'none'
+    mode === 'instant' && plan.ok && !insufficient && !pausedByService && !tooLarge && session && note.state === 'none'
       ? {
           symbol: market.symbol,
           side: edge.side,
@@ -544,219 +546,247 @@ function ConvertCard({
           <History size={20} aria-hidden="true" />
         </a>
       </div>
+      {signedOut ? null : (
+        <Tabs value={mode} onValueChange={(next) => setMode(next === 'limit' ? 'limit' : 'instant')}>
+          <TabsList aria-label={t('Convert mode')} divider>
+            <TabsTab value="instant">{t('Instant')}</TabsTab>
+            <TabsTab value="limit">{t('Limit')}</TabsTab>
+          </TabsList>
+        </Tabs>
+      )}
+      {mode === 'limit' && !signedOut ? (
+        <LimitConvert
+          tools={tools}
+          market={market}
+          side={edge.side}
+          from={from}
+          to={to}
+          available={available.state === 'ready' ? available.value : null}
+          price={price}
+          paused={paused}
+        />
+      ) : (
+        <>
+          <div className="cvt-fields">
+            <div className="cvt-field" data-testid="from-field">
+              <span className="cvt-field__label">{t('From')}</span>
+              <div className="cvt-field__main">
+                <button type="button" className="cvt-asset" onClick={() => setPicker('from')} aria-label={t('Change From asset')}>
+                  <CoinIcon asset={from} size={28} />
+                  <span>{from}</span>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </button>
+                <AmountInput
+                  size="hero"
+                  aria-label={t('Amount to convert')}
+                  value={amount}
+                  onValueChange={setAmount}
+                  precision={fromPlaces}
+                  placeholder="0"
+                  error={inlineError ?? undefined}
+                  disabled={signedOut}
+                  className="cvt-amount"
+                />
+              </div>
+              <div className="cvt-field__foot">
+                <span data-testid="cvt-available">
+                  {available.state === 'ready'
+                    ? t('Available {value}', { value: `${fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' })} ${from}` })
+                    : t('Available loading')}
+                </span>
+                {available.state === 'ready' && !signedOut ? (
+                  <button type="button" className="cvt-max" onClick={onMax}>
+                    {t('Max')}
+                  </button>
+                ) : null}
+              </div>
+            </div>
 
-      <div className="cvt-fields">
-        <div className="cvt-field" data-testid="from-field">
-          <span className="cvt-field__label">{t('From')}</span>
-          <div className="cvt-field__main">
-            <button type="button" className="cvt-asset" onClick={() => setPicker('from')} aria-label={t('Change From asset')}>
-              <CoinIcon asset={from} size={28} />
-              <span>{from}</span>
-              <ChevronDown size={16} aria-hidden="true" />
+            <button type="button" data-testid="cvt-swap" className="cvt-swap" onClick={swap} aria-label={t('Swap')}>
+              <ArrowDownUp size={18} aria-hidden="true" />
             </button>
-            <AmountInput
-              size="hero"
-              aria-label={t('Amount to convert')}
-              value={amount}
-              onValueChange={setAmount}
-              precision={fromPlaces}
-              placeholder="0"
-              error={inlineError ?? undefined}
-              disabled={signedOut}
-              className="cvt-amount"
-            />
-          </div>
-          <div className="cvt-field__foot">
-            <span data-testid="cvt-available">
-              {available.state === 'ready'
-                ? t('Available {value}', { value: `${fmtAmount(available.value, { places: BALANCE_PLACES, round: 'down' })} ${from}` })
-                : t('Available loading')}
-            </span>
-            {available.state === 'ready' && !signedOut ? (
-              <button type="button" className="cvt-max" onClick={onMax}>
-                {t('Max')}
-              </button>
-            ) : null}
-          </div>
-        </div>
 
-        <button type="button" data-testid="cvt-swap" className="cvt-swap" onClick={swap} aria-label={t('Swap')}>
-          <ArrowDownUp size={18} aria-hidden="true" />
-        </button>
-
-        <div className="cvt-field" data-testid="to-field">
-          <span className="cvt-field__label">{t('To')}</span>
-          <div className="cvt-field__main">
-            <button type="button" className="cvt-asset" onClick={() => setPicker('to')} aria-label={t('Change To asset')}>
-              <CoinIcon asset={to} size={28} />
-              <span>{to}</span>
-              <ChevronDown size={16} aria-hidden="true" />
-            </button>
-            <div
-              className="cvt-to"
-              data-loading={quoteLoading || undefined}
-              data-testid="to-amount"
-              title={quote ? `${quote.outAmount} ${quote.outAsset}` : undefined}
-            >
-              <AmountInput
-                size="hero"
-                aria-label={t('To')}
-                value={quote ? fmtAmount(quote.outAmount, { places: placesFor(quote.outAsset), round: 'down' }) : ''}
-                onValueChange={() => undefined}
-                precision={18}
-                placeholder="0"
-                readOnly
-                className="cvt-amount"
-              />
+            <div className="cvt-field" data-testid="to-field">
+              <span className="cvt-field__label">{t('To')}</span>
+              <div className="cvt-field__main">
+                <button type="button" className="cvt-asset" onClick={() => setPicker('to')} aria-label={t('Change To asset')}>
+                  <CoinIcon asset={to} size={28} />
+                  <span>{to}</span>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </button>
+                <div
+                  className="cvt-to"
+                  data-loading={quoteLoading || undefined}
+                  data-testid="to-amount"
+                  title={quote ? `${quote.outAmount} ${quote.outAsset}` : undefined}
+                >
+                  <AmountInput
+                    size="hero"
+                    aria-label={t('To')}
+                    value={quote ? fmtAmount(quote.outAmount, { places: placesFor(quote.outAsset), round: 'down' }) : ''}
+                    onValueChange={() => undefined}
+                    precision={18}
+                    placeholder="0"
+                    readOnly
+                    className="cvt-amount"
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
 
-      {insufficient ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-short">
-          <p>{shortText}</p>
-          <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
-            {t('Deposit {asset}', { asset: from })}
-          </a>
-        </div>
-      ) : null}
-      {paused ? (
-        <div className="cvt-note" role="alert" data-testid="cvt-paused" data-code="trade.convert_disabled">
-          <p>
-            <strong>{t('Paused title')}.</strong> {t('Paused body')}
-          </p>
-          <a className="text-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
-            {t('Use Spot')}
-          </a>
-        </div>
-      ) : null}
-      {tooLarge && fromLimit ? (
-        <div className="cvt-note" role="note" data-testid="cvt-too-large">
-          <p>
-            <strong>{t('Too large title')}.</strong>{' '}
-            {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: fromLimit.asset })}
-          </p>
-          <a
-            className="text-link"
-            href={`#${OTC_DESK_ID}`}
-            onClick={(event) => {
-              event.preventDefault();
-              const desk = document.getElementById(OTC_DESK_ID);
-              desk?.scrollIntoView({ block: 'start' });
-              desk?.focus();
-            }}
-          >
-            {t('Use the quote desk')}
-          </a>
-        </div>
-      ) : null}
-      {quote ? (
-        <div className="cvt-breakdown" data-testid="cvt-breakdown" aria-label={t('Price details')} role="group">
-          <KeyValue density="dense" items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
-        </div>
-      ) : null}
-
-      {rate ? (
-        <div className="cvt-rate">
-          <span className="cvt-rate__line">
-            <span data-testid="rate">{t('Rate: 1 {base} ≈ {price}', { base: market.base, price: rate })}</span>
-            <Tooltip>
-              <TooltipTrigger className="cvt-rate__tip" render={<button type="button" aria-label={t('Rate label')} />}>
-                <Info size={14} aria-hidden="true" />
-              </TooltipTrigger>
-              <TooltipContent side="top">{t('Rate tip', { spread: spreadPercent(quote!.convertSpreadBps) ?? '—' })}</TooltipContent>
-            </Tooltip>
-            <StatusChip
-              asOf={quote!.source.asOf}
-              staleAfterMs={holdMs(quote!) || 15_000}
-              refused={state.status === 'refused'}
-              density="dense"
-            />
-          </span>
-          <span className="cvt-rate__hold" data-testid="hold">
-            {expired ? t('Price expired') : t('Price held for {n}s', { n: secondsLeft ?? 0 })}
-          </span>
-          <HoldBar secondsLeft={secondsLeft} holdLengthMs={holdMs(quote!)} label={t('Price held bar')} />
-          {expired ? (
-            <Button variant="secondary" size={40} onClick={retry}>
-              {t('Get a new price')}
-            </Button>
+          {insufficient ? (
+            <div className="cvt-note" role="alert" data-testid="cvt-short">
+              <p>{shortText}</p>
+              <a className="text-link" href={`/uc/recharge?asset=${encodeURIComponent(from)}`}>
+                {t('Deposit {asset}', { asset: from })}
+              </a>
+            </div>
           ) : null}
-        </div>
-      ) : state.status === 'loading' ? (
-        <p className="cvt-rate cvt-rate--wait">{t('Getting your price')}</p>
-      ) : null}
+          {paused ? (
+            <div className="cvt-note" role="alert" data-testid="cvt-paused" data-code="trade.convert_disabled">
+              <p>
+                <strong>{t('Paused title')}.</strong> {t('Paused body')}
+              </p>
+              <a className="text-link" href={`/trade/spot/${encodeURIComponent(market.base)}-${encodeURIComponent(market.quote)}`}>
+                {t('Use Spot')}
+              </a>
+            </div>
+          ) : null}
+          {tooLarge && fromLimit ? (
+            <div className="cvt-note" role="note" data-testid="cvt-too-large">
+              <p>
+                <strong>{t('Too large title')}.</strong>{' '}
+                {t('Too large body', { amount: fmtAmount(fromLimit.amount, { places: 0 }), asset: fromLimit.asset })}
+              </p>
+              <a
+                className="text-link"
+                href={`#${OTC_DESK_ID}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  const desk = document.getElementById(OTC_DESK_ID);
+                  desk?.scrollIntoView({ block: 'start' });
+                  desk?.focus();
+                }}
+              >
+                {t('Use the quote desk')}
+              </a>
+            </div>
+          ) : null}
+          {quote ? (
+            <div className="cvt-breakdown" data-testid="cvt-breakdown" aria-label={t('Price details')} role="group">
+              <KeyValue density="dense" items={breakdownItems(quote, market, placesFor, secondsLeft, expired, t)} />
+            </div>
+          ) : null}
 
-      {state.status === 'refused' && !paused ? (
-        <StateBlock
-          kind="refused"
-          className="buy-state"
-          title={state.copy.title}
-          body={state.copy.body}
-          code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
-          action={state.copy.action}
-        />
-      ) : null}
-      {state.status === 'depth' ? (
-        <p data-testid="cvt-note" className="cvt-note">
-          {t('Too big')}
-        </p>
-      ) : null}
-      {state.status === 'overCost' ? (
-        <p className="cvt-note" data-testid="over-cost">
-          {dec(amount) === dec(available.value) ? shortText : t('Too small after price')}
-        </p>
-      ) : null}
-      {quoteOverBalance ? (
-        <p data-testid="cvt-note" className="cvt-note" role="alert">
-          {shortText}
-        </p>
-      ) : null}
-      {note.state !== 'pending' && checkNote ? (
-        <p className="cvt-note" role="status" data-testid="check-note">
-          {checkNote}
-        </p>
-      ) : null}
-      {state.status === 'error' ? (
-        <StateBlock kind="error" className="buy-state" title={t('Price error title')} onRetry={retry} retryLabel={t('Get a new price')} />
-      ) : null}
+          {rate ? (
+            <div className="cvt-rate">
+              <span className="cvt-rate__line">
+                <span data-testid="rate">{t('Rate: 1 {base} ≈ {price}', { base: market.base, price: rate })}</span>
+                <Tooltip>
+                  <TooltipTrigger className="cvt-rate__tip" render={<button type="button" aria-label={t('Rate label')} />}>
+                    <Info size={14} aria-hidden="true" />
+                  </TooltipTrigger>
+                  <TooltipContent side="top">{t('Rate tip', { spread: spreadPercent(quote!.convertSpreadBps) ?? '—' })}</TooltipContent>
+                </Tooltip>
+                <StatusChip
+                  asOf={quote!.source.asOf}
+                  staleAfterMs={holdMs(quote!) || 15_000}
+                  refused={state.status === 'refused'}
+                  density="dense"
+                />
+              </span>
+              <span className="cvt-rate__hold" data-testid="hold">
+                {expired ? t('Price expired') : t('Price held for {n}s', { n: secondsLeft ?? 0 })}
+              </span>
+              <HoldBar secondsLeft={secondsLeft} holdLengthMs={holdMs(quote!)} label={t('Price held bar')} />
+              {expired ? (
+                <Button variant="secondary" size={40} onClick={retry}>
+                  {t('Get a new price')}
+                </Button>
+              ) : null}
+            </div>
+          ) : state.status === 'loading' ? (
+            <p className="cvt-rate cvt-rate--wait">{t('Getting your price')}</p>
+          ) : null}
 
-      {note.state === 'pending' ? (
-        <div className="buy-pending" role="alert" data-testid="pending">
-          <p className="buy-pending__title">{ownNote ? t('Not confirmed title') : t('Earlier title')}</p>
-          <p className="buy-pending__body">{ownNote ? t('Not confirmed body') : t('Earlier body')}</p>
-          {checkNote ? <p className="buy-pending__body">{checkNote}</p> : null}
-          <div className="buy-pending__actions">
-            {ownNote ? (
-              <Button variant="secondary" size={40} loading={rechecking} onClick={onRecheck}>
-                {rechecking ? t('Checking again') : t('Check again')}
-              </Button>
-            ) : null}
-            <Button variant="ghost" size={40} nativeButton={false} render={<a href={ACTIVITY_HREF} />}>
-              {t('View activity')}
+          {state.status === 'refused' && !paused ? (
+            <StateBlock
+              kind="refused"
+              className="buy-state"
+              title={state.copy.title}
+              body={state.copy.body}
+              code={state.copy.reference ?? (state.code ? `Ref ${state.code.trim().slice(0, 80)}` : undefined)}
+              action={state.copy.action}
+            />
+          ) : null}
+          {state.status === 'depth' ? (
+            <p data-testid="cvt-note" className="cvt-note">
+              {t('Too big')}
+            </p>
+          ) : null}
+          {state.status === 'overCost' ? (
+            <p className="cvt-note" data-testid="over-cost">
+              {dec(amount) === dec(available.value) ? shortText : t('Too small after price')}
+            </p>
+          ) : null}
+          {quoteOverBalance ? (
+            <p data-testid="cvt-note" className="cvt-note" role="alert">
+              {shortText}
+            </p>
+          ) : null}
+          {note.state !== 'pending' && checkNote ? (
+            <p className="cvt-note" role="status" data-testid="check-note">
+              {checkNote}
+            </p>
+          ) : null}
+          {state.status === 'error' ? (
+            <StateBlock
+              kind="error"
+              className="buy-state"
+              title={t('Price error title')}
+              onRetry={retry}
+              retryLabel={t('Get a new price')}
+            />
+          ) : null}
+
+          {note.state === 'pending' ? (
+            <div className="buy-pending" role="alert" data-testid="pending">
+              <p className="buy-pending__title">{ownNote ? t('Not confirmed title') : t('Earlier title')}</p>
+              <p className="buy-pending__body">{ownNote ? t('Not confirmed body') : t('Earlier body')}</p>
+              {checkNote ? <p className="buy-pending__body">{checkNote}</p> : null}
+              <div className="buy-pending__actions">
+                {ownNote ? (
+                  <Button variant="secondary" size={40} loading={rechecking} onClick={onRecheck}>
+                    {rechecking ? t('Checking again') : t('Check again')}
+                  </Button>
+                ) : null}
+                <Button variant="ghost" size={40} nativeButton={false} render={<a href={ACTIVITY_HREF} />}>
+                  {t('View activity')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          {note.state === 'unreadable' ? (
+            <p className="buy-pending__body" role="alert">
+              {t('No safe storage')}
+            </p>
+          ) : null}
+
+          {state.status === 'refused' && state.kind === 'convertSpreadUnset' ? null : signedOut ? (
+            <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={loginHref} />}>
+              {t('Log in to convert')}
             </Button>
-          </div>
-        </div>
-      ) : null}
-      {note.state === 'unreadable' ? (
-        <p className="buy-pending__body" role="alert">
-          {t('No safe storage')}
-        </p>
-      ) : null}
-
-      {state.status === 'refused' && state.kind === 'convertSpreadUnset' ? null : signedOut ? (
-        <Button variant="primary" size={56} fullWidth nativeButton={false} render={<a href={loginHref} />}>
-          {t('Log in to convert')}
-        </Button>
-      ) : (
-        <Button variant="primary" size={56} fullWidth disabled={!canReview} onClick={openReview}>
-          {!plan.ok && plan.problem.kind === 'empty'
-            ? t('Enter an amount')
-            : quoteLoading && request
-              ? t('Getting your price')
-              : t('Preview conversion')}
-        </Button>
+          ) : (
+            <Button variant="primary" size={56} fullWidth disabled={!canReview} onClick={openReview}>
+              {!plan.ok && plan.problem.kind === 'empty'
+                ? t('Enter an amount')
+                : quoteLoading && request
+                  ? t('Getting your price')
+                  : t('Preview conversion')}
+            </Button>
+          )}
+        </>
       )}
 
       <AlertDialog
