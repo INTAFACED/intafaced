@@ -101,6 +101,9 @@ test.beforeAll(async ({ browser }) => {
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   const ticket = res.body.result.data;
   // In the TEST agents' group, so founder B (the agent) may work it.
+  // Founder B is appointed the desk's agent on the first agent call (help-centre.mjs appointAgent), as in
+  // J-support-public-10; before that the lead cannot put B in a group (support.not_staff, run 42201499550).
+  await desk('agent', 'query', 'staffList', undefined);
   const { agent } = await deskPeople();
   const group = await ensureDeskGroup(`TEST ${J} agents`);
   if (!group.memberIds.includes(agent)) await desk('lead', 'mutation', 'groupsAddMember', { groupId: group.id, userId: agent });
