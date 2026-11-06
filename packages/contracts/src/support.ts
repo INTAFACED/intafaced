@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { accountStateSchema } from './identity.js';
 import { supportTicketCategorySchema } from './support-categories.js';
 import { supportCreateFormSchema } from './support-forms.js';
+import { SUPPORT_HEADERS_TOO_LONG, SUPPORT_MESSAGE_HEADERS_MAX } from './support-categories.js';
 
 /**
  * Support desk contracts (ops.support Stage-1 ticket spine).
@@ -26,13 +27,8 @@ export {
   type SupportTicketCategory,
 } from './support-categories.js';
 
-/**
- * Pasted message headers on a phishing report (I-signin-sessions-27). The same
- * bound as `body`: a schema limit on text, not a product magnitude.
- */
-export const SUPPORT_MESSAGE_HEADERS_MAX = 10_000;
-/** An oversize paste of headers, refused with the cap (J-identity-13 #2); never cut short. */
-export const SUPPORT_HEADERS_TOO_LONG = 'support.headers_too_long';
+// The header cap lives beside the categories so a browser reads it from a light subpath, never the package index.
+export { SUPPORT_HEADERS_TOO_LONG, SUPPORT_MESSAGE_HEADERS_MAX };
 
 /**
  * What the customer reads as their request's status (SP-tickets-01, ENGINE TK-1): `awaiting_reply` when the team's last

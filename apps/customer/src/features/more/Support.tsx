@@ -31,8 +31,7 @@ import {
 import { readRatedTicketIds } from './support-calls';
 import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
 import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } from '@intafaced/contracts/support-forms';
-import { supportCategoriesSchema } from '@intafaced/contracts/support-categories';
-import { SUPPORT_MESSAGE_HEADERS_MAX } from '@intafaced/contracts';
+import { SUPPORT_MESSAGE_HEADERS_MAX, supportCategoriesSchema } from '@intafaced/contracts/support-categories';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
 
 import './support-desk.css';

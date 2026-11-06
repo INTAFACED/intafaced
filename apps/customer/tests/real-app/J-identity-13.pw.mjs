@@ -10,11 +10,11 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
 // J-identity-13, in the running app (docs/roadmap/journeys.json): I think my account was compromised. Tests titled
 // "J-identity-13 #<n>" prove a whole step. #3 to #6 follow one TEST person in order (their case, their freeze, their
-// checklist), so the file runs serially and a step whose earlier step left nothing stops at once.
+// checklist): the file runs in order on one worker, and a step whose earlier step left nothing stops at once with a
+// named error. #1 and #2 stand alone, so a red there never skips #3 to #6 (the config runs files, not tests, in
+// parallel; a failure starts a fresh worker, whose memory is empty, so #4 to #6 then say what #3 left).
 // World: restart, stack
 const J = 'J-identity-13';
-
-test.describe.configure({ mode: 'serial' });
 
 /** The TEST official channel list on the stack's support service (SUPPORT_OFFICIAL_CHANNELS, labelled test: true). */
 const CHANNELS = (() => {
