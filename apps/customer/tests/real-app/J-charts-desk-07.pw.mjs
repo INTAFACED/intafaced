@@ -48,20 +48,20 @@ test(`${J} #1 opens the desk in Classic and picks Advanced from Layouts; the wid
   await openDesk();
   // Classic: the markets list, the chart with its ticket, and the order book; no separate trades widget.
   await expect(desk()).toHaveAttribute('data-preset', 'classic');
-  expect(await widgetIds()).toEqual(['markets', 'chart', 'book']);
+  await expect.poll(widgetIds).toEqual(['markets', 'chart', 'book']);
   await expect(widget('trades')).toHaveCount(0);
   await layouts().click();
   await expect(layoutsMenu().getByRole('radio', { name: 'Classic' })).toBeChecked();
   await layoutsMenu().getByRole('radio', { name: 'Advanced' }).check();
   await expect(desk()).toHaveAttribute('data-preset', 'advanced');
   // Advanced adds the market trades widget beside the book.
-  expect(await widgetIds()).toEqual(['markets', 'chart', 'book', 'trades']);
+  await expect.poll(widgetIds).toEqual(['markets', 'chart', 'book', 'trades']);
   await expect(widget('trades').getByRole('heading', { name: 'Market trades' })).toBeVisible();
   // Kept on this device: a reload opens Advanced again.
   await page.reload();
   await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
   await expect(desk()).toHaveAttribute('data-preset', 'advanced');
-  expect(await widgetIds()).toEqual(['markets', 'chart', 'book', 'trades']);
+  await expect.poll(widgetIds).toEqual(['markets', 'chart', 'book', 'trades']);
 });
 
 test(`${J} #2 drags a widget, resizes it, then resets the desk; the layout follows and reset returns the preset`, async () => {
@@ -73,7 +73,7 @@ test(`${J} #2 drags a widget, resizes it, then resets the desk; the layout follo
   await expect(desk()).toHaveAttribute('data-arranging', 'true');
   // Drag the order book onto the markets list: the two swap places and the others stay in view.
   await page.getByRole('button', { name: 'Move Order book' }).dragTo(widget('markets'));
-  expect(await widgetIds()).toEqual(['book', 'chart', 'markets', 'trades']);
+  await expect.poll(widgetIds).toEqual(['book', 'chart', 'markets', 'trades']);
   for (const id of ['book', 'chart', 'markets', 'trades']) await expect(widget(id)).toBeInViewport();
   // Resize the markets list by its edge: it grows by about the distance dragged.
   const edge = page.getByRole('separator', { name: 'Resize Markets' });
@@ -86,7 +86,7 @@ test(`${J} #2 drags a widget, resizes it, then resets the desk; the layout follo
   // The arrangement is kept on this device.
   await page.reload();
   await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
-  expect(await widgetIds()).toEqual(['book', 'chart', 'markets', 'trades']);
+  await expect.poll(widgetIds).toEqual(['book', 'chart', 'markets', 'trades']);
   expect((await width('markets')) - presetWidth).toBeGreaterThan(48);
   // Reset asks first, then returns the Advanced preset: its order and its widths.
   await layouts().click();
@@ -94,7 +94,7 @@ test(`${J} #2 drags a widget, resizes it, then resets the desk; the layout follo
   const confirm = page.getByRole('alertdialog', { name: 'Reset the desk?' });
   await expect(confirm).toContainText('Advanced');
   await confirm.getByRole('button', { name: 'Reset' }).click();
-  expect(await widgetIds()).toEqual(['markets', 'chart', 'book', 'trades']);
+  await expect.poll(widgetIds).toEqual(['markets', 'chart', 'book', 'trades']);
   await expect.poll(async () => Math.abs((await width('markets')) - presetWidth)).toBeLessThan(2);
 });
 

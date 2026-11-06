@@ -1503,10 +1503,16 @@
       display: none;
     }
   }
+  /* The tape never sets the row's height: it takes the height the other widgets give the row and scrolls inside. */
   .dk-trades {
     display: flex;
     flex-direction: column;
-    min-height: 0;
+    min-block-size: 0;
+    contain: size;
+    overflow: hidden;
+  }
+  .dk-trades > .dk-panel-body {
+    overflow: auto;
   }
   .dk-layouts-btn,
   .dk-layouts-actions button,
