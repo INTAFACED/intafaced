@@ -1,3 +1,4 @@
+// World: book
 import { test, expect } from './journey.mjs';
 import { chosePro, fundedTrader, deskPath } from './desk.mjs';
 import { ORIGIN } from './stack.mjs';
@@ -10,7 +11,7 @@ import { ORIGIN } from './stack.mjs';
 const J = 'J-charts-desk-14';
 const DESK = deskPath('BTC/USDT');
 
-test.describe.configure({ mode: 'serial' });
+// Not serial: each step opens its own desk, so a step still waiting on its owner never keeps the next from running.
 
 let page;
 test.beforeAll(async ({ browser }) => {
