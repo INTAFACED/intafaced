@@ -23,9 +23,6 @@ import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from '
 import { tradeConvertPort, usableTradeConvertUrl } from './auto-invest/trade-convert-port.js';
 import { bankHttpReady } from './ready.js';
 import { createPayCustodyDepositPort } from './deposits/pay-custody-port.js';
-import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './cards/card-programme.js';
-import { createIdentityRankTier } from './cards/rank-tier.js';
-import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
@@ -237,14 +234,6 @@ const bank = createBankServices(sql, ledger, history, {
    */
   cards: {
     issuer: cardIssuerFor(env.BANK_CARD_ISSUER, { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
-    /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
-    programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
-    /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */
-    cashback: {
-      rates: parseCashbackRates(env.BANK_CARD_CASHBACK_RATES_JSON),
-      ...(env.IDENTITY_URL ? { rankTier: createIdentityRankTier(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) } : {}),
-      simulatorPays: cardSimCashbackFor(env.BANK_CARD_SIM_CASHBACK, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
-    },
     /**
      * THE JIT CONVERSION RATE (§18), and what this wiring does NOT claim.
      *
@@ -741,13 +730,6 @@ jobDoor('/internal/jobs/payout-sim/returned', payoutReturnedBody, (b) =>
  * with it) is where the payer approves.
  */
 jobDoor('/internal/jobs/payin-sim/paid', payinPaidBody, (b) => bank.addMoney.paid(b));
-/**
- * The printer's and courier's side of a physical card (BK-cissue-03, J-bank-13 #4): a card produced, shipped, delivered.
- * A signed job door, never a customer or a staff session. No printer or courier is connected (`hardware`): on any
- * programme but the simulator it refuses `bank.card_printer_unset`, and on the test stack only a test calls it, as the
- * stand-in printer would.
- */
-jobDoor('/internal/jobs/card-sim/shipment', cardShipmentJobBody, (b) => bank.cardOrders.recordShipment(b));
 if (onrampPartner) registerPayinSimPage(app, bank.addMoney, onrampPartner);
 jobDoor('/internal/jobs/redrive-cash-outs', redriveBody, async (b) => recoveryCounts(await bank.cashOut.redrive(b.limit)));
 

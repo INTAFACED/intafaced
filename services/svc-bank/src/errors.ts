@@ -303,36 +303,6 @@ export type BankErrorCode =
   | 'bank.card_command_conflict'
   /** A replacement id was reused for a different card, or the reason disagreed. */
   | 'bank.card_replace_conflict'
-  /** The owner has not published a cashback rate for this rank card tier. */
-  | 'bank.cashback_rate_unset'
-  /** The rank service could not say which card tier this person has. */
-  | 'bank.rank_unavailable'
-  /** The owner has not published the card programme (countries, card limits, terms), so no card can be ordered. */
-  | 'bank.card_eligibility_unset'
-  /** Cards are not offered to residents of the country given. */
-  | 'bank.card_not_eligible'
-  /** The person already holds as many active cards of this kind as the programme allows. */
-  | 'bank.card_count_limit'
-  /** A use limit is a whole number of payments, at least one, on a virtual card. */
-  | 'bank.card_use_limit_invalid'
-  /** The cardholder terms of the current version have not been accepted. */
-  | 'bank.card_terms_not_accepted'
-  /** The terms accepted are not the version or text published now. */
-  | 'bank.card_terms_changed'
-  /** The design is not one of the programme’s designs. */
-  | 'bank.card_design_unknown'
-  /** The delivery speed is not one the programme offers. */
-  | 'bank.card_delivery_speed_unknown'
-  /** A physical card is not delivered to the country of this address. */
-  | 'bank.card_delivery_country'
-  /** The card is virtual, so it has no delivery. */
-  | 'bank.card_not_physical'
-  /** The card is already produced, so its delivery address can no longer change. */
-  | 'bank.card_address_locked'
-  /** A delivery moves forward only: ordered, produced, shipped, delivered. */
-  | 'bank.card_shipment_order'
-  /** No printer or courier is connected (hardware); only the test stand-in reports a delivery. */
-  | 'bank.card_printer_unset'
   /**
    * No live issuer can return a PAN. card-sim has no card number.
    * The missing piece is `socket.live-issuer`.

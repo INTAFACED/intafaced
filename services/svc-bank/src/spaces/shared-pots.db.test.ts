@@ -489,8 +489,6 @@ describe('sharedPots', () => {
       ['card_linked', OWNER, cardId],
       ['card_frozen', 'bank', cardId],
       ['card_unfrozen', 'bank', cardId],
-      // A lost report freezes the card first, then gives back its holds and closes it (J-bank-13 #6, BK-cissue-04).
-      ['card_frozen', OWNER, cardId],
       ['card_unlinked', OWNER, cardId],
       ['card_linked', OWNER, replacementId],
       ['card_unlinked', OWNER, replacementId],
