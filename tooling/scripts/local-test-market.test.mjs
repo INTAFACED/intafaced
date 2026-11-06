@@ -21,6 +21,7 @@ import {
   shiftedMid,
   quoteOrder,
   crossesOn,
+  quotesInTheWay,
   fromScaled,
   HISTORY_EDGE_WINDOW_MS,
   TAPE_CLIENT_PREFIX,
@@ -270,6 +271,25 @@ assert.deepEqual(crossCycles('BTC/USDT'), [1, 7, 13, 19]);
 assert.deepEqual(crossCycles('ETH/USDT'), [1, 7, 13, 19]);
 assert.deepEqual(crossCycles('ETH/BTC'), [4, 10, 16]);
 assert.deepEqual(crossCycles('BTC/USDT:USDT'), [4, 10, 16]);
+
+// A restarted maker takes down first only the earlier run's quotes its new ladder would meet (#7110): a run that died
+// mid-`move` left asks at 64,610 under a new ladder whose bids start at 65,296; the bid side's quotes were refused.
+const fresh = [
+  { side: 'buy', level: 0, price: '65296.7', amount: '0.04' },
+  { side: 'sell', level: 0, price: '65375.11', amount: '0.04' },
+  { side: 'buy', level: 1, price: '65237.9', amount: '0.09' },
+  { side: 'sell', level: 1, price: '65433.91', amount: '0.09' },
+];
+const resting = [
+  { id: 'old-ask-under-bid', side: 'sell', price: '64610.12' },
+  { id: 'old-ask-at-bid', side: 'sell', price: '65296.7' },
+  { id: 'old-ask-above', side: 'sell', price: '65300' },
+  { id: 'old-bid-under', side: 'buy', price: '65200' },
+  { id: 'old-bid-at-ask', side: 'buy', price: '65375.11' },
+  { id: 'no-price', side: 'buy' },
+];
+assert.deepEqual(quotesInTheWay(resting, fresh), ['old-ask-under-bid', 'old-ask-at-bid', 'old-bid-at-ask']);
+assert.deepEqual(quotesInTheWay(resting, []), []);
 
 console.log('local-test-market: guard and price-walk checks passed');
 

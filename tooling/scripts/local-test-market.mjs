@@ -551,6 +551,24 @@ async function preflight(maker, symbols) {
 export const crossingSide = (n) => (n % 2 === 1 ? 'buy' : 'sell');
 
 /**
+ * The ids of resting quotes (open orders with `id`, `side` and a decimal `price`) that the new `ladder` would meet: a
+ * sell at or under its best bid, or a buy at or over its best ask. A post-only quote that meets one is refused.
+ */
+export function quotesInTheWay(rows, ladder) {
+  const bids = ladder.filter((q) => q.side === 'buy').map((q) => toScaled(q.price));
+  const asks = ladder.filter((q) => q.side === 'sell').map((q) => toScaled(q.price));
+  const bestBid = bids.length ? bids.reduce((a, b) => (b > a ? b : a)) : null;
+  const bestAsk = asks.length ? asks.reduce((a, b) => (b < a ? b : a)) : null;
+  return rows
+    .filter((o) => {
+      if (typeof o?.price !== 'string' && typeof o?.price !== 'number') return false;
+      const price = toScaled(String(o.price));
+      return (o.side === 'sell' && bestBid !== null && price <= bestBid) || (o.side === 'buy' && bestAsk !== null && price >= bestAsk);
+    })
+    .map((o) => o.id);
+}
+
+/**
  * Whether the taker crosses `symbol` on loop cycle `cycle` (from 1): every third cycle, the markets taking turns by
  * the parity of their symbol's length, so each market trades every sixth cycle. The first crossing is on cycle 1 for
  * the even-length symbols, BTC/USDT among them (failure it prevents:
@@ -786,30 +804,27 @@ async function runLoop(opts, home) {
       });
       // The new ladder goes up before the old one comes down, so the book never stands empty between two quotes
       // (failure it prevents: a person's market buy landing in that gap was refused for want of a reference price).
-      // The first cycle is the exception: it takes down whatever an earlier run left resting before its own ladder goes
-      // up. That run may have quoted a price this one does not (a `move` it died before jumping back from), and this
-      // run's post-only quotes on that side would meet its stale ones and be refused; the stale side then came down
-      // with nothing behind it (failure it prevents: svc-trade's restart in J-derivatives-02 #2 ended the market, the
-      // restarted one quoted 65,296 bids into the dead run's 64,610 asks left from J-copy-bots-otc-19's move, every
-      // bid was refused, and with no bid the perpetual had no mark for #5 and #6, #7110).
-      const takeover = !quoted.has(m.symbol);
+      // The first cycle takes over whatever an earlier run left resting the same way; if that cannot be read, it clears
+      // them first, as before. Of those, it takes down first only the quotes the new ladder would meet: that run may
+      // have quoted a price this one does not (a `move` it died before jumping back from), and this run's post-only
+      // quotes on that side would be refused, so the stale side came down with nothing behind it (failure it prevents:
+      // svc-trade's restart in J-derivatives-02 #2 ended the market, the restarted one quoted 65,296 bids into the dead
+      // run's 64,610 asks left from J-copy-bots-otc-19's move, every bid was refused, and with no bid the perpetual had
+      // no mark for #5 and #6, #7110). The rest stay up until the new ladder is up, so the book is never empty.
       let previous = quoted.get(m.symbol);
       if (!previous && m.swap) {
         previous = (await openFuturesQuoteIds(maker, m)) ?? undefined;
-        if (previous === undefined) {
-          // Unreadable, the earlier run's quotes can't be taken down; this market waits for the next cycle to try again.
-          log(`${m.symbol}: the earlier run's open quotes could not be read; not quoting this cycle`);
-          continue;
-        }
       } else if (!previous) {
-        // Spot clears in one request; if that fails, the quotes are read and taken down one by one below.
-        const all = await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
-        if (all.status < 300) previous = [];
-        else {
-          const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
-          const rows = Array.isArray(open.json) ? open.json : null;
-          if (open.status === 200 && rows) previous = rows.map((o) => o.id);
-        }
+        const open = await maker.http('GET', `/api/v1/orders/open?symbol=${encodeURIComponent(m.symbol)}&limit=100`);
+        const rows = Array.isArray(open.json) ? open.json : null;
+        if (open.status === 200 && rows && rows.length < 100) {
+          const meet = new Set(quotesInTheWay(rows, ladder));
+          previous = rows.filter((o) => !meet.has(o.id)).map((o) => o.id);
+          for (const id of meet) {
+            const r = await maker.http('DELETE', `/api/v1/orders/${encodeURIComponent(id)}?symbol=${encodeURIComponent(m.symbol)}`);
+            if (r.status >= 300 && r.status !== 404 && r.status !== 409) previous.push(id);
+          }
+        } else await maker.http('DELETE', `/api/v1/orders?symbol=${encodeURIComponent(m.symbol)}`);
       }
       // A `move` is a jump: the old ladder comes down before the new one goes up. Overlapped, the old bids and the new
       // asks would stand together and the book's mid would sit halfway, a price the jump never quoted (failure it
@@ -817,7 +832,7 @@ async function runLoop(opts, home) {
       // may take: post-only, they were refused by any order resting in the path and the price never got there.
       const shift = leader ? undefined : (shifts.get(m.symbol) ?? 0n);
       const jump = shift !== undefined && quotedShift.has(m.symbol) && quotedShift.get(m.symbol) !== shift;
-      if ((jump || takeover) && previous?.length) {
+      if (jump && previous?.length) {
         const left = [];
         for (const id of previous) {
           const r = m.swap
