@@ -384,6 +384,7 @@ export function CardCashback() {
             {t('cashbackPaid', { amount: c.paid, asset: c.assetId })}
           </p>
           {c.unpaid !== '0' && <p>{t('cashbackUnpaid', { amount: c.unpaid, asset: c.assetId })}</p>}
+          {c.refused !== '0' && <p>{t('cashbackRefused', { amount: c.refused, asset: c.assetId })}</p>}
           {c.simulated && <p className="money-caption">{t('cashbackSimulated')}</p>}
         </>
       ) : (

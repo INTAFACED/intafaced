@@ -32,7 +32,8 @@ export function CardOrderRoom() {
   const held = useHoldings();
   const assets = held.resource.status === 'ready' ? held.resource.data.assets.map((a) => a.assetId) : [];
   const [chosenAsset, setAsset] = useState<string | null>(null);
-  const asset = chosenAsset ?? (assets.includes('USDT') ? 'USDT' : (assets[0] ?? 'USDT'));
+  // No default until the balances are read, so the limit is never typed against an asset that then changes under it.
+  const asset = chosenAsset ?? (held.resource.status === 'ready' ? (assets.includes('USDT') ? 'USDT' : (assets[0] ?? '')) : '');
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
@@ -69,11 +70,13 @@ export function CardOrderRoom() {
     ? t('needEligible')
     : !accepted
       ? t('needTerms')
-      : !DECIMAL.test(limit) || /^0+(\.0+)?$/.test(limit)
-        ? t('needLimit')
-        : cardType === 'physical' && !addressOk
-          ? t('needAddress')
-          : null;
+      : !asset
+        ? t('needAsset')
+        : !DECIMAL.test(limit) || /^0+(\.0+)?$/.test(limit)
+          ? t('needLimit')
+          : cardType === 'physical' && !addressOk
+            ? t('needAddress')
+            : null;
 
   async function accept() {
     if (busy) return;
@@ -222,7 +225,7 @@ export function CardOrderRoom() {
           <label className="field">
             <span>{t('funding')}</span>
             <select value={asset} onChange={(event) => setAsset(event.target.value)}>
-              {(assets.length ? assets : [asset]).map((id) => (
+              {assets.map((id) => (
                 <option key={id} value={id}>
                   {id}
                 </option>

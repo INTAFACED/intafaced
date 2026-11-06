@@ -27,7 +27,7 @@ import {
   type ConversionQuote,
 } from './conversion.js';
 import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
-import type { CardProgrammeTerms, CardTier, CashbackRates } from './card-programme.js';
+import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates } from './card-programme.js';
 import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
 
 /**
@@ -1568,6 +1568,9 @@ export class CardService {
     // This does not insert a capture: the settlement loop above only re-drives
     // rows that already exist.
     await this.retryPendingCashback(card, authorization.id);
+    // A settled capture whose cashback was never claimed (the tier could not be read, or the tier had no rate then) is
+    // earned now, once, at the rate in force now: `payCashback` claims the row on the authorisation's key.
+    await this.earnMissingCashback(card, authorization);
 
     return {
       authorizationId: authorization.id,
@@ -1657,6 +1660,13 @@ export class CardService {
     // A row already claimed for this authorisation is the decision: its amount, never a re-rate.
     let row = await readRow();
     if (!row) {
+      // No issuer pays (and no TEST stand-in): name that, before any call to identity for a tier that could not be paid.
+      if (!this.rewardsIssuerConnected(card)) {
+        const own = cashbackOn(captured, card.cashbackBps);
+        const tierApplies = card.cashbackBps === 0 && this.cashbackRates?.assetId === card.assetId;
+        if (own <= 0n && !tierApplies) return { status: 'none', amount: 0n };
+        return { status: 'refused', amount: own, reason: 'bank.rewards_issuer_unset' };
+      }
       const rate = await this.cashbackRate(card);
       if ('refused' in rate) return { status: 'refused', amount: 0n, reason: rate.refused };
       const amount = cashbackOn(captured, rate.bps);
@@ -1695,6 +1705,15 @@ export class CardService {
    * Does not insert a settlement and does not select `settled` or `rejected`.
    * The amount is the one stored on the row.
    */
+  private async earnMissingCashback(card: CardRecord, authorization: AuthorizationRecord): Promise<void> {
+    const [capture] = await this.sql<Array<{ amount: string }>>`
+      SELECT s.amount::text AS amount FROM bank.card_settlements s
+       WHERE s.authorization_id = ${authorization.id} AND s.sequence = 0 AND s.kind = 'capture' AND s.status = 'settled'
+         AND NOT EXISTS (SELECT 1 FROM bank.card_cashback cb WHERE cb.authorization_id = s.authorization_id)
+    `;
+    if (capture) await this.payCashback(card, authorization, parseAmount(capture.amount));
+  }
+
   private async retryPendingCashback(card: CardRecord, authorizationId: string): Promise<void> {
     const rows = await this.sql<Array<{ id: string; amount: string }>>`
       SELECT id, amount::text AS amount
@@ -1794,7 +1813,10 @@ export class CardService {
     assetId: string;
     rates: Array<{ tier: CardTier; bps: number }>;
     paid: Amount;
+    /** Earned and still being posted: a later pass pays it on the same key. */
     unpaid: Amount;
+    /** Earned and refused because the pot was short (`bank.cashback_pot_unfunded`); not retried. */
+    refused: Amount;
     payments: Array<{
       authorizationId: string;
       cardId: string;
@@ -1810,9 +1832,8 @@ export class CardService {
     if (!rates) throw new BankError('The owner has not published cashback rates by card tier', 'bank.cashback_rate_unset');
     const tier = await this.rankTier.cardTierOf(userId);
     const programme = this.issuer.programme;
-    const paying =
-      (this.simulatorPays && programme.id === 'card-sim') ||
-      (!programme.simulated && programme.id !== 'none' && programme.id !== 'card-sim');
+    // The same rule a capture uses, asked of a card of this programme.
+    const paying = this.rewardsIssuerConnected({ issuer: programme.id, simulated: programme.simulated } as CardRecord);
     const rows = await this.sql<
       Array<{
         authorization_id: string;
@@ -1832,9 +1853,10 @@ export class CardService {
        LIMIT 50
     `;
     // The totals over every reward record, not the 50 listed.
-    const [totals] = await this.sql<Array<{ paid: string; unpaid: string }>>`
+    const [totals] = await this.sql<Array<{ paid: string; unpaid: string; refused: string }>>`
       SELECT COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'settled'), 0)::text AS paid,
-             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status <> 'settled'), 0)::text AS unpaid
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'pending'), 0)::text AS unpaid,
+             COALESCE(SUM(cb.amount) FILTER (WHERE cb.status = 'rejected'), 0)::text AS refused
         FROM bank.card_cashback cb
         JOIN bank.card_authorizations a ON a.id = cb.authorization_id
         JOIN bank.cards c ON c.id = a.card_id
@@ -1844,11 +1866,12 @@ export class CardService {
       tier,
       rateBps: rates.rates[tier] ?? null,
       assetId: rates.assetId,
-      rates: (['none', 'standard', 'metal', 'obsidian'] as const)
+      rates: CARD_TIERS
         .filter((t) => rates.rates[t] !== undefined)
         .map((t) => ({ tier: t, bps: rates.rates[t]! })),
       paid: parseAmount(totals?.paid ?? '0'),
       unpaid: parseAmount(totals?.unpaid ?? '0'),
+      refused: parseAmount(totals?.refused ?? '0'),
       payments: rows.map((r) => ({
         authorizationId: r.authorization_id,
         cardId: r.card_id,

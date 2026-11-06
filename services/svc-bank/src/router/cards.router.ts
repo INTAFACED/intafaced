@@ -15,7 +15,7 @@ import {
   updateCardShippingBinding,
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
-import { DELIVERY_SPEEDS } from '../cards/card-programme.js';
+import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
 import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
@@ -604,12 +604,13 @@ export function createCardsRouter(c: BankRouterContext) {
     cashback: scopedProcedure('bank:read', { module: 'bank' })
       .output(
         z.object({
-          tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
+          tier: z.enum(CARD_TIERS),
           rateBps: z.number().int().nullable(),
           assetId: z.string(),
-          rates: z.array(z.object({ tier: z.enum(['none', 'standard', 'metal', 'obsidian']), bps: z.number().int() })),
+          rates: z.array(z.object({ tier: z.enum(CARD_TIERS), bps: z.number().int() })),
           paid: amountString,
           unpaid: amountString,
+          refused: amountString,
           payments: z.array(
             z.object({
               authorizationId: z.string(),
@@ -631,6 +632,7 @@ export function createCardsRouter(c: BankRouterContext) {
             ...c,
             paid: formatAmount(c.paid),
             unpaid: formatAmount(c.unpaid),
+            refused: formatAmount(c.refused),
             payments: c.payments.map((p) => ({ ...p, amount: formatAmount(p.amount) })),
           };
         }),

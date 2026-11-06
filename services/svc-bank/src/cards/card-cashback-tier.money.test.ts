@@ -120,7 +120,7 @@ describe('cashback on card spend by rank card tier (J-bank-13 #7, PG-hard)', () 
     const { captured } = await spend(service(), '4');
     expect(captured.cashback).toMatchObject({ status: 'refused', reason: 'bank.cashback_pot_unfunded' });
     expect(await ifc()).toBe(amt('96'));
-    expect((await service().cashbackSummary(user)).unpaid).toBe(amt('0.04'));
+    expect(await service().cashbackSummary(user)).toMatchObject({ unpaid: 0n, refused: amt('0.04') });
   });
 
   it('refuses by name for a tier with no published rate, and writes no row', async () => {
@@ -132,6 +132,26 @@ describe('cashback on card spend by rank card tier (J-bank-13 #7, PG-hard)', () 
       await sql`SELECT 1 FROM bank.card_cashback cb JOIN bank.card_authorizations a ON a.id = cb.authorization_id WHERE a.card_id = ${card.id}`,
     ).toHaveLength(0);
     await expect(service({ rates: null }).cashbackSummary(user)).rejects.toMatchObject({ code: 'bank.cashback_rate_unset' });
+  });
+
+  it('earns a cashback the tier read missed at capture, once, when the settlement is resumed', async () => {
+    await fundPot('1');
+    let down = true;
+    const flaky: RankTierPort = {
+      async cardTierOf() {
+        if (down) throw new BankError('identity did not answer', 'bank.rank_unavailable');
+        return 'none';
+      },
+    };
+    const cards = service({ rankTier: flaky });
+    const { card, ref, captured } = await spend(cards, '4');
+    expect(captured.cashback).toMatchObject({ status: 'refused', reason: 'bank.rank_unavailable' });
+    expect(await ifc()).toBe(amt('96'));
+    down = false;
+    await cards.resumeSettlements({ cardId: card.id, authorizationRef: ref });
+    await cards.resumeSettlements({ cardId: card.id, authorizationRef: ref });
+    expect(await ifc()).toBe(amt('96.04'));
+    expect(await pot()).toBe(amt('0.96'));
   });
 
   it('pays nothing on the simulator without its TEST stand-in, as before', async () => {

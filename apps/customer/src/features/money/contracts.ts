@@ -1060,6 +1060,7 @@ export const bankReads = {
     rates: z.array(z.object({ tier: z.enum(['none', 'standard', 'metal', 'obsidian']), bps: z.number().int() })),
     paid: money,
     unpaid: money,
+    refused: money,
     payments: z.array(
       z.object({
         authorizationId: z.string(),
