@@ -144,9 +144,12 @@ export class RefundControl {
   }
 
   /** Whether a refund of `amount` on this merchant and asset waits for a second person. */
-  async needsApproval(merchantId: string, assetId: string, amount: Amount): Promise<RefundRule | null> {
+  async needsApproval(merchantId: string, assetId: string, amount: Amount, paymentId?: string): Promise<RefundRule | null> {
     const rule = await this.rule(merchantId, assetId);
-    return rule && amount > parseAmount(rule.threshold) ? rule : null;
+    if (!rule) return null;
+    // Counted on the payment's whole refunds, so splitting one refund into several smaller ones never gets round it.
+    const before = paymentId ? await refundedSoFar(this.sql, paymentId) : 0n;
+    return before + amount > parseAmount(rule.threshold) ? rule : null;
   }
 
   // ── queued requests ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -192,9 +195,19 @@ export class RefundControl {
         }
         return toRequest(same[0]);
       }
+      // An approved request is being sent (or its outcome is being checked): nothing new is asked until it closes, so
+      // its retry under the same key is never refused and the money it holds is never stranded.
+      const sending = await tx<Array<{ id: string }>>`
+        SELECT id FROM pay.refund_requests WHERE payment_id = ${input.paymentId}::uuid AND status = 'approved'
+      `;
+      if (sending[0]) {
+        throw new PayError(`Refund request ${sending[0].id} on this payment is being sent; wait for it`, 'pay.refund_in_flight', {
+          requestId: sending[0].id,
+        });
+      }
       await tx`
         UPDATE pay.refund_requests SET status = 'voided', void_reason = 'amount_changed', closed_at = now()
-         WHERE payment_id = ${input.paymentId}::uuid AND status IN ('queued', 'approved')
+         WHERE payment_id = ${input.paymentId}::uuid AND status = 'queued'
       `;
       const rows = await tx<RequestRow[]>`
         INSERT INTO pay.refund_requests (merchant_id, payment_id, asset_code, amount, refund_id, maker_user_id)
@@ -361,7 +374,10 @@ export class RefundControl {
           await this
             .sql`UPDATE pay.refund_batch_rows SET amount = ${formatAmount(amount)} WHERE batch_id = ${input.batchId}::uuid AND row_no = ${rowNo} AND amount IS NULL`;
         }
-        if (await this.needsApproval(input.merchantId, payment.assetId, amount)) {
+        if (
+          !(await this.alreadyRefunded(row.paymentId, refundId)) &&
+          (await this.needsApproval(input.merchantId, payment.assetId, amount, row.paymentId))
+        ) {
           await this.request({ merchantId: input.merchantId, paymentId: row.paymentId, amount, refundId, makerUserId: input.makerUserId });
           throw new PayError('Above the approval rule: queued for approval', 'pay.refund_request_invalid');
         }
@@ -418,7 +434,7 @@ export function createRefundApprovalGuards(): PartialPayGuards {
          WHERE merchant_id = ${ctx.merchantId}::uuid AND asset_code = ${ctx.assetId}
       `;
       const rule = rules[0];
-      if (!rule || ctx.amount <= parseAmount(rule.threshold)) return;
+      if (!rule || (await refundedSoFar(ctx.tx, ctx.paymentId, ctx.refundId)) + ctx.amount <= parseAmount(rule.threshold)) return;
       const approved =
         ctx.refundId === undefined
           ? []
@@ -434,4 +450,29 @@ export function createRefundApprovalGuards(): PartialPayGuards {
       }
     },
   };
+}
+
+/**
+ * What the payment has already refunded or holds in a refund being sent: completed refunds, plus refunds posted and
+ * not yet finished or reversed. The approval rule counts these with the new refund, so a split refund is counted whole.
+ */
+async function refundedSoFar(sql: Sql, paymentId: string, except?: string): Promise<Amount> {
+  const rows = await sql<Array<{ total: string | null }>>`
+    SELECT COALESCE(SUM((payload->>'amount')::numeric), 0)::text AS total
+      FROM pay.payment_events e
+     WHERE e.payment_id = ${paymentId}::uuid
+       AND (${except ?? null}::text IS NULL OR e.payload->>'refundId' <> ${except ?? null}::text)
+       AND (
+         e.event = 'refunded'
+         OR (
+           e.event = 'refund.posted'
+           AND NOT EXISTS (
+             SELECT 1 FROM pay.payment_events d
+              WHERE d.payment_id = e.payment_id AND d.event IN ('refunded', 'refund.reversed')
+                AND d.payload->>'refundId' = e.payload->>'refundId'
+           )
+         )
+       )
+  `;
+  return parseAmount(rows[0]?.total ?? '0');
 }

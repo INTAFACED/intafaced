@@ -275,7 +275,9 @@ export function MerchantRefund({
       context,
       input: Object.freeze({ paymentId, amount, refundId: `refund:${paymentId}:${crypto.randomUUID()}` }),
       assetId: payment.assetId,
-      approvalAbove: threshold !== null && parseAmount(amount) > parseAmount(threshold) ? threshold : null,
+      // Counted with what the payment has already refunded, as the service counts it.
+      approvalAbove:
+        threshold !== null && parseAmount(payment.refundedAmount) + parseAmount(amount) > parseAmount(threshold) ? threshold : null,
     };
     operation.current = null;
     admitted.current = review;

@@ -150,8 +150,11 @@ test(`${J} #1 opens a captured payment and presses Refund: maximum refundable TE
   await financeTeammate(page);
 
   // The owner's refund approval rule, set through the service: refunds above TEST 100 USDC wait for a second person.
+  // It is changed only with the refund confirmation, the same one a refund needs.
   const api = await apiOf('owner');
-  const rule = await api.mutate('payment.refundRules.set', { merchantId, assetId: ASSET, threshold: THRESHOLD });
+  const rule = await (
+    await refunder('owner', merchantId)
+  ).mutate('payment.refundRules.set', { merchantId, assetId: ASSET, threshold: THRESHOLD });
   expect(rule).toMatchObject({ assetId: ASSET, threshold: expect.stringMatching(/^100(\.0+)?$/) });
 
   // The TEST payments the steps act on, each named by a business key so a retried step finds the same one.

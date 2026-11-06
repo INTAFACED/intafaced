@@ -260,4 +260,49 @@ describe('refund controls, void and reverse (J-merchant-06)', { timeout: 60_000 
       code: 'pay.refund_batch_invalid',
     });
   });
+
+  it('a refund split into smaller ones is counted whole against the rule', async () => {
+    const m = await merchant();
+    await control.setRule(m.id, 'USDC', amt('100'), OWNER);
+    const p = await captured(m.id, '1000');
+    await pay.refund(p.id, amt('100'), { refundId: `refund:${p.id}:s1` });
+    const before = await clearing(m.id);
+    await expect(pay.refund(p.id, amt('1'), { refundId: `refund:${p.id}:s2` })).rejects.toBeInstanceOf(PayGuardRefusal);
+    expect(await clearing(m.id)).toBe(before);
+  });
+
+  it('while an approved refund has no answer, no new request may void it, and a retry never sends it twice', async () => {
+    const m = await merchant();
+    await control.setRule(m.id, 'USDC', amt('1'), OWNER);
+    const p = await captured(m.id, '10');
+    const r = await control.request({
+      merchantId: m.id,
+      paymentId: p.id,
+      amount: amt('5'),
+      refundId: `refund:${p.id}:u`,
+      makerUserId: OWNER,
+    });
+    const real = card.refund.bind(card);
+    card.refund = async () => {
+      throw new Error('timeout');
+    };
+    await expect(control.decide({ requestId: r.id, checkerUserId: FINANCE, decision: 'approve' })).rejects.toThrow();
+    expect((await control.get(r.id)).status).toBe('approved');
+    await expect(
+      control.request({ merchantId: m.id, paymentId: p.id, amount: amt('4'), refundId: `refund:${p.id}:v`, makerUserId: OWNER }),
+    ).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
+    card.refund = real;
+    // Only a reconciler asking the rail by the original key may finish it (saga law): the retry is refused in flight, the
+    // request stays approved (its hold is never stranded by a void) and nothing is refunded a second time.
+    await expect(control.retry(r.id)).rejects.toMatchObject({ code: 'pay.refund_in_flight' });
+    expect((await control.get(r.id)).status).toBe('approved');
+    expect(await refundedEvents(p.id)).toBe(0);
+  });
+
+  it('void refuses a payment whose capture is already on the ledger', async () => {
+    const m = await merchant();
+    const c = await captured(m.id, '7');
+    await sql`UPDATE pay.payments SET status = 'authorized' WHERE id = ${c.id}`;
+    await expect(pay.voidPayment(c.id)).rejects.toMatchObject({ code: 'pay.void_not_authorized' });
+  });
 });

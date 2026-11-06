@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { PayError, appendEvent, assertTransition, lockPayment, railPayload, readPayment, refuseUnusableRail } from './internal.js';
 import { withRailSpan } from '../tracing.js';
+import { captureIdempotencyKey } from '../capture-reconcile.js';
 import type { PayServiceInternal, PaymentView } from '../payment-service.js';
 
 /**
@@ -39,6 +40,13 @@ export async function voidPayment(svc: PayServiceInternal, paymentId: string): P
     });
   }
   refuseUnusableRail(adapter, svc.now());
+  // A capture already on the ledger whose status projection has not caught up (the reconciler finishes it) is not an
+  // authorisation to release: voiding it would leave the merchant credited for money the payer got back. Fail closed.
+  if (await svc.ledger.getTxByKey(captureIdempotencyKey(paymentId))) {
+    throw new PayError(`Payment ${paymentId} has a capture on the book; it is not voided`, 'pay.void_not_authorized', {
+      status: 'captured',
+    });
+  }
 
   // (1) The intent, first and on its own.
   const railRef = await transaction(svc.sql, async (tx) => {

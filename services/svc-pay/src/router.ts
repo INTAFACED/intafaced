@@ -1321,7 +1321,8 @@ export function createPayRouter(
               return rule ? { assetId: rule.assetId, threshold: rule.threshold } : null;
             }),
           ),
-        set: scopedProcedure('pay:write', { module: 'pay' })
+        // The control a second person enforces is changed only with the same confirmation a refund needs.
+        set: scopedProcedure('pay:refund', { module: 'pay' })
           .input(z.object({ merchantId: z.string().guid(), assetId: assetIdSchema, threshold: amountSchema.nullable() }))
           .output(z.object({ assetId: z.string(), threshold: amountSchema }).nullable())
           .mutation(({ ctx, input }) =>
@@ -1400,6 +1401,21 @@ export function createPayRouter(
                 () => new PayError(`Refund request ${input.requestId} not found`, 'pay.refund_request_not_found'),
               );
               return refundRequestOut(await refunds().cancel(input.requestId));
+            }),
+          ),
+        /** An approved request whose refund has no answer yet: asked again under the same key, once it can be. */
+        retry: scopedProcedure('pay:refund', { module: 'pay' })
+          .input(z.object({ requestId: z.string().guid() }))
+          .output(refundRequestSchema)
+          .mutation(({ ctx, input }) =>
+            wrap(async () => {
+              if (!portalSql) throw new PayError('Refund controls need the pay database', 'pay.refund_request_not_found');
+              const request = await refunds().get(input.requestId);
+              const caller = await requireMerchantPermission(portalSql, ctx.principal as never, 'payout.approve');
+              if (caller.merchantId !== request.merchantId) {
+                throw new PayError(`Refund request ${input.requestId} not found`, 'pay.refund_request_not_found');
+              }
+              return refundRequestOut(await refunds().retry(input.requestId));
             }),
           ),
         decide: scopedProcedure('pay:refund', { module: 'pay' })

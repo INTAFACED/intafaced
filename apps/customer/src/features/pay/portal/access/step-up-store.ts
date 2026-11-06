@@ -24,6 +24,8 @@ const MONEY_CALLS: Readonly<Record<string, MoneyKind>> = {
   // J-merchant-06: the other refund doors, each its own call. Cancel and the reads never carry the token.
   'payment.refundRequests.request': 'refund',
   'payment.refundRequests.decide': 'refund',
+  'payment.refundRequests.retry': 'refund',
+  'payment.refundRules.set': 'refund',
   'payment.reverse': 'refund',
   'payment.bulkRefund': 'refund',
   'settlement.payout': 'payout',
