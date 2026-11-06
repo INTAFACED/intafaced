@@ -352,7 +352,8 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
         },
       );
     const engine = engineFor(store);
-    const created = engine.create(
+    // Created as svc-trade creates a parent (createTwap): planned, saved, and only then given to the engine.
+    const { parent: created, plan } = engine.prepare(
       ALICE,
       {
         marketId,
@@ -367,10 +368,10 @@ describe('algo.result and scheduler honesty (shared test postgres)', () => {
       },
       parseAmount('0.001'),
     );
-    // The engine hands each save to onChange a microtask later and in order: wait on its own queue, or the first tick
-    // can run its arrival-mark UPDATE before the parent's INSERT has (#7219).
-    await engine.whenSaved(created.id);
+    await store.save({ parent: created, plan });
+    engine.hydrate(created, plan);
     await engine.tick(created.id);
+    // The tick's saves reach onChange a microtask later, in order: wait on the engine's own queue (#7219).
     await engine.whenSaved(created.id);
 
     clock += 1_000;

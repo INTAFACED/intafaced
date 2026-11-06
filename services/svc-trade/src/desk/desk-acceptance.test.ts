@@ -401,7 +401,8 @@ describe('desk acceptance (shared test postgres)', () => {
         onChange: (parent, plan) => store.save({ parent, plan }),
       },
     );
-    const created = engine.create(
+    // Created as svc-trade creates a parent (createTwap): planned, saved, and only then given to the engine.
+    const { parent: created, plan } = engine.prepare(
       ALICE,
       {
         marketId: btc.id,
@@ -416,8 +417,9 @@ describe('desk acceptance (shared test postgres)', () => {
       },
       btc.lotSize,
     );
-    // Each save reaches onChange a microtask later, in order: wait on the engine's own queue (#7219).
-    await engine.whenSaved(created.id);
+    await store.save({ parent: created, plan });
+    engine.hydrate(created, plan);
+    // Each tick's saves reach onChange a microtask later, in order: wait on the engine's own queue (#7219).
     await engine.tick(created.id);
     await engine.whenSaved(created.id);
     t += 2_000;

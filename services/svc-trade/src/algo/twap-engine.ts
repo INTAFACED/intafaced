@@ -945,10 +945,11 @@ export class TwapEngine {
   }
 
   /**
-   * Resolves once every save of `parentId` asked for so far has run. Saves of one parent run in order, each `onChange`
-   * called only after the one before it settled, so the last one queued covers them all. A caller that collects the
-   * promises `onChange` returns misses the save that has not been handed to `onChange` yet (#7219: a test read the
-   * arrival mark before the parent's first insert had run).
+   * Resolves once every save of `parentId` queued so far has settled; a save started after this call is not covered.
+   * Saves of one parent run in order, each `onChange` called only after the one before it settled, so the last one queued
+   * covers them all. A failed save still settles (`emitChange` keeps it from failing the tick; the next tick saves
+   * again), so a caller reads the store to know what landed. A caller that collects the promises `onChange` returns
+   * misses a save not yet handed to `onChange` (#7219: a test read the arrival mark before a save had run).
    */
   whenSaved(parentId: string): Promise<void> {
     return this.saves.get(parentId) ?? Promise.resolve();
