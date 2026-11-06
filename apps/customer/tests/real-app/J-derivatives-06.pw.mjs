@@ -307,13 +307,23 @@ test(`${J} #5 sets a pre-liquidation stop: a close order at the maintenance leve
   const trigger = toUnits(held.stop.triggerPrice);
   expect(trigger).toBeGreaterThan(toUnits(held.p.liquidationPrice));
   expect(trigger).toBeLessThan(toUnits(held.p.markPrice));
-  // ... and it is where the ratio reaches the level: with the position's own figures read now, the maintenance margin
-  // at that mark over the equity at that mark is the level, to a millionth of it. (A linear contract: the maintenance
-  // margin moves with the mark on the position's tier, and the long's equity by its size times the move.)
+  // ... and it is where the ratio reaches the level: the maintenance margin at that mark over the equity at that mark is
+  // the level, to a millionth of it. The maintenance rate at that mark is the published calculator's, for this size at
+  // that price against today's depth (the ladder has several tiers, and a smaller notional can sit on a lower one); the
+  // long's equity moves by its size times the move from the mark, on the position's own figures read now.
   const ONE = 10n ** 18n;
   const mark = toUnits(String(held.p.markPrice));
   const size = toUnits(SIZE);
-  const maintenanceAt = (toUnits(String(held.p.maintenanceMargin)) * trigger) / mark;
+  const atTrigger = await me.post('/api/v1/futures/calculator', {
+    symbol: SYMBOL,
+    side: 'long',
+    size: SIZE,
+    entryPrice: held.stop.triggerPrice,
+    leverage: LEVERAGE,
+  });
+  expect(atTrigger.status, JSON.stringify(atTrigger.body)).toBe(200);
+  expect(Number.isInteger(atTrigger.body.maintenanceBps), JSON.stringify(atTrigger.body)).toBe(true);
+  const maintenanceAt = (size * trigger * BigInt(atTrigger.body.maintenanceBps)) / ONE / 10_000n;
   const equityAt = toUnits(String(held.p.collateral)) + toUnits(String(held.p.unrealizedPnl)) + (size * (trigger - mark)) / ONE;
   expect(equityAt).toBeGreaterThan(0n);
   const ratioAt = (maintenanceAt * ONE) / equityAt;
