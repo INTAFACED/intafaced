@@ -1,3 +1,4 @@
+// World: stack
 import { test, expect } from './journey.mjs';
 import { MONEY_ROOMS, businessReadyPerson, everyRoomOpens, openBusiness, refusedPayCalls } from './merchant.mjs';
 

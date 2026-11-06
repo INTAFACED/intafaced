@@ -1,3 +1,4 @@
+// World: restart
 import { test, expect } from './journey.mjs';
 import { EDGE, ORIGIN, restartWith } from './stack.mjs';
 
