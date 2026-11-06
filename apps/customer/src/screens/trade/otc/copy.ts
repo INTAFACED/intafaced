@@ -76,9 +76,9 @@ const messages = {
   'Providers unreadable retry': 'Couldn’t load providers. Retry',
   'Settlement name': 'Settlement account holder',
   'Settlement name hint':
-    'Optional. Leave blank to settle to your own account here. A name you give must be your verified legal name, or the desk prices nothing.',
+    'Optional. The trade settles to your own account here. A name you give must be your verified legal name, or the desk prices nothing.',
   'Settlement name unwired hint':
-    'Optional. The desk can’t check a name against your verified name right now, so a request that gives one is refused. Leave blank to settle to your own account here.',
+    'Optional. The trade settles to your own account here. The desk can’t check a name against your verified name right now, so a request that gives one is refused.',
   'Desk names the price': 'You don’t name a price. The desk names it, and it is firm until it expires.',
   'Request price': 'Request price',
   'No pairs': 'The desk has no pairs to quote right now.',
