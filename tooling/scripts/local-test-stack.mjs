@@ -93,7 +93,7 @@ import p2p from './local-stack-services/p2p.mjs';
 import pay from './local-stack-services/pay.mjs';
 import protocol from './local-stack-services/protocol.mjs';
 import quant from './local-stack-services/quant.mjs';
-import support from './local-stack-services/support.mjs';
+import support, { SUPPORT_EMPTY_CATALOGUE_DB, onEmptyCatalogueDb, supportCatalogueOff } from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
 import campaigns from './local-stack-services/campaigns.mjs';
 import ws from './local-stack-services/ws.mjs';
@@ -1105,6 +1105,28 @@ async function migrate(secrets, schemas = SCHEMAS) {
   say(`  migrations: ${schemas.length ? schemas.join(', ') : 'none needed'} applied (idempotent)`);
 }
 
+/**
+ * The empty-catalogue profile's database (local-stack-services/support.mjs), made new on every start of support with
+ * LOCAL_STACK_SUPPORT_CATALOGUE=off: dropped, created, given svc-support's schema and migrated as svc_support, so it holds
+ * svc-support's tables and nothing published. svc-support is stopped by then (start migrates only what is about to start),
+ * so nothing holds a connection to it. The stack's own database is never touched.
+ */
+async function resetSupportEmptyCatalogue(secrets) {
+  psql(secrets, `DROP DATABASE IF EXISTS ${SUPPORT_EMPTY_CATALOGUE_DB} WITH (FORCE)`);
+  psql(secrets, `CREATE DATABASE ${SUPPORT_EMPTY_CATALOGUE_DB}`);
+  psql(
+    secrets,
+    `CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA IF NOT EXISTS support AUTHORIZATION svc_support;
+GRANT USAGE ON SCHEMA public TO svc_support;`,
+    { db: SUPPORT_EMPTY_CATALOGUE_DB },
+  );
+  await runPnpmAsync(['--filter', '@intafaced/svc-support', 'db:migrate'], 'migrate-support-empty-catalogue', {
+    DATABASE_URL: onEmptyCatalogueDb(dbUrl('svc_support', secrets)),
+  });
+  say(`  support: empty-catalogue profile on ${SUPPORT_EMPTY_CATALOGUE_DB} (LOCAL_STACK_SUPPORT_CATALOGUE=off), made new`);
+}
+
 // ── Service definitions ─────────────────────────────────────────────────────
 
 // Placeholder secrets used only to list names, ports and URLs (plan / health table). Never reaches a process.
@@ -2046,6 +2068,7 @@ async function cmdStart(flags) {
     secrets,
     SCHEMAS.filter((s) => toStart.some((d) => d.name === serviceOfSchema(s))),
   );
+  if (supportCatalogueOff() && toStart.some((d) => d.name === 'support')) await resetSupportEmptyCatalogue(secrets);
   await startNats();
   ensureStreams();
   const renewed = !only || only.includes('protocol') ? await startTestChain(secrets) : [];

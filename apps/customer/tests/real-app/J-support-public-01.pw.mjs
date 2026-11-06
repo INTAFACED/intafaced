@@ -12,7 +12,7 @@ import {
   unpublish,
 } from './help-centre.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, ORIGIN, api, signOutBrowser } from './stack.mjs';
+import { EDGE, ORIGIN, api, restartWith, signOutBrowser } from './stack.mjs';
 
 // J-support-public-01, in the running app (docs/roadmap/journeys.json): a signed-out visitor finds an answer in the help
 // centre. Tests titled "J-support-public-01 #<n>" prove a whole step. A step that changes an owner setting puts back what
@@ -504,17 +504,25 @@ test(`${J} #8 a "No" vote with a comment sent as a request: one confirmation, on
   }
 });
 
-// Last in this serial file, so its red skips no other step. With the whole library empty, /help shows its honest empty
-// state and no sample answer. That needs a stack whose catalogue is empty; on a shared stack other journeys' answers are
-// published, so this clause of #3 stays red by name until the stack has that profile (lead ruling 2026-10-30 19:24).
+// Last in this serial file. With the whole library empty, /help shows its honest empty state and no sample answer. On the
+// shared stack other journeys' answers are published, so support is restarted on the stack's empty-catalogue profile
+// (`LOCAL_STACK_SUPPORT_CATALOGUE=off`: a database of its own, made new, with nothing published;
+// tooling/scripts/local-stack-services/support.mjs) and put back on the stack's database after, whatever happened.
 test(`${J} #3 with the whole library empty, /help shows its honest empty state and no sample answer`, async ({ browser }) => {
-  const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 1 }))}`);
-  expect(listed.status, 'listKb answers').toBe(200);
-  const answers = (await listed.json()).result.data;
-  if (answers.length > 0) throw new Error('the empty-library clause needs an empty-catalogue stack profile');
-  const page = await visitor(browser);
-  await page.goto('/help');
-  await expect(page.locator('main').getByTestId('help__row')).toHaveCount(0);
-  await expect(page.locator('main').getByText(/No answers are published/)).toBeVisible();
-  await page.context().close();
+  test.setTimeout(240_000);
+  restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', false);
+  try {
+    // The library is empty for everyone: the public answers read lists none.
+    const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+    expect(listed.status, 'listKb answers').toBe(200);
+    expect((await listed.json()).result.data, 'the empty-catalogue profile publishes no answer').toEqual([]);
+    const page = await visitor(browser);
+    await page.goto('/help');
+    // The honest empty state, and not one answer row: no sample answer stands in.
+    await expect(page.locator('main').getByText(/No answers are published/)).toBeVisible();
+    await expect(page.locator('main').getByTestId('help__row')).toHaveCount(0);
+    await page.context().close();
+  } finally {
+    restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', true);
+  }
 });
