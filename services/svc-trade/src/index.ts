@@ -60,6 +60,7 @@ import {
 } from './futures/conditional-orders/index.js';
 import { createReverseService } from './futures/reverse.js';
 import { listCallerLiquidations, listFundingPayments, loadPositionLiquidation, readFuturesTickerFacts } from './futures/futures-reads.js';
+import { listFuturesExecutions } from './futures/futures-executions.js';
 import { listPayoutsForUser } from './futures/futures-payouts.js';
 import { registerPrivateRest } from './private-rest.js';
 import { bindExpireAt, installGtdGttPlace } from './spot/gtd-gtt-place.js';
@@ -154,6 +155,7 @@ import { liquidationPriceFor } from './futures/liquidation-price.js';
 import { registerRiskCalculatorRest } from './futures/risk-calculator-rest.js';
 import { registerCollateralRest } from './futures/collateral-rest.js';
 import { ownerLadderPolicy } from './futures/futures-ladder-owner-gate.js';
+import { publishedLiquidationLimitsFrom } from './futures/liquidation-limits.js';
 import type { QuotedMarkSource } from './futures/liquidation-tick.js';
 import { startEngineLedgerReconcileJobs } from './spot/engine-ledger-reconcile-jobs.js';
 import { startHoldUnknownSweepJobs } from './spot/hold-unknown-sweep-jobs.js';
@@ -625,6 +627,8 @@ const futuresJobs = startFuturesJobs({
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     liqIntervalMs: env.TRADE_FUTURES_LIQ_INTERVAL_MS,
     liquidationFeeFraction,
+    // Blank: unpublished, every liquidation refuses; a malformed value stops boot.
+    liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS),
     fundingIntervalMs: env.TRADE_FUTURES_FUNDING_INTERVAL_MS,
     fundingComputerPollMs: env.TRADE_FUTURES_FUNDING_COMPUTER_POLL_MS,
     fundingMarketIds,
@@ -1383,6 +1387,8 @@ registerPrivateRest(app, {
           placeSplit: (principal, input, context) => positions.placeMatchedSplit(principal, input, context),
           cancel: (principal, orderId) => positions.cancelMatchedOrder(principal, orderId),
           list: (principal, input) => positions.listMatchedOrders(principal.userId, input),
+          get: (principal, orderId) => positions.getMatchedOrder(principal.userId, orderId),
+          executions: (principal, input) => listFuturesExecutions(sql, principal.userId, input),
           entryProtection: { record: (userId, input) => conditionalOrders.recordEntryProtection(userId, input) },
           reverse: (principal, input, context) => reverses.reverse(principal, input, context),
         },

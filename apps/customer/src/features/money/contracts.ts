@@ -187,6 +187,24 @@ export const statementFileSchema = z.object({
   sha256: z.string(),
   rowCount: z.number().int().nonnegative(),
 });
+/** One background export from `bank.statements.jobs` (PF-statements-02): what was asked, and where it is. */
+export const statementJobSchema = z.object({
+  id: z.string(),
+  report: z.enum(['statement', 'ledger', 'trades']),
+  format: z.enum(['csv', 'pdf']),
+  from: z.string(),
+  to: z.string(),
+  state: z.enum(['queued', 'rendering', 'ready', 'failed']),
+  attempts: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  filename: z.string().nullable(),
+  sha256: z.string().nullable(),
+  rowCount: z.number().int().nonnegative().nullable(),
+  errorCode: z.string().nullable(),
+});
+export type StatementJob = z.infer<typeof statementJobSchema>;
+/** The document centre: whether background exports are on here, and the person's own jobs, newest first. */
+export const statementJobsSchema = z.object({ enabled: z.boolean(), items: z.array(statementJobSchema) });
 /** `bank.loans.statement` (BK-loan-06): one loan's signed CSV over a period; a month still running is provisional. */
 export const loanStatementSchema = z.object({
   format: z.literal('csv'),
@@ -246,7 +264,8 @@ export const cardSchema = z.object({
   issuer: z.string(),
   simulated: z.boolean(),
   panTail: z.string(),
-  status: z.enum(['active', 'frozen', 'closed']),
+  /** `inactive`: issued, not activated yet (J-bank-13 #5); it declines every payment until the person activates it. */
+  status: z.enum(['active', 'inactive', 'frozen', 'closed']),
   cashbackBps: z.number().int(),
   perAuthorizationLimit: money,
   /** A blank ceiling is `null`: the card has no cap of that kind. It is never shown as zero. */
@@ -259,6 +278,46 @@ export const cardSchema = z.object({
   abroad: z.boolean(),
   cardType: z.enum(['virtual', 'physical']),
   shippingAddress: shippingAddressSchema.nullable(),
+  /** Single-use (1) or n-use: captured payments before the card closes itself. Null is no limit. */
+  usesAllowed: z.number().int().nullable().optional(),
+  designId: z.string().nullable().optional(),
+  deliverySpeed: z.string().nullable().optional(),
+  replacesCardId: z.string().nullable().optional(),
+  replacedByCardId: z.string().nullable().optional(),
+});
+/** The card room's product list for one country (J-bank-13 #1): eligibility with its reason, limits, terms, designs, speeds. */
+export const cardCatalogueSchema = z.object({
+  programme: programmeSchema,
+  network: z.string(),
+  country: z.string(),
+  eligible: z.boolean(),
+  reason: z.string().nullable(),
+  countries: z.array(z.string()),
+  products: z.array(z.object({ type: z.enum(['virtual', 'physical']), held: z.number().int(), limit: z.number().int() })),
+  terms: z.object({
+    version: z.string(),
+    text: z.string(),
+    textHash: z.string(),
+    acceptance: z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }).nullable(),
+  }),
+  designs: z.array(z.object({ id: z.string(), name: z.string() })),
+  speeds: z.array(z.object({ speed: z.enum(['standard', 'express', 'signed']), days: z.number().int() })),
+  deliveryCountries: z.array(z.string()),
+});
+/** A physical card's delivery (J-bank-13 #3, #4): design, speed, estimate, state, tracking, address and its history. */
+export const cardDeliverySchema = z.object({
+  cardId: z.string(),
+  state: z.enum(['ordered', 'produced', 'shipped', 'delivered']),
+  designId: z.string().nullable(),
+  designName: z.string().nullable(),
+  speed: z.string(),
+  estimateDays: z.number().int(),
+  orderedAt: z.string(),
+  expectedBy: z.string(),
+  carrier: z.string().nullable(),
+  trackingRef: z.string().nullable(),
+  address: shippingAddressSchema,
+  history: z.array(z.object({ address: shippingAddressSchema, changedAt: z.string() })),
 });
 export const rampProgrammeSchema = programmeSchema.extend({
   cryptoRail: z.string().nullable(),
@@ -1010,6 +1069,30 @@ export const bankReads = {
     loans: z.array(z.object({ loanId: z.string(), debtValue: money, collateralValue: money, ltvBps: z.number().int() })),
   }),
   'cards.programme': programmeSchema,
+  'cards.catalogue': cardCatalogueSchema,
+  'cards.delivery': cardDeliverySchema,
+  'cards.cashback': z.object({
+    tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
+    rateBps: z.number().int().nullable(),
+    assetId: z.string(),
+    rates: z.array(z.object({ tier: z.enum(['none', 'standard', 'metal', 'obsidian']), bps: z.number().int() })),
+    paid: money,
+    unpaid: money,
+    refused: money,
+    payments: z.array(
+      z.object({
+        authorizationId: z.string(),
+        cardId: z.string(),
+        amount: money,
+        status: z.string(),
+        rejectionCode: z.string().nullable(),
+        ledgerTxId: z.string().nullable(),
+      }),
+    ),
+    paying: z.boolean(),
+    simulated: z.boolean(),
+  }),
+  'cards.uses': z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }),
   'cards.list': z.array(cardSchema),
   'cards.authorizations': z.array(
     z.object({
@@ -1105,6 +1188,11 @@ export const bankWrites = {
   'loans.close': z.object({ released: money, ledgerTxId: z.string().nullable() }),
   'cards.setStatus': z.object({ id: z.string(), status: z.string() }),
   'cards.issue': cardSchema,
+  'cards.order': cardSchema,
+  'cards.acceptTerms': z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }),
+  'cards.updateShipping': cardDeliverySchema,
+  'cards.activate': cardSchema,
+  'cards.replace': cardSchema,
   'cards.setLimits': cardSchema,
   'cards.setChannels': cardSchema,
   'autoInvest.createDca': ruleSchema,

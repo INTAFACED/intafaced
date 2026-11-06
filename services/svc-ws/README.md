@@ -24,7 +24,7 @@ table — a table whose comment says in as many words that svc-matching is delib
 **svc-trade** is already mounted and already consumes `orderFilled`, which is the better argument. But it **cannot
 build a book from those events.** `intafaced.matching.order.accepted` carries `{orderId, marketId, sequence}` and
 nothing else (`packages/events/src/catalog.ts`) — no side, no price, no quantity. Widening that payload is a
-`packages/events` PR that has to land on its own first (§15.2). So svc-trade would have to poll svc-matching exactly
+`packages/events` change. So svc-trade would have to poll svc-matching exactly
 as this service does, while holding `INTERNAL_SERVICE_SECRET` for both the ledger and the engine and calling
 `ledger.hold` on the money path. Attaching an unauthenticated public socket to that process trades the entire
 custodial blast radius for one saved container.
@@ -88,7 +88,7 @@ Frames are exactly `DepthSnapshot | DepthDelta` from `@intafaced/market-data`, u
 
 Trade frames are `TradePrint` from `@intafaced/market-data`. They are built from `orderFilled` with **order ids
 stripped** — maker/taker UUIDs never reach this wire. Aggressor side is not on the event today, so it is not on the
-print either (widening `orderFilled` is a separate `packages/events` PR per §15.2).
+print either (widening `orderFilled` is a `packages/events` change).
 The server computes deltas with `diffDepth`; the browser applies them with `applyDelta`, which **refuses** any delta
 whose `fromSequence` does not match the book it lands on. That refusal is the entire safety property of this
 service: a client that misses a frame does not have to be told, it can tell. Every drop policy below leans on it,
@@ -376,7 +376,7 @@ product, not a bigger number.
 
 §5.1 gives the engine no outbound depth feed, and the events it does publish cannot rebuild a book (see "Why it is
 its own service"). Adding one is a change to svc-matching — the `SnapshotSink` port in its README is where it would
-land — and a change to `packages/events`, which is a separate PR by §15.2.
+land — and a change to `packages/events`.
 
 So: one `GET` per **subscribed** market per tick. A market nobody is watching is not polled, and its book is dropped
 when the last subscriber leaves — a book nobody watches goes stale, and a stale book handed to the next connection
@@ -560,8 +560,8 @@ never `200 { positions: [] }`. Never invent a position frame.
 - **Mark-driven futures lifecycle on the positions channel.** The positions _socket_ and bus map are
   done (`positionUpdated` fan-out). `trade.futures` already publishes on open/close; non-empty live
   mark/funding frames stay on the trade wall. This service never invents a position frame.
-- **Aggressor side on the tape.** `orderFilled` has no side field today. Adding one is a `packages/events` PR
-  (§15.2), not a silent invention here.
+- **Aggressor side on the tape.** `orderFilled` has no side field today. Adding one is a `packages/events`
+  change, not a silent invention here.
 - **Rate limiting, per client address.** There is none anywhere in the platform (svc-edge's README says so too).
   `WS_MAX_CONNECTIONS` is a ceiling, not a rate limit. The multiplexed door does budget inbound operations per
   connection (`WS_MUX_MAX_OPS_PER_SECOND`), but nothing limits how fast one address may open connections. A failing `GET /markets` is also not rate-limited, so a reconnect storm against a

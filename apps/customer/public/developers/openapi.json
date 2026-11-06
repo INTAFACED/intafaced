@@ -1424,6 +1424,24 @@
       }
     },
     "/api/v1/futures/orders/{id}": {
+      "get": {
+        "operationId": "fetchFuturesOrder",
+        "summary": "One futures order: where it came from, its label, what its hold did",
+        "tags": ["derivatives"],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-only-with": "futures-matching",
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      },
       "delete": {
         "operationId": "cancelFuturesOrder",
         "summary": "Cancel one futures order",
@@ -1439,6 +1457,25 @@
           "200": { "description": "Success" },
           "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
           "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/futures/executions": {
+      "get": {
+        "operationId": "fetchFuturesExecutions",
+        "summary": "This account’s futures executions: fills, liquidations and auto-deleverages",
+        "tags": ["derivatives"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-only-with": "futures-matching",
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
           "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
         }
       }

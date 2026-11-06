@@ -65,6 +65,20 @@ function sendReview() {
   throw new Error(`LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW is "${asked}"; leave it unset for no review rule, or set it to on.`);
 }
 
+/**
+ * Background exports (PF-statements-02, J-portfolio-11 #4 and #5). LOCAL TEST values, not the owner's: the worker looks
+ * every second and a claim lapses after 5 seconds; blank in a deployment, asking for one refuses bank.statement_jobs_unset.
+ * `LOCAL_STACK_BANK_STATEMENT_HOLD=on` on a restart makes every render wait 10 minutes (a TEST fault), so a journey can
+ * stop the bank while a job is being made and see it re-queued on the same key after the next start.
+ */
+function statementJobs() {
+  const jobs = { BANK_STATEMENT_JOBS_INTERVAL_MS: '1000', BANK_STATEMENT_JOBS_LEASE_MS: '5000' };
+  const asked = process.env.LOCAL_STACK_BANK_STATEMENT_HOLD;
+  if (asked === undefined || asked === '') return jobs;
+  if (asked === 'on') return { ...jobs, BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS: '600000' };
+  throw new Error(`LOCAL_STACK_BANK_STATEMENT_HOLD is "${asked}"; leave it unset for renders that finish, or set it to on.`);
+}
+
 /** svc-pay as the deposit custody port, or none at all when the stack is asked to show custody unset. */
 function depositCustody(urlOf) {
   const asked = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
@@ -85,6 +99,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // `LOCAL_STACK_BANK_DEPOSIT_CUSTODY=off` on a start or restart leaves it blank, so the Deposit room's custody-unset
     // refusal can be seen too (J-wallet-02 #1).
     ...depositCustody(urlOf),
+    ...statementJobs(),
     // Required, no default (owner-unpublished). Inert LOCAL TEST placeholders so the service can
     // boot: the jobs they size are all switched off below, so no batch size is ever exercised.
     LOAN_QUOTE_ASSET_ID: 'USDT',
@@ -126,6 +141,14 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST card simulator (no issuer, no network): cards can be issued, frozen and closed, so the console's
     // account close (J-ops-console-04 #7) can be proved against an account that holds a card. Never a live issuer.
     BANK_CARD_ISSUER: 'card-sim',
+    // LOCAL TEST card programme from the bank profile (J-bank-13): eligible countries, count limits, TEST cardholder terms,
+    // designs and delivery speeds. Unset, the card room refuses bank.card_eligibility_unset and no card can be ordered there.
+    BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
+    // LOCAL TEST cashback by rank card tier (J-bank-13 #7): the profile's TEST rates in IFC, and the card simulator's
+    // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
+    // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).
+    BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
+    BANK_CARD_SIM_CASHBACK: 'test',
     BANK_ADDRESS_BOOK_CAP: '10',
     BANK_OFFRAMP_COOLING_HOURS: '24',
     // LOCAL TEST sanctioned destination, not a real list: one made-up address on every network, so J-wallet-05 #2 can show a

@@ -3,6 +3,7 @@
  * MKT-0057, MKT-0082, MKT-0085, MKT-0105, MKT-0106, MKT-0107, MKT-0126, MKT-0128.
  */
 import { readFileSync } from 'node:fs';
+import { publishedLiquidationLimitsFrom } from './liquidation-limits.js';
 import { describe, expect, it, vi } from 'vitest';
 import Fastify from 'fastify';
 import { serviceAuthHeadersForBody } from '@intafaced/contracts';
@@ -90,9 +91,17 @@ describe('MKT-0057 unpublished liquidation max age', () => {
     expect(result.items[0]?.summary).toMatch(/not an owner publication/);
   });
 
-  it('production liquidation jobs pass null published limits', () => {
+  it('production liquidation jobs pass null published limits until the owner publishes them', () => {
+    // The jobs pass only the configured publication, and nothing else: no compiled figure stands in for it.
     const src = readFileSync(new URL('./futures-jobs.ts', import.meta.url), 'utf8');
-    expect(src).toContain('publishedLiquidationLimits: null');
+    expect(src).toContain('publishedLiquidationLimits: deps.config.liquidationLimits ?? null');
+    expect(src.match(/publishedLiquidationLimits:/g)).toHaveLength(1);
+    // The service reads that publication from its env alone, which is blank by default: blank is null.
+    const index = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
+    expect(index).toContain('liquidationLimits: publishedLiquidationLimitsFrom(env.TRADE_FUTURES_LIQUIDATION_LIMITS)');
+    const env = readFileSync(new URL('../env.ts', import.meta.url), 'utf8');
+    expect(env).toContain("TRADE_FUTURES_LIQUIDATION_LIMITS: z.string().default('')");
+    expect(publishedLiquidationLimitsFrom('')).toBeNull();
   });
 });
 

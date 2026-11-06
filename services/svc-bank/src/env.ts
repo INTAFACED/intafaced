@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
+import { parseStatementJobsInterval, parseStatementJobsLease } from './statements/statement-jobs.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { RAMP_SETTINGS } from './ramps/rails.js';
 import { GLOBAL_PARTNER_SETTINGS } from './personal-pay/global-sim.js';
@@ -459,6 +461,28 @@ const schema = serviceEnvSchema
       BANK_ACCOUNT_TERMS_JSON: z.string().optional(),
 
       /**
+       * Owner-published card programme terms as JSON (BK-cissue-01 to -03, J-bank-13): `{ network, countries: [ISO2],
+       * limits: { virtual, physical }, terms: { version, text }, designs: [{ id, name }], speeds: [{ speed, days }],
+       * deliveryCountries: [ISO2] }`. NO DEFAULT. Blank / unset / not in shape → the card room refuses
+       * `bank.card_eligibility_unset` and a live issuer issues nothing; the simulator's direct issue keeps working.
+       */
+      BANK_CARD_PROGRAMME_JSON: z.string().optional(),
+
+      /**
+       * Owner-published cashback rates by rank card tier as JSON (RC-bank-02, J-bank-13 #7): `{ "assetId": "IFC", "rates":
+       * { "none" | "standard" | "metal" | "obsidian": <bps> } }`. NO DEFAULT. Blank / unset / not in shape → the cashback
+       * read refuses `bank.cashback_rate_unset`, and a card in that asset earns no tier rate.
+       */
+      BANK_CARD_CASHBACK_RATES_JSON: z.string().optional(),
+
+      /**
+       * THE CARD SIMULATOR'S CASHBACK STAND-IN (J-bank-13 #7): `test` lets card-sim pay cashback from the reward pot on the
+       * local test stack. Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production. Default `off`: a
+       * simulated card pays none (`bank.rewards_issuer_unset`).
+       */
+      BANK_CARD_SIM_CASHBACK: z.enum(CARD_SIM_CASHBACK_SETTINGS).default('off'),
+
+      /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
        * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.
@@ -625,6 +649,41 @@ const schema = serviceEnvSchema
             return z.NEVER;
           }
         }),
+
+      /** How often the background export worker looks for queued jobs (PF-statements-02). Unset or blank: background exports are off and asking for one refuses `bank.statement_jobs_unset`. */
+      BANK_STATEMENT_JOBS_INTERVAL_MS: z
+        .unknown()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseStatementJobsInterval(v);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_INTERVAL_MS',
+            });
+            return z.NEVER;
+          }
+        }),
+
+      /** How long one worker claim on an export job lasts before the job is re-queued on the same key (PF-statements-02). Unset or blank: background exports are off. */
+      BANK_STATEMENT_JOBS_LEASE_MS: z
+        .unknown()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseStatementJobsLease(v);
+          } catch (err) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: err instanceof Error ? err.message : 'invalid BANK_STATEMENT_JOBS_LEASE_MS',
+            });
+            return z.NEVER;
+          }
+        }),
+
+      /** TEST only (J-portfolio-11 #5): a wait inside every export render. Checked against the raw APP_ENV at boot (index.ts). */
+      BANK_STATEMENT_JOBS_TEST_RENDER_HOLD_MS: z.string().optional(),
     }),
   );
 

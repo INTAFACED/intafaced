@@ -8,6 +8,7 @@ import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
+import { CardOrderService } from './cards/card-orders.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
 import { LinkedAccountService } from './linked-accounts/linked-accounts.js';
@@ -37,6 +38,7 @@ import { PortfolioService, type PortfolioServiceOptions } from './portfolio/port
 import { ActivityService, type ActivityServiceOptions } from './activity/activity-service.js';
 import { ActivityRecordService } from './activity/activity-records.js';
 import { StatementService } from './statements/statement-service.js';
+import { StatementJobService, type StatementJobsConfig } from './statements/statement-jobs.js';
 import { AccountDetailsService, type AccountDetailsOptions } from './account-details/account-details.js';
 import { parseAccountTerms, type AccountTerms } from './account-home/account-terms.js';
 import { CurrencyService } from './account-home/currencies.js';
@@ -92,6 +94,8 @@ export interface BankServices {
   readonly activity: ActivityService;
   readonly activityRecords: ActivityRecordService;
   readonly statements: StatementService;
+  /** PF-statements-02: background exports, made by a worker and listed in the document centre. */
+  readonly statementJobs: StatementJobService;
   readonly accountDetails: AccountDetailsService;
   /** The owner's base-tier account terms (BK-acct-01). Blank refuses `bank.account_terms_unset`. */
   readonly accountTerms: () => AccountTerms;
@@ -103,6 +107,8 @@ export interface BankServices {
   /** Desk pause of new borrow and new supply per asset (BK-loan-07). */
   readonly assetPauses: AssetPauseService;
   readonly cards: CardService;
+  /** J-bank-13: the card room's product list, terms, order and delivery. */
+  readonly cardOrders: CardOrderService;
   readonly ramps: RampService;
   /** Add money: the ways to pay in with their quotes, and the customer's requests (J-bank-02). */
   readonly addMoney: AddMoneyService;
@@ -250,6 +256,8 @@ export interface BankServiceOptions {
   identityRecovery?: IdentityRecoveryPort;
   /** Merged money history: the ledger page port and the cursor secret. Unset = `bank.activity.list` refuses, never answers empty. */
   activity?: ActivityServiceOptions;
+  /** PF-statements-02: the export worker's claim lease. Left out, background exports are off. */
+  statementJobs?: StatementJobsConfig;
   /** Public handles for receipts. Unset = receipts name `bank.party_handles_unset` and requests refuse. */
   handles?: PartyHandlePort;
   /** Inbox events for payment requests. Unset = the request is stored and the notice names `bank.pay_request_notify_unwired`. */
@@ -340,6 +348,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });
   const statements = new StatementService(activity, options.activity?.cursorSecret, spaces);
+  const statementJobs = new StatementJobService(sql, statements, options.statementJobs ?? { leaseMs: null });
   // No banking partner = every currency answers unavailable with `rail.bank`; no details are made up.
   const accountDetails = new AccountDetailsService(options.accountDetails ?? {});
   const accountTerms = () => parseAccountTerms(options.accountTerms);
@@ -365,6 +374,9 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
+  });
+  const cardOrders = new CardOrderService(sql, cards, {
+    terms: options.cards?.programmeTerms ?? null,
   });
   // No ramp programme = every ramp procedure refuses `bank.no_ramp_rail`.
   // One registry: the address book reads the same one as deposits and the supported-asset list unless a test passes its own.
@@ -444,6 +456,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     activity,
     activityRecords,
     statements,
+    statementJobs,
     accountDetails,
     accountTerms,
     currencies,
@@ -451,6 +464,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     assetPauses,
     loans,
     cards,
+    cardOrders,
     ramps,
     addMoney,
     linkedAccounts,

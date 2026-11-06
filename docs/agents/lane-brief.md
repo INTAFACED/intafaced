@@ -10,7 +10,7 @@ Fill in the angle brackets; leave out what does not apply. Carry the owner's own
 
 - Decisions already made that this area sits on: `<ADR links, seam PRs, refusal catalogue, design tokens>`.
 - Open PRs and branches in this area to finish or close: `<numbers>`.
-- Seams other areas depend on: `<contracts or events files>`. Land a shared contract first, as its own small PR, so other areas can build on it in parallel.
+- Seams other areas depend on: `<contracts or events files>`. A shared contract may land first, as its own small PR, so other areas can build on it in parallel; it may also ride in the journey's one PR (AGENTS.md "Services and events" 1).
 - Outside services this area refuses for: `<from the slices' outside field>`.
 
 **Out of scope:** other areas' folders, Polish work (looks, copy, performance), refactors the journey does not need, anything needing real money, live credentials or a deploy.

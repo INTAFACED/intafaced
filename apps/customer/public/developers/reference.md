@@ -116,6 +116,8 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 | `GET /api/v1/futures/entry-protection`          | `fetchEntryProtection`                                         | trade:read                                            |
 | `POST /api/v1/futures/orders`                   | `createFuturesOrder`                                           | trade:write                                           |
 | `GET /api/v1/futures/orders`                    | `fetchFuturesOrders`                                           | trade:read                                            |
+| `GET /api/v1/futures/orders/:id`                | `fetchFuturesOrder` · mounted only with futures matching       | trade:read                                            |
+| `GET /api/v1/futures/executions`                | `fetchFuturesExecutions` · mounted only with futures matching  | trade:read                                            |
 | `DELETE /api/v1/futures/orders/:id`             | `cancelFuturesOrder`                                           | trade:write                                           |
 | `POST /api/v1/futures/orders/split`             | `createSplitFuturesOrder` · mounted only with futures matching | trade:write                                           |
 | `POST /api/v1/positions/:id/reverse`            | `reversePosition` · mounted only with futures matching         | trade:write                                           |

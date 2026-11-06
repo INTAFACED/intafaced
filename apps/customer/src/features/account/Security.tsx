@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { flushSync } from 'react-dom';
 import { z } from 'zod';
 import { useSession } from '../session/session';
+import { currentReturnLocation, navigate } from '../../app/location';
+import { safeReturnTo } from '../../app/navigation';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading, Page } from '../../shared/ui';
@@ -493,6 +495,9 @@ export function Security() {
       setCode('');
       setShowKey(false);
       clear();
+      // Every session ended, this one included: the sign-in page opens (journey J-identity-06 #3).
+      // It replaces this entry, so Back does not return to a signed-out room; sign-in brings the person back here.
+      navigate(`/login?redirect=${encodeURIComponent(safeReturnTo(currentReturnLocation()))}`, true);
     }
   }
   /** The person saved the recovery codes: the codes, the setup key and the setup's journal row leave for good. */

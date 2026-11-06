@@ -5,7 +5,7 @@ import { payAmountStringSchema, payAssetCodeSchema } from './merchant-control.js
  * BK-cops-04 (read-only part): card funds view and card balances, owned by svc-bank.
  * A card is an access device: spend is held and captured from the customer's ledger balance; no service holds a
  * card balance. Every figure is read from the ledger and carried as a decimal string, never a JSON number.
- * Programme transfers and the funding model setting are left for a later contracts PR.
+ * Programme transfers and the funding model setting are left for a later contracts change.
  */
 const id = z.string().guid();
 const timestamp = z.string().datetime({ offset: true });

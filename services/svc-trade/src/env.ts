@@ -353,6 +353,12 @@ const schema = serviceEnvSchema
       TRADE_FUTURES_LADDER_POLICY: z.string().default(''),
 
       /**
+       * Owner-published liquidation mark limits JSON (`futures/liquidation-limits.ts`, MKT-0057).
+       * Empty = unpublished: the liquidation tick refuses every position (trade.mark_unusable). Malformed stops boot.
+       */
+      TRADE_FUTURES_LIQUIDATION_LIMITS: z.string().default(''),
+
+      /**
        * Funding tick interval per market when jobs enabled.
        * EMPTY = do not schedule funding ticks. D2: there is no product 8h default.
        * A set value must be an integer 60000–86400000.

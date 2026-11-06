@@ -113,6 +113,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     // `LOCAL_STACK_TRADE_FUTURES_LADDER=off` on a restart leaves the ladder blank, so J-derivatives-02 #2 sees "tiers
     // not published" and an open refused on the ladder code.
     TRADE_FUTURES_LADDER_POLICY: process.env.LOCAL_STACK_TRADE_FUTURES_LADDER === 'off' ? '' : JSON.stringify(TEST_FUTURES_LADDER_POLICY),
+    // LOCAL TEST liquidation mark limits, not an owner publication (MKT-0057): the code's own compiled 300 s / 60 s /
+    // 2000 bps, set here so the TEST perpetual's liquidation runs on the stack (J-derivatives-04 #2). Blank, as in
+    // production until the owner publishes them, the tick refuses every liquidation with trade.mark_unusable.
+    TRADE_FUTURES_LIQUIDATION_LIMITS: JSON.stringify({ maxAgeSeconds: 300, liquidationMaxAgeSeconds: 60, maxDeviationBps: 2000 }),
     // The code's own ceiling (DIRECTION §1); the TEST listing caps itself lower. Markets show orderable only with it.
     TRADE_FUTURES_MAX_LEVERAGE: '10',
     // Futures orders through the one book (futures ADR 2026-10-20): no open at mark. The TEST perpetual is marked
