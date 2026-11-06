@@ -154,6 +154,20 @@ export const FIRST_STEP_PR = 7297;
 const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
 const TEST_CALL = /^(\s*)test(?:\.(?:only|skip|fixme|fail))?\(\s*(?:`((?:[^`\\]|\\.)*)`|(['"])((?:(?!\3)[^\\]|\\.)*)\3)/;
 const JOURNEY_CONST = /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(['"`])(J-[a-z0-9-]+-\d+)\2\s*;?\s*$/;
+/** Files that can hold a journey test: the `*.pw.mjs` files and code under a `tests/` folder. */
+const STEP_SOURCE = /(?:\.pw\.mjs$|(?:^|\/)tests\/.+\.[cm]?[jt]sx?$)/;
+/**
+ * A test the guard can't read, so its step would escape rule 7: a `test(` whose title isn't a literal, a title built
+ * with `#${n}` after a journey, `test` under another name, or a step test in a file that isn't a `*.pw.mjs`.
+ */
+const STEP_NAME = /(?:J-[a-z0-9-]+-\d+|\$\{\s*[A-Za-z_$][\w$]*\s*\})\s+#/;
+export function unreadable(path, line) {
+  if (/^\s*(?:\/\/|\/?\*)/.test(line)) return false;
+  if (/(?:J-[a-z0-9-]+-\d+|\$\{\s*[A-Za-z_$][\w$]*\s*\})\s+#\$\{/.test(line)) return true;
+  if (/(?<![.\w$])test\s+as\s+[A-Za-z_$]|=\s*test\s*(?:[;,)]|$)/.test(line)) return true;
+  if (/(?<![.\w$])test(?:\.(?:only|fixme|fail))?\(\s*(?![`'"\s)])/.test(line)) return true;
+  return !BROWSER_TEST.test(path) && /(?<![.\w$])test(?:\.\w+)?\(/.test(line) && STEP_NAME.test(line);
+}
 const WRITER_MARK = /^\s*\/\/\s*Test-writer:\s*\S/;
 /** What a tests-only PR may touch: tests, test folders and the journey baseline. */
 const TESTS_ONLY = (p) => TEST_FILE.test(p) || /(?:^|\/)tests\//.test(p) || p === 'docs/runbooks/journey-baseline.json';
@@ -230,6 +244,18 @@ export function judgeSteps(files, testsOnly) {
     }
     for (const k of stepTests(f.before).keys()) if (!where.has(k)) where.set(k, f.path);
   }
+  // A test the guard can't read would let a step's test past every check below, so adding one fails, in any PR.
+  for (const f of files) {
+    if (!STEP_SOURCE.test(f.path)) continue;
+    const inTests = [...stepTests(f.after).values()].flatMap((v) => v.lines);
+    const added = minus(minus(String(f.after ?? '').split('\n'), String(f.before ?? '').split('\n')), inTests);
+    for (const l of added)
+      if (unreadable(f.path, l))
+        problems.push({
+          path: f.path,
+          why: `a test the guard can't read: ${l.trim().slice(0, 80)}. Write each step's test as test(\`\${J} #<n> …\`) or test('J-x-NN #<n> …') in a *.pw.mjs file.`,
+        });
+  }
   const builds = 'a PR that also changes code outside tests';
   for (const key of new Set([...before.keys(), ...after.keys()])) {
     const b = before.get(key);
@@ -280,11 +306,11 @@ function sourceFor(path) {
 }
 
 function collect(base) {
-  const names = git(['diff', '--name-status', '--no-renames', `${base}...HEAD`])
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => l.split('\t'))
-    .filter(([, p]) => TEST_FILE.test(p) || PW_CONFIG.test(p) || BASELINE.test(p));
+  // -z, so a path with an unusual character is read as itself, never C-quoted: pairs of status and path.
+  const parts = git(['diff', '-z', '--name-status', '--no-renames', `${base}...HEAD`]).split('\0');
+  const pairs = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) if (parts[i]) pairs.push([parts[i], parts[i + 1]]);
+  const names = pairs.filter(([, p]) => TEST_FILE.test(p) || PW_CONFIG.test(p) || BASELINE.test(p));
   return names.map(([status, path]) => {
     let removed = [];
     let added = [];
@@ -302,8 +328,9 @@ function collect(base) {
 /** The changed journey files' text on the merge base and the head, and whether the PR changes only test paths. */
 function collectSteps(base) {
   const since = git(['merge-base', base, 'HEAD']).trim();
-  const changed = git(['diff', '--name-only', '--no-renames', `${base}...HEAD`])
-    .split('\n')
+  // -z: a path with an unusual character comes back as itself, never C-quoted (which would hide it from the rules).
+  const changed = git(['diff', '-z', '--name-only', '--no-renames', `${base}...HEAD`])
+    .split('\0')
     .filter(Boolean);
   const read = (ref, path) => {
     try {
@@ -316,7 +343,7 @@ function collectSteps(base) {
       return '';
     }
   };
-  const files = changed.filter((p) => BROWSER_TEST.test(p)).map((path) => ({ path, before: read(since, path), after: read('HEAD', path) }));
+  const files = changed.filter((p) => STEP_SOURCE.test(p)).map((path) => ({ path, before: read(since, path), after: read('HEAD', path) }));
   return { files, testsOnly: changed.every(TESTS_ONLY) };
 }
 
@@ -512,9 +539,31 @@ function selfTest() {
   eq(s7(marked, file(one(2))), 1, "planted: a build PR deletes a test-writer's test");
   eq(s7(marked, file(one(2)), true), 1, "a tests-only PR deletes a test-writer's test");
   eq(s7(legacy, legacy.replace("const J = 'J-x-01';", "const J = 'J-x-01';\nconst helper = 1;")), 0, 'a helper change outside step tests');
+  eq(s7(legacy, file(one(1), one(2), 'const t = `${J} #9 buys`;', 'test(t, async () => {});')), 1, 'planted: a step title in a variable');
+  eq(
+    s7(legacy, file(one(1), one(2), 'for (const n of [9]) test(`${J} #${n} buys`, async () => {});'), true),
+    1,
+    'planted: a step title in a loop',
+  );
+  eq(
+    judgeSteps(
+      [{ path: 'apps/customer/tests/real-app/lib/steps.mjs', before: '', after: "export const s = () => test('J-x-01 #9 buys', f);" }],
+      false,
+    ).length,
+    1,
+    'planted: a step test in a helper file',
+  );
+  eq(
+    s7(legacy, file(one(1), one(2), 'const go = () => { throw new Error(`${J} #1 made no account`); };')),
+    0,
+    'a step named in an error message',
+  );
+  eq(s7(legacy, file(one(1), one(2), "import { test as it } from './journey.mjs';")), 1, 'planted: test under another name');
+  eq(s7(legacy, file(one(1), one(2), 'const ok = /x/.test(name);', 'test.use({ viewport: null });')), 0, 'a regex test() and test.use');
+  eq(s7(legacy, file(one(1), one(2), '// J-x-01 #9 waits for the stack (a comment)')), 0, 'a comment naming a step');
   eq(TESTS_ONLY('apps/customer/tests/real-app/lib/world.mjs') && TESTS_ONLY('docs/runbooks/journey-baseline.json'), true, 'test paths');
   eq(TESTS_ONLY('services/svc-trade/src/order.ts') || TESTS_ONLY('apps/customer/src/screens/buy.tsx'), false, 'code paths');
-  console.log('✓ test-diff-guard --self-test OK (70 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (77 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {
