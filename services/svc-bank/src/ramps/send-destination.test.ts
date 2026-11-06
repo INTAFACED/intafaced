@@ -91,6 +91,27 @@ describe('whether money may be sent to an address on a network now', () => {
     });
   });
 
+  it('answers frozen first while the owner froze their own account, saved address or not, and ready again after the lift (J-wallet-13 #2)', async () => {
+    const { service, lock } = await readyEntry();
+    lock.set(USER, { locked: false, unlocksAt: null, selfFrozen: true });
+    const frozen = { state: 'frozen', destinationId: null, coolingOffEndsAt: null };
+    await expect(service.sendableDestination(ask)).resolves.toEqual(frozen);
+    await expect(service.sendableDestination({ ...ask, ref: '0x000000000000000000000000000000000000dEaD' })).resolves.toEqual(frozen);
+    await expect(service.sendableDestination({ ...ask, network: 'base' })).resolves.toEqual(frozen);
+    // Another person's answer is their own; the freeze is one person's.
+    await expect(service.sendableDestination({ ...ask, userId: OTHER })).resolves.toMatchObject({ state: 'not_saved' });
+    lock.set(USER, { locked: false, unlocksAt: null, selfFrozen: false });
+    await expect(service.sendableDestination(ask)).resolves.toMatchObject({ state: 'ready' });
+  });
+
+  it('throws when the freeze cannot be read, so svc-pay reads it as unavailable and sends nothing (fail closed)', async () => {
+    const { service, lock } = await readyEntry();
+    lock.read = async () => {
+      throw new BankError('the lock could not be read', 'bank.security_lock_unavailable');
+    };
+    await expect(service.sendableDestination(ask)).rejects.toMatchObject({ code: 'bank.security_lock_unavailable' });
+  });
+
   it('answers other_network when the address is saved for the asset only on another network', async () => {
     const { service } = await readyEntry();
     await expect(service.sendableDestination({ ...ask, network: 'base' })).resolves.toEqual({

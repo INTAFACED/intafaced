@@ -410,6 +410,7 @@ export type PayErrorCode =
   | 'pay.withdrawal_destination_cooling'
   | 'pay.withdrawal_destination_cooling_unset'
   | 'pay.withdrawal_destination_locked'
+  | 'pay.account_frozen_self'
   | 'pay.withdrawal_destination_blocked'
   | 'pay.withdrawal_destination_unavailable'
   /** svc-ledger refused a withdrawal post whose fee is not its hold's (`ledger.withdraw_fee_unbound`): nothing posted, an operator looks. */

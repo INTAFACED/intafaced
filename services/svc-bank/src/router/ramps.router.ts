@@ -388,7 +388,7 @@ export function createRampsRouter(c: BankRouterContext) {
           z
             .object({
               destinationId: z.string().guid(),
-              state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
+              state: z.enum(['ready', 'frozen', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
               coolingOffEndsAt: z.string().nullable(),
               lockUnlocksAt: z.string().nullable(),
               approvalLinkExpiresAt: z.string().nullable(),

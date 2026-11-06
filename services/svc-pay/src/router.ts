@@ -2891,6 +2891,7 @@ export function toTrpcError(err: unknown): unknown {
       case 'pay.withdrawal_fee_unbound':
         return 'PRECONDITION_FAILED' as const;
       case 'pay.withdrawal_destination_locked':
+      case 'pay.account_frozen_self':
         return 'FORBIDDEN' as const;
       case 'pay.withdrawal_not_found':
       case 'pay.wallet_not_found':

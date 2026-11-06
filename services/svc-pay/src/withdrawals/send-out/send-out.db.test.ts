@@ -273,6 +273,7 @@ describe('a send out of the platform: signer, saved address, quote and fee (real
       ['cooling', 'pay.withdrawal_destination_cooling'],
       ['cooling_unset', 'pay.withdrawal_destination_cooling_unset'],
       ['locked', 'pay.withdrawal_destination_locked'],
+      ['frozen', 'pay.account_frozen_self'],
       ['blocked', 'pay.withdrawal_destination_blocked'],
       ['unavailable', 'pay.withdrawal_destination_unavailable'],
     ] as const)('an address book answer of %s refuses %s, with nothing held', async (state, code) => {

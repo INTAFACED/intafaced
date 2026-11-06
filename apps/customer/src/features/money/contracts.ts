@@ -566,7 +566,7 @@ export const destinationRemovedSchema = z.object({ destinationId: z.string(), re
 /** svc-bank `bank.ramps.destinations.readiness`: whether money may be sent to one saved address now, or what stands first. */
 export const destinationReadinessSchema = z.object({
   destinationId: z.string(),
-  state: z.enum(['ready', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
+  state: z.enum(['ready', 'frozen', 'locked', 'blocked', 'approval_pending', 'cooling_unset', 'cooling']),
   coolingOffEndsAt: z.string().nullable(),
   lockUnlocksAt: z.string().nullable(),
   approvalLinkExpiresAt: z.string().nullable().optional(),
