@@ -318,7 +318,14 @@ describe('futures reads money', () => {
 
     const alices = await listFundingStatement(sql, ALICE);
     expect(alices.rows).toEqual([
-      expect.objectContaining({ positionId: alice, periodId: periodA, symbol: 'BTC/USDT:USDT', side: 'long', amount: '5', direction: 'paid' }),
+      expect.objectContaining({
+        positionId: alice,
+        periodId: periodA,
+        symbol: 'BTC/USDT:USDT',
+        side: 'long',
+        amount: '5',
+        direction: 'paid',
+      }),
     ]);
     expect(alices.totals).toEqual([{ asset: 'USDT', paid: '5', received: '0', net: '-5' }]);
     const bobs = await listFundingStatement(sql, BOB);

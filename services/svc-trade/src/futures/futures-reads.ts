@@ -231,7 +231,12 @@ export async function listFundingStatement(sql: Sql, userId: string): Promise<Fu
   }
   const totals = [...sums.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([asset, t]) => ({ asset, paid: formatAmount(t.paid), received: formatAmount(t.received), net: formatAmount(t.received - t.paid) }));
+    .map(([asset, t]) => ({
+      asset,
+      paid: formatAmount(t.paid),
+      received: formatAmount(t.received),
+      net: formatAmount(t.received - t.paid),
+    }));
   return { rows: out, totals };
 }
 

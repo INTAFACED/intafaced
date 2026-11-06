@@ -85,7 +85,8 @@ export function FundingTab({
     {
       id: 'settled',
       header: t('Funding col settled'),
-      value: (r) => (r.settlement ? `${exactDecimal(r.settlement.paid)} / ${exactDecimal(r.settlement.received)}` : t('Funding not settled')),
+      value: (r) =>
+        r.settlement ? `${exactDecimal(r.settlement.paid)} / ${exactDecimal(r.settlement.received)}` : t('Funding not settled'),
     },
   ];
   const seriesColumns: TableColumn<SeriesPoint>[] = [
@@ -116,10 +117,17 @@ export function FundingTab({
               ? null
               : outcome.status === 'published'
                 ? `${t('Funding period published')} ${f.lastPeriod.periodId}`
-                : t(outcome.status === 'unset' ? 'Funding period unset' : outcome.status === 'paused' ? 'Funding period paused' : 'Funding period refused', {
-                    period: f.lastPeriod.periodStart ?? f.lastPeriod.periodId,
-                    code: outcome.code ?? '—',
-                  });
+                : t(
+                    outcome.status === 'unset'
+                      ? 'Funding period unset'
+                      : outcome.status === 'paused'
+                        ? 'Funding period paused'
+                        : 'Funding period refused',
+                    {
+                      period: f.lastPeriod.periodStart ?? f.lastPeriod.periodId,
+                      code: outcome.code ?? '—',
+                    },
+                  );
           const indexNow = f.indexNow
             ? f.indexNow.price === null
               ? t('Funding index unpublished')
@@ -250,7 +258,11 @@ export function FundingTab({
       </LoadGate>
 
       <TabHeader title={t('Funding series title')} load={history.series} />
-      <LoadGate load={history.series} thing={t('Thing funding records')} empty={<EmptyState size="inline" title={t('Choose a contract')} />}>
+      <LoadGate
+        load={history.series}
+        thing={t('Thing funding records')}
+        empty={<EmptyState size="inline" title={t('Choose a contract')} />}
+      >
         {(s) => (
           <Table
             label={t('Funding series title')}

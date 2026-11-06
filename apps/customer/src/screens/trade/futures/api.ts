@@ -98,7 +98,9 @@ export type FundingHistory = z.infer<typeof fundingHistorySchema>;
 
 export const fundingSeriesSchema = z.object({
   symbol: z.string(),
-  series: z.array(z.object({ at: z.string(), mark: decimalSchema.nullable(), index: decimalSchema.nullable(), indexReason: z.string().nullable() })),
+  series: z.array(
+    z.object({ at: z.string(), mark: decimalSchema.nullable(), index: decimalSchema.nullable(), indexReason: z.string().nullable() }),
+  ),
 });
 export type FundingSeries = z.infer<typeof fundingSeriesSchema>;
 

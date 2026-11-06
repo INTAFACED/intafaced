@@ -111,7 +111,8 @@ const messages = {
   'Funding premium': 'Premium',
   'Funding interest': 'Interest component',
   'Funding cap': 'Rate cap',
-  'Funding built from': 'The rate is the premium plus the interest component, held within the cap. The mark and index are the ones the period closed on.',
+  'Funding built from':
+    'The rate is the premium plus the interest component, held within the cap. The mark and index are the ones the period closed on.',
   'Funding index now': 'Index now',
   'Funding index unpublished': 'Index unpublished',
   'Funding last period': 'Last period',

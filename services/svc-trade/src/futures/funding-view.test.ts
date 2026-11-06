@@ -76,7 +76,14 @@ describe('presentFundingRate (J-derivatives-08 #1, #2)', () => {
       s2s: { marketId: 'm1', periodId: 'p', rate: '0.0001', asOfMs: 5 },
       liveMark: '1',
     });
-    expect(s2s).toMatchObject({ fundingRate: '0.0001', premium: null, interestComponent: null, cap: null, indexPrice: null, markPrice: '1' });
+    expect(s2s).toMatchObject({
+      fundingRate: '0.0001',
+      premium: null,
+      interestComponent: null,
+      cap: null,
+      indexPrice: null,
+      markPrice: '1',
+    });
   });
 
   it('annualises only a period length that divides a year', () => {
@@ -102,7 +109,10 @@ describe('the TEST index feed (feed.market stand-in)', () => {
     expect(bookMid({ bids: [['102', '1']], asks: [['101', '2']], sequence: 1 })).toBeNull();
     expect(bookMid(null)).toBeNull();
     const at = new Date('2026-01-01T00:00:00Z');
-    const feed = testSpotBookIndexFeed({ readBook: async () => ({ bids: [['100', '1']], asks: [['102', '1']], sequence: 1 }), now: () => at });
+    const feed = testSpotBookIndexFeed({
+      readBook: async () => ({ bids: [['100', '1']], asks: [['102', '1']], sequence: 1 }),
+      now: () => at,
+    });
     expect(await feed.read({ marketId: 'm1', sourceIds: [TEST_SPOT_BOOK_SOURCE], at })).toEqual({
       connected: true,
       quotes: [{ sourceId: TEST_SPOT_BOOK_SOURCE, price: 101_000_000_000_000_000_000n, observedAt: at }],
@@ -136,7 +146,12 @@ describe('public funding history (J-derivatives-08 #4, #6)', () => {
     });
     const rates = presented.body.rates as Array<Record<string, unknown>>;
     expect(rates[0]).toMatchObject({ periodId: 's2s', premium: null, index_price: null, settlement: null });
-    expect(rates[1]).toMatchObject({ periodId: 'c', index_price: '1', annualisedRate: '0.0365', settlement: { paid: '0.5', received: '0.5' } });
+    expect(rates[1]).toMatchObject({
+      periodId: 'c',
+      index_price: '1',
+      annualisedRate: '0.0365',
+      settlement: { paid: '0.5', received: '0.5' },
+    });
   });
 
   it('names why an index point is null', () => {

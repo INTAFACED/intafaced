@@ -69,10 +69,7 @@ export function bookMid(depth: EngineDepth | null): Amount | null {
  * The feed: `readBook(marketId)` gives the paired TEST spot book of a futures market (null when it has none). A source
  * other than `test:spot-book` is never quoted, so the builder treats it as silent.
  */
-export function testSpotBookIndexFeed(deps: {
-  readBook: (marketId: string) => Promise<EngineDepth | null>;
-  now?: () => Date;
-}): IndexFeed {
+export function testSpotBookIndexFeed(deps: { readBook: (marketId: string) => Promise<EngineDepth | null>; now?: () => Date }): IndexFeed {
   return {
     async read({ marketId, sourceIds }) {
       const quotes: IndexQuote[] = [];

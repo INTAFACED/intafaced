@@ -2012,7 +2012,9 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
     const principal = requirePrincipal(req, reply);
     if (!principal) return;
     if (!deps.listFundingStatement) {
-      return reply.code(503).send({ error: 'trade.funding_statement_unwired', message: 'the funding statement is not wired on this process' });
+      return reply
+        .code(503)
+        .send({ error: 'trade.funding_statement_unwired', message: 'the funding statement is not wired on this process' });
     }
     try {
       requireScope(principal, 'trade:read');

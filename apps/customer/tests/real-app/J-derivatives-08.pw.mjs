@@ -39,7 +39,10 @@ const TEST_INDEX = {
   sources: [{ sourceId: TEST_SOURCE, weight: 1, enabled: true }],
   params: { minSources: 1, outlierBandBps: 500, maxAgeSeconds: 30 },
 };
-const BLANK_INDEX = { sources: [{ sourceId: TEST_SOURCE, weight: 1, enabled: true }], params: { minSources: null, outlierBandBps: null, maxAgeSeconds: null } };
+const BLANK_INDEX = {
+  sources: [{ sourceId: TEST_SOURCE, weight: 1, enabled: true }],
+  params: { minSources: null, outlierBandBps: null, maxAgeSeconds: null },
+};
 const BLANK_PARAMS = Object.fromEntries(Object.keys(TEST_PARAMS).map((k) => [k, null]));
 const SETTLE_MS = 240_000;
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -141,7 +144,8 @@ async function openPosition(me, side) {
   expect(placed.status, JSON.stringify(placed.body)).toBeLessThan(300);
   const list = await until(
     async () => (await me.get('/api/v1/positions')).body,
-    (rows) => Array.isArray(rows) && rows.some((p) => p.symbol === SYMBOL && p.side === side && p.status === 'open' && p.contracts === SIZE),
+    (rows) =>
+      Array.isArray(rows) && rows.some((p) => p.symbol === SYMBOL && p.side === side && p.status === 'open' && p.contracts === SIZE),
     `the TEST ${side}`,
   );
   return list.find((p) => p.symbol === SYMBOL && p.side === side && p.status === 'open');
@@ -280,7 +284,15 @@ test(`${J} #1 reads the contract strip and Funding tab: rate, countdown, premium
     async () => {
       const now = (await fundingRate()).body;
       const drawn = {};
-      for (const label of ['Current rate', 'Premium', 'Interest component', 'Rate cap', 'Mark price', 'Index price', 'Time to next funding']) {
+      for (const label of [
+        'Current rate',
+        'Premium',
+        'Interest component',
+        'Rate cap',
+        'Mark price',
+        'Index price',
+        'Time to next funding',
+      ]) {
         drawn[label] = (await valueOf(tab, label).innerText()).trim();
       }
       return { now, drawn };

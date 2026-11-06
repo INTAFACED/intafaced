@@ -64,9 +64,7 @@ export async function sqlComputedFundingHistory(sql: Sql, marketId: string): Pro
       interestComponent: r.base_component,
       cap: r.cap,
       annualisedRate: annualisedRate(r.rate, periodLengthSeconds({ periodStart: startIso, periodEnd: endIso })),
-      settlement: r.settled
-        ? { legs: r.leg_count ?? 0, paid: canonical(r.paid) ?? '0', received: canonical(r.received) ?? '0' }
-        : null,
+      settlement: r.settled ? { legs: r.leg_count ?? 0, paid: canonical(r.paid) ?? '0', received: canonical(r.received) ?? '0' } : null,
     };
   });
 }

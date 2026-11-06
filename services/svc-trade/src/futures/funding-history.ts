@@ -168,7 +168,9 @@ export function registerFundingHistory(app: FastifyInstance, deps: FundingHistor
       if (market.kind !== 'futures' || datedFuturesStyleOf(market) !== 'perpetual') {
         return reply
           .code(400)
-          .send(refusal(400, 'BadRequest', `${market.symbol} is not a perpetual and has no funding index`, 'trade.not_futures_market').body);
+          .send(
+            refusal(400, 'BadRequest', `${market.symbol} is not a perpetual and has no funding index`, 'trade.not_futures_market').body,
+          );
       }
       const raw = req.query.limit;
       const limit = raw == null || !/^\d+$/.test(raw) ? NaN : Number(raw);

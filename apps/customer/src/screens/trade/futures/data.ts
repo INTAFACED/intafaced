@@ -133,7 +133,10 @@ export function useFundingRate(symbol: string | null): Loadable<FundingRate> {
 }
 
 /** Public funding history and the mark and index series, read while the Funding tab is open. */
-export function useFundingHistory(symbol: string | null, enabled: boolean): { rates: Loadable<FundingHistory>; series: Loadable<FundingSeries> } {
+export function useFundingHistory(
+  symbol: string | null,
+  enabled: boolean,
+): { rates: Loadable<FundingHistory>; series: Loadable<FundingSeries> } {
   const env = useDataEnv();
   const api = useFuturesApi();
   const rates = useSource(
@@ -167,7 +170,14 @@ export function useFundingStatement(enabled: boolean): Loadable<FundingStatement
   const api = useFuturesApi();
   return useSource(
     useMemo(
-      () => privateSource<FundingStatement>(env, 'futures-funding-statement', (signal) => api.fundingStatement(signal), FUTURES_INTERVALS.fundingRecords, enabled),
+      () =>
+        privateSource<FundingStatement>(
+          env,
+          'futures-funding-statement',
+          (signal) => api.fundingStatement(signal),
+          FUTURES_INTERVALS.fundingRecords,
+          enabled,
+        ),
       [env, api, enabled],
     ),
   );
