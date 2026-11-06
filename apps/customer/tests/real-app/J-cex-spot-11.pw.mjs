@@ -61,6 +61,12 @@ async function pick(page, from, to) {
 }
 
 /** A decimal as the receipt writes it: thousands grouped, trailing zeros of the fraction dropped ("10.50" -> "10.5"). */
+/** An amount as the Recent conversions panel shows it: half-up to 8 places (fmtAmount { places: 8 }), then as `shown`. */
+function shown8(decimal) {
+  const step = 10n ** 10n; // 18-place units to 8 places
+  return shown(fromUnits(((toUnits(decimal) + step / 2n) / step) * step));
+}
+
 function shown(decimal) {
   const [whole, frac = ''] = decimal.split('.');
   const cut = frac.replace(/0+$/, '');
@@ -372,15 +378,11 @@ test(`${J} #10 opens Recent conversions: the conversion with paid and received a
   // state is its `lifecycle` (svc-trade convert-history-router.ts), the field the panel filters on.
   expect(rows.some((r) => r.lifecycle === 'quoted' || r.lifecycle === 'expired')).toBe(true);
   const taken = rows.filter((r) => r.lifecycle !== 'quoted' && r.lifecycle !== 'expired');
-  const row = recent.getByRole('row').filter({ hasText: fromUnits(toUnits(paid)).replace(/\.?0+$/, '') });
+  const row = recent.getByRole('row').filter({ hasText: `${shown8(paid)} USDT` });
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('USDT');
   await expect(row).toContainText('BTC');
-  await expect(row).toContainText(
-    fromUnits(toUnits(received))
-      .replace(/\.?0+$/, '')
-      .slice(0, 8),
-  );
+  await expect(row).toContainText(`${shown8(received)} BTC`);
   await expect(row.getByRole('cell').first()).toHaveText(/\d{1,2}:\d{2}/);
   // A header row and one row per conversion taken (the panel shows the latest ten): never a quote not taken.
   await expect(recent.getByRole('row')).toHaveCount(1 + Math.min(10, taken.length));
