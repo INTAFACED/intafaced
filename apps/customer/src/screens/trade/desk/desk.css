@@ -1546,6 +1546,13 @@
     align-items: center;
     gap: var(--if-space-1);
   }
+  .dk-layouts-preset input {
+    appearance: auto;
+    inline-size: 1rem;
+    block-size: 1rem;
+    margin: 0;
+    accent-color: var(--if-accent);
+  }
   .dk-layouts-actions {
     display: flex;
     flex-wrap: wrap;
