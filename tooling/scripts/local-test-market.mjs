@@ -205,6 +205,27 @@ export function buildLadder({ mid, tick, lot, minAmount, minCost, levels, halfSp
   return out;
 }
 
+/**
+ * A refused quote moved to the edge of the market's price band, or null (exported for tests). svc-trade refuses a buy
+ * priced above the band, or a sell below it, with `trade.price_band` and names the band ("outside the price band <low> to
+ * <high>", admin/risk.ts). The band is centred on the book's touch. So when the maker's own quotes are gone (it was stopped
+ * and started again) and someone else's order rests far off on one side, every quote at the walk's price on the other
+ * side is refused, every cycle, and that side of the book never comes back. (Failure it prevents: J-portfolio-04 #1–#7 on
+ * main, runs 1247 to 1265. A TEST buy rested at 80% of the BTC/USDT bid, J-ops-console-08 #7 stopped and restarted the
+ * maker, and the maker's bids stayed refused. With no bids, the band's buy edge sat under the best ask, so no buy could take
+ * it.) A quote at the band's edge rests and moves the touch toward the walk, and the next cycle's ladder fits. A refusal
+ * that is not the band's, names no band, or whose edge is not nearer the book than the refused price gives null.
+ */
+export function bandEdgeQuote(quote, refusal, tick) {
+  if (refusal?.intafacedCode !== 'trade.price_band') return null;
+  const named = /price band (\d+(?:\.\d+)?) to (\d+(?:\.\d+)?)/.exec(String(refusal.message ?? ''));
+  if (!named) return null;
+  const price = toScaled(quote.price);
+  const edge = quote.side === 'buy' ? floorTo(toScaledFloor(named[2]), tick) : ceilTo(toScaledFloor(named[1]), tick);
+  if (edge <= 0n || (quote.side === 'buy' ? edge >= price : edge <= price)) return null;
+  return { ...quote, price: fromScaled(edge) };
+}
+
 // ── TEST PRICE table: invented, illustrative starting points ────────────────
 // Not a feed and not quotes. Quote-currency amounts per level are for sizing only.
 export const TEST_PRICES = {
@@ -819,7 +840,13 @@ async function runLoop(opts, home) {
       for (const q of ladder) {
         // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
         // that level is quoted again next cycle.
-        const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
+        let r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
+        // A quote the price band refused goes in at the band's edge instead, so a side the band shut can come back.
+        const edged = !m.swap && r.status >= 300 ? bandEdgeQuote(q, r.json, m.tick) : null;
+        if (edged) {
+          log(`${m.symbol} ${q.side} ${q.price} refused by the price band; quoted at its edge ${edged.price}`);
+          r = await place(maker, m, edged.side, edged.price, edged.amount, jump ? 'GTC-TAKE' : 'GTC');
+        }
         if (r.status === 201 && r.json?.id) ids.push(r.json.id);
         else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) ids.push(r.json.orderId);
         else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;

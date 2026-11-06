@@ -12,6 +12,7 @@ import { readProcessIdentity } from './local-test-state.mjs';
 import {
   GuardError,
   assertLocalTarget,
+  bandEdgeQuote,
   marketStatus,
   buildLadder,
   createPriceWalk,
@@ -230,6 +231,28 @@ assert.equal(b.next(), a.next());
   assert.equal(bookMid({ bids: [['65000', '1']] }), null);
   assert.equal(bookMid(null), null);
   assert.equal(bookMid({ bids: [['1e3', '1']], asks: [['65001', '1']] }), null);
+}
+
+// 7b. A quote the price band refused goes in at the band's edge, on the tick, nearer the book; anything else is left alone.
+// The book J-portfolio-04 met on main (run 1247): the maker's own bids gone, a TEST buy resting at 52,074, its asks at
+// 65,431.81, so svc-trade's band ran 52,848.24 to 64,592.29 and refused every maker bid at the walk's price.
+{
+  const tick = toScaled('0.01');
+  const band = { intafacedCode: 'trade.price_band', message: 'order price is outside the price band 52848.24 to 64592.29' };
+  const bid = { side: 'buy', level: 0, price: '65351.37', amount: '0.04590' };
+  assert.deepEqual(bandEdgeQuote(bid, band, tick), { ...bid, price: '64592.29' });
+  const ask = { side: 'sell', level: 1, price: '52000.5', amount: '0.1' };
+  assert.deepEqual(bandEdgeQuote(ask, band, tick), { ...ask, price: '52848.24' });
+  // An edge off the tick is moved inside the band: down for a buy, up for a sell.
+  const offTick = { intafacedCode: 'trade.price_band', message: 'order price is outside the price band 52848.235 to 64592.299' };
+  assert.equal(bandEdgeQuote(bid, offTick, tick).price, '64592.29');
+  assert.equal(bandEdgeQuote(ask, offTick, tick).price, '52848.24');
+  // Not the band's refusal, no band named, or an edge that is not nearer the book: nothing to re-place.
+  assert.equal(bandEdgeQuote(bid, { intafacedCode: 'trade.post_only_would_take', message: band.message }, tick), null);
+  assert.equal(bandEdgeQuote(bid, { intafacedCode: 'trade.price_band', message: 'refused' }, tick), null);
+  assert.equal(bandEdgeQuote(bid, null, tick), null);
+  assert.equal(bandEdgeQuote({ ...bid, price: '64000' }, band, tick), null);
+  assert.equal(bandEdgeQuote({ ...ask, price: '60000' }, band, tick), null);
 }
 
 // 8. The ladder: bids below mid and asks above, on the tick grid, strictly ordered, sized above the market minimums.
