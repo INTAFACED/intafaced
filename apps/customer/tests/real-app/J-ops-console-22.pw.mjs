@@ -6,8 +6,9 @@ import { businessReadyPerson, openBusiness, paidCardPayment, payApiOf, signInWit
 // J-ops-console-22: oversee merchants. A fresh TEST business opens on the merchant portal, the stack's founder pair approves
 // its verification, and it takes one TEST card payment of 40.00 USDT on the sandbox card rail. Founder A then reads the
 // same merchant on the console. #1 and #2 read svc-pay's founder reads and the owner's own portal; #3 is the founder-wide
-// verification queue (/kyb), which svc-pay does not serve yet; #5 is the jurisdiction setting history. #4 and #6 are
-// deferred to launch prep (owner decision 2026-10-27) and have no test.
+// verification queue (/kyb), which svc-pay does not serve yet, and its screen naming the vendor-backed check `vendor.kyc`;
+// #5 is the jurisdiction setting history, each row with its actor, reason, before and after. #4 and #6 are deferred to
+// launch prep (owner decision 2026-10-27) and have no test.
 
 const J = 'J-ops-console-22';
 const AMOUNT = '40.00';
@@ -121,6 +122,9 @@ test.describe('one TEST merchant', () => {
     await row.getByRole('link').first().click();
     await expect(page).toHaveURL(new RegExp(world.merchantId));
     await expect(failedPart(page)).toHaveCount(0);
+    // The vendor-backed KYB read: svc-pay's automatic check is not connected on this stack, and the screen names it by its
+    // outside dependency, `vendor.kyc` (svc-pay kyb-documents.ts VENDOR_CHECK).
+    await expect(page.getByText('vendor.kyc', { exact: false }).first(), 'the verification screen does not name vendor.kyc').toBeVisible();
   });
 });
 
@@ -129,7 +133,20 @@ test(`${J} #5 the jurisdiction setting history lists every change with actor, re
   await page.goto(`${ADMIN}/jurisdiction`, { waitUntil: 'load' });
   const history = page.getByRole('table', { name: /setting history/i });
   await expect(history, 'the jurisdiction board has no setting history read yet').toBeVisible({ timeout: 5_000 });
-  for (const column of ['Actor', 'Reason', 'Before', 'After'])
+  const headers = (await history.getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
+  const columns = {};
+  for (const column of ['Actor', 'Reason', 'Before', 'After']) {
     await expect(history.getByRole('columnheader', { name: column })).toBeVisible();
-  await expect(history.getByRole('row')).not.toHaveCount(1);
+    columns[column] = headers.indexOf(column);
+  }
+  // Every change is a row, and every row names who made it, why, and the value before and after. No change is made here:
+  // a change to a compliance setting is #4, deferred to launch prep (owner decision 2026-10-27), so the rows are the ones
+  // already stored.
+  const rows = history.locator('tbody tr');
+  expect(await rows.count(), 'the setting history lists no change').toBeGreaterThan(0);
+  for (const row of await rows.all()) {
+    const cells = (await row.getByRole('cell').allInnerTexts()).map((c) => c.trim());
+    for (const [column, index] of Object.entries(columns))
+      expect(cells[index], `a setting history row has no ${column}: ${JSON.stringify(cells)}`).toMatch(/\S/);
+  }
 });
