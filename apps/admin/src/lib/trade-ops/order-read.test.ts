@@ -10,6 +10,7 @@ import {
   parseTradeAudit,
   rejectText,
   statusLabel,
+  sweepLeftOpen,
   sweepLine,
 } from './order-read';
 
@@ -123,6 +124,9 @@ describe('sweep result and audit rows (J-cex-spot-18 #3, #5)', () => {
       at: '2026-11-06T10:00:00.000Z',
       result: { checked: 4, released: 0 },
     });
+    expect(sweepLeftOpen(parseSweepResult(result)!)).toEqual([]);
+    const open = { ...result, erroredAfterActingOrderIds: [ORDER], unreadableOrderIds: [ORDER, ORDER] };
+    expect(sweepLeftOpen(parseSweepResult(open)!)).toEqual(['1 failed after acting (read these first)', '2 could not be read']);
     // A time with no readable result is not "no sweep".
     expect(parseReconcileStatus({ lastSweepAt: '2026-11-06T10:00:00.000Z', result: { checked: 4 } })).toBeNull();
     expect(parseReconcileStatus({ lastSweepAt: null, result })).toBeNull();

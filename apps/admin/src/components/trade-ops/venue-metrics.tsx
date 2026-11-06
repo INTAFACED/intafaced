@@ -8,7 +8,11 @@ import { MATCHING_OPERATIONS, type MatchingHealth, type MatchingOperation, type 
  */
 
 const UNREAD = BLOCKERS.matching_metrics_unread;
-const LABEL: Record<MatchingOperation, string> = { submit: 'Submit latency', cancel: 'Cancel latency', depth: 'Depth read latency' };
+const LABEL: Record<MatchingOperation, string> = {
+  submit: 'Single-order submit latency',
+  cancel: 'Single-order cancel latency',
+  depth: 'Depth read latency',
+};
 
 function Unread({ metric, label, why }: { metric: string; label: string; why: string }) {
   return (
@@ -18,7 +22,7 @@ function Unread({ metric, label, why }: { metric: string; label: string; why: st
   );
 }
 
-const ms = (v: number | null) => (v === null ? 'over 10000 ms' : `≤ ${v} ms`);
+const ms = (v: number | null) => (v === null ? 'slower than the engine’s last bucket' : `≤ ${v} ms`);
 
 function Latency({ op, reading, startedAt }: { op: MatchingOperation; reading: OperationReading | null; startedAt: string | null }) {
   const metric = `latency-${op}`;
@@ -34,7 +38,8 @@ function Latency({ op, reading, startedAt }: { op: MatchingOperation; reading: O
   }
   return (
     <span data-metric={metric} data-state="read" data-count={reading.count} className="block">
-      {LABEL[op]}: p50 {ms(reading.p50Ms)} · p99 {ms(reading.p99Ms)} · {reading.count} timed ({reading.perMinute}/min
+      {LABEL[op]}: p50 {ms(reading.p50Ms)} · p99 {ms(reading.p99Ms)} · {reading.count} timed ({reading.perMinute}/min on average since
+      timing began
       {reading.errors > 0 ? `, ${reading.errors} failed` : ''})
     </span>
   );
@@ -71,13 +76,16 @@ export function venueLines(h: MatchingHealth) {
       </span>
     ),
     h.engineStartedAt === null ? (
-      <Unread key="started" metric="engine-started" label="Engine started" why="the engine's answer did not carry it" />
+      <Unread key="started" metric="engine-started" label="Latency counted since" why="the engine's answer did not carry it" />
     ) : (
       <span key="started" data-metric="engine-started" data-value={h.engineStartedAt} className="block">
-        Engine started {h.engineStartedAt}
+        Latency counted since {h.engineStartedAt} (this engine process)
       </span>
     ),
     ...MATCHING_OPERATIONS.map((op) => <Latency key={op} op={op} reading={h.operations[op]} startedAt={h.engineStartedAt} />),
+    <span key="scope" className="block">
+      Mass quote, mass cancel and spread orders are timed in the engine’s scrape only, not here.
+    </span>,
     <span key="age" className="block">
       Read through svc-edge in {h.ageMs} ms.
     </span>,

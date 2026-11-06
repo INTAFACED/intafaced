@@ -11,7 +11,7 @@ import type { Outcome } from '@/lib/trade-ops/outcome';
 import { readKillSwitchSnapshot } from '@/lib/trade-ops/reads';
 import { readMatchingHealth } from '@/lib/trade-ops/matching-edge';
 import { readReconcileStatus } from '@/lib/trade-ops/desk-reads';
-import { sweepLine } from '@/lib/trade-ops/order-read';
+import { sweepLeftOpen, sweepLine } from '@/lib/trade-ops/order-read';
 import { venueLines } from '@/components/trade-ops/venue-metrics';
 import Link from 'next/link';
 
@@ -199,6 +199,13 @@ export default async function HealthPage() {
                       >
                         Last sweep: {sweepLine(recon.data.result)}
                       </span>,
+                      ...(sweepLeftOpen(recon.data.result).length
+                        ? sweepLeftOpen(recon.data.result).map((line) => (
+                            <span key={line} data-sweep-open="" className="text-warn">
+                              {line}
+                            </span>
+                          ))
+                        : ['Every order it looked at was settled.']),
                     ]
                   : ['svc-trade has no record of any reconcile sweep. Start one from Orders.']
               }

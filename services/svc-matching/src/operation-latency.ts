@@ -33,7 +33,7 @@ export interface OperationReading {
   /** The upper bound, in ms, of the bucket that holds the 50th and 99th percentile; null with no reply timed. */
   readonly p50Ms: number | null;
   readonly p99Ms: number | null;
-  /** Replies per minute since the engine started, to two decimals as a string; "0" with none. */
+  /** Replies per minute, averaged over the whole time since timing began (not a current rate), to two decimals; "0" with none. */
   readonly perMinute: string;
 }
 
@@ -101,7 +101,10 @@ function percentileBound(buckets: readonly number[], count: number, p: number): 
   return null;
 }
 
-/** Times every reply of the three operations from the moment the route was matched. */
+/**
+ * Times every reply of the three operations from the request's arrival (Fastify's `elapsedTime`), so body parsing and the
+ * service-auth checks are in the figure, as they are in the `/metrics` scrape.
+ */
 export function registerOperationLatency(app: FastifyInstance, latency: OperationLatency): void {
   app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
     const op = operationOf(req.method, req.routeOptions?.url);

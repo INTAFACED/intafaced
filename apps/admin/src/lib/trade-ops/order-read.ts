@@ -187,7 +187,6 @@ export function parseSweepResult(v: unknown): SweepResult | null {
   };
 }
 
-/** "<n> orders checked · <m> holds released", the sweep's own counts. */
 /** admin.orders.reconcileStatus: the last sweep svc-trade ran, or none ever (J-cex-spot-20 #2). */
 export type ReconcileStatus = { readonly kind: 'none' } | { readonly kind: 'swept'; readonly at: string; readonly result: SweepResult };
 
@@ -199,8 +198,19 @@ export function parseReconcileStatus(v: unknown): ReconcileStatus | null {
   return result ? { kind: 'swept', at: v.lastSweepAt, result } : null;
 }
 
+/** "<n> orders checked · <m> holds released", the sweep's own counts. */
 export function sweepLine(r: SweepResult): string {
   return `${r.checked} orders checked · ${r.released} holds released`;
+}
+
+/** What a sweep left for an operator to read: each list it could not settle, with its count; empty when none. */
+export function sweepLeftOpen(r: SweepResult): string[] {
+  const out: string[] = [];
+  if (r.erroredAfterActingOrderIds.length) out.push(`${r.erroredAfterActingOrderIds.length} failed after acting (read these first)`);
+  if (r.failedClosedOrderIds.length) out.push(`${r.failedClosedOrderIds.length} kept their hold: fills could not prove no fill`);
+  if (r.unreadableOrderIds.length) out.push(`${r.unreadableOrderIds.length} could not be read`);
+  if (r.waitingOrderIds.length) out.push(`${r.waitingOrderIds.length} waiting for a second look`);
+  return out;
 }
 
 // ── Trade operator audit (J-cex-spot-18 #5) ─────────────────────────────────
