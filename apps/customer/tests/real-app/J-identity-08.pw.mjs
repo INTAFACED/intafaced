@@ -1,3 +1,4 @@
+// World: book, restart, freeze, gates
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { chromium, test, expect } from './journey.mjs';
