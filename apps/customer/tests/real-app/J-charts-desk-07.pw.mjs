@@ -98,6 +98,43 @@ test(`${J} #2 drags a widget, resizes it, then resets the desk; the layout follo
   await expect.poll(async () => Math.abs((await width('markets')) - presetWidth)).toBeLessThan(2);
 });
 
+// #7 runs before the saved-layout steps, so a step still waiting on its store never keeps it from running.
+test(`${J} #7 opens the desk with a locale set; chart labels and number formats follow the person's locale`, async ({ browser }) => {
+  const context = await browser.newContext({ baseURL: ORIGIN });
+  const fr = await context.newPage();
+  try {
+    await fr.addInitScript((key) => {
+      const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
+      localStorage.setItem(key, JSON.stringify({ ...saved, layoutMode: 'pro', language: 'fr' }));
+    }, PREFERENCES);
+    await signIn(fr, who);
+    await fr.goto(DESK);
+    const canvas = fr.getByRole('img', { name: /^Graphique des prix de / });
+    await expect(canvas).toBeVisible({ timeout: 30_000 });
+    await expect.poll(async () => Number(await canvas.getAttribute('data-bars'))).toBeGreaterThan(0);
+    // Hover the chart until the legend shows a bar: its labels and prices are the French ones.
+    const box = await canvas.boundingBox();
+    const legend = fr.getByTestId('pc-legend');
+    await expect(async () => {
+      for (let f = 0.95; f > 0.05; f -= 0.1) {
+        await fr.mouse.move(box.x + box.width * f, box.y + box.height / 2);
+        if (await legend.isVisible()) return;
+      }
+      throw new Error('no bar under the pointer');
+    }).toPass({ timeout: 15_000 });
+    await expect(legend).toContainText('Ouv.');
+    await expect(legend).toContainText('Clôt.');
+    await expect(legend).toContainText('Variation');
+    // BTC/USDT prices are in the tens of thousands with a 0.01 tick: French groups thousands with a narrow space and
+    // writes the decimals after a comma, never "65,000.00".
+    const text = await legend.innerText();
+    expect(text, text).toMatch(/\d[   ]\d{3},\d{2}/);
+    expect(text, text).not.toMatch(/\d,\d{3}\.\d{2}/);
+  } finally {
+    await context.close();
+  }
+});
+
 // Saved layouts are kept by the account (svc-identity preferences). Until that store serves them these steps fail at
 // their first control, quickly.
 const saveLayout = () => page.getByRole('button', { name: 'Save layout' });
@@ -172,40 +209,4 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
   await page.getByRole('button', { name: 'Templates' }).click();
   await page.getByRole('menuitem', { name: 'TEST studies' }).click();
   await expect(page.getByTestId('cw-template')).toHaveAttribute('data-template', 'TEST studies');
-});
-
-test(`${J} #7 opens the desk with a locale set; chart labels and number formats follow the person's locale`, async ({ browser }) => {
-  const context = await browser.newContext({ baseURL: ORIGIN });
-  const fr = await context.newPage();
-  try {
-    await fr.addInitScript((key) => {
-      const saved = JSON.parse(localStorage.getItem(key) ?? '{}');
-      localStorage.setItem(key, JSON.stringify({ ...saved, layoutMode: 'pro', language: 'fr' }));
-    }, PREFERENCES);
-    await signIn(fr, who);
-    await fr.goto(DESK);
-    const canvas = fr.getByRole('img', { name: /^Graphique des prix de / });
-    await expect(canvas).toBeVisible({ timeout: 30_000 });
-    await expect.poll(async () => Number(await canvas.getAttribute('data-bars'))).toBeGreaterThan(0);
-    // Hover the chart until the legend shows a bar: its labels and prices are the French ones.
-    const box = await canvas.boundingBox();
-    const legend = fr.getByTestId('pc-legend');
-    await expect(async () => {
-      for (let f = 0.95; f > 0.05; f -= 0.1) {
-        await fr.mouse.move(box.x + box.width * f, box.y + box.height / 2);
-        if (await legend.isVisible()) return;
-      }
-      throw new Error('no bar under the pointer');
-    }).toPass({ timeout: 15_000 });
-    await expect(legend).toContainText('Ouv.');
-    await expect(legend).toContainText('Clôt.');
-    await expect(legend).toContainText('Variation');
-    // BTC/USDT prices are in the tens of thousands with a 0.01 tick: French groups thousands with a narrow space and
-    // writes the decimals after a comma, never "65,000.00".
-    const text = await legend.innerText();
-    expect(text, text).toMatch(/\d[   ]\d{3},\d{2}/);
-    expect(text, text).not.toMatch(/\d,\d{3}\.\d{2}/);
-  } finally {
-    await context.close();
-  }
 });
