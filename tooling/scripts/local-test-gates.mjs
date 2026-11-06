@@ -2066,6 +2066,47 @@ export async function setFeeSchedule(ctx, schedule, { effectiveAt, reason, sessi
   return row;
 }
 
+// ── 2c''. A market's trading mode (two-person approval) ──────────────────
+
+export const MARKET_MODE_SET_ACTION = 'trade.market_mode_set';
+
+/** The hash svc-trade recomputes when it consumes a mode approval (services/svc-trade/src/admin/market-mode.ts). */
+export function marketModePayloadHash({ symbol, mode, expectedMode, reason }) {
+  const body = { actionType: MARKET_MODE_SET_ACTION, symbol, mode, expectedMode, reason };
+  return `sha256:${crypto.createHash('sha256').update(canonicalJson(body)).digest('hex')}`;
+}
+
+/**
+ * Set one market's trading mode (OPEN, POST_ONLY, LIMIT_ONLY or CANCEL_ONLY) through svc-trade's two-person door, as
+ * two operators would: A proposes, B approves, A writes. Answers the mode svc-trade then reports.
+ */
+export async function setMarketMode(ctx, symbol, mode, { reason, sessions = null } = {}) {
+  const pair = sessions ?? (await approverSessions(ctx));
+  const current = data(await ctx.edge.query('trade', 'admin.marketMode.get', { symbol }, await pair.a.tradeOpsToken()));
+  if (typeof current?.mode !== 'string') throw new Error(`trade admin.marketMode.get gave no mode for ${symbol}`);
+  if (current.mode === mode) return current;
+  const body = { symbol, mode, expectedMode: current.mode, reason: (reason ?? `${MARKERS.label}: TEST trading mode ${mode}`).trim() };
+  const ids = await twoPerson(ctx, pair, {
+    actionType: MARKET_MODE_SET_ACTION,
+    targetService: 'svc-trade',
+    targetId: `market-mode:${symbol}`,
+    expectedVersion: current.transitionId ?? 'none',
+    payloadHash: marketModePayloadHash(body),
+    policyVersion: MARKERS.policyVersion,
+  });
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const res = await ctx.edge.mutate(
+    'trade',
+    'admin.marketMode.set',
+    { ...body, approvalId: ids.approvalId, operationId: ids.operationId },
+    await pair.a.tradeOpsToken(),
+  );
+  const row = data(res);
+  if (row?.mode !== mode) throw new Error(`trade admin.marketMode.set refused (${res.status}): ${refusalText(res)}`);
+  ctx.log(`market mode ${symbol}: ${current.mode} -> ${mode} (${MARKERS.label}); approval ${ids.approvalId}`);
+  return row;
+}
+
 // ── 2c'''. VIP application review (two-person approval) ──────────────────
 
 export const VIP_REVIEW_ACTION = 'trade.vip_application_review';
