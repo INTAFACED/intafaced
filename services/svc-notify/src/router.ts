@@ -43,10 +43,12 @@ import { AlertValidationError } from './alerts/store.js';
 import {
   ALERT_CONDITIONS,
   ALERT_FREQUENCIES,
+  ALERT_PRICE_SOURCES,
   AlertKindUnpublishedError,
   type AlertCondition,
   type AlertExtra,
   type AlertFrequency,
+  type AlertPriceSource,
   EXTRA_CONDITIONS,
   AlertPortfolioUnpublishedError,
   directionOfCondition,
@@ -481,6 +483,8 @@ const alertExtras = {
   expiresAt: z.string().datetime({ offset: true }).optional(),
   /** `once` (the default) or a repeating frequency the owner allows; a repeating alert must be a crossing. */
   frequency: z.enum(ALERT_FREQUENCIES).optional(),
+  /** Which price a price alert is evaluated against: `mark` (the default: mid when two-sided, else last), `bid`, `ask` or `last`. */
+  source: z.enum(ALERT_PRICE_SOURCES).optional(),
   /** Added level conditions on the same market; all must hold with the main one. */
   extras: z
     .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
@@ -505,6 +509,8 @@ const priceAlertOutput = z.object({
   updatedAt: z.string(),
   extras: z.array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string() })),
   frequency: z.enum(ALERT_FREQUENCIES),
+  /** Which price the alert is evaluated against. `mark` for every alert made before the person could choose. */
+  source: z.enum(ALERT_PRICE_SOURCES),
   /** Times a repeating alert has triggered; zero for a one-shot alert. */
   fireCount: z.number().int(),
   /** Why a stopped alert was stopped by the platform: `burst` (it triggered too often). Null for a pause by the person. */
@@ -536,6 +542,10 @@ const NO_ALERT_SERVICE = { markSource: 'dark', canFire: false, code: 'alert.pric
 /** The refusals an edit or pause can raise, as tRPC errors. Anything else is not ours to hide. */
 function alertManagerError(err: unknown): unknown {
   if (err instanceof TRPCError) return err;
+  // A value the caller sent that the alert cannot hold (a side on a kind that watches the mark): theirs to fix, named by code.
+  if (err instanceof AlertValidationError) {
+    return new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
+  }
   if (err instanceof NotifyPriceUnsetError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   if (err instanceof AlertNotEditableError) return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
   if (err instanceof AlertLimitError) {
@@ -566,6 +576,7 @@ function priceAlertToWire(row: PriceAlert) {
     updatedAt: row.updatedAt.toISOString(),
     extras: row.extras.map((e) => ({ condition: e.condition, targetPrice: e.targetPrice })),
     frequency: row.frequency,
+    source: row.source,
     fireCount: row.fireCount,
     stopReason: row.stopReason,
     lastFiredAt: row.lastFiredAt ? row.lastFiredAt.toISOString() : null,
@@ -1754,6 +1765,7 @@ export function createNotifyRouter(
               expiresAt?: string;
               extras?: AlertExtra[];
               frequency?: AlertFrequency;
+              source?: AlertPriceSource;
             };
             const condition = extras.condition;
             // A named condition and a direction that disagree is a bad request, never a guess. `crossing` has no direction.
@@ -1772,6 +1784,7 @@ export function createNotifyRouter(
               expiresAt: extras.expiresAt ? new Date(extras.expiresAt) : undefined,
               ...(extras.extras ? { extras: extras.extras } : {}),
               ...(extras.frequency ? { frequency: extras.frequency } : {}),
+              ...(extras.source ? { source: extras.source } : {}),
             });
             return {
               alert: priceAlertToWire(row),
@@ -1792,6 +1805,9 @@ export function createNotifyRouter(
                 message: err.message,
                 cause: err,
               });
+            }
+            if (err instanceof AlertValidationError) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: `${err.code}: ${err.message}`, cause: err });
             }
             throw err;
           }
@@ -1829,6 +1845,7 @@ export function createNotifyRouter(
               expiresAt: input.expiresAt ? new Date(input.expiresAt) : undefined,
               ...(input.extras ? { extras: input.extras } : {}),
               ...(input.frequency ? { frequency: input.frequency } : {}),
+              ...(input.source ? { source: input.source } : {}),
             });
             return { alerts: rows.map(priceAlertToWire), evaluation: alerts.evaluationStatus() };
           } catch (err) {
@@ -1862,6 +1879,7 @@ export function createNotifyRouter(
             expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
             extras: alertExtras.extras,
             frequency: alertExtras.frequency,
+            source: alertExtras.source,
           }),
         )
         .output(z.object({ alert: priceAlertOutput }))
@@ -1876,6 +1894,7 @@ export function createNotifyRouter(
               ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt === null ? null : new Date(input.expiresAt) } : {}),
               ...(input.extras !== undefined ? { extras: input.extras } : {}),
               ...(input.frequency !== undefined ? { frequency: input.frequency } : {}),
+              ...(input.source !== undefined ? { source: input.source } : {}),
             });
             if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'alert.not_found' });
             return { alert: priceAlertToWire(row) };
@@ -1909,10 +1928,12 @@ export function createNotifyRouter(
             max: z.number().int().min(1).nullable(),
             /** The burst auto-stop rule, or null while the owner has not set it (the rule is off). */
             burst: z.object({ windowMinutes: z.number().int().min(1), maxTriggers: z.number().int().min(1) }).nullable(),
+            /** Most conditions one alert may hold, the main one included (`NOTIFY_ALERT_MAX_CONDITIONS`). Null while the owner has not set it. */
+            maxConditions: z.number().int().min(1).nullable(),
           }),
         )
         .query(async ({ ctx }) => {
-          if (!alerts) return { kind: 'price' as const, used: 0, max: null, burst: null };
+          if (!alerts) return { kind: 'price' as const, used: 0, max: null, burst: null, maxConditions: null };
           return alerts.quota(ctx.principal.userId);
         }),
 

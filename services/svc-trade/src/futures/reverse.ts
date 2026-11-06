@@ -321,6 +321,7 @@ export function createReverseService(deps: ReverseDeps) {
           reduceOnly: true,
           marginMode: 'isolated',
           clientOrderId: closeKey(row.client_request_id),
+          origin: { kind: 'reverse', ref: row.client_request_id },
         },
         { region },
       );
@@ -365,6 +366,7 @@ export function createReverseService(deps: ReverseDeps) {
           leverage: parseAmount(row.leverage),
           marginMode: 'isolated',
           clientOrderId: openKey(row.client_request_id),
+          origin: { kind: 'reverse', ref: row.client_request_id },
           ...(row.confirm_tier != null ? { confirmTier: row.confirm_tier } : {}),
         },
         { region },

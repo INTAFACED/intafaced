@@ -36,3 +36,8 @@ export function dayIsOver(day: string, now: Date): boolean {
   const range = dayRange(day, day);
   return range !== null && Date.parse(range.to) < now.getTime();
 }
+
+/** A range's end, or `now` when the end is still to come: a background export covers only time that has passed. */
+export function endedBy(to: string, now: Date): string {
+  return Date.parse(to) > now.getTime() ? now.toISOString() : to;
+}

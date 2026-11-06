@@ -32,7 +32,36 @@ const statementOutput = z.object({
   }),
 });
 
-export function createStatementsRouter(bank: Pick<BankServices, 'statements'>) {
+const jobOutput = z.object({
+  id: z.string().guid(),
+  report: z.enum(['statement', 'ledger', 'trades']),
+  format: z.enum(['csv', 'pdf']),
+  from: z.string(),
+  to: z.string(),
+  assetId: z.string().nullable(),
+  spaceId: z.string().nullable(),
+  state: z.enum(['queued', 'rendering', 'ready', 'failed']),
+  attempts: z.number().int().nonnegative(),
+  createdAt: z.string().datetime(),
+  finishedAt: z.string().datetime().nullable(),
+  filename: z.string().nullable(),
+  sha256: z.string().nullable(),
+  rowCount: z.number().int().nonnegative().nullable(),
+  errorCode: z.string().nullable(),
+});
+
+const requestInput = z
+  .object({
+    from: z.string().datetime({ offset: true }),
+    to: z.string().datetime({ offset: true }),
+    assetId: z.string().min(1).max(16).optional(),
+    spaceId: z.string().guid().optional(),
+    format: z.enum(['csv', 'pdf']),
+    report: z.enum(STATEMENT_REPORTS).optional(),
+  })
+  .strict();
+
+export function createStatementsRouter(bank: Pick<BankServices, 'statements' | 'statementJobs'>) {
   return router({
     export: scopedProcedure('bank:read', { module: 'bank' })
       .input(
@@ -57,5 +86,41 @@ export function createStatementsRouter(bank: Pick<BankServices, 'statements'>) {
           throwBankProcedure(err);
         }
       }),
+    /**
+     * PF-statements-02: background exports. `create` refuses now what the file would be refused for, else returns the one
+     * job for that request (the same request, the same job); `list` is the document centre; `download` hands back a ready
+     * job's signed file. Only ever the caller's own jobs.
+     */
+    jobs: router({
+      create: scopedProcedure('bank:read', { module: 'bank' })
+        .input(requestInput)
+        .output(jobOutput)
+        .mutation(async ({ ctx, input }) => {
+          try {
+            return await bank.statementJobs.create(ctx.principal.userId, input);
+          } catch (err) {
+            throwBankProcedure(err);
+          }
+        }),
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .output(z.object({ enabled: z.boolean(), items: z.array(jobOutput) }))
+        .query(async ({ ctx }) => {
+          try {
+            return { enabled: bank.statementJobs.enabled, items: await bank.statementJobs.list(ctx.principal.userId) };
+          } catch (err) {
+            throwBankProcedure(err);
+          }
+        }),
+      download: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ id: z.string().guid() }).strict())
+        .output(statementOutput)
+        .query(async ({ ctx, input }) => {
+          try {
+            return await bank.statementJobs.download(ctx.principal.userId, input.id);
+          } catch (err) {
+            throwBankProcedure(err);
+          }
+        }),
+    }),
   });
 }

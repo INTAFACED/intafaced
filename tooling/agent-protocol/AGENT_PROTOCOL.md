@@ -16,16 +16,9 @@ If the task is ambiguous, ship refuse-closed: an unset price, limit, provider or
 
 ## 1 · Scope of a task
 
-**One service per task.** A PR touches one `services/*` directory plus, at most, its own tests and README; a slice PR may also carry its contracts or events and that service's screen (below).
+**One journey may be one PR.** One PR may carry one whole journey: every `services/*` directory, `packages/contracts` and `packages/events` change that the journey needs (owner decision 2026-11-06, AGENTS.md "Services and events" item 1).
 
-A slice is the one exception: its `packages/contracts` or `packages/events` change, one service and that service's screen land as one PR (owner decision 2026-10-22, AGENTS.md "Services and events" item 2).
-
-Any other cross-service work is **two PRs, in order**:
-
-1. A `packages/contracts` and/or `packages/events` PR that declares the new interface or event. Reviewed on its own.
-2. The service PR that implements against it.
-
-Never the reverse. The contract is the design review.
+Money recipes in `packages/ledger-client`, and the security services and packages (`services/svc-edge`, `svc-ops`, `svc-protocol`, `svc-fix`, `packages/auth`, `packages/config`, `packages/db`), still go in their own PR (AGENTS.md "Services and events" item 2).
 
 ---
 
@@ -60,7 +53,7 @@ pnpm verify    # gates, format, build, typecheck, test: a broad local check
 pnpm gate      # the per-service Definition of Done (section 8)
 ```
 
-CI and `pnpm verify` read the same gate list, `tooling/ci/gates.mjs`. A red gate is not a discussion: fix the cause, never weaken the gate. Merging follows `AGENTS.md` ("Check, then merge").
+CI and `pnpm verify` read the same gate list, `tooling/ci/gates.mjs`. A red gate is not a discussion: fix the cause, never weaken the gate. Merging follows `AGENTS.md`.
 
 A 403 or 429 from GitHub means stop GitHub requests and report the response. Do not retry in a loop, switch accounts or create a token. Resume a rate-limited request only after `Retry-After` or the `X-RateLimit-Reset` time; if neither is given, wait at least 60 seconds. Resolve an account or permission restriction before resuming. Independent local work continues.
 

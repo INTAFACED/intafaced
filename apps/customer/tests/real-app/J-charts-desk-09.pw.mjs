@@ -236,3 +236,77 @@ test(`${J} #9 reads the evaluation status: whether server-side checks are connec
   // Never a promise that a message reaches the person.
   await expect(banner).not.toContainText(/will be delivered|will reach you|you will (receive|get)/i);
 });
+
+// Last in the file (the steps run in order on one account), so the alerts it adds change no count the steps above read.
+test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds conditions up to the cap; an indicator alert refuses`, async () => {
+  test.setTimeout(4 * SWEEP_MS);
+  // The TEST book has a spread, so its best ask sits above its best bid at any one moment.
+  const res = await fetch(`${EDGE}/api/v1/ticker/${encodeURIComponent('BTC/USDT')}`);
+  const { bid, ask, last } = await res.json();
+  expect(cents(String(ask)) - cents(String(bid)), 'the TEST book has a spread').toBeGreaterThan(2n);
+  // The sources offered, as the person reads them.
+  const source = form().getByRole('combobox', { name: 'Price to watch' });
+  await expect(source.locator('option')).toHaveText([
+    'Mid price (the last trade when one side of the book is empty)',
+    'Best bid',
+    'Best ask',
+    'Last trade',
+  ]);
+  // Two alerts at or above levels far under the market, so the next sweep fires both from one read of the book. The TEST
+  // market maker moves the book further in a minute than its spread, so a level between the two sides would be luck; the
+  // price each one fired at is what shows which side it watched.
+  const onAsk = testPrice(80, String(last));
+  const onBid = testPrice(79, String(last));
+  for (const [name, side, level] of [
+    ['TEST on the ask', 'Best ask', onAsk],
+    ['TEST on the bid', 'Best bid', onBid],
+  ]) {
+    await source.selectOption({ label: side });
+    await createAlert({ condition: 'At or above', price: level, name });
+    await expect(rowWith(name).getByTestId('nf-body').first()).toHaveText(`At or above ${level} USDT · ${side}`);
+  }
+  const log = page.getByTestId('alerts-log');
+  const trigger = (level) => log.getByTestId('alert-trigger').filter({ hasText: `At or above ${level}.` });
+  await expect(async () => {
+    await page.reload();
+    await expect(trigger(onAsk)).toHaveCount(1, { timeout: 2_000 });
+    await expect(trigger(onBid)).toHaveCount(1, { timeout: 2_000 });
+  }).toPass({ timeout: 3 * SWEEP_MS, intervals: [5_000] });
+  const firedAt = async (level) => {
+    const text = await trigger(level).getByTestId('nf-body').textContent();
+    const price = /Price when it triggered: (\d+(?:\.\d+)?)/.exec(text)?.[1];
+    expect(price, text).toBeTruthy();
+    return { price: cents(price), when: (await trigger(level).locator('.nf-muted').textContent()).trim() };
+  };
+  const [askFire, bidFire] = [await firedAt(onAsk), await firedAt(onBid)];
+  // One sweep (sweeps are a minute apart, so the same minute is the same pass), one read of the book: the ask alert fired at
+  // a higher price than the bid alert, by no more than a spread. Had either fallen back to the mark, the two would match.
+  expect(askFire.when, 'both fired in the same sweep').toBe(bidFire.when);
+  expect(askFire.price > bidFire.price, `ask ${fromCents(askFire.price)} above bid ${fromCents(bidFire.price)}`).toBe(true);
+  expect((askFire.price - bidFire.price) * 100n < askFire.price, 'apart by a spread, not a market move').toBe(true);
+  await expect(rowWith('TEST on the ask')).toHaveAttribute('data-status', 'fired');
+  await expect(rowWith('TEST on the bid')).toHaveAttribute('data-status', 'fired');
+  // More conditions, up to the owner's cap (the main one included), and no further.
+  const quotaRead = page.waitForResponse((r) => /notify\.alertQuota\b/.test(r.url()));
+  await page.reload();
+  const quota = await (await quotaRead).text();
+  const max = Number(/"maxConditions":\s*(\d+)/.exec(quota)?.[1]);
+  expect(max, `the cap the service publishes (${quota.slice(0, 200)})`).toBeGreaterThan(1);
+  const add = form().getByRole('button', { name: 'Add a condition' });
+  for (let n = 1; n < max; n += 1) {
+    await expect(add).toBeEnabled();
+    await add.click();
+  }
+  await expect(form().getByTestId('alerts-extra')).toHaveCount(max - 1);
+  await expect(add).toBeDisabled();
+  await expect(form().getByTestId('alerts-extra-cap')).toHaveText(`An alert holds at most ${max} conditions, the first one included.`);
+  for (let n = 1; n < max; n += 1) await form().getByTestId('alerts-extra').first().getByRole('button', { name: 'Remove' }).click();
+  // An indicator alert is listed and refused in words: nothing can go to review.
+  await form().getByRole('combobox', { name: 'Alert on' }).selectOption({ label: 'An indicator (RSI, moving averages)' });
+  await expect(form().getByTestId('alerts-kind-refused')).toHaveText(
+    'Indicator alerts are not offered, so this one cannot be saved. Choose the price to set an alert.',
+  );
+  await expect(form().getByRole('button', { name: 'Review alert' })).toBeDisabled();
+  await form().getByRole('combobox', { name: 'Alert on' }).selectOption({ label: 'The price' });
+  await expect(form().getByTestId('alerts-kind-refused')).toHaveCount(0);
+});
