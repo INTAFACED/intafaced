@@ -847,7 +847,12 @@ if (!available) {
       expect(comments).toHaveLength(1);
       expect(await executed('support.ticket.comment')).toBe(1);
       const [row] = await person.own.review.list({ id: agent.id, limit: 10 });
-      expect(row).toMatchObject({ decision: 'proceed', reasonCode: 'agents.review.no_value_effect', engine: 'test', requestId: 'review:proceed' });
+      expect(row).toMatchObject({
+        decision: 'proceed',
+        reasonCode: 'agents.review.no_value_effect',
+        engine: 'test',
+        requestId: 'review:proceed',
+      });
       expect(row!.inputDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(JSON.stringify(row)).not.toContain(args.body);
       const [request] = await person.own.approvals({ id: agent.id, limit: 10 });
@@ -861,7 +866,10 @@ if (!available) {
       const { person } = people(TEST_BASELINE, 3600, 'test-engine');
       account = 'active';
       const agent = await reviewed(person, true);
-      await expect(comment(person, agent, 'review:refuse', steering)).rejects.toMatchObject({ code: 'FORBIDDEN', message: 'agents.review_refused' });
+      await expect(comment(person, agent, 'review:refuse', steering)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+        message: 'agents.review_refused',
+      });
       await expect(comment(person, agent, 'review:refuse', steering)).rejects.toMatchObject({ message: 'agents.review_refused' });
       // The same request id for another input is not this call.
       await expect(comment(person, agent, 'review:refuse')).rejects.toMatchObject({ message: 'agents.request_id_replay' });

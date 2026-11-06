@@ -94,7 +94,9 @@ export function readAnswer(valueTool: boolean, raw: unknown): OwnAgentReview {
 /** The call's input as a digest: the stored decision names what it decided on without keeping the text. */
 export function inputDigest(tool: string, args: Readonly<Record<string, string>>): string {
   const sorted = Object.entries(args).sort(([a], [b]) => a.localeCompare(b));
-  return `sha256:${createHash('sha256').update(JSON.stringify([tool, sorted])).digest('hex')}`;
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify([tool, sorted]))
+    .digest('hex')}`;
 }
 
 interface SettingRow {

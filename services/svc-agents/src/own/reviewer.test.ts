@@ -53,8 +53,13 @@ describe('the automatic reviewer', () => {
       decision: 'needs_person',
       reasonCode: 'agents.review.answer_invalid',
     });
-    expect(readAnswer(true, { decision: 'refuse', reasonCode: 'agents.review.instruction_in_input' })).toMatchObject({ decision: 'refuse' });
-    expect(readAnswer(false, { decision: 'approve' })).toMatchObject({ decision: 'needs_person', reasonCode: 'agents.review.answer_invalid' });
+    expect(readAnswer(true, { decision: 'refuse', reasonCode: 'agents.review.instruction_in_input' })).toMatchObject({
+      decision: 'refuse',
+    });
+    expect(readAnswer(false, { decision: 'approve' })).toMatchObject({
+      decision: 'needs_person',
+      reasonCode: 'agents.review.answer_invalid',
+    });
     expect(readAnswer(false, 'proceed')).toMatchObject({ decision: 'needs_person' });
     expect(readAnswer(false, { decision: 'proceed', reasonCode: 'free text the model wrote' })).toMatchObject({ decision: 'needs_person' });
   });
