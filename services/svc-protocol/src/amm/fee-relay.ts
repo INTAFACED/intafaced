@@ -120,8 +120,8 @@ export interface FeeRelayChain {
     blockNumber?: bigint;
   }): Promise<unknown>;
   call(args: { account?: Address; to: Address; data: Hex; blockNumber?: bigint }): Promise<unknown>;
-  /** `cacheTime: 0` asks the node, never a cached number: a read pinned to it must see the latest block (#7192). */
-  getBlockNumber(args?: { cacheTime?: number }): Promise<bigint>;
+  /** Always `{ cacheTime: 0 }`: the node's block now, never a cached number, since every read here pins to it (#7192). */
+  getBlockNumber(args: { cacheTime: 0 }): Promise<bigint>;
   getBlock(args: { blockNumber: bigint }): Promise<{ timestamp: bigint }>;
 }
 

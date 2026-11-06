@@ -24,7 +24,8 @@ function node() {
       if (method === 'eth_blockNumber') return `0x${block.toString(16)}`;
       if (method === 'eth_call') {
         const [call, tag] = params as [{ data: Hex }, Hex];
-        if (hexToBigInt(tag) < DEPLOYED_AT) return '0x';
+        // A read must be pinned to a block; an unpinned one ('latest') is answered as no code, so it fails loudly.
+        if (!tag.startsWith('0x') || hexToBigInt(tag) < DEPLOYED_AT) return '0x';
         if (call.data.length > 10)
           return encodeAbiParameters([{ type: 'uint256' }, { type: 'uint256' }, { type: 'uint64' }], [123n, 4n, 1_800_000_000n]);
         return encodeAbiParameters([{ type: 'uint16' }], [500]);

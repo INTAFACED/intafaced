@@ -160,7 +160,10 @@ export class ProtocolChain {
       nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
       rpcUrls: { default: { http: [config.rpcUrl] } },
     });
-    this.client = createPublicClient({ chain, transport: http(config.rpcUrl) }) as PublicClient;
+    // The block number is never cached (viem keeps it for the polling interval, about 4 s, by default). Reads pin to it,
+    // so a cached one made a contract, an approval or an owner change mined a moment ago read as absent, and /ready
+    // answered from it with the node down (#7192).
+    this.client = createPublicClient({ chain, transport: http(config.rpcUrl), cacheTime: 0 }) as PublicClient;
   }
 
   /**
@@ -353,7 +356,7 @@ export class ProtocolChain {
 
   /** The block the node is at now. */
   async headBlock(): Promise<bigint> {
-    return this.#read('headBlock', 'chain.blockNumber', async () => this.client.getBlockNumber({ cacheTime: 0 }));
+    return this.#read('headBlock', 'chain.blockNumber', async () => this.client.getBlockNumber());
   }
 
   /**
@@ -477,8 +480,7 @@ export class ProtocolChain {
    */
   async tokenAllowance(token: Address, owner: Address, spender: Address): Promise<{ value: bigint; blockNumber: bigint }> {
     return this.#read('tokenAllowance', 'chain.tokenAllowance', async () => {
-      // The node's block now, not viem's cached one, or an approval just mined reads as absent (#7192).
-      const blockNumber = await this.client.getBlockNumber({ cacheTime: 0 });
+      const blockNumber = await this.client.getBlockNumber();
       const value = await this.#tokenView<bigint>(token, erc20ApprovalAbi, 'allowance', [owner, spender], blockNumber);
       return { value, blockNumber };
     });
@@ -641,7 +643,7 @@ export class ProtocolChain {
 
     try {
       const observedChainId = await this.assertChainId();
-      const blockNumber = await this.#read('blockNumber', 'chain.blockNumber', async () => this.client.getBlockNumber({ cacheTime: 0 }));
+      const blockNumber = await this.#read('blockNumber', 'chain.blockNumber', async () => this.client.getBlockNumber());
       // Two `eth_getCode` calls, only when the addresses are worth asking
       // about. This is the difference between "somebody set an env var" and
       // "the contracts are there", and it is cheap enough to do on every probe.
