@@ -28,7 +28,6 @@ import {
   payloadHash,
   readExportCap,
   readExportSigningKey,
-  reconcileJobsEnabled,
   requireClientRequestId,
   requireOperator,
   requireOperatorWrite,
@@ -40,6 +39,7 @@ import {
   type ApprovalBook,
 } from './common.js';
 import { AgreementsAdmin } from './agreements.js';
+import { BUST_ACTION_TYPE, bustApprovalBody, bustAuditId, type SweepResult } from './bust.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
 import {
@@ -72,8 +72,19 @@ export interface TradeOpsDeps {
   readonly approvals: ApprovalBook;
   /** Existing cancel path. The adapter builds the order owner's principal. */
   readonly cancelOrder: (orderId: string, userId: string) => Promise<void>;
-  /** Existing `TradeService.reconcileOrder`. */
-  readonly reconcileOrder: (orderId: string) => Promise<ReconcileResult>;
+  /** Existing `TradeService.reconcileOrder`; the sweep passes `{ leaveLive: true }`. */
+  readonly reconcileOrder: (orderId: string, opts?: { leaveLive?: boolean }) => Promise<ReconcileResult>;
+  /**
+   * TRADE_OPERATOR_SWEEP_LIMIT, parsed: the most orders one operator reconcile sweep looks at. An owner value; absent or
+   * null, the sweep refuses `reconcile_sweep_unconfigured` and looks at nothing.
+   */
+  readonly sweepLimit?: number | null;
+  /**
+   * TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS, parsed: how long an order must have gone unchanged before a sweep looks at it,
+   * so a fill the book made but trade has not recorded yet is never read as "never filled". Absent or null: the sweep
+   * refuses `reconcile_sweep_unconfigured`.
+   */
+  readonly sweepMinAgeSeconds?: number | null;
   readonly ledger: { balance(ref: AccountRef): Promise<{ accountId: string; amount: bigint }> } | null;
   /** Existing `TradeService.listMarket`, for `admin.futuresListing.create`. Absent: that door refuses unconfigured. */
   readonly listMarket?: (input: ListMarketInput) => Promise<Market>;
@@ -1057,13 +1068,137 @@ export class TradeOpsAdmin {
     return verdict;
   }
 
-  async startReconcileSweep(principal: Principal, input: { clientRequestId: string }): Promise<never> {
+  /**
+   * One operator reconcile sweep (J-cex-spot-18 #3). It looks at plain resting limit orders that hold funds, oldest first,
+   * up to the owner's TRADE_OPERATOR_SWEEP_LIMIT, and runs the single-order reconcile on each in its sweep mode: an order
+   * the book lists as live is left as it is; one the book no longer has is released once, and only when `trade.fills`
+   * prove it never filled (otherwise it fails closed and keeps its hold). Orders whose funds wait on a trigger or another
+   * leg (stop, OCO, bracket, iceberg), seeded orders, and orders changed within the owner's age floor are not looked at.
+   *
+   * The release itself is the order's own cancel path (a ledger-client recipe, once per order), so a second sweep finds
+   * nothing to release. The run is kept in trade.operator_reconcile_sweeps under its clientRequestId: the same request
+   * again returns the same counts and runs nothing.
+   */
+  async startReconcileSweep(principal: Principal, input: { clientRequestId: string; reason: string }): Promise<SweepResult> {
     requireOperatorWrite(principal);
-    requireClientRequestId(input.clientRequestId);
-    if (!reconcileJobsEnabled()) {
-      throw new TradeOpsError('reconcile_jobs_disabled', 'TRADE_RECONCILE_JOBS_ENABLED is off; the flag stays off');
+    const clientRequestId = requireClientRequestId(input.clientRequestId);
+    const limit = this.deps.sweepLimit ?? null;
+    const minAge = this.deps.sweepMinAgeSeconds ?? null;
+    if (limit === null || minAge === null) {
+      throw new TradeOpsError(
+        'reconcile_sweep_unconfigured',
+        `${limit === null ? 'TRADE_OPERATOR_SWEEP_LIMIT' : 'TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS'} is not set; no sweep runs without it`,
+      );
     }
-    throw new TradeOpsError('reconcile_sweep_unconfigured', 'reconcile sweep runner is not configured; the flag was not changed');
+    const [prior] = await this.deps.sql<Array<{ result: SweepResult }>>`
+      SELECT result FROM trade.operator_reconcile_sweeps WHERE client_request_id = ${clientRequestId}`;
+    if (prior) return prior.result;
+    const candidates = await this.deps.sql<Array<{ id: string }>>`
+      SELECT o.id
+        FROM trade.orders o
+       WHERE o.status = 'open'
+         AND o.type = 'limit'
+         AND o.hold_amount > 0
+         AND NOT o.seeded
+         AND o.updated_at <= now() - make_interval(secs => ${minAge})
+         AND NOT EXISTS (SELECT 1 FROM trade.order_stop_trigger t WHERE t.order_id = o.id)
+         AND NOT EXISTS (SELECT 1 FROM trade.order_oco_intent t WHERE t.order_id = o.id)
+         AND NOT EXISTS (SELECT 1 FROM trade.order_bracket_intent t WHERE t.order_id = o.id)
+         AND NOT EXISTS (SELECT 1 FROM trade.order_iceberg_display t WHERE t.order_id = o.id)
+       ORDER BY o.updated_at ASC, o.id ASC
+       LIMIT ${limit}`;
+    const releasedOrderIds: string[] = [];
+    const failedClosed: string[] = [];
+    const unreadable: string[] = [];
+    for (const { id: orderId } of candidates) {
+      let verdict: ReconcileResult;
+      try {
+        verdict = await this.deps.reconcileOrder(orderId, { leaveLive: true });
+      } catch {
+        // The book or the ledger could not be read for this order: nothing was done to it, and the sweep says so.
+        unreadable.push(orderId);
+        continue;
+      }
+      if (verdict.action === 'released') releasedOrderIds.push(orderId);
+      else if (verdict.action === 'fail_closed') failedClosed.push(orderId);
+      if (verdict.action !== 'none') {
+        await writeOperatorAudit(this.deps.sql, {
+          kind: 'orders.reconcile',
+          operatorId: principal.userId,
+          accountId: null,
+          objectId: orderId,
+          approverId: null,
+          reason: verdict.detail,
+          detail: { case: verdict.case, action: verdict.action, sweep: clientRequestId },
+        });
+      }
+    }
+    const at = nowOf(this.deps);
+    const result: SweepResult = {
+      checked: candidates.length,
+      released: releasedOrderIds.length,
+      releasedOrderIds,
+      failedClosedOrderIds: failedClosed,
+      unreadableOrderIds: unreadable,
+      limit,
+      minAgeSeconds: minAge,
+      ranAt: at.toISOString(),
+    };
+    await this.deps.sql`INSERT INTO trade.operator_reconcile_sweeps (id, client_request_id, occurred_at, result)
+      VALUES (${randomUUID()}, ${clientRequestId}, ${at.toISOString()}, ${this.deps.sql.json(result as never)})
+      ON CONFLICT (client_request_id) DO NOTHING`;
+    await writeOperatorAudit(this.deps.sql, {
+      kind: 'orders.reconcile_sweep',
+      operatorId: principal.userId,
+      accountId: null,
+      objectId: clientRequestId,
+      approverId: null,
+      reason: input.reason,
+      detail: { checked: result.checked, released: result.released, failedClosed: failedClosed.length, unreadable: unreadable.length },
+    });
+    return result;
+  }
+
+  /**
+   * A trade bust (J-cex-spot-18 #4): two operators, then the reversal. The proposal is identity's action approval for
+   * `trade.bust` on this order, bound to its fill count and the reason (`bustPayloadHash`). With a second operator's
+   * approval consumed, the bust needs a ledger-client reversal recipe for a fill, and none exists: it refuses with
+   * `trade_bust_recipe_missing`, moves nothing, and the refusal is in the audit with both operators.
+   */
+  async bust(
+    principal: Principal,
+    input: { orderId: string; approvalId: string; clientRequestId: string; reason: string },
+  ): Promise<never> {
+    requireOperatorWrite(principal);
+    const clientRequestId = requireClientRequestId(input.clientRequestId);
+    const [order] = await this.deps.sql<Array<{ user_id: string; fills: string }>>`
+      SELECT o.user_id::text, (SELECT count(*) FROM trade.fills f WHERE f.order_id = o.id)::text AS fills
+        FROM trade.orders o WHERE o.id = ${input.orderId}`;
+    if (!order) throw new TradeOpsError('order_not_found', `order ${input.orderId} not found`);
+    if (order.fills === '0') throw new TradeOpsError('trade_bust_no_fill', `order ${input.orderId} has no fill to bust`);
+    const body = bustApprovalBody({ orderId: input.orderId, expectedVersion: order.fills, reason: input.reason });
+    const consumed = await consumeApproval(this.deps.approvals, {
+      approvalId: input.approvalId,
+      actionType: BUST_ACTION_TYPE,
+      targetId: input.orderId,
+      expectedVersion: order.fills,
+      payloadHash: payloadHash(body),
+      operationId: clientRequestId,
+    });
+    await writeOperatorAudit(this.deps.sql, {
+      id: bustAuditId(clientRequestId),
+      kind: 'orders.bust_refused',
+      operatorId: principal.userId,
+      accountId: order.user_id,
+      objectId: input.orderId,
+      approverId: consumed.approverId,
+      reason: input.reason,
+      detail: { code: 'trade_bust_recipe_missing', fills: order.fills, approvalId: input.approvalId },
+    });
+    throw new TradeOpsError(
+      'trade_bust_recipe_missing',
+      'no ledger-client recipe reverses a fill yet, so the approved bust moved nothing; the fill and both balances stand',
+    );
   }
 
   async reconcileStatus(principal: Principal): Promise<{ lastSweepAt: string | null; result: unknown | null }> {

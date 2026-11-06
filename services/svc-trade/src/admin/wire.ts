@@ -20,16 +20,20 @@ export function wireTradeOpsAdmin(deps: {
   vipProofKey?: Buffer | null;
   otcLaw?: OtcDeskLaw;
   metricsWindowSeconds?: number | null;
+  sweepLimit?: number | null;
+  sweepMinAgeSeconds?: number | null;
 }): TradeOpsAdmin {
   return new TradeOpsAdmin({
     sql: deps.sql,
     ...(deps.otcLaw ? { otcLaw: deps.otcLaw } : {}),
     metricsWindowSeconds: deps.metricsWindowSeconds ?? null,
+    sweepLimit: deps.sweepLimit ?? null,
+    sweepMinAgeSeconds: deps.sweepMinAgeSeconds ?? null,
     ...(deps.feeSchedule ? { feeSchedule: deps.feeSchedule } : {}),
     vipProofKey: deps.vipProofKey ?? null,
     ledger: deps.ledger,
     approvals: deps.approvals,
-    reconcileOrder: (orderId) => deps.trade.reconcileOrder(orderId),
+    reconcileOrder: (orderId, opts) => deps.trade.reconcileOrder(orderId, opts),
     listMarket: (input) => deps.trade.listMarket(input),
     cancelOrder: async (orderId, userId) => {
       const owner: Principal = {

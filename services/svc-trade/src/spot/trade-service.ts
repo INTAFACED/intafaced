@@ -1707,8 +1707,8 @@ export class TradeService {
    * Fail closed means: never mint a hold from this path; never mark filled without fills;
    * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill.
    */
-  async reconcileOrder(orderId: string): Promise<ReconcileResult> {
-    return reconcile.reconcileOrder(this.internal, orderId);
+  async reconcileOrder(orderId: string, opts: reconcile.ReconcileOptions = {}): Promise<ReconcileResult> {
+    return reconcile.reconcileOrder(this.internal, orderId, opts);
   }
 
   async marketById(marketId: string): Promise<Market | null> {

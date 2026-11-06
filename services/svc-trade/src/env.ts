@@ -22,6 +22,17 @@ const schema = serviceEnvSchema
        * `trade.ops_metrics_window_not_set` (admin/copy-bots-otc.ts), never a guessed window.
        */
       TRADE_OPS_METRICS_WINDOW_SECONDS: z.string().default(''),
+      /**
+       * J-cex-spot-18 #3: the most orders one operator reconcile sweep looks at (whole number, 1 to 10000). Owner value:
+       * blank refuses `reconcile_sweep_unconfigured` (admin/service.ts startReconcileSweep), never a guessed size.
+       */
+      TRADE_OPERATOR_SWEEP_LIMIT: z.string().default(''),
+      /**
+       * J-cex-spot-18 #3: how long (whole seconds, 1 to 86400) an order must have gone unchanged before a sweep looks at
+       * it, so a fill the book made but trade has not yet recorded is never read as "never filled". Owner value: blank
+       * refuses `reconcile_sweep_unconfigured`.
+       */
+      TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS: z.string().default(''),
       HTTP_PORT: z.coerce.number().int().default(4004),
 
       /** svc-ledger's internal address. All value movement goes through it. */

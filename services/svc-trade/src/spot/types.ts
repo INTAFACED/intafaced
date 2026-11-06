@@ -39,6 +39,8 @@ export type ReconcileCase =
   | 'open_hold_no_engine_unknown'
   | 'open_hold_engine_cleared'
   | 'open_engine_no_hold'
+  /** A sweep's look found the order live on the book: a sweep never cancels a live order, so nothing was done. */
+  | 'open_engine_live_left'
   | 'recovery_required_live'
   | 'recovery_required_absent'
   | 'recovery_required_no_hold'
