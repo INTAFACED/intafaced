@@ -31,6 +31,21 @@ test.beforeEach(async ({ page }) => {
   page.on('framenavigated', (f) => {
     if (f === page.mainFrame()) console.log(`DIAG nav ${new Date().toISOString()} ${f.url()}`);
   });
+  page.context().on('console', (m) => {
+    if (/Refused|Content Security Policy|violates/i.test(m.text()))
+      console.log(
+        `DIAG ctx-console ${new Date().toISOString()} ${m.page()?.url()} ${m.text().slice(0, 400)} @ ${JSON.stringify(m.location())}`,
+      );
+  });
+  page.on('worker', (w) => {
+    console.log(`DIAG worker ${new Date().toISOString()} ${w.url().slice(0, 120)}`);
+    w.on('console', (m) => console.log(`DIAG worker-console ${new Date().toISOString()} ${m.text().slice(0, 300)}`));
+  });
+  const cdp = await page.context().newCDPSession(page);
+  cdp.on('Audits.issueAdded', ({ issue }) =>
+    console.log(`DIAG issue ${new Date().toISOString()} ${page.url()} ${JSON.stringify(issue).slice(0, 900)}`),
+  );
+  await cdp.send('Audits.enable');
   page.on('requestfailed', (r) =>
     console.log(`DIAG failed ${new Date().toISOString()} ${r.url().slice(0, 120)} ${r.failure()?.errorText}`),
   );
