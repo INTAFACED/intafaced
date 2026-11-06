@@ -270,7 +270,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   /** Cash to a coin through a crypto leg: the two-leg plan is not built (J-cex-spot-11 #11). */
   'trade.convert_two_leg_unbuilt': { ccxt: 'NotSupported', status: 501 },
   'trade.convert_pair_unlisted': { ccxt: 'BadSymbol', status: 400 },
-  'trade.convert_limit_unset': { ccxt: 'NotSupported', status: 503 },
+  /** The owner has not set the sweep interval: like the other unset convert settings, retry once it is set. */
+  'trade.convert_limit_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.convert_limit_conflict': { ccxt: 'InvalidOrder', status: 409 },
   'trade.convert_limit_not_found': { ccxt: 'OrderNotFound', status: 404 },
   'trade.convert_limit_not_waiting': { ccxt: 'InvalidOrder', status: 409 },

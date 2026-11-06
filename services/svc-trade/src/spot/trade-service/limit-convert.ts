@@ -32,11 +32,11 @@ import {
   SCALE,
   type Amount,
 } from '@intafaced/ledger-client';
-import { TradingControlError } from '../controls/trading-controls.js';
-import { checkMaxOrderNotional, resolveAdmissionLimits } from '../futures/pretrade-limits.js';
-import { TradeError, type TradeErrorCode } from '../spot/types.js';
-import type { TradeServiceInternal } from '../spot/trade-service.js';
-import type { FirmConvertQuote } from './quote.js';
+import { TradingControlError } from '../../controls/trading-controls.js';
+import { checkMaxOrderNotional, resolveAdmissionLimits } from '../../futures/pretrade-limits.js';
+import { TradeError, type TradeErrorCode } from '../types.js';
+import type { TradeServiceInternal } from '../trade-service.js';
+import type { FirmConvertQuote } from '../../convert/quote.js';
 
 export type LimitConvertStatus = 'placing' | 'waiting' | 'triggered' | 'filled' | 'cancelling' | 'cancelled' | 'ended';
 

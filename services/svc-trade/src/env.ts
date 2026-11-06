@@ -753,10 +753,15 @@ const schema = serviceEnvSchema
        * How often the limit-convert sweep prices each waiting limit convert (J-cex-spot-11 #8). Blank (default): no
        * sweep runs, and placing a limit convert refuses `trade.convert_limit_unset`; nothing is ever held unwatched.
        */
-      TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS: z.preprocess(
-        (v) => (v === '' || v === undefined ? null : v),
-        z.coerce.number().int().min(250).max(60_000).nullable(),
-      ),
+      TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS: z
+        .string()
+        .default('')
+        .refine((raw) => {
+          if (raw.trim() === '') return true;
+          const n = parseOwnerIntegerEnv(raw);
+          return n !== null && n >= 250 && n <= 60_000;
+        }, 'blank, or a whole number of milliseconds from 250 to 60000')
+        .transform(parseOwnerIntegerEnv),
 
       /**
        * How often the copy driver (CB-copy-10) looks for new leader fills to copy. It runs only while

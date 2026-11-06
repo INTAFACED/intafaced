@@ -26,7 +26,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { TradeService, readyTestAdmission } from '../controls/test-admission.js';
 import type { TradingAdmissionPort } from '../controls/trading-controls.js';
 import { PUBLISHED_TEST_FEE_SCHEDULE, READY_MARKET_LIFECYCLE, StubMatching, StubPerks, principalFor } from '../spot/testing.js';
-import { rateReached } from './limit-convert.js';
+import { rateReached } from '../spot/trade-service/limit-convert.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzle = join(here, '..', '..', 'drizzle');

@@ -114,7 +114,7 @@ import {
 import * as listings from './trade-service/listings.js';
 import * as convert from './trade-service/convert.js';
 import { convertPairs, convertRoute, type ConvertPairs, type ConvertRoute } from '../convert/pairs.js';
-import * as limitConvert from '../convert/limit-convert.js';
+import * as limitConvert from './trade-service/limit-convert.js';
 import * as orderPlace from './trade-service/order-place.js';
 import * as orderChange from './trade-service/order-change.js';
 import * as fillFlow from './trade-service/fills.js';
