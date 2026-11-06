@@ -206,6 +206,7 @@ export async function api(who, { totpCode } = {}) {
     get: (route) => call('GET', route),
     post: (route, body) => call('POST', route, body),
     patch: (route, body) => call('PATCH', route, body),
+    put: (route, body) => call('PUT', route, body),
     delete: (route) => call('DELETE', route),
     /** { asset: { free, used, total } } from the ledger, as decimal strings. */
     async balances() {

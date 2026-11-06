@@ -17,6 +17,29 @@ export interface FuturesRefusal {
 type Words = { title: string; body: string; retryable?: boolean };
 
 const WORDS: Readonly<Record<string, Words>> = {
+  'trade.risk_stop_invalid': {
+    title: 'Check the stop level',
+    body: 'Enter a margin ratio in percent above 0 and below 100. At 100% the liquidation itself starts, so a stop there would act too late.',
+    retryable: false,
+  },
+  'trade.risk_stop_reached': {
+    title: 'The margin ratio is already past that level',
+    body: 'A stop at or under the margin ratio now would close the position at once. Nothing was set. Pick a higher level, or close the position yourself.',
+    retryable: false,
+  },
+  'trade.risk_stop_ratio_unknown': {
+    title: 'The margin ratio is not known right now',
+    body: 'The platform cannot work out this position’s margin ratio at the moment, so a stop cannot be checked against it. Nothing was set. Try again shortly.',
+  },
+  'trade.risk_stop_closing': {
+    title: 'The stop is closing this position now',
+    body: 'Its close order is in the book. Changing the stop is off until it finishes; follow it on the Orders tab.',
+  },
+  'trade.risk_stop_isolated_only': {
+    title: 'Only on an isolated position',
+    body: 'A pre-liquidation stop is set on an isolated position, whose margin is its own.',
+    retryable: false,
+  },
   'trade.futures_disabled': {
     title: 'Futures trading is switched off',
     body: 'The futures service is switched off by the platform right now. Open positions stay as they are. Nothing can be opened or changed until it is switched back on.',

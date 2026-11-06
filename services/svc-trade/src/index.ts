@@ -1,4 +1,6 @@
 import Fastify from 'fastify';
+import { createRiskStopService } from './futures/risk-stop.js';
+import { registerRiskStopRest } from './futures/risk-stop-rest.js';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import {
@@ -796,9 +798,33 @@ const conditionalOrders = createConditionalOrderService({
     ? (input, instructionId) => positions.placeMatchedOnInstruction({ ...input, leverage: 0n, reduceOnly: true }, instructionId)
     : null,
 });
+// A pre-liquidation stop (D-margin-04) is judged on the same tick as the conditional orders and closes through the
+// same fired-order path, so it can be armed only while that tick runs and closes go through the book.
+const riskStops = createRiskStopService({
+  sql,
+  triggerScheduled: conditionalTriggerScheduled(conditionalJobsConfig) && env.TRADE_FUTURES_MATCHING_ENABLED,
+  figures: (userId, positionId, level) => positions.riskStopFigures(userId, positionId, level),
+  fire: (input) => conditionalOrders.fireRiskStop(input),
+  closeOrder: (userId, clientOrderId) => conditionalOrders.getByClientId(userId, clientOrderId),
+});
 const conditionalJobs = startConditionalOrderJobs({
   config: conditionalJobsConfig,
-  evaluate: () => conditionalOrders.evaluate({ enabled: true }),
+  evaluate: async () => {
+    // One after the other, so a stop's fresh close order is never placed by both at once; one failing never stops
+    // the other, and the first error is reported.
+    let failure: unknown = null;
+    try {
+      await conditionalOrders.evaluate({ enabled: true });
+    } catch (err) {
+      failure = err;
+    }
+    try {
+      await riskStops.evaluate({ enabled: true });
+    } catch (err) {
+      failure ??= err;
+    }
+    if (failure != null) throw failure;
+  },
   onError: (name, err) => app.log.error({ err, job: name }, 'futures conditional job tick failed'),
 });
 const candleJobs = startCandleJobs({
@@ -1062,6 +1088,12 @@ registerConditionalOrdersRest(app, {
   orders: conditionalOrders,
   // While futures orders go through the book, its routes own /api/v1/futures/orders (private-rest.ts).
   restingRefusal: !env.TRADE_FUTURES_MATCHING_ENABLED,
+});
+registerRiskStopRest(app, {
+  edgeSecret: env.EDGE_PRINCIPAL_SECRET,
+  edgeTrust: edgeTrustFromEnv(env),
+  serviceName: env.SERVICE_NAME,
+  stops: riskStops,
 });
 registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),

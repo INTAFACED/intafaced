@@ -41,6 +41,7 @@ import {
   parseAmount,
   positionCollateralAccount,
   recipes,
+  SCALE as LEDGER_SCALE,
   userAvailable,
   type Amount,
   type LedgerClient,
@@ -355,6 +356,25 @@ export interface PositionServiceDeps {
 
 /** Why a position is frozen waiting for a mark — futures-namespaced refuse codes. */
 export type ClosingReason = 'trade.mark_missing' | 'trade.mark_unusable';
+
+/** One position as a pre-liquidation stop reads it (`riskStopFigures`). */
+export interface RiskStopFigures {
+  readonly positionId: string;
+  readonly userId: string;
+  readonly marketId: string;
+  readonly symbol: string;
+  readonly side: 'long' | 'short';
+  readonly status: PositionRow['status'];
+  readonly marginMode: PositionRow['margin_mode'];
+  readonly size: Amount;
+  readonly markPrice: string | null;
+  readonly liquidationPrice: string | null;
+  /** Maintenance over equity, 18 places (1 = 100%); null with `ratioReason`. */
+  readonly marginRatio: Amount | null;
+  readonly ratioReason: string | null;
+  readonly stopPrice: Amount | null;
+  readonly stopPriceReason: string | null;
+}
 
 export interface PositionRow {
   id: string;
@@ -1373,6 +1393,13 @@ export class PositionService {
     if (!id) {
       throw new FuturesError('position id is required', 'trade.bad_request', 400);
     }
+    const row = await this.ownRow(userId, id);
+    const figures = await this.matchedFigures([row]);
+    return this.presentListed(row, figures.get(row.id));
+  }
+
+  /** One position row of this user, with its market's symbol and contract size; missing or not theirs is the same 404. */
+  private async ownRow(userId: string, id: string): Promise<PositionRow> {
     const [row] = await this.sql<PositionRow[]>`
       SELECT p.*, m.symbol, m.contract_size
       FROM trade.positions p
@@ -1381,8 +1408,86 @@ export class PositionService {
       LIMIT 1
     `;
     if (!row) throw new FuturesError('position not found', 'trade.position_not_found', 404);
+    return row;
+  }
+
+  /**
+   * What a pre-liquidation stop is judged on (D-margin-04): one position of this user as the positions list shows it,
+   * its margin ratio now (maintenance over equity, the margin summary's own formula, 18 places), and, for a level,
+   * the mark at which the ratio reaches it on the same ladder and depth as the liquidation price. Null with a reason
+   * where an input is missing; never a guess.
+   */
+  async riskStopFigures(userId: string, positionId: string, level: Amount | null): Promise<RiskStopFigures> {
+    const id = positionId.trim();
+    if (!id) throw new FuturesError('position id is required', 'trade.bad_request', 400);
+    const row = await this.ownRow(userId, id);
     const figures = await this.matchedFigures([row]);
-    return this.presentListed(row, figures.get(row.id));
+    const position = await this.presentListed(row, figures.get(row.id));
+    const base = {
+      positionId: row.id,
+      userId: row.user_id,
+      marketId: row.market_id,
+      symbol: row.symbol,
+      side: row.side,
+      status: row.status,
+      marginMode: row.margin_mode,
+      size: parseAmount(row.size),
+      markPrice: position.markPrice == null ? null : String(position.markPrice),
+      liquidationPrice: position.liquidationPrice == null ? null : String(position.liquidationPrice),
+    };
+    const maintenance = position.maintenanceMargin;
+    const collateral = position.collateral;
+    const unrealized = position.unrealizedPnl;
+    let marginRatio: Amount | null = null;
+    let ratioReason: string | null = null;
+    if (maintenance == null || collateral == null || unrealized == null) {
+      ratioReason =
+        (maintenance == null ? position.fieldReasons?.maintenanceMargin : undefined) ??
+        (unrealized == null ? position.fieldReasons?.unrealizedPnl : undefined) ??
+        'missing_input';
+    } else {
+      const equity = parseAmount(String(collateral)) + parseAmount(String(unrealized));
+      if (equity <= 0n) ratioReason = 'equity_not_positive';
+      else marginRatio = (parseAmount(String(maintenance)) * LEDGER_SCALE) / equity;
+    }
+    let stopPrice: Amount | null = null;
+    let stopPriceReason: string | null = null;
+    if (level !== null) {
+      const priced = await this.priceAtLevel(row, level);
+      stopPrice = priced.price;
+      stopPriceReason = priced.reason;
+    }
+    return { ...base, marginRatio, ratioReason, stopPrice, stopPriceReason };
+  }
+
+  /** The mark at which this position's margin ratio reaches `level`, from the ladder and depth the liquidation price reads. */
+  private async priceAtLevel(row: PositionRow, level: Amount): Promise<{ price: Amount | null; reason: string | null }> {
+    const ladder = this.deps.ladder;
+    if (!ladder?.policy) return { price: null, reason: 'maintenance_policy_unset' };
+    let depthNotional: Amount | null;
+    try {
+      depthNotional = await ladder.depth.depthNotional({ marketId: row.market_id, side: row.side, symbol: row.symbol });
+    } catch (err) {
+      if (err instanceof FuturesLadderError) return { price: null, reason: err.code };
+      return { price: null, reason: 'depth_unknown' };
+    }
+    if (depthNotional == null || depthNotional <= 0n) return { price: null, reason: 'depth_unknown' };
+    try {
+      const priced = liquidationPriceFor({
+        side: row.side,
+        size: parseAmount(row.size),
+        entryPrice: parseAmount(row.entry_price),
+        margin: parseAmount(row.margin_current ?? row.margin_initial),
+        depthNotional,
+        policy: ladder.policy,
+        level,
+      });
+      return priced.price === null ? { price: null, reason: priced.reason } : { price: priced.price, reason: null };
+    } catch (err) {
+      // An incoherent ladder is a reason here, as the liquidation price shows it, never a 500.
+      if (err instanceof FuturesLadderError) return { price: null, reason: err.code };
+      throw err;
+    }
   }
 
   /**

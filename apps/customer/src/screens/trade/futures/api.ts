@@ -42,6 +42,35 @@ export const marginCallSchema = z.object({
 });
 export type MarginCall = z.infer<typeof marginCallSchema>;
 
+/**
+ * A position's pre-liquidation stop (`GET/PUT /positions/:id/risk-stop`, D-margin-04): the margin-ratio level the trader
+ * set, the mark at which the service closes the position for it, and the ratio now, each worked out by the service.
+ * `none` is a fact (no stop); `fired` names the close order it placed.
+ */
+export const riskStopSchema = z.object({
+  positionId: z.string(),
+  status: z.enum(['none', 'armed', 'fired', 'ended']),
+  level: decimalSchema.nullable(),
+  marginRatio: decimalSchema.nullable(),
+  marginRatioReason: z.string().nullable(),
+  triggerPrice: decimalSchema.nullable(),
+  triggerPriceReason: z.string().nullable(),
+  liquidationPrice: decimalSchema.nullable(),
+  closeOrder: z.object({ clientOrderId: z.string(), status: z.string(), orderId: z.string().nullable() }).nullable(),
+  firedRatio: decimalSchema.nullable(),
+  firedAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
+});
+export type RiskStop = z.infer<typeof riskStopSchema>;
+
+export interface RiskStopInput {
+  symbol: string;
+  positionId: string;
+  /** A percent of margin ratio as a decimal string; null clears the stop. */
+  level: string | null;
+  clientRequestId: string;
+}
+
 export const adlDisclosureSchema = z.object({ version: z.string(), copy: z.string(), acknowledged: z.boolean() });
 export type AdlDisclosure = z.infer<typeof adlDisclosureSchema>;
 
@@ -562,6 +591,14 @@ export function createFuturesApi(api: ApiClient) {
           ...(input.stopLoss ? { stopLoss: legBody(input.stopLoss, input.stopLossQuantity) } : {}),
           clientRequestId: input.clientRequestId,
         },
+      }),
+    riskStop: (positionId: string, signal?: AbortSignal) =>
+      api.rest(`/positions/${encodeURIComponent(positionId)}/risk-stop`, riskStopSchema, { signal }),
+    /** Set or clear a position's pre-liquidation stop. The same request id answers with the stop as it stands. */
+    setRiskStop: (input: RiskStopInput) =>
+      api.rest(`/positions/${encodeURIComponent(input.positionId)}/risk-stop`, riskStopSchema, {
+        method: 'PUT',
+        body: { level: input.level, clientRequestId: input.clientRequestId },
       }),
     marginCall: (positionId: string, signal?: AbortSignal) =>
       api.rest(`/positions/${encodeURIComponent(positionId)}/margin-call`, marginCallSchema, { signal }),

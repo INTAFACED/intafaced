@@ -1461,6 +1461,56 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     return { fired };
   }
 
+  /**
+   * A pre-liquidation stop that reached its level (`../risk-stop.ts`) closes the position through the same path as a
+   * fired stop: one reduce-only market order in the book for the size fixed here, on the trader's standing instruction.
+   * The row is written already claimed under its book key, so the fired loop above carries a crash, a passing refusal
+   * or a part fill on; the client id is the stop's own (`risk-stop:<position>:<generation>`), so a second call finds the
+   * same row and places nothing twice.
+   */
+  async function fireRiskStop(input: {
+    userId: string;
+    marketId: string;
+    positionId: string;
+    side: ConditionalSide;
+    quantity: Amount;
+    mark: Amount | null;
+    clientOrderId: string;
+  }): Promise<ConditionalOrderView> {
+    if (!deps.placeReduce) {
+      throw new FuturesError(
+        'a pre-liquidation stop closes through the book, and futures orders are not going through the book',
+        'trade.risk_stop_book_off',
+        503,
+      );
+    }
+    const id = randomUUID();
+    const inserted = await sql<{ id: string }[]>`
+      INSERT INTO trade.futures_conditional_orders (
+        id, user_id, market_id, position_id, client_order_id, kind, side, quantity, trigger_price,
+        trigger_source, reduce_only, attachment, part_leg, status, trigger_key, request_hash
+      ) VALUES (
+        ${id}, ${input.userId}, ${input.marketId}, ${input.positionId}, ${input.clientOrderId}, 'stop_market', ${input.side},
+        ${formatAmount(input.quantity)}, ${input.mark == null ? null : formatAmount(input.mark)},
+        'mark', true, null, false, 'triggered', ${bookKey(id)}, ${`risk-stop:${input.clientOrderId}`}
+      )
+      ON CONFLICT ON CONSTRAINT futures_conditional_orders_user_client_uq DO NOTHING
+      RETURNING id
+    `;
+    const row = await findByClient(input.userId, input.clientOrderId);
+    if (!row) throw new FuturesError('the pre-liquidation stop order was not written', 'trade.risk_stop_unavailable', 503);
+    // Only the call that wrote the row places now; a row already there belongs to the fired loop.
+    if (inserted.length === 1 && row.status === 'triggered' && row.trigger_key === bookKey(row.id)) await executeClaimed(row);
+    const after = await findByClient(input.userId, input.clientOrderId);
+    return present(after ?? row);
+  }
+
+  /** A conditional order by its client id, or null when none was written under it. */
+  async function getByClientId(userId: string, clientOrderId: string): Promise<ConditionalOrderView | null> {
+    const row = await findByClient(userId, clientOrderId);
+    return row ? present(row) : null;
+  }
+
   async function placeResting(): Promise<never> {
     return refuseFuturesRestingLimit({
       userId: '',
@@ -1482,6 +1532,8 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     recordEntryProtection,
     listEntryProtection,
     evaluate,
+    fireRiskStop,
+    getByClientId,
     placeResting,
   };
 }
