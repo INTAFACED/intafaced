@@ -72,6 +72,7 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     price: '12.50',
     period_seconds: null,
     status: 'active',
+    review_state: 'approved',
     ...rowAt,
     user_id: SELLER,
     ...overrides,

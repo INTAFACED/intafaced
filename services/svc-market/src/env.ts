@@ -69,6 +69,14 @@ const schema = serviceEnvSchema
       MARKET_REFUND_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
       MARKET_RELEASE_SWEEP_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(86_400).optional()),
       MARKET_REFUND_POLICY: blankAsAbsent(z.enum(['seller_full']).optional()),
+      /**
+       * MC-market-03, owner values with no default: the listing review criteria (free-text items separated by "|"; no
+       * return, win-rate or drawdown threshold is built in) and the review window in whole seconds. Blank criteria or
+       * window: every new listing waits in `applied`, and a review decision refuses `market.review_criteria_unset` or
+       * `market.review_window_unset`.
+       */
+      MARKET_LISTING_REVIEW_CRITERIA: blankAsAbsent(z.string().max(4_000).optional()),
+      MARKET_LISTING_REVIEW_WINDOW_SECONDS: blankAsAbsent(z.coerce.number().int().min(1).max(31_536_000).optional()),
     }),
   );
 

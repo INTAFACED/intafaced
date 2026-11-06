@@ -1,5 +1,5 @@
 import { MarketError } from '../vendor-service.js';
-import type { CommerceService, ListingRecord } from '../commerce/commerce-service.js';
+import type { CommerceService, ListingRecord, ReviewedListingRecord } from '../commerce/commerce-service.js';
 
 /**
  * Strategy marketplace glue on market.commerce — not a second shop.
@@ -76,7 +76,7 @@ export function toStrategyCreateListingInput(input: StrategyListingInput & Recor
 export async function createStrategyListing(
   commerce: Pick<CommerceService, 'createListing'>,
   input: StrategyListingInput & Record<string, unknown>,
-): Promise<ListingRecord> {
+): Promise<ReviewedListingRecord> {
   return commerce.createListing(toStrategyCreateListingInput(input));
 }
 

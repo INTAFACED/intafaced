@@ -48,6 +48,9 @@ const sql = postgres(env.DATABASE_URL, {
 await sql`SELECT 1 FROM market.vendors LIMIT 1`.catch(() => {
   throw new Error('market schema is missing — run migrations before starting svc-market');
 });
+await sql`SELECT 1 FROM market.listing_review_decisions LIMIT 1`.catch(() => {
+  throw new Error('market.listing_review_decisions is missing — run migrations before starting svc-market');
+});
 await sql`SELECT 1 FROM market.vendor_slots LIMIT 1`.catch(() => {
   throw new Error('market.vendor_slots is missing — run migrations before starting svc-market');
 });
@@ -92,6 +95,15 @@ const commerce = new CommerceService(sql, vendors, ledger, {
     refundPolicy: env.MARKET_REFUND_POLICY ?? null,
   },
   onSweepError: (purchaseId, err) => app.log.error({ err, purchaseId }, 'held purchase release sweep could not finish a row'),
+  // MC-market-03: the owner's listing review criteria (items split on "|") and window. Blank: listings wait in applied.
+  review: {
+    criteria: env.MARKET_LISTING_REVIEW_CRITERIA
+      ? env.MARKET_LISTING_REVIEW_CRITERIA.split('|')
+          .map((c) => c.trim())
+          .filter(Boolean)
+      : null,
+    windowSeconds: env.MARKET_LISTING_REVIEW_WINDOW_SECONDS ?? null,
+  },
 });
 const perpProposals = new PerpProposalService(sql, vendors);
 const actionApprovals = env.IDENTITY_URL
