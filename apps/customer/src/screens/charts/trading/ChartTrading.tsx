@@ -58,6 +58,22 @@ const DRAG_MIN_PX = 4;
 const isLineOrder = (order: Order, symbol: string) =>
   order.symbol === symbol && order.type === 'limit' && order.price !== null && order.price !== undefined;
 
+/**
+ * Where the price pane sits in the chart, from the host's top: the panes above it (a study moved up) and their separators.
+ * The library measures a pane's coordinates from that pane's own top, and the overlay is laid over the whole host.
+ */
+function pricePane(host: ChartHost): { index: number; top: number; height: number } {
+  const index = host.main.getPane().paneIndex();
+  const panes = host.chart.panes();
+  let top = 0;
+  for (const pane of panes) if (pane.paneIndex() < index) top += pane.getHeight() + PANE_SEPARATOR_PX;
+  const height = panes.find((pane) => pane.paneIndex() === index)?.getHeight() ?? 0;
+  return { index, top, height };
+}
+
+/** The library draws one pixel between panes. */
+const PANE_SEPARATOR_PX = 1;
+
 export function ChartTrading({ host, market, refusal, protectionBps, protectionWhy = null, replaying = false }: ChartTradingProps) {
   const { t } = chartsCopy.useCopy();
   const { userId, api: client } = useSession();
@@ -100,12 +116,15 @@ export function ChartTrading({ host, market, refusal, protectionBps, protectionW
         setFrame((n) => n + 1);
       });
     };
-    const onMove = (param: { point?: { x: number; y: number } }) => {
+    const onMove = (param: { point?: { x: number; y: number }; paneIndex?: number }) => {
       redraw();
       if (!param.point) return;
+      // Only the price pane names a price: over the volume or a study pane the plus button goes away.
+      const pane = pricePane(host);
+      if (param.paneIndex !== undefined && param.paneIndex !== pane.index) return setCursor(null);
       const at = host.main.coordinateToPrice(param.point.y);
       const snapped = at === null ? null : snapToTick(at, host.tickSize);
-      if (snapped) setCursor({ y: param.point.y, price: snapped });
+      setCursor(snapped ? { y: pane.top + param.point.y, price: snapped } : null);
     };
     host.chart.subscribeCrosshairMove(onMove);
     host.chart.timeScale().subscribeVisibleLogicalRangeChange(redraw);
@@ -116,7 +135,9 @@ export function ChartTrading({ host, market, refusal, protectionBps, protectionW
       event.preventDefault();
       const box = host.element.getBoundingClientRect();
       const y = event.clientY - box.top;
-      const at = host.main.coordinateToPrice(y);
+      const pane = pricePane(host);
+      if (y < pane.top || y > pane.top + pane.height) return setMenu(null); // not on the price pane: no price to order at
+      const at = host.main.coordinateToPrice(y - pane.top);
       const snapped = at === null ? null : snapToTick(at, host.tickSize);
       if (snapped) setMenu({ x: event.clientX - box.left, y, price: snapped });
     };
@@ -309,7 +330,8 @@ export function ChartTrading({ host, market, refusal, protectionBps, protectionW
     void run(async () => {
       setNote(null);
       if (!host || locked) return;
-      const at = host.main.coordinateToPrice(y);
+      // y is from the host's top, as the overlay draws it; the library reads it from the price pane's top.
+      const at = host.main.coordinateToPrice(y - pricePane(host).top);
       const to = at === null ? null : snapToTick(at, market.tickSize);
       if (!to || samePrice(to, order.price ?? '')) return;
       // The distance is judged against the last trade, read now; the read is a GET and sends no order.
@@ -371,13 +393,22 @@ export function ChartTrading({ host, market, refusal, protectionBps, protectionW
   };
 
   const stage = host?.element.parentElement ?? null;
-  const yOf = (value: string | null | undefined) => (host && value ? host.main.priceToCoordinate(Number(value)) : null);
+  const paneTop = host ? pricePane(host).top : 0;
+  const yOf = (value: string | null | undefined) => {
+    const y = host && value ? host.main.priceToCoordinate(Number(value)) : null;
+    return y === null ? null : paneTop + y;
+  };
   const projectedY = yOf(projected);
 
   const overlay =
     stage && host && signedIn
       ? createPortal(
-          <div className="ct-overlay" data-testid="chart-trading-overlay">
+          <div
+            className="ct-overlay"
+            data-testid="chart-trading-overlay"
+            data-pane-top={paneTop}
+            data-pane-height={host ? pricePane(host).height : 0}
+          >
             {projected && projectedY !== null && (
               <div
                 className="ct-line ct-line--preview"
