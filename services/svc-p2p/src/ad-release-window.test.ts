@@ -208,9 +208,10 @@ describe('svc-p2p ad release window and cancel count (J-p2p-06 #1 #5)', () => {
     await expect(service({ limit: null, windowHours: null }).buyerCancelCount(TAKER)).rejects.toMatchObject({ code: 'p2p.config_unset' });
     await awayFromUtcMidnight();
     const p2p = service({ limit: 2, windowHours: 24 });
-    const [{ midnight }] = (await sql<Array<{ midnight: Date }>>`
+    const [row] = await sql<Array<{ midnight: Date }>>`
       SELECT (date_trunc('day', now() AT TIME ZONE 'UTC') + interval '1 day') AT TIME ZONE 'UTC' AS midnight
-    `) as [{ midnight: Date }];
+    `;
+    const midnight = row!.midnight;
     const offer = await sellOffer(p2p);
     expect(await p2p.buyerCancelCount(TAKER)).toEqual({ used: 0, cap: 2, windowHours: 24, resetsAt: midnight, restrictedUntil: null });
 
