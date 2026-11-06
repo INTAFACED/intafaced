@@ -23,6 +23,7 @@ import {
 } from './journal-persist.js';
 import type { AccountId, CancelReason, MarketId, OrderId, OrderSide } from './types.js';
 import type { WireSpreadInstrument } from './spread-instrument.js';
+import { RULEBOOK_SECTIONS, type RulebookSections } from '../rulebook.js';
 
 /**
  * THE ENGINE JOURNAL (§5.1).
@@ -223,6 +224,19 @@ export type JournalCommand =
       readonly instrument: WireSpreadInstrument;
     }
   | {
+      /** Owner rulebook version (RC-cex-spot-08), consumed through dual-control approval. Append-only; never edited. */
+      readonly kind: 'rulebook_version';
+      readonly at: string;
+      readonly operatorId: string;
+      readonly confirmOperatorId: string;
+      readonly approvalId: string;
+      readonly version: string;
+      readonly effectiveAt: string;
+      readonly supersedes: string | null;
+      readonly digest: string;
+      readonly sections: RulebookSections;
+    }
+  | {
       readonly kind: 'split_brain';
       readonly at: string;
       readonly operatorId: string;
@@ -380,6 +394,22 @@ export function encode(record: JournalRecord): string {
       operatorId: record.operatorId,
       ...(record.confirmOperatorId ? { confirmOperatorId: record.confirmOperatorId } : {}),
       instrument: wireSpreadOrdered(record.instrument),
+    });
+  }
+
+  if (record.kind === 'rulebook_version') {
+    return JSON.stringify({
+      seq: record.seq,
+      kind: record.kind,
+      at: record.at,
+      operatorId: record.operatorId,
+      confirmOperatorId: record.confirmOperatorId,
+      approvalId: record.approvalId,
+      version: record.version,
+      effectiveAt: record.effectiveAt,
+      supersedes: record.supersedes,
+      digest: record.digest,
+      sections: Object.fromEntries(RULEBOOK_SECTIONS.map((s) => [s.id, record.sections[s.id]])),
     });
   }
 

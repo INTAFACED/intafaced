@@ -380,6 +380,8 @@ test(`${J} #6 opens the published trading rulebook: versioned rulebook text cust
   const payloadHash = (await filed(request, 'Payload hash').textContent()).trim();
   await approveAsB(browser, approvalId, payloadHash);
   await room.getByRole('button', { name: 'Publish approved version' }).click();
+  // Wait for svc-matching's answer before reading the room again, so the reload never cuts the publish short.
+  await expect(room.locator('[data-published-version]')).toHaveText(version);
   await page.reload();
   await expect(room.locator('[data-current-version]')).toHaveText(version);
   await expect(room.locator(`[data-history] [data-version="${version}"]`)).toBeVisible();

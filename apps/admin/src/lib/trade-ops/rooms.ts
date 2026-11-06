@@ -22,6 +22,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Fee versions by pair group, VIP tiers, rebates and notices with a second founder; Convert limits, quotes and fiat buy fees.',
   },
   {
+    id: 'rulebook',
+    href: '/trade-ops/rulebook',
+    label: 'Rulebook',
+    job: 'The trading rulebook customers read: versions, history, and a new version with a second founder.',
+  },
+  {
     id: 'charts-settings',
     href: '/trade-ops/charts/settings',
     label: 'Charts settings',
