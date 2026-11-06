@@ -34,9 +34,11 @@ import {
   runFundingComputerJob,
   sqlFundingRatePeriodStore,
   sqlFundingSampleStore,
+  type FundingRatePeriodRecord,
 } from './funding-rate-computer.js';
 import { currentFundingParams, currentIndexSources } from './funding-params.js';
 import { notConnectedIndexFeed, type IndexFeed } from './index-construction.js';
+import { testSpotBookIndexFeed } from './test-index-feed.js';
 import { markSourceWithConstruction, type MarkConstruction, type MarkConstructionInputs } from './mark-construction.js';
 import type { VenueLatencyHealth } from './venue-latency-health.js';
 import {
@@ -146,6 +148,11 @@ export interface FuturesJobsDeps {
    * computer samples gaps and refuses periods rather than publishing a number.
    */
   indexFeed?: IndexFeed | null;
+  /**
+   * The labelled TEST index feed (`test-index-feed.ts`): one source, the paired TEST spot book's mid. Only a dev or test
+   * process may turn it on (`TRADE_FUTURES_TEST_INDEX_FEED`). Ignored when `indexFeed` is given.
+   */
+  testIndexFeed?: boolean;
   /** Venue health for the index. A red venue pauses the period. Omitted: not consulted. */
   venueHealth?: () => VenueLatencyHealth;
   /**
@@ -191,12 +198,38 @@ export interface FuturesJobsDeps {
   matchedLiquidation?: { readonly current: MatchedLiquidationPort | null };
 }
 
+export interface FundingSnapshot {
+  readonly published: FundingRatePeriodRecord | null;
+  readonly last: FundingRatePeriodRecord | null;
+  readonly indexNow: { readonly price: string | null; readonly reason: string | null };
+  readonly periodSeconds: number | null;
+  /** The end of the funding period open now, on the owner's grid (anchor and length); null when either is blank. */
+  readonly nextBoundaryMs: number | null;
+}
+
+/** The first boundary of the owner's period grid after `at`. Null when the length or the anchor is blank. */
+export function nextFundingBoundary(periodSeconds: number | null, periodAnchor: string | null, at: Date): number | null {
+  if (periodSeconds == null || periodSeconds <= 0 || periodAnchor == null) return null;
+  const anchor = Date.parse(periodAnchor);
+  if (!Number.isFinite(anchor)) return null;
+  const len = periodSeconds * 1000;
+  const k = Math.floor((at.getTime() - anchor) / len) + 1;
+  return anchor + k * len;
+}
+
 export interface FuturesJobsHandle {
   host: JobHost;
   /** Rate book so ops/oracle can publish without invent. */
   publishFundingRate: (entry: FundingRateEntry) => void;
   /** Peek published rate for a market — null if none/stale (never invent). */
   getPublishedRate: (marketId: string) => FundingRateEntry | null;
+  /**
+   * What the funding rate of a market was built from (J-derivatives-08 #1, #2): the latest PUBLISHED computed period
+   * with its inputs, the latest computed period whatever its status (a refused or paused one says why), the index as it
+   * stands now (a price, or the reason there is none) and the owner's period length. Read from the database, so a
+   * restart loses nothing.
+   */
+  fundingSnapshot: (marketId: string) => Promise<FundingSnapshot>;
   /**
    * Mark for a market from the same source liquidation uses
    * (venue fabric preferred, then matching depth mid). Null when unknown.
@@ -342,7 +375,13 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     deps.seedFundingRate?.(entry);
   };
 
-  const getPublishedRate = (marketId: string) => rates.peek(marketId);
+  // Funding rate computer (D-instruments-01). Off unless a poll interval is set. Its rates go into their own book,
+  // and the funding tick asks that book first and the S2S-fed one second. A computed period is closed and its rate
+  // frozen with it, so the book carries no age limit (maxAgeMs 0 is the explicit choice `FundingRatePolicy` asks for);
+  // a stale index pauses the period instead, and nothing is published.
+  const computerPollMs = deps.config.fundingComputerPollMs ?? null;
+  const computedRates = memoryFundingRateBook({ now: () => (deps.now ?? (() => new Date()))().getTime(), policy: { maxAgeMs: 0 } });
+  const getPublishedRate = (marketId: string) => (computerPollMs != null ? computedRates.peek(marketId) : null) ?? rates.peek(marketId);
 
   // Mark path always assembled — public REST + liq share one non-inventing port.
   // Matching's depth read carries no timestamp; it is stamped at read time only while `stampDepthReads` is on (above).
@@ -368,6 +407,44 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     policy: deps.ladderPolicy,
   };
 
+  const indexFeed: IndexFeed =
+    deps.indexFeed ??
+    (deps.testIndexFeed
+      ? testSpotBookIndexFeed({
+          // Only a PAIRED spot book: a market with no pairing gets no quote, never its own book's mid (that is the mark).
+          readBook: async (marketId) => {
+            const book = deps.markBookFor ? await deps.markBookFor(marketId) : null;
+            return book === null || book === marketId ? null : deps.matching.depth(book, 1);
+          },
+          now: deps.now,
+        })
+      : notConnectedIndexFeed());
+  const indexProvider = indexProviderFromFeed({
+    feed: indexFeed,
+    sources: (marketId) => currentIndexSources(deps.sql, marketId),
+    ...(deps.venueHealth ? { venueHealth: deps.venueHealth } : {}),
+  });
+  const ratePeriods = sqlFundingRatePeriodStore(deps.sql);
+  const fundingSnapshot = async (marketId: string): Promise<FundingSnapshot> => {
+    const at = deps.now ? deps.now() : new Date();
+    // With the computer off, the tick charges the S2S-published rate only: computed rows left from an earlier run are
+    // not the rate in force, so they are not served as it.
+    const computerOn = computerPollMs != null;
+    const [published, last, index, pv] = await Promise.all([
+      computerOn ? ratePeriods.latest(marketId, 'published') : Promise.resolve(null),
+      computerOn ? ratePeriods.latest(marketId, null) : Promise.resolve(null),
+      indexProvider.current(marketId, at),
+      currentFundingParams(deps.sql, marketId),
+    ]);
+    return {
+      published,
+      last,
+      indexNow: index.ok ? { price: formatAmount(index.price), reason: null } : { price: null, reason: index.code },
+      periodSeconds: pv.params.periodSeconds,
+      nextBoundaryMs: nextFundingBoundary(pv.params.periodSeconds, pv.params.periodAnchor, at),
+    };
+  };
+
   const markPrice = async (marketId: string, at?: Date) => marks.markPrice({ marketId, at: at ?? (deps.now ? deps.now() : new Date()) });
   const publicMark = async (marketId: string, symbol: string, at?: Date) => {
     if (!marks.quote) return null;
@@ -390,6 +467,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
       host,
       publishFundingRate,
       getPublishedRate,
+      fundingSnapshot,
       markPrice,
       publicMark,
       marks,
@@ -490,23 +568,12 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     reportLiquidationTick(tick, deps.onError ?? ((name, err) => console.error(`[job-host] ${name}`, err)));
   });
 
-  // Funding rate computer (D-instruments-01). Off unless a poll interval is set. Its rates go into their own book,
-  // and the funding tick asks that book first and the S2S-fed one second. A computed period is closed and its rate
-  // frozen with it, so the book carries no age limit (maxAgeMs 0 is the explicit choice `FundingRatePolicy` asks for);
-  // a stale index pauses the period instead, and nothing is published.
-  const computerPollMs = deps.config.fundingComputerPollMs ?? null;
-  const computedRates = memoryFundingRateBook({ now: () => (deps.now ?? (() => new Date()))().getTime(), policy: { maxAgeMs: 0 } });
   const fundingSource = computerPollMs != null ? preferFundingRateSource(computedRates.source(), rates.source()) : rates.source();
   if (computerPollMs != null) {
-    const indexProvider = indexProviderFromFeed({
-      feed: deps.indexFeed ?? notConnectedIndexFeed(),
-      sources: (marketId) => currentIndexSources(deps.sql, marketId),
-      ...(deps.venueHealth ? { venueHealth: deps.venueHealth } : {}),
-    });
     const computerDeps = {
       params: (marketId: string) => currentFundingParams(deps.sql, marketId),
       samples: sqlFundingSampleStore(deps.sql),
-      periods: sqlFundingRatePeriodStore(deps.sql),
+      periods: ratePeriods,
       indexHealth: indexHealthFromProvider(indexProvider),
       index: indexProvider,
       marks,
@@ -547,6 +614,7 @@ export function startFuturesJobs(deps: FuturesJobsDeps): FuturesJobsHandle {
     host,
     publishFundingRate,
     getPublishedRate,
+    fundingSnapshot,
     markPrice,
     publicMark,
     marks,

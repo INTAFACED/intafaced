@@ -27,6 +27,20 @@ export interface FundingHistoryRow {
   readonly markPrice: string | null;
   /** The two approvers of the publish (RC-derivatives-01), kept for audit. Absent on rows from before it. */
   readonly approverIds?: readonly string[];
+  /** Computed periods only (D-instruments-01): what the rate was built from. Absent on S2S-published rows. */
+  readonly premium?: string | null;
+  readonly interestComponent?: string | null;
+  readonly cap?: string | null;
+  readonly annualisedRate?: string | null;
+  readonly indexPrice?: string | null;
+  /** The period's legs once the funding tick settled it: what payers paid and receivers received. Null until then. */
+  readonly settlement?: FundingSettlementTotals | null;
+}
+
+export interface FundingSettlementTotals {
+  readonly legs: number;
+  readonly paid: string;
+  readonly received: string;
 }
 
 export interface FundingHistoryStore {
@@ -87,14 +101,39 @@ export function presentFundingHistory(input: {
       periodTimestamp: row.periodTimestamp,
       fundingRate: row.fundingRate,
       mark_price: row.markPrice,
+      index_price: row.indexPrice ?? null,
+      premium: row.premium ?? null,
+      interestComponent: row.interestComponent ?? null,
+      cap: row.cap ?? null,
+      annualisedRate: row.annualisedRate ?? null,
+      settlement: row.settlement ?? null,
     }));
   return { status: 200, body: { symbol: market.symbol, rates } };
+}
+
+export interface FundingSeriesPoint {
+  readonly at: string;
+  readonly mark: string | null;
+  readonly index: string | null;
+  /** Why the index is null at this point (the sampler's reason); null when there is an index. */
+  readonly indexReason: string | null;
 }
 
 export interface FundingHistoryDeps {
   marketBySymbol: (symbol: string) => Promise<FundingHistoryListing | null>;
   historyForMarket: (marketId: string) => Promise<readonly FundingHistoryRow[] | null>;
+  /** The latest `limit` mark and index samples of a market, oldest first. Omitted: the series route is not mounted. */
+  seriesForMarket?: (marketId: string, limit: number) => Promise<readonly FundingSeriesPoint[]>;
 }
+
+/** The index part of a sample's gap reason (`mark_unavailable+trade.index_params_unset` → the index code). */
+export function indexReasonOf(index: string | null, gapReason: string | null): string | null {
+  if (index !== null) return null;
+  const parts = (gapReason ?? '').split('+').filter((r) => r !== '' && r !== 'mark_unavailable');
+  return parts.length > 0 ? parts.join('+') : 'trade.index_not_recorded';
+}
+
+export const SERIES_LIMIT_UNSET = 'trade.series_limit_unset';
 
 export function registerFundingHistory(app: FastifyInstance, deps: FundingHistoryDeps): void {
   app.get<{ Params: { symbol: string } }>('/api/v1/funding-history/:symbol', publicRead, async (req, reply) => {
@@ -111,4 +150,36 @@ export function registerFundingHistory(app: FastifyInstance, deps: FundingHistor
     const presented = presentFundingHistory({ symbol, market, rows });
     return reply.code(presented.status).send(presented.body);
   });
+
+  const series = deps.seriesForMarket;
+  if (!series) return;
+  /**
+   * GET /api/v1/funding-index-history/:symbol?limit=N — the mark and index series the funding rate is sampled from,
+   * oldest first (J-derivatives-08 #6). An unpublished index is a null point with its reason, never a number. `limit`
+   * (1–1000) is required: this route does not invent a page size.
+   */
+  app.get<{ Params: { symbol: string }; Querystring: { limit?: string } }>(
+    '/api/v1/funding-index-history/:symbol',
+    publicRead,
+    async (req, reply) => {
+      const symbol = decodeURIComponent(req.params.symbol);
+      const market = await deps.marketBySymbol(symbol);
+      if (!market) return reply.code(400).send(refusal(400, 'BadRequest', `market ${symbol} not found`, 'trade.market_not_found').body);
+      if (market.kind !== 'futures' || datedFuturesStyleOf(market) !== 'perpetual') {
+        return reply
+          .code(400)
+          .send(
+            refusal(400, 'BadRequest', `${market.symbol} is not a perpetual and has no funding index`, 'trade.not_futures_market').body,
+          );
+      }
+      const raw = req.query.limit;
+      const limit = raw == null || !/^\d+$/.test(raw) ? NaN : Number(raw);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        return reply
+          .code(400)
+          .send(refusal(400, 'BadRequest', 'limit is required (1–1000); this series does not invent a page size', SERIES_LIMIT_UNSET).body);
+      }
+      return reply.code(200).send({ symbol: market.symbol, series: await series(market.id, limit) });
+    },
+  );
 }

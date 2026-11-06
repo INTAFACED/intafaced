@@ -2,6 +2,7 @@
  * Futures desk reads against Postgres: funding postings, liquidation rungs,
  * ticker aggregates, and the TEST listing row.
  */
+import { sqlComputedFundingHistory, sqlFundingSeries } from './funding-public-reads.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,6 +21,7 @@ import {
   encodeFundingCursor,
   listCallerLiquidations,
   listFundingPayments,
+  listFundingStatement,
   loadListedMarketRows,
   loadMarketBySymbol,
   readFuturesTickerFacts,
@@ -120,7 +122,8 @@ describe('futures reads money', () => {
     await sql`
       TRUNCATE trade.positions, trade.fills, trade.orders, trade.markets,
         trade.position_funding_applied, trade.funding_period_rates, trade.liquidation_rungs,
-        trade.futures_mark_samples, trade.futures_payouts
+        trade.futures_mark_samples, trade.futures_payouts, trade.funding_rate_periods, trade.funding_periods,
+        trade.funding_rate_samples
       RESTART IDENTITY CASCADE
     `;
   });
@@ -268,6 +271,80 @@ describe('futures reads money', () => {
     const tail = await listFundingPayments(sql, ALICE, alice, cursor);
     expect(tail.payments.map((row) => row.amount)).toEqual(['0.5']);
     await app.close();
+  });
+
+  it('states funding by position and period, and publishes each settled period with legs that net to zero (J-derivatives-08)', async () => {
+    await market(MARKET, 'BTC/USDT:USDT');
+    const alice = randomUUID();
+    const bob = randomUUID();
+    await position(alice, ALICE, '1', 'open');
+    await position(bob, BOB, '1', 'open', null, 'short');
+    const startA = new Date('2026-10-01T00:00:00.000Z');
+    const endA = new Date('2026-10-01T00:01:30.000Z');
+    const endB = new Date('2026-10-01T00:03:00.000Z');
+    const periodA = `${MARKET}:${startA.toISOString()}`;
+    const periodB = `${MARKET}:${endA.toISOString()}`;
+    await sql`
+      INSERT INTO trade.funding_rate_periods (period_id, market_id, period_start, period_end, status, rate, premium, base_component, cap, clamped, inputs)
+      VALUES
+        (${periodA}, ${MARKET}, ${startA}, ${endA}, 'published', '0.0001', '0', '0.0001', '0.003', false,
+         ${sql.json({ closingMark: '50000', closingIndex: '50000' })}),
+        (${periodB}, ${MARKET}, ${endA}, ${endB}, 'published', '-0.0002', '0', '-0.0002', '0.003', false,
+         ${sql.json({ closingMark: '50001', closingIndex: '50000.5' })})
+    `;
+    await sql`INSERT INTO trade.funding_period_rates (period_id, rate) VALUES (${periodA}, '0.0001'), (${periodB}, '-0.0002')`;
+    // Period A settled: Alice (long) paid 5, Bob (short) received 5. Period B published, not settled yet.
+    await sql`INSERT INTO trade.funding_periods (period_id, market_id, leg_count) VALUES (${periodA}, ${MARKET}, 1)`;
+    await sql`
+      INSERT INTO trade.position_funding_applied (position_id, period_id, paid, applied_at) VALUES
+        (${alice}, ${periodA}, '5'::numeric, ${endA}),
+        (${bob}, ${periodA}, '-5'::numeric, ${endA})
+    `;
+
+    const history = await sqlComputedFundingHistory(sql, MARKET);
+    expect(history.map((r) => r.periodId)).toEqual([periodA, periodB]);
+    expect(history[0]).toMatchObject({
+      fundingRate: '0.0001',
+      premium: '0',
+      interestComponent: '0.0001',
+      cap: '0.003',
+      markPrice: '50000',
+      indexPrice: '50000',
+      annualisedRate: '35.04',
+      settlement: { legs: 1, paid: '5', received: '5' },
+    });
+    // Not settled yet: no settlement, never a zero one.
+    expect(history[1]!.settlement).toBeNull();
+
+    const alices = await listFundingStatement(sql, ALICE);
+    expect(alices.rows).toEqual([
+      expect.objectContaining({
+        positionId: alice,
+        periodId: periodA,
+        symbol: 'BTC/USDT:USDT',
+        side: 'long',
+        amount: '5',
+        direction: 'paid',
+      }),
+    ]);
+    expect(alices.totals).toEqual([{ asset: 'USDT', paid: '5', received: '0', net: '-5' }]);
+    const bobs = await listFundingStatement(sql, BOB);
+    expect(bobs.totals).toEqual([{ asset: 'USDT', paid: '0', received: '5', net: '5' }]);
+    // Each payment names its period key.
+    const listed = await listFundingPayments(sql, ALICE, alice, undefined);
+    expect(listed.payments[0]!.periodId).toBe(periodA);
+
+    await sql`
+      INSERT INTO trade.funding_rate_samples (market_id, sampled_at, mark, index_price, gap_reason) VALUES
+        (${MARKET}, ${startA}, '50000', '50000', null),
+        (${MARKET}, ${endA}, '50001', null, 'trade.index_params_unset')
+    `;
+    const series = await sqlFundingSeries(sql, MARKET, 10);
+    expect(series).toEqual([
+      { at: startA.toISOString(), mark: '50000', index: '50000', indexReason: null },
+      { at: endA.toISOString(), mark: '50001', index: null, indexReason: 'trade.index_params_unset' },
+    ]);
+    expect(await sqlFundingSeries(sql, MARKET, 1)).toHaveLength(1);
   });
 
   it('lists both rungs of a partial liquidation with their recorded fees and no foreign rows', async () => {

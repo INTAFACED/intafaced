@@ -33,7 +33,11 @@ describe('futures env passthrough into registerPublicRest', () => {
   });
 
   it('published funding quote never invents nextFundingTimestamp from the 8h interval', () => {
-    expect(indexSource).toMatch(/nextFundingTimestamp:\s*null/);
+    // Since J-derivatives-08 the quote is built in funding-view.ts: an S2S rate still has none, and a computed period's
+    // comes from the owner's period length stored with the funding numbers, never from the tick interval env.
+    const viewSource = readFileSync(new URL('./funding-view.ts', import.meta.url), 'utf8');
+    expect(viewSource).toMatch(/nextFundingTimestamp:\s*null/);
+    expect(viewSource).not.toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS|fundingIntervalMs/);
     expect(indexSource).not.toMatch(/TRADE_FUTURES_FUNDING_INTERVAL_MS[\s\S]{0,200}nextFundingTimestamp/);
   });
 });

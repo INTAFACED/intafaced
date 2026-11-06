@@ -92,3 +92,37 @@ export function percentOfBps(bps: number): string {
   const digits = String(bps).padStart(3, '0');
   return `${digits.slice(0, -2)}.${digits.slice(-2)}`;
 }
+
+/**
+ * An exact decimal as the Funding tab draws it: thousands grouped, trailing zeros dropped, a true minus sign, and not a
+ * digit rounded away (funding figures are small; rounding would hide what was paid). Null stays null.
+ */
+export function exactDecimal(value: string | null | undefined): string | null {
+  if (value == null || !/^-?\d+(\.\d+)?$/.test(value)) return null;
+  const negative = value.startsWith('-');
+  const [whole = '0', frac = ''] = value.replace(/^-/, '').split('.');
+  const trimmed = frac.replace(/0+$/, '');
+  const grouped = whole.replace(/^0+(?=\d)/, '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const zero = /^0*$/.test(whole) && trimmed === '';
+  return `${negative && !zero ? '−' : ''}${grouped}${trimmed ? `.${trimmed}` : ''}`;
+}
+
+/** A rate (a ratio such as "0.0001") as an exact percent ("0.01%"): the decimal point moved two places, nothing rounded. */
+export function exactPct(ratio: string | null | undefined): string | null {
+  if (ratio == null || !/^-?\d+(\.\d+)?$/.test(ratio)) return null;
+  const negative = ratio.startsWith('-');
+  const [whole = '0', frac = ''] = ratio.replace(/^-/, '').split('.');
+  const padded = frac.padEnd(2, '0');
+  const shifted = `${whole}${padded.slice(0, 2)}${padded.length > 2 ? `.${padded.slice(2)}` : ''}`;
+  return `${exactDecimal(`${negative ? '-' : ''}${shifted}`)}%`;
+}
+
+/** A funding period in words: published, or refused or paused with the reason the service gave. */
+export function periodOutcome(
+  period: { periodId: string; status: string; code: string | null; periodStart: string | null } | null | undefined,
+): { status: 'published' | 'unset' | 'refused' | 'paused'; code: string | null } | null {
+  if (!period) return null;
+  if (period.status === 'published') return { status: 'published', code: null };
+  if (period.status === 'paused') return { status: 'paused', code: period.code };
+  return { status: period.code?.endsWith('_unset') ? 'unset' : 'refused', code: period.code };
+}
