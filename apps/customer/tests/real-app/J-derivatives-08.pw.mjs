@@ -1,6 +1,7 @@
 // World: book, gates, restart
 import { test, expect } from './journey.mjs';
-import { EDGE, ORIGIN, api, journeyState, signOutBrowser, toUnits, fromUnits, tool } from './stack.mjs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { EDGE, ORIGIN, api, journeyState, signOutBrowser, stackFile, toUnits, fromUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 
 // J-derivatives-08, in the running app (docs/roadmap/journeys.json): I see the funding rate and what I paid or received.
@@ -114,6 +115,21 @@ function tradeFunding(marketId) {
     else process.env.LOCAL_STACK_TRADE_FUNDING_MARKET = before;
   }
 }
+
+// A failed step keeps svc-trade's funding lines (the computer's and the tick's) with its results, since a tick's error
+// reaches only the service log.
+test.afterEach(async ({}, testInfo) => {
+  if (testInfo.status === testInfo.expectedStatus) return;
+  try {
+    const lines = readFileSync(stackFile('logs/trade.log'), 'utf8')
+      .split('\n')
+      .filter((line) => /funding/i.test(line))
+      .slice(-300);
+    writeFileSync(testInfo.outputPath('svc-trade-funding.log'), lines.join('\n'));
+  } catch (error) {
+    writeFileSync(testInfo.outputPath('svc-trade-funding.log'), `could not read the svc-trade log: ${error}`);
+  }
+});
 
 test.afterAll(async () => {
   const marketId = run.read().marketId;

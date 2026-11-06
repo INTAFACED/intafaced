@@ -14,6 +14,12 @@ export interface FuturesTickerRestDeps {
   marketBySymbol(symbol: string): Promise<FuturesTickerMarket | null>;
   markForMarket(marketId: string, symbol: string): Promise<{ price: string; source: FuturesMarkProvenance } | null>;
   fundingForMarket(marketId: string): FundingRateEntry | null;
+  /**
+   * The end of the funding period open now, on the owner's grid (J-derivatives-08 #1). A computed rate is for a period
+   * that has CLOSED, so its own end is in the past and is not the next funding time. Omitted or null: the published
+   * entry's period end, as before.
+   */
+  nextFundingTimeFor?(marketId: string): Promise<string | null>;
   /** Stored aggregates. The route copies them. It does not invent a sum or a change. */
   factsForMarket(marketId: string, nowMs: number): Promise<FuturesTickerFacts>;
   now?: () => number;
@@ -36,10 +42,11 @@ export function registerFuturesTickerRest(app: FastifyInstance, deps: FuturesTic
     }
 
     const at = deps.now?.() ?? Date.now();
-    const [mark, funding, facts] = await Promise.all([
+    const [mark, funding, facts, nextOnGrid] = await Promise.all([
       deps.markForMarket(market.id, market.symbol),
       Promise.resolve(deps.fundingForMarket(market.id)),
       deps.factsForMarket(market.id, at),
+      deps.nextFundingTimeFor ? deps.nextFundingTimeFor(market.id) : Promise.resolve(null),
     ]);
     const change24h = facts.change24h;
     return reply.code(200).send({
@@ -47,7 +54,7 @@ export function registerFuturesTickerRest(app: FastifyInstance, deps: FuturesTic
       markSource: mark?.source ?? null,
       fundingRate: funding?.rate ?? null,
       fundingPeriodId: funding?.periodId ?? null,
-      nextFundingTime: funding?.periodEndIso ?? null,
+      nextFundingTime: funding ? (nextOnGrid ?? funding.periodEndIso ?? null) : null,
       openInterest: facts.openInterest,
       volume24h: facts.volume24h,
       change24h,

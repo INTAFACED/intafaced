@@ -1116,6 +1116,11 @@ registerFuturesTickerRest(app, {
   marketBySymbol: (symbol) => trade.marketBySymbol(symbol),
   markForMarket: (marketId, symbol) => futuresJobs.publicMark(marketId, symbol),
   fundingForMarket: (marketId) => futuresJobs.getPublishedRate(marketId),
+  nextFundingTimeFor: async (marketId) => {
+    const snapshot = await futuresJobs.fundingSnapshot(marketId).catch(() => null);
+    // Only while a computed period is the rate in force: an S2S-published entry keeps its own period end.
+    return snapshot?.published && snapshot.nextBoundaryMs != null ? new Date(snapshot.nextBoundaryMs).toISOString() : null;
+  },
   factsForMarket: (marketId, nowMs) => readFuturesTickerFacts(sql, marketId, new Date(nowMs)),
 });
 registerPositionPreviewRest(app, {

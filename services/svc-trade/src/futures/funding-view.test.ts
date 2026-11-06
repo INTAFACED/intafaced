@@ -191,3 +191,28 @@ describe('public funding history (J-derivatives-08 #4, #6)', () => {
     expect(indexReasonOf(null, null)).toBe('trade.index_not_recorded');
   });
 });
+
+describe('futures ticker next funding time (J-derivatives-08 #1)', () => {
+  it('names the end of the period open now, not the closed period the rate is for', async () => {
+    const Fastify = (await import('fastify')).default;
+    const { registerFuturesTickerRest } = await import('./futures-ticker-rest.js');
+    const facts = { openInterest: null, volume24h: null, change24h: null, changeReason: null };
+    const entry = { marketId: 'm1', periodId: 'm1:p', rate: '0.0001', asOfMs: 1, periodEndIso: '2026-01-01T00:01:30.000Z' };
+    for (const [next, want] of [
+      ['2026-01-01T00:03:00.000Z', '2026-01-01T00:03:00.000Z'],
+      [null, '2026-01-01T00:01:30.000Z'],
+    ] as const) {
+      const app = Fastify();
+      registerFuturesTickerRest(app, {
+        marketBySymbol: async () => ({ id: 'm1', symbol: 'BTC/USDT:USDT', kind: 'futures' }),
+        markForMarket: async () => null,
+        fundingForMarket: () => entry,
+        nextFundingTimeFor: async () => next,
+        factsForMarket: async () => facts as never,
+      });
+      const res = await app.inject({ method: 'GET', url: '/api/v1/futures/ticker?symbol=BTC%2FUSDT%3AUSDT' });
+      expect(res.json().nextFundingTime).toBe(want);
+      await app.close();
+    }
+  });
+});
