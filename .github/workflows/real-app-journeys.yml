@@ -55,17 +55,19 @@ on:
       - 'docs/runbooks/journey-baseline.json'
       - '.github/workflows/real-app-journeys.yml'
 
-# On main, runs overlap: each push, scheduled run and manual run on main is its own group, so a new run neither cancels
-# nor waits on one already running (owner request 2026-11-01, OWNER 154 point 8: with the merge queue, main moves in
-# batches and every batch's journeys report). Nothing needs one run at a time: every shard starts its own stack on its own
-# runner, artifacts are per run, the planner reads finished runs only, and Main trust compares finished runs by when they
-# were created (tooling/ci/post-merge-trust.mjs earlierRuns), so a run that ends before an older one is still compared in
-# order. Measured 1 Nov: run 1137's 22 shards and CI's 12 jobs started within the same two seconds, so overlapping runs do
-# not queue behind each other for runners. (Failure the old rule prevented, and this keeps prevented: with
-# cancel-in-progress, every run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the journeys. Nothing
-# here cancels.) Elsewhere (a manual run on a branch) a run that started finishes and newer ones wait, as before.
+# On main, one run at a time, newest waiting (proposed 6 Nov 2026; merges only on the owner's yes): every push,
+# scheduled run and manual run on main shares the group `real-app-journeys-main`. A running main run is never stopped
+# (cancel-in-progress false); GitHub keeps at most one main run waiting, so a newer main commit replaces an older one that
+# has not started, and only the newest waiting commit runs next. A replaced run ends "cancelled" with no jobs: the planner
+# reads non-cancelled finished runs only, and Main trust leaves replaced runs out (tooling/ci/post-merge-trust.mjs; a run
+# cancelled by a time limit still counts as timed out). What this gives up: overlapping main runs (owner request
+# 2026-11-01, OWNER 154 point 8), under which every merge batch's journeys reported; now a batch whose waiting run is
+# replaced reports through the newer run, which holds its commits too. (Failure the old cancel rule caused, and this keeps
+# prevented: with cancel-in-progress, every run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the
+# journeys. Nothing here stops a run that started.) Elsewhere (a manual run on a branch), unchanged: one group per branch, a
+# run that started finishes and a newer one waits.
 concurrency:
-  group: real-app-journeys-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || format('real-app-journeys-{0}', github.ref) }}
   cancel-in-progress: false
 
 permissions:
