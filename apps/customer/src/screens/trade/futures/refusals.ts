@@ -35,6 +35,11 @@ const WORDS: Readonly<Record<string, Words>> = {
     title: 'The stop price cannot be worked out right now',
     body: 'The platform cannot work out the mark at which this position reaches that level at the moment, so no close order could be placed. Nothing was set. Try again shortly.',
   },
+  'trade.client_order_id_reserved': {
+    title: 'Choose another order name',
+    body: 'Names starting with risk-stop: belong to pre-liquidation stops. Nothing was placed.',
+    retryable: false,
+  },
   'trade.risk_stop_closing': {
     title: 'The stop is closing this position now',
     body: 'Its close order is in the book. Changing the stop is off until it finishes; follow it on the Orders tab.',

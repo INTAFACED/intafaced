@@ -462,6 +462,24 @@ describe('pre-liquidation stop', () => {
     expect(engine.submits).toHaveLength(3);
   });
 
+  it('a close order the trader takes off after the claim and before it fires clears the stop; nothing reads fired', async () => {
+    const positionId = await aliceLong();
+    const stops = stopService({
+      fire: async () => {
+        throw new Error('process died after the claim');
+      },
+    });
+    await stops.set(ALICE, positionId, { level: '50', clientRequestId: 'took-off-1' });
+    ratio = A('0.75');
+    await expect(stops.evaluate({ enabled: true })).rejects.toThrow('process died after the claim');
+    const [order] = (await orders.list(ALICE)).filter((o) => o.clientOrderId === `risk-stop:${positionId}:1`);
+    await orders.cancel(ALICE, order!.id);
+    expect(await stopService().evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await stopRows()).toMatchObject([{ status: 'cleared', level: null }]);
+    // The two opening orders only: nothing closed.
+    expect(engine.submits).toHaveLength(2);
+  });
+
   it('two ticks at once claim the stop once and write one close order', async () => {
     const positionId = await aliceLong();
     const stops = stopService();
@@ -501,6 +519,10 @@ describe('pre-liquidation stop', () => {
     await sql`UPDATE trade.positions SET status = 'closed', closed_at = now() WHERE id = ${positionId}`;
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
     expect(await stopRows()).toMatchObject([{ status: 'ended' }]);
+    // Its resting close order comes off with it: no live order is left for a position that is gone.
+    expect((await closeOrders()).filter((o) => o.client_order_id === `risk-stop:${positionId}:2`)).toMatchObject([
+      { status: 'cancelled', cancel_reason: 'position_gone' },
+    ]);
     expect(await refusal(stops.set(ALICE, positionId, { level: '40', clientRequestId: 'gen-3' }))).toBe('trade.position_not_open');
   });
 

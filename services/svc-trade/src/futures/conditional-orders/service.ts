@@ -30,6 +30,7 @@ import {
   priceOnProtectionSide,
   requestHash,
   requireClientKey,
+  RISK_STOP_CLIENT_PREFIX,
   triggerCrossed,
   validateConditional,
   type AttachmentLeg,
@@ -1383,7 +1384,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       WHERE o.status = 'armed'
         -- A pre-liquidation stop's close order rests here to be seen and claimed, but only its own tick fires it: that
         -- tick moves its trigger with the margin first, so a trigger left over from before a margin change never fires.
-        AND NOT starts_with(o.client_order_id, 'risk-stop:')
+        AND NOT starts_with(o.client_order_id, ${RISK_STOP_CLIENT_PREFIX})
       ORDER BY o.created_at, o.id
     `;
     let fired = 0;
@@ -1495,7 +1496,7 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         const claimed = await sql<{ id: string }[]>`
           UPDATE trade.futures_conditional_orders
           SET status = 'triggered', trigger_key = ${bookKey(resting.id)}, quantity = ${formatAmount(input.quantity)},
-              updated_at = now()
+              trigger_price = COALESCE(${input.mark == null ? null : formatAmount(input.mark)}, trigger_price), updated_at = now()
           WHERE id = ${resting.id} AND status = 'armed' AND trigger_key IS NULL
           RETURNING id
         `;
@@ -1542,7 +1543,18 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     triggerPrice: Amount | null;
     cancelReason: string;
   }): Promise<ConditionalOrderView | null> {
-    const prefix = `risk-stop:${input.positionId}:`;
+    const prefix = `${RISK_STOP_CLIENT_PREFIX}${input.positionId}:`;
+    // Re-checked inside each write, so a set() that committed a newer stop between the read below and a write here is
+    // seen by that write, and this caller's stale view changes nothing.
+    const stillStands = sql`EXISTS (
+      SELECT 1 FROM trade.futures_risk_stops s
+      WHERE s.position_id = ${input.positionId} AND s.user_id = ${input.userId}
+        AND ${
+          input.clientOrderId == null
+            ? sql`s.status <> 'armed'`
+            : sql`s.status = 'armed' AND s.close_client_order_id = ${input.clientOrderId}`
+        }
+    )`;
     // Only for the stop as it stands now: a caller that read an earlier stop (a tick racing a new level) changes nothing.
     const [current] = await sql<{ close_client_order_id: string | null; status: string }[]>`
       SELECT close_client_order_id, status FROM trade.futures_risk_stops
@@ -1559,6 +1571,9 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       WHERE user_id = ${input.userId} AND position_id = ${input.positionId} AND status = 'armed'
         AND starts_with(client_order_id, ${prefix})
         AND client_order_id IS DISTINCT FROM ${input.clientOrderId}
+        AND (${stillStands} OR NOT EXISTS (
+          SELECT 1 FROM trade.futures_risk_stops s WHERE s.position_id = ${input.positionId} AND s.user_id = ${input.userId}
+        ))
     `;
     if (input.clientOrderId == null) return null;
     const existing = await findByClient(input.userId, input.clientOrderId);
@@ -1568,11 +1583,12 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
         INSERT INTO trade.futures_conditional_orders (
           id, user_id, market_id, position_id, client_order_id, kind, side, quantity, trigger_price,
           trigger_source, reduce_only, attachment, part_leg, status, request_hash
-        ) VALUES (
+        )
+        SELECT
           ${randomUUID()}, ${input.userId}, ${input.marketId}, ${input.positionId}, ${input.clientOrderId}, 'stop_market',
           ${input.side}, ${formatAmount(input.quantity)}, ${formatAmount(input.triggerPrice)},
-          'mark', true, null, false, 'armed', ${`risk-stop:${input.clientOrderId}`}
-        )
+          'mark', true, null, false, 'armed', ${`${RISK_STOP_CLIENT_PREFIX}${input.clientOrderId}`}
+        WHERE ${stillStands}
         ON CONFLICT ON CONSTRAINT futures_conditional_orders_user_client_uq DO NOTHING
       `;
     } else if (existing.status === 'armed' && input.quantity > 0n) {

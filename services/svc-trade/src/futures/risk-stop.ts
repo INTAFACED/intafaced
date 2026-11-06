@@ -298,7 +298,7 @@ export function createRiskStopService(deps: RiskStopDeps) {
             status = 'armed',
             generation = trade.futures_risk_stops.generation + 1,
             client_request_id = EXCLUDED.client_request_id,
-            close_client_order_id = 'risk-stop:' || trade.futures_risk_stops.position_id || ':' || (trade.futures_risk_stops.generation + 1),
+            close_client_order_id = ${RISK_STOP_CLIENT_PREFIX} || trade.futures_risk_stops.position_id || ':' || (trade.futures_risk_stops.generation + 1),
             fired_ratio = NULL,
             fired_at = NULL,
             updated_at = now()
@@ -332,8 +332,8 @@ export function createRiskStopService(deps: RiskStopDeps) {
     if (input.enabled !== true) return { fired: 0 };
     let failure: unknown = null;
     let fired = 0;
-    const rows = await sql<(StopRow & { position_status: string })[]>`
-      SELECT s.*, p.status AS position_status
+    const rows = await sql<(StopRow & { position_status: string; market_id: string })[]>`
+      SELECT s.*, p.status AS position_status, p.market_id
       FROM trade.futures_risk_stops s
       JOIN trade.positions p ON p.id = s.position_id
       WHERE s.status IN ('armed', 'fired')
@@ -342,26 +342,36 @@ export function createRiskStopService(deps: RiskStopDeps) {
     for (const row of rows) {
       try {
         if (row.position_status !== 'open' && row.status === 'armed') {
-          // The position is gone. If the stop's own close order fired (the mark crossed its trigger), the stop fired and
-          // its close is what closed it; otherwise it closed or was liquidated some other way, and the stop has ended.
-          const own = row.close_client_order_id ? await deps.closeOrder(row.user_id, row.close_client_order_id) : null;
-          const firedOwn = own != null && own.status !== 'armed' && own.status !== 'cancelled';
-          const done = await sql<{ position_id: string }[]>`
-            UPDATE trade.futures_risk_stops
-            SET status = ${firedOwn ? (CLOSE_FINAL.has(own!.status) ? 'done' : 'fired') : 'ended'},
-                fired_at = CASE WHEN ${firedOwn} THEN now() ELSE fired_at END,
-                updated_at = now()
+          // The position closed or was liquidated some other way (only this tick fires the stop's close order, and a
+          // fired stop is no longer armed): the stop has ended, and its resting close order comes off with it.
+          await sql`
+            UPDATE trade.futures_risk_stops SET status = 'ended', updated_at = now()
             WHERE position_id = ${row.position_id} AND status = 'armed' AND generation = ${row.generation}
-            RETURNING position_id
           `;
-          if (firedOwn && done.length === 1) fired += 1;
+          await deps.sync({
+            userId: row.user_id,
+            marketId: row.market_id,
+            positionId: row.position_id,
+            clientOrderId: null,
+            side: 'sell',
+            quantity: 0n,
+            triggerPrice: null,
+            cancelReason: 'position_gone',
+          });
           continue;
         }
         if (row.status === 'fired') {
           // Claimed on an earlier tick. A crash may have come before its close order was fired: fire it now. Once it has
           // ended, the stop is done and no later tick reads it.
           const close = row.close_client_order_id ? await deps.closeOrder(row.user_id, row.close_client_order_id) : null;
-          if (close && CLOSE_FINAL.has(close.status)) {
+          if (close && close.status === 'cancelled' && close.closeOrderId == null) {
+            // The trader took the close order off after the claim and before it reached the book: nothing closed, so
+            // the stop is cleared with it rather than read as fired.
+            await sql`
+              UPDATE trade.futures_risk_stops SET status = 'cleared', level = NULL, updated_at = now()
+              WHERE position_id = ${row.position_id} AND status = 'fired' AND generation = ${row.generation}
+            `;
+          } else if (close && CLOSE_FINAL.has(close.status)) {
             await sql`
               UPDATE trade.futures_risk_stops SET status = 'done', updated_at = now()
               WHERE position_id = ${row.position_id} AND status = 'fired' AND generation = ${row.generation}
@@ -404,8 +414,7 @@ export function createRiskStopService(deps: RiskStopDeps) {
           `;
           continue;
         }
-        const crossed = close != null && close.status !== 'armed';
-        if (!crossed && !riskStopReached(figures, level)) {
+        if (!riskStopReached(figures, level)) {
           // Still resting: its trigger follows the mark at which the ratio reaches the level now (margin added or
           // taken, funding), and its size the position's; a missing order is written.
           await deps.sync({
@@ -420,8 +429,8 @@ export function createRiskStopService(deps: RiskStopDeps) {
           });
           continue;
         }
-        // The mark crossed the trigger (the conditional tick fired the close order), or the ratio reached the level
-        // before the trigger moved: the stop is claimed as fired, and its own close order closes the position.
+        // The ratio reached the level on fresh figures: the stop is claimed as fired, and its own close order closes the
+        // position.
         const claimed = await sql<{ position_id: string }[]>`
           UPDATE trade.futures_risk_stops
           SET status = 'fired',
@@ -434,7 +443,6 @@ export function createRiskStopService(deps: RiskStopDeps) {
         `;
         if (claimed.length === 0) continue;
         fired += 1;
-        if (crossed) continue;
         await deps.fire({
           userId: row.user_id,
           marketId: figures.marketId,
