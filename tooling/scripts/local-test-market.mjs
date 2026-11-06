@@ -11,6 +11,8 @@
  *   node tooling/scripts/local-test-market.mjs move <symbol> <+/-pct%>
  *                                    shifts that market's TEST PRICE by the percent from the next cycle on (0% clears it),
  *                                    so a journey can push a price out of a bot's range; the running loop picks it up.
+ *   node tooling/scripts/local-test-market.mjs unshift
+ *                                    clears every market's shift at once (the journeys put the price back between files).
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
@@ -203,6 +205,69 @@ export function buildLadder({ mid, tick, lot, minAmount, minCost, levels, halfSp
     }
   }
   return out;
+}
+
+/**
+ * A refused quote moved to the edge of the market's price band, or null (exported for tests). svc-trade refuses a buy
+ * priced above the band, or a sell below it, with `trade.price_band`, and its order check (POST /api/v1/orders/preview)
+ * names the band's edges (`refusals[].data`: low, high). The band is centred on the book's touch. So when the maker's own
+ * quotes are gone (it was stopped and started again) and someone else's order rests far off on one side, every quote at
+ * the walk's price on the other side is refused, every cycle, and that side of the book never comes back. (Failure it
+ * prevents: J-portfolio-04 #1–#7 on main, runs 1247 to 1265. A TEST buy rested at 80% of the BTC/USDT bid, J-ops-console-08
+ * #7 stopped and restarted the maker, and the maker's bids stayed refused. With no bids, the band's buy edge sat under the
+ * best ask, so no buy could take it.) A quote at the band's edge rests and moves the touch toward the walk, and the next
+ * cycle's ladder fits. A buy moved down keeps its notional (more of the base, on the lot), so it stays above the market's
+ * minimum cost. No edge named, or an edge not nearer the book than the refused price, gives null.
+ */
+export function bandEdgeQuote(quote, band, { tick, lot }) {
+  const named = quote.side === 'buy' ? band?.high : band?.low;
+  if (typeof named !== 'string' || !/^\d+(\.\d+)?$/.test(named)) return null;
+  const price = toScaled(quote.price);
+  const edge = quote.side === 'buy' ? floorTo(toScaledFloor(named), tick) : ceilTo(toScaledFloor(named), tick);
+  if (edge <= 0n || (quote.side === 'buy' ? edge >= price : edge <= price)) return null;
+  const amount = quote.side === 'buy' ? ceilTo((price * toScaled(quote.amount)) / edge, lot) : toScaled(quote.amount);
+  return { ...quote, price: fromScaled(edge), amount: fromScaled(amount) };
+}
+
+/**
+ * The maker quote a crossing trade meets, or null (exported for tests). It is the other side's level-0 quote of this
+ * cycle's ladder, resting at the ladder's own price and amount, and only when the book's top level on that side, read
+ * just before the crossing, is exactly that quote: the same price and the same size. The taker's IOC takes every order
+ * at that price or better, best first, so with anything else at or ahead of the maker's quote (a person's order one cent
+ * above the best bid, a person's order at the same price queued first, or the maker's quote part-filled), it would
+ * trade with someone other than the maker. Then there is no crossing. (Failure it prevents: run 42171557580, J-cex-spot-01
+ * #7 to #11, a person's TEST buy one cent above the best bid part-filled by test_taker. Main's crossing priced at the
+ * level-0 quote whether or not anything was ahead of it, and this head's earlier fallback to a deeper resting quote
+ * swept further.)
+ */
+export function crossingQuote(ladder, resting, side, book) {
+  const want = side === 'buy' ? 'sell' : 'buy';
+  const top = ladder.find((q) => q.level === 0 && q.side === want);
+  if (!top) return null;
+  const same = (x, y) => {
+    try {
+      return toScaled(String(x)) === toScaled(String(y));
+    } catch {
+      return false;
+    }
+  };
+  if (!resting.some((q) => q.side === want && q.level === 0 && same(q.price, top.price) && same(q.amount, top.amount))) return null;
+  const level = (want === 'buy' ? book?.bids : book?.asks)?.[0];
+  if (!Array.isArray(level) || !same(level[0], top.price) || !same(level[1], top.amount)) return null;
+  return top;
+}
+
+/** The price band svc-trade's order check names for this order ({ low, high }), or null when it names none. */
+async function bandOf(client, m, side, price, amount) {
+  const r = await client
+    .http('POST', '/api/v1/orders/preview', { symbol: m.symbol, type: 'limit', side, amount, price, timeInForce: 'GTC', postOnly: true })
+    .catch((err) => {
+      // The stack's guard refusing (a service restarting) stops the cycle, as for every other write (#7110).
+      if (stackNotActive(err)) throw err;
+      return null;
+    });
+  const refusal = (r?.status === 200 && Array.isArray(r.json?.refusals) ? r.json.refusals : []).find((x) => x?.code === 'trade.price_band');
+  return refusal?.data ?? null;
 }
 
 // ── TEST PRICE table: invented, illustrative starting points ────────────────
@@ -639,7 +704,7 @@ function parseArgs(argv) {
     else if (!a.startsWith('--'))
       // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
       die(
-        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move (for example: pnpm local:market ${a})`,
+        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move | unshift (for example: pnpm local:market ${a})`,
         2,
       );
   }
@@ -858,21 +923,33 @@ async function runLoop(opts, home) {
         }
         if (shift !== undefined) quotedShift.set(m.symbol, shift);
         const ids = [];
-        let rested = 0;
+        /** The quotes that rest, at the price each went in at (a band-refused one at the band's edge). */
+        const resting = [];
         let refused = null;
         for (const q of ladder) {
           // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
           // that level is quoted again next cycle.
-          const r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
+          let quote = q;
+          let r = await place(maker, m, q.side, q.price, q.amount, jump ? 'GTC-TAKE' : 'GTC');
+          // A quote the price band refused goes in at the band's edge instead, so a side the band shut can come back.
+          if (!m.swap && r.status >= 300 && r.json?.intafacedCode === 'trade.price_band') {
+            const band = await bandOf(maker, m, q.side, q.price, q.amount);
+            const edged = bandEdgeQuote(q, band, { tick: m.tick, lot: m.lot });
+            if (edged) {
+              log(`${m.symbol} ${q.side} ${q.price} refused by the price band; quoted at its edge ${edged.price}`);
+              quote = edged;
+              r = await place(maker, m, edged.side, edged.price, edged.amount, jump ? 'GTC-TAKE' : 'GTC');
+            } else log(`${m.symbol} ${q.side} ${q.price} refused by the price band; the order check named no edge to quote at`);
+          }
           if (r.status === 201 && r.json?.id) {
             ids.push(r.json.id);
             // A post-only quote that would take is answered 201 but not open: it does not rest. A jump's quote may fill.
-            if (r.json.status === 'open') rested += 1;
+            if (r.json.status === 'open') resting.push(quote);
             else if (r.json.status !== 'closed')
               refused = `${r.status} ${r.json.status} ${(r.json.rejectCode ?? '').toString().slice(0, 120)}`.trim();
           } else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) {
             ids.push(r.json.orderId);
-            rested += 1;
+            resting.push(quote);
           } else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
         }
         // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
@@ -885,6 +962,7 @@ async function runLoop(opts, home) {
           if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
         }
         quoted.set(m.symbol, [...ids, ...stale]);
+        const rested = resting.length;
         log(
           `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
         );
@@ -893,11 +971,23 @@ async function runLoop(opts, home) {
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
           // every crossing then failed with 400 ledger.insufficient_funds).
           const n = (crossings.get(m.symbol) ?? 0) + 1;
-          crossings.set(m.symbol, n);
-          const side = crossingSide(n);
           // Top the taker up through the real ledger if either leg is under half its target.
           await ensureFunds(taker, 'taker', [m.base, m.quote], 10).catch((err) => log(`taker top-up failed: ${err.message}`));
-          const best = ladder.find((q) => q.level === 0 && q.side === (side === 'buy' ? 'sell' : 'buy'));
+          // The book's top on both sides, read just before the crossing, so it meets only the maker's own quote.
+          const book = await maker
+            .http('GET', `/api/v1/orderbook/${encodeURIComponent(m.symbol)}?limit=1`, null, { auth: false })
+            .catch(() => null);
+          // This crossing's side first; if it can't meet only the maker, the other side, so one side the maker can't
+          // cross on doesn't stop the tape.
+          const turn = [n, n + 1].find((k) => crossingQuote(ladder, resting, crossingSide(k), book?.status === 200 ? book.json : null));
+          if (turn === undefined) {
+            log(`${m.symbol} no crossing this cycle: the book's top is not the maker's own level-0 quote on either side`);
+            continue;
+          }
+          const side = crossingSide(turn);
+          const best = crossingQuote(ladder, resting, side, book.json);
+          // Counted only once placed, as the side placed: buys and sells still alternate.
+          crossings.set(m.symbol, turn);
           const r = await place(taker, m, side, best.price, best.amount, 'IOC');
           const why = r.status === 201 ? '' : ` (${(r.json?.intafacedCode ?? r.json?.code ?? r.text).toString().slice(0, 120)})`;
           log(`${m.symbol} crossing trade by test_taker: ${side} ${best.amount} @ ${best.price} -> HTTP ${r.status}${why}`);
@@ -1482,6 +1572,15 @@ async function main() {
     process.exit(await runLoop({ ...opts, ...(cmd === 'check' ? { seconds: 2 } : {}) }, os.homedir()));
   }
   if (cmd === 'history') process.exit(await runHistory(opts, os.homedir()));
+  if (cmd === 'unshift') {
+    // Every `move` cleared at once, so a journey file that moved a price and stopped part-way leaves no shift for the
+    // next file (journey.mjs, worldBetweenFiles). The running loop quotes the walk again from its next cycle.
+    const shifts = readShifts(p);
+    const cleared = [...shifts.keys()];
+    fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(p.shiftFile, JSON.stringify({}), { mode: 0o600 });
+    return console.log(cleared.length ? `TEST PRICE shift cleared for ${cleared.join(', ')}` : 'no TEST PRICE shift to clear');
+  }
   if (cmd === 'move') {
     const [symbol, pct] = rest;
     const bps = parseShift(pct);
@@ -1509,7 +1608,7 @@ async function main() {
     console.log(`was running (pid ${rec.pid}) and is not now; starting it again with the same options`);
     return startBackground(p, rec.args ?? [], { wait: false });
   }
-  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move`, 2);
+  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift`, 2);
   await startBackground(p, rest, { wait: true });
 }
 
