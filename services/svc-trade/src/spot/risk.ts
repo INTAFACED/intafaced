@@ -232,7 +232,7 @@ export function assertMarketOpen(market: Market, at: Date): void {
  * predict, or it reaches the engine unfunded — and an unfunded order in the
  * book is the one thing this whole design exists to prevent. The fix is a
  * trigger-time funding callback from the engine, which is a change to
- * svc-matching's contract and therefore its own PR (§15.2).
+ * svc-matching's contract (it may land in the journey's PR).
  */
 export function requireSupportedType(type: string): OrderType {
   if (!SUPPORTED_TYPES.has(type)) {

@@ -45,6 +45,9 @@ export const OWN_AGENT_CHILD_TABLES = [
   'own_agent_limits',
   'own_agent_usage_alerts',
   'own_agent_usage_limits',
+  // A review may name the approval request its call became, so reviews go first.
+  'own_agent_reviews',
+  'own_agent_reviewer_settings',
   'own_agent_approval_requests',
   'own_agent_rules',
   'own_agent_consents',

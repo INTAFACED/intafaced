@@ -2052,8 +2052,8 @@ export class TokenService {
     // event-wiring is red for that missing publisher on purpose. The repo
     // pattern is a WIRING_SOCKETS missing-publisher row in
     // packages/events/src/catalog.ts ("publisher waits on a buyback recipe").
-    // Exclusive this service cannot add it (one service per PR; that file is
-    // a second package). Clear the gate in a packages/events PR, or restore
+    // This service does not add it here (that file is a shared package).
+    // Clear the gate with a packages/events change, or restore
     // the publisher here only after a recipe actually posts.
     return this.refuseUnbookedBuyback(claimed.id, input.runId, input.tokensBought, { fresh: claimed.fresh });
   }
@@ -2067,7 +2067,7 @@ export class TokenService {
    * burn fails closed (insufficient funds), never a fee-funded fake buy.
    *
    * Does not emit `buybackExecuted` (WIRING_SOCKETS publisher is a
-   * packages/events PR).
+   * packages/events change).
    */
   async settleBuybackFill(input: {
     runId: string;

@@ -7,6 +7,7 @@ import { stamp } from '../../screens/money/time';
 import { usePreferences } from '../../shared/preferences';
 import { devicesCopy as copy } from './devices-copy';
 import { byFamily, deviceName, deviceList, familyEnded, othersEnded } from './devices-api';
+import { idleSince } from './identity-session-guards';
 
 const LIMIT = 100;
 
@@ -23,6 +24,7 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
   const [asking, setAsking] = useState(false);
   const [failure, setFailure] = useState<Extract<ApiResult<unknown>, { ok: false }> | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [showIdle, setShowIdle] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -61,6 +63,11 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
   if (!resource.data) return null;
   const devices = byFamily(resource.data.sessions);
   const others = devices.filter((device) => !device.isCurrent).length;
+  const now = Date.now();
+  // A device not used for a day folds behind "Show more" (journey J-identity-06 #1); this device never folds.
+  const idle = (device: (typeof devices)[number]) => !device.isCurrent && idleSince(device.lastUsedAt, now);
+  const folded = devices.filter(idle).length;
+  const shown = showIdle ? devices : devices.filter((device) => !idle(device));
   return (
     <section data-testid="security__card" className="security__devices security__card" aria-label={t('title')} lang={languageFor('title')}>
       <h2>{t('title')}</h2>
@@ -75,7 +82,7 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
         <EmptyState title={t('empty')} />
       ) : (
         <ul data-testid="security__rows" className="security__rows">
-          {devices.map((device) => {
+          {shown.map((device) => {
             const name = deviceName(device) ?? t('unknownDevice');
             return (
               <li key={device.familyId} data-testid="security__row" className="security__row">
@@ -113,6 +120,11 @@ export function Devices({ onChanged }: { onChanged?: () => void }) {
             );
           })}
         </ul>
+      )}
+      {folded > 0 && (
+        <Button variant="ghost" aria-expanded={showIdle} onClick={() => setShowIdle((value) => !value)}>
+          {showIdle ? t('showFewer') : t('showMore', { count: folded })}
+        </Button>
       )}
       {devices.length >= LIMIT && <p className="muted">{t('window', { limit: LIMIT })}</p>}
       <div className="actions">

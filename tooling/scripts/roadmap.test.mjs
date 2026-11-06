@@ -14,6 +14,7 @@ import {
   liveJourneys,
   parkedJourneys,
   parseJourneys,
+  sliceIdCandidates,
   parseSpec,
   passedSteps,
   progress,
@@ -409,4 +410,54 @@ test('a step whose Slices cell is empty counts as NO-SLICE; a journey id used tw
     writeFileSync(join(dir, 'modules', m, 'acceptance', 'journeys.md'), '## J-a-01: x\n- Order: 1\n');
   }
   assert.throws(() => buildJourneys(dir), /journey id J-a-01 is used twice/);
+});
+
+test('a step names upper-case and one-segment slice ids (OPS-ORD-01, LOAN-03), and only ids that are a slice heading', () => {
+  const text = [
+    '## J-a-01: x',
+    '- Order: 1',
+    '| 1 | does | sees | OPS-ORD-01 | none |',
+    '| 2 | does | sees | LOAN-03, CS-orders-02 | none |',
+    // Requirement ids share the shape (TRD-0082, ORD-001); with the headings known they are not slices.
+    '| 3 | does | sees | TRD-0082 ORD-001 | none |',
+    '| 4 | does | sees | NO-SLICE | none |',
+  ].join('\n');
+  const known = new Set(['OPS-ORD-01', 'LOAN-03', 'CS-orders-02']);
+  const [j] = parseJourneys(text, 'a', known);
+  assert.deepEqual(
+    j.steps.map((s) => [s.n, s.slices, s.noSlice]),
+    [
+      [1, ['OPS-ORD-01'], false],
+      [2, ['LOAN-03', 'CS-orders-02'], false],
+      [3, [], true],
+      [4, [], true],
+    ],
+  );
+  // From a spec folder: buildJourneys knows the slices from the spec headings.
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-'));
+  mkdirSync(join(dir, 'modules', 'a', 'acceptance'), { recursive: true });
+  mkdirSync(join(dir, 'modules', 'a', 'specs'), { recursive: true });
+  writeFileSync(join(dir, 'modules', 'a', 'acceptance', 'journeys.md'), text);
+  writeFileSync(join(dir, 'modules', 'a', 'specs', 'a-ops.md'), '### OPS-ORD-01. One\n\n### LOAN-03. Two\n');
+  const [built] = buildJourneys(dir);
+  assert.deepEqual(
+    built.steps.map((s) => s.slices),
+    [['OPS-ORD-01'], ['LOAN-03'], [], []],
+  );
+});
+
+test('a joined range names both slices; an id may touch `_`; a requirement id inside an id is not a slice', () => {
+  assert.deepEqual(
+    sliceIdCandidates('bots engine (CB-bots-02-CB-bots-19); feed').filter((id) => /^CB-bots-\d+$/.test(id)),
+    ['CB-bots-02', 'CB-bots-19'],
+  );
+  assert.deepEqual(sliceIdCandidates('_BK-loan-01_', { longest: true }), ['BK-loan-01']);
+  assert.deepEqual(sliceIdCandidates('see OPS-ORD-01.', { longest: true }), ['OPS-ORD-01']);
+  const known = new Set(['CB-copy-20', 'CB-bots-02', 'CB-bots-19']);
+  assert.deepEqual(dependsOn('bots engine (CB-bots-02-CB-bots-19); derivatives liquidation feed.', known, 'CB-copy-20'), [
+    'CB-bots-02',
+    'CB-bots-19',
+  ]);
+  const [j] = parseJourneys(['## J-a-01: x', '- Order: 1', '| 1 | does | sees | CB-bots-02-CB-bots-19 | none |'].join('\n'), 'a', known);
+  assert.deepEqual(j.steps[0].slices, ['CB-bots-02', 'CB-bots-19']);
 });

@@ -2302,7 +2302,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 0
+    "order": 2
   },
   {
     "id": "LOAN-02",
@@ -2312,12 +2312,13 @@
     "spec": "modules/bank/specs/LOAN-SLICES.md",
     "lane": "admin: ops-desk",
     "touches": ["admin: ops-desk"],
-    "depends": [],
+    "depends": ["LOAN-01"],
     "journeys": [],
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 0
+    "order": 2,
+    "later": ["LOAN-04"]
   },
   {
     "id": "LOAN-03",
@@ -2327,12 +2328,12 @@
     "spec": "modules/bank/specs/LOAN-SLICES.md",
     "lane": "customer: money",
     "touches": ["customer: money", "customer: notifications"],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-02"],
     "journeys": [],
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 0
+    "order": 2
   },
   {
     "id": "LOAN-04",
@@ -2342,12 +2343,12 @@
     "spec": "modules/bank/specs/LOAN-SLICES.md",
     "lane": "admin: ops-desk",
     "touches": ["admin: ops-desk"],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-02", "LOAN-03"],
     "journeys": [],
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 0
+    "order": 2
   },
   {
     "id": "LOAN-05",
@@ -2357,12 +2358,12 @@
     "spec": "modules/bank/specs/LOAN-SLICES.md",
     "lane": "admin: ops-desk",
     "touches": ["admin: ops-desk"],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-04"],
     "journeys": [],
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 0
+    "order": 2
   },
   {
     "id": "LOAN-06",
@@ -2372,12 +2373,12 @@
     "spec": "modules/bank/specs/LOAN-SLICES.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "admin: ops-desk"],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-03", "LOAN-04", "LOAN-05"],
     "journeys": [],
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 0
+    "order": 2
   },
   {
     "id": "LOAN-07",
@@ -2387,12 +2388,12 @@
     "spec": "modules/bank/specs/LOAN-SLICES.md",
     "lane": "svc-bank",
     "touches": [],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-04", "LOAN-06"],
     "journeys": [],
     "outside": "",
     "size": "S",
     "families": 0,
-    "order": 0
+    "order": 2
   },
   {
     "id": "BK-acct-01",
@@ -3268,7 +3269,7 @@
     "spec": "modules/bank/specs/bank-loans.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-edge", "customer: money"],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-02"],
     "journeys": [],
     "outside": "",
     "size": "L",
@@ -3283,7 +3284,7 @@
     "spec": "modules/bank/specs/bank-loans.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "admin: ops-desk"],
-    "depends": [],
+    "depends": ["LOAN-02"],
     "journeys": [],
     "outside": "",
     "size": "L",
@@ -3298,7 +3299,7 @@
     "spec": "modules/bank/specs/bank-loans.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "packages/ledger-client", "customer: money"],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-03"],
     "journeys": [],
     "outside": "",
     "size": "L",
@@ -3313,7 +3314,7 @@
     "spec": "modules/bank/specs/bank-loans.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "svc-notify", "customer: money"],
-    "depends": [],
+    "depends": ["LOAN-03", "LOAN-04", "LOAN-06"],
     "journeys": [],
     "outside": "",
     "size": "L",
@@ -3328,7 +3329,7 @@
     "spec": "modules/bank/specs/bank-loans.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money"],
-    "depends": [],
+    "depends": ["LOAN-01", "LOAN-05", "LOAN-07"],
     "journeys": [],
     "outside": "",
     "size": "L",
@@ -3343,7 +3344,7 @@
     "spec": "modules/bank/specs/bank-loans.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "customer: money"],
-    "depends": ["BK-acct-07"],
+    "depends": ["BK-acct-07", "LOAN-05"],
     "journeys": [],
     "outside": "",
     "size": "M",
@@ -3358,7 +3359,7 @@
     "spec": "modules/bank/specs/bank-loans.md",
     "lane": "svc-bank",
     "touches": ["svc-bank", "admin: ops-desk"],
-    "depends": [],
+    "depends": ["LOAN-02"],
     "journeys": [],
     "outside": "",
     "size": "M",
@@ -4590,7 +4591,7 @@
     "spec": "modules/cex-spot/specs/recon-2026-10-20.md",
     "lane": "svc-ops",
     "touches": ["svc-ops", "packages/contracts"],
-    "depends": [],
+    "depends": ["OPS-ORD-01"],
     "journeys": ["trader"],
     "outside": "",
     "size": "M",
@@ -15929,7 +15930,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 0
+    "order": 1
   },
   {
     "id": "OPS-ORD-02",
@@ -15939,12 +15940,13 @@
     "spec": "modules/ops-console/specs/ops-ORD.md",
     "lane": "admin: jurisdiction-board",
     "touches": ["admin: jurisdiction-board", "admin: founder-ops"],
-    "depends": ["OPS-admin-access-07"],
+    "depends": [],
     "journeys": [],
     "outside": "`vendor.kyc` (KYB and KYC vendor) for a vendor-backed KYB read until a vendor exists; the list and the screens are built.",
     "size": "L",
     "families": 0,
-    "order": 0
+    "order": 2,
+    "later": ["OPS-admin-access-07"]
   },
   {
     "id": "OPS-accounts-desk-01",
@@ -16099,7 +16101,7 @@
     "spec": "modules/ops-console/specs/ops-admin-access.md",
     "lane": "svc-pay merchant",
     "touches": ["svc-pay", "packages/config", "admin: compliance-live", "admin: as-of"],
-    "depends": [],
+    "depends": ["OPS-ORD-02"],
     "journeys": [],
     "outside": "`vendor.aml` for the provider call.",
     "size": "M",
@@ -17113,7 +17115,7 @@
     "spec": "modules/ops-console/specs/ops-service-health.md",
     "lane": "admin: module-state-inspector",
     "touches": ["admin: module-state-inspector", "admin: ops-desk", "admin: trade-ops"],
-    "depends": ["OPS-dashboards-01"],
+    "depends": ["OPS-ORD-01", "OPS-dashboards-01"],
     "journeys": [],
     "outside": "",
     "size": "L",

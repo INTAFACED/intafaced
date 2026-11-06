@@ -86,7 +86,7 @@ installMmp();
  * `cancel`, and native `amend` — already narrow, already decimal strings. A
  * `.proto` in `packages/contracts` and a thin server in front of the same
  * `MatchingEngine` is the whole change; nothing in `engine/` moves. That proto
- * is a contracts PR (§15.2) and therefore cannot ship in this one.
+ * is a `packages/contracts` change, which may ship with this service's change.
  */
 
 /** Decimal string. Reusing the exchange contract's rule rather than inventing a second one. */

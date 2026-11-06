@@ -66,6 +66,11 @@
       "value": "test-engine",
       "note": "LOCAL TEST: the drafting assistant on the TEST engine, which drafts by rule and calls no model (AG-builder-03; J-agents-03 #6). Not the owner's model choice; production stays blank and drafting refuses owner.decision. LOCAL_STACK_AGENTS_ASSISTANT_MODEL=off leaves it blank."
     },
+    "AGENTS_REVIEWER_MODEL": {
+      "service": "agents",
+      "value": "test-engine",
+      "note": "LOCAL TEST: the automatic reviewer of own agents on the TEST engine, which reviews by rule and calls no model (AG-approvals-02; J-agents-05 #7). Not the owner's model choice; production stays blank and every call the reviewer would decide goes to the person (owner.decision). LOCAL_STACK_AGENTS_REVIEWER_MODEL=off leaves it blank."
+    },
     "AGENTS_APPROVAL_TTL_SECONDS": {
       "service": "agents",
       "value": "3600",

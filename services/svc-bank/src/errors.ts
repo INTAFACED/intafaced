@@ -303,6 +303,36 @@ export type BankErrorCode =
   | 'bank.card_command_conflict'
   /** A replacement id was reused for a different card, or the reason disagreed. */
   | 'bank.card_replace_conflict'
+  /** The owner has not published a cashback rate for this rank card tier. */
+  | 'bank.cashback_rate_unset'
+  /** The rank service could not say which card tier this person has. */
+  | 'bank.rank_unavailable'
+  /** The owner has not published the card programme (countries, card limits, terms), so no card can be ordered. */
+  | 'bank.card_eligibility_unset'
+  /** Cards are not offered to residents of the country given. */
+  | 'bank.card_not_eligible'
+  /** The person already holds as many active cards of this kind as the programme allows. */
+  | 'bank.card_count_limit'
+  /** A use limit is a whole number of payments, at least one, on a virtual card. */
+  | 'bank.card_use_limit_invalid'
+  /** The cardholder terms of the current version have not been accepted. */
+  | 'bank.card_terms_not_accepted'
+  /** The terms accepted are not the version or text published now. */
+  | 'bank.card_terms_changed'
+  /** The design is not one of the programme’s designs. */
+  | 'bank.card_design_unknown'
+  /** The delivery speed is not one the programme offers. */
+  | 'bank.card_delivery_speed_unknown'
+  /** A physical card is not delivered to the country of this address. */
+  | 'bank.card_delivery_country'
+  /** The card is virtual, so it has no delivery. */
+  | 'bank.card_not_physical'
+  /** The card is already produced, so its delivery address can no longer change. */
+  | 'bank.card_address_locked'
+  /** A delivery moves forward only: ordered, produced, shipped, delivered. */
+  | 'bank.card_shipment_order'
+  /** No printer or courier is connected (hardware); only the test stand-in reports a delivery. */
+  | 'bank.card_printer_unset'
   /**
    * No live issuer can return a PAN. card-sim has no card number.
    * The missing piece is `socket.live-issuer`.
@@ -836,6 +866,14 @@ export type BankErrorCode =
   | 'bank.statement_unavailable'
   /** A balance snapshot at a past date needs a past-balance read the ledger does not offer yet (PF-statements-01). */
   | 'bank.statement_balances_unavailable'
+  /** Background exports are not switched on in this deployment: no worker interval or claim lease is set (PF-statements-02). */
+  | 'bank.statement_jobs_unset'
+  /** No export job of the caller's with that id (PF-statements-02). */
+  | 'bank.statement_job_not_found'
+  /** The export job has no file yet: it is queued, rendering or failed (PF-statements-02). */
+  | 'bank.statement_job_not_ready'
+  /** A background export asked for dates that have not ended yet (PF-statements-02). */
+  | 'bank.statement_job_unfinished'
   /** A desk read of a customer's balances could not be recorded, so it was not made. */
   | 'bank.ops_audit_unavailable'
   /** New borrowing or new supply is paused for this asset by the desk (BK-loan-07). Repay and withdraw still work. */

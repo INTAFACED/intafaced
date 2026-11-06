@@ -63,8 +63,8 @@ export interface MatchedFillsSink {
  * that only funded one trade.
  *
  * This service publishes NO subject of its own. `intafaced.trade.*` does not
- * exist in `packages/events/src/catalog.ts`, and adding one is a contracts PR
- * that comes first (§15.2) — so the only thing emitted from here is
+ * exist in `packages/events/src/catalog.ts`, and adding one is a
+ * `packages/events` change — so the only thing emitted from here is
  * `intafaced.identity.xp.earned`, which the catalog already declares and which
  * §5.2 asks for per filled order.
  */

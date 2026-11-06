@@ -215,6 +215,9 @@ const messages = {
   'Payment reminders and notification choices': 'Payment reminders and notification choices',
   'Apply for a loan': 'Apply for a loan',
   'Collateral needed, conditions and fees for a new loan': 'Collateral needed, conditions and fees for a new loan',
+  'Get a card': 'Get a card',
+  'Cards on offer where you live, the cardholder terms and a new card':
+    'Cards on offer where you live, the cardholder terms and a new card',
   'Loan details': 'Loan details',
   'Earn pool': 'Earn pool',
   'One pool’s terms, rate history and your savings in it': 'One pool’s terms, rate history and your savings in it',
@@ -663,6 +666,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Payment reminders and notification choices': 'Recordatorios de pago y preferencias de notificación',
     'Apply for a loan': 'Solicitar un préstamo',
     'Collateral needed, conditions and fees for a new loan': 'Garantía necesaria, condiciones y comisiones de un préstamo nuevo',
+    'Get a card': 'Pedir una tarjeta',
+    'Cards on offer where you live, the cardholder terms and a new card':
+      'Tarjetas disponibles donde vives, las condiciones del titular y una tarjeta nueva',
     'Loan details': 'Detalles del préstamo',
     'Earn pool': 'Fondo de rendimiento',
     'One pool’s terms, rate history and your savings in it': 'Las condiciones de un fondo, el historial de su tipo y tus ahorros en él',
@@ -1037,6 +1043,9 @@ export const navigationCopy: ReturnType<typeof defineCopy<typeof messages>> = de
     'Payment reminders and notification choices': 'Rappels de paiement et choix de notification',
     'Apply for a loan': 'Demander un prêt',
     'Collateral needed, conditions and fees for a new loan': 'Garantie nécessaire, conditions et frais d’un nouveau prêt',
+    'Get a card': 'Obtenir une carte',
+    'Cards on offer where you live, the cardholder terms and a new card':
+      'Cartes proposées là où vous vivez, les conditions du titulaire et une nouvelle carte',
     'Loan details': 'Détails du prêt',
     'Earn pool': 'Fonds de rendement',
     'One pool’s terms, rate history and your savings in it': 'Les conditions d’un fonds, l’historique de son taux et ton épargne dedans',

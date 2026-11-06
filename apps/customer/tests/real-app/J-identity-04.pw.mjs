@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
+import { ORIGIN, ROOT, mailedLines, signUpInBrowser } from './stack.mjs';
 import { PASSKEY_ORIGIN, addAuthenticator, addPasskey, forgetSession, nextCode, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
@@ -259,7 +259,7 @@ test(`${J}, part of #5: when the confirmation's answer is lost, the recovery cod
   await expect(recovery).toHaveCount(0);
 });
 
-test(`${J}, part of #8: the anti-phishing code sets with a confirmation, rides on an account email, refuses the handle, changes and goes`, async ({
+test(`${J} #8 the anti-phishing code sets with a confirmation, rides on later security mails, refuses the handle, is never shown signed out, changes and goes`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -324,6 +324,57 @@ test(`${J}, part of #8: the anti-phishing code sets with a confirmation, rides o
     return mailedLines(who.email, 'signup-existing').at(-1);
   }
   expect(await noticeMail()).toMatch(new RegExp(` anti_phishing=${code}$`));
+
+  // A later security mail carries it too: a password reset asked for from a signed-out browser.
+  const resets = mailedLines(who.email, 'password-reset').length;
+  const out = await page.context().browser().newPage({ baseURL: PASSKEY_ORIGIN });
+  try {
+    await out.goto('/findPwd');
+    await out.getByLabel('Email address', { exact: true }).fill(who.email);
+    await out.getByRole('button', { name: 'Send reset code' }).click();
+    await expect(out.getByLabel('Code from the email')).toBeVisible();
+    await expect.poll(() => mailedLines(who.email, 'password-reset').length, { timeout: 30_000 }).toBeGreaterThan(resets);
+    expect(mailedLines(who.email, 'password-reset').at(-1)).toMatch(new RegExp(` anti_phishing=${code}$`));
+    expect(await out.content()).not.toContain(code);
+  } finally {
+    await out.close();
+  }
+
+  // It is never shown signed out. The browser's own read of the code carries its session; replayed while signed in it
+  // answers the code. Once the owner signs out from the menu, the same browser gets the sign-in panel on Security, no
+  // card and nothing in the page or its storage, and identity refuses that same session's read.
+  const own = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith('/profile.antiPhishing.get'));
+  await page.reload();
+  const authorization = (await own).headers().authorization;
+  expect(authorization).toMatch(/^Bearer \S+$/);
+  const read = () => page.request.get('/api/identity/trpc/profile.antiPhishing.get', { headers: { origin: ORIGIN, authorization } });
+  const signedIn = await read();
+  expect(signedIn.status()).toBe(200);
+  expect(await signedIn.text()).toContain(code);
+  await page.goto('/home');
+  await page.getByRole('button', { name: 'Account menu' }).click();
+  await page.getByRole('button', { name: 'Sign out' }).click();
+  await expect(page).toHaveURL((url) => url.pathname === '/');
+  await page.goto('/uc/safe');
+  await expect(page.getByRole('heading', { name: 'Sign in to continue' })).toBeVisible();
+  await expect(card).toHaveCount(0);
+  expect(await page.content()).not.toContain(code);
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }))).not.toContain(code);
+  const afterSignOut = await read();
+  expect(afterSignOut.status()).toBe(401);
+  expect(await afterSignOut.text()).not.toContain(code);
+
+  // Signed in again, the card reads it back.
+  await page.getByRole('main').getByRole('link', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fuc%2Fsafe/);
+  const again = await nextCode(totp, secret, step);
+  step = again.step;
+  await page.fill('input[name=totp]', again.code);
+  await page.fill('input[name=identifier]', who.email);
+  await page.fill('input[name=password]', who.password);
+  await page.getByRole('button', { name: /^sign in$/i }).click();
+  await expect(page).toHaveURL(/\/uc\/safe$/);
+  await expect(card).toContainText(`Your code: ${code}`);
 
   const changed = `Heron${randomBytes(3).toString('hex')}`;
   await card.getByRole('button', { name: 'Change the code' }).click();
