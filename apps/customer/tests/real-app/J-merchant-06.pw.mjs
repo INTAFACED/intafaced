@@ -39,8 +39,15 @@ const totpOf = async () => (await import(path.join(ROOT, 'services/svc-identity/
 async function signIn(page, key, destination) {
   const state = run.read();
   const who = { ...state[key], totp: await totpOf() };
-  await signInWithCode(page, who, destination);
-  run.write({ [key]: saved(who) });
+  // Signed in on the room's own path, then sent to the address with its query (the helper matches a plain path). The
+  // code's step is kept even when the sign-in fails, so no authenticator code is used twice.
+  const [plain, query] = destination.split('?');
+  try {
+    await signInWithCode(page, who, plain);
+  } finally {
+    run.write({ [key]: saved(who) });
+  }
+  if (query) await page.goto(destination);
   return who;
 }
 
@@ -276,7 +283,7 @@ test(`${J} #2 confirms it's them, reviews and sends: a fresh confirmation before
   await review.getByRole('button', { name: 'Confirm refund' }).click();
   // The confirmation ran out: it is asked for again, then the same review goes out.
   await confirmItsYou(page, 'owner');
-  await expect(page.getByText('Refund recorded')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Refund recorded' })).toBeVisible({ timeout: 30_000 });
 
   const refundCalls = sent.filter((s) => s.path.endsWith('/payment.refund'));
   expect(refundCalls).toHaveLength(2);
@@ -308,6 +315,9 @@ test(`${J} #3 the send reply is lost: the page says the outcome is unknown, reus
     await route.fetch();
     await route.abort('connectionreset');
   });
+  // The network is down for the first look back too: the page cannot yet tell what happened.
+  let historyDown = true;
+  await page.route('**/api/pay/trpc/payment.history*', (route) => (historyDown ? route.abort('connectionreset') : route.continue()));
   await signIn(page, 'owner', `/pay/refunds/new?payment=${payments.lost}`);
   await page.getByLabel(`Refund amount (${ASSET})`).fill('20');
   await page.getByRole('button', { name: 'Review refund' }).click();
@@ -315,20 +325,24 @@ test(`${J} #3 the send reply is lost: the page says the outcome is unknown, reus
   await page.getByRole('dialog', { name: 'Review refund' }).getByRole('button', { name: 'Confirm refund' }).click();
   await expect(page.getByText('Refund outcome unknown')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByLabel(`Refund amount (${ASSET})`)).toHaveCount(0);
-  // A reload keeps it: the stored request id, and no new review.
+  // A reload keeps it: the stored request id, and no new review (the network is still down for the look back).
   await page.reload();
   await expect(page.getByText('Refund outcome unknown')).toBeVisible();
   await expect(page.getByLabel(`Refund amount (${ASSET})`)).toHaveCount(0);
+  historyDown = false;
   await page.getByRole('button', { name: 'Check original refund' }).click();
-  await expect(page.getByText('Refund recorded')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Refund recorded' })).toBeVisible({ timeout: 30_000 });
   // Every send carried the one stored request id, and exactly one refund exists.
   const ids = new Set(bodies.map((b) => JSON.parse(b).refundId));
   expect(ids.size).toBe(1);
   const refunds = await refundsOf(payments.lost);
   expect(refunds).toHaveLength(1);
   expect(refunds[0]).toMatchObject({ refundId: [...ids][0], amount: dec('20') });
+  // After a reload the payment itself shows the one refund: TEST 20 already refunded and nothing left to send again.
   await page.reload();
-  await expect(page.getByText('Refund recorded')).toBeVisible();
+  const facts = page.getByTestId('pay-section').filter({ hasText: 'Can still refund' });
+  await expect(fact(facts, 'Already refunded')).toHaveText(money('20.00'));
+  await expect(page.getByText('Nothing is left to refund on this payment.')).toBeVisible();
 });
 
 test(`${J} #4 opens the refund: status in plain words, the reason when the rail refused and that the money is back in the balance; a queued refund can be cancelled once`, async ({

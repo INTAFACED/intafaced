@@ -60,11 +60,13 @@ describe('refund and user-money withdrawal seams', () => {
     replay: FRESH,
   };
 
-  it('refund stays a no-op; a fresh withdrawal with no screening result is refused', async () => {
+  it('a refund passes when the owner set no refund approval rule; a fresh withdrawal with no screening result is refused', async () => {
     await expect(NOOP_GUARDS.beforeRefund(refund)).resolves.toBeUndefined();
     await expect(NOOP_GUARDS.beforeUserMoneyWithdrawal(withdrawal)).resolves.toBeUndefined();
     const guards = buildPayGuards({ sql: readableSql, merchantControls: 'off' });
-    await expect(guards.beforeRefund(refund)).resolves.toBeUndefined();
+    // The registry's only refund hook is the owner's approval rule (J-merchant-06 #5): it reads the rule, and with none set
+    // (an empty read) the refund goes through untouched. Halts still never hold a refund (halts/guards.ts).
+    await expect(guards.beforeRefund({ ...refund, tx: readableSql })).resolves.toBeUndefined();
     await expect(guards.beforeUserMoneyWithdrawal({ ...withdrawal, tx: readableSql })).rejects.toMatchObject({
       code: 'pay.guard_screening_unavailable',
       kind: 'unavailable',
