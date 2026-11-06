@@ -334,7 +334,7 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
   );
 });
 
-// The Codex read of #7229 at 2c5588fa (GPT-6 Astra): four ways to fool the reader, each a planted fault.
+// The second-model read of #7229 at 2c5588fa: four ways to fool the reader, each a planted fault.
 test('Codex 1: an upper-case "TO" range names every step between, not only its ends', () => {
   assert.deepEqual(titleSteps('x (J-bank-13 #1 TO #4)'), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3', 'J-bank-13#4']);
   assert.deepEqual([...exemptions('Left-or-replaced: J-bank-13 #1 TO #3\n').steps].sort(), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3']);
