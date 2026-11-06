@@ -20,10 +20,17 @@ const EDITED = '66666666-6666-4666-8666-6666666666b6';
 
 async function wired() {
   const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true });
+  /** What the consumer asked svc-notify to create, as sent. */
+  const created: Parameters<NotifyService['create']>[0][] = [];
+  const create = notify.create.bind(notify);
+  notify.create = async (input) => {
+    created.push(input);
+    return create(input);
+  };
   const bus = new MemoryEventBus('svc-agents');
   await subscribeNotificationEvents(bus, notify);
   const inboxOf = async (userId: string) => (await notify.list({ userId, limit: 20, unreadOnly: false })).items;
-  return { bus, inboxOf };
+  return { bus, inboxOf, created };
 }
 
 const requested = (requestId: string, tool = 'support.ticket.comment') => ({
@@ -37,7 +44,7 @@ const requested = (requestId: string, tool = 'support.ticket.comment') => ({
 
 describe('own agent approval request notice (J-agents-05 #4)', () => {
   it('the owner gets one inbox row per request, naming the action and linking to the Approvals inbox, however often it is sent', async () => {
-    const { bus, inboxOf } = await wired();
+    const { bus, inboxOf, created } = await wired();
     await bus.publish('agentApprovalRequested', requested(REQUEST));
     await bus.publish('agentApprovalRequested', requested(REQUEST));
     const items = await inboxOf(OWNER);
@@ -55,6 +62,8 @@ describe('own agent approval request notice (J-agents-05 #4)', () => {
       title: 'Your agent wants to send a comment',
       body: 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',
     });
+    // It asks the person to act before the request expires, so it goes out of app: the push channel is attempted.
+    expect(created.map((input) => input.outOfApp)).toEqual([true, true]);
     expect(await inboxOf(OTHER)).toHaveLength(0);
   });
 
@@ -65,12 +74,13 @@ describe('own agent approval request notice (J-agents-05 #4)', () => {
     expect((await inboxOf(OWNER)).map((row) => row.sourceIdempotencyKey).sort()).toEqual([REQUEST, EDITED].sort());
   });
 
-  it('another held tool is named by its id, and the catalog words name every param they use', async () => {
+  it('a held tool with no title of its own reads the general title, never its raw id', async () => {
     const { bus, inboxOf } = await wired();
     await bus.publish('agentApprovalRequested', requested(REQUEST, 'support.ticket.close'));
     const [row] = await inboxOf(OWNER);
     expect(row!.titleKey).toBe('notify.agents.approval.requested.title');
-    expect(renderInboxCopy(row!, 'en').title).toBe('Your agent wants to use support.ticket.close');
-    expect(en['notify.agents.approval.requested.title']).toContain('{tool}');
+    expect(renderInboxCopy(row!, 'en').title).toBe('Your agent wants to use a tool that needs your approval');
+    expect(renderInboxCopy(row!, 'en').title).not.toContain('support.ticket');
+    expect(en['notify.agents.approval.requested.title']).not.toContain('{tool}');
   });
 });

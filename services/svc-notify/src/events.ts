@@ -214,6 +214,11 @@ export const DEFAULT_ORDER_TERMINAL_NOTIFY_POLICY: OrderTerminalNotifyPolicy = {
 };
 
 /** The inbox title for each sign-in factor change (I-signin-sessions-08); a new change will not compile without one. */
+/** A held tool's own title (J-agents-05 #4); a tool not listed reads the general title, which names no tool id. */
+const APPROVAL_REQUESTED_TITLE_KEYS: Readonly<Record<string, MessageKey>> = {
+  'support.ticket.comment': 'notify.agents.approval.requested.comment.title',
+};
+
 const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['change'], MessageKey> = {
   totp_added: 'notify.identity.security.totp_added.title',
   totp_removed: 'notify.identity.security.totp_removed.title',
@@ -928,26 +933,24 @@ export async function subscribeNotificationEvents(
 
   // A held tool call of an own agent (J-agents-05 #4): svc-agents publishes it once per approval request, on the
   // request's business key, so the owner gets one inbox row for it however often it is sent. The row names the action
-  // and links to the Approvals inbox, where the person decides; it never carries what the agent wants to write. Out of
-  // app it goes to every channel the person confirmed: push shows `vendor.push` until a push vendor is set, and the
-  // inbox row is written regardless.
+  // in words (a tool with no words of its own gets the general title, never its raw id) and links to the Approvals
+  // inbox, where the person decides; it never carries what the agent wants to write. It goes out of app to every channel
+  // the person confirmed, since it asks them to act before the request expires: push shows `vendor.push` until a push
+  // vendor is set, and the inbox row is written regardless.
   attachments.push(
     await attach(bus, 'agentApprovalRequested', agentApprovalRequested.subject, 'notify-agent-approval-requested', async (payload) => {
-      const titleKey =
-        payload.tool === 'support.ticket.comment'
-          ? 'notify.agents.approval.requested.comment.title'
-          : 'notify.agents.approval.requested.title';
       nakIfRetryable(
         await notify.create({
           userId: payload.userId,
           kind: 'agents.approval.requested',
-          titleKey,
+          titleKey: APPROVAL_REQUESTED_TITLE_KEYS[payload.tool] ?? 'notify.agents.approval.requested.title',
           bodyKey: 'notify.agents.approval.requested.body',
           params: { tool: payload.tool, requestId: payload.requestId, agentId: payload.agentId, expiresAt: payload.expiresAt },
           href: '/agents/approvals',
           severity: 'action',
           sourceSubject: agentApprovalRequested.subject,
           sourceIdempotencyKey: payload.requestId,
+          outOfApp: true,
         }),
       );
     }),

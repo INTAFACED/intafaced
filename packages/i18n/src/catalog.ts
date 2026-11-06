@@ -203,7 +203,7 @@ export const en = {
   'notify.agents.usage_alert.crossed.body':
     'Your agent has spent {amount} {asset} in {month}, reaching the alert you set at {alertAt} {asset}. Open the agent to see its limits.',
   'notify.agents.approval.requested.comment.title': 'Your agent wants to send a comment',
-  'notify.agents.approval.requested.title': 'Your agent wants to use {tool}',
+  'notify.agents.approval.requested.title': 'Your agent wants to use a tool that needs your approval',
   'notify.agents.approval.requested.body': 'It waits for your approval in the Approvals inbox. Nothing runs until you approve it.',
   'notify.pay.request_created.title': 'Payment request',
   'notify.pay.request_created.body': '{payeeHandle} asked you for {amount} {assetId}.',

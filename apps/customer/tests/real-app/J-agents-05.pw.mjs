@@ -314,8 +314,32 @@ test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names th
   await signIn(page, agents.account());
   await page.goto('/home');
   await page.getByRole('button', { name: /^Notifications/ }).click();
+  // The notice is built: svc-agents publishes the held call (#3) and svc-notify writes its row, so it gets a real wait.
   const notice = page.getByRole('dialog', { name: /Notifications/ }).getByRole('link', { name: /wants to send a comment/ });
-  await expect(notice).toBeVisible(UNBUILT);
+  await expect(notice).toBeVisible({ timeout: 20_000 });
+
+  // Exactly one row for #3's held call, read back from the notify service, and its push delivery refused for the unset
+  // push vendor (the stack wires none), which the push channel names as vendor.push.
+  const [request] = (await ownRead('inbox', { limit: 100 })).filter((row) => row.input.body === 'TEST comment, run');
+  const notifyRead = async (procedure, input) => {
+    const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+    const res = await (await api(agents.account())).get(`/api/notify/trpc/${procedure}${query}`);
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    return res.body.result.data;
+  };
+  const ofRequest = (await notifyRead('notify.list', { limit: 100 })).items.filter(
+    ({ kind, params }) => kind === 'agents.approval.requested' && params.requestId === request.id,
+  );
+  expect(ofRequest).toHaveLength(1);
+  expect(ofRequest[0]).toMatchObject({ href: '/agents/approvals', params: { tool: 'support.ticket.comment' } });
+  const push = (await notifyRead('notify.deliveries', { notificationId: ofRequest[0].id })).filter((row) => row.channel === 'push');
+  expect(push.map(({ status, refusalCode }) => ({ status, refusalCode }))).toEqual([
+    { status: 'refused', refusalCode: 'channel.not_configured' },
+  ]);
+  const pushCell = (await notifyRead('notify.categoryPrefs')).find((cell) => cell.channel === 'push');
+  expect(pushCell).toMatchObject({ configured: false, notConnected: 'vendor.push' });
+
+  // The notice opens the Approvals inbox, which says phone notices are off and names the vendor.
   await notice.click();
   await expect(page).toHaveURL(/\/agents\/approvals/);
   await expect(main(page).getByRole('note').filter({ hasText: 'vendor.push' })).toBeVisible();
