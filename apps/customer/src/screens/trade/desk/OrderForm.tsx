@@ -273,9 +273,12 @@ function SideForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
 
+  // A ladder click asks this side's ticket to open its review once the filled draft can be sent (C-trade-dom-02).
+  const reviewPending = useRef(false);
   // A click in the book or the trades list fills the price (and the cumulative amount with Shift).
   useEffect(() => {
     if (!suggestion || suggestion.flatten) return;
+    reviewPending.current = suggestion.review === side;
     edit(() => {
       setPrice(padDecimals(suggestion.price, pricePlaces));
       setTotalEdit(null);
@@ -396,6 +399,15 @@ function SideForm({
       flattenPending.current = false;
       void startReview();
     } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = false;
+  });
+
+  // The ladder click's review: opened once, on the draft the click filled, never sent from here.
+  useEffect(() => {
+    if (!reviewPending.current || type !== 'limit') return;
+    if (canSend && checked.ok) {
+      reviewPending.current = false;
+      void startReview();
+    } else if (live.state === 'blocked' || live.state === 'error') reviewPending.current = false;
   });
 
   async function startReview() {

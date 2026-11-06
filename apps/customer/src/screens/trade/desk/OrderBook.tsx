@@ -43,6 +43,11 @@ export interface BookPick {
   nonce: number;
   /** Flatten from Assets: a market sell of `amount` (all that is free), reviewed at once. No price. */
   flatten?: true;
+  /**
+   * A ladder click (C-trade-dom-02): the ticket of this side opens its review once the filled draft can be sent. A click
+   * on an ask is a buy at that price, on a bid a sell. Nothing is sent from the click: the review is the draft.
+   */
+  review?: 'buy' | 'sell';
 }
 
 const Row = memo(function Row({
@@ -58,21 +63,22 @@ const Row = memo(function Row({
   priceDecimals: string;
   amountDecimals: number;
   baseAsset: string;
-  onPick: (row: BookRow, shift: boolean) => void;
+  onPick: (row: BookRow, shift: boolean, side: 'ask' | 'bid') => void;
 }) {
   return (
     <div
       data-testid="dk-bk-row"
       className="dk-bk-row"
       data-side={side}
+      data-price={row.price}
       role="row"
       tabIndex={0}
       style={{ '--depth': row.depth } as React.CSSProperties}
-      onClick={(event) => onPick(row, event.shiftKey)}
+      onClick={(event) => onPick(row, event.shiftKey, side)}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          onPick(row, event.shiftKey);
+          onPick(row, event.shiftKey, side);
         }
       }}
     >
@@ -157,9 +163,9 @@ function BookView({ market, book, ticker, onPick }: Omit<BookProps, 'zone' | 'on
   const old = data !== null && now - data.timestamp >= STALE_BOOK_MS;
   const empty = data !== null && data.bids.length === 0 && data.asks.length === 0;
 
-  const pick = (row: BookRow, shift: boolean) => {
+  const pick = (row: BookRow, shift: boolean, side: 'ask' | 'bid') => {
     nonce.current += 1;
-    onPick({ price: row.price, amount: shift ? row.total : '', nonce: nonce.current });
+    onPick({ price: row.price, amount: shift ? row.total : '', nonce: nonce.current, review: side === 'ask' ? 'buy' : 'sell' });
   };
   const stepLabel = (value: number) => groupItems[String(value)];
 
