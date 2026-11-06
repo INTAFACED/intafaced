@@ -21,6 +21,8 @@ export interface AlgoWindow {
 export interface BlotterRow {
   id: string;
   kind: 'order' | 'fill';
+  /** The order's id; for a fill, the order it filled (null when the service did not say). */
+  orderId: string | null;
   time: number;
   symbol: string;
   side: Side;
@@ -99,6 +101,7 @@ export function buildBlotter(
     orders.push({
       id: `order:${order.id}`,
       kind: 'order',
+      orderId: order.id,
       time: order.timestamp,
       symbol: order.symbol,
       side: order.side,
@@ -122,6 +125,7 @@ export function buildBlotter(
     return {
       id: `fill:${fill.id}`,
       kind: 'fill',
+      orderId: fill.order ?? null,
       time: fill.timestamp,
       symbol: fill.symbol,
       side: fill.side,

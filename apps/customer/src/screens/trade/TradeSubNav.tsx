@@ -15,6 +15,6 @@ const ROOMS = [
 ] as const;
 
 /** The one row every Trade room carries (Binance/OKX product switch), so a trader moves between rooms in one click and the row never changes size. */
-export function TradeSubNav({ active, className }: { active: TradeRoom; className?: string }) {
-  return <SubNav aria-label="Trading rooms" items={ROOMS} active={active} className={className} />;
+export function TradeSubNav({ active, className }: { active: TradeRoom | null; className?: string }) {
+  return <SubNav aria-label="Trading rooms" items={ROOMS} active={active ?? ''} className={className} />;
 }
