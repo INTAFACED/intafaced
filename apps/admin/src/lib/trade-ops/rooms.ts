@@ -16,6 +16,12 @@ export const DESK_ROOMS: readonly DeskRoom[] = [
     job: 'Status of each market; halt, reduce-only, post-only, resume, delist.',
   },
   {
+    id: 'fees',
+    href: '/trade-ops/fees',
+    label: 'Fees and convert',
+    job: 'Fee versions by pair group, VIP tiers, rebates and notices with a second founder; Convert limits, quotes and fiat buy fees.',
+  },
+  {
     id: 'charts-settings',
     href: '/trade-ops/charts/settings',
     label: 'Charts settings',
