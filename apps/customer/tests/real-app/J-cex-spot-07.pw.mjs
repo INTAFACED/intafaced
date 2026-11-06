@@ -1,6 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { api, journeyState, otherTrader } from './stack.mjs';
+import { api, fromUnits, journeyState, otherTrader, toUnits } from './stack.mjs';
 import { awayBid, deskPath, fundedTrader, held, openOrders, signIn } from './desk.mjs';
 
 // J-cex-spot-07, in the running app (docs/roadmap/journeys.json): a pro trader arms the dead-man switch on the desk,
@@ -289,33 +289,62 @@ test(`${J} #5 requests a statement of orders, trades and ledger lines for a date
 test(`${J} #6 opens ledger history: every balance change with its ledger reference, adding up to the balances`, async ({ page }) => {
   test.setTimeout(90_000);
   const who = account();
+  // The server's own record first: every ledger line of the account and its balances, with nothing in flight.
+  expect(await openIds(who)).toEqual([]);
+  const lines = await ledgerLines(who);
+  const balances = await (await client(who)).balances();
+  expect(lines.length).toBeGreaterThan(0);
+
   await signIn(page, who);
   await page.goto(deskPath(SYMBOL));
   await page.getByRole('tab', { name: 'Ledger' }).click();
   const table = page.getByRole('table', { name: 'Ledger history' });
   await expect(table).toBeVisible({ timeout: 15_000 });
-  // Read every page.
+  // Read every page: each "Show older" adds the next page, until the last page is in and the button is gone.
+  const rows = table.locator('tbody tr');
   const older = page.getByRole('button', { name: 'Show older' });
-  while (await older.isVisible()) await older.click();
+  for (let pages = 0; pages < 100; pages++) {
+    const count = await rows.count();
+    if (count >= lines.length) break;
+    await older.click();
+    await expect.poll(() => rows.count(), { timeout: 15_000 }).toBeGreaterThan(count);
+  }
+  await expect(older).toHaveCount(0);
   const totals = page.getByRole('table', { name: 'Ledger totals' });
   await expect(totals).toBeVisible();
 
-  // Every line the ledger holds for this account is listed, with its own ledger reference.
-  const lines = await ledgerLines(who);
-  const shown = await table
-    .locator('tbody tr')
-    .evaluateAll((trs) =>
-      trs.map((tr) => ({ id: tr.getAttribute('data-entry'), ref: tr.querySelector('[data-testid="dk-ledger-ref"]')?.textContent?.trim() })),
-    );
-  expect(shown).toEqual(lines.map((l) => ({ id: l.id, ref: l.referenceId })));
+  // Every line the ledger holds for this account is listed, newest first as the ledger answers, each with its own
+  // ledger reference, its asset and the direction of its change.
+  const shown = await rows.evaluateAll((trs) =>
+    trs.map((tr) => ({
+      id: tr.getAttribute('data-entry'),
+      ref: tr.querySelector('[data-testid="dk-ledger-ref"]')?.textContent?.trim(),
+      asset: tr.children[1]?.textContent?.trim(),
+      sign: tr.children[2]?.textContent?.trim().slice(0, 1),
+    })),
+  );
+  expect(shown).toEqual(lines.map((l) => ({ id: l.id, ref: l.referenceId, asset: l.currency, sign: l.direction === 'in' ? '+' : '−' })));
+  for (const l of lines) expect(l.referenceId, `ledger line ${l.id} has no ledger reference`).toBeTruthy();
 
-  // Each asset's lines add up to its available balance, and the desk says so.
-  const balances = await (await client(who)).balances();
-  const assets = [...new Set(lines.map((l) => l.currency))];
-  expect(assets.length).toBeGreaterThan(0);
-  for (const asset of assets) {
+  // The same totals as the balances: on the server, each asset's lines add up exactly to its available balance, and
+  // every asset with an available balance has its lines.
+  const sums = new Map();
+  for (const l of lines)
+    sums.set(l.currency, (sums.get(l.currency) ?? 0n) + (l.direction === 'in' ? toUnits(l.amount) : -toUnits(l.amount)));
+  for (const [asset, sum] of sums)
+    expect(fromUnits(sum), `${asset}: ledger lines vs available balance`).toBe(fromUnits(toUnits(balances[asset]?.free ?? '0')));
+  for (const [asset, b] of Object.entries(balances))
+    if (toUnits(b.free) !== 0n) expect(sums.has(asset), `${asset} has a balance but no lines`).toBe(true);
+
+  // The desk's totals table shows those same figures: per asset, the lines' sum and the available balance, exact.
+  const number = (text) => toUnits(text.replace(/−/g, '-').replace(/[^\d.-]/g, ''));
+  await expect(totals.locator('tbody tr')).toHaveCount(sums.size);
+  for (const [asset, sum] of sums) {
     const row = totals.locator(`tr[data-asset="${asset}"]`);
     await expect(row).toContainText('Matches your balance');
-    expect(balances[asset]).toBeDefined();
+    const cells = await row.locator('td').allTextContents();
+    expect(cells[0].trim()).toBe(asset);
+    expect(fromUnits(number(cells[1])), `${asset}: shown sum`).toBe(fromUnits(sum));
+    expect(fromUnits(number(cells[2])), `${asset}: shown available`).toBe(fromUnits(toUnits(balances[asset].free)));
   }
 });
