@@ -385,6 +385,7 @@ describe('matching health read', () => {
         metrics: {
           startedAt: '2026-11-06T10:00:00.000Z',
           operations: { submit: reading, cancel: { ...reading, count: 0, p50Ms: null, p99Ms: null, perMinute: '0' }, depth: reading },
+          submitByMarket: { 'm-1': reading, 'm-2': { count: 'x' } },
         },
       },
     }));
@@ -403,6 +404,7 @@ describe('matching health read', () => {
       metrics: { startedAt: '2026-11-06T10:00:00.000Z', operations: { submit: reading, depth: reading } },
     });
     expect(res.json().metrics.operations.cancel).toEqual({ count: 0, errors: 0, p50Ms: null, p99Ms: null, perMinute: '0' });
+    expect(res.json().metrics.submitByMarket).toEqual({ 'm-1': reading });
   });
 
   it('leaves out one malformed figure on its own and keeps the rest; never a made-up value', async () => {

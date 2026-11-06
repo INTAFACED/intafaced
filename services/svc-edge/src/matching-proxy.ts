@@ -661,7 +661,16 @@ export function optionalHealthFields(rec: Record<string, unknown> | null): Recor
       const reading = operationReading(ops[op]);
       if (reading) operations[op] = reading;
     }
-    out.metrics = { startedAt: metrics.startedAt, operations };
+    // Per-market submit latency: each entry on its own, keyed by the engine's market id; one malformed is left out.
+    const byMarket: Record<string, unknown> = {};
+    const raw =
+      metrics.submitByMarket && typeof metrics.submitByMarket === 'object' ? (metrics.submitByMarket as Record<string, unknown>) : {};
+    for (const [marketId, value] of Object.entries(raw)) {
+      if (marketId.length === 0 || marketId.length > 64) continue;
+      const reading = operationReading(value);
+      if (reading) byMarket[marketId] = reading;
+    }
+    out.metrics = { startedAt: metrics.startedAt, operations, submitByMarket: byMarket };
   }
   return out;
 }

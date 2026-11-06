@@ -112,7 +112,7 @@ registerMetrics(app, { service: env.SERVICE_NAME });
 
 // Submit, cancel and depth latency since this process started, carried on /health for the console (J-cex-spot-20 #1).
 const operationLatency = new OperationLatency(new Date());
-registerOperationLatency(app, operationLatency);
+registerOperationLatency(app, operationLatency, (marketId) => engine.markets.includes(marketId));
 registerHealth(app, env.SERVICE_NAME, engine, journal, operationLatency);
 
 /**

@@ -45,7 +45,51 @@ function Latency({ op, reading, startedAt }: { op: MatchingOperation; reading: O
   );
 }
 
-export function venueLines(h: MatchingHealth) {
+/** Submit latency per engine market, named by its symbol where the catalogue has it. */
+function MarketLatency({ h, symbols }: { h: MatchingHealth; symbols: ReadonlyMap<string, string> }) {
+  if (h.submitByMarket === null) {
+    return <Unread metric="latency-submit-markets" label="Submit latency by market" why="the engine's answer did not carry it" />;
+  }
+  // Every catalogue market, plus any market the engine has that the catalogue read did not return. A market the engine
+  // has timed no submit for since it started (or has no book for) is not read: the typed blocker, never 0 ms.
+  const byMarket = h.submitByMarket;
+  const ids = new Set<string>([...symbols.keys(), ...Object.keys(byMarket)]);
+  const rows = [...ids]
+    .map((id) => ({ id, symbol: symbols.get(id) ?? id, reading: byMarket[id] ?? null }))
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
+  return (
+    <span className="block">
+      Submit latency by market:
+      {rows.map(({ id, symbol, reading }) =>
+        reading === null || reading.count === 0 ? (
+          <span
+            key={id}
+            data-metric="latency-submit-market"
+            data-market-id={id}
+            data-market-symbol={symbol}
+            data-state="unread"
+            className="block ps-2"
+          >
+            {symbol}: not read · <span className="if-num">{UNREAD.key}</span> (nothing timed since the engine started)
+          </span>
+        ) : (
+          <span
+            key={id}
+            data-metric="latency-submit-market"
+            data-market-symbol={symbol}
+            data-state="read"
+            data-count={reading.count}
+            className="block ps-2"
+          >
+            {symbol}: p50 {ms(reading.p50Ms)} · p99 {ms(reading.p99Ms)} · {reading.count} timed
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
+
+export function venueLines(h: MatchingHealth, symbols: ReadonlyMap<string, string> = new Map()) {
   return [
     <span key="halt" className="block">
       Venue: <span data-metric="venue-halted">{h.venueHalted ? 'Halted' : 'Running'}</span>
@@ -83,6 +127,7 @@ export function venueLines(h: MatchingHealth) {
       </span>
     ),
     ...MATCHING_OPERATIONS.map((op) => <Latency key={op} op={op} reading={h.operations[op]} startedAt={h.engineStartedAt} />),
+    <MarketLatency key="by-market" h={h} symbols={symbols} />,
     <span key="scope" className="block">
       Mass quote, mass cancel and spread orders are timed in the engine’s scrape only, not here.
     </span>,

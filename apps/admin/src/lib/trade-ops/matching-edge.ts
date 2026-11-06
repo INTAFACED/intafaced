@@ -47,6 +47,8 @@ export interface MatchingHealth {
   readonly holdHalted: readonly string[] | null;
   readonly engineStartedAt: string | null;
   readonly operations: Readonly<Record<MatchingOperation, OperationReading | null>>;
+  /** Submit latency per engine market id; null when the answer carried none (every market then reads unread). */
+  readonly submitByMarket: Readonly<Record<string, OperationReading>> | null;
   /** When svc-edge received matching's answer. */
   readonly asOf: string;
   /** How long the read took at the edge. */
@@ -81,6 +83,16 @@ export function parseHealth(raw: unknown): MatchingHealth | null {
         : null,
     holdHalted: Array.isArray(r.holdHalted) && r.holdHalted.every((m) => typeof m === 'string') ? (r.holdHalted as string[]) : null,
     engineStartedAt: typeof metrics?.startedAt === 'string' ? metrics.startedAt : null,
+    submitByMarket: (() => {
+      const raw = metrics?.submitByMarket;
+      if (!raw || typeof raw !== 'object') return null;
+      const out: Record<string, OperationReading> = {};
+      for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+        const r = parseReading(v);
+        if (r) out[id] = r;
+      }
+      return out;
+    })(),
     operations: {
       submit: parseReading(ops.submit),
       cancel: parseReading(ops.cancel),

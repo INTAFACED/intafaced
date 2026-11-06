@@ -64,7 +64,14 @@ export function matchingHealthBody(
     admissionOpen: engine.admissionOpen,
     admissionReason: engine.admissionReason,
     holdHalted: engine.holdHaltedMarkets(),
-    ...(latency ? { metrics: latency.read(now()) } : {}),
+    ...(latency
+      ? {
+          metrics: latency.read(
+            now(),
+            engine.markets.filter((m): m is string => typeof m === 'string'),
+          ),
+        }
+      : {}),
   };
 }
 

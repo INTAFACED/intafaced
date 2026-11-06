@@ -103,7 +103,7 @@ export default async function HealthPage() {
               state="live"
               asOf={venue.data.asOf}
               value={venue.data.venueHalted ? 'Halted' : 'Running'}
-              lines={venueLines(venue.data)}
+              lines={venueLines(venue.data, new Map(markets.kind === 'ok' ? markets.data.map((m) => [m.id, m.symbol] as const) : []))}
               href="/trade-ops/kill-switch"
               linkLabel="Open kill switch"
             />

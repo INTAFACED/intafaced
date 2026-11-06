@@ -69,4 +69,29 @@ describe('operation latency on /health (J-cex-spot-20 #1)', () => {
     l.observe('cancel', 20_000, 200);
     expect(l.read(new Date(60_000)).operations.cancel).toMatchObject({ count: 1, p50Ms: null, p99Ms: null });
   });
+
+  it('reads submit latency per engine market: every market listed, one with nothing timed has no percentile', () => {
+    const l = new OperationLatency(new Date(0));
+    l.observe('submit', 3, 200, 'm-busy');
+    l.observe('submit', 40, 200, 'm-busy');
+    l.observe('cancel', 3, 200, 'm-busy');
+    const body = l.read(new Date(60_000), ['m-quiet', 'm-busy']);
+    expect(Object.keys(body.submitByMarket)).toEqual(['m-busy', 'm-quiet']);
+    expect(body.submitByMarket['m-busy']).toMatchObject({ count: 2, p50Ms: 5, p99Ms: 50 });
+    expect(body.submitByMarket['m-quiet']).toEqual({ count: 0, errors: 0, p50Ms: null, p99Ms: null, perMinute: '0' });
+    expect(body.operations.submit.count).toBe(2);
+  });
+
+  it('the hook counts a market only when the engine has it, never a raw URL value', async () => {
+    const app = Fastify({ logger: false });
+    const l = new OperationLatency(new Date(Date.now() - 60_000));
+    registerOperationLatency(app, l, (id) => id === 'known');
+    app.post('/markets/:marketId/orders', async () => ({ ok: true }));
+    await app.ready();
+    await app.inject({ method: 'POST', url: '/markets/known/orders', payload: {} });
+    await app.inject({ method: 'POST', url: '/markets/made-up/orders', payload: {} });
+    const body = l.read(new Date(), ['known']);
+    expect(body.operations.submit.count).toBe(2);
+    expect(body.submitByMarket).toEqual({ known: expect.objectContaining({ count: 1 }) });
+  });
 });

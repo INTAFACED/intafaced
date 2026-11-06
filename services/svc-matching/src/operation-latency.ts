@@ -40,6 +40,11 @@ export interface OperationReading {
 export interface LatencyBody {
   readonly startedAt: string;
   readonly operations: Readonly<Record<Operation, OperationReading>>;
+  /**
+   * Submit latency per engine market, one entry for every market the engine has; a market with no submit timed since the
+   * engine started has count 0 and no percentile (the console's `matching_metrics_unread`).
+   */
+  readonly submitByMarket: Readonly<Record<string, OperationReading>>;
 }
 
 /** The bucket bounds in ms, with the last bucket open-ended (Infinity). */
@@ -48,6 +53,7 @@ const BOUNDS_MS: readonly number[] = [...DURATION_BUCKETS.map((s) => Math.round(
 export class OperationLatency {
   private readonly counts = new Map<Operation, number[]>();
   private readonly errors = new Map<Operation, number>();
+  private readonly submitMarkets = new Map<string, { buckets: number[]; errors: number }>();
 
   constructor(private readonly startedAt: Date) {
     for (const op of OPERATIONS) {
@@ -59,29 +65,42 @@ export class OperationLatency {
     }
   }
 
-  observe(op: Operation, ms: number, status: number): void {
-    const buckets = this.counts.get(op)!;
+  /** `marketId` counts a submit for that market too; the caller passes only an id the engine has (never a raw URL value). */
+  observe(op: Operation, ms: number, status: number, marketId?: string): void {
     const i = BOUNDS_MS.findIndex((b) => ms <= b);
     const at = i === -1 ? BOUNDS_MS.length - 1 : i;
+    const buckets = this.counts.get(op)!;
     buckets[at] = (buckets[at] ?? 0) + 1;
     if (status >= 500) this.errors.set(op, this.errors.get(op)! + 1);
+    if (op === 'submit' && marketId !== undefined) {
+      const m = this.submitMarkets.get(marketId) ?? { buckets: BOUNDS_MS.map(() => 0), errors: 0 };
+      m.buckets[at] = (m.buckets[at] ?? 0) + 1;
+      if (status >= 500) m.errors += 1;
+      this.submitMarkets.set(marketId, m);
+    }
   }
 
-  read(now: Date): LatencyBody {
+  read(now: Date, markets: readonly string[] = []): LatencyBody {
     const minutes = Math.max(now.getTime() - this.startedAt.getTime(), 1) / 60_000;
-    const operations = {} as Record<Operation, OperationReading>;
-    for (const op of OPERATIONS) {
-      const buckets = this.counts.get(op)!;
+    const reading = (buckets: readonly number[], errors: number): OperationReading => {
       const count = buckets.reduce((n, c) => n + c, 0);
-      operations[op] = {
+      return {
         count,
-        errors: this.errors.get(op)!,
+        errors,
         p50Ms: percentileBound(buckets, count, 50),
         p99Ms: percentileBound(buckets, count, 99),
         perMinute: count === 0 ? '0' : (count / minutes).toFixed(2),
       };
+    };
+    const operations = {} as Record<Operation, OperationReading>;
+    for (const op of OPERATIONS) operations[op] = reading(this.counts.get(op)!, this.errors.get(op)!);
+    const empty = BOUNDS_MS.map(() => 0);
+    const submitByMarket: Record<string, OperationReading> = {};
+    for (const marketId of [...markets].sort()) {
+      const m = this.submitMarkets.get(marketId);
+      submitByMarket[marketId] = reading(m?.buckets ?? empty, m?.errors ?? 0);
     }
-    return { startedAt: this.startedAt.toISOString(), operations };
+    return { startedAt: this.startedAt.toISOString(), operations, submitByMarket };
   }
 }
 
@@ -105,9 +124,17 @@ function percentileBound(buckets: readonly number[], count: number, p: number): 
  * Times every reply of the three operations from the request's arrival (Fastify's `elapsedTime`), so body parsing and the
  * service-auth checks are in the figure, as they are in the `/metrics` scrape.
  */
-export function registerOperationLatency(app: FastifyInstance, latency: OperationLatency): void {
+export function registerOperationLatency(
+  app: FastifyInstance,
+  latency: OperationLatency,
+  /** Whether an id from the route is a market the engine has; only those get a per-market reading. */
+  isMarket: (marketId: string) => boolean = () => false,
+): void {
   app.addHook('onResponse', async (req: FastifyRequest, reply: FastifyReply) => {
     const op = operationOf(req.method, req.routeOptions?.url);
-    if (op) latency.observe(op, reply.elapsedTime, reply.statusCode);
+    if (!op) return;
+    const raw = (req.params as { marketId?: unknown } | undefined)?.marketId;
+    const marketId = typeof raw === 'string' && isMarket(raw) ? raw : undefined;
+    latency.observe(op, reply.elapsedTime, reply.statusCode, marketId);
   });
 }
