@@ -129,6 +129,20 @@ describe('classify: one test per module/reason row', () => {
     expect(classify({ module: 'trade', reason: 'trade.fill', direction: 'debit', rail: 'local-test' })).toBe('trade');
   });
 
+  it('a Convert fill is `convert` only when the ledger says its product is convert; every other fill stays a trade', () => {
+    const fill = { module: 'trade', reason: 'trade.fill.mm_maker', direction: 'debit' } as const;
+    expect(classify(fill)).toBe('trade');
+    expect(classify({ ...fill, product: null })).toBe('trade');
+    expect(classify({ ...fill, product: 'something-else' })).toBe('trade');
+    expect(classify({ ...fill, product: 'convert' })).toBe('convert');
+    // Only the Convert fill reason: a book fill, a hold, a release or a deposit that somehow said convert keeps its kind.
+    expect(classify({ module: 'trade', reason: 'trade.fill', direction: 'debit', product: 'convert' })).toBe('trade');
+    expect(classify({ module: 'trade', reason: 'order.hold', direction: 'credit', product: 'convert' })).toBe('order_hold');
+    expect(classify({ module: 'trade', reason: 'order.hold.released', direction: 'debit', product: 'convert' })).toBe('order_release');
+    expect(classify({ module: 'ledger', reason: 'deposit.credited', direction: 'debit', product: 'convert' })).toBe('deposit');
+    expect(ACTIVITY_KIND_LABELS.convert).toBe('Convert');
+  });
+
   it('every kind has a label, and welcome funds reads "Welcome test funds"', () => {
     for (const k of ACTIVITY_KINDS) expect(ACTIVITY_KIND_LABELS[k].length).toBeGreaterThan(0);
     expect(ACTIVITY_KIND_LABELS.welcome_funds).toBe('Welcome test funds');
