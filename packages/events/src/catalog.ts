@@ -2160,18 +2160,6 @@ export interface WiringSocket {
 
 export const WIRING_SOCKETS = [
   {
-    event: 'agentApprovalRequested',
-    missing: 'subscriber',
-    /**
-     * CLASS C — owned and unbuilt, disclosed. svc-notify's consumer, which writes the person's one inbox notice per
-     * approval request, lands in its own PR after this subject. Until then nothing tells the person a notice is coming:
-     * the Approvals inbox lists the request, which is the record.
-     */
-    class: 'C',
-    reason:
-      'svc-agents publishes each held tool call once on its request id; the svc-notify consumer that turns it into one inbox notice linking to the Approvals inbox is the next PR (J-agents-05 #4).',
-  },
-  {
     event: 'staffCreated',
     missing: 'publisher',
     class: 'A',

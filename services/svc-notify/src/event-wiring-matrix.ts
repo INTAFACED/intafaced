@@ -163,6 +163,13 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
       'Inbox row agents.usage_alert.crossed for the owner of an own agent whose monthly spend reached their alert, once per agent and month',
   },
   {
+    event: 'agentApprovalRequested',
+    durable: 'notify-agent-approval-requested',
+    subject: 'intafaced.agents.approval.requested',
+    effect:
+      'Inbox row agents.approval.requested for the owner of an own agent whose tool call waits for their approval, naming the action and linking to the Approvals inbox, once per request',
+  },
+  {
     event: 'bankScheduledReminder',
     durable: 'notify-bank-scheduled-reminder',
     subject: 'intafaced.bank.scheduled_reminder.triggered',

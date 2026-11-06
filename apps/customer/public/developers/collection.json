@@ -957,6 +957,32 @@
           }
         },
         {
+          "name": "fetchPositionRiskStop",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/positions/:id/risk-stop",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "positions", ":id", "risk-stop"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
+          "name": "setPositionRiskStop",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/positions/:id/risk-stop",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "positions", ":id", "risk-stop"],
+              "variable": [{ "key": "id", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "fetchEntryProtection",
           "request": {
             "method": "GET",
