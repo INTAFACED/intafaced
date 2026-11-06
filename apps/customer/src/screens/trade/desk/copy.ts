@@ -681,8 +681,6 @@ export const deskCopy = defineCopy('trade.desk', messages, {
     L: 'Bas',
     C: 'Clôt.',
     Change: 'Variation',
-    'Side buy': 'Achat',
-    'Side sell': 'Vente',
   },
   es: {
     Chart: 'Gráfico',
@@ -701,7 +699,5 @@ export const deskCopy = defineCopy('trade.desk', messages, {
     L: 'Mín.',
     C: 'Cierre',
     Change: 'Variación',
-    'Side buy': 'Compra',
-    'Side sell': 'Venta',
   },
 });

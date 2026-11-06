@@ -87,14 +87,15 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   // A widget's place: its order on the grid when the layout is not today's Classic, and the drop target while arranging.
   const frame = (id: WidgetId) => ({
     'data-widget': id,
-    ...(custom ? { style: { order: layout.order.indexOf(id) } } : {}),
+    // The place in the order is a variable the wide-screen grid reads; narrower screens keep their own stacking.
+    ...(custom ? { style: { '--dk-order': layout.order.indexOf(id) } as CSSProperties } : {}),
     ...dropTarget(desk, id),
   });
   const widgetName = (id: WidgetId) =>
     id === 'markets' ? t('Markets') : id === 'chart' ? t('Chart') : id === 'book' ? t('Order book') : t('Market trades');
   const chrome = (id: WidgetId) => <ArrangeChrome desk={desk} id={id} name={widgetName(id)} />;
   const bookFrame = useMemo(() => frame('book'), [custom, layout, arranging]); // eslint-disable-line react-hooks/exhaustive-deps
-  const bookChrome = useMemo(() => chrome('book'), [layout, arranging]); // eslint-disable-line react-hooks/exhaustive-deps
+  const bookChrome = useMemo(() => chrome('book'), [layout, arranging, t]); // eslint-disable-line react-hooks/exhaustive-deps
   const status = useMemo(
     () => (
       <>

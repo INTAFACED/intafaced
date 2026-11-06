@@ -7,6 +7,7 @@ import {
   presetLayout,
   resizeWidget,
   swapWidgets,
+  FIXED_TOTAL_MAX,
   WIDTH_MAX,
   WIDTH_MIN,
 } from './workspace';
@@ -38,10 +39,18 @@ describe('arranging', () => {
   it('resizes inside the bounds, in quarter rems, and never the chart', () => {
     const wider = resizeWidget(presetLayout('classic'), 'markets', 4.1);
     expect(wider.widths.markets).toBe(17.5);
-    expect(resizeWidget(wider, 'markets', 100).widths.markets).toBe(WIDTH_MAX);
+    expect(resizeWidget(wider, 'markets', 100).widths.markets).toBe(Math.min(WIDTH_MAX, FIXED_TOTAL_MAX - 16.5));
     expect(resizeWidget(wider, 'markets', -100).widths.markets).toBe(WIDTH_MIN);
     expect(resizeWidget(presetLayout('classic'), 'trades', 2)).toEqual(presetLayout('classic'));
     expect(gridColumns(wider)).toBe('17.5rem minmax(0, 1fr) 16.5rem');
+  });
+
+  it('the fixed widgets together never crowd out the chart', () => {
+    let layout = presetLayout('advanced');
+    for (const id of ['markets', 'book', 'trades'] as const) layout = resizeWidget(layout, id, 100);
+    const total = (layout.widths.markets ?? 0) + (layout.widths.book ?? 0) + (layout.widths.trades ?? 0);
+    expect(total).toBeLessThanOrEqual(FIXED_TOTAL_MAX);
+    expect(isDeskLayout({ ...layout, widths: { markets: 32, book: 32, trades: 32 } })).toBe(false);
   });
 
   it('a reset is the preset again', () => {

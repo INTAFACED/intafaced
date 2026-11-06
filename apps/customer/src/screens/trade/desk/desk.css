@@ -1494,6 +1494,14 @@
     .dk-grid[data-layout='custom'] {
       grid-template-columns: var(--dk-columns);
     }
+    .dk-grid[data-layout='custom'] > [data-widget] {
+      order: var(--dk-order);
+    }
+  }
+  @media (max-width: 73.6875rem) {
+    .dk-arrange-edge {
+      display: none;
+    }
   }
   .dk-trades {
     display: flex;
@@ -1593,9 +1601,10 @@
   .dk-arrange-move {
     position: absolute;
     inset-block-start: var(--if-space-2);
-    inset-inline-start: 50%;
+    inset-inline: 0;
     z-index: 20;
-    translate: -50% 0;
+    inline-size: fit-content;
+    margin-inline: auto;
     cursor: grab;
   }
   .dk-arrange-edge {

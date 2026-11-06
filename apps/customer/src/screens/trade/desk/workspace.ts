@@ -26,6 +26,8 @@ export interface DeskLayout {
 
 export const WIDTH_MIN = 10;
 export const WIDTH_MAX = 32;
+/** The fixed-width widgets together never take more than this, so the chart and its ticket always keep room. */
+export const FIXED_TOTAL_MAX = 48;
 
 /** Classic is today's desk (markets | chart and ticket | book, 216 and 264 px at the 16 px root); Advanced adds the tape. */
 const PRESETS: Record<PresetId, DeskLayout> = {
@@ -69,11 +71,15 @@ export function isDeskLayout(value: unknown): value is DeskLayout {
   if (order.length !== expected.length || !expected.every((id) => order.includes(id))) return false;
   const widths = layout.widths;
   if (typeof widths !== 'object' || widths === null) return false;
-  return order.every((id) => {
+  let total = 0;
+  const each = order.every((id) => {
     if (id === 'chart') return true;
     const width = (widths as Record<string, unknown>)[id];
-    return typeof width === 'number' && Number.isFinite(width) && width >= WIDTH_MIN && width <= WIDTH_MAX;
+    if (typeof width !== 'number' || !Number.isFinite(width) || width < WIDTH_MIN || width > WIDTH_MAX) return false;
+    total += width;
+    return true;
   });
+  return each && total <= FIXED_TOTAL_MAX;
 }
 
 /** Dropping one widget on another swaps their places; the rest stay where they are. */
@@ -91,7 +97,9 @@ export function swapWidgets(layout: DeskLayout, moved: WidgetId, target: WidgetI
 export function resizeWidget(layout: DeskLayout, id: SizedWidget, deltaRem: number): DeskLayout {
   const current = layout.widths[id];
   if (current === undefined || !Number.isFinite(deltaRem)) return layout;
-  const next = Math.round(Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, current + deltaRem)) * 4) / 4;
+  const others = layout.order.reduce((sum, other) => (other === id || other === 'chart' ? sum : sum + (layout.widths[other] ?? 0)), 0);
+  const ceiling = Math.min(WIDTH_MAX, FIXED_TOTAL_MAX - others);
+  const next = Math.round(Math.min(ceiling, Math.max(WIDTH_MIN, current + deltaRem)) * 4) / 4;
   if (next === current) return layout;
   return { ...layout, widths: { ...layout.widths, [id]: next } };
 }

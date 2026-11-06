@@ -1,4 +1,4 @@
-import { useCallback, useId, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
+import { useCallback, useId, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react';
 import { deskCopy } from './copy';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import {
@@ -23,23 +23,31 @@ const KEY_PREFIX = 'intafaced.desk.layout.v1';
  */
 export function useDeskLayout(userId: string | null) {
   const key = `${KEY_PREFIX}:${userId ?? 'signed-out'}`;
-  const [recovered] = useState(() => {
+  // Whether this person's stored layout on this device was one the desk could not draw. Read again when the person
+  // changes, and cleared once they choose or arrange a layout.
+  const unreadable = useMemo(() => {
     try {
       const raw = localStorage.getItem(key);
       return raw !== null && !isDeskLayout(JSON.parse(raw));
     } catch {
       return false;
     }
-  });
+  }, [key]);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const recovered = unreadable && dismissed !== key;
   const [layout, setLayout] = useDeviceSetting<DeskLayout>(key, DEFAULT_LAYOUT, isDeskLayout);
-  const [arranging, setArranging] = useState(false);
-  const choosePreset = useCallback((id: PresetId) => setLayout(presetLayout(id)), [setLayout]);
-  const reset = useCallback(() => setLayout((current) => presetLayout(current.preset)), [setLayout]);
-  const swap = useCallback((moved: WidgetId, target: WidgetId) => setLayout((current) => swapWidgets(current, moved, target)), [setLayout]);
-  const resize = useCallback(
-    (id: SizedWidget, deltaRem: number) => setLayout((current) => resizeWidget(current, id, deltaRem)),
-    [setLayout],
+  const change = useCallback(
+    (next: (current: DeskLayout) => DeskLayout) => {
+      setDismissed(key);
+      setLayout(next);
+    },
+    [key, setLayout],
   );
+  const [arranging, setArranging] = useState(false);
+  const choosePreset = useCallback((id: PresetId) => change(() => presetLayout(id)), [change]);
+  const reset = useCallback(() => change((current) => presetLayout(current.preset)), [change]);
+  const swap = useCallback((moved: WidgetId, target: WidgetId) => change((current) => swapWidgets(current, moved, target)), [change]);
+  const resize = useCallback((id: SizedWidget, deltaRem: number) => change((current) => resizeWidget(current, id, deltaRem)), [change]);
   return { layout, recovered, arranging, setArranging, choosePreset, reset, swap, resize };
 }
 
@@ -155,13 +163,17 @@ export function dropTarget(desk: DeskLayoutState, id: WidgetId) {
 /** The move handle and, for widgets with a width, the resize edge. Drawn only while arranging. */
 export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: WidgetId; name: string }) {
   const { t } = deskCopy.useCopy();
-  const drag = useRef<{ x: number; applied: number; perRem: number } | null>(null);
+  const drag = useRef<{ x: number; applied: number; perRem: number; sign: number } | null>(null);
   if (!desk.arranging) return null;
   const order = desk.layout.order;
   const at = order.indexOf(id);
   const width = id === 'chart' ? undefined : desk.layout.widths[id];
+  // Arrow keys and drags follow the page's writing direction: in a right-to-left page "towards the end" is leftwards.
+  const forward = (element: Element) => (getComputedStyle(element).direction === 'rtl' ? -1 : 1);
+  const keyStep = (event: KeyboardEvent) =>
+    (event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0) * forward(event.currentTarget);
   const onMoveKey = (event: KeyboardEvent) => {
-    const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+    const step = keyStep(event);
     const neighbour = order[at + step];
     if (step === 0 || !neighbour) return;
     event.preventDefault();
@@ -172,12 +184,12 @@ export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: W
     const drawn = event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0;
     if (!width || drawn <= 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { x: event.clientX, applied: 0, perRem: drawn / width };
+    drag.current = { x: event.clientX, applied: 0, perRem: drawn / width, sign: forward(event.currentTarget) };
   };
   const onEdgeMove = (event: PointerEvent<HTMLDivElement>) => {
     if (!drag.current || id === 'chart') return;
     // Whole quarter-rems only, so the stored width matches what was drawn.
-    const total = Math.round(((event.clientX - drag.current.x) / drag.current.perRem) * 4) / 4;
+    const total = Math.round((((event.clientX - drag.current.x) * drag.current.sign) / drag.current.perRem) * 4) / 4;
     const delta = total - drag.current.applied;
     if (delta === 0) return;
     drag.current.applied = total;
@@ -188,8 +200,10 @@ export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: W
   };
   return (
     <>
-      <button
-        type="button"
+      {/* A div, not a <button>: some browsers never start a drag from a button element. */}
+      <div
+        role="button"
+        tabIndex={0}
         className="dk-arrange-move"
         draggable
         aria-label={t('Move {widget}', { widget: name })}
@@ -200,7 +214,7 @@ export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: W
         onKeyDown={onMoveKey}
       >
         {t('Move')}
-      </button>
+      </div>
       {id === 'chart' || width === undefined ? null : (
         <div
           role="separator"
@@ -214,7 +228,7 @@ export function ArrangeChrome({ desk, id, name }: { desk: DeskLayoutState; id: W
           onPointerUp={onEdgeUp}
           onPointerCancel={onEdgeUp}
           onKeyDown={(event) => {
-            const step = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0;
+            const step = keyStep(event);
             if (step === 0) return;
             event.preventDefault();
             desk.resize(id, step);
