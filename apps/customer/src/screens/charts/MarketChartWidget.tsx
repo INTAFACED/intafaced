@@ -4,10 +4,10 @@ import type { Candle } from '../../data/types';
 import { CANDLE_POLL_MS, CHART_INTERVALS, MORE_INTERVALS, useChartCandles, type ChartInterval } from '../trade/chart/candles';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
-import { dataStatus as computeStatus } from './data-status';
+import { dataStatus as computeStatus, tradeRefusal } from './data-status';
 import { useBookHalt, useLastTrade, useMarketLifecycle, useServerClock } from './market-state';
-import { useChartOwnerValues } from './owner-values';
-import { StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
+import { ownerValue, useChartOwnerValues } from './owner-values';
+import { refusalText, StatusBanner, StatusChip, SourceLine, TestLabel } from './DataStatus';
 import { ChartSettingsDialog } from './ChartSettings';
 import { chartSettingsKey, isStoredChartSettings, readChartSettings, type ChartSettings } from './chart-settings';
 import { PriceLines } from './PriceLines';
@@ -31,6 +31,7 @@ import { REPLAY_SPEEDS, replayBars, replayStart, useReplay, type ReplayRefusal, 
 import { isStreamInterval, mergeLive, useCandleStream, type OpenSocket } from './live-candles';
 import { intervalLabel, type ChartMode } from './workbench';
 import { WorkbenchChart } from './WorkbenchChart';
+import { ChartTrading } from './trading/ChartTrading';
 import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
 
@@ -102,6 +103,10 @@ export const MarketChartWidget = memo(function MarketChartWidget({
   const serverClock = useServerClock();
   const lastTrade = useLastTrade(market.symbol);
   const owner = useChartOwnerValues(market.symbol);
+  // Order entry on the chart: the same one rule as the status chip and the trade link (C-ops-02).
+  const orderRefusal = refusalText(tradeRefusal(lifecycle, bookHalt, now), t);
+  const protectionRead = ownerValue(owner, 'orderProtectionBps');
+  const protection = protectionRead.ok ? protectionRead.value : null;
   const status = computeStatus({
     now,
     serverClock,
@@ -264,7 +269,12 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         settings={settings}
         priceLines={lines}
       >
-        {addons ? (host, bars) => addons(host, bars, { percent, replaying: replay.replay !== null }) : undefined}
+        {(host, bars) => (
+          <>
+            {addons?.(host, bars, { percent, replaying: replay.replay !== null })}
+            <ChartTrading host={host} market={market} refusal={orderRefusal} protectionBps={protection} />
+          </>
+        )}
       </WorkbenchChart>
     );
 

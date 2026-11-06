@@ -21,7 +21,12 @@ vi.mock('../../shared/preferences', async (original) => {
 vi.mock('../../features/session/session', () => ({
   useSession: () => ({ userId: 'u1', api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) } }),
 }));
-vi.mock('../trade/desk/data', () => ({ useDeskMarkets: () => world.markets }));
+// The chart's own order controls read open orders through the desk's data; these tests place none.
+vi.mock('../trade/desk/data', () => ({
+  useDeskMarkets: () => world.markets,
+  useDeskApi: () => ({}),
+  useOpenOrders: () => ({ status: 'loading' }),
+}));
 vi.mock('../trade/chart/candles', async (original) => ({
   ...(await original<typeof import('../trade/chart/candles')>()),
   useChartCandles: () => world.candles,
@@ -62,7 +67,7 @@ import ChartsScreen from './index';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** A host with what the studies draw with: series that take data, and panes. */
+/** A host with what the studies draw with: series that take data, and panes, and the time scale the chart's order lines follow. */
 function stubHost() {
   const chart = {
     addSeries: () => ({ setData() {} }),
@@ -71,6 +76,7 @@ function stubHost() {
     removePane() {},
     subscribeCrosshairMove() {},
     unsubscribeCrosshairMove() {},
+    timeScale: () => ({ subscribeVisibleLogicalRangeChange() {}, unsubscribeVisibleLogicalRangeChange() {} }),
   };
   return {
     lib: { LineSeries: 'LineSeries', HistogramSeries: 'HistogramSeries' },
@@ -159,6 +165,7 @@ beforeEach(() => {
     brushPointCap: 2000,
     delayedBoundarySeconds: 30,
     renderBudgetMs: 500,
+    orderProtectionBps: 500,
     dataClass: 'real_time',
   };
 });
