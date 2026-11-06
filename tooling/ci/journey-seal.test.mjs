@@ -420,3 +420,29 @@ test('a Revert-button title names no steps and seals without a run', async () =>
   );
   assert.deepEqual(titleSteps('Reverted J-bank-13 #1 and rebuilt it'), ['J-bank-13#1']);
 });
+
+// The rule files still say "listed under" until the owner's yes, so the seal's own failure prints the exact line a
+// builder adds to leave the steps that aren't green, and that line, pasted at column 0, exempts exactly those steps.
+test('a failing seal prints the exact Left-or-replaced line for its steps that are not green, and it round-trips', async () => {
+  const title = 'x (J-bank-13 #1 #2 #3, J-bank-14 #2)';
+  const states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'failed', 'J-bank-14#2': 'skipped' };
+  const v = await judge({ title, runs: [run(1)], reportOf: reports({ 1: { states } }) });
+  assert.equal(v.ok, false);
+  const line = v.lines.map((l) => /(Left-or-replaced: .*)$/.exec(l)?.[1]).find(Boolean);
+  assert.equal(line, 'Left-or-replaced: J-bank-13 #2 #3, J-bank-14 #2');
+  assert.deepEqual([...exemptions(`${line}\n`).steps].sort(), ['J-bank-13#2', 'J-bank-13#3', 'J-bank-14#2']);
+  const sealed = await judge({ title, body: `## Left or replaced\n\n${line}\n`, runs: [run(1)], reportOf: reports({ 1: { states } }) });
+  assert.equal(sealed.ok, true, sealed.lines.join('\n'));
+  const waiting = await judge({
+    title: 'x (J-bank-13 #4)',
+    runs: [run(2, { status: 'in_progress', conclusion: null })],
+    reportOf: reports({}),
+  });
+  assert.match(waiting.lines.join('\n'), /Left-or-replaced: J-bank-13 #4$/m, 'a seal waiting on a run prints it too');
+  const sealedGreen = await judge({ runs: [run(1)], reportOf: reports({ 1: green }) });
+  assert.equal(
+    sealedGreen.lines.some((l) => l.includes('Left-or-replaced:')),
+    false,
+    'a green seal prints none',
+  );
+});

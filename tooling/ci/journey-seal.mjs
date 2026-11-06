@@ -138,6 +138,23 @@ export function exemptions(body) {
 }
 
 /**
+ * The exact body line that exempts `keys` (`J-bank-13#2`, …): `Left-or-replaced: J-bank-13 #2 #3, J-bank-14 #2`, journeys
+ * in order. A failing seal prints it for its steps that are not green, so a builder copies it rather than guessing the
+ * format (the rule files still say "listed under" until the owner's yes); exemptions() reads it back to the same keys.
+ */
+export function exemptionLine(keys) {
+  const by = new Map();
+  for (const k of [...keys].sort(byStep)) {
+    const [id, n] = k.split('#');
+    if (!by.has(id)) by.set(id, []);
+    by.get(id).push(`#${n}`);
+  }
+  return `Left-or-replaced: ${[...by].map(([id, ns]) => `${id} ${ns.join(' ')}`).join(', ')}`;
+}
+const leaveLine = (keys) =>
+  `to leave these steps instead, add this line to the body, at the start of a line and outside code: ${exemptionLine(keys)}`;
+
+/**
  * The verdict for one head. `runs`: every JOURNEYS_WORKFLOW run listed for this head (the caller lists by head_sha; this
  * filters again). `reportOf(run)`: { states } of the run's current-attempt report, or { error }. Pure but for reportOf.
  * Returns { ok, state: 'none'|'pass'|'wait'|'fail', lines: [...] }.
@@ -182,6 +199,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
       lines: [
         ...lines,
         `Real-app journeys run ${ids} on this head has not finished; the seal reads the steps once it does (journey-seal-recheck.yml re-runs it)`,
+        leaveLine(needed),
       ],
     };
   }
@@ -202,6 +220,7 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
     return reports.get(r.id);
   };
   let ok = true;
+  const notGreen = [];
   for (const k of needed) {
     let decided = null;
     for (const r of finished) {
@@ -223,9 +242,13 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
           ? `no finished Real-app journeys run on this head reports it (${finished.length} read)`
           : 'no finished Real-app journeys run on this head',
       };
-    if (!decided.green) ok = false;
+    if (!decided.green) {
+      ok = false;
+      notGreen.push(k);
+    }
     lines.push(`${k}: ${decided.why}`);
   }
+  if (notGreen.length) lines.push(leaveLine(notGreen));
   return { ok, state: ok ? 'pass' : 'fail', lines };
 }
 
@@ -418,13 +441,19 @@ function report({ ok, lines }, how) {
   if (ok) return console.log(`journey steps: ${how}`);
   console.error(
     `::error title=Named journey steps not green on this head::${lines
-      .filter((l) => !/on a Left-or-replaced line$/.test(l))
+      .filter((l) => !/on a Left-or-replaced line$/.test(l) && !/add this line to the body/.test(l))
       .join('; ')
       .slice(
         0,
         3000,
-      )}. A pull request whose title names journey steps needs each one passing in a finished Real-app journeys run on its exact head (dispatch real-app-journeys.yml on the branch with the journeys input naming the journey files, e.g. J-bank-13.pw.mjs, so they run with the ordinary limits rather than a full run's fail-fast; the seal re-runs when it finishes), or the step exempted on its own body line, \`Left-or-replaced: J-bank-13 #1 #3\`, at column 0 outside code.`,
+      )}. A pull request whose title names journey steps needs each one passing in a finished Real-app journeys run on its exact head (dispatch real-app-journeys.yml on the branch with the journeys input naming the journey files, e.g. J-bank-13.pw.mjs, so they run with the ordinary limits rather than a full run's fail-fast; the seal re-runs when it finishes), or the step exempted on its own body line: copy the Left-or-replaced line printed above, at column 0 outside code.`,
   );
+  // The exact line to copy, alone in its own annotation, with nothing after it.
+  for (const l of lines) {
+    const m = /(Left-or-replaced: .*)$/.exec(l);
+    if (/add this line to the body/.test(l) && m)
+      console.error(`::error title=To leave these steps, add this line to the body (column 0, outside code)::${m[1]}`);
+  }
   process.exit(1);
 }
 
