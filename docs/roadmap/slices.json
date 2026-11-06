@@ -1211,6 +1211,66 @@
     "order": 1
   },
   {
+    "id": "AG-outside-01",
+    "title": "The agent account: create it with a hard cap, fund it, empty it and close it",
+    "module": "agents",
+    "group": "agents-outside",
+    "spec": "modules/agents/specs/agents-outside.md",
+    "lane": "svc-agents",
+    "touches": ["svc-agents", "svc-identity", "svc-bank", "packages/ledger-client", "customer: agents"],
+    "depends": ["BK-ownmove-01", "I-account-lifecycle-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "AG-outside-02",
+    "title": "Connect the assistant: an agent key bound to the agent account, the MCP setup, and revoke at once",
+    "module": "agents",
+    "group": "agents-outside",
+    "spec": "modules/agents/specs/agents-outside.md",
+    "lane": "svc-agents",
+    "touches": ["svc-agents", "svc-identity", "packages/auth", "packages/contracts"],
+    "depends": ["AG-outside-01", "DV-keys-05", "DV-tools-02"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 2,
+    "order": 2
+  },
+  {
+    "id": "AG-outside-03",
+    "title": "The assistant trades in its agent account, and nothing else",
+    "module": "agents",
+    "group": "agents-outside",
+    "spec": "modules/agents/specs/agents-outside.md",
+    "lane": "svc-trade spot",
+    "touches": ["svc-trade", "svc-identity", "packages/ledger-client", "packages/auth"],
+    "depends": ["AG-outside-02", "D-cross-02"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "AG-outside-04",
+    "title": "Every agent action in the log, and the operator's view and quarantine",
+    "module": "agents",
+    "group": "agents-outside",
+    "spec": "modules/agents/specs/agents-outside.md",
+    "lane": "svc-agents",
+    "touches": ["svc-agents", "svc-identity", "packages/contracts"],
+    "depends": ["AG-audit-01", "AG-control-02", "AG-outside-02", "DV-keys-06"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 1,
+    "order": 2
+  },
+  {
     "id": "AG-registry-01",
     "title": "Agent registry for operators: owner, publisher, channels, risk signals, ownerless counts, and an audited CSV export",
     "module": "agents",
@@ -2388,7 +2448,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-acct-05",
@@ -2433,7 +2493,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-acct-08",
@@ -2448,7 +2508,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-acct-09",
@@ -2750,7 +2810,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2,
+    "order": 1,
     "later": ["BK-cctl-02"]
   },
   {
@@ -2766,7 +2826,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cctl-03",
@@ -2781,7 +2841,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cctl-04",
@@ -2796,8 +2856,53 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2,
+    "order": 1,
     "later": ["BK-cissue-04", "BK-cops-02"]
+  },
+  {
+    "id": "BK-ccrypto-01",
+    "title": "The pay-from order: which assets a card may spend, and in which order",
+    "module": "bank",
+    "group": "bank-cards-crypto",
+    "spec": "modules/bank/specs/bank-cards-crypto.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank", "customer: money"],
+    "depends": ["BK-cissue-02"],
+    "journeys": [],
+    "outside": "`rail.card` (no live issuer; card-sim on the stack)",
+    "size": "M",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "BK-ccrypto-02",
+    "title": "Authorise from the first asset in the order that covers the whole amount, with the TEST network calls",
+    "module": "bank",
+    "group": "bank-cards-crypto",
+    "spec": "modules/bank/specs/bank-cards-crypto.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank", "svc-ledger"],
+    "depends": ["BK-ccrypto-01", "BK-cpay-02"],
+    "journeys": [],
+    "outside": "`rail.card` (card-sim on the stack)",
+    "size": "L",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "BK-ccrypto-03",
+    "title": "Capture, partial capture, reversal and refund on a converted payment, and the per-asset reconciliation",
+    "module": "bank",
+    "group": "bank-cards-crypto",
+    "spec": "modules/bank/specs/bank-cards-crypto.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank", "packages/ledger-client"],
+    "depends": ["BK-ccrypto-02"],
+    "journeys": [],
+    "outside": "`rail.card` (card-sim on the stack)",
+    "size": "M",
+    "families": 0,
+    "order": 2
   },
   {
     "id": "BK-cdisp-01",
@@ -2859,7 +2964,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cissue-02",
@@ -2874,7 +2979,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cissue-03",
@@ -2889,7 +2994,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cissue-04",
@@ -2904,7 +3009,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cops-01",
@@ -3057,7 +3162,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-cpay-02",
@@ -3072,7 +3177,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-earn-01",
@@ -3302,6 +3407,21 @@
     "order": 3
   },
   {
+    "id": "BK-ownmove-01",
+    "title": "Moves between my main balance and my own trading and agent accounts",
+    "module": "bank",
+    "group": "bank-own-moves",
+    "spec": "modules/bank/specs/bank-own-moves.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank", "svc-ledger", "svc-identity", "packages/ledger-client", "packages/contracts"],
+    "depends": ["I-account-lifecycle-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 2
+  },
+  {
     "id": "BK-pots-01",
     "title": "Pots: create, move money, balance rules, archive and organise",
     "module": "bank",
@@ -3404,7 +3524,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-safe-02",
@@ -3419,7 +3539,7 @@
     "outside": "",
     "size": "M",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "BK-safe-03",
@@ -3434,6 +3554,51 @@
     "outside": "",
     "size": "M",
     "families": 2,
+    "order": 1
+  },
+  {
+    "id": "BK-salary-01",
+    "title": "Salary account details and the employer form",
+    "module": "bank",
+    "group": "bank-salary",
+    "spec": "modules/bank/specs/bank-salary.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank", "customer: money"],
+    "depends": ["BK-acct-03"],
+    "journeys": [],
+    "outside": "`rail.bank` (payroll-sim on the stack)",
+    "size": "M",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "BK-salary-02",
+    "title": "Salary split into spaces",
+    "module": "bank",
+    "group": "bank-salary",
+    "spec": "modules/bank/specs/bank-salary.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank"],
+    "depends": ["BK-pots-03", "BK-salary-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "BK-salary-03",
+    "title": "The payroll credit, returns, reversals and the rail reconciliation, with the `payroll-sim` stand-in",
+    "module": "bank",
+    "group": "bank-salary",
+    "spec": "modules/bank/specs/bank-salary.md",
+    "lane": "svc-bank",
+    "touches": ["svc-bank", "svc-ledger"],
+    "depends": ["BK-salary-01"],
+    "journeys": [],
+    "outside": "`rail.bank` (payroll-sim on the stack)",
+    "size": "L",
+    "families": 0,
     "order": 2
   },
   {
@@ -3645,7 +3810,7 @@
     "outside": "`vendor.email` for the e-mail copy of the notice; the in-app notice is built and shown regardless.",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-bank-02",
@@ -3660,7 +3825,7 @@
     "outside": "`rail.card`: real captures arrive only from a connected issuer; the simulator path is labelled TEST.",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-bank-03",
@@ -4651,7 +4816,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-convert-buy-02",
@@ -4666,7 +4831,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-convert-buy-03",
@@ -4681,7 +4846,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-convert-buy-04",
@@ -4909,7 +5074,7 @@
     "outside": "`owner.decision` for the listing approval where the owner has not yet decided a listing, named on the record. No outside vendor.",
     "size": "L",
     "families": 4,
-    "order": 2,
+    "order": 1,
     "later": ["SP-ops-01"]
   },
   {
@@ -4925,7 +5090,7 @@
     "outside": "`licence` for tokenized equities (a regulated product we do not hold a licence for, named); `feed.market` for an outside equity price (not used by the first bui",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-markets-data-04",
@@ -4940,7 +5105,7 @@
     "outside": "`owner.decision` (the owner has not decided the retail program).",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "SP-ops-01",
@@ -5532,7 +5697,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "C-ops-03",
@@ -5577,7 +5742,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "C-trade-dom-02",
@@ -5592,7 +5757,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2,
+    "order": 1,
     "later": ["C-trade-dom-03"]
   },
   {
@@ -5608,7 +5773,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "C-trade-dom-04",
@@ -5730,7 +5895,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "RC-charts-desk-02",
@@ -6782,7 +6947,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 1
+    "order": 0
   },
   {
     "id": "CB-copy-23",
@@ -7638,7 +7803,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-account-02",
@@ -7653,7 +7818,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-account-03",
@@ -7668,7 +7833,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-account-04",
@@ -7683,7 +7848,7 @@
     "outside": "",
     "size": "M",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-account-05",
@@ -7758,6 +7923,96 @@
     "outside": "`owner.decision` (named: the credit policy)",
     "size": "S",
     "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-cross-01",
+    "title": "The trading account: one balance for spot and perps, moves in and out, and its place beside the spending balances",
+    "module": "derivatives",
+    "group": "deriv-cross",
+    "spec": "modules/derivatives/specs/deriv-cross.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "svc-identity", "packages/ledger-client", "packages/contracts"],
+    "depends": ["BK-ownmove-01", "D-account-07", "I-account-lifecycle-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 1,
+    "order": 2
+  },
+  {
+    "id": "D-cross-02",
+    "title": "Spot on the trading account: orders hold and fill in its pots",
+    "module": "derivatives",
+    "group": "deriv-cross",
+    "spec": "modules/derivatives/specs/deriv-cross.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/ledger-client"],
+    "depends": ["D-cross-01"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "D-cross-03",
+    "title": "Cross margin mode on the trading account: shared equity, collateral at haircut, one margin ratio and the free-margin rule",
+    "module": "derivatives",
+    "group": "deriv-cross",
+    "spec": "modules/derivatives/specs/deriv-cross.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "customer: trade"],
+    "depends": ["D-cross-01", "D-cross-02", "D-margin-01", "D-margin-02", "D-margin-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "D-cross-04",
+    "title": "Cross liquidation that only ever reaches the trading account",
+    "module": "derivatives",
+    "group": "deriv-cross",
+    "spec": "modules/derivatives/specs/deriv-cross.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/ledger-client"],
+    "depends": ["D-cross-03", "D-cross-06", "D-margin-04", "D-margin-06", "D-margin-08"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "D-cross-05",
+    "title": "The trading account's statement, the operator's view and the reconciliation line",
+    "module": "derivatives",
+    "group": "deriv-cross",
+    "spec": "modules/derivatives/specs/deriv-cross.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/ledger-client", "admin: trade-ops"],
+    "depends": ["D-cross-01", "D-cross-03", "D-cross-04"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 2
+  },
+  {
+    "id": "D-cross-06",
+    "title": "The stack's TEST mark control",
+    "module": "derivatives",
+    "group": "deriv-cross",
+    "spec": "modules/derivatives/specs/deriv-cross.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "svc-bank"],
+    "depends": [],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
     "order": 2
   },
   {
@@ -7803,7 +8058,7 @@
     "outside": "`feed.market` (named: the index venue feed), `owner.decision` (named: the futures payout model) for the delivery history until settlement is decided",
     "size": "M",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-data-04",
@@ -7818,7 +8073,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-data-05",
@@ -7923,7 +8178,7 @@
     "outside": "`feed.market` (named: the outside index venue feed)",
     "size": "L",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-instruments-02",
@@ -7938,7 +8193,7 @@
     "outside": "`owner.decision` (named: the futures payout model, PR #5016) for the payout side only",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-instruments-03",
@@ -7984,7 +8239,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-instruments-06",
@@ -8091,7 +8346,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-margin-05",
@@ -8121,7 +8376,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-margin-07",
@@ -8136,7 +8391,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2,
+    "order": 1,
     "later": ["D-margin-08"]
   },
   {
@@ -8152,7 +8407,7 @@
     "outside": "`owner.decision` for the funding of the reserve and the residual-loss rule",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-margin-09",
@@ -8424,7 +8679,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 2,
+    "order": 1,
     "later": ["D-orders-03"]
   },
   {
@@ -8440,7 +8695,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-orders-04",
@@ -8515,7 +8770,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-orders-09",
@@ -8545,7 +8800,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-orders-11",
@@ -9056,7 +9311,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 3
+    "order": 2
   },
   {
     "id": "DV-versioning-01",
@@ -11391,7 +11646,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 3
+    "order": 2
   },
   {
     "id": "I-account-lifecycle-04",
@@ -11451,7 +11706,7 @@
     "outside": "`vendor.sms` (SMS method delivery); `idp.social` as in signin-sessions slice 21 (AMENDED 2026-10-18 (review)",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-account-lifecycle-08",
@@ -11977,7 +12232,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-02",
@@ -12052,7 +12307,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2,
+    "order": 1,
     "later": ["I-signin-sessions-08"]
   },
   {
@@ -12098,7 +12353,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-10",
@@ -12128,7 +12383,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2,
+    "order": 1,
     "later": ["I-signin-sessions-14"]
   },
   {
@@ -12144,7 +12399,7 @@
     "outside": "`vendor.email` (code delivery)",
     "size": "L",
     "families": 1,
-    "order": 2,
+    "order": 1,
     "later": ["I-signin-sessions-16"]
   },
   {
@@ -12160,7 +12415,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-14",
@@ -12175,7 +12430,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-15",
@@ -12355,7 +12610,7 @@
     "outside": "",
     "size": "S",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-27",
@@ -12370,7 +12625,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-28",
@@ -12385,7 +12640,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-29",
@@ -12400,7 +12655,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "I-signin-sessions-30",
@@ -13150,7 +13405,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "M-adv-in-person-01",
@@ -13765,7 +14020,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "M-adv-payments-core-06",
@@ -14067,7 +14322,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "M-adv-phantom-order-05",
@@ -16526,7 +16781,7 @@
     "outside": "`rail.bank` only for the outside-balance template when no partner snapshot exists; the control can still be defined and run, and the outside side shows 'unset'.",
     "size": "L",
     "families": 4,
-    "order": 2,
+    "order": 1,
     "later": ["OPS-reconciliation-02"]
   },
   {
@@ -18703,7 +18958,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "PP-money-balance-01",
@@ -19006,7 +19261,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "PP-send-request-13",
@@ -19021,7 +19276,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 1
   },
   {
     "id": "PP-send-request-14",
@@ -19262,7 +19517,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "PF-activity-02",
@@ -19277,7 +19532,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "PF-activity-03",
@@ -19292,7 +19547,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "PF-asset-page-01",
@@ -20893,7 +21148,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "W-balances-08",
@@ -20908,7 +21163,7 @@
     "outside": "",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "W-balances-09",
@@ -20923,7 +21178,7 @@
     "outside": "",
     "size": "S",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "W-balances-10",
@@ -21423,7 +21678,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "W-security-accounts-04",
@@ -22419,7 +22674,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 2
+    "order": 1
   },
   {
     "id": "M-payments-core-04b",
@@ -22449,7 +22704,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 2,
+    "order": 1,
     "later": ["M-payments-core-06"]
   },
   {
@@ -22465,7 +22720,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 2
+    "order": 1
   },
   {
     "id": "M-payments-core-07",
