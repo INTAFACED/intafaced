@@ -1381,6 +1381,9 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       FROM trade.futures_conditional_orders o
       JOIN trade.markets m ON m.id = o.market_id
       WHERE o.status = 'armed'
+        -- A pre-liquidation stop's close order rests here to be seen and claimed, but only its own tick fires it: that
+        -- tick moves its trigger with the margin first, so a trigger left over from before a margin change never fires.
+        AND NOT starts_with(o.client_order_id, 'risk-stop:')
       ORDER BY o.created_at, o.id
     `;
     let fired = 0;
@@ -1491,7 +1494,8 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
       if (resting.status === 'armed') {
         const claimed = await sql<{ id: string }[]>`
           UPDATE trade.futures_conditional_orders
-          SET status = 'triggered', trigger_key = ${bookKey(resting.id)}, updated_at = now()
+          SET status = 'triggered', trigger_key = ${bookKey(resting.id)}, quantity = ${formatAmount(input.quantity)},
+              updated_at = now()
           WHERE id = ${resting.id} AND status = 'armed' AND trigger_key IS NULL
           RETURNING id
         `;
@@ -1539,6 +1543,16 @@ export function createConditionalOrderService(deps: ConditionalOrderDeps) {
     cancelReason: string;
   }): Promise<ConditionalOrderView | null> {
     const prefix = `risk-stop:${input.positionId}:`;
+    // Only for the stop as it stands now: a caller that read an earlier stop (a tick racing a new level) changes nothing.
+    const [current] = await sql<{ close_client_order_id: string | null; status: string }[]>`
+      SELECT close_client_order_id, status FROM trade.futures_risk_stops
+      WHERE position_id = ${input.positionId} AND user_id = ${input.userId}
+    `;
+    const stands =
+      input.clientOrderId == null
+        ? !current || current.status !== 'armed'
+        : current?.status === 'armed' && current.close_client_order_id === input.clientOrderId;
+    if (!stands) return input.clientOrderId == null ? null : getByClientId(input.userId, input.clientOrderId);
     await sql`
       UPDATE trade.futures_conditional_orders
       SET status = 'cancelled', cancel_reason = ${input.cancelReason}, updated_at = now()

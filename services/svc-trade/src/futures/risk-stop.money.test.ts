@@ -504,25 +504,53 @@ describe('pre-liquidation stop', () => {
     expect(await refusal(stops.set(ALICE, positionId, { level: '40', clientRequestId: 'gen-3' }))).toBe('trade.position_not_open');
   });
 
-  it('the mark crossing the trigger fires the resting order once; the stop reads fired and nothing is placed twice', async () => {
+  it("only the stop's own tick fires its resting order, with fresh figures; once, and the stop reads fired", async () => {
     const positionId = await aliceLong();
     const stops = stopService();
     await stops.set(ALICE, positionId, { level: '50', clientRequestId: 'cross-1' });
     const bid = await carolBid('1', '95');
     const submitted = engine.submits.length;
-    // The mark falls through 95.25 while the figures still read the ratio under the level.
+    // The mark falls through the resting trigger, but margin was added meanwhile and the ratio is under the level: the
+    // conditional tick leaves the order alone, and the stop's tick moves its trigger instead.
     mark = A('95');
-    scriptFill(bid, '1', '95');
+    stopAt = A('93.5');
     await orders.evaluate({ enabled: true });
-    expect(await closeOrders()).toMatchObject([{ client_order_id: `risk-stop:${positionId}:1`, status: 'filled' }]);
-    expect(engine.submits.slice(submitted)).toHaveLength(1);
+    expect(await closeOrders()).toMatchObject([{ client_order_id: `risk-stop:${positionId}:1`, status: 'armed', trigger_price: '95.25' }]);
+    expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
+    expect(await closeOrders()).toMatchObject([{ status: 'armed', trigger_price: '93.5' }]);
+    expect(engine.submits.slice(submitted)).toHaveLength(0);
+    // At the level the stop's tick fires that same order, for the size now.
+    ratio = A('0.5');
+    scriptFill(bid, '1', '95');
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 1 });
+    expect(await closeOrders()).toMatchObject([{ client_order_id: `risk-stop:${positionId}:1`, status: 'filled', quantity: '1' }]);
     expect(await stops.evaluate({ enabled: true })).toEqual({ fired: 0 });
     await orders.evaluate({ enabled: true });
     expect(engine.submits.slice(submitted)).toHaveLength(1);
-    expect(await stopRows()).toMatchObject([{ status: 'done' }]);
     expect(await stops.get(ALICE, positionId)).toMatchObject({ status: 'fired', closeOrder: { status: 'filled' } });
     expect((await POSITION_SQL(sql, positionId))[0]!.status).toBe('closed');
+  });
+
+  it("a tick that read an earlier stop leaves the newer stop's close order resting", async () => {
+    const positionId = await aliceLong();
+    const stops = stopService();
+    await stops.set(ALICE, positionId, { level: '50', clientRequestId: 'stale-1' });
+    await stops.set(ALICE, positionId, { level: '60', clientRequestId: 'stale-2' });
+    // A tick still holding generation 1 syncs it after the new level was set.
+    await orders.syncRiskStop({
+      userId: ALICE,
+      marketId: MARKET,
+      positionId,
+      clientOrderId: `risk-stop:${positionId}:1`,
+      side: 'sell',
+      quantity: A('1'),
+      triggerPrice: A('95.25'),
+      cancelReason: 'risk_stop_replaced',
+    });
+    expect((await closeOrders()).map((o) => [o.client_order_id, o.status])).toEqual([
+      [`risk-stop:${positionId}:1`, 'cancelled'],
+      [`risk-stop:${positionId}:2`, 'armed'],
+    ]);
   });
 
   it("the resting order follows the level's mark and the size as they move; cancelling it clears the stop", async () => {

@@ -5,8 +5,9 @@
  * position. Setting it places the close order at once: one reduce-only stop-market order for the whole position,
  * resting in the trader's conditional orders, triggered on the mark at which the ratio reaches the level (the same
  * ladder and depth as the liquidation price). Each tick moves that trigger and size with the position (margin added
- * or taken, funding); the conditional tick fires it when the mark crosses, and this tick fires the same order if the
- * ratio gets there first. Cancelling the close order clears the stop.
+ * or taken, funding), and fires that same order when the ratio reaches the level, which is the mark reaching the
+ * trigger on fresh figures. The conditional tick never fires it, so a trigger left over from before a margin change
+ * cannot close the position early. Cancelling the close order clears the stop.
  * Blank means no stop: it is a convenience, and the platform's own liquidation still runs.
  *
  * Refusals: a level at or above 100% would act only after the liquidation (`trade.risk_stop_invalid`); a level the
@@ -382,6 +383,14 @@ export function createRiskStopService(deps: RiskStopDeps) {
         const level = parseAmount(row.level!);
         const figures = await deps.figures(row.user_id, row.position_id, level);
         const clientOrderId = row.close_client_order_id ?? closeId(row.position_id, row.generation);
+        if (row.close_client_order_id == null) {
+          // A stop armed before close orders rested: its close order's id is named on it now, then written below.
+          await sql`
+            UPDATE trade.futures_risk_stops SET close_client_order_id = ${clientOrderId}
+            WHERE position_id = ${row.position_id} AND status = 'armed' AND generation = ${row.generation}
+              AND close_client_order_id IS NULL
+          `;
+        }
         const close = await deps.closeOrder(row.user_id, clientOrderId);
         if (close && close.status === 'cancelled') {
           // The close order came off without the stop: the position went (the stop has ended), or the trader cancelled
