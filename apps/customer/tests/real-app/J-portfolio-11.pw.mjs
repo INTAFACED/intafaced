@@ -217,6 +217,12 @@ test(`${J} #6 asks for a range that crosses months as a PDF: refused with the re
   expect(saved).toBe(false);
 });
 
+/** This person's export job `id` as the document centre lists it, or undefined. */
+async function listedJob(id, client) {
+  const res = await (client ?? (await api(who))).get('/api/bank/trpc/statements.jobs.list');
+  return res.body?.result?.data?.items?.find((job) => job.id === id);
+}
+
 test(`${J} #4 requests an export for a long range: a job row exists first, the same request returns the same job, and the document centre lists it`, async ({
   page,
 }) => {
@@ -230,11 +236,49 @@ test(`${J} #4 requests an export for a long range: a job row exists first, the s
   };
   const first = await client.post('/api/bank/trpc/statements.jobs.create', request);
   expect(first.status, `bank.statements.jobs.create: ${JSON.stringify(first.body).slice(0, 300)}`).toBe(200);
+  // A job row exists first: the request answers with the row it wrote (svc-bank returns the inserted row), queued, never
+  // claimed, with no file, no fingerprint, no line count and no finish time.
   const job = first.body.result.data;
+  expect(job).toMatchObject({
+    report: 'ledger',
+    format: 'csv',
+    from: request.from,
+    to: request.to,
+    state: 'queued',
+    attempts: 0,
+    filename: null,
+    sha256: null,
+    rowCount: null,
+    finishedAt: null,
+    errorCode: null,
+  });
+  expect(Number.isFinite(Date.parse(job.createdAt))).toBe(true);
+  // While it has no file, asking for it is refused as not ready (412, the bank's code). The TEST worker looks every second,
+  // so it may already have made the file: then the download is that ready job's file, whole.
+  const early = await client.get(`/api/bank/trpc/statements.jobs.download?input=${encodeURIComponent(JSON.stringify({ id: job.id }))}`);
+  if (early.status !== 200) {
+    expect(early.status, JSON.stringify(early.body).slice(0, 300)).toBe(412);
+    expect(early.body?.error?.message).toMatch(/\(bank\.statement_job_not_ready\)$/);
+  }
+  // The same request returns the same job.
   const again = await client.post('/api/bank/trpc/statements.jobs.create', request);
+  expect(again.status).toBe(200);
   expect(again.body.result.data.id).toBe(job.id);
+  // The document centre lists it; it is made after the row was written, and then it has its file.
   await openCentre(page);
   await expect(page.getByTestId('statement-documents').locator(`[data-job="${job.id}"]`)).toBeVisible({ timeout: 5_000 });
+  await expect.poll(async () => (await listedJob(job.id, client))?.state, { timeout: 30_000 }).toBe('ready');
+  const ready = await listedJob(job.id, client);
+  expect(ready.attempts).toBeGreaterThanOrEqual(1);
+  expect(ready.sha256).toMatch(/^[0-9a-f]{64}$/);
+  expect(Date.parse(ready.finishedAt)).toBeGreaterThanOrEqual(Date.parse(job.createdAt));
+  if (early.status === 200) {
+    const bytes = Buffer.from(early.body.result.data.bodyBase64, 'base64');
+    expect(createHash('sha256').update(bytes).digest('hex')).toBe(ready.sha256);
+  }
+  // One job for this request, however often it was asked for.
+  const all = (await client.get('/api/bank/trpc/statements.jobs.list')).body.result.data.items;
+  expect(all.filter((row) => row.report === 'ledger' && row.from === request.from && row.to === request.to)).toHaveLength(1);
 });
 
 /** The bank restarted with every export render held (a TEST fault), or back on renders that finish. */
@@ -248,12 +292,6 @@ function bankRenderHold(on) {
     if (before === undefined) delete process.env.LOCAL_STACK_BANK_STATEMENT_HOLD;
     else process.env.LOCAL_STACK_BANK_STATEMENT_HOLD = before;
   }
-}
-
-/** This person's export job `id` as the document centre lists it, or undefined. */
-async function listedJob(id) {
-  const res = await (await api(who)).get('/api/bank/trpc/statements.jobs.list');
-  return res.body?.result?.data?.items?.find((job) => job.id === id);
 }
 
 test(`${J} #5 a worker dies mid-render: the job re-queues on the same key and the second file has the same content`, async ({ page }) => {

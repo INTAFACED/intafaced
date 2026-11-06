@@ -10,7 +10,7 @@ import { subject, type Verb } from './subject.js';
  * what makes the bus a contract rather than a rumour mill.
  *
  * Adding an event may land in the same PR as the services of the one journey
- * that needs it (AGENTS.md "Services and events" 1, owner decision 2026-11-06).
+ * that needs it (AGENTS.md, "The owner's decisions", owner decision 2026-11-06).
  */
 
 export interface EventDef<TSchema extends z.ZodTypeAny = z.ZodTypeAny> {
