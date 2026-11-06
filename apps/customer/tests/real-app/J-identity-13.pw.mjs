@@ -126,9 +126,7 @@ test(`${J} #1 the official channels page says whether a domain is on the publish
   restartWith('support', 'SUPPORT_OFFICIAL_CHANNELS', false);
   try {
     await page.goto('/help/official-channels');
-    await expect(room.getByTestId('official-channels__unpublished')).toHaveText(
-      'The owner has not published the official channel list.',
-    );
+    await expect(room.getByTestId('official-channels__unpublished')).toHaveText('The owner has not published the official channel list.');
     await expect(room.getByLabel('Domain or sender address')).toBeDisabled();
     await expect(room.getByRole('button', { name: 'Check' })).toBeDisabled();
     await expect(room.getByTestId('official-channels__list')).toHaveCount(0);
