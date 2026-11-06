@@ -1,12 +1,46 @@
 #!/bin/sh
 #
-# Refuse direct push to main + require format:check before any push.
-# Safety net only — --no-verify bypasses; real enforcement is branch protection (needs Pro).
+# Refuse direct push to main, require format:check, then run the pre-push checks (tooling/scripts/pre-push.mjs: the
+# Doctrine gates, the affected typecheck and the changed packages' unit tests) before any push.
+# INTAFACED_PRE_PUSH_SKIP="<why>" skips the pre-push checks by name and logs it; --no-verify skips this whole hook and
+# logs nothing, so do not use it. Real enforcement is CI and the ruleset on main.
 #
 # P1: format:check covers tooling/scripts/*.mjs (what red-trunked main via #471).
 # Worktrees often lack node_modules — resolve prettier from git-common-dir parent.
 
 TOP=$(git rev-parse --show-toplevel)
+
+# git's pushed refs, read once: the main check below and the pre-push checks both need them.
+REFS=$(cat)
+
+# First, so a push to main is refused before minutes of checks.
+protected="main"
+remote_ref_prefix="refs/heads/"
+
+printf '%s\n' "$REFS" | while read -r local_ref _local_sha remote_ref _remote_sha; do
+  [ -n "$remote_ref" ] || continue
+  branch="${remote_ref#$remote_ref_prefix}"
+
+  if [ "$branch" = "$protected" ]; then
+    cat >&2 <<'MESSAGE'
+
+  ✖ Direct push to main refused.
+
+    main is always deployable and changes reach it through a reviewed PR
+    (CONTRIBUTING.md §1).
+
+    Instead:
+      pnpm wt feat/your-change
+      git push -u origin feat/your-change
+      gh pr create --fill
+
+    If you genuinely need to push main:
+      git push --no-verify
+
+MESSAGE
+    exit 1
+  fi
+done || exit 1
 
 # Resolve the MAIN checkout from --git-common-dir, whose parent is the main
 # working tree. Two spellings have to be handled, and getting this wrong is why
@@ -95,31 +129,10 @@ MSG
   exit 1
 fi
 
-protected="main"
-remote_ref_prefix="refs/heads/"
-
-while read -r local_ref _local_sha remote_ref _remote_sha; do
-  branch="${remote_ref#$remote_ref_prefix}"
-
-  if [ "$branch" = "$protected" ]; then
-    cat >&2 <<'MESSAGE'
-
-  ✖ Direct push to main refused.
-
-    main is always deployable and changes reach it through a reviewed PR
-    (CONTRIBUTING.md §1).
-
-    Instead:
-      pnpm wt feat/your-change
-      git push -u origin feat/your-change
-      gh pr create --fill
-
-    If you genuinely need to push main:
-      git push --no-verify
-
-MESSAGE
-    exit 1
-  fi
-done
+# The pre-push checks: what CI's first run would refuse (plan 2026-11-06, Now 3). They print what they run and why
+# they refuse; the escape is named and logged there.
+if ! (CDPATH= cd -- "$TOP" && printf '%s\n' "$REFS" | node tooling/scripts/pre-push.mjs); then
+  exit 1
+fi
 
 exit 0

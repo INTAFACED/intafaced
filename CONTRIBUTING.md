@@ -7,7 +7,7 @@ People and AI agents share one repo. This file is how that stays clean. The rule
 ## 1 · The model: GitHub Flow
 
 - `main` is always deployable. Every change is a short-lived branch, then a pull request, then a squash merge.
-- No direct pushes to `main`. `.githooks/pre-push` blocks `git push` to `main` and requires `format:check`; `pnpm install` turns the hook on (`package.json` `prepare`). `--no-verify` skips the hook, so do not use it.
+- No direct pushes to `main`. `.githooks/pre-push` blocks `git push` to `main`, requires `format:check`, and runs the pre-push checks (`tooling/scripts/pre-push.mjs`: Doctrine gates, affected typecheck, changed packages' unit tests; `INTAFACED_PRE_PUSH_SKIP="<why>"` skips them and is logged); `pnpm install` turns the hook on (`package.json` `prepare`). `--no-verify` skips the hook, so do not use it.
 - No long-lived branches. A branch older than about two days is a merge conflict waiting to happen. Split the work instead.
 - If `main` is red, diagnose the failure and coordinate a focused fix without competing edits. Never weaken a gate to get a green result.
 - Do not turn on required approvals or code-owner reviews. Review is asked for, not waited on (see section 3).

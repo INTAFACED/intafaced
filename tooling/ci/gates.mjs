@@ -34,11 +34,17 @@
  * Usage:
  *   node tooling/ci/gates.mjs          run every gate, report all failures
  *   node tooling/ci/gates.mjs --list   print the gate ids, one per line
+ *   node tooling/ci/gates.mjs --jobs 4 run up to 4 gates at once; an `exclusive` gate runs alone, after the rest
+ *   node tooling/ci/gates.mjs --part shared|exclusive
+ *                                      run only the gates that may share the tree, or only the exclusive ones
+ *
+ * CI runs it with no flags: one gate at a time, the whole list. `--jobs` and `--part` are for the pre-push hook
+ * (tooling/scripts/pre-push.mjs), which runs the shared gates beside the typecheck and the exclusive ones after it.
  */
 import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 
 const ROOT = process.cwd();
 const CI_DIR = join(ROOT, 'tooling', 'ci');
@@ -283,6 +289,8 @@ export const GATES = [
     id: 'money-property-mutation',
     script: 'tooling/ci/money-property.mutation.mjs',
     doctrine: '§4.2',
+    // It rewrites packages/ledger-client/src/money.ts in place while it runs, so with --jobs it runs alone, after the rest.
+    exclusive: true,
     why:
       'the mutation proof for the money property suite, by the same argument as secret-scan-mutation one layer ' +
       'down. Property tests are unusually good at looking rigorous while asserting little: `floor <= half-up <= ceil` ' +
@@ -434,10 +442,62 @@ const RUN_AS_SCRIPT = process.argv[1] !== undefined && resolve(process.argv[1]) 
 
 if (RUN_AS_SCRIPT) main();
 
-function main() {
+/** Parses `--jobs N` (default 1) and `--part shared|exclusive` (default: every gate). Exported for its test. */
+export function runOptions(argv) {
+  const opt = { jobs: 1, part: 'all' };
+  const j = argv.indexOf('--jobs');
+  if (j >= 0) {
+    const n = Number(argv[j + 1]);
+    if (!Number.isInteger(n) || n < 1) throw new Error(`--jobs needs a whole number of 1 or more, got ${argv[j + 1]}`);
+    opt.jobs = n;
+  }
+  const p = argv.indexOf('--part');
+  if (p >= 0) {
+    if (!['shared', 'exclusive'].includes(argv[p + 1])) throw new Error(`--part is shared or exclusive, got ${argv[p + 1]}`);
+    opt.part = argv[p + 1];
+  }
+  return opt;
+}
+
+/** The gates a run takes, in the order it starts them: shared ones first, then each exclusive one alone. */
+export function selectGates(gates, part) {
+  const shared = gates.filter((g) => !g.exclusive);
+  const exclusive = gates.filter((g) => g.exclusive);
+  if (part === 'shared') return { shared, exclusive: [] };
+  if (part === 'exclusive') return { shared: [], exclusive };
+  return { shared, exclusive };
+}
+
+function runGate(gate) {
+  const started = process.hrtime.bigint();
+  return new Promise((done) => {
+    // maxBuffer: execFileSync's 1 MiB, the limit this runner always had.
+    execFile(
+      process.execPath,
+      [join(ROOT, gate.script), ...(gate.args ?? [])],
+      { encoding: 'utf8', cwd: ROOT, maxBuffer: 1024 * 1024 },
+      (err, stdout, stderr) => {
+        const ms = Number((process.hrtime.bigint() - started) / 1000000n);
+        // A passing gate's stderr is printed as execFileSync printed it (to this process's stderr); a failing one's is
+        // part of its output, as before.
+        done({ gate, ok: !err, ms, output: err ? (stdout ?? '') + (stderr ?? '') : stdout, stderr: err ? '' : stderr });
+      },
+    );
+  });
+}
+
+async function main() {
   if (process.argv.includes('--list')) {
     for (const gate of GATES) console.log(gate.id);
     process.exit(0);
+  }
+
+  let opt;
+  try {
+    opt = runOptions(process.argv);
+  } catch (err) {
+    console.error(`✖ ${err.message}`);
+    process.exit(2);
   }
 
   const manifestProblems = manifestCheck();
@@ -447,29 +507,18 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n══ DOCTRINE GATES (${GATES.length}) ══\n`);
+  const { shared, exclusive } = selectGates(GATES, opt.part);
+  const total = shared.length + exclusive.length;
+  const what = opt.part === 'all' ? `${GATES.length}` : `${total} of ${GATES.length}, ${opt.part}`;
+  console.log(`\n══ DOCTRINE GATES (${what}${opt.jobs > 1 ? `, ${opt.jobs} at a time` : ''}) ══\n`);
 
   const failed = [];
   const advisoryNoise = [];
   let totalMs = 0;
 
-  for (const gate of GATES) {
-    const started = process.hrtime.bigint();
-    let ok = true;
-    let output = '';
-
-    try {
-      output = execFileSync(process.execPath, [join(ROOT, gate.script), ...(gate.args ?? [])], {
-        encoding: 'utf8',
-        cwd: ROOT,
-      });
-    } catch (err) {
-      ok = false;
-      output = (err.stdout ?? '') + (err.stderr ?? '');
-    }
-
-    const ms = Number((process.hrtime.bigint() - started) / 1000000n);
+  const report = ({ gate, ok, ms, output, stderr }) => {
     totalMs += ms;
+    if (stderr) process.stderr.write(stderr);
 
     // Every gate is run. None is skipped because an earlier one failed — you
     // should see every broken gate in one run, not discover them one push apart.
@@ -492,6 +541,19 @@ function main() {
       failed.push({ gate, output });
       console.log(`  ✖ ${gate.id.padEnd(22)} ${String(ms).padStart(5)}ms  ${gate.doctrine}`);
     }
+  };
+
+  // With one job (CI) this is the old loop: each gate in list order, one after another. With more, up to `jobs` shared
+  // gates run at once and each is reported as it ends; an exclusive gate always runs alone, after them.
+  const queue = [...shared];
+  const worker = async () => {
+    while (queue.length > 0) report(await runGate(queue.shift()));
+  };
+  if (opt.jobs === 1) {
+    for (const gate of GATES) if (shared.includes(gate) || exclusive.includes(gate)) report(await runGate(gate));
+  } else {
+    await Promise.all(Array.from({ length: Math.min(opt.jobs, queue.length) }, worker));
+    for (const gate of exclusive) report(await runGate(gate));
   }
 
   for (const { gate, output } of advisoryNoise) {
@@ -500,7 +562,7 @@ function main() {
   }
 
   if (failed.length > 0) {
-    console.error(`\n✖ ${failed.length} of ${GATES.length} DOCTRINE GATE(S) FAILED\n`);
+    console.error(`\n✖ ${failed.length} of ${total} DOCTRINE GATE(S) FAILED\n`);
     for (const { gate, output } of failed) {
       console.error(`── ${gate.id} — ${gate.doctrine} ──`);
       console.error(`   why this gate exists: ${gate.why}`);
@@ -510,5 +572,5 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`\n✓ all ${GATES.length} doctrine gates passed — ${totalMs}ms total\n`);
+  console.log(`\n✓ all ${total} doctrine gates passed — ${totalMs}ms total\n`);
 }
