@@ -14,13 +14,13 @@
  *   anything is sent; while the owner has not set the distance, a drag refuses and nothing is sent.
  * - While the market is halted, not open or unreadable, every order control on the chart is disabled and names why.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useDataEnv } from '../../../data/hooks';
 import { fmtAmount, fmtPrice } from '../../../data/format';
 import { useSession } from '../../../features/session/session';
 import { draftSchema, type Draft, type Order, type Preview } from '../../../features/trade/trade-api';
-import { useDeskApi, useOpenOrders } from '../../trade/desk/data';
+import { useDeskApi, useOpenOrders, useRefreshPrivate } from '../../trade/desk/data';
 import type { DeskMarket } from '../../trade/desk/market';
 import { asReplacement, previewIsOrderable } from '../../trade/desk/preview';
 import { replaceKey } from '../../trade/desk/replace-key';
@@ -29,7 +29,7 @@ import { forgetReviewId, reviewIdFor } from '../../trade/desk/review-id';
 import type { ChartHost } from '../chart-host';
 import { chartsCopy } from '../copy';
 import { OWNER_VALUE_UNSET } from '../owner-values';
-import { onTick, protectionCheck, snapToTick } from './chart-orders';
+import { onTick, protectionCheck, samePrice, snapToTick } from './chart-orders';
 
 type Side = 'buy' | 'sell';
 type Note = { tone: 'good' | 'bad'; text: string; code?: string };
@@ -44,14 +44,21 @@ export interface ChartTradingProps {
   market: DeskMarket;
   /** Why order entry is refused now (halted, not open, unreadable), from the chart's one rule; null when it is open. */
   refusal: string | null;
-  /** The owner's protection distance in basis points, or null while it is blank (or not yet read). */
+  /** The owner's protection distance in basis points, or null while it is blank, still loading or unreadable. */
   protectionBps: number | null;
+  /** Why `protectionBps` is null: only 'unset' is the owner's blank; the others refuse without claiming it is unset. */
+  protectionWhy?: 'loading' | 'unavailable' | 'unset' | null;
+  /** A bar replay is showing past bars: no order is placed or moved from a chart that doesn't show the market now. */
+  replaying?: boolean;
 }
+
+/** A pointer that moves less than this many pixels between down and up is a click on the line, not a drag. */
+const DRAG_MIN_PX = 4;
 
 const isLineOrder = (order: Order, symbol: string) =>
   order.symbol === symbol && order.type === 'limit' && order.price !== null && order.price !== undefined;
 
-export function ChartTrading({ host, market, refusal, protectionBps }: ChartTradingProps) {
+export function ChartTrading({ host, market, refusal, protectionBps, protectionWhy = null, replaying = false }: ChartTradingProps) {
   const { t } = chartsCopy.useCopy();
   const { userId, api: client } = useSession();
   const env = useDataEnv();
@@ -67,20 +74,19 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
   const [move, setMove] = useState<Move | null>(null);
   const [cursor, setCursor] = useState<{ y: number; price: string } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; price: string } | null>(null);
-  const [drag, setDrag] = useState<{ id: string; y: number } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; y: number; from: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [, setFrame] = useState(0);
   const priceField = useRef<HTMLInputElement>(null);
-  const locked = refusal !== null;
+  const locked = refusal !== null || replaying;
   const signedIn = userId !== null;
 
   const lineOrders = useMemo(
     () => (openOrders.status === 'ready' ? openOrders.data.filter((order) => isLineOrder(order, market.symbol)) : []),
     [openOrders, market.symbol],
   );
-  const refreshOrders = useCallback(() => {
-    if (userId) env.poller.refresh(`desk-open:${userId}`);
-  }, [env, userId]);
+  // An order's hold moves the balance too: every private list is read again, not only the open orders.
+  const refreshOrders = useRefreshPrivate();
 
   // The overlays follow the chart: redrawn on a pan, a zoom, a resize and while the price scale moves with new bars.
   useEffect(() => {
@@ -228,7 +234,8 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
   const placed = (order: Order) => {
     forgetReviewId(order.clientOrderId ?? '');
     setReview(null);
-    setLost(null);
+    // Only the order whose answer was lost is settled by this one; a different order leaves its "Send again" in place.
+    setLost((was) => (was && was.clientOrderId === order.clientOrderId ? null : was));
     setOpen(false);
     setPrice('');
     setNote({
@@ -304,12 +311,15 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
       if (!host || locked) return;
       const at = host.main.coordinateToPrice(y);
       const to = at === null ? null : snapToTick(at, market.tickSize);
-      if (!to || to === order.price) return;
+      if (!to || samePrice(to, order.price ?? '')) return;
       // The distance is judged against the last trade, read now; the read is a GET and sends no order.
       const ticker = await api.ticker(market.symbol);
       const last = ticker.ok ? (ticker.data.last ?? ticker.data.close) : null;
       const check = protectionCheck(to, last, protectionBps);
-      if (check.kind === 'unset') return setNote({ tone: 'bad', text: t('Chart protection unset'), code: OWNER_VALUE_UNSET });
+      if (check.kind === 'unset')
+        return protectionWhy === 'unset'
+          ? setNote({ tone: 'bad', text: t('Chart protection unset'), code: OWNER_VALUE_UNSET })
+          : setNote({ tone: 'bad', text: t('Chart protection unread') });
       if (check.kind === 'no-reference') return setNote({ tone: 'bad', text: t('Chart protection no last') });
       if (check.kind === 'beyond') return setMove({ stage: 'protect', order, price: to, distance: check.distance, limit: check.limit });
       await reviewMove(order, to);
@@ -320,6 +330,11 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
       if (!move || move.stage !== 'review') return;
       env.poller.recordExternalRequest(2);
       const result = await api.replace(move.order, move.draft, move.preview, (fresh) => previewIsOrderable(asReplacement(fresh)));
+      if (!result.ok && result.reason === 'changed' && 'preview' in result && result.preview) {
+        // The hold or fee moved before anything was sent: show the new values to confirm again.
+        setMove({ ...move, preview: asReplacement(result.preview) });
+        return setNote({ tone: 'bad', text: t('Chart order changed') });
+      }
       setMove(null);
       refreshOrders();
       if (result.ok && result.data.accepted && result.data.replacement)
@@ -339,8 +354,9 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     const top = host.element.getBoundingClientRect().top;
-    setDrag({ id: order.id, y: event.clientY - top });
+    setDrag({ id: order.id, y: event.clientY - top, from: event.clientY - top });
   };
+  const onHandleCancel = () => setDrag(null);
   const onHandleMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!drag || !host) return;
     setDrag({ ...drag, y: event.clientY - host.element.getBoundingClientRect().top });
@@ -348,7 +364,9 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
   const onHandleUp = (event: ReactPointerEvent<HTMLButtonElement>, order: Order) => {
     if (!drag || !host) return;
     const y = event.clientY - host.element.getBoundingClientRect().top;
+    const from = drag.from;
     setDrag(null);
+    if (Math.abs(y - from) < DRAG_MIN_PX) return; // a click on the line moves nothing
     dropped(order, y);
   };
 
@@ -396,6 +414,8 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
                   onPointerDown={(event) => onHandleDown(event, order)}
                   onPointerMove={onHandleMove}
                   onPointerUp={(event) => onHandleUp(event, order)}
+                  onPointerCancel={onHandleCancel}
+                  onLostPointerCapture={onHandleCancel}
                 >
                   {t(order.side === 'buy' ? 'Buy' : 'Sell')} {order.remaining} {market.base}
                 </button>
@@ -447,6 +467,11 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
   return (
     <div className="ct-bar" data-testid="chart-trading" data-locked={locked ? 'true' : 'false'}>
       {overlay}
+      {refusal === null && replaying && (
+        <p className="cw-note" role="status" data-testid="chart-trading-replay">
+          {t('Chart trading replay')}
+        </p>
+      )}
       {refusal !== null && (
         <p className="cw-note" role="status" data-testid="chart-trading-refusal" data-code={ORDER_ENTRY_REFUSED}>
           {refusal}
@@ -460,7 +485,13 @@ export function ChartTrading({ host, market, refusal, protectionBps }: ChartTrad
           <fieldset disabled={locked || busy}>
             <label className="cw-select cw-select--inline">
               <span>{t('Chart side')}</span>
-              <select value={side} onChange={(event) => setSide(event.target.value as Side)}>
+              <select
+                value={side}
+                onChange={(event) => {
+                  setSide(event.target.value as Side);
+                  setReview(null);
+                }}
+              >
                 <option value="buy">{t('Buy')}</option>
                 <option value="sell">{t('Sell')}</option>
               </select>

@@ -272,7 +272,14 @@ export const MarketChartWidget = memo(function MarketChartWidget({
         {(host, bars) => (
           <>
             {addons?.(host, bars, { percent, replaying: replay.replay !== null })}
-            <ChartTrading host={host} market={market} refusal={orderRefusal} protectionBps={protection} />
+            <ChartTrading
+              host={host}
+              market={market}
+              refusal={orderRefusal}
+              protectionBps={protection}
+              protectionWhy={protectionRead.ok ? null : protectionRead.why}
+              replaying={replay.replay !== null}
+            />
           </>
         )}
       </WorkbenchChart>

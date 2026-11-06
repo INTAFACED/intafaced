@@ -26,6 +26,7 @@ vi.mock('../trade/desk/data', () => ({
   useDeskMarkets: () => world.markets,
   useDeskApi: () => ({}),
   useOpenOrders: () => ({ status: 'loading' }),
+  useRefreshPrivate: () => () => {},
 }));
 vi.mock('../trade/chart/candles', async (original) => ({
   ...(await original<typeof import('../trade/chart/candles')>()),

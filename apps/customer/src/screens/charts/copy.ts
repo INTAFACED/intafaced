@@ -250,6 +250,8 @@ const messages = {
   'Chart protection continue': 'Review anyway',
   'Chart protection unset': 'Moving orders on the chart is off: the protection distance isn’t set. Nothing was sent.',
   'Chart protection no last': 'There’s no last price to measure the move against, so nothing was sent.',
+  'Chart protection unread': 'The protection distance couldn’t be read, so nothing was sent. Try again in a moment.',
+  'Chart trading replay': 'Order entry is off during a replay: the chart is showing past bars, not the market now.',
   'Chart trading signed out': 'Sign in to place and move orders from the chart.',
 } as const;
 
