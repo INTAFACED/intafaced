@@ -313,26 +313,33 @@ test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names th
 }) => {
   await signIn(page, agents.account());
   await page.goto('/home');
+  // Every comment the account's agent holds (#3's among them, as #3 counts them) is one notice: the notice is built, so
+  // svc-agents publishes each held call and svc-notify writes its row, with a real wait.
+  const held = (await ownRead('inbox', { limit: 100 })).filter((row) => row.tool === 'support.ticket.comment' && row.status === 'waiting');
+  const [request] = held.filter((row) => row.input.body === 'TEST comment, run');
+  expect(request, "#3's held comment").toBeDefined();
   await page.getByRole('button', { name: /^Notifications/ }).click();
-  // The notice is built: svc-agents publishes the held call (#3) and svc-notify writes its row, so it gets a real wait.
-  const notice = page.getByRole('dialog', { name: /Notifications/ }).getByRole('link', { name: /wants to send a comment/ });
-  await expect(notice).toBeVisible({ timeout: 20_000 });
+  const notices = page.getByRole('dialog', { name: /Notifications/ }).getByRole('link', { name: /wants to send a comment/ });
+  await expect(notices).toHaveCount(held.length, { timeout: 20_000 });
+  for (const notice of await notices.all()) await expect(notice).toHaveAttribute('href', '/agents/approvals');
 
-  // Exactly one row for #3's held call, read back from the notify service, and its push delivery refused for the unset
+  // Exactly one row per held request, read back from the notify service, and #3's push delivery refused for the unset
   // push vendor (the stack wires none), which the push channel names as vendor.push.
-  const [request] = (await ownRead('inbox', { limit: 100 })).filter((row) => row.input.body === 'TEST comment, run');
   const notifyRead = async (procedure, input) => {
     const query = input === undefined ? '' : `?input=${encodeURIComponent(JSON.stringify(input))}`;
     const res = await (await api(agents.account())).get(`/api/notify/trpc/${procedure}${query}`);
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     return res.body.result.data;
   };
-  const ofRequest = (await notifyRead('notify.list', { limit: 100 })).items.filter(
-    ({ kind, params }) => kind === 'agents.approval.requested' && params.requestId === request.id,
-  );
-  expect(ofRequest).toHaveLength(1);
-  expect(ofRequest[0]).toMatchObject({ href: '/agents/approvals', params: { tool: 'support.ticket.comment' } });
-  const push = (await notifyRead('notify.deliveries', { notificationId: ofRequest[0].id })).filter((row) => row.channel === 'push');
+  const rows = (await notifyRead('notify.list', { limit: 100 })).items.filter(({ kind }) => kind === 'agents.approval.requested');
+  for (const { id } of held)
+    expect(
+      rows.filter(({ params }) => params.requestId === id),
+      `the notice of request ${id}`,
+    ).toHaveLength(1);
+  const [ofRequest] = rows.filter(({ params }) => params.requestId === request.id);
+  expect(ofRequest).toMatchObject({ href: '/agents/approvals', params: { tool: 'support.ticket.comment' } });
+  const push = (await notifyRead('notify.deliveries', { notificationId: ofRequest.id })).filter((row) => row.channel === 'push');
   expect(push.map(({ status, refusalCode }) => ({ status, refusalCode }))).toEqual([
     { status: 'refused', refusalCode: 'channel.not_configured' },
   ]);
@@ -340,7 +347,7 @@ test(`${J} #4 gets the notice and opens the Approvals inbox: the notice names th
   expect(pushCell).toMatchObject({ configured: false, notConnected: 'vendor.push' });
 
   // The notice opens the Approvals inbox, which says phone notices are off and names the vendor.
-  await notice.click();
+  await notices.first().click();
   await expect(page).toHaveURL(/\/agents\/approvals/);
   await expect(main(page).getByRole('note').filter({ hasText: 'vendor.push' })).toBeVisible();
 });
