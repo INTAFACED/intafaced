@@ -34,17 +34,22 @@ const RUN = process.env.JOURNEY_RUN_DIR ?? '/tmp/intafaced-real-app';
 
 /**
  * The shared-world state of this worker's current journey file (journey.mjs, `worldBetweenFiles`): which file it is,
- * whether the market maker was running when it began, and the TEST accounts it signed up or acted as. In a run file
+ * the options the market maker was running with when it began, and the TEST accounts it signed up or acted as. In a run file
  * (mode 600, like the journey state), so a worker Playwright starts again after a failed step, which carries on with the
  * same file, still knows them, and what the file left is put back only when the next file starts.
  */
-const WORLD_FILE = path.join(RUN, `world-${process.env.JOURNEY_RUN_ID ?? 'local'}-${process.env.TEST_PARALLEL_INDEX ?? '0'}.json`);
+// Keyed by this Playwright run (the runner is every worker's parent process) and the worker's slot, so a new run never
+// reads the last run's file, and a worker started again in the same slot carries on with its file.
+const WORLD_FILE = path.join(
+  RUN,
+  `world-${process.env.JOURNEY_RUN_ID ?? `pid${process.ppid}`}-${process.env.TEST_PARALLEL_INDEX ?? '0'}.json`,
+);
 export const worldState = {
   read() {
     try {
       return JSON.parse(readFileSync(WORLD_FILE, 'utf8'));
     } catch {
-      return { file: null, marketWasRunning: false, accounts: [] };
+      return { file: null, makerArgs: null, accounts: [] };
     }
   },
   write(state) {
@@ -52,7 +57,8 @@ export const worldState = {
     writeFileSync(WORLD_FILE, JSON.stringify(state), { mode: 0o600 });
   },
 };
-function touch(who) {
+/** Record that this journey file acts as TEST account `who`, so its resting orders come down before the next file. */
+export function actedAs(who) {
   if (!who?.email || !who?.password) return;
   const state = worldState.read();
   if (state.accounts.some((a) => a.email === who.email)) return;
@@ -164,7 +170,7 @@ export async function nextMailedCode(email, seen = 0, waitMs = 20_000, purpose =
  * password; the country and birth date are TEST answers. Lands signed in, off /register.
  */
 export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth = '1990-05-01', accountType = 'individual' } = {}) {
-  touch(who);
+  actedAs(who);
   const seen = mailedCodes(who.email).length;
   await page.goto('/register');
   if (accountType === 'business') await page.getByRole('radio', { name: /Business/ }).check();
@@ -201,7 +207,7 @@ export async function json(res) {
  * with an authenticator signs in with a fresh code from it (`totpCode`).
  */
 export async function api(who, { totpCode } = {}) {
-  touch(who);
+  actedAs(who);
   const signIn = () =>
     fetch(`${EDGE}/api/identity/trpc/auth.login`, {
       method: 'POST',

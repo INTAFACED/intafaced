@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
 import { declaredWorld } from '../../../../tooling/scripts/journey-world.mjs';
+import { stackPaths } from '../../../../tooling/scripts/local-test-market.mjs';
 
 /**
  * Putting the shared world back between journey files (tooling/scripts/journey-world.mjs). Each file declares, in its
@@ -12,7 +13,7 @@ import { declaredWorld } from '../../../../tooling/scripts/journey-world.mjs';
  * Failure it prevents: J-copy-bots-otc-30 #1 left a TEST bid resting on BTC/USDT, J-ops-console-08 #7 restarted the
  * market maker over it, and J-portfolio-04 #1 timed out on main (run 1247), though its code passed alone (run 1262).
  * The posting freeze already has its own guard (journey-freeze-guard.mjs). Gates, restarts and the stack's global
- * tools are declared and kept apart by the planner, but not yet put back here.
+ * tools are declared and scanned (journey-world.mjs) but not put back here: part B runs those files alone.
  *
  * Nothing here fails a step: what could not be put back is printed with "WORLD RESTORE", naming the file that left it.
  */
@@ -33,6 +34,17 @@ export function marketRunning() {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** The options the running market maker was started with (its pid record), or null when it is not running. */
+export function marketArgs() {
+  if (!marketRunning()) return null;
+  try {
+    const rec = JSON.parse(fs.readFileSync(stackPaths().pidFile, 'utf8'));
+    return Array.isArray(rec?.args) ? rec.args.map(String) : [];
+  } catch {
+    return [];
   }
 }
 
@@ -71,20 +83,24 @@ export async function clearAccountBooks(who) {
   // Spot (and whatever else the one cancel-all takes), then each futures order on its own.
   const all = await call('DELETE', '/api/v1/orders');
   if (!ok(all) && all.status !== 400) left.push(`${who.email}: cancel-all answered ${all.status}`);
-  const futures = await call('GET', '/api/v1/futures/orders?scope=open&limit=100');
-  for (const o of futures.status === 200 ? rows(futures.body, 'orders', 'items') : []) {
+  /** A list read, or null after saying it could not be read (so nothing it would have listed is taken for gone). */
+  const list = async (route, what, ...keys) => {
+    const res = await call('GET', route);
+    if (res.status === 200) return rows(res.body, ...keys);
+    left.push(`${who.email}: could not list its ${what} (${res.status})`);
+    return [];
+  };
+  for (const o of await list('/api/v1/futures/orders?scope=open&limit=100', 'open futures orders', 'orders', 'items')) {
     const id = o.orderId ?? o.id;
     const res = await call('DELETE', `/api/v1/futures/orders/${encodeURIComponent(id)}`);
     if (!ok(res)) left.push(`${who.email}: futures order ${id} answered ${res.status}`);
   }
-  const algos = await call('GET', '/api/v1/algo?limit=500');
-  for (const a of algos.status === 200 ? rows(algos.body, 'rows', 'items') : []) {
+  for (const a of await list('/api/v1/algo?limit=500', 'algos', 'rows', 'items')) {
     if (!ACTIVE_ALGO.has(String(a.status ?? a.state ?? '').toLowerCase())) continue;
     const res = await call('POST', `/api/v1/algo/${encodeURIComponent(a.id)}/cancel`);
     if (!ok(res)) left.push(`${who.email}: algo ${a.id} answered ${res.status}`);
   }
-  const grids = await call('GET', '/api/v1/bots/grid');
-  for (const g of grids.status === 200 ? rows(grids.body, 'bots', 'items') : []) {
+  for (const g of await list('/api/v1/bots/grid', 'grid bots', 'bots', 'items')) {
     if (g.state !== 'running' && g.state !== 'starting') continue;
     const res = await call('POST', `/api/v1/bots/grid/${encodeURIComponent(g.id)}/stop`, { settlement: 'keep' });
     if (!ok(res)) left.push(`${who.email}: grid bot ${g.id} answered ${res.status}`);
@@ -93,10 +109,11 @@ export async function clearAccountBooks(who) {
 }
 
 /**
- * Put back what the journey file `file` declared it changes. `marketWasRunning` is whether the market maker was
- * running when that file began, and `accounts` the TEST accounts it signed up or acted as. Returns what it printed.
+ * Put back what the journey file `file` declared it changes. `makerArgs` are the options the market maker was running
+ * with when that file began (null if it was not running), and `accounts` the TEST accounts it signed up or acted as.
+ * Returns what it printed.
  */
-export async function restoreWorld(file, { marketWasRunning, accounts }) {
+export async function restoreWorld(file, { makerArgs, accounts }) {
   const parts = worldOf(file);
   const said = [];
   if (parts.has('book'))
@@ -112,9 +129,9 @@ export async function restoreWorld(file, { marketWasRunning, accounts }) {
           .slice(0, 200)}`,
       );
     }
-    if (marketWasRunning && !marketRunning())
+    if (makerArgs && !marketRunning())
       try {
-        tool('local-test-market.mjs', 'start');
+        tool('local-test-market.mjs', 'start', ...makerArgs);
       } catch (err) {
         said.push(
           `market maker not started again: ${String(err.stderr ?? err.message)
@@ -136,5 +153,5 @@ export async function enterFile(file) {
   const last = worldState.read();
   if (last.file === file) return;
   if (last.file) await restoreWorld(last.file, last);
-  worldState.write({ file, marketWasRunning: worldOf(file).has('market') ? marketRunning() : false, accounts: [] });
+  worldState.write({ file, makerArgs: worldOf(file).has('market') ? marketArgs() : null, accounts: [] });
 }

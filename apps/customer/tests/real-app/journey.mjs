@@ -56,7 +56,7 @@ export const expect = new Proxy(baseExpect, {
   apply: (target, self, args) => Reflect.apply(inFastStep() ? fastExpect : target, self, args),
 });
 
-export const test = base.extend({
+const extended = base.extend({
   // No journey file leaves the shared world changed for the file after it: its resting orders, algos and bots come down,
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
   worldBetweenFiles: [
@@ -91,3 +91,22 @@ export const test = base.extend({
   navigationTimeout: async ({ navigationTimeout }, use, testInfo) =>
     use(failsFast(FAST_PLAN, testInfo.title) ? FAIL_FAST.testMs : navigationTimeout),
 });
+
+/**
+ * A file's own `test.beforeAll` runs before any test-scoped fixture, so `worldBetweenFiles` alone would put back the last
+ * file's world after this file's first hook had already acted (its account then counted as the last file's and its
+ * orders taken down). Each beforeAll therefore enters its file first. Playwright reads a hook's fixtures from its source
+ * text, so the wrapper answers with the hook's own; the hook's location in a report reads as this file.
+ */
+const beforeAll = extended.beforeAll;
+extended.beforeAll = (...args) => {
+  const hook = args.pop();
+  const entered = async (fixtures, testInfo) => {
+    await enterFile(testInfo.file);
+    return hook(fixtures, testInfo);
+  };
+  entered.toString = () => hook.toString();
+  return beforeAll(...args, entered);
+};
+
+export const test = extended;
