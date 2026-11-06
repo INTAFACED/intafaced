@@ -55,6 +55,15 @@ describe('conditional order fields', () => {
     expect(validateConditional({ ...base, kind: 'stop_market', triggerPrice: '49000' }).reduceOnly).toBe(true);
   });
 
+  it("refuses a trader's client id in the pre-liquidation stop's reserved risk-stop: names", () => {
+    expect(() => validateConditional({ ...base, clientOrderId: 'risk-stop:pos-1:1', kind: 'stop_market', triggerPrice: '49000' })).toThrow(
+      expect.objectContaining({ code: 'trade.client_order_id_reserved' }),
+    );
+    expect(
+      validateConditional({ ...base, clientOrderId: 'my-risk-stop:1', kind: 'stop_market', triggerPrice: '49000' }).clientOrderId,
+    ).toBe('my-risk-stop:1');
+  });
+
   it('refuses a stop-limit with no limit price, and a field the kind cannot use', () => {
     expect(() => validateConditional({ ...base, kind: 'stop_limit', triggerPrice: '49000' })).toThrow(FuturesError);
     try {

@@ -1,9 +1,13 @@
 /**
  * Pre-liquidation stop (D-margin-04, `derivatives-margin-risk-021`; J-derivatives-06 #5).
  *
- * The trader sets a margin-ratio level (maintenance over equity, as a percent below 100) on one isolated position.
- * The service shows the mark at which the ratio reaches it, on the same ladder and depth as the liquidation price, and
- * the conditional-order tick closes the position through one reduce-only order in the book once the ratio gets there.
+ * The trader sets a maintenance level (a margin ratio: maintenance over equity, as a percent below 100) on one isolated
+ * position. Setting it places the close order at once: one reduce-only stop-market order for the whole position,
+ * resting in the trader's conditional orders, triggered on the mark at which the ratio reaches the level (the same
+ * ladder and depth as the liquidation price). Each tick moves that trigger and size with the position (margin added
+ * or taken, funding), and fires that same order when the ratio reaches the level, which is the mark reaching the
+ * trigger on fresh figures. The conditional tick never fires it, so a trigger left over from before a margin change
+ * cannot close the position early. Cancelling the close order clears the stop.
  * Blank means no stop: it is a convenience, and the platform's own liquidation still runs.
  *
  * Refusals: a level at or above 100% would act only after the liquidation (`trade.risk_stop_invalid`); a level the
@@ -11,15 +15,17 @@
  * work out now is not guessed (`trade.risk_stop_ratio_unknown`); with the trigger job off nothing would ever act on it
  * (`trade.conditional_trigger_off`).
  *
- * Crash safety: the tick claims a row (armed -> fired) on its generation before it places, and the close order's client
- * id is `risk-stop:<position>:<generation>`. A crash after the claim and before the order replays the same client id on
- * the next tick; a crash after the order finds the same order. A new level is a new generation, so a stop re-armed
- * after it fired never reuses the first close's id.
+ * Crash safety: the close order's client id is `risk-stop:<position>:<generation>`, named on the stop row when it is
+ * set; a crash before the order is written leaves the id named, and the next tick writes it. The tick claims a row
+ * (armed -> fired) on its generation before it fires, and firing claims the resting order (armed -> triggered) once,
+ * so the order the trader saw is the one that closes and two claims never both place. A crash after the claim replays
+ * on the next tick. A new level is a new generation: the earlier close order comes off, and its id is never reused.
  */
 import { SCALE, formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Sql } from 'postgres';
 import { FuturesError, type RiskStopFigures } from './position-service.js';
 import type { ConditionalOrderView } from './conditional-orders/service.js';
+import { RISK_STOP_CLIENT_PREFIX } from './conditional-orders/validate.js';
 
 const ONE = SCALE;
 /** A close order in one of these states will not change again. */
@@ -32,6 +38,7 @@ export const RISK_STOP_RATIO_UNKNOWN = 'trade.risk_stop_ratio_unknown';
 export const RISK_STOP_CLOSING = 'trade.risk_stop_closing';
 export const RISK_STOP_ISOLATED_ONLY = 'trade.risk_stop_isolated_only';
 export const RISK_STOP_TRIGGER_OFF = 'trade.conditional_trigger_off';
+export const RISK_STOP_PRICE_UNKNOWN = 'trade.risk_stop_price_unknown';
 
 export type RiskStopStatus = 'none' | 'armed' | 'fired' | 'ended';
 
@@ -47,8 +54,16 @@ export interface RiskStopView {
   readonly triggerPrice: string | null;
   readonly triggerPriceReason: string | null;
   readonly liquidationPrice: string | null;
-  /** The reduce-only order the stop placed, once it fired. */
-  readonly closeOrder: { readonly clientOrderId: string; readonly status: string; readonly orderId: string | null } | null;
+  /**
+   * The stop's close order: one reduce-only stop-market order for the whole position, resting (`armed`) from the
+   * moment the stop is set, triggered on the mark at `triggerPrice`; once fired, its book order.
+   */
+  readonly closeOrder: {
+    readonly clientOrderId: string;
+    readonly status: string;
+    readonly triggerPrice: string | null;
+    readonly orderId: string | null;
+  } | null;
   readonly firedRatio: string | null;
   readonly firedAt: string | null;
   readonly updatedAt: string | null;
@@ -82,8 +97,22 @@ export interface RiskStopDeps {
     mark: Amount | null;
     clientOrderId: string;
   }): Promise<ConditionalOrderView>;
-  /** The close order a fired stop placed, by its client id; null when it was not written yet. */
+  /** The stop's close order, by its client id; null when it was not written yet. */
   closeOrder(userId: string, clientOrderId: string): Promise<ConditionalOrderView | null>;
+  /**
+   * Keeps the stop's close order resting as the stop stands: other armed close orders of earlier stops on the position
+   * come off, and the current one (when named) is written if missing and, while armed, follows the trigger and size.
+   */
+  sync(input: {
+    userId: string;
+    marketId: string;
+    positionId: string;
+    clientOrderId: string | null;
+    side: 'buy' | 'sell';
+    quantity: Amount;
+    triggerPrice: Amount | null;
+    cancelReason: string;
+  }): Promise<ConditionalOrderView | null>;
 }
 
 /** A percent as a ratio, exact to 18 places, or a typed refusal. Strictly between 0 and 100. */
@@ -125,7 +154,7 @@ function closingSide(side: 'long' | 'short'): 'buy' | 'sell' {
 }
 
 function closeId(positionId: string, generation: number): string {
-  return `risk-stop:${positionId}:${generation}`;
+  return `${RISK_STOP_CLIENT_PREFIX}${positionId}:${generation}`;
 }
 
 function requestId(raw: unknown): string {
@@ -165,7 +194,12 @@ export function createRiskStopService(deps: RiskStopDeps) {
       triggerPriceReason: level === null ? null : figures.stopPriceReason,
       liquidationPrice: figures.liquidationPrice,
       closeOrder: row?.close_client_order_id
-        ? { clientOrderId: row.close_client_order_id, status: close?.status ?? 'pending', orderId: close?.closeOrderId ?? null }
+        ? {
+            clientOrderId: row.close_client_order_id,
+            status: close?.status ?? 'pending',
+            triggerPrice: close?.triggerPrice ?? null,
+            orderId: close?.closeOrderId ?? null,
+          }
         : null,
       firedRatio: row?.fired_ratio == null ? null : percentOf(parseAmount(row.fired_ratio)),
       firedAt: row?.fired_at ? row.fired_at.toISOString() : null,
@@ -219,6 +253,16 @@ export function createRiskStopService(deps: RiskStopDeps) {
         RETURNING *
       `;
       if (!row) throw raced();
+      await deps.sync({
+        userId,
+        marketId: figures.marketId,
+        positionId: id,
+        clientOrderId: null,
+        side: closingSide(figures.side),
+        quantity: figures.size,
+        triggerPrice: null,
+        cancelReason: 'risk_stop_cleared',
+      });
       return view(userId, id, row, figures);
     }
     if (figures.marginMode !== 'isolated') {
@@ -238,15 +282,23 @@ export function createRiskStopService(deps: RiskStopDeps) {
         400,
       );
     }
+    if (figures.stopPrice === null) {
+      throw new FuturesError(
+        `the mark at which the ratio reaches ${percentOf(level!)}% cannot be worked out now (${figures.stopPriceReason ?? 'missing_input'}), so no close order can be placed and the stop is not set`,
+        RISK_STOP_PRICE_UNKNOWN,
+        409,
+      );
+    }
+    // The close order's client id names the stop's generation, so a stop set again never reuses an earlier close.
     const [row] = await sql<StopRow[]>`
-      INSERT INTO trade.futures_risk_stops (position_id, user_id, level, status, generation, client_request_id)
-      VALUES (${id}, ${userId}, ${formatAmount(level!)}, 'armed', 1, ${clientRequestId})
+      INSERT INTO trade.futures_risk_stops (position_id, user_id, level, status, generation, client_request_id, close_client_order_id)
+      VALUES (${id}, ${userId}, ${formatAmount(level!)}, 'armed', 1, ${clientRequestId}, ${closeId(id, 1)})
       ON CONFLICT (position_id) DO UPDATE
         SET level = EXCLUDED.level,
             status = 'armed',
             generation = trade.futures_risk_stops.generation + 1,
             client_request_id = EXCLUDED.client_request_id,
-            close_client_order_id = NULL,
+            close_client_order_id = ${RISK_STOP_CLIENT_PREFIX} || trade.futures_risk_stops.position_id || ':' || (trade.futures_risk_stops.generation + 1),
             fired_ratio = NULL,
             fired_at = NULL,
             updated_at = now()
@@ -256,6 +308,18 @@ export function createRiskStopService(deps: RiskStopDeps) {
       RETURNING *
     `;
     if (!row) throw raced();
+    // The close order rests from now on. A crash before it is written leaves the stop armed with its id named, and the
+    // next tick writes it; the earlier stop's close order comes off in the same call.
+    await deps.sync({
+      userId,
+      marketId: figures.marketId,
+      positionId: id,
+      clientOrderId: row.close_client_order_id,
+      side: closingSide(figures.side),
+      quantity: figures.size,
+      triggerPrice: figures.stopPrice,
+      cancelReason: 'risk_stop_replaced',
+    });
     return view(userId, id, row, figures);
   }
 
@@ -268,8 +332,8 @@ export function createRiskStopService(deps: RiskStopDeps) {
     if (input.enabled !== true) return { fired: 0 };
     let failure: unknown = null;
     let fired = 0;
-    const rows = await sql<(StopRow & { position_status: string })[]>`
-      SELECT s.*, p.status AS position_status
+    const rows = await sql<(StopRow & { position_status: string; market_id: string })[]>`
+      SELECT s.*, p.status AS position_status, p.market_id
       FROM trade.futures_risk_stops s
       JOIN trade.positions p ON p.id = s.position_id
       WHERE s.status IN ('armed', 'fired')
@@ -278,23 +342,42 @@ export function createRiskStopService(deps: RiskStopDeps) {
     for (const row of rows) {
       try {
         if (row.position_status !== 'open' && row.status === 'armed') {
-          // A position that closed or was liquidated: an armed stop has nothing left to act on.
+          // The position closed or was liquidated some other way (only this tick fires the stop's close order, and a
+          // fired stop is no longer armed): the stop has ended, and its resting close order comes off with it.
           await sql`
             UPDATE trade.futures_risk_stops SET status = 'ended', updated_at = now()
             WHERE position_id = ${row.position_id} AND status = 'armed' AND generation = ${row.generation}
           `;
+          await deps.sync({
+            userId: row.user_id,
+            marketId: row.market_id,
+            positionId: row.position_id,
+            clientOrderId: null,
+            side: 'sell',
+            quantity: 0n,
+            triggerPrice: null,
+            cancelReason: 'position_gone',
+          });
           continue;
         }
         if (row.status === 'fired') {
-          // Claimed on an earlier tick. Its close order may not have been written before a crash: write it now. Once it
-          // has ended, the stop is done and no later tick reads it.
+          // Claimed on an earlier tick. A crash may have come before its close order was fired: fire it now. Once it has
+          // ended, the stop is done and no later tick reads it.
           const close = row.close_client_order_id ? await deps.closeOrder(row.user_id, row.close_client_order_id) : null;
-          if (close && CLOSE_FINAL.has(close.status)) {
+          if (close && close.status === 'cancelled' && close.closeOrderId == null) {
+            // The trader took the close order off after the claim and before it reached the book: nothing closed, so
+            // the stop is cleared with it rather than read as fired.
+            await sql`
+              UPDATE trade.futures_risk_stops SET status = 'cleared', level = NULL, updated_at = now()
+              WHERE position_id = ${row.position_id} AND status = 'fired' AND generation = ${row.generation}
+            `;
+          } else if (close && CLOSE_FINAL.has(close.status)) {
             await sql`
               UPDATE trade.futures_risk_stops SET status = 'done', updated_at = now()
               WHERE position_id = ${row.position_id} AND status = 'fired' AND generation = ${row.generation}
             `;
-          } else if (!close && row.close_client_order_id) {
+          } else if ((!close || close.status === 'armed') && row.close_client_order_id) {
+            // Claimed, and its close order not fired yet (missing, or still resting): fire it now, once.
             const figures = await deps.figures(row.user_id, row.position_id, null);
             await deps.fire({
               userId: row.user_id,
@@ -309,9 +392,45 @@ export function createRiskStopService(deps: RiskStopDeps) {
           continue;
         }
         const level = parseAmount(row.level!);
-        const figures = await deps.figures(row.user_id, row.position_id, null);
-        if (!riskStopReached(figures, level)) continue;
-        const clientOrderId = closeId(row.position_id, row.generation);
+        const figures = await deps.figures(row.user_id, row.position_id, level);
+        const clientOrderId = row.close_client_order_id ?? closeId(row.position_id, row.generation);
+        if (row.close_client_order_id == null) {
+          // A stop armed before close orders rested: its close order's id is named on it now, then written below.
+          await sql`
+            UPDATE trade.futures_risk_stops SET close_client_order_id = ${clientOrderId}
+            WHERE position_id = ${row.position_id} AND status = 'armed' AND generation = ${row.generation}
+              AND close_client_order_id IS NULL
+          `;
+        }
+        const close = await deps.closeOrder(row.user_id, clientOrderId);
+        if (close && close.status === 'cancelled') {
+          // The close order came off without the stop: the position went (the stop has ended), or the trader cancelled
+          // it (the stop is cleared with it, so no stop is shown that would not act).
+          const next = close.cancelReason === 'position_gone' ? 'ended' : 'cleared';
+          await sql`
+            UPDATE trade.futures_risk_stops
+            SET status = ${next}, level = CASE WHEN ${next} = 'cleared' THEN NULL ELSE level END, updated_at = now()
+            WHERE position_id = ${row.position_id} AND status = 'armed' AND generation = ${row.generation}
+          `;
+          continue;
+        }
+        if (!riskStopReached(figures, level)) {
+          // Still resting: its trigger follows the mark at which the ratio reaches the level now (margin added or
+          // taken, funding), and its size the position's; a missing order is written.
+          await deps.sync({
+            userId: row.user_id,
+            marketId: figures.marketId,
+            positionId: row.position_id,
+            clientOrderId,
+            side: closingSide(figures.side),
+            quantity: figures.size,
+            triggerPrice: figures.stopPrice,
+            cancelReason: 'risk_stop_replaced',
+          });
+          continue;
+        }
+        // The ratio reached the level on fresh figures: the stop is claimed as fired, and its own close order closes the
+        // position.
         const claimed = await sql<{ position_id: string }[]>`
           UPDATE trade.futures_risk_stops
           SET status = 'fired',
