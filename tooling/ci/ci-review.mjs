@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The CI review (.github/workflows/ci-review.yml, AGENTS.md item 8): one pull request head's diff, judged against
+ * The CI review (.github/workflows/ci-review.yml, AGENTS.md, "Where a mistake costs more"): one pull request head's diff, judged against
  * tooling/ci/ci-review/REVIEW.md by the pinned reviewer CLI with no tools. The seal (review-marker.mjs
  * ciReviewVerdict) accepts only this job's `Verdict` step passing on the exact head, in a pull_request_target run.
  *
