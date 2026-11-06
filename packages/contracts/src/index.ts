@@ -86,6 +86,7 @@ export * from './campaigns-drops.js';
 export * from './campaigns-catalogue.js';
 export * from './oauth.js';
 export * from './protocol-networks.js';
+export * from './protocol-bridge.js';
 export * from './protocol-gas.js';
 export * from './protocol-ops.js';
 export * from './protocol-badge.js';

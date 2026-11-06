@@ -28,6 +28,7 @@ import { ChainHome } from './explorer/ChainHome';
 import { BlocksList } from './explorer/pages';
 import { TokensNav } from './tokens/TokensRoom';
 import { PoolsList } from './pools/PoolsList';
+import { BridgeRoutes } from './rails/BridgeRoutes';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -553,6 +554,13 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
           <Stat label={t('railBridge')} value={t('railBridgeState')} />
         </div>
       </Panel>
+    );
+  if (slug === 'protocol' && tab === 'rails')
+    body = (
+      <>
+        {body}
+        <BridgeRoutes api={transport} t={t} />
+      </>
     );
 
   return (

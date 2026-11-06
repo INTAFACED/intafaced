@@ -205,7 +205,20 @@ const en = {
   // Source: the INTACHAIN P1 GO is recorded (INTACHAIN_P1_GO in blockers.ts) but no chain service runs. Customers read the plain version.
   railIntachainState: 'Approved to build. No INTACHAIN network is running, so nothing here runs on it.',
   railBridge: 'Bridge',
-  railBridgeState: 'No bridge service exists.',
+  railBridgeState:
+    'Non-custodial: your wallet signs every step and nothing posts to the ledger. Routes and the provider are an owner decision.',
+  bridgeRoutes: 'Bridge routes',
+  bridgeTransfers: 'Bridge transfers',
+  hdr_provider: 'Provider',
+  hdr_amount_sent: 'Amount',
+  hdr_state: 'State',
+  hdr_started: 'Started',
+  bridgeRoutesUnset: 'No bridge routes are set. Routes are an owner decision.',
+  ownerDecision: 'Owner decision',
+  providerUnset: 'Not named yet',
+  startTransfer: 'Start a transfer',
+  startTransferBlocked: 'A transfer needs a published route.',
+  bridgeTransfersEmpty: 'No bridge transfers from this wallet yet.',
   // Actions
   actionsTitle: 'Actions',
   actionsNote: 'Every action is shown. Each stays disabled and names the first thing blocking it.',
