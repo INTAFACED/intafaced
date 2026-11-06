@@ -279,7 +279,7 @@ const fr = {
     'Nous n’avons pas pu vérifier si le destinataire peut recevoir de l’argent. Rien n’a été envoyé. Réessayez dans un instant.',
   receiveCheckOff: 'Payer d’autres personnes n’est pas configuré sur ce service. Rien n’a été envoyé.',
   accountFrozenSelf:
-    'Vous avez gelé ce compte : aucune adresse de retrait ne peut être ajoutée et rien ne peut être retiré tant que vous ne l’avez pas réactivé dans Sécurité. Rien n’a été modifié.',
+    'Vous avez gelé ce compte : aucune adresse de retrait ne peut être ajoutée et rien ne peut être retiré jusqu’à ce que vous le réactiviez dans Sécurité. Rien n’a été modifié.',
   securityLocked:
     'Votre verrou de sécurité est activé : aucune adresse de retrait ne peut être ajoutée et rien ne peut y être retiré tant qu’il dure. Rien n’a été modifié.',
   securityLockDown: 'Nous n’avons pas pu vérifier votre verrou de sécurité, donc rien n’a été modifié. Réessayez dans un instant.',
