@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { accountOperatorEntitlementSchema } from '@intafaced/contracts';
+import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
 import { CONSOLE_READ_ONLY } from '@intafaced/contracts/ops-console-mode';
 import { loadConsoleMode } from '@/lib/console-mode/read';
 
@@ -281,12 +283,37 @@ export async function founderEdgeCall(
   return data && typeof data === 'object' && 'json' in data ? (data as { json: unknown }).json : data;
 }
 
-export async function assertCurrentFounder(session: FounderSession, config: AdminSessionConfig): Promise<void> {
+/**
+ * Who the console admits: a current founder, everywhere. On a local or test stack only (`APP_ENV` exactly `dev` or `test`,
+ * the raw value), also a member of identity's labelled TEST staff roster (support, compliance, risk, finance), so staff
+ * journeys can run as staff. Anywhere else the TEST path is never asked: production stays founder-only, and a
+ * production identity has no roster anyway (it refuses boot with one). A revoked founder is never let in as staff.
+ */
+export async function assertCurrentFounder(
+  session: FounderSession,
+  config: AdminSessionConfig,
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
   const raw = await founderEdgeCall(config, 'identity', 'accountControls.operatorStatus', 'GET', {}, session.accessToken);
   const status = accountOperatorEntitlementSchema.safeParse(raw);
   if (!status.success) throw new AdminSessionError('admin.upstream_invalid', 502);
+  if (status.data.status === 'enabled' && status.data.userId === session.userId) return;
+  // The console reads its own APP_ENV; the local stack starts it with APP_ENV dev beside identity's. A console started
+  // with anything else never asks, so a TEST staff member then gets admin.founder_required, the production answer.
+  if (
+    (status.data.status === 'not_operator' || status.data.status === 'unconfigured') &&
+    status.data.userId === session.userId &&
+    isExplicitDevOrTest(env.APP_ENV)
+  ) {
+    const staff = staffTestStatusSchema.safeParse(
+      await founderEdgeCall(config, 'identity', 'staffTestStatus', 'GET', {}, session.accessToken),
+    );
+    // Only a well-formed answer naming this user and a TEST role admits. Anything else (no role, another user, an answer
+    // this console can't read) is not shown to be staff, so it gets the same refusal as any other non-founder.
+    if (staff.success && staff.data.userId === session.userId && staff.data.role !== null) return;
+  }
   if (status.data.status === 'unconfigured') throw new AdminSessionError('admin.founders_unconfigured', 503);
-  if (status.data.status !== 'enabled' || status.data.userId !== session.userId) throw new AdminSessionError('admin.founder_required', 403);
+  throw new AdminSessionError('admin.founder_required', 403);
 }
 
 /**

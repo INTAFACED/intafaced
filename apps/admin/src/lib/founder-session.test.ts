@@ -271,6 +271,84 @@ describe('founder admin session security boundaries', () => {
     await expect(assertCurrentFounder(session(), config())).rejects.toMatchObject({ code: 'admin.founder_required', status: 403 });
   });
 
+  describe('TEST staff roles (local and test stacks only)', () => {
+    const ROLES = ['support', 'compliance', 'risk', 'finance'] as const;
+    const staffStatus = (role: string | null, userId = USER_ID): Response =>
+      Response.json({ result: { data: { json: { userId, role } } } });
+    /** Identity says: not a founder, and a TEST staff member with `role`. Records each procedure asked. */
+    function identity(role: string | null, opts: { status?: 'not_operator' | 'revoked' | 'unconfigured'; staffUserId?: string } = {}) {
+      const asked: string[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string | URL) => {
+          const proc = String(url);
+          asked.push(proc);
+          if (proc.includes('staffTestStatus')) return staffStatus(role, opts.staffUserId);
+          if (opts.status === 'unconfigured')
+            return Response.json({ result: { data: { json: { status: 'unconfigured', userId: USER_ID } } } });
+          return entitlement(opts.status ?? 'not_operator');
+        }),
+      );
+      return asked;
+    }
+
+    it.each(ROLES)('production refuses %s: the TEST path is never asked outside APP_ENV dev or test', async (role) => {
+      for (const appEnv of [undefined, '', 'prod', 'production', 'staging', 'DEV', 'Test', 'dev ']) {
+        const asked = identity(role);
+        await expect(assertCurrentFounder(session(), config(), { APP_ENV: appEnv })).rejects.toMatchObject({
+          code: 'admin.founder_required',
+          status: 403,
+        });
+        expect(asked.some((u) => u.includes('staffTestStatus'))).toBe(false);
+      }
+    });
+
+    it.each(ROLES)('the test stack admits %s', async (role) => {
+      for (const appEnv of ['dev', 'test']) {
+        const asked = identity(role);
+        await expect(assertCurrentFounder(session(), config(), { APP_ENV: appEnv })).resolves.toBeUndefined();
+        expect(asked.filter((u) => u.includes('staffTestStatus'))).toHaveLength(1);
+      }
+    });
+
+    it('the test stack admits a TEST role while no founder is configured, and keeps the unconfigured answer for anyone else', async () => {
+      identity('risk', { status: 'unconfigured' });
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).resolves.toBeUndefined();
+      identity(null, { status: 'unconfigured' });
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
+        code: 'admin.founders_unconfigured',
+        status: 503,
+      });
+      const asked = identity('risk', { status: 'unconfigured' });
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'production' })).rejects.toMatchObject({
+        code: 'admin.founders_unconfigured',
+      });
+      expect(asked.some((u) => u.includes('staffTestStatus'))).toBe(false);
+    });
+
+    it('the test stack still refuses a signed-in user with no TEST role, a revoked founder, and a mismatched identity', async () => {
+      identity(null);
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
+        code: 'admin.founder_required',
+      });
+      const asked = identity('support', { status: 'revoked' });
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
+        code: 'admin.founder_required',
+      });
+      expect(asked.some((u) => u.includes('staffTestStatus'))).toBe(false);
+      identity('support', { staffUserId: OTHER_USER_ID });
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
+        code: 'admin.founder_required',
+      });
+      // An answer the console can't read is not shown to be staff: the same refusal as any other non-founder.
+      identity('auditor');
+      await expect(assertCurrentFounder(session(), config(), { APP_ENV: 'test' })).rejects.toMatchObject({
+        code: 'admin.founder_required',
+        status: 403,
+      });
+    });
+  });
+
   it('refuses unavailable, redirected, and malformed identity responses', async () => {
     vi.stubGlobal(
       'fetch',
