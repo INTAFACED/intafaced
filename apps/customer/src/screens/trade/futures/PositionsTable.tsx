@@ -18,7 +18,7 @@ import type { BalanceEntry } from '../../../data/derive';
 import { fmtAmount, fmtPctPoints, fmtPrice } from '../../../data/format';
 import type { Loadable } from '../../../data/types';
 import { positionsCopy } from './positions-copy';
-import { STALE_AFTER_MS, useFuturesRefresh, type MarginCalls } from './data';
+import { STALE_AFTER_MS, useFuturesRefresh, type MarginCalls, type RiskStops } from './data';
 import { isStale, closeAllPlan, stableOrder, type Band } from './model';
 import { CloseAllDialog, PositionRowActions } from './PositionDialogs';
 import { barWidth, freeFor, rowOf, signedAmount } from './positions-logic';
@@ -54,6 +54,27 @@ function RatioCell({ position, t }: { position: Position; t: T }) {
   );
 }
 
+/** A position's pre-liquidation stop on its row: the level and the mark its close order goes in at, as the service holds them. */
+function RiskStopLine({ stop, t }: { stop: RiskStops[string] | undefined; t: T }) {
+  if (!stop || stop.status === 'none' || stop.status === 'ended') return null;
+  const close = stop.closeOrder?.status;
+  const text =
+    stop.status === 'fired'
+      ? close === 'filled'
+        ? t('Risk stop cell closed')
+        : close === 'failed' || close === 'cancelled'
+          ? t('Risk stop cell failed')
+          : t('Risk stop cell closing')
+      : stop.triggerPrice === null
+        ? t('Risk stop cell no price', { level: stop.level ?? '—' })
+        : t('Risk stop cell', { level: stop.level ?? '—', price: fmtPrice(stop.triggerPrice, null) });
+  return (
+    <span data-testid="risk-stop" className="block text-2xs text-fg-2">
+      {text}
+    </span>
+  );
+}
+
 function StateCell({ position, called, t }: { position: Position; called: boolean; t: T }) {
   const row = rowOf(position);
   // The chip maps a lifecycle state onto the kit's shapes: open = filled dot, closing = clock ring, the rest = dashed.
@@ -70,6 +91,7 @@ function StateCell({ position, called, t }: { position: Position; called: boolea
 export function PositionsTable({
   positions,
   marginCalls,
+  riskStops,
   freeBalances,
   planeOff,
   now,
@@ -79,6 +101,8 @@ export function PositionsTable({
 }: {
   positions: Loadable<Position[]>;
   marginCalls: Loadable<MarginCalls>;
+  /** Each live position's pre-liquidation stop; absent where the room does not read them. */
+  riskStops?: Loadable<RiskStops>;
   freeBalances: Loadable<Record<string, BalanceEntry>>;
   planeOff: boolean;
   now: number;
@@ -93,6 +117,7 @@ export function PositionsTable({
   const stale = positions.status === 'ready' && isStale(positions.asOf, now, STALE_AFTER_MS.positions);
   const balances = freeBalances.status === 'ready' ? freeBalances.data : null;
   const calls = marginCalls.status === 'ready' ? marginCalls.data : null;
+  const stops = riskStops?.status === 'ready' ? riskStops.data : null;
   const plan = closeAllPlan(rows);
   const closeAllOff = planeOff ? t('Reason planeOff') : plan.length === 0 ? t('Close all none') : null;
   const refreshNow = () => {
@@ -155,7 +180,18 @@ export function PositionsTable({
       numeric: true,
       cell: (p) => <Money value={p.collateral === null ? null : fmtAmount(p.collateral, { places: 4 })} />,
     },
-    { id: 'ratio', header: t('Col ratio'), numeric: true, width: 150, cell: (p) => <RatioCell position={p} t={t} /> },
+    {
+      id: 'ratio',
+      header: t('Col ratio'),
+      numeric: true,
+      width: 150,
+      cell: (p) => (
+        <>
+          <RatioCell position={p} t={t} />
+          <RiskStopLine stop={p.id === null ? undefined : stops?.[p.id]} t={t} />
+        </>
+      ),
+    },
     {
       id: 'liq',
       width: 100,
@@ -182,7 +218,7 @@ export function PositionsTable({
           planeOff={planeOff}
           stale={stale}
           onChanged={onChanged}
-          only={['add', 'leverage', 'protect', 'stop', 'reverse', 'close']}
+          only={['add', 'leverage', 'protect', 'stop', 'riskStop', 'reverse', 'close']}
           {...(onReverse ? { onReverse } : {})}
         />
       ),
