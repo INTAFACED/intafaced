@@ -1,4 +1,4 @@
-// World: restart
+// World: book, restart
 import { test, expect } from './journey.mjs';
 import { ADMIN, assertAdminUp, founderSignIn } from './admin.mjs';
 import { ORIGIN, api, journeyState, restartWith } from './stack.mjs';
