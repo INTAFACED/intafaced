@@ -43,6 +43,7 @@ function node() {
   // As the dev chain and the service build theirs: a polling interval, so viem caches the block number for it.
   const client = createPublicClient({ chain, transport, pollingInterval: 4_000 });
   return {
+    client,
     chain: client as unknown as FeeRelayChain,
     deploy: () => {
       block = DEPLOYED_AT;
@@ -54,8 +55,8 @@ const setting = { relay: RELAY, url: 'http://relayer.invalid/relay', gasLimit: 4
 
 describe('fee quotes read the block the node is at now (#7192)', () => {
   it('quotes a relay deployed a moment after the block number was last read', async () => {
-    const { chain, deploy } = node();
-    expect(await chain.getBlockNumber()).toBe(1n); // a read before the deploy: viem now holds block 1
+    const { client, chain, deploy } = node();
+    expect(await client.getBlockNumber()).toBe(1n); // a read before the deploy: viem now holds block 1
     deploy();
     const quote = await quoteFee(chain, setting, TOKEN, 2_000_000_000n);
     expect(quote).toMatchObject({ blockNumber: '2', charge: '123', markupBps: 500 });
