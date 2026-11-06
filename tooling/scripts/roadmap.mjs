@@ -143,7 +143,7 @@ export function parseSpec(text, module, group, file) {
 }
 
 const JOURNEY_HEADING = /^##\s+(J-[a-z0-9-]+-\d+):\s+(.*)$/;
-const JOURNEY_FIELD = /^-\s+(Persona|Tier|Order|Deferred):\s*(.*)$/;
+const JOURNEY_FIELD = /^-\s+(Persona|Tier|Order|Deferred|Parked):\s*(.*)$/;
 const STEP_ROW = /^\|\s*(\d+)\s*\|/;
 
 /** Every journey in one module's acceptance/journeys.md: its fields and, per step, the slice ids it needs. */
@@ -171,6 +171,13 @@ export function parseJourneys(text, module, known = null) {
         if (!/^until\b/i.test(f[2].trim()))
           throw new Error(`roadmap: ${cur.id} has "Deferred: ${f[2].trim()}"; write "Deferred: until <when>"`);
         cur.deferred = true;
+      } else if (f[1] === 'Parked') {
+        // Parked (owner decision 2026-11-06, OWNER 183): kept in the plan and visible, built later, not counted. Like
+        // Deferred, only "until <when>" parks, so a "Parked: no" never drops a journey quietly.
+        const until = /^until\s+(.+)$/i.exec(f[2].trim());
+        if (!until) throw new Error(`roadmap: ${cur.id} has "Parked: ${f[2].trim()}"; write "Parked: until <when>"`);
+        cur.parked = true;
+        cur.parkedUntil = until[1];
       } else cur[f[1].toLowerCase()] = f[2].trim();
       continue;
     }
@@ -182,6 +189,15 @@ export function parseJourneys(text, module, known = null) {
       // An empty cell names nothing to build either, so it counts as a step no slice covers yet.
       const step = { n: Number(row[1]), slices, noSlice: /\bNO-SLICE\b/.test(sliceCell) || !slices.length };
       if (/\bDEFERRED\b/.test(sliceCell)) step.deferred = true;
+      if (/\bPARKED\b/.test(sliceCell)) {
+        if (!/\bPARKED until\s+\S/.test(sliceCell)) throw new Error(`roadmap: ${cur.id} #${row[1]} says PARKED with no "until <when>"`);
+        step.parked = true;
+        // "PARKED until <when> (<why>; was <slice ids>)": keep "<when> (<why>)" for the page, without the slice ids.
+        step.parkedUntil = /\bPARKED until\s+(.*)$/
+          .exec(sliceCell)[1]
+          .replace(/;\s*was\b[^)]*\)/, ')')
+          .trim();
+      }
       cur.steps.push(step);
     }
   }
@@ -207,14 +223,36 @@ export function buildJourneys(ozDir, known = new Set(specSlices(ozDir).map((s) =
 /**
  * The journeys still to build: a journey with a `Deferred:` line, and a step whose Slices cell says DEFERRED, leave the
  * count and the slice order. Most wait for launch prep (legal and compliance work, owner decision 2026-10-27); a few are
- * set aside by another owner decision, which their Slices cell names (J-agents-12 #2, OWNER 107).
+ * set aside by another owner decision, which their Slices cell names (J-agents-12 #2, OWNER 107). A journey with a
+ * `Parked:` line, and a step whose Slices cell says PARKED, leave them too (OWNER 183, 6 Nov 2026): they stay in the
+ * plan and on the page, and come back the moment the line or the word is removed. A slice a live step still names keeps
+ * its place, so a capability another journey needs is never parked with it.
  */
+export const isLiveJourney = (j) => !j.deferred && !j.parked;
+export const isLiveStep = (st) => !st.deferred && !st.parked;
 export function liveJourneys(journeys) {
   return journeys
-    .filter((j) => !j.deferred)
-    .map((j) => ({ ...j, steps: j.steps.filter((st) => !st.deferred) }))
+    .filter(isLiveJourney)
+    .map((j) => ({ ...j, steps: j.steps.filter(isLiveStep) }))
     .filter((j) => j.steps.length);
 }
+
+/**
+ * What the owner parked (OWNER 183): `whole`, the journeys out of the count because of parking (a `Parked:` line, or
+ * every step that isn't deferred parked one by one); `steps`, the parked steps of journeys still live; `stepCount`, the
+ * steps that leave the count by parking. `untilOf(j)` is when a journey or its parked steps come back.
+ */
+export function parkedJourneys(journeys) {
+  const liveIds = new Set(liveJourneys(journeys).map((j) => j.id));
+  const whole = journeys.filter((j) => !j.deferred && !liveIds.has(j.id) && (j.parked || j.steps.some((st) => !st.deferred && st.parked)));
+  const steps = journeys
+    .filter((j) => liveIds.has(j.id))
+    .flatMap((j) => j.steps.filter((st) => !st.deferred && st.parked).map((st) => ({ j, st })));
+  const stepCount = whole.reduce((c, j) => c + j.steps.filter((st) => !st.deferred).length, 0) + steps.length;
+  return { whole, steps, stepCount };
+}
+const untilOf = (j) =>
+  j.parkedUntil ?? [...new Set(j.steps.filter((st) => st.parked && !st.deferred).map((st) => st.parkedUntil))].join('; ');
 
 /** Each slice's lowest journey Order (1 is a module's first usable journey); 0 when no journey names it. */
 export function journeyOrder(journeys) {
@@ -328,7 +366,46 @@ export function buildIndex(
       order: order.get(s.id) ?? 0,
     });
   }
-  return untangle(slices);
+  return keepParkedNeeds(untangle(slices), journeys);
+}
+
+/**
+ * Keep what a live journey needs (OWNER 183: "any capability other journeys need stays"). A slice that only parked
+ * steps name has no journey order, so it would sink to the end of its lane. Every slice a live step names is walked
+ * down its dependencies, through any slice that isn't itself live; each parked-only slice reached is marked `keptFor`
+ * (the slices that need it directly) and takes the lowest order of the live slices that reach it, if they have one.
+ */
+export function keepParkedNeeds(slices, journeys) {
+  const live = new Set(liveJourneys(journeys).flatMap((j) => j.steps.flatMap((st) => st.slices)));
+  const parkedOnly = new Set(
+    journeys
+      .filter((j) => !j.deferred)
+      .flatMap((j) => j.steps.filter((st) => !st.deferred && (j.parked || st.parked)).flatMap((st) => st.slices))
+      .filter((id) => !live.has(id)),
+  );
+  if (!parkedOnly.size) return slices;
+  const byId = new Map(slices.map((s) => [s.id, s]));
+  const keptFor = new Map();
+  const order = new Map();
+  for (const root of slices.filter((s) => live.has(s.id))) {
+    const seen = new Set([root.id]);
+    const work = [root];
+    while (work.length) {
+      const s = work.pop();
+      for (const d of s.depends) {
+        const dep = byId.get(d);
+        if (!dep || live.has(d) || seen.has(d)) continue;
+        seen.add(d);
+        if (parkedOnly.has(d)) {
+          if (!keptFor.has(d)) keptFor.set(d, new Set());
+          keptFor.get(d).add(s.id);
+          if (root.order) order.set(d, Math.min(order.get(d) ?? 9, root.order));
+        }
+        work.push(dep);
+      }
+    }
+  }
+  return slices.map((s) => (keptFor.has(s.id) ? { ...s, order: order.get(s.id) ?? s.order, keptFor: [...keptFor.get(s.id)].sort() } : s));
 }
 
 /**
@@ -445,6 +522,7 @@ function queueLines(slices, analysis) {
     const flags = [s.size || '?', `depth ${analysis.depth.get(s.id)}`];
     if (s.order) flags.push(`journey order ${s.order}`);
     if (analysis.tangled.has(s.id)) flags.push('untangle first');
+    if (s.keptFor) flags.push(`only parked journeys name it; kept for ${s.keptFor.join(', ')}`);
     if (s.outside) flags.push('refuses for an outside service');
     const needs = s.depends.length ? ` · needs ${s.depends.join(', ')}` : '';
     return `- \`${s.id}\` ${s.title} (${flags.join(', ')})${needs}`;
@@ -484,6 +562,32 @@ export function render(slices, allJourneys = []) {
           const st = own.flatMap((j) => j.steps);
           return [m, n, ...[1, 2, 3].map((o) => own.filter((j) => j.order === o).length), st.length, st.filter((t) => t.noSlice).length];
         }),
+      ),
+      '',
+    );
+  }
+  const parked = parkedJourneys(allJourneys);
+  if (parked.whole.length || parked.steps.length) {
+    out.push(
+      '### Parked',
+      '',
+      `Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built later, and not counted above. ` +
+        `${parked.whole.length} whole journeys (${parked.stepCount - parked.steps.length} steps) ` +
+        `and ${parked.steps.length} steps of live journeys. A slice a live step still names keeps its place in the lane queues.`,
+      '',
+      table(
+        ['Journey', 'Parked', 'Until'],
+        [
+          ...parked.whole.map((j) => [`${j.id} ${j.title}`, 'whole journey', untilOf(j)]),
+          ...[...new Set(parked.steps.map(({ j }) => j))].map((j) => [
+            `${j.id} ${j.title}`,
+            `steps ${parked.steps
+              .filter((p) => p.j === j)
+              .map(({ st }) => `#${st.n}`)
+              .join(', ')}`,
+            untilOf(j),
+          ]),
+        ],
       ),
       '',
     );
@@ -592,7 +696,12 @@ export function passedSteps(report) {
  */
 export function progress(slices, commits, now, allJourneys = [], passed = null) {
   const journeys = liveJourneys(allJourneys);
-  const deferredSteps = allJourneys.reduce((c, j) => c + j.steps.length, 0) - journeys.reduce((c, j) => c + j.steps.length, 0);
+  // Every journey and step out of the count is either parked (OWNER 183) or deferred, so the three figures add up.
+  const parked = parkedJourneys(allJourneys);
+  const parkedSteps = parked.stepCount;
+  const deferredJourneys = allJourneys.length - journeys.length - parked.whole.length;
+  const deferredSteps =
+    allJourneys.reduce((c, j) => c + j.steps.length, 0) - journeys.reduce((c, j) => c + j.steps.length, 0) - parkedSteps;
   const known = new Set(slices.map((s) => s.id));
   const prs = new Map(); // slice id -> merge times, oldest last
   const sliceCommits = [];
@@ -645,8 +754,11 @@ export function progress(slices, commits, now, allJourneys = [], passed = null) 
         `- Every slice started (ready to prove, builders' claim): ${ready.length} of ${journeys.length} journeys.`,
         ...(deferredSteps
           ? [
-              `- Deferred (launch prep, or set aside by an owner decision) and not counted: ${n(allJourneys.length - journeys.length, 'journey')} and ${n(deferredSteps, 'step')}.`,
+              `- Deferred (launch prep, or set aside by an owner decision) and not counted: ${n(deferredJourneys, 'journey')} and ${n(deferredSteps, 'step')}.`,
             ]
+          : []),
+        ...(parkedSteps
+          ? [`- Parked by the owner (OWNER 183) and not counted: ${n(parked.whole.length, 'whole journey')} and ${n(parkedSteps, 'step')}.`]
           : []),
         '',
         '## Slices',
