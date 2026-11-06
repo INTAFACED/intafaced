@@ -34,10 +34,17 @@ async function until(read, ok, what, ms = 20_000) {
   throw new Error(`${what}: still ${JSON.stringify(last)}`);
 }
 
-/** The mark, as the service prices a preview. */
+/**
+ * The mark, as the service prices a preview. The preview has no mark while the TEST spot book that marks the perpetual
+ * has lost a side for a moment (an earlier journey's price move being re-quoted, #7110), so it is read until it has one.
+ */
 async function markOf(me) {
-  const preview = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
-  expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+  const preview = await until(
+    () => me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE }),
+    (p) => p.status === 200 && typeof p.body.markPrice === 'string',
+    'a preview with a mark',
+    60_000,
+  );
   return { mark: toUnits(preview.body.markPrice), tier: preview.body.riskTier?.projected };
 }
 
