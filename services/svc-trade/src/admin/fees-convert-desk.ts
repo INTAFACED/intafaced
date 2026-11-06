@@ -13,7 +13,9 @@ import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import type { ConvertPairs } from '../convert/pairs.js';
-import type { OtcConvertBounds, OtcConvertFlow } from '../otc/otc-convert-bounds.js';
+import { describeOtcConvertBounds, type OtcConvertBounds, type OtcConvertFlow } from '../otc/otc-convert-bounds.js';
+import { requireConvertQuoteTtlMs, requireConvertSpreadBps } from '../convert/quote.js';
+import { REGULAR_FEE_TIER } from '../spot/fee-schedule.js';
 import { requireOperator, TradeOpsError } from './common.js';
 
 /** At most this many rows in one read: the room shows recent history, not an export. */
@@ -36,10 +38,13 @@ export interface ConvertSettingsView {
   readonly paused: boolean;
   readonly assets: ConvertPairs['assets'];
   readonly restricted: readonly string[];
-  /** TRADE_CONVERT_SPREAD_BPS as a whole-number string, or null when blank. */
+  /** TRADE_CONVERT_SPREAD_BPS as Convert uses it, or null when blank or refused. */
   readonly spreadBps: string | null;
-  /** TRADE_CONVERT_QUOTE_TTL_MS as a whole-number string, or null when blank. */
+  /** Set but not a value Convert takes: the code every quote refuses with (`trade.convert_bad_spread`). */
+  readonly spreadRefusal: string | null;
+  /** TRADE_CONVERT_QUOTE_TTL_MS as Convert uses it, or null when blank or refused. */
   readonly quoteTtlMs: string | null;
+  readonly quoteTtlRefusal: string | null;
   /** TRADE_OTC_CONVERT_BOUNDS per flow, or null for a flow with none published. */
   readonly deskBounds: Readonly<Record<OtcConvertFlow, { readonly minQty: string; readonly maxQty: string } | null>>;
 }
@@ -56,7 +61,11 @@ export interface ConvertQuoteRow {
   readonly avgPrice: string;
   readonly bookNotional: string;
   readonly userNotional: string;
-  /** What the spread kept, in the quote asset: |book notional − customer notional|, exact. */
+  /**
+   * The spread in the quote as it was given, in the quote asset: |book notional − customer notional|, exact. It is what
+   * the quote priced in, not what was earned: an open or expired quote earned nothing, and a settled one filled at its own
+   * fill price.
+   */
   readonly spreadAmount: string;
   readonly spreadAsset: string;
   readonly spreadBps: number;
@@ -88,24 +97,43 @@ function limitOf(limit: number): number {
 
 const iso = (value: Date | string): string => (value instanceof Date ? value : new Date(value)).toISOString();
 const decimal = (value: string): string => formatAmount(parseAmount(value));
-const whole = (value: number | null): string | null => (value === null || !Number.isSafeInteger(value) || value < 0 ? null : String(value));
+/**
+ * An owner value as Convert itself reads it: blank is null with no refusal ("not set"); a set value Convert refuses is null
+ * with the code every quote refuses with, so the room never shows a number Convert would not use.
+ */
+function ownerValue(raw: number | null, check: (value: number) => number): { value: string | null; refusal: string | null } {
+  if (raw === null) return { value: null, refusal: null };
+  try {
+    return { value: String(check(raw)), refusal: null };
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    return { value: null, refusal: typeof code === 'string' ? code : 'trade.convert_settings_invalid' };
+  }
+}
 
 export class FeesConvertDesk {
   constructor(private readonly deps: FeesConvertDeskDeps) {}
 
   async snapshotRuns(principal: Principal, limit: number): Promise<SnapshotRunRow[]> {
     requireOperator(principal);
+    // The runs are cut to the page first, then each one's rows are summed through the index on `instant`.
     const rows = await this.deps.sql<
       Array<{ instant: Date; schedule_version: string; accounts: number; above: number; volume: string; completed_at: Date }>
     >`
-      SELECT r.instant, r.schedule_version, r.accounts, r.completed_at,
-             count(s.key) FILTER (WHERE s.tier_id <> 'regular')::int AS above,
-             coalesce(sum(s.volume_30d), 0)::text AS volume
-        FROM trade.fee_tier_snapshot_runs r
-        LEFT JOIN trade.fee_tier_snapshots s ON s.instant = r.instant
-       GROUP BY r.instant, r.schedule_version, r.accounts, r.completed_at
-       ORDER BY r.instant DESC
-       LIMIT ${limitOf(limit)}`;
+      SELECT r.instant, r.schedule_version, r.accounts, r.completed_at, f.above, f.volume
+        FROM (
+          SELECT instant, schedule_version, accounts, completed_at
+            FROM trade.fee_tier_snapshot_runs
+           ORDER BY instant DESC
+           LIMIT ${limitOf(limit)}
+        ) r
+        CROSS JOIN LATERAL (
+          SELECT count(*) FILTER (WHERE s.tier_id <> ${REGULAR_FEE_TIER})::int AS above,
+                 coalesce(sum(s.volume_30d), 0)::text AS volume
+            FROM trade.fee_tier_snapshots s
+           WHERE s.instant = r.instant
+        ) f
+       ORDER BY r.instant DESC`;
     return rows.map((row) => ({
       instant: iso(row.instant),
       scheduleVersion: row.schedule_version,
@@ -121,17 +149,17 @@ export class FeesConvertDesk {
     const convert = this.deps.convert;
     if (!convert) throw new TradeOpsError('trade.convert_settings_unwired', 'this service was started without the convert settings read');
     const pairs = await convert.pairs();
-    const flow = (name: OtcConvertFlow) => {
-      const bounds = convert.deskBounds[name];
-      return bounds ? { minQty: formatAmount(bounds.minQty), maxQty: formatAmount(bounds.maxQty) } : null;
-    };
+    const spread = ownerValue(convert.spreadBps, requireConvertSpreadBps);
+    const ttl = ownerValue(convert.quoteTtlMs, requireConvertQuoteTtlMs);
     return {
       paused: pairs.paused,
       assets: pairs.assets,
       restricted: pairs.restricted,
-      spreadBps: whole(convert.spreadBps),
-      quoteTtlMs: whole(convert.quoteTtlMs),
-      deskBounds: { convert: flow('convert'), oneClickBuy: flow('oneClickBuy') },
+      spreadBps: spread.value,
+      spreadRefusal: spread.refusal,
+      quoteTtlMs: ttl.value,
+      quoteTtlRefusal: ttl.refusal,
+      deskBounds: describeOtcConvertBounds(convert.deskBounds),
     };
   }
 

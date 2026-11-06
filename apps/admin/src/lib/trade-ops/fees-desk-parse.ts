@@ -59,13 +59,17 @@ export interface ConvertSettings {
   }>;
   readonly restricted: readonly string[];
   readonly spreadBps: string | null;
+  /** Set but refused by Convert: the code every quote refuses with. */
+  readonly spreadRefusal: string | null;
   readonly quoteTtlMs: string | null;
+  readonly quoteTtlRefusal: string | null;
   readonly deskBounds: { readonly convert: DeskBounds | null; readonly oneClickBuy: DeskBounds | null };
 }
 
 const boundsOf = (v: unknown): DeskBounds | null | undefined =>
   v === null ? null : rec(v) && dec(v.minQty) && dec(v.maxQty) ? { minQty: v.minQty, maxQty: v.maxQty } : undefined;
 const wholeOrNull = (v: unknown): string | null | undefined => (v === null ? null : str(v) && /^\d+$/.test(v) ? v : undefined);
+const codeOrNull = (v: unknown): string | null | undefined => (v === null ? null : str(v) && v.length > 0 ? v : undefined);
 
 export function parseConvertSettings(raw: unknown): ConvertSettings | null {
   if (!rec(raw) || typeof raw.paused !== 'boolean' || !rec(raw.deskBounds)) return null;
@@ -78,11 +82,31 @@ export function parseConvertSettings(raw: unknown): ConvertSettings | null {
   const restricted = listOf(raw.restricted, (v) => (str(v) ? v : null));
   const spreadBps = wholeOrNull(raw.spreadBps);
   const quoteTtlMs = wholeOrNull(raw.quoteTtlMs);
+  const spreadRefusal = codeOrNull(raw.spreadRefusal);
+  const quoteTtlRefusal = codeOrNull(raw.quoteTtlRefusal);
   const convert = boundsOf(raw.deskBounds.convert);
   const oneClickBuy = boundsOf(raw.deskBounds.oneClickBuy);
-  if (!assets || !restricted || spreadBps === undefined || quoteTtlMs === undefined || convert === undefined || oneClickBuy === undefined)
+  if (
+    !assets ||
+    !restricted ||
+    spreadBps === undefined ||
+    quoteTtlMs === undefined ||
+    spreadRefusal === undefined ||
+    quoteTtlRefusal === undefined ||
+    convert === undefined ||
+    oneClickBuy === undefined
+  )
     return null;
-  return { paused: raw.paused, assets, restricted, spreadBps, quoteTtlMs, deskBounds: { convert, oneClickBuy } };
+  return {
+    paused: raw.paused,
+    assets,
+    restricted,
+    spreadBps,
+    spreadRefusal,
+    quoteTtlMs,
+    quoteTtlRefusal,
+    deskBounds: { convert, oneClickBuy },
+  };
 }
 
 export interface ConvertQuote {

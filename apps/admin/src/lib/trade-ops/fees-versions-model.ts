@@ -283,6 +283,12 @@ export const REASON_MAX = 500;
 
 const refuse = (code: string, message: string): ProposalCheck => ({ ok: false, code, message });
 
+/** A decimal string as an 18-place scaled bigint, for comparing thresholds exactly. */
+function scaled(value: string): bigint {
+  const [whole = '0', frac = ''] = value.split('.');
+  return BigInt(whole) * 10n ** 18n + BigInt(frac.padEnd(18, '0').slice(0, 18) || '0');
+}
+
 /**
  * The schedule a draft proposes: the base version's schedule with the draft's rates, thresholds and snapshot time put in,
  * everything else kept exactly. Refuses, naming the field, before anything is sent: a blank or malformed rate or threshold
@@ -316,19 +322,27 @@ export function buildProposal(base: FeeVersionRow, draft: ProposalDraft, reason:
     const program = schedule.tierProgram;
     if (!rec(program) || !Array.isArray(program.thresholds))
       return refuse('trade_ops.fee_row_unknown', 'The base version has no VIP programme. Read the versions again.');
+    // svc-trade's own rule (spot/fee-tiers.ts): each threshold above zero and above the one before it.
+    let below = 0n;
     for (const t of draft.thresholds) {
-      if (t.minVolume30d.trim() === '')
+      const value = t.minVolume30d.trim();
+      if (value === '')
         return refuse('trade.fee_schedule_blank', `The threshold of ${t.tierId} is blank. Every tier needs its 30-day volume.`);
-      if (!VOLUME.test(t.minVolume30d.trim()))
+      if (!VOLUME.test(value))
         return refuse('trade.fee_schedule_blank', `The threshold of ${t.tierId} must be a decimal amount, such as 1000 or 2500.5.`);
+      const units = scaled(value);
+      if (units <= below)
+        return refuse('trade.fee_schedule_blank', `The threshold of ${t.tierId} must be above zero and above the tier before it.`);
+      below = units;
       const row = program.thresholds.find((x) => rec(x) && x.tierId === t.tierId);
       if (!rec(row)) return refuse('trade_ops.fee_row_unknown', `The base version has no tier ${t.tierId}. Read the versions again.`);
-      row.minVolume30d = t.minVolume30d.trim();
+      row.minVolume30d = value;
     }
+    // Blank is a choice svc-trade takes (null: no daily snapshot runs), never filled in for the founder.
     const at = (draft.snapshotTimeUtc ?? '').trim();
-    if (at === '') return refuse('trade.fee_schedule_blank', 'The snapshot time is blank. Write it as HH:MM in UTC.');
-    if (!HHMM.test(at)) return refuse('trade.fee_schedule_blank', 'The snapshot time must be HH:MM in UTC, such as 00:00 or 16:30.');
-    program.snapshotTimeUtc = at;
+    if (at !== '' && !HHMM.test(at))
+      return refuse('trade.fee_schedule_blank', 'The snapshot time must be HH:MM in UTC, such as 00:00 or 16:30, or blank for none.');
+    program.snapshotTimeUtc = at === '' ? null : at;
   }
   const typed = draft.effectiveAt.trim();
   if (!TYPED_TIME.test(typed) || Number.isNaN(Date.parse(typed)))

@@ -283,7 +283,57 @@ describe('a proposal', () => {
       code: 'trade.fee_schedule_blank',
     });
     expect(buildProposal(tiered, { ...draft, snapshotTimeUtc: '24:00' }, reason, NOW)).toMatchObject({ code: 'trade.fee_schedule_blank' });
-    expect(buildProposal(tiered, { ...draft, snapshotTimeUtc: '' }, reason, NOW)).toMatchObject({ code: 'trade.fee_schedule_blank' });
+    // Blank is no daily snapshot, a choice svc-trade takes: kept blank, never filled in.
+    const none = buildProposal(tiered, { ...draft, snapshotTimeUtc: '' }, reason, NOW);
+    expect(none.ok && (none.schedule.tierProgram as { snapshotTimeUtc: unknown }).snapshotTimeUtc).toBeNull();
+    // svc-trade's own threshold rule: above zero and above the tier before.
+    expect(buildProposal(tiered, { ...draft, thresholds: [{ tierId: 'test-vip-1', minVolume30d: '0' }] }, reason, NOW)).toMatchObject({
+      code: 'trade.fee_schedule_blank',
+    });
+    const two = version('6', '2026-11-06T09:50:00.000Z', {
+      ...schedule('4'),
+      tierProgram: {
+        thresholds: [
+          { tierId: 'vip-1', minVolume30d: '1000' },
+          { tierId: 'vip-2', minVolume30d: '5000' },
+        ],
+        snapshotTimeUtc: null,
+      },
+    });
+    const rising = { ...draftFrom(two), effectiveAt: later };
+    expect(rising.snapshotTimeUtc).toBeNull();
+    expect(buildProposal(two, rising, reason, NOW).ok).toBe(true);
+    expect(
+      buildProposal(
+        two,
+        {
+          ...rising,
+          thresholds: [
+            { tierId: 'vip-1', minVolume30d: '1000' },
+            { tierId: 'vip-2', minVolume30d: '999.9' },
+          ],
+        },
+        reason,
+        NOW,
+      ),
+    ).toMatchObject({
+      code: 'trade.fee_schedule_blank',
+      message: 'The threshold of vip-2 must be above zero and above the tier before it.',
+    });
+    expect(
+      buildProposal(
+        two,
+        {
+          ...rising,
+          thresholds: [
+            { tierId: 'vip-1', minVolume30d: '1000' },
+            { tierId: 'vip-2', minVolume30d: '1000.000000000000000001' },
+          ],
+        },
+        reason,
+        NOW,
+      ).ok,
+    ).toBe(true);
     expect(buildProposal(tiered, { ...draft, thresholds: [{ tierId: 'test-vip-9', minVolume30d: '1' }] }, reason, NOW)).toMatchObject({
       code: 'trade_ops.fee_row_unknown',
     });

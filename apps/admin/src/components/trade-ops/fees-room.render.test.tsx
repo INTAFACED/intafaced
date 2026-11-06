@@ -56,7 +56,9 @@ const view = (over: Partial<FeesDeskView> = {}): FeesDeskView => ({
       ],
       restricted: [],
       spreadBps: '20',
+      spreadRefusal: null,
       quoteTtlMs: '15000',
+      quoteTtlRefusal: null,
       deskBounds: { convert: { minQty: '0.1', maxQty: '5' }, oneClickBuy: null },
     },
     AS_OF,
@@ -167,6 +169,10 @@ describe('Fees and convert room', () => {
     if (open.kind !== 'ok') throw new Error('the fixture reads');
     const paused = renderToStaticMarkup(<FeesRoom initial={view({ convert: ok({ ...open.data, paused: true }, AS_OF) })} />);
     expect(paused).toContain('Convert is paused for maintenance: every quote refuses trade.convert_disabled.');
+    const refusedSpread = renderToStaticMarkup(
+      <FeesRoom initial={view({ convert: ok({ ...open.data, spreadBps: null, spreadRefusal: 'trade.convert_bad_spread' }, AS_OF) })} />,
+    );
+    expect(refusedSpread).toMatch(/Spread on a quote<\/dt><dd[^>]*>set, but every quote refuses trade\.convert_bad_spread<\/dd>/);
   });
 
   it('reads sell quotes and fiat buy fees exactly, the stand-in prices labelled TEST', () => {

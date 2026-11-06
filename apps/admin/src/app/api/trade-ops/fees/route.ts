@@ -157,7 +157,7 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
             : `This request is ${a.status}, not APPROVED. Nothing was published.`,
           409,
         );
-      if (a.targetId !== str(body.noticeId))
+      if (a.actionType !== 'notify.notice.publish' || a.targetService !== 'svc-notify' || a.targetId !== str(body.noticeId))
         return refused('trade_ops.notice_approval_mismatch', 'That approval is for a different notice. Nothing was published.', 409);
       return publishFeeNotice(ctx, { noticeId: str(body.noticeId), approvalId: a.approvalId, operationId: a.operationId });
     }

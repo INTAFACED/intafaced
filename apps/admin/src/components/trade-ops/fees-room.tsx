@@ -412,6 +412,14 @@ function Notice({ scheduled }: { scheduled: readonly FeeVersionRow[] }) {
   const row = scheduled.find((r) => r.version === version) ?? null;
   const noticeId = draft?.kind === 'ok' ? draft.data.id : null;
 
+  // New words are a new draft: what was saved, asked for or published belongs to the old words, so it is let go.
+  const changed = () => {
+    setDraft(null);
+    setRequested(null);
+    setPublished(null);
+    setApprovalId('');
+  };
+
   const run = async <T,>(set: (o: Outcome<T>) => void, body: Record<string, unknown>) => {
     setBusy(true);
     set(await tradeOpsAction<T>('fees', body));
@@ -453,11 +461,28 @@ function Notice({ scheduled }: { scheduled: readonly FeeVersionRow[] }) {
       </div>
       <label className="flex flex-col gap-1 text-sm">
         <span>Notice title</span>
-        <input className="adm-input" aria-label="Notice title" value={title} onChange={(e) => setTitle(e.target.value)} />
+        <input
+          className="adm-input"
+          aria-label="Notice title"
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            changed();
+          }}
+        />
       </label>
       <label className="flex flex-col gap-1 text-sm">
         <span>Notice text</span>
-        <textarea className="adm-input" aria-label="Notice text" rows={3} value={text} onChange={(e) => setText(e.target.value)} />
+        <textarea
+          className="adm-input"
+          aria-label="Notice text"
+          rows={3}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            changed();
+          }}
+        />
       </label>
       <div className="flex flex-wrap gap-3">
         <button
@@ -541,8 +566,18 @@ function ConvertLimits({ view }: { view: FeesDeskView['convert'] }) {
       </p>
       <Pairs
         items={[
-          { label: 'Spread on a quote', value: rateText(c.spreadBps) },
-          { label: 'A quote holds for', value: c.quoteTtlMs === null ? 'not set' : `${c.quoteTtlMs} ms` },
+          {
+            label: 'Spread on a quote',
+            value: c.spreadRefusal ? `set, but every quote refuses ${c.spreadRefusal}` : rateText(c.spreadBps),
+          },
+          {
+            label: 'A quote holds for',
+            value: c.quoteTtlRefusal
+              ? `set, but every quote refuses ${c.quoteTtlRefusal}`
+              : c.quoteTtlMs === null
+                ? 'not set'
+                : `${c.quoteTtlMs} ms`,
+          },
           { label: 'Size at the desk price, convert', value: bounds(c.deskBounds.convert) },
           { label: 'Size at the desk price, one-click buy', value: bounds(c.deskBounds.oneClickBuy) },
           { label: 'Listed only on markets Convert refuses now', value: c.restricted.length ? c.restricted.join(', ') : 'none' },
@@ -586,7 +621,7 @@ function SellQuotes({ view }: { view: FeesDeskView['sellQuotes'] }) {
               <th scope="col">Sells</th>
               <th scope="col">Gets</th>
               <th scope="col">Book price</th>
-              <th scope="col">Spread kept</th>
+              <th scope="col">Spread in the quote</th>
               <th scope="col">State</th>
             </tr>
           </thead>
@@ -672,9 +707,12 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
   const [view, setView] = useState(initial);
   // Kept here, not in the form: the form starts again from the version just written, and this line must stay.
   const [written, setWritten] = useState<FeeVersionRow | null>(null);
+  const [rereadFailed, setRereadFailed] = useState<Outcome<unknown> | null>(null);
   const reread = useCallback(async () => {
     const next = await tradeOpsAction<FeesDeskView>('fees', { action: 'read' });
     if (next.kind === 'ok') setView(next.data);
+    // Said, never hidden: the room still shows the read from before the write.
+    setRereadFailed(next.kind === 'ok' ? null : next);
   }, []);
   const now = useMemo(() => new Date(view.asOf), [view.asOf]);
   const fees = view.fees;
@@ -685,6 +723,12 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
 
   return (
     <div className="flex flex-col gap-6" data-room="fees">
+      {rereadFailed ? (
+        <Problem
+          outcome={rereadFailed}
+          title="The room could not be read again after the write: what is shown is from before it. Load the page again."
+        />
+      ) : null}
       <PageSection title="Fee versions by pair group">
         {history ? <Versions history={history} now={now} /> : <Problem outcome={fees} title="The fee versions could not be read" />}
       </PageSection>

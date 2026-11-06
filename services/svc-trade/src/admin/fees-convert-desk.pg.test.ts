@@ -90,7 +90,7 @@ describe('fees and convert desk (PG-hard)', () => {
       ['2026-11-06T00:00:00.000Z', 'v4', 2, 1, '1500.500000000000000001'],
       ['2026-11-05T00:00:00.000Z', 'v3', 0, 0, '0'],
     ]);
-    expect(await desk().snapshotRuns(reader(), 1)).toHaveLength(1);
+    expect((await desk().snapshotRuns(reader(), 1)).map((r) => r.instant)).toEqual(['2026-11-06T00:00:00.000Z']);
   });
 
   it('refuses a snapshot read with no page size or from a caller who is not an operator', async () => {
@@ -108,7 +108,9 @@ describe('fees and convert desk (PG-hard)', () => {
       ],
       restricted: ['IFC'],
       spreadBps: '20',
+      spreadRefusal: null,
       quoteTtlMs: '15000',
+      quoteTtlRefusal: null,
       deskBounds: { convert: { minQty: '0.1', maxQty: '5' }, oneClickBuy: null },
     });
     const blank: ConvertOwnerValues = {
@@ -122,8 +124,18 @@ describe('fees and convert desk (PG-hard)', () => {
       assets: [{ asset: 'BTC', maxPerConvert: null }],
       restricted: [],
       spreadBps: null,
+      spreadRefusal: null,
       quoteTtlMs: null,
+      quoteTtlRefusal: null,
       deskBounds: { convert: null, oneClickBuy: null },
+    });
+    // Set, but not a value Convert takes: never shown as a live value, always with the code every quote refuses with.
+    const refused = await desk({ ...CONVERT, spreadBps: 6000, quoteTtlMs: 0 }).convertSettings(reader());
+    expect(refused).toMatchObject({
+      spreadBps: null,
+      spreadRefusal: 'trade.convert_bad_spread',
+      quoteTtlMs: null,
+      quoteTtlRefusal: 'trade.convert_quote_ttl_unset',
     });
   });
 

@@ -114,11 +114,11 @@ principal claim; no identity vendor is called from this service.
 Fee versions themselves are `admin.fees.get` / `admin.fees.set` (two-person, a stated effective time; an order keeps the
 version in force when it was placed, `spot/fee-schedule-store.ts`). A schedule change moves no money.
 
-| Procedure                    | What it does                                                                                                                       |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `admin.fees.snapshots`       | finished fee tier snapshot runs, newest first (`limit` 1-100, required): version, accounts, accounts above regular, counted volume |
-| `admin.convertDesk.settings` | Convert open or paused, each coin's maximum per conversion, spread, quote hold time, desk-price size ranges; a blank one is `null` |
-| `admin.convertDesk.quotes`   | convert quotes of one `side`, newest first (`limit` 1-100, required), exact amounts and the spread kept                            |
+| Procedure                    | What it does                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `admin.fees.snapshots`       | finished fee tier snapshot runs, newest first (`limit` 1-100, required): version, accounts, accounts above regular, counted volume                                             |
+| `admin.convertDesk.settings` | Convert open or paused, each coin's maximum per conversion, spread, quote hold time, desk-price size ranges; a blank one is `null`, a set one Convert refuses carries its code |
+| `admin.convertDesk.quotes`   | convert quotes of one `side`, newest first (`limit` 1-100, required), exact amounts and the spread in the quote as given                                                       |
 
 An unwired convert read refuses `trade.convert_settings_unwired`; a missing page size refuses `fees_desk_limit_unset`.
 

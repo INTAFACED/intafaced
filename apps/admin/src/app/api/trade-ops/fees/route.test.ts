@@ -225,7 +225,7 @@ describe('fees route: the fee-change notice', () => {
     });
 
     fetchMock.mockReset();
-    services({ approve: approval({ targetId: NOTICE, actionType: 'notify.notice.publish' }) });
+    services({ approve: approval({ targetId: NOTICE, actionType: 'notify.notice.publish', targetService: 'svc-notify' }) });
     expect(await (await post({ action: 'notice-publish', noticeId: NOTICE, approvalId: 'ap-1' })).json()).toMatchObject({
       kind: 'ok',
       data: { status: 'published' },
@@ -237,7 +237,21 @@ describe('fees route: the fee-change notice', () => {
     });
 
     fetchMock.mockReset();
-    services({ approve: approval({ targetId: 'a1b2c3d4-0000-4000-8000-00000000000a' }) });
+    services({
+      approve: approval({
+        targetId: 'a1b2c3d4-0000-4000-8000-00000000000a',
+        actionType: 'notify.notice.publish',
+        targetService: 'svc-notify',
+      }),
+    });
+    expect(await (await post({ action: 'notice-publish', noticeId: NOTICE, approvalId: 'ap-1' })).json()).toMatchObject({
+      code: 'trade_ops.notice_approval_mismatch',
+    });
+    expect(calls().some((c) => c.url.includes('notify.publishNotice'))).toBe(false);
+
+    // An approval for another action that happens to name this notice is refused too.
+    fetchMock.mockReset();
+    services({ approve: approval({ targetId: NOTICE }) });
     expect(await (await post({ action: 'notice-publish', noticeId: NOTICE, approvalId: 'ap-1' })).json()).toMatchObject({
       code: 'trade_ops.notice_approval_mismatch',
     });
