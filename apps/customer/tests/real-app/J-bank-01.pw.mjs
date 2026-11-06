@@ -1,3 +1,4 @@
+// World: none
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits } from './stack.mjs';

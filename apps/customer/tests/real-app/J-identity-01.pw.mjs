@@ -1,3 +1,4 @@
+// World: book, restart, stack
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
