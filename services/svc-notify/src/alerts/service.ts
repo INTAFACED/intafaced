@@ -740,11 +740,10 @@ export class AlertService {
    */
   async evaluateMarket(marketId: string, at: Date = new Date()): Promise<EvaluateMarketReport> {
     await this.store.expireDue(at);
-    const quote = await this.sourcedQuote(marketId, at);
-    const whaleQuote = await this.sourcedWhaleQuote(marketId, at);
     const actives = await this.store.listActiveByMarket(marketId);
     const results: EvaluateMarketReport['results'][number][] = [];
-    // Every side a price alert here chose, quoted from one read in this pass. `mark` is the quote above, shared by every other kind.
+    // Every side a price alert here chose. With any, the mark and the sides come from one read, so this pass judges every
+    // alert of the market on the same book; with none, the mark is quoted exactly as before sides existed.
     const sides = [
       ...new Set(
         actives.flatMap((a) => {
@@ -753,7 +752,8 @@ export class AlertService {
         }),
       ),
     ];
-    const bySide = await this.sourcedSides(marketId, sides, at);
+    const { mark: quote, sides: bySide } = await this.sourcedBook(marketId, sides, at);
+    const whaleQuote = await this.sourcedWhaleQuote(marketId, at);
 
     for (const alert of actives) {
       const route = quoteRoute(alert);
@@ -795,7 +795,7 @@ export class AlertService {
       route.kind === 'whale'
         ? await this.sourcedWhaleQuote(alert.marketId, at)
         : route.kind === 'side'
-          ? sideQuote(await this.sourcedSides(alert.marketId, [route.side], at), route.side)
+          ? sideQuote((await this.sourcedBook(alert.marketId, [route.side], at)).sides, route.side)
           : await this.sourcedQuote(alert.marketId, at);
     const applied = await this.applyEvaluation(alert, quote, at);
     const refreshed = (await this.store.get(userId, alertId)) ?? alert;
@@ -813,19 +813,22 @@ export class AlertService {
   }
 
   /**
-   * The named sides of one market from one read. A port without `quoteSides` cannot name a side, so each one refuses
-   * `notify.price_source_unavailable`; it is never answered with the mark.
+   * The mark and the named sides of one market. With sides and a port that names them, all from one read. A port without
+   * `quoteBook` cannot name a side, so each one refuses `notify.price_source_unavailable`; it is never answered with the mark.
    */
-  private async sourcedSides(
+  private async sourcedBook(
     marketId: string,
     sides: readonly AlertPriceSide[],
     at: Date,
-  ): Promise<ReadonlyMap<AlertPriceSide, MarkQuote>> {
+  ): Promise<{ mark: MarkQuote; sides: ReadonlyMap<AlertPriceSide, MarkQuote> }> {
     const out = new Map<AlertPriceSide, MarkQuote>();
-    if (sides.length === 0) return out;
-    const raw = this.marks.quoteSides ? await this.marks.quoteSides(marketId, sides, at) : new Map<AlertPriceSide, MarkQuote>();
-    for (const side of sides) out.set(side, acceptAlertMark(this.marks, raw.get(side) ?? sideUnavailable, at));
-    return out;
+    if (sides.length === 0 || !this.marks.quoteBook) {
+      for (const side of sides) out.set(side, sideUnavailable);
+      return { mark: await this.sourcedQuote(marketId, at), sides: out };
+    }
+    const book = await this.marks.quoteBook(marketId, sides, at);
+    for (const side of sides) out.set(side, acceptAlertMark(this.marks, book.sides.get(side) ?? sideUnavailable, at));
+    return { mark: acceptAlertMark(this.marks, book.mark, at), sides: out };
   }
 
   private async sourcedWhaleQuote(marketId: string, at: Date): Promise<MarkQuote> {
@@ -922,7 +925,7 @@ function quoteRoute(alert: PriceAlert): { kind: 'whale' } | { kind: 'side'; side
   return { kind: 'mark' };
 }
 
-/** The quote of one side from `sourcedSides`; a side it did not answer refuses, never falls back to the mark. */
+/** The quote of one side from `sourcedBook`; a side it did not answer refuses, never falls back to the mark. */
 function sideQuote(bySide: ReadonlyMap<AlertPriceSide, MarkQuote>, side: AlertPriceSide): MarkQuote {
   return bySide.get(side) ?? sideUnavailable;
 }
