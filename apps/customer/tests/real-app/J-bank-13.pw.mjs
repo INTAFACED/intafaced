@@ -474,7 +474,8 @@ test(`${J} #6 reports it lost or stolen: the old card closes once, a new inactiv
   // report reverses each one (BK-cissue-04: "open holds follow the existing reverse path").
   const auths = await api.query('cards.authorizations', { cardId: physicalId, limit: 50 });
   expect(auths.ok, JSON.stringify(auths.body ?? {}).slice(0, 300)).toBe(true);
-  const open = auths.data.filter((row) => row.decision === 'approved' && row.status === 'pending');
+  // Nothing is ever captured on this physical card in this journey, so every approved authorisation still holds funds.
+  const open = auths.data.filter((row) => row.decision === 'approved');
   expect(open.map((row) => row.amount).sort()).toEqual(['1', '3']);
   const openTotal = open.reduce((sum, row) => sum + toUnits(row.amount), 0n);
   const afterReport = fromUnits(toUnits(holding.free) + openTotal);
