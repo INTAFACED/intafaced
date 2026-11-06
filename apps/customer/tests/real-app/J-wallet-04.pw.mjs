@@ -202,12 +202,86 @@ test(`${J} #3 refuses a changed character, and warns about a look-alike of a sav
   await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).not.toContainText('You confirmed the look-alike warning');
 });
 
-test(`${J} #4 removes a saved address after a fresh confirmation, and it is gone after a reload`, async ({ page }) => {
-  test.setTimeout(240_000);
+test(`${J} #4 renaming an entry keeps its cooling-off clock as it was; removing one needs a fresh confirmation, and it is gone after a reload`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(420_000);
+  const { account: who } = account();
   await signInWithCode(page);
   await page.goto('/uc/withdraw/address');
-  // Both entries #2 and #3 saved, one at a time, each with its own confirmation.
-  for (const label of ['TEST cold wallet', 'TEST look-alike']) {
+
+  // The cooling-off clock starts at approval (#5), so TEST cold wallet is approved first, by its emailed link opened in
+  // another browser, to have a clock to keep.
+  const cold = savedRows(page).filter({ hasText: 'TEST cold wallet' });
+  await expect(cold).toContainText('Waiting for approval');
+  const before = approvalLinks(who.email).length;
+  await cold.getByRole('button', { name: 'Withdraw to this address' }).click();
+  await page.getByTestId('address-use').getByRole('button', { name: 'Email me an approval link' }).click();
+  await expect(page.getByTestId('address-approval-mail').getByRole('status')).toContainText('We asked for an approval link');
+  const link = await nextApprovalLink(who.email, before);
+  let ends = null;
+  const other = await browser.newContext();
+  try {
+    const away = await other.newPage();
+    await away.goto(link);
+    await away.getByRole('link', { name: 'Sign in' }).last().click();
+    await expect(away).toHaveURL(/\/login\?redirect=/);
+    const state = account();
+    const { totp } = await totpLib();
+    const { code, step } = await nextCode(totp, state.secret, state.step);
+    run.reset({ ...state, step });
+    await away.fill('input[name=totp]', code);
+    await away.fill('input[name=identifier]', who.email);
+    await away.fill('input[name=password]', who.password);
+    await away.getByRole('button', { name: /^sign in$/i }).click();
+    await expect(away).toHaveURL(/\/approveAddress$/);
+    const there = away.getByTestId('approve-address');
+    await there.getByRole('button', { name: 'Approve' }).click();
+    await confirmItsMe(away);
+    await expect(away.getByRole('heading', { name: 'Address approved' })).toBeVisible();
+    const done = (await there.getByRole('status').textContent()) ?? '';
+    ends = /from (.+), when its cooling-off ends\.$/.exec(done)?.[1] ?? null;
+    expect(ends, done).toBeTruthy();
+  } finally {
+    await other.close();
+  }
+  await page.reload();
+  const cooling = savedRows(page).filter({ hasText: 'TEST cold wallet' });
+  await expect(cooling).toContainText('Cooling off');
+  await expect(cooling.locator('td').nth(5)).toHaveText(`Ends ${ends}`);
+  const firstSaved = (await cooling.locator('td').nth(4).textContent()) ?? '';
+  expect(firstSaved).not.toBe('');
+
+  // Rename: only the label changes, with no fresh confirmation, because it cannot change where money goes.
+  await cooling.getByRole('button', { name: 'Rename' }).click();
+  const sheet = page.getByRole('dialog', { name: /rename address/i });
+  await expect(sheet).toContainText('Only the name changes. The address and its cooling-off period stay as they are.');
+  await sheet.getByLabel('Label').fill('TEST renamed wallet');
+  await sheet.getByRole('button', { name: 'Review' }).click();
+  const renamed = page.waitForResponse((res) => /\/api\/bank\/trpc\/ramps\.destinations\.rename$/.test(res.url()));
+  await sheet.getByRole('button', { name: 'Save name' }).click();
+  expect((await renamed).status()).toBe(200);
+  await expect(page.getByRole('dialog', { name: 'Confirm it’s you' })).toHaveCount(0);
+
+  // After a reload the bank's row carries the new name with the same first-saved time and the same cooling-off end, and
+  // the bank still refuses to send to it until that same time: the clock did not restart.
+  await page.reload();
+  await expect(savedRows(page).filter({ hasText: 'TEST cold wallet' })).toHaveCount(0);
+  const kept = savedRows(page).filter({ hasText: 'TEST renamed wallet' });
+  await expect(kept).toHaveCount(1);
+  await expect(kept).toContainText('Cooling off');
+  await expect(kept.locator('td').nth(4)).toHaveText(firstSaved);
+  await expect(kept.locator('td').nth(5)).toHaveText(`Ends ${ends}`);
+  await expect(kept.locator('td[data-withdrawal-private]')).toHaveText('0x5290…9EE7');
+  await kept.getByRole('button', { name: 'Withdraw to this address' }).click();
+  await expect(page.getByTestId('address-use').getByRole('alert')).toHaveText(
+    `TEST renamed wallet is a new address. Money can be sent to it from ${ends}, when its cooling-off ends.`,
+  );
+
+  // Remove both entries, one at a time: each asks "Confirm it's you" first.
+  await page.reload();
+  for (const label of ['TEST renamed wallet', 'TEST look-alike']) {
     const row = savedRows(page).filter({ hasText: label });
     await expect(row).toHaveCount(1);
     await row.getByRole('button', { name: 'Remove' }).click();
