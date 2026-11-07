@@ -1162,6 +1162,41 @@
       "why": "expect(locator).toBeVisible() failed"
     },
     {
+      "step": "J-copy-bots-otc-12#1",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#3",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#4",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
+      "step": "J-copy-bots-otc-12#5",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+    },
+    {
       "step": "J-copy-bots-otc-13#2",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-13.pw.mjs",
       "state": "unbuilt",
