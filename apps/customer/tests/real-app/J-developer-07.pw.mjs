@@ -76,7 +76,9 @@ async function expectDead(cred, label) {
 
 /** The person's keys as identity holds them (a fresh session of their own, not the browser's). */
 async function keysOf(who) {
-  const reply = await (await api(who)).get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
+  const reply = await (
+    await api(who)
+  ).get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
   expect(reply.status, JSON.stringify(reply.body).slice(0, 300)).toBe(200);
   return reply.body.result.data.keys;
 }
@@ -87,7 +89,10 @@ const standing = (k) => ({ id: k?.id, revoked: k?.revoked, revokedAt: k?.revoked
 /** The key's id, from its row in the list (rows carry data-key-id). */
 async function keyIdOf(page, name) {
   await page.goto('/uc/safe/api-keys');
-  const row = page.getByTestId('api-keys__table').locator('tbody tr').filter({ has: page.getByRole('rowheader', { name, exact: true }) });
+  const row = page
+    .getByTestId('api-keys__table')
+    .locator('tbody tr')
+    .filter({ has: page.getByRole('rowheader', { name, exact: true }) });
   await expect(row).toHaveCount(1);
   return row.getAttribute('data-key-id');
 }
@@ -248,7 +253,10 @@ test(`${J} #3 a key requests its own rotation and tries to approve it: refused; 
     expect(fresh.key).not.toBe(key);
     await expectVerifies(fresh, 'the replacement');
     const keys = await keysOf(who);
-    expect(keys.filter((k) => k.id !== keyId), 'one replacement').toHaveLength(1);
+    expect(
+      keys.filter((k) => k.id !== keyId),
+      'one replacement',
+    ).toHaveLength(1);
     // The request is spent: approving it again issues nothing more.
     await page.goto(`/uc/safe/api-keys/${keyId}`);
     await expect(page.getByRole('button', { name: 'Approve the rotation' })).toHaveCount(0);
@@ -266,7 +274,10 @@ test(`${J} #4 revokes a key: it stops verifying at once, and the list shows it r
     await expectVerifies(cred, 'the running bot key');
 
     await page.goto('/uc/safe/api-keys');
-    const row = page.getByTestId('api-keys__table').locator('tbody tr').filter({ has: page.getByRole('rowheader', { name: 'bot-1', exact: true }) });
+    const row = page
+      .getByTestId('api-keys__table')
+      .locator('tbody tr')
+      .filter({ has: page.getByRole('rowheader', { name: 'bot-1', exact: true }) });
     await row.getByRole('button', { name: 'Revoke', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Reason (optional)').fill('TEST bot retired');
@@ -291,7 +302,10 @@ test(`${J} #5 revokes all my keys: every live key revoked, another user's keys u
   const mine = await keyHolder(browser, 'jd7m');
   const theirs = await keyHolder(browser, 'jd7o');
   try {
-    const myKeys = [{ key: await makeKey(mine.page, { name: 'bot-1' }) }, { key: await makeKey(mine.page, { name: 'bot-2', preset: 'Read only' }) }];
+    const myKeys = [
+      { key: await makeKey(mine.page, { name: 'bot-1' }) },
+      { key: await makeKey(mine.page, { name: 'bot-2', preset: 'Read only' }) },
+    ];
     const theirKey = { key: await makeKey(theirs.page, { name: 'bot-1' }) };
     for (const cred of myKeys) await expectVerifies(cred, 'my key');
     await expectVerifies(theirKey, "another user's key");
