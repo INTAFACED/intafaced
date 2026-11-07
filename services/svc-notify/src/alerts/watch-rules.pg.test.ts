@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { assertTestDatabase } from '@intafaced/db';
 import { afterAll, describe, expect, it } from 'vitest';
 import { AlertQuotaReachedError, PostgresAlertStore } from './store.js';
 import { PostgresWatchRuleStore } from './watch-rules.js';
@@ -27,22 +27,18 @@ const MIGRATIONS = [
   '20261107074033_notify_watchlist_alerts.sql',
 ];
 
-const available = await postgresAvailable(URL);
-const sql = available ? postgres(URL, { max: 3, onnotice: () => undefined }) : null;
-if (available && sql) {
-  await assertTestDatabase(sql, 'svc-notify watch-rules.pg.test');
-  for (const f of MIGRATIONS) await sql.unsafe(migration(f)).catch(() => undefined);
-}
+// Runs against a real database every time: CI provides it. Without one the suite fails, and says so.
+const sql = postgres(URL, { max: 3, onnotice: () => undefined });
+await assertTestDatabase(sql, 'svc-notify watch-rules.pg.test');
+for (const f of MIGRATIONS) await sql.unsafe(migration(f)).catch(() => undefined);
 
 const mine: string[] = [];
 afterAll(async () => {
-  if (sql) {
-    for (const userId of mine) {
-      await sql`DELETE FROM notify.price_alerts WHERE user_id = ${userId}`;
-      await sql`DELETE FROM notify.watchlist_alerts WHERE user_id = ${userId}`;
-    }
-    await sql.end();
+  for (const userId of mine) {
+    await sql`DELETE FROM notify.price_alerts WHERE user_id = ${userId}`;
+    await sql`DELETE FROM notify.watchlist_alerts WHERE user_id = ${userId}`;
   }
+  await sql.end();
 });
 
 const NOW = new Date('2026-11-07T08:00:00Z');
@@ -69,77 +65,71 @@ const rule = (userId: string, markets: string[]) => ({
   markets,
 });
 
-if (!available) {
-  describe.skip('PostgresWatchRuleStore (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
+describe('PostgresWatchRuleStore', () => {
+  const rules = () => new PostgresWatchRuleStore(sql);
+  const alerts = () => new PostgresAlertStore(sql);
+
+  it('stores the rule with one alert per market, and reads it back', async () => {
+    const u = person();
+    const made = await rules().create(rule(u, ['m-btc', 'm-eth']), [input(u, 'm-btc'), input(u, 'm-eth')], 20, NOW);
+    expect(made.alerts.map((a) => a.marketId)).toEqual(['m-btc', 'm-eth']);
+    expect(made.rule).toMatchObject({ userId: u, listId: 'majors', markets: ['m-btc', 'm-eth'], status: 'active', lastSyncCode: null });
+    expect((await rules().list(u)).map((r) => r.id)).toEqual([made.rule.id]);
+    expect((await rules().active()).some((r) => r.id === made.rule.id)).toBe(true);
+    expect(await alerts().countOpen(u, 'price')).toBe(2);
   });
-} else {
-  describe('PostgresWatchRuleStore', () => {
-    const rules = () => new PostgresWatchRuleStore(sql!);
-    const alerts = () => new PostgresAlertStore(sql!);
 
-    it('stores the rule with one alert per market, and reads it back', async () => {
-      const u = person();
-      const made = await rules().create(rule(u, ['m-btc', 'm-eth']), [input(u, 'm-btc'), input(u, 'm-eth')], 20, NOW);
-      expect(made.alerts.map((a) => a.marketId)).toEqual(['m-btc', 'm-eth']);
-      expect(made.rule).toMatchObject({ userId: u, listId: 'majors', markets: ['m-btc', 'm-eth'], status: 'active', lastSyncCode: null });
-      expect((await rules().list(u)).map((r) => r.id)).toEqual([made.rule.id]);
-      expect((await rules().active()).some((r) => r.id === made.rule.id)).toBe(true);
-      expect(await alerts().countOpen(u, 'price')).toBe(2);
-    });
-
-    it('stores nothing, rule or alert, when the quota refuses', async () => {
-      const u = person();
-      await expect(rules().create(rule(u, ['m-btc', 'm-eth']), [input(u, 'm-btc'), input(u, 'm-eth')], 1, NOW)).rejects.toBeInstanceOf(
-        AlertQuotaReachedError,
-      );
-      expect(await rules().list(u)).toEqual([]);
-      expect(await alerts().countOpen(u, 'price')).toBe(0);
-    });
-
-    it('adds a market and counts it covered together, once, however many sweeps race', async () => {
-      const u = person();
-      const made = await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
-      const added = await Promise.all([
-        rules().addMarkets(made.rule, [input(u, 'm-eth')], 20, NOW),
-        rules().addMarkets(made.rule, [input(u, 'm-eth')], 20, NOW),
-      ]);
-      expect(added.filter((rows) => rows !== null)).toHaveLength(1);
-      expect(await alerts().countOpen(u, 'price')).toBe(2);
-      expect((await rules().list(u))[0]!.markets).toEqual(['m-btc', 'm-eth']);
-    });
-
-    it('adds nothing to a stopped rule, and an addition past the quota leaves the rule as it was', async () => {
-      const u = person();
-      const made = await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
-      await expect(rules().addMarkets(made.rule, [input(u, 'm-eth'), input(u, 'm-ifc')], 2, NOW)).rejects.toBeInstanceOf(
-        AlertQuotaReachedError,
-      );
-      expect((await rules().list(u))[0]!.markets).toEqual(['m-btc']);
-      expect(await alerts().countOpen(u, 'price')).toBe(1);
-      expect(await rules().stop(u, made.rule.id, NOW)).toMatchObject({ status: 'stopped' });
-      expect(await rules().addMarkets(made.rule, [input(u, 'm-eth')], 20, NOW)).toBeNull();
-      expect(await alerts().countOpen(u, 'price')).toBe(1);
-      expect(await rules().stop(person(), made.rule.id, NOW)).toBeNull();
-    });
-
-    it('stores one active follow of a list with one rule, so a second save racing the first stores nothing', async () => {
-      const u = person();
-      await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
-      await expect(rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW)).rejects.toMatchObject({
-        code: 'alert.watchlist_already_followed',
-      });
-      expect(await rules().list(u)).toHaveLength(1);
-      expect(await alerts().countOpen(u, 'price')).toBe(1);
-    });
-
-    it('records why a sweep added nothing, and clears it', async () => {
-      const u = person();
-      const made = await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
-      await rules().recordSync(made.rule.id, NOW, 'identity.watchlists_unavailable');
-      expect((await rules().list(u))[0]!.lastSyncCode).toBe('identity.watchlists_unavailable');
-      await rules().recordSync(made.rule.id, NOW, null);
-      expect((await rules().list(u))[0]!.lastSyncCode).toBeNull();
-    });
+  it('stores nothing, rule or alert, when the quota refuses', async () => {
+    const u = person();
+    await expect(rules().create(rule(u, ['m-btc', 'm-eth']), [input(u, 'm-btc'), input(u, 'm-eth')], 1, NOW)).rejects.toBeInstanceOf(
+      AlertQuotaReachedError,
+    );
+    expect(await rules().list(u)).toEqual([]);
+    expect(await alerts().countOpen(u, 'price')).toBe(0);
   });
-}
+
+  it('adds a market and counts it covered together, once, however many sweeps race', async () => {
+    const u = person();
+    const made = await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
+    const added = await Promise.all([
+      rules().addMarkets(made.rule, [input(u, 'm-eth')], 20, NOW),
+      rules().addMarkets(made.rule, [input(u, 'm-eth')], 20, NOW),
+    ]);
+    expect(added.filter((rows) => rows !== null)).toHaveLength(1);
+    expect(await alerts().countOpen(u, 'price')).toBe(2);
+    expect((await rules().list(u))[0]!.markets).toEqual(['m-btc', 'm-eth']);
+  });
+
+  it('adds nothing to a stopped rule, and an addition past the quota leaves the rule as it was', async () => {
+    const u = person();
+    const made = await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
+    await expect(rules().addMarkets(made.rule, [input(u, 'm-eth'), input(u, 'm-ifc')], 2, NOW)).rejects.toBeInstanceOf(
+      AlertQuotaReachedError,
+    );
+    expect((await rules().list(u))[0]!.markets).toEqual(['m-btc']);
+    expect(await alerts().countOpen(u, 'price')).toBe(1);
+    expect(await rules().stop(u, made.rule.id, NOW)).toMatchObject({ status: 'stopped' });
+    expect(await rules().addMarkets(made.rule, [input(u, 'm-eth')], 20, NOW)).toBeNull();
+    expect(await alerts().countOpen(u, 'price')).toBe(1);
+    expect(await rules().stop(person(), made.rule.id, NOW)).toBeNull();
+  });
+
+  it('stores one active follow of a list with one rule, so a second save racing the first stores nothing', async () => {
+    const u = person();
+    await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
+    await expect(rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW)).rejects.toMatchObject({
+      code: 'alert.watchlist_already_followed',
+    });
+    expect(await rules().list(u)).toHaveLength(1);
+    expect(await alerts().countOpen(u, 'price')).toBe(1);
+  });
+
+  it('records why a sweep added nothing, and clears it', async () => {
+    const u = person();
+    const made = await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
+    await rules().recordSync(made.rule.id, NOW, 'identity.watchlists_unavailable');
+    expect((await rules().list(u))[0]!.lastSyncCode).toBe('identity.watchlists_unavailable');
+    await rules().recordSync(made.rule.id, NOW, null);
+    expect((await rules().list(u))[0]!.lastSyncCode).toBeNull();
+  });
+});
