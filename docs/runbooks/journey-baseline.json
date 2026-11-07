@@ -1,17 +1,17 @@
 {
   "about": "The Real-app journeys baseline on main. docs/runbooks/regression-issue-state.md says how it is read.",
   "run": {
-    "number": 1154,
-    "id": 41778595911,
-    "sha": "000d254809a8bd78112d4ba44fe0aae904f314b1",
-    "url": "https://github.com/INTAFACED/intafaced/actions/runs/41778595911"
+    "number": 1719,
+    "id": 42357098806,
+    "sha": "921d9d6cf32bb4ea81f1a91fef390dae92f73bac",
+    "url": "https://github.com/INTAFACED/intafaced/actions/runs/42357098806"
   },
   "runsRead": {
     "from": 58,
-    "to": 1154,
-    "read": 165,
+    "to": 1719,
+    "read": 252,
     "noReport": [231, 235, 236, 238],
-    "note": "every completed Real-app journeys run on main from 58 to 1154 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report"
+    "note": "every completed Real-app journeys run on main from 58 to 1154 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report; runs 1155 to 1718 (86 runs) were read by run 1719's own verdict, which was green, so no unbuilt step still listed passed in them, and every step still listed failed in run 1719"
   },
   "moneyRuleAt": "000d254809a8bd78112d4ba44fe0aae904f314b1",
   "moneyPackages": [
@@ -47,149 +47,13 @@
     "tooling/pay-sim"
   ],
   "counts": {
-    "stepsInRun": 1521,
-    "failing": 538,
-    "unbuilt": 533,
-    "regression": 5,
+    "stepsInRun": 1607,
+    "failing": 498,
+    "unbuilt": 494,
+    "regression": 4,
     "notBaselined": 0
   },
   "steps": [
-    {
-      "step": "J-agents-03#5",
-      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-agents-03#6",
-      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "issue": 6841,
-      "why": "expect(locator).toBeEnabled() failed",
-      "lastPassedRun": 845,
-      "strengthenedBy": "3edf5cf77ef8f6b125e185a8ab203a32e45a904b",
-      "blocker": "owner decision: the owner's model choice is unset on purpose, so \"Draft it\" stays disabled",
-      "lane": "B4",
-      "priorTestProof": {
-        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
-        "command": "git show b396a3e628071c22a09372c96a184326690f3914:apps/customer/tests/real-app/J-agents-03.pw.mjs > apps/customer/tests/real-app/Z-prior-agents03.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-agents03.pw.mjs JOURNEY_RUN_ID=prior-agents03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
-        "log": "docs/runbooks/journey-baseline-proof/J-agents-03-6.txt"
-      }
-    },
-    {
-      "step": "J-agents-03#7",
-      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-03#8",
-      "file": "apps/customer/tests/real-app/J-agents-03.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-04#1",
-      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-04#2",
-      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-04#3",
-      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-04#4",
-      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-agents-04#5",
-      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toHaveText(expected) failed"
-    },
-    {
-      "step": "J-agents-04#6",
-      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-04#7",
-      "file": "apps/customer/tests/real-app/J-agents-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-05#1",
-      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.fill: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-05#2",
-      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-agents-05#3",
-      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toContainText(expected) failed"
-    },
-    {
-      "step": "J-agents-05#4",
-      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-agents-05#5",
-      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-agents-05#6",
-      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
-      "step": "J-agents-05#7",
-      "file": "apps/customer/tests/real-app/J-agents-05.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
     {
       "step": "J-agents-06#1",
       "file": "apps/customer/tests/real-app/J-agents-06.pw.mjs",
@@ -730,18 +594,6 @@
       "why": "never passed on main: #7281 (3d88e2a32) created this journey file with #3 to #6 written before their slice; missing: saved named layouts with their symbol and interval, and the replace prompt (C-workspace-02)"
     },
     {
-      "step": "J-copy-bots-otc-01#5",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-01.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "issue": 7000,
-      "why": "BLOCKED: no sub-account sign-in exists, so the sub-account refusal cannot be shown in the running app",
-      "lastPassedRun": 988,
-      "strengthenedBy": "1ec1dd7228023edafff1f82ee6b433802d5783f1",
-      "blocker": "BLOCKED: no sub-account sign-in exists",
-      "lane": "B2"
-    },
-    {
       "step": "J-copy-bots-otc-02#1",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-02.pw.mjs",
       "state": "unbuilt",
@@ -1104,13 +956,6 @@
       "state": "unbuilt",
       "money": true,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-copy-bots-otc-10#4",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-10.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "UNSET: the owner's wait before a rejected applicant may apply again is not an owner setting yet (CB-copy-12); svc-trade answered trade.copy_lead_reapply_wait_unset"
     },
     {
       "step": "J-copy-bots-otc-10#6",
@@ -1853,13 +1698,6 @@
       "why": "expect(locator).toBeVisible() failed"
     },
     {
-      "step": "J-dex-protocol-02#11",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-02.pw.mjs",
-      "state": "unbuilt",
-      "money": false,
-      "why": "TimeoutError: locator.selectOption: Timeout 5000ms exceeded."
-    },
-    {
       "step": "J-dex-protocol-03#1",
       "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
       "state": "unbuilt",
@@ -1918,27 +1756,6 @@
     {
       "step": "J-dex-protocol-03#9",
       "file": "apps/customer/tests/real-app/J-dex-protocol-03.pw.mjs",
-      "state": "unbuilt",
-      "money": false,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-dex-protocol-04#6",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-04.pw.mjs",
-      "state": "unbuilt",
-      "money": false,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-dex-protocol-04#7",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-04.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toHaveText(expected) failed"
-    },
-    {
-      "step": "J-dex-protocol-04#8",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-04.pw.mjs",
       "state": "unbuilt",
       "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
@@ -2070,30 +1887,6 @@
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
-      "step": "J-dex-protocol-07#3",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "issue": 6634,
-      "why": "BLOCKED (market_data): no market data source exists on the platform, so no brief is written and the empty state reads nothing",
-      "lastPassedRun": 690,
-      "strengthenedBy": "81a748c468c0e9b70d38f4acca497cc8d74c0dcd",
-      "blocker": "BLOCKED market_data: no market data source exists on the platform",
-      "lane": "B1",
-      "priorTestProof": {
-        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
-        "command": "git show d949d171ca9136bb967bd769f10ff2e1a13b8bde:apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs > apps/customer/tests/real-app/Z-prior-dex07.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-dex07.pw.mjs JOURNEY_RUN_ID=prior-dex07 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
-        "log": "docs/runbooks/journey-baseline-proof/J-dex-protocol-07-3.txt"
-      }
-    },
-    {
-      "step": "J-dex-protocol-07#4",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-07.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "BLOCKED (price_feed): no dollar price source is set on the stack, so the page shows no USD price with its as-of time"
-    },
-    {
       "step": "J-dex-protocol-08#1",
       "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
       "state": "unbuilt",
@@ -2115,13 +1908,6 @@
       "why": "expect(locator).not.toHaveCount(expected) failed"
     },
     {
-      "step": "J-dex-protocol-08#4",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
-    },
-    {
       "step": "J-dex-protocol-08#5",
       "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
       "state": "unbuilt",
@@ -2136,32 +1922,11 @@
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
-      "step": "J-dex-protocol-08#7",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).not.toHaveCount(expected) failed"
-    },
-    {
-      "step": "J-dex-protocol-08#8",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toHaveText(expected) failed"
-    },
-    {
       "step": "J-dex-protocol-08#9",
       "file": "apps/customer/tests/real-app/J-dex-protocol-08.pw.mjs",
       "state": "unbuilt",
       "money": false,
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-dex-protocol-09#8",
-      "file": "apps/customer/tests/real-app/J-dex-protocol-09.pw.mjs",
-      "state": "unbuilt",
-      "money": false,
-      "why": "expect(locator).toHaveText(expected) failed"
     },
     {
       "step": "J-dex-protocol-10#1",
@@ -3551,25 +3316,11 @@
       "why": "with a rail: a pending row with the deposit address and reference (unbuilt: no top-up rail; owner.decision top-up rail, M-money-out-02): /api/pay/trpc/merchantControl.topUp.request refused: 404 {\"erro"
     },
     {
-      "step": "J-merchant-07#7",
-      "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: page.waitForResponse: Timeout 5000ms exceeded while waiting for event \"response\""
-    },
-    {
       "step": "J-merchant-07#8",
       "file": "apps/customer/tests/real-app/J-merchant-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
       "why": "Command failed: /opt/hostedtoolcache/node/20.20.2/x64/bin/node /home/runner/work/intafaced/intafaced/tooling/scripts/local-test-world.mjs merchant-settlement 81f884ab-bb54-4137-b821-7523336c2091 --net"
-    },
-    {
-      "step": "J-more-catalogue-02#3",
-      "file": "apps/customer/tests/real-app/J-more-catalogue-02.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "expect(locator).toBeVisible() failed"
     },
     {
       "step": "J-more-catalogue-14#4",
@@ -3798,78 +3549,11 @@
       "why": "the inactivity delist reason (P-ads-merchant-05) is not built"
     },
     {
-      "step": "J-p2p-06#1",
-      "file": "apps/customer/tests/real-app/J-p2p-06.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "svc-p2p does not show the buyer how many cancels count (P-trade-orders-05)"
-    },
-    {
       "step": "J-p2p-06#2",
       "file": "apps/customer/tests/real-app/J-p2p-06.pw.mjs",
       "state": "unbuilt",
       "money": true,
       "why": "cancels are counted over a rolling window, not per day (P-trade-orders-05)"
-    },
-    {
-      "step": "J-p2p-06#5",
-      "file": "apps/customer/tests/real-app/J-p2p-06.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "an ad has no release window of its own (P-trade-orders-15)"
-    },
-    {
-      "step": "J-pay-03#5",
-      "file": "apps/customer/tests/real-app/J-pay-03.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.check: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-pay-03#6",
-      "file": "apps/customer/tests/real-app/J-pay-03.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
-    },
-    {
-      "step": "J-portfolio-03#1",
-      "file": "apps/customer/tests/real-app/J-portfolio-03.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "issue": 7034,
-      "why": "BLOCKED convert_kind: svc-bank has no convert activity kind (400)",
-      "lastPassedRun": 1007,
-      "strengthenedBy": "a5f401d4ea7f7f6d2484b90d5f3d773eabcc1067",
-      "blocker": "BLOCKED convert_kind: svc-bank has no convert activity kind",
-      "lane": "B8",
-      "priorTestProof": {
-        "mainSha": "3a25a10a4e60209e13f2db3f39dbb63bb78fb08f",
-        "command": "git show b9dd94d108804b66e8d0363c81b72afa3a12f927:apps/customer/tests/real-app/J-portfolio-03.pw.mjs > apps/customer/tests/real-app/Z-prior-port03.pw.mjs && JOURNEY_FILES=apps/customer/tests/real-app/Z-prior-port03.pw.mjs JOURNEY_RUN_ID=prior-port03 pnpm exec playwright test --config apps/customer/tests/real-app/real-app.playwright.config.mjs --trace off",
-        "log": "docs/runbooks/journey-baseline-proof/J-portfolio-03-1.txt"
-      }
-    },
-    {
-      "step": "J-portfolio-11#4",
-      "file": "apps/customer/tests/real-app/J-portfolio-11.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "bank.statements.jobs.create: {\"error\":{\"message\":\"No procedure found on path \\\"statements.jobs.create\\\"\",\"code\":-32004,\"data\":{\"code\":\"NOT_FOUND\",\"httpStatus\":404,\"stack\":\"TRPCError: No procedure foun"
-    },
-    {
-      "step": "J-portfolio-11#5",
-      "file": "apps/customer/tests/real-app/J-portfolio-11.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "skipped in run 1154: not reached"
-    },
-    {
-      "step": "J-support-public-01#3",
-      "file": "apps/customer/tests/real-app/J-support-public-01.pw.mjs",
-      "state": "regression",
-      "money": false,
-      "issue": 7003,
-      "why": "the empty-library clause needs an empty-catalogue stack profile"
     },
     {
       "step": "J-support-public-20#1",
