@@ -57,6 +57,10 @@ async function signInWithCode(page) {
   await page.fill('input[name=identifier]', s.who.email);
   await page.fill('input[name=password]', s.who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
+  // A frozen account is signed in and first told so on the sign-in page; Continue goes on into the app.
+  const frozen = page.getByRole('status', { name: 'You froze this account' });
+  await expect.poll(async () => !/\/login/.test(page.url()) || (await frozen.isVisible()), { timeout: 15_000 }).toBe(true);
+  if (/\/login/.test(page.url())) await frozen.getByRole('button', { name: 'Continue' }).click();
   await expect(page).not.toHaveURL(/\/login/);
 }
 
