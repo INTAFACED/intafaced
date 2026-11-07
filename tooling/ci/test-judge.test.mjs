@@ -45,12 +45,15 @@ test('judged: journey tests and the shared code they run on; not: product code, 
     'tooling/scripts/local-test-stack.mjs',
     'tooling/scripts/journey-world.mjs',
     'tooling/profiles/test-owner-values/fees.json',
+    'apps/customer/src/app/path-match.ts',
+    'apps/customer/src/app/feature-registry.ts',
+    'apps/customer/src/screens/money/money.fixtures.mjs',
   ])
     assert.match(judgeReason([f]) ?? '', /^journey test or shared test code: /, f);
   for (const f of [
     'docs/x.md',
     'services/svc-bank/src/a.ts',
-    'apps/customer/src/app/path-match.ts',
+    'apps/customer/src/screens/home/index.tsx',
     'tooling/scripts/local-test-world.test.mjs',
     'tooling/scripts/journey-world.test.mjs',
   ])
@@ -58,10 +61,10 @@ test('judged: journey tests and the shared code they run on; not: product code, 
   assert.match(judgeReason([]), /no changed files/); // fails closed
 });
 
-test('no drift: every tooling file the journeys import on this tree is judged', () => {
+test('no drift: every file the journey tests and look sweeps import on this tree is judged', () => {
   const dir = 'apps/customer/tests/real-app';
-  const journeys = readdirSync(dir)
-    .filter((f) => /^J-.*\.pw\.mjs$/.test(f))
+  const entries = readdirSync(dir)
+    .filter((f) => /\.pw\.mjs$/.test(f))
     .map((f) => `${dir}/${f}`);
   const read = (p) => {
     try {
@@ -70,10 +73,22 @@ test('no drift: every tooling file the journeys import on this tree is judged', 
       return null;
     }
   };
-  const reached = new Set([...reachMap(journeys, read).values()].flatMap((s) => [...s]));
-  const missed = [...reached].filter((f) => (f.startsWith('tooling/') || f.startsWith(`${dir}/`)) && read(f) != null && !judgedFile(f));
-  assert.deepEqual(missed, [], `shared test code the journeys import but JUDGE_PATHS misses: ${missed.join(', ')}`);
-  assert.ok(reached.has(`${dir}/journey.mjs`) && reached.has(`${dir}/stack.mjs`));
+  const reached = new Set([...reachMap(entries, read).values()].flatMap((s) => [...s]));
+  const missed = [...reached].filter((f) => read(f) != null && !judgedFile(f));
+  assert.deepEqual(missed, [], `files the journeys import but JUDGE_PATHS misses: ${missed.join(', ')}`);
+  for (const f of [
+    `${dir}/journey.mjs`,
+    `${dir}/stack.mjs`,
+    'apps/customer/src/app/path-match.ts',
+    'apps/customer/src/app/feature-registry.ts',
+  ])
+    assert.ok(reached.has(f), `${f} is reached`);
+  // The screen fixtures are judged too (JUDGE_PATHS), though on this tree only the look gate imports them, through
+  // look-fixtures.mjs; a change to one reaches no journey step, so it passes without the model.
+  assert.ok(
+    ![...reached].includes(`${dir}/look-fixtures.mjs`),
+    'a journey or sweep now imports look-fixtures.mjs: its steps reach the screen fixtures',
+  );
 });
 
 const DIFF = [
@@ -341,4 +356,13 @@ test('fails (planted): the merge queue holds a judged change without a passing j
 test('the journey file pattern', () => {
   assert.equal(JOURNEY_FILE.exec('apps/customer/tests/real-app/J-cex-spot-11.pw.mjs')?.[1], 'J-cex-spot-11');
   assert.equal(JOURNEY_FILE.exec('apps/customer/tests/real-app/look-sweep-390.pw.mjs'), null);
+});
+
+test('reach: an import without an extension reaches the file it resolves to', () => {
+  const files = {
+    'a/J-x-01.pw.mjs': "import { m } from './lib/match';\n",
+    'a/lib/match.ts': 'export const m = 1;\n',
+  };
+  const r = reachMap(['a/J-x-01.pw.mjs'], (p) => files[p] ?? null);
+  assert.ok(r.get('a/J-x-01.pw.mjs').has('a/lib/match.ts'));
 });

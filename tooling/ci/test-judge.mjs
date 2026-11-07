@@ -39,6 +39,11 @@ export const JUDGE_PATHS = [
   [/^tooling\/scripts\/seed-[^/]*test[^/]*\.mjs$/, 'the TEST seeds the journeys call'],
   [/^tooling\/scripts\/owner-settings\.mjs$/, 'the owner settings the journeys read'],
   [/^tooling\/profiles\/test-owner-values\//, 'the TEST owner values'],
+  // Product files the journey tests and look sweeps import: what they answer or match decides what a test observes.
+  [/^apps\/customer\/src\/screens\/[^/]+\/[^/]+\.fixtures\.mjs$/, 'the screen fixtures the look sweeps answer from'],
+  [/^apps\/customer\/src\/app\/(feature-registry|path-match)\.ts$/, 'the feature registry and path matcher the journeys import'],
+  [/^apps\/customer\/deployment\/(host-dispatch|render-security-headers)\.mjs$/, 'the host dispatch and headers the journeys import'],
+  [/^services\/svc-fix\/scripts\/ensure-toolchain\.mjs$/, 'the FIX toolchain the journeys start'],
 ];
 /** Shared code that sets the environment every journey starts in, whether or not a test imports it. */
 const ENVIRONMENT = [
@@ -190,7 +195,13 @@ export function reachMap(journeyFiles, read) {
     memo.set(f, deps);
     const text = read(f);
     if (text == null) return deps;
-    for (const m of text.matchAll(IMPORT)) deps.push(posix.normalize(posix.join(posix.dirname(f), m[1] ?? m[2] ?? m[3])));
+    for (const m of text.matchAll(IMPORT)) {
+      const p = posix.normalize(posix.join(posix.dirname(f), m[1] ?? m[2] ?? m[3]));
+      // An import without an extension (`./path-match`) is the file a bundler resolves it to.
+      deps.push(
+        read(p) != null ? p : (['.ts', '.mjs', '.js', '/index.ts', '/index.js'].map((x) => p + x).find((x) => read(x) != null) ?? p),
+      );
+    }
     for (const m of text.matchAll(TOOL)) deps.push(`tooling/scripts/${m[1]}`);
     return deps;
   };
