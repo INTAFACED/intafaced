@@ -45,7 +45,7 @@ describe('Web3 shell', () => {
     expect(html).toContain('Base Sepolia test network · Testnet only');
     expect(html).toContain('Not INTACHAIN · not audited');
     expect(html).toContain('No wallet connected');
-    for (const item of ['Swap', 'Pools', 'Positions', 'Wallet', 'Explorer', 'Protocol']) expect(html).toContain(`>${item}</a>`);
+    for (const item of ['Swap', 'Pools', 'Positions', 'Orders', 'Wallet', 'Explorer', 'Protocol']) expect(html).toContain(`>${item}</a>`);
     expect(html).not.toMatch(/parked/i);
     expect(html).not.toMatch(/INTACHAIN mainnet/i);
   });

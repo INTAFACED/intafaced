@@ -19,6 +19,7 @@ const NAV = [
   { key: 'nav_swap', href: '/dex', match: (p: string) => p === '/dex' || p.startsWith('/dex/tokens') },
   { key: 'nav_pools', href: '/dex/pools', match: (p: string) => p.startsWith('/dex/pools') },
   { key: 'nav_positions', href: '/dex/positions', match: (p: string) => p.startsWith('/dex/positions') },
+  { key: 'nav_orders', href: '/dex/orders', match: (p: string) => p.startsWith('/dex/orders') },
   { key: 'nav_wallet', href: '/wallet', match: (p: string) => p.startsWith('/wallet') },
   { key: 'nav_explorer', href: '/chain', match: (p: string) => p.startsWith('/chain') },
   { key: 'nav_protocol', href: '/protocol', match: (p: string) => p.startsWith('/protocol') },
