@@ -488,6 +488,8 @@ export type BankErrorCode =
   | 'bank.destination_label_taken'
   /** No banking partner is wired, so there are no account details to show or request. The blocker is named `rail.bank`. */
   | 'rail.bank'
+  /** No tax calculation provider is wired, so no tax statement is produced (J-bank-16 #3). */
+  | 'vendor.tax'
   /** The owner has not published which currencies have account details. Nothing is listed; no list is invented. */
   | 'bank.account_details_currencies_unset'
   /** The currency asked for is not one the owner publishes account details for. */
@@ -870,6 +872,18 @@ export type BankErrorCode =
   | 'bank.statement_pdf_one_month'
   /** More posted lines than a statement file will carry. Narrow the dates. */
   | 'bank.statement_too_large'
+  /** Left to spend needs a budget: none is set (BK-acct-08). */
+  | 'bank.budget_unset'
+  /** A budget's category, target or alert share is not one the bank takes (BK-acct-08). */
+  | 'bank.budget_invalid'
+  /** A month comparison takes two to twelve distinct months, none in the future (BK-acct-08). */
+  | 'bank.compare_months'
+  /** No plan table is published (BANK_PLANS_JSON), so plans cannot be shown (BK-acct-04). */
+  | 'bank.plans_unset'
+  /** No dormancy rule is published (BANK_DORMANCY_RULES_JSON), so no notice is given and no fee taken (RC-bank-01). */
+  | 'bank.dormancy_rule_unset'
+  /** A paid plan is a fee posting, and no plan-fee recipe exists in ledger-client yet (BK-acct-04). */
+  | 'bank.plan_fee_unwired'
   /** No service secret, or activity could not be read, so no file was built. */
   | 'bank.statement_unavailable'
   /** A balance snapshot at a past date needs a past-balance read the ledger does not offer yet (PF-statements-01). */

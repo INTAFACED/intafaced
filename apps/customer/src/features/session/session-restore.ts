@@ -249,6 +249,13 @@ function refusedByIdentity(result: ApiResult<unknown>): boolean {
 /** Refresh this long before the access token expires. */
 const REFRESH_LEAD_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
+/**
+ * The least time between two silent refreshes. A device whose clock runs ahead of the server's sees every fresh token as
+ * already due, and without this floor would refresh again at once, without end, until identity rate-limits the person
+ * and every read fails "Too many requests" (J-bank-16 #1, run 42191788272). The server judges a token by its own clock,
+ * so a token refreshed a minute ago is still good there.
+ */
+const MIN_REFRESH_GAP_MS = 60_000;
 
 /**
  * The sign-in, held in memory only: the access token lives in this closure and nowhere else (no storage, no cookie the
@@ -281,6 +288,8 @@ export function createSessionController(
   let epoch = 0;
   let active = false;
   let failures = 0;
+  /** When the last silent refresh was asked for, by this tab's clock: the next one waits at least MIN_REFRESH_GAP_MS. */
+  let lastSilentAt = Number.NEGATIVE_INFINITY;
   let boot: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let channel: ChannelLike | null = null;
@@ -316,11 +325,13 @@ export function createSessionController(
       signOut(null);
       return;
     }
-    const delay = retryDelay ?? Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const due = Math.max(0, Math.min(MAX_TIMER_MS, deadline - now() - REFRESH_LEAD_MS));
+    const delay = retryDelay ?? Math.max(due, lastSilentAt + MIN_REFRESH_GAP_MS - now());
     timer = setTimeout(() => void silent(session), delay);
   }
   async function silent(forSession: Session) {
     timer = undefined;
+    lastSilentAt = now();
     const started = epoch;
     const outcome = await refresher.refresh();
     if (epoch !== started || state.session?.accessToken !== forSession.accessToken) return;

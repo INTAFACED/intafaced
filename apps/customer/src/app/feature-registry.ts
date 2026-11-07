@@ -212,6 +212,16 @@ export const features: readonly Feature[] = [
     tab: 'money',
   },
   {
+    id: 'bank-limits',
+    label: 'Limits, fees and plan',
+    paths: ['/bank/limits'],
+    status: 'blocked',
+    reason:
+      "Limits come from the bank's send quote and plans from the owner's table; a blank account fee table says not set, and a paid plan refuses bank.plan_fee_unwired until a plan-fee recipe exists",
+    unlock: 'J-bank-16 #6 passing on main',
+    tab: 'money',
+  },
+  {
     id: 'bank-statements',
     label: 'Statements and exports',
     paths: ['/bank/statements'],

@@ -179,6 +179,9 @@ export const payoffQuoteSchema = z.object({
 });
 export type PayoffQuote = z.infer<typeof payoffQuoteSchema>;
 /** A signed statement file from `bank.statements.export`: the whole account, or one space (BK-pots-02). */
+/** Per coin, the net of a set of posted lines (J-bank-16 #1): money in minus money out. Not a balance. */
+export const lineTotalSchema = z.object({ asset: z.string(), net: signedDecimalSchema, lines: z.number().int().nonnegative() });
+export type LineTotal = z.infer<typeof lineTotalSchema>;
 export const statementFileSchema = z.object({
   format: z.enum(['csv', 'pdf']),
   filename: z.string(),
@@ -186,7 +189,14 @@ export const statementFileSchema = z.object({
   bodyBase64: z.string(),
   sha256: z.string(),
   rowCount: z.number().int().nonnegative(),
+  totals: z.array(lineTotalSchema).optional(),
 });
+/** `bank.statements.totals`: the same fold over the same lines as a statement, for any range. */
+export const lineTotalsSchema = z.object({ totals: z.array(lineTotalSchema), lines: z.number().int().nonnegative() });
+/** `bank.statements.tax.list`: tax statements for a year (refused `vendor.tax` while no provider is connected). */
+export const taxStatementsSchema = z.object({ items: z.array(z.object({ id: z.string() })) });
+/** `bank.letters.request` (refused `rail.bank` while no banking partner is connected). */
+export const letterRequestSchema = z.object({ id: z.string() });
 /** One background export from `bank.statements.jobs` (PF-statements-02): what was asked, and where it is. */
 export const statementJobSchema = z.object({
   id: z.string(),
@@ -997,6 +1007,45 @@ export const recoveryWrites = {
   }),
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
+/** BK-acct-08 (J-bank-16 #4): one budget with this month's spend, folded from the ledger by the bank. */
+export const budgetSchema = z.object({
+  assetId: z.string(),
+  category: z.string(),
+  period: z.string(),
+  target: money,
+  spent: money,
+  progressBps: z.number().int(),
+  alertBps: z.number().int(),
+  alert: z.enum(['new', 'seen']).nullable(),
+  alertShownAt: z.string().nullable(),
+});
+/** BK-acct-08 (J-bank-16 #5): months side by side by category; a month with no movement is "0". */
+export const monthCompareSchema = z.object({
+  assetId: z.string(),
+  months: z.array(z.string()),
+  categories: z.array(z.object({ category: z.string(), byMonth: z.array(money), change: z.string() })),
+  totalOutflow: z.array(money),
+  totalInflow: z.array(money),
+});
+export const leftToSpendSchema = z.object({ assetId: z.string(), period: z.string(), target: money, spent: money, left: z.string() });
+/** BK-acct-04 (J-bank-16 #6): the owner's plans and the person's own; a paid plan names its blocker. */
+const planSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  tier: z.string(),
+  price: money,
+  assetId: z.string(),
+  period: z.literal('month'),
+});
+export const plansSchema = z.object({
+  plans: z.array(planSchema.extend({ blocker: z.literal('bank.plan_fee_unwired').nullable() })),
+  current: planSchema,
+});
+/** BK-acct-04: the owner's account fee table; `set: false` is none published. */
+export const accountFeesSchema = z.object({
+  set: z.boolean(),
+  lines: z.array(z.object({ id: z.string(), label: z.string(), fee: money, assetId: z.string() })),
+});
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1126,6 +1175,17 @@ export const bankReads = {
   }),
   'autoInvest.list': z.array(ruleSchema),
   'analytics.spend': analyticsSchema,
+  'analytics.budgets': z.array(budgetSchema),
+  'analytics.leftToSpend': leftToSpendSchema,
+  'analytics.compare': monthCompareSchema,
+  'plans.list': plansSchema,
+  'fees.account': accountFeesSchema,
+  'fees.schedule.get': z.object({
+    published: z.boolean(),
+    entries: z.array(
+      z.object({ assetId: z.string(), fee: money, free: z.boolean(), feeBlocker: z.string().nullable(), publishedAt: z.string() }),
+    ),
+  }),
   'business.list': businessListSchema,
   'business.pending': z.array(pendingApprovalSchema),
   'business.members': teamSchema,
@@ -1142,6 +1202,8 @@ export const spaceLockStateSchema = z.object({
   unlockRequestedAt: z.string().datetime({ offset: true }).nullable(),
 });
 export const bankWrites = {
+  'analytics.setBudget': budgetSchema,
+  'analytics.budgetAlertShown': budgetSchema,
   'spaces.create': z.object({ id: z.string(), name: z.string() }),
   'ramps.destinations.rename': destinationSchema,
   'spaces.archive': z.object({ archived: z.literal(true) }),

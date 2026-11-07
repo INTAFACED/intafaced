@@ -151,6 +151,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
     // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).
     BANK_CARD_CASHBACK_RATES_JSON: testValue('BANK_CARD_CASHBACK_RATES_JSON'),
+    BANK_PLANS_JSON: testValue('BANK_PLANS_JSON'),
+    BANK_DORMANCY_RULES_JSON: testValue('BANK_DORMANCY_RULES_JSON'),
     BANK_CARD_SIM_CASHBACK: 'test',
     BANK_ADDRESS_BOOK_CAP: '10',
     BANK_OFFRAMP_COOLING_HOURS: '24',

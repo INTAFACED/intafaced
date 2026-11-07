@@ -364,6 +364,8 @@ export function createTransfersRouter(c: BankRouterContext) {
           perTransferLimit: amountString,
           dailyLimit: amountString,
           spentToday: amountString,
+          /** What is left of today's limit: the daily limit less what was sent today, never below zero. */
+          remainingToday: amountString,
           fee: amountString,
           feeBlocker: z.string().nullable(),
           withinPerTransfer: z.boolean(),

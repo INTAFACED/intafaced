@@ -76,6 +76,8 @@ import { currentSpace, spaceContext } from './space-context';
 import { spaceCopy } from './space-copy';
 import { categoryLabel } from './analytics-copy';
 import { splitAnalytics } from './analytics-model';
+import { AnalyticsBudgets, AnalyticsCompare } from './AnalyticsBudgets';
+import { LimitsRoom, limitsCopy } from './LimitsRoom';
 import { GoalProgress, MovementBars } from './GoalAndMovement';
 import { availableRow, earnFormFacts, earnLiveRows, loanFormFacts, loanLiveRows } from './form-preview';
 import { RecipientPicker } from './RecipientPicker';
@@ -90,6 +92,7 @@ import { personSendStepUp, readPersonSendTerms } from './person-send-terms';
 import { cleanText, noteProblem, referenceProblem } from './transfer-message';
 import { assetSelectField, spaceTotals, useHoldings } from './holdings';
 import { StatementCentre } from './StatementCentre';
+import { StatementLetters, TaxStatements } from './StatementExtras';
 import { statementCentreCopy } from './statement-centre-copy';
 
 const bankRooms = ['Overview', 'Spaces', 'Transfers', 'Earn', 'Loans', 'Cards', 'Ramps', 'Analytics', 'Business'] as const;
@@ -1650,12 +1653,23 @@ function CalendarRoom() {
     </BankPage>
   );
 }
+/** `/bank/limits`: sending limits from the bank's quote, the fee schedules and the plan (BK-acct-04, J-bank-16 #6). */
+function LimitsPage() {
+  return (
+    <BankPage room="Overview" title={limitsCopy.t('title')} description={limitsCopy.t('description')}>
+      <LimitsRoom />
+    </BankPage>
+  );
+}
+
 /** `/bank/statements`: the statement and export centre, inside the Analytics room (J-portfolio-11, PF-statements-01). */
 function StatementsRoom() {
   const { t } = statementCentreCopy.useCopy();
   return (
     <BankPage room="Analytics" title={t('title')} description={t('description')}>
       <StatementCentre />
+      <StatementLetters />
+      <TaxStatements />
     </BankPage>
   );
 }
@@ -1713,6 +1727,12 @@ function Analytics() {
   return (
     <BankPage room="Analytics" description={copyText('rooms.ledger.movements.by.asset.and.date.movement')}>
       <StatementsLink />
+      {assetId && (
+        <>
+          <AnalyticsBudgets assetId={assetId} />
+          <AnalyticsCompare assetId={assetId} />
+        </>
+      )}
       <Section title={copyText('rooms.movement.window')}>
         <div className="money-analytics-form">
           <label className="field">
@@ -2149,6 +2169,8 @@ export function BankRoutes({ path, search, open }: { path: string; search: strin
       return <Analytics />;
     case '/bank/statements':
       return <StatementsRoom />;
+    case '/bank/limits':
+      return <LimitsPage />;
     case '/bank/business':
       return <Business open={open} />;
     case '/uc/record':

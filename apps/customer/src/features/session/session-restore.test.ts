@@ -182,6 +182,22 @@ describe('session controller', () => {
     return { ...net, controller, logout };
   }
 
+  it('refreshes at most once a minute when this device’s clock runs ahead of the server’s', async () => {
+    // Every token identity hands back already looks due here: its expiry is the server's time, a month behind this clock.
+    const { controller, calls } = build(() => ok(session('rotated', -30 * 86_400_000)));
+    await controller.start();
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(calls).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(calls.length).toBeLessThanOrEqual(13);
+    expect(controller.getState().session?.accessToken).toBe('rotated');
+    controller.stop();
+  });
   it('starts restoring, and a valid cookie becomes an in-memory session', async () => {
     const { controller, calls } = build(() => ok(session('boot')));
     expect(controller.getState()).toEqual({ session: null, restoring: true, restoreFailed: false, notice: null });
