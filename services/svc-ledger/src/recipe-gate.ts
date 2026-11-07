@@ -794,6 +794,25 @@ function samplePosts(): Array<{ name: RecipeName; post: PostRequest }> {
       name: 'payReceivedReturn',
       post: recipes.payReceivedReturn({ holdId: 'rh1', userId: U, payerUserId: U2, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
     },
+    {
+      name: 'payUnclaimedHold',
+      post: recipes.payUnclaimedHold({ sendId: 'us1', senderUserId: U, assetId: 'USDT', amount: AMT }),
+    },
+    {
+      name: 'payUnclaimedClaim',
+      post: recipes.payUnclaimedClaim({
+        sendId: 'us1',
+        senderUserId: U,
+        recipientUserId: U2,
+        assetId: 'USDT',
+        amount: AMT,
+        heldAmount: AMT,
+      }),
+    },
+    {
+      name: 'payUnclaimedReturn',
+      post: recipes.payUnclaimedReturn({ sendId: 'us1', senderUserId: U, assetId: 'USDT', amount: AMT, heldAmount: AMT }),
+    },
     { name: 'staffHoldPlace', post: recipes.staffHoldPlace({ holdNo: 1, userId: U, assetId: 'USDT', amount: AMT }) },
     {
       name: 'staffHoldRelease',

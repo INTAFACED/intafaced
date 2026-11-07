@@ -171,6 +171,21 @@ export const RECIPE_MATRIX = {
     reason:
       '§13 J-dex-protocol-17 buyback IOC fill against a customer ask, bought base into the rewards engine; svc-trade wires it in the next PR.',
   },
+  payUnclaimedHold: {
+    kind: 'socket',
+    socket: '§13',
+    reason: '§13 J-pay-04 a send to someone who is not a member yet, set aside in the sender pot; svc-bank wires it in the next PR.',
+  },
+  payUnclaimedClaim: {
+    kind: 'socket',
+    socket: '§13',
+    reason: '§13 J-pay-04 the new member claims an unclaimed send, whole; svc-bank wires it in the next PR.',
+  },
+  payUnclaimedReturn: {
+    kind: 'socket',
+    socket: '§13',
+    reason: '§13 J-pay-04 an unclaimed send returned whole to its sender on cancel or expiry; svc-bank wires it in the next PR.',
+  },
 } as const satisfies Record<RecipeName, RecipeDisposition>;
 
 export type MatrixRecipeName = keyof typeof RECIPE_MATRIX;

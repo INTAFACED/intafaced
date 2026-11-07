@@ -18,6 +18,7 @@ import { orderHoldAmend } from './order-hold-amend.js';
 import { futuresOrderMarginApply, futuresOrderMarginHold, futuresOrderMarginRelease } from './futures-order-margin.js';
 import { subAccountTransfer } from './sub-accounts.js';
 import { payReceivedHold, payReceivedRelease, payReceivedReturn } from './pay-received-hold.js';
+import { payUnclaimedClaim, payUnclaimedHold, payUnclaimedReturn } from './pay-unclaimed.js';
 import { bankTransferReversal } from './bank-transfer-reversal.js';
 import { staffHoldConfirm, staffHoldPlace, staffHoldRelease } from './staff-hold.js';
 import { campaignRewardForfeit, campaignRewardLock, campaignRewardUnlock } from './campaign-lock.js';
@@ -1371,6 +1372,7 @@ export * from './chargeback.js';
 export * from './order-hold-amend.js';
 export * from './futures-order-margin.js';
 export * from './pay-received-hold.js';
+export * from './pay-unclaimed.js';
 export * from './bank-transfer-reversal.js';
 export * from './staff-hold.js';
 export * from './campaign-lock.js';
@@ -1473,6 +1475,10 @@ export const recipes = {
   payReceivedHold,
   payReceivedRelease,
   payReceivedReturn,
+  // A send to someone who is not a member yet: set aside, then claimed or returned whole (J-pay-04). See ./pay-unclaimed.ts.
+  payUnclaimedHold,
+  payUnclaimedClaim,
+  payUnclaimedReturn,
   bankTransferReversal,
   // ops staff holds (OPS-accounts-desk-01, ops ENGINE LC-8/LC-9), posted by svc-ops staff-holds/desk.ts. See ./staff-hold.ts.
   staffHoldPlace,
