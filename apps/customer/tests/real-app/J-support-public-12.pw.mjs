@@ -324,7 +324,8 @@ test(`${J} #6 round robin for three online agents: five new requests go out in t
   for (const id of routed.tickets) {
     const rows = await assignedRows(id);
     expect(rows).toHaveLength(1);
-    expect(rows[0].actorId).toBe('support:routing');
+    // The routing worker's fixed id (SUPPORT_ROUTING_ACTOR_ID), not a person: no account holds it.
+    expect(rows[0].actorId).toBe('00000000-0000-4000-8000-0000000a0001');
   }
   await page.reload();
   await expect(page.getByTestId('groups-panel').getByTestId(`group-routing-${routed.group.id}`)).toContainText(

@@ -14,6 +14,7 @@
  * assigned and does nothing. The cursor is stored, so it survives a restart.
  */
 import type { Sql, TransactionSql } from 'postgres';
+import { SUPPORT_ROUTING_ACTOR_ID } from '@intafaced/contracts';
 import type { GroupBook } from './desk-groups.js';
 import type { StaffAvailability, StaffBook } from './desk-staff.js';
 import { insertTicketEvent } from './store.js';
@@ -23,8 +24,8 @@ export const ROUTING_MODES = ['off', 'round_robin', 'load_balanced'] as const;
 export type RoutingMode = (typeof ROUTING_MODES)[number];
 
 export const NO_AGENT_AVAILABLE = 'support.no_agent_available' as const;
-/** The actor named on an automatic assignment's audit row. */
-export const ROUTING_ACTOR = 'support:routing';
+/** The actor named on an automatic assignment's audit row: the routing worker's fixed id (a trail row's actor is an id). */
+export const ROUTING_ACTOR = SUPPORT_ROUTING_ACTOR_ID;
 /** Skills are short tags; the same rule binds an agent's skills and a request's need. */
 export const SKILL_PATTERN = /^[a-z0-9][a-z0-9_-]{0,39}$/;
 export const SKILLS_MAX = 20;
