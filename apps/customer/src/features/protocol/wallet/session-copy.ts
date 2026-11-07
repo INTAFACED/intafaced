@@ -6,7 +6,7 @@ const en = {
   note: 'A session key lets an app or a device act for your smart account within a scope you choose: which contracts and functions, how much native currency it may spend in total, and until when.',
   never:
     'A session key can never move tokens out of your account or approve anyone to: the account refuses that when the key is granted and every time it acts.',
-  asOf: 'Read from the chain at block {block} ({time}). Keys granted before block {from} are not read.',
+  asOf: 'Read from the chain at block {block} ({time}), from block {from}: every key that can still act is listed, as no key lives longer than 30 days.',
   account: 'Smart account: {address}',
   accountNone: 'This wallet has no smart account on this network, so it has granted no session keys.',
   factoryUnset: 'Session keys need a smart account, and the smart account factory is not deployed on this network.',
@@ -56,7 +56,8 @@ const en = {
   selectorsHint: 'Four-byte function selectors, separated by commas, for example 0x38ed1739.',
   capLabel: 'Most native currency it may spend in total',
   hoursLabel: 'Expires after (hours)',
-  hoursHint: 'At most 720 hours (30 days).',
+  hoursHint:
+    'At most 720 hours (30 days); the longest choice ends a few minutes short of 30 days, so a clock a little ahead never makes it too long.',
   grant: 'Review and grant',
   cancel: 'Cancel',
   grantSteps: 'Grant steps',

@@ -1294,7 +1294,8 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
           try {
             return await listSessions(chain.client, { account: input.account, chainId: chain.config.chainId });
           } catch (err) {
-            throw toTrpcError(classifyChainError(err, 'sessions.list', chain.config.rpcUrl));
+            // A chain failure is named as the chain's; anything else (a shape bug) is an internal error, never "unreachable".
+            throw toTrpcError(err instanceof z.ZodError ? err : classifyChainError(err, 'sessions.list', chain.config.rpcUrl));
           }
         }),
     }),

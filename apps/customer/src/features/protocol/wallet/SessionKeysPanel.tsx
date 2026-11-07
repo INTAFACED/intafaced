@@ -147,11 +147,17 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
   const { resource, reload } = useResource((signal) => api.sessionsList(account, signal), `wallet:sessions:${account.toLowerCase()}`);
   const [pending, setPending] = useState<Pending | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [grantProblem, setGrantProblem] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [catchUp, setCatchUp] = useState(0);
   const [creating, setCreating] = useState(false);
   const [representation, setRepresentation] = useState<{ action: Action; status: RepresentationStatus } | null>(null);
-  const data: ProtocolSessionsList | null = resource.status === 'ready' ? resource.data : null;
+  // A reload keeps showing the last list it had, so a key reads "Revoking" until the new read lands, never an empty table.
+  const [last, setLast] = useState<ProtocolSessionsList | null>(null);
+  useEffect(() => {
+    if (resource.status === 'ready') setLast(resource.data);
+  }, [resource]);
+  const data: ProtocolSessionsList | null = resource.status === 'ready' ? resource.data : last;
 
   /**
    * The call is built first, so a scope the service refuses is refused before anything is signed; then the representation
@@ -159,6 +165,7 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
    */
   const act = async (action: Action) => {
     setProblem(null);
+    setGrantProblem(null);
     setNotice(null);
     const target = action.kind === 'revoke' ? action.key.toLowerCase() : action.kind === 'revokeAll' ? 'all' : 'grant';
     setPending({ target, hash: null });
@@ -171,7 +178,7 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
     if (!call.ok) {
       setPending(null);
       if (action.kind === 'grant')
-        return setProblem(/may never be granted/.test(call.message) ? t('refusedPower') : t('refusedScope', { reason: call.message }));
+        return setGrantProblem(/may never be granted/.test(call.message) ? t('refusedPower') : t('refusedScope', { reason: call.message }));
       return setProblem(t('buildFailed'));
     }
     const gate = await api.representationStatus(owner);
@@ -253,7 +260,10 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
         setPending(null);
         return setProblem(t('reverted'));
       }
-      setPending((now) => (now?.hash === hash ? { ...now, minedAt: mined.blockNumber ?? 0n } : now));
+      // A receipt without its block number is placed at the wallet's own head, never at block 0.
+      const minedAt = mined.blockNumber ?? BigInt(String(await wallet.read('eth_blockNumber', [])));
+      if (stopped) return;
+      setPending((now) => (now?.hash === hash ? { ...now, minedAt } : now));
       reload();
     })();
     return () => {
@@ -264,7 +274,13 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
   }, [pending?.hash]);
 
   useEffect(() => {
-    if (pending?.minedAt === undefined || !data) return;
+    if (pending?.minedAt === undefined) return;
+    // A read that fails while catching up ends the wait with its own words, so no button stays disabled.
+    if (resource.status === 'failed') {
+      setPending(null);
+      return setProblem(t('notRead'));
+    }
+    if (resource.status !== 'ready' || !data) return;
     if (BigInt(data.blockNumber) >= pending.minedAt) {
       if (pending.target === 'grant') setNotice(t('granted'));
       return setPending(null);
@@ -279,9 +295,10 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
     }, CATCH_UP_EVERY_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending?.minedAt, data?.blockNumber, catchUp]);
+  }, [pending?.minedAt, resource.status, data?.blockNumber, catchUp]);
 
-  const live = data?.keys.some((key) => key.status === 'active' || key.status === 'not_yet_valid') ?? false;
+  // The panic button works on the account itself, so it is offered whenever the account exists, whatever the list shows.
+  const canRevokeAll = data?.deployed === true;
   return (
     <>
       {representation && (
@@ -303,10 +320,17 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
       {data && <p className="muted">{t('asOf', { block: data.blockNumber, time: utcTime(data.blockTime), from: data.logsFromBlock })}</p>}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
       <div className="actions">
-        <Button disabled={pending !== null} onClick={() => setCreating(true)}>
+        <Button
+          disabled={pending !== null}
+          onClick={() => {
+            setProblem(null);
+            setGrantProblem(null);
+            setCreating(true);
+          }}
+        >
           {t('newKey')}
         </Button>{' '}
-        <Button variant="secondary" disabled={!live || pending !== null} onClick={() => void act({ kind: 'revokeAll' })}>
+        <Button variant="secondary" disabled={!canRevokeAll || pending !== null} onClick={() => void act({ kind: 'revokeAll' })}>
           {t('revokeAll')}
         </Button>{' '}
         <span className="muted">{t('revokeAllNote')}</span>
@@ -321,12 +345,12 @@ function AccountSessions({ owner, account, api }: { owner: string; account: stri
         onRevoke={(key) => void act({ kind: 'revoke', key })}
       />
       {notice && <p role="status">{notice}</p>}
-      {problem && <p role="alert">{problem}</p>}
+      {problem && !creating && <p role="alert">{problem}</p>}
       {creating && (
         <NewKeyDialog
           onClose={() => setCreating(false)}
           onSubmit={(spec) => void act({ kind: 'grant', spec })}
-          problem={problem}
+          problem={grantProblem ?? problem}
           busy={pending !== null}
         />
       )}
@@ -372,7 +396,8 @@ function NewKeyDialog({
       targets: [target.trim()],
       selectors: list.map((entry) => entry.toLowerCase()),
       spendLimitWei: wei,
-      validUntil: Math.floor(Date.now() / 1000) + h * 3600,
+      // Five minutes short of the 30-day limit at most, so a browser clock a little ahead of the chain's is never refused.
+      validUntil: Math.floor(Date.now() / 1000) + Math.min(h * 3600, MAX_HOURS * 3600 - 300),
     });
   }
   return (
