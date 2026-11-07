@@ -20,8 +20,8 @@ test.describe.configure({ mode: 'default' });
  * percent (tooling/profiles/test-owner-values/trade.json). No figure lives in this test. */
 const PUBLISHED_SHARE = `${
   JSON.parse(
-    JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/trade.json'), 'utf8')).values
-      .TRADE_COPY_FEE_SHARE_LAW.value,
+    JSON.parse(readFileSync(path.join(ROOT, 'tooling/profiles/test-owner-values/trade.json'), 'utf8')).values.TRADE_COPY_FEE_SHARE_LAW
+      .value,
   ).leaderShareBps / 100
 }%`;
 
