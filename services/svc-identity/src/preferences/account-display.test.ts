@@ -9,6 +9,9 @@ describe('account display value', () => {
 
   it('refuses a language the catalogue does not ship, an unlisted currency, and extra keys', () => {
     expect(() => parseAccountDisplay({ locale: 'tlh', displayCurrency: null }, [])).toThrow('identity.preferences_value_invalid');
+    // In the catalogue, but the app has no written copy in it, so it is not offered.
+    expect(() => parseAccountDisplay({ locale: 'de', displayCurrency: null }, [])).toThrow('identity.preferences_value_invalid');
+    expect(parseAccountDisplay({ locale: 'es', displayCurrency: null }, [])).toEqual({ locale: 'es', displayCurrency: null });
     expect(() => parseAccountDisplay({ locale: 'en', displayCurrency: 'USD' }, [])).toThrow('identity.preferences_value_invalid');
     expect(() => parseAccountDisplay({ locale: 'en', displayCurrency: null, x: 1 }, [])).toThrow('identity.preferences_value_invalid');
     expect(() => parseAccountDisplay('en', [])).toThrow('identity.preferences_value_invalid');

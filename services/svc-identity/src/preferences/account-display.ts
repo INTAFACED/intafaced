@@ -1,10 +1,10 @@
 /**
  * Display language and display currency, saved on the account so a second device shows the same choice.
- * The language must be one the i18n catalogue ships. The currency must be one the owner lists
+ * The language must be one the customer app has written copy in (CUSTOMER_COPY_LOCALES), not only one the catalogue names. The currency must be one the owner lists
  * (IDENTITY_DISPLAY_CURRENCIES); an empty list means only "no choice", which shows USD.
  */
 import { z } from 'zod';
-import { locale } from '@intafaced/i18n/locales';
+import { CUSTOMER_COPY_LOCALES, locale } from '@intafaced/i18n/locales';
 import { PREFERENCES_VALUE_INVALID } from './trade-views.js';
 
 export const ACCOUNT_DISPLAY_NAMESPACE = 'account.display' as const;
@@ -30,6 +30,7 @@ export function parseAccountDisplay(value: unknown, listedCurrencies: readonly s
   if (!parsed.success) return invalid();
   const canonical = parsed.data.locale === null ? null : (locale(parsed.data.locale)?.code ?? null);
   if (parsed.data.locale !== null && canonical === null) return invalid();
+  if (canonical !== null && !(CUSTOMER_COPY_LOCALES as readonly string[]).includes(canonical)) return invalid();
   const currency = parsed.data.displayCurrency;
   if (currency !== null && !listedCurrencies.includes(currency)) return invalid();
   return { locale: canonical, displayCurrency: currency };

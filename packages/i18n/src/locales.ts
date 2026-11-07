@@ -170,6 +170,13 @@ export const SUPPORTED_LOCALES = [
 /** Every locale code the app is allowed to be in. */
 export type LocaleCode = (typeof SUPPORTED_LOCALES)[number]['code'];
 
+/**
+ * The languages the customer app has written copy in: what it offers as a choice, and what identity accepts as an
+ * account's display language (`account.display`, J-identity-10 #2). The rest of the catalogue would show English under a
+ * foreign name. `apps/customer/src/shared/customer-copy-locales.test.ts` keeps this list equal to the copy that exists.
+ */
+export const CUSTOMER_COPY_LOCALES = ['en', 'es', 'fr'] as const;
+
 /** The source-of-truth language. Also the fallback when a key is untranslated. */
 export const DEFAULT_LOCALE: LocaleCode = 'en';
 
