@@ -30,6 +30,7 @@ import type {
   AccountState,
   CampaignParticipant,
   EmailProof,
+  ProvedEmail,
   ServiceMailAccepted,
   ServiceMailRequest,
   TrustedDeviceState,
@@ -2953,6 +2954,20 @@ export class AuthService {
     const row = rows[0];
     if (!row) return null;
     return { userId: row.id, emailProof: isEmailConfirmed(row) ? 'accepted' : 'missing' };
+  }
+
+  /**
+   * The account's current email, only when it is proved, for svc-notify's email channel. `email` is null while the
+   * address is unproved; null overall for an unknown user, which the caller treats as no address.
+   */
+  async provedEmail(userId: string): Promise<ProvedEmail | null> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId)) return null;
+    const rows = await this.sql<Array<{ id: string; email: string | null; email_verified_at: Date | string | null }>>`
+      SELECT id, email, email_verified_at FROM users WHERE id = ${userId} LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return { userId: row.id, email: row.email && isEmailConfirmed(row) ? row.email : null };
   }
 
   /**

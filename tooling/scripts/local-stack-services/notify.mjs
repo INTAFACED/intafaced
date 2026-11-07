@@ -11,8 +11,20 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     MATCHING_URL: urlOf('matching'),
     // Notices for P2P merchants: notify asks p2p whether the reader is an active merchant.
     P2P_URL: urlOf('p2p'),
-    // In-app inbox only. No email, push or SMS gateway exists locally, so those channels refuse honestly.
+    // No push or SMS gateway exists locally, so those channels refuse honestly. Email is the LOCAL TEST outbox below.
     NOTIFY_REQUIRED_CHANNELS: 'none',
+    // LOCAL TEST ONLY, opt-in: the email channel writes one LOCAL-TEST line per email to the stack's mail outbox, the file
+    // identity's local mail writes (refused at boot unless APP_ENV is exactly dev or test, or beside an email gateway).
+    // A person with no confirmed address in notify is mailed at the email they proved in identity. Production has no
+    // sender until the owner configures the email gateway, and the stack starts the same way: email not connected.
+    // `LOCAL_STACK_NOTIFY_MAIL=on` on a restart of notify turns the TEST outbox on for a journey that needs it, which
+    // restarts notify without it again when done.
+    ...(process.env.LOCAL_STACK_NOTIFY_MAIL === 'on'
+      ? { NOTIFY_EMAIL_TRANSPORT: 'local-outbox', NOTIFY_EMAIL_OUTBOX: path.join(STATE, 'email-outbox.log') }
+      : {}),
+    // LOCAL TEST ONLY: the signed door `local-test-gates.mjs notify-promotion <handle>` files a TEST promotion through
+    // (refused at boot unless APP_ENV is exactly dev or test).
+    NOTIFY_LOCAL_TEST_PROMOTIONS: 'on',
     // Required, no default. LOCAL TEST values: attempts only matter for out-of-app delivery (none here);
     // the verification-code lifetime is the .env.example value.
     NOTIFY_MAX_DELIVERY_ATTEMPTS: '3',

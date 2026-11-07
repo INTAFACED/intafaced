@@ -198,6 +198,19 @@ const schema = serviceEnvSchema
        * NOTIFY_STATUS_MAIL_OUTBOX and is allowed only when APP_ENV is exactly dev or test. Unset: the email gateway
        * channel sends, with NOTIFY_PUBLIC_ORIGIN for the links; without both, status mail waits with `vendor.email`.
        */
+      /**
+       * The email channel's LOCAL TEST transport (`local-outbox`): one LOCAL-TEST line per email in NOTIFY_EMAIL_OUTBOX
+       * (an absolute path). Refused at boot unless APP_ENV is exactly dev or test, and beside a configured email gateway.
+       * Unset: the email channel is the owner's gateway, or not connected.
+       */
+      NOTIFY_EMAIL_TRANSPORT: blankAsAbsent(z.string().optional()),
+      NOTIFY_EMAIL_OUTBOX: blankAsAbsent(z.string().optional()),
+      /**
+       * LOCAL TEST only: `on` mounts the signed `POST /internal/local-test/promotion` door that files one TEST promotion
+       * for one account (the local stack's gates tool). Refused at boot unless APP_ENV is exactly dev or test. Unset: no
+       * such door.
+       */
+      NOTIFY_LOCAL_TEST_PROMOTIONS: blankAsAbsent(z.enum(['on']).optional()),
       NOTIFY_STATUS_MAIL_TRANSPORT: blankAsAbsent(z.string().optional()),
       NOTIFY_STATUS_MAIL_OUTBOX: blankAsAbsent(z.string().optional()),
       /** Signs the confirm, manage and unsubscribe links in status mail. Unset: subscribing refuses with status.challenge_unset. */

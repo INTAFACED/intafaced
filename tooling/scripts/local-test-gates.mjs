@@ -31,6 +31,7 @@
  *   node tooling/scripts/local-test-gates.mjs kyb        publish the TEST business verification requirements and upload rules
  *   node tooling/scripts/local-test-gates.mjs age <handle> <seconds>   move one TEST account's sign-up time back
  *   node tooling/scripts/local-test-gates.mjs sandbox-funds set|unset   the TEST developer sandbox fund amount and resets per day in svc-pay (restarts pay)
+ *   node tooling/scripts/local-test-gates.mjs notify-promotion <handle>   file one TEST promotion for one journey account in svc-notify
  *   node tooling/scripts/local-test-gates.mjs status     read-only: what is open, who is verified
  *   node tooling/scripts/local-test-gates.mjs scoped-session --without <scope>   a founder console cookie whose scopes leave one out (JSON)
  *
@@ -447,6 +448,44 @@ export function ageAccount(secrets, handle, seconds) {
   );
   if (rows.length !== 1) throw new Error(`no LOCAL TEST journey account with handle ${handle}`);
   return rows[0][0];
+}
+
+/**
+ * LOCAL TEST: one TEST promotion for one journey account (J-identity-10 #3). No promotion producer exists yet, so this
+ * stands in for one: svc-notify's signed door `POST /internal/local-test/promotion` (services/svc-notify/src/
+ * local-test-promotion.ts, mounted only on a dev or test stack) files it through NotifyService.create, and the
+ * dispatcher applies the person's category and channel choices as for any notification. Each call is a new promotion.
+ */
+export async function sendTestPromotion(ctx, handle) {
+  if (!/^[a-z0-9_]{3,32}$/i.test(handle ?? '')) throw new Error('usage: local-test-gates.mjs notify-promotion <handle>');
+  const rows = psqlRead(
+    ctx.secrets,
+    'svc_identity',
+    `SELECT id::text, email::text FROM identity.users WHERE handle = '${handle}' AND email LIKE '%@local-test.invalid'`,
+  );
+  if (rows.length !== 1) throw new Error(`notify-promotion: no LOCAL TEST journey account with handle ${handle}`);
+  const [userId] = rows[0];
+  assertActiveLocalStack({ stateDir: ctx.paths.stateDir });
+  const raw = JSON.stringify({ userId, key: `${P}promotion:${handle}:${Date.now()}` });
+  const res = await fetch(`${ctx.url('notify')}/internal/local-test/promotion`, {
+    redirect: 'error',
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...ctx.contracts.serviceAuthHeadersForBody('local-test-stack', ctx.secrets.internal, raw),
+    },
+    body: raw,
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.status !== 200 || typeof body?.notificationId !== 'string')
+    throw new Error(`notify refused the TEST promotion (${res.status}): ${JSON.stringify(body).slice(0, 300)}`);
+  const email = body.outcomes?.find?.((o) => o.channel === 'email');
+  return {
+    handle,
+    notificationId: body.notificationId,
+    email: email ? `${email.status}${email.code ? ` ${email.code}` : ''}` : 'not tried',
+  };
 }
 
 const COPY_REWIND_FOLLOW_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
@@ -3272,6 +3311,7 @@ async function main() {
   if (cmd === 'sandbox-funds' && process.argv[3] !== 'set' && process.argv[3] !== 'unset')
     die('usage: local-test-gates.mjs sandbox-funds set|unset', 2);
   if (cmd === 'engine-drop' && (!process.argv[3] || !process.argv[4])) die('usage: local-test-gates.mjs engine-drop <SYMBOL> <orderId>', 2);
+  if (cmd === 'notify-promotion' && !process.argv[3]) die('usage: local-test-gates.mjs notify-promotion <handle>', 2);
   if (cmd === 'trade-audit') {
     const args = process.argv.slice(3);
     const value = (name) => (args.indexOf(name) >= 0 ? args[args.indexOf(name) + 1] : undefined);
@@ -3459,11 +3499,14 @@ async function main() {
     } else if (cmd === 'age') {
       const [handle, seconds] = process.argv.slice(3);
       say(`  ${handle} signed up at ${ageAccount(ctx.secrets, handle, seconds)} (LOCAL TEST, moved back ${seconds}s)`);
+    } else if (cmd === 'notify-promotion') {
+      const r = await sendTestPromotion(ctx, process.argv[3]);
+      say(`  OK      ${r.handle} promotion sent (${MARKERS.label}; notification ${r.notificationId}; email ${r.email})`);
     } else if (cmd === 'status') {
       say(JSON.stringify(await status(ctx), null, 2));
     } else {
       die(
-        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | scoped-session --without <scope> | status',
+        'usage: local-test-gates.mjs apply | operators | lifecycle | open | terms | assets | deposit-terms | withdrawal-limits | withdraw-terms | withdraw-limit <tier> <assetId> unset|test | withdraw-fee <networkId> unset|test | futures | limits | charts | chart-class <SYMBOL> <dataClass> | risk <SYMBOL> k=v... | p2p | verify | kyc-reject <handle> <reasonCode> | kyc-capability-off <handle> <capability> <reasonCode> | trading-restrict <handle> restrict [<reasonCode>] | restore | halt <SYMBOL> | resume <SYMBOL> | posting-freeze on|off | age <handle> <seconds> | notify-promotion <handle> | scoped-session --without <scope> | status',
         2,
       );
     }

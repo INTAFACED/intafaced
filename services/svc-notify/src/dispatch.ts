@@ -96,6 +96,12 @@ export interface DispatchOptions {
    * quarantined address is refused non-critical sends; critical is still tried.
    */
   readonly recipientHealth?: RecipientHealthPort;
+  /**
+   * The account's own email, only once proved (svc-identity). Used for the email channel when the person confirmed
+   * no email address in notify, and only when that channel can send. Absent: no fallback. A null answer or a throw
+   * means no address, recorded as a missing one is: never a guess and never a crash.
+   */
+  readonly provedAccountEmail?: (userId: string) => Promise<string | null>;
 }
 
 export interface RecipientHealthPort {
@@ -188,7 +194,7 @@ export class NotificationDispatcher {
         }
 
         for (const channel of OUT_OF_APP_CHANNELS) {
-          const target = byChannel.get(channel);
+          const target = byChannel.get(channel) ?? (await this.accountEmailTarget(notification.userId, channel));
 
           if (!this.options.outOfAppEnabled || ownerDisabled.has(channel)) {
             // The switch is the binding cause: a confirmed address would not have
@@ -326,7 +332,7 @@ export class NotificationDispatcher {
     if (!notification) throw new Error('notify.release_held_notification_missing');
 
     const verified = await this.targets.verified(notification.userId);
-    const target = verified.find((row) => row.channel === channel);
+    const target = verified.find((row) => row.channel === channel) ?? (await this.accountEmailTarget(notification.userId, channel));
 
     if (!this.options.outOfAppEnabled || (this.options.disabledChannels && (await this.options.disabledChannels()).has(channel))) {
       return this.refuse(notification, channel, 'channel.disabled', target ? null : 'no confirmed address on this channel');
@@ -367,6 +373,27 @@ export class NotificationDispatcher {
     if (row.status === 'accepted') return fromExistingClaim(channel, 'already_accepted', row);
     if (row.status === 'pending') return fromExistingClaim(channel, 'in_flight', row);
     return fromExistingClaim(channel, 'terminal', row);
+  }
+
+  /**
+   * The proved account email as this person's email target, when they confirmed none in notify and the email channel
+   * can send. Fails closed: an identity read that throws or answers anything but an address is no target.
+   */
+  private async accountEmailTarget(userId: string, channel: ChannelId): Promise<ChannelTarget | undefined> {
+    const read = this.options.provedAccountEmail;
+    if (channel !== 'email' || !read || this.channels.get('email').unavailableReason !== null) return undefined;
+    const address = await read(userId).catch(() => null);
+    if (typeof address !== 'string' || address.trim() === '') return undefined;
+    const at = new Date(0);
+    return {
+      userId,
+      channel: 'email',
+      address: address.trim(),
+      locale: normaliseLocale(null),
+      verifiedAt: at,
+      createdAt: at,
+      updatedAt: at,
+    };
   }
 
   /** Record a refusal that the adapter never got a chance to make. */

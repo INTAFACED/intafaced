@@ -83,6 +83,20 @@ export const emailProofSchema = z
 export type EmailProof = z.infer<typeof emailProofSchema>;
 
 /**
+ * The account's current email address, only once it is proved, for svc-notify's email channel when the person has
+ * registered no confirmed address of their own in notify. Read per send from svc-identity's
+ * `GET /internal/proved-email/:userId`, service-authenticated; never copied. `email` is null while the address is not
+ * proved, so nothing is ever mailed to an address its owner never confirmed.
+ */
+export const provedEmailSchema = z
+  .object({
+    userId: z.string().guid(),
+    email: z.string().min(3).max(320).nullable(),
+  })
+  .strict();
+export type ProvedEmail = z.infer<typeof provedEmailSchema>;
+
+/**
  * Who an account is, for a campaign's participation rules (CM-eligibility-rules-01, J-campaigns-01 #4-#5): the account
  * type chosen at sign-up, the region identity holds (ISO 3166 alpha-2, null when none is recorded), the freeze/close
  * status and the KYC tier. svc-campaigns reads it per check from `GET /internal/campaign-participant/:userId` (service

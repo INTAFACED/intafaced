@@ -48,6 +48,8 @@ import { ContactPolicy } from './ops-config/contact-policy.js';
 import { PostgresContactPolicyStore } from './ops-config/contact-policy.pg.js';
 import { PostgresTargetRateLimiter } from './target-rate-limit.js';
 import { NotifyService } from './notify-service.js';
+import { provedAccountEmailFromProcessEnv } from './account-email.js';
+import { localTestPromotionsEnabled, registerLocalTestPromotionDoor } from './local-test-promotion.js';
 import { createNotifyRouter, type NotifyRouter } from './router.js';
 import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
@@ -182,6 +184,8 @@ const deliveries = new PostgresDeliveryStore(sql, {
 let lastReapRetired = 0;
 let lastReapAt: string | null = null;
 const channels = channelsFromEnv(env);
+// LOCAL TEST only: the promotion door the stack's gates tool files a TEST promotion through. Refuses at boot outside dev/test.
+const localTestPromotions = localTestPromotionsEnabled({ flag: env.NOTIFY_LOCAL_TEST_PROMOTIONS, appEnv: process.env.APP_ENV });
 if (env.NOTIFY_OPS_SERVICE_SECRET) {
   if (env.NOTIFY_OPS_SERVICE_SECRET === env.EDGE_PRINCIPAL_SECRET || env.NOTIFY_OPS_SERVICE_SECRET === process.env.INTERNAL_SERVICE_SECRET)
     throw new Error('Guest ops ingress requires a dedicated secret');
@@ -261,6 +265,7 @@ const templates = new MessageTemplates(new PostgresTemplateStore(sql), opsApprov
 });
 const contactPolicy = new ContactPolicy(new PostgresContactPolicyStore(sql), opsApprovals, commandLog);
 const maxAttempts = publishedMaxDeliveryAttempts(env.NOTIFY_MAX_DELIVERY_ATTEMPTS);
+const provedAccountEmail = provedAccountEmailFromProcessEnv(s2sKey);
 const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
   maxAttempts,
   outOfAppEnabled: env.NOTIFY_OUT_OF_APP_ENABLED,
@@ -275,6 +280,9 @@ const dispatcher = new NotificationDispatcher(channels, targets, deliveries, {
       await recipientHealth.record({ ...input, code: input.code ?? undefined, threshold: quarantineThreshold, now: new Date() });
     },
   },
+  // The account's proved email (svc-identity), for a person who confirmed no email address here. Unwired without
+  // IDENTITY_URL and the service secret; used only while the email channel can send.
+  ...(provedAccountEmail ? { provedAccountEmail } : {}),
 });
 
 const targetRateLimiter = new PostgresTargetRateLimiter(sql);
@@ -460,6 +468,13 @@ app.get<{ Querystring: { component?: unknown } }>('/status/badge.svg', async (re
 // The documented read API for status and notices (SP-api-01): what the site reads, as plain GETs under /v1.
 // Polled by unsigned callers, so it shares the badge's few-second read.
 registerPublicReadApi(app, { notices, statusPage: badgeRead });
+if (localTestPromotions) {
+  registerLocalTestPromotionDoor(app, {
+    notify,
+    legacySecret: process.env.INTERNAL_SERVICE_SECRET,
+    ...(s2s.serviceVerifier && s2s.s2sMode ? { s2s: { verifier: s2s.serviceVerifier, mode: s2s.s2sMode } } : {}),
+  });
+}
 
 app.get('/health', async () => ({
   ok: true,
