@@ -1813,9 +1813,9 @@ describe('affiliates.myAccruals (self-only durable accruals)', () => {
         beneficiaryId: USER,
         payerId: PAYER,
         hop: 0,
-        rate: '0.10',
+        rate: '0.130',
         feeAmount: '100',
-        commissionAmount: '10',
+        commissionAmount: '13',
         asset: 'USDT',
         accruedAt: at,
         sourceModule: 'trade',
@@ -1825,9 +1825,9 @@ describe('affiliates.myAccruals (self-only durable accruals)', () => {
         beneficiaryId: OTHER,
         payerId: PAYER,
         hop: 0,
-        rate: '0.10',
+        rate: '0.130',
         feeAmount: '50',
-        commissionAmount: '5',
+        commissionAmount: '6.5',
         asset: 'USDT',
         accruedAt: at,
         sourceModule: 'pay',
@@ -1838,7 +1838,7 @@ describe('affiliates.myAccruals (self-only durable accruals)', () => {
     const out = await api.affiliates.myAccruals({ limit: 100 });
     expect(out.rows).toHaveLength(1);
     expect(out.rows[0]!.beneficiaryId).toBe(USER);
-    expect(out.rows[0]!.commissionAmount).toBe('10');
+    expect(out.rows[0]!.commissionAmount).toBe('13');
     // Procedure has no beneficiaryId input — foreign list refused by design (self-only).
   });
 
@@ -1892,8 +1892,8 @@ describe('affiliates.payout on the mount', () => {
   const publishedLaw = {
     published: true as const,
     tiers: [
-      { hop: 0, rate: '0.10' },
-      { hop: 1, rate: '0.05' },
+      { hop: 0, rate: '0.130' },
+      { hop: 1, rate: '0.07' },
     ],
   };
 
@@ -1903,9 +1903,9 @@ describe('affiliates.payout on the mount', () => {
       beneficiaryId: BENE0,
       payerId: PAYER_U,
       hop: 0,
-      rate: '0.10',
+      rate: '0.130',
       feeAmount: '100',
-      commissionAmount: '10',
+      commissionAmount: '13',
       asset: ASSET_U,
       accruedAt: new Date('2026-08-09T12:00:00.000Z'),
       sourceModule: 'identity',
@@ -1934,7 +1934,7 @@ describe('affiliates.payout on the mount', () => {
 
   async function mounted(opts: { law?: typeof publishedLaw | undefined; ledger?: MemoryLedger } = {}) {
     const store = new MemoryAccrualStore();
-    await store.saveRows([accrualRow(), accrualRow({ beneficiaryId: BENE1, hop: 1, rate: '0.05', commissionAmount: '5' })]);
+    await store.saveRows([accrualRow(), accrualRow({ beneficiaryId: BENE1, hop: 1, rate: '0.07', commissionAmount: '7' })]);
     const r = createIdentityRouter(stub.auth, stub.rank, {
       registrationOpen: true,
       accruals: store,
@@ -1991,12 +1991,12 @@ describe('affiliates.payout on the mount', () => {
 
     const receipt = await api.affiliates.payout({ feeEventId: FEE_EVT, approvalId: 'appr-1', operationId: 'op-1' });
     expect(receipt.posted).toBe(true);
-    expect(receipt.totalCommission).toBe('15');
+    expect(receipt.totalCommission).toBe('20');
     expect(receipt.confirmOperatorId).toBe(CONFIRM);
 
-    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('10');
-    expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('5');
-    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('85');
+    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('13');
+    expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('7');
+    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('80');
     expect(await bal(ledger, rewardsEngine(ASSET_U))).toBe('0');
   });
 
@@ -2014,9 +2014,9 @@ describe('affiliates.payout on the mount', () => {
     expect(second.idempotencyKeys).toEqual(first.idempotencyKeys);
     for (const key of first.idempotencyKeys) expect(key).toContain(FEE_EVT);
 
-    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('10'); // not 20
-    expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('5');
-    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('85');
+    expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('13'); // not 26
+    expect(await bal(ledger, userAvailable(BENE1, ASSET_U))).toBe('7');
+    expect(await bal(ledger, houseFees('identity', ASSET_U))).toBe('80');
   });
 
   it('dryRun plans without posting — nothing moves', async () => {
@@ -2026,7 +2026,7 @@ describe('affiliates.payout on the mount', () => {
 
     const plan = await api.affiliates.payout({ feeEventId: FEE_EVT, dryRun: true });
     expect(plan.posted).toBe(false);
-    expect(plan.totalCommission).toBe('15');
+    expect(plan.totalCommission).toBe('20');
     expect(plan.idempotencyKeys.length).toBe(4); // sweep + payout per leg
 
     expect(await bal(ledger, userAvailable(BENE0, ASSET_U))).toBe('0');
@@ -2109,7 +2109,7 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
 
   const publishedLaw = {
     published: true as const,
-    tiers: [{ hop: 0, rate: '0.10' }],
+    tiers: [{ hop: 0, rate: '0.130' }],
   };
 
   function mounted(opts: { law?: typeof publishedLaw | undefined } = {}) {
@@ -2198,13 +2198,13 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
     expect(out.rows).toHaveLength(1);
     expect(out.rows[0]).toMatchObject({
       beneficiaryId: BENE0,
-      rate: '0.10',
-      commissionAmount: '10',
+      rate: '0.130',
+      commissionAmount: '13',
       sourceModule: 'trade',
     });
     const stored = await store.listByFeeEvent(FEE);
     expect(stored).toHaveLength(1);
-    expect(stored[0]!.commissionAmount).toBe('10');
+    expect(stored[0]!.commissionAmount).toBe('13');
   });
 
   it('dry-run simulation tiers allowed when law unpublished (not durable invent)', async () => {
@@ -2232,7 +2232,7 @@ describe('affiliates.accrue / accrueDryRun under rate authority (D26-P1-O2)', ()
     expect(lit.rateAuthorityPublished).toBe(true);
     expect(lit.rateAuthorityStatusLine).toBe('authority=1 published=1 tiers=1');
     // Never leak the owner rate string into the ops board.
-    expect(lit.rateAuthorityStatusLine).not.toContain('0.10');
+    expect(lit.rateAuthorityStatusLine).not.toContain('0.130');
   });
 });
 
