@@ -394,6 +394,25 @@ function log(line) {
   }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/**
+ * How long `stop` waits for the market to exit after SIGTERM. The market finishes its start-up funding before it sees
+ * the stop, then cancels its resting orders: on main run 42408792979, shard 30, it got SIGTERM at 20:11:24.731 and was
+ * still funding at 20:11:54.959 (ten transfers at about 3.5 s each), about 40 s in all. The old 20 s wait returned
+ * success while it ran, and the next setup command refused, so the whole shard sent no report (#7485). 90 s is over
+ * twice that, and under the 120 s a journey's `tool()` gives a stack tool.
+ */
+export const STOP_CAP_MS = 90_000;
+
+/** True once `alive()` reads false, polling every `poll` ms; false when `cap` ms pass first. It never guesses. */
+export async function waitForExit(alive, { cap = STOP_CAP_MS, poll = 500, pause = sleep, now = Date.now } = {}) {
+  const until = now() + cap;
+  while (alive()) {
+    if (now() >= until) return false;
+    await pause(poll);
+  }
+  return true;
+}
+
 function die(msg, code = 1) {
   process.stderr.write(`\nlocal-test-market: ${msg}\n`);
   if (LOG_FILE) {
@@ -1594,8 +1613,8 @@ async function main() {
       return console.log(had ? 'test market was already down; forgot it, so ensure will not restart it' : 'test market is not running');
     }
     process.kill(pid, 'SIGTERM');
-    for (let i = 0; i < 40 && runningPid(p); i += 1) await sleep(500);
-    if (runningPid(p)) return console.log(`pid ${pid} is still cancelling orders; check ${p.log}`);
+    if (!(await waitForExit(() => Boolean(runningPid(p)))))
+      die(`pid ${pid} is still cancelling orders after ${STOP_CAP_MS / 1000} s; it has not stopped (check ${p.log})`);
     fs.rmSync(p.pidFile, { force: true });
     return console.log('test market stopped, resting test orders cancelled');
   }
