@@ -38,6 +38,10 @@
       "types": "./dist/protocol-blockers.d.ts",
       "default": "./dist/protocol-blockers.js"
     },
+    "./protocol-bridge": {
+      "types": "./dist/protocol-bridge.d.ts",
+      "default": "./dist/protocol-bridge.js"
+    },
     "./protocol-networks": {
       "types": "./dist/protocol-networks.d.ts",
       "default": "./dist/protocol-networks.js"
