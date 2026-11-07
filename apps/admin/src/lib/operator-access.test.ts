@@ -47,7 +47,10 @@ describe('operator access: pages the person lacks scope for are not listed (OPS-
   });
 
   it('the palette lists no ledger page or action to a person without ledger read, and lists them to a founder', () => {
-    const forSupport = searchPalette(paletteEntries(modulesFor({ kind: 'staff', readAreas: staffReadAreasOf(SUPPORT) }, MODULE_IDS)), 'ledger');
+    const forSupport = searchPalette(
+      paletteEntries(modulesFor({ kind: 'staff', readAreas: staffReadAreasOf(SUPPORT) }, MODULE_IDS)),
+      'ledger',
+    );
     expect(forSupport.map((e) => e.label)).not.toContain('Ledger ops');
     expect(forSupport.map((e) => e.label)).not.toContain('Freeze or unfreeze ledger posting');
     expect(forSupport.every((e) => e.href === null || !e.href.startsWith('/ledger'))).toBe(true);
