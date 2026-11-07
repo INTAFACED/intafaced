@@ -120,6 +120,8 @@ const STACK_DOWN = path.join(STATE, 'run', 'journey-stack-down.json');
  * it is made, by its own arguments.
  */
 const STACK_SCRIPT = 'local-test-stack.mjs';
+/** The gates script's name, kept out of function bodies for the same reason (`toolError`'s scoped-session rule). */
+const GATES_SCRIPT = 'local-test-gates.mjs';
 
 /**
  * The only lines of a tool's output that a failure shows, by shape (an allow-list: anything else is withheld and only
@@ -175,13 +177,23 @@ export function shownOutput(text) {
   return { text: kept.join('\n'), lines: kept.length, withheld: withheld + (shown.length - kept.length) };
 }
 
+/** A stream that is never shown: nothing of it, only how many lines it had. */
+const withheldAll = (text) => ({
+  text: '',
+  lines: 0,
+  withheld: String(text ?? '')
+    .split('\n')
+    .filter((l) => l.trim() !== '').length,
+});
+
 /**
  * The only error `tool` throws: a new Error, never Node's, whose message, `stdout` and `stderr` hold only the shown
  * output (`shownOutput`). Node's own message appends a failed command's raw stderr, and its error keeps the raw output,
  * so neither is ever thrown or kept as a cause. `status`, `signal` and `code` are Node's.
  */
 export function toolError(raw, script, args) {
-  const out = shownOutput(raw?.stdout);
+  // `gates scoped-session` prints only a TEST console session's cookies: its stdout is never shown, even on a failure.
+  const out = script === GATES_SCRIPT && args[0] === 'scoped-session' ? withheldAll(raw?.stdout) : shownOutput(raw?.stdout);
   const err = shownOutput(raw?.stderr);
   const status = typeof raw?.status === 'number' ? raw.status : null;
   const code = raw?.code ?? raw?.error?.code ?? null;
@@ -231,7 +243,6 @@ export function unhealthy(names) {
  * within the same cap: one left unhealthy fails here, by name, and marks the stack down for every later file.
  */
 export function tool(script, ...args) {
-  const started = Date.now();
   if (!(script === STACK_SCRIPT && args[0] === 'restart')) {
     try {
       return run(script, args, TOOL_CAP_MS);
@@ -239,25 +250,37 @@ export function tool(script, ...args) {
       throw toolError(error, script, args);
     }
   }
+  return restartChecked(args);
+}
+
+/**
+ * A `restart` and the health check after it, within one cap; the stack's own `run`, `unhealthy`, clock, sleep and mark
+ * file unless a test passes stand-ins (real-app-tool-error.test.mjs, in the tooling tests).
+ */
+export function restartChecked(
+  args,
+  { exec = run, check = unhealthy, now = Date.now, pause = sleep, cap = TOOL_CAP_MS, markFile = STACK_DOWN } = {},
+) {
+  const started = now();
   let out;
   let failed;
   try {
-    out = run(script, args, TOOL_CAP_MS);
+    out = exec(STACK_SCRIPT, args, cap);
   } catch (error) {
-    failed = toolError(error, script, args);
+    failed = toolError(error, STACK_SCRIPT, args);
   }
   const names = args.slice(1).filter((a) => !a.startsWith('-'));
-  let down = unhealthy(names);
-  while (down.length && Date.now() - started < TOOL_CAP_MS) {
-    sleep(2_000);
-    down = unhealthy(down);
+  let down = check(names);
+  while (down.length && now() - started < cap) {
+    pause(2_000);
+    down = check(down);
   }
   if (down.length) {
     const why = failed ? failed.message.split('\n')[0] : 'the restart returned, but the health check never read ok';
-    mkdirSync(path.dirname(STACK_DOWN), { recursive: true });
-    writeFileSync(STACK_DOWN, JSON.stringify({ services: down, at: new Date().toISOString(), restart: args.join(' '), why }));
+    mkdirSync(path.dirname(markFile), { recursive: true });
+    writeFileSync(markFile, JSON.stringify({ services: down, at: new Date().toISOString(), restart: args.join(' '), why }));
     throw new Error(
-      `stack: ${down.join(', ')} not healthy after \`${args.join(' ')}\` (${Math.round((Date.now() - started) / 1000)} s of the ${TOOL_CAP_MS / 1000} s cap): ` +
+      `stack: ${down.join(', ')} not healthy after \`${args.join(' ')}\` (${Math.round((now() - started) / 1000)} s of the ${cap / 1000} s cap): ` +
         `every later journey file on this stack fails at once, naming it${failed ? `\n${failed.message}` : ''}`,
       { cause: failed },
     );
@@ -269,16 +292,29 @@ export function tool(script, ...args) {
 /**
  * Throws, naming the services, while a restart has left the stack down (`tool`), so a journey file fails at once rather
  * than waiting out its timeouts on a dead stack. A service that answers again (someone restarted it) clears the mark.
+ * A mark that can't be read as one (corrupt, or without its services) reads as down: it fails closed, naming the file.
  */
-export function assertStackUp() {
+export function assertStackUp({ markFile = STACK_DOWN, check = unhealthy } = {}) {
+  let text;
+  try {
+    text = readFileSync(markFile, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw new Error(`stack: the stack-down mark ${markFile} can't be read (${error?.code ?? 'error'}), so the stack reads as down`);
+  }
   let down;
   try {
-    down = JSON.parse(readFileSync(STACK_DOWN, 'utf8'));
+    down = JSON.parse(text);
   } catch {
-    return;
+    down = null;
   }
-  const still = unhealthy(down.services ?? []);
-  if (!still.length) return rmSync(STACK_DOWN, { force: true });
+  const services = Array.isArray(down?.services) ? down.services.filter((n) => typeof n === 'string' && n) : [];
+  if (!services.length)
+    throw new Error(
+      `stack: the stack-down mark ${markFile} is not a mark this helper wrote (corrupt, or naming no service), so the stack reads as down; remove it once the stack is healthy`,
+    );
+  const still = check(services);
+  if (!still.length) return rmSync(markFile, { force: true });
   throw new Error(
     `stack: ${still.join(', ')} down since ${down.at}, when \`${down.restart}\` left it unhealthy (${down.why}); ` +
       `this file's steps would only wait out their timeouts on a dead stack`,

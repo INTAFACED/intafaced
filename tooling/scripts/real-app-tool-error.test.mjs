@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import util from 'node:util';
-import { shownOutput, toolError } from '../../apps/customer/tests/real-app/stack.mjs';
+import { assertStackUp, restartChecked, shownOutput, toolError } from '../../apps/customer/tests/real-app/stack.mjs';
 
 // A fake generated secret (64 hex, as the stack generates them), a short fake one, and a fake log value.
 const LONG = 'f'.repeat(16) + '0123456789abcdef'.repeat(3);
@@ -128,5 +128,64 @@ test('a timeout says spawnSync … ETIMEDOUT, as a runner error is read, and kee
   assert.match(error.message, /timed out after 120 s \(spawnSync .* ETIMEDOUT\)/);
   assert.match(error.message, /svc-identity: starting \(founder pin restart\)/);
   assert.equal(error.code, 'ETIMEDOUT');
+  assert.deepEqual(carriesNone(everything(error)), []);
+});
+
+/** Stand-ins for a restart: a clock that moves 2 s per pause, no real sleep, and a mark file of the test's own. */
+function standIns(check) {
+  let t = 0;
+  const markFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'stack-down-')), 'run', 'journey-stack-down.json');
+  return { check, now: () => t, pause: (ms) => (t += ms), markFile };
+}
+
+test('the health wait: a restart that returns while the service stays down fails by name and marks the stack down', () => {
+  const calls = [];
+  const s = standIns((names) => (calls.push(names), names.filter((n) => n === 'identity')));
+  assert.throws(
+    () => restartChecked(['restart', 'identity'], { ...s, exec: () => '  identity: stopped\n' }),
+    /^Error: stack: identity not healthy after `restart identity` \(120 s of the 120 s cap\)/,
+  );
+  // The check ran until the cap, not once: 2 s apart over 120 s.
+  assert.equal(calls.length, 61);
+  const mark = JSON.parse(fs.readFileSync(s.markFile, 'utf8'));
+  assert.deepEqual(mark.services, ['identity']);
+  assert.match(mark.why, /the restart returned, but the health check never read ok/);
+  // ...and the next file fails at once, naming it.
+  assert.throws(() => assertStackUp({ markFile: s.markFile, check: (n) => n }), /^Error: stack: identity down since /);
+});
+
+test('the health wait: a service that comes back within the cap passes, and leaves no mark', () => {
+  let reads = 0;
+  const s = standIns((names) => (++reads < 3 ? names : []));
+  assert.equal(restartChecked(['restart', 'identity'], { ...s, exec: () => 'restarted\n' }), 'restarted\n');
+  assert.equal(fs.existsSync(s.markFile), false);
+});
+
+test('a stack-down mark that is corrupt or names no service reads as down; no mark reads as up; a healthy stack clears it', () => {
+  const { markFile } = standIns();
+  fs.mkdirSync(path.dirname(markFile), { recursive: true });
+  const healthy = () => [];
+  assert.equal(assertStackUp({ markFile, check: healthy }), undefined);
+  for (const corrupt of ['{"services": ["identity"', 'not json', '{"services": []}', '{"services": "identity"}', 'null']) {
+    fs.writeFileSync(markFile, corrupt);
+    assert.throws(() => assertStackUp({ markFile, check: healthy }), /reads as down/, `mark ${JSON.stringify(corrupt)}`);
+    assert.equal(fs.existsSync(markFile), true);
+  }
+  fs.writeFileSync(markFile, JSON.stringify({ services: ['identity'], at: 'then', restart: 'restart identity', why: 'w' }));
+  assert.throws(() => assertStackUp({ markFile, check: (n) => n }), /^Error: stack: identity down since then/);
+  assert.equal(assertStackUp({ markFile, check: healthy }), undefined);
+  assert.equal(fs.existsSync(markFile), false);
+});
+
+test("scoped-session's stdout (a TEST session's cookies) is never shown, even when it fails", () => {
+  const raw = Object.assign(new Error('Command failed'), {
+    status: 1,
+    stdout: `{"cookies":[{"name":"session","value":"${SHORT}"}]}\n  console: session ${LONG}\n`,
+    stderr: 'refusing [gates.scope_unknown]: no such scope\n',
+  });
+  const error = toolError(raw, 'local-test-gates.mjs', ['scoped-session', '--without', 'admin:read']);
+  assert.equal(error.stdout, '');
+  assert.match(error.message, /its stdout \(0 line\(s\) shown, 2 withheld\)/);
+  assert.match(error.stderr, /^refusing \[gates\.scope_unknown\]/);
   assert.deepEqual(carriesNone(everything(error)), []);
 });
