@@ -19,8 +19,6 @@ export interface LearnerView {
 export interface LearnersView {
   readonly tag: string | null;
   readonly report: Part<AcademyLearners>;
-  /** Each listed learner's handle, when identity answered for them. */
-  readonly handles: Readonly<Record<string, string>>;
   readonly tags: Part<Array<{ tag: string; learners: number }>>;
 }
 

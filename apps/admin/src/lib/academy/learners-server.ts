@@ -1,25 +1,17 @@
 import 'server-only';
-import { z } from 'zod';
 import {
-  academyAddLearnerNoteInputSchema,
-  academyGrantAccessInputSchema,
-  academyGrantLearnerExtensionInputSchema,
   academyLearnerChangeSchema,
   academyLearnerPageSchema,
   academyLearnerProgressSchema,
   academyLearnersSchema,
   academyLearnerTagsSchema,
-  academyMarkCompleteForInputSchema,
-  academyReinstateAccessInputSchema,
-  academyTagLearnersInputSchema,
-  academyUntagLearnerInputSchema,
-  academyVoidQuizAttemptInputSchema,
 } from '@intafaced/contracts/academy-learner-desk';
 import { identityLearnerCardResultSchema } from '@intafaced/contracts/identity-learner-card';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { partFrom, type PartLabels } from '@/lib/desk/part';
 import { explainRefusal, type RefusalView } from '@/lib/desk/refusal-copy';
 import type { LearnerDeskReply, LearnersView, LearnerView } from './learners-model';
+import { isLearnerOp, learnerChange, type LearnerOp } from './learners-ops';
 
 /**
  * One learner on the staff desk (J-academy-14), as the signed-in operator. svc-academy records the operator from their own
@@ -63,7 +55,11 @@ const readCard = parseWith(identityLearnerCardResultSchema);
 const readReport = parseWith(academyLearnersSchema);
 const readTags = parseWith(academyLearnerTagsSchema);
 const readChange = parseWith(academyLearnerChangeSchema);
-const readAdded = parseWith(z.object({ added: z.number().int() }));
+/** `admin.tagLearners` answers how many learners took the tag. */
+const readAdded = (raw: unknown): { added: number } | null =>
+  raw !== null && typeof raw === 'object' && Number.isInteger((raw as { added?: unknown }).added)
+    ? { added: (raw as { added: number }).added }
+    : null;
 
 export async function loadLearner(ctx: FounderCallContext, userId: string): Promise<LearnerView> {
   const [card, page, progress] = await Promise.all([
@@ -83,25 +79,18 @@ export async function loadLearner(ctx: FounderCallContext, userId: string): Prom
 /** The account a whole email or handle names, through identity's exact lookup; null when none does. */
 export async function findLearner(ctx: FounderCallContext, term: string) {
   const value = term.trim();
-  const input = value.includes('@') ? { email: value } : { handle: value.replace(/^@/, '') };
+  // A handle may be typed with its @; an address has an @ after its first character.
+  const input = value.startsWith('@') ? { handle: value.slice(1) } : value.includes('@') ? { email: value } : { handle: value };
   return partFrom(await founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', input, readCard), (d) => d.card, IDENTITY);
 }
 
+/** The learners report. Rows name accounts by id: each learner's page reads identity once, when it is opened. */
 export async function loadLearners(ctx: FounderCallContext, tag: string | null): Promise<LearnersView> {
   const [report, tags] = await Promise.all([
     founderCall(ctx, 'academy', 'admin.learners', 'GET', tag ? { tag } : {}, readReport),
     founderCall(ctx, 'academy', 'admin.learnerTags', 'GET', undefined, readTags),
   ]);
-  const handles: Record<string, string> = {};
-  if (report.kind === 'ok' && report.data) {
-    const cards = await Promise.all(
-      report.data.rows
-        .slice(0, 50)
-        .map((row) => founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', { userId: row.userId }, readCard)),
-    );
-    for (const card of cards) if (card.kind === 'ok' && card.data?.card) handles[card.data.card.id] = card.data.card.handle;
-  }
-  return { tag, report: partFrom(report, (d) => d, ACADEMY), handles, tags: partFrom(tags, (d) => d, ACADEMY) };
+  return { tag, report: partFrom(report, (d) => d, ACADEMY), tags: partFrom(tags, (d) => d, ACADEMY) };
 }
 
 function reply(result: FounderCallResult<unknown>, what: string): { status: number; reply: LearnerDeskReply } {
@@ -125,77 +114,15 @@ function reply(result: FounderCallResult<unknown>, what: string): { status: numb
   }
 }
 
-/** What the operator sent, checked as svc-academy checks it (a blank reason goes through, so svc-academy refuses it by name). */
-const OPS = {
-  addNote: {
-    schema: academyAddLearnerNoteInputSchema,
-    procedure: 'admin.addLearnerNote',
-    what: 'internal note saved',
-    why: 'Write the note.',
-    parse: readChange,
-  },
-  markComplete: {
-    schema: academyMarkCompleteForInputSchema,
-    procedure: 'admin.markCompleteFor',
-    what: 'item marked complete for the learner',
-    why: 'Choose an item.',
-    parse: readChange,
-  },
-  voidAttempt: {
-    schema: academyVoidQuizAttemptInputSchema,
-    procedure: 'admin.voidQuizAttempt',
-    what: 'quiz attempt voided',
-    why: 'Choose an attempt.',
-    parse: readChange,
-  },
-  extension: {
-    schema: academyGrantLearnerExtensionInputSchema,
-    procedure: 'admin.grantLearnerExtension',
-    what: 'due date moved for this learner',
-    why: 'Give a new due date and time.',
-    parse: readChange,
-  },
-  grantAccess: {
-    schema: academyGrantAccessInputSchema,
-    procedure: 'admin.grantAccess',
-    what: 'access granted',
-    why: 'Choose a course.',
-    parse: readChange,
-  },
-  reinstate: {
-    schema: academyReinstateAccessInputSchema,
-    procedure: 'admin.reinstateAccess',
-    what: 'access reinstated',
-    why: 'Choose the access record.',
-    parse: readChange,
-  },
-  tag: {
-    schema: academyTagLearnersInputSchema,
-    procedure: 'admin.tagLearners',
-    what: 'tag added',
-    why: 'A tag is lower-case letters, digits and dashes, up to 40.',
-    parse: readAdded,
-  },
-  untag: {
-    schema: academyUntagLearnerInputSchema,
-    procedure: 'admin.untagLearner',
-    what: 'tag removed',
-    why: 'Choose a tag.',
-    parse: readChange,
-  },
-} as const;
-
-export type LearnerOp = keyof typeof OPS;
-export const isLearnerOp = (op: unknown): op is LearnerOp => typeof op === 'string' && Object.hasOwn(OPS, op);
-
 export async function changeLearner(
   ctx: FounderCallContext,
   op: LearnerOp,
   body: Record<string, unknown>,
 ): Promise<{ status: number; reply: LearnerDeskReply } | { why: string }> {
-  const spec = OPS[op];
-  const { op: _op, ...input } = body;
-  const parsed = spec.schema.safeParse(input);
-  if (!parsed.success) return { why: spec.why };
-  return reply(await founderCall(ctx, 'academy', spec.procedure, 'POST', parsed.data, spec.parse as (raw: unknown) => unknown), spec.what);
+  const change = learnerChange(op, body);
+  if ('why' in change) return change;
+  const parse = op === 'tag' ? readAdded : readChange;
+  return reply(await founderCall(ctx, 'academy', change.procedure, 'POST', change.input, parse as (raw: unknown) => unknown), change.what);
 }
+
+export { isLearnerOp };

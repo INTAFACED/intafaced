@@ -326,10 +326,14 @@ export class LearnerDesk {
     const now = input.now ?? new Date();
     return transaction(this.sql, async (tx) => {
       await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`${input.userId}:learner-notes`}, 0))`;
-      const [replay] = await tx<Array<{ n: number }>>`
-        SELECT n FROM academy.learner_notes WHERE user_id = ${input.userId} AND key = ${input.key}
+      const [replay] = await tx<Array<{ n: number; body: string }>>`
+        SELECT n, body FROM academy.learner_notes WHERE user_id = ${input.userId} AND key = ${input.key}
       `;
-      if (replay) return { n: replay.n };
+      // The key names the note number the console expects to write: the same note again is a replay; another note under
+      // it means someone wrote one meanwhile, so it refuses rather than dropping this one.
+      if (replay && replay.body === body) return { n: replay.n };
+      if (replay)
+        throw new AcademyError('academy.revision_stale another note was saved first; read the page again', 'academy.revision_stale');
       const [next] = await tx<Array<{ n: number }>>`
         SELECT COALESCE(MAX(n), 0)::int + 1 AS n FROM academy.learner_notes WHERE user_id = ${input.userId}
       `;
@@ -371,18 +375,26 @@ export class LearnerDesk {
     `;
   }
 
-  /** Whether this staff change was already recorded under the console's key (a replay after a lost reply). */
-  async recorded(key: string): Promise<boolean> {
-    const rows = await this.sql`SELECT 1 FROM academy.learner_events WHERE key = ${key}`;
+  /** The stored key of an item staff marked complete: scoped to the learner and item, so no other change shares it. */
+  static markKey(userId: string, itemSlug: string, key: string): string {
+    return `mark:${userId}:${itemSlug}:${key}`;
+  }
+
+  /** Whether this mark-complete was already recorded under the console's key (a replay after a lost reply). */
+  async markRecorded(userId: string, itemSlug: string, key: string): Promise<boolean> {
+    const rows = await this.sql`
+      SELECT 1 FROM academy.learner_events
+       WHERE key = ${LearnerDesk.markKey(userId, itemSlug, key)} AND user_id = ${userId} AND kind = 'marked_complete'
+    `;
     return rows.length > 0;
   }
 
-  /** The event for an item staff marked complete for the learner, once per key. */
-  async recordMarkComplete(input: { userId: string; itemSlug: string; reason: string; key: string; actorId: string; now: Date }) {
-    await this.event(this.sql, {
+  /** The event for an item staff marked complete for the learner, written in the completion's own transaction. */
+  async recordMarkComplete(tx: Sql, input: { userId: string; itemSlug: string; reason: string; key: string; actorId: string; now: Date }) {
+    await this.event(tx, {
       userId: input.userId,
       kind: 'marked_complete',
-      key: input.key,
+      key: LearnerDesk.markKey(input.userId, input.itemSlug, input.key),
       itemSlug: input.itemSlug,
       detail: `${getCurriculumItem(input.itemSlug)?.title ?? input.itemSlug} marked complete for the learner`,
       reason: input.reason,
@@ -448,7 +460,16 @@ export class LearnerDesk {
         ON CONFLICT (path_slug, user_id) DO NOTHING
         RETURNING id
       `;
-      if (!row) return;
+      if (!row) {
+        // The course already has this learner's record: a repeat of a live grant answers as it is; an ended one is
+        // reinstated on its own row, never granted a second time.
+        const [held] = await tx<Array<{ state: string }>>`
+          SELECT state FROM academy.access_grants WHERE path_slug = ${input.pathSlug} AND user_id = ${input.userId}
+        `;
+        if (held && held.state !== 'granted')
+          throw new AcademyError('academy.grant_expired this access has ended: reinstate it instead', 'academy.grant_expired');
+        return;
+      }
       await tx`
         INSERT INTO academy.access_grant_events (grant_id, n, kind, key, reason, actor_id, expires_at, at)
         VALUES (${row.id}, 1, 'granted', ${`grant:${input.pathSlug}:${input.userId}`}, ${reason}, ${input.actorId}, ${input.expiresAt}, ${now})

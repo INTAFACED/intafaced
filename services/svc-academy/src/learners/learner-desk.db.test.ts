@@ -129,6 +129,11 @@ describe('access records', () => {
     await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: slug, now: later })).rejects.toMatchObject({
       code: 'academy.grant_expired',
     });
+    await expect(academy.startQuizAttempt({ userId: USER, slug, now: later })).rejects.toMatchObject({ code: 'academy.grant_expired' });
+    // Granting again on an ended record refuses: it is reinstated on its own row instead.
+    await expect(
+      academy.learners.grantAccess({ userId: USER, pathSlug: PATH, reason: 'TEST', expiresAt: null, actorId: STAFF, now: later }),
+    ).rejects.toMatchObject({ code: 'academy.grant_expired' });
     const ended = (await academy.learners.page(USER, true, later)).access.filter((g) => g.pathSlug === PATH);
     expect(ended).toHaveLength(1);
     expect(ended[0]).toMatchObject({ state: 'expired', reason: 'TEST' });
@@ -249,6 +254,10 @@ describe('notes, tags and permissions', () => {
     const body = 'TEST internal: learner is upset about the outage';
     await academy.learners.addNote({ userId: USER, body, key: 'note:1', actorId: STAFF });
     await academy.learners.addNote({ userId: USER, body, key: 'note:1', actorId: STAFF });
+    // Another note under the same key (a second agent on a stale page) refuses rather than vanishing.
+    await expect(academy.learners.addNote({ userId: USER, body: 'TEST another', key: 'note:1', actorId: STAFF })).rejects.toMatchObject({
+      code: 'academy.revision_stale',
+    });
     expect((await academy.learners.page(USER, true)).notes).toEqual([expect.objectContaining({ n: 1, body, authorId: STAFF })]);
     const learner = caller(academy, USER, ['academy:read', 'academy:write']);
     const reads = await Promise.all([learner.myLearning(), learner.myAccessGrants(), learner.myProgress(), learner.myEnrollments()]);

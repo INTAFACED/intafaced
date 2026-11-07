@@ -238,12 +238,7 @@ function Tags({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean; s
         </ul>
       )}
       {page.canChange && (
-        <ReasonForm
-          label="Add a tag"
-          button="Add tag"
-          busy={busy}
-          onSubmit={(reason) => void send({ op: 'tag', userIds: [page.userId], tag, reason })}
-        >
+        <ReasonForm label="Add a tag" button="Add tag" busy={busy} onSubmit={(reason) => void send({ op: 'tag', tag, reason })}>
           <label>
             Tag
             <input value={tag} onChange={(e) => setTag(e.target.value.trim().toLowerCase())} maxLength={40} aria-label="Tag" />

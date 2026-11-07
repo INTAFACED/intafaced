@@ -74,7 +74,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ q
             {report.data.rows.map((row) => (
               <tr key={row.userId} data-learner={row.userId}>
                 <td>
-                  <a href={`/academy-ops/programmes/learners/${row.userId}`}>{view.handles[row.userId] ?? row.userId}</a>
+                  <a href={`/academy-ops/programmes/learners/${row.userId}`}>{row.userId}</a>
                 </td>
                 <td>{row.paths.join(', ') || 'none'}</td>
                 <td>{row.tags.join(', ') || 'none'}</td>

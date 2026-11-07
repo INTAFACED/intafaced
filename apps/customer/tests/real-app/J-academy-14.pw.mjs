@@ -9,7 +9,7 @@ import { staffSignIn } from './staff.mjs';
 // One test per step, titled "J-academy-14 #<n>", run in order. The support agent is founder B in the console (the stack's
 // TEST desk agent, as in J-cex-spot-18); staff set-up goes through Academy's own admin door as founder A. The learner is a
 // fresh TEST account signed up in the browser, enrolled in the Sovereign course, who completed and then undid its first
-// item, failed its second item's quiz (one attempt allowed), and whose time-limited TEST staff access to the course has
+// item, failed the quiz on the second item of the Builder course they also take (one attempt allowed), and whose time-limited TEST staff access to the course has
 // ended, so the course's lessons no longer open: the starting point the journey names. A second TEST learner is enrolled
 // beside them, so the extension (#5) and the tag report (#7) can be seen to leave others alone.
 // #8 signs in the stack's TEST support staff member (identity's TEST roster: admin:read, no admin:write; staff.mjs).
@@ -18,6 +18,8 @@ import { staffSignIn } from './staff.mjs';
 // here and taken off again after the last step (the journeys run one at a time on a stack, workers: 1).
 const J = 'J-academy-14';
 const PATH = 'sovereign';
+/** The learner's second course, free and open, where the quiz they failed sits (an ended record closes quizzes too). */
+const QUIZ_PATH = 'builder';
 const run = journeyState(J);
 
 test.describe.configure({ mode: 'serial' });
@@ -123,14 +125,18 @@ test(`${J} #1 a support agent finds the stuck learner and opens their page: prof
   const other = await signUp(await otherContext.newPage(), 'j14o');
   await otherContext.close();
   for (const who of [learner, other]) {
-    const enrolled = await learnerWrite(who, 'enrolCourse', { slug: PATH, track: 'audit' });
-    expect(enrolled.status, JSON.stringify(enrolled.body).slice(0, 300)).toBe(200);
+    for (const slug of [PATH, QUIZ_PATH]) {
+      const enrolled = await learnerWrite(who, 'enrolCourse', { slug, track: 'audit' });
+      expect(enrolled.status, JSON.stringify(enrolled.body).slice(0, 300)).toBe(200);
+    }
   }
   const learnerId = (await api(learner)).userId;
   const otherId = (await api(other)).userId;
   const list = data(await learnerRead(learner, 'curriculum', { path: PATH, limit: 50 }));
   expect(list.length, JSON.stringify(list).slice(0, 300)).toBeGreaterThanOrEqual(4);
-  const items = { undone: list[0].slug, quiz: list[1].slug, due: list[2].slug, mark: list[3].slug, all: list.map((row) => row.slug) };
+  const quizList = data(await learnerRead(learner, 'curriculum', { path: QUIZ_PATH, limit: 50 }));
+  expect(quizList.length, JSON.stringify(quizList).slice(0, 300)).toBeGreaterThanOrEqual(2);
+  const items = { undone: list[0].slug, quiz: quizList[1].slug, due: list[2].slug, mark: list[3].slug, all: list.map((row) => row.slug) };
   const dueAt = Date.now() + 3 * DAY;
   run.reset({ learner, other, learnerId, otherId, items, dueAt });
 
@@ -229,6 +235,8 @@ test(`${J} #2 their progress lists every item with its status and attempts, the 
   // Every item of the course, in order.
   await expect(course.locator('[data-item]')).toHaveCount(items.all.length);
   for (const [i, slug] of items.all.entries()) await expect(course.locator('[data-item]').nth(i)).toHaveAttribute('data-item', slug);
+  // Both of the learner's courses are there.
+  await expect(progress.locator(`[data-course="${QUIZ_PATH}"] [data-item]`).first()).toBeVisible();
   // The undone item: not complete now, with its completion and its Undo both kept.
   const undone = itemRow(page, items.undone);
   await expect(undone).toHaveAttribute('data-item-status', 'undone');
