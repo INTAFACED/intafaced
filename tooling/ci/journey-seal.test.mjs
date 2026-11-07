@@ -8,7 +8,10 @@ import { readFileSync } from 'node:fs';
 import { readReport } from './journey-verdict.mjs';
 import {
   currentReportArtifact,
+  fileSteps,
   fullVerdict,
+  judgeTouched,
+  touchedSteps,
   globRe,
   isSharedSetup,
   judgeFullRun,
@@ -631,7 +634,7 @@ test('sealPull: a shared-setup pull request needs the clean full run, whatever i
     files: async () => files,
     verdictOf: async () => verdict,
   });
-  const shared = ['tooling/scripts/local-stack-services/identity.mjs', 'apps/customer/tests/real-app/J-ops-console-01.pw.mjs'];
+  const shared = ['tooling/scripts/local-stack-services/identity.mjs'];
   const dirtySeal = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, verdict: dirty }) });
   assert.equal(dirtySeal.ok, false, 'shared setup with a dirty full run fails');
   assert.equal(dirtySeal.stepsOk, true);
@@ -764,4 +767,105 @@ test("SHARED_SETUP and real-app-journeys.yml's push trigger do not drift", () =>
   for (const e of SHARED_SETUP.filter((x) => x.trigger))
     assert.ok(globRe(e.trigger).test(e.glob.replace(/\*+/g, 'x')), `${e.trigger} covers ${e.glob}`);
   assert.equal(globRe('tooling/scripts/local-test-*.mjs').test('tooling/scripts/local-stack-services/a.mjs'), false, 'why both are listed');
+});
+
+// ---- A pull request that changes a journey test names the steps it touches (judgeTouched) ----
+
+const BANK13 = [
+  "const J = 'J-bank-13';",
+  'test(`${J} #1 opens Cards`, async ({ page }) => {});',
+  'test.skip(`${J} #2 orders a card`, async () => {});',
+  "test('J-bank-13 #3 freezes it', async () => {});",
+  '// J-wallet-05 #4 is mentioned in a comment, not a test',
+].join('\n');
+
+test('fileSteps: the steps a journey test file holds, by ${J} or written out, never a mention', () => {
+  assert.deepEqual(fileSteps('J-bank-13', BANK13), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3']);
+  assert.deepEqual(
+    fileSteps('J-bank-1', BANK13),
+    ['J-bank-1#1', 'J-bank-1#2'],
+    "another journey's written-out title is not read as this one's",
+  );
+});
+
+const touchedPull = async ({
+  title,
+  body = '',
+  files = ['apps/customer/tests/real-app/J-bank-13.pw.mjs'],
+  text = { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': BANK13 },
+}) =>
+  sealPull({
+    repo: REPO,
+    number: 8,
+    sha: HEAD,
+    io: {
+      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
+      runs: async () => [run(1)],
+      reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' } } }),
+      files: async () => files,
+      text: async (f, ref) => (ref === HEAD ? (text[f] ?? null) : null),
+    },
+  });
+
+test('the seal gap (#1249): a journey test change whose title names no step fails, and prints the steps the file holds', async () => {
+  const v = await touchedPull({ title: 'test(journeys): J-bank-13 waits for the card list' });
+  assert.equal(v.ok, false);
+  assert.match(v.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of J-bank-13 #1, J-bank-13 #2, J-bank-13 #3/);
+  assert.match(v.lines.join('\n'), /Left-or-replaced: J-bank-13 #1 #2 #3/);
+});
+
+test('a journey test change passes when the title names its steps or a strict line leaves them', async () => {
+  assert.equal((await touchedPull({ title: 'test(journeys): J-bank-13 #2 waits for the card list' })).ok, true);
+  assert.equal((await touchedPull({ title: 'test(journeys): waits', body: 'Left-or-replaced: J-bank-13 #3' })).ok, true);
+  assert.equal(
+    (
+      await touchedPull({
+        title: 'customer: copy',
+        files: ['apps/customer/src/x.ts', 'apps/customer/tests/real-app/look-sweep-390.pw.mjs'],
+      })
+    ).ok,
+    true,
+    'no journey test changed: unchanged',
+  );
+});
+
+test('planted: a title naming another journey, a malformed line, an unreadable file', async () => {
+  const wrong = await touchedPull({ title: 'test(journeys): J-bank-14 #2 waits for the card list' });
+  assert.equal(wrong.ok, false, "another journey's step does not cover this file");
+  assert.match(wrong.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
+  const bad = await touchedPull({ title: 'test(journeys): waits', body: '- Left-or-replaced: J-bank-13 #3' });
+  assert.equal(bad.ok, false, 'an exemption-like line that is not one');
+  assert.match(bad.lines.join('\n'), /looks like an exemption but isn't one/);
+  assert.equal((await touchedPull({ title: 'x', body: 'Left-or-replaced: J-bank-13 #9' })).ok, false, 'a step the file does not hold');
+  const empty = await touchedPull({ title: 'x (J-bank-13 #1)', text: { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': '// nothing' } });
+  assert.equal(empty.ok, false, 'a journey file with no readable step fails closed');
+  await assert.rejects(
+    touchedSteps({ paths: ['apps/customer/tests/real-app/J-bank-13.pw.mjs'], head: HEAD, base: OLD, text: async () => null }),
+  );
+  assert.deepEqual(
+    await touchedSteps({
+      paths: ['apps/customer/tests/real-app/J-bank-13.pw.mjs'],
+      head: HEAD,
+      base: OLD,
+      text: async (_f, ref) => (ref === OLD ? BANK13 : null),
+    }),
+    [{ file: 'apps/customer/tests/real-app/J-bank-13.pw.mjs', journey: 'J-bank-13', steps: ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3'] }],
+    'a file the head removed is read at the base',
+  );
+  assert.deepEqual(judgeTouched({ title: 'x', body: '', touched: [] }), { ok: true, lines: [] });
+});
+
+test('the recheck takes a pull request whose body gained an exemption line, so leaving steps there re-runs the seal', () => {
+  const p = {
+    number: 9,
+    title: 'test(journeys): waits',
+    body: 'Left-or-replaced: J-bank-13 #3',
+    state: 'open',
+    head: { sha: HEAD },
+    base: { repo: { full_name: REPO } },
+  };
+  assert.deepEqual(
+    recheckPulls({ pulls: [p], sha: HEAD, repo: REPO }).map((x) => x.number),
+    [9],
+  );
 });

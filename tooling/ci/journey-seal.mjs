@@ -453,6 +453,16 @@ export function makeIo(repo, token) {
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
     files: (n) => pullFiles((path) => api(path, token), repo, n),
+    async text(path, ref) {
+      const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
+      const res = await fetch(`https://api.github.com${url}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json' },
+        redirect: 'follow',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
+      return res.text();
+    },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
   };
 }
@@ -490,6 +500,74 @@ export async function pullFiles(get, repo, n) {
   throw new Error(`#${n} changes 3,000 files or more, which GitHub can't list whole`);
 }
 
+/**
+ * A journey test file (`apps/customer/tests/real-app/J-bank-13.pw.mjs`) and its journey id. Only these hold journey
+ * steps; the look sweeps and other `*.pw.mjs` files beside them do not.
+ */
+export const JOURNEY_TEST = /^apps\/customer\/tests\/real-app\/(J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+)\.pw\.mjs$/;
+
+/**
+ * The step keys a journey test file holds: each `test(` whose title starts with its journey id, written out
+ * (`'J-bank-13 #1 …'`) or as the file's `${J}` (`` `${J} #1 …` ``), keyed as readReport keys them.
+ */
+export function fileSteps(journey, text) {
+  const out = new Set();
+  const id = journey.replace(/[-]/g, '\\-');
+  const re = new RegExp(`\\btest(?:\\.[a-z]+)*\\(\\s*[\`'"](?:\\$\\{J\\}|${id})\\s*#(\\d+)\\b`, 'g');
+  for (const m of String(text ?? '').matchAll(re)) if (Number(m[1]) <= STEP_MAX) out.add(`${journey}#${Number(m[1])}`);
+  return [...out].sort(byStep);
+}
+
+/**
+ * A pull request that changes a journey test file says which steps it touches: for each changed file, at least one of
+ * the steps it holds is named in the title (then judged by judgeSteps) or on a strict `Left-or-replaced:` line. A
+ * title naming another journey's steps, or none, fails, and so does an exemption-like line that isn't one. `touched`:
+ * [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head removed).
+ * (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so the seal
+ * judged none of their steps; project-state #1249 comment 6681706701.)
+ */
+export function judgeTouched({ title, body, touched }) {
+  if (!touched.length) return { ok: true, lines: [] };
+  const left = exemptions(body);
+  if (left.problems.length)
+    return {
+      ok: false,
+      lines: left.problems.map(
+        (l) =>
+          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
+      ),
+    };
+  const named = new Set([...titleSteps(title), ...left.steps]);
+  const lines = [];
+  for (const { file, journey, steps } of touched) {
+    const hit = steps.filter((k) => named.has(k));
+    if (hit.length) continue;
+    lines.push(
+      steps.length
+        ? `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them: name the steps it touches in the title (\`${journey} ${steps
+            .map((k) => `#${k.split('#')[1]}`)
+            .join(' ')}\`), or leave them on a body line: ${exemptionLine(steps)}`
+        : `${file} changes a journey test, but no \`test(\` titled \`${journey} #n\` could be read in it, so the steps it touches can't be named; the seal fails closed`,
+    );
+  }
+  return { ok: lines.length === 0, lines };
+}
+
+/** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
+ *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
+export async function touchedSteps({ paths, head, base, text }) {
+  const out = [];
+  for (const file of [...new Set(paths)].sort()) {
+    const m = JOURNEY_TEST.exec(file);
+    if (!m) continue;
+    let t = await text(file, head);
+    if (t === null) t = await text(file, base);
+    if (t === null) throw new Error(`${file} could not be read at the head or the base`);
+    out.push({ file, journey: m[1], steps: fileSteps(m[1], t) });
+  }
+  return out;
+}
+
 /** One pull request's head, judged. */
 export async function sealPull({ repo, number, sha, io, requireOpen = true, waitOnRunning = true }) {
   const pull = await io.pull(number);
@@ -498,7 +576,13 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
-  const shared = (await io.files(number)).filter(isSharedSetup);
+  const paths = await io.files(number);
+  const shared = paths.filter(isSharedSetup);
+  const touched = judgeTouched({
+    title: pull.title,
+    body: pull.body,
+    touched: await touchedSteps({ paths, head, base: pull.base?.sha, text: (f, ref) => io.text(f, ref) }),
+  });
   const runs = titleSteps(pull.title).length || shared.length ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
@@ -509,7 +593,12 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   const full = shared.length
     ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf: (rep, r) => io.verdictOf(rep, r), waitOnRunning })
     : { ok: true, state: 'none', lines: [] };
-  const v = { ok: steps.ok && full.ok, stepsOk: steps.ok, fullOk: full.ok, lines: [...steps.lines, ...full.lines] };
+  const v = {
+    ok: steps.ok && full.ok && touched.ok,
+    stepsOk: steps.ok && touched.ok,
+    fullOk: full.ok,
+    lines: [...steps.lines, ...touched.lines, ...full.lines],
+  };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }
 
@@ -587,7 +676,7 @@ export const namesSteps = (title) => titleSteps(title).length > 0 || titleProble
 export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', shared = new Set() }) =>
   (pulls ?? [])
     .filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo)
-    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle) || shared.has(p.number));
+    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle) || LOOKS_EXEMPT.test(p.body ?? '') || shared.has(p.number));
 
 /** The open pull requests on `sha` that `recheckPulls` would not take by their title: their numbers that touch shared
  *  setup (`filesOf(n)`: the changed paths). */
