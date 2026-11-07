@@ -331,7 +331,7 @@ test('never excused: a set-aside step that is skipped or missing', () => {
   assert.match(run(report(bad('J-a-01 #2')), { setAside }).red[0].why, /missing now/);
 });
 
-// GPT-6.1 Sol's review of 7f61f4d (#7363), both reproduced there and here before the fix.
+// The first outside review of 7f61f4d (#7363): both cases reproduced there and here before the fix.
 const retried = (title, ...results) => ({
   title,
   file: 'J-a-01.pw.mjs',
