@@ -12,7 +12,12 @@
  *                                    shifts that market's TEST PRICE by the percent from the next cycle on (0% clears it),
  *                                    so a journey can push a price out of a bot's range; the running loop picks it up.
  *   node tooling/scripts/local-test-market.mjs unshift
- *                                    clears every market's shift at once (the journeys put the price back between files).
+ *                                    clears every market's shift and hold at once (the journeys put the price back between files).
+ *   node tooling/scripts/local-test-market.mjs hold <symbol>
+ *                                    leaves that market's quotes resting as they are, with no crossing, from the next cycle on,
+ *                                    and returns once a cycle has passed it by, so a journey's own orders meet only each other.
+ *   node tooling/scripts/local-test-market.mjs release <symbol>
+ *                                    quotes that market again from its next cycle.
  *   node tooling/scripts/local-test-market.mjs history [--bars 210] [--step-minutes 15] [--trades-per-bar 2]
  *                                    on a FRESH stack, with the market stopped: real TEST trades now, then moved into the
  *                                    past (fill times only) so charts have history. Skips any market that already traded.
@@ -79,6 +84,8 @@ export function stackPaths(home = os.homedir()) {
     pidFile: path.join(stateDir, 'run', 'market.json'),
     walkFile: path.join(stateDir, 'run', 'market-walk.json'),
     shiftFile: path.join(stateDir, 'run', 'market-shift.json'),
+    holdFile: path.join(stateDir, 'run', 'market-hold.json'),
+    heldFile: path.join(stateDir, 'run', 'market-held.json'),
     log: path.join(stateDir, 'logs', 'market.log'),
   };
 }
@@ -347,6 +354,43 @@ function readShifts(p) {
   } catch {
     return new Map();
   }
+}
+
+/** The saved holds, symbol to the time (ms) the hold was asked for; unreadable or absent is no hold. */
+function readHolds(p) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(p.holdFile, 'utf8'));
+    return new Map(Object.entries(raw ?? {}).filter(([, v]) => Number.isFinite(v)));
+  } catch {
+    return new Map();
+  }
+}
+
+/** The cycles that passed a held market by: symbol to the start (ms) of the newest such cycle. */
+function readHeld(p) {
+  try {
+    return JSON.parse(fs.readFileSync(p.heldFile, 'utf8')) ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Whether the loop quotes `symbol` this cycle (exported for tests): not while it is held. A held market keeps the
+ * ladder its last cycle left resting and gets no test_taker crossing, so for a journey that prices its own two orders
+ * between that ladder's bid and ask, nobody else's order meets either. Failure it prevents: J-cex-spot-03 #8 priced a
+ * buy midway between the maker's bid and ask, 6 bps from each, while the walk moves up to 12 bps every 8 s cycle. When
+ * the walk moved down before the buy went in, the buy took the maker's new ask and was not resting (#7490's run
+ * 42415885511); when it moved up before the sell, the maker's new bid stood above the buy, so the sell met the maker
+ * and the person's own buy stayed open (main run 42419522734).
+ */
+export function quotesThisCycle(symbol, holds) {
+  return !holds.has(symbol);
+}
+
+/** Whether a cycle that started after a hold was asked for has passed the market by (exported for tests). */
+export function holdTaken(held, symbol, askedAt) {
+  return Number.isFinite(held?.[symbol]) && held[symbol] > askedAt;
 }
 
 /** The mid of a book's best bid and best ask (a public order book answer), scaled; null when either side is empty. */
@@ -704,7 +748,7 @@ function parseArgs(argv) {
     else if (!a.startsWith('--'))
       // Failure it prevents: `pnpm local:market status` used to be `start status` and started a second copy.
       die(
-        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move | unshift (for example: pnpm local:market ${a})`,
+        `unexpected argument "${a}". Commands: start | stop | status | ensure | check | history | move | unshift | hold | release (for example: pnpm local:market ${a})`,
         2,
       );
   }
@@ -853,10 +897,22 @@ async function runLoop(opts, home) {
     /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
     const mids = new Map();
     const shifts = readShifts(p);
+    const holds = readHolds(p);
+    if (holds.size > 0) {
+      // Written before this cycle quotes anything: a held market is passed by from here, so `hold` can return.
+      const startedAt = Date.now();
+      fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(p.heldFile, JSON.stringify(Object.fromEntries([...holds.keys()].map((k) => [k, startedAt]))), { mode: 0o600 });
+    }
     /** The market being quoted, so a cycle the stack's guard stops part-way can be taken over cleanly next time. */
     let current = null;
     try {
       for (const { market: m, leader } of order) {
+        if (!quotesThisCycle(m.symbol, holds)) {
+          // Its leader's book stands still too, so a follower quoted round it stays where it was.
+          log(`${m.symbol} held: its quotes rest as they are, no crossing this cycle`);
+          continue;
+        }
         current = m.symbol;
         let mid;
         if (leader) {
@@ -1565,8 +1621,9 @@ async function startBackground(p, args, { wait }) {
 
 async function main() {
   const [cmd = 'start', ...rest] = process.argv.slice(2);
-  // `move` takes two positionals (symbol, percent) before any option.
-  const opts = parseArgs(rest.slice(cmd === 'move' ? 2 : 0).filter((a) => a !== '__run'));
+  // `move` takes two positionals (symbol, percent) before any option; `hold` and `release` take one (symbol).
+  const positionals = cmd === 'move' ? 2 : cmd === 'hold' || cmd === 'release' ? 1 : 0;
+  const opts = parseArgs(rest.slice(positionals).filter((a) => a !== '__run'));
   let guard;
   try {
     guard = assertLocalTarget({ urls: [opts.edge] });
@@ -1614,11 +1671,38 @@ async function main() {
   if (cmd === 'unshift') {
     // Every `move` cleared at once, so a journey file that moved a price and stopped part-way leaves no shift for the
     // next file (journey.mjs, worldBetweenFiles). The running loop quotes the walk again from its next cycle.
+    // A hold goes too, so a journey that held a market and stopped part-way leaves it quoting for the next file.
     const shifts = readShifts(p);
     const cleared = [...shifts.keys()];
+    const released = [...readHolds(p).keys()];
     fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(p.shiftFile, JSON.stringify({}), { mode: 0o600 });
-    return console.log(cleared.length ? `TEST PRICE shift cleared for ${cleared.join(', ')}` : 'no TEST PRICE shift to clear');
+    fs.writeFileSync(p.holdFile, JSON.stringify({}), { mode: 0o600 });
+    console.log(cleared.length ? `TEST PRICE shift cleared for ${cleared.join(', ')}` : 'no TEST PRICE shift to clear');
+    return console.log(released.length ? `hold released for ${released.join(', ')}` : 'no hold to release');
+  }
+  if (cmd === 'hold' || cmd === 'release') {
+    const [symbol] = rest;
+    if (!TEST_PRICES[symbol]) die(`${cmd} needs a TEST market (${Object.keys(TEST_PRICES).join(', ')})`, 2);
+    const holds = readHolds(p);
+    const askedAt = Date.now();
+    if (cmd === 'hold') holds.set(symbol, askedAt);
+    else holds.delete(symbol);
+    fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(p.holdFile, JSON.stringify(Object.fromEntries(holds)), { mode: 0o600 });
+    if (cmd === 'release') return console.log(`${symbol} released; the running market quotes it from its next cycle`);
+    if (!runningPid(p)) return console.log(`${symbol} held; the test market is not running, so nothing quotes it`);
+    // A cycle part-way through may still be quoting it; the hold is in force once a cycle that started after it.
+    const until = askedAt + 4 * opts.seconds * 1000 + 60_000;
+    while (!holdTaken(readHeld(p), symbol, askedAt)) {
+      if (Date.now() > until || !runningPid(p)) {
+        holds.delete(symbol);
+        fs.writeFileSync(p.holdFile, JSON.stringify(Object.fromEntries(holds)), { mode: 0o600 });
+        die(`${symbol}: no cycle of the running test market passed it by in time; hold withdrawn (see ${p.log})`);
+      }
+      await sleep(250);
+    }
+    return console.log(`${symbol} held: its quotes rest as they are and nothing crosses them until release`);
   }
   if (cmd === 'move') {
     const [symbol, pct] = rest;
@@ -1647,7 +1731,8 @@ async function main() {
     console.log(`was running (pid ${rec.pid}) and is not now; starting it again with the same options`);
     return startBackground(p, rec.args ?? [], { wait: false });
   }
-  if (cmd !== 'start') die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift`, 2);
+  if (cmd !== 'start')
+    die(`unknown command "${cmd}". Use: start | stop | status | ensure | check | history | move | unshift | hold | release`, 2);
   await startBackground(p, rest, { wait: true });
 }
 

@@ -25,6 +25,8 @@ import {
   quoteOrder,
   crossesOn,
   quotesInTheWay,
+  quotesThisCycle,
+  holdTaken,
   stackNotActive,
   STACK_INACTIVE_LIMIT_MS,
   fromScaled,
@@ -78,6 +80,23 @@ try {
   ]) {
     assert.throws(() => assertLocalTarget({ home, urls: [url] }), GuardError, url);
   }
+
+  // 4b. A hold with no maker running is saved and returns; release and unshift clear it.
+  const holdFile = join(state, 'run', 'market-hold.json');
+  r = run(home, ['hold', 'BTC/USDT']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /BTC\/USDT held; the test market is not running/);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(holdFile, 'utf8'))['BTC/USDT']));
+  r = run(home, ['release', 'BTC/USDT']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {});
+  run(home, ['hold', 'BTC/USDT']);
+  r = run(home, ['unshift']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /hold released for BTC\/USDT/);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {});
+  r = run(home, ['hold', 'NOPE/USDT']);
+  assert.equal(r.status, 2, r.stderr);
   // 5. Through the command line as well: a real-looking target never gets past the guard.
   r = run(home, ['start', '--edge-url', 'https://api.intafaced.com']);
   assert.equal(r.status, 1, r.stderr);
@@ -567,6 +586,20 @@ assert.equal(shiftedMid(toScaled('1'), 200n, toScaled('0.0001')), toScaled('1.02
 assert.equal(shiftedMid(toScaled('65000'), -600n, toScaled('0.01')), toScaled('61100'));
 assert.equal(shiftedMid(toScaled('1.00005'), 0n, toScaled('0.0001')), toScaled('1.00005'));
 assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled('1'));
+
+// A held market is not quoted (no new ladder, no crossing); every other market is. The hold is in force only once a
+// cycle that started after it was asked for has passed the market by (J-cex-spot-03 #8, #7490).
+{
+  const holds = new Map([['BTC/USDT', 1_000]]);
+  assert.equal(quotesThisCycle('BTC/USDT', holds), false);
+  assert.equal(quotesThisCycle('ETH/USDT', holds), true);
+  assert.equal(quotesThisCycle('BTC/USDT', new Map()), true);
+  assert.equal(holdTaken({}, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 999 }, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 1_000 }, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 1_001 }, 'BTC/USDT', 1_000), true);
+  assert.equal(holdTaken({ 'ETH/USDT': 2_000 }, 'BTC/USDT', 1_000), false);
+}
 
 // A maker restart is ready only once its newest run has quoted every market it named, the perpetual (quoted last) too.
 {
