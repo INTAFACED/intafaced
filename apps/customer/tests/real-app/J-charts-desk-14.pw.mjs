@@ -361,8 +361,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   // Money line: a ladder order holds exactly as a desk order. A buy from the ask column at a price under the touch rests;
   // once confirmed, the USDT held grows by exactly what the review said, and the same order typed on the desk's ticket
   // is checked to the same hold.
-  const before = await (await api(who)).get('/api/v1/balance');
-  expect(before.status).toBe(200);
+  const before = await (await api(who)).balances();
   // The ladder's lowest bid row, clicked in the ask column: a buy limit under the touch, so it rests on the book.
   const lowest = rows().last();
   const restPrice = await lowest.getAttribute('data-price');
@@ -392,8 +391,8 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   await expect
     .poll(async () => (await openOrders(who)).some((o) => same(o.price, reviewedPrice) && same(o.amount, SMALL) && o.side === 'buy'))
     .toBe(true);
-  const after = await (await api(who)).get('/api/v1/balance');
-  expect(held(after.body, 'USDT') - held(before.body, 'USDT')).toBe(toUnits(hold));
+  const after = await (await api(who)).balances();
+  expect(held(after, 'USDT') - held(before, 'USDT')).toBe(toUnits(hold));
   // One order went, with the review's own number.
   expect(sent).toHaveLength(1);
 });
