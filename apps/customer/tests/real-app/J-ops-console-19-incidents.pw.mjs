@@ -52,9 +52,9 @@ test('J-ops-console-19 #10 declare an incident: pending, private, one note, task
 
     // Declared with no severity: pending.
     const declare = a.getByTestId('incident-declare');
-    await declare.getByLabel('Title').fill(`TEST ledger replica lag ${tag}`);
-    await declare.getByLabel('Module affected').selectOption('ledger');
-    await declare.getByRole('button', { name: 'Declare the incident' }).click();
+    await declare.getByLabel('Title', { exact: true }).fill(`TEST ledger replica lag ${tag}`);
+    await declare.getByLabel('Module affected', { exact: true }).selectOption('ledger');
+    await declare.getByRole('button', { name: 'Declare the incident', exact: true }).click();
     await a.waitForURL((url) => /^\/incidents\/[0-9a-f-]{36}$/.test(url.pathname), { timeout: 60_000 });
     const incidentId = a.url().split('/').pop();
     await expect(a.getByTestId('incident-severity')).toHaveText('pending');
@@ -80,22 +80,22 @@ test('J-ops-console-19 #10 declare an incident: pending, private, one note, task
 
     // A task for someone who does not take part refuses; invited, they can be given it, and the timeline shows both.
     const task = a.getByTestId('incident-task');
-    await task.getByLabel('Task').fill('TEST check the replica');
-    await task.getByLabel('Assignee user id').fill(founderB.userId);
-    await task.getByRole('button', { name: 'Add the task' }).click();
+    await task.getByLabel('Task', { exact: true }).fill('TEST check the replica');
+    await task.getByLabel('Assignee user id', { exact: true }).fill(founderB.userId);
+    await task.getByRole('button', { name: 'Add the task', exact: true }).click();
     await expect(task.getByTestId('incident-outcome')).toHaveAttribute('data-code', 'ops.assignee_not_participant');
     await expect(a.getByTestId('incident-tasks')).toContainText('No tasks.');
     const invite = a.getByTestId('incident-invite');
-    await invite.getByLabel('User id to invite').fill(founderB.userId);
-    await invite.getByRole('button', { name: 'Invite' }).click();
+    await invite.getByLabel('User id to invite', { exact: true }).fill(founderB.userId);
+    await invite.getByRole('button', { name: 'Invite', exact: true }).click();
     await expect(a.getByTestId('incident-participants').locator(`li[data-user="${founderB.userId}"]`)).toBeVisible();
-    await task.getByLabel('Task').fill('TEST check the replica');
-    await task.getByLabel('Assignee user id').fill(founderB.userId);
-    await task.getByRole('button', { name: 'Add the task' }).click();
+    await task.getByLabel('Task', { exact: true }).fill('TEST check the replica');
+    await task.getByLabel('Assignee user id', { exact: true }).fill(founderB.userId);
+    await task.getByRole('button', { name: 'Add the task', exact: true }).click();
     await expect(a.getByTestId('incident-tasks').locator(`li[data-assignee="${founderB.userId}"]`)).toContainText('open');
 
     // Resolving stores the end time; resolving again refuses.
-    await a.getByTestId('incident-resolve').getByRole('button', { name: 'Resolve the incident' }).click();
+    await a.getByTestId('incident-resolve').getByRole('button', { name: 'Resolve the incident', exact: true }).click();
     await expect(a.getByTestId('incident-status')).toHaveText('resolved');
     const startedAt = await a.getByTestId('incident-started').getAttribute('data-at');
     const endedAt = await a.getByTestId('incident-ended').getAttribute('data-at');
