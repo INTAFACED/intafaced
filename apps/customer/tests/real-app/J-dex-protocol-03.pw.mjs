@@ -227,6 +227,8 @@ test(`${J} #3 chooses a standing allowance with an expiry: the expiry is shown; 
   await expect
     .poll(async () => (await chain.getBlock()).timestamp, { timeout: 150_000, message: `chain time passes ${expiration}` })
     .toBeGreaterThan(BigInt(expiration));
+  // The quote has outlived its lifetime by now; the person reads it again, as the form asks, then presses Swap.
+  await swap(page).getByRole('button', { name: 'Refresh quote' }).click();
   await swapButton(page).click();
   await expect(swap(page).getByRole('alert')).toContainText('The standing allowance expired', { timeout: 15_000 });
   const pull = [wallet.address, routerV2, 1n, TOKEN_A.address];

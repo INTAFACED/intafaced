@@ -194,6 +194,8 @@ export const protocolBuildSwapV2OutputSchema = z
     quoted: z.array(units),
     deadline: units,
     blockNumber: units,
+    /** With `simulate`: the gas the call used in the simulation plus a fifth, as the wallet's gas limit; else null. */
+    gas: units.nullable(),
   })
   .strict();
 export type ProtocolBuildSwapV2Output = z.infer<typeof protocolBuildSwapV2OutputSchema>;

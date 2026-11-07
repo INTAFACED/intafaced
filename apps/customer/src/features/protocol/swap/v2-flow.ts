@@ -102,7 +102,6 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
   let standing: { amount: string; expiration: string; nonce: number; sigDeadline: string } | null = null;
   let pull: 'allowance' | 'standing' | 'native' = input.native ? 'native' : 'allowance';
   let usesStanding = false;
-  let approveSteps = 0;
   const limitsInput = {
     maxHops: input.maxHops,
     ...(input.kind === 'exact_in' ? { minOutPerHop: input.minOutPerHop.map(String) } : {}),
@@ -129,7 +128,6 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
             ...input.fee,
           },
         });
-        approveSteps += 1;
       }
     } else if (input.allowance === 'permit') {
       const permit = await api.buildPermit({
@@ -190,7 +188,6 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
             label: input.labels.permitContract(amountText, tokenIn.name),
             request: { kind: 'transaction', to: call.to, data: call.data, ...input.fee },
           });
-          approveSteps += 1;
         }
         if (permit.data.tokenPermit) {
           steps.push({ label: input.labels.permitContract(amountText, tokenIn.name), sign: permit.data.tokenPermit });
@@ -241,8 +238,8 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
         ...limitsInput,
         ...(tokenPermit ? { tokenPermit: { ...tokenPermit, signature: signatures[0]! } } : {}),
         ...(standing ? { standing: { ...standing, signature: signatures[signs - 1]! } } : {}),
-        // Checked against the chain first unless an approve transaction mined just now is what makes it valid.
-        simulate: approveSteps === 0,
+        // Checked against the chain first: every approve step before it is already mined when this runs.
+        simulate: true,
       });
       if (!built.ok) return { ok: false, message: built.message };
       return {
@@ -252,6 +249,7 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
           to: built.data.call.to,
           data: built.data.call.data,
           ...(built.data.call.value !== '0' ? { value: hex(built.data.call.value) } : {}),
+          ...(built.data.gas !== null ? { gas: hex(built.data.gas) } : {}),
           ...input.fee,
         },
       };
