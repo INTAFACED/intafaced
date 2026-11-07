@@ -169,6 +169,12 @@ export const SUITES = [
     sources: ['liquidity/LiquidityPool.sol', 'liquidity/LiquidityFactory.sol', 'liquidity/LiquidityRouter.sol', 'amm/IERC20Minimal.sol'],
   },
   {
+    name: 'liquidity-incentives',
+    expect: 'compiles',
+    /** D-liquidity-09: on-chain liquidity mining, funded by an incentivizer's own wallet. Its own suite. */
+    sources: ['liquidity/LiquidityIncentives.sol', 'amm/IERC20Minimal.sol'],
+  },
+  {
     name: 'oracle',
     expect: 'compiles',
     /** S-A12 — fail-closed dual-source marks. Never reads AMM. */
