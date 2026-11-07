@@ -141,6 +141,7 @@ export function CopyBotsPauseDesk({ initial, userId }: { initial: Outcome<PauseD
       {read.kind !== 'ok' ? <OutcomeNotice outcome={read} /> : null}
       {notice ? <OutcomeNotice outcome={notice.outcome} doneText={notice.doneText} /> : null}
 
+      {/* Each label holds only its own words, beside its field: a label around a select would carry every option's text. */}
       <form aria-label="Pause or resume" onSubmit={(e) => e.preventDefault()} className="flex flex-wrap items-end gap-3">
         <span className="flex flex-col gap-1 text-sm">
           <span className="text-fg-2">Change</span>
@@ -148,23 +149,29 @@ export function CopyBotsPauseDesk({ initial, userId }: { initial: Outcome<PauseD
             {OP_TEXT[op]}
           </Badge>
         </span>
-        <label htmlFor={ids.scope} className="flex flex-col gap-1 text-sm">
-          <span className="text-fg-2">Scope</span>
+        <div className="flex flex-col gap-1 text-sm">
+          <label htmlFor={ids.scope} className="text-fg-2">
+            Scope
+          </label>
           <select id={ids.scope} className={field} value={kind} onChange={(e) => setKind(e.target.value as PauseScopeKind)}>
             <option value="lead">Lead</option>
             <option value="bot_type">Bot type</option>
             <option value="symbol">Symbol</option>
           </select>
-        </label>
+        </div>
         {kind === 'lead' ? (
-          <label htmlFor={ids.lead} className="flex flex-col gap-1 text-sm">
-            <span className="text-fg-2">Lead</span>
+          <div className="flex flex-col gap-1 text-sm">
+            <label htmlFor={ids.lead} className="text-fg-2">
+              Lead
+            </label>
             <input id={ids.lead} className={field} value={lead} onChange={(e) => setLead(e.target.value)} autoComplete="off" />
-          </label>
+          </div>
         ) : null}
         {kind === 'bot_type' ? (
-          <label htmlFor={ids.bot} className="flex flex-col gap-1 text-sm">
-            <span className="text-fg-2">Bot type</span>
+          <div className="flex flex-col gap-1 text-sm">
+            <label htmlFor={ids.bot} className="text-fg-2">
+              Bot type
+            </label>
             <select id={ids.bot} className={field} value={botType} onChange={(e) => setBotType(e.target.value)}>
               {BOT_TYPES.map((b) => (
                 <option key={b.value} value={b.value}>
@@ -172,13 +179,15 @@ export function CopyBotsPauseDesk({ initial, userId }: { initial: Outcome<PauseD
                 </option>
               ))}
             </select>
-          </label>
+          </div>
         ) : null}
         {kind === 'symbol' ? (
-          <label htmlFor={ids.symbol} className="flex flex-col gap-1 text-sm">
-            <span className="text-fg-2">Symbol</span>
+          <div className="flex flex-col gap-1 text-sm">
+            <label htmlFor={ids.symbol} className="text-fg-2">
+              Symbol
+            </label>
             <input id={ids.symbol} className={field} value={symbol} onChange={(e) => setSymbol(e.target.value)} autoComplete="off" />
-          </label>
+          </div>
         ) : null}
         <Button
           size={32}
