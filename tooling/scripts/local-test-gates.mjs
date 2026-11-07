@@ -18,6 +18,7 @@
  *   node tooling/scripts/local-test-gates.mjs futures    list the TEST perpetual, publish TEST derivatives terms and quiz
  *   node tooling/scripts/local-test-gates.mjs halt <SYMBOL>    halt one book in matching (two-person approval)
  *   node tooling/scripts/local-test-gates.mjs engine-drop <SYMBOL> <orderId>   LOCAL TEST fault: one resting order leaves the book and its cancel is lost (restarts trade; trade keeps its hold)
+ *   node tooling/scripts/local-test-gates.mjs dca-drop-record                  LOCAL TEST fault: svc-dex's keeper sends its next recurring-buy round on the TEST chain and loses its record (J-dex-protocol-11 #3)
  *   node tooling/scripts/local-test-gates.mjs trade-audit --kind <k> --account <userId>   svc-trade operator audit rows, as one JSON line
  *   node tooling/scripts/local-test-gates.mjs adapter-status   read-only: svc-fix's and svc-ws's own status, read from each adapter, as one JSON line
  *   node tooling/scripts/local-test-gates.mjs resume <SYMBOL>  resume a halted book (two-person approval)
@@ -3395,6 +3396,12 @@ async function main() {
       if (!symbol) die(`usage: local-test-gates.mjs ${cmd} <SYMBOL>, for example ETH/USDT`, 2);
       const r = await setBookHalt(ctx, symbol, cmd === 'halt');
       say(`  ${r.symbol} ${r.halted ? 'halted' : 'resumed'} (approval ${r.approvalId})`);
+    } else if (cmd === 'dca-drop-record') {
+      // A marker svc-dex's keeper reads only in dev and test: its next round is sent, and its record is not written.
+      const dir = path.join(ctx.guard.stateDir, 'data', 'dex-orders');
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(dir, 'dca-drop-record'), `${new Date().toISOString()}\n`, { mode: 0o600 });
+      say('  recurring buy: the next round svc-dex sends loses its record (LOCAL TEST fault, once)');
     } else if (cmd === 'engine-drop') {
       const [symbol, orderId] = process.argv.slice(3);
       if (!symbol || !orderId) die('usage: local-test-gates.mjs engine-drop <SYMBOL> <orderId>', 2);

@@ -22,6 +22,8 @@ import {
   type OrderSession,
   type OrdersApi,
 } from './orders-api';
+import { RecurringPanel } from './RecurringPanel';
+import { recurringCopy } from './recurring-copy';
 import { VaultPanel } from './VaultPanel';
 import '../protocol.css';
 
@@ -47,6 +49,8 @@ export interface OrdersContext {
   /** Bumps after any change, so the vault and the list read again. */
   readonly revision: number;
   readonly changed: () => void;
+  /** The order session, signed now when there is none; a string is the words for why it could not be. */
+  readonly ensureSession: () => Promise<OrderSession | string>;
 }
 
 /**
@@ -131,7 +135,26 @@ export function OrdersRoom() {
     [t],
   );
 
-  const ctx: OrdersContext | null = address ? { api, address, session, t, gated, send, revision, changed } : null;
+  const signer = useRef(wallet.sign);
+  signer.current = wallet.sign;
+  const ensureSession = useCallback(async (): Promise<OrderSession | string> => {
+    if (!address) return t('connectBody');
+    if (session) return session;
+    const written = await api.challenge({ address, chainId: APP_CHAIN_ID });
+    if (!written.ok) return refusalWords(t, written);
+    const signed = await signer.current({ kind: 'typedData', typedData: written.data.typedData });
+    if (signed.status === 'rejected') return t('sessionRejected');
+    if (signed.status !== 'signed') return t('sessionWallet', { message: signed.status === 'failed' ? signed.message : '' });
+    const opened = await api.verify({ challenge: written.data.challenge, signature: signed.signature });
+    if (!opened.ok) return refusalWords(t, opened);
+    rememberSession(opened.data);
+    setSession(opened.data);
+    return opened.data;
+  }, [address, session, api, t]);
+  const r = recurringCopy.forLocale(language).t;
+  const [tab, setTab] = useState<'orders' | 'recurring'>('orders');
+
+  const ctx: OrdersContext | null = address ? { api, address, session, t, gated, send, revision, changed, ensureSession } : null;
   return (
     <Page eyebrow={t('eyebrow')} title={t('title')} description={t('description')}>
       {!ctx ? (
@@ -153,10 +176,34 @@ export function OrdersRoom() {
               }}
             />
           )}
-          <SessionPanel ctx={ctx} onSession={setSession} />
-          <VaultPanel ctx={ctx} />
-          <OrderForm ctx={ctx} />
-          <OrderList ctx={ctx} />
+          <div role="tablist" aria-label={r('tabs')} className="tabs">
+            {(['orders', 'recurring'] as const).map((id) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                id={`orders-tab-${id}`}
+                aria-controls={`orders-panel-${id}`}
+                aria-selected={tab === id}
+                className={tab === id ? 'selected' : ''}
+                onClick={() => setTab(id)}
+              >
+                {id === 'orders' ? r('tabOrders') : r('tab')}
+              </button>
+            ))}
+          </div>
+          {tab === 'orders' ? (
+            <div role="tabpanel" id="orders-panel-orders" aria-labelledby="orders-tab-orders">
+              <SessionPanel ctx={ctx} onSession={setSession} />
+              <VaultPanel ctx={ctx} />
+              <OrderForm ctx={ctx} />
+              <OrderList ctx={ctx} />
+            </div>
+          ) : (
+            <div role="tabpanel" id="orders-panel-recurring" aria-labelledby="orders-tab-recurring">
+              <RecurringPanel ctx={ctx} />
+            </div>
+          )}
         </>
       )}
     </Page>

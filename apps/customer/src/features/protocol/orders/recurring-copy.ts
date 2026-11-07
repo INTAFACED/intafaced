@@ -43,6 +43,7 @@ const en = {
   nextFill: 'Next fill',
   nextNone: 'No more rounds',
   band: 'Price band: {low} to {high} {unit}',
+  bandLabel: 'Price band',
   bandNone: 'No price band',
   roundsTable: 'Rounds',
   round: 'Round {n}',
