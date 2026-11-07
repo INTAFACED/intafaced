@@ -31,6 +31,10 @@ export type AgentErrorCode =
   | 'agents.ops_sessions_limit_unset'
   | 'agents.session_mine_limit_unset'
   | 'agents.cursor_invalid'
+  /** A dashboard range end is blank: no default window is invented (AG-analytics-01). */
+  | 'agents.analytics_range_unset'
+  /** A dashboard range end is not a UTC day, or the range ends before it starts. */
+  | 'agents.analytics_range_invalid'
   | 'agents.fee_asset_unset'
   | 'agents.spend_limit_unset'
   | 'agents.spend_limit_invalid'
@@ -125,6 +129,8 @@ export const AGENT_ERROR_CODES: readonly AgentErrorCode[] = [
   'agents.kb_search_limit_unset',
   'agents.tickers_limit_unset',
   'agents.navigator_markets_limit_unset',
+  'agents.analytics_range_unset',
+  'agents.analytics_range_invalid',
 ] as const;
 
 /** Owner-published page size. Blank / non-finite / <1 refuses. Never invent 100. */

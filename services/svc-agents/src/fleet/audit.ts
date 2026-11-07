@@ -229,15 +229,53 @@ export class AuditLog {
    * problem rather than a refactor (§9 i18n) — and what keeps this service from
    * ever being the thing that put a vendor's name on a screen.
    */
-  async forUser(userId: string, limit: number): Promise<AuditedAction[]> {
+  async forUser(userId: string, limit: number, status: ActionStatus | null = null): Promise<AuditedAction[]> {
     const page = assertUserLogPageLimit(limit);
     const rows = await this.sql<ActionRow[]>`
       SELECT * FROM agents.agent_actions
        WHERE user_id = ${userId}
+         AND (${status}::text IS NULL OR status = ${status}::agents.action_status)
        ORDER BY occurred_at DESC, sequence DESC
        LIMIT ${page}
     `;
     return rows.map(toAction);
+  }
+
+  /**
+   * The person's whole log a page at a time, newest first, for an export (AG-audit-01): the rows after `after` (the
+   * last row of the previous page by time, session and sequence), optionally only one outcome. Blank limit refuses.
+   */
+  async forUserAfter(
+    userId: string,
+    input: {
+      status: ActionStatus | null;
+      after: { at: string; sessionId: string; sequence: number } | null;
+      limit: number;
+    },
+  ): Promise<AuditedAction[]> {
+    const page = assertUserLogPageLimit(input.limit);
+    const at = input.after?.at ?? null;
+    const sessionId = input.after?.sessionId ?? null;
+    const sequence = input.after?.sequence ?? null;
+    const rows = await this.sql<ActionRow[]>`
+      SELECT * FROM agents.agent_actions
+       WHERE user_id = ${userId}
+         AND (${input.status}::text IS NULL OR status = ${input.status}::agents.action_status)
+         AND (${at}::timestamptz IS NULL
+              OR (occurred_at, session_id, sequence) < (${at}::timestamptz, ${sessionId}::uuid, ${sequence}::int))
+       ORDER BY occurred_at DESC, session_id DESC, sequence DESC
+       LIMIT ${page}
+    `;
+    return rows.map(toAction);
+  }
+
+  /** How many of the person's log rows there are, optionally of one outcome only. */
+  async countForUser(userId: string, status: ActionStatus | null): Promise<number> {
+    const [row] = await this.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM agents.agent_actions
+       WHERE user_id = ${userId} AND (${status}::text IS NULL OR status = ${status}::agents.action_status)
+    `;
+    return row?.n ?? 0;
   }
 
   /**
