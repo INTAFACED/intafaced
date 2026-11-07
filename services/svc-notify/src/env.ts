@@ -302,6 +302,14 @@ const schema = serviceEnvSchema
        */
       NOTIFY_ALERT_TRIGGER_LOG_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
 
+      /**
+       * The owner's account plan table (BK-acct-04): the one owner value svc-bank also reads, set once for both.
+       * `{ "defaultPlanId", "plans": [{ "id", "name", … }] }`. Alert quotas are set per plan on the charts settings page
+       * (J-charts-desk-18 #6). NO DEFAULT: blank or not in shape, no plan quota applies, the page says the plans are not set,
+       * and the deployment's NOTIFY_ALERT_MAX_ACTIVE_PRICE still holds.
+       */
+      BANK_PLANS_JSON: z.string().optional(),
+
       /** Days a notification row is kept. Blank / unset keeps every row, and `inboxPolicy` says so. */
       NOTIFY_INBOX_RETENTION_DAYS: blankAsAbsent(z.coerce.number().int().min(1).max(3650).optional()),
 

@@ -200,6 +200,11 @@
       "service": "bank",
       "value": "{\"assetId\": \"IFC\", \"rates\": {\"none\": 100, \"standard\": 150, \"metal\": 200, \"obsidian\": 300}}",
       "note": "TEST cashback rates by rank card tier, paid in IFC on spend from an IFC card (J-bank-13 #7): 1%, 1.5%, 2% and 3%. Made up for the local test stack; not an owner decision."
+    },
+    "BANK_PLANS_JSON": {
+      "service": "bank",
+      "value": "{\"defaultPlanId\": \"standard\", \"plans\": [{\"id\": \"standard\", \"name\": \"TEST Standard\", \"tier\": \"standard\", \"price\": \"0\", \"assetId\": \"USDT\", \"period\": \"month\"}, {\"id\": \"plus\", \"name\": \"TEST Plus\", \"tier\": \"plus\", \"price\": \"4.99\", \"assetId\": \"USDT\", \"period\": \"month\"}]}",
+      "note": "TEST plan table (J-bank-16 #6): a free TEST Standard plan everyone starts on and a TEST Plus plan at 4.99 TEST USDT a month, so the plan page can read a tier and its billing. Made up for the local test stack; not an owner decision or a price."
     }
   }
 }
