@@ -115,7 +115,7 @@ That is a **worse lie than the "Systems nominal" constant it was written to repl
 
 ### The doctrine moves too
 
-`INTAFACED_DEFINITIVE_BUILD.md` §5.3 is literally titled `apps/web — Trade surfaces`. Per `CLAUDE.md` that file **is** the law and wins on ambiguity, so retiring the directory without amending §5.3 leaves the doctrine and the tree contradicting each other — and the doctrine wins, which would make the deletion the thing that is wrong. §5.3 is amended to name the vendored shell.
+`INTAFACED_DEFINITIVE_BUILD.md` (now private: INTAFACED/project-state `product/`) §5.3 is literally titled `apps/web — Trade surfaces`. Per `CLAUDE.md` that file **is** the law and wins on ambiguity, so retiring the directory without amending §5.3 leaves the doctrine and the tree contradicting each other — and the doctrine wins, which would make the deletion the thing that is wrong. §5.3 is amended to name the vendored shell.
 
 ### Compose and the `:3000` door
 

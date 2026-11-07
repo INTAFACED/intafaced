@@ -87,6 +87,7 @@ const ICON: Record<ActivityKind, LucideIcon> = {
   transfer_in: ArrowDownLeft,
   transfer_out: ArrowUpRight,
   trade: Repeat,
+  convert: Repeat,
   fee: Receipt,
   payment: CreditCard,
   withdrawal: ArrowUpFromLine,

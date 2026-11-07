@@ -14,7 +14,7 @@ import { api } from './stack.mjs';
 // check, Growth drafts and Risk and compliance ("Staff only").
 // #1, #2 and #5 are red by name (BLOCKED below; D's ruling 2026-10-31 by product law): the Portfolio, Launch and Growth
 // agents are v2, "Doctrine names only — no factory until product law" (services/svc-agents/README.md:313;
-// INTAFACED_DEFINITIVE_BUILD.md:388), so no rebalance proposal, run history or draft is built for them. Each step
+// INTAFACED/project-state product/INTAFACED_DEFINITIVE_BUILD.md:388, private), so no rebalance proposal, run history or draft is built for them. Each step
 // first asserts what the app does today, then fails with its name.
 // #3 is not built yet and fails at its first missing part, quickly (UNBUILT): leader cards have no Copy-Intel stats or
 // audited badge (RC-agents-07).

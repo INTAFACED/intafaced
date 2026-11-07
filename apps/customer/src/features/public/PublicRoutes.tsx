@@ -24,6 +24,7 @@ import { LabPage } from './LabPage';
 import { OfficialChannels } from './OfficialChannels';
 import { FeesPage } from './FeesPage';
 import { MyTierPage } from './MyTierPage';
+import { RulebookRoom } from './rulebook/RulebookRoom';
 import { pagesCopy } from './public-pages-copy';
 import { StatusPage } from './StatusPage';
 import { StatusSubscriptionPage } from './StatusSubscription';
@@ -136,6 +137,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <FeesPage />
         ) : path === '/fees/my-tier' ? (
           <MyTierPage />
+        ) : path === '/rulebook' ? (
+          <RulebookRoom />
         ) : path === '/app' ? (
           <AppPage />
         ) : path === '/lab' ? (
