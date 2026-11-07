@@ -37,3 +37,61 @@ export type KycCase = z.infer<typeof kycCaseSchema>;
 
 export const kycHistoryOutputSchema = z.object({ cases: z.array(kycCaseSchema) });
 export type KycHistory = z.infer<typeof kycHistoryOutputSchema>;
+
+/**
+ * The verification review queue (I-kyc-compliance-02, J-identity-20 #1 #2), compliance only. `kyc.review.list` gives the
+ * open (submitted) cases oldest first, one page of the owner's page size at a time, with `nextCursor` null on the last
+ * page. A case has at most one reviewer: `kyc.review.assign` claims it by compare-and-set, and a case another reviewer
+ * holds refuses `kyc.case_assigned`. `kyc.review.case` is one case for review: the case as the person sees it, the owner's
+ * reject reasons, and the reviewers' internal notes, which are never in anything the customer reads.
+ */
+export const kycReviewQueueRowSchema = z.object({
+  caseId: z.string().guid(),
+  recordId: z.string().guid(),
+  userId: z.string().guid(),
+  tier: z.enum(['none', 'basic', 'full', 'institutional']),
+  jurisdiction: z.string().max(64),
+  submittedAt: isoSchema,
+  assignedTo: z.string().nullable(),
+  assignedAt: isoSchema.nullable(),
+});
+export type KycReviewQueueRow = z.infer<typeof kycReviewQueueRowSchema>;
+
+export const kycReviewListInputSchema = z.object({ cursor: z.string().min(1).max(200).nullish() });
+export const kycReviewListOutputSchema = z.object({
+  pageSize: z.number().int().min(1).max(200),
+  cases: z.array(kycReviewQueueRowSchema),
+  nextCursor: z.string().nullable(),
+});
+export type KycReviewList = z.infer<typeof kycReviewListOutputSchema>;
+
+export const kycReviewAssignInputSchema = z.object({ caseId: z.string().guid(), action: z.enum(['claim', 'release']) });
+export const kycReviewAssignmentSchema = z.object({
+  caseId: z.string().guid(),
+  assignedTo: z.string().nullable(),
+  assignedAt: isoSchema.nullable(),
+});
+export type KycReviewAssignment = z.infer<typeof kycReviewAssignmentSchema>;
+
+export const kycReviewNoteSchema = z.object({
+  id: z.string().guid(),
+  authorId: z.string(),
+  body: z.string().min(1).max(2000),
+  at: isoSchema,
+});
+export type KycReviewNote = z.infer<typeof kycReviewNoteSchema>;
+
+export const kycReviewCaseInputSchema = z.object({ caseId: z.string().guid() });
+export const kycReviewCaseSchema = z.object({
+  userId: z.string().guid(),
+  recordStatus: z.enum(['pending', 'approved', 'rejected', 'expired']),
+  case: kycCaseSchema,
+  assignedTo: z.string().nullable(),
+  assignedAt: isoSchema.nullable(),
+  /** The owner's reject reasons, in the owner's order. Empty when the list is unset: a reject then refuses. */
+  reasonCodes: z.array(z.object({ code: kycReasonCodeSchema, reason: z.string().min(1) })),
+  notes: z.array(kycReviewNoteSchema),
+});
+export type KycReviewCase = z.infer<typeof kycReviewCaseSchema>;
+
+export const kycReviewAddNoteInputSchema = z.object({ caseId: z.string().guid(), body: z.string().trim().min(1).max(2000) });

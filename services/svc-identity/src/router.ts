@@ -3,12 +3,24 @@ import { SignInChallengeError, type SignInAdmission, type SignInChallengeService
 import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
-import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
+import {
+  kycHistoryOutputSchema,
+  kycReasonCodeSchema,
+  kycReviewAddNoteInputSchema,
+  kycReviewAssignInputSchema,
+  kycReviewAssignmentSchema,
+  kycReviewCaseInputSchema,
+  kycReviewCaseSchema,
+  kycReviewListInputSchema,
+  kycReviewListOutputSchema,
+  kycReviewNoteSchema,
+} from '@intafaced/contracts/identity-kyc-cases';
 import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/contracts/identity-kyc-capabilities';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
+import { KycReviewError, type KycReviewDesk } from './kyc/review.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
 import {
   kycSelfieDecideInputSchema,
@@ -234,6 +246,21 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc.handoff_used':
       case 'kyc.handoff_expired':
       case 'kyc.selfie_decided':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      default:
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    }
+  }
+
+  if (err instanceof KycReviewError) {
+    switch (err.code) {
+      case 'kyc.queue_page_size_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.case_unknown':
+        return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+      case 'kyc.case_assigned':
+      case 'kyc.case_not_assigned':
+      case 'kyc.case_state':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -901,6 +928,8 @@ export function createIdentityRouter(
     kycProfile?: KycProfileDesk;
     /** Proof of address (I-kyc-compliance-11). Absent: every `kyc.proofOfAddress.*` door refuses `kyc.poa_unconfigured`. */
     kycPoa?: KycPoaDesk;
+    /** The verification review queue (I-kyc-compliance-02). Absent: every `kyc.review.*` door refuses `kyc.queue_page_size_unset`. */
+    kycReview?: KycReviewDesk;
     /** Selfie (I-kyc-compliance-09). Absent: every `kyc.selfie.*` door refuses `kyc.selfie_unconfigured`. */
     kycSelfie?: KycSelfieDesk;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
@@ -1109,6 +1138,11 @@ export function createIdentityRouter(
     if (!options.kycSelfie) throw new KycSelfieError('The selfie step is not configured', 'kyc.selfie_unconfigured');
     return options.kycSelfie;
   }
+  function requireKycReview(): KycReviewDesk {
+    if (!options.kycReview) throw new KycReviewError('The review queue is not configured', 'kyc.queue_page_size_unset');
+    return options.kycReview;
+  }
+
   function requireKycPoa(): KycPoaDesk {
     if (!options.kycPoa) throw new KycPoaError('Proof of address is not configured', 'kyc.poa_unconfigured');
     return options.kycPoa;
@@ -2599,6 +2633,64 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * The verification review queue (I-kyc-compliance-02, J-identity-20 #1 #2), compliance only, with a second factor.
+       * `list` is a page of open cases oldest first in the owner's page size; `assign` claims (compare-and-set) or releases
+       * a case, and a case another reviewer holds refuses `kyc.case_assigned`; nobody claims their own case. `case` is one
+       * case with the owner's reject reasons and the internal notes; `addNote` appends one. Notes never reach the customer.
+       * Decisions stay on `kyc.approve` and `kyc.reject`.
+       */
+      review: router({
+        list: scopedProcedure('admin:compliance')
+          .input(kycReviewListInputSchema)
+          .output(kycReviewListOutputSchema)
+          .query(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              return await requireKycReview().list(input.cursor ?? null);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        assign: scopedProcedure('admin:compliance')
+          .input(kycReviewAssignInputSchema)
+          .output(kycReviewAssignmentSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              const desk = requireKycReview();
+              assertNotOwnKyc(await desk.caseOwner(input.caseId), [ctx.principal.userId]);
+              return await desk.assign(input.caseId, ctx.principal.userId, input.action);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        case: scopedProcedure('admin:compliance')
+          .input(kycReviewCaseInputSchema)
+          .output(kycReviewCaseSchema)
+          .query(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              return await requireKycReview().read(input.caseId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        addNote: scopedProcedure('admin:compliance')
+          .input(kycReviewAddNoteInputSchema)
+          .output(kycReviewNoteSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              return await requireKycReview().addNote(input.caseId, ctx.principal.userId, input.body);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
 
       /**
        * Proof of address (I-kyc-compliance-11, J-identity-08 #5): asked for after level Basic is approved. `read` gives
