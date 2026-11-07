@@ -72,6 +72,11 @@ async function backtest(page, strategy, window) {
   return room;
 }
 
+/** Shows one of the result's views (Summary, Metrics, Checks, Orders and trades, Log, ...). */
+async function view(room, name) {
+  await room.getByRole('group', { name: 'Result views' }).getByRole('button', { name, exact: true }).click();
+}
+
 /** Runs a strategy's source as a paper run in the sandbox (TEST simulated cash) and returns the page once its result shows. */
 async function paperRun(page, source, cash = '1000') {
   await page.goto('/quant/sandbox');
@@ -171,6 +176,7 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
 
   // Each stop-loss exit is paired with the entry before it; on the bar it filled, the tape reached the take profit too.
   const bars = new Map((await closedBarsSince(window.from)).map(([at, open, high, low]) => [at, { open, high, low }]));
+  await view(room, 'Orders and trades');
   const rows = await room
     .getByTestId('quant-bar-trade')
     .evaluateAll((els) =>
@@ -197,6 +203,7 @@ test(`${J} #3 attaches a take profit and a stop loss and runs a bar that hits bo
     expect(rows.filter((r) => r.ts === exit.ts && r.cells[2] === 'Take profit')).toHaveLength(0);
   }
   // The result says the pessimistic rule applied.
+  await view(room, 'Summary');
   await expect(room.getByTestId('quant-bar-assumptions').locator('[data-assumption="stop_loss_first"]')).toHaveText(
     'A bar reached both the stop loss and the take profit; the stop loss was taken first.',
   );
@@ -370,6 +377,7 @@ test(`${J} #8 lets equity fall below the equity-stop floor: the strategy turns r
   await expect(event).toHaveAttribute('data-mode', 'reduce_only');
   expect(Number(await event.getAttribute('data-equity'))).toBeLessThan(999.99);
   const at = await event.getAttribute('data-ts');
+  await view(room, 'Orders and trades');
   const buysAfter = await room
     .getByTestId('quant-bar-trade')
     .evaluateAll((els, ts) => els.filter((el) => el.dataset.side === 'buy' && el.dataset.ts > ts).length, at);
@@ -379,6 +387,8 @@ test(`${J} #8 lets equity fall below the equity-stop floor: the strategy turns r
   // With the close-out policy: the same event, and exactly one close-out order, however many bars stay below.
   room = await floored('TEST floor close', 'close_out');
   await expect(room.getByTestId('quant-risk-event').and(page.locator('[data-kind="equity_stop"]'))).toHaveCount(1);
+  await view(room, 'Orders and trades');
   await expect(room.getByTestId('quant-bar-trade').filter({ hasText: 'Close-out' })).toHaveCount(1);
+  await view(room, 'Summary');
   await expect(room.getByTestId('quant-bar-total-openQty')).toHaveAttribute('data-value', '0');
 });
