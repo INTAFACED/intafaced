@@ -46,7 +46,7 @@
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
- *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
+ *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -467,6 +467,16 @@ export function makeIo(repo, token) {
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
     files: (n) => pullFiles((path) => api(path, token), repo, n),
+    async text(path, ref) {
+      const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
+      const res = await fetch(`https://api.github.com${url}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json' },
+        redirect: 'follow',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
+      return res.text();
+    },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
   };
 }
@@ -504,6 +514,89 @@ export async function pullFiles(get, repo, n) {
   throw new Error(`#${n} changes 3,000 files or more, which GitHub can't list whole`);
 }
 
+/**
+ * A journey test file and its journey id: `J-bank-13.pw.mjs`, or one of a journey split across files
+ * (`J-ops-console-02-documents.pw.mjs` holds J-ops-console-02's steps). Every journey id is letter-led segments and a
+ * final number (all 472 in docs/roadmap/journeys.json on 7 Nov 2026), so the id ends at the first number. Only these hold
+ * journey steps; the look sweeps and other `*.pw.mjs` files beside them do not.
+ */
+export const JOURNEY_TEST = /^apps\/customer\/tests\/real-app\/(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)(?:-[a-z0-9-]+)?\.pw\.mjs$/;
+
+/**
+ * The step keys a journey test file holds: each `test(` whose title starts with its journey id, written out
+ * (`'J-bank-13 #1 …'`) or as the file's `${J}` (`` `${J} #1 …` ``), keyed as readReport keys them.
+ */
+export function fileSteps(journey, text) {
+  const out = new Set();
+  const id = journey.replace(/[-]/g, '\\-');
+  const re = new RegExp(`\\btest(?:\\.[a-z]+)*\\(\\s*[\`'"](?:\\$\\{J\\}|${id})\\s*#(\\d+)\\b`, 'g');
+  for (const m of String(text ?? '').matchAll(re)) if (Number(m[1]) <= STEP_MAX) out.add(`${journey}#${Number(m[1])}`);
+  return [...out].sort(byStep);
+}
+
+/**
+ * A pull request that changes a journey test file says which steps it touches: for each changed file, at least one of
+ * the steps it holds is named in the title (then judged by judgeSteps) or on a strict `Left-or-replaced:` line. A
+ * title naming another journey's steps, or none, fails, and so does an exemption-like line that isn't one. `touched`:
+ * [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head removed).
+ * (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so the seal
+ * judged none of their steps; project-state #1249 comment 6681706701.)
+ */
+export function judgeTouched({ title, body, touched, repo }) {
+  if (!touched.length) return { ok: true, lines: [] };
+  // GitHub's Revert button (title `Revert "…"`, body line `Reverts owner/repo#n`) passes, as judgeSteps lets it: a red
+  // main is fixed or undone within 2 hours (project-state OWNER 180), so a revert never waits on a body line.
+  const reverts = revertOf({ title, body, repo });
+  if (reverts) return { ok: true, lines: [`a revert of #${reverts} (GitHub's Revert form): its journey tests need no steps named`] };
+  const left = exemptions(body);
+  if (left.problems.length)
+    return {
+      ok: false,
+      lines: left.problems.map(
+        (l) =>
+          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
+      ),
+    };
+  const named = new Set([...titleSteps(title), ...left.steps]);
+  const lines = [];
+  for (const { file, journey, steps } of touched) {
+    const hit = steps.filter((k) => named.has(k));
+    if (hit.length) continue;
+    lines.push(
+      steps.length
+        ? `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them: name the steps it touches in the title (\`${journey} ${steps
+            .map((k) => `#${k.split('#')[1]}`)
+            .join(' ')}\`), or leave them on a body line: ${exemptionLine(steps)}`
+        : `${file} changes a journey test, but no \`test(\` titled \`${journey} #n\` could be read in it, so the steps it touches can't be named; the seal fails closed`,
+    );
+  }
+  return { ok: lines.length === 0, lines };
+}
+
+/** The pull request a GitHub revert undoes: the title is exactly `Revert "…"` and a body line, at column 0, is exactly
+ *  `Reverts <this repo>#n`, as GitHub's Revert button writes them. Null for anything else. */
+export function revertOf({ title, body, repo }) {
+  if (!isRevert(title) || !repo) return null;
+  const esc = String(repo).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`^Reverts ${esc}#(\\d+)[ \\t]*$`, 'm').exec(String(body ?? '').replace(/\r/g, ''));
+  return m ? Number(m[1]) : null;
+}
+
+/** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
+ *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
+export async function touchedSteps({ paths, head, base, text }) {
+  const out = [];
+  for (const file of [...new Set(paths)].sort()) {
+    const m = JOURNEY_TEST.exec(file);
+    if (!m) continue;
+    let t = await text(file, head);
+    if (t === null) t = await text(file, base);
+    if (t === null) throw new Error(`${file} could not be read at the head or the base`);
+    out.push({ file, journey: m[1], steps: fileSteps(m[1], t) });
+  }
+  return out;
+}
+
 /** One pull request's head, judged. */
 export async function sealPull({ repo, number, sha, io, requireOpen = true, waitOnRunning = true }) {
   const pull = await io.pull(number);
@@ -512,7 +605,14 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
-  const shared = (await io.files(number)).filter(isSharedSetup);
+  const paths = await io.files(number);
+  const shared = paths.filter(isSharedSetup);
+  const touched = judgeTouched({
+    repo,
+    title: pull.title,
+    body: pull.body,
+    touched: await touchedSteps({ paths, head, base: pull.base?.sha, text: (f, ref) => io.text(f, ref) }),
+  });
   const runs = titleSteps(pull.title).length || shared.length ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
@@ -523,7 +623,12 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   const full = shared.length
     ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf: (rep, r) => io.verdictOf(rep, r), waitOnRunning })
     : { ok: true, state: 'none', lines: [] };
-  const v = { ok: steps.ok && full.ok, stepsOk: steps.ok, fullOk: full.ok, lines: [...steps.lines, ...full.lines] };
+  const v = {
+    ok: steps.ok && full.ok && touched.ok,
+    stepsOk: steps.ok && touched.ok,
+    fullOk: full.ok,
+    lines: [...steps.lines, ...touched.lines, ...full.lines],
+  };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }
 
@@ -595,13 +700,21 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
 export const namesSteps = (title) => titleSteps(title).length > 0 || titleProblems(title).length > 0;
 
 /**
- * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`).
+ * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`),
+ * and a body that has an exemption-like line now or had one before the edit (`oldBody`), so removing a line re-runs it.
  * A title edited from "fix J-bank-13" to "J-bank-13 #1-#100" is judged, so its green seal turns red.
  */
-export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', shared = new Set() }) =>
+export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', oldBody = '', shared = new Set() }) =>
   (pulls ?? [])
     .filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo)
-    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle) || shared.has(p.number));
+    .filter(
+      (p) =>
+        namesSteps(p.title) ||
+        namesSteps(oldTitle) ||
+        LOOKS_EXEMPT.test(p.body ?? '') ||
+        LOOKS_EXEMPT.test(oldBody ?? '') ||
+        shared.has(p.number),
+    );
 
 /** The open pull requests on `sha` that `recheckPulls` would not take by their title: their numbers that touch shared
  *  setup (`filesOf(n)`: the changed paths). */
@@ -618,7 +731,7 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
  * before an edit, OLD_TITLE), each with its seal re-run. A head no open pull request names is left alone.
  */
 async function recheck({ repo, token }) {
-  const { SHA, PR_NUMBER, OLD_TITLE = '' } = process.env;
+  const { SHA, PR_NUMBER, OLD_TITLE = '', OLD_BODY = '' } = process.env;
   if (!SHA40.test(SHA ?? '')) throw new Error('recheck needs SHA');
   const get = (path) => api(path, token);
   const post = async (path) => {
@@ -637,7 +750,7 @@ async function recheck({ repo, token }) {
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
   const shared = await sharedPulls({ pulls, sha: SHA, repo, filesOf: (n) => pullFiles(get, repo, n) });
-  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, shared });
+  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, oldBody: OLD_BODY, shared });
   if (!named.length)
     return console.log(`no open pull request on ${SHA} names journey steps or touches shared setup; the seal is left as it is`);
   console.log(
