@@ -19,6 +19,7 @@ import { isPublishedConnectionCeiling } from '../max-connections.js';
 import type { MuxGateway } from '../mux/gateway.js';
 import { PRIVATE_STREAM_PATH } from '../private/gateway.js';
 import { encodeL2JsonFrame } from '../sbe-l2-tape.js';
+import type { SbeConsumerHandle, SbeConsumers } from '../sbe-consumers.js';
 import type { TradeHub } from '../trade/hub.js';
 
 /**
@@ -142,6 +143,8 @@ export interface WebSocketGatewayOptions {
    * False refuses this upgrade and leaves sockets already open alone.
    */
   readonly admitNewConnection?: () => boolean;
+  /** The SBE tape's consumers, listed by the adapter status door (J-cex-spot-20 #3). Omit = not recorded. */
+  readonly sbeConsumers?: SbeConsumers;
 }
 
 export interface WebSocketGateway {
@@ -171,7 +174,7 @@ function sinkFor(socket: WebSocket): DepthSink {
   };
 }
 
-function sbeSink(socket: WebSocket, codec: SbeCodec): DepthSink {
+function sbeSink(socket: WebSocket, codec: SbeCodec, consumer?: SbeConsumerHandle): DepthSink {
   return {
     get bufferedBytes() {
       return socket.bufferedAmount;
@@ -190,6 +193,7 @@ function sbeSink(socket: WebSocket, codec: SbeCodec): DepthSink {
       for (const payload of encoded.payloads) {
         socket.send(Buffer.from(payload));
       }
+      consumer?.sent(encoded.sequence);
     },
     close(code: number, reason: string) {
       socket.close(code, closeReason(reason));
@@ -209,7 +213,20 @@ export function parseChannel(raw: string | null): StreamChannel | null {
 }
 
 export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSocketGateway {
-  const { server, hub, tradeHub, heartbeatMs, log, enabled, sbe = sbeCodec, l3Hub, l3ProbeBoundMs, mux, admitNewConnection } = options;
+  const {
+    server,
+    hub,
+    tradeHub,
+    heartbeatMs,
+    log,
+    enabled,
+    sbe = sbeCodec,
+    l3Hub,
+    l3ProbeBoundMs,
+    mux,
+    admitNewConnection,
+    sbeConsumers,
+  } = options;
 
   const wss = new WebSocketServer({
     noServer: true,
@@ -366,8 +383,10 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
       if (!sbe.linked) return writeMarketDataFeedRefuse(socket, DEPTH_SBE_UNAVAILABLE);
 
       wss.handleUpgrade(request, socket, head, (ws) => {
-        const detach = hub.attach(marketId, sbeSink(ws, sbe));
+        const consumer = sbeConsumers?.add(marketId);
+        const detach = hub.attach(marketId, sbeSink(ws, sbe, consumer));
         if (!detach) {
+          consumer?.remove();
           try {
             ws.terminate();
           } catch {
@@ -379,7 +398,10 @@ export function createWebSocketGateway(options: WebSocketGatewayOptions): WebSoc
         ws.on('pong', () => alive.add(ws));
         ws.on('message', () => undefined);
         ws.on('error', () => ws.terminate());
-        ws.on('close', detach);
+        ws.on('close', () => {
+          consumer?.remove();
+          detach();
+        });
       });
       return;
     }

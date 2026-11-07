@@ -109,6 +109,8 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.market_closed': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.mode_limit_only': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.mode_cancel_only': { ccxt: 'InvalidOrder', status: 400 },
+  'trade.mode_post_only': { ccxt: 'InvalidOrder', status: 400 },
   'trade.market_halted': { ccxt: 'BadSymbol', status: 403 },
   /**
    * Operator halt of ALL markets. New submits refuse. Cancel stays — not
@@ -267,6 +269,14 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
   'trade.buyback_book_unreadable': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.seed_must_make': { ccxt: 'InvalidOrder', status: 400 },
   'trade.convert_disabled': { ccxt: 'OnMaintenance', status: 503 },
+  /** Cash to a coin through a crypto leg: the two-leg plan is not built (J-cex-spot-11 #11). */
+  'trade.convert_two_leg_unbuilt': { ccxt: 'NotSupported', status: 501 },
+  'trade.convert_pair_unlisted': { ccxt: 'BadSymbol', status: 400 },
+  /** The owner has not set the sweep interval: like the other unset convert settings, retry once it is set. */
+  'trade.convert_limit_unset': { ccxt: 'ExchangeNotAvailable', status: 503 },
+  'trade.convert_limit_conflict': { ccxt: 'InvalidOrder', status: 409 },
+  'trade.convert_limit_not_found': { ccxt: 'OrderNotFound', status: 404 },
+  'trade.convert_limit_not_waiting': { ccxt: 'InvalidOrder', status: 409 },
   'trade.standing_instruction_disabled': { ccxt: 'OnMaintenance', status: 503 },
   'trade.convert_quote_missing': { ccxt: 'OrderNotFound', status: 404 },
   'trade.convert_quote_expired': { ccxt: 'InvalidOrder', status: 409 },

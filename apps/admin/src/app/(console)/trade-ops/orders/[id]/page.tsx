@@ -7,10 +7,14 @@ import { explainHold, findOrder, statusWord } from '@/lib/trade-ops/orders-model
 import { DeskPage } from '@/components/trade-ops/desk-page';
 import { BlockerPanel, ReadProblem } from '@/components/trade-ops/blocker-panel';
 import { OrderDetailPanels } from '@/components/trade-ops/orders-detail-panels';
+import { OrderReadView } from '@/components/trade-ops/order-read-view';
+import { OrderBust } from '@/components/trade-ops/order-bust';
+import { readOrder } from '@/lib/trade-ops/desk-reads';
 
 /**
- * One order. The only read operators have is the open-orders list, so this page finds the order there. An id that is
- * not in it is said to be outside the open projection (closed orders cannot be looked up), never "not found".
+ * One order, in any state, from svc-trade's operator read (admin.orders.get, J-cex-spot-18 #1): status, fills and the
+ * reject reason, each read written to the audit. When that read cannot be had, the page says why and falls back to the
+ * open-orders list, where an id that is not in it is said to be outside the open projection, never "not found".
  */
 export const dynamic = 'force-dynamic';
 
@@ -18,6 +22,27 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   const { session, config } = await requireFounderPage();
   const ctx = { session, config };
   const id = decodeURIComponent((await params).id);
+  const read = await readOrder(ctx, id);
+  if (read.kind === 'ok')
+    return (
+      <DeskPage
+        title="Order"
+        description={id}
+        asOf={read.asOf}
+        state="live"
+        actions={
+          <a className="text-sm underline" href="/trade-ops/orders">
+            All orders
+          </a>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <OrderReadView read={read.data} />
+          <OrderBust orderId={read.data.id} fillCount={read.data.fills.length} />
+          <OrderDetailPanels orderId={read.data.id} cancellable={false} reads={false} />
+        </div>
+      </DeskPage>
+    );
   const orders = await readOpenOrders(ctx, 500);
   const order = orders.kind === 'ok' ? findOrder(orders.data, id) : null;
   const state = orders.kind === 'ok' ? 'live' : orders.kind === 'unknown' ? 'unknown' : 'refused';
@@ -35,6 +60,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
         </a>
       }
     >
+      <ReadProblem outcome={read} title="The order read did not answer; the open-orders list is shown instead" />
       {orders.kind !== 'ok' ? (
         <ReadProblem outcome={orders} title="Open orders could not be read" />
       ) : !order ? (

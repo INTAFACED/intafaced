@@ -62,6 +62,8 @@ import { NoopDropCopyIngest, type DropCopyFillWire, type DropCopyHitchSource, ty
 import { NoSubAccounts, type SubAccountOwnershipSource } from './sub-account-ownership.js';
 import { type EmailProofSource } from './email-proof.js';
 import {
+  MATCHING_RESTING_ORDERS_PAGE,
+  MatchingUnavailableError,
   type EngineCancellation,
   type EngineFill,
   type EngineSubmitRequest,
@@ -113,6 +115,8 @@ import {
 } from './types.js';
 import * as listings from './trade-service/listings.js';
 import * as convert from './trade-service/convert.js';
+import { convertPairs, convertRoute, type ConvertPairs, type ConvertRoute } from '../convert/pairs.js';
+import * as limitConvert from './trade-service/limit-convert.js';
 import * as orderPlace from './trade-service/order-place.js';
 import * as orderChange from './trade-service/order-change.js';
 import * as fillFlow from './trade-service/fills.js';
@@ -120,6 +124,7 @@ import * as holds from './trade-service/holds.js';
 import * as events from './trade-service/events.js';
 import * as reads from './trade-service/reads.js';
 import * as reconcile from './trade-service/reconcile.js';
+import { settlementOrderId } from './oco-legs.js';
 import * as twap from './trade-service/algo.js';
 import * as buyback from './trade-service/buyback.js';
 import { orderIdFor } from './ids.js';
@@ -242,6 +247,11 @@ export interface TradeServiceOptions {
   feeSchedule?: OwnerFeeSchedule;
   /** Mirror of the `trade.convert` flag. OFF refuses convert quote + execute. */
   convertEnabled?: boolean;
+  /**
+   * How often the limit-convert sweep runs (`TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS`). Null or omitted: no sweep watches
+   * a target rate, so placing a limit convert refuses `trade.convert_limit_unset` (J-cex-spot-11 #8).
+   */
+  convertLimitSweepMs?: number | null;
   /**
    * Opens the svc-bank standing-instruction convert door. Default OFF: identity
    * must be able to decide the `standing_instruction` authority first.
@@ -557,6 +567,7 @@ export type TradeServiceInternal = { [K in keyof TradeService]: TradeService[K] 
   botVerification: TradeService['botVerification'];
   algoMarkPolicy: TradeService['algoMarkPolicy'];
   convertEnabled: TradeService['convertEnabled'];
+  convertLimitSweepMs: TradeService['convertLimitSweepMs'];
   convertSpreadBps: TradeService['convertSpreadBps'];
   convertQuoteTtlMs: TradeService['convertQuoteTtlMs'];
   convertStore: TradeService['convertStore'];
@@ -673,6 +684,7 @@ export class TradeService {
   /** Owner maker/taker schedule. Unpublished refuses place and fill. */
   private readonly feeSchedule: OwnerFeeSchedule;
   private readonly convertEnabled: boolean;
+  private readonly convertLimitSweepMs: number | null;
   private readonly standingInstructionsEnabled: boolean;
   private readonly convertSpreadBps: number | null;
   private readonly convertQuoteTtlMs: number | null;
@@ -733,6 +745,7 @@ export class TradeService {
     this.trailingMarkSource = options.trailingMarkSource;
     this.feeSchedule = options.feeSchedule ?? UNPUBLISHED_FEE_SCHEDULE;
     this.convertEnabled = options.convertEnabled ?? true;
+    this.convertLimitSweepMs = options.convertLimitSweepMs ?? null;
     this.standingInstructionsEnabled = options.standingInstructionsEnabled ?? false;
     this.convertSpreadBps = options.convertSpreadBps ?? null;
     this.convertQuoteTtlMs = options.convertQuoteTtlMs ?? null;
@@ -909,6 +922,8 @@ export class TradeService {
       'trade.lifecycle_authority_stale',
       'trade.market_closed',
       'trade.unknown_schedule',
+      'trade.mode_cancel_only',
+      'trade.mode_post_only',
     ]);
     const code = knownCodes.has(decision.reasonCode as TradeErrorCode)
       ? (decision.reasonCode as TradeErrorCode)
@@ -1065,6 +1080,41 @@ export class TradeService {
     admit: (businessId: string, payload: unknown) => Promise<unknown>,
   ): Promise<ConvertTradeWire> {
     return convert.convertExecuteFor(this.internal, userId, input, admit);
+  }
+
+  /** What can be converted now, each coin with its per-conversion limit (null when the owner left it blank). */
+  async convertPairs(principal: Principal): Promise<ConvertPairs> {
+    requireScope(principal, 'trade:read');
+    const listed = await this.markets(500);
+    const resolved = resolveAdmissionLimits();
+    return convertPairs(listed, this.now(), 'limits' in resolved ? resolved.limits.maxOrder : null, !this.convertEnabled);
+  }
+
+  /** A limit convert: the source held until a quote reaches the target rate, then settled once (J-cex-spot-11 #8). */
+  async placeLimitConvert(principal: Principal, input: limitConvert.PlaceLimitConvertInput): Promise<limitConvert.LimitConvertWire> {
+    requireScope(principal, 'trade:write');
+    return limitConvert.placeLimitConvert(this.internal, principal, input);
+  }
+
+  async limitConverts(principal: Principal): Promise<limitConvert.LimitConvertWire[]> {
+    requireScope(principal, 'trade:read');
+    return limitConvert.listLimitConverts(this.internal, principal);
+  }
+
+  async cancelLimitConvert(principal: Principal, id: string): Promise<limitConvert.LimitConvertWire> {
+    requireScope(principal, 'trade:write');
+    return limitConvert.cancelLimitConvert(this.internal, principal, id);
+  }
+
+  /** The limit-convert sweep's tick (index.ts job host). */
+  sweepLimitConverts(opts?: { onFailed?: (id: string, err: unknown) => void }): Promise<limitConvert.LimitSweepResult> {
+    return limitConvert.sweepLimitConverts(this.internal, opts);
+  }
+
+  /** How `from` converts to `to`: one direct market, or a typed refusal (J-cex-spot-11 #11). Quotes nothing. */
+  async convertRoute(principal: Principal, input: { from: string; to: string }): Promise<ConvertRoute> {
+    requireScope(principal, 'trade:read');
+    return convertRoute(await this.markets(500), this.now(), input.from, input.to);
   }
 
   convertList(principal: Principal, input: ConvertListQuery) {
@@ -1707,8 +1757,26 @@ export class TradeService {
    * Fail closed means: never mint a hold from this path; never mark filled without fills;
    * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill.
    */
-  async reconcileOrder(orderId: string): Promise<ReconcileResult> {
-    return reconcile.reconcileOrder(this.internal, orderId);
+  /**
+   * The order ids the engine lists as resting on one market (OCO legs read as their parent), from one non-destructive
+   * list. The operator sweep reads each market once with it. A full page throws (checked below): absence cannot be proven
+   * from it, so the sweep counts that market as not read.
+   */
+  async engineLiveOrderIds(marketId: string): Promise<ReadonlySet<string>> {
+    const listed = await this.matching.listOrders(marketId);
+    // svc-matching answers at most MATCHING_RESTING_ORDERS_PAGE orders and no cursor: a page that full may be cut short,
+    // so an order missing from it is not proven missing from the book. The HTTP client refuses such a page too; this
+    // check holds for any MatchingClient.
+    if (listed.orders.length >= MATCHING_RESTING_ORDERS_PAGE) {
+      throw new MatchingUnavailableError(
+        `svc-matching listed ${listed.orders.length} resting orders on ${marketId}, a full page; absence cannot be proven`,
+      );
+    }
+    return new Set(listed.orders.map((o) => settlementOrderId(o.orderId)));
+  }
+
+  async reconcileOrder(orderId: string, opts: reconcile.ReconcileOptions = {}): Promise<ReconcileResult> {
+    return reconcile.reconcileOrder(this.internal, orderId, opts);
   }
 
   async marketById(marketId: string): Promise<Market | null> {

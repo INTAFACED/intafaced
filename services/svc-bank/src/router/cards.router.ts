@@ -154,6 +154,7 @@ export function createCardsRouter(c: BankRouterContext) {
     expectedBy: z.string(),
     carrier: z.string().nullable(),
     trackingRef: z.string().nullable(),
+    notConnected: z.enum(['hardware']).nullable(),
     address: z.object({
       name: z.string(),
       line1: z.string(),
@@ -200,6 +201,7 @@ export function createCardsRouter(c: BankRouterContext) {
       expectedBy: d.expectedBy.toISOString(),
       carrier: d.carrier,
       trackingRef: d.trackingRef,
+      notConnected: d.notConnected,
       address: address(d.address),
       history: d.history.map((h) => ({ address: address(h.address), changedAt: h.changedAt.toISOString() })),
     };

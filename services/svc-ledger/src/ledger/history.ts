@@ -276,6 +276,22 @@ export function allowedHistoryRail(raw: unknown): HistoryRail | null {
 }
 
 /**
+ * Products `historyPage` may echo back from `ledger_tx.meta.product`. Anything else is `null`, like `rail`: meta is
+ * free-form and never leaves this door as-is.
+ *  - `convert`  a Convert fill (`recipes.marketMakerMakerFill` with `product: 'convert'`, svc-trade convert/settle.ts),
+ *    so the bank's activity can tell a conversion from a desk trade that posts the same reason.
+ */
+export const HISTORY_PRODUCTS = ['convert'] as const;
+export type HistoryProduct = (typeof HISTORY_PRODUCTS)[number];
+
+const HISTORY_PRODUCT_SET: ReadonlySet<string> = new Set(HISTORY_PRODUCTS);
+
+/** `meta.product` if it is an allow-listed product, else `null`. */
+export function allowedHistoryProduct(raw: unknown): HistoryProduct | null {
+  return typeof raw === 'string' && HISTORY_PRODUCT_SET.has(raw) ? (raw as HistoryProduct) : null;
+}
+
+/**
  * Trade postings whose customer line belongs to one order, and which of them name the order by the
  * owner's own order-hold account (`purpose` = `order:<id>`) that the SAME transaction moves.
  *
@@ -319,6 +335,8 @@ export interface HistoryPageEntry extends HistoryEntry {
   readonly assetId: string;
   readonly entryId: string;
   readonly rail: HistoryRail | null;
+  /** Allow-listed `meta.product` (see `HISTORY_PRODUCTS`), else null. */
+  readonly product: HistoryProduct | null;
   readonly orderId: string | null;
   readonly fee: Amount | null;
 }
@@ -376,6 +394,7 @@ export function serializeHistoryPage(page: HistoryPage) {
       assetId: e.assetId,
       entryId: e.entryId,
       rail: e.rail,
+      product: e.product,
       orderId: e.orderId,
       fee: e.fee === null ? null : formatAmount(e.fee),
     })),

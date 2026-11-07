@@ -581,3 +581,79 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Trading from the chart (J-charts-desk-15): the overlay sits on the chart stage; only its handles take the pointer. */
+@layer components {
+  .ct-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .ct-line {
+    position: absolute;
+    inset-inline-start: 0.5rem;
+    transform: translateY(-50%);
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--if-r-sm);
+    font-size: 0.75rem;
+    background: var(--if-bg);
+    color: var(--if-fg);
+    border: thin solid var(--if-line);
+  }
+  .ct-line--preview {
+    border-style: dashed;
+    opacity: 0.85;
+  }
+  .ct-line--order {
+    pointer-events: auto;
+    cursor: ns-resize;
+    touch-action: none;
+  }
+  .ct-line[data-side='buy'] {
+    border-color: var(--if-up);
+  }
+  .ct-line[data-side='sell'] {
+    border-color: var(--if-down);
+  }
+  .ct-plus {
+    position: absolute;
+    inset-inline-end: 0.25rem;
+    transform: translateY(-50%);
+    pointer-events: auto;
+    inline-size: 1.25rem;
+    block-size: 1.25rem;
+    border-radius: var(--if-r-sm);
+    background: var(--if-bg);
+    color: var(--if-fg);
+    border: thin solid var(--if-line);
+  }
+  .ct-menu {
+    position: absolute;
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    background: var(--if-bg);
+    border: thin solid var(--if-line);
+    border-radius: var(--if-r-sm);
+  }
+  .ct-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .ct-ticket fieldset {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    border: 0;
+    padding: 0;
+  }
+  .ct-review {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+  }
+}

@@ -186,6 +186,11 @@
       "value": "30",
       "note": "Made-up TEST period: a payment from someone not in the recipient's contacts, held for them to accept, waits 30 days before it goes back to the sender (J-pay-03 #5); not the owner rule. Nothing is held unless the person chooses to hold such payments."
     },
+    "BANK_REQUEST_REMIND_POLICY_JSON": {
+      "service": "bank",
+      "value": "{\"cap\": 1, \"windowSeconds\": 86400}",
+      "note": "Made-up TEST reminder rule: one manual reminder per request in any 24 hours, so a second is refused with its next allowed time (J-pay-05 #4); not the owner rule."
+    },
     "BANK_CARD_PROGRAMME_JSON": {
       "service": "bank",
       "value": "{\"network\": \"TEST network\", \"countries\": [\"DE\", \"FR\", \"NL\", \"ES\", \"IT\", \"AT\"], \"limits\": {\"virtual\": 3, \"physical\": 1}, \"terms\": {\"version\": \"local-test-1\", \"text\": \"TEST cardholder terms: a made-up text for the local test stack only. Not a contract, not an owner's terms.\"}, \"designs\": [{\"id\": \"classic\", \"name\": \"TEST Classic\"}, {\"id\": \"night\", \"name\": \"TEST Night\"}], \"speeds\": [{\"speed\": \"standard\", \"days\": 7}, {\"speed\": \"express\", \"days\": 2}], \"deliveryCountries\": [\"DE\", \"FR\", \"NL\", \"ES\", \"IT\", \"AT\"]}",

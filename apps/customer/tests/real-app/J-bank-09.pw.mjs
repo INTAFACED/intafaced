@@ -283,14 +283,21 @@ test(`${J} #2 works out TEST 1000 USDT in the calculator: the collateral, starti
   const api = await bank(who);
   await signIn(page, who);
   await page.goto(applyPage(productId));
-  await workOut(page, '1000');
   const shown = page.getByTestId('loan-apply-quote');
-  await expect(shown).toBeVisible({ timeout: 30_000 });
-  await expect(shown).toHaveAttribute('data-principal', '1000');
-  const quote = await api.query('loans.quote', { productId, principal: '1000' });
-  expect(quote.ok, JSON.stringify(quote.body ?? {}).slice(0, 300)).toBe(true);
+  // The page's quote and this one are two asks of the bank, and the TEST BTC price walks between them, so a pair from two
+  // prices can differ in the last digits (main run 42175912825). The pair is asked again, a few times at most, until both
+  // come from one price; each figure is then compared exactly.
+  let quote, onPage;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await workOut(page, '1000');
+    await expect(shown).toBeVisible({ timeout: 30_000 });
+    await expect(shown).toHaveAttribute('data-principal', '1000');
+    quote = await api.query('loans.quote', { productId, principal: '1000' });
+    expect(quote.ok, JSON.stringify(quote.body ?? {}).slice(0, 300)).toBe(true);
+    onPage = await shown.evaluate((el) => ({ ...el.dataset }));
+    if (onPage.collateral === quote.data.requiredCollateral && onPage.liquidationPrice === quote.data.liquidationPrice) break;
+  }
   // The page shows the bank's figures as decimal strings, never its own sums.
-  const onPage = await shown.evaluate((el) => ({ ...el.dataset }));
   expect(onPage.collateral).toBe(quote.data.requiredCollateral);
   expect(onPage.ltvBps).toBe(String(quote.data.startingLtvBps));
   expect(onPage.liquidationPrice).toBe(quote.data.liquidationPrice);

@@ -27,7 +27,12 @@ vi.mock('../../shared/preferences', async (original) => {
 vi.mock('../../features/session/session', () => ({
   useSession: () => ({ userId: 'u1', api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) } }),
 }));
-vi.mock('../trade/desk/data', () => ({ useDeskMarkets: () => world.markets }));
+// The chart's own order controls read open orders through the desk's data; these tests place none.
+vi.mock('../trade/desk/data', () => ({
+  useDeskMarkets: () => world.markets,
+  useDeskApi: () => ({}),
+  useOpenOrders: () => ({ status: 'loading' }),
+}));
 vi.mock('../trade/chart/candles', async (original) => ({
   ...(await original<typeof import('../trade/chart/candles')>()),
   useChartCandles: (symbol: string, interval: string) => {
@@ -131,6 +136,7 @@ beforeEach(() => {
     brushPointCap: 2000,
     delayedBoundarySeconds: 30,
     renderBudgetMs: 500,
+    orderProtectionBps: 500,
     dataClass: 'real_time',
   };
 });

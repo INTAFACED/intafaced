@@ -123,6 +123,22 @@
           }
         },
         {
+          "name": "fetchRulebook",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/rulebook", "host": ["{{baseUrl}}"], "path": ["api", "v1", "rulebook"] }
+          }
+        },
+        {
+          "name": "fetchRulebookVersions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/rulebook/versions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "rulebook", "versions"] }
+          }
+        },
+        {
           "name": "fetchMarketLifecycle",
           "request": {
             "method": "GET",
@@ -161,6 +177,22 @@
             "method": "POST",
             "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
             "url": { "raw": "{{baseUrl}}/api/v1/orders", "host": ["{{baseUrl}}"], "path": ["api", "v1", "orders"] }
+          }
+        },
+        {
+          "name": "createConvertQuote",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/convert/quote", "host": ["{{baseUrl}}"], "path": ["api", "v1", "convert", "quote"] }
+          }
+        },
+        {
+          "name": "acceptConvertQuote",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{apiKey}}" }],
+            "url": { "raw": "{{baseUrl}}/api/v1/convert/accept", "host": ["{{baseUrl}}"], "path": ["api", "v1", "convert", "accept"] }
           }
         },
         {

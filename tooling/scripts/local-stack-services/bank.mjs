@@ -127,6 +127,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_SPACE_UNLOCK_WAIT_HOURS: testValue('BANK_SPACE_UNLOCK_WAIT_HOURS'),
     // TEST release period for a stranger's held payment (J-pay-03 #5); nothing is held unless a person chooses to.
     BANK_STRANGER_HOLD_DAYS: testValue('BANK_STRANGER_HOLD_DAYS'),
+    // TEST reminder rule for payment requests (J-pay-05 #4): one manual reminder per request in 24 hours. Unset, every
+    // reminder refuses bank.reminder_policy_unset.
+    BANK_REQUEST_REMIND_POLICY_JSON: testValue('BANK_REQUEST_REMIND_POLICY_JSON'),
     // LOCAL TEST value from the bank profile (BK-pots-03): the smallest payment from another person the income sorter
     // splits. Unset, making a sorter refuses bank.sorter_terms_unset and no payment is sorted.
     BANK_INCOME_SORTER_MIN_CREDIT: testValue('BANK_INCOME_SORTER_MIN_CREDIT'),

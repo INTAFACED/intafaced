@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError } from '@intafaced/auth';
 import { TradeOpsError } from './common.js';
+import { SETTABLE_MARKET_MODES } from './market-mode.js';
 import type { TradeOpsAdmin } from './service.js';
 
 const limit = z.number().int().min(1).max(200);
@@ -38,6 +39,7 @@ const chartOwnerValueSet = z.discriminatedUnion('key', [
   chartCountSet('brushPointCap', 100_000),
   chartCountSet('delayedBoundarySeconds', 86_400),
   chartCountSet('renderBudgetMs', 60_000),
+  chartCountSet('orderProtectionBps', 10_000),
   z
     .object({
       key: z.literal('dataClass'),
@@ -95,6 +97,10 @@ const indexSourcesConfig = z
   .strict();
 
 const expectedVersion = z.string().regex(/^(?:0|[1-9]\d*)$/);
+/** A seed configuration value as typed: a string, or null when left blank (refused `mm.seed_unset` by name). */
+const seedValue = z.string().max(64).nullable();
+/** A programme term or plan value as typed: a string, or null when blank (refused by name, never filled in). */
+const typed = z.string().max(64).nullable();
 
 function fail(error: unknown): never {
   if (error instanceof TRPCError) throw error;
@@ -162,8 +168,11 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
         .mutation(({ ctx, input }) => ready().reconcile(ctx.principal, input).catch(fail)),
       reconcileStatus: operator.query(({ ctx }) => ready().reconcileStatus(ctx.principal).catch(fail)),
       startReconcileSweep: operatorWrite
-        .input(z.object({ clientRequestId }).strict())
+        .input(z.object({ clientRequestId, reason }).strict())
         .mutation(({ ctx, input }) => ready().startReconcileSweep(ctx.principal, input).catch(fail)),
+      bust: operatorWrite
+        .input(z.object({ orderId: id, approvalId: z.string().trim().min(1).max(128), clientRequestId, reason }).strict())
+        .mutation(({ ctx, input }) => ready().bust(ctx.principal, input).catch(fail)),
     }),
     risk: router({
       get: operator
@@ -203,6 +212,17 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
           }),
         )
         .mutation(({ ctx, input }) => ready().feeScheduleSet(ctx.principal, input).catch(fail)),
+      /** Finished fee tier snapshot runs, newest first, with the figures each used (J-cex-spot-17 #4). */
+      snapshots: operator
+        .input(z.object({ limit: z.number().int().min(1).max(100) }).strict())
+        .query(({ ctx, input }) => ready().feesConvert.snapshotRuns(ctx.principal, input.limit).catch(fail)),
+    }),
+    /** Convert's state and owner values, and the quotes customers were given (J-cex-spot-17 #7, #8). Read only. */
+    convertDesk: router({
+      settings: operator.query(({ ctx }) => ready().feesConvert.convertSettings(ctx.principal).catch(fail)),
+      quotes: operator
+        .input(z.object({ side: z.enum(['buy', 'sell']), limit: z.number().int().min(1).max(100) }).strict())
+        .query(({ ctx, input }) => ready().feesConvert.convertQuotes(ctx.principal, input).catch(fail)),
     }),
     positions: router({
       list: operator
@@ -259,6 +279,127 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       setSeed: operatorWrite
         .input(z.object({ market: id, enabled: z.boolean(), approvalId: z.string().min(1).max(128), clientRequestId }))
         .mutation(({ ctx, input }) => ready().setSeed(ctx.principal, input).catch(fail)),
+      // J-cex-spot-20 #5: the operator-written seeding configuration, one version per market under two-person approval.
+      seedConfigs: operator.query(({ ctx }) => ready().seedConfig.list(ctx.principal).catch(fail)),
+      seedConfigHistory: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().seedConfig.history(ctx.principal, input.market).catch(fail)),
+      setSeedConfig: operatorWrite
+        .input(
+          z
+            .object({
+              market: id,
+              config: z
+                .object({
+                  enabled: z.boolean(),
+                  halfSpreadBps: seedValue,
+                  stepBps: seedValue,
+                  levels: seedValue,
+                  qtyPerLevel: seedValue,
+                  midSource: z.enum(['configured', 'venue']).nullable(),
+                  configuredMid: seedValue,
+                })
+                .strict(),
+              expectedVersion,
+              approvalId: z.string().min(1).max(128),
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().seedConfig.set(ctx.principal, input).catch(fail)),
+    }),
+    // J-cex-spot-20 #8 (RC-cex-spot-06): the maker incentive programme. Terms and members are two-person writes;
+    // clawback records are read only.
+    makerProgramme: router({
+      terms: operator.query(({ ctx }) => ready().makerProgramme.terms(ctx.principal).catch(fail)),
+      members: operator.query(({ ctx }) => ready().makerProgramme.members(ctx.principal).catch(fail)),
+      clawbacks: operator.query(({ ctx }) => ready().makerProgramme.clawbacks(ctx.principal).catch(fail)),
+      setTerms: operatorWrite
+        .input(
+          z
+            .object({
+              terms: z
+                .object({
+                  tiers: z
+                    .array(
+                      z
+                        .object({
+                          name: typed,
+                          minMakerVolume30d: typed,
+                          minUptimePct: typed,
+                          maxSpreadAtDepthBps: typed,
+                          rebateBps: typed,
+                        })
+                        .strict(),
+                    )
+                    .max(10),
+                  maxSpreadBps: typed,
+                  minDepth: typed,
+                  minUptimePct: typed,
+                  cancelToFillCeiling: typed,
+                  clawbackWindowDays: typed,
+                  equalAccessCriteria: z.string().max(2000).nullable(),
+                })
+                .strict(),
+              expectedVersion,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().makerProgramme.setTerms(ctx.principal, input).catch(fail)),
+      setMember: operatorWrite
+        .input(
+          z
+            .object({
+              member: z
+                .object({
+                  accountId: typed,
+                  tier: typed,
+                  status: z.enum(['active', 'suspended', 'exited']).nullable(),
+                  conflictDeclaration: z.string().max(2000).nullable(),
+                })
+                .strict(),
+              expectedVersion,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().makerProgramme.setMember(ctx.principal, input).catch(fail)),
+    }),
+    // J-cex-spot-20 #8 (RC-cex-spot-09): the launch-liquidity plan per market, a two-person write naming programme makers.
+    launchLiquidity: router({
+      plans: operator.query(({ ctx }) => ready().makerProgramme.plans(ctx.principal).catch(fail)),
+      planHistory: operator
+        .input(z.object({ market: id }).strict())
+        .query(({ ctx, input }) => ready().makerProgramme.planHistory(ctx.principal, input.market).catch(fail)),
+      setPlan: operatorWrite
+        .input(
+          z
+            .object({
+              market: id,
+              plan: z
+                .object({
+                  makers: z.array(z.object({ accountId: typed, capital: typed, asset: typed }).strict()).max(20),
+                  maxSpreadBps: typed,
+                  minDepth: typed,
+                  depthBandBps: typed,
+                  minUptimePct: typed,
+                  inventoryMin: typed,
+                  inventoryMax: typed,
+                  exitReviewDate: typed,
+                  exitUptimeBelowPct: typed,
+                  exitSpreadAboveBps: typed,
+                })
+                .strict(),
+              expectedVersion,
+              approvalId,
+              clientRequestId,
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().makerProgramme.setPlan(ctx.principal, input).catch(fail)),
     }),
     fundingParams: router({
       get: operator
@@ -353,6 +494,25 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       set: operatorWrite
         .input(chartOwnerValueSet)
         .mutation(({ ctx, input }) => ready().chartOwnerValues.set(ctx.principal, input).catch(fail)),
+    }),
+    marketMode: router({
+      get: operator
+        .input(z.object({ symbol: z.string().trim().min(1).max(40) }).strict())
+        .query(({ ctx, input }) => ready().marketMode.get(ctx.principal, input.symbol).catch(fail)),
+      set: operatorWrite
+        .input(
+          z
+            .object({
+              symbol: z.string().trim().min(1).max(40),
+              mode: z.enum(SETTABLE_MARKET_MODES),
+              expectedMode: z.string().trim().min(1).max(40),
+              reason,
+              approvalId: z.string().trim().min(1).max(128),
+              operationId: z.string().trim().min(1).max(128),
+            })
+            .strict(),
+        )
+        .mutation(({ ctx, input }) => ready().marketMode.set(ctx.principal, input).catch(fail)),
     }),
     agreements: router({
       get: operator

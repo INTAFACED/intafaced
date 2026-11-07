@@ -552,3 +552,23 @@
     display: none;
   }
 }
+
+/* A plain tick or radio in the card rooms (terms, single-use, card type, design, speed, report reason). The app resets
+   native inputs to appearance: none, which leaves them with no size, so a person could not see or reach the terms tick
+   (J-bank-13 #1): keep the browser's own control. */
+label.choice {
+  display: flex;
+  align-items: center;
+  gap: var(--if-space-2);
+  cursor: pointer;
+}
+label.choice > input[type='checkbox'],
+label.choice > input[type='radio'] {
+  appearance: auto;
+  flex: none;
+  inline-size: 1rem;
+  block-size: 1rem;
+  margin: 0;
+  accent-color: var(--if-lime);
+  cursor: pointer;
+}
