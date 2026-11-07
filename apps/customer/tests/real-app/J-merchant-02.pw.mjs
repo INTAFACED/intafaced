@@ -1029,7 +1029,7 @@ test(`${J} #6 reads the verification history and the activation state: append-on
   ]);
 
   // INTAFACED approves it: a new entry on top, the earlier one exactly as it was, times in order.
-  approveKyb(merchantId);
+  await approveKyb(merchantId);
   // An approved verification is not the service saying so: svc-pay records no activation on a KYB decision.
   expect(await openCompliance(() => page.reload())).toEqual(UNCONFIRMED);
   await expect(history.getByRole('listitem')).toHaveCount(2);
