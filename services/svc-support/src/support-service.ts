@@ -176,7 +176,7 @@ export const SUPPORT_COMMENT_CAP_KEY = 'support.comment_cap';
  * Text a person writes onto a request (its subject and body, a reply, a staff note, a status note, an escalation summary)
  * that holds a card number or a recovery phrase is refused before anything is stored.
  */
-function refuseCommentSecret(body: string): void {
+export function refuseCommentSecret(body: string): void {
   const found = findCommentSecret(body);
   if (found) throw new SupportError(`the comment holds a ${found.replace('_', ' ')}`, SUPPORT_COMMENT_SECRET_REFUSED);
 }

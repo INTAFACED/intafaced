@@ -73,5 +73,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
       ? {}
       : { SUPPORT_GUEST_RATE_LIMIT: '3', SUPPORT_GUEST_RATE_WINDOW_SECONDS: '3600' }),
     SUPPORT_GUEST_RETENTION_DAYS: '30',
+    // LOCAL TEST only, labelled in the same file: live chat (J-support-public-05). The customer messages one chat may send
+    // per window, how long an embedding page's identity claim works, and the pre-chat fields a guest is asked for.
+    // Production stays blank: every chat refuses support.chat_rate_limit_unset and every claim
+    // support.chat_identity_ttl_unset until the owner sets them, and a guest is asked for a first message only.
+    SUPPORT_CHAT_RATE_LIMIT: '30',
+    SUPPORT_CHAT_RATE_WINDOW_SECONDS: '60',
+    SUPPORT_CHAT_IDENTITY_TTL_SECONDS: '300',
+    SUPPORT_CHAT_PRECHAT_FIELDS: 'name,email',
+    // LOCAL TEST only, labelled in the same file: seconds without a heartbeat before an online or busy agent reads as
+    // offline, so J-support-public-05 #4 can see offline appear. Production stays blank and availability stays as set.
+    STAFF_HEARTBEAT_WINDOW_SECONDS: '20',
   }),
 });

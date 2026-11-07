@@ -259,3 +259,38 @@
     justify-self: start;
   }
 }
+/* Live chat (SP-chat-01): /support/chat. Layout only; colours come from the role tokens already used above. */
+.support-chat {
+  display: grid;
+  gap: var(--if-space-4);
+  min-width: 0;
+  max-width: 720px;
+}
+.support-chat > p,
+.support-chat h2,
+.support-chat h3 {
+  margin: 0;
+}
+.support-chat__start,
+.support-chat__compose {
+  display: grid;
+  gap: var(--if-space-3);
+}
+.support-chat__messages {
+  display: grid;
+  gap: var(--if-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+.support-chat__messages > li {
+  padding: var(--if-space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--if-r-md);
+}
+.support-chat__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--if-space-2);
+}
