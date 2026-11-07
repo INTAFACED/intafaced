@@ -81,8 +81,8 @@ function ctxOf(userId: string, scopes: string[]) {
     });
     await sql`
       INSERT INTO agents.agent_definitions (agent_id, guardrail, name, enabled) VALUES
-        ('navigator', ${sql.json(guardrail([{ name: 'a', module: 'trade', mode: 'read', requiresApproval: false }], '5'))}, 'Navigator', true),
-        ('support', ${sql.json(guardrail([{ name: 'b', module: 'support', mode: 'write', requiresApproval: true }], null))}, 'Support', true)
+        ('navigator', ${sql.json(guardrail([{ name: 'a', module: 'trade', mode: 'read', requiresApproval: false }], '5') as never)}, 'Navigator', true),
+        ('support', ${sql.json(guardrail([{ name: 'b', module: 'support', mode: 'write', requiresApproval: true }], null) as never)}, 'Support', true)
     `;
     await sql`
       INSERT INTO agents.own_agents (id, owner_id, template, name, create_key, per_session_cap)
@@ -223,12 +223,12 @@ function ctxOf(userId: string, scopes: string[]) {
       });
 
       const own = ownRouter(sql, undefined, undefined, { baseline: {}, background: { steps: 10, stepMs: 1000 } }).createCaller(
-        ctxOf(CUSTOMER, ['agents:read']),
+        ctxOf(CUSTOMER, ['agents:read', 'identity:write']),
       );
       await expect(own.backgroundRun({ id: OWN, requestId: 'req-bg-2', ask: 'x' })).rejects.toMatchObject({
         message: 'agents.agent.disabled',
       });
-      const blank = ownRouter(sql).createCaller(ctxOf(CUSTOMER, ['agents:read']));
+      const blank = ownRouter(sql).createCaller(ctxOf(CUSTOMER, ['agents:read', 'identity:write']));
       await expect(blank.backgroundRun({ id: OWN, requestId: 'req-bg-3', ask: 'x' })).rejects.toMatchObject({
         message: 'agents.background_unset',
       });
