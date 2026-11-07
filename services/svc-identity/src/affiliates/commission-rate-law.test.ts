@@ -31,8 +31,8 @@ describe('affiliate accrual rate law — refuse-closed (no invent)', () => {
       JSON.stringify({
         published: true,
         tiers: [
-          { hop: 0, rate: '0.10' },
-          { hop: 1, rate: '0.05' },
+          { hop: 0, rate: '0.130' },
+          { hop: 1, rate: '0.07' },
         ],
       }),
     );
