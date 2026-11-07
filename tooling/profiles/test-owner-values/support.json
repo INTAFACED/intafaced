@@ -110,11 +110,6 @@
       "service": "support",
       "value": "name,email",
       "note": "The pre-chat fields a guest is asked for, so J-support-public-05 #2 can fill in the form. Not an owner decision."
-    },
-    "STAFF_HEARTBEAT_WINDOW_SECONDS": {
-      "service": "support",
-      "value": "20",
-      "note": "Seconds without a heartbeat before an agent reads offline, so J-support-public-05 #4 can see offline appear. Not an owner decision."
     }
   }
 }

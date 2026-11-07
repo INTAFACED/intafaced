@@ -1,9 +1,9 @@
-// World: none
+// World: restart
 import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { asDesk, contactChannels, deskPeople } from './help-centre.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { api, EDGE, json, ORIGIN, signUpInBrowser } from './stack.mjs';
+import { api, EDGE, json, ORIGIN, signUpInBrowser, tool } from './stack.mjs';
 
 // J-support-public-05, in the running app (docs/roadmap/journeys.json): chat with a person from the site or the app,
 // signed in or as a guest, with one support agent on the desk (founder B, appointed agent; founder A is the lead). Desk
@@ -43,6 +43,22 @@ async function anonymous(procedure, input) {
       body: JSON.stringify(input),
     }),
   );
+}
+
+/**
+ * svc-support restarted with the stack's TEST heartbeat window set (seconds), or blank again (`undefined`), as
+ * `LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW` on the restart only. The window is blank on the stack, as in production.
+ */
+function heartbeatWindow(seconds) {
+  const before = process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW;
+  if (seconds === undefined) delete process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW;
+  else process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW = String(seconds);
+  try {
+    tool('local-test-stack.mjs', 'restart', 'support');
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW;
+    else process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW = before;
+  }
 }
 
 /** The chat this browser tab keeps (its session id and access token), as the chat room stored it. */
@@ -184,34 +200,39 @@ test(`${J} #4 an agent switches to busy, then to online: the directory shows bus
   browser,
 }) => {
   const { agent } = await deskPeople();
-  await availability({ lead: 'offline', agent: 'busy' });
-  const directory = async () => (await desk('lead', 'query', 'staffList', undefined)).find((m) => m.userId === agent);
-  expect((await directory()).availability).toBe('busy');
+  heartbeatWindow(20);
+  try {
+    await availability({ lead: 'offline', agent: 'busy' });
+    const directory = async () => (await desk('lead', 'query', 'staffList', undefined)).find((m) => m.userId === agent);
+    expect((await directory()).availability).toBe('busy');
 
-  const page = await visitor(browser);
-  const who = await signUp(page, 'j05ag');
-  await page.context().close();
-  const customer = await api(who);
-  const res = await customer.post('/api/support/trpc/chatOpen', { clientKey: key(), message: `TEST ${J} ${RUN} #4 waiting` });
-  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
-  const sessionId = res.body.result.data.session.id;
-  expect(res.body.result.data.session.waitingForAgent).toBe(true);
-  // A busy agent cannot take it: it waits for an online one.
-  const taken = await asDesk('agent', 'mutation', 'chatAccept', { sessionId });
-  expect(taken.text).toContain('support.chat_agent_not_online');
-  expect((await deskChat(sessionId)).session).toMatchObject({ status: 'waiting', agentId: null });
+    const page = await visitor(browser);
+    const who = await signUp(page, 'j05ag');
+    await page.context().close();
+    const customer = await api(who);
+    const res = await customer.post('/api/support/trpc/chatOpen', { clientKey: key(), message: `TEST ${J} ${RUN} #4 waiting` });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    const sessionId = res.body.result.data.session.id;
+    expect(res.body.result.data.session.waitingForAgent).toBe(true);
+    // A busy agent cannot take it: it waits for an online one.
+    const taken = await asDesk('agent', 'mutation', 'chatAccept', { sessionId });
+    expect(taken.text).toContain('support.chat_agent_not_online');
+    expect((await deskChat(sessionId)).session).toMatchObject({ status: 'waiting', agentId: null });
 
-  await desk('agent', 'mutation', 'staffSetAvailability', { availability: 'online' });
-  expect((await directory()).availability).toBe('online');
-  expect(await desk('agent', 'mutation', 'chatAccept', { sessionId })).toMatchObject({ status: 'active', agentId: agent });
-  const read = await customer.post('/api/support/trpc/chatPoll', { sessionId, after: 0 });
-  expect(read.body.result.data.session.waitingForAgent).toBe(false);
+    await desk('agent', 'mutation', 'staffSetAvailability', { availability: 'online' });
+    expect((await directory()).availability).toBe('online');
+    expect(await desk('agent', 'mutation', 'chatAccept', { sessionId })).toMatchObject({ status: 'active', agentId: agent });
+    const read = await customer.post('/api/support/trpc/chatPoll', { sessionId, after: 0 });
+    expect(read.body.result.data.session.waitingForAgent).toBe(false);
 
-  // With no heartbeat, the agent reads offline once the owner's window has passed (a TEST value on this stack).
-  const policy = await desk('lead', 'query', 'staffAvailabilityPolicy', undefined);
-  expect(policy.automaticOffline).toBe('set');
-  await new Promise((resolve) => setTimeout(resolve, (policy.heartbeatWindowSeconds + 2) * 1000));
-  expect((await directory()).availability).toBe('offline');
+    // With no heartbeat, the agent reads offline once the owner's window has passed (a TEST value set for this step).
+    const policy = await desk('lead', 'query', 'staffAvailabilityPolicy', undefined);
+    expect(policy.automaticOffline).toBe('set');
+    await new Promise((resolve) => setTimeout(resolve, (policy.heartbeatWindowSeconds + 2) * 1000));
+    expect((await directory()).availability).toBe('offline');
+  } finally {
+    heartbeatWindow(undefined);
+  }
 });
 
 test(`${J} #5 a message reaches the agent within the poll interval, the reply appears, and the same message sent twice is stored once`, async ({

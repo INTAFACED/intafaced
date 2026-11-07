@@ -46,6 +46,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
     // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',
+    // LOCAL TEST only: the owner's automatic-offline window is blank on the stack, as in production, so the directory says
+    // automatic offline is not set. `LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW=<seconds>` on a restart of support sets a TEST
+    // window, so a silent agent can be seen going offline (J-support-public-12 #1).
+    ...(/^[1-9][0-9]{0,5}$/.test(process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW ?? '')
+      ? { STAFF_HEARTBEAT_WINDOW_SECONDS: process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW }
+      : {}),
     // LOCAL TEST only, labelled in the same file: what a customer reads of the desk's priority and type on their request.
     // Production stays blank and the customer reads neither (support.customer_properties_unset) until the owner chooses.
     SUPPORT_CUSTOMER_SEES: 'priority,type',
@@ -81,8 +87,5 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     SUPPORT_CHAT_RATE_WINDOW_SECONDS: '60',
     SUPPORT_CHAT_IDENTITY_TTL_SECONDS: '300',
     SUPPORT_CHAT_PRECHAT_FIELDS: 'name,email',
-    // LOCAL TEST only, labelled in the same file: seconds without a heartbeat before an online or busy agent reads as
-    // offline, so J-support-public-05 #4 can see offline appear. Production stays blank and availability stays as set.
-    STAFF_HEARTBEAT_WINDOW_SECONDS: '20',
   }),
 });
