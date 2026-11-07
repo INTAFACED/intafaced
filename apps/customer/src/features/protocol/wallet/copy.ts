@@ -77,8 +77,6 @@ const en = {
   revokeBuildFailed: 'The revoke could not be built, so nothing was sent. Try again.',
   revokeNotMined: 'The revoke was not mined in time. Your wallet may still send it; reload this section to read the chain again.',
   empty_sessionKeys: 'No session keys. Session keys and connected apps are built in a later slice.',
-  empty_accounts: 'No accounts to show. Sub-accounts and multi-signature accounts are built in a later slice.',
-  empty_safety: 'No safety notices. Compromise guidance and disclosures are built in a later slice.',
   needsWallet: 'Connect a wallet to see this section.',
   hdr_time: 'Time',
   hdr_event: 'Event',
