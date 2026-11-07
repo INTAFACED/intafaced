@@ -4,8 +4,8 @@ import { EDGE, ORIGIN, api, restartWith } from './stack.mjs';
 import { codeOf, holderAgain, keyHolder, makeKey, signedHeaders, withKey } from './developer.mjs';
 
 // J-developer-07, in the running app (docs/roadmap/journeys.json): rotate a key, revoke a key, and respond to a leaked
-// one. One test per step, titled "J-developer-07 #<n>", each written by an independent test-writer from the step's own
-// words (OWNER 212); the builder makes them pass and may not weaken them. Each test starts its own TEST account with a
+// one. One test per unbuilt step, titled "J-developer-07 #<n>" (#4 passes on main's code and is in
+// J-developer-07-revoke.pw.mjs), each written by an independent test-writer from the step's own words (OWNER 212); the builder makes them pass and may not weaken them. Each test starts its own TEST account with a
 // passkey and a live trade key made in the browser (developer.mjs), as a running bot would hold it, so the steps do not
 // lean on each other. "A key verifies" means Edge answers a signed call the key makes (the account balance).
 //
@@ -261,37 +261,6 @@ test(`${J} #3 a key requests its own rotation and tries to approve it: refused; 
     await page.goto(`/uc/safe/api-keys/${keyId}`);
     await expect(page.getByRole('button', { name: 'Approve the rotation' })).toHaveCount(0);
     expect(await keysOf(who)).toHaveLength(2);
-  } finally {
-    await page.context().close();
-  }
-});
-
-test(`${J} #4 revokes a key: it stops verifying at once, and the list shows it revoked with its reason`, async ({ browser }) => {
-  test.setTimeout(240_000);
-  const { page } = await keyHolder(browser, 'jd7v');
-  try {
-    const cred = { key: await makeKey(page, { name: 'bot-1' }) };
-    await expectVerifies(cred, 'the running bot key');
-
-    await page.goto('/uc/safe/api-keys');
-    const row = page
-      .getByTestId('api-keys__table')
-      .locator('tbody tr')
-      .filter({ has: page.getByRole('rowheader', { name: 'bot-1', exact: true }) });
-    await row.getByRole('button', { name: 'Revoke', exact: true }).click();
-    const dialog = page.getByRole('dialog');
-    await dialog.getByLabel('Reason (optional)').fill('TEST bot retired');
-    await dialog.getByRole('button', { name: 'Revoke', exact: true }).click();
-    await expect(page.getByRole('status').filter({ hasText: 'The key is revoked.' })).toBeVisible();
-
-    // At once: the very next call the bot makes is refused, with no wait in between.
-    const v = await verifies(cred);
-    expect(v.status, JSON.stringify(v.body).slice(0, 300)).toBe(401);
-    expect(v.code).toBe('edge.api_key_revoked');
-
-    await page.reload();
-    await expect(row).toContainText('Revoked by you: TEST bot retired');
-    await expect(row.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(0);
   } finally {
     await page.context().close();
   }
