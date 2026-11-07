@@ -66,7 +66,8 @@ async function phraseOf(form) {
     .filter({ hasText: /to confirm$/ })
     .locator('code')
     .first();
-  return (await code.innerText()).trim();
+  // textContent, not innerText: the console styles the phrase in capitals, and the check is exact.
+  return ((await code.textContent()) ?? '').trim();
 }
 
 /** Founder A fills `fill(form)` on tab `tab`, asks, and founder B approves; returns A's reply. `stopAfterAsk` asks only. */
@@ -348,7 +349,9 @@ test(`${J} #8 halts a pool: routing excludes it, the page shows the badge and re
   let halted = false;
   try {
     const { formA, phrase } = await move('Hide a pool', `LOCAL TEST ${J} halt ${runTag()}`);
-    await formA.getByRole('button', { name: 'Ask a second founder to approve this' }).click();
+    const askButton = formA.getByRole('button', { name: 'Ask a second founder to approve this' });
+    await expect(askButton).toBeEnabled();
+    await askButton.click();
     await expect(formA.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
     halted = true;
     // One approver: still routed and no badge.
