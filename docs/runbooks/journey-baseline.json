@@ -1197,6 +1197,13 @@
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
+      "step": "J-copy-bots-otc-13#2",
+      "file": "apps/customer/tests/real-app/J-copy-bots-otc-13.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "J-copy-bots-otc-13 #2 as a support operator is blocked: the founder console has no non-founder staff login, so no support operator can sign in to look a customer up. #2 above runs as founder a."
+    },
+    {
       "step": "J-copy-bots-otc-15#1",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-15.pw.mjs",
       "state": "unbuilt",
