@@ -85,6 +85,17 @@ export async function testStrategyListing(page, { title, price = '10', assetId =
  * kind waits in `applied` until this runs; only an approved listing is public or sold. Returns svc-market's answer.
  */
 export async function reviewListing(listingId, decision = 'approved', reason = 'TEST listing meets the TEST criteria (journey setup)') {
+  const res = await decideListing(listingId, decision, reason);
+  const row = res.json?.result?.data;
+  expect(row, `listing review refused (${res.status}): ${res.refusal}`).toMatchObject({ listingId, reviewState: decision });
+  return row;
+}
+
+/**
+ * The same two-founder decision as `reviewListing`, answered as sent: svc-market's raw reply and its refusal text, for a
+ * step that expects svc-market to refuse by name.
+ */
+export async function decideListing(listingId, decision, reason) {
   const gates = await gatesTool();
   const ctx = await gates.makeContext({ log: () => {} });
   const pair = await gates.approverSessions(ctx);
@@ -102,7 +113,5 @@ export async function reviewListing(listingId, decision = 'approved', reason = '
     { listingId, decision, reason, ...ids },
     await pair.a.marketOpsToken(),
   );
-  const row = res.json?.result?.data;
-  expect(row, `listing review refused (${res.status}): ${gates.refusalText(res)}`).toMatchObject({ listingId, reviewState: decision });
-  return row;
+  return { ...res, refusal: gates.refusalText(res) };
 }

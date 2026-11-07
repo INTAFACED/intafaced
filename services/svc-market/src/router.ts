@@ -208,6 +208,7 @@ function mapError(err: unknown): never {
       err.code === 'market.review_criteria_unset' ||
       err.code === 'market.review_window_unset' ||
       err.code === 'market.review_queue_list_limit_unset' ||
+      err.code === 'market.review_decisions_list_limit_unset' ||
       err.code === 'market.listing_not_approved' ||
       err.code === 'market.review_not_settled' ||
       err.code === MARKET_LISTING_PIN_UNSET ||
@@ -297,7 +298,7 @@ const listingReviewQueueOut = z.object({
       periodSeconds: z.number().int().positive().nullable(),
       vendorId: z.string().guid(),
       sellerName: z.string(),
-      reviewState: z.enum(['applied', 'reviewing']),
+      reviewState: z.literal('applied'),
       submittedAt: z.string().datetime(),
       reviewDueAt: z.string().datetime().nullable(),
     }),
@@ -578,6 +579,16 @@ export function createMarketRouter(
             requireCommerce(commerce);
             try {
               return await commerce.listingReviewQueue({ actorScope: MARKET_OPS_SCOPE, limit: input?.limit });
+            } catch (err) {
+              mapError(err);
+            }
+          }),
+        rules: scopedProcedure(MARKET_OPS_SCOPE)
+          .output(listingReviewQueueOut.omit({ rows: true }))
+          .query(() => {
+            requireCommerce(commerce);
+            try {
+              return commerce.listingReviewRules({ actorScope: MARKET_OPS_SCOPE });
             } catch (err) {
               mapError(err);
             }

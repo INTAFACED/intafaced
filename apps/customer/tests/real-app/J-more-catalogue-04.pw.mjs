@@ -4,13 +4,15 @@ import { ADMIN, assertAdminUp, founderSignIn } from './admin.mjs';
 import { ORIGIN, api, journeyState, restartWith } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { bodyRows } from './tables.mjs';
-import { approvedSeller } from './market-listing.mjs';
+import { approvedSeller, decideListing, reviewListing } from './market-listing.mjs';
 
 // J-more-catalogue-04, in the running app (docs/roadmap/journeys.json): review and approve market listings. One test per
 // step, titled "J-more-catalogue-04 #<n>", run in order. Founders A and B work the market desk in the admin app at
 // /more-ops/market, each on their own console: A asks, B pastes the packet and approves the same request, A runs it.
-// Two TEST sellers, each approved through svc-market's own four-eyes vet, publish one listing each through svc-market's
-// seller doors; a new listing waits in the review queue (`applied`) until two founders decide it. The review criteria and
+// Three TEST sellers, each approved through svc-market's own four-eyes vet, publish one listing each through svc-market's
+// seller doors; a new listing waits in the review queue (`applied`) until two founders decide it. Two wait for #1–#4; the
+// third is approved at the start through the founders' door, and #5 takes it down, so the journey ends with one listing
+// approved, one rejected and one taken down. The review criteria and
 // window are the stack's labelled TEST values (tooling/profiles/test-owner-values/market.json); #1 restarts svc-market
 // with the criteria blank to see the queue wait, then puts them back. No value moves.
 const J = 'J-more-catalogue-04';
@@ -158,10 +160,26 @@ test(`${J} starts: signed in to the admin app at /more-ops/market; listings are 
     }),
   );
   expect(second).toMatchObject({ title: toReject, reviewState: 'applied' });
-  // Neither is public while it waits.
+  // The third listing is one two founders already approved: the public listing #5 takes down.
+  const thirdPage = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
+  const three = await approvedSeller(thirdPage);
+  const toTakeDown = `TEST ${nonce} listing to take down`;
+  const third = data(
+    await three.client.post('/api/market/trpc/createNonStrategyListing', {
+      title: toTakeDown,
+      description: 'TEST advisory listing on the local test stack. Not real advice.',
+      category: 'advisory',
+      assetId: 'USDT',
+      price: '2',
+    }),
+  );
+  expect(third).toMatchObject({ title: toTakeDown, reviewState: 'applied' });
+  await reviewListing(third.id, 'approved', 'TEST listing approved for the takedown step (J-more-catalogue-04)');
+  // The two waiting are not public; the approved one is.
   const ids = await publicIds();
   expect(ids).not.toContain(created.id);
   expect(ids).not.toContain(second.id);
+  expect(ids).toContain(third.id);
 
   const { a, ida, idb } = await founders(browser);
   await openDesk(a);
@@ -175,6 +193,11 @@ test(`${J} starts: signed in to the admin app at /more-ops/market; listings are 
     toReject,
     rejectId: second.id,
     sellerTwo: two.seller,
+    sellerTwoName: `TEST seller ${two.seller.handle}`,
+    sellerOneName: `TEST seller ${one.seller.handle}`,
+    toTakeDown,
+    takeDownId: third.id,
+    sellerThree: three.seller,
   });
 });
 
@@ -182,17 +205,23 @@ test(`${J} #1 Opens the review queue: applied listings with seller, terms and cr
   browser,
 }) => {
   test.setTimeout(300_000);
-  const { toApprove, toReject, approveId } = started('toApprove', 'toReject', 'approveId');
+  const { toApprove, toReject, approveId, sellerOneName, sellerTwoName } = started(
+    'toApprove',
+    'toReject',
+    'approveId',
+    'sellerOneName',
+    'sellerTwoName',
+  );
   const { a } = await founders(browser);
   await openDesk(a);
   const queue = a.getByRole('region', { name: QUEUE });
-  for (const [title, type, price] of [
-    [toApprove, 'subscription', '7'],
-    [toReject, 'one_time', '3'],
+  for (const [title, seller, type, price] of [
+    [toApprove, sellerOneName, 'subscription', '7'],
+    [toReject, sellerTwoName, 'one_time', '3'],
   ]) {
     const row = bodyRows(queue).filter({ hasText: title });
     await expect(row).toHaveCount(1);
-    await expect(row).toContainText('TEST seller');
+    await expect(row).toContainText(seller);
     await expect(row).toContainText(type);
     await expect(row).toContainText(price);
     await expect(row).toContainText('USDT');
@@ -209,9 +238,15 @@ test(`${J} #1 Opens the review queue: applied listings with seller, terms and cr
     await openDesk(a);
     const blank = a.getByTestId(`read-market.listing-review-rules`).getByTestId('record');
     // The criteria cell is empty ("—"): svc-market answers no criteria, and the desk invents none.
-    await expect(blank.locator('.dk-kv-row').filter({ hasText: 'Review criteria' }).locator('dd')).toHaveText('—');
+    const criteriaRow = blank.locator('.dk-kv-row').filter({ has: a.locator('dt', { hasText: /^Review criteria$/ }) });
+    await expect(criteriaRow).toHaveCount(1);
+    await expect(criteriaRow.locator('dd')).toHaveText('—');
     await expect(blank).toContainText('waiting: no listing can be approved until the review criteria are set');
     await expect(bodyRows(a.getByRole('region', { name: QUEUE })).filter({ hasText: toApprove })).toHaveCount(1);
+    // Two founders' decision while the criteria are blank: svc-market refuses it by name and the listing still waits.
+    const refused = await decideListing(approveId, 'approved', 'TEST approve while the criteria are blank (J-more-catalogue-04)');
+    expect(refused.json?.result, refused.refusal).toBeUndefined();
+    expect(refused.refusal).toContain('market.review_criteria_unset');
     expect(await publicIds()).not.toContain(approveId);
   } finally {
     restartWith('market', 'LOCAL_STACK_MARKET_REVIEW_CRITERIA', true);
@@ -241,7 +276,14 @@ test(`${J} #3 A second founder approves: the listing becomes approved and appear
   page,
 }) => {
   test.setTimeout(300_000);
-  const { toApprove, approveId, founderA, founderB, sellerOne } = started('toApprove', 'approveId', 'founderA', 'founderB', 'sellerOne');
+  const { toApprove, approveId, founderA, founderB, sellerOne, sellerTwo } = started(
+    'toApprove',
+    'approveId',
+    'founderA',
+    'founderB',
+    'sellerOne',
+    'sellerTwo',
+  );
   const pages = await founders(browser);
   const reason = 'TEST listing meets the TEST criteria (J-more-catalogue-04)';
   const { deskA, packet, phrase } = await askReview(pages.a, toApprove, 'Approve', reason);
@@ -252,7 +294,8 @@ test(`${J} #3 A second founder approves: the listing becomes approved and appear
   // svc-market's own answers: public, and approved for its seller.
   expect(await publicIds()).toContain(approveId);
   expect(await ownListing(await api(sellerOne), approveId)).toMatchObject({ reviewState: 'approved' });
-  // A shopper sees it in the Market.
+  // A shopper (the second TEST seller's account, signed in; not this listing's seller) sees it in the Market.
+  await signIn(page, sellerTwo);
   await page.goto('/market');
   await expect(page.getByRole('heading', { name: 'Market', level: 1 })).toBeVisible();
   const card = page.getByRole('article').filter({ hasText: toApprove });
@@ -292,29 +335,38 @@ test(`${J} #4 Rejects another with a reason: the seller sees the reason`, async 
 
 test(`${J} #5 Takes down an approved listing: it leaves the public list and the reason shows in the audit`, async ({ browser, page }) => {
   test.setTimeout(300_000);
-  const { toApprove, approveId, founderA, founderB } = started('toApprove', 'approveId', 'founderA', 'founderB');
+  const { toTakeDown, takeDownId, founderA, founderB, sellerTwo } = started(
+    'toTakeDown',
+    'takeDownId',
+    'founderA',
+    'founderB',
+    'sellerTwo',
+  );
   const pages = await founders(browser);
   const reason = 'TEST takedown: the listing is withdrawn for the journey (J-more-catalogue-04)';
+  // An approved listing, in the public list before the takedown.
+  expect(await publicIds()).toContain(takeDownId);
   await openDesk(pages.a);
-  const detail = await openRow(pages.a, PUBLIC, toApprove);
+  const detail = await openRow(pages.a, PUBLIC, toTakeDown);
   const deskA = detail.getByTestId('control-desk');
   await deskA.getByLabel(/^Why/).fill(reason);
-  const phrase = `TAKE DOWN LISTING ${approveId.slice(0, 8)}`;
+  const phrase = `TAKE DOWN LISTING ${takeDownId.slice(0, 8)}`;
   await deskA.getByLabel(/to confirm$/).fill(phrase);
   await deskA.getByRole('button', { name: /^Ask a second operator to approve the takedown/ }).click();
   await expect(deskA.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
   const packet = (await deskA.getByLabel('Request packet').inputValue()).trim();
-  await approveAsB(pages.b, PUBLIC, toApprove, { packet, phrase, summary: `Take down market listing ${approveId}` });
+  await approveAsB(pages.b, PUBLIC, toTakeDown, { packet, phrase, summary: `Take down market listing ${takeDownId}` });
   const reply = await runAsA(deskA, phrase);
   await expect(reply).toContainText('svc-market answered and its returned listing is taken down');
 
-  expect(await publicIds()).not.toContain(approveId);
+  expect(await publicIds()).not.toContain(takeDownId);
+  await signIn(page, sellerTwo);
   await page.goto('/market');
   await expect(page.getByRole('heading', { name: 'Market', level: 1 })).toBeVisible();
-  await expect(page.getByRole('article').filter({ hasText: toApprove })).toHaveCount(0);
+  await expect(page.getByRole('article').filter({ hasText: toTakeDown })).toHaveCount(0);
   await openDesk(pages.a);
   const audit = bodyRows(pages.a.getByRole('region', { name: AUDIT }))
-    .filter({ hasText: approveId })
+    .filter({ hasText: takeDownId })
     .filter({ hasText: 'taken_down' });
   await expect(audit).toHaveCount(1);
   await expect(audit).toContainText(reason);
@@ -323,10 +375,19 @@ test(`${J} #5 Takes down an approved listing: it leaves the public list and the 
 });
 
 test(`${J} ends: one listing approved by two founders, one rejected with a reason, one taken down`, async () => {
-  const { approveId, rejectId, sellerOne, sellerTwo } = started('approveId', 'rejectId', 'sellerOne', 'sellerTwo');
-  expect(await ownListing(await api(sellerOne), approveId)).toMatchObject({ reviewState: 'taken_down' });
-  expect(await ownListing(await api(sellerTwo), rejectId)).toMatchObject({ reviewState: 'rejected' });
+  const { approveId, rejectId, takeDownId, sellerOne, sellerTwo, sellerThree } = started(
+    'approveId',
+    'rejectId',
+    'takeDownId',
+    'sellerOne',
+    'sellerTwo',
+    'sellerThree',
+  );
+  expect(await ownListing(await api(sellerOne), approveId)).toMatchObject({ reviewState: 'approved' });
+  expect(await ownListing(await api(sellerTwo), rejectId)).toMatchObject({ reviewState: 'rejected', reviewReason: expect.any(String) });
+  expect(await ownListing(await api(sellerThree), takeDownId)).toMatchObject({ reviewState: 'taken_down' });
   const ids = await publicIds();
-  expect(ids).not.toContain(approveId);
+  expect(ids).toContain(approveId);
   expect(ids).not.toContain(rejectId);
+  expect(ids).not.toContain(takeDownId);
 });

@@ -309,9 +309,9 @@ test(`${J} #3 every kind of listing shows its review state: svc-market's own, on
   // svc-market's words for each state, as the customer copy names them (en).
   const words = {
     applied: 'Waiting for review by the Market’s operators',
-    reviewing: 'In review by the Market’s operators',
     approved: 'Approved by the Market’s operators',
     rejected: 'Rejected by the Market’s operators',
+    suspended: 'Seller suspended by the Market’s operators',
     taken_down: 'Taken down by the Market’s operators',
   };
   const showsItsState = async (rows) => {

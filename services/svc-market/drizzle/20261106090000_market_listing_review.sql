@@ -1,7 +1,7 @@
 -- svc-market · listing review state and the founders' review decisions (MC-market-03, J-more-catalogue-04)
 -- Reversal: 20261106090000_market_listing_review.down.sql
 --
--- Every listing, of every kind, carries a review state: `applied` when published, `reviewing`, then `approved` or
+-- Every listing, of every kind, carries a review state: `applied` when published, then `approved` or
 -- `rejected` by two founders (svc-market `ops.listingReview.decide`), or `taken_down` by an operator takedown. A listing
 -- is public only when `approved`. Listings written before this file were never reviewed, so they start `applied` and
 -- leave the shopfront until reviewed (a taken-down row stays `taken_down`). Nothing is invented as approved.
@@ -17,7 +17,7 @@ UPDATE "market"."listings" SET "review_state" = 'taken_down' WHERE "status" = 't
 ALTER TABLE "market"."listings" DROP CONSTRAINT IF EXISTS "listings_review_state_ck";
 ALTER TABLE "market"."listings"
   ADD CONSTRAINT "listings_review_state_ck"
-  CHECK ("review_state" IN ('applied', 'reviewing', 'approved', 'rejected', 'taken_down'));
+  CHECK ("review_state" IN ('applied', 'approved', 'rejected', 'taken_down'));
 
 ALTER TABLE "market"."listings" DROP CONSTRAINT IF EXISTS "listings_review_ordinal_ck";
 ALTER TABLE "market"."listings" ADD CONSTRAINT "listings_review_ordinal_ck" CHECK ("review_ordinal" >= 1);

@@ -128,6 +128,9 @@ describe('listing review: applied, two founders decide, only approved is public'
     expect((await commerce.listingReviewQueue({ actorScope: MARKET_OPS_SCOPE, limit: 50 })).rows).toEqual([]);
     const again = await decide(commerce, data, 'approved');
     expect(again.businessKey).toBe(result.businessKey);
+    // A replay answers the decision as it was taken, even after the listing moved on.
+    await db.sql`UPDATE market.listings SET status = 'taken_down', review_state = 'taken_down' WHERE id = ${data}`;
+    expect((await decide(commerce, data, 'approved')).reviewState).toBe('approved');
     const audit = await commerce.listingReviewDecisions({ actorScope: MARKET_OPS_SCOPE, limit: 50 });
     expect(audit.map((d) => [d.listingId, d.decision, d.reason, d.actorId, d.approverId])).toEqual([
       [data, 'approved', REASON, TEST_REVIEW_FOUNDER_A, TEST_REVIEW_FOUNDER_B],
@@ -144,9 +147,42 @@ describe('listing review: applied, two founders decide, only approved is public'
     expect(await commerce.listingReviewDecisions({ actorScope: MARKET_OPS_SCOPE, limit: 50 })).toEqual([]);
   });
 
-  it('a seller never decides their own listing', async () => {
+  it('a seller never decides their own listing: neither as the founder who asks nor as the one who approves', async () => {
     const data = await listing('data');
     await expect(decide(service(), data, 'approved', { actorId: SELLER })).rejects.toMatchObject({ code: 'market.review_self_forbidden' });
+    await expect(decide(service(), data, 'approved', { approvals: reviewApprovals(TEST_REVIEW_FOUNDER_A, SELLER) })).rejects.toMatchObject({
+      code: 'market.review_self_forbidden',
+    });
+    expect(await service().listingReviewDecisions({ actorScope: MARKET_OPS_SCOPE, limit: 50 })).toEqual([]);
+    expect(await service().myListings(SELLER, { limit: 50 })).toEqual([expect.objectContaining({ id: data, reviewState: 'applied' })]);
+  });
+
+  it('a decision on a listing no longer waiting refuses without spending the second founder approval', async () => {
+    const data = await listing('data');
+    let consumed = 0;
+    const counting: ReturnType<typeof reviewApprovals> = {
+      consume: async (input) => {
+        consumed += 1;
+        return reviewApprovals().consume(input);
+      },
+    };
+    // Another pair decided it first, under a different round's key: this decision is no longer pending.
+    await db.sql`UPDATE market.listings SET review_state = 'rejected', review_reason = 'TEST decided first' WHERE id = ${data}`;
+    await expect(decide(service(), data, 'approved', { approvals: counting })).rejects.toMatchObject({
+      code: 'market.review_not_pending',
+    });
+    expect(consumed).toBe(0);
+    expect(await service().listingReviewDecisions({ actorScope: MARKET_OPS_SCOPE, limit: 50 })).toEqual([]);
+  });
+
+  it('a suspended seller reads suspended on their own listings, and none of them is public', async () => {
+    const data = await listing('data');
+    const commerce = service();
+    await decide(commerce, data, 'approved');
+    const mine = (await vendors.myVendor(SELLER))!;
+    await db.sql`UPDATE market.vendors SET status = 'suspended' WHERE id = ${mine.id}`;
+    expect(await commerce.myListings(SELLER, { limit: 50 })).toEqual([expect.objectContaining({ id: data, reviewState: 'suspended' })]);
+    expect(await commerce.publicListings({ limit: 50 })).toEqual([]);
   });
 
   it('a rejection carries its reason to the seller, stays off the public list, and a later approve is refused', async () => {
@@ -189,7 +225,16 @@ describe('listing review: applied, two founders decide, only approved is public'
       code: 'market.review_queue_list_limit_unset',
     });
     await expect(commerce.listingReviewDecisions({ actorScope: MARKET_OPS_SCOPE })).rejects.toMatchObject({
-      code: 'market.review_queue_list_limit_unset',
+      code: 'market.review_decisions_list_limit_unset',
+    });
+    expect(() => commerce.listingReviewRules({ actorScope: 'market:read' })).toThrow(
+      expect.objectContaining({ code: 'market.ops_required' }),
+    );
+    expect(commerce.listingReviewRules({ actorScope: MARKET_OPS_SCOPE })).toEqual({
+      criteria: TEST_REVIEW_RULES.criteria.join('; '),
+      windowSeconds: 86_400,
+      queueState: 'open',
+      queueNote: 'open: two founders approve or reject each listing against these criteria',
     });
   });
 

@@ -1961,8 +1961,7 @@ const moreSections: readonly DeskSection[] = [
         note: 'The owner publishes these. While either is blank every new listing waits and svc-market refuses a decision by name. No return, win-rate or drawdown threshold is built in.',
         module: 'market',
         plainName: 'listing review rules',
-        procedure: 'ops.listingReview.list',
-        input: { limit: 50 },
+        procedure: 'ops.listingReview.rules',
         shape: 'record',
         columns: [
           text('criteria', 'Review criteria', { nullable: true }),

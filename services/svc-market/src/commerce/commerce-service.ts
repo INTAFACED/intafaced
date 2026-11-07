@@ -122,13 +122,24 @@ export type ListingSort = 'newest' | 'priceAsc' | 'priceDesc' | 'title';
  * two founders decide it `approved` or `rejected` (`decideListingReview`, four-eyes), and an operator takedown makes it
  * `taken_down`. A listing is public only when `approved`.
  */
-export const LISTING_REVIEW_STATES = ['applied', 'reviewing', 'approved', 'rejected', 'taken_down'] as const;
+export const LISTING_REVIEW_STATES = ['applied', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
 export type ListingReviewState = (typeof LISTING_REVIEW_STATES)[number];
 export type ListingReviewDecision = 'approved' | 'rejected';
+/** The states stored on the listing. `suspended` is never stored: it is the seller's suspension, read over the listing. */
+const STORED_REVIEW_STATES = ['applied', 'approved', 'rejected', 'taken_down'] as const;
 
-export function listingReviewState(listingStatus: ListingStatus, stored: string | null | undefined): ListingReviewState {
+/**
+ * The listing's review state as its reader sees it. A taken-down listing reads `taken_down`; a live listing whose seller
+ * an operator suspended reads `suspended` (it is off the Market whatever its own review said); otherwise the stored state.
+ */
+export function listingReviewState(
+  listingStatus: ListingStatus,
+  stored: string | null | undefined,
+  vendorStatus?: string | null,
+): ListingReviewState {
   if (listingStatus === 'taken_down') return 'taken_down';
-  if ((LISTING_REVIEW_STATES as readonly string[]).includes(stored ?? '')) return stored as ListingReviewState;
+  if (vendorStatus === 'suspended') return 'suspended';
+  if ((STORED_REVIEW_STATES as readonly string[]).includes(stored ?? '')) return stored as ListingReviewState;
   // A row read without its review column is never reported as approved.
   throw new MarketError('market.listing_review_state_unreadable', 'market.listing_review_state_unreadable');
 }
@@ -147,6 +158,14 @@ export const MARKET_REVIEW_SELF_FORBIDDEN = 'market.review_self_forbidden' as co
 export const MARKET_REVIEW_REASON_SHORT = 'market.review_reason_short' as const;
 export const MARKET_REVIEW_APPROVAL_MISMATCH = 'market.review_approval_mismatch' as const;
 export const MARKET_REVIEW_QUEUE_LIMIT_UNSET = 'market.review_queue_list_limit_unset' as const;
+export const MARKET_REVIEW_DECISIONS_LIMIT_UNSET = 'market.review_decisions_list_limit_unset' as const;
+
+/** A review read's page size: the caller's, a whole number from 1 to 50; omitted is not 50. Refuses with that read's code. */
+function reviewPageLimit(limit: number | undefined, code: string): number {
+  const n = limit == null ? NaN : Math.trunc(limit);
+  if (!Number.isInteger(n) || n < 1 || n > 50) throw new MarketError(code, code);
+  return n;
+}
 
 /** The owner's published review rules. Blank criteria or window: listings wait in `applied` and no decision runs. */
 export interface ListingReviewConfig {
@@ -165,7 +184,7 @@ export interface ListingReviewQueueRow {
   periodSeconds: number | null;
   vendorId: string;
   sellerName: string;
-  reviewState: 'applied' | 'reviewing';
+  reviewState: 'applied';
   submittedAt: string;
   /** Submitted plus the owner's review window; null while the window is not set. */
   reviewDueAt: string | null;
@@ -590,32 +609,10 @@ export class CommerceService {
     return { criteria: criteria && criteria.length > 0 ? criteria : null, windowSeconds: this.config.review?.windowSeconds ?? null };
   }
 
-  /**
-   * The founders' listing review queue (market:ops): every listing of every kind that waits for a decision, oldest
-   * first, with its seller, its terms, and the owner's criteria and window. Blank criteria or window: the queue says it
-   * is waiting and no decision runs. Page size is the caller's, required; omit is not 50.
-   */
-  async listingReviewQueue(input: { actorScope: string; limit?: number }): Promise<ListingReviewQueue> {
+  /** The owner's review rules as the desk shows them: the criteria, the window, and whether the queue is waiting. */
+  listingReviewRules(input: { actorScope: string }): Omit<ListingReviewQueue, 'rows'> {
     if (input.actorScope !== MARKET_OPS_SCOPE) throw new MarketError(MARKET_OPS_REQUIRED, MARKET_OPS_REQUIRED);
-    if (input.limit == null) throw new MarketError(MARKET_REVIEW_QUEUE_LIMIT_UNSET, MARKET_REVIEW_QUEUE_LIMIT_UNSET);
-    const limit = Math.trunc(input.limit);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
-      throw new MarketError(MARKET_REVIEW_QUEUE_LIMIT_UNSET, MARKET_REVIEW_QUEUE_LIMIT_UNSET);
-    }
     const rules = this.reviewRules();
-    const rows = await this.sql<Array<ListingRow & { seller_name: string; due_at: Date | null }>>`
-      SELECT l.id, l.vendor_id, l.title, l.description, l.offer_type, l.asset_id, l.price::text AS price,
-             l.period_seconds, l.category, l.status, l.review_state, l.created_at, l.updated_at,
-             v.display_name AS seller_name,
-             CASE WHEN ${rules.windowSeconds}::integer IS NULL THEN NULL
-                  ELSE l.created_at + make_interval(secs => ${rules.windowSeconds}::integer) END AS due_at
-        FROM market.listings l
-        JOIN market.vendors v ON v.id = l.vendor_id
-       WHERE l.status = 'active'
-         AND l.review_state IN ('applied', 'reviewing')
-       ORDER BY l.created_at ASC, l.id ASC
-       LIMIT ${limit}
-    `;
     const waiting = rules.criteria === null || rules.windowSeconds === null;
     return {
       criteria: rules.criteria ? rules.criteria.join('; ') : null,
@@ -626,6 +623,33 @@ export class CommerceService {
           ? 'waiting: no listing can be approved until the review criteria are set'
           : 'waiting: no listing can be approved until the review window is set'
         : 'open: two founders approve or reject each listing against these criteria',
+    };
+  }
+
+  /**
+   * The founders' listing review queue (market:ops): every listing of every kind that waits for a decision, oldest
+   * first, with its seller, its terms, and the owner's criteria and window. Blank criteria or window: the queue says it
+   * is waiting and no decision runs. Page size is the caller's, required; omit is not 50.
+   */
+  async listingReviewQueue(input: { actorScope: string; limit?: number }): Promise<ListingReviewQueue> {
+    if (input.actorScope !== MARKET_OPS_SCOPE) throw new MarketError(MARKET_OPS_REQUIRED, MARKET_OPS_REQUIRED);
+    const limit = reviewPageLimit(input.limit, MARKET_REVIEW_QUEUE_LIMIT_UNSET);
+    const rules = this.reviewRules();
+    const rows = await this.sql<Array<ListingRow & { seller_name: string; due_at: Date | null }>>`
+      SELECT l.id, l.vendor_id, l.title, l.description, l.offer_type, l.asset_id, l.price::text AS price,
+             l.period_seconds, l.category, l.status, l.review_state, l.created_at, l.updated_at,
+             v.display_name AS seller_name,
+             CASE WHEN ${rules.windowSeconds}::integer IS NULL THEN NULL
+                  ELSE l.created_at + make_interval(secs => ${rules.windowSeconds}::integer) END AS due_at
+        FROM market.listings l
+        JOIN market.vendors v ON v.id = l.vendor_id
+       WHERE l.status = 'active'
+         AND l.review_state = 'applied'
+       ORDER BY l.created_at ASC, l.id ASC
+       LIMIT ${limit}
+    `;
+    return {
+      ...this.listingReviewRules(input),
       rows: rows.map((row) => {
         const base = toListing(row);
         return {
@@ -639,7 +663,7 @@ export class CommerceService {
           periodSeconds: base.periodSeconds,
           vendorId: base.vendorId,
           sellerName: row.seller_name,
-          reviewState: row.review_state === 'reviewing' ? 'reviewing' : 'applied',
+          reviewState: 'applied' as const,
           submittedAt: base.createdAt,
           reviewDueAt: row.due_at ? row.due_at.toISOString() : null,
         };
@@ -650,11 +674,7 @@ export class CommerceService {
   /** The founders' review decisions and takedowns, newest first: the listing review audit. */
   async listingReviewDecisions(input: { actorScope: string; limit?: number }): Promise<ListingReviewDecisionRecord[]> {
     if (input.actorScope !== MARKET_OPS_SCOPE) throw new MarketError(MARKET_OPS_REQUIRED, MARKET_OPS_REQUIRED);
-    if (input.limit == null) throw new MarketError(MARKET_REVIEW_QUEUE_LIMIT_UNSET, MARKET_REVIEW_QUEUE_LIMIT_UNSET);
-    const limit = Math.trunc(input.limit);
-    if (!Number.isInteger(limit) || limit < 1 || limit > 50) {
-      throw new MarketError(MARKET_REVIEW_QUEUE_LIMIT_UNSET, MARKET_REVIEW_QUEUE_LIMIT_UNSET);
-    }
+    const limit = reviewPageLimit(input.limit, MARKET_REVIEW_DECISIONS_LIMIT_UNSET);
     const rows = await this.sql<DecisionRow[]>`
       SELECT listing_id, ordinal, decision, reason, actor_id, approver_id, business_key, created_at
         FROM market.listing_review_decisions
@@ -709,9 +729,10 @@ export class CommerceService {
       if (prior.decision !== input.decision || prior.reason !== reason) {
         throw new MarketError(MARKET_REVIEW_NOT_PENDING, MARKET_REVIEW_NOT_PENDING);
       }
-      return { ...toDecision(prior), reviewState: listingReviewState(listing.status, listing.review_state) };
+      // The same decision delivered again: the decision as it was taken, not whatever the listing reads now.
+      return { ...toDecision(prior), reviewState: prior.decision };
     }
-    if (listing.status !== 'active' || (listing.review_state !== 'applied' && listing.review_state !== 'reviewing')) {
+    if (listing.status !== 'active' || listing.review_state !== 'applied') {
       throw new MarketError(MARKET_REVIEW_NOT_PENDING, MARKET_REVIEW_NOT_PENDING);
     }
 
@@ -721,31 +742,37 @@ export class CommerceService {
       decision: input.decision,
       reason,
     });
-    const consumed = await approvals.consume({
-      approvalId: ids.approvalId,
-      operationId: ids.operationId,
-      payloadHash,
-      targetService: 'svc-market',
-      targetId: input.listingId,
-      expectedVersion: '1',
-    });
-    assertReviewApproval(consumed, input.listingId, payloadHash);
-    const approverId = consumed.approverId!.trim();
-
+    // The listing is locked and re-checked BEFORE the approval is consumed, so a decision that lost a race refuses
+    // without burning the second founder's approval; the consume, the state and the audit row then commit together.
     return transaction(this.sql, async (tx) => {
-      const [updated] = await tx<Array<{ reviewed_at: Date }>>`
+      const [locked] = await tx<Array<{ status: ListingStatus; review_state: string; review_ordinal: number }>>`
+        SELECT status, review_state, review_ordinal FROM market.listings WHERE id = ${input.listingId} FOR UPDATE
+      `;
+      if (!locked || locked.status !== 'active' || locked.review_state !== 'applied' || Number(locked.review_ordinal) !== ordinal) {
+        throw new MarketError(MARKET_REVIEW_NOT_PENDING, MARKET_REVIEW_NOT_PENDING);
+      }
+      const consumed = await approvals.consume({
+        approvalId: ids.approvalId,
+        operationId: ids.operationId,
+        payloadHash,
+        targetService: 'svc-market',
+        targetId: input.listingId,
+        expectedVersion: '1',
+      });
+      assertReviewApproval(consumed, input.listingId, payloadHash);
+      const approverId = consumed.approverId!.trim();
+      // Neither founder may be the listing's seller: not the one who asks, nor the one who approves.
+      if (approverId === listing.seller_user_id) {
+        throw new MarketError(MARKET_REVIEW_SELF_FORBIDDEN, MARKET_REVIEW_SELF_FORBIDDEN);
+      }
+      await tx`
         UPDATE market.listings
            SET review_state = ${input.decision},
                review_reason = ${reason},
                reviewed_at = now(),
                updated_at = now()
          WHERE id = ${input.listingId}
-           AND status = 'active'
-           AND review_state IN ('applied', 'reviewing')
-           AND review_ordinal = ${ordinal}
-        RETURNING reviewed_at
       `;
-      if (!updated) throw new MarketError(MARKET_REVIEW_NOT_PENDING, MARKET_REVIEW_NOT_PENDING);
       const [row] = await tx<DecisionRow[]>`
         INSERT INTO market.listing_review_decisions (
           business_key, listing_id, ordinal, decision, reason, actor_id, approver_id, approval_id
@@ -847,7 +874,7 @@ export class CommerceService {
        LIMIT ${limit}
     `;
     return rows.map((row) => {
-      const reviewState = listingReviewState(row.status, row.review_state);
+      const reviewState = listingReviewState(row.status, row.review_state, mine.status);
       const reviewReason =
         reviewState === 'rejected' ? (row.review_reason ?? null) : reviewState === 'taken_down' ? (row.taken_down_reason ?? null) : null;
       return { ...toListing(row), reviewState, reviewReason };
