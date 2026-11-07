@@ -5,7 +5,7 @@ import {
   isConsoleSettablePolicyActionType,
   type ActionApprovalPolicyEntry,
   type ConsoleSettablePolicyActionType,
-} from '@intafaced/contracts';
+} from '@intafaced/contracts/action-approval-policy';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import type { Part } from '@/lib/desk/part';
 import { ChangePolicyRoom } from './room';
