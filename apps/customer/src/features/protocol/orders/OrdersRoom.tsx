@@ -152,7 +152,12 @@ function SessionPanel({
 
   const signOut = async () => {
     if (!session) return;
-    await api.logout(session.accessToken);
+    setProblem(null);
+    const ended = await api.logout(session.accessToken);
+    // Only the service's own yes (or its word that the session had already ended) ends it here; anything else keeps it,
+    // and says so, so no one is told a session was revoked when it was not.
+    if (!ended.ok && ended.code !== 'dex.auth.unauthenticated')
+      return setProblem(t('sessionSignOutFailed', { words: refusalWords(t, ended) }));
     forgetSession(address);
     onSession(null);
     setSignedOut(true);

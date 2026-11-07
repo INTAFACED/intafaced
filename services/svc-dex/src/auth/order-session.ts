@@ -277,7 +277,14 @@ export class OrderSessions {
     // Spent once, before any token exists: a second verify of the same challenge opens nothing.
     if (!this.store.spendNonce(fields.nonce, fields.challengeExpiresAt))
       return refuse(authCodes.challengeReplayed, 'This signed challenge was already used. Sign a new order session.');
-    return this.issue(s, fields.wallet, `${fields.nonce.slice(2, 18)}${randomBytes(8).toString('hex')}`, fields.cap, at);
+    return this.issue(
+      s,
+      fields.wallet,
+      `${fields.nonce.slice(2, 18)}${randomBytes(8).toString('hex')}`,
+      fields.cap,
+      at,
+      fields.sessionExpiresAt,
+    );
   }
 
   refresh(refreshToken: string): IssuedSession {
@@ -286,7 +293,8 @@ export class OrderSessions {
     // A refresh token is spent too: the old pair ends and a new pair carries the same session id.
     if (!this.store.spendNonce(`refresh:${p.jti}`, p.exp))
       return refuse(authCodes.unauthenticated, 'This refresh token was already used. Sign a new order session.');
-    return this.issue(s, p.wallet as Address, p.sid, p.cap, this.now().getTime());
+    // A new pair, never past the end the wallet signed: refreshing cannot stretch the session.
+    return this.issue(s, p.wallet as Address, p.sid, p.cap, this.now().getTime(), p.end);
   }
 
   /** Ends one session: its access and refresh tokens both stop at once. */
@@ -313,10 +321,10 @@ export class OrderSessions {
     return { wallet: p.wallet.toLowerCase(), sessionId: p.sid, cap: p.cap };
   }
 
-  private issue(s: Ready, wallet: Address, sid: string, cap: readonly DexOrderCap[], at: number): IssuedSession {
-    const accessExp = at + s.accessTtlSeconds * 1000;
-    const refreshExp = at + s.refreshTtlSeconds * 1000;
-    const base = { w: wallet, sid, k: cap, iat: at };
+  private issue(s: Ready, wallet: Address, sid: string, cap: readonly DexOrderCap[], at: number, end: number): IssuedSession {
+    const accessExp = Math.min(at + s.accessTtlSeconds * 1000, end);
+    const refreshExp = Math.min(at + s.refreshTtlSeconds * 1000, end);
+    const base = { w: wallet, sid, k: cap, iat: at, end };
     return {
       wallet,
       accessToken: seal(s.secret, 'access', { ...base, exp: accessExp }),
@@ -337,6 +345,7 @@ export class OrderSessions {
       typeof raw.sid !== 'string' ||
       typeof raw.exp !== 'number' ||
       typeof raw.iat !== 'number' ||
+      typeof raw.end !== 'number' ||
       !Array.isArray(raw.k)
     )
       return refuse(authCodes.unauthenticated, 'This order session token is not valid. Sign a new order session.');
@@ -346,6 +355,7 @@ export class OrderSessions {
       wallet: raw.w,
       sid: raw.sid,
       exp: raw.exp,
+      end: raw.end,
       jti: typeof raw.jti === 'string' ? raw.jti : '',
       cap: raw.k as DexOrderCap[],
     };

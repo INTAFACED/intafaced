@@ -30,6 +30,7 @@ const en = {
   sessionReplayHint: 'Checks that a signature already used cannot open a second session.',
   sessionSignOut: 'Sign out of the order session',
   sessionSignedOut: 'The order session ended. Your orders stay as they are.',
+  sessionSignOutFailed: 'The order session was not ended, and it still works: {words}',
 
   refused: '{words} Code: {code}.',
   refused_dex_auth_challenge_replayed: 'That signature was already used, so it opened nothing.',
