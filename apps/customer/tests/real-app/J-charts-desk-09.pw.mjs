@@ -1,7 +1,7 @@
-// World: none
+// World: market
 import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, ORIGIN } from './stack.mjs';
+import { EDGE, ORIGIN, bestPrices, tool } from './stack.mjs';
 
 // J-charts-desk-09, in the running app (docs/roadmap/journeys.json): a person sets price alerts, manages them and reads
 // what fired. One test per step, titled "J-charts-desk-09 #<n>", run in order on one TEST account in one browser. The
@@ -85,9 +85,10 @@ const daysAhead = (days) =>
   }, days);
 
 /** Fills the form for BTC/USDT and saves it through the review. */
-async function createAlert({ condition, price, name, message, expires }) {
+async function createAlert({ condition, price, name, message, expires, repeat }) {
   await marketSelect().selectOption({ label: 'BTC/USDT' });
   await form().getByLabel('Notify me when the price is').selectOption({ label: condition });
+  if (repeat) await form().getByTestId('alerts-repeat').getByRole('checkbox').check();
   await form().getByLabel('Price (USDT)').fill(price);
   await form()
     .getByLabel('Name (optional)')
@@ -369,4 +370,120 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   await expect(form().getByRole('button', { name: 'Review alert' })).toBeDisabled();
   await form().getByRole('combobox', { name: 'Alert on' }).selectOption({ label: 'The price' });
   await expect(form().getByTestId('alerts-kind-refused')).toHaveCount(0);
+});
+
+/** A shift in basis points as the TEST market tool takes it: `+0.60%`, `-1.25%`. */
+const shiftText = (bps) => {
+  const abs = bps < 0n ? -bps : bps;
+  return `${bps < 0n ? '-' : '+'}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
+};
+/** BTC/USDT's book mid now, in hundredths. */
+const midCents = async () => {
+  const { bid, ask } = await bestPrices();
+  return (cents(String(bid)) + cents(String(ask))) / 2n;
+};
+
+// Last in the file: it fills the account up to the quota, so a step after it could not save an alert.
+test(`${J} #8 hits the alert quota, and an alert that triggers too often is stopped with its stop reason`, async () => {
+  test.setTimeout(18 * SWEEP_MS);
+  // The owner's limits, as the service publishes them with the quota.
+  const quotaRead = page.waitForResponse((r) => /notify\.alertQuota\b/.test(r.url()) && r.ok());
+  await page.reload();
+  const published = await (await quotaRead).text();
+  const max = Number(/"max":\s*(\d+)/.exec(published)?.[1]);
+  const maxTriggers = Number(/"maxTriggers":\s*(\d+)/.exec(published)?.[1]);
+  const windowMinutes = Number(/"windowMinutes":\s*(\d+)/.exec(published)?.[1]);
+  expect(
+    max > 0 && maxTriggers > 0 && windowMinutes > 0,
+    `the quota and burst rule the service publishes (${published.slice(0, 300)})`,
+  ).toBe(true);
+  // Every trigger of the burst comes from its own sweep, one a minute, so the rule must be one this journey can reach.
+  expect(maxTriggers + 1, 'the burst fits inside its window at one trigger a sweep').toBeLessThan(windowMinutes);
+  const burstWords = `An alert that triggers more than ${maxTriggers} times in ${windowMinutes} minutes is stopped.`;
+
+  // The burst: a crossing alert that repeats, at the level the market stands at now. The TEST market maker's price is then
+  // moved to just under the level and over it again, sweep after sweep, so every sweep sees a real crossing.
+  const level = await midCents();
+  const levelText = fromCents(level);
+  await form().getByRole('combobox', { name: 'Price to watch' }).selectOption({ index: 0 });
+  await createAlert({ condition: 'Crossing, either way,', price: levelText, name: 'TEST bursts', repeat: true });
+  const row = rowWith('TEST bursts');
+  await expect(row.getByTestId('nf-body').first()).toHaveText(`Crossing, either way, ${levelText} USDT`);
+  await expect(row.getByTestId('alert-repeats')).toContainText('Triggered so far: 0');
+
+  let shift = 0n;
+  /** Moves the TEST price to 0.6% under (-1) or over (+1) the level, from the walk's own price now, and waits for the book. */
+  async function aim(sign) {
+    const unshifted = ((await midCents()) * 10_000n) / (10_000n + shift);
+    const target = (level * (10_000n + BigInt(sign) * 60n)) / 10_000n;
+    shift = ((target - unshifted) * 10_000n) / unshifted;
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftText(shift));
+    await expect
+      .poll(async () => (sign < 0 ? level - (await midCents()) : (await midCents()) - level), {
+        timeout: 30_000,
+        intervals: [1_000],
+        message: `the book's mid moves ${sign < 0 ? 'under' : 'over'} ${levelText}`,
+      })
+      .toBeGreaterThan((level * 20n) / 10_000n);
+  }
+  /** Waits for a sweep that ran after the book got where it is now. */
+  async function nextSweep() {
+    const after = Date.now() + 3_000;
+    await expect
+      .poll(async () => Date.parse(await lastSweepAt()), { timeout: SWEEP_MS + 30_000, intervals: [2_000] })
+      .toBeGreaterThan(after);
+  }
+  const triggered = async () => {
+    await page.reload();
+    return Number(/Triggered so far: (\d+)/.exec((await row.getByTestId('alert-repeats').textContent()) ?? '')?.[1]);
+  };
+
+  try {
+    // First a sweep sees the price under the level, so the alert knows which side it is on.
+    await aim(-1);
+    await nextSweep();
+    expect(await triggered(), 'no trigger while the price stays on one side').toBe(0);
+    // Then one crossing a sweep, up and down, until one more than the rule allows.
+    for (let n = 1; n <= maxTriggers + 1; n += 1) {
+      await aim(n % 2 === 1 ? 1 : -1);
+      // A sweep that read the book a moment before it moved sees no crossing yet; the next one does.
+      await expect.poll(triggered, { timeout: 2 * SWEEP_MS + 30_000, intervals: [5_000], message: `trigger ${n}` }).toBe(n);
+      if (n <= maxTriggers) await expect(row).toHaveAttribute('data-status', 'active');
+    }
+    // The trigger past the rule stopped it, and the row says why.
+    await expect(row).toHaveAttribute('data-status', 'stopped');
+    await expect(row).toContainText('Stopped');
+    await expect(row.getByTestId('alert-stop-reason')).toHaveText('Stopped because it triggered too often. Resume it to watch again.');
+    // Stopped means stopped: the next crossing triggers nothing.
+    await aim(-1);
+    await nextSweep();
+    await nextSweep();
+    expect(await triggered(), 'a stopped alert does not trigger again').toBe(maxTriggers + 1);
+    await expect(row).toHaveAttribute('data-status', 'stopped');
+  } finally {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+  }
+
+  // The quota: the header names how many are in use and the limit, with the burst rule, as the service counts them.
+  const header = page.getByTestId('alerts-quota');
+  const usedText = /^(\d+) of (\d+) price alerts in use\./.exec(((await header.textContent()) ?? '').trim());
+  expect(usedText, 'the quota header names what is in use and the limit').toBeTruthy();
+  expect(Number(usedText[2])).toBe(max);
+  await expect(header).toContainText(burstWords);
+  // Fill every place left, far under the market so nothing fires and frees one.
+  const last = await lastText();
+  for (let k = Number(usedText[1]); k < max; k += 1) {
+    await createAlert({ condition: 'At or below', price: testPrice(30, last), name: `TEST fill ${k + 1}` });
+  }
+  await page.reload();
+  await expect(header).toHaveText(
+    `${max} of ${max} price alerts in use. You are at the limit. Cancel or delete an alert to make room. ${burstWords}`,
+  );
+  // At the limit the form is switched off, saying why, and nothing can go to review.
+  await expect(form().getByTestId('alerts-reason')).toHaveText(
+    'Switched off: you are at your limit of price alerts. Cancel or delete one to make room.',
+  );
+  await expect(form().getByRole('button', { name: 'Review alert' })).toBeDisabled();
+  // The service holds the same count after a reload: the list carries `max` open (active or stopped) alerts.
+  await expect(rows().and(page.locator('[data-status="active"], [data-status="stopped"]'))).toHaveCount(max);
 });
