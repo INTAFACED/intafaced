@@ -95,7 +95,7 @@ export async function readLevelSettings(ctx: FounderCallContext): Promise<KycRev
 export async function runLevelStep(ctx: FounderCallContext, step: KycLevelStep): Promise<KycReviewAnswer<KycLevelSettingChange>> {
   const parse = parseWith(kycLevelSettingChangeSchema);
   if (step.op === 'propose') {
-    const { op: _op, ...input } = step;
+    const input = { level: step.level, restore: step.restore, requirements: step.requirements, reviewMinutes: step.reviewMinutes };
     return answer(await founderCall(ctx, 'identity', 'kyc.review.proposeLevelChange', 'POST', input, parse));
   }
   const procedure = step.op === 'approve' ? 'kyc.review.approveLevelChange' : 'kyc.review.withdrawLevelChange';

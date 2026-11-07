@@ -14,6 +14,7 @@ import {
   type KycSettableLevel,
 } from '@intafaced/contracts/identity-kyc-levels';
 import type { Sql } from 'postgres';
+import type { KycTier } from '@intafaced/config';
 import type { KycLadderSettings } from './levels.js';
 
 export type KycLevelSettingsErrorCode =
@@ -31,7 +32,7 @@ export class KycLevelSettingsError extends Error {
 
 /** Effective settings: the ladder's settings with review times in minutes, so an edited time below an hour is exact. */
 export interface KycEffectiveSettings extends KycLadderSettings {
-  readonly reviewMinutes: ReadonlyMap<KycSettableLevel, number>;
+  readonly reviewMinutes: ReadonlyMap<KycTier, number>;
 }
 
 interface ChangeRow {
@@ -82,7 +83,7 @@ export class KycLevelSettingsDesk {
       SELECT level, requirements, review_minutes FROM kyc_level_settings`;
     const requirements = new Map(this.published.requirements);
     const reviewHours = new Map(this.published.reviewHours);
-    const reviewMinutes = new Map<KycSettableLevel, number>();
+    const reviewMinutes = new Map<KycTier, number>();
     for (const level of KYC_SETTABLE_LEVELS) {
       const m = this.publishedMinutes(level);
       if (m !== null) reviewMinutes.set(level, m);
