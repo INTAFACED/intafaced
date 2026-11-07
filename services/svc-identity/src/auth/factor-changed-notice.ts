@@ -15,7 +15,8 @@
  * second change: each door answers a repeat without writing (already off, already removed, already set up), so it
  * queues nothing. Neither row carries a secret, a code or a credential id. `mail: false` is for a change whose own
  * notice already mails (a completed second-step reset, and every password change, which `queuePasswordChangedNotice`
- * mails itself): the event still goes, for the inbox.
+ * mails itself): the event still goes, for the inbox. `trustedDeviceId` names the device a `new_device` sign-in trusted,
+ * so Home's "Needs you" can ask about it until the person confirms it or removes the device (work-items.ts).
  */
 import { createHash } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
@@ -25,7 +26,7 @@ export type FactorChange = (typeof SECURITY_FACTOR_CHANGES)[number];
 
 export async function queueFactorChangedNotice(
   tx: Sql | TransactionSql,
-  input: { userId: string; change: FactorChange; now: Date; mail?: boolean },
+  input: { userId: string; change: FactorChange; now: Date; mail?: boolean; trustedDeviceId?: string },
 ): Promise<string> {
   // Callers already hold this lock; taking it again is free and keeps the count below race-free for any caller.
   const [user] = await tx<Array<{ email: string | null; email_verified_at: Date | null }>>`
@@ -36,8 +37,8 @@ export async function queueFactorChangedNotice(
   `;
   const key = `factor-changed:${input.userId}:${(prior?.n ?? 0) + 1}`;
   await tx`
-    INSERT INTO security_factor_events (user_id, notice_key, change, changed_at)
-    VALUES (${input.userId}, ${key}, ${input.change}, ${input.now})
+    INSERT INTO security_factor_events (user_id, notice_key, change, changed_at, trusted_device_id)
+    VALUES (${input.userId}, ${key}, ${input.change}, ${input.now}, ${input.trustedDeviceId ?? null})
     ON CONFLICT (notice_key) DO NOTHING
   `;
   if (input.mail !== false && user?.email && user.email_verified_at) {
