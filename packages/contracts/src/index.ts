@@ -95,6 +95,7 @@ export * from './protocol-fees.js';
 export * from './protocol-swap.js';
 export * from './protocol-address-book.js';
 export * from './protocol-address-risk.js';
+export * from './protocol-sessions.js';
 export * from './protocol-wallet-tx.js';
 export * from './outcome-markets.js';
 export * from './protocol-tokens.js';

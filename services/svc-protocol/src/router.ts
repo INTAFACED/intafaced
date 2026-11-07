@@ -103,6 +103,8 @@ import { loadAuditRegistry } from './audit/registry.js';
 import { loadProductAudits } from './audit/products.js';
 import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
+import { listSessions } from './session/list.js';
+import { protocolSessionsListInputSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
 import { protocolAuditProductsSchema, protocolPredictedAccountSchema } from '@intafaced/contracts/protocol-blockers';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
@@ -1283,6 +1285,22 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     addressBook: createAddressBookRouter(addressBookDeps),
     addressRisk: createAddressRiskRouter(addressRiskDeps),
     addressReports: createAddressReportsRouter(addressRiskDeps),
+
+    // ── Session keys list (D-portfolio-wallet-02): src/session/list.ts ──
+    sessions: router({
+      /** Every key the account granted, from its own logs, with the on-chain status at one block. Public, like the chain. */
+      list: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolSessionsListInputSchema)
+        .output(protocolSessionsListSchema)
+        .query(async ({ input }) => {
+          try {
+            return await listSessions(chain.client, { account: input.account, chainId: chain.config.chainId });
+          } catch (err) {
+            // A chain failure is named as the chain's; anything else (a shape bug) is an internal error, never "unreachable".
+            throw toTrpcError(err instanceof z.ZodError ? err : classifyChainError(err, 'sessions.list', chain.config.rpcUrl));
+          }
+        }),
+    }),
 
     // ── Claim links (D-swap-12) and speed up / cancel (RC-dex-protocol-01): src/wallet-tx/ ──
     ...createWalletTxRouters({
