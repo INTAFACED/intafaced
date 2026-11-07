@@ -195,7 +195,8 @@ function reasonWords(code: string, other: string) {
   return words === code ? other : words;
 }
 
-export function AgentsActivity({ title, note }: { title: string; note: ReactNode }) {
+/** `empty` is the room's own words for a log with nothing in it; a filter that matches nothing says so instead. */
+export function AgentsActivity({ title, note, empty }: { title: string; note: ReactNode; empty: string }) {
   const api = useApi(),
     { userId } = useSession();
   const { t } = agentsReviewCopy.useCopy();
@@ -218,13 +219,15 @@ export function AgentsActivity({ title, note }: { title: string; note: ReactNode
     setExporting(true);
     setExported(null);
     const all: ActionRow[] = [];
+    // One id for the whole export: its last page writes the one audit row of it.
+    const requestId = `export:${crypto.randomUUID()}`;
     let cursor: string | null | undefined;
     try {
       do {
         const page = await api.query(
           'agents',
           'log.export',
-          { ...filter, limit: EXPORT_PAGE, ...(cursor ? { cursor } : {}) },
+          { ...filter, limit: EXPORT_PAGE, requestId, format, ...(cursor ? { cursor } : {}) },
           z.object({ rows: z.array(actionSchema).max(EXPORT_PAGE), nextCursor: z.string().nullable() }),
         );
         if (!page.ok) {
@@ -286,7 +289,7 @@ export function AgentsActivity({ title, note }: { title: string; note: ReactNode
       </div>
       {exported ? <p role="status">{exported.ok ? t('exported', { count: exported.count }) : t('exportFailed')}</p> : null}
       <p className="muted">{t('exportNote')}</p>
-      <Read resource={rows.resource} retry={rows.reload} empty={t('noActions')}>
+      <Read resource={rows.resource} retry={rows.reload} empty={outcome ? t('noActions') : empty}>
         {(list) => (
           <>
             <ActionTable rows={list} />

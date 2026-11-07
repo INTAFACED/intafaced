@@ -996,7 +996,11 @@ export function Agents({ paper = false }: { paper?: boolean }) {
           </div>
         </>
       ) : tab === 'Activity' ? (
-        <AgentsActivity title={copyText('agents.your.agent.action.log')} note={<Text k="agents.the.log.reports.exact.costs.but.does" />} />
+        <AgentsActivity
+          title={copyText('agents.your.agent.action.log')}
+          note={<Text k="agents.the.log.reports.exact.costs.but.does" />}
+          empty={copyText('agents.no.agent.actions.have.been.recorded')}
+        />
       ) : tab === 'Dashboard' ? (
         <AgentsDashboard />
       ) : tab === 'Usage' ? (

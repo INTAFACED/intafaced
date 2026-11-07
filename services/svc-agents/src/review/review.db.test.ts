@@ -120,7 +120,7 @@ if (!available) {
     await lockConn`select pg_advisory_lock(842671)`;
     await sql`
       TRUNCATE agents.agent_run_events, agents.agent_runs, agents.think_claims, agents.usage_records, agents.usage_windows,
-               agents.agent_actions, agents.agent_sessions, agents.agent_definitions, agents.own_agent_test_runs, agents.own_agents
+               agents.agent_log_reads, agents.agent_actions, agents.agent_sessions, agents.agent_definitions, agents.own_agent_test_runs, agents.own_agents
       RESTART IDENTITY CASCADE
     `;
     ledger = new MemoryLedger();
@@ -274,6 +274,18 @@ if (!available) {
       expect(exported.every((row) => row.agentId === 'probe')).toBe(true);
       const exportedRefused = await read('refused');
       expect(exportedRefused.map((row) => row.id).sort()).toEqual(refused.map((row) => row.id).sort());
+      // The export's last page writes its one audit row; the same request id again writes no second.
+      const audit = async () =>
+        sql<Array<{ kind: string; row_count: number; filter: Record<string, string> }>>`
+          SELECT kind, row_count, filter FROM agents.agent_log_reads WHERE business_key = ${`agents:logexport:${USER}:review-export-1`}
+        `;
+      for (let attempt = 0; attempt < 2; attempt += 1)
+        await caller().log.export({ limit: 500, outcome: 'refused', requestId: 'review-export-1', format: 'json' });
+      expect(await audit()).toEqual([{ kind: 'export', row_count: 7, filter: { outcome: 'refused', format: 'json' } }]);
+      await caller().log.export({ limit: 3, requestId: 'review-export-2' });
+      expect(
+        (await sql`SELECT 1 FROM agents.agent_log_reads WHERE business_key = ${`agents:logexport:${USER}:review-export-2`}`).length,
+      ).toBe(0);
       await expect(caller().log.export({})).rejects.toThrow('agents.refused.log_mine_limit_unset');
       await expect(caller().log.export({ limit: 3, cursor: 'not-a-cursor' })).rejects.toThrow('agents.refused.cursor_invalid');
     });

@@ -349,6 +349,26 @@ export function decodeLogCursor(text: string): LogCursor {
   throw new AgentError('Log cursor is not one this service issued', 'agents.cursor_invalid', 'agents.refused.cursor_invalid');
 }
 
+/** The business key of a person's export of their own log: one audit row per export, however often it is retried. */
+export const ownExportKey = (userId: string, requestId: string) => `agents:logexport:${userId}:${requestId}`;
+
+/**
+ * The audit row of a person's export of their own log (AG-audit-01): written once, on the export's last page, in the
+ * append-only agent_log_reads table, with the person as both reader and subject. A retry with the same request id
+ * writes nothing more.
+ */
+export async function recordOwnExport(
+  sql: Sql,
+  input: { userId: string; requestId: string; filter: Record<string, string>; rowCount: number },
+): Promise<void> {
+  await sql`
+    INSERT INTO agents.agent_log_reads (business_key, operator_id, subject_id, kind, reason, filter, row_count)
+    VALUES (${ownExportKey(input.userId, input.requestId)}, ${input.userId}, ${input.userId}, 'export', 'own_export',
+            ${sql.json(input.filter)}, ${input.rowCount})
+    ON CONFLICT (business_key) DO NOTHING
+  `;
+}
+
 // ── Usage by agent, user and task, from sealed windows ─────────────────────
 
 export interface UsageWindowRow {

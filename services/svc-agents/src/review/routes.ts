@@ -3,7 +3,7 @@ import { scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
 import type { AgentRuntime } from '../runtime.js';
 import { actionOutput, toActionOutput } from '../router.js';
-import { analyticsRange, analyticsSummary, decodeLogCursor, encodeLogCursor, runTrace, usageSummary } from './store.js';
+import { analyticsRange, analyticsSummary, decodeLogCursor, encodeLogCursor, recordOwnExport, runTrace, usageSummary } from './store.js';
 
 /**
  * What my agents did (J-agents-13): the dashboard, one run's trace, the activity log's outcome filter, count and whole
@@ -157,6 +157,9 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
             outcome: outcome.optional(),
             cursor: z.string().min(1).max(512).optional(),
             limit: z.number().int().min(1).max(500).optional(),
+            /** The caller's id for this export: its last page writes one audit row keyed on it, so a retry writes none. */
+            requestId: z.string().min(8).max(200).optional(),
+            format: z.enum(['csv', 'json']).optional(),
           })
           .strict(),
       )
@@ -172,6 +175,14 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
           });
           const last = rows.at(-1);
           const full = limit !== undefined && rows.length === Math.min(500, limit);
+          // The last page of an export writes its one audit row: who exported, the filter and how many rows it held.
+          if (!full && input.requestId)
+            await recordOwnExport(db(), {
+              userId: ctx.principal.userId,
+              requestId: input.requestId,
+              filter: { outcome: input.outcome ?? 'all', format: input.format ?? 'csv' },
+              rowCount: await runtime.audit.countForUser(ctx.principal.userId, input.outcome ?? null),
+            });
           return {
             rows: rows.map(toActionOutput),
             nextCursor:
