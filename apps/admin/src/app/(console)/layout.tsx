@@ -11,11 +11,13 @@ import { loadConsoleMode } from '@/lib/console-mode/server';
 import { effectiveOf, loadPreferences } from '@/lib/console-preferences/server';
 import { requireFounderPage } from '@/lib/founder-page';
 import { enabledModuleIds } from '@/lib/modules';
+import { modulesFor } from '@/lib/operator-access';
 
 export default async function ConsoleLayout({ children }: { children: ReactNode }) {
   const founder = await requireFounderPage();
   const { session } = founder;
-  const modules = enabledModuleIds();
+  // The deployment's enabled modules, less any this person may not read (a TEST staff member sees only their areas).
+  const modules = modulesFor(founder.operator, enabledModuleIds());
   // Three bounded reads, side by side: the mode and the announcement for the banners, the preferences for the home link.
   const [consoleMode, announcement, preferences] = await Promise.all([
     loadConsoleMode(founder),
