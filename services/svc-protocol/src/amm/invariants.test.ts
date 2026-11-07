@@ -144,6 +144,26 @@ describe('S-A2 invariants · k and no free extraction', () => {
   });
 });
 
+describe('D-liquidity-01 v2 contracts: no admin, no pause, no fee setter, no platform fee recipient', () => {
+  it.each(['LiquidityPool', 'LiquidityFactory', 'LiquidityRouter'] as const)('%s has none in its ABI or source', (name) => {
+    const src = readFileSync(join(here, '..', '..', `contracts/liquidity/${name}.sol`), 'utf8');
+    expect(src).not.toMatch(/\bonlyOwner\b|\bowner\(\)|function\s+(setFee|setFeeTo|pause|unpause|upgrade\w*)\b/);
+    const names = loadArtifact(name)
+      .abi.filter((item) => item.type === 'function')
+      .map((item) => (item as { name: string }).name);
+    for (const banned of ['setFee', 'setFeeTo', 'feeTo', 'pause', 'unpause', 'owner', 'transferOwnership', 'upgradeTo'])
+      expect(names).not.toContain(banned);
+  });
+
+  it('LiquidityPool keeps an immutable fee, the K() check and the re-entry lock on every state-changing entry', () => {
+    const src = readFileSync(join(here, '..', '..', 'contracts/liquidity/LiquidityPool.sol'), 'utf8');
+    expect(src).toMatch(/immutable feeBps/);
+    expect(src).toMatch(/revert K\(\)/);
+    for (const entry of ['mint', 'burn', 'skim', 'sync', 'swap', 'swapExactIn'])
+      expect(src, `${entry} is guarded`).toMatch(new RegExp(`function ${entry}\\([^)]*\\)[^{]*\\block\\b`));
+  });
+});
+
 describe('S-A2 LP accounting + fee tiers', () => {
   it('first mint locks MINIMUM_LIQUIDITY; burn returns pro-rata reserves', () => {
     const p = createPool(30);

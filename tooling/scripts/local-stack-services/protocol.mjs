@@ -15,6 +15,12 @@
 // PROTOCOL_FEE_RELAY_*: the TEST network-fee relay (RC-dex-protocol-02) the seed deployed, the TEST relayer stand-in
 // local-test-chain.mjs serves, and the gas a relayed swap is priced for. With no chain all three stay blank and paying
 // the fee in a token refuses protocol.fee_relay_unset.
+// PROTOCOL_LIQUIDITY_ROUTER_ADDRESS is the seeded TEST liquidity router (D-liquidity-02..04, J-dex-protocol-12); with
+// no chain it stays blank and adding or removing liquidity refuses protocol.liquidity_router_unset.
+// PROTOCOL_AMM_FEE_TIERS_BPS is the TEST list of fee tiers the new-pool form offers (labelled in the same profile).
+// Two journey switches, on a start or restart (J-dex-protocol-12 #3): `LOCAL_STACK_PROTOCOL_FEE_TIERS=off` leaves the
+// tier list blank, so the form shows only the custom entry, and `LOCAL_STACK_PROTOCOL_AMM_FACTORY=off` leaves the
+// factory at its zero default, so creating a pool refuses with the crypto network notice (rail.crypto).
 import { createHash } from 'node:crypto';
 import { RELAY_URL } from '../local-test-chain.mjs';
 
@@ -27,7 +33,12 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       DATABASE_URL: dbUrl('svc_protocol', secrets),
       PROTOCOL_CHAIN_ID: '84532',
       PROTOCOL_RPC_URL: chain ? chain.rpcUrl : UNUSED,
-      ...(chain ? { PROTOCOL_AMM_FACTORY_ADDRESS: chain.factory } : {}),
+      ...(chain && process.env.LOCAL_STACK_PROTOCOL_AMM_FACTORY !== 'off' ? { PROTOCOL_AMM_FACTORY_ADDRESS: chain.factory } : {}),
+      ...(chain?.liquidityRouter ? { PROTOCOL_LIQUIDITY_ROUTER_ADDRESS: chain.liquidityRouter } : {}),
+      // LOCAL TEST only (tooling/profiles/test-owner-values/protocol.json): the fee tiers offered when a pool is created,
+      // in bps. Production stays blank: the form then offers only a custom fee, and the tier list refuses
+      // amm.fee_tiers_unset.
+      ...(process.env.LOCAL_STACK_PROTOCOL_FEE_TIERS === 'off' ? {} : { PROTOCOL_AMM_FEE_TIERS_BPS: '5,30,100' }),
       // LOCAL TEST price reference: the seeded TEST USD token counts as one dollar, and a pool must hold 1,000 TEST USD
       // worth on its priced side (labelled in tooling/profiles/test-owner-values/protocol.json). Blank in production.
       ...(chain?.usdToken ? { PROTOCOL_PRICE_USD_TOKENS: chain.usdToken, PROTOCOL_PRICE_MIN_RESERVE_USD: '1000' } : {}),

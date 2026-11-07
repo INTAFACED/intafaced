@@ -19,10 +19,17 @@ import { factoryAbi, poolAbi } from './abi.js';
 export interface PoolFeesChain {
   headBlock(): Promise<bigint>;
   /** The pool's `token0`, `token1` and `feeBps`; null when the address does not answer as a pool (a revert, or no code). */
-  poolFields(pool: Address, blockNumber: bigint): Promise<{ token0: Address; token1: Address; feeBps: number } | null>;
+  poolFields(
+    pool: Address,
+    blockNumber: bigint,
+  ): Promise<{ token0: Address; token1: Address; feeBps: number; version?: 'v1' | 'v2' } | null>;
   /** The factory's `getPool(token0, token1, feeBps)`. */
   factoryPool(factory: Address, token0: Address, token1: Address, feeBps: number, blockNumber: bigint): Promise<Address>;
 }
+
+const V2_MARKER_ABI = [
+  { type: 'function', name: 'MAX_FEE_BPS', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint16' }] },
+] as const;
 
 /** A call that reverted or returned nothing: the address answered, but not as a pool. Never a chain outage. */
 const NOT_AN_ANSWER = new Set(['ContractFunctionRevertedError', 'ContractFunctionZeroDataError', 'AbiDecodingZeroDataError']);
@@ -44,7 +51,17 @@ export function poolFeesChain(client: () => PublicClient, rpcUrl: () => string, 
           client().readContract({ address: pool, abi: poolAbi, functionName: 'token1', blockNumber }),
           client().readContract({ address: pool, abi: poolAbi, functionName: 'feeBps', blockNumber }),
         ]);
-        return { token0, token1, feeBps: Number(feeBps) };
+        // The v2 pool (contracts/liquidity/LiquidityPool.sol) publishes its fee cap; the v1 pool has no such view.
+        const version = await client()
+          .readContract({ address: pool, abi: V2_MARKER_ABI, functionName: 'MAX_FEE_BPS', blockNumber })
+          .then(
+            () => 'v2' as const,
+            (markerErr: unknown) => {
+              if (notAnAnswer(markerErr)) return 'v1' as const;
+              throw classifyChainError(markerErr, 'poolFields', rpcUrl());
+            },
+          );
+        return { token0, token1, feeBps: Number(feeBps), version };
       } catch (err) {
         if (!notAnAnswer(err)) throw classifyChainError(err, 'poolFields', rpcUrl());
         // No code at this block is not "not a pool": a node behind the head has not seen a new pool. Only code that
@@ -82,8 +99,8 @@ export function poolFeesChain(client: () => PublicClient, rpcUrl: () => string, 
 
 /**
  * Who gets a factory pool's fees, from the pool's own fee fields at one block (D-fees-governance-04 (a)). The factory
- * deploys only `ConstantProductPool`, whose swap fee stays in the pool for its liquidity providers and which has no fee
- * recipient (`ConstantProductPool.sol:12-13,27`; `src/amm/invariants.test.ts` fails the build if one appears). So the
+ * deploys `ConstantProductPool` (v1) or `LiquidityPool` (v2), whose swap fee stays in the pool for its liquidity
+ * providers and which have no fee recipient (`src/amm/invariants.test.ts` fails the build if one appears). So the
  * whole fee is the LPs' and there is no third share. An address the factory did not create gets no claim at all: it
  * refuses `protocol.not_factory_pool`, since any contract can answer `feeBps()`.
  */
@@ -104,7 +121,7 @@ export async function readPoolFees(chain: PoolFeesChain, factory: Address, pool:
     feeBps: fields.feeBps,
     shares,
     thirdShare: shares.some((share) => share.to !== 'liquidity_providers' && share.bps > 0),
-    contract: 'ConstantProductPool v1',
+    contract: fields.version === 'v2' ? 'LiquidityPool v2' : 'ConstantProductPool v1',
     blockNumber: blockNumber.toString(),
   };
 }

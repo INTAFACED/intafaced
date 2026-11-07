@@ -38,7 +38,8 @@ export const protocolPoolFeesOutputSchema = z
     /** True when any share goes to someone other than the liquidity providers. */
     thirdShare: z.boolean(),
     /** Which contract the shares are read from, so a later fee-switch contract is told apart. */
-    contract: z.literal('ConstantProductPool v1'),
+    /** Which pool contract the factory deploys: the v1 pool, or the v2 pool whose shares are an ERC-20 token. */
+    contract: z.enum(['ConstantProductPool v1', 'LiquidityPool v2']),
     blockNumber: height,
   })
   .strict();
