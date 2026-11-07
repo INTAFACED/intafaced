@@ -111,6 +111,11 @@ export function parseDiff(text) {
     if (!cur.hunk && line.startsWith('new file mode')) cur.oldPath = null;
     if (!cur.hunk && line.startsWith('deleted file mode')) cur.newPath = null;
     if (!cur.hunk && (/^Binary files /.test(line) || line.startsWith('GIT binary patch'))) cur.binary = true;
+    if (!cur.hunk && /^(rename|copy) from /.test(line)) {
+      cur.moved = line.startsWith('rename') ? 'rename' : 'copy';
+      cur.oldPath = line.replace(/^(rename|copy) from /, '');
+    }
+    if (!cur.hunk && /^(rename|copy) to /.test(line)) cur.newPath = line.replace(/^(rename|copy) to /, '');
     const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (h) {
       oldLn = Number(h[1]);
@@ -126,8 +131,21 @@ export function parseDiff(text) {
       newLn++;
     }
   }
-  for (const f of files) delete f.hunk;
-  return files.map((f) => ({ ...f, path: f.newPath ?? f.oldPath }));
+  // A renamed or copied journey file: a pure rename has no hunks, so it would change no line and reach no step. A rename
+  // is the old file deleted (every step it held) plus the new file added; a copy leaves the old file running, so it is
+  // the new file added. `whole` asks buildInputs to count every line of that side once the file is read.
+  const out = [];
+  for (const f of files) {
+    delete f.hunk;
+    if (f.moved && f.oldPath && f.newPath && JOURNEY_FILE.test(f.oldPath)) {
+      const { moved, ...rest } = f;
+      if (moved === 'rename') out.push({ ...rest, newPath: null, removed: [], added: [], whole: 'old', moved });
+      out.push({ ...rest, oldPath: null, removed: [], added: [], whole: 'new', moved });
+      continue;
+    }
+    out.push(f);
+  }
+  return out.map((f) => ({ ...f, path: f.newPath ?? f.oldPath }));
 }
 
 // ── Steps in a journey test ───────────────────────────────────────────────────────────────────────────────────────
@@ -327,6 +345,9 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     if (f.binary) continue;
     before.set(f.path, f.oldPath ? await src.read(mergeBase, f.oldPath) : null);
     after.set(f.path, f.newPath ? await src.read(head, f.newPath) : null);
+    const lines = (t) => Array.from({ length: String(t ?? '').split('\n').length }, (_, i) => i + 1);
+    if (f.whole === 'old') f.removed = lines(before.get(f.path));
+    if (f.whole === 'new') f.added = lines(after.get(f.path));
   }
   // Who imports what: on the default branch, and through the head's copy of the changed files, so a shared file the
   // pull request adds is reached through the changed file that imports it.
@@ -707,7 +728,8 @@ export function gitSource(clone, graphSha) {
   };
   return {
     diff: async (base, head) => ({
-      diff: git('diff', '--no-color', '--no-ext-diff', '--no-renames', `${base}...${head}`),
+      // Rename detection on, as in the compare API's diff, so a local replay sees the renames CI sees.
+      diff: git('diff', '--no-color', '--no-ext-diff', '--find-renames', `${base}...${head}`),
       mergeBase: git('merge-base', base, head).trim(),
     }),
     read: async (sha, p) => show(sha, p),

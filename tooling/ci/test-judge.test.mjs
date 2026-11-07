@@ -366,3 +366,39 @@ test('reach: an import without an extension reaches the file it resolves to', ()
   const r = reachMap(['a/J-x-01.pw.mjs'], (p) => files[p] ?? null);
   assert.ok(r.get('a/J-x-01.pw.mjs').has('a/lib/match.ts'));
 });
+
+// The CI review on c659c83 (run 42362643463): a pure rename has no hunks, so a PR renaming a journey file away
+// (`J-x-01.pw.mjs` to `J-x-01.pw.mjs.off`) changed no line, reached no step and passed without the judge.
+const RENAME = [
+  'diff --git a/apps/customer/tests/real-app/J-x-01.pw.mjs b/apps/customer/tests/real-app/J-x-01.pw.mjs.off',
+  'similarity index 100%',
+  'rename from apps/customer/tests/real-app/J-x-01.pw.mjs',
+  'rename to apps/customer/tests/real-app/J-x-01.pw.mjs.off',
+  '',
+].join('\n');
+
+test('fails closed (planted): renaming a journey file away puts every step it held before the judge', async () => {
+  const [old, neu] = parseDiff(RENAME);
+  assert.deepEqual([old.path, old.newPath, old.whole], ['apps/customer/tests/real-app/J-x-01.pw.mjs', null, 'old']);
+  assert.deepEqual([neu.path, neu.oldPath, neu.whole], ['apps/customer/tests/real-app/J-x-01.pw.mjs.off', null, 'new']);
+  const got = await buildInputs({
+    src: fakeSrc(RENAME),
+    base: BASE,
+    head: HEAD,
+    pr: 1,
+    brief: 'B',
+    loadWords: async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' }),
+  });
+  assert.equal(got.applicable, true);
+  assert.deepEqual(got.required.steps, ['J-x-01 #1', 'J-x-01 #2']);
+  assert.match(got.prompt, /its own test changed/);
+});
+
+test('a copied journey file: the old file still runs, so only the copy is new', () => {
+  const copy = RENAME.replace('similarity index 100%', 'similarity index 100%').replace(/rename (from|to)/g, 'copy $1');
+  const parts = parseDiff(copy);
+  assert.deepEqual(
+    parts.map((p) => [p.path, p.whole]),
+    [['apps/customer/tests/real-app/J-x-01.pw.mjs.off', 'new']],
+  );
+});
