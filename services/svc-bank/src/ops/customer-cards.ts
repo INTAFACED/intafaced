@@ -3,7 +3,7 @@
  *
  * Read only: the same query the owner's `cards.list` runs, asked for the customer the operator names, presented by the same
  * `presentCard` and schema (`cards/card-view.ts`) without `shippingAddress`, a home address the cards tab does not need. The
- * operator needs `admin:read`, the operator read scope a founder console session carries, as `ops.customerBalances` (owner
+ * operator needs `admin:read`, the operator read scope a founder console session carries (owner
  * approval 2026-11-06: no PAN, CVC, PIN or address is ever returned); a customer's own session never reaches it. No audit
  * table is merged for operator reads, so every read writes one structured log line with the operator and the customer BEFORE
  * any card is read; if that line cannot be written the read refuses and reads nothing.

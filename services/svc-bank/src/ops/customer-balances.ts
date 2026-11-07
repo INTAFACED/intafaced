@@ -2,9 +2,7 @@
  * A customer's balances for the finance-treasury desk (PF-balances-01, portfolio-balances-001 and -002).
  *
  * Read only, ledger reads only: the same `balanceBreakdown` and `balanceEntries` the customer sees, asked for the customer a
- * desk names. `ops.customerBalances` needs `admin:read`, the operator read scope a founder console session carries (owner
- * approval 2026-11-06: no PAN, CVC, PIN or address is ever returned); `ops.customerBalanceEntries` keeps `admin:treasury`. A
- * customer's own session never reaches these. Who may hold that scope is
+ * desk names. The operator needs `admin:treasury`; a customer's own session never reaches these. Who may hold that scope is
  * decided where scopes are granted (identity), so widening or narrowing the desk is a scope change and not a code change.
  * No audit table is merged for operator reads (the same as `ops.transferDetail`), so every read writes one structured log
  * line with the operator and the customer BEFORE any figure is read; if that line cannot be written the read refuses.
@@ -68,7 +66,7 @@ export function flattenBreakdown(
 }
 
 export function customerBalancesProcedure(bank: BankServices, guard: Guard) {
-  return scopedProcedure('admin:read')
+  return scopedProcedure('admin:treasury')
     .input(z.object({ userId: z.string().guid() }).strict())
     .output(
       z.object({
