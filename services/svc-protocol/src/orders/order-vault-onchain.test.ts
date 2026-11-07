@@ -15,15 +15,9 @@ import { generatePrivateKey, privateKeyToAccount, type PrivateKeyAccount } from 
 import type { DevChainClients } from '../../scripts/dev-chain.js';
 import { loadArtifact } from '../chain/artifacts.js';
 
-const devChainMod = await (async () => {
-  try {
-    return await import('../../scripts/dev-chain.js');
-  } catch {
-    return null;
-  }
-})();
-const chainUp = devChainMod ? await devChainMod.devChainReachable() : false;
-const describeOnChain = !devChainMod || (!chainUp && !devChainMod.devChainRequired()) ? describe.skip : describe;
+// Runs unconditionally: CI provides the TEST chain (anvil). Locally, with no chain up, this suite fails and says why.
+const devChainMod = await import('../../scripts/dev-chain.js');
+const chainUp = await devChainMod.devChainReachable();
 
 const ZERO32 = `0x${'0'.repeat(64)}` as Hex;
 const ORDER_TYPES = {
@@ -63,8 +57,7 @@ type Order = {
   outputToVault: boolean;
 };
 
-describeOnChain('OrderVault on chain', () => {
-  if (!devChainMod) return;
+describe('OrderVault on chain', () => {
   let clients: DevChainClients;
   let pc: PublicClient;
   let A: Address;
@@ -219,7 +212,7 @@ describeOnChain('OrderVault on chain', () => {
   };
 
   beforeAll(async () => {
-    if (!chainUp && devChainMod.devChainRequired()) throw new Error('REQUIRE_EVM_CHAIN=1 but no RPC at ' + devChainMod.devRpcUrl());
+    if (!chainUp) throw new Error('OrderVault on chain needs the TEST chain; no RPC at ' + devChainMod.devRpcUrl());
     clients = await devChainMod.devSuiteClients(import.meta.url);
     pc = clients.publicClient;
     for (const who of [maker, stranger, sweeper, ...reporters])
