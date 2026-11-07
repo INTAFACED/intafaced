@@ -5,7 +5,8 @@ import { unconfirmedAccount } from './p2p.mjs';
 import { randomBytes } from 'node:crypto';
 import { api, ORIGIN, signUpInBrowser } from './stack.mjs';
 import { businessReadyPerson, openBusiness, sentForReview } from './merchant.mjs';
-import { staffSignIn, staffVerified } from './staff.mjs';
+import { staffSignIn } from './staff.mjs';
+import { staffVerified } from './staff-verify.mjs';
 
 // J-identity-20: I work the verification queue (compliance). Signed in to the admin app as compliance (the stack's TEST
 // compliance member), on the verification queue. Money: none. The second reviewer is a TEST founder. Every case here is a

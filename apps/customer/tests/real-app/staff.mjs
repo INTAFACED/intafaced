@@ -25,17 +25,17 @@ export const STAFF_TEST_MEMBERS = {
   finance: 'local-test-staff-finance@local-test.invalid',
 };
 
-const VAULT_NAME = 'staff-test.json';
+export const VAULT_NAME = 'staff-test.json';
 const VAULT_KIND = 'intafaced-local-test-staff';
 const STEP_MS = 30_000;
 
-function writePrivate(file, value) {
+export function writePrivate(file, value) {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   chmodSync(file, 0o600);
 }
 
-function readVault(file) {
+export function readVault(file) {
   if (!existsSync(file)) return { kind: VAULT_KIND, staff: {} };
   const vault = JSON.parse(readFileSync(file, 'utf8'));
   if (vault?.kind !== VAULT_KIND || typeof vault.staff !== 'object') throw new Error(`${file} is not a local test staff vault`);
@@ -43,7 +43,7 @@ function readVault(file) {
 }
 
 /** Runs `fn` holding the vault's lock file, so one worker at a time makes a member or takes a code step. */
-async function withLock(file, fn) {
+export async function withLock(file, fn) {
   const lock = `${file}.lock`;
   const until = Date.now() + 180_000;
   for (;;) {
@@ -64,7 +64,7 @@ async function withLock(file, fn) {
 }
 
 /** One identity procedure through the stack's Edge, as the founder seed calls it; a refusal throws with its typed code. */
-async function identity(edge, procedure, input, token) {
+export async function identity(edge, procedure, input, token) {
   const res = await fetch(`${edge}/api/identity/trpc/${procedure}`, {
     method: 'POST',
     redirect: 'error',
@@ -84,7 +84,7 @@ async function identity(edge, procedure, input, token) {
 }
 
 /** A code from a step after the last one this member spent, waiting for the next window when needed. */
-async function freshCode(member) {
+export async function freshCode(member) {
   let step = Math.floor(Date.now() / STEP_MS);
   while (step <= Number(member.lastStep ?? 0)) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -161,38 +161,4 @@ export async function staffSignIn(page, browser, role) {
   await page.locator('button[type=submit]').click();
   await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
   return { userId: member.userId, email: member.email };
-}
-
-/**
- * Verifies the TEST staff member of `role` at level full the way any person is verified: their own `kyc.submit`, then the
- * stack's two TEST founders approve it through identity's two-person door (`local-test-gates.mjs` approvePending). A door
- * gated by the caller's own level (svc-pay's `{ module: 'pay' }` reads) then admits them, as it admits a verified founder.
- * Already verified: nothing is sent. Call after `staffSignIn` for the role, which makes the member.
- */
-export async function staffVerified(role) {
-  const ctx = await makeContext({ log: () => {} });
-  const file = path.join(ctx.paths.stateDir, VAULT_NAME);
-  const edge = ctx.url('edge');
-  const member = await withLock(file, async () => {
-    const vault = readVault(file);
-    const held = vault.staff[role];
-    if (!held?.totpConfirmed) throw new Error(`no TEST ${role} member on this stack yet: call staffSignIn first`);
-    const totpCode = await freshCode(held);
-    writePrivate(file, vault);
-    const session = await identity(edge, 'auth.login', {
-      identifier: held.email,
-      password: held.password,
-      deviceKey: LOCAL_TEST_DEVICE_KEY,
-      totpCode,
-    });
-    // A level already held answers with that approved record; a new request answers pending.
-    const record = await identity(edge, 'kyc.submit', { tier: 'full', jurisdiction: 'DE' }, session.accessToken);
-    return { ...held, done: record?.status === 'approved' };
-  });
-  if (member.done) return { userId: member.userId };
-  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
-  const approved = await gates.approvePending(ctx, null, { userIds: [member.userId] });
-  if (!approved.length || approved.some((r) => r.ok === false))
-    throw new Error(`the TEST ${role} member's verification was not approved: ${JSON.stringify(approved).slice(0, 300)}`);
-  return { userId: member.userId };
 }
