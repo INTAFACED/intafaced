@@ -813,13 +813,21 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
  * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
  * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
  */
-function worktreeEdits(paths, exclude = []) {
-  const spec = [...paths, ...exclude.map((p) => `:(exclude)${p}`)];
-  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: REPO });
+/**
+ * The state files a running service writes in its own folder of the checkout (`services/<name>/.data/`, the default of
+ * paths such as TRADE_MM_SEED_STATE_PATH, relative to the service's working folder). They are no source and git does not
+ * ignore them, so counting them made every restart after a journey that wrote one rebuild the whole stack (#7463). Only
+ * this folder, one level under `services/`: any other untracked or edited file still counts.
+ */
+export const RUNTIME_STATE = ['services/*/.data/**'];
+
+export function worktreeEdits(paths, exclude = [], repo = REPO) {
+  const spec = [...paths, ...[...exclude, ...RUNTIME_STATE].map((p) => `:(exclude,glob)${p}`)];
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: repo });
   // A read that fails or is cut short is never "same as before".
   if (status.status !== 0 || status.error) return `unreadable:${Date.now()}`;
   if (status.stdout.length === 0) return '';
-  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: repo, maxBuffer: 256 * 1024 * 1024 });
   if (diff.status !== 0 || diff.error) return `unreadable:${Date.now()}`;
   const hash = crypto
     .createHash('sha256')
@@ -829,7 +837,7 @@ function worktreeEdits(paths, exclude = []) {
     // Untracked files are in no diff: hash their bytes too.
     if (entry.startsWith('?? ')) {
       try {
-        hash.update(fs.readFileSync(path.join(REPO, entry.slice(3))));
+        hash.update(fs.readFileSync(path.join(repo, entry.slice(3))));
       } catch {
         hash.update(`unreadable:${entry}`);
       }
