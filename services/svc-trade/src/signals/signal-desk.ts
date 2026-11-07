@@ -254,34 +254,34 @@ export class SignalDesk {
     if (maxAge === null) throw new SignalError('The platform has not set how old an alert may be', 'trade.signal_latency_not_set', 503);
     const sent = typeof body.time === 'string' ? Date.parse(body.time) : Number.NaN;
     if (!Number.isFinite(sent))
-      throw new SignalError('time is required: when the alert fired, as an ISO time', 'trade.signal_field_missing', 400, 'time');
+      throw new SignalError('time is required: when the alert fired, as an ISO time', 'trade.signal_format_invalid', 400, 'time');
     const now = this.ports.now();
     if (now.getTime() - sent > maxAge * 1000) {
       throw new SignalError(`The alert is older than ${maxAge} seconds (stale), so it was not used`, 'trade.signal_stale', 400);
     }
     const alertId = typeof body.alertId === 'string' ? body.alertId.trim() : '';
     if (!alertId || alertId.length > 120)
-      throw new SignalError('alertId is required (1 to 120 characters)', 'trade.signal_field_missing', 400, 'alertId');
+      throw new SignalError('alertId is required (1 to 120 characters)', 'trade.signal_format_invalid', 400, 'alertId');
 
     // A repeat of an alert id answers what the first one got, whatever the webhook's state now.
     const [stored] = await this.ports.sql<Array<{ status: number; body: Record<string, unknown> }>>`
       SELECT status, body FROM trade.signal_alert_results WHERE webhook_id = ${hook.id} AND alert_id = ${alertId}`;
     if (stored) return { status: stored.status, body: stored.body };
 
-    if (hook.state === 'paused') throw new SignalError('This webhook is paused', 'trade.signal_webhook_paused', 409);
+    if (hook.state === 'paused') throw new SignalError('This webhook is paused', 'trade.signal_paused', 409);
     if (hook.state === 'ended') throw new SignalError('This webhook has ended', 'trade.signal_webhook_ended', 410);
 
     const side = body.side;
     if (side !== 'buy' && side !== 'sell')
-      throw new SignalError('side is required: buy or sell', 'trade.signal_field_missing', 400, 'side');
+      throw new SignalError('side is required: buy or sell', 'trade.signal_format_invalid', 400, 'side');
     const amountText = typeof body.amount === 'string' ? body.amount.trim() : typeof body.amount === 'number' ? String(body.amount) : '';
     let qty: Amount;
     try {
       qty = parseAmount(amountText);
     } catch {
-      throw new SignalError('amount is required: a decimal quantity', 'trade.signal_field_missing', 400, 'amount');
+      throw new SignalError('amount is required: a decimal quantity', 'trade.signal_format_invalid', 400, 'amount');
     }
-    if (qty <= 0n) throw new SignalError('amount must be above zero', 'trade.signal_field_missing', 400, 'amount');
+    if (qty <= 0n) throw new SignalError('amount must be above zero', 'trade.signal_format_invalid', 400, 'amount');
 
     const key = `signal.alert:${hook.id}:${alertId}:open`;
     const at = now.toISOString();
