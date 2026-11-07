@@ -248,6 +248,8 @@ const messages = {
   'Follow a trading strategy': 'Follow a trading strategy',
   'Apply to lead': 'Apply to lead',
   'Become a leader others can copy': 'Become a leader others can copy',
+  'Market analytics': 'Market analytics',
+  'Who took liquidity in a named window, from the public trades': 'Who took liquidity in a named window, from the public trades',
   'Trading bots': 'Trading bots',
   'Automated strategies': 'Automated strategies',
   Convert: 'Convert',

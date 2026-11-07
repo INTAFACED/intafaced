@@ -5,7 +5,13 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import type { ActionApproval, ActionApprovalConsumeInput, NoticeCategory } from '@intafaced/contracts';
+import {
+  MARKET_COMPONENT_PATTERN,
+  type ActionApproval,
+  type ActionApprovalConsumeInput,
+  type MarketMaintenanceRead,
+  type NoticeCategory,
+} from '@intafaced/contracts';
 import type { CommandLog } from '../preferences/account.js';
 import {
   ChangelogError,
@@ -640,10 +646,13 @@ export class NoticeBoard {
     const incident = input.kind === 'incident';
     if (!incident && (impact !== null || parentId !== null || resolves)) throw new NoticeError('notify.notice_incident_fields_invalid');
     if (!incident && input.kind !== 'maintenance' && components.length > 0) throw new NoticeError('notify.notice_incident_fields_invalid');
-    if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c))) {
+    // A maintenance window may name a market (`market-btc-usdc`, J-cex-spot-14 #5) without the status page defining it;
+    // svc-trade puts it on that market's lifecycle read. An incident never names a market this way.
+    const named = (c: string) =>
+      (STATUS_COMPONENTS as readonly string[]).includes(c) || (input.kind === 'maintenance' && MARKET_COMPONENT_PATTERN.test(c));
+    if (components.some((c) => !named(c))) {
       const defined = new Set(await this.pageComponents());
-      if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c) && !defined.has(c)))
-        throw new NoticeError('notify.notice_component_unknown');
+      if (components.some((c) => !named(c) && !defined.has(c))) throw new NoticeError('notify.notice_component_unknown');
     }
     if (impact !== null && !(INCIDENT_IMPACTS as readonly string[]).includes(impact))
       throw new NoticeError('notify.notice_incident_fields_invalid');
@@ -831,6 +840,27 @@ export class NoticeBoard {
       incidents: openIncidentRoots(published, at).map(toNoticeWire),
       maintenance: published.filter((row) => row.kind === 'maintenance' && noticeIsOpen(row, at)).map(toNoticeWire),
     };
+  }
+
+  /**
+   * Published maintenance windows that name a market and have not ended (J-cex-spot-14 #5): scheduled ones too, so a
+   * market's ticket can say "Maintenance in 1 hour". A completed or cancelled window is left out. Signed-out.
+   */
+  async marketMaintenance(at: Date = this.now()): Promise<MarketMaintenanceRead> {
+    const published = await this.publishedForStatus();
+    const windows = published
+      .filter((row) => row.kind === 'maintenance' && row.status === 'published')
+      .filter((row) => row.endsAt === null || row.endsAt.getTime() > at.getTime())
+      .map((row) => ({ row, markets: row.components.filter((c) => MARKET_COMPONENT_PATTERN.test(c)) }))
+      .filter(({ markets }) => markets.length > 0)
+      .map(({ row, markets }) => ({
+        id: row.id,
+        title: row.title,
+        markets,
+        startsAt: row.startsAt?.toISOString() ?? null,
+        endsAt: row.endsAt?.toISOString() ?? null,
+      }));
+    return { windows };
   }
 
   /**

@@ -81,6 +81,17 @@ export function StatusPage() {
                         : row.state === null
                           ? copy.t('notReportedEffect')
                           : copy.t('undescribed')}
+                      {row.maintenance ? (
+                        <span className="muted" data-testid={`status-maintenance-${row.symbol}`}>
+                          {' '}
+                          {copy.t('marketMaintenance')}{' '}
+                          {row.maintenance.startsAt !== null
+                            ? whenUtc(new Date(row.maintenance.startsAt).toISOString())
+                            : copy.t('windowNotSet')}{' '}
+                          {copy.t('windowTo')}{' '}
+                          {row.maintenance.endsAt !== null ? whenUtc(new Date(row.maintenance.endsAt).toISOString()) : copy.t('endNotSet')}
+                        </span>
+                      ) : null}
                     </td>
                   </tr>
                 );
@@ -111,7 +122,7 @@ export function StatusPage() {
                 <strong>{window.title}</strong>{' '}
                 <span className="muted">
                   {window.startsAt ? whenUtc(window.startsAt) : copy.t('windowNotSet')} {copy.t('windowTo')}{' '}
-                  {window.endsAt ? whenUtc(window.endsAt) : copy.t('windowNotSet')}
+                  {window.endsAt ? whenUtc(window.endsAt) : copy.t('endNotSet')}
                 </span>
               </li>
             ))}

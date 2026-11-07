@@ -345,6 +345,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/protocol/*': 'fallback',
   '/wallet/*': 'fallback',
   '/copy/lead/apply': { template: 'flow', migrated: { file: 'features/trade/lead-apply/LeadApplyRoom.tsx' } },
+  '/trade/analytics/:pair': { template: 'monitor', migrated: { file: 'features/trade/market-analytics/MarketAnalyticsRoom.tsx' } },
   '/rulebook': { template: 'reading', migrated: { file: 'features/public/rulebook/RulebookRoom.tsx' } },
 };
 
