@@ -36,6 +36,7 @@ import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { gateFilesTouched } from '../scripts/gate-file-guard.mjs';
 import { BASELINE } from './look-baselines.mjs';
+import { judgeReason } from './test-judge.mjs';
 
 /** How long the seal waits for the review before it fails, and how often it looks. ci.yml's merge-seal timeout covers it. */
 const REVIEW_WAIT_MS = 20 * 60_000;
@@ -153,6 +154,16 @@ export const hasCommentSignoff = (args) => commentSignoff(args).ok;
 export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
 export const REVIEW_JOB = 'CI review';
 export const VERDICT_STEP = 'Verdict';
+/**
+ * The two verdicts the seal reads from REVIEW_WORKFLOW, each a job and its `Verdict` step: the CI review (gate files
+ * and look baselines, reviewReason) and the test judge (journey tests and shared test code, test-judge.mjs
+ * judgeReason). Both run in the same pull_request_target run, so the tree index and "a FAIL stands for its code"
+ * cover both. (Failure the judge prevents: proof v2's post-merge reach reads voided 545 proofs over one harness change
+ * that altered nothing the tests observe; project-state research/system-design-2026-11-07/E1-RESULT.md.)
+ */
+export const REVIEW_CHECK = { job: REVIEW_JOB, step: VERDICT_STEP, label: 'CI review' };
+export const JUDGE_JOB = 'Test judge';
+export const JUDGE_CHECK = { job: JUDGE_JOB, step: VERDICT_STEP, label: 'test judge' };
 /** The only base a review counts for: a review of a pull request into another branch reviewed another diff. */
 export const REVIEW_BASE = 'main';
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -216,7 +227,8 @@ export function indexesFirst(text) {
  * A FAIL stands whatever its base.
  * Returns { ok, state, why }: state is `pass`, `fail` (a FAIL verdict stands for this head), `pending` or `none`.
  */
-export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number }) {
+export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number, check = REVIEW_CHECK }) {
+  const { job: JOB, step: STEP, label } = check;
   const want = String(sha ?? '').toLowerCase();
   if (!SHA40.test(want)) return { ok: false, state: 'none', why: `"${sha}" is not a full head sha` };
   if (base !== REVIEW_BASE)
@@ -238,7 +250,7 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
       return {
         ok: false,
         state: 'none',
-        why: `${others.length} CI review run(s) on other heads, and no tree reader to tell whether they reviewed the same code`,
+        why: `${others.length} ${label} run(s) on other heads, and no tree reader to tell whether they reviewed the same code`,
       };
     const mine = await tree(want);
     for (const run of others) {
@@ -246,13 +258,13 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
       const listed = String(run?.head_commit?.tree_id ?? '').toLowerCase();
       if (!mine || (SHA40.test(listed) ? listed : await tree(theirs)) !== mine) continue;
       for (const [i, jobs] of (await attempts(run)).entries()) {
-        for (const job of (jobs ?? []).filter((j) => j?.name === REVIEW_JOB)) {
+        for (const job of (jobs ?? []).filter((j) => j?.name === JOB)) {
           if (String(job.head_sha ?? theirs).toLowerCase() !== theirs) continue;
-          if ((job.steps ?? []).find((s) => s?.name === VERDICT_STEP)?.conclusion === 'failure')
+          if ((job.steps ?? []).find((s) => s?.name === STEP)?.conclusion === 'failure')
             return {
               ok: false,
               state: 'fail',
-              why: `run ${run.id} attempt ${i + 1}: the CI review found blocking findings on ${theirs}, which has the same tree (${mine}) as ${want}; a FAIL stands for the same code, so push a fix that changes it`,
+              why: `run ${run.id} attempt ${i + 1}: the ${label} found blocking findings on ${theirs}, which has the same tree (${mine}) as ${want}; a FAIL stands for the same code, so push a fix that changes it`,
             };
         }
       }
@@ -269,14 +281,14 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
   let pending = false;
   for (const run of own) {
     for (const [i, jobs] of (await attempts(run)).entries()) {
-      for (const job of (jobs ?? []).filter((j) => j?.name === REVIEW_JOB)) {
+      for (const job of (jobs ?? []).filter((j) => j?.name === JOB)) {
         if (String(job.head_sha ?? want).toLowerCase() !== want) continue;
-        const step = (job.steps ?? []).find((s) => s?.name === VERDICT_STEP);
+        const step = (job.steps ?? []).find((s) => s?.name === STEP);
         if (step?.conclusion === 'failure')
           return {
             ok: false,
             state: 'fail',
-            why: `run ${run.id} attempt ${i + 1}: the CI review found blocking findings on ${want}; a FAIL stands for its head, so push a fix`,
+            why: `run ${run.id} attempt ${i + 1}: the ${label} found blocking findings on ${want}; a FAIL stands for its head, so push a fix`,
           };
         if (!intoMain(run)) continue; // reviewed against another base: neither a pass nor pending here
         if (job.status !== 'completed') pending = true;
@@ -284,13 +296,13 @@ export async function ciReviewVerdict({ sha, runs, attempts, tree, base, number 
       }
     }
   }
-  if (passedIn) return { ok: true, state: 'pass', why: `CI review passed on ${want} (${passedIn})` };
+  if (passedIn) return { ok: true, state: 'pass', why: `${label} passed on ${want} (${passedIn})` };
   return pending
-    ? { ok: false, state: 'pending', why: `the CI review on ${want} is still running` }
+    ? { ok: false, state: 'pending', why: `the ${label} on ${want} is still running` }
     : {
         ok: false,
         state: 'none',
-        why: `no CI review on ${want} passed its ${VERDICT_STEP} step (it did not finish, or failed before a verdict; re-run it)`,
+        why: `no ${label} on ${want} passed its ${STEP} step (it did not finish, or failed before a verdict; re-run it)`,
       };
 }
 
@@ -306,6 +318,16 @@ export function reviewReason(files) {
   const baseline = files.find((f) => BASELINE.test(f));
   if (baseline) return `look baseline: ${baseline}`;
   return null;
+}
+
+/** The verdicts a change needs, each with why: the CI review's and the test judge's (both null when neither applies). */
+export function requiredChecks(files) {
+  const out = [];
+  const review = reviewReason(files);
+  if (review) out.push({ check: REVIEW_CHECK, reason: review });
+  const judge = judgeReason(files);
+  if (judge) out.push({ check: JUDGE_CHECK, reason: judge });
+  return out;
 }
 
 /** The pull request GitHub's squash merge appends to a commit's first line, `<title> (#123)`, or null. */
@@ -342,11 +364,12 @@ export function groupPulls(commits, headRef) {
  * the head and on the pull request's branch, `io.attempts(run)` the jobs of each attempt, `io.tree(sha)` a commit's tree.
  * Returns { ok, state, why }.
  */
-export async function lookForSignoff({ sha, io, branch, base, number }) {
+export async function lookForSignoff({ sha, io, branch, base, number, check = REVIEW_CHECK }) {
   return ciReviewVerdict({
     sha,
     base,
     number,
+    check,
     runs: await io.reviewRuns(sha, branch),
     attempts: (run) => io.attempts(run),
     tree: io.tree && ((s) => io.tree(s)),
@@ -388,18 +411,20 @@ export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
       lines.push(`#${n}: is ${pull.state}, not a queued pull request`);
       continue;
     }
-    const reason = reviewReason(await io.files(n, sha));
-    if (reason === null) {
+    const needs = requiredChecks(await io.files(n, sha));
+    if (needs.length === 0) {
       lines.push(`#${n} (${sha}): independent review not required`);
       continue;
     }
-    const verdict = await lookForSignoff({ sha, io, branch: pull?.head?.ref, base: pull?.base?.ref, number: n });
-    if (verdict.ok) {
-      lines.push(`#${n} (${sha}): ${reason}; ${verdict.why}`);
-      continue;
+    for (const { check, reason } of needs) {
+      const verdict = await lookForSignoff({ sha, io, branch: pull?.head?.ref, base: pull?.base?.ref, number: n, check });
+      if (verdict.ok) {
+        lines.push(`#${n} (${sha}): ${reason}; ${verdict.why}`);
+        continue;
+      }
+      ok = false;
+      lines.push(`#${n} (${sha}): ${reason}; no passing ${check.label} for this head (${verdict.why})`);
     }
-    ok = false;
-    lines.push(`#${n} (${sha}): ${reason}; no passing CI review for this head (${verdict.why})`);
   }
   return { ok, lines };
 }
@@ -1088,7 +1113,7 @@ async function main() {
     console.error('::error::review-marker needs GH_TOKEN, HEAD_SHA and REPO');
     process.exit(1);
   }
-  let reason = 'not a pull request';
+  let needs = [{ check: REVIEW_CHECK, reason: 'not a pull request' }];
   // The pull request's branch, so a FAIL on an earlier head with the same tree is read too, and its base now. A pull
   // request into any branch but main is never sealed, so a green seal can't sit on a head that is later pointed at
   // main (the seal doesn't re-run on a retarget; the CI review does, and re-runs a red seal when it passes).
@@ -1101,12 +1126,14 @@ async function main() {
     process.exit(1);
   }
   if (PR_NUMBER) {
-    reason = reviewReason(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
-    if (reason === null) {
-      console.log('independent review not required: no gate file or look baseline changed (owner decisions 2026-10-22 and 2026-11-06)');
+    needs = requiredChecks(await readChangedFiles(REPO, PR_NUMBER, HEAD_SHA, GH_TOKEN));
+    if (needs.length === 0) {
+      console.log(
+        'independent review not required: no gate file, look baseline, journey test or shared test code changed (owner decisions 2026-10-22 and 2026-11-06; the test judge, E1)',
+      );
       return;
     }
-    console.log(`independent review required (${reason})`);
+    for (const { check, reason } of needs) console.log(`${check.label} required (${reason})`);
   }
   const io = {
     reviewRuns: (sha) => readReviewRuns(REPO, sha, GH_TOKEN, branch),
@@ -1114,22 +1141,37 @@ async function main() {
     tree: (sha) => readTree(REPO, sha, GH_TOKEN),
   };
   const deadline = Date.now() + REVIEW_WAIT_MS;
-  let verdict;
+  const open = new Map(needs.map((n) => [n.check.label, n]));
+  const last = new Map();
   for (let attempt = 1; ; attempt++) {
-    verdict = await lookForSignoff({ sha: HEAD_SHA, io, base: PR_NUMBER ? pull?.base?.ref : REVIEW_BASE, number: PR_NUMBER || undefined });
-    if (verdict.ok) {
-      console.log(verdict.why);
-      return;
+    let failed = false;
+    for (const [label, { check }] of open) {
+      const verdict = await lookForSignoff({
+        sha: HEAD_SHA,
+        io,
+        base: PR_NUMBER ? pull?.base?.ref : REVIEW_BASE,
+        number: PR_NUMBER || undefined,
+        check,
+      });
+      last.set(label, verdict);
+      if (verdict.ok) {
+        console.log(verdict.why);
+        open.delete(label);
+      } else if (verdict.state === 'fail') failed = true;
     }
+    if (open.size === 0) return;
     // A FAIL stands for this head and for its code: waiting can't change it.
-    if (verdict.state === 'fail' || Date.now() + REVIEW_POLL_MS > deadline) break;
+    if (failed || Date.now() + REVIEW_POLL_MS > deadline) break;
     if (attempt === 1)
-      console.log(`${verdict.why}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`);
+      console.log(
+        `${[...open.keys()].map((l) => last.get(l).why).join('; ')}; waiting up to ${REVIEW_WAIT_MS / 60_000} min, checking every ${REVIEW_POLL_MS / 1000}s`,
+      );
     await new Promise((r) => setTimeout(r, REVIEW_POLL_MS));
   }
-  console.error(
-    `::error title=Review sign-off missing::No passing CI review on ${HEAD_SHA}. This change needs one (${reason}): ${verdict.why}. The CI review job runs on every push to an in-repo pull request and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
-  );
+  for (const [label, { reason }] of open)
+    console.error(
+      `::error title=Review sign-off missing::No passing ${label} on ${HEAD_SHA}. This change needs one (${reason}): ${last.get(label)?.why}. The ${label} job runs on every push to an in-repo pull request (${REVIEW_WORKFLOW}) and re-runs this seal when it passes (AGENTS.md, "Where a mistake costs more"); a comment or a status counts for nothing.`,
+    );
   process.exit(1);
 }
 
