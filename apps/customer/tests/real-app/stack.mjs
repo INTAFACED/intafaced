@@ -137,11 +137,24 @@ const SHOWN = [
   /^ {0,4}[a-z][A-Za-z0-9 ,()/'._-]{0,48}: \S/,
   /^ {2}(SERVICE|svc-[a-z0-9-]+|postgres|nats|chain \(TEST\)|video-store|rail-statements|customer|invitation|apex|admin|team-tls) +\S/,
   /^ *refusing \[[a-z0-9._-]+\]/,
-  /^ *[a-z][a-z0-9-]* did not become healthy at \S+ within \d+s\b/,
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9-]* did not become healthy at \S+ within \d+s\b/,
   /^INTAFACED local test stack$/,
   /^LOCAL TEST GATES — /,
 ];
-const TAIL_HEADER = /^ *[a-z][a-z0-9-]* exited during start\b/;
+/**
+ * The headers under which a tool prints a raw log tail, each as far as it is shown; every line after one is withheld.
+ * A stack script's `fail()` writes `local-test-<script>: <message>` (local-test-stack.mjs `fail`, and the same in
+ * -gates, -market, -world), so each header takes that prefix or none. The emitters (#7465 review round 2):
+ *   - local-test-stack.mjs `waitHealthy`: `<service> exited during start. Log <path>:` and 20 log lines;
+ *   - local-test-stack.mjs `startTeamTls`: `team-tls exited during start. Log <path>` (no tail; the header holds it);
+ *   - local-test-stack.mjs `pnpmRun`: `<label> failed (exit <n>). Log: <path>` and 25 log lines;
+ *   - local-test-market.mjs `start --wait`: `test market starting (pid <n>). Watch: …` and 6 log lines, on stdout.
+ */
+const TAIL_HEADERS = [
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9-]* exited during start\b/,
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9 ()/._-]* failed \(exit [^)]*\)\. Log\b/,
+  /^ *(?:local-test-[a-z]+: )?test market starting \(pid \d+\)/,
+];
 /** A line naming a credential is withheld whatever its shape: a short value beside it would not be masked as opaque. */
 const NAMES_CREDENTIAL = /password|passphrase|secret|cookie|bearer|authori[sz]ation|private[ _-]?key|api[ _-]?key|totp/i;
 /** A run of 24 or more base64, base64url or hex characters (a generated key, a token, a hash) inside a shown line. */
@@ -165,9 +178,10 @@ export function shownOutput(text) {
       withheld += 1;
       continue;
     }
-    if (TAIL_HEADER.test(line)) {
-      // The header only, as far as "exited during start": what follows on the line is the log's path, then its tail.
-      shown.push(shownLine(line.replace(/(exited during start)\b.*$/, '$1')));
+    const header = TAIL_HEADERS.map((re) => re.exec(line)).find(Boolean);
+    if (header) {
+      // The header only, as far as it matched: what follows on the line is the log's path, then its tail.
+      shown.push(shownLine(header[0]));
       inTail = true;
     } else if (!NAMES_CREDENTIAL.test(line) && SHOWN.some((re) => re.test(line))) shown.push(shownLine(line));
     else withheld += 1;
