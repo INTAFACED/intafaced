@@ -253,6 +253,17 @@ contract LiquidityTest {
         vm.stopPrank();
     }
 
+    function test_a_donated_one_sided_pool_can_still_be_seeded_through_the_router() public {
+        _setUp();
+        LiquidityPool pool = LiquidityPool(factory.createPool(address(a), address(b), 30));
+        a.mint(address(pool), 1);
+        pool.sync();
+        (uint256 d0, uint256 d1) = _amounts(pool, 1000 ether, 2000 ether);
+        vm.prank(BOB);
+        (,, uint256 shares) = router.addLiquidity(pool, d0, d1, 0, 0, 1, BOB, block.timestamp);
+        require(shares > 0 && pool.balanceOf(BOB) == shares, "seeded");
+    }
+
     function test_router_refuses_a_pool_its_factory_did_not_create() public {
         _setUp();
         LiquidityPool stray = new LiquidityPool(address(a), address(b), 30);

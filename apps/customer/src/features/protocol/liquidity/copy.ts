@@ -49,7 +49,7 @@ const en = {
   pulled: 'Deposits {amount0} {symbol0} and {amount1} {symbol1}',
   pulledNote: 'Only the pool’s ratio of what you offer is taken; the rest stays in your wallet.',
   minShares: 'Minimum shares',
-  minSharesHint: 'The call reverts if it would mint fewer shares than this.',
+  minSharesHint: 'The call reverts if it would mint fewer shares than this. Suggested: the quote less the slippage ceiling.',
   willMint: 'Mints about {shares} shares, {share}% of the pool',
   add: 'Add',
   stepsAdd: 'Add steps',

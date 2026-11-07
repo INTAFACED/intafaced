@@ -25,7 +25,8 @@ export function sqrt(y: bigint): bigint {
 /** The pool's ratio of what was offered: all of one side and the matching part of the other (AMM-4, router `_optimal`). */
 export function optimalPair(r0: bigint, r1: bigint, d0: bigint, d1: bigint): { amount0: bigint; amount1: bigint } {
   if (d0 <= 0n || d1 <= 0n) throw new RangeError('both amounts must be above zero');
-  if (r0 === 0n && r1 === 0n) return { amount0: d0, amount1: d1 };
+  // An empty side has no ratio yet (a donated, synced balance before any deposit): what was offered sets the price.
+  if (r0 === 0n || r1 === 0n) return { amount0: d0, amount1: d1 };
   const b = (d0 * r1) / r0;
   if (b <= d1) return { amount0: d0, amount1: b };
   return { amount0: (d1 * r0) / r1, amount1: d1 };
@@ -42,11 +43,8 @@ export function sharesFor(supply: bigint, r0: bigint, r1: bigint, a0: bigint, a1
   return s0 < s1 ? s0 : s1;
 }
 
-/** The pool's swap output with the fee on the input (pool `_getAmountOut`). */
-export function amountOut(amountIn: bigint, reserveIn: bigint, reserveOut: bigint, feeBps: number): bigint {
-  const withFee = amountIn * (FEE_DENOM - BigInt(feeBps));
-  return (withFee * reserveOut) / (reserveIn * FEE_DENOM + withFee);
-}
+/** The pool's swap output with the fee on the input: the one mirror of the pool's `_getAmountOut`. */
+export { getAmountOut as amountOut } from '../amm/math.js';
 
 /**
  * The part of `amountIn` swap-and-add swaps first (router `swapPart`):

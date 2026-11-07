@@ -206,10 +206,14 @@ contract LiquidityRouter {
         if (factory.getPool(pool.token0(), pool.token1(), pool.feeBps()) != p) revert NotAPool();
     }
 
-    /** The pool's ratio of what was offered: all of one side, and the matching part of the other (AMM-4). */
+    /**
+     * The pool's ratio of what was offered: all of one side, and the matching part of the other (AMM-4). A pool with an
+     * empty side has no ratio yet (it has no shares either: a donation and `sync` can leave one side above zero before
+     * any deposit), so what was offered goes in as offered and sets the price.
+     */
     function _optimal(uint256 r0, uint256 r1, uint256 d0, uint256 d1) private pure returns (uint256, uint256) {
         if (d0 == 0 || d1 == 0) revert BadAmount();
-        if (r0 == 0 && r1 == 0) return (d0, d1);
+        if (r0 == 0 || r1 == 0) return (d0, d1);
         uint256 b = (d0 * r1) / r0;
         if (b <= d1) return (d0, b);
         return ((d1 * r0) / r1, d1);

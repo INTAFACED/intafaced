@@ -55,3 +55,10 @@ export function refusalCode(failure: { code?: string; message?: string }): strin
   const match = /^([a-z_]+\.[a-z_.]+):/.exec(failure.message ?? '');
   return match ? match[1]! : null;
 }
+
+/** The refusals that mean the network's pool factory, router or node is not there: the rooms show the crypto network notice. */
+export const NO_NETWORK = new Set(['protocol.amm_factory_unset', 'protocol.chain_unreachable', 'protocol.liquidity_router_unset']);
+export const isNoNetwork = (failure: { code?: string; message?: string }) => NO_NETWORK.has(refusalCode(failure) ?? '');
+
+/** A refusal's words without its leading machine code ("protocol.x: words" → "words"). */
+export const plainReason = (message: string) => message.replace(/^[a-z_]+\.[a-z_.]+: /, '');

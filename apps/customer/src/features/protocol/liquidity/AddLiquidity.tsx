@@ -12,11 +12,10 @@ import { WatchShell } from '../watch/AddressPage';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, toUnits } from './format';
-import { refusalCode } from './liquidity-api';
+import { isNoNetwork, plainReason, refusalCode } from './liquidity-api';
 import { NoWalletNote, useLiquiditySigning } from './signing';
 
 const SHARE_DECIMALS = 18;
-const NO_NETWORK = new Set(['protocol.amm_factory_unset', 'protocol.chain_unreachable', 'protocol.liquidity_router_unset']);
 
 type Quoted = { kind: 'pair'; quote: LiquidityQuoteAdd; at: number } | { kind: 'one'; quote: LiquidityQuoteSwapAdd; at: number };
 
@@ -35,6 +34,10 @@ export function AddLiquidity({ pool }: { pool: string }) {
   const signing = useLiquiditySigning(t);
   const { wallet, liquidity } = signing;
   const pairs = useResource((signal) => protocol.ammPairs(signal), `liquidity:add:pairs:${pool}`);
+  // The owner's slippage ceiling: the minimum shares a quote suggests sits that far under it, so a small price move
+  // between the quote and the block does not revert the add. Blank leaves the minimum for the person to enter.
+  const settings = useResource((signal) => protocol.swapSettings(signal), 'liquidity:add:settings');
+  const ceilingBps = settings.resource.status === 'ready' ? settings.resource.data.slippageCeilingBps : null;
   const [oneToken, setOneToken] = useState(false);
   const [amount0, setAmount0] = useState('');
   const [amount1, setAmount1] = useState('');
@@ -85,13 +88,18 @@ export function AddLiquidity({ pool }: { pool: string }) {
       if (controller.signal.aborted) return;
       if ('kind' in answer) {
         setQuoted(answer);
-        setMinShares(amountText(answer.quote.shares, SHARE_DECIMALS, SHARE_DECIMALS));
+        // Each new quote suggests its own minimum: the quoted shares less the owner's slippage ceiling.
+        setMinShares(
+          ceilingBps === null
+            ? ''
+            : amountText((BigInt(answer.quote.shares) * BigInt(10_000 - ceilingBps)) / 10_000n, SHARE_DECIMALS, SHARE_DECIMALS),
+        );
         setProblem(null);
-      } else if (NO_NETWORK.has(refusalCode(answer) ?? '')) setNoNetwork(true);
-      else setProblem(t('refused', { reason: answer.message.replace(/^[a-z_]+\.[a-z_.]+: /, '') }));
+      } else if (isNoNetwork(answer)) setNoNetwork(true);
+      else setProblem(t('refused', { reason: plainReason(answer.message) }));
     });
     return () => controller.abort();
-  }, [row?.pool, quoteKey, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [row?.pool, quoteKey, refresh, ceilingBps]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -108,77 +116,88 @@ export function AddLiquidity({ pool }: { pool: string }) {
     setDone(null);
     setBusy(true);
     try {
-      const gate = await signing.withRepresentation(async () => {
-        const owner = wallet.address!;
-        if (quoted.kind === 'pair' && units0 !== null && units1 !== null) {
-          const built = await liquidity.buildAdd({
-            owner,
-            pool: row.pool,
-            amount0Desired: units0.toString(),
-            amount1Desired: units1.toString(),
-            minShares: minUnits.toString(),
-          });
-          if (!built.ok) return setProblem(t('refused', { reason: built.message.replace(/^[a-z_]+\.[a-z_.]+: /, '') }));
-          const [shown0, shown1] = [amountText(quoted.quote.amount0, token0.decimals), amountText(quoted.quote.amount1, token1.decimals)];
-          const [a0, a1] = await Promise.all([
-            signing.approvals(token0, built.data.router, BigInt(quoted.quote.amount0), shown0),
-            signing.approvals(token1, built.data.router, BigInt(quoted.quote.amount1), shown1),
-          ]);
-          if (!a0.ok) return setProblem(a0.reason);
-          if (!a1.ok) return setProblem(a1.reason);
-          const outcome = await signing.send(
-            {
-              title: t('stepsAdd'),
-              steps: [
-                ...a0.steps,
-                ...a1.steps,
-                {
-                  label: t('stepAdd', { amount0: shown0, symbol0: token0.name, amount1: shown1, symbol1: token1.name, shares: minShares }),
-                  request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
-                },
-              ],
-              facts: [
-                { label: token0.name, value: token0.address },
-                { label: token1.name, value: token1.address },
-              ],
-            },
-            built.data.call,
-          );
-          if (outcome.ok) setDone(t('added', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS) }));
-          else setProblem(outcome.reason);
-          return;
-        }
-        if (quoted.kind === 'one' && singleToken && singleUnits !== null) {
-          const built = await liquidity.buildSwapAdd({
-            owner,
-            pool: row.pool,
-            tokenIn: singleToken.address,
-            amountIn: singleUnits.toString(),
-            minShares: minUnits.toString(),
-          });
-          if (!built.ok) return setProblem(t('refused', { reason: built.message.replace(/^[a-z_]+\.[a-z_.]+: /, '') }));
-          const shown = amountText(singleUnits, singleToken.decimals);
-          const approve = await signing.approvals(singleToken, built.data.router, singleUnits, shown);
-          if (!approve.ok) return setProblem(approve.reason);
-          const outcome = await signing.send(
-            {
-              title: t('stepsAdd'),
-              steps: [
-                ...approve.steps,
-                {
-                  label: t('stepSwapAdd', { amount: shown, symbol: singleToken.name, shares: minShares }),
-                  request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
-                },
-              ],
-              facts: [{ label: singleToken.name, value: singleToken.address }],
-            },
-            built.data.call,
-          );
-          if (outcome.ok) setDone(t('added', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS) }));
-          // One transaction: a failed add undid the swap with it, which the person is told in so many words.
-          else setProblem(`${outcome.reason} ${t('nothingHalfDone')}`);
-        }
-      });
+      const gate = await signing.withRepresentation(
+        async () => {
+          const owner = wallet.address!;
+          if (quoted.kind === 'pair' && units0 !== null && units1 !== null) {
+            const built = await liquidity.buildAdd({
+              owner,
+              pool: row.pool,
+              amount0Desired: units0.toString(),
+              amount1Desired: units1.toString(),
+              minShares: minUnits.toString(),
+            });
+            if (!built.ok) return setProblem(t('refused', { reason: plainReason(built.message) }));
+            const [shown0, shown1] = [amountText(quoted.quote.amount0, token0.decimals), amountText(quoted.quote.amount1, token1.decimals)];
+            // The approvals cover what was offered, not only the quoted ratio: the router takes the pool's ratio at the
+            // block it runs in, which a small price move can shift towards either token, never past what was offered.
+            const [a0, a1] = await Promise.all([
+              signing.approvals(token0, built.data.router, units0, amountText(units0, token0.decimals)),
+              signing.approvals(token1, built.data.router, units1, amountText(units1, token1.decimals)),
+            ]);
+            if (!a0.ok) return setProblem(a0.reason);
+            if (!a1.ok) return setProblem(a1.reason);
+            const outcome = await signing.send(
+              {
+                title: t('stepsAdd'),
+                steps: [
+                  ...a0.steps,
+                  ...a1.steps,
+                  {
+                    label: t('stepAdd', {
+                      amount0: shown0,
+                      symbol0: token0.name,
+                      amount1: shown1,
+                      symbol1: token1.name,
+                      shares: minShares,
+                    }),
+                    request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
+                  },
+                ],
+                facts: [
+                  { label: token0.name, value: token0.address },
+                  { label: token1.name, value: token1.address },
+                ],
+              },
+              built.data.call,
+            );
+            if (outcome.ok) setDone(t('added', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS) }));
+            else setProblem(outcome.reason);
+            return;
+          }
+          if (quoted.kind === 'one' && singleToken && singleUnits !== null) {
+            const built = await liquidity.buildSwapAdd({
+              owner,
+              pool: row.pool,
+              tokenIn: singleToken.address,
+              amountIn: singleUnits.toString(),
+              minShares: minUnits.toString(),
+            });
+            if (!built.ok) return setProblem(t('refused', { reason: plainReason(built.message) }));
+            const shown = amountText(singleUnits, singleToken.decimals);
+            const approve = await signing.approvals(singleToken, built.data.router, singleUnits, shown);
+            if (!approve.ok) return setProblem(approve.reason);
+            const outcome = await signing.send(
+              {
+                title: t('stepsAdd'),
+                steps: [
+                  ...approve.steps,
+                  {
+                    label: t('stepSwapAdd', { amount: shown, symbol: singleToken.name, shares: minShares }),
+                    request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
+                  },
+                ],
+                facts: [{ label: singleToken.name, value: singleToken.address }],
+              },
+              built.data.call,
+            );
+            if (outcome.ok) setDone(t('added', { shares: amountText(quoted.quote.shares, SHARE_DECIMALS) }));
+            // One transaction: a failed add undid the swap with it, which the person is told in so many words.
+            else setProblem(`${outcome.reason} ${t('nothingHalfDone')}`);
+          }
+        },
+        () => void add(),
+      );
       if (gate) setProblem(gate);
     } finally {
       setBusy(false);
@@ -192,7 +211,7 @@ export function AddLiquidity({ pool }: { pool: string }) {
       {signing.panel}
       <Panel title={t('addTitle')}>
         {!wallet.address && <NoWalletNote t={t} />}
-        {(noNetwork || (pairs.resource.status === 'failed' && NO_NETWORK.has(refusalCode(pairs.resource.failure) ?? ''))) && (
+        {(noNetwork || (pairs.resource.status === 'failed' && isNoNetwork(pairs.resource.failure))) && (
           <ServiceOffNotice code="rail.crypto" action={t('addTitle')} role="status" />
         )}
         {pairs.resource.status === 'loading' && <Loading label={t('addTitle')} />}

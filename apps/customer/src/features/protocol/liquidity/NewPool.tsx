@@ -12,12 +12,10 @@ import { WatchShell } from '../watch/AddressPage';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { liquidityCopy } from './copy';
 import { amountText, bpsPercent, percentToBps, priceText, toUnits } from './format';
-import { refusalCode } from './liquidity-api';
+import { isNoNetwork, plainReason, refusalCode } from './liquidity-api';
 import { NoWalletNote, useLiquiditySigning } from './signing';
 
 const CUSTOM = 'custom';
-/** The refusals that mean the network's pool factory or node is not there: shown as the crypto network notice. */
-const NO_NETWORK = new Set(['protocol.amm_factory_unset', 'protocol.chain_unreachable', 'protocol.liquidity_router_unset']);
 
 /**
  * /dex/pools/new (D-liquidity-03, J-dex-protocol-12 #2, #3): two tokens, a fee tier from the owner's published list or a
@@ -50,8 +48,7 @@ export function NewPool() {
   const tierList = tiers.resource.status === 'ready' ? tiers.resource.data.tiers : [];
   const tiersUnset = tiers.resource.status === 'failed' && refusalCode(tiers.resource.failure) === 'amm.fee_tiers_unset';
   const noNetwork =
-    (pairs.resource.status === 'failed' && NO_NETWORK.has(refusalCode(pairs.resource.failure) ?? '')) ||
-    (problem !== null && 'notice' in problem);
+    (pairs.resource.status === 'failed' && isNoNetwork(pairs.resource.failure)) || (problem !== null && 'notice' in problem);
 
   const feeBps = tier === CUSTOM ? percentToBps(customFee) : tier === '' ? null : Number(tier);
   const feeProblem =
@@ -77,7 +74,7 @@ export function NewPool() {
     void liquidity.poolExists({ tokenA: a.address, tokenB: b.address, feeBps: usableFee }, controller.signal).then((answer) => {
       if (controller.signal.aborted) return;
       if (answer.ok) setExists({ key: existsKey, pool: answer.data.exists ? answer.data.pool : null });
-      else if (NO_NETWORK.has(refusalCode(answer) ?? '')) setProblem({ notice: true });
+      else if (isNoNetwork(answer)) setProblem({ notice: true });
     });
     return () => controller.abort();
   }, [existsKey, liquidity]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -88,51 +85,54 @@ export function NewPool() {
     setProblem(null);
     setBusy(true);
     try {
-      const gate = await signing.withRepresentation(async () => {
-        const built = await liquidity.buildCreate({
-          owner: wallet.address!,
-          tokenA: a.address,
-          tokenB: b.address,
-          feeBps: usableFee,
-          amountA: unitsA.toString(),
-          amountB: unitsB.toString(),
-        });
-        if (!built.ok) {
-          const code = refusalCode(built);
-          if (NO_NETWORK.has(code ?? '')) return setProblem({ notice: true });
-          if (code === 'amm.fee_out_of_range') return setProblem({ words: t('feeAboveCap') });
-          if (code === 'amm.pool_exists') return setProblem({ words: t('revert_PoolExists') });
-          return setProblem({ words: t('refused', { reason: built.message.replace(/^[a-z_]+\.[a-z_.]+: /, '') }) });
-        }
-        const shownA = amountText(unitsA, a.decimals);
-        const shownB = amountText(unitsB, b.decimals);
-        const [approveA, approveB] = await Promise.all([
-          signing.approvals(a, built.data.router, unitsA, shownA),
-          signing.approvals(b, built.data.router, unitsB, shownB),
-        ]);
-        if (!approveA.ok) return setProblem({ words: approveA.reason });
-        if (!approveB.ok) return setProblem({ words: approveB.reason });
-        const outcome = await signing.send(
-          {
-            title: t('stepsCreate'),
-            steps: [
-              ...approveA.steps,
-              ...approveB.steps,
-              {
-                label: t('stepCreate', { amountA: shownA, tokenA: a.name, amountB: shownB, tokenB: b.name }),
-                request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
-              },
-            ],
-            facts: [
-              { label: a.name, value: a.address },
-              { label: b.name, value: b.address },
-            ],
-          },
-          built.data.call,
-        );
-        if (outcome.ok) setCreated(built.data.pool);
-        else setProblem({ words: outcome.reason });
-      });
+      const gate = await signing.withRepresentation(
+        async () => {
+          const built = await liquidity.buildCreate({
+            owner: wallet.address!,
+            tokenA: a.address,
+            tokenB: b.address,
+            feeBps: usableFee,
+            amountA: unitsA.toString(),
+            amountB: unitsB.toString(),
+          });
+          if (!built.ok) {
+            const code = refusalCode(built);
+            if (isNoNetwork(built)) return setProblem({ notice: true });
+            if (code === 'amm.fee_out_of_range') return setProblem({ words: t('feeAboveCap') });
+            if (code === 'amm.pool_exists') return setProblem({ words: t('revert_PoolExists') });
+            return setProblem({ words: t('refused', { reason: plainReason(built.message) }) });
+          }
+          const shownA = amountText(unitsA, a.decimals);
+          const shownB = amountText(unitsB, b.decimals);
+          const [approveA, approveB] = await Promise.all([
+            signing.approvals(a, built.data.router, unitsA, shownA),
+            signing.approvals(b, built.data.router, unitsB, shownB),
+          ]);
+          if (!approveA.ok) return setProblem({ words: approveA.reason });
+          if (!approveB.ok) return setProblem({ words: approveB.reason });
+          const outcome = await signing.send(
+            {
+              title: t('stepsCreate'),
+              steps: [
+                ...approveA.steps,
+                ...approveB.steps,
+                {
+                  label: t('stepCreate', { amountA: shownA, tokenA: a.name, amountB: shownB, tokenB: b.name }),
+                  request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
+                },
+              ],
+              facts: [
+                { label: a.name, value: a.address },
+                { label: b.name, value: b.address },
+              ],
+            },
+            built.data.call,
+          );
+          if (outcome.ok) setCreated(built.data.pool);
+          else setProblem({ words: outcome.reason });
+        },
+        () => void create(),
+      );
       if (gate) setProblem({ words: gate });
     } finally {
       setBusy(false);

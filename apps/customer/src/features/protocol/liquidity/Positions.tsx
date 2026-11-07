@@ -12,11 +12,10 @@ import { APP_CHAIN_ID, ADDRESS } from '../wallet/eip1193';
 import { useWallet } from '../wallet/WalletProvider';
 import { liquidityCopy, type LiquidityTranslate } from './copy';
 import { amountText, bpsPercent, toUnits } from './format';
-import { createLiquidityApi, refusalCode } from './liquidity-api';
+import { createLiquidityApi, isNoNetwork, plainReason, refusalCode } from './liquidity-api';
 import { NoWalletNote, useLiquiditySigning } from './signing';
 
 const SHARE_DECIMALS = 18;
-const NO_NETWORK = new Set(['protocol.amm_factory_unset', 'protocol.chain_unreachable', 'protocol.liquidity_router_unset']);
 
 /** A position's id in its path: `<pool>:<account>`, both addresses. */
 export const positionPath = (pool: string, account: string) => `/dex/positions/${pool.toLowerCase()}:${account.toLowerCase()}`;
@@ -53,7 +52,7 @@ export function PositionsList() {
   else if (resource.status === 'loading') body = note(<Loading label={t('positionsTitle')} />);
   else if (resource.status === 'failed')
     body = note(
-      NO_NETWORK.has(refusalCode(resource.failure) ?? '') ? (
+      isNoNetwork(resource.failure) ? (
         <ServiceOffNotice code="rail.crypto" action={t('positionsTitle')} role="status" />
       ) : (
         <p role="status">{t('positionsUnread', { reason: resource.failure.message })}</p>
@@ -136,43 +135,46 @@ export function PositionPage({ id }: { id: string }) {
     setStatus(null);
     setBusy(true);
     try {
-      const gate = await signing.withRepresentation(async () => {
-        const built = await liquidity.buildRemove({ owner: wallet.address!, pool: p.pool, shares: p.shares });
-        if (!built.ok) return setProblem(t('refused', { reason: built.message.replace(/^[a-z_]+\.[a-z_.]+: /, '') }));
-        const shown = amountText(p.shares, SHARE_DECIMALS, SHARE_DECIMALS);
-        const approve = await signing.approvals({ address: p.pool, name: 'LP' }, built.data.router, BigInt(p.shares), shown);
-        if (!approve.ok) return setProblem(approve.reason);
-        const steps = approve.steps.map((step) => ({ ...step, label: t('stepApproveShares', { shares: shown }) }));
-        const outcome = await signing.send(
-          {
-            title: t('stepsRemove'),
-            steps: [
-              ...steps,
-              {
-                label: t('stepRemove', {
-                  shares: shown,
-                  amount0: amountText(built.data.amount0Min, p.token0.decimals),
-                  symbol0: p.token0.name,
-                  amount1: amountText(built.data.amount1Min, p.token1.decimals),
-                  symbol1: p.token1.name,
-                }),
-                request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
-              },
-            ],
-          },
-          built.data.call,
-        );
-        if (!outcome.ok) return setProblem(outcome.reason);
-        setStatus(
-          t('removed', {
-            amount0: amountText(built.data.amount0, p.token0.decimals),
-            symbol0: p.token0.name,
-            amount1: amountText(built.data.amount1, p.token1.decimals),
-            symbol1: p.token1.name,
-          }),
-        );
-        setRevision((n) => n + 1);
-      });
+      const gate = await signing.withRepresentation(
+        async () => {
+          const built = await liquidity.buildRemove({ owner: wallet.address!, pool: p.pool, shares: p.shares });
+          if (!built.ok) return setProblem(t('refused', { reason: plainReason(built.message) }));
+          const shown = amountText(p.shares, SHARE_DECIMALS, SHARE_DECIMALS);
+          const approve = await signing.approvals({ address: p.pool, name: 'LP' }, built.data.router, BigInt(p.shares), shown);
+          if (!approve.ok) return setProblem(approve.reason);
+          const steps = approve.steps.map((step) => ({ ...step, label: t('stepApproveShares', { shares: shown }) }));
+          const outcome = await signing.send(
+            {
+              title: t('stepsRemove'),
+              steps: [
+                ...steps,
+                {
+                  label: t('stepRemove', {
+                    shares: shown,
+                    amount0: amountText(built.data.amount0Min, p.token0.decimals),
+                    symbol0: p.token0.name,
+                    amount1: amountText(built.data.amount1Min, p.token1.decimals),
+                    symbol1: p.token1.name,
+                  }),
+                  request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
+                },
+              ],
+            },
+            built.data.call,
+          );
+          if (!outcome.ok) return setProblem(outcome.reason);
+          setStatus(
+            t('removed', {
+              amount0: amountText(built.data.amount0, p.token0.decimals),
+              symbol0: p.token0.name,
+              amount1: amountText(built.data.amount1, p.token1.decimals),
+              symbol1: p.token1.name,
+            }),
+          );
+          setRevision((n) => n + 1);
+        },
+        () => void removeAll(),
+      );
       if (gate) setProblem(gate);
     } finally {
       setBusy(false);
@@ -183,7 +185,7 @@ export function PositionPage({ id }: { id: string }) {
   if (!parsed) body = <p role="status">{t('positionUnread', { reason: id })}</p>;
   else if (resource.status === 'loading') body = <Loading label={t('positionTitle')} />;
   else if (resource.status === 'failed')
-    body = NO_NETWORK.has(refusalCode(resource.failure) ?? '') ? (
+    body = isNoNetwork(resource.failure) ? (
       <ServiceOffNotice code="rail.crypto" action={t('positionTitle')} role="status" />
     ) : (
       <p role="status">{t('positionUnread', { reason: resource.failure.message })}</p>
@@ -331,30 +333,33 @@ function SendShares({
     setProblem(null);
     setBusy(true);
     try {
-      const gate = await signing.withRepresentation(async () => {
-        const built = await signing.liquidity.buildSend({
-          owner: signing.wallet.address!,
-          pool: position.pool,
-          to: to.trim(),
-          shares: units.toString(),
-        });
-        if (!built.ok) return setProblem(t('refused', { reason: built.message.replace(/^[a-z_]+\.[a-z_.]+: /, '') }));
-        const shown = amountText(units, SHARE_DECIMALS, SHARE_DECIMALS);
-        const outcome = await signing.send(
-          {
-            title: t('stepsSend'),
-            steps: [
-              {
-                label: t('stepSend', { shares: shown, to: to.trim() }),
-                request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
-              },
-            ],
-          },
-          built.data.call,
-        );
-        if (outcome.ok) onSent(t('sent', { shares: shown, to: to.trim() }));
-        else setProblem(outcome.reason);
-      });
+      const gate = await signing.withRepresentation(
+        async () => {
+          const built = await signing.liquidity.buildSend({
+            owner: signing.wallet.address!,
+            pool: position.pool,
+            to: to.trim(),
+            shares: units.toString(),
+          });
+          if (!built.ok) return setProblem(t('refused', { reason: plainReason(built.message) }));
+          const shown = amountText(units, SHARE_DECIMALS, SHARE_DECIMALS);
+          const outcome = await signing.send(
+            {
+              title: t('stepsSend'),
+              steps: [
+                {
+                  label: t('stepSend', { shares: shown, to: to.trim() }),
+                  request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data },
+                },
+              ],
+            },
+            built.data.call,
+          );
+          if (outcome.ok) onSent(t('sent', { shares: shown, to: to.trim() }));
+          else setProblem(outcome.reason);
+        },
+        () => void send(),
+      );
       if (gate) setProblem(gate);
     } finally {
       setBusy(false);

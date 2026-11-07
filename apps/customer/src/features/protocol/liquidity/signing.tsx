@@ -30,8 +30,12 @@ export function useLiquiditySigning(t: LiquidityTranslate) {
   const [gate, setGate] = useState<{ status: Parameters<typeof RepresentationPanel>[0]['status']; resume: () => void } | null>(null);
   const [gateProblem, setGateProblem] = useState<string | null>(null);
 
-  /** Runs `then` once this wallet has accepted the representation; shows the panel first when it has not. */
-  const withRepresentation = async (then: () => Promise<void>): Promise<string | null> => {
+  /**
+   * Runs `then` once this wallet has accepted the representation. When it has not, shows the panel and returns; on
+   * accept the room's own `restart` runs (the caller's whole action again, with its busy flag and error handling), which
+   * finds the representation accepted and goes on to `then`.
+   */
+  const withRepresentation = async (then: () => Promise<void>, restart: () => void): Promise<string | null> => {
     if (!wallet.address) return t('noWallet');
     const status = await protocol.representationStatus(wallet.address);
     if (!status.ok)
@@ -41,7 +45,7 @@ export function useLiquiditySigning(t: LiquidityTranslate) {
           ? t('representationUnset')
           : t('representationUnread');
     if (!status.data.accepted) {
-      setGate({ status: status.data, resume: () => void then() });
+      setGate({ status: status.data, resume: restart });
       return null;
     }
     await then();

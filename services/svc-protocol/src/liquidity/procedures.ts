@@ -1,4 +1,14 @@
-import { decodeErrorResult, encodeFunctionData, getAddress, parseAbiItem, type Abi, type Address, type Hex, type PublicClient } from 'viem';
+import {
+  decodeErrorResult,
+  encodeFunctionData,
+  getAddress,
+  parseAbiItem,
+  parseEventLogs,
+  type Abi,
+  type Address,
+  type Hex,
+  type PublicClient,
+} from 'viem';
 import { z } from 'zod';
 import {
   AMM_FEE_OUT_OF_RANGE,
@@ -38,7 +48,7 @@ import {
   type LiquidityToken,
   type ProtocolSwapPairs,
 } from '@intafaced/contracts';
-import { classifyChainError, isZeroAddress } from '../chain/availability.js';
+import { chainDown, classifyChainError, isZeroAddress } from '../chain/availability.js';
 import { loadArtifact } from '../chain/artifacts.js';
 import { amountOut, entryOf, floorBy, optimalPair, positionFigures, sharesFor, swapPart } from './maths.js';
 
@@ -88,6 +98,11 @@ export const refuse = (trpcCode: TRPCError['code'], code: string, message: strin
 const routerAbi = () => loadArtifact('LiquidityRouter').abi as Abi;
 const poolAbi = () => loadArtifact('LiquidityPool').abi as Abi;
 const factoryAbi = () => loadArtifact('LiquidityFactory').abi as Abi;
+const ERC20_META = [
+  { type: 'function', name: 'name', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'symbol', stateMutability: 'view', inputs: [], outputs: [{ type: 'string' }] },
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] },
+] as const satisfies Abi;
 const TRANSFER = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const MINT = parseAbiItem('event Mint(address indexed sender, uint256 amount0, uint256 amount1, uint256 liquidity)');
 
@@ -141,33 +156,47 @@ export function createLiquidityProcedures(deps: LiquidityDeps) {
     return Number(block.timestamp) + ttl();
   };
 
-  /** A pool the factory lists, with its tokens and reserves at the pairs' block; any other address refuses. */
+  /** A token's name, symbol and decimals, read from the token itself. */
+  const tokenInfo = async (address: Address, block: bigint): Promise<LiquidityToken> => {
+    const [name, symbol, decimals] = await Promise.all([
+      read<string>(address, ERC20_META, 'name', [], block),
+      read<string>(address, ERC20_META, 'symbol', [], block),
+      read<number>(address, ERC20_META, 'decimals', [], block),
+    ]);
+    return { address, name, symbol, decimals: Number(decimals) };
+  };
+
+  /**
+   * A pool the configured factory created, read from the pool and checked with the factory's own `getPool` at one block
+   * (not looked up in a capped listing, so the factory's thousandth pool is as reachable as its first). An address that
+   * does not answer as a pool, or one the factory did not create, refuses `protocol.not_factory_pool`; a chain that
+   * cannot be read refuses as a chain outage.
+   */
   const listedPool = async (address: string) => {
-    const pairs = await deps.readPairs(factory());
-    const row = pairs.pools.find((p) => p.pool.toLowerCase() === address.toLowerCase());
-    if (!row)
-      throw refuse(
-        'NOT_FOUND',
-        LIQUIDITY_NOT_A_POOL,
-        `${address} is not a pool the configured factory created, so nothing is built for it.`,
-      );
-    const token = (a: string): LiquidityToken => {
-      const t = pairs.tokens.find((x) => x.address.toLowerCase() === a.toLowerCase())!;
-      return { address: t.address, name: t.name, symbol: t.symbol, decimals: t.decimals };
-    };
-    const block = BigInt(pairs.blockNumber);
-    const pool = getAddress(row.pool);
-    const supply = await read<bigint>(pool, poolAbi(), 'totalSupply', [], block);
-    return {
-      pool,
-      row,
-      token0: token(row.token0),
-      token1: token(row.token1),
-      reserve0: BigInt(row.reserve0),
-      reserve1: BigInt(row.reserve1),
-      supply,
-      block,
-    };
+    const f = factory();
+    const pool = getAddress(address);
+    const block = await deps.client().getBlockNumber();
+    const notAPool = () =>
+      refuse('NOT_FOUND', LIQUIDITY_NOT_A_POOL, `${pool} is not a pool the configured factory created, so nothing is built for it.`);
+    let fields: [Address, Address, number, readonly [bigint, bigint, number], bigint];
+    try {
+      fields = await Promise.all([
+        read<Address>(pool, poolAbi(), 'token0', [], block),
+        read<Address>(pool, poolAbi(), 'token1', [], block),
+        read<number>(pool, poolAbi(), 'feeBps', [], block),
+        read<readonly [bigint, bigint, number]>(pool, poolAbi(), 'getReserves', [], block),
+        read<bigint>(pool, poolAbi(), 'totalSupply', [], block),
+      ]);
+    } catch (err) {
+      const refusal = classifyChainError(err, 'amm.liquidityPool', deps.rpcUrl());
+      if (chainDown(refusal)) throw refusal;
+      throw notAPool();
+    }
+    const [t0, t1, fee, [reserve0, reserve1], supply] = fields;
+    const listed = await read<Address>(f, factoryAbi(), 'getPool', [t0, t1, Number(fee)], block);
+    if (getAddress(listed) !== pool) throw notAPool();
+    const [token0, token1] = await Promise.all([tokenInfo(getAddress(t0), block), tokenInfo(getAddress(t1), block)]);
+    return { pool, row: { feeBps: Number(fee) }, token0, token1, reserve0, reserve1, supply, block };
   };
 
   const positive = (value: string, what: string): bigint => {
@@ -508,17 +537,28 @@ export function createLiquidityProcedures(deps: LiquidityDeps) {
           // The account's share history from the pool's own logs: every share that came to it, and the deposit behind
           // each one minted to it (the Mint in the same transaction with the same share amount). From the first block:
           // a node that bounds log ranges answers with a refusal, never a partial entry.
-          const [incoming, mints] = await Promise.all([
-            deps.client().getLogs({ address: p.pool, event: TRANSFER, args: { to: account }, fromBlock: 0n, toBlock: p.block }),
-            deps.client().getLogs({ address: p.pool, event: MINT, fromBlock: 0n, toBlock: p.block }),
-          ]);
+          const incoming = await deps
+            .client()
+            .getLogs({ address: p.pool, event: TRANSFER, args: { to: account }, fromBlock: 0n, toBlock: p.block });
+          // The deposits behind the shares minted to it: the pool's Mint in each such transaction's own receipt, so only
+          // the account's own transactions are read, never the pool's whole history.
+          const minted = [...new Set(incoming.filter((log) => isZeroAddress(log.args.from!)).map((log) => log.transactionHash!))];
+          const receipts = await Promise.all(minted.map((hash) => deps.client().getTransactionReceipt({ hash })));
+          const mints = new Map<string, { liquidity: bigint; amount0: bigint; amount1: bigint }[]>();
+          for (const receipt of receipts) {
+            const found = parseEventLogs({ abi: [MINT], logs: receipt.logs.filter((log) => getAddress(log.address) === p.pool) });
+            mints.set(
+              receipt.transactionHash,
+              found.map((log) => ({ liquidity: log.args.liquidity, amount0: log.args.amount0, amount1: log.args.amount1 })),
+            );
+          }
           const entry = entryOf(
             incoming.map((log) => {
-              const mint = mints.find((m) => m.transactionHash === log.transactionHash && m.args.liquidity === log.args.value);
+              const mint = mints.get(log.transactionHash!)?.find((m) => m.liquidity === log.args.value);
               return {
                 from: log.args.from!,
                 value: log.args.value!,
-                deposit: mint ? { amount0: mint.args.amount0!, amount1: mint.args.amount1! } : null,
+                deposit: mint ? { amount0: mint.amount0, amount1: mint.amount1 } : null,
               };
             }),
           );
@@ -599,9 +639,9 @@ function revertData(err: unknown): Hex | null {
   return null;
 }
 
-/** The custom error's name from the router's and pool's ABIs; `revert` when the data names no error either declares. */
+/** The custom error's name from the router's, pool's and factory's ABIs (createAndSeed bubbles the factory's); `revert` when the data names no error either declares. */
 function errorName(data: Hex): string {
-  for (const abi of [routerAbi(), poolAbi()]) {
+  for (const abi of [routerAbi(), poolAbi(), factoryAbi()]) {
     try {
       return decodeErrorResult({ abi, data }).errorName;
     } catch {
