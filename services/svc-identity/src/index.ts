@@ -4,6 +4,8 @@ import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
 import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './kyc/profile.js';
 import { KycPoaDesk, parseKycPoaMaxAgeDays, parseKycPoaTypes } from './kyc/proof-of-address.js';
+import { KycLevelSettingsDesk } from './kyc/level-settings.js';
+import { KycReviewDesk, parseKycAppealWindowSeconds, parseKycQueuePageSize, parseKycRfiDays } from './kyc/review.js';
 import { KycSelfieDesk, parseKycHandoffTtlSeconds, parseKycLivenessRecheckFor } from './kyc/selfie.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
@@ -683,6 +685,13 @@ installLimitFeeTierDualControl(rank, sql, actionApprovals);
 // No provider is built in: every start answers the allowlisted `idp.social` until one is registered here.
 const social = new SocialSignin(sql, { providers: new Map(), flowTtlSeconds: env.IDENTITY_SOCIAL_FLOW_TTL_SECONDS });
 
+// Per-level requirements and review times: the owner's published values, with compliance's two-person edits over them.
+const kycLadder = {
+  requirements: parseKycRequirementsByLevel(env.IDENTITY_KYC_REQUIREMENTS_BY_LEVEL),
+  reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
+};
+const kycLevelSettings = new KycLevelSettingsDesk(sql, kycLadder);
+
 export const appRouter = mergeRouters(
   createIdentityRouter(auth, rank, {
     registrationOpen: env.REGISTRATION_OPEN,
@@ -692,11 +701,17 @@ export const appRouter = mergeRouters(
     founderEnrolment: { invites: founderEnrolmentConfig(env.IDENTITY_FOUNDER_INVITE_HASHES, env.IDENTITY_FOUNDER_INVITE_EXPIRES_AT) },
     webauthnEnabled: env.WEBAUTHN_ENABLED,
     // Parsed at start: a malformed published list or review time stops the service rather than showing a wrong one.
-    kycLadder: {
-      requirements: parseKycRequirementsByLevel(env.IDENTITY_KYC_REQUIREMENTS_BY_LEVEL),
-      reviewHours: parseKycReviewHoursByLevel(env.IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL),
-    },
+    kycLadder,
+    kycLevelSettings,
     kycRejectReasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
+    // The verification review queue (I-kyc-compliance-02): the owner's page size and reject reasons.
+    kycReview: new KycReviewDesk(sql, {
+      reviewMinutes: async () => (await kycLevelSettings.effective()).reviewMinutes,
+      pageSize: parseKycQueuePageSize(env.IDENTITY_KYC_QUEUE_PAGE_SIZE),
+      appealWindowSeconds: parseKycAppealWindowSeconds(env.IDENTITY_KYC_APPEAL_WINDOW_SECONDS),
+      rfiDays: parseKycRfiDays(env.IDENTITY_KYC_RFI_DAYS),
+      reasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
+    }),
     kycCapabilityReasons,
     kycProfile,
     kycPoa,

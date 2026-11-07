@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const DESKS = [
+  { href: '/identity-ops/kyc', label: 'Verification queue' },
   { href: '/identity-ops/keys', label: 'Signing keys' },
   { href: '/identity-ops/oauth', label: 'OAuth apps' },
   { href: '/changes/policy', label: 'Approval policy' },

@@ -11,6 +11,7 @@ export const verificationLadderCopy = defineCopy('account.verificationLadder', {
   notPublished: 'No requirements are published for this level yet.',
   reviewTime: 'Review usually takes up to {hours} hours.',
   reviewTimeOne: 'Review usually takes up to 1 hour.',
+  reviewTimeMinutes: 'Review usually takes up to {minutes} minutes.',
   noReviewTime: 'No review time is stated.',
   noReviewTimeHelp: 'Ask Support',
   verify: 'Verify to unlock',

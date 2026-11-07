@@ -25,17 +25,17 @@ export const STAFF_TEST_MEMBERS = {
   finance: 'local-test-staff-finance@local-test.invalid',
 };
 
-const VAULT_NAME = 'staff-test.json';
+export const VAULT_NAME = 'staff-test.json';
 const VAULT_KIND = 'intafaced-local-test-staff';
 const STEP_MS = 30_000;
 
-function writePrivate(file, value) {
+export function writePrivate(file, value) {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   chmodSync(file, 0o600);
 }
 
-function readVault(file) {
+export function readVault(file) {
   if (!existsSync(file)) return { kind: VAULT_KIND, staff: {} };
   const vault = JSON.parse(readFileSync(file, 'utf8'));
   if (vault?.kind !== VAULT_KIND || typeof vault.staff !== 'object') throw new Error(`${file} is not a local test staff vault`);
@@ -43,7 +43,7 @@ function readVault(file) {
 }
 
 /** Runs `fn` holding the vault's lock file, so one worker at a time makes a member or takes a code step. */
-async function withLock(file, fn) {
+export async function withLock(file, fn) {
   const lock = `${file}.lock`;
   const until = Date.now() + 180_000;
   for (;;) {
@@ -64,7 +64,7 @@ async function withLock(file, fn) {
 }
 
 /** One identity procedure through the stack's Edge, as the founder seed calls it; a refusal throws with its typed code. */
-async function identity(edge, procedure, input, token) {
+export async function identity(edge, procedure, input, token) {
   const res = await fetch(`${edge}/api/identity/trpc/${procedure}`, {
     method: 'POST',
     redirect: 'error',
@@ -84,7 +84,7 @@ async function identity(edge, procedure, input, token) {
 }
 
 /** A code from a step after the last one this member spent, waiting for the next window when needed. */
-async function freshCode(member) {
+export async function freshCode(member) {
   let step = Math.floor(Date.now() / STEP_MS);
   while (step <= Number(member.lastStep ?? 0)) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));

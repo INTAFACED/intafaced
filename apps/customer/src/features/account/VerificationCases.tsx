@@ -12,6 +12,8 @@ type Tier = KycCase['tier'];
 const PAGE = 10;
 const tagOf: Record<KycCaseState, 'pending' | 'filled' | 'cancelled' | 'working'> = {
   submitted: 'pending',
+  // A reviewer asked for more: the case waits on the person's answers.
+  info_requested: 'working',
   approved: 'filled',
   rejected: 'cancelled',
   // A lapsed approval no longer counts, so it reads as ended, never as work in progress.
@@ -93,6 +95,34 @@ export function VerificationCases({
                 <p className="muted verification__case-follows" data-testid="verification__case-follows">
                   <Copy k="follows" />
                 </p>
+              )}
+              {c.state === 'info_requested' && (
+                <div className="verification__case-tasks" data-testid="verification__case-tasks">
+                  <p>
+                    <Copy k="infoRequestedIntro" />
+                  </p>
+                  <ul>
+                    {c.tasks.map((task) => (
+                      <li key={task.key} data-testid="verification__case-task" data-task={task.key} data-state={task.state}>
+                        <span>{task.hint}</span>
+                        {' · '}
+                        {task.dueAt ? (
+                          <>
+                            <Copy k="taskDue" /> {time(task.dueAt)}
+                          </>
+                        ) : (
+                          <Copy k="taskNoDeadline" />
+                        )}
+                        {task.state === 'provided' && (
+                          <>
+                            {' · '}
+                            <Copy k="taskProvided" />
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
               {c.state === 'rejected' && (
                 <div className="verification__case-reason" data-testid="verification__case-reason" data-reason={c.reason?.code ?? ''}>

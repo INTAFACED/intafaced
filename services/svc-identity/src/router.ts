@@ -3,12 +3,36 @@ import { SignInChallengeError, type SignInAdmission, type SignInChallengeService
 import { createKycLevelsRouter } from './kyc/levels-router.js';
 import { EMPTY_KYC_LADDER_SETTINGS, type KycLadderSettings } from './kyc/levels.js';
 import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRejectReasons } from './kyc/cases.js';
-import { kycHistoryOutputSchema, kycReasonCodeSchema } from '@intafaced/contracts/identity-kyc-cases';
+import {
+  kycHistoryOutputSchema,
+  kycReasonCodeSchema,
+  kycAppealDecideInputSchema,
+  kycAppealSchema,
+  kycAppealSubmitInputSchema,
+  kycInfoTaskSchema,
+  kycRequestInfoInputSchema,
+  kycReviewAddNoteInputSchema,
+  kycReviewAssignInputSchema,
+  kycReviewAssignmentSchema,
+  kycReviewCaseInputSchema,
+  kycReviewCaseSchema,
+  kycReviewListInputSchema,
+  kycReviewListOutputSchema,
+  kycReviewNoteSchema,
+} from '@intafaced/contracts/identity-kyc-cases';
 import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/contracts/identity-kyc-capabilities';
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
+import { KycReviewError, type KycReviewDesk } from './kyc/review.js';
+import { KycLevelSettingsError, type KycLevelSettingsDesk } from './kyc/level-settings.js';
+import {
+  kycLevelSettingChangeSchema,
+  kycLevelSettingDecideInputSchema,
+  kycLevelSettingProposeInputSchema,
+  kycLevelSettingsViewSchema,
+} from '@intafaced/contracts/identity-kyc-levels';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
 import {
   kycSelfieDecideInputSchema,
@@ -234,6 +258,39 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc.handoff_used':
       case 'kyc.handoff_expired':
       case 'kyc.selfie_decided':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      default:
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    }
+  }
+
+  if (err instanceof KycLevelSettingsError) {
+    switch (err.code) {
+      case 'kyc.level_change_unknown':
+        return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+      case 'kyc.level_change_waiting':
+      case 'kyc.level_change_state':
+      case 'kyc.same_reviewer':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      default:
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    }
+  }
+
+  if (err instanceof KycReviewError) {
+    switch (err.code) {
+      case 'kyc.queue_page_size_unset':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.case_unknown':
+        return new TRPCError({ code: 'NOT_FOUND', message: err.message, cause: err });
+      case 'kyc.case_assigned':
+      case 'kyc.case_not_assigned':
+      case 'kyc.case_state':
+      case 'kyc.case_final':
+      case 'kyc.appeal_closed':
+      case 'kyc.appeal_open':
+      case 'kyc.appeal_none':
+      case 'kyc.same_reviewer':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -902,6 +959,10 @@ export function createIdentityRouter(
     kycProfile?: KycProfileDesk;
     /** Proof of address (I-kyc-compliance-11). Absent: every `kyc.proofOfAddress.*` door refuses `kyc.poa_unconfigured`. */
     kycPoa?: KycPoaDesk;
+    /** The verification review queue (I-kyc-compliance-02). Absent: every `kyc.review.*` door refuses `kyc.queue_page_size_unset`. */
+    kycReview?: KycReviewDesk;
+    /** Per-level requirements and review times edited with a second person (I-kyc-compliance-05). Absent: the owner's values only. */
+    kycLevelSettings?: KycLevelSettingsDesk;
     /** Selfie (I-kyc-compliance-09). Absent: every `kyc.selfie.*` door refuses `kyc.selfie_unconfigured`. */
     kycSelfie?: KycSelfieDesk;
     /** Social sign-in. Absent means no provider is registered: every start answers `idp.social`. */
@@ -1110,6 +1171,17 @@ export function createIdentityRouter(
     if (!options.kycSelfie) throw new KycSelfieError('The selfie step is not configured', 'kyc.selfie_unconfigured');
     return options.kycSelfie;
   }
+  function requireLevelSettings(): KycLevelSettingsDesk {
+    if (!options.kycLevelSettings)
+      throw new KycLevelSettingsError('Per-level settings are not editable on this identity', 'kyc.level_change_unknown');
+    return options.kycLevelSettings;
+  }
+
+  function requireKycReview(): KycReviewDesk {
+    if (!options.kycReview) throw new KycReviewError('The review queue is not configured', 'kyc.queue_page_size_unset');
+    return options.kycReview;
+  }
+
   function requireKycPoa(): KycPoaDesk {
     if (!options.kycPoa) throw new KycPoaError('Proof of address is not configured', 'kyc.poa_unconfigured');
     return options.kycPoa;
@@ -2415,7 +2487,7 @@ export function createIdentityRouter(
       /** The verification ladder: what each level unlocks, asks for and how long review takes (I-kyc-compliance-04/05). */
       levels: createKycLevelsRouter({
         kycTier: (userId) => auth.kycTier(userId),
-        settings: options.kycLadder ?? EMPTY_KYC_LADDER_SETTINGS,
+        settings: options.kycLevelSettings ? () => options.kycLevelSettings!.effective() : (options.kycLadder ?? EMPTY_KYC_LADDER_SETTINGS),
       }),
       /**
        * A user asks to be verified. Grants nothing.
@@ -2555,6 +2627,11 @@ export function createIdentityRouter(
             const customerNote = input.customerNote ?? null;
             const noteVisible = input.noteVisible ?? false;
             await auth.assertKycRejectable(input.recordId, { reasonCode: input.reasonCode, customerNote, noteVisible });
+            // A retry of the same reject returns the stored result and spends no second approval: it changes nothing.
+            if (await auth.isKycRejectStored?.(input.recordId, { reasonCode: input.reasonCode, customerNote, noteVisible })) {
+              const stored = await auth.getKycRecord(input.recordId);
+              if (stored) return presentKyc(stored);
+            }
             // The second operator approves what the customer will read: the reason, the note and whether it shows.
             const parties = await consumePrivileged(
               ctx.principal.userId,
@@ -2608,6 +2685,165 @@ export function createIdentityRouter(
             throw toTrpcError(err);
           }
         }),
+
+      /**
+       * The customer appeals their own rejected case, once per rejection, within the owner's window (I-kyc-compliance-02,
+       * J-identity-20 #8). A final rejection refuses `kyc.case_final`; outside the window or with none set, `kyc.appeal_closed`.
+       * No `userId` input: nobody appeals another person's case.
+       */
+      appeal: router({
+        submit: scopedProcedure('identity:write')
+          .input(kycAppealSubmitInputSchema)
+          .output(kycAppealSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await requireKycReview().submitAppeal(ctx.principal.userId, input.caseId, input.body);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+
+      /**
+       * The verification review queue (I-kyc-compliance-02, J-identity-20 #1 #2), compliance only, with a second factor.
+       * `list` is a page of open cases oldest first in the owner's page size; `assign` claims (compare-and-set) or releases
+       * a case, and a case another reviewer holds refuses `kyc.case_assigned`; nobody claims their own case. `case` is one
+       * case with the owner's reject reasons and the internal notes; `addNote` appends one. Notes never reach the customer.
+       * Decisions stay on `kyc.approve` and `kyc.reject`.
+       */
+      review: router({
+        list: scopedProcedure('admin:compliance')
+          .input(kycReviewListInputSchema)
+          .output(kycReviewListOutputSchema)
+          .query(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              return await requireKycReview().list(input.cursor ?? null);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        assign: scopedProcedure('admin:compliance')
+          .input(kycReviewAssignInputSchema)
+          .output(kycReviewAssignmentSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              const desk = requireKycReview();
+              assertNotOwnKyc(await desk.caseOwner(input.caseId), [ctx.principal.userId]);
+              return await desk.assign(input.caseId, ctx.principal.userId, input.action);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        case: scopedProcedure('admin:compliance')
+          .input(kycReviewCaseInputSchema)
+          .output(kycReviewCaseSchema)
+          .query(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              return await requireKycReview().read(input.caseId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Ask the customer for named items on an open case (I-kyc-compliance-03, J-identity-20 #3): the case becomes
+         * info_requested with one task per item, due by the owner's deadline; kycInfoRequested goes out after commit.
+         */
+        requestInfo: scopedProcedure('admin:compliance')
+          .input(kycRequestInfoInputSchema)
+          .output(z.object({ caseId: z.string().guid(), tasks: z.array(kycInfoTaskSchema) }))
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              const desk = requireKycReview();
+              assertNotOwnKyc(await desk.caseOwner(input.caseId), [ctx.principal.userId]);
+              return { caseId: input.caseId, tasks: await desk.requestInfo(input.caseId, ctx.principal.userId, input.items) };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Per-level requirements and review times (I-kyc-compliance-05, J-identity-20 #7): what is in force, what the owner
+         * published, and the changes waiting. A change is proposed for one level and takes effect only when a different
+         * person approves it (`kyc.same_reviewer` for the proposer).
+         */
+        levelSettings: scopedProcedure('admin:compliance')
+          .output(kycLevelSettingsViewSchema)
+          .query(async ({ ctx }) => {
+            try {
+              requireMfa(ctx.principal);
+              return await requireLevelSettings().read();
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        proposeLevelChange: scopedProcedure('admin:compliance')
+          .input(kycLevelSettingProposeInputSchema)
+          .output(kycLevelSettingChangeSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              return await requireLevelSettings().propose(ctx.principal.userId, input);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        approveLevelChange: scopedProcedure('admin:compliance')
+          .input(kycLevelSettingDecideInputSchema)
+          .output(kycLevelSettingChangeSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              return await requireLevelSettings().approve(input.changeId, ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        withdrawLevelChange: scopedProcedure('admin:compliance')
+          .input(kycLevelSettingDecideInputSchema)
+          .output(kycLevelSettingChangeSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              return await requireLevelSettings().withdraw(input.changeId, ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /** Decide the open appeal on a rejected case: a reviewer other than the one who rejected it (I-kyc-compliance-02, J-identity-20 #8). */
+        decideAppeal: scopedProcedure('admin:compliance')
+          .input(kycAppealDecideInputSchema)
+          .output(kycAppealSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              const desk = requireKycReview();
+              assertNotOwnKyc(await desk.caseOwner(input.caseId), [ctx.principal.userId]);
+              return await desk.decideAppeal(input.caseId, ctx.principal.userId, input.decision);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        addNote: scopedProcedure('admin:compliance')
+          .input(kycReviewAddNoteInputSchema)
+          .output(kycReviewNoteSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              return await requireKycReview().addNote(input.caseId, ctx.principal.userId, input.body);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
 
       /**
        * Proof of address (I-kyc-compliance-11, J-identity-08 #5): asked for after level Basic is approved. `read` gives
