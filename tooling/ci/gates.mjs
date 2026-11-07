@@ -359,6 +359,10 @@ export const NOT_GATES = {
     "merge-seal step and sweep: the factory switch, the one-line file FACTORY on the branch factory-switch, read through the contents API; only `run` passes, and anything else or an unreadable answer fails the seal closed (also read by journey-seal.mjs). `--sweep` runs from factory-sweep.yml on that branch and re-runs the open pull requests' seals on a flip. Needs a GitHub token, so a laptop verify cannot run it; `tooling/ci/factory-switch.test.mjs` checks the verdict, the read and the sweep.",
   'factory-switch.test.mjs':
     'not a gate: the node:test file of factory-switch.mjs, its planted cases (only `run` passes; `pause`, blank, other text and a refused read fail). tooling-tests.mjs runs it with every other tooling test.',
+  'factory-builder.mjs':
+    "not a gate: the headless builder's steps, run by .github/workflows/builder.yml (check the dispatched journey, read the factory switch, pick the branch, write the prompt, run the CLI watched by the switch and the clock with its output kept in files, the PR's handover line, usage as numbers). It needs the factory token and the CLI, so a laptop verify cannot run it; `tooling/ci/factory-builder.test.mjs` checks it and the workflow's shape.",
+  'factory-builder.test.mjs':
+    'not a gate: the node:test file of factory-builder.mjs and builder.yml, with planted faults in the workflow and an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
   'coverage-check.test.mjs':
     'not a gate: the node:test file of coverage-check.mjs, the planted cases of its law index (a moved or dropped chapter, a cited line marked blank, a title drift, a missing, empty or malformed index, --law with the wrong law). tooling-tests runs it.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
