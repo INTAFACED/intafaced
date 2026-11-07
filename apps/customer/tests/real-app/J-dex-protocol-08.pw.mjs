@@ -125,12 +125,15 @@ test(`${J} #3 opens the approvals list: spender, token and amount per approval; 
     .filter({ hasText: TOKEN_A.name })
     .filter({ hasText: new RegExp(OLD_SPENDER_A, 'i') });
   await expect(rows).toHaveCount(1, { timeout: 30_000 });
-  await expect(rows).toContainText(/\b25(\.0+)? /);
+  // The Allowance column (the third) shows the exact amount given.
+  await expect(rows.getByRole('cell').nth(2)).toHaveText(/^25(\.0+)? \S+$/);
   await expect(
     bodyRows(approvals)
       .filter({ hasText: TOKEN_B.name })
-      .filter({ hasText: new RegExp(OLD_SPENDER_B, 'i') }),
-  ).toContainText('Unlimited');
+      .filter({ hasText: new RegExp(OLD_SPENDER_B, 'i') })
+      .getByRole('cell')
+      .nth(2),
+  ).toHaveText('Unlimited');
   await rows.first().getByRole('button', { name: 'Revoke' }).click();
   // A wallet's first signing action asks for the representation once (J-dex-protocol-01 #8); a later one goes straight on.
   const representation = page.locator('[data-panel="representation"]');
