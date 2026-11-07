@@ -47,7 +47,7 @@ describe('wallet Accounts (D-portfolio-wallet-02)', () => {
     const rows = [...table.querySelectorAll('tbody tr')].map((row) => row.textContent);
     expect(rows[0]).toContain(ME);
     expect(rows[1]).toContain(SMART);
-    expect(rows[1]).toContain('Not deployed yet');
+    expect(rows[1]).toContain('Not deployed: it is created');
     expect(predictAccount).toHaveBeenCalledWith(ME, expect.anything());
   });
 
@@ -71,7 +71,7 @@ describe('wallet Accounts (D-portfolio-wallet-02)', () => {
     await mount(<AccountsPanel />);
     const button = [...host.querySelectorAll('button')].find((node) => node.textContent === 'Create a multi-signature account')!;
     expect(button.disabled).toBe(true);
-    expect(text()).toContain('The multi-signature contract is not deployed on this network yet');
+    expect(text()).toContain('The multi-signature contract is not deployed on this network');
     expect(text()).toContain('Connect a wallet to see this section.');
   });
 });
