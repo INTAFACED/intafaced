@@ -726,7 +726,24 @@ test(`${J} #7 uses one-click close, cancel and size presets; each acts once with
   const closing = toUnits(canon(await reviewValue('Amount').innerText()));
   expect(closing).toBe((freeBtc / lot) * lot);
   expect(sent).toHaveLength(1);
-  await page.getByRole('button', { name: 'Confirm sell' }).click();
+  // The desk checks the price again on confirm. A market sell is priced from a moving book: when the fresh check differs,
+  // the desk sends nothing, shows the new numbers ("…changed… confirm again") and asks once more. Each confirm sends at
+  // most once; the close as a whole must send exactly one order.
+  const confirmSell = page.getByRole('button', { name: 'Confirm sell' });
+  const changed = reviewSheet(page).filter({ hasText: 'we hold changed' });
+  for (let attempt = 0; attempt < 3 && sent.length < 2; attempt += 1) {
+    const checked = page.waitForResponse((r) => r.url().includes('/api/v1/orders/preview') && r.request().method() === 'POST');
+    await confirmSell.click();
+    await checked;
+    // Settled: either the one close order went out, or the desk shows the new numbers and asks again (nothing sent).
+    await expect
+      .poll(async () => sent.length === 2 || ((await changed.count()) > 0 && (await confirmSell.isEnabled())), { timeout: 15_000 })
+      .toBe(true);
+    if (sent.length < 2) {
+      expect(sent).toHaveLength(1);
+      expect(toUnits(canon(await reviewValue('Amount').innerText()))).toBe(closing);
+    }
+  }
   await expect(reviewSheet(page)).toHaveCount(0, { timeout: 15_000 });
   await expect.poll(() => sent.length).toBe(2);
   expect(sent[1]).toMatchObject({ side: 'sell', type: 'market' });
