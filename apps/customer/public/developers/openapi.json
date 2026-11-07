@@ -185,6 +185,40 @@
         }
       }
     },
+    "/api/v1/rulebook": {
+      "get": {
+        "operationId": "fetchRulebook",
+        "summary": "The trading rulebook in force, section by section",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/rulebook/versions": {
+      "get": {
+        "operationId": "fetchRulebookVersions",
+        "summary": "Every published rulebook version and what each changed",
+        "tags": ["spot"],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:read"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:read (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/market-lifecycle/{symbol}": {
       "get": {
         "operationId": "fetchMarketLifecycle",
@@ -257,6 +291,42 @@
       "delete": {
         "operationId": "cancelAllOrders",
         "summary": "Cancel open orders",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/convert/quote": {
+      "post": {
+        "operationId": "createConvertQuote",
+        "summary": "A firm convert price for an amount of one coin into another; nothing is held",
+        "tags": ["spot"],
+        "security": [{ "apiKey": [] }],
+        "x-access": "private",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": { "status": 401, "field": "intafacedCode", "code": "auth.required" },
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "401": { "description": "No credential, or one that did not verify (401 with intafacedCode auth.required)" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
+    "/api/v1/convert/accept": {
+      "post": {
+        "operationId": "acceptConvertQuote",
+        "summary": "Convert at a quoted price; the same quote id again answers the same conversion",
         "tags": ["spot"],
         "security": [{ "apiKey": [] }],
         "x-access": "private",

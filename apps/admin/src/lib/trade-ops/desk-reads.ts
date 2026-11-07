@@ -21,6 +21,17 @@ import { edgeCall, trpcSpec, type TradeCtx } from './edge';
 import type { Outcome } from './outcome';
 import type { RiskLimitsWrite, RiskSetBody } from './risk-limits-model';
 import { RISK_SET_ACTION_TYPE, RISK_SET_POLICY_VERSION, RISK_SET_TARGET_SERVICE, riskSetPayloadHash } from './risk-set-hash';
+import { BUST_ACTION_TYPE, BUST_POLICY_VERSION, BUST_TARGET_SERVICE, bustPayloadHash, type BustBody } from './bust-hash';
+import {
+  parseOrderRead,
+  parseReconcileStatus,
+  parseSweepResult,
+  parseTradeAudit,
+  type OrderRead,
+  type ReconcileStatus,
+  type SweepResult,
+  type TradeAuditRow,
+} from './order-read';
 
 /**
  * svc-trade operator procedures reached through svc-edge (`/api/trade/trpc/admin.*`). Every read is audited by the
@@ -126,4 +137,75 @@ export function readInsuranceHistory(ctx: TradeCtx, asset: string): Promise<Outc
     ctx,
     trpcSpec('trade', 'admin.futures.insuranceHistory', 'query', { asset, limit: DESK_PAGE_SIZE }, parseInsuranceHistory),
   );
+}
+
+// ── One order, the reconcile sweep, the trade bust and the trade audit (J-cex-spot-18) ──────────────────────────
+
+/** admin.orders.get: one order in any state, with its fills and reject code. The service audits each read. */
+export function readOrder(ctx: TradeCtx, orderId: string): Promise<Outcome<OrderRead>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.orders.get', 'query', { orderId }, parseOrderRead));
+}
+
+/**
+ * admin.orders.startReconcileSweep. The request id is minted once per press by the caller, so a resend of the same press
+ * is the same run (the service keeps each run under it). Refuses while the owner's sweep values are blank.
+ */
+export function startReconcileSweep(ctx: TradeCtx, input: { clientRequestId: string; reason: string }): Promise<Outcome<SweepResult>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.orders.startReconcileSweep', 'mutation', input, parseSweepResult));
+}
+
+/** admin.orders.reconcileStatus: the last sweep and its counts, for the Health room's reconcile tile (J-cex-spot-20 #2). */
+export function readReconcileStatus(ctx: TradeCtx): Promise<Outcome<ReconcileStatus>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.orders.reconcileStatus', 'query', undefined, parseReconcileStatus));
+}
+
+/** identity actionApproval.propose for a trade bust, bound to the order's fill count and the reason (bust-hash.ts). */
+export function proposeBust(ctx: TradeCtx, body: BustBody): Promise<Outcome<ActionApproval>> {
+  return edgeCall(
+    ctx,
+    trpcSpec(
+      'identity',
+      'actionApproval.propose',
+      'mutation',
+      {
+        actionType: BUST_ACTION_TYPE,
+        targetService: BUST_TARGET_SERVICE,
+        targetId: body.orderId,
+        expectedVersion: body.expectedVersion,
+        payloadHash: bustPayloadHash(body),
+        policyVersion: BUST_POLICY_VERSION,
+      },
+      parseApproval,
+    ),
+  );
+}
+
+/**
+ * admin.orders.bust under an APPROVED request, with the approval's own operation id as the request id (identity's
+ * consume refuses any other). svc-trade answers `trade_bust_recipe_missing` until a reversal recipe exists.
+ */
+export function carryOutBust(
+  ctx: TradeCtx,
+  input: { orderId: string; approvalId: string; operationId: string; reason: string },
+): Promise<Outcome<unknown>> {
+  return edgeCall(
+    ctx,
+    trpcSpec(
+      'trade',
+      'admin.orders.bust',
+      'mutation',
+      { orderId: input.orderId, approvalId: input.approvalId, clientRequestId: input.operationId, reason: input.reason },
+      (raw) => raw ?? null,
+    ),
+  );
+}
+
+export const TRADE_AUDIT_PAGE_SIZE = 200;
+
+/** admin.audit.feed: svc-trade's operator audit, oldest first, filtered by kind and account. */
+export function readTradeAudit(
+  ctx: TradeCtx,
+  filter: { kind?: string; accountId?: string; cursor?: string },
+): Promise<Outcome<{ rows: TradeAuditRow[]; nextCursor: string | null }>> {
+  return edgeCall(ctx, trpcSpec('trade', 'admin.audit.feed', 'query', { ...filter, limit: TRADE_AUDIT_PAGE_SIZE }, parseTradeAudit));
 }

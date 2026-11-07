@@ -15,6 +15,8 @@ export const statusCopy = defineCopy('public-status', {
   title: 'Platform status',
   lead: 'Each component’s state comes from a recorded reading or a published notice, and each market’s trading mode from the same place the trading desk reads it.',
   modesTitle: 'Trading modes',
+  modesAsOf: 'As of',
+  modesAsOfNone: 'No market reported a mode, so there is no time to show.',
   loading: 'Loading market modes…',
   failed: 'Couldn’t load market modes. Nothing here should be read as “all open”.',
   retry: 'Try again',

@@ -152,9 +152,11 @@ export function OrdersBoard({ rows, limit }: { rows: readonly AdminOrderRow[]; l
       sortable: true,
       value: (o) => (o.seeded ? 'House seed' : 'Customer'),
       cell: (o) => (
-        <Badge tone={o.seeded ? 'neutral' : 'lime'} variant="outline" density="dense">
-          {o.seeded ? 'House seed' : 'Customer'}
-        </Badge>
+        <span data-origin={o.seeded ? 'House seed' : 'Customer'} data-order-symbol={o.symbol} data-order-id={o.id}>
+          <Badge tone={o.seeded ? 'neutral' : 'lime'} variant="outline" density="dense">
+            {o.seeded ? 'House seed' : 'Customer'}
+          </Badge>
+        </span>
       ),
     },
     {
