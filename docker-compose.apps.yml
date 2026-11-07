@@ -393,7 +393,7 @@ services:
       IDENTITY_FOUNDER_PHANTOM_USER_ID: ${IDENTITY_FOUNDER_PHANTOM_USER_ID:-}
       IDENTITY_FOUNDER_INVITE_HASHES: ${IDENTITY_FOUNDER_INVITE_HASHES:-}
       IDENTITY_FOUNDER_INVITE_EXPIRES_AT: ${IDENTITY_FOUNDER_INVITE_EXPIRES_AT:-}
-      # D26-P0-02 owner-published accrual tiers — pass-through, no compose default.
+      # Owner-set accrual tiers (see the private records) — pass-through, no compose default.
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: ${IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON:-}
       # M01 DMA broker/desk/shift law — pass-through, no compose default, no invented tree.
       IDENTITY_DMA_HIERARCHY_LAW_JSON: ${IDENTITY_DMA_HIERARCHY_LAW_JSON:-}
@@ -732,7 +732,7 @@ services:
       # Opaque stamp only — never invent last trade / mark as settlement.
       TRADE_FUTURES_SETTLEMENT_FIXING: ${TRADE_FUTURES_SETTLEMENT_FIXING:-}
       # D26-P0-02 copy fee-share + D26-P0-15 geo — pass-through, no compose default.
-      # Published JSON lives in `.env.example`. Blank host still refuse-closed.
+      # The owner sets the JSON on the host (see the private records). Blank host still refuse-closed.
       TRADE_COPY_FEE_SHARE_LAW: ${TRADE_COPY_FEE_SHARE_LAW:-}
       TRADE_COPY_JURISDICTION_LAW: ${TRADE_COPY_JURISDICTION_LAW:-}
       # CB-copy-02 lead-page metric definitions. Empty = no metric number shown.
@@ -1528,9 +1528,9 @@ services:
       # Affiliate accrue + payout after house commission posts. Swallow
       # identity-down; never unwind marketPurchase. No localhost invent.
       IDENTITY_URL: http://svc-identity:4002
-      # D26-P0-02 owner click 2026-08-13: explicit free-cut via host env.
+      # Owner-set rate via host env (see the private records).
       # Pass-through only — no compose default. Silence still refuses
-      # market.commission_not_configured. Copy .env.example → .env for 0.
+      # market.commission_not_configured.
       MARKET_HOUSE_COMMISSION_BPS: ${MARKET_HOUSE_COMMISSION_BPS:-}
     # L5-7: S2S — not published on host (compose network only)
     expose: ['4018']
