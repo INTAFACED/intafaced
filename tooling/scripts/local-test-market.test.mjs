@@ -237,8 +237,17 @@ assert.equal(b.next(), a.next());
   // found no ask between the maker's first new bid and its first new ask).
   {
     const ladderAt = (mid) =>
-      buildLadder({ mid: toScaled(mid), tick: toScaled('0.01'), lot: toScaled('0.0001'), minAmount: toScaled('0.0001'),
-        minCost: toScaled('5'), levels: 3, halfSpreadBps: 6n, stepBps: 9n, levelNotional: toScaled('3000') });
+      buildLadder({
+        mid: toScaled(mid),
+        tick: toScaled('0.01'),
+        lot: toScaled('0.0001'),
+        minAmount: toScaled('0.0001'),
+        minCost: toScaled('5'),
+        levels: 3,
+        halfSpreadBps: 6n,
+        stepBps: 9n,
+        levelNotional: toScaled('3000'),
+      });
     const replay = (standing, placing) => {
       const book = standing.map((q) => ({ ...q }));
       const gaps = [];
@@ -250,23 +259,35 @@ assert.equal(b.next(), a.next());
           if ((q.side === 'buy' && o.side === 'sell' && p >= op) || (q.side === 'sell' && o.side === 'buy' && p <= op)) book.splice(i, 1);
         }
         book.push(q);
-        for (const side of ['buy', 'sell']) if (!book.some((o) => o.side === side)) gaps.push(`${side} side empty after ${q.side} ${q.price}`);
+        for (const side of ['buy', 'sell'])
+          if (!book.some((o) => o.side === side)) gaps.push(`${side} side empty after ${q.side} ${q.price}`);
       }
       return gaps;
     };
-    for (const [from, to] of [['52000', '65000'], ['65000', '52000']]) {
+    for (const [from, to] of [
+      ['52000', '65000'],
+      ['65000', '52000'],
+    ]) {
       const standing = ladderAt(from).map((q, i) => ({ id: `old-${i}`, side: q.side, price: q.price }));
       const fresh = ladderAt(to);
       assert.deepEqual(replay(standing, placingOrder(fresh, standing)), [], `a jump from ${from} to ${to} keeps both sides`);
       // Every quote is still placed, once.
-      assert.deepEqual([...placingOrder(fresh, standing)].sort((a, b) => a.price.localeCompare(b.price)),
-        [...fresh].sort((a, b) => a.price.localeCompare(b.price)));
+      assert.deepEqual(
+        [...placingOrder(fresh, standing)].sort((a, b) => a.price.localeCompare(b.price)),
+        [...fresh].sort((a, b) => a.price.localeCompare(b.price)),
+      );
     }
     // Nothing standing, or no new quote meeting one: the ladder goes up as built.
     const calm = ladderAt('65000');
     assert.equal(placingOrder(calm, null), calm);
     assert.deepEqual(placingOrder(calm, []), calm);
-    assert.deepEqual(placingOrder(calm, ladderAt('65001').map((q, i) => ({ id: `o${i}`, ...q }))).length, calm.length);
+    assert.deepEqual(
+      placingOrder(
+        calm,
+        ladderAt('65001').map((q, i) => ({ id: `o${i}`, ...q })),
+      ).length,
+      calm.length,
+    );
   }
   // The leader's book mid, from the best bid and ask; an empty or unreadable side is no mid.
   assert.equal(bookMid({ bids: [['65000', '1']], asks: [['65001', '1']] }), toScaled('65000.5'));
