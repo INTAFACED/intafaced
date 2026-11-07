@@ -29,7 +29,7 @@ async function readForm(api: ReturnType<typeof useSession>['api'], signal: Abort
 }
 
 /** The key, once: copy, download as an environment file, and a box to tick before the panel can close. */
-function ShownOnce({ made, onDone }: { made: ApiKeyCreateOutput & { key: string }; onDone: () => void }) {
+export function ShownOnce({ made, onDone }: { made: ApiKeyCreateOutput & { key: string }; onDone: () => void }) {
   const { t } = copy.useCopy();
   const [stored, setStored] = useState(false);
   const [copied, setCopied] = useState<'yes' | 'failed' | null>(null);

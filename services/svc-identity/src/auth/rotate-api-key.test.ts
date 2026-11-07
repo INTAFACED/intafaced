@@ -64,6 +64,8 @@ describe('rotateApiKey', () => {
       prefix: 'ifk_live',
       mode: 'live',
       revokedKeyId: 'old',
+      // No overlap: the old key ends now.
+      endsAt: expect.any(Date),
       signingSecret: null,
     });
     expect(created).toHaveLength(1);

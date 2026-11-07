@@ -463,6 +463,8 @@ export const apiKeys = identity.table(
     revokedCause: text('revoked_cause'),
     /** The person's own words when they revoked it; never an operator's note. */
     revokeReason: text('revoke_reason'),
+    /** The key this one replaced in a rotation (J-developer-07 #1); a key is replaced at most once. */
+    rotatedFrom: uuid('rotated_from'),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('api_keys_hash_idx').on(t.keyHash), index('api_keys_user_idx').on(t.userId, t.revoked)],

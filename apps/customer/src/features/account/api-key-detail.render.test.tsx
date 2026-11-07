@@ -97,7 +97,8 @@ const buttons = (pattern: RegExp, within: ParentNode = host) =>
 beforeEach(() => {
   host = document.createElement('div');
   document.body.append(host);
-  world.queries = {};
+  // No key has asked for its own rotation unless a test says so.
+  world.queries = { 'developerKeys.rotationRequest': [{ ok: true, data: { request: null } }] };
   world.mutate = [];
   world.asked = [];
   world.assertions = 0;
@@ -137,7 +138,7 @@ describe('the key list', () => {
     ];
     world.mutate = [{ ok: true, data: { changed: true, record: live } }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     const dialog = host.querySelector('dialog')!;
     expect(dialog.querySelector('h2')!.textContent).toBe('Revoke this key');
     // One button in the sheet matches /Revoke/, so a loose match finds exactly it.
@@ -159,7 +160,7 @@ describe('the key list', () => {
     world.queries['developerKeys.list'] = [list([live])];
     world.mutate = [{ ok: false, reason: 'refused', status: 404, code: 'identity.key_not_found', message: 'gone' }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     await act(async () => host.querySelector<HTMLFormElement>('dialog form')!.requestSubmit());
     await settleUntil(shows('This key is not on your account.'));
     expect(world.asked.find((a) => a.kind === 'mutate')!.input).toEqual({ keyId: KEY });
@@ -170,7 +171,7 @@ describe('the key list', () => {
     world.queries['developerKeys.list'] = [list([live]), list([live])];
     world.mutate = [{ ok: true, data: { changed: true, record: live } }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     const field = () => host.querySelector<HTMLInputElement>('dialog input[name="reason"]')!;
     expect(field().maxLength).toBe(-1);
     field().value = '\u{1F511}'.repeat(201);
@@ -195,7 +196,7 @@ describe('the key list', () => {
     world.queries['developerKeys.list'] = [list([live])];
     world.mutate = [{ ok: false, reason: 'uncertain', message: 'lost' }];
     await render(<ApiKeys />);
-    await act(async () => buttons(/Revoke/)[0]!.click());
+    await act(async () => buttons(/^Revoke$/)[0]!.click());
     await act(async () => host.querySelector<HTMLFormElement>('dialog form')!.requestSubmit());
     await settleUntil(shows('We could not confirm that the key was revoked.'));
     expect(world.asked.filter((a) => a.procedure === 'developerKeys.list')).toHaveLength(2);
@@ -263,6 +264,27 @@ describe('the key detail', () => {
     expect(world.assertions).toBe(1);
     expect(world.asked.filter((a) => a.kind === 'mutate')[1]!.input).toMatchObject({ factorProof: { webauthn: { id: 'cred' } } });
     expect(host.textContent).toContain('Works through 2026-12-01 (UTC)');
+  });
+
+  it("shows a key's own rotation request and approves it with a passkey, sending only the request id", async () => {
+    const requestId = '2d8e4f3a-5b6c-4d7e-8f9a-0b1c2d3e4f5a';
+    world.queries['developerKeys.get'] = [detail(live)];
+    world.queries['developerKeys.rotationRequest'] = [
+      { ok: true, data: { request: { requestId, keyId: KEY, overlapSeconds: 0, createdAt: '2026-11-07T10:00:00.000Z' } } },
+    ];
+    world.mutate = [{ ok: false, reason: 'uncertain', message: 'lost' }];
+    await render(<ApiKeyDetail keyId={KEY} />);
+    await settleUntil(shows('Rotation request'));
+    const region = host.querySelector('section[aria-labelledby="api-keys__rotation-request"]')!;
+    expect(region.textContent).toContain('The old key stops working as soon as you approve.');
+    await act(async () => buttons(/^Approve the rotation$/, region)[0]!.click());
+    await settleUntil(() => world.asked.some((a) => a.kind === 'mutate'));
+    expect(world.assertions).toBe(1);
+    expect(world.asked.find((a) => a.kind === 'mutate')).toMatchObject({
+      procedure: 'developerKeys.approveRotation',
+      input: { requestId, factorProof: { webauthn: { id: 'cred' } } },
+    });
+    expect(world.asked).toContainEqual({ kind: 'query', procedure: 'developerKeys.rotationRequest', input: { keyId: KEY } });
   });
 
   it('asks for a day before sending anything', async () => {

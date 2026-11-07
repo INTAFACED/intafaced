@@ -227,6 +227,7 @@ const FACTOR_CHANGED_TITLE_KEYS: Record<PayloadOf<'securityFactorChanged'>['chan
   passkey_removed: 'notify.identity.security.passkey_removed.title',
   password_changed: 'notify.identity.security.password_changed.title',
   new_device: 'notify.identity.security.new_device.title',
+  api_key_revoked: 'notify.identity.security.api_key_revoked.title',
 };
 
 /** The action kinds `intafaced.agents.action.completed` can carry. */
@@ -632,7 +633,9 @@ export async function subscribeNotificationEvents(
               ? 'notify.identity.security.password_changed.body'
               : payload.change === 'new_device'
                 ? 'notify.identity.security.new_device.body'
-                : 'notify.identity.security.factor_changed.body',
+                : payload.change === 'api_key_revoked'
+                  ? 'notify.identity.security.api_key_revoked.body'
+                  : 'notify.identity.security.factor_changed.body',
           // The business key, so Home can tell this notice from the "Needs you" item identity keys by it (new_device).
           params: { noticeKey: payload.noticeKey },
           href: '/uc/safe',

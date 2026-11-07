@@ -188,6 +188,8 @@ export const SECURITY_FACTOR_CHANGES = [
   'passkey_removed',
   'password_changed',
   'new_device',
+  // An API key revoked by an operator because a leaked copy was reported (DV-keys-05, J-developer-07 #6).
+  'api_key_revoked',
 ] as const;
 
 export const securityFactorChanged = defineEvent(
