@@ -46,6 +46,14 @@
   .of-field input {
     inline-size: 6rem;
   }
+  /* The app resets native inputs to appearance: none, which leaves a checkbox with no size: keep the browser's own. */
+  .of-check input {
+    appearance: auto;
+    flex: none;
+    inline-size: 0.875rem;
+    block-size: 0.875rem;
+    accent-color: var(--if-lime);
+  }
   .of-field input[aria-invalid='true'] {
     border-color: var(--if-error);
   }

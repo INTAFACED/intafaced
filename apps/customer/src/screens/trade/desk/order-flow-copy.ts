@@ -28,7 +28,9 @@ export const flowCopy = defineCopy('trade.desk.flow', {
   'Ladder old': 'The book may be out of date.',
   'Ladder hint': 'A click fills the ticket at that price and opens the review. Nothing is sent until you confirm.',
   'Time and sales': 'Time and sales',
-  'Minimum amount': 'Minimum amount',
+  // No control here is named with the ticket's own words (Amount, Price, Order type): the desk's journeys find the
+  // ticket by those names, and a second field answering to them would take their input.
+  'Minimum amount': 'Hide trades under',
   'Minimum invalid': 'Type a number, or leave it empty to show every trade.',
   Units: 'Units',
   'Accumulate at price': 'Accumulate at price',
@@ -55,11 +57,11 @@ export const flowCopy = defineCopy('trade.desk.flow', {
   'Chart no price': '—',
   Spread: 'Spread {spread}',
   'Spread none': 'Spread —',
-  'Order type': 'Order type',
+  'Order type': 'Order kind',
   'Type market': 'Market',
   'Type limit': 'Limit at the touch',
   'Type trailing': 'Trailing stop',
-  'Click amount': 'Amount ({asset})',
-  'Click amount first': 'Type an amount first: a click fills the ticket with it.',
-  'Click amount invalid': 'The amount must be a number on the lot size ({lot}).',
+  'Click amount': 'Click size ({asset})',
+  'Click amount first': 'Type a click size first: a click fills the ticket with it.',
+  'Click amount invalid': 'The click size must be a number on the lot size ({lot}).',
 });

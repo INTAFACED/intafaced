@@ -277,7 +277,9 @@ function SideForm({
   // A click on the DOM ladder or a chart Buy/Sell (J-charts-desk-14): this side's ticket takes the price and amount and
   // opens its own review once the order check allows it. It is the desk's own review and confirm, so the order holds
   // exactly as one typed here, and nothing is sent until the person confirms.
-  const reviewPending = useRef<OrderType | null>(null);
+  // `armed` turns true on the first render after the click: the effects of the click's own render still see the
+  // ticket as it was before it, so they never judge the new draft.
+  const reviewPending = useRef<{ type: OrderType; armed: boolean } | null>(null);
   useEffect(() => {
     if (!suggestion?.review) return;
     if (suggestion.side !== side) {
@@ -289,7 +291,7 @@ function SideForm({
       setTotalEdit(null);
       const lots = suggestion.amount ? floorToLot(suggestion.amount, market.lotSize) : null;
       setAmount(lots ?? '');
-      reviewPending.current = lots !== null ? (suggestion.type ?? 'limit') : null;
+      reviewPending.current = lots !== null ? { type: suggestion.type ?? 'limit', armed: false } : null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
@@ -413,7 +415,11 @@ function SideForm({
 
   useEffect(() => {
     const wanted = reviewPending.current;
-    if (wanted === null || type !== wanted) return;
+    if (wanted === null || type !== wanted.type) return;
+    if (!wanted.armed) {
+      wanted.armed = true;
+      return;
+    }
     if (canSend) {
       reviewPending.current = null;
       void startReview();
