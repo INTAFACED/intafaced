@@ -862,6 +862,17 @@ const newBuildId = () => `${new Date().toISOString()}-${crypto.randomBytes(4).to
  * Whether a running process was started on the build that is on disk now. `wanted` is the stamp's id for that part; a
  * process recorded before builds had ids started on an unknown build.
  */
+/**
+ * What a start or restart builds, from the stamp the last build wrote: 'none' while the stamp still holds, 'missing'
+ * when it holds but a package's build output is gone, 'full' otherwise (everything rebuilt, every service restarted).
+ */
+export function backendDecision({ rebuild = false, stamp, repo, head, edits, customerOk = true, missing = [] }, unchanged) {
+  const fresh =
+    !rebuild &&
+    buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo, head, edits }, unchanged);
+  return fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+}
+
 export function onCurrentBuild(rec, wanted) {
   return !wanted || rec?.build === wanted;
 }
@@ -1002,10 +1013,8 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
     ? !act.error
     : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
   const edits = worktreeEdits(SOURCE_PATHS);
-  const fresh =
-    !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
-  const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+  const backend = backendDecision({ rebuild, stamp, repo: REPO, head, edits, customerOk, missing });
   return { head, edits, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 

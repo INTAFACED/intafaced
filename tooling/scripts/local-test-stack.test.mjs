@@ -1360,3 +1360,43 @@ console.log('local-test-stack: customer folder override checks passed');
   }
   console.log('local-test-stack: trade and edge write their state in the stack state folder');
 }
+
+// The rebuild decision from a stamp file as the stack writes it, copied, with no stack running (#7463): with trade's
+// seed-state file written where its default puts it, a restart reads "none" (nothing rebuilt); after a real source
+// edit it reads "full".
+{
+  const { worktreeEdits, backendDecision } = await import('./local-test-stack.mjs');
+  const repo = mkdtempSync(join(tmpdir(), 'build-decision-'));
+  const state = mkdtempSync(join(tmpdir(), 'build-decision-state-'));
+  const git = (...args) =>
+    spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd: repo, encoding: 'utf8' });
+  const put = (rel, text) => {
+    mkdirSync(dirname(join(repo, rel)), { recursive: true });
+    writeFileSync(join(repo, rel), text);
+  };
+  const SOURCE = ['services', 'packages', 'apps/customer', 'pnpm-lock.yaml'];
+  try {
+    git('init', '-q');
+    put('services/svc-trade/src/seed.ts', 'export const a = 1;\n');
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    const head = git('rev-parse', 'HEAD').stdout.trim();
+    // The stamp a build writes (local-test-stack.mjs, after the build), copied into a state folder of its own.
+    const stampFile = join(state, 'build-stamp.json');
+    writeFileSync(stampFile, JSON.stringify({ head, repo, edits: worktreeEdits(SOURCE, [], repo), customerBuilt: true }));
+    const decide = () =>
+      backendDecision(
+        { stamp: JSON.parse(readFileSync(stampFile, 'utf8')), repo, head, edits: worktreeEdits(SOURCE, [], repo) },
+        (a, b) => a === b,
+      );
+    assert.equal(decide(), 'none', 'a fresh stamp rebuilds nothing');
+    put('services/svc-trade/.data/mm-seed-last-run.json', '{"BTC-USDT":{"runId":"r1","levels":3}}');
+    assert.equal(decide(), 'none', "with trade's seed-state file in place, nothing is rebuilt");
+    put('services/svc-trade/src/seed.ts', 'export const a = 2;\n');
+    assert.equal(decide(), 'full', 'after a real source edit, everything is rebuilt');
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+    rmSync(state, { recursive: true, force: true });
+  }
+  console.log("local-test-stack: the rebuild decision reads none with trade's seed state in place, full after a source edit");
+}
