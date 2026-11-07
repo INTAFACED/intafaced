@@ -7,7 +7,7 @@
  * pool K never falls; native in is wrapped and swapped in one transaction with the unused value refunded; a past deadline
  * reverts Expired with the pools unchanged; the router holds nothing after every call.
  *
- * Skips without a chain; CI with REQUIRE_EVM_CHAIN=1 must run it. Sends from this file's own derived account.
+ * Needs a disposable chain (CI starts one, REQUIRE_EVM_CHAIN=1); without one it fails. Sends from this file's own derived account.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createWalletClient, http, parseUnits, type Abi, type Address, type Hex } from 'viem';
@@ -17,22 +17,14 @@ import type { DevChainClients } from '../../scripts/dev-chain.js';
 import type { ProtocolSwapPairs } from '@intafaced/contracts';
 import { bestPath, buildPermit, buildSwapV2, readApprovalRoute, type SwapV2Deps } from './swap-v2.js';
 
-const devChainMod = await (async () => {
-  try {
-    return await import('../../scripts/dev-chain.js');
-  } catch {
-    return null;
-  }
-})();
-const chainUp = devChainMod ? await devChainMod.devChainReachable() : false;
-const describeOnChain = !devChainMod || (!chainUp && !devChainMod.devChainRequired()) ? describe.skip : describe;
+// Runs unconditionally: CI starts the disposable chain (REQUIRE_EVM_CHAIN=1); with no chain here it fails, by name.
+const devChainMod = await import('../../scripts/dev-chain.js');
 
 const PULL = { allowance: 0, standing: 1, native: 2 } as const;
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const abi = (name: Parameters<typeof loadArtifact>[0]) => loadArtifact(name).abi as Abi;
 
-describeOnChain('router v2 and SovereignPermit onchain', () => {
-  if (!devChainMod) return;
+describe('router v2 and SovereignPermit onchain', () => {
   let c: DevChainClients;
   let factory: Address;
   let router: Address;
