@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { readProcessIdentity } from './local-test-state.mjs';
 import {
   GuardError,
+  unquotedMarkets,
   assertLocalTarget,
   bandEdgeQuote,
   crossingQuote,
@@ -566,3 +567,32 @@ assert.equal(shiftedMid(toScaled('1'), 200n, toScaled('0.0001')), toScaled('1.02
 assert.equal(shiftedMid(toScaled('65000'), -600n, toScaled('0.01')), toScaled('61100'));
 assert.equal(shiftedMid(toScaled('1.00005'), 0n, toScaled('0.0001')), toScaled('1.00005'));
 assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled('1'));
+
+// A maker restart is ready only once its newest run has quoted every market it named, the perpetual (quoted last) too.
+{
+  const T = (line) => `2026-11-07T13:32:40.000Z [TEST MARKET] ${line}`;
+  const older = [
+    T('LOCAL TEST MARKET — TEST PRICES, not a market feed, not real money. seed=7, requote every 3s'),
+    T('BTC/USDT: TEST PRICE reference 65000 USDT, walking from step 1 at 65000'),
+    T('BTC/USDT TEST PRICE mid 65000 USDT: 6/6 quotes resting'),
+  ];
+  const start = [
+    T('LOCAL TEST MARKET — TEST PRICES, not a market feed, not real money. seed=7, requote every 3s'),
+    T('BTC/USDT: TEST PRICE reference 65000 USDT, walking from step 40 at 65100'),
+    T("BTC/USDT:USDT: quoted around the BTC/USDT book's mid each cycle"),
+  ];
+  assert.deepEqual(unquotedMarkets(''), { announced: [], waiting: [] });
+  assert.deepEqual(unquotedMarkets(older.slice(0, 1).join('\n')), { announced: [], waiting: [] });
+  // The newest run counts, not an older one's quotes still in the log.
+  assert.deepEqual(unquotedMarkets([...older, ...start].join('\n')), {
+    announced: ['BTC/USDT', 'BTC/USDT:USDT'],
+    waiting: ['BTC/USDT', 'BTC/USDT:USDT'],
+  });
+  const spot = T('BTC/USDT TEST PRICE mid 65100 USDT: 6/6 quotes resting');
+  assert.deepEqual(unquotedMarkets([...older, ...start, spot].join('\n')).waiting, ['BTC/USDT:USDT']);
+  // A cycle that rested nothing on the perpetual is not quoted yet.
+  const none = T('BTC/USDT:USDT TEST PRICE mid 65100 USDT: 0/6 quotes resting; last refusal 400');
+  assert.deepEqual(unquotedMarkets([...older, ...start, spot, none].join('\n')).waiting, ['BTC/USDT:USDT']);
+  const perp = T('BTC/USDT:USDT TEST PRICE mid 65100 USDT: 6/6 quotes resting');
+  assert.deepEqual(unquotedMarkets([...older, ...start, spot, none, perp].join('\n')).waiting, []);
+}
