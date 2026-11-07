@@ -281,7 +281,6 @@ const messages = {
   'No recurring-order service exists. Use Convert for a single trade.':
     'No recurring-order service exists. Use Convert for a single trade.',
   'No trades on record': 'No trades on record',
-  'No webhooks yet': 'No webhooks yet',
   None: 'None',
   'None set': 'None set',
   'None, each slice trades at the market': 'None, each slice trades at the market',
@@ -581,6 +580,7 @@ const messages = {
     'You have no passkey or authenticator app, so closing everything cannot be confirmed.',
   'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.':
     'You have no passkey or authenticator app, so this withdrawal cannot be confirmed.',
+  'You have no webhooks': 'You have no webhooks',
   'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.':
     'You may not have enough {asset} for the whole run. Slices that cannot be paid are refused.',
   'You set them. A leader can never raise them': 'You set them. A leader can never raise them',

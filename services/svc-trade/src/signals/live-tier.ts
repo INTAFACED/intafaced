@@ -6,6 +6,9 @@ import { accountStateSchema, serviceCallSigner, type ServiceAuthMode, type Servi
 import type { Principal } from '@intafaced/auth';
 import { SignalError } from './signal-desk.js';
 
+/** How long one alert waits for identity's answer before it refuses `trade.signal_tier_unavailable`. */
+export const LIVE_TIER_TIMEOUT_MS = 5_000;
+
 /** A person's live verification tier as identity holds it now. Fails closed: any read problem refuses. */
 export interface LiveTierSource {
   tierOf(userId: string): Promise<Principal['tier']>;
@@ -29,6 +32,8 @@ export function createLiveTierClient(
       try {
         response = await fetch(target, {
           method: 'GET',
+          // Bounded: an alert waits at most this long for identity, then refuses (fail closed), never hangs.
+          signal: AbortSignal.timeout(LIVE_TIER_TIMEOUT_MS),
           headers: {
             'content-type': 'application/json',
             ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),

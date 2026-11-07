@@ -26,6 +26,11 @@ import { roomRefusal } from './refusals';
  * Chart alert webhooks (CB-bots-api-signal-01, J-copy-bots-otc-20): a webhook per market that turns a chart alert into
  * an order. The token is shown once, when the webhook is made; afterwards only its first six characters.
  */
+/** The address a chart alert posts to: this site's origin and the webhook's path. Data, not words. */
+const webhookAddress = (origin: string, path: string) => origin + path;
+/** The first characters of a token, shown so a person can tell their webhooks apart. Data, not words. */
+const tokenShown = (prefix: string) => prefix + '…';
+
 export function WebhooksRoom() {
   const { t } = roomCopy.useCopy();
   const transport = useApi();
@@ -58,8 +63,8 @@ export function WebhooksRoom() {
 
   const columns: TableColumn<SignalWebhook>[] = [
     { id: 'market', header: t('Market'), value: (w) => w.symbol, width: 140 },
-    { id: 'url', header: t('Address'), cell: (w) => <code className="cb-wrap">{`${origin}${w.path}`}</code>, width: 420 },
-    { id: 'token', header: t('Token'), cell: (w) => <code>{`${w.tokenPrefix}…`}</code>, width: 120 },
+    { id: 'url', header: t('Address'), cell: (w) => <code className="cb-wrap">{webhookAddress(origin, w.path)}</code>, width: 420 },
+    { id: 'token', header: t('Token'), cell: (w) => <code>{tokenShown(w.tokenPrefix)}</code>, width: 120 },
     {
       id: 'state',
       header: t('State'),
@@ -87,7 +92,7 @@ export function WebhooksRoom() {
               <InfoNote>
                 <span style={{ display: 'block' }}>{t('Copy these now. The token is shown only this once.')}</span>
                 <span style={{ display: 'block' }}>
-                  {t('Address')}: <code data-testid="webhook-url">{`${origin}${made.path}`}</code>
+                  {t('Address')}: <code data-testid="webhook-url">{webhookAddress(origin, made.path)}</code>
                 </span>
                 <span style={{ display: 'block' }}>
                   {t('Token')}: <code data-testid="webhook-token">{made.token}</code>
@@ -103,7 +108,7 @@ export function WebhooksRoom() {
               onRetry={hooks.reload}
               errorState={hooks.failure ? <RefusalNote failure={hooks.failure} retry={hooks.reload} /> : undefined}
               emptyState={
-                <EmptyState size="inline" title={t('No webhooks yet')} reason={t('Make one for the market your alert watches.')} />
+                <EmptyState size="inline" title={t('You have no webhooks')} reason={t('Make one for the market your alert watches.')} />
               }
               minWidth={800}
             />
