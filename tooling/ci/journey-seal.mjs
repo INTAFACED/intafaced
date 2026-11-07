@@ -40,7 +40,8 @@
  * changed shared stack setup merged on its own named steps and turned main's journeys red for about 2.5 hours; the
  * pilot lead then asked builders by message not to arm such pull requests until a full run was clean. Rule 3 of
  * project-state AGENTS.md: a red main means a regression.) A run is full when its report holds a step from every journey
- * file the baseline's named run reported; a targeted run is passed over, never read as a full one.
+ * file the baseline's named run reported; a run short of files is judged on the files it has, fails the seal when any
+ * of them is red, and is passed over only when all are clean, never read as a full run.
  *
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
@@ -265,20 +266,36 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
 
 /**
  * The journey stack's shared setup: a change here can break any journey, not only the ones a pull request names, so it
- * proves with a clean full journeys run on its exact head. The list is project-state BUILDER.md's ("A change to the
- * stack's shared setup (`tooling/scripts/local-stack-services/`, `local-test-world*`, `apps/customer/tests/real-app/lib/`,
- * merchant or pricing setup) proves with the full run"), moved here so CI applies it. Its `lib/` folder is the shared
- * journey helpers, which sit beside the journey files: every file under apps/customer/tests/real-app that is not a
- * test file (`*.pw.mjs`), the Playwright config among them. Edit this list, never a second one.
+ * proves with a clean full journeys run on its exact head. Started from project-state BUILDER.md's list
+ * (`local-stack-services/`, `local-test-world*`, `tests/real-app/lib/`) and widened in review round 1 of #7431 to every
+ * stack input the repo already treats as one: the push trigger's `tooling/scripts/local-test-*.mjs` (the stack, the TEST
+ * market maker, the seed, the compose env; #7191 changed the market maker), the stack's fixtures, the one-world scan and
+ * the infra bootstrap. BUILDER.md's `lib/` is the shared journey helpers, which sit beside the journey files: every file
+ * under apps/customer/tests/real-app that is not a test file (`*.pw.mjs`), the Playwright config among them.
+ *
+ * Each `glob` is written as GitHub's `paths:` filter writes it (`*` within a folder, `**` across folders), and
+ * real-app-journeys.yml's push trigger holds each one verbatim, or `trigger`, the wider pattern that covers it, so a merge
+ * touching only shared setup starts a run on main. journey-seal.test.mjs fails when the two drift. Edit this list and
+ * the trigger together, never a third list.
  */
 export const SHARED_SETUP = [
-  { prefix: 'tooling/scripts/local-stack-services/' },
-  { prefix: 'tooling/scripts/local-test-world' },
-  { prefix: 'tooling/scripts/local-test-merchant-' },
-  { prefix: 'apps/customer/tests/real-app/', unless: /\.pw\.mjs$/ },
+  { glob: 'tooling/scripts/local-stack-services/**' },
+  { glob: 'tooling/scripts/local-stack-fixtures/**' },
+  { glob: 'tooling/scripts/local-test-*.mjs' },
+  { glob: 'tooling/scripts/journey-world.mjs' },
+  { glob: 'tooling/scripts/local-infra-bootstrap.sh' },
+  { glob: 'apps/customer/tests/real-app/**', unless: /\.pw\.mjs$/, trigger: 'apps/**' },
 ];
+/** A GitHub `paths:` glob as a regular expression: `**` any characters, `*` any but `/`. */
+export const globRe = (glob) =>
+  new RegExp(
+    `^${String(glob)
+      .split(/(\*\*|\*)/)
+      .map((part) => (part === '**' ? '.*' : part === '*' ? '[^/]*' : part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')))
+      .join('')}$`,
+  );
 export const isSharedSetup = (file) =>
-  SHARED_SETUP.some(({ prefix, unless }) => String(file).startsWith(prefix) && !(unless && unless.test(String(file))));
+  SHARED_SETUP.some(({ glob, unless }) => globRe(glob).test(String(file)) && !(unless && unless.test(String(file))));
 
 /** The changed files of a pull request (GET /pulls/n/files, whole or thrown). A rename counts by both its names. */
 export const pullFilePaths = (files) => (files ?? []).flatMap((f) => [f?.filename, f?.previous_filename].filter(Boolean));
@@ -295,9 +312,10 @@ const newestFirst = (a, b) => Date.parse(b.run_started_at ?? b.created_at) - Dat
  * The full-run verdict for a head whose pull request touches shared setup (`shared`: those files). `reportOf(run)` is
  * { states, files } of the run's current-attempt report, or { error }; `verdictOf(report, run)` is
  * { red: [{ step, why }], failing, missing: [journey files the full suite has and this report lacks] }, judged with the
- * default branch's baseline (makeIo). The newest finished full run decides: 0 red passes, anything else fails. A run
- * still going holds it (as judgeSteps), a cancelled or skipped run says nothing, a report that can't be read fails
- * closed, and a run whose report lacks journey files is targeted (or lost a shard) and is passed over.
+ * default branch's baseline (makeIo). Newest first: a full run decides (0 red passes, anything else fails); a run whose
+ * report lacks journey files (targeted, or a shard lost) is judged on the files it has (fullVerdict), fails the seal if
+ * any is red, and is passed over only when all it has is clean. A run still going holds it (as judgeSteps), a cancelled
+ * or skipped run says nothing, and a report that can't be read fails closed.
  */
 export async function judgeFullRun({ sha, repo, shared, runs, reportOf, verdictOf, waitOnRunning = true }) {
   const why = `it changes the journey stack's shared setup (${shared.slice(0, 5).join(', ')}${shared.length > 5 ? `, ${shared.length - 5} more` : ''})`;
@@ -338,9 +356,9 @@ export async function judgeFullRun({ sha, repo, shared, runs, reportOf, verdictO
         lines: [`full run: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
-    if (v.missing?.length) {
+    if (v.missing?.length && v.red.length === 0) {
       passed.push(
-        `${where} is not a full run (no step from ${v.missing.length} journey file(s), e.g. ${v.missing.slice(0, 3).join(', ')})`,
+        `${where} is not a full run (no step from ${v.missing.length} journey file(s), e.g. ${v.missing.slice(0, 3).join(', ')}) and is clean on the files it has`,
       );
       continue;
     }
@@ -354,7 +372,7 @@ export async function judgeFullRun({ sha, repo, shared, runs, reportOf, verdictO
       ok: false,
       state: 'fail',
       lines: [
-        `full run: ${why}; ${where} has ${v.red.length} step(s) outside the list or against its rules: ${v.red
+        `full run: ${why}; ${where}${v.missing?.length ? `, short of ${v.missing.length} journey file(s),` : ''} has ${v.red.length} step(s) outside the list or against its rules: ${v.red
           .slice(0, 10)
           .map((x) => `${x.step}: ${x.why}`)
           .join('; ')}${v.red.length > 10 ? `; ${v.red.length - 10} more` : ''}`,
@@ -453,7 +471,10 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   if (!got.named) return { red, failing: 0, missing: [] };
   const have = new Set(Object.values(report.files ?? {}));
   const missing = [...new Set(Object.values(got.named.files))].filter((f) => !have.has(f)).sort();
-  const v = judge({ newest: report, named: got.named, baseline, money, passedSince: got.passedSince, issues: got.issues, target: null });
+  // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
+  // verdict is: a red step there fails the seal; only a run clean on all it has is passed over (judgeFullRun).
+  const target = missing.length ? have : null;
+  const v = judge({ newest: report, named: got.named, baseline, money, passedSince: got.passedSince, issues: got.issues, target });
   return { red: [...red, ...v.red], failing: v.failing, missing };
 }
 

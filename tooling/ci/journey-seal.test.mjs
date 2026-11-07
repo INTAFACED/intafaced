@@ -4,10 +4,12 @@
 // exemption fails closed. tooling-tests.mjs runs this file.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import { readReport } from './journey-verdict.mjs';
 import {
   currentReportArtifact,
   fullVerdict,
+  globRe,
   isSharedSetup,
   judgeFullRun,
   judgeSteps,
@@ -522,17 +524,27 @@ test('shared setup: the list, and what is not on it', () => {
     'tooling/scripts/local-test-merchant-pricing.mjs',
     'apps/customer/tests/real-app/staff.mjs',
     'apps/customer/tests/real-app/real-app.playwright.config.mjs',
+    'tooling/scripts/local-test-market.mjs', // #7191: the TEST market maker's first cycle clears an earlier run's quotes
+    'tooling/scripts/local-test-stack.mjs',
+    'tooling/scripts/local-test-seed.mjs',
+    'tooling/scripts/local-test-compose-env.mjs',
+    'tooling/scripts/local-stack-fixtures/a/b.json',
+    'tooling/scripts/journey-world.mjs',
+    'tooling/scripts/local-infra-bootstrap.sh',
   ])
     assert.equal(isSharedSetup(f), true, f);
   for (const f of [
     'apps/customer/tests/real-app/J-bank-13.pw.mjs',
     'apps/customer/src/features/more/Support.tsx',
     'services/svc-support/src/chat.ts',
-    'tooling/scripts/local-test-stacks.mjs',
     'xtooling/scripts/local-stack-services/a.mjs',
+    'tooling/scripts/local-test-market.mjs.bak',
+    'tooling/scripts/sub/local-test-market.mjs',
+    'tooling/scripts/journey-world.test.mjs',
+    'tooling/scripts/local-founder-seed.mjs',
   ])
     assert.equal(isSharedSetup(f), false, f);
-  assert.equal(SHARED_SETUP.length, 4);
+  assert.equal(SHARED_SETUP.length, 6);
   assert.deepEqual(
     pullFilePaths([{ filename: 'a/new.mjs', previous_filename: 'tooling/scripts/local-test-world.mjs' }]),
     ['a/new.mjs', 'tooling/scripts/local-test-world.mjs'],
@@ -543,14 +555,15 @@ test('shared setup: the list, and what is not on it', () => {
 const fullRep = { states: { 'J-a-01#1': 'passed' }, files: { 'J-a-01#1': 'J-a-01.pw.mjs', 'J-b-01#1': 'J-b-01.pw.mjs' } };
 const clean = { red: [], failing: 3, missing: [] };
 const dirty = { red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }], failing: 4, missing: [] };
-const targeted = { red: [{ step: 'J-b-01#1', why: 'passed in run 1154, missing now' }], failing: 1, missing: ['J-b-01.pw.mjs'] };
+const targeted = { red: [], failing: 0, missing: ['J-b-01.pw.mjs'] };
+const partialRed = { red: [{ step: 'J-a-01#1', why: 'failing, not in the baseline' }], failing: 1, missing: ['J-b-01.pw.mjs'] };
 const full = (over) =>
   judgeFullRun({
     sha: HEAD,
     repo: REPO,
     shared: ['tooling/scripts/local-stack-services/identity.mjs'],
     runs: [run(1)],
-    reportOf: reports({ 1: fullRep, 2: fullRep, 3: fullRep }),
+    reportOf: reports({ 1: fullRep, 2: fullRep, 3: fullRep, 4: fullRep }),
     verdictOf: async () => clean,
     ...over,
   });
@@ -564,8 +577,13 @@ test('judgeFullRun: a clean full run on the exact head passes; a dirty one fails
   assert.match(bad.lines[0], /1 step\(s\) outside the list or against its rules: J-wallet-05#3: failing, not in the baseline/);
 });
 
-test('judgeFullRun: the newest full run decides; targeted runs are passed over, never read as full', async () => {
-  const verdicts = { 1: clean, 2: dirty, 3: targeted };
+test('judgeFullRun: the newest full run decides; a run short of files is passed over only when clean on what it has', async () => {
+  const verdicts = { 1: clean, 2: dirty, 3: targeted, 4: partialRed };
+  assert.equal(
+    (await full({ runs: [run(1), run(4)], verdictOf: async (_rep, r) => verdicts[r.id] })).ok,
+    false,
+    'a newer short run with a red step fails, whatever older run is clean',
+  );
   const by = async (_rep, r) => verdicts[r.id];
   assert.equal((await full({ runs: [run(1), run(2)], verdictOf: by })).ok, false, 'a newer dirty full run outranks an older clean one');
   assert.equal((await full({ runs: [run(2), run(3)], verdictOf: by })).ok, false, 'a newer targeted run does not hide a dirty full one');
@@ -692,7 +710,13 @@ test("fullVerdict: the journeys verdict's own rules with the given baseline, and
   );
   const part = v(rep(spec('J-a-01 #1', 'expected', 'J-a-01.pw.mjs')));
   assert.deepEqual(part.missing, ['J-b-01.pw.mjs'], 'a targeted report lacks a journey file of the full suite');
-  assert.ok(part.red.length > 0, 'and its verdict, judged as a full run, is red anyway');
+  assert.deepEqual(part.red, [], 'judged on the files it has, it is clean there');
+  const partBad = v(rep(spec('J-a-01 #1', 'unexpected', 'J-a-01.pw.mjs'), spec('J-a-01 #2', 'unexpected', 'J-a-01.pw.mjs')));
+  assert.deepEqual(
+    [partBad.missing, partBad.red.map((r) => r.step)],
+    [['J-b-01.pw.mjs'], ['J-a-01#1']],
+    'a red step in the files it has is red',
+  );
   const blind = v(rep(), () => ({
     named: null,
     passedSince: {},
@@ -700,4 +724,44 @@ test("fullVerdict: the journeys verdict's own rules with the given baseline, and
     problems: ["the baseline's named run report couldn't be read"],
   }));
   assert.equal(blind.red.length, 1, 'an unreadable input is red');
+});
+
+test('review round 1 (B1): a newer run on the head that lost a shard and failed a step in a shard that reported is not hidden behind an older clean run', async () => {
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const rep = (...specs) => readReport({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
+  const named = rep(spec('J-a-01 #1', 'expected', 'J-a-01.pw.mjs'), spec('J-b-01 #1', 'expected', 'J-b-01.pw.mjs'));
+  const inputs = {
+    baseline: { run: { number: 100, id: 1 }, steps: [] },
+    money: { 'J-a-01#1': false, 'J-b-01#1': false },
+    reports: new Map(),
+  };
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
+  const byRun = {
+    1: rep(spec('J-a-01 #1', 'expected', 'J-a-01.pw.mjs'), spec('J-b-01 #1', 'expected', 'J-b-01.pw.mjs')), // full, clean
+    2: rep(spec('J-a-01 #1', 'unexpected', 'J-a-01.pw.mjs')), // newer: J-b's shard lost, J-a-01 #1 failed
+  };
+  const v = await judgeFullRun({
+    sha: HEAD,
+    repo: REPO,
+    shared: ['tooling/scripts/local-test-market.mjs'],
+    runs: [run(1), run(2)],
+    reportOf: async (r) => byRun[r.id],
+    verdictOf: async (report, r) => fullVerdict({ repo: REPO, report, run: r, inputs, read }),
+  });
+  assert.equal(v.ok, false);
+  assert.match(
+    v.lines[0],
+    /run 2 \(attempt 1\), short of 1 journey file\(s\), has 1 step\(s\) outside the list.*J-a-01#1: failing, not in the baseline/,
+  );
+});
+
+test("SHARED_SETUP and real-app-journeys.yml's push trigger do not drift", () => {
+  const yml = readFileSync(new URL('../../.github/workflows/real-app-journeys.yml', import.meta.url), 'utf8');
+  const push = /\n  push:\n    branches: \[main\]\n    paths:\n((?:      (?:- '[^']+'|#.*)\n)+)/.exec(yml);
+  assert.ok(push, "the push trigger's paths list is where this test reads it");
+  const paths = [...push[1].matchAll(/^      - '([^']+)'$/gm)].map((m) => m[1]);
+  for (const e of SHARED_SETUP) assert.ok(paths.includes(e.trigger ?? e.glob), `the push trigger lists ${e.trigger ?? e.glob}`);
+  for (const e of SHARED_SETUP.filter((x) => x.trigger))
+    assert.ok(globRe(e.trigger).test(e.glob.replace(/\*+/g, 'x')), `${e.trigger} covers ${e.glob}`);
+  assert.equal(globRe('tooling/scripts/local-test-*.mjs').test('tooling/scripts/local-stack-services/a.mjs'), false, 'why both are listed');
 });
