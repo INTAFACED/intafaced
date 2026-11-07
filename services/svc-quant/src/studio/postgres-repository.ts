@@ -1,6 +1,8 @@
 import type { Sql, TransactionSql } from 'postgres';
 import { quantSignalRulesSchema, type QuantSignalRules } from '@intafaced/contracts';
 import { QUANT_STUDIO_NOT_FOUND, QuantError } from '../errors.js';
+import { accountCounts, utf8Bytes, versionCount } from '../quota/counts.js';
+import type { QuotaGate } from '../quota/quota.js';
 import { decodeListCursor, idempotencyConflict } from './keys.js';
 import type {
   OperatorListPage,
@@ -189,7 +191,7 @@ const JOINED = `
  * Postgres adapter. Schema defaults to quant. Tests pass a private schema name.
  * Version rows are insert-only; the table trigger rejects UPDATE and DELETE.
  */
-export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): StrategyRepository {
+export function createPostgresStrategyRepository(sql: Sql, schema = 'quant', quota?: QuotaGate): StrategyRepository {
   const strategies = relation(schema, 'strategies');
   const versions = relation(schema, 'strategy_versions');
   const receipts = relation(schema, 'write_receipts');
@@ -330,6 +332,15 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
           const stored = await writeReceipt(tx, input.accountId, input.idempotencyKey, 'create', detail);
           return stored.response as StrategyDetail;
         }
+        if (quota) {
+          await quota.lock(tx, input.accountId, ['strategies', 'versions', 'storage']);
+          const counts = await accountCounts(tx, schema, input.accountId);
+          await quota.check(tx, input.accountId, [
+            { resource: 'strategies', used: counts.strategies, adding: 1n },
+            { resource: 'versions', used: 0n, adding: 1n },
+            { resource: 'storage', used: counts.storage, adding: utf8Bytes(input.draft.source) },
+          ]);
+        }
         const now = new Date().toISOString();
         const id = `studio_${crypto.randomUUID()}`;
         await query(tx, 'SAVEPOINT quant_client_insert', []);
@@ -377,6 +388,14 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
         );
         const row = locked[0];
         if (!row || row.deleted_at) throw new QuantError(QUANT_STUDIO_NOT_FOUND, 'strategy not found');
+        if (quota) {
+          await quota.lock(tx, input.accountId, ['versions', 'storage']);
+          const counts = await accountCounts(tx, schema, input.accountId);
+          await quota.check(tx, input.accountId, [
+            { resource: 'versions', used: await versionCount(tx, schema, input.id), adding: 1n },
+            { resource: 'storage', used: counts.storage, adding: utf8Bytes(input.draft.source) },
+          ]);
+        }
         const maxRows = await query<{ version: number }>(
           tx,
           `SELECT COALESCE(MAX(version), 0) AS version FROM ${versions} WHERE strategy_id = $1`,
@@ -457,6 +476,13 @@ export function createPostgresStrategyRepository(sql: Sql, schema = 'quant'): St
         if (raced) {
           if (raced.operation !== 'restore') idempotencyConflict(raced.operation);
           return raced.response;
+        }
+        // Back from the recycle bin is one more saved strategy; one that is not deleted adds nothing.
+        const binned = await query<{ id: string }>(tx, `SELECT id FROM ${strategies} WHERE id = $1 AND deleted_at IS NOT NULL`, [input.id]);
+        if (quota && binned[0]) {
+          await quota.lock(tx, input.accountId, ['strategies']);
+          const counts = await accountCounts(tx, schema, input.accountId);
+          await quota.check(tx, input.accountId, [{ resource: 'strategies', used: counts.strategies, adding: 1n }]);
         }
         await query(
           tx,
