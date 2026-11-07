@@ -15,12 +15,20 @@
  *        Baseline-change: <room> — <why>
  *      naming its room. A named baseline change still needs the independent review (tooling/ci/review-marker.mjs
  *      asks for it), so the builder cannot approve its own picture.
+ *   7. a journey step's test (a `test(` in a `*.pw.mjs` file titled `J-x-NN #n`) written or loosened by the PR that
+ *      builds it (owner decision 2026-11-06: someone other than the builder writes each step's test from the step's
+ *      words, and the builder makes it pass). A step's test is added only by a tests-only PR (test files, files
+ *      under a `tests/` folder and the journey baseline), and carries a comment line directly above it or inside it
+ *        // Test-writer: <who wrote it, from the step's words>
+ *      A PR that changes anything else may change a step's test only when that test already has the line on main,
+ *      and then may not remove the line or loosen the test (1, 3 and 4 above, judged on that test alone).
+ *      PRs numbered below FIRST_STEP_PR were opened before this rule and get 7 as a notice.
  *
  * Tests are `.test.`/`.spec.` files, `__tests__/` folders, and the browser journeys and harnesses (`*.pw.mjs`).
  *
  * A PR that does one of 1-5 on purpose says so in its description with a line
  *   Test-change: <the reason a reviewer can check>
- * which turns the failure into a printed notice. The reviewer sees both. A Test-change line never covers 6.
+ * which turns the failure into a printed notice. The reviewer sees both. A Test-change line never covers 6 or 7.
  *
  * Every run prints each changed test file's assertion count change, so a locator-only rewrite can show it kept them.
  *
@@ -32,7 +40,7 @@
  *   node tooling/ci/test-diff-guard.mjs --self-test
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
@@ -140,6 +148,144 @@ export function judgeBaselines(changes, body) {
   return { problems, notices };
 }
 
+// 7. Step tests come from a test-writer. STEP_TITLE is the scoreboard's (tooling/ci/journey-verdict.mjs).
+/** PRs numbered below this were opened before rule 7 and get it as a notice. */
+export const FIRST_STEP_PR = 7297;
+const STEP_TITLE = /^(J-[a-z0-9-]+-\d+)\s+#(\d+)\b/;
+const TEST_CALL = /^(\s*)test(?:\.(?:only|skip|fixme|fail))?\(\s*(?:`((?:[^`\\]|\\.)*)`|(['"])((?:(?!\3)[^\\]|\\.)*)\3)/;
+const JOURNEY_CONST = /^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*=\s*(['"`])(J-[a-z0-9-]+-\d+)\2\s*;?\s*$/;
+/** Files that can hold a journey test: the `*.pw.mjs` files and code under a `tests/` folder. */
+const STEP_SOURCE = /(?:\.pw\.mjs$|(?:^|\/)tests\/.+\.[cm]?[jt]sx?$)/;
+/**
+ * A test the guard can't read, so its step would escape rule 7: a `test(` whose title isn't a literal, a title built
+ * with `#${n}` after a journey, `test` under another name, or a step test in a file that isn't a `*.pw.mjs`.
+ */
+const STEP_NAME = /(?:J-[a-z0-9-]+-\d+|\$\{\s*[A-Za-z_$][\w$]*\s*\})\s+#/;
+export function unreadable(path, line) {
+  if (/^\s*(?:\/\/|\/?\*)/.test(line)) return false;
+  if (/(?:J-[a-z0-9-]+-\d+|\$\{\s*[A-Za-z_$][\w$]*\s*\})\s+#\$\{/.test(line)) return true;
+  if (/(?<![.\w$])test\s+as\s+[A-Za-z_$]|=\s*test\s*(?:[;,)]|$)/.test(line)) return true;
+  if (/(?<![.\w$])test(?:\.(?:only|fixme|fail))?\(\s*(?![`'"\s)])/.test(line)) return true;
+  return !BROWSER_TEST.test(path) && /(?<![.\w$])test(?:\.\w+)?\(/.test(line) && STEP_NAME.test(line);
+}
+const WRITER_MARK = /^\s*\/\/\s*Test-writer:\s*\S/;
+/** What a tests-only PR may touch: tests, test folders and the journey baseline. */
+const TESTS_ONLY = (p) => TEST_FILE.test(p) || /(?:^|\/)tests\//.test(p) || p === 'docs/runbooks/journey-baseline.json';
+
+/**
+ * Each journey step's test in a `*.pw.mjs` file, by step (`J-x-NN #n`): its lines (the comment lines directly above
+ * the `test(` line through its closing `});`), and whether it carries the Test-writer line. A title is read with the
+ * file's `const J = 'J-x-NN'` filled in; a title that only says "part of #n" is no step's test.
+ * @returns {Map<string, {lines: string[], marked: boolean}>}
+ */
+export function stepTests(text) {
+  const lines = String(text ?? '').split('\n');
+  const names = new Map();
+  for (const l of lines) {
+    const m = JOURNEY_CONST.exec(l);
+    if (m) names.set(m[1], m[3]);
+  }
+  const out = new Map();
+  for (let i = 0; i < lines.length; i++) {
+    const m = TEST_CALL.exec(lines[i]);
+    if (!m) continue;
+    const title = m[2] !== undefined ? m[2].replace(/\$\{\s*([A-Za-z_$][\w$]*)\s*\}/g, (all, n) => names.get(n) ?? all) : m[4];
+    const s = STEP_TITLE.exec(title);
+    if (!s) continue;
+    let start = i;
+    while (start > 0 && /^\s*\/\//.test(lines[start - 1])) start--;
+    let end = lines.length - 1;
+    if (/\)\s*;\s*$/.test(lines[i]) && !/[{(]\s*$/.test(lines[i])) end = i;
+    else {
+      const close = new RegExp(`^${m[1]}\\}(?:\\)|,\\s*[^=]*\\))\\s*;?\\s*$`);
+      for (let j = i + 1; j < lines.length; j++)
+        if (close.test(lines[j])) {
+          end = j;
+          break;
+        }
+    }
+    const key = `${s[1]} #${Number(s[2])}`;
+    const block = lines.slice(start, end + 1);
+    const had = out.get(key) ?? { lines: [], marked: false };
+    out.set(key, { lines: [...had.lines, ...block], marked: had.marked || block.some((l) => WRITER_MARK.test(l)) });
+    i = end;
+  }
+  return out;
+}
+
+/** Lines of `a` not in `b`, counted as a multiset. */
+function minus(a, b) {
+  const left = new Map();
+  for (const l of b) left.set(l, (left.get(l) ?? 0) + 1);
+  return a.filter((l) => {
+    const n = left.get(l) ?? 0;
+    if (n > 0) left.set(l, n - 1);
+    return n === 0;
+  });
+}
+
+/**
+ * Rule 7. `files` are the PR's changed `*.pw.mjs` files with their text on the base and the head ('' when absent);
+ * `testsOnly` is whether every changed path is a test path.
+ * @param {{path:string, before:string, after:string}[]} files
+ */
+export function judgeSteps(files, testsOnly) {
+  const problems = [];
+  const before = new Map();
+  const after = new Map();
+  const where = new Map();
+  for (const f of files) {
+    if (!BROWSER_TEST.test(f.path)) continue;
+    for (const [k, v] of stepTests(f.before))
+      before.set(k, { lines: [...(before.get(k)?.lines ?? []), ...v.lines], marked: before.get(k)?.marked || v.marked });
+    for (const [k, v] of stepTests(f.after)) {
+      after.set(k, { lines: [...(after.get(k)?.lines ?? []), ...v.lines], marked: after.get(k)?.marked || v.marked });
+      where.set(k, f.path);
+    }
+    for (const k of stepTests(f.before).keys()) if (!where.has(k)) where.set(k, f.path);
+  }
+  // A test the guard can't read would let a step's test past every check below, so adding one fails, in any PR.
+  for (const f of files) {
+    if (!STEP_SOURCE.test(f.path)) continue;
+    const inTests = [...stepTests(f.after).values()].flatMap((v) => v.lines);
+    const added = minus(minus(String(f.after ?? '').split('\n'), String(f.before ?? '').split('\n')), inTests);
+    for (const l of added)
+      if (unreadable(f.path, l))
+        problems.push({
+          path: f.path,
+          why: `a test the guard can't read: ${l.trim().slice(0, 80)}. Write each step's test as test(\`\${J} #<n> …\`) or test('J-x-NN #<n> …') in a *.pw.mjs file.`,
+        });
+  }
+  const builds = 'a PR that also changes code outside tests';
+  for (const key of new Set([...before.keys(), ...after.keys()])) {
+    const b = before.get(key);
+    const a = after.get(key);
+    const path = where.get(key);
+    if (b && a && b.lines.join('\n') === a.lines.join('\n')) continue;
+    if (!b) {
+      if (!testsOnly)
+        problems.push({ path, why: `${key}: its test is added in ${builds}. A test-writer adds it first, in a tests-only PR.` });
+      else if (!a.marked) problems.push({ path, why: `${key}: a new step test needs a "// Test-writer: <who>" line above it.` });
+      continue;
+    }
+    if (b.marked && !a?.marked) {
+      problems.push({ path, why: `${key}: the test-writer's test ${a ? 'lost its "// Test-writer:" line' : 'was removed'}.` });
+      continue;
+    }
+    if (testsOnly) continue;
+    if (!b.marked) {
+      problems.push({
+        path,
+        why: `${key}: its test, which no test-writer wrote, is changed in ${builds}. Change it in a tests-only PR by a test-writer.`,
+      });
+      continue;
+    }
+    for (const p of judge([{ path, status: 'M', removed: minus(b.lines, a.lines), added: minus(a.lines, b.lines), sourceExists: true }]))
+      problems.push({ path, why: `${key}: the test-writer's test is loosened: ${p.why}` });
+  }
+  return problems;
+}
+
 /** Each changed test file's assertion count change, for the log. */
 export function assertionDeltas(changes) {
   return changes
@@ -160,11 +306,11 @@ function sourceFor(path) {
 }
 
 function collect(base) {
-  const names = git(['diff', '--name-status', '--no-renames', `${base}...HEAD`])
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => l.split('\t'))
-    .filter(([, p]) => TEST_FILE.test(p) || PW_CONFIG.test(p) || BASELINE.test(p));
+  // -z, so a path with an unusual character is read as itself, never C-quoted: pairs of status and path.
+  const parts = git(['diff', '-z', '--name-status', '--no-renames', `${base}...HEAD`]).split('\0');
+  const pairs = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) if (parts[i]) pairs.push([parts[i], parts[i + 1]]);
+  const names = pairs.filter(([, p]) => TEST_FILE.test(p) || PW_CONFIG.test(p) || BASELINE.test(p));
   return names.map(([status, path]) => {
     let removed = [];
     let added = [];
@@ -177,6 +323,38 @@ function collect(base) {
     }
     return { path, status: status[0], removed, added, sourceExists: status === 'D' ? sourceFor(path) : true };
   });
+}
+
+/** The changed journey files' text on the merge base and the head, and whether the PR changes only test paths. */
+function collectSteps(base) {
+  const since = git(['merge-base', base, 'HEAD']).trim();
+  // -z: a path with an unusual character comes back as itself, never C-quoted (which would hide it from the rules).
+  const changed = git(['diff', '-z', '--name-only', '--no-renames', `${base}...HEAD`])
+    .split('\0')
+    .filter(Boolean);
+  const read = (ref, path) => {
+    try {
+      return execFileSync('git', ['show', `${ref}:${path}`], {
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch {
+      return '';
+    }
+  };
+  const files = changed.filter((p) => STEP_SOURCE.test(p)).map((path) => ({ path, before: read(since, path), after: read('HEAD', path) }));
+  return { files, testsOnly: changed.every(TESTS_ONLY) };
+}
+
+/** The PR's number from the Actions event (or PR_NUMBER), or null. */
+function prNumber() {
+  if (process.env.PR_NUMBER) return Number(process.env.PR_NUMBER);
+  try {
+    return JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH ?? '', 'utf8')).pull_request?.number ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function selfTest() {
@@ -308,7 +486,84 @@ function selfTest() {
     2,
     'assertion delta counted',
   );
-  console.log('✓ test-diff-guard --self-test OK (45 fixtures)');
+  // Rule 7: step tests come from a test-writer.
+  const J = 'apps/customer/tests/real-app/J-x-01.pw.mjs';
+  const file = (...tests) => ["import { test, expect } from './journey.mjs';", "const J = 'J-x-01';", '', ...tests].join('\n');
+  const one = (n, body = ["  await expect(page.getByRole('button', { name: 'Buy' })).toBeVisible();"], mark = false) =>
+    [
+      ...(mark ? ["// Test-writer: written from the step's words by a thread that did not build it"] : []),
+      `test(\`\${J} #${n} buys\`, async ({`,
+      '  page,',
+      '}) => {',
+      "  await page.goto('/buy');",
+      ...body,
+      '});',
+      '',
+    ].join('\n');
+  const s7 = (before, after, testsOnly = false) => judgeSteps([{ path: J, before, after }], testsOnly).length;
+  const legacy = file(one(1), one(2));
+  const marked = file(one(1, undefined, true), one(2));
+  eq(stepTests(legacy).get('J-x-01 #1').lines.length, 6, 'a wrapped test reads to its closing line');
+  eq(stepTests(file(one(1), one(1))).get('J-x-01 #1').lines.length, 12, 'two tests for one step are read together');
+  eq(stepTests(marked).get('J-x-01 #1').marked && !stepTests(marked).get('J-x-01 #2').marked, true, 'the mark belongs to its own test');
+  eq(stepTests(file('test(`${J} part of #2 buys`, async () => {', '});')).size, 0, '"part of #n" is no step');
+  eq(stepTests("test('J-y-02 #3 sells', async () => {\n});").has('J-y-02 #3'), true, 'a literal title');
+  eq(stepTests(file(['// Buys one coin.', one(1)].join('\n'))).get('J-x-01 #1').marked, false, 'a plain comment is not the line');
+  eq(stepTests(file(['// Test-writer:', one(1)].join('\n'))).get('J-x-01 #1').marked, false, 'the line names who wrote it');
+  eq(s7(legacy, legacy), 0, 'step tests untouched');
+  eq(s7(legacy, file(one(1), one(2), one(3))), 1, 'planted: a build PR adds a step test');
+  eq(s7(legacy, file(one(1), one(2), one(3)), true), 1, 'a tests-only PR adds a step test without the line');
+  eq(s7(legacy, file(one(1), one(2), one(3, undefined, true)), true), 0, 'a test-writer adds a step test');
+  eq(s7('', file(one(1, undefined, true))), 1, 'planted: a build PR adds a marked test in a new file');
+  eq(s7(legacy, file(one(1, ['  await expect(page).toHaveURL(/buy/);']), one(2))), 1, 'planted: a build PR changes a builder-written test');
+  eq(
+    s7(legacy, file(one(1, ['  await expect(page).toHaveURL(/buy/);']), one(2)), true),
+    0,
+    'a tests-only PR changes a builder-written test',
+  );
+  eq(s7(legacy, file(one(1, undefined, true), one(2))), 1, 'planted: a build PR adds the line to a builder-written test');
+  const relocated = ["  await expect(page.locator('[data-buy]')).toBeVisible();"];
+  eq(s7(marked, file(one(1, relocated, true), one(2))), 0, "a build PR rewrites a test-writer's locator");
+  eq(s7(marked, file(one(1, [], true), one(2))), 1, "planted: a build PR drops a test-writer's assertion");
+  eq(
+    s7(marked, file(one(1, ["  await expect(page.getByRole('button')).toBeAttached();"], true), one(2))),
+    1,
+    "planted: a build PR weakens a test-writer's matcher",
+  );
+  eq(s7(marked, file(one(1), one(2))), 1, 'planted: a build PR removes the Test-writer line');
+  eq(
+    s7(marked, file(['// Test-writer: x y z w', one(1).replace('test(', 'test.fixme(')].join('\n'), one(2))),
+    1,
+    "planted: a build PR marks a test-writer's test fixme",
+  );
+  eq(s7(marked, file(one(2))), 1, "planted: a build PR deletes a test-writer's test");
+  eq(s7(marked, file(one(2)), true), 1, "a tests-only PR deletes a test-writer's test");
+  eq(s7(legacy, legacy.replace("const J = 'J-x-01';", "const J = 'J-x-01';\nconst helper = 1;")), 0, 'a helper change outside step tests');
+  eq(s7(legacy, file(one(1), one(2), 'const t = `${J} #9 buys`;', 'test(t, async () => {});')), 1, 'planted: a step title in a variable');
+  eq(
+    s7(legacy, file(one(1), one(2), 'for (const n of [9]) test(`${J} #${n} buys`, async () => {});'), true),
+    1,
+    'planted: a step title in a loop',
+  );
+  eq(
+    judgeSteps(
+      [{ path: 'apps/customer/tests/real-app/lib/steps.mjs', before: '', after: "export const s = () => test('J-x-01 #9 buys', f);" }],
+      false,
+    ).length,
+    1,
+    'planted: a step test in a helper file',
+  );
+  eq(
+    s7(legacy, file(one(1), one(2), 'const go = () => { throw new Error(`${J} #1 made no account`); };')),
+    0,
+    'a step named in an error message',
+  );
+  eq(s7(legacy, file(one(1), one(2), "import { test as it } from './journey.mjs';")), 1, 'planted: test under another name');
+  eq(s7(legacy, file(one(1), one(2), 'const ok = /x/.test(name);', 'test.use({ viewport: null });')), 0, 'a regex test() and test.use');
+  eq(s7(legacy, file(one(1), one(2), '// J-x-01 #9 waits for the stack (a comment)')), 0, 'a comment naming a step');
+  eq(TESTS_ONLY('apps/customer/tests/real-app/lib/world.mjs') && TESTS_ONLY('docs/runbooks/journey-baseline.json'), true, 'test paths');
+  eq(TESTS_ONLY('services/svc-trade/src/order.ts') || TESTS_ONLY('apps/customer/src/screens/buy.tsx'), false, 'code paths');
+  console.log('✓ test-diff-guard --self-test OK (77 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {
@@ -327,6 +582,12 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const problems = judge(changes);
   const baselines = judgeBaselines(changes, body);
   for (const n of baselines.notices) console.log(`⚠ ${n.path}\n    → ${n.why}`);
+  const steps = collectSteps(base);
+  const stepFindings = judgeSteps(steps.files, steps.testsOnly);
+  const pr = prNumber();
+  const before = pr !== null && pr < FIRST_STEP_PR;
+  if (before) for (const n of stepFindings) console.log(`⚠ ${n.path}\n    → ${n.why} (a notice: #${pr} was opened before this rule)`);
+  const stepProblems = before ? [] : stepFindings;
   const esc = (t) => String(t).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
   // One annotation per finding (GitHub keeps 10 per step), so `tooling/ci/why-red.mjs` names them without the job log.
   const annotate = (list) => {
@@ -336,8 +597,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   };
   const declared = DECLARED.test(body);
   // GitHub keeps 10 annotations per step: the test findings the Test-change line does not cover come first.
-  annotate([...(declared ? [] : problems), ...baselines.problems]);
+  annotate([...stepProblems, ...baselines.problems, ...(declared ? [] : problems)]);
   let failed = false;
+  if (stepProblems.length > 0) {
+    console.error(`\n✖ test-diff-guard FAILED — ${stepProblems.length} step test(s) not from a test-writer\n`);
+    for (const p of stepProblems) console.error(`  ${p.path}\n    → ${p.why}\n`);
+    console.error(
+      "  A journey step's test is written from the step's words by someone other than its builder, in a tests-only PR, under a\n" +
+        '  "// Test-writer: <who>" line; the builder makes it pass and may not loosen it. A Test-change line does not cover this.',
+    );
+    failed = true;
+  }
   if (baselines.problems.length > 0) {
     console.error(`\n✖ test-diff-guard FAILED — ${baselines.problems.length} unnamed baseline change(s)\n`);
     for (const p of baselines.problems) console.error(`  ${p.path}\n    → ${p.why}\n`);
@@ -347,7 +617,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     failed = true;
   }
   if (problems.length === 0) {
-    if (!failed) console.log('✓ test-diff-guard clean — no test was deleted, skipped or weakened');
+    if (!failed)
+      console.log(
+        `✓ test-diff-guard clean — no test was deleted, skipped or weakened${stepFindings.length ? '' : ', and no step test came from its builder'}`,
+      );
     process.exit(failed ? 1 : 0);
   }
   const head = declared
