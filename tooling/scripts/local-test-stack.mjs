@@ -813,13 +813,21 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
  * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
  * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
  */
-function worktreeEdits(paths, exclude = []) {
-  const spec = [...paths, ...exclude.map((p) => `:(exclude)${p}`)];
-  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: REPO });
+/**
+ * The state files a running service writes in its own folder of the checkout (`services/<name>/.data/`, the default of
+ * paths such as TRADE_MM_SEED_STATE_PATH, relative to the service's working folder). They are no source and git does not
+ * ignore them, so counting them made every restart after a journey that wrote one rebuild the whole stack (#7463). Only
+ * this folder, one level under `services/`: any other untracked or edited file still counts.
+ */
+export const RUNTIME_STATE = ['services/*/.data/**'];
+
+export function worktreeEdits(paths, exclude = [], repo = REPO) {
+  const spec = [...paths, ...[...exclude, ...RUNTIME_STATE].map((p) => `:(exclude,glob)${p}`)];
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: repo });
   // A read that fails or is cut short is never "same as before".
   if (status.status !== 0 || status.error) return `unreadable:${Date.now()}`;
   if (status.stdout.length === 0) return '';
-  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: repo, maxBuffer: 256 * 1024 * 1024 });
   if (diff.status !== 0 || diff.error) return `unreadable:${Date.now()}`;
   const hash = crypto
     .createHash('sha256')
@@ -829,7 +837,7 @@ function worktreeEdits(paths, exclude = []) {
     // Untracked files are in no diff: hash their bytes too.
     if (entry.startsWith('?? ')) {
       try {
-        hash.update(fs.readFileSync(path.join(REPO, entry.slice(3))));
+        hash.update(fs.readFileSync(path.join(repo, entry.slice(3))));
       } catch {
         hash.update(`unreadable:${entry}`);
       }
@@ -854,6 +862,17 @@ const newBuildId = () => `${new Date().toISOString()}-${crypto.randomBytes(4).to
  * Whether a running process was started on the build that is on disk now. `wanted` is the stamp's id for that part; a
  * process recorded before builds had ids started on an unknown build.
  */
+/**
+ * What a start or restart builds, from the stamp the last build wrote: 'none' while the stamp still holds, 'missing'
+ * when it holds but a package's build output is gone, 'full' otherwise (everything rebuilt, every service restarted).
+ */
+export function backendDecision({ rebuild = false, stamp, repo, head, edits, customerOk = true, missing = [] }, unchanged) {
+  const fresh =
+    !rebuild &&
+    buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo, head, edits }, unchanged);
+  return fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+}
+
 export function onCurrentBuild(rec, wanted) {
   return !wanted || rec?.build === wanted;
 }
@@ -994,10 +1013,8 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
     ? !act.error
     : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
   const edits = worktreeEdits(SOURCE_PATHS);
-  const fresh =
-    !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
-  const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+  const backend = backendDecision({ rebuild, stamp, repo: REPO, head, edits, customerOk, missing });
   return { head, edits, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 

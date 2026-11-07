@@ -596,3 +596,48 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   const perp = T('BTC/USDT:USDT TEST PRICE mid 65100 USDT: 6/6 quotes resting');
   assert.deepEqual(unquotedMarkets([...older, ...start, spot, none, perp].join('\n')).waiting, []);
 }
+
+// `stop` waits for the market to exit and never reports success while it runs (#7485). On main run 42408792979, shard
+// 30, the market took longer than the old 20 s to stop; `stop` said "still cancelling orders" and exited 0, and the
+// next setup command refused, so the shard's 8 journeys sent no report. A virtual clock keeps this fast.
+{
+  const { waitForExit, STOP_CAP_MS } = await import('./local-test-market.mjs');
+  const clock = () => {
+    let t = 0;
+    return { now: () => t, pause: async (ms) => void (t += ms) };
+  };
+  // A market that needs 40 s, as shard 30's did, longer than the old 20 s wait: `stop` succeeds once it has exited.
+  {
+    const c = clock();
+    const exitsAt = 40_000;
+    assert.equal(await waitForExit(() => c.now() < exitsAt, { now: c.now, pause: c.pause }), true, 'a 40 s stop is waited out');
+    assert.ok(c.now() >= exitsAt && c.now() < exitsAt + 1_000, 'and returns within a poll of the exit');
+  }
+  // A market that never exits: the wait ends at the cap and says so, never success.
+  {
+    const c = clock();
+    assert.equal(await waitForExit(() => true, { now: c.now, pause: c.pause }), false, 'a market that never exits is not stopped');
+    assert.ok(c.now() >= STOP_CAP_MS && c.now() < STOP_CAP_MS + 1_000, 'the wait ends at the cap');
+  }
+  // One already gone needs no wait.
+  {
+    const c = clock();
+    assert.equal(await waitForExit(() => false, { now: c.now, pause: c.pause }), true);
+    assert.equal(c.now(), 0);
+  }
+  // The cap stays above shard 30's 40 s with margin, and under the 120 s a journey's tool() allows a stack tool.
+  assert.ok(STOP_CAP_MS >= 80_000 && STOP_CAP_MS < 120_000, `the stop cap is ${STOP_CAP_MS} ms`);
+  console.log('local-test-market: stop waits for the market to exit, up to its cap, and fails by name after it');
+}
+
+// The `stop` command itself: when the wait fails, it exits non-zero and names the pid; it never prints success.
+{
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'local-test-market.mjs'), 'utf8');
+  const stop = src.slice(src.indexOf("if (cmd === 'stop') {"), src.indexOf("if (cmd === 'status') {"));
+  assert.match(
+    stop,
+    /if \(!\(await waitForExit\(\(\) => Boolean\(runningPid\(p\)\)\)\)\)\s+die\(`pid \$\{pid\} is still cancelling orders/,
+  );
+  assert.doesNotMatch(stop, /return console\.log\(`pid \$\{pid\} is still cancelling/, 'no exit-0 line while it runs');
+  console.log('local-test-market: a stop that times out exits non-zero by name');
+}
