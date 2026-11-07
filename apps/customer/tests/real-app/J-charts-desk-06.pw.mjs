@@ -211,7 +211,9 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   await expect(rows(page)).toHaveCount(count - 1);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(pointText(rowNamed(page, /^Brush \d+$/))).toHaveText(stroke);
-  // Editable like any drawing: dragging the stroke's first point moves that point only, as the pattern's did.
+  // Editable like any drawing: dragging the stroke's first point moves that point only, as the pattern's did. The brush
+  // stays the active tool after a stroke (a press with it draws another), so the person takes Select first.
+  await pick(page, 'Select');
   await select(brush, /^Brush \d+$/);
   const strokeBefore = pricesOf(stroke);
   await drag(start, { x: start.x, y: start.y - 30 });
