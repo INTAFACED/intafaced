@@ -231,6 +231,8 @@ if (!available) {
         'waiting',
       );
       expect(await codeOf(createLimitRequest(db.sql, POLICY, userId, ask(id)))).toBe('identity.limit_request_open');
+      const sandbox = await key(userId, 'sandbox');
+      expect(await codeOf(createLimitRequest(db.sql, POLICY, userId, ask(sandbox.id)))).toBe('identity.limit_key_sandbox');
       const revoked = await key(userId);
       await db.sql`UPDATE api_keys SET revoked = true, revoked_at = now(), revoked_cause = 'owner' WHERE id = ${revoked.id}`;
       expect(await codeOf(createLimitRequest(db.sql, POLICY, userId, ask(revoked.id)))).toBe('identity.key_not_live');
@@ -282,6 +284,13 @@ if (!available) {
       const desk = await limitDesk(db.sql, POLICY);
       expect(desk.requests.find((r) => r.id === request.id)).toMatchObject({ status: 'granted_in_part', grantedPerMinute: 2400 });
       expect(desk.audit.filter((entry) => entry.requestId === request.id)).toHaveLength(1);
+      // The audit entry is the record of the decision: it outlives the key (and its request) it names.
+      const keyName = desk.audit.find((entry) => entry.requestId === request.id)!.keyName;
+      await db.sql`DELETE FROM api_keys WHERE id = ${k.id}`;
+      const after = await limitDesk(db.sql, POLICY);
+      expect(after.audit.filter((entry) => entry.requestId === request.id)).toEqual([
+        expect.objectContaining({ keyName, decision: 'granted_in_part', grantedPerMinute: 2400 }),
+      ]);
     });
 
     it('a grant of all of it is granted; a refusal grants nothing and writes one entry', async () => {

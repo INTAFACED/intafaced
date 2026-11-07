@@ -25,6 +25,7 @@ const STATUS: Record<RateLimitCode, TRPCError['code']> = {
   'identity.key_not_found': 'NOT_FOUND',
   'identity.key_not_live': 'PRECONDITION_FAILED',
   'identity.limit_not_higher': 'BAD_REQUEST',
+  'identity.limit_key_sandbox': 'BAD_REQUEST',
   'identity.limit_spike_invalid': 'BAD_REQUEST',
   'identity.limit_request_open': 'CONFLICT',
   'identity.limit_request_not_found': 'NOT_FOUND',

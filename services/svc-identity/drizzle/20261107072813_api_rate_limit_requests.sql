@@ -4,7 +4,8 @@
 -- api_keys.rate_refill_per_minute_granted is a key's own refill once a reviewer granted it (null: the key is on its
 -- tier). The tiers themselves and the grant ceiling are owner values (IDENTITY_API_RATE_LIMITS), never stored here.
 -- api_limit_requests keeps one row per request; one waiting request per key at a time (the partial unique index).
--- api_limit_audit keeps exactly one row per decision, written in the decision's own transaction.
+-- api_limit_audit keeps exactly one row per decision, written in the decision's own transaction. It holds the key's
+-- name as it was and no foreign key, so it outlives the request, the key and the account it names.
 --
 -- Reversal: 20261107072813_api_rate_limit_requests.down.sql
 
@@ -51,8 +52,9 @@ CREATE INDEX IF NOT EXISTS "api_limit_requests_user_idx" ON "identity"."api_limi
 
 CREATE TABLE IF NOT EXISTS "identity"."api_limit_audit" (
   "id"                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "request_id"           uuid NOT NULL UNIQUE REFERENCES "identity"."api_limit_requests"("id") ON DELETE CASCADE,
+  "request_id"           uuid NOT NULL UNIQUE,
   "key_id"               uuid NOT NULL,
+  "key_name"             text NOT NULL,
   "actor_id"             uuid NOT NULL,
   "decision"             text NOT NULL,
   "asked_per_minute"     integer NOT NULL,

@@ -57,6 +57,7 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   'refused.identity.key_not_found': 'That key is not one of yours. Nothing was sent.',
   'refused.identity.key_not_live': 'That key is revoked or past its end date. Nothing was sent.',
   'refused.identity.limit_not_higher': 'Ask for more calls a minute than the key has now. Nothing was sent.',
+  'refused.identity.limit_key_sandbox': 'A sandbox key stays on the sandbox tier. Choose a live key. Nothing was sent.',
   'refused.identity.limit_spike_invalid':
     'Give both spike days, the first on or before the last, and the last not in the past. Nothing was sent.',
   'refused.identity.limit_request_open': 'This key already has a request waiting for review. Nothing was sent.',

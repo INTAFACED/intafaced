@@ -34,6 +34,7 @@ export const LIMIT_FORM_REFUSALS = [
   'identity.key_not_found',
   'identity.key_not_live',
   'identity.limit_not_higher',
+  'identity.limit_key_sandbox',
   'identity.limit_spike_invalid',
   'identity.limit_request_open',
 ] as const;

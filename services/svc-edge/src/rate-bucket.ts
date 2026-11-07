@@ -62,11 +62,19 @@ interface Bucket {
 }
 
 export type Take =
-  | { readonly ok: true; readonly remaining: number; readonly cost: number; readonly burst: number }
+  | {
+      readonly ok: true;
+      readonly remaining: number;
+      readonly cost: number;
+      readonly burst: number;
+      /** Whole seconds until the bucket is full again, for `x-ratelimit-reset`. */
+      readonly fullInSeconds: number;
+    }
   | {
       readonly ok: false;
       readonly reason: RateLimitReason;
-      readonly retryAfterSeconds: number;
+      /** Null when no wait can help: the route costs more than the key's whole burst. */
+      readonly retryAfterSeconds: number | null;
       readonly cost: number;
       readonly burst: number;
     };
@@ -105,7 +113,7 @@ export class KeyBuckets {
       return {
         ok: false,
         reason: 'endpoint',
-        retryAfterSeconds: Math.ceil((cost - limit.burst) / perMs / 1000) || 1,
+        retryAfterSeconds: null,
         cost,
         burst: limit.burst,
       };
@@ -117,7 +125,13 @@ export class KeyBuckets {
     }
     bucket.tokens -= cost;
     bucket.used += cost;
-    return { ok: true, remaining: Math.floor(bucket.tokens + 1e-9), cost, burst: limit.burst };
+    return {
+      ok: true,
+      remaining: Math.floor(bucket.tokens + 1e-9),
+      cost,
+      burst: limit.burst,
+      fullInSeconds: Math.ceil((limit.burst - bucket.tokens) / perMs / 1000),
+    };
   }
 
   /** What this replica counted for key `kid`, for its owner only; anyone else, or a key it never counted, reads `none`. */
@@ -139,10 +153,14 @@ export class KeyBuckets {
     };
   }
 
-  /** Drops buckets that have refilled to full and have no counts worth keeping past an hour of quiet. */
+  /**
+   * Drops buckets quiet for an hour that have refilled to full, so dropping one changes no limit (the next call starts
+   * full either way). Their counts go with them: the usage panel then reads no calls counted.
+   */
   prune(now: number): void {
     for (const [kid, bucket] of this.buckets) {
-      if (now - bucket.at > 3_600_000) this.buckets.delete(kid);
+      const full = bucket.tokens + Math.max(0, now - bucket.at) * (bucket.refillPerMinute / 60_000) >= bucket.burst;
+      if (now - bucket.at > 3_600_000 && full) this.buckets.delete(kid);
     }
   }
 }

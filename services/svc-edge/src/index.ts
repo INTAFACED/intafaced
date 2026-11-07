@@ -541,10 +541,9 @@ await app.register(async (api) => {
     }
     if (!gate.allow) {
       if (gate.status === 429 && gate.limited) {
-        const resetSeconds = Math.max(1, Number(gate.body.retryAfterSeconds) || 1);
         stampRateLimitRefuseHeaders(reply, {
           limit: gate.limited.limit,
-          resetSeconds,
+          resetSeconds: gate.limited.retryAfterSeconds,
           bucket: EDGE_API_KEY_RATE_BUCKET,
           cost: gate.limited.cost,
           reason: gate.limited.reason,

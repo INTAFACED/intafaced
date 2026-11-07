@@ -20,10 +20,16 @@ describe('the key token bucket (ENGINE RL-1 to RL-4, T-20)', () => {
     expect(buckets.take(KID, USER, LIMIT, 1, 1000)).toMatchObject({ ok: true, remaining: 0 });
   });
 
-  it('never allows a cost above the burst, and says the route is the reason', () => {
+  it('never allows a cost above the burst, says the route is the reason, and names no wait (none can help)', () => {
     const buckets = new KeyBuckets();
-    expect(buckets.take(KID, USER, LIMIT, 6, 0)).toMatchObject({ ok: false, reason: 'endpoint' });
-    expect(buckets.take(KID, USER, LIMIT, 6, 3_600_000)).toMatchObject({ ok: false, reason: 'endpoint' });
+    expect(buckets.take(KID, USER, LIMIT, 6, 0)).toMatchObject({ ok: false, reason: 'endpoint', retryAfterSeconds: null });
+    expect(buckets.take(KID, USER, LIMIT, 6, 3_600_000)).toMatchObject({ ok: false, reason: 'endpoint', retryAfterSeconds: null });
+  });
+
+  it('an allowed call says how long until the bucket is full again', () => {
+    const buckets = new KeyBuckets();
+    expect(buckets.take(KID, USER, LIMIT, 1, 0)).toMatchObject({ ok: true, remaining: 4, fullInSeconds: 1 });
+    expect(buckets.take(KID, USER, LIMIT, 3, 0)).toMatchObject({ ok: true, remaining: 1, fullInSeconds: 4 });
   });
 
   it('a clock that moves backwards adds nothing', () => {
@@ -64,11 +70,17 @@ describe('the key token bucket (ENGINE RL-1 to RL-4, T-20)', () => {
     expect(buckets.usage(KID, OTHER, 1_500)).toEqual({ state: 'none', asOf: new Date(1_500).toISOString(), keyId: KID });
   });
 
-  it('drops a key that has been quiet for an hour', () => {
+  it('drops a key quiet for an hour once its bucket is full again, and keeps one that is still refilling', () => {
     const buckets = new KeyBuckets();
     buckets.take(KID, USER, LIMIT, 1, 0);
     buckets.prune(3_600_001);
     expect(buckets.usage(KID, USER, 3_600_001).state).toBe('none');
+    // Burst 1000 refilling 10 a minute: an hour of quiet refills only 600, so the bucket stays and keeps its limit.
+    const slow = { tier: 'base', burst: 1000, refillPerMinute: 10 } as const;
+    buckets.take(KID, USER, slow, 1000, 0);
+    buckets.prune(3_660_000);
+    expect(buckets.usage(KID, USER, 3_660_000)).toMatchObject({ state: 'counted', remaining: 610 });
+    expect(buckets.take(KID, USER, slow, 700, 3_660_000).ok).toBe(false);
   });
 });
 

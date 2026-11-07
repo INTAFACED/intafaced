@@ -359,7 +359,7 @@ describe('api.gateway plane', () => {
       cost: EDGE_RATE_COST,
       docs: '/developers/rate-limits',
     });
-    expect(second.limited).toEqual({ reason: 'global', limit: 1, cost: 1 });
+    expect(second.limited).toEqual({ reason: 'global', limit: 1, cost: 1, retryAfterSeconds: 1 });
     // One token refills in a second at 60 a minute.
     expect(call(1001).allow).toBe(true);
   });
@@ -368,10 +368,18 @@ describe('api.gateway plane', () => {
     const buckets = new KeyBuckets();
     const key = principal({ scopes: ['trade:read'] });
     const base = { pathname: '/api/v1/markets', method: 'GET', principal: key, buckets, now: 0 };
-    for (const keyRateLimit of [null, undefined]) {
-      const decided = decideGateway({ ...base, keyRateLimit, costs: COSTS });
-      expect(decided).toMatchObject({ allow: false, status: 503, body: { code: 'edge.limits_unset' } });
-    }
+    expect(decideGateway({ ...base, keyRateLimit: null, costs: COSTS })).toMatchObject({
+      allow: false,
+      status: 503,
+      body: { code: 'edge.limits_unset' },
+    });
+    // A key's exchanged access token sent as the bearer: its limit was not read on this request, so it is refused as
+    // such, never as "not set".
+    expect(decideGateway({ ...base, keyRateLimit: undefined, costs: COSTS })).toMatchObject({
+      allow: false,
+      status: 401,
+      body: { code: 'edge.api_key_bearer_required' },
+    });
     const uncosted = decideGateway({ ...base, keyRateLimit: LIMIT, costs: [{ route: 'GET /api/pay/**', cost: 1 }] });
     expect(uncosted).toMatchObject({ allow: false, status: 503, body: { code: 'edge.cost_unset' } });
     expect(decideGateway({ ...base, keyRateLimit: LIMIT, costs: [] })).toMatchObject({ body: { code: 'edge.cost_unset' } });

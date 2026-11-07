@@ -46,11 +46,18 @@ export interface KeyMetered {
   readonly limit: number;
   readonly remaining: number;
   readonly cost: number;
+  /** Whole seconds until the key's bucket is full again. */
+  readonly resetSeconds: number;
 }
 
 export type GatewayDecision =
   | { allow: true; sandbox: boolean; metered?: KeyMetered }
-  | { allow: false; status: number; body: Record<string, unknown>; limited?: { reason: RateLimitReason; limit: number; cost: number } };
+  | {
+      allow: false;
+      status: number;
+      body: Record<string, unknown>;
+      limited?: { reason: RateLimitReason; limit: number; cost: number; retryAfterSeconds: number | null };
+    };
 
 /** The published permission-to-endpoint table. A fixed path: it names no account, so it tells a caller nothing about one. */
 export const PERMISSION_TABLE_DOCS = '/developers/permissions' as const;
@@ -82,7 +89,7 @@ export function scopeRefuseBody(door: GatewayDoor, scope: Scope): Record<string,
  * is added on the way out (`reply-envelope.ts`).
  */
 export function quotaRefuseBody(
-  retryAfterSeconds: number,
+  retryAfterSeconds: number | null,
   reason: RateLimitReason = 'global',
   cost: number = EDGE_RATE_COST,
 ): Record<string, unknown> {
@@ -102,7 +109,7 @@ export function quotaRefuseBody(
 export const RATE_LIMITS_DOCS = '/developers/rate-limits' as const;
 
 /** A key's limit or a route's cost that the owner has not set: nothing is metered on a guess, so nothing passes. */
-export function limitsUnsetBody(code: 'edge.limits_unset' | 'edge.cost_unset'): Record<string, unknown> {
+export function limitsUnsetBody(code: 'edge.limits_unset' | 'edge.cost_unset' | 'edge.api_key_bearer_required'): Record<string, unknown> {
   return { error: userCopy(code), code, docs: RATE_LIMITS_DOCS };
 }
 
@@ -232,7 +239,9 @@ export function decideGateway(input: {
     return { allow: false, status: 403, body: scopeRefuseBody(door, needed) };
   }
 
-  const limit = input.keyRateLimit ?? null;
+  // The key's limit is read only when the key itself is presented; its exchanged access token sent instead carries none.
+  if (input.keyRateLimit === undefined) return { allow: false, status: 401, body: limitsUnsetBody('edge.api_key_bearer_required') };
+  const limit = input.keyRateLimit;
   if (!limit) return { allow: false, status: 503, body: limitsUnsetBody('edge.limits_unset') };
   const cost = routeCost(input.costs, verb, input.pathname);
   if (cost === null) return { allow: false, status: 503, body: limitsUnsetBody('edge.cost_unset') };
@@ -242,9 +251,9 @@ export function decideGateway(input: {
       allow: false,
       status: 429,
       body: quotaRefuseBody(taken.retryAfterSeconds, taken.reason, cost),
-      limited: { reason: taken.reason, limit: taken.burst, cost },
+      limited: { reason: taken.reason, limit: taken.burst, cost, retryAfterSeconds: taken.retryAfterSeconds },
     };
   }
 
-  return { allow: true, sandbox, metered: { limit: taken.burst, remaining: taken.remaining, cost } };
+  return { allow: true, sandbox, metered: { limit: taken.burst, remaining: taken.remaining, cost, resetSeconds: taken.fullInSeconds } };
 }

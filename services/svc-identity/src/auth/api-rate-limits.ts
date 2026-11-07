@@ -31,6 +31,7 @@ export type RateLimitCode =
   | 'identity.key_not_found'
   | 'identity.key_not_live'
   | 'identity.limit_not_higher'
+  | 'identity.limit_key_sandbox'
   | 'identity.limit_spike_invalid'
   | 'identity.limit_request_open'
   | 'identity.limit_request_not_found'
@@ -225,6 +226,8 @@ export async function createLimitRequest(
   const key = keys[0];
   if (!key) throw new RateLimitError('API key not found', 'identity.key_not_found');
   if (!live(key, now)) throw new RateLimitError('This key is not live', 'identity.key_not_live');
+  // A sandbox key stays on the sandbox tier: a grant applies to live keys only.
+  if (key.mode === 'sandbox') throw new RateLimitError('A sandbox key cannot be granted a higher limit', 'identity.limit_key_sandbox');
   const limit = keyRateLimit(policy, key);
   if (!limit) throw new RateLimitError('No rate limit is set for this key', 'identity.rate_limits_unset');
   if (input.askedPerMinute <= limit.refillPerMinute) {
@@ -271,7 +274,7 @@ interface AuditRow {
   id: string;
   request_id: string;
   key_id: string;
-  key_name: string | null;
+  key_name: string;
   actor_id: string;
   decision: LimitAuditEntry['decision'];
   asked_per_minute: number;
@@ -289,9 +292,9 @@ export async function limitDesk(sql: Sql, policy: RatePolicy | null, now: Date =
     LIMIT 100
   `;
   const audit = await sql<AuditRow[]>`
-    SELECT a.id, a.request_id, a.key_id, k.name AS key_name, a.actor_id, a.decision, a.asked_per_minute,
+    SELECT a.id, a.request_id, a.key_id, a.key_name, a.actor_id, a.decision, a.asked_per_minute,
            a.previous_per_minute, a.granted_per_minute, a.reason, a.created_at
-    FROM api_limit_audit a LEFT JOIN api_keys k ON k.id = a.key_id
+    FROM api_limit_audit a
     ORDER BY a.created_at DESC LIMIT 100
   `;
   return {
@@ -301,7 +304,7 @@ export async function limitDesk(sql: Sql, policy: RatePolicy | null, now: Date =
       id: row.id,
       requestId: row.request_id,
       keyId: row.key_id,
-      keyName: row.key_name ?? '',
+      keyName: row.key_name,
       actorId: row.actor_id,
       decision: row.decision,
       askedPerMinute: row.asked_per_minute,
@@ -352,8 +355,8 @@ export async function reviewLimitRequest(
         WHERE id = ${row.id}
       `;
       await t`
-        INSERT INTO api_limit_audit (request_id, key_id, actor_id, decision, asked_per_minute, previous_per_minute, granted_per_minute, reason, created_at)
-        VALUES (${row.id}, ${row.key_id}, ${actorId}, 'refused', ${row.asked_per_minute},
+        INSERT INTO api_limit_audit (request_id, key_id, key_name, actor_id, decision, asked_per_minute, previous_per_minute, granted_per_minute, reason, created_at)
+        VALUES (${row.id}, ${row.key_id}, ${row.key_name}, ${actorId}, 'refused', ${row.asked_per_minute},
                 ${current?.refillPerMinute ?? row.current_per_minute}, ${null}, ${reason}, ${now})
       `;
     } else {
@@ -376,8 +379,8 @@ export async function reviewLimitRequest(
         WHERE id = ${row.id}
       `;
       await t`
-        INSERT INTO api_limit_audit (request_id, key_id, actor_id, decision, asked_per_minute, previous_per_minute, granted_per_minute, reason, created_at)
-        VALUES (${row.id}, ${row.key_id}, ${actorId}, ${status}, ${row.asked_per_minute}, ${current.refillPerMinute},
+        INSERT INTO api_limit_audit (request_id, key_id, key_name, actor_id, decision, asked_per_minute, previous_per_minute, granted_per_minute, reason, created_at)
+        VALUES (${row.id}, ${row.key_id}, ${row.key_name}, ${actorId}, ${status}, ${row.asked_per_minute}, ${current.refillPerMinute},
                 ${input.grantedPerMinute}, ${reason}, ${now})
       `;
     }

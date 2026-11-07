@@ -210,7 +210,8 @@ test(`${J} #3 opens the key detail: used and remaining with an as-of time that m
   const second = await usage();
   expect(second.asOf).not.toBe(first.asOf);
   expect(second.used).toBe(first.used + cost);
-  // Reading usage is never itself counted.
+  // Reading usage is never itself counted. (The as-of time is shown to the second, so the next read is a second later.)
+  await page.waitForTimeout(1_100);
   await page.getByRole('region', { name: 'Usage' }).getByRole('button', { name: 'Refresh' }).click();
   await expect(page.getByTestId('api-keys__usage-as-of')).not.toHaveText(second.asOf);
   expect((await usage()).used).toBe(second.used);
