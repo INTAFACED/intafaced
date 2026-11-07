@@ -270,9 +270,17 @@ async function routingFor(page, userId, capacity, skills = '') {
   await staff.locator('#sd-routing-target').selectOption(userId);
   await staff.locator('#sd-routing-capacity').fill(capacity === null ? '' : String(capacity));
   await staff.locator('#sd-routing-skills').fill(skills);
-  await staff.getByRole('button', { name: 'Review routing' }).click();
-  await staff.getByRole('button', { name: 'Yes, save routing' }).click();
-  await expect(staff.getByTestId('staff-outcome')).toBeVisible();
+  // An agent who already has exactly this routing (a blank capacity that was never set, say) has nothing to save: the
+  // console says so and offers no save. The shown capacity is still checked below.
+  const unchanged = staff.locator('.dk-why').filter({ hasText: 'That is already their routing.' });
+  const review = staff.getByRole('button', { name: 'Review routing' });
+  // Wait until the form has settled: either the save is offered, or the console says there is nothing to change.
+  await expect.poll(async () => (await unchanged.count()) > 0 || (await review.isEnabled())).toBe(true);
+  if ((await unchanged.count()) === 0) {
+    await review.click();
+    await staff.getByRole('button', { name: 'Yes, save routing' }).click();
+    await expect(staff.getByTestId('staff-outcome')).toBeVisible();
+  }
   await expect(staff.getByTestId(`staff-capacity-${userId}`)).toContainText(capacity === null ? 'Capacity not set' : String(capacity));
 }
 
