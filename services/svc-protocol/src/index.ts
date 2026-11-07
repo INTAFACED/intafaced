@@ -153,6 +153,8 @@ export const appRouter = createProtocolRouter({
   relay,
   relayEnabled: () => relayEnabled,
   ammFactoryAddress: () => env.PROTOCOL_AMM_FACTORY_ADDRESS as `0x${string}`,
+  liquidityRouter: () => env.PROTOCOL_LIQUIDITY_ROUTER_ADDRESS as `0x${string}`,
+  feeTiers: () => env.PROTOCOL_AMM_FEE_TIERS_BPS,
   swapSlippageBps: () => env.PROTOCOL_SWAP_SLIPPAGE_BPS,
   swapQuoteTtlSeconds: () => env.PROTOCOL_SWAP_QUOTE_TTL_SECONDS,
   swapConfirmations: () => env.PROTOCOL_SWAP_CONFIRMATIONS,

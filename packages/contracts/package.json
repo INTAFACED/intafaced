@@ -58,6 +58,10 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-liquidity": {
+      "types": "./dist/protocol-liquidity.d.ts",
+      "default": "./dist/protocol-liquidity.js"
+    },
     "./protocol-address-book": {
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"

@@ -1,3 +1,4 @@
+import { parseFeeTiers } from './liquidity/maths.js';
 import { z } from 'zod';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema } from '@intafaced/config';
 import { parseMinReserveUsd, parseUsdTokens } from './amm/prices.js';
@@ -132,6 +133,16 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_IMPLEMENTATION_ADDRESS: evmAddressDefaultZero,
     /** Constant-product PoolFactory (protocol.amm). Zero until deployed on the target chain. */
     PROTOCOL_AMM_FACTORY_ADDRESS: evmAddressDefaultZero,
+    /**
+     * The liquidity router (D-liquidity-02..04): add, remove, create-and-seed and swap-and-add, on the factory's pools.
+     * NO DEFAULT: zero refuses `protocol.liquidity_router_unset` and no liquidity call is built.
+     */
+    PROTOCOL_LIQUIDITY_ROUTER_ADDRESS: evmAddressDefaultZero,
+    /**
+     * The fee tiers a new pool is offered at, in whole bps, comma-separated (D-liquidity-03). An owner list with NO
+     * DEFAULT: blank is null, `amm.feeTiers` refuses `amm.fee_tiers_unset`, and the form offers only a custom fee.
+     */
+    PROTOCOL_AMM_FEE_TIERS_BPS: z.string().default('').transform(parseFeeTiers),
     /**
      * The token the token pages state every price and volume in (D-portfolio-wallet-06, -07). An owner setting with
      * NO DEFAULT: blank or zero is null and `tokens.*` refuses `protocol.tokens_quote_unset`.

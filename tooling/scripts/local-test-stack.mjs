@@ -1491,6 +1491,7 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    liquidityRouter: record.liquidityRouter ?? null,
   };
 }
 

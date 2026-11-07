@@ -309,6 +309,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/dex/pools': { template: 'record-list' },
   '/dex/pools/new': { template: 'flow' },
   '/dex/pools/:poolId': { template: 'monitor' },
+  '/dex/pools/:poolId/add': { template: 'flow' },
   '/dex/positions': { template: 'record-list' },
   '/dex/positions/:positionId': { template: 'record-list' },
   '/dex/tokens': { template: 'record-list' },
