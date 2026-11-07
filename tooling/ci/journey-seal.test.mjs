@@ -974,6 +974,18 @@ test('the recheck never re-runs a seal while a CI run of the pull request is goi
   r = await run({ runs: () => [ci(77)], jobs: () => [sealJob()], blocker: free });
   assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
 
+  // A stale head on its own: the head moved and every CI run of the pull request has finished. Still no re-run: the
+  // re-check acts only when the run's head is the pull request's current head.
+  const stale = async () =>
+    rerunBlocker({
+      sha: OLD,
+      pulls: [pr({ head: { sha: NEW, ref: 'b1' } })],
+      branchRuns: [ci(78, { head_sha: NEW }), ci(77)],
+    });
+  r = await run({ runs: () => [ci(77)], jobs: () => [sealJob()], blocker: stale });
+  assert.deepEqual(r.posts, [], 'a stale head is never re-run');
+  assert.match(r.out, /^not re-run: #7398's head moved to cccccccccc/);
+
   // The replay: the old head's run is waited out, ends cancelled by the push, and the head has moved with its CI going.
   const moved = async () =>
     rerunBlocker({
