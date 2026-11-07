@@ -247,4 +247,27 @@ describe('KYC review queue', () => {
     const page = await desk(200).list(null);
     expect(page.cases.map((c) => c.caseId)).not.toContain(caseId);
   });
+  it('approval safety: only the same reject on an already-rejected record is a stored retry; a different code still refuses', async () => {
+    const userId = await person();
+    const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+    const same = { reasonCode: 'name_mismatch', customerNote: null, noteVisible: false };
+    // Still pending: nothing is stored, so a reject must spend its approval.
+    expect(await auth.isKycRejectStored(record.id, same)).toBe(false);
+    await reject(record.id, await person(), 'name_mismatch');
+    // The same decision again is the stored result: identity answers it without spending a second approval.
+    expect(await auth.isKycRejectStored(record.id, same)).toBe(true);
+    await expect(auth.assertKycRejectable(record.id, same)).resolves.toBeUndefined();
+    // Anything else is not a retry: a different code, or the same code with a note the customer would read.
+    const otherCode = { ...same, reasonCode: 'document_unreadable' };
+    expect(await auth.isKycRejectStored(record.id, otherCode)).toBe(false);
+    await expect(auth.assertKycRejectable(record.id, otherCode)).rejects.toMatchObject({ code: 'kyc.case_state' });
+    const withNote = { ...same, customerNote: 'TEST: a note', noteVisible: true };
+    expect(await auth.isKycRejectStored(record.id, withNote)).toBe(false);
+    await expect(auth.assertKycRejectable(record.id, withNote)).rejects.toMatchObject({ code: 'kyc.case_state' });
+    // An approved record is never a stored reject.
+    const approvedUser = await person();
+    const approved = await auth.submitKyc({ userId: approvedUser, tier: 'basic', jurisdiction: 'DE' });
+    await auth.approveKycRecord({ recordId: approved.id, reviewerId: await person(), approvalParties: [] });
+    expect(await auth.isKycRejectStored(approved.id, same)).toBe(false);
+  });
 });
