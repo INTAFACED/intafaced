@@ -436,23 +436,45 @@ async function seedRouterV2Parts({ publicClient, walletClient }: Clients, factor
   for (const p of V2_POOLS) {
     const a = TEST_TOKENS[p.a];
     const b = TEST_TOKENS[p.b];
-    await send(await walletClient.writeContract({ address: factory, abi: factoryAbi, functionName: 'createPool', args: [a.address, b.address, 30] }));
+    await send(
+      await walletClient.writeContract({ address: factory, abi: factoryAbi, functionName: 'createPool', args: [a.address, b.address, 30] }),
+    );
     const pool = (await publicClient.readContract({
       address: factory,
       abi: factoryAbi,
       functionName: 'getPool',
       args: [a.address, b.address, 30],
     })) as Address;
-    const units = { [getAddress(a.address)]: parseUnits(p.amountA, a.decimals), [getAddress(b.address)]: parseUnits(p.amountB, b.decimals) };
+    const units = {
+      [getAddress(a.address)]: parseUnits(p.amountA, a.decimals),
+      [getAddress(b.address)]: parseUnits(p.amountB, b.decimals),
+    };
     for (const [address, amount] of Object.entries(units)) {
       if (getAddress(address) === getAddress(WETH.address))
         await send(await walletClient.sendTransaction({ to: WETH.address, value: amount }));
-      else await send(await walletClient.writeContract({ address: address as Address, abi: tokenAbi, functionName: 'mint', args: [account.address, amount] }));
-      await send(await walletClient.writeContract({ address: address as Address, abi: tokenAbi, functionName: 'approve', args: [pool, amount] }));
+      else
+        await send(
+          await walletClient.writeContract({
+            address: address as Address,
+            abi: tokenAbi,
+            functionName: 'mint',
+            args: [account.address, amount],
+          }),
+        );
+      await send(
+        await walletClient.writeContract({ address: address as Address, abi: tokenAbi, functionName: 'approve', args: [pool, amount] }),
+      );
     }
     const token0 = getAddress((await publicClient.readContract({ address: pool, abi: poolAbi, functionName: 'token0' })) as Address);
     const token1 = token0 === getAddress(a.address) ? getAddress(b.address) : getAddress(a.address);
-    await send(await walletClient.writeContract({ address: pool, abi: poolAbi, functionName: 'mint', args: [account.address, units[token0], units[token1]] }));
+    await send(
+      await walletClient.writeContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: 'mint',
+        args: [account.address, units[token0], units[token1]],
+      }),
+    );
     pools.push({ label: p.label, pool, feeBps: 30, token0, token1 });
   }
   return { routerV2, sovereignPermit, wrappedNative: WETH.address, v2Pools: pools };
