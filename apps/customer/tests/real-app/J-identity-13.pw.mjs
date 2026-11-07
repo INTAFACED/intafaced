@@ -211,7 +211,8 @@ test(`${J} #2 a phishing report signed in or out is a ticket in the phishing cat
   await field.fill(headers);
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Send request' }).click();
-  await expect(page.getByText('Request created')).toBeVisible();
+  // The new request opens on its own page; the ticket's history starts with it.
+  await expect(page.getByRole('main').getByRole('heading', { name: 'Request opened' })).toBeVisible();
   const mine = await session.get(query('/api/support/trpc/listMine', { limit: 100 }));
   expect(mine.status).toBe(200);
   const reported = mine.body.result.data.filter((ticket) => ticket.subject === 'TEST a mail asked for my password');
@@ -273,11 +274,12 @@ test(`${J} #3 "my account is compromised" ends every session and key, freezes th
   s.who = who;
   s.page = page;
   const key = await makeKey(page, { name: 'compromised', preset: 'Read only' });
-  const before = await api(who);
-  expect((await withKey(key, { path: STATUS })).status).toBe(200);
   const added = await addAuthenticatorAfterPasskey(page, totp);
   s.secret = added.secret;
   s.step = added.step;
+  // A second sign-in, made after the authenticator (a sign-in from before it was refused on run 42350881324), and the key still live.
+  const before = await api(who, { totpCode: await code() });
+  expect((await withKey(key, { path: STATUS })).status).toBe(200);
   // TEST funds, so #5 can show the report moves none.
   expect(fund(who.email, 'USDT', '250').tx).toBeTruthy();
   expect((await caseOf(before)) ?? null).toBeNull();
