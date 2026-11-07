@@ -192,6 +192,9 @@ export const en = {
   'notify.identity.security.new_device.title': 'New device sign-in',
   'notify.identity.security.new_device.body':
     'A new device was approved and signed in to your account. If this was not you, open Security, remove the device, sign out everywhere and contact Support.',
+  'notify.identity.security.api_key_revoked.title': 'API key revoked',
+  'notify.identity.security.api_key_revoked.body':
+    'One of your API keys was revoked because a copy of it was reported found where it should not be. Programs using it are now refused. Make a new key in Security and keep it out of code you share.',
   'notify.identity.security.factor_changed.body':
     'A way to sign in to your account changed. If this was not you, open Security, sign out everywhere and contact Support.',
   'notify.identity.rank.updated.title': 'Rank updated',

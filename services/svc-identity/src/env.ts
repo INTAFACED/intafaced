@@ -251,6 +251,13 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
       /**
+       * Owner setting: the longest a rotated key keeps working beside its replacement, in whole seconds (DV-keys-04,
+       * J-developer-07 #1). NO DEFAULT. Blank: a rotation with an overlap above 0 refuses
+       * `identity.key_rotate_overlap_unset`; an overlap of 0 still rotates. Parsed at start; anything but a whole number
+       * above 0 stops the service.
+       */
+      IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS: z.string().optional(),
+      /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
        * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move

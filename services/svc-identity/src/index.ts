@@ -30,6 +30,7 @@ import { fetchOwnerPayScopes } from './auth/owner-pay-scopes.js';
 import { fetchPayStepUpGrant } from './auth/pay-step-up-grant.js';
 import { registerApiKeyOwnershipRoute } from './auth/api-key-ownership-route.js';
 import { registerServiceMailRoute } from './auth/service-mail.js';
+import { registerRotationRequestRoutes } from './auth/key-rotation-requests.js';
 import { registerWalletSignatureVerifyRoute, signingAccount, verifyWalletSignature } from './auth/wallet-signature-verify.js';
 import { registerTrustedDeviceReadRoute } from './auth/trusted-device-read.js';
 import { assertProdTotpKey, assertSigningEncKey, parseTotpSecretKey } from './auth/totp-crypto.js';
@@ -142,6 +143,7 @@ import { installApiKeyRequestSignExchange, parseRequestSignWindow } from './auth
 import { createRequestSigningPolicyRouter } from './request-signing-policy-router.js';
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
+import { parseRotateOverlapMaxSeconds } from './auth/developer-key-rotate.js';
 import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
 import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
@@ -736,6 +738,7 @@ export const appRouter = mergeRouters(
     kycTier: (userId, executor) => auth.kycTier(userId, executor),
     capByTier: parseApiKeyCapByTier(env.IDENTITY_API_KEYS_MAX_BY_TIER),
     idleExpirySeconds: parseApiKeyIdleExpirySeconds(env.IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS),
+    rotateOverlapMaxSeconds: parseRotateOverlapMaxSeconds(env.IDENTITY_API_KEY_ROTATE_OVERLAP_MAX_SECONDS),
     mayMint: passkeyMintRule(sql),
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
@@ -1012,6 +1015,14 @@ app.get<{ Params: { subAccountId: string } }>('/internal/sub-accounts/:subAccoun
   const gated = await gateFrozenSubAccount(sql, row);
   if (gated.status !== 200) return reply.code(gated.status).send(gated.body);
   return gated.body;
+});
+
+/** A key's own rotation request, through svc-trade's REST door (key-rotation-requests.ts, J-developer-07 #3). */
+registerRotationRequestRoutes(app, {
+  sql,
+  internalSecret: env.INTERNAL_SERVICE_SECRET,
+  bodyBind: env.INTERNAL_SERVICE_BODY_BIND,
+  ...(doorS2s ? { s2s: doorS2s } : {}),
 });
 
 /** Mail another service asks identity to send to a customer's own proved address (service-mail.ts). */

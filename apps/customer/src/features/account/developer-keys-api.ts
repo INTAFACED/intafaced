@@ -8,6 +8,8 @@ import {
   apiKeyRevokeOutputSchema,
   apiKeyScopesOutputSchema,
   apiKeySetExpiryOutputSchema,
+  apiKeyRotateOutputSchema,
+  type ApiKeyRotateOutput,
   type ApiKeyCreateInput,
   type ApiKeyCreateOutput,
   type ApiKeyDetail,
@@ -16,6 +18,7 @@ import {
   type ApiKeyRevokeOutput,
   type ApiKeyScopeEntry,
 } from '@intafaced/contracts/api-keys';
+import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session/webauthn';
 import type { ApiKeysCopyKey } from './api-keys-copy';
@@ -208,4 +211,52 @@ export function createRefusal(result: Extract<ApiResult<unknown>, { ok: false }>
 export function environmentFile(key: string, signingSecret?: string | null): string {
   const signing = signingSecret ? `INTAFACED_API_SIGNING_SECRET=${signingSecret}\n` : '';
   return `# API key for your program. Keep this file out of source control.\nINTAFACED_API_KEY=${key}\n${signing}`;
+}
+
+/**
+ * Rotate a key with an overlap (J-developer-07 #1 #2): always with a passkey. A repeat after a lost reply answers with the
+ * replacement already made (`replayed`, no secret), so retrying never makes a second key.
+ */
+export async function rotateDeveloperKey(
+  api: ApiClient,
+  keyId: string,
+  overlapSeconds: number,
+  signal?: AbortSignal,
+): Promise<ApiResult<ApiKeyRotateOutput>> {
+  const proof = await proofFor(api, { passkey: true }, signal);
+  if (!proof.ok) return proof;
+  return api.mutate(
+    'identity',
+    'developerKeys.rotate',
+    { keyId, overlapSeconds, ...(proof.proof ? { factorProof: proof.proof } : {}) },
+    apiKeyRotateOutputSchema,
+    { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
+  );
+}
+
+const rotationRequestSchema = z.object({
+  request: z.object({ requestId: z.string(), keyId: z.string(), overlapSeconds: z.number().int(), createdAt: z.string() }).nullable(),
+});
+export type RotationRequestRead = z.infer<typeof rotationRequestSchema>;
+
+/** The rotation a key asked for itself, waiting for its owner (DV-keys-04, J-developer-07 #3), or none. */
+export function readRotationRequest(api: ApiClient, keyId: string, signal: AbortSignal): Promise<ApiResult<RotationRequestRead>> {
+  return api.query('identity', 'developerKeys.rotationRequest', { keyId }, rotationRequestSchema, { signal });
+}
+
+/** The owner approves a key's own rotation request with a fresh passkey: one replacement, shown once. */
+export async function approveRotationRequest(
+  api: ApiClient,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<ApiResult<ApiKeyRotateOutput>> {
+  const proof = await proofFor(api, { passkey: true }, signal);
+  if (!proof.ok) return proof;
+  return api.mutate(
+    'identity',
+    'developerKeys.approveRotation',
+    { requestId, ...(proof.proof ? { factorProof: proof.proof } : {}) },
+    apiKeyRotateOutputSchema,
+    { signal, keepSessionFor: ['auth.mfa_invalid', 'auth.webauthn_invalid'] },
+  );
 }

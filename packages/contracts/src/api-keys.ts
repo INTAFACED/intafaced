@@ -258,3 +258,40 @@ export function apiKeyCreateRequestId(
   const asked = JSON.stringify([input.name, [...input.scopes].sort(), [...(input.ips ?? [])].sort(), input.expiresAt ?? null]);
   return `api-key-create:${userId.toLowerCase()}:${digest(seen)}:${digest(asked)}`;
 }
+
+/**
+ * Rotate one live key (DV-keys-04, J-developer-07 #1 #2): a replacement with the same name, permissions, IP list and end
+ * date, and the old key kept working for `overlapSeconds` (0: it stops at once), never longer than the owner's maximum.
+ * A key that already has its replacement is not rotated again: the reply is that replacement, with no secret.
+ */
+export const apiKeyRotateInputSchema = z
+  .object({ keyId: z.string().guid(), overlapSeconds: z.number().int().min(0).max(31_536_000) })
+  .strict();
+export type ApiKeyRotateInput = z.infer<typeof apiKeyRotateInputSchema>;
+
+export const apiKeyRotateOutputSchema = z
+  .object({
+    record: apiKeyRecordSchema,
+    /** The new key, in this reply only. Null when this reply answers a rotation already made. */
+    key: z.string().nullable(),
+    signingSecret: z.string().nullable(),
+    /** The key it replaces, and the instant it stops working (now, for an overlap of 0). */
+    replaced: z.object({ id: z.string().guid(), endsAt: isoInstant }).strict(),
+    replayed: z.boolean(),
+  })
+  .strict();
+export type ApiKeyRotateOutput = z.infer<typeof apiKeyRotateOutputSchema>;
+
+/** Typed refusals of the rotate door, second-factor ones included. */
+export const API_KEY_ROTATE_REFUSALS = [
+  'auth.step_up_required',
+  'auth.step_up_expired',
+  'auth.mfa_invalid',
+  'auth.webauthn_invalid',
+  'identity.delegated_refused',
+  'identity.key_not_found',
+  'identity.key_not_live',
+  'identity.key_rotate_overlap_unset',
+  'identity.key_rotate_overlap_too_long',
+  'identity.key_signing_unset',
+] as const;
