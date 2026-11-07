@@ -48,8 +48,8 @@
   ],
   "counts": {
     "stepsInRun": 1521,
-    "failing": 529,
-    "unbuilt": 524,
+    "failing": 538,
+    "unbuilt": 533,
     "regression": 5,
     "notBaselined": 0
   },
@@ -665,6 +665,69 @@
       "state": "unbuilt",
       "money": true,
       "why": "Red by name (LOAN-02): the bank's risk sweep reads the margin-call and liquidation thresholds from the product, not from the loan, so no door edits them for a product with open loans. The loan's own s"
+    },
+    {
+      "step": "J-cex-spot-14#1",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the upcoming and delisting rows with their date (SP-markets-data-02)"
+    },
+    {
+      "step": "J-cex-spot-14#5",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the per-market maintenance flag (SP-developer-status-01)"
+    },
+    {
+      "step": "J-cex-spot-14#6",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: a closed session on a stack session market (SP-developer-status-01)"
+    },
+    {
+      "step": "J-cex-spot-14#7",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the opening window and the higher-risk zone (SP-markets-data-02)"
+    },
+    {
+      "step": "J-cex-spot-14#8",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the spreads route and the ticker spread (SP-markets-data-01)"
+    },
+    {
+      "step": "J-cex-spot-14#9",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the analytics room (SP-markets-data-03)"
+    },
+    {
+      "step": "J-cex-spot-14#10",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the equity \"licence not named\" row (SP-markets-data-03)"
+    },
+    {
+      "step": "J-cex-spot-14#11",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the price improvement row (SP-markets-data-04)"
+    },
+    {
+      "step": "J-charts-desk-07#3",
+      "file": "apps/customer/tests/real-app/J-charts-desk-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "never passed on main: #7281 (3d88e2a32) created this journey file with #3 to #6 written before their slice; missing: saved named layouts with their symbol and interval, and the replace prompt (C-workspace-02)"
     },
     {
       "step": "J-copy-bots-otc-01#5",
@@ -3606,6 +3669,14 @@
       "money": false,
       "issue": 6750,
       "why": "service page panel shows its content: who is on call: no on-call source exists (the on-call desk, its rota and who holds the pager, is not built), so the panel cannot show anyone, and with no source t"
+    },
+    {
+      "step": "J-ops-console-01#6",
+      "file": "apps/customer/tests/real-app/J-ops-console-01.pw.mjs",
+      "state": "regression",
+      "money": false,
+      "issue": 6750,
+      "why": "no operator without ledger scope exists: the console has no per-operator scope yet"
     },
     {
       "step": "J-ops-console-02#3",
