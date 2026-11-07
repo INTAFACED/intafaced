@@ -86,8 +86,8 @@ export interface FleetRow {
   readonly kind: FleetKind;
   readonly ownerId: string | null;
   readonly publisherId: string | null;
-  readonly channels: readonly string[] | null;
-  readonly riskSignals: readonly RiskSignal[];
+  readonly channels: string[] | null;
+  readonly riskSignals: RiskSignal[];
   readonly status: FleetStatus;
   readonly lastRunAt: string | null;
   readonly quarantine: FleetSwitch | null;
