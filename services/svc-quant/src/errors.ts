@@ -65,6 +65,8 @@ export const QUANT_QUOTA_UNSET = 'quant.quota_unset' as const;
 export const QUANT_QUOTA_EXCEEDED = 'quant.quota_exceeded' as const;
 export const QUANT_QUOTA_PROFILE_UNSET = 'quant.quota_profile_unset' as const;
 export const QUANT_QUOTA_REASON_UNSET = 'quant.quota_reason_unset' as const;
+export const QUANT_PAPER_CASH_UNSET = 'quant.paper_cash_unset' as const;
+export const QUANT_PAPER_LIST_LIMIT_UNSET = 'quant.paper_list_limit_unset' as const;
 
 export type QuantCode =
   | typeof QUANT_SANDBOX_UNWIRED
@@ -134,6 +136,8 @@ export type QuantCode =
   | typeof QUANT_QUOTA_EXCEEDED
   | typeof QUANT_QUOTA_PROFILE_UNSET
   | typeof QUANT_QUOTA_REASON_UNSET
+  | typeof QUANT_PAPER_CASH_UNSET
+  | typeof QUANT_PAPER_LIST_LIMIT_UNSET
   | 'quant.params_invalid';
 
 export class QuantError extends Error {
