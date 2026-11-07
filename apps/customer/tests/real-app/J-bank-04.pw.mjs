@@ -75,7 +75,7 @@ async function people(page) {
   await verify(page, recipient);
   const sender = await signUp(page, 'jb4s');
   await verify(page, sender);
-  expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(sender.email, 'USDT', '100')).tx).toBeTruthy();
   await page.goto('/login');
   await page.fill('input[name=identifier]', sender.email);
   await page.fill('input[name=password]', sender.password);
@@ -289,7 +289,7 @@ test(`${J} #3 reviews the transfer: fee lines that add up, and Confirm off with 
     body: JSON.stringify({ assetId: 'BTC' }),
   });
   expect(added.status, 'add BTC to the account').toBe(200);
-  expect(fund(sender.email, 'BTC', '0.01').tx).toBeTruthy();
+  expect((await fund(sender.email, 'BTC', '0.01')).tx).toBeTruthy();
   const btc = await reviewSend(page, { asset: 'BTC', value: '0.001', signedIn: true });
   const blocked = btc.getByTestId('review-terms-blocked');
   await expect(blocked).toContainText('No fee or sending limit is published for BTC');
@@ -395,7 +395,7 @@ test(`${J} #5 meets a compliance hold: the send waits, the bank asks for a docum
 }) => {
   test.setTimeout(360_000);
   const { sender } = await people(page);
-  expect(fund(sender.email, 'USDT', '600').tx).toBeTruthy();
+  expect((await fund(sender.email, 'USDT', '600')).tx).toBeTruthy();
   await signInSender(page);
   const before = await senderUsdt();
 
@@ -457,7 +457,7 @@ test(`${J} #6 watches the tracker, downloads a signed receipt with the ledger id
 }) => {
   test.setTimeout(360_000);
   const { sender } = await people(page);
-  expect(fund(sender.email, 'USDT', '600').tx).toBeTruthy();
+  expect((await fund(sender.email, 'USDT', '600')).tx).toBeTruthy();
   await signInSender(page);
   const before = await senderUsdt();
 
@@ -511,7 +511,7 @@ test(`${J} #7 sends to the wrong person and asks for it back: what can be asked,
 }) => {
   test.setTimeout(360_000);
   const { sender } = await people(page);
-  expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(sender.email, 'USDT', '100')).tx).toBeTruthy();
   await signInSender(page);
   const before = await senderUsdt();
 

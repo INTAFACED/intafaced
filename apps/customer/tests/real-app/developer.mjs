@@ -99,12 +99,12 @@ export async function signingPolicy() {
 }
 
 /** Identity restarted with the request-signing window blank (as production is until the owner sets it), or back on the stack's TEST value. */
-export function blankSigningWindow(blank) {
+export async function blankSigningWindow(blank) {
   const before = process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
   if (blank) process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = 'off';
   else delete process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW;
     else process.env.LOCAL_STACK_IDENTITY_REQUEST_SIGN_WINDOW = before;

@@ -129,12 +129,12 @@ test(`${J} #2 a course saves as a draft; an Academy tab as its address is refuse
 });
 
 /** Academy restarted with the owner's outline limits blank, or back on the stack's TEST limits. */
-function academyOutlineLimits(on) {
+async function academyOutlineLimits(on) {
   const before = process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS;
   if (on) delete process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS;
   else process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'academy');
+    await tool('local-test-stack.mjs', 'restart', 'academy');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS;
     else process.env.LOCAL_STACK_ACADEMY_OUTLINE_LIMITS = before;
@@ -185,7 +185,7 @@ test(`${J} #3 the outline holds ordered sections of typed items; with the sectio
   await expect(page.getByTestId('outline-item-0-2')).toHaveAttribute('style', /margin-left: ?24px/);
 
   // With the owner's section limits blank, the next save is refused by name and the outline stays as it was.
-  academyOutlineLimits(false);
+  await academyOutlineLimits(false);
   try {
     await page.reload();
     await expect(page.getByTestId('outline-limits')).toContainText('sections not set, items not set');
@@ -197,7 +197,7 @@ test(`${J} #3 the outline holds ordered sections of typed items; with the sectio
     await expect(page.getByLabel('Section 2 item 3 title', { exact: true })).toHaveValue('TEST Questions');
     await expect(page.getByTestId('course-facts')).toContainText('Items in the outline4');
   } finally {
-    academyOutlineLimits(true);
+    await academyOutlineLimits(true);
   }
   await page.context().close();
 });
@@ -369,12 +369,12 @@ test(`${J} #6 Draft with no model provider gives the template draft and an owner
 });
 
 /** Academy restarted with the owner's upload limits blank, or back on the stack's TEST limits. */
-function academyUploadLimits(on) {
+async function academyUploadLimits(on) {
   const before = process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
   if (on) delete process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
   else process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'academy');
+    await tool('local-test-stack.mjs', 'restart', 'academy');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS;
     else process.env.LOCAL_STACK_ACADEMY_UPLOAD_LIMITS = before;
@@ -403,7 +403,7 @@ test(`${J} #7 a video, an SRT file and a handout upload; blank limits refuse; to
   };
 
   // With the owner's upload limits blank, nothing is uploaded, and the page says why before sending anything.
-  academyUploadLimits(false);
+  await academyUploadLimits(false);
   try {
     await page.reload();
     await expect(limits).toContainText('Not set by the owner: nothing is uploaded');
@@ -411,7 +411,7 @@ test(`${J} #7 a video, an SRT file and a handout upload; blank limits refuse; to
     await expect(outcome).toContainText('The upload limits are not set');
     expect(uploads).toEqual([]);
   } finally {
-    academyUploadLimits(true);
+    await academyUploadLimits(true);
   }
   await page.reload();
   await expect(limits).toContainText('1048576 bytes');

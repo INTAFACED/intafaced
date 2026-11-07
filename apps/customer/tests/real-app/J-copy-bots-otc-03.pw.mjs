@@ -251,7 +251,7 @@ test(`${J} #1 pauses the follow: new mirrors refused as paused, and existing pos
   // It holds enough of each side to take every resting copy, with retries, through the maker's whole ladder in front of
   // it (three levels a side, about 0.28 BTC or 18000 USDT at 65000).
   const market = await fundedTrader(page, 'jcm3', '150000');
-  expect(fund(market.email, 'BTC', '2.5').tx).toBeTruthy();
+  expect((await fund(market.email, 'BTC', '2.5')).tx).toBeTruthy();
   run.write({ market });
   await signIn(page, follower);
   run.write({ otherRef, otherFollowId: await followOnScreen(page, follower, otherRef, { perOrder: '50', total: '100', fixed: '20' }) });
@@ -579,7 +579,7 @@ test(`${J} #5 opens the skip log: one row per skipped mirror with the reason in 
   const repeated = nextIds[0];
   const atRewind = await snapshot(follower, followId);
   const fillsAtRewind = (await myFills(follower)).map((f) => f.id).sort();
-  tool('local-test-gates.mjs', 'copy-rewind', followId, repeated);
+  await tool('local-test-gates.mjs', 'copy-rewind', followId, repeated);
   const drive = await leadFill(state('leader'), 'buy', '0.001', `${J}-5-repeat-${state('tag')}`);
   const driveIds = await leaderFillsOf(state('leader'), drive);
   await expect

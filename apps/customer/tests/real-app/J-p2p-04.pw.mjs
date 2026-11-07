@@ -37,8 +37,8 @@ const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
-test.beforeAll(() => {
-  tool('local-test-gates.mjs', 'p2p');
+test.beforeAll(async () => {
+  await tool('local-test-gates.mjs', 'p2p');
 });
 
 function journey() {
@@ -94,7 +94,7 @@ test('J-p2p-04 #1 the catalogue shows each method per country with what it asks 
   await registerTestMethod(J04_METHOD, J04_LABEL);
   const who = await signUp(page, 'p2p04s');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   const session = await api(who);
   const s = p2p(session);
   await testInstrument(s, who);
@@ -317,7 +317,7 @@ test('J-p2p-04 #4 removing a method an ad uses lists the ads first; confirming p
   // confirmation, and identity allows eight a person in ten minutes, which #1 to #3 have already spent on theirs.
   const who = await signUp(signUpPage, 'p2p04r');
   await verify(signUpPage, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   const s = p2p(await api(who));
   const bank = await testInstrument(s, who);
   const ad = await s.mutate('offers.create', {

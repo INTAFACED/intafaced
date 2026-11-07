@@ -251,7 +251,7 @@ test(`${J} #8 an operator halts a market: a new order is refused with the halted
   expect(resting).toBeTruthy();
   let halted = false;
   try {
-    tool('local-test-gates.mjs', 'halt', HALTED);
+    await tool('local-test-gates.mjs', 'halt', HALTED);
     halted = true;
     const sent = placements(page);
     await page.reload();
@@ -282,7 +282,7 @@ test(`${J} #8 an operator halts a market: a new order is refused with the halted
   } finally {
     // Always try to resume: the halt may have gone through even if the tool then failed.
     try {
-      tool('local-test-gates.mjs', 'resume', HALTED);
+      await tool('local-test-gates.mjs', 'resume', HALTED);
     } catch (err) {
       if (halted) throw err;
     }

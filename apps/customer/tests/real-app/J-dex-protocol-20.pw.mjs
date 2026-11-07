@@ -43,7 +43,7 @@ async function placeVenueOrder(page, { side, price, amount }) {
 }
 
 test(`${J} starts: a TEST wallet holding TEST base and quote on the trading venue`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await openBook(page);
   const balances = venue(page).getByRole('region', { name: 'Venue balances' }).getByRole('table');
   await expect(balances).toContainText('TEST Base', UNBUILT);

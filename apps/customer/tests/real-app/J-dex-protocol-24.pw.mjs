@@ -52,7 +52,7 @@ async function tokenPage(page) {
 
 test(`${J} starts: a connected TEST wallet that owns a TEST token contract`, async ({ page }) => {
   test.setTimeout(240_000);
-  dex.start({ who: await fundedTrader(page, 'dex24', '100') });
+  await dex.start({ who: await fundedTrader(page, 'dex24', '100') });
   await connectWallet(page, dex, { tokens: TOKENS });
 });
 
@@ -189,7 +189,7 @@ test(`${J} #7 requests an express verification with the price blank, then with a
   const requests = tableIn(main(page), 'Listing requests');
   await expect(bodyRows(requests)).toHaveCount(0);
   // With a TEST price the fee posts once; pressing again returns the stored receipt, never a second charge.
-  tool('local-test-gates.mjs', 'listing-price', 'express', '10');
+  await tool('local-test-gates.mjs', 'listing-price', 'express', '10');
   try {
     const before = (await api(who).then((a) => a.balances())).USDT?.free;
     await page.reload();
@@ -198,7 +198,7 @@ test(`${J} #7 requests an express verification with the price blank, then with a
     await expect(bodyRows(requests)).toContainText('Charged 10 USDT');
     expect(toUnits((await api(who).then((a) => a.balances())).USDT.free)).toBe(toUnits(before) - toUnits('10'));
   } finally {
-    tool('local-test-gates.mjs', 'listing-price', 'express', 'unset');
+    await tool('local-test-gates.mjs', 'listing-price', 'express', 'unset');
   }
 });
 

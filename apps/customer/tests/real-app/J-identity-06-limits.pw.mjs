@@ -62,12 +62,12 @@ async function signIn(page, who) {
 }
 
 /** Identity restarted with the TEST idle sign-out and device limit on (`on`) or off again. */
-function sessionLimits(on) {
+async function sessionLimits(on) {
   const before = process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS;
   if (on) process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS = 'on';
   else delete process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS;
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS;
     else process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS = before;
@@ -81,7 +81,7 @@ test(`${J} #4 a shorter idle sign-out than the owner's applies; a longer one is 
   test.setTimeout(420_000);
   const sql = await identityDb();
   const others = [];
-  sessionLimits(true);
+  await sessionLimits(true);
   try {
     // --- A shorter idle sign-out than the owner's applies. ---
     const who = person('il');
@@ -169,7 +169,7 @@ test(`${J} #4 a shorter idle sign-out than the owner's applies; a longer one is 
   } finally {
     for (const context of others) await context.close().catch(() => undefined);
     await sql.end();
-    sessionLimits(false);
+    await sessionLimits(false);
   }
 });
 

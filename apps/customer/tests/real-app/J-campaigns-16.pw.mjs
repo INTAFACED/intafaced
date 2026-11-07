@@ -518,7 +518,7 @@ test(`${J} #6 the earning rule gives one intent per event: a deposit the chain d
   const address = await depositAddress(page);
   const label = `jc16-${who.handle}-r${testInfo.retry}`;
   for (let i = 0; i < 3; i += 1) {
-    expect(tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', '20', '6', '--tx', label)).toContain('"received":true');
+    expect(await tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', '20', '6', '--tx', label)).toContain('"received":true');
   }
 
   await page.goto('/uc/promotion');
@@ -549,7 +549,9 @@ test(`${J} #6 the earning rule gives one intent per event: a deposit the chain d
   await expect(rows).toHaveCount(1);
 
   // One per event, not one per person: a second, separate deposit is a new event and gives a second reward.
-  expect(tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', '20', '6', '--tx', `${label}-2`)).toContain('"received":true');
+  expect(await tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', '20', '6', '--tx', `${label}-2`)).toContain(
+    '"received":true',
+  );
   await expect(async () => {
     await page.reload();
     await expect(rows).toHaveCount(2, { timeout: 2_000 });

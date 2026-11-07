@@ -169,7 +169,7 @@ async function sellInto(who, { id, price }, clientOrderId) {
     const ahead = body.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
     const size = fromUnits(ahead + toUnits(resting.remaining));
     const seller = otherTrader();
-    fund(seller.email, 'IFC', size);
+    await fund(seller.email, 'IFC', size);
     const sell = await (
       await api(seller)
     ).post('/api/v1/orders', {
@@ -352,7 +352,7 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
   const client = await api(who);
 
   // Zero fee: ETH/USDC is in the TEST zero-fee group. An IOC buy at the best ask takes from the house quote.
-  fund(who.email, 'USDC', '100');
+  await fund(who.email, 'USDC', '100');
   const { ask } = await bestPrices('ETH/USDC');
   const zero = await client.post('/api/v1/orders', {
     symbol: 'ETH/USDC',
@@ -526,7 +526,7 @@ test(`${J} #6 crosses the threshold during the day: the tier changes at the next
   };
   try {
     // A market buy on BTC/USDT for more than the rest of the threshold, during the day.
-    fund(who.email, 'USDT', '2000');
+    await fund(who.email, 'USDT', '2000');
     let now = await myTier(client);
     expect(now.tier).toBe('regular');
     for (let attempt = 0; attempt < 3 && now.volume.reaches === 'regular'; attempt += 1) {
@@ -956,7 +956,7 @@ test(`${J} #9 chooses to pay trading fees in IFC: the published discount with it
   const { ctx, sessions } = await ops();
   await setFeeDiscountSchedule(ctx, TEST_LADDER, { sessions });
   // A TEST stake of 100 IFC puts the account on the 20% step.
-  fund(who.email, 'IFC', '150');
+  await fund(who.email, 'IFC', '150');
   const staked = await client.post('/api/token/trpc/stake', { amount: '100', tier: 'flex', stakeId: randomUUID() });
   expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
 
@@ -1043,7 +1043,7 @@ test(`${J} #10 a fee change is on the notice board before it takes effect, and a
   let next = null;
   try {
     // An order the person places now, under the version in force: maker 0.04%. It rests until after the change.
-    fund(who.email, 'USDT', '100');
+    await fund(who.email, 'USDT', '100');
     const order = await restingIfcBuy(client, '200', `js10-before-${tag}`);
     expect((await openOrders(who, 'IFC/USDT')).map((o) => o.id)).toContain(order.id);
 

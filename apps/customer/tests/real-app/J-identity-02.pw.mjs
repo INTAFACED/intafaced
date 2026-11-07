@@ -108,12 +108,12 @@ test(`${J} #2 several wrong passwords give a typed lockout with the minutes left
 });
 
 /** Restarts identity with the sign-in challenge after `count` failures from an address, or the stack's TEST count. */
-function challengeAfter(count) {
+async function challengeAfter(count) {
   const before = process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
   if (count === null) delete process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
   else process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER = String(count);
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER;
     else process.env.LOCAL_STACK_IDENTITY_SIGNIN_CHALLENGE_AFTER = before;
@@ -139,7 +139,7 @@ test(`${J} #2 (I-signin-sessions-30): after the owner's count of failures from t
   test.setTimeout(240_000);
   const who = await account(browser);
   // The owner's count, for this test: one failure from this address (TEST), then every sign-in from it needs a challenge.
-  challengeAfter(1);
+  await challengeAfter(1);
   try {
     await page.goto('/login');
     await fillSignIn(page, who.email, `${who.password}-wrong`);
@@ -186,7 +186,7 @@ test(`${J} #2 (I-signin-sessions-30): after the owner's count of failures from t
     expect((await asked).status()).toBe(200);
     await consolePage.close();
   } finally {
-    challengeAfter(null);
+    await challengeAfter(null);
   }
 });
 

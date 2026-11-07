@@ -47,9 +47,9 @@ const shownDecimals = (text) => text.match(/\d[\d,]*\.(\d+)/)?.[1].length ?? 0;
 test(`${J} starts: a verified TEST account with trading history and some TEST IFC`, async ({ page }) => {
   test.setTimeout(240_000);
   const who = await fundedTrader(page, 'dex17', '100');
-  expect(fund(who.email, 'IFC', '50').tx).toBeTruthy();
+  expect((await fund(who.email, 'IFC', '50')).tx).toBeTruthy();
   account.run.reset({ who });
-  dex.start();
+  await dex.start();
 });
 
 test(`${J} #1 opens the fee schedule: volume tiers, staking discounts, the stable-pair rule and the gasless fee display; with the schedule blank "fee schedule not set"`, async ({

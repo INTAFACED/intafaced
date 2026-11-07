@@ -272,7 +272,7 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   });
 
   // An outside deposit of TEST 0.003 BTC through the real ledger, and the price the person paid for it.
-  expect(fund(who.email, 'BTC', '0.003').tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.003')).tx).toBeTruthy();
   await pnl(page, '?asset=BTC');
   const missing = page.getByRole('region', { name: 'Missing cost' });
   await missing.getByRole('button', { name: 'Enter a cost' }).click();
@@ -296,7 +296,7 @@ test(`${J} #1 switches between all time, realised, unrealised, last transaction 
   await expect(link).toContainText('Linked TEST salary account.');
   const account = (await (await bank()).query('linkedAccounts.list', undefined)).accounts[0];
   expect(await partner('verify', { accountId: account.accountId })).toMatchObject({ state: 'verified' });
-  expect(tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
+  expect(await tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
   await page.goto('/bank/ramps/cash-out');
   await page.getByLabel('Currency to cash out').selectOption('BTC');
   await page.getByLabel('Amount').fill('0.001');
@@ -912,7 +912,7 @@ test(`${J} #7 draws what the money was worth over time: a moment with no price i
 
   // TEST XAU arrives, which has no market here: from then on the moment cannot be priced, so it is missing and named, never zero.
   const fundFrom = Date.now();
-  expect(fund(who.email, 'XAU', '1').tx).toBeTruthy();
+  expect((await fund(who.email, 'XAU', '1')).tx).toBeTruthy();
   const fundTo = Date.now();
   // A movement counts from the 5-minute edge after its bucket starts; the posting landed between those two clocks, so that
   // edge is one of theirs. Wait past the later one, so a moment already gone by, not only the live end, holds XAU (at

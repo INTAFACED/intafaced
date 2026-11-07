@@ -96,12 +96,12 @@ test(`${J} part of #1 a new owner adds the business address before verification,
 });
 
 /** Pay restarted with the starting fee blank, or back on the stack's TEST fee (tooling/scripts/local-stack-services/pay.mjs). */
-function payStarterFee(published) {
+async function payStarterFee(published) {
   const before = process.env.LOCAL_STACK_PAY_STARTER_FEE;
   if (published) delete process.env.LOCAL_STACK_PAY_STARTER_FEE;
   else process.env.LOCAL_STACK_PAY_STARTER_FEE = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'pay');
+    await tool('local-test-stack.mjs', 'restart', 'pay');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_PAY_STARTER_FEE;
     else process.env.LOCAL_STACK_PAY_STARTER_FEE = before;
@@ -124,7 +124,7 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
   // With no starting fee published, the first step refuses to open an account: the room says why and the button stays
   // off, and the service refuses a create sent straight to it with its code. No account exists afterwards.
   try {
-    payStarterFee(false);
+    await payStarterFee(false);
     // The owner's own token, taken from a pay call the room itself makes.
     const own = page.waitForRequest((r) => r.url().includes('/api/pay/trpc/') && Boolean(r.headers().authorization));
     await page.goto('/pay/onboarding/business');
@@ -156,7 +156,7 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
     await expect(page.getByText('Your merchant account exists.')).toHaveCount(0);
   } finally {
-    payStarterFee(true);
+    await payStarterFee(true);
   }
 
   // The stack's TEST starting fee published again: the same step opens the account.

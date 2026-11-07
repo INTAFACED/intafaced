@@ -30,7 +30,7 @@ async function openValidator(page) {
 }
 
 test(`${J} starts: a TEST wallet; the INTACHAIN lane approved but its node not connected here`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex);
   await page.goto('/chain');
   await expect(main(page).getByText('Not INTACHAIN · not audited')).toBeVisible();

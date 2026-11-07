@@ -50,7 +50,7 @@ async function backing(page) {
 }
 
 test(`${J} starts: a connected TEST wallet that issues or raises`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: TOKENS });
 });
 

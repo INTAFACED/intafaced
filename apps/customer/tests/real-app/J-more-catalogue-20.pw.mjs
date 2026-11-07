@@ -52,7 +52,7 @@ test(`${J} starts: signed in, holding TEST IFC`, async ({ page }) => {
   run.reset({});
   const who = await signUp(page, 'j20');
   await verify(page, who);
-  expect(fund(who.email, 'IFC', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'IFC', '100')).tx).toBeTruthy();
   run.write({ who });
   const { client } = await holder(page);
   const balances = await client.balances();

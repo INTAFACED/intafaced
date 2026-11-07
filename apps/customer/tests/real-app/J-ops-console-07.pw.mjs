@@ -212,22 +212,22 @@ async function twoFounderRun(controlId, opts) {
  * put back by the next run's first hook.
  */
 const outsideSource = journeyState('J-ops-console-07-outside');
-function ledgerOutside(unreachable) {
+async function ledgerOutside(unreachable) {
   const before = process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
   if (unreachable) {
     process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = 'unreachable';
     outsideSource.write({ unreachable: true });
   } else delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
   try {
-    tool('local-test-stack.mjs', 'restart', 'ledger');
+    await tool('local-test-stack.mjs', 'restart', 'ledger');
     if (!unreachable) outsideSource.reset({});
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT;
     else process.env.LOCAL_STACK_LEDGER_OUTSIDE_SNAPSHOT = before;
   }
 }
-const putOutsideBack = () => {
-  if (outsideSource.read().unreachable) ledgerOutside(false);
+const putOutsideBack = async () => {
+  if (outsideSource.read().unreachable) await ledgerOutside(false);
 };
 // A step that fails or times out never reaches its own finally, so the hooks put the ledger back before the next step.
 test.beforeAll(putOutsideBack);
@@ -570,7 +570,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
 
     const who = { handle: `ops07${tag}`, email: `ops07-${tag}@local-test.invalid`, password: `Ops07-${tag}-Test!pass` };
     await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
-    fund(who.email, 'USDT', '1');
+    await fund(who.email, 'USDT', '1');
 
     const after = accountsRead(await twoFounderRun(state.thresholdId));
     expect(after, 'the new TEST customer’s USDT account joins the next run').toBeGreaterThan(before);
@@ -681,7 +681,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     // ERROR: svc-ledger reads the outside side from an address nothing answers. The run is ERROR at the outside phase with
     // the source named unavailable and no evidence, never PASS. The ledger is put back in the finally (and by the hooks).
     try {
-      ledgerOutside(true);
+      await ledgerOutside(true);
       const error = await twoFounderRun(state.outsideId);
       expect(error).toMatch(/Run [0-9a-f-]{36}: ERROR\./);
       expect(error).not.toMatch(/Run [0-9a-f-]{36}: PASS\./);
@@ -692,7 +692,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       // Stored as ERROR, never PASS, with the same code and phase.
       expect(await storedRun(a, state.outsideId, error, 'ERROR')).toContain('ledger.reconcile_source_unavailable');
     } finally {
-      ledgerOutside(false);
+      await ledgerOutside(false);
     }
   });
 
@@ -706,11 +706,11 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
     const who = { handle: `ops07e${tag}`, email: `ops07e-${tag}@local-test.invalid`, password: `Ops07e-${tag}-Test!pass` };
     await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), who);
     const session = await api(who);
-    expect(fund(who.email, 'USDT', '2.5').tx, 'the USDT credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    expect((await fund(who.email, 'USDT', '2.5')).tx, 'the USDT credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
     // The past instant is the next whole minute after the USDT credit and before the USDC one.
     const instant = new Date(Math.ceil((Date.now() + 1_000) / 60_000) * 60_000);
     await a.waitForTimeout(Math.max(0, instant.getTime() - Date.now()) + 2_000);
-    expect(fund(who.email, 'USDC', '3').tx, 'the USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+    expect((await fund(who.email, 'USDC', '3')).tx, 'the USDC credit is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
     const balances = await session.balances();
     expect(scaled(balances.USDT?.total ?? 'unset'), 'the customer holds the USDT credited').toBe(scaled('2.5'));
     expect(scaled(balances.USDC?.total ?? 'unset'), 'the customer holds the USDC credited').toBe(scaled('3'));
@@ -1155,7 +1155,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       // checks.) 2 is short of the 5 the floor wants, so the next run fails again (#10).
       state.fixPayer = { handle: `ops07f${tag}`, email: `ops07f-${tag}@local-test.invalid`, password: `Ops07f-${tag}-Test!pass` };
       await signUpInBrowser(await (await browser.newContext({ baseURL: ORIGIN })).newPage(), state.fixPayer);
-      const booked = fund(state.fixPayer.email, 'USDT', '2');
+      const booked = await fund(state.fixPayer.email, 'USDT', '2');
       expect(booked.tx, `the deposit names its ledger transaction: ${booked.out}`).toMatch(/^[0-9a-f-]{36}$/);
       const resolved = await resolveWith(a, opened.id, [booked.tx.toUpperCase()], `LOCAL TEST fixed by deposit ${tag}`);
       await expect(resolved).toHaveAttribute('data-state', 'resolved', { timeout: 30_000 });
@@ -1336,7 +1336,7 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
       await expect(kept.getByTestId('alert-evidence')).toHaveText(state.acceptAlert.evidenceText);
 
       // The rest of the 5 USDT arrives: the next run passes and resolves the reopened alert by itself, naming that run.
-      expect(fund(state.fixPayer.email, 'USDT', '3').tx, 'the rest is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
+      expect((await fund(state.fixPayer.email, 'USDT', '3')).tx, 'the rest is a booked ledger transaction').toMatch(/^[0-9a-f-]{36}$/);
       const pass = await twoFounderRun(state.fixId);
       expect(pass).toMatch(/Run [0-9a-f-]{36}: PASS\./);
       expect(evidence(pass, 'USDT').difference).toBe('0');
@@ -1356,12 +1356,12 @@ test.describe.serial('J-ops-console-07 reconcile the books', () => {
         fill: (f) => setPolicy(f, { tolerance: '0' }),
       });
       try {
-        ledgerOutside(true);
+        await ledgerOutside(true);
         const errorRun = await twoFounderRun(errorId);
         expect(errorRun).toMatch(/Run [0-9a-f-]{36}: ERROR\./);
         expect(await storedRun(a, errorId, errorRun, 'ERROR')).toContain('ledger.reconcile_source_unavailable');
       } finally {
-        ledgerOutside(false);
+        await ledgerOutside(false);
       }
       const [platform] = await awaitAlerts(a, errorId, (rows) => rows.length > 0, 'svc-ops raises the ERROR run’s alert');
       const errorRows = await alertsOf(a, errorId);

@@ -83,8 +83,8 @@ function reviewValue(review, label) {
  * transfer `label`: the same label to the same address is the same transfer, so sending it again is a replay. Returns the
  * transaction hash, as Deposit's records show it.
  */
-function chainDeposit(address, amount, label) {
-  const out = tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', amount, '6', '--tx', label);
+async function chainDeposit(address, amount, label) {
+  const out = await tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', amount, '6', '--tx', label);
   expect(out).toContain('"received":true');
   const tx = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
   expect(tx, out).toBeTruthy();
@@ -180,7 +180,7 @@ async function depositReleased(page, browser, client, who, amount, label) {
   await page.getByRole('button', { name: 'Show my deposit address' }).click();
   const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
   expect(address.length).toBeGreaterThan(8);
-  const tx = chainDeposit(address, amount, label);
+  const tx = await chainDeposit(address, amount, label);
   const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
   await expect(async () => {
     await page.reload();
@@ -311,8 +311,8 @@ test(`${J} #3 submits verification, two operators approve it, signs in again and
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
   // The two TEST operators of the stack approve it through identity's own two-person door.
-  tool('local-test-gates.mjs', 'verify');
-  const status = tool('local-test-gates.mjs', 'status');
+  await tool('local-test-gates.mjs', 'verify');
+  const status = await tool('local-test-gates.mjs', 'status');
   const accounts = JSON.parse(status.slice(status.indexOf('{'))).accounts;
   expect(accounts.find((a) => a.handle === who.handle)?.tiers).toContain('full');
   // Signs in again, so the session carries the new level.
@@ -393,7 +393,7 @@ test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, 
   const address = (await page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]').innerText()).trim();
   expect(address.length).toBeGreaterThan(8);
   const label = `jcs01-${who.handle}-1000`;
-  const tx = chainDeposit(address, '1000', label);
+  const tx = await chainDeposit(address, '1000', label);
   // A deposit of 1000 or more waits for the depositor's travel-rule declaration (the stack's TEST rule, W-deposit-07):
   // the person declares where it came from, and compliance releases it once on the founder console.
   // 1000 is at or over the stack's TEST threshold, so this deposit is the held kind (read from the stack's own rule).
@@ -441,7 +441,7 @@ test(`${J} #4 funds TEST 1000 USDT; a replay of the same deposit adds nothing`, 
   const credited = await usdt();
   expect(credited).toMatchObject({ free: expect.stringMatching(/^1000(\.0+)?$/), used: expect.stringMatching(/^0(\.0+)?$/) });
   // The same deposit is replayed (the chain delivers the same transfer again): the same transaction, and nothing added.
-  expect(chainDeposit(address, '1000', label)).toBe(tx);
+  expect(await chainDeposit(address, '1000', label)).toBe(tx);
   // Read for longer than the first credit took to land, so a second credit that posts late is seen.
   for (let i = 0; i < 10; i += 1) {
     expect(await usdt()).toEqual(credited);
@@ -965,7 +965,7 @@ async function saveWallet(page, browser, who) {
     await other.close();
   }
   // The cooling-off runs from the approval; the LOCAL TEST clock moves it past its end.
-  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
+  expect(await tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
   await page.reload();
   await expect(page.locator('tbody tr', { hasText: WALLET_LABEL })).toContainText('Ready to use');
 }
@@ -977,7 +977,7 @@ test(`${J} #12 steps up and asks to withdraw TEST 10 USDT: refused with the name
   test.setTimeout(420_000);
   const who = account();
   // The stack's TEST withdrawal terms (limits, fees, networks), as J-wallet-05 starts from.
-  tool('local-test-gates.mjs', 'withdraw-terms');
+  await tool('local-test-gates.mjs', 'withdraw-terms');
   // A second factor to step up with, from Security, and a saved wallet on TEST Base to send to.
   await signIn(page, who);
   const { totp } = await totpLib();

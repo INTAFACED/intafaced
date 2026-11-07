@@ -68,7 +68,7 @@ const named = (rows, name) => rows.find((s) => s.kind === 'named' && s.name === 
 test(`${J} #1 opens /bank and sees its own Overview with the Bank rooms`, async ({ page }) => {
   const who = await signUp(page, 'jbk');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   run.reset({ who });
 
   await signIn(page, who);

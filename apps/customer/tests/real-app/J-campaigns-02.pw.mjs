@@ -121,8 +121,8 @@ async function verifyAs(page, who, level, tier) {
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-  const status = tool('local-test-gates.mjs', 'status');
+  await tool('local-test-gates.mjs', 'verify');
+  const status = await tool('local-test-gates.mjs', 'status');
   expect(JSON.parse(status.slice(status.indexOf('{'))).accounts.find((a) => a.handle === who.handle)?.tiers).toContain(tier);
   await signOutBrowser(page.context());
 }
@@ -222,8 +222,8 @@ test(`${J} #1 does the first step by a real trade: progress shows 1 of 3, and re
   await signOutBrowser(page.context());
   // Basic verification is what trading needs; the campaign's claim needs full, which comes in #3.
   await verifyAs(page, me, 'Basic', 'basic');
-  expect(fund(me.email, 'USDT', '500').tx).toBeTruthy();
-  expect(fund(me.email, 'BTC', '0.01').tx).toBeTruthy();
+  expect((await fund(me.email, 'USDT', '500')).tx).toBeTruthy();
+  expect((await fund(me.email, 'BTC', '0.01')).tx).toBeTruthy();
   const campaign = await liveCampaign(`TEST three steps ${tag}`, THREE_STEPS);
   run.write({ me, campaignId: campaign.id });
 
@@ -418,14 +418,14 @@ test(`${J} #8 misses a day in a streak task: the streak resets at the zone bound
 
   // One side of the boundary (LOCAL TEST fixture): that trading day becomes yesterday, so today is still inside the run
   // and its reset moves to tomorrow's midnight.
-  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
+  expect(await tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
   const yesterday = (await progressOf(me, streak.id)).steps[0].streak;
   expect(yesterday).toMatchObject({ days: 1, reset: false, lastDay: midnightAfter(today.lastDay, -1).slice(0, 10) });
   expect(yesterday.resetsAt).toBe(midnightAfter(today.lastDay, 1));
   expect(Date.parse(yesterday.resetsAt)).toBeGreaterThan(Date.now());
 
   // The other side: one day more makes it two days ago, so yesterday was missed and the run ended at last midnight.
-  expect(tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
+  expect(await tool('local-test-stack.mjs', 'age-task-progress', me.email, streak.id, '1')).toContain('1 join(s) and 1 counted event(s)');
   await page.reload();
   const reset = page.getByTestId('task-streak');
   await expect(reset).toHaveAttribute('data-reset', 'true');

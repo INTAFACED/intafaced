@@ -97,7 +97,7 @@ test(`${J} #1 opens matching and trade health: venue health from the engine; a m
   // once (run 42241363359 saw 6 submits before the first read), so the metric not yet read is the submit latency of the
   // unquoted TEST market IFC/USDC, which nothing but a journey trades. The restart replays the journal, so the books
   // come back as they were (the engine's own restingOrders below says so).
-  tool('local-test-stack.mjs', 'restart', 'matching');
+  await tool('local-test-stack.mjs', 'restart', 'matching');
   await engineBackUp();
 
   await health(page);
@@ -144,7 +144,7 @@ test(`${J} #1 opens matching and trade health: venue health from the engine; a m
 
   // One IFC/USDC order reaches the engine (a TEST bid far under any price, cancelled again so the book stays empty);
   // after a refresh the same metric is read, and it is the engine's own figure.
-  expect(fund(customer.email, 'USDC', '5').tx).toBeTruthy();
+  expect((await fund(customer.email, 'USDC', '5')).tx).toBeTruthy();
   const order = await place(customer, {
     symbol: 'IFC/USDC',
     type: 'limit',
@@ -216,7 +216,7 @@ test(`${J} #3 opens FIX sessions and SBE consumers: sessions, CompID mapping and
 
   // The adapter's own status, read through the edge's operator door; the room shows exactly that, row for row.
   const status = JSON.parse(
-    tool('local-test-gates.mjs', 'adapter-status')
+    (await tool('local-test-gates.mjs', 'adapter-status'))
       .split('\n')
       .find((l) => l.startsWith('ADAPTER_STATUS_JSON '))
       .slice(20),

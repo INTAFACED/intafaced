@@ -161,12 +161,12 @@ test(`${J} #1 opens the Test panel and runs a test: mode test, billing 0, no res
   // svc-agents restarted as a live-engine deployment (LOCAL_STACK_AGENTS_SANDBOX_ENGINE=off): its routes say live runs
   // use a live model, at a TEST address nothing answers at, so any call to it fails. The test still answers, on the test
   // engine, and nothing moves; then the stack's sandbox engine comes back.
-  restartWith('agents', 'LOCAL_STACK_AGENTS_SANDBOX_ENGINE', false);
+  await restartWith('agents', 'LOCAL_STACK_AGENTS_SANDBOX_ENGINE', false);
   try {
     expect(await deploymentEngine()).toBe('live');
     await runATest(page, 'TEST question on a live engine', 'live');
   } finally {
-    restartWith('agents', 'LOCAL_STACK_AGENTS_SANDBOX_ENGINE', true);
+    await restartWith('agents', 'LOCAL_STACK_AGENTS_SANDBOX_ENGINE', true);
   }
   expect(await deploymentEngine()).toBe('sandbox');
 });

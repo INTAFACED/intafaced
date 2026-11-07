@@ -68,7 +68,7 @@ test(`${J} starts: a verified TEST account with 100 USDT, and an approved TEST s
   expect(listing).toMatchObject({ title, offerType: 'subscription', status: 'active' });
   const who = await signUp(page, 'mk');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   run.reset({ who, seller, title, listingId: listing.id });
 });
 
@@ -399,12 +399,12 @@ test(`${J} #5 presses Buy again, or loses the reply: one purchase, and the scree
  * Market restarted with the owner's refund policy blank, or back on the stack's TEST policy
  * (tooling/profiles/test-owner-values/market.json). The stack sets the policy by default, so #6 sets up "undecided" itself.
  */
-function marketRefundPolicy(on) {
+async function marketRefundPolicy(on) {
   const before = process.env.LOCAL_STACK_MARKET_REFUND_POLICY;
   if (on) delete process.env.LOCAL_STACK_MARKET_REFUND_POLICY;
   else process.env.LOCAL_STACK_MARKET_REFUND_POLICY = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'market');
+    await tool('local-test-stack.mjs', 'restart', 'market');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_MARKET_REFUND_POLICY;
     else process.env.LOCAL_STACK_MARKET_REFUND_POLICY = before;
@@ -463,7 +463,7 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   await signIn(page, who);
   const row = tableIn(page, 'Your purchases').getByRole('row', { name: new RegExp(title) });
   // The refund policy undecided (blank): the refund shows its named blocker, moves nothing, and the purchase stays held.
-  marketRefundPolicy(false);
+  await marketRefundPolicy(false);
   try {
     const programme = await (await api(who)).get('/api/market/trpc/commerceProgramme');
     expect(programme.body?.result?.data, JSON.stringify(programme.body).slice(0, 300)).toMatchObject({ refundPolicy: null });
@@ -500,7 +500,7 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
     expect(await usdt(who)).toEqual(before);
     expect(await usdt(seller)).toEqual(sellerBefore);
   } finally {
-    marketRefundPolicy(true);
+    await marketRefundPolicy(true);
   }
   // The policy set again (the stack's TEST value, read back), and the buyer asks inside the window. Asking moves nothing.
   const restored = await (await api(who)).get('/api/market/trpc/commerceProgramme');
@@ -557,7 +557,7 @@ test(`${J} #6 requests a refund inside the window: the amount returns once; with
   const otherPage = await (await browser.newContext()).newPage();
   const other = await signUp(otherPage, 'mkr');
   await verify(otherPage, other);
-  expect(fund(other.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(other.email, 'USDT', '100')).tx).toBeTruthy();
   await otherPage.context().close();
   const otherStart = await usdt(other);
   const buyerStart = await usdt(who);

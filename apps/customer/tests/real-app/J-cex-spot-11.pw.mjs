@@ -274,7 +274,7 @@ test(`${J} #6 loses the connection on accept: the note stays; Check again asks a
 test(`${J} #7 converts while instant buys are paused: "Use Spot" with the reason; nothing sent`, async ({ page }) => {
   test.setTimeout(240_000);
   const who = account();
-  restartWith('trade', 'LOCAL_STACK_TRADE_CONVERT', false);
+  await restartWith('trade', 'LOCAL_STACK_TRADE_CONVERT', false);
   try {
     await signIn(page, who);
     await pick(page, 'USDT', 'BTC');
@@ -288,7 +288,7 @@ test(`${J} #7 converts while instant buys are paused: "Use Spot" with the reason
     expect(calls).not.toContain('convert.accept');
     expect((await ledger(who)).USDT.total).toBe(before.USDT.total);
   } finally {
-    restartWith('trade', 'LOCAL_STACK_TRADE_CONVERT', true);
+    await restartWith('trade', 'LOCAL_STACK_TRADE_CONVERT', true);
   }
 });
 
@@ -320,7 +320,7 @@ test(`${J} #8 sets a limit convert at a target rate: the source is held until th
   expect(held.USDT.total).toBe(before.USDT.total);
   await expect(card(page).getByRole('region', { name: 'Waiting limit converts' })).toContainText(`1 BTC ≤ ${target}`);
   try {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '-1.50%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '-1.50%');
     const done = await until(
       async () => (await me.get('/api/trade/trpc/convert.limits')).body.result.data.find((l) => l.id === order.id),
       (l) => l?.status === 'filled',
@@ -335,7 +335,7 @@ test(`${J} #8 sets a limit convert at a target rate: the source is held until th
     expect(after.USDT.free).toBe(after.USDT.total);
     expect((toUnits(done.paid) * 10n ** 18n) / toUnits(done.received) <= toUnits(target)).toBe(true);
   } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
   }
 });
 
@@ -343,7 +343,7 @@ test(`${J} #9 converts a very large amount: routed to the quote desk, which says
   page,
 }) => {
   test.setTimeout(240_000);
-  restartWith('trade', 'LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', false);
+  await restartWith('trade', 'LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', false);
   try {
     await signIn(page, account());
     await pick(page, 'USDT', 'BTC');
@@ -354,7 +354,7 @@ test(`${J} #9 converts a very large amount: routed to the quote desk, which says
     await expect(desk).toBeFocused();
     await expect(desk).toContainText('The quote desk is closed for conversions until its rules are published.');
   } finally {
-    restartWith('trade', 'LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', true);
+    await restartWith('trade', 'LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', true);
   }
 });
 
@@ -419,7 +419,7 @@ test(`${J} #12 a developer asks for a quote and trades through the convert API: 
 }) => {
   test.setTimeout(240_000);
   const { page, who } = await keyHolder(browser, 'jcs11k');
-  expect((await import('./stack.mjs')).fund(who.email, 'USDT', '50').tx).toBeTruthy();
+  expect((await (await import('./stack.mjs')).fund(who.email, 'USDT', '50')).tx).toBeTruthy();
   const key = await makeKey(page, { name: 'convert-bot', preset: 'Trade' });
   const me = await api(who);
   const before = await me.balances();

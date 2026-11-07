@@ -255,7 +255,7 @@ test(`${J} #6 opens the chart of a halted market: order entry on the chart is di
   const sent = orderWrites();
   let halted = false;
   try {
-    tool('local-test-gates.mjs', 'halt', HALTED);
+    await tool('local-test-gates.mjs', 'halt', HALTED);
     halted = true;
     await page.goto(`/charts/${HALTED.replace('/', '-')}`);
     await expect(host()).toBeVisible();
@@ -274,7 +274,7 @@ test(`${J} #6 opens the chart of a halted market: order entry on the chart is di
     expect(await openOrders(who, HALTED)).toHaveLength(0);
   } finally {
     try {
-      tool('local-test-gates.mjs', 'resume', HALTED);
+      await tool('local-test-gates.mjs', 'resume', HALTED);
     } catch (err) {
       if (halted) throw err;
     }

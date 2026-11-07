@@ -136,7 +136,7 @@ test(`${J} #1 opens /money: every holding with amount, price, value and share, a
   test.setTimeout(150_000);
   const who = await fundedTrader(page, 'pf1', '1000');
   run.reset({ account: who });
-  expect(fund(who.email, 'EUR', '25').tx).toBeTruthy();
+  expect((await fund(who.email, 'EUR', '25')).tx).toBeTruthy();
   await signIn(page, who);
   await buyNow(page, who, 'BTC/USDT', '0.001');
   await buyNow(page, who, 'ETH/USDT', '0.01');
@@ -518,7 +518,7 @@ test(`${J} #8 opens /money while prices cannot be read: the refusal in plain wor
   await signIn(page, who);
   try {
     // svc-trade publishes the prices the bank values with; with it stopped, the bank refuses rather than guess.
-    tool('local-test-stack.mjs', 'stop', 'trade');
+    await tool('local-test-stack.mjs', 'stop', 'trade');
     const refused = await (await api(who)).get('/api/bank/trpc/portfolio.summary');
     expect(JSON.stringify(refused.body)).toContain('bank.prices_unavailable');
     await page.goto('/money');
@@ -529,7 +529,7 @@ test(`${J} #8 opens /money while prices cannot be read: the refusal in plain wor
     await expect(money(page).getByTestId('money-total').locator('[data-slot="hero-number"]')).toHaveCount(0);
     await expect(money(page).locator('tr[data-testid="money-row"]')).toHaveCount(0);
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'trade');
+    await tool('local-test-stack.mjs', 'start', '--only', 'trade');
   }
   await page.goto('/money');
   await expect(coinRow(page, 'BTC').locator('[data-col="price"]')).toContainText('$', { timeout: 30_000 });

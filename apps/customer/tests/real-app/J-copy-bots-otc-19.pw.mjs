@@ -61,7 +61,7 @@ async function balance(asset) {
 test(`${J} #1 creates a neutral grid bot by API: one bot; stopping with settlement keep leaves the positions`, async ({ browser }) => {
   test.setTimeout(300_000);
   const { page, who } = await keyHolder(browser, 'jcb');
-  expect(fund(who.email, 'USDT', '2000').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '2000')).tx).toBeTruthy();
   const key = await makeKey(page);
   // A second key that may only read, for #7's refusal of a write without trade:write.
   const readKey = await makeKey(page, { name: 'read-1', preset: 'Read only' });
@@ -100,12 +100,12 @@ test(`${J} #1 creates a neutral grid bot by API: one bot; stopping with settleme
   const mid = (toUnits(now.bid) + toUnits(now.ask)) / 2n;
   let held, before, stopped;
   try {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
     held = await untilBot(id, (bot) => bot.orders.some((o) => o.side === 'buy' && o.status === 'filled'));
     before = await balance('BTC');
     stopped = await call('POST', `/api/v1/bots/grid/${id}/stop`, { settlement: 'keep' });
   } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
   }
   expect(before > 0n, 'the filled buy delivered BTC').toBe(true);
   expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);

@@ -38,7 +38,7 @@ async function openOnChain(page) {
 test(`${J} starts: a verified TEST account with the TEST wallet connected on the test network`, async ({ page }) => {
   test.setTimeout(240_000);
   await agents.start(page, 'ag19', '10');
-  wallet.start();
+  await wallet.start();
   await signIn(page, agents.account());
   await connectWallet(page, wallet);
 });

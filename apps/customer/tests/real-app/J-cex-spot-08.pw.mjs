@@ -107,7 +107,7 @@ test(`${J} #1 places a stop-limit with a trigger and a limit: trigger stored, fu
   // A failed sign-up leaves no account behind for the later steps, never the last run's.
   run.reset({});
   const who = await fundedTrader(page, 'js8', '5000');
-  expect(fund(who.email, 'BTC', '0.02').tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.02')).tx).toBeTruthy();
   run.reset({ account: who });
   await deskFor(page, who);
 

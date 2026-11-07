@@ -93,10 +93,10 @@ test.beforeAll(async ({ browser }) => {
   test.setTimeout(180_000);
   const page = await browser.newPage();
   who = await fundedTrader(page, 'hm', '1000');
-  expect(fund(who.email, 'BTC', '0.01').tx).toBeTruthy();
-  expect(fund(who.email, 'EUR', '25').tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.01')).tx).toBeTruthy();
+  expect((await fund(who.email, 'EUR', '25')).tx).toBeTruthy();
   // The newest movement, with all 18 decimals, so the list must show it to the last digit.
-  expect(fund(who.email, 'USDT', '0.123456789012345678').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '0.123456789012345678')).tx).toBeTruthy();
   await page.close();
 });
 
@@ -278,7 +278,7 @@ test(`${J} #4 Needs you: an unverified person gets one item to Verification that
 
   // An open loan while the owner's margin warning level is blank: no margin item and no error, only loans in a call would
   // be listed (none is). The loan is the bank's TEST product from the stack's content seed.
-  expect(fund(fresh.email, 'BTC', '0.01').tx).toBeTruthy();
+  expect((await fund(fresh.email, 'BTC', '0.01')).tx).toBeTruthy();
   const client = await api(fresh);
   const products = await client.get(`/api/bank/trpc/loans.products?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
   expect(products.status, JSON.stringify(products.body).slice(0, 300)).toBe(200);
@@ -359,7 +359,7 @@ test(`${J} #6 Get started reads each step from the account's records, survives a
   // Verified, then money in through the real ledger: both steps are done on the next load.
   await verify(page, fresh);
   await signIn(page, fresh);
-  expect(fund(fresh.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(fresh.email, 'USDT', '100')).tx).toBeTruthy();
   await page.goto('/');
   expect(statuses(await startedSteps(page))).toEqual({
     register: 'done',

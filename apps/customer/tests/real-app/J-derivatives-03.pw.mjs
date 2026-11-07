@@ -382,11 +382,11 @@ test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a red
   test.setTimeout(300_000);
   const me = await api(account());
   // Two trade workers run the conditional job against the same stack for this whole step; the trigger must fire once.
-  tool('local-test-stack.mjs', 'second-worker', 'trade', 'start');
+  await tool('local-test-stack.mjs', 'second-worker', 'trade', 'start');
   try {
     await firesOnceWithTwoWorkers(page, me);
   } finally {
-    tool('local-test-stack.mjs', 'second-worker', 'trade', 'stop');
+    await tool('local-test-stack.mjs', 'second-worker', 'trade', 'stop');
   }
 });
 

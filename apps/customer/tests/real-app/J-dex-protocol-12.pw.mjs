@@ -51,7 +51,7 @@ async function openPosition(page) {
 }
 
 test(`${J} starts: a TEST wallet holding TEST tokens A and B`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await openPools(page);
 });
 

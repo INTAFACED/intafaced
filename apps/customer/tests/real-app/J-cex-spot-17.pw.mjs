@@ -197,7 +197,7 @@ async function restingIfcBuy(who, client, amount, clientOrderId) {
   const cost = times(price, amount);
   // Whole USDT, rounded up: the cost plus 5%, so any fill price at or under the limit stays covered.
   const one = toUnits('1');
-  fund(who.email, 'USDT', fromUnits(((cost * 105n) / 100n / one + 1n) * one));
+  await fund(who.email, 'USDT', fromUnits(((cost * 105n) / 100n / one + 1n) * one));
   const placed = await client.post('/api/v1/orders', {
     symbol: 'IFC/USDT',
     side: 'buy',
@@ -224,7 +224,7 @@ async function sellInto(who, { id, price }, clientOrderId) {
     const ahead = body.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
     const size = fromUnits(ahead + toUnits(resting.remaining));
     const seller = otherTrader();
-    fund(seller.email, 'IFC', size);
+    await fund(seller.email, 'IFC', size);
     const sell = await (
       await api(seller)
     ).post('/api/v1/orders', {
@@ -578,7 +578,7 @@ test(`${J} #8 reads sell quotes and fiat buy fees: a finance read of quotes and 
   test.setTimeout(150_000);
   // A customer asks for a sell quote on Convert and a price to buy USDT with money, as the screens do.
   const who = await fundedTrader(page, 'js17q', '10');
-  fund(who.email, 'BTC', '0.01');
+  await fund(who.email, 'BTC', '0.01');
   const client = await api(who);
   const asked = await client.get(
     `/api/trade/trpc/convert.quote?input=${encodeURIComponent(JSON.stringify({ symbol: 'BTC/USDT', side: 'sell', qty: '0.001' }))}`,

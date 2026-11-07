@@ -76,8 +76,8 @@ test(`${J} #1 the payee opens Request, picks a person, enters TEST 12 USDT and a
   await verify(page, payer);
   const payee = await signUp(page, 'jra');
   await verify(page, payee);
-  expect(fund(payer.email, 'USDT', '30').tx).toBeTruthy();
-  expect(fund(payee.email, 'USDT', '1').tx).toBeTruthy();
+  expect((await fund(payer.email, 'USDT', '30')).tx).toBeTruthy();
+  expect((await fund(payee.email, 'USDT', '1')).tx).toBeTruthy();
   payer.userId = (await api(payer)).userId;
   payee.userId = (await api(payee)).userId;
   run.reset({ payee, payer, before: { payee: await usdt(payee), payer: await usdt(payer) } });

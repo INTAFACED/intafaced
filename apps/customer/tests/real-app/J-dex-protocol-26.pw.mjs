@@ -61,7 +61,7 @@ async function seeded(page, section, name) {
 }
 
 test(`${J} starts: a connected TEST wallet, a crew of three and a smart account the person owns`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
 });
 

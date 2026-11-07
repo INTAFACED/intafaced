@@ -172,7 +172,7 @@ test(`${J} #2 reads the tier table: the published tiers and maintenance rates, a
   // With no ladder published: the trade lane restarted with the ladder blank, then put back as it was, whatever happens.
   const before = await me.balances();
   try {
-    restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', false);
+    await restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', false);
     // The same read refuses on the ladder code, an owner's answer (4xx), never invented tiers.
     await tiersAnswer(me, 409);
     const unset = await me.get(TIERS);
@@ -198,7 +198,7 @@ test(`${J} #2 reads the tier table: the published tiers and maintenance rates, a
     expect(open.body.error, JSON.stringify(open.body)).toBe('trade.ladder_unset');
     expect(await me.balances()).toEqual(before);
   } finally {
-    restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', true);
+    await restartWith('trade', 'LOCAL_STACK_TRADE_FUTURES_LADDER', true);
     await tiersAnswer(me, 200);
   }
 });
@@ -321,7 +321,7 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   // A size worth about 1.5 times the max-order, as a long limit at half the mark: outside the band, and over the cap.
   const size = fromUnits(((MAX_ORDER * 3n * unit * unit) / 2n / mark / lot) * lot);
   const far = fromUnits((mark / 2n / unit) * unit);
-  fund(who.email, 'USDT', '40000'); // TEST money: the whole order's margin at 5x
+  await fund(who.email, 'USDT', '40000'); // TEST money: the whole order's margin at 5x
   const before = await me.balances();
   await page.reload();
   await expect(ticket.getByRole('button', { name: 'Open long' })).toBeVisible();
@@ -420,7 +420,7 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   // nothing held or placed.
   const unsetBefore = await me.balances();
   try {
-    restartWith('trade', 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', false);
+    await restartWith('trade', 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', false);
     let refusedPreview = null;
     await expect
       .poll(
@@ -454,7 +454,7 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
     expect(await me.balances()).toEqual(unsetBefore);
     expect((await me.get('/api/v1/positions')).body).toEqual([]);
   } finally {
-    restartWith('trade', 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', true);
+    await restartWith('trade', 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', true);
   }
 });
 
@@ -620,7 +620,7 @@ test(`${J} #7 opens beyond the open-interest share and with no limit published: 
   }
   try {
     // One basis point per account: with a TEST limit of 1000 BTC, one account may hold 0.1 BTC.
-    tool('local-test-gates.mjs', 'risk', SYMBOL, 'oiShareBps=1');
+    await tool('local-test-gates.mjs', 'risk', SYMBOL, 'oiShareBps=1');
     await expect.poll(async () => (await preview('0.001')).body.openInterest?.accountCap).toBe('0.1');
 
     // The review shows the room before Confirm, and names the rule when the size is past it; Open stays off.
@@ -644,7 +644,7 @@ test(`${J} #7 opens beyond the open-interest share and with no limit published: 
     expect((await me.get('/api/v1/futures/orders?scope=open&limit=10')).body).toEqual([]);
 
     // With the limit unset, every open on the contract refuses by name; nothing is held.
-    tool('local-test-gates.mjs', 'risk', SYMBOL, 'oiLimit=unset');
+    await tool('local-test-gates.mjs', 'risk', SYMBOL, 'oiLimit=unset');
     await expect.poll(async () => (await preview('0.001')).body.openInterest ?? null).toBeNull();
     const blank = await preview('0.001');
     expect(blank.body.refusals).toContainEqual(expect.objectContaining({ code: 'trade.oi_limit_unset', field: 'openInterest' }));
@@ -657,7 +657,7 @@ test(`${J} #7 opens beyond the open-interest share and with no limit published: 
     expect(unset.body.error).toBe('trade.oi_limit_unset');
     expect(await me.balances()).toEqual(before);
   } finally {
-    tool('local-test-gates.mjs', 'risk', SYMBOL, ...restore);
+    await tool('local-test-gates.mjs', 'risk', SYMBOL, ...restore);
   }
   const back = (await preview('0.001')).body.openInterest;
   expect([back?.limit, back?.shareBps]).toEqual([published.limit, published.shareBps]);
@@ -678,7 +678,7 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
   const UNSET = ['priceRangeMax=unset', 'priceRangeTrigger=unset', 'priceRangeCadenceSeconds=unset'];
 
   // No range is published on the stack: the owner's static band (LOCAL TEST 5%) is in force, and says why.
-  tool('local-test-gates.mjs', 'risk', SYMBOL, ...UNSET);
+  await tool('local-test-gates.mjs', 'risk', SYMBOL, ...UNSET);
   await expect.poll(async () => (await preview()).body.band?.reason).toBe('price_range_unset');
   expect((await preview()).body.band).toMatchObject({ fraction: '0.05', staticFraction: '0.05', source: 'static', max: null });
 
@@ -712,7 +712,7 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
   };
 
   try {
-    tool('local-test-gates.mjs', 'risk', SYMBOL, ...RANGE);
+    await tool('local-test-gates.mjs', 'risk', SYMBOL, ...RANGE);
     // While the bid rests the band in force is the static band plus the premium. Each check below reads one preview,
     // so its band and its verdict belong together.
     const dynamic = async (body) => {
@@ -799,7 +799,7 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
     expect(await me.balances()).toEqual(before);
   } finally {
     if (lean) await me.delete(`/api/v1/futures/orders/${encodeURIComponent(lean.id)}`);
-    tool('local-test-gates.mjs', 'risk', SYMBOL, ...UNSET);
+    await tool('local-test-gates.mjs', 'risk', SYMBOL, ...UNSET);
   }
   // With the range cleared, the static band is in force again.
   await expect.poll(async () => (await preview()).body.band?.reason).toBe('price_range_unset');

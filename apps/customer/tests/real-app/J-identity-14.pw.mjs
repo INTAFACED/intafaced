@@ -31,7 +31,7 @@ function person(prefix = 'ap') {
 async function restricted(page, prefix) {
   const who = person(prefix);
   await signUpInBrowser(page, who);
-  expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict', TRADING_REASON.code)).toMatch(
+  expect(await tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict', TRADING_REASON.code)).toMatch(
     /OK .* trading restrict: changed/,
   );
   return who;
@@ -64,11 +64,11 @@ async function fileAppeal(page, text) {
 }
 
 const lifts = [];
-test.afterAll(() => {
+test.afterAll(async () => {
   // Leave no journey account restricted if a test stopped before its own lift.
   for (const handle of lifts) {
     try {
-      tool('local-test-gates.mjs', 'trading-restrict', handle, 'restore');
+      await tool('local-test-gates.mjs', 'trading-restrict', handle, 'restore');
     } catch {
       // Already lifted, which is what the test does on success.
     }
@@ -137,12 +137,14 @@ test(`${J} #4 gets a decision, upheld: the restriction stays with a reason and a
   const keptClient = await api(kept);
   await fileAppeal(page, 'TEST: please look again.');
   // The founder who set the restriction cannot decide its appeal: identity refuses that person by name (and its approver).
-  expect(tool('local-test-gates.mjs', 'appeal-decide', kept.handle, 'uphold', UPHOLD_REASON.code, '--as-restrictor')).toMatch(
+  expect(await tool('local-test-gates.mjs', 'appeal-decide', kept.handle, 'uphold', UPHOLD_REASON.code, '--as-restrictor')).toMatch(
     /REFUSED .* appeal uphold: .*identity\.appeal_decider_restricted/,
   );
   expect((await readBack(keptClient)).mine.appeals[0]).toMatchObject({ status: 'submitted', decision: null, decidedAt: null });
   // A compliance operator who neither set nor approved the restriction decides.
-  expect(tool('local-test-gates.mjs', 'appeal-decide', kept.handle, 'uphold', UPHOLD_REASON.code)).toMatch(/OK .* appeal uphold: upheld/);
+  expect(await tool('local-test-gates.mjs', 'appeal-decide', kept.handle, 'uphold', UPHOLD_REASON.code)).toMatch(
+    /OK .* appeal uphold: upheld/,
+  );
   const upheld = await readBack(keptClient);
   expect(upheld.mine.appeals).toHaveLength(1);
   expect(upheld.mine.appeals[0]).toMatchObject({
@@ -173,7 +175,7 @@ test(`${J} #4 gets a decision, lifted: the restriction is released through four 
   lifts.push(freed.handle);
   const freedClient = await api(freed);
   await fileAppeal(page, 'TEST: the review should clear me.');
-  expect(tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'lift', LIFT_REASON.code)).toMatch(/OK .* appeal lift: lifted/);
+  expect(await tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'lift', LIFT_REASON.code)).toMatch(/OK .* appeal lift: lifted/);
   const lifted = await readBack(freedClient);
   expect(lifted.mine.appeals).toHaveLength(1);
   expect(lifted.mine.appeals[0]).toMatchObject({ status: 'lifted', decision: { outcome: 'lifted', reason: LIFT_REASON } });
@@ -189,5 +191,7 @@ test(`${J} #4 gets a decision, lifted: the restriction is released through four 
   await expect.poll(() => mailedLines(freed.email, 'appeal-decided'), { timeout: 30_000 }).toHaveLength(1);
   expect(mailedLines(freed.email, 'appeal-decided')[0]).toMatch(/notice=appeal-decided outcome=lifted/);
   // A decided appeal is no longer open: there is nothing left to decide.
-  expect(() => tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'uphold', UPHOLD_REASON.code)).toThrow(/has no open appeal/);
+  await expect(tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'uphold', UPHOLD_REASON.code)).rejects.toThrow(
+    /has no open appeal/,
+  );
 });

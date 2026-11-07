@@ -155,7 +155,7 @@ async function member(page, prefix, stake = null) {
   await verify(page, who);
   const client = await api(who);
   if (stake) {
-    expect(fund(who.email, 'IFC', String(Number(stake) + 100)).tx).toBeTruthy();
+    expect((await fund(who.email, 'IFC', String(Number(stake) + 100))).tx).toBeTruthy();
     const staked = await client.post('/api/token/trpc/stake', { amount: stake, tier: 'flex', stakeId: randomUUID() });
     expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
   }

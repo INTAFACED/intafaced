@@ -108,12 +108,12 @@ const rowOf = (page, name) =>
     .filter({ hasText: `TEST Essay ${name}.` });
 
 /** Academy restarted with the grader hold time blank (`off`) or back on the stack's TEST value. */
-function graderLease(on) {
+async function graderLease(on) {
   const before = process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE;
   if (on) delete process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE;
   else process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'academy');
+    await tool('local-test-stack.mjs', 'restart', 'academy');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE;
     else process.env.LOCAL_STACK_ACADEMY_GRADER_LEASE = before;
@@ -186,7 +186,7 @@ test(`${J} #2 a second grader is refused while the first holds the hand-in; a bl
   await first.context().close();
 
   // With the owner's hold time blank, the first grade on a hand-in refuses by name and nothing is graded.
-  graderLease(false);
+  await graderLease(false);
   try {
     const desk = await console_(browser, 'a');
     await desk.goto(run.url);
@@ -199,7 +199,7 @@ test(`${J} #2 a second grader is refused while the first holds the hand-in; a bl
     await expect(desk.getByTestId('grade-form')).toHaveCount(0);
     await desk.context().close();
   } finally {
-    graderLease(true);
+    await graderLease(true);
   }
 });
 

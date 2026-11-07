@@ -141,7 +141,7 @@ test('J-ops-console-04 #2 holds part of a customer’s funds with a reason: avai
   const signedIn = await login(who);
   expect(signedIn.status).toBe(200);
   const userId = (await signedIn.json()).result.data.userId;
-  fund(who.email, 'USDT', '100', `ops42-${tag}`);
+  await fund(who.email, 'USDT', '100', `ops42-${tag}`);
   expect(await usdt(who)).toEqual({ free: '100', total: '100' });
 
   const a = await (await browser.newContext()).newPage();
@@ -216,7 +216,7 @@ test('J-ops-console-04 #3 a hold with an expiry releases itself at the stored ti
     // Marked on before the call: a freeze that reached the ledger is lifted even if the call's own answer failed.
     freezeOn = true;
     await setPostingFreeze(a, b, true, `LOCAL TEST J-ops-console-04 #3 retried release ${tag}`);
-    tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
+    await tool('local-test-stack.mjs', 'expire-staff-holds', who.email);
     await expect
       .poll(
         async () => {

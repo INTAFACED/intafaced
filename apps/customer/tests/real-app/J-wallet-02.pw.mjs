@@ -38,8 +38,8 @@ function state() {
  * One TEST chain delivery of `amount` to `address`, `confirmations` deep, as transfer `label` (the same label to the same
  * address is the same transfer). Returns the transaction hash the tool printed, as the records table shows it.
  */
-function chainDeposit(address, amount, confirmations, label) {
-  const out = tool('local-test-stack.mjs', 'chain-deposit', address, ASSET, amount, String(confirmations), '--tx', label);
+async function chainDeposit(address, amount, confirmations, label) {
+  const out = await tool('local-test-stack.mjs', 'chain-deposit', address, ASSET, amount, String(confirmations), '--tx', label);
   expect(out).toContain('"received":true');
   const tx = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
   expect(tx, out).toBeTruthy();
@@ -70,21 +70,21 @@ const recordRow = (page, tx) => records(page).locator('tbody tr', { hasText: tx 
  * once the bank is connected again.
  */
 const custody = journeyState(`${J}-custody`);
-function bankDepositCustody(on) {
+async function bankDepositCustody(on) {
   const before = process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
   if (on) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
   else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = 'off';
   if (!on) custody.write({ off: true });
   try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
     if (on) custody.reset({});
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY;
     else process.env.LOCAL_STACK_BANK_DEPOSIT_CUSTODY = before;
   }
 }
-const putCustodyBack = () => {
-  if (custody.read().off) bankDepositCustody(true);
+const putCustodyBack = async () => {
+  if (custody.read().off) await bankDepositCustody(true);
 };
 // A step that fails or times out never reaches its own end, so the hooks put custody back before the next step, and a run
 // that was cancelled with custody off is put back before this one starts.
@@ -97,7 +97,7 @@ test(`${J} #1 opens Deposit with custody unset: the whole room, every control, a
   test.setTimeout(240_000);
   const who = await signUp(page, 'w2u');
   await verify(page, who);
-  bankDepositCustody(false);
+  await bankDepositCustody(false);
   // The bank's own answer names the blocker on the room's catalogue, incoming and records reads.
   const client = await api(who);
   const reads = { 'deposits.assets': undefined, 'deposits.pending': undefined, 'deposits.list': { offset: 0, limit: 20 } };
@@ -135,7 +135,7 @@ test(`${J} #1 opens Deposit with custody unset: the whole room, every control, a
   await expect(records(page)).toBeVisible();
   await expect(page.getByText('Deposit records cannot be shown because crypto custody isn’t connected.')).toBeVisible();
   await expect(page.getByText(/coming soon/i)).toHaveCount(0);
-  bankDepositCustody(true);
+  await bankDepositCustody(true);
   // Connected again, the same person's catalogue answers, so #3 starts from a connected stack.
   const { status } = await (await api(who)).get('/api/bank/trpc/deposits.assets');
   expect(status).toBe(200);
@@ -198,21 +198,21 @@ test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirmi
   const before = await usdt();
   await openDeposit(page, who);
 
-  const tx = chainDeposit(address, '100', 0, label);
+  const tx = await chainDeposit(address, '100', 0, label);
   await page.reload();
   const pending = page.locator('section', { has: page.getByRole('heading', { name: 'On its way' }) });
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'detected');
   await expect(pending).toContainText('0 of 6 confirmations');
   expect(await usdt()).toBe(before);
 
-  chainDeposit(address, '100', 3, label);
+  await chainDeposit(address, '100', 3, label);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'confirming');
   await expect(recordRow(page, tx)).toContainText('3 of 6 confirmations');
   await expect(pending).toContainText('3 of 6 confirmations');
   expect(await usdt()).toBe(before);
 
-  chainDeposit(address, '100', 6, label);
+  await chainDeposit(address, '100', 6, label);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
   await expect(pending).toContainText('Nothing is on its way.');
@@ -221,7 +221,7 @@ test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirmi
   run.write({ credits: (run.read().credits ?? 0) + 1 });
 
   // Under the published minimum of 10: recorded as below minimum, with the reason, and nothing posts.
-  const small = chainDeposit(address, '5', 6, `jw02-${who.handle}-5-r${testInfo.retry}`);
+  const small = await chainDeposit(address, '5', 6, `jw02-${who.handle}-5-r${testInfo.retry}`);
   await page.reload();
   await expect(recordRow(page, small).locator('[data-status]')).toHaveAttribute('data-status', 'below_minimum');
   expect(await usdt()).toBe(before + toUnits('100'));
@@ -249,7 +249,7 @@ test(`${J} #6 the chain event is delivered three times: one row, one credit, and
   expect(credits).toBeGreaterThanOrEqual(1);
 
   // The same chain event, delivered three more times: each delivery is accepted and names the same transaction.
-  for (let i = 0; i < 3; i += 1) expect(chainDeposit(address, '100', 6, label)).toBe(tx);
+  for (let i = 0; i < 3; i += 1) expect(await chainDeposit(address, '100', 6, label)).toBe(tx);
   const client = await api(who);
   const ledgerNow = (await client.balances())[ASSET];
   expect(ledgerNow, `the ledger answered no ${ASSET} balance`).toBeTruthy();
@@ -367,7 +367,7 @@ test(`${J} #4 creates another address and labels it: a list with labels and expi
   await expect(row(list, 2).locator('strong')).toHaveText('Exchange payouts');
 
   // Both extra addresses expire (LOCAL TEST tool, in custody and in the list); they stay listed, and their places free up.
-  const out = tool('local-test-stack.mjs', 'expire-deposit-addresses', who.email);
+  const out = await tool('local-test-stack.mjs', 'expire-deposit-addresses', who.email);
   expect(out).toContain('2 extra deposit address(es)');
   list = await showAddresses(true);
   await expect(row(list, 1)).toHaveAttribute('data-state', 'expired');
@@ -376,7 +376,7 @@ test(`${J} #4 creates another address and labels it: a list with labels and expi
   await expect(list.getByTestId('deposit-addresses-cap')).toContainText('Open addresses here: 1 of 3');
 
   // TEST 50 USDT sent to the expired address: recorded as held for release with its reason, and nothing is credited.
-  const tx = chainDeposit(extra, '50', 6, `jw02-${who.handle}-expired-r${testInfo.retry}`);
+  const tx = await chainDeposit(extra, '50', 6, `jw02-${who.handle}-expired-r${testInfo.retry}`);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_for_release');
   await expect(recordRow(page, tx)).toContainText('Held for release');

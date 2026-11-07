@@ -1,12 +1,11 @@
 // World: stack
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from './journey.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, api as account, fromUnits, fund, journeyState, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api as account, fromUnits, fund, journeyState, toUnits, execText } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-11, in the running app (docs/roadmap/journeys.json): I repay and close my loan. Step 1 (BK-loan-06): the loan's
@@ -54,11 +53,11 @@ async function bank(who) {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 /** Moves this TEST loan's start back `days` days on the stack (dates only: nothing is posted and no interest is written). */
-function age(loanId, days) {
-  return execFileSync(
+async function age(loanId, days) {
+  return execText(
     process.execPath,
     [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-loan', loanId, String(days), '--state', localStackState()],
-    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+    { cwd: ROOT, env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
   );
 }
 
@@ -116,7 +115,7 @@ test(`${J} #1 opens the payoff quote and a 30-day projection: each row's interes
   test.setTimeout(240_000);
   const who = await signUp(page, 'jb11');
   await verify(page, who);
-  expect(fund(who.email, 'BTC', '0.01').tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.01')).tx).toBeTruthy();
   const api = await bank(who);
   const products = await api.query('loans.products', { limit: 50 });
   expect(products.ok).toBe(true);
@@ -195,7 +194,7 @@ test(`${J} #2 repays TEST 50: the interest owed first, then principal; the loan 
   const api = await bank(who);
 
   // The starting state: a loan that owes interest. Fifteen past days, each charged once by the bank's own job.
-  expect(age(loanId, 15)).toContain('moved back 15 days');
+  expect(await age(loanId, 15)).toContain('moved back 15 days');
   const accrued = await job('accrue-loan-interest', { limit: 1000 });
   expect(accrued.status, JSON.stringify(accrued.body).slice(0, 300)).toBe(200);
   expect(accrued.body.results.find((r) => r.loanId === loanId)?.days).toBe(15);
@@ -325,7 +324,7 @@ test(`${J} #4 sees an interest correction: the interest rows are append-only, an
   // bank's API, moved back ten days, and charged by the bank's own accrual job.
   const who = await signUp(page, 'jb11c');
   await verify(page, who);
-  expect(fund(who.email, 'BTC', '0.01').tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.01')).tx).toBeTruthy();
   const api = await bank(who);
   const products = await api.query('loans.products', { limit: 50 });
   const product = products.data.find((p) => p.collateralAssetId === 'BTC' && p.debtAssetId === 'USDT');
@@ -337,7 +336,7 @@ test(`${J} #4 sees an interest correction: the interest rows are append-only, an
   });
   if (!opened.ok) throw new Error(`loans.open refused: ${opened.status} ${opened.code}`);
   const loanId = opened.data.loanId;
-  age(loanId, 10);
+  await age(loanId, 10);
   const accrued = await job('accrue-loan-interest', { limit: 1000 });
   expect(accrued.status, JSON.stringify(accrued.body).slice(0, 300)).toBe(200);
   expect(accrued.body.results.find((r) => r.loanId === loanId)?.days).toBe(10);
@@ -427,7 +426,7 @@ test(`${J} #5 redeems excess collateral, then repays in full: the loan closes an
 
   // Repaying everything owed: the debt clears, the loan closes and the rest of the collateral comes back in the same answer.
   const owed = fromUnits(toUnits(before.outstandingPrincipal) + toUnits(before.outstandingInterest));
-  if ((await free(who, 'USDT')) < toUnits(owed)) fund(who.email, 'USDT', '10');
+  if ((await free(who, 'USDT')) < toUnits(owed)) await fund(who.email, 'USDT', '10');
   await expect(record).toContainText('0.009 BTC', { timeout: 30_000 });
   await record.getByRole('button', { name: 'Repay', exact: true }).click();
   await dialog.getByLabel(/Amount/).fill(owed);

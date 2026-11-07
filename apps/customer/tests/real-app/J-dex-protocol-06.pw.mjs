@@ -41,7 +41,7 @@ async function openTracker(page) {
 }
 
 test(`${J} starts: a TEST wallet holding several TEST tokens, one with no price`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
 });
 

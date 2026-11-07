@@ -97,12 +97,12 @@ test(`${J} #3 asks for a return promise: refused as advice`, async ({ page }) =>
 });
 
 /** svc-agents restarted with the Coach route unset, or back on the profile's TEST route. */
-function coachRoute(published) {
+async function coachRoute(published) {
   const before = process.env.LOCAL_STACK_AGENTS_COACH_ROUTE;
   if (published) delete process.env.LOCAL_STACK_AGENTS_COACH_ROUTE;
   else process.env.LOCAL_STACK_AGENTS_COACH_ROUTE = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'agents');
+    await tool('local-test-stack.mjs', 'restart', 'agents');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_AGENTS_COACH_ROUTE;
     else process.env.LOCAL_STACK_AGENTS_COACH_ROUTE = before;
@@ -112,7 +112,7 @@ function coachRoute(published) {
 test(`${J} #4 runs the Coach with no model set: a refusal that the Coach engine is unavailable`, async ({ page }) => {
   test.setTimeout(240_000);
   try {
-    coachRoute(false);
+    await coachRoute(false);
     const { answer, status, body } = await ask(page, 'TEST: explain drawdown', (panel) => panel.getByText(COST_MISSING));
     await expect(coach(page).getByText(COST_MISSING)).toBeVisible();
     await expect(coach(page).getByTestId('coach-cost')).toHaveCount(0);
@@ -123,6 +123,6 @@ test(`${J} #4 runs the Coach with no model set: a refusal that the Coach engine 
     await expect(alert).toHaveAttribute('data-refusal-code', 'agents.coach_engine_unavailable');
     await expect(answer).toHaveCount(0);
   } finally {
-    coachRoute(true);
+    await coachRoute(true);
   }
 });

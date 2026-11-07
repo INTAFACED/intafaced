@@ -121,7 +121,7 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   expect(Object.keys(before.documents)).toContain('read-identity.documents');
   let failure = null;
   try {
-    tool('local-test-stack.mjs', 'stop', 'trade');
+    await tool('local-test-stack.mjs', 'stop', 'trade');
     await page.goto(`${ADMIN}/accounts/${customer}`, { waitUntil: 'load' });
     await expect(page.getByTestId('customer-record-id')).toHaveText(customer, { timeout: 60_000 });
     await page.getByTestId('customer-tab-trade').click();
@@ -136,7 +136,7 @@ test('J-ops-console-02 #3 one customer record: six tabs each loading or refusing
   }
   // Bring svc-trade back for the journeys after this one; a failure to restart never hides the tab's own failure.
   try {
-    tool('local-test-stack.mjs', 'start', '--only', 'trade');
+    await tool('local-test-stack.mjs', 'start', '--only', 'trade');
   } catch (restart) {
     failure ??= restart;
   }

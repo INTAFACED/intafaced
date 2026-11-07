@@ -48,7 +48,7 @@ async function moneyAgreesWithLedger(page) {
 test(`${J} #1 opens Assets: available, in orders and locked add up to the ledger total`, async ({ page }) => {
   const who = await signUp(page, 'jw');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '500').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '500')).tx).toBeTruthy();
   run.reset({ account: who });
   await signIn(page, who);
   await page.goto('/');
@@ -120,7 +120,7 @@ test(`${J} #3 opens Withdraw: it offers only what is available, and a card or ba
 test(`${J} #4 holds an asset with no published price: its value says so, never zero, and the total leaves it out`, async ({ page }) => {
   const who = account();
   // One business ref per account, so a re-run of this step alone credits nothing more.
-  expect(fund(who.email, 'XAU', '1', `jw01-xau-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64)).out).toMatch(
+  expect((await fund(who.email, 'XAU', '1', `jw01-xau-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64))).out).toMatch(
     /TEST FUNDS credited/,
   );
   const before = await balances();
@@ -148,7 +148,7 @@ test(`${J} #5 opens the asset and network list: the rows Deposit and Withdraw us
   page,
 }) => {
   const who = account();
-  const credit = fund(who.email, RETIRED, '5', `jw01-ret-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64));
+  const credit = await fund(who.email, RETIRED, '5', `jw01-ret-${who.email.split('@')[0].replace(/[^A-Za-z0-9-]/g, '')}`.slice(0, 64));
   expect(credit.out).toMatch(/TEST FUNDS credited/);
   const customer = await api(who);
   const read = async (procedure) => {

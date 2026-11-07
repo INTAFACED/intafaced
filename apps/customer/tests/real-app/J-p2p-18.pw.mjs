@@ -25,8 +25,8 @@ const RECEIPTS_A_DAY = 20;
 test.describe.configure({ mode: 'default' });
 
 // The stack must have the TEST payment method this journey's ad uses; `local-test-gates.mjs apply` registers it.
-test.beforeAll(() => {
-  tool('local-test-gates.mjs', 'p2p');
+test.beforeAll(async () => {
+  await tool('local-test-gates.mjs', 'p2p');
 });
 
 function journey() {
@@ -44,7 +44,7 @@ test('J-p2p-18 #1 the order list counts every order exactly, pages back to the o
   const seller = await signUp(page, 'p2p18s');
   await verify(page, seller);
   const total = MADE.completed + MADE.cancelled + MADE.paid + MADE.disputed + 1;
-  expect(fund(seller.email, 'USDT', String(total * 2)).tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', String(total * 2))).tx).toBeTruthy();
   const buyer = await signUp(page, 'p2p18b');
   await verify(page, buyer);
   run.reset({ seller, buyer });

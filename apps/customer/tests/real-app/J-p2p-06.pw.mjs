@@ -21,8 +21,8 @@ const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
-test.beforeAll(() => {
-  tool('local-test-gates.mjs', 'p2p');
+test.beforeAll(async () => {
+  await tool('local-test-gates.mjs', 'p2p');
 });
 
 function journey() {
@@ -52,7 +52,7 @@ test('J-p2p-06 #1 the buyer cancels before paying, with a reason: one refund to 
   test.setTimeout(240_000);
   const seller = await signUp(page, 'p2p06s');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '300').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '300')).tx).toBeTruthy();
   const first = p2p(await api(seller));
   await testInstrument(first, seller);
   const s = p2p(await api(seller), first.passkey());

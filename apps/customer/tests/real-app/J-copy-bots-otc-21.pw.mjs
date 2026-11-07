@@ -39,7 +39,7 @@ test(`${J} #1 tries to create a signal bot from an unpurchased listing: refused 
   await signIn(page, trader);
   await page.goto('/trade/bots/signals');
   await expect(page.getByRole('heading', { name: 'Signals', level: 1 })).toBeVisible(UNBUILT);
-  const seeded = JSON.parse(tool('local-test-world.mjs', 'signal-listing'));
+  const seeded = JSON.parse(await tool('local-test-world.mjs', 'signal-listing'));
   run.write({ title: seeded.title, listingId: seeded.id });
   await page.reload();
   await listing(page).getByRole('button', { name: 'Create a bot' }).click();
@@ -64,7 +64,7 @@ test(`${J} #3 opens the bot before any signal: "awaiting signal"`, async ({ page
 test(`${J} #4 a signal arrives for a pair not in one-way mode, and the bot cap is reached: each refused with its code`, async ({
   page,
 }) => {
-  tool('local-test-world.mjs', 'signal-send', state('listingId'), '--pair', 'ETH/USDT');
+  await tool('local-test-world.mjs', 'signal-send', state('listingId'), '--pair', 'ETH/USDT');
   await signIn(page, state('trader'));
   await page.goto('/trade/bots?tab=mine');
   await expect(page.getByRole('row', { name: /Signal/ })).toContainText(/one-way mode/, UNBUILT);

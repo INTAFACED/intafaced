@@ -31,16 +31,16 @@ export const TOKEN_B = {
 export const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-04']);
 
 /** The stack's TEST chain: `{ chain: 'running', gate, gateUrl }` or `{ chain: 'absent' }` (no anvil on this stack). */
-export function testChain() {
-  return JSON.parse(tool('local-test-chain.mjs', 'status'));
+export async function testChain() {
+  return JSON.parse(await tool('local-test-chain.mjs', 'status'));
 }
 
 /**
  * Funds `address` on the TEST chain (TEST ETH for gas, 10,000 TEST Token A and B); refuses by name with no chain.
  * `stable` funds 100 TEST USD only and sets its TEST ETH to zero (J-dex-protocol-02 #11).
  */
-export function fundOnTestChain(address, kind) {
-  return kind ? tool('local-test-chain.mjs', 'fund', address, kind) : tool('local-test-chain.mjs', 'fund', address);
+export async function fundOnTestChain(address, kind) {
+  return kind ? await tool('local-test-chain.mjs', 'fund', address, kind) : await tool('local-test-chain.mjs', 'fund', address);
 }
 
 /** One journey run's state, with one TEST wallet key kept for every step of the run. */
@@ -55,16 +55,16 @@ export function dexRun(journey) {
      * Starts the run again with a new TEST wallet key (each journey's first step), funded when it runs on the TEST chain;
      * `{ funding: 'stable' }` gives it TEST USD only and no TEST ETH.
      */
-    start(extra = {}, { funding } = {}) {
+    async start(extra = {}, { funding } = {}) {
       const walletKey = testWalletKey();
-      if (onChain) fundOnTestChain(privateKeyToAccount(walletKey).address, funding);
+      if (onChain) await fundOnTestChain(privateKeyToAccount(walletKey).address, funding);
       return run.reset({ walletKey, ...extra });
     },
     /** The run's TEST wallet key, made on first use when no earlier step started the run. */
-    key() {
+    async key() {
       const state = run.read();
       if (state.walletKey) return state.walletKey;
-      return this.start().walletKey;
+      return (await this.start()).walletKey;
     },
   };
 }
@@ -88,8 +88,8 @@ export function oneAmount(text) {
  * TEST chain gets a wallet connected to that node (through its gate, as svc-protocol reads it).
  */
 export async function connectWallet(page, dex, { tokens = [], chainId = CHAIN_ID } = {}) {
-  const rpcUrl = dex.onChain ? testChain().gateUrl : null;
-  const wallet = await installTestWallet(page, { chainId, tokens, privateKey: dex.key(), rpcUrl });
+  const rpcUrl = dex.onChain ? (await testChain()).gateUrl : null;
+  const wallet = await installTestWallet(page, { chainId, tokens, privateKey: await dex.key(), rpcUrl });
   await page.goto('/wallet');
   await page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` }).click();
   await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();

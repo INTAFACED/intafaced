@@ -146,7 +146,7 @@ test(`${J} #5 sends a fill-or-kill buy bigger than the book: nothing fills, the 
   // The hold must fit, or the order is refused for funds and never reaches the fill-or-kill rule this step is about.
   const cost = (toUnits(ask) * toUnits(amount)) / toUnits('1');
   const freeUsdt = toUnits((await (await api(who)).balances()).USDT.free);
-  if (cost > freeUsdt) fund(who.email, 'USDT', fromUnits(((cost - freeUsdt) / toUnits('1')) * toUnits('1') + toUnits('100')));
+  if (cost > freeUsdt) await fund(who.email, 'USDT', fromUnits(((cost - freeUsdt) / toUnits('1')) * toUnits('1') + toUnits('100')));
   const before = await (await api(who)).balances();
   await openDesk(page, who);
   const sent = await limitBuy(page, { tif: 'Fill or kill', price: ask, amount });

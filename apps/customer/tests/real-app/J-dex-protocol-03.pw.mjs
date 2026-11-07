@@ -53,7 +53,7 @@ async function openIntent(page) {
 }
 
 test(`${J} starts: a TEST wallet on Base Sepolia, a token with a permit and one without, a two-hop route`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await openSwap(page);
 });
 

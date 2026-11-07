@@ -121,12 +121,12 @@ async function funds(who) {
 }
 
 /** Restarts trade with the slice scheduler off (or back on), as the stack's TEST switch sets it. */
-function algoJobs(on) {
+async function algoJobs(on) {
   const before = process.env.LOCAL_STACK_TRADE_ALGO_JOBS;
   if (on) delete process.env.LOCAL_STACK_TRADE_ALGO_JOBS;
   else process.env.LOCAL_STACK_TRADE_ALGO_JOBS = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
+    await tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_TRADE_ALGO_JOBS;
     else process.env.LOCAL_STACK_TRADE_ALGO_JOBS = before;
@@ -143,8 +143,8 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-  fund(basic.email, 'USDT', '1000');
+  await tool('local-test-gates.mjs', 'verify');
+  await fund(basic.email, 'USDT', '1000');
   await signOutBrowser(page.context());
   await signIn(page, basic);
   const basicBefore = await funds(basic);
@@ -167,7 +167,7 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
   const trader = state('trader');
   const rowsBefore = (await algoRows(trader)).map((row) => row.id);
   const traderBefore = await funds(trader);
-  algoJobs(false);
+  await algoJobs(false);
   try {
     await signOutBrowser(page.context());
     await signIn(page, trader);
@@ -193,7 +193,7 @@ test(`${J} #2 creates a TWAP below the owner's tier: refused as tier insufficien
     expect((await algoRows(trader)).map((row) => row.id)).toEqual(rowsBefore);
     expect(await funds(trader)).toEqual(traderBefore);
   } finally {
-    algoJobs(true);
+    await algoJobs(true);
   }
 });
 
@@ -256,7 +256,7 @@ test(`${J} #3 creates a TWAP with random size on, a fixed seed and a trigger pri
   await expect(detail(page).getByText('Waiting for the trigger price')).toBeVisible();
 
   // A restart of the trade service gives the same sizes, and the schedule still waits.
-  tool('local-test-stack.mjs', 'restart', 'trade');
+  await tool('local-test-stack.mjs', 'restart', 'trade');
   const restarted = await parentOf(trader, id);
   expect(restarted.plannedSliceQtys.map((q) => toUnits(q))).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
   expect(await preview(2310)).toEqual(sizes.map((s) => toUnits(s.replace(/[^\d.]/g, ''))));
@@ -381,9 +381,9 @@ test(`${J} #5 places a chase limit order with a maximum distance: it re-prices o
   const tag = state('tag');
   const maker = otherTrader();
   const other = await api(maker);
-  expect(fund(maker.email, 'USDC', '1000').tx).toBeTruthy();
-  expect(fund(maker.email, 'IFC', '1000').tx).toBeTruthy();
-  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
+  expect((await fund(maker.email, 'USDC', '1000')).tx).toBeTruthy();
+  expect((await fund(maker.email, 'IFC', '1000')).tx).toBeTruthy();
+  expect((await fund(trader.email, 'USDC', '100')).tx).toBeTruthy();
   await clearIfc(maker);
   await clearIfc(trader);
   // A run stopped before its clean-up can leave an earlier trader's orders resting, which no account here can cancel: the
@@ -559,16 +559,16 @@ async function bidAt(price) {
  * The TEST market maker's status line. `status` exits non-zero when the maker is down, which is an answer here; any other
  * failure of the read (a timeout, a refusal) is thrown, never read as "down".
  */
-function makerStatus() {
+async function makerStatus() {
   try {
-    return tool('local-test-market.mjs', 'status');
+    return await tool('local-test-market.mjs', 'status');
   } catch (err) {
     const out = String(err.stdout ?? '');
     if (/^test market: /.test(out)) return out;
     throw err;
   }
 }
-const makerUp = () => /^test market: (ok|STALE)/.test(makerStatus());
+const makerUp = async () => /^test market: (ok|STALE)/.test(await makerStatus());
 
 /** Set while #6 has stopped a running TEST market maker, so the hook below starts it again even after a timeout. */
 let marketStopped = false;
@@ -580,18 +580,18 @@ let marketStopped = false;
  * then holds the iceberg and nothing moves in front of it.
  */
 async function stopMarketMaker() {
-  if (!makerUp()) return;
+  if (!(await makerUp())) return;
   marketStopped = true;
-  tool('local-test-market.mjs', 'stop');
+  await tool('local-test-market.mjs', 'stop');
   // `stop` returns after 20 s even when the maker is still cancelling; nothing is read until it has gone.
   const until = Date.now() + 60_000;
-  while (makerUp()) {
+  while (await makerUp()) {
     if (Date.now() >= until) throw new Error('the TEST market maker is still running 60 s after its stop');
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
   // A stop that timed out kept the maker's record, and a stack start would start a remembered maker again; with the maker
   // gone, this stop forgets it.
-  tool('local-test-market.mjs', 'stop');
+  await tool('local-test-market.mjs', 'stop');
 }
 
 /** The levels of `book` that would meet or stand in front of a buy resting at `price`: asks at or below it, bids above it. */
@@ -606,7 +606,7 @@ test.afterEach(async () => {
   if (!marketStopped) return;
   // Its own time: a start funds the maker and may take up to the tool's 120 s, after a test that may have used all of its.
   test.info().setTimeout(test.info().timeout + 240_000);
-  tool('local-test-market.mjs');
+  await tool('local-test-market.mjs');
   marketStopped = false;
   // What runs next reads a quoted BTC/USDT book: wait for the maker's first ladder.
   await bestPrices('BTC/USDT', 50, 90_000);
@@ -756,10 +756,10 @@ test(`${J} #7 chooses POV with opposite-side liquidity on an empty opposite book
   const tag = state('tag');
   const maker = otherTrader();
   const other = await api(maker);
-  expect(fund(maker.email, 'USDC', '1000').tx).toBeTruthy();
-  expect(fund(maker.email, 'IFC', '1000').tx).toBeTruthy();
-  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
-  expect(fund(trader.email, 'IFC', '100').tx).toBeTruthy();
+  expect((await fund(maker.email, 'USDC', '1000')).tx).toBeTruthy();
+  expect((await fund(maker.email, 'IFC', '1000')).tx).toBeTruthy();
+  expect((await fund(trader.email, 'USDC', '100')).tx).toBeTruthy();
+  expect((await fund(trader.email, 'IFC', '100')).tx).toBeTruthy();
   await clearIfc(maker);
   await clearIfc(trader);
   // A run stopped before its clean-up can leave an earlier trader's sell resting, which no account here can cancel: the
@@ -923,8 +923,8 @@ async function pickSchedule(page, id) {
 
 const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-function stack(...args) {
-  return tool('local-test-stack.mjs', ...args);
+async function stack(...args) {
+  return await tool('local-test-stack.mjs', ...args);
 }
 
 test(`${J} #8 opens the algo list and blotter and cancels with one child failing: rows with statuses and an average fill price ("Not set" with zero fills); the cancel is reported incomplete and halt and resume are refused`, async ({
@@ -1033,9 +1033,9 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
   // nothing else is placed while the matching engine is stopped: the child cancel fails for real.
   const maker = otherTrader();
   const other = await api(maker);
-  expect(fund(maker.email, 'USDC', '100').tx).toBeTruthy();
-  expect(fund(maker.email, 'IFC', '100').tx).toBeTruthy();
-  expect(fund(trader.email, 'USDC', '100').tx).toBeTruthy();
+  expect((await fund(maker.email, 'USDC', '100')).tx).toBeTruthy();
+  expect((await fund(maker.email, 'IFC', '100')).tx).toBeTruthy();
+  expect((await fund(trader.email, 'USDC', '100')).tx).toBeTruthy();
   await clearIfc(maker);
   await clearIfc(trader);
   const tag = state('tag');
@@ -1089,7 +1089,7 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     const fundsBefore = await (await api(trader)).balances();
     // Marked first, so a stop that times out after its signal still brings the engine back.
     stopped = true;
-    stack('stop', 'matching');
+    await stack('stop', 'matching');
     await list.getByRole('button', { name: `Cancel ${id}` }).click();
     const answer = page.waitForResponse((r) => r.url().includes('algo.cancel'), { timeout: 30_000 });
     await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel schedule' }).click();
@@ -1119,7 +1119,7 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     // Edge refuses every trade write while it cannot read the venue halt, so the service's own refusals are read once
     // the engine is back. The schedule stays parked until it is cancelled again: halt and resume are refused, and the
     // whole parent reads back exactly as it was parked (its child still open).
-    stack('start', '--only', 'matching');
+    await stack('start', '--only', 'matching');
     stopped = false;
     await expect
       .poll(async () => actionCode(trader, 'pause', id), { timeout: 60_000, intervals: [2_000] })
@@ -1145,7 +1145,7 @@ test(`${J} #8 opens the algo list and blotter and cancels with one child failing
     let restart = null;
     if (stopped) {
       try {
-        stack('start', '--only', 'matching');
+        await stack('start', '--only', 'matching');
       } catch (err) {
         restart = err;
       }

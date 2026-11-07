@@ -258,7 +258,7 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
   const who = account();
   // TEST 0.004 BTC arrives by deposit through the real ledger, at a moment the BTC/USDT book has traded.
   const before = Date.now();
-  expect(fund(who.email, 'BTC', '0.004').tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.004')).tx).toBeTruthy();
   const after = Date.now();
   await signIn(page, who);
   const lots = await lotsPage(page);

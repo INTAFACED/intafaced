@@ -162,7 +162,7 @@ test(`${J} starts: a business owner with team members`, async ({ page }) => {
     await forgetSession(page);
   }
   const owner = await businessReadyPerson(page, 'ag11o', '/agents');
-  expect(fund(owner.email, 'USDT', '5').tx).toBeTruthy();
+  expect((await fund(owner.email, 'USDT', '5')).tx).toBeTruthy();
   await createOwnAgent(page);
   await ownLimits(page);
   // The business account: the owner becomes its admin; the threshold is a TEST figure.

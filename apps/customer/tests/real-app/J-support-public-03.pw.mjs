@@ -107,7 +107,7 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
   test.setTimeout(240_000);
   const email = address('nosender');
   const subject = `TEST ${J} ${RUN} no sender`;
-  restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
+  await restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', false);
   let restored = false;
   try {
     const page = await guest(browser);
@@ -118,13 +118,13 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
     expect(guestMail(email)).toHaveLength(0);
     expect(await deskRequests(subject)).toHaveLength(0);
     // The request was kept, waiting: once a sender exists, sending the same form again mails that request's link.
-    restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
+    await restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
     restored = true;
     await form.getByRole('button', { name: 'Send request' }).click();
     await expect(page.getByTestId('support-guest-check-email')).toBeVisible({ timeout: 15_000 });
     await mailedLink(email);
   } finally {
-    if (!restored) restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
+    if (!restored) await restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_MAIL', true);
   }
 });
 
@@ -162,7 +162,7 @@ test(`${J} #5 too many requests from one address are refused with no request sto
   await mailedLink(email, 3);
   expect(guestMail(email)).toHaveLength(3);
   // With the owner's limit blank, every guest request refuses and names the setting.
-  restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', false);
+  await restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', false);
   try {
     const blank = await guest(browser);
     const other = address('unset');
@@ -171,7 +171,7 @@ test(`${J} #5 too many requests from one address are refused with no request sto
     await expect(unset).toContainText('SUPPORT_GUEST_RATE_LIMIT is not set');
     expect(guestMail(other)).toHaveLength(0);
   } finally {
-    restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', true);
+    await restartWith('support', 'LOCAL_STACK_SUPPORT_GUEST_RATE', true);
   }
 });
 
@@ -213,7 +213,7 @@ test(`${J} #7 an expired link is refused as expired, with a way back to the form
   // Links last one minute for this step only.
   process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL = '1';
   try {
-    tool('local-test-stack.mjs', 'restart', 'support');
+    await tool('local-test-stack.mjs', 'restart', 'support');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL;
     else process.env.LOCAL_STACK_SUPPORT_GUEST_LINK_TTL = before;
@@ -233,7 +233,7 @@ test(`${J} #7 an expired link is refused as expired, with a way back to the form
     await expect(page).toHaveURL(/\/support\/new$/);
     await expect(page.getByTestId('support-guest-new')).toBeVisible();
   } finally {
-    tool('local-test-stack.mjs', 'restart', 'support');
+    await tool('local-test-stack.mjs', 'restart', 'support');
   }
 });
 

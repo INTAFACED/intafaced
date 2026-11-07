@@ -238,7 +238,7 @@ test(`${J} #2 verifies and deposits TEST funds: the matching tasks tick once, an
   await waitForTask(me, 'identity.verified', 'done');
   await signIn(page, me);
   const address = await depositAddress(page);
-  expect(tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', '20', '6', '--tx', `jc04-${me.handle}`)).toContain(
+  expect(await tool('local-test-stack.mjs', 'chain-deposit', address, 'USDT', '20', '6', '--tx', `jc04-${me.handle}`)).toContain(
     '"received":true',
   );
   await waitForTask(me, 'pay.deposit', 'done');
@@ -269,7 +269,7 @@ test(`${J} #3 deposits using bonus money: the deposit task does not tick`, async
   await waitForChecklist(other, fullId);
   // Money that is not the customer's own deposit: the stack's labelled TEST funds credit (a trial fund through the real
   // ledger). It lands in the balance and is no crypto deposit, so svc-pay never says a deposit was credited.
-  const credit = fund(other.email, 'USDT', '50');
+  const credit = await fund(other.email, 'USDT', '50');
   expect(credit.tx).toBeTruthy();
   await depositConsumerCaughtUp();
   expect(taskOf(await checklistOf(other), 'pay.deposit')).toMatchObject({ state: 'open', doneAt: null });
@@ -288,7 +288,7 @@ test(`${J} #4 claims after all tasks are done: one reward per task, each once`, 
   test.setTimeout(300_000);
   const { me, fullId } = state('me', 'fullId');
   // The last task by a real trade: a market buy on the real book, filled against the market maker.
-  expect(fund(me.email, 'USDT', '500').tx).toBeTruthy();
+  expect((await fund(me.email, 'USDT', '500')).tx).toBeTruthy();
   const client = await api(me);
   const order = await client.post('/api/v1/orders', {
     symbol: 'BTC/USDT',

@@ -48,16 +48,16 @@ test.afterAll(async () => {
 });
 
 /** The TEST market maker's status line; `status` exits non-zero when it is down, which is an answer here, not an error. */
-function makerStatus() {
+async function makerStatus() {
   try {
-    return tool('local-test-market.mjs', 'status');
+    return await tool('local-test-market.mjs', 'status');
   } catch (err) {
     return String(err.stdout ?? '');
   }
 }
-const makerUp = () => /^test market: (ok|STALE)/.test(makerStatus());
+const makerUp = async () => /^test market: (ok|STALE)/.test(await makerStatus());
 /** "not started" is the only state a trade restart's `ensure` leaves alone: a maker that is DOWN but remembered, it starts. */
-const makerForgotten = () => /^test market: not started/.test(makerStatus());
+const makerForgotten = async () => /^test market: not started/.test(await makerStatus());
 
 /** Set while #7 has stopped a TEST market maker that was running or remembered, so the hook below starts it again even after a timeout. */
 let marketStopped = false;
@@ -71,29 +71,29 @@ let marketStopped = false;
  * still remembers, a DOWN one included. So the maker must end forgotten ("not started"), not only stopped.
  */
 async function stopMarketMaker() {
-  if (makerForgotten()) return;
+  if (await makerForgotten()) return;
   marketStopped = true;
-  tool('local-test-market.mjs', 'stop');
+  await tool('local-test-market.mjs', 'stop');
   // `stop` returns after 20 s even when the maker is still cancelling, and then keeps its record; nothing is read until
   // it has gone.
   const until = Date.now() + 60_000;
-  while (makerUp()) {
+  while (await makerUp()) {
     if (Date.now() >= until) throw new Error('the TEST market maker is still running 60 s after its stop');
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
   // A stop that timed out kept the record; with the maker gone, this stop forgets it. (For a maker that was already DOWN,
   // the first stop forgot it, and this one changes nothing.)
-  tool('local-test-market.mjs', 'stop');
-  expect(makerStatus(), 'the TEST market maker is forgotten, so no trade restart in #7 starts it again').toMatch(
+  await tool('local-test-market.mjs', 'stop');
+  expect(await makerStatus(), 'the TEST market maker is forgotten, so no trade restart in #7 starts it again').toMatch(
     /^test market: not started/,
   );
 }
 
-test.afterEach(() => {
+test.afterEach(async () => {
   if (!marketStopped) return;
   // Its own time: a start funds the maker and may take up to the tool's 120 s, after a test that may have used all of its.
   test.info().setTimeout(test.info().timeout + 180_000);
-  tool('local-test-market.mjs');
+  await tool('local-test-market.mjs');
   marketStopped = false;
 });
 
@@ -307,12 +307,12 @@ async function everyBotCreate(who, tag) {
 }
 
 /** Restart trade with one owner value blank (`blank`) or as the TEST profile sets it (`set`), by its stack switch. */
-function restartTrade(switchName, state) {
+async function restartTrade(switchName, state) {
   const before = process.env[switchName];
   if (state === 'blank') process.env[switchName] = 'blank';
   else delete process.env[switchName];
   try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
+    await tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
     if (before === undefined) delete process.env[switchName];
     else process.env[switchName] = before;
@@ -341,9 +341,9 @@ async function dropClosedSockets() {
 }
 
 /** The owner's bots verification level, blank or as the TEST profile sets it. */
-const botsLevel = (state) => restartTrade('LOCAL_STACK_TRADE_BOTS_LEVEL', state);
+const botsLevel = async (state) => await restartTrade('LOCAL_STACK_TRADE_BOTS_LEVEL', state);
 /** The owner's distance a grid bound may sit from the market price, blank or as the TEST profile sets it. */
-const gridBand = (state) => restartTrade('LOCAL_STACK_TRADE_GRID_BAND', state);
+const gridBand = async (state) => await restartTrade('LOCAL_STACK_TRADE_GRID_BAND', state);
 
 async function openGridRoom(page, who) {
   await signIn(page, who);
@@ -645,7 +645,7 @@ test(`${J} #5 lets the price leave the upper bound: no new buy is placed and the
   const upper = toUnits(start.upperPrice);
   try {
     // 7% up: the mid starts about 4.75% under the upper bound (#4), so this takes it past it.
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '+7%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '+7%');
     await untilMid('above', upper);
     const paused = await untilStatus(who, botId, 'paused_range');
     expect(paused.statusReason).toBe('mark_outside_range');
@@ -669,7 +669,7 @@ test(`${J} #5 lets the price leave the upper bound: no new buy is placed and the
       .filter({ has: page.locator(`a[href*="bot=${botId}"]`) });
     await expect(row).toContainText('Paused: the price is outside the range');
   } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
     await untilMid('below', upper);
   }
 });
@@ -703,7 +703,7 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
   const target = (((buys[1] + buys[2]) / 2n) * (10_000n - 6n)) / 10_000n;
   const down = shiftPercent(mid, target);
   try {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', down);
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', down);
     await untilMid('below', buys[1]);
     const bought = await untilBot(who, botId, (b) => newlyFilled(b).length >= 2);
     ours.push(...newlyFilled(bought));
@@ -717,11 +717,11 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
     const rise = (((top + (top + (top - buys[0]))) / 2n) * (10_000n + 6n)) / 10_000n;
     const now = await bestPrices();
     const walk = (((toUnits(now.bid) + toUnits(now.ask)) / 2n) * 10_000n) / (10_000n + percentBps(down));
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(walk, rise));
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(walk, rise));
     await untilMid('above', top);
     await untilBot(who, botId, (b) => ours.every((buy) => closed(b).some((o) => isSellOf(o, buy))));
   } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
   }
   // Read the bot once its tick has recorded everything the moves did.
   const bot = await settledBuys(who, botId);
@@ -775,7 +775,7 @@ test(`${J} #6 opens Metrics after two closed level pairs: grid profit is their s
 
 const totpLib = () => import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
 /** The owner's daily withdrawal cap, blank or as the TEST profile sets it ({"USDT":"0.50"}). */
-const withdrawCap = (state) => restartTrade('LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP', state);
+const withdrawCap = async (state) => await restartTrade('LOCAL_STACK_TRADE_BOTS_WITHDRAW_CAP', state);
 const CAP = toUnits('0.50');
 
 test(`${J} #7 withdraws over the cap, then within it without a step-up: both refused; within both, it succeeds with a receipt`, async ({

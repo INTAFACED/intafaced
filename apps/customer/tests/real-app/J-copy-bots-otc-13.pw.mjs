@@ -124,13 +124,13 @@ async function countsBetween(metrics, before, after, skip = []) {
 }
 
 /** svc-trade restarted with its metrics window blank (`off`), or back on the stack's TEST window. */
-function tradeMetricsWindow(on) {
+async function tradeMetricsWindow(on) {
   const name = 'LOCAL_STACK_TRADE_OPS_METRICS_WINDOW';
   const before = process.env[name];
   if (on) delete process.env[name];
   else process.env[name] = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
+    await tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
     if (before === undefined) delete process.env[name];
     else process.env[name] = before;
@@ -273,7 +273,7 @@ test(`${J} #1 a blank window reads "Could not load" for every count, never zero`
   // Signed in before the restart, so the console is asked nothing from this process while svc-trade restarts.
   await founderSignIn(page, 'a');
   try {
-    tradeMetricsWindow(false);
+    await tradeMetricsWindow(false);
     const refused = await reads.raw('metrics');
     expect(refused.status, refused.text.slice(0, 300)).not.toBe(200);
     expect(refused.text).toContain('trade.ops_metrics_window_not_set');
@@ -288,7 +288,7 @@ test(`${J} #1 a blank window reads "Could not load" for every count, never zero`
     }
     await expect(metricValue(metrics, 'Window')).toHaveText('Not read');
   } finally {
-    tradeMetricsWindow(true);
+    await tradeMetricsWindow(true);
   }
   await expect.poll(async () => (await reads.raw('metrics')).status).toBe(200);
 });
@@ -386,7 +386,7 @@ test(`${J} #3 looks up as an agent without the lookup scope: refused`, async ({ 
     expect(project(before).bots.map((b) => b.botId)).toEqual(seen.bots.map((b) => b.botId));
     const [{ since }] = await sql`SELECT now() AS since`;
     await page.goto(`${ADMIN}/login`);
-    const out = JSON.parse(tool('local-test-gates.mjs', 'scoped-session', '--without', 'support:lookup'));
+    const out = JSON.parse(await tool('local-test-gates.mjs', 'scoped-session', '--without', 'support:lookup'));
     await page.context().addCookies(out.cookies);
     await page.goto(`${ADMIN}/trade-ops/copy-bots-otc?customer=${encodeURIComponent(state('customer').email)}`);
     await expect(page.getByText(/You don’t have the lookup permission/)).toBeVisible();
@@ -436,7 +436,7 @@ async function stakeToDeskFloor(who, client) {
   const floor = /(?:^| )minStake=(\S+)/.exec(desk.body.result.data.statusLine)?.[1];
   expect(floor, desk.body.result.data.statusLine).toBeTruthy();
   const hex = createHash('sha256').update(`${J}:stake:${who.email}:${floor}`).digest('hex');
-  expect(fund(who.email, 'IFC', floor, `${J}-stake-${hex.slice(0, 16)}`).tx).toBeTruthy();
+  expect((await fund(who.email, 'IFC', floor, `${J}-stake-${hex.slice(0, 16)}`)).tx).toBeTruthy();
   const stakeId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
   const staked = await client.post('/api/token/trpc/stake', { amount: floor, tier: 'flex', stakeId });
   expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
@@ -486,7 +486,7 @@ test(`${J} #4 opens the quote desk list: open and settled RFQs with statuses; a 
   const settledId = await ask();
   await acceptQuote(settledId);
   // The desk is the counterparty and sells from the house inventory: TEST BTC for this one settle, keyed by the quote.
-  expect(fund('house', 'BTC', '0.02', `jco13-house-${settledId}`).tx).toBeTruthy();
+  expect((await fund('house', 'BTC', '0.02', `jco13-house-${settledId}`)).tx).toBeTruthy();
   const settle = await me.post('/api/trade/trpc/otc.settle', { quoteId: settledId });
   expect(settle.status, JSON.stringify(settle.body).slice(0, 300)).toBe(200);
   expect((await read(settledId)).lifecycle).toBe('settled');

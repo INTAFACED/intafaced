@@ -187,7 +187,9 @@ test(`${J} #2 opens the list: totals with their period, filters the service appl
     customerRef: 'TEST-cust-cia',
     want: 'captured',
   });
-  const opened = JSON.parse(tool('local-test-world.mjs', 'open-dispute', disputed.id, 'product_not_received').trim().split('\n').pop());
+  const opened = JSON.parse(
+    (await tool('local-test-world.mjs', 'open-dispute', disputed.id, 'product_not_received')).trim().split('\n').pop(),
+  );
   expect(opened.status).toBe('open');
   const declined = await cardPayment(owner, merchantId, {
     amount: '3.00',
@@ -555,7 +557,7 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   const opened = waiting.status === 'created' ? await owner.mutate('payment.authorize', { paymentId: waiting.id }) : waiting;
   expect(opened.railRef, 'the crypto rail gives the payment its address').toBeTruthy();
   const tx = `j-merchant-05-confirming-${waiting.id}`;
-  tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '2', '--tx', tx);
+  await tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '2', '--tx', tx);
   expect((await owner.mutate('payment.authorize', { paymentId: waiting.id })).status).toBe('created');
   await signInOwner(page, journey(), `/pay/payments/${ids.refunded}`);
   const refused = refusedPayCalls(page);
@@ -670,7 +672,7 @@ test(`${J} #4 opens one payment: facts, amounts, timeline, linked refunds and th
   await page.goto(`/pay/payments/${waiting.id}`);
   await showsItsStatus(waiting.id, 'created');
   await expect(page.getByTestId('payment-confirmations')).toContainText('Waiting for confirmations: 2 of 6');
-  tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '6', '--tx', tx);
+  await tool('local-test-stack.mjs', 'chain-deposit', opened.railRef, 'USDT', '7', '6', '--tx', tx);
   await owner.mutate('payment.authorize', { paymentId: waiting.id });
   await page.reload();
   await expect(section('Timeline')).toBeVisible();

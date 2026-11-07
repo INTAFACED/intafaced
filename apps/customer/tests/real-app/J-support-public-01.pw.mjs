@@ -515,7 +515,7 @@ test(`${J} #3 with the whole library empty, /help shows its honest empty state a
   let page = null;
   let failure = null;
   try {
-    restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', false);
+    await restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', false);
     // The library is empty for everyone: the public answers read lists none.
     const listed = await fetch(`${EDGE}/api/support/trpc/listKb?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
     expect(listed.status, 'listKb answers').toBe(200);
@@ -531,7 +531,7 @@ test(`${J} #3 with the whole library empty, /help shows its honest empty state a
   // Support goes back on the stack's database whatever happened; a failure to put it back never hides the step's own.
   try {
     await page?.context().close();
-    restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', true);
+    await restartWith('support', 'LOCAL_STACK_SUPPORT_CATALOGUE', true);
   } catch (err) {
     failure ??= err;
   }

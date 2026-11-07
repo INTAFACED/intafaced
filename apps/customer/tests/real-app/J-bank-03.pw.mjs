@@ -136,7 +136,7 @@ test(`${J} #1 enters an amount and picks a linked account: the available balance
   test.setTimeout(180_000);
   const who = await signUp(page, 'jb3');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '50').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '50')).tx).toBeTruthy();
   await signIn(page, who);
   const { totp } = await totpLib();
   const { secret, step } = await addAuthenticator(page, totp);
@@ -249,7 +249,7 @@ test(`${J} #4 watches the tracker: verified by the partner, the cash-out goes fr
   const [account] = (await api.query('linkedAccounts.list', undefined)).data.accounts;
   // The partner verifies the account, and the TEST fixture moves its link past the 24-hour cooling-off.
   expect(await partner('verify', { accountId: account.accountId })).toMatchObject({ state: 'verified', verificationRail: null });
-  expect(tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
+  expect(await tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
 
   await signInWithCode(page);
   await openCashOut(page);

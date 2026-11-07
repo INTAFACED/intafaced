@@ -46,10 +46,10 @@ test(`${J} #1 a blank strip count refuses home.notice_strip_limit_unset and the 
   test.setTimeout(300_000);
   // Home's strip shows as many of the latest announcements as the owner's strip count (svc-ops home.config,
   // OPS_HOME_NOTICE_STRIP_LIMIT). The stack sets a TEST count for the other steps; here svc-ops restarts with it blank.
-  const blankCount = (blank) => restartWith('ops', 'LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT', !blank);
+  const blankCount = async (blank) => await restartWith('ops', 'LOCAL_STACK_OPS_HOME_NOTICE_STRIP_LIMIT', !blank);
   const context = await browser.newContext({ baseURL: ORIGIN });
   const page = await context.newPage();
-  blankCount(true);
+  await blankCount(true);
   try {
     await signUp(page, 'hml');
     // With the strip count blank, Home's strip says it is not set, with the typed code, rather than drawing any number
@@ -60,7 +60,7 @@ test(`${J} #1 a blank strip count refuses home.notice_strip_limit_unset and the 
     await expect(unset).toContainText(/not set/i, { timeout: 15_000 });
     await expect(page.locator('[data-testid="home-notice"][data-kind="announcement"]')).toHaveCount(0);
   } finally {
-    blankCount(false);
+    await blankCount(false);
     await context.close();
   }
 });

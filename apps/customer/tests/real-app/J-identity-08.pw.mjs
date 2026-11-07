@@ -317,7 +317,7 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
     await sendRequest(page);
     await page.reload();
     await expect(cases).toHaveCount(n);
-    expect(tool('local-test-gates.mjs', 'kyc-reject', who.handle, 'document_unreadable')).toContain('rejected (document_unreadable)');
+    expect(await tool('local-test-gates.mjs', 'kyc-reject', who.handle, 'document_unreadable')).toContain('rejected (document_unreadable)');
     await page.reload();
     await expect(cases.first()).toHaveAttribute('data-state', 'rejected');
   }
@@ -354,7 +354,7 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
 
   // With the owner's limit blank (identity restarted without it), the page says no limit is set and the form is open:
   // the lockout does not invent a limit.
-  identityKycAttempts(false);
+  await identityKycAttempts(false);
   try {
     await page.reload();
     await expect(attempts).toHaveAttribute('data-state', 'unset', { timeout: 30_000 });
@@ -363,17 +363,17 @@ test(`${J} #4: too many failed attempts give a typed lockout with the seconds le
     const unset = await (await api(who)).get('/api/identity/trpc/kyc.attempts.read');
     expect(unset.body.result.data).toMatchObject({ limit: null, denialsInWindow: null, lockedUntil: null });
   } finally {
-    identityKycAttempts(true);
+    await identityKycAttempts(true);
   }
 });
 
 /** Identity restarted with the owner's verification attempt limit blank, or back on the stack's TEST limit. */
-function identityKycAttempts(on) {
+async function identityKycAttempts(on) {
   const before = process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
   if (on) delete process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
   else process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS;
     else process.env.LOCAL_STACK_IDENTITY_KYC_ATTEMPTS = before;
@@ -381,12 +381,12 @@ function identityKycAttempts(on) {
 }
 
 /** Identity restarted with the owner's proof-of-address recency rule blank, or back on the stack's TEST rule. */
-function identityPoaRule(on) {
+async function identityPoaRule(on) {
   const before = process.env.LOCAL_STACK_IDENTITY_POA_RULE;
   if (on) delete process.env.LOCAL_STACK_IDENTITY_POA_RULE;
   else process.env.LOCAL_STACK_IDENTITY_POA_RULE = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_POA_RULE;
     else process.env.LOCAL_STACK_IDENTITY_POA_RULE = before;
@@ -401,7 +401,7 @@ test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
   await expect(poa.getByTestId('verification__poa-state')).toHaveText('Proof of address is asked for after level Basic is approved.');
   await page.getByLabel('Level to request').selectOption({ label: 'Basic' });
   await sendRequest(page);
-  tool('local-test-gates.mjs', 'verify');
+  await tool('local-test-gates.mjs', 'verify');
   await page.reload();
 
   // The owner's TEST rule (90 days) and the lists for DE: what counts and what never does.
@@ -426,7 +426,7 @@ test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
   // With the owner's recency rule blank, the room says so and a send is refused with its code; nothing is stored.
   const ruleUnset = 'No rule is published for how recent a proof of address must be, so a submission is refused.';
   try {
-    identityPoaRule(false);
+    await identityPoaRule(false);
     await page.reload();
     await expect(poa.getByTestId('verification__poa-rule')).toHaveAttribute('data-max-age-days', '');
     await expect(poa.getByTestId('verification__poa-rule')).toHaveText(ruleUnset);
@@ -441,7 +441,7 @@ test(`${J} #5: proof of address, with honest refusals`, async ({ page }) => {
     await page.reload();
     await expect(poa.getByTestId('verification__poa-latest')).toHaveCount(0);
   } finally {
-    identityPoaRule(true);
+    await identityPoaRule(true);
   }
   await page.reload();
   await expect(poa.getByTestId('verification__poa-rule')).toHaveText('Issued within the last 90 days.');
@@ -501,7 +501,7 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   await expect(cases.first().getByTestId('verification__case-steps').locator('li')).toHaveCount(1);
 
   // Rejected by the stack's two TEST operators with a listed code: the reason and what to do, in plain words.
-  expect(tool('local-test-gates.mjs', 'kyc-reject', who.handle, 'document_unreadable')).toContain('rejected (document_unreadable)');
+  expect(await tool('local-test-gates.mjs', 'kyc-reject', who.handle, 'document_unreadable')).toContain('rejected (document_unreadable)');
   await page.reload();
   const rejected = cases.first();
   await expect(rejected).toHaveAttribute('data-state', 'rejected');
@@ -523,7 +523,7 @@ test(`${J}, part of #6 (I-kyc-compliance-01): one case record with history; a re
   await expect(cases.first().getByRole('button', { name: 'Send a new request' })).toHaveCount(0);
 
   // Approved: the case says so, and the ladder moves to Full at once, with what Full unlocks included.
-  tool('local-test-gates.mjs', 'verify');
+  await tool('local-test-gates.mjs', 'verify');
   await page.reload();
   await expect(cases.first()).toHaveAttribute('data-state', 'approved');
   await expect(cases.first().getByTestId('verification__case-steps').locator('li')).toHaveText([/^Sent for review · /, /^Approved · /]);
@@ -556,7 +556,7 @@ test(`${J} #6: one case record with history; an approval unlocks the mapped feat
   await expect(capability('trade_crypto')).toContainText('Pending review');
 
   // Approved: the same case reads approved with its two steps, and every mapped capability is active at once.
-  tool('local-test-gates.mjs', 'verify');
+  await tool('local-test-gates.mjs', 'verify');
   await page.reload();
   await expect(cases).toHaveCount(1);
   await expect(cases.first()).toHaveAttribute('data-state', 'approved');
@@ -578,7 +578,7 @@ test(`${J} #7: a restriction on another screen gives its reason in plain words a
   await expect(restrictions.getByTestId('verification__restrictions-none')).toHaveText('Nothing is restricted on your account.');
 
   // Compliance switches trading crypto off, two people with the stack's TEST reason (I-kyc-compliance-07).
-  expect(tool('local-test-gates.mjs', 'kyc-capability-off', who.handle, 'trade_crypto', CAPABILITY_REASON.code)).toContain(
+  expect(await tool('local-test-gates.mjs', 'kyc-capability-off', who.handle, 'trade_crypto', CAPABILITY_REASON.code)).toContain(
     `switched off (${CAPABILITY_REASON.code})`,
   );
   // The reason identity stored with the switch-off, read back from identity itself: the code and the owner's words and
@@ -684,7 +684,7 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
   try {
     // A trade-ops operator restricts this account's trading at identity, with a second person's approval and a reason
     // code from the owner's list (the stack's TEST IDENTITY_TRADING_RESTRICTION_REASONS).
-    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict', TRADING_REASON.code)).toMatch(
+    expect(await tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restrict', TRADING_REASON.code)).toMatch(
       /OK .* trading restrict: changed/,
     );
 
@@ -747,7 +747,7 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
       .toEqual({ free: usdtBefore.total, used: expect.stringMatching(/^0(\.0+)?$/), total: usdtBefore.total });
 
     // Lifted, again with two people: the same order goes through and rests.
-    expect(tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore')).toMatch(/OK .* trading restore: changed/);
+    expect(await tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore')).toMatch(/OK .* trading restore: changed/);
     lifted = true;
     await page.goto('/uc/account');
     await expect(status.getByTestId('account-status__state')).toHaveAttribute('data-state', 'active');
@@ -768,7 +768,7 @@ test(`${J} #7: a trading restriction refuses a new order on the desk by name, ke
     // Lift it if the test stopped before its own lift, without hiding the first failure behind a second one.
     if (!lifted) {
       try {
-        tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore');
+        await tool('local-test-gates.mjs', 'trading-restrict', who.handle, 'restore');
       } catch (error) {
         console.warn(`J-identity-08 #7: the lift after a failure failed too: ${error}`);
       }

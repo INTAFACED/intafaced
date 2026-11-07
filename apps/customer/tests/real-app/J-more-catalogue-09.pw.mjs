@@ -63,7 +63,7 @@ async function home(client) {
 async function staker(page, prefix, funded, stake) {
   const who = await signUp(page, prefix);
   await verify(page, who);
-  expect(fund(who.email, 'IFC', funded).tx).toBeTruthy();
+  expect((await fund(who.email, 'IFC', funded)).tx).toBeTruthy();
   const client = await api(who);
   const staked = await client.post('/api/token/trpc/stake', { amount: stake, tier: 'flex', stakeId: randomUUID() });
   expect(staked.status, JSON.stringify(staked.body).slice(0, 300)).toBe(200);
@@ -72,19 +72,19 @@ async function staker(page, prefix, funded, stake) {
 }
 
 /** Restarts the token lane with one TEST rule on, or with it unset (`off`), as identity's restarts do (J-identity-08). */
-function restartTokenWith(variable, on) {
+async function restartTokenWith(variable, on) {
   const before = process.env[variable];
   if (on) delete process.env[variable];
   else process.env[variable] = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'token');
+    await tool('local-test-stack.mjs', 'restart', 'token');
   } finally {
     if (before === undefined) delete process.env[variable];
     else process.env[variable] = before;
   }
 }
-const proposerRule = (on) => restartTokenWith('LOCAL_STACK_TOKEN_PROPOSER_RULE', on);
-const voteRule = (on) => restartTokenWith('LOCAL_STACK_TOKEN_VOTE_RULE', on);
+const proposerRule = async (on) => await restartTokenWith('LOCAL_STACK_TOKEN_PROPOSER_RULE', on);
+const voteRule = async (on) => await restartTokenWith('LOCAL_STACK_TOKEN_VOTE_RULE', on);
 
 /** A canonical decimal string as 18-decimal scaled bigint, so sums and differences never pass through a JS number. */
 function units(value) {
@@ -285,7 +285,7 @@ test(`${J} #4 Creates a proposal below the proposer rule: The panel says why bef
   const blankTitle = `TEST ${nonce} blank rule`;
   const before = await listed(client, { q: nonce });
   try {
-    proposerRule(false);
+    await proposerRule(false);
     expect((await home(client)).proposal).toEqual({ code: 'token.proposer_rule_unset', minStake: null });
     await page.reload();
     await page.getByRole('button', { name: 'New proposal' }).click();
@@ -300,7 +300,7 @@ test(`${J} #4 Creates a proposal below the proposer rule: The panel says why bef
     await expect(form.getByRole('alert')).toHaveText('Refused: the proposer rule is not set. Nothing was saved.');
     expect(await listed(client, { q: nonce })).toEqual(before);
   } finally {
-    proposerRule(true);
+    await proposerRule(true);
   }
   expect((await home(client)).proposal).toEqual(access);
 });
@@ -549,7 +549,7 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
   expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0, totals: ['0', '0'] });
 
   // The vote needs a validation rule: with who may vote unset, the panel says so and the cast is refused with its code.
-  voteRule(false);
+  await voteRule(false);
   try {
     ballot = await openBallot('weighted');
     await expect(page.getByRole('region', { name: 'Your voting power' })).toContainText(
@@ -563,7 +563,7 @@ test(`${J} #7 Casts a vote on an approval, weighted or ranked ballot: A ballot w
     await expect(ballot.getByRole('alert')).toHaveText('Refused: who may vote is not set. Nothing was saved.');
     expect((await detail(ballots.weighted)).choiceTally).toMatchObject({ voterCount: 0 });
   } finally {
-    voteRule(true);
+    await voteRule(true);
   }
 
   // With the TEST rule (power:0) the same ballot is recorded at the power fixed when the proposal was created.
@@ -657,7 +657,7 @@ test(`${J} #9 Opens the treasury panel: Each figure equals the token service rea
     return data(res);
   };
   // A TEST treasury through the ledger: the labelled TEST emission settings, then one epoch minted through the job door.
-  tool('local-test-stack.mjs', 'token-params');
+  await tool('local-test-stack.mjs', 'token-params');
   const before = await treasuryRead();
   const engineBefore = await ledgerBalance(ctx, 'rewards-engine');
   await page.waitForTimeout(1_100); // the stack's TEST epoch is one second long

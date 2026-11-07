@@ -208,7 +208,7 @@ test(`${J} #6 trades a pair whose band or cap the owner has not published: a typ
   const published = (await rulesOf(pair)).protection;
   expect(published.collar).not.toBe('not set');
   expect(published.openOrdersPerMarket).not.toBe('not set');
-  expect(fund(who.email, 'USDC', '500').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDC', '500')).tx).toBeTruthy();
   const trader = await api(who);
   const before = held(await trader.balances(), 'USDC');
   const price = await awayBid(95, pair);
@@ -224,7 +224,7 @@ test(`${J} #6 trades a pair whose band or cap the owner has not published: a typ
       clientOrderId: `${J}-6-${key}-${Date.now()}`,
     });
   try {
-    tool('local-test-gates.mjs', 'risk', pair, 'collar=unset', 'throttle=unset');
+    await tool('local-test-gates.mjs', 'risk', pair, 'collar=unset', 'throttle=unset');
     await expect.poll(async () => (await rulesOf(pair)).protection.collar).toBe('not set');
 
     // The desk shows the rule as not published, and the order check refuses in words before review.
@@ -250,7 +250,7 @@ test(`${J} #6 trades a pair whose band or cap the owner has not published: a typ
     expect(JSON.stringify(noBand.body)).toContain('trade.price_band_unset');
 
     // With the band back and the cap still missing, an order that would rest is refused for the cap.
-    tool('local-test-gates.mjs', 'risk', pair, `collar=${published.collar}`);
+    await tool('local-test-gates.mjs', 'risk', pair, `collar=${published.collar}`);
     await expect.poll(async () => (await rulesOf(pair)).protection.collar).toBe(published.collar);
     const noCap = await send('cap');
     expect(noCap.status).toBe(503);
@@ -258,7 +258,7 @@ test(`${J} #6 trades a pair whose band or cap the owner has not published: a typ
     expect(await openOrders(who, pair)).toHaveLength(0);
     expect(held(await trader.balances(), 'USDC')).toBe(before);
   } finally {
-    tool('local-test-gates.mjs', 'risk', pair, `collar=${published.collar}`, `throttle=${published.openOrdersPerMarket}`);
+    await tool('local-test-gates.mjs', 'risk', pair, `collar=${published.collar}`, `throttle=${published.openOrdersPerMarket}`);
   }
   const restored = (await rulesOf(pair)).protection;
   expect([restored.collar, restored.openOrdersPerMarket]).toEqual([published.collar, published.openOrdersPerMarket]);

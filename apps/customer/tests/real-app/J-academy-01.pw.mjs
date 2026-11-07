@@ -133,12 +133,12 @@ test(`${J} #6 a lesson opens in the reader by its address, with related items; a
  * Academy restarted with its video storage off (blank settings) or back on the stack's TEST video store. The stack
  * serves video by default (J-academy-03 #4 plays one), so this step sets up its own "not configured" first.
  */
-const academyVideoStorage = (on) => restartWith('academy', 'LOCAL_STACK_ACADEMY_VIDEO_STORAGE', on);
+const academyVideoStorage = async (on) => await restartWith('academy', 'LOCAL_STACK_ACADEMY_VIDEO_STORAGE', on);
 
 test(`${J} #7 Videos keeps its full layout and says video storage is not configured`, async ({ page }) => {
   // Two Academy restarts (storage off, then back) can take most of a minute each.
   test.setTimeout(300_000);
-  academyVideoStorage(false);
+  await academyVideoStorage(false);
   try {
     await page.goto('/academy/videos');
     await expect(page.getByRole('heading', { name: 'Video library', level: 2 })).toBeVisible();
@@ -156,7 +156,7 @@ test(`${J} #7 Videos keeps its full layout and says video storage is not configu
     const signIn = playback.getByRole('link', { name: 'Sign in' });
     await expect(signIn).toHaveAttribute('href', /^\/login/);
   } finally {
-    academyVideoStorage(true);
+    await academyVideoStorage(true);
   }
 });
 

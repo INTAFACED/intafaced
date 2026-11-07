@@ -52,7 +52,7 @@ test(`${J} starts: a verified exchange account with TEST USDT and a connected TE
   test.setTimeout(240_000);
   const who = await fundedTrader(page, 'dex05', '50');
   account.run.reset({ who });
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
 });
 

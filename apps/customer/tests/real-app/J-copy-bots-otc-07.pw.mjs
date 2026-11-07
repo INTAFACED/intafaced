@@ -28,7 +28,7 @@ function state(key) {
 test(`${J} #1 as a follower tries to mint a lead-scope key: refused until the account is an approved lead`, async ({ browser }) => {
   test.setTimeout(300_000);
   const follower = await keyHolder(browser, 'jck');
-  expect(fund(follower.who.email, 'USDT', '500').tx).toBeTruthy();
+  expect((await fund(follower.who.email, 'USDT', '500')).tx).toBeTruthy();
   run.reset({ follower: follower.who });
   await follower.page.goto('/uc/safe/api-keys/new');
   await follower.page.getByLabel('Lead trading', { exact: true }).check(UNBUILT);
@@ -38,7 +38,7 @@ test(`${J} #1 as a follower tries to mint a lead-scope key: refused until the ac
 
 test(`${J} #2 as an approved lead mints a lead key; a delegate can't mint one`, async ({ browser }) => {
   const lead = await keyHolder(browser, 'jckl');
-  expect(fund(lead.who.email, 'USDT', '2000').tx).toBeTruthy();
+  expect((await fund(lead.who.email, 'USDT', '2000')).tx).toBeTruthy();
   const leadRef = await listLeader(lead.who, `Journey Keys ${Date.now().toString(36)}`);
   await lead.page.goto('/uc/safe/api-keys/new');
   await lead.page.getByLabel('Lead trading', { exact: true }).check(UNBUILT);

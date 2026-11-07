@@ -39,7 +39,7 @@ test.describe.configure({ mode: 'default' });
 // A journey before this one may have shut the TEST chain's gate (J-dex-protocol-01 does, for its "node unreachable"
 // steps) and reopened it: wait until the indexer reads the chain again, so step 1 is not judged on that window.
 test.beforeAll(async () => {
-  const input = encodeURIComponent(JSON.stringify({ chainId: testChain().chainId }));
+  const input = encodeURIComponent(JSON.stringify({ chainId: (await testChain()).chainId }));
   await expect(async () => {
     const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.list?input=${input}`, { headers: { origin: ORIGIN } });
     expect(res.status).toBe(200);
@@ -93,10 +93,10 @@ test(`${J} #1 opens Chain home: latest blocks and transactions for the test netw
  * a failed transaction in a block.
  */
 async function minedTx(data, status = 'reverted') {
-  const chain = testChain();
+  const chain = await testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no transaction can be mined').toBe('running');
   const account = privateKeyToAccount(generatePrivateKey());
-  fundOnTestChain(account.address);
+  await fundOnTestChain(account.address);
   const viemChain = {
     id: chain.chainId,
     name: 'TEST chain',
@@ -121,7 +121,7 @@ async function openTxBySearch(page, hash) {
 
 /** One JSON-RPC call to the stack's TEST chain gate. */
 async function chainRpc(method, params = []) {
-  const response = await fetch(testChain().gateUrl, {
+  const response = await fetch((await testChain()).gateUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
@@ -137,7 +137,7 @@ async function chainRpc(method, params = []) {
  * after. The replacement block carries a different transaction, so its hash differs.
  */
 async function reorgedBlock(page) {
-  expect(testChain().chain, 'the stack runs no TEST chain, so no block can be reorged').toBe('running');
+  expect((await testChain()).chain, 'the stack runs no TEST chain, so no block can be reorged').toBe('running');
   const interval = await chainRpc('anvil_getIntervalMining');
   await chainRpc('evm_setIntervalMining', [0]);
   try {
@@ -252,10 +252,10 @@ const TEST_TOKEN = JSON.parse(
 
 /** Deploys a TEST token with this symbol from a fresh funded TEST key and mints to that key, so the indexer sees it emit. */
 async function deployedToken(symbol, name) {
-  const chain = testChain();
+  const chain = await testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no token can be deployed').toBe('running');
   const account = privateKeyToAccount(generatePrivateKey());
-  fundOnTestChain(account.address);
+  await fundOnTestChain(account.address);
   const viemChain = {
     id: chain.chainId,
     name: 'TEST chain',
@@ -322,16 +322,16 @@ const FORWARDER_DEPLOY = '0x600f600c600039600f6000f3' + '60006000600060003460003
 
 /** Polls the indexer until it has stored the canonical block at `height`, so the page reads a block that holds the run's txs. */
 async function indexedTo(height) {
-  const input = (h) => encodeURIComponent(JSON.stringify({ chainId: testChain().chainId, height: h }));
+  const input = async (h) => encodeURIComponent(JSON.stringify({ chainId: (await testChain()).chainId, height: h }));
   await expect(async () => {
-    const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.get?input=${input(height)}`, { headers: { origin: ORIGIN } });
+    const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.get?input=${await input(height)}`, { headers: { origin: ORIGIN } });
     expect(res.status).toBe(200);
   }).toPass({ timeout: 60_000 });
 }
 
 /** Whether the indexer has stored the canonical block at `height`. */
 async function blockIndexed(height) {
-  const input = encodeURIComponent(JSON.stringify({ chainId: testChain().chainId, height }));
+  const input = encodeURIComponent(JSON.stringify({ chainId: (await testChain()).chainId, height }));
   const res = await fetch(`${EDGE}/api/indexer/trpc/explorer.blocks.get?input=${input}`, { headers: { origin: ORIGIN } });
   if (res.status === 200) return true;
   expect(res.status, 'an unknown block is NOT_FOUND').toBe(404);
@@ -341,7 +341,7 @@ async function blockIndexed(height) {
 test(`${J} #5 opens the address page: summary, transactions, holdings with unpriced ones counted, internal transactions or "trace unavailable", and a past balance or "not indexed before block N"`, async ({
   page,
 }) => {
-  const chain = testChain();
+  const chain = await testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so nothing can be sent to an address').toBe('running');
   const viemChain = {
     id: chain.chainId,
@@ -353,7 +353,7 @@ test(`${J} #5 opens the address page: summary, transactions, holdings with unpri
   // forwarding contract's internal call. It holds nothing else, so every figure below is exact.
   const subject = getAddress(privateKeyToAccount(generatePrivateKey()).address);
   const sender = privateKeyToAccount(generatePrivateKey());
-  fundOnTestChain(sender.address);
+  await fundOnTestChain(sender.address);
   const wallet = createWalletClient({ account: sender, chain: viemChain, transport: http(chain.gateUrl) });
   const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
   const symbol = `T${Date.now().toString(36).toUpperCase().slice(-7)}`;
@@ -499,7 +499,7 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
   page,
 }) => {
   test.setTimeout(180_000);
-  const chain = testChain();
+  const chain = await testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no swap can be mined').toBe('running');
   const viemChain = {
     id: chain.chainId,
@@ -551,7 +551,7 @@ test(`${J} #7 opens a pool page and a token page: candles, volume, buy and sell 
     reader.readContract({ address: token0, abi: erc20, functionName: 'symbol' }),
   ]);
   const trader = privateKeyToAccount(generatePrivateKey());
-  fundOnTestChain(trader.address);
+  await fundOnTestChain(trader.address);
   const wallet = createWalletClient({ account: trader, chain: viemChain, transport: http(chain.gateUrl) });
   const mined = async (request) => {
     const hash = await wallet.writeContract({ ...request, gas: 300_000n });
@@ -630,7 +630,7 @@ test(`${J} #8 opens a contract's source status and the Read tab: exact, similar 
   page,
 }) => {
   test.setTimeout(180_000);
-  const chain = testChain();
+  const chain = await testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no contract can be deployed').toBe('running');
   const viemChain = {
     id: chain.chainId,
@@ -640,7 +640,7 @@ test(`${J} #8 opens a contract's source status and the Read tab: exact, similar 
   };
   const reader = createPublicClient({ chain: viemChain, transport: http(chain.gateUrl) });
   const deployer = privateKeyToAccount(generatePrivateKey());
-  fundOnTestChain(deployer.address);
+  await fundOnTestChain(deployer.address);
   const wallet = createWalletClient({ account: deployer, chain: viemChain, transport: http(chain.gateUrl) });
   const deployed = async (request) => {
     const hash = await wallet.sendTransaction(request);
@@ -667,7 +667,7 @@ test(`${J} #8 opens a contract's source status and the Read tab: exact, similar 
 
   // The person's TEST wallet, connected to the TEST chain: it signs and sends what the page asks, and keeps a record.
   const person = await installTestWallet(page, { chainId: chain.chainId, rpcUrl: chain.gateUrl });
-  fundOnTestChain(person.address);
+  await fundOnTestChain(person.address);
 
   const status = page.getByTestId('contract-source-status');
   const reason = page.getByTestId('contract-source-reason');
@@ -814,7 +814,7 @@ async function rpcAt(url, method, params = []) {
  * block each network mined it in, both read from the chains themselves.
  */
 async function twinTx() {
-  const chain = testChain();
+  const chain = await testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no transaction can be sent').toBe('running');
   expect(chain.second?.gate, 'the stack runs no second TEST network').toBe('open');
   const account = privateKeyToAccount(generatePrivateKey());
@@ -862,21 +862,21 @@ test(`${J} #10 searches a hash that exists on two networks: both are listed, and
   // The second network's node is made not to answer (the stack's gate for that network is closed), and the same hash
   // is searched again: that network reads "not checked" with its reason, never "Not found", and the first still Found.
   try {
-    tool('local-test-chain.mjs', 'gate', 'closed', 'second');
-    expect(testChain().second.gate).toBe('closed');
+    await tool('local-test-chain.mjs', 'gate', 'closed', 'second');
+    expect((await testChain()).second.gate).toBe('closed');
     await search(page).press('Enter');
     await expect(second).toHaveText('Local test chain: not checked: the network’s node didn’t answer', { timeout: 15_000 });
     await expect(primary).toHaveText('Base Sepolia test network: Found (Success) Open transaction');
   } finally {
-    tool('local-test-chain.mjs', 'gate', 'open', 'second');
+    await tool('local-test-chain.mjs', 'gate', 'open', 'second');
   }
-  expect(testChain().second.gate).toBe('open');
+  expect((await testChain()).second.gate).toBe('open');
 });
 
 test(`${J} #11 requests a token info update with the token owner's signature: the proof is stored; a replayed challenge, a non-owner and an ownerless token each refuse with their own reason`, async ({
   page,
 }) => {
-  const chain = testChain();
+  const chain = await testChain();
   expect(chain.chain, 'the stack runs no TEST chain, so no token can name an owner').toBe('running');
   const viemChain = {
     id: chain.chainId,
@@ -889,7 +889,7 @@ test(`${J} #11 requests a token info update with the token owner's signature: th
   const ownerKey = testWalletKey();
   const owner = privateKeyToAccount(ownerKey).address;
   const deployer = privateKeyToAccount(generatePrivateKey());
-  fundOnTestChain(deployer.address);
+  await fundOnTestChain(deployer.address);
   const deploy = await createWalletClient({ account: deployer, chain: viemChain, transport: http(chain.gateUrl) }).sendTransaction({
     data: ownedDeploy(owner),
   });

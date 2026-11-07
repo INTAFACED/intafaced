@@ -46,7 +46,7 @@ async function choosePool(page, type) {
 }
 
 test(`${J} starts: a TEST wallet holding TEST tokens A and B, with a pool of each type the owner opened`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await openPools(page);
   const types = page.getByRole('main').getByRole('group', { name: 'Pool type' });
   for (const type of ['Range', 'Hook', 'Stable', 'Permissioned'])

@@ -190,8 +190,8 @@ test(`${J} #2 passes TEST verification: identity reads the account as fully veri
  * One TEST chain delivery of `amount` USDT to `address`, `confirmations` deep, as transfer `label`. Returns its hash and
  * the chain's key for it (`<hash>:<output>`, the key the TEST chain's own record carries).
  */
-function chainDeposit(address, amount, confirmations, label) {
-  const out = tool('local-test-stack.mjs', 'chain-deposit', address, ASSET, amount, String(confirmations), '--tx', label);
+async function chainDeposit(address, amount, confirmations, label) {
+  const out = await tool('local-test-stack.mjs', 'chain-deposit', address, ASSET, amount, String(confirmations), '--tx', label);
   expect(out).toContain('"received":true');
   const found = /^\s*tx\s+((0x[0-9a-f]{64}):\d+)/m.exec(out);
   expect(found, out).toBeTruthy();
@@ -232,15 +232,15 @@ test(`${J} #3 deposits TEST ${DEPOSIT} ${ASSET} on the TEST chain: credited on t
 
   // Seen, then one short of the published depth: nothing credited. At the depth: credited once, and only then.
   const label = `jm27-${who.handle}-r${testInfo.retry}`;
-  const { tx, key } = chainDeposit(address, DEPOSIT, 0, label);
+  const { tx, key } = await chainDeposit(address, DEPOSIT, 0, label);
   expect(total(await api.balances(), ASSET)).toBe(before);
-  expect(chainDeposit(address, DEPOSIT, depth - 1, label).tx).toBe(tx);
+  expect((await chainDeposit(address, DEPOSIT, depth - 1, label)).tx).toBe(tx);
   expect(total(await api.balances(), ASSET), `${depth - 1} of ${depth} confirmations credits nothing`).toBe(before);
   const short = await depositRecords(api, tx);
   expect(short).toHaveLength(1);
   expect(short[0].status).not.toBe('credited');
   expect(short[0].creditedAt).toBeNull();
-  expect(chainDeposit(address, DEPOSIT, depth, label).tx).toBe(tx);
+  expect((await chainDeposit(address, DEPOSIT, depth, label)).tx).toBe(tx);
   await page.reload();
   const records = page.locator('section', { has: page.getByRole('heading', { name: 'Deposit records' }) });
   const row = records.locator('tbody tr', { hasText: tx });
@@ -249,7 +249,7 @@ test(`${J} #3 deposits TEST ${DEPOSIT} ${ASSET} on the TEST chain: credited on t
   await expect(row).toContainText(`${DEPOSIT} ${ASSET}`);
   expect(total(await api.balances(), ASSET) - before).toBe(toUnits(DEPOSIT));
   // A repeat of the same chain event credits nothing more: still one record, in the app and in svc-pay, and one credit.
-  expect(chainDeposit(address, DEPOSIT, depth, label).tx).toBe(tx);
+  expect((await chainDeposit(address, DEPOSIT, depth, label)).tx).toBe(tx);
   await page.reload();
   await expect(row).toHaveCount(1);
   const [credited, ...extra] = await depositRecords(api, tx);
@@ -458,7 +458,7 @@ test(`${J} #6 cashes out TEST ${CASH_OUT} ${ASSET} to a linked bank account: com
   expect(named, `exactly one linked account is ${BANK_LABEL}`).toHaveLength(1);
   const [account] = named;
   expect(await partner('verify', { accountId: account.accountId })).toMatchObject({ state: 'verified' });
-  expect(tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
+  expect(await tool('local-test-stack.mjs', 'age-linked-accounts', who.email, '25')).toContain('1 linked account(s)');
   const before = total(await api.balances(), ASSET);
 
   await seeCashOut(page, CASH_OUT);
@@ -520,7 +520,7 @@ test(`${J} #7 withdraws TEST ${WITHDRAW} ${ASSET} on the TEST chain with the sta
   test.setTimeout(300_000);
   const { who } = state();
   // The stack's founders publish the TEST withdrawal terms in svc-pay: the fee quote policy and this network's rules.
-  const published = tool('local-test-gates.mjs', 'withdraw-terms');
+  const published = await tool('local-test-gates.mjs', 'withdraw-terms');
   expect(published).toMatch(/withdrawal quote policy: (already )?published/);
   expect(published).toMatch(new RegExp(`withdrawal rules ${ASSET} on ethereum: (already )?published`));
   await signInNow(page);
@@ -561,7 +561,7 @@ test(`${J} #7 withdraws TEST ${WITHDRAW} ${ASSET} on the TEST chain with the sta
   } finally {
     await other.close();
   }
-  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
+  expect(await tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
 
   const api = await client();
   const before = total(await api.balances(), ASSET);
@@ -802,12 +802,12 @@ async function openItemsOfThisRun() {
   expect(typeof network.minimumDeposit, 'the minimum deposit is published, not blank').toBe('string');
   const below = toUnits(network.minimumDeposit) / 2n;
   expect(below, `half of the published ${ASSET} minimum is above 0`).toBeGreaterThan(0n);
-  const { tx: heldTx } = chainDeposit(depositAddress, fromUnits(below), depositDepth, `${depositLabel}-below-minimum`);
+  const { tx: heldTx } = await chainDeposit(depositAddress, fromUnits(below), depositDepth, `${depositLabel}-below-minimum`);
   const [held] = await depositRecords(api, heldTx);
   expect(held, 'svc-pay recorded the deposit below the minimum').toMatchObject({ status: 'below_minimum', reason: 'below_minimum' });
   const free = total(await api.balances(), ASSET);
   expect(free, `#4 to #7 spent part of #3's ${DEPOSIT} ${ASSET}, so a reversal can't be covered`).toBeLessThan(toUnits(DEPOSIT));
-  expect(tool('local-test-stack.mjs', 'chain-reorg', depositAddress, '--tx', depositLabel)).toContain('TEST chain reorg delivered');
+  expect(await tool('local-test-stack.mjs', 'chain-reorg', depositAddress, '--tx', depositLabel)).toContain('TEST chain reorg delivered');
   const [, taken] = /^(0x[0-9a-f]{64}):/.exec(state().depositKey) ?? [];
   const [reversed] = await depositRecords(api, taken);
   expect(reversed, 'svc-pay holds the reversed deposit for review, unfunded').toMatchObject({

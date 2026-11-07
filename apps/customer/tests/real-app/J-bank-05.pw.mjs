@@ -34,7 +34,7 @@ async function sender(page) {
   if (now.sender && now.secret) return now.sender;
   const who = await signUp(page, 'jb5s');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   await page.goto('/login');
   await page.fill('input[name=identifier]', who.email);
   await page.fill('input[name=password]', who.password);

@@ -383,10 +383,10 @@ test(`${J} #5 A staff freeze shows its own page that only staff can lift, with t
 
     // Only staff lift it: the founder who froze it cannot decide the appeal; the other founder lifts it through the
     // unfreeze four-eyes, and the person can sign in again.
-    expect(tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code, '--as-restrictor')).toMatch(
+    expect(await tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code, '--as-restrictor')).toMatch(
       /REFUSED .* appeal lift: .*identity\.appeal_decider_restricted/,
     );
-    expect(tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code)).toMatch(/OK .* appeal lift: lifted/);
+    expect(await tool('local-test-gates.mjs', 'appeal-decide', who.handle, 'lift', LIFT_REASON.code)).toMatch(/OK .* appeal lift: lifted/);
     lifted = true;
     const own = await api(who);
     const status = await own.get('/api/identity/trpc/accountStatus.mine');

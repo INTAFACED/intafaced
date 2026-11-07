@@ -26,7 +26,7 @@ async function openRecurring(page) {
 }
 
 test(`${J} starts: a TEST wallet with TEST token A and a target token chosen`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await openRecurring(page);
 });
 

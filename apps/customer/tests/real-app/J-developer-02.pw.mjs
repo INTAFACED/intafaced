@@ -124,12 +124,12 @@ async function sandboxDetail(who, sandboxId) {
 }
 
 /** Identity restarted with the owner's sandbox cap blank, or back on the stack's TEST cap (as J-identity-08 #5 does). */
-function identitySandboxCap(on) {
+async function identitySandboxCap(on) {
   const before = process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP;
   if (on) delete process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP;
   else process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP;
     else process.env.LOCAL_STACK_IDENTITY_SANDBOX_CAP = before;
@@ -167,7 +167,7 @@ test(`${J} #2 creates a sandbox with a name: listed, a second named sandbox work
 
   // "with the sandbox cap blank the second refuses": identity restarted with the cap blank refuses by its code, and
   // nothing is written.
-  identitySandboxCap(false);
+  await identitySandboxCap(false);
   try {
     await page.reload();
     await expect(page.getByTestId('sandbox-cap')).toHaveAttribute('data-limit', 'unset');
@@ -180,7 +180,7 @@ test(`${J} #2 creates a sandbox with a name: listed, a second named sandbox work
     expect(held.sandboxes.map((sandbox) => sandbox.name)).toEqual(['development']);
     expect(held.cap).toEqual({ limit: null, held: 1 });
   } finally {
-    identitySandboxCap(true);
+    await identitySandboxCap(true);
   }
 
   // "a second named sandbox (development, CI, UAT) works" once the stack's TEST cap is back.
@@ -254,7 +254,7 @@ test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandb
 
 test(`${J} #4 presses Fund while the owner decision is unset: a typed refusal naming the decision, nothing written`, async () => {
   // A stack an earlier run left with TEST values set starts blank again.
-  tool('local-test-gates.mjs', 'sandbox-funds', 'unset');
+  await tool('local-test-gates.mjs', 'sandbox-funds', 'unset');
   await openSandbox('development');
   const before = await sandboxBalance();
   await page.getByRole('button', { name: 'Fund with TEST money' }).click();
@@ -265,7 +265,7 @@ test(`${J} #4 presses Fund while the owner decision is unset: a typed refusal na
 test(`${J} #5 funds the sandbox once the decision is set: the sandbox balance rises, labelled TEST, and the live book is untouched`, async () => {
   const { who } = run.read();
   const live = await (await account(who)).balances();
-  tool('local-test-gates.mjs', 'sandbox-funds', 'set');
+  await tool('local-test-gates.mjs', 'sandbox-funds', 'set');
   await openSandbox('development');
   const before = await sandboxBalance();
   await page.getByRole('button', { name: 'Fund with TEST money' }).click();
@@ -314,7 +314,7 @@ test(`${J} #6 runs the clock check: the offset against the server, and within th
   expect(beyond.verdict).toBe('outside');
 
   // While the owner's window is blank the check does not pass: it names the refusal every signed call would get.
-  blankSigningWindow(true);
+  await blankSigningWindow(true);
   try {
     expect((await signingPolicy()).windowSeconds).toBeNull();
     await page.reload();
@@ -323,7 +323,7 @@ test(`${J} #6 runs the clock check: the offset against the server, and within th
     await expect(result).toContainText('auth.request_window_unset');
     await expect(result).not.toContainText('Within the window');
   } finally {
-    blankSigningWindow(false);
+    await blankSigningWindow(false);
   }
 });
 

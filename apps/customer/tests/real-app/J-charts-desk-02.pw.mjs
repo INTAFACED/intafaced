@@ -50,9 +50,9 @@ async function newestTradeMs(symbol = BTC) {
 }
 
 /** The TEST market maker's own status line; `status` exits non-zero when the maker is down, which is an answer here. */
-function maker(cmd) {
+async function maker(cmd) {
   try {
-    return tool('local-test-market.mjs', cmd);
+    return await tool('local-test-market.mjs', cmd);
   } catch (err) {
     return String(err.stdout ?? '');
   }
@@ -84,19 +84,19 @@ test(`${J} #1 opens a chart on a live market: a Real-time chip with its age, the
 
 test.describe(`${J} #2 on a real-time market whose newest trade is past the boundary`, () => {
   let makerWasRunning = false;
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     // Stopping cancels every resting maker order and starting funds it again: each may take up to the tool's 120 s.
     test.setTimeout(300_000);
-    makerWasRunning = /^test market: (ok|STALE)/.test(maker('status'));
+    makerWasRunning = /^test market: (ok|STALE)/.test(await maker('status'));
     // No ETH trade from here: the TEST market maker quotes and trades BTC/USDT only.
-    tool('local-test-market.mjs', 'stop');
-    tool('local-test-market.mjs', 'start', '--markets', BTC);
+    await tool('local-test-market.mjs', 'stop');
+    await tool('local-test-market.mjs', 'start', '--markets', BTC);
   });
-  test.afterAll(() => {
+  test.afterAll(async () => {
     test.setTimeout(300_000);
-    tool('local-test-market.mjs', 'stop');
+    await tool('local-test-market.mjs', 'stop');
     // Put the maker back as the stack had it: on every market (as the run starts it), or off if it was off.
-    if (makerWasRunning) tool('local-test-market.mjs', 'start');
+    if (makerWasRunning) await tool('local-test-market.mjs', 'start');
   });
 
   test(`${J} #2 opens a real-time market with no trade inside the boundary: the chip reads Delayed with the age of its newest trade`, async ({
@@ -134,12 +134,12 @@ test.describe(`${J} #2 on a real-time market whose newest trade is past the boun
 });
 
 test.describe(`${J} #2 on a delayed market`, () => {
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     // The owner's flow, on the local stack: ETH/USDT moves to the delayed class with a second operator's approval.
-    tool('local-test-gates.mjs', 'chart-class', ETH, 'delayed');
+    await tool('local-test-gates.mjs', 'chart-class', ETH, 'delayed');
   });
-  test.afterAll(() => {
-    tool('local-test-gates.mjs', 'chart-class', ETH, 'real_time');
+  test.afterAll(async () => {
+    await tool('local-test-gates.mjs', 'chart-class', ETH, 'real_time');
   });
 
   test(`${J} #2 opens a market whose data class is delayed: the chip reads Delayed with the age of its newest trade`, async ({ page }) => {
@@ -166,12 +166,12 @@ test.describe(`${J} #2 on a delayed market`, () => {
 });
 
 test.describe(`${J} #3 on a halted market (a real matching halt)`, () => {
-  test.beforeAll(() => {
+  test.beforeAll(async () => {
     // Matching's own book halt for BTC/USDT; the chart reads it through svc-trade's market-halt route.
-    tool('local-test-gates.mjs', 'halt', BTC);
+    await tool('local-test-gates.mjs', 'halt', BTC);
   });
-  test.afterAll(() => {
-    tool('local-test-gates.mjs', 'resume', BTC);
+  test.afterAll(async () => {
+    await tool('local-test-gates.mjs', 'resume', BTC);
   });
 
   test(`${J} #3 opens a halted market: a banner that the market is halted, and chart order entry is off with the reason`, async ({

@@ -21,7 +21,7 @@ test.describe.configure({ mode: 'serial' });
 test.beforeAll(async () => {
   test.setTimeout(180_000);
   const who = await unconfirmedAccount('jmeta');
-  const out = fund(who.email, ASSET, '1', `meta-${tag}`);
+  const out = await fund(who.email, ASSET, '1', `meta-${tag}`);
   expect(out.tx, out.out).toBeTruthy();
   state.userId = /\(([0-9a-f-]{36})\)/.exec(out.out)?.[1] ?? null;
   expect(state.userId).toBeTruthy();

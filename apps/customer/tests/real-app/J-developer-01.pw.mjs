@@ -28,12 +28,12 @@ async function streamInventory(page) {
 }
 
 /** The Customer server restarted with its WebSocket upstream blank, or back on the stack's svc-ws. */
-function wsUpstream(on) {
+async function wsUpstream(on) {
   const before = process.env.LOCAL_STACK_WS_UPSTREAM;
   if (on) delete process.env.LOCAL_STACK_WS_UPSTREAM;
   else process.env.LOCAL_STACK_WS_UPSTREAM = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'customer');
+    await tool('local-test-stack.mjs', 'restart', 'customer');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_WS_UPSTREAM;
     else process.env.LOCAL_STACK_WS_UPSTREAM = before;
@@ -59,7 +59,7 @@ async function refusedBlank(page, kind, code) {
  * back (null).
  * tooling/scripts/local-stack-services/trade.mjs leaves a value out when `LOCAL_STACK_TRADE_DEVELOPER_<name>=off`.
  */
-function tradeDeveloperValues(blank, { regionalHosts = false } = {}) {
+async function tradeDeveloperValues(blank, { regionalHosts = false } = {}) {
   const names = ['HOSTS', 'REGIONAL_RULE', 'DATA_TERMS'].map((name) => `LOCAL_STACK_TRADE_DEVELOPER_${name}`);
   const before = names.map((name) => process.env[name]);
   for (const name of names) delete process.env[name];
@@ -67,7 +67,7 @@ function tradeDeveloperValues(blank, { regionalHosts = false } = {}) {
   // The stack's TEST regional hosts (local-stack-services/trade.mjs developerHosts), which the profile leaves out.
   if (regionalHosts) process.env.LOCAL_STACK_TRADE_DEVELOPER_HOSTS = 'regional';
   try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
+    await tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
     names.forEach((name, index) => (before[index] === undefined ? delete process.env[name] : (process.env[name] = before[index])));
   }
@@ -176,7 +176,7 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
   // Until the owner sets it, svc-trade refuses with its one code and the page says the rule waits for the owner, with
   // that code and no rule text.
   try {
-    tradeDeveloperValues('REGIONAL_RULE');
+    await tradeDeveloperValues('REGIONAL_RULE');
     await refusedBlank(page, 'regional-rule', 'trade.developer_regional_rule_unset');
     await page.reload();
     await expect(rule).toHaveAttribute('data-rule-state', 'unset');
@@ -184,7 +184,7 @@ test(`${J} #2 opens the base-URL table: one row per protocol, environment and re
     await expect(rule).toHaveText('The regional host rule is stated here once the owner sets it.');
     await expect(rows).toHaveCount(9);
   } finally {
-    tradeDeveloperValues(null);
+    await tradeDeveloperValues(null);
   }
   await page.reload();
   await expect(rule).toHaveText(publishedRule);
@@ -240,7 +240,7 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
   // With the owner's hosts blank, svc-trade refuses with its one code, the page says so with that code, and both
   // endpoints read "host not set" for every protocol.
   try {
-    tradeDeveloperValues('HOSTS');
+    await tradeDeveloperValues('HOSTS');
     await refusedBlank(page, 'hosts', 'trade.developer_hosts_unset');
     await page.reload();
     await expect(page.getByTestId('developers-connectivity-unset')).toHaveAttribute('data-code', 'trade.developer_hosts_unset');
@@ -253,7 +253,7 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
     await expect(endpoint('Internet')).not.toContainText('Available');
     await redundantUnset();
   } finally {
-    tradeDeveloperValues(null);
+    await tradeDeveloperValues(null);
   }
   await page.reload();
   await expect(endpoint('Internet')).toHaveAttribute('data-option-state', 'available');
@@ -261,7 +261,7 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
   // "redundant endpoints with their hosts": once the owner publishes the regional hosts, the redundant endpoint is
   // Available with each protocol's regional host, read back from svc-trade and shown exactly.
   try {
-    tradeDeveloperValues(null, { regionalHosts: true });
+    await tradeDeveloperValues(null, { regionalHosts: true });
     const { hosts: withRegional } = await published(page, 'hosts');
     const regional = ['rest', 'websocket', 'fix'].map((protocol) =>
       withRegional.find((row) => row.protocol === protocol && row.environment === 'regional'),
@@ -281,7 +281,7 @@ test(`${J} #3 opens the connectivity options: internet and redundant endpoints w
     // The internet endpoint keeps its production hosts beside it.
     await expect(endpointHosts('Internet').getByRole('code')).toHaveText(production.map((row) => row.host));
   } finally {
-    tradeDeveloperValues(null);
+    await tradeDeveloperValues(null);
   }
   await page.reload();
   await redundantUnset();
@@ -362,7 +362,7 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
 
   // With the Customer server's WebSocket upstream blank, the inventory refuses with its typed code, and the reference
   // still lists every stream; restored, the inventory reads back the same.
-  wsUpstream(false);
+  await wsUpstream(false);
   try {
     const refused = await page.request.get('/ws/streams');
     expect(refused.status()).toBe(503);
@@ -374,7 +374,7 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
     await page.goto('/developers/reference');
     await expect(page.getByRole('main').locator('tr[data-stream-door]')).toHaveCount(liveStreams.length);
   } finally {
-    wsUpstream(true);
+    await wsUpstream(true);
   }
   expect(await streamInventory(page)).toEqual(liveStreams);
 });
@@ -550,7 +550,7 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
   // With the owner's terms blank, svc-trade refuses with its one code, the page says so with that code, and every
   // product reads "not set" for every term.
   try {
-    tradeDeveloperValues('DATA_TERMS');
+    await tradeDeveloperValues('DATA_TERMS');
     await refusedBlank(page, 'data-terms', 'trade.developer_data_terms_unset');
     await page.reload();
     await expect(page.getByTestId('developers-data-terms-unset')).toHaveAttribute('data-code', 'trade.developer_data_terms_unset');
@@ -559,7 +559,7 @@ test(`${J} #6 reads which data products I may use and on what terms: redistribut
     );
     for (const product of PRODUCTS) await unsetRow(product);
   } finally {
-    tradeDeveloperValues(null);
+    await tradeDeveloperValues(null);
   }
   await page.reload();
   await expect(rowOf('ticker')).toHaveAttribute('data-terms-state', 'set');

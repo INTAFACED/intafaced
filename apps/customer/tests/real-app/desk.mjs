@@ -80,7 +80,7 @@ export async function verify(page, who, level = 'Full') {
 export async function fundedTrader(page, prefix, usdt) {
   const who = await signUp(page, prefix);
   await verify(page, who);
-  expect(fund(who.email, 'USDT', usdt).tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', usdt)).tx).toBeTruthy();
   return who;
 }
 

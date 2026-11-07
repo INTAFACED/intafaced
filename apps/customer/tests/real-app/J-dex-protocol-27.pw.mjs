@@ -55,7 +55,7 @@ async function openCard(page, as = dex) {
 }
 
 test(`${J} starts: a connected TEST wallet with TEST tokens`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: TOKENS });
 });
 
@@ -72,7 +72,7 @@ test(`${J} #1 mints an NFT with a 5 percent royalty: the token in the wallet and
   // The royalty maximum is blank on the stack: a mint refuses with its code until one is published.
   await mint('5');
   await expect(form.getByRole('alert')).toContainText('nft.royalty_max_unset');
-  tool('local-test-gates.mjs', 'nft-royalty-max', '10');
+  await tool('local-test-gates.mjs', 'nft-royalty-max', '10');
   try {
     await page.reload();
     await nftSection(page, 'Create');
@@ -83,7 +83,7 @@ test(`${J} #1 mints an NFT with a 5 percent royalty: the token in the wallet and
     const mine = bodyRows(tableIn(main(page), 'Your NFTs')).filter({ hasText: 'TEST piece' });
     await expect(mine).toContainText('Royalty 5%', { timeout: 60_000 });
   } finally {
-    tool('local-test-gates.mjs', 'nft-royalty-max', 'unset');
+    await tool('local-test-gates.mjs', 'nft-royalty-max', 'unset');
   }
 });
 

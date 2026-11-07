@@ -19,11 +19,11 @@ const J = 'J-dex-protocol-01';
 const SHORT = /^0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}$/;
 
 // The gate is shared stack state: shut for this journey only. afterAll runs when the worker ends, after a failure too.
-test.beforeAll(() => {
-  tool('local-test-chain.mjs', 'gate', 'closed');
+test.beforeAll(async () => {
+  await tool('local-test-chain.mjs', 'gate', 'closed');
 });
-test.afterAll(() => {
-  tool('local-test-chain.mjs', 'gate', 'open');
+test.afterAll(async () => {
+  await tool('local-test-chain.mjs', 'gate', 'open');
 });
 
 const networkChip = (page) => page.locator('[data-chip="network"]');

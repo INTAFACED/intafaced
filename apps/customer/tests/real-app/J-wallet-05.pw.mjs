@@ -62,12 +62,12 @@ async function signInWithCode(page) {
 }
 
 /** svc-pay restarted with no sanctions screener (the blank list), or back on the stack's local-test screener. */
-function payScreener(on) {
+async function payScreener(on) {
   const before = process.env.LOCAL_STACK_PAY_SCREENER;
   if (on) delete process.env.LOCAL_STACK_PAY_SCREENER;
   else process.env.LOCAL_STACK_PAY_SCREENER = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'pay');
+    await tool('local-test-stack.mjs', 'restart', 'pay');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_PAY_SCREENER;
     else process.env.LOCAL_STACK_PAY_SCREENER = before;
@@ -75,12 +75,12 @@ function payScreener(on) {
 }
 
 /** svc-pay restarted with no settle depth for a send out (blank), or back on the stack's TEST depth (local-stack-services/pay.mjs). */
-function payWithdrawDepth(published) {
+async function payWithdrawDepth(published) {
   const before = process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH;
   if (published) delete process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH;
   else process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'pay');
+    await tool('local-test-stack.mjs', 'restart', 'pay');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH;
     else process.env.LOCAL_STACK_PAY_WITHDRAW_DEPTH = before;
@@ -272,14 +272,14 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
   browser,
 }) => {
   test.setTimeout(300_000);
-  tool('local-test-gates.mjs', 'withdraw-terms');
+  await tool('local-test-gates.mjs', 'withdraw-terms');
   const who = await signUp(page, 'wd');
   await verify(page, who);
   await signIn(page, who);
   const { totp } = await totpLib();
   const { secret, step } = await addAuthenticator(page, totp);
   run.reset({ account: who, secret, step });
-  expect(fund(who.email, 'USDT', '300').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '300')).tx).toBeTruthy();
 
   // Two wallets, each saved and then approved by its emailed link opened in another browser (J-wallet-04 #5).
   for (const [label, network, address] of [
@@ -290,7 +290,7 @@ test(`${J} starts: a verified TEST account with 300 USDT, a second factor and a 
   }
 
   // The cooling-off runs from the approval; the LOCAL TEST clock moves it past its end.
-  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('2 saved address(es)');
+  expect(await tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('2 saved address(es)');
   await page.reload();
   await expect(page.locator('tbody tr', { hasText: LABEL })).toContainText('Ready to use');
   await expect(page.locator('tbody tr', { hasText: BASE_LABEL })).toContainText('Ready to use');
@@ -410,7 +410,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
   // The blank-list half: with no screener set, svc-pay refuses a send to the saved, ready address with its typed code before
   // anything is held. svc-pay is put back on the stack's local-test screener afterwards, so #6 and #4 can still send.
   try {
-    payScreener(false);
+    await payScreener(false);
     await fillSend(page, '25');
     await page.getByRole('button', { name: 'Get the fee' }).click();
     await expect(page.getByTestId('withdraw-review')).toContainText('Leaves your balance26.5 USDT');
@@ -426,7 +426,7 @@ test(`${J} #2 picks the saved address or pastes one: a mistyped address is refus
     expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
     expect(await api.withdrawals()).toEqual([]);
   } finally {
-    payScreener(true);
+    await payScreener(true);
   }
 
   // The sanctions clause: the address on the stack's LOCAL TEST destination sanctions list is refused by name when saved,
@@ -494,7 +494,7 @@ test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exac
   // back in the finally. The page names it in words, svc-pay answers one typed code, and nothing is quoted or held.
   const api = await customerApi();
   try {
-    tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'unset');
+    await tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'unset');
     await amountBox(page).fill('25');
     await page.getByRole('button', { name: 'Get the fee' }).click();
     await expect(page.getByText('No fee is set for this network, so nothing can be sent on it.')).toBeVisible();
@@ -506,7 +506,7 @@ test(`${J} #3 reads the fee quote: fee, what arrives and the total debit as exac
     expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
     expect(await api.withdrawals()).toEqual([]);
   } finally {
-    tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'test');
+    await tool('local-test-gates.mjs', 'withdraw-fee', 'ethereum', 'test');
   }
   await page.getByRole('button', { name: 'Get the fee' }).click();
   await expect(fee).toContainText('1.5 USDT');
@@ -528,7 +528,7 @@ test(`${J} #4 a blank limit refuses and holds nothing`, async ({ page }) => {
   // The account's level (full) and USDT: the stack's TEST limit is cleared to unset through the founders' own door for this
   // step only, and put back in the finally, so every other step still meets the TEST figures.
   try {
-    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'unset');
+    await tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'unset');
     await fillSend(page, '25');
     // The limit line says in words that no limit is set, and nothing can be reviewed, so nothing can be confirmed.
     await expect(page.getByTestId('withdraw-limit').locator('p')).toHaveText(
@@ -560,7 +560,7 @@ test(`${J} #4 a blank limit refuses and holds nothing`, async ({ page }) => {
     expect(toUnits(await api.available('USDT'))).toBe(toUnits('300'));
     expect(await api.withdrawals()).toEqual([]);
   } finally {
-    tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'test');
+    await tool('local-test-gates.mjs', 'withdraw-limit', 'full', 'USDT', 'test');
   }
   // Back to the TEST figures: the limit line reads them again.
   await fillSend(page, '25');
@@ -668,7 +668,7 @@ test(`${J} #6 reviews and confirms with a fresh step-up: no code keeps Confirm s
 
 test(`${J} #4 two withdrawals sent at once that together pass the 24-hour limit: exactly one goes through`, async ({ page, browser }) => {
   test.setTimeout(900_000);
-  expect(fund(account().account.email, 'USDT', '5000').tx).toBeTruthy();
+  expect((await fund(account().account.email, 'USDT', '5000')).tx).toBeTruthy();
   await signInWithCode(page);
   // Use the allowance up 1,000 at a time (the most one withdrawal may send) until less than 1,000 is left.
   await fillSend(page, '1');
@@ -902,7 +902,7 @@ test(`${J} #8 watches the status: requested, held, broadcast, confirming and set
     const reservedBeforeBlank = toUnits(await api.reserved('USDT'));
     const countBeforeBlank = (await api.withdrawals(200)).length;
     try {
-      payWithdrawDepth(false);
+      await payWithdrawDepth(false);
       await signInWithCode(page);
       await readyToConfirm(page, '11');
       const answered = page.waitForResponse((res) => res.url().includes('/api/pay/trpc/withdrawal.create'));
@@ -919,7 +919,7 @@ test(`${J} #8 watches the status: requested, held, broadcast, confirming and set
       expect(toUnits(await api.reserved('USDT')), 'and nothing is held').toBe(reservedBeforeBlank);
       expect(await api.withdrawals(200), 'svc-pay recorded no withdrawal').toHaveLength(countBeforeBlank);
     } finally {
-      payWithdrawDepth(true);
+      await payWithdrawDepth(true);
     }
   } finally {
     await ownContext.close();

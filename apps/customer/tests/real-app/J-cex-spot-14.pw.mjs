@@ -60,7 +60,7 @@ async function account(page) {
   const known = run.read().account;
   if (known) return known;
   const who = await fundedTrader(page, 'j14', '10');
-  expect(fund(who.email, 'USDC', '2000').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDC', '2000')).tx).toBeTruthy();
   run.write({ account: who });
   return who;
 }

@@ -337,7 +337,7 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
   // With the balance read down (the stack's ledger stopped), the run does not start and says why: the balance could
   // not be read, which is not the same as short. The engine is never called and nothing is billed.
   try {
-    tool('local-test-stack.mjs', 'stop', 'ledger');
+    await tool('local-test-stack.mjs', 'stop', 'ledger');
     const unread = session(page).getByRole('alert');
     await withEngineHeld(async (engineCalls) => {
       await session(page).getByRole('button', { name: 'Run', exact: true }).click();
@@ -351,7 +351,7 @@ test(`${J} #4 asks for a run when the available balance is below the worst case:
     await expect(runs).toHaveCount(3);
     await expect(runs.filter({ hasText: 'agents.funds_unread' }).getByTestId('run-cost')).toHaveText('0 USDT');
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'ledger');
+    await tool('local-test-stack.mjs', 'start', '--only', 'ledger');
   }
   expect(await ledgerBalances(poor)).toEqual(before);
 });
@@ -608,17 +608,17 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
 // Set from the moment svc-agents may run with its rates blank until a restore has succeeded, so a test that times out
 // before its finally, or a restore that throws, is restored again after the test.
 let ratesBlank = false;
-test.afterEach(() => {
-  if (ratesBlank) blankRates(false);
+test.afterEach(async () => {
+  if (ratesBlank) await blankRates(false);
 });
 
-function blankRates(blank) {
+async function blankRates(blank) {
   if (blank) ratesBlank = true;
   const before = process.env.LOCAL_STACK_AGENTS_RATES;
   if (blank) process.env.LOCAL_STACK_AGENTS_RATES = 'off';
   else delete process.env.LOCAL_STACK_AGENTS_RATES;
   try {
-    tool('local-test-stack.mjs', 'restart', 'agents');
+    await tool('local-test-stack.mjs', 'restart', 'agents');
     if (!blank) ratesBlank = false;
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_AGENTS_RATES;
@@ -702,7 +702,7 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
   // A blank rate: svc-agents restarted with no rates published. The service lists the agents' task with no rate, the
   // run refuses with that rate named and its exact code before any reply, and nothing runs free.
   try {
-    blankRates(true);
+    await blankRates(true);
     const routes = await (await api(user)).get('/api/agents/trpc/routes.list');
     expect(routes.status).toBe(200);
     const ownRun = routes.body.result.data.filter((row) => row.task === 'own.run');
@@ -734,7 +734,7 @@ test(`${J} #7 opens usage by agent, day and task: totals match the sum of sealed
     expect(await ownRead(user, 'usageByDay', undefined)).toEqual(byDay);
     expect(await ledgerBalances(user)).toEqual(after);
   } finally {
-    blankRates(false);
+    await blankRates(false);
   }
 });
 

@@ -124,7 +124,7 @@ test(`${J} #1 with no templates only the blank option shows`, async ({ page }) =
   test.setTimeout(240_000);
   process.env.LOCAL_STACK_AGENTS_TEMPLATES = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'agents');
+    await tool('local-test-stack.mjs', 'restart', 'agents');
     await openBuilder(page);
     const picker = main(page).getByRole('region', { name: 'Templates' });
     await expect(picker.getByRole('button', { name: 'Start blank' })).toBeVisible();
@@ -132,7 +132,7 @@ test(`${J} #1 with no templates only the blank option shows`, async ({ page }) =
     expect((await ownRead('catalogue')).templates.map((row) => row.id)).toEqual(['blank']);
   } finally {
     delete process.env.LOCAL_STACK_AGENTS_TEMPLATES;
-    tool('local-test-stack.mjs', 'restart', 'agents');
+    await tool('local-test-stack.mjs', 'restart', 'agents');
   }
 });
 
@@ -299,7 +299,7 @@ test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's o
 
   // A blank token lifetime refuses: svc-agents restarted with no lifetime set issues nothing, and says why.
   const before = await identityOf();
-  restartWith('agents', 'LOCAL_STACK_AGENTS_TOKEN_LIFETIME', false);
+  await restartWith('agents', 'LOCAL_STACK_AGENTS_TOKEN_LIFETIME', false);
   try {
     await openOwnAgent(page, agents, 'Identity');
     await identity()
@@ -311,7 +311,7 @@ test(`${J} #5 opens the identity page: owner, scopes and expiry of the agent's o
     await expect(identity().getByTestId('agent-token')).toHaveCount(0);
     expect(await identityOf()).toEqual(before);
   } finally {
-    restartWith('agents', 'LOCAL_STACK_AGENTS_TOKEN_LIFETIME', true);
+    await restartWith('agents', 'LOCAL_STACK_AGENTS_TOKEN_LIFETIME', true);
   }
 
   // With the lifetime set, the agent's own token: its owner, its scopes (the agent's tools) and its expiry, as
@@ -368,7 +368,7 @@ test(`${J} #6 asks the assistant to draft an agent: with the model unset the own
 }) => {
   test.setTimeout(240_000);
   // svc-agents restarted with no model chosen for the assistant (the owner's decision), then the stack's TEST engine back.
-  restartWith('agents', 'LOCAL_STACK_AGENTS_ASSISTANT_MODEL', false);
+  await restartWith('agents', 'LOCAL_STACK_AGENTS_ASSISTANT_MODEL', false);
   try {
     await openBuilder(page);
     const before = await ownAgents();
@@ -395,7 +395,7 @@ test(`${J} #6 asks the assistant to draft an agent: with the model unset the own
     await expect(builder(page).getByRole('status')).toHaveText('Draft saved.');
     expect(await ownRead('get', { id })).toMatchObject({ name: 'TEST blank draft', template: 'blank' });
   } finally {
-    restartWith('agents', 'LOCAL_STACK_AGENTS_ASSISTANT_MODEL', true);
+    await restartWith('agents', 'LOCAL_STACK_AGENTS_ASSISTANT_MODEL', true);
   }
 });
 

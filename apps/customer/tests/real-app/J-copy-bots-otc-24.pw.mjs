@@ -57,12 +57,12 @@ async function accept(page, quote) {
 }
 
 /** svc-trade restarted with one desk-law value blank (`<name>=off`), or back on the stack's TEST value. */
-function tradeSwitch(name, on) {
+async function tradeSwitch(name, on) {
   const before = process.env[name];
   if (on) delete process.env[name];
   else process.env[name] = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
+    await tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
     if (before === undefined) delete process.env[name];
     else process.env[name] = before;
@@ -70,7 +70,7 @@ function tradeSwitch(name, on) {
 }
 
 /** svc-trade restarted with the desk's settle window blank, or back on the stack's TEST window. */
-const tradeSettleWindow = (on) => tradeSwitch('LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW', on);
+const tradeSettleWindow = async (on) => await tradeSwitch('LOCAL_STACK_TRADE_OTC_SETTLE_WINDOW', on);
 
 /** The desk's own status (`otc.deskStatus`), as the trader reads it. */
 async function deskStatus(client) {
@@ -151,7 +151,7 @@ async function stakedOf(client) {
  */
 async function stake(who, client, amount) {
   const hex = createHash('sha256').update(`${J}:stake:${who.email}:${amount}`).digest('hex');
-  expect(fund(who.email, 'IFC', amount, `${J}-stake-${hex.slice(0, 16)}`).tx).toBeTruthy();
+  expect((await fund(who.email, 'IFC', amount, `${J}-stake-${hex.slice(0, 16)}`)).tx).toBeTruthy();
   // Name-based (version 5) uuid from the business key.
   const stakeId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
   const staked = await client.post('/api/token/trpc/stake', { amount, tier: 'flex', stakeId });
@@ -228,7 +228,7 @@ test(`${J} starts: a verified TEST account with 50000 USDT, staked to the desk's
   // account (#6 to #8 ask it).
   await stake(who, client, floor);
   // The desk is the counterparty and sells from the house inventory: TEST BTC for the one 0.5 BTC settle in #7.
-  fund('house', 'BTC', '1');
+  await fund('house', 'BTC', '1');
   run.write({ floor });
 });
 
@@ -282,7 +282,7 @@ test(`${J} #1 asset list unpublished: "Not set" on the strip, the ask refuses tr
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', false);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', false);
     const status = await deskStatus(me);
     expect(status.assets).toBeNull();
     expect(/(?:^| )assets=(\S+)/.exec(status.statusLine)?.[1]).toBe('unset');
@@ -301,7 +301,7 @@ test(`${J} #1 asset list unpublished: "Not set" on the strip, the ask refuses tr
     expect(await listedQuotes(me)).toEqual(quotes);
     expect(await me.balances()).toEqual(before);
   } finally {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', true);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_ASSETS', true);
   }
   expect((await deskStatus(me)).assets).toEqual(['BTC']);
 });
@@ -310,7 +310,7 @@ test(`${J} #2 blank provider list: the room says so, the ask refuses trade.otc_m
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', false);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', false);
     // The desk publishes no provider list, and says so.
     const blank = await listedMakers(me);
     expect(blank.published).toBe(false);
@@ -330,7 +330,7 @@ test(`${J} #2 blank provider list: the room says so, the ask refuses trade.otc_m
     expect(await listedQuotes(me)).toEqual(quotes);
     expect(await me.balances()).toEqual(before);
   } finally {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', true);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_MAKERS', true);
   }
   expect((await listedMakers(me)).published).toBe(true);
 });
@@ -381,15 +381,15 @@ test(`${J} #3 account below the desk level: refused trade.otc_level_insufficient
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-  const gates = tool('local-test-gates.mjs', 'status');
+  await tool('local-test-gates.mjs', 'verify');
+  const gates = await tool('local-test-gates.mjs', 'status');
   const tiers = JSON.parse(gates.slice(gates.indexOf('{'))).accounts.find((a) => a.handle === below.handle)?.tiers;
   expect(tiers).toContain('basic');
   expect(tiers).not.toContain('full');
   await signOutBrowser(page.context());
 
   // TEST USDT on the account, so a hold or a posting would show in its balances.
-  expect(fund(below.email, 'USDT', '50000').tx).toBeTruthy();
+  expect((await fund(below.email, 'USDT', '50000')).tx).toBeTruthy();
   const them = await api(below);
   const before = await them.balances();
   const quotes = await listedQuotes(them);
@@ -416,7 +416,7 @@ test(`${J} #3 level unpublished: even a verified account is refused trade.otc_le
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', false);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', false);
     const status = await deskStatus(me);
     expect(status.minTier).toBeNull();
     expect(/(?:^| )minTier=(\S+)/.exec(status.statusLine)?.[1]).toBe('unset');
@@ -431,7 +431,7 @@ test(`${J} #3 level unpublished: even a verified account is refused trade.otc_le
     expect(await listedQuotes(me)).toEqual(quotes);
     expect(await me.balances()).toEqual(before);
   } finally {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', true);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_TIER', true);
   }
   expect((await deskStatus(me)).minTier).toBe('full');
 });
@@ -497,7 +497,7 @@ test(`${J} #4 minimum unpublished: refused trade.rfq_size_not_set, no quote is k
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL', false);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL', false);
     expect(await publishedMinimum(me, 'USDT')).toBe('unset');
     const before = await me.balances();
     const quotes = await listedQuotes(me);
@@ -509,7 +509,7 @@ test(`${J} #4 minimum unpublished: refused trade.rfq_size_not_set, no quote is k
     expect(await listedQuotes(me)).toEqual(quotes);
     expect(await me.balances()).toEqual(before);
   } finally {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL', true);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_MIN_NOTIONAL', true);
   }
   expect(toUnits(await publishedMinimum(me, 'USDT'))).toBeGreaterThan(0n);
 });
@@ -716,7 +716,7 @@ test(`${J} #5 blank provider spread: asking that provider refuses trade.otc_prov
   test.setTimeout(300_000);
   const me = await api(run.read().who);
   try {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_SPREADS', false);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_SPREADS', false);
     // Read back blank: no outside provider carries a spread.
     const listed = await listedMakers(me);
     const outside = listed.makers.filter((m) => m.route === 'outside');
@@ -744,7 +744,7 @@ test(`${J} #5 blank provider spread: asking that provider refuses trade.otc_prov
     await me.post('/api/trade/trpc/rfq.expire', { quoteId: house.quoteId });
     expect((await rfq(house.quoteId)).lifecycle).toBe('expired');
   } finally {
-    tradeSwitch('LOCAL_STACK_TRADE_OTC_SPREADS', true);
+    await tradeSwitch('LOCAL_STACK_TRADE_OTC_SPREADS', true);
   }
   const restored = await listedMakers(me);
   for (const m of restored.makers.filter((m) => m.route === 'outside')) expect(Number.isInteger(m.spreadBps), m.name).toBe(true);
@@ -827,7 +827,7 @@ test(`${J} #7 deferred settle: one posting inside the window, refused past it, "
   // A blank window: the desk offers no deferral. The card reads "Not set" and names the quote's own expiry as the
   // deadline; a settle after that expiry is refused with its code and nothing moves.
   try {
-    tradeSettleWindow(false);
+    await tradeSettleWindow(false);
     expect(await publishedWindow()).toBe('unset');
     await page.goto('/otc');
     const blank = await ask(page);
@@ -848,7 +848,7 @@ test(`${J} #7 deferred settle: one posting inside the window, refused past it, "
     expect((await rfq(blankId)).lifecycle).toBe('bound');
     expect(await balances()).toEqual(beforeBlank);
   } finally {
-    tradeSettleWindow(true);
+    await tradeSettleWindow(true);
   }
   expect(await publishedWindow()).toBe(String(windowMs));
 });
@@ -890,7 +890,7 @@ async function convertBounds(client) {
 }
 
 /** svc-trade restarted with the convert size range blank, or back on the stack's TEST range. */
-const tradeConvertBounds = (on) => tradeSwitch('LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', on);
+const tradeConvertBounds = async (on) => await tradeSwitch('LOCAL_STACK_TRADE_OTC_CONVERT_BOUNDS', on);
 
 /** Asks the panel for the desk price on `quantity` BTC and returns the service's answer to `otc.convertQuote`. */
 async function askConvert(page, quantity) {
@@ -973,7 +973,7 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
 
   // The range left blank: the page says "Not set", a request refuses with its one code, no quote is kept and nothing moves.
   try {
-    tradeConvertBounds(false);
+    await tradeConvertBounds(false);
     expect(await convertBounds(me)).toBeNull();
     await page.goto('/trade/convert');
     await panel.getByRole('combobox', { name: 'Desk pair' }).click();
@@ -990,7 +990,7 @@ test(`${J} #9 Convert at the desk price: the range, the quoted price and the set
     expect(await listedQuotes(me)).toEqual(quotesBefore);
     expect(await balances()).toEqual(balancesBefore);
   } finally {
-    tradeConvertBounds(true);
+    await tradeConvertBounds(true);
   }
   expect(await convertBounds(me)).toEqual(range);
 });

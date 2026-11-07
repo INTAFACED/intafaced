@@ -83,7 +83,7 @@ function expectAnswered({ status, current }) {
 
 /** svc-notify stopped for `run`, then started again whatever happened; a failed start never hides `run`'s own failure. */
 async function withNotifyStopped(run) {
-  tool('local-test-stack.mjs', 'stop', 'notify');
+  await tool('local-test-stack.mjs', 'stop', 'notify');
   let failure = null;
   try {
     await run();
@@ -91,7 +91,7 @@ async function withNotifyStopped(run) {
     failure = error;
   }
   try {
-    tool('local-test-stack.mjs', 'start', '--only', 'notify');
+    await tool('local-test-stack.mjs', 'start', '--only', 'notify');
   } catch (error) {
     // Both stay visible: the step's own failure, and a stack left with svc-notify down for the next journey.
     if (failure) throw new AggregateError([failure, error], `${failure.message}; and svc-notify did not start again: ${error.message}`);

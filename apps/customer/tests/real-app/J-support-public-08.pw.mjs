@@ -144,7 +144,7 @@ test(`${J} #4 joining from an invite link captures one enquiry for that invite, 
   // The store is down: the visitor is told it did not go through, and nothing is recorded for the invite.
   const failing = await inviteCampaign(`${key}-down`);
   try {
-    tool('local-test-stack.mjs', 'stop', 'ops');
+    await tool('local-test-stack.mjs', 'stop', 'ops');
     const down = await visitor(browser);
     await down.goto(`${JOIN}/partner?source=${failing.sourceKey}`);
     await contact(down, `${key.toLowerCase()}-down@example.org`);
@@ -153,7 +153,7 @@ test(`${J} #4 joining from an invite link captures one enquiry for that invite, 
     await expect(down.getByRole('heading', { name: 'Thank you. We’ve received your enquiry.' })).toHaveCount(0);
     await down.context().close();
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'ops');
+    await tool('local-test-stack.mjs', 'start', '--only', 'ops');
   }
   expect((await campaignTotals(failing.campaignId)).submissions).toBe(0);
 });

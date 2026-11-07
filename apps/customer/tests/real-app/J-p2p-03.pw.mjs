@@ -18,8 +18,8 @@ const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
-test.beforeAll(() => {
-  tool('local-test-gates.mjs', 'p2p');
+test.beforeAll(async () => {
+  await tool('local-test-gates.mjs', 'p2p');
 });
 
 function journey() {
@@ -80,7 +80,7 @@ test('J-p2p-03 #1 Post an ad shows the posting checklist for the coin and fiat, 
   // The advertiser: verified, TEST 1000 USDT, and a TEST bank account to be paid on.
   const seller = await signUp(page, 'p2p03s');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', FUNDS).tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', FUNDS)).tx).toBeTruthy();
   const session = await api(seller);
   const s = p2p(session);
   await testInstrument(s, seller);

@@ -211,7 +211,7 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
 
   // A TEST withdrawal of 10 USDT, held: sending out is switched off on this stack, so the stack books the hold through the
   // ledger's own recipe exactly as svc-pay's withdraw does (local-test-stack.mjs seed-withdrawal, as J-wallet-06 does).
-  const seeded = tool(
+  const seeded = await tool(
     'local-test-stack.mjs',
     'seed-withdrawal',
     who.email,
@@ -613,13 +613,13 @@ test(`${J} #8 opens activity when it is empty, fails or is refused: a way forwar
   const all = await rows(page).count();
   // Failed: with the bank stopped the list says so and offers Try again; once it is back, Try again shows the rows.
   try {
-    tool('local-test-stack.mjs', 'stop', 'bank');
+    await tool('local-test-stack.mjs', 'stop', 'bank');
     await openActivity(page);
     const failed = activity(page).locator('[data-slot="state-block"][data-kind="error"]');
     await expect(failed).toContainText('Couldn’t load your activity.', { timeout: 30_000 });
     await expect(failed.getByRole('button', { name: 'Try again' })).toBeVisible();
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'bank');
+    await tool('local-test-stack.mjs', 'start', '--only', 'bank');
   }
   await activity(page).getByRole('button', { name: 'Try again' }).click();
   await expect(rows(page)).toHaveCount(all, { timeout: 30_000 });

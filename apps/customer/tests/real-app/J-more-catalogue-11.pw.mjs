@@ -145,7 +145,7 @@ test(`${J} starts: signed in or out; one open and one past launch event exist`, 
   // "I" stake before the snapshot, so the sealed snapshot holds my row.
   const who = await signUp(page, 'lc');
   await verify(page, who);
-  expect(fund(who.email, 'IFC', STAKE).tx).toBeTruthy();
+  expect((await fund(who.email, 'IFC', STAKE)).tx).toBeTruthy();
   await stake(who, STAKE, `${J}:stake:${tag}`);
 
   const now = Date.now();
@@ -283,7 +283,7 @@ test(`${J} #5 Reads my basis for an allocation by holdings: my basis equals the 
   // After the seal I stake more. The snapshot row stays what I held at the seal, so a basis read from today's holdings
   // would show the sum and fail here.
   const MORE = '40';
-  expect(fund(who.email, 'IFC', MORE).tx).toBeTruthy();
+  expect((await fund(who.email, 'IFC', MORE)).tx).toBeTruthy();
   await stake(who, MORE, `${J}:stake-after-seal:${open.id}`);
 
   await signIn(page, who);

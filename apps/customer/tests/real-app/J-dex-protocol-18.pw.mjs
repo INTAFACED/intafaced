@@ -162,7 +162,7 @@ test(`${J} #7 pays with another token: the converted amount stays if the open is
   page,
 }) => {
   const who = await desk(page);
-  fund(who.email, 'ETH', '1');
+  await fund(who.email, 'ETH', '1');
   const held = async () => (await positions(who)).filter((p) => p.symbol === SYMBOL).reduce((sum, p) => sum + toUnits(p.contracts), 0n);
   const before = await held();
   await ticket(page).getByRole('combobox', { name: 'Pay with' }).selectOption({ label: 'ETH' }, UNBUILT);

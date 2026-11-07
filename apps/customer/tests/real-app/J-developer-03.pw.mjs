@@ -36,12 +36,12 @@ async function fill({ name, preset = 'Trade', ips = '', passkey = false }) {
 }
 
 /** Identity restarted with the owner's key cap blank, or back on the stack's TEST cap (as J-identity-08 #5 does). */
-function identityKeyCap(on) {
+async function identityKeyCap(on) {
   const before = process.env.LOCAL_STACK_IDENTITY_KEY_CAP;
   if (on) delete process.env.LOCAL_STACK_IDENTITY_KEY_CAP;
   else process.env.LOCAL_STACK_IDENTITY_KEY_CAP = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_KEY_CAP;
     else process.env.LOCAL_STACK_IDENTITY_KEY_CAP = before;
@@ -182,7 +182,7 @@ test(`${J} #8 The fourth key is refused at the cap of three, and every key while
 
   // With the owner's cap blank, no key is made: the room says the cap is not set, and a create is refused with that
   // cap's own sentence, never the cap-reached one, and nothing is written.
-  identityKeyCap(false);
+  await identityKeyCap(false);
   try {
     await expect(await keysInList()).toHaveCount(3);
     await expect(page.getByText('The number of keys an account may hold is not set, so new keys are refused.')).toBeVisible();
@@ -200,6 +200,6 @@ test(`${J} #8 The fourth key is refused at the cap of three, and every key while
     );
     await expect(await keysInList()).toHaveCount(3);
   } finally {
-    identityKeyCap(true);
+    await identityKeyCap(true);
   }
 });

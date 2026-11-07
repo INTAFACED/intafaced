@@ -220,7 +220,7 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   expect(stop, 'the stop was armed').toBeTruthy();
   let placed;
   try {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '-0.30%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '-0.30%');
     placed = await until(
       async () => (await orders(me, 'scope=all&limit=50&origin=stop')).filter((o) => o.originRef === stop.id),
       (list) => list.length > 0 && list[0].status === 'filled',
@@ -228,7 +228,7 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
       240_000,
     );
   } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
   }
   const fromStop = placed[0];
   expect(fromStop).toMatchObject({ origin: 'stop', side: 'sell', reduceOnly: true, positionId });
@@ -279,9 +279,9 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
     // Two steps, each well inside the 2000 bps the mark may jump between two accepted marks (the stack's LOCAL TEST
     // liquidation limits): halfway, a liquidation tick (15 s) to accept it, then just past the liquidation price.
     const target = (liq * (10_000n - 30n)) / 10_000n;
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, (mid + target) / 2n));
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, (mid + target) / 2n));
     await page.waitForTimeout(20_000);
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftPercent(mid, target));
     const listed = await until(
       async () => (await orders(me, 'scope=all&limit=50&origin=liquidation')).filter((o) => o.positionId === doomed.id),
       (list) => list.length > 0,
@@ -290,7 +290,7 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
     );
     fromLiq = listed[0];
   } finally {
-    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+    await tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
   }
   expect(fromLiq).toMatchObject({ origin: 'liquidation', side: 'sell', reduceOnly: true, positionId: doomed.id, orderLabel: null });
   expect(fromLiq.originRef).toMatch(/\S/);

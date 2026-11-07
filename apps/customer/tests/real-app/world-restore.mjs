@@ -28,9 +28,9 @@ export function worldOf(file) {
 }
 
 /** Whether the TEST market maker is running (`local-test-market.mjs status` exits 0 only then). */
-export function marketRunning() {
+export async function marketRunning() {
   try {
-    tool('local-test-market.mjs', 'status');
+    await tool('local-test-market.mjs', 'status');
     return true;
   } catch {
     return false;
@@ -38,8 +38,8 @@ export function marketRunning() {
 }
 
 /** The options the running market maker was started with (its pid record), or null when it is not running. */
-export function marketArgs() {
-  if (!marketRunning()) return null;
+export async function marketArgs() {
+  if (!(await marketRunning())) return null;
   try {
     const rec = JSON.parse(fs.readFileSync(stackPaths().pidFile, 'utf8'));
     return Array.isArray(rec?.args) ? rec.args.map(String) : [];
@@ -140,7 +140,7 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
   }
   if (parts.has('market')) {
     try {
-      tool('local-test-market.mjs', 'unshift');
+      await tool('local-test-market.mjs', 'unshift');
     } catch (err) {
       said.push(
         `TEST PRICE shifts not cleared: ${String(err.stderr ?? err.message)
@@ -149,12 +149,12 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
       );
     }
     // The maker as the file found it: running with the same options, or stopped.
-    const now = marketArgs();
+    const now = await marketArgs();
     const same = now !== null && makerArgs !== null && JSON.stringify(now) === JSON.stringify(makerArgs);
     if (!same && (now !== null || makerArgs !== null))
       try {
-        if (now !== null) tool('local-test-market.mjs', 'stop');
-        if (makerArgs !== null) tool('local-test-market.mjs', 'start', ...makerArgs);
+        if (now !== null) await tool('local-test-market.mjs', 'stop');
+        if (makerArgs !== null) await tool('local-test-market.mjs', 'start', ...makerArgs);
       } catch (err) {
         said.push(
           `market maker not put back as it was: ${String(err.stderr ?? err.message)
@@ -176,5 +176,5 @@ export async function enterFile(file) {
   const last = worldState.read();
   if (last.file === file) return;
   if (last.file) await restoreWorld(last.file, last);
-  worldState.write({ file, makerArgs: worldOf(file).has('market') ? marketArgs() : null, accounts: [] });
+  worldState.write({ file, makerArgs: worldOf(file).has('market') ? await marketArgs() : null, accounts: [] });
 }

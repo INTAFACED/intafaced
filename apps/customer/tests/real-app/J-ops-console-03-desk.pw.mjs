@@ -35,7 +35,7 @@ test.beforeAll(async () => {
   const txs = [];
   let userId = null;
   for (let i = 0; i < DEPOSITS; i++) {
-    const out = fund(who.email, ASSET, '1', `desk-${tag}-${i}`);
+    const out = await fund(who.email, ASSET, '1', `desk-${tag}-${i}`);
     expect(out.tx, out.out).toBeTruthy();
     txs.push({ tx: out.tx, key: `deposit:local-test:LOCAL-TEST-desk-${tag}-${i}` });
     userId ??= /\(([0-9a-f-]{36})\)/.exec(out.out)?.[1] ?? null;

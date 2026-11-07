@@ -82,12 +82,12 @@ test(`${J} #2 publishes a maker rebate programme: a payout equals tier rate × t
     await expect(row.getByTestId('business-key')).toHaveText(/^rebate:[\w-]+:\d{4}-\d{2}$/);
   }
   // The run crashes once between posting a payout and marking it paid; the rerun finds the posting by its business key.
-  tool('local-test-gates.mjs', 'fault', 'rebate-after-post', 'once');
+  await tool('local-test-gates.mjs', 'fault', 'rebate-after-post', 'once');
   try {
     await rebates.getByRole('button', { name: 'Run this period' }).click();
     await expect(rebates.getByRole('status')).toContainText('Run stopped after posting', { timeout: 30_000 });
   } finally {
-    tool('local-test-gates.mjs', 'fault', 'rebate-after-post', 'off');
+    await tool('local-test-gates.mjs', 'fault', 'rebate-after-post', 'off');
   }
   await rebates.getByRole('button', { name: 'Run this period' }).click();
   await expect(rebates.getByRole('status')).toContainText('Run finished', { timeout: 30_000 });

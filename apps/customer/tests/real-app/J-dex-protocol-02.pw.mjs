@@ -134,7 +134,7 @@ async function quoteAB(page, amount = '10') {
 }
 
 test(`${J} starts: a TEST wallet on Base Sepolia holding TEST token A and no allowance`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await openSwap(page);
   // A swap is a signing action, so a new wallet accepts the representation once (J-dex-protocol-01 #8). The swap's own
   // sheet that follows is cancelled: nothing is approved or sent, so the run starts with no allowance.
@@ -314,7 +314,7 @@ test(`${J} #8 signs the swap in the wallet: submitted, confirming, filled; the c
   const [event] = events;
   // The swap went through a factory A/B pool and paid the person's own wallet.
   expect((await poolsOf(TOKEN_A.address, TOKEN_B.address)).some((pool) => same(pool, event.pool))).toBe(true);
-  expect(same(event.args.to, privateKeyToAccount(dex.key()).address)).toBe(true);
+  expect(same(event.args.to, privateKeyToAccount(await dex.key()).address)).toBe(true);
   const tokenAIs0 = same(await chain.readContract({ address: event.pool, abi: poolAbi, functionName: 'token0' }), TOKEN_A.address);
   const paidIn = tokenAIs0 ? event.args.amount0In : event.args.amount1In;
   const gotOut = tokenAIs0 ? event.args.amount1Out : event.args.amount0Out;
@@ -345,7 +345,7 @@ test(`${J} #9 retries after the price moved: failed with the reason in a sentenc
   try {
     const mover = await other.newPage();
     const moverDex = dexRun(`${J}-mover`);
-    moverDex.start();
+    await moverDex.start();
     await connectWallet(mover, moverDex, { tokens: [TOKEN_A, TOKEN_B] });
     await mover.goto('/dex');
     await quoteAB(mover, '1000');
@@ -405,8 +405,8 @@ test(`${J} #11 swaps from a wallet holding only TEST USD and no native currency,
 
   // A new wallet that holds only TEST USD: no TEST ETH, no TEST Token A or B.
   const stable = dexRun(`${J}-stable`);
-  stable.start({}, { funding: 'stable' });
-  const owner = privateKeyToAccount(stable.key()).address;
+  await stable.start({}, { funding: 'stable' });
+  const owner = privateKeyToAccount(await stable.key()).address;
   expect(await chain.getBalance({ address: owner })).toBe(0n);
   const usdBefore = await balanceOf(TEST_USD.address, owner);
   expect(usdBefore).toBeGreaterThan(0n);
@@ -512,7 +512,7 @@ test(`${J} #11 swaps from a wallet holding only TEST USD and no native currency,
   try {
     const native = await other.newPage();
     const nativeWallet = await connectWallet(native, dex, { tokens: [TOKEN_A, TOKEN_B] });
-    const person = privateKeyToAccount(dex.key()).address;
+    const person = privateKeyToAccount(await dex.key()).address;
     await native.goto('/dex');
     await quoteAB(native, '1');
     const payNative = swap(native).getByRole('combobox', { name: 'Pay the network fee in' });

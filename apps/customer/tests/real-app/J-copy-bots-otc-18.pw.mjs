@@ -73,7 +73,7 @@ test(`${J} #2 creates it correctly: the rebalance plan; a leg below the minimum 
 });
 
 test(`${J} #3 opens the details page after a delisting on one leg: closed once with "Delisting"; rounds in order`, async ({ page }) => {
-  tool('local-test-market.mjs', 'delist', 'ETH/USDT');
+  await tool('local-test-market.mjs', 'delist', 'ETH/USDT');
   await signIn(page, state('trader'));
   await page.goto('/trade/bots?tab=mine');
   await expect(page.getByRole('row', { name: /Combo/ })).toContainText('Delisting', UNBUILT);

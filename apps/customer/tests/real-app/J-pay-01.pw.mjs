@@ -154,13 +154,13 @@ async function signInA(page) {
  * The owner's money-out rule on the stack's bank: `required` asks for a fresh confirmation on every send to another
  * person (BANK_STEP_UP_MONEY_OUT, ADR 2026-10-14-money-out-step-up); off is the stack's default. Set for the restart only.
  */
-function stepUpRule(required) {
+async function stepUpRule(required) {
   const key = 'LOCAL_STACK_BANK_STEP_UP_MONEY_OUT';
   const before = process.env[key];
   if (required) process.env[key] = 'required';
   else delete process.env[key];
   try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
   } finally {
     if (before === undefined) delete process.env[key];
     else process.env[key] = before;
@@ -171,13 +171,13 @@ function stepUpRule(required) {
  * The owner's personal send review rule on the stack's bank (BANK_PERSONAL_SEND_REVIEW_JSON): on is the bank profile's
  * TEST review line, a USDT send above 50 is held for a review; off (the stack's default) holds nothing.
  */
-function reviewRule(on) {
+async function reviewRule(on) {
   const key = 'LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW';
   const before = process.env[key];
   if (on) process.env[key] = 'on';
   else delete process.env[key];
   try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
   } finally {
     if (before === undefined) delete process.env[key];
     else process.env[key] = before;
@@ -238,9 +238,9 @@ test(`${J} #1 opens Pay from the navigation or a deep link and lands on Send, wi
   );
   const sender = await signUp(page, 'jpa');
   await verify(page, sender);
-  expect(fund(sender.email, 'USDT', '100').tx).toBeTruthy();
-  expect(fund(sender.email, 'BTC', '0.01').tx).toBeTruthy();
-  expect(fund(lookalike.email, 'USDT', '1').tx).toBeTruthy();
+  expect((await fund(sender.email, 'USDT', '100')).tx).toBeTruthy();
+  expect((await fund(sender.email, 'BTC', '0.01')).tx).toBeTruthy();
+  expect((await fund(lookalike.email, 'USDT', '1')).tx).toBeTruthy();
   const a = await api(sender);
   await trpc(a, 'POST', 'identity/trpc/recipients.add', {
     handle: saved.handle,
@@ -415,7 +415,7 @@ test(`${J} #5 confirms through the owner's fresh confirmation step: a wrong code
   expect(before).toEqual(run.read().before);
 
   // The owner's rule asks for a fresh confirmation before money leaves for another person.
-  stepUpRule(true);
+  await stepUpRule(true);
   try {
     const posted = sends(page);
     const approved = () => posted.filter((body) => typeof body.stepUpApprovalId === 'string');
@@ -494,7 +494,7 @@ test(`${J} #5 confirms through the owner's fresh confirmation step: a wrong code
     expect(await sentOf(second)).toHaveLength(1);
     run.write({ second });
   } finally {
-    stepUpRule(false);
+    await stepUpRule(false);
   }
 });
 
@@ -550,7 +550,7 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
   // review before any money moves, and its status page reads In review with the reason class.
   const held = '60';
   const before = { sender: await usdt(sender), recipient: await usdt(recipient) };
-  reviewRule(true);
+  await reviewRule(true);
   try {
     await signInA(page);
     await sendForm(page, { amount: held, note: null, signedIn: true });
@@ -575,7 +575,7 @@ test(`${J} #6 reads the payment status page: Completed for both parties, no Canc
     expect(await usdt(recipient)).toBe(before.recipient);
     expect(await sentOf(held)).toEqual([]);
   } finally {
-    reviewRule(false);
+    await reviewRule(false);
   }
 });
 

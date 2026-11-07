@@ -1,10 +1,9 @@
 // World: restart, stack
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api as account, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, api as account, fromUnits, fund, journeyState, toUnits, tool, execText } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-09, in the running app (docs/roadmap/journeys.json): I borrow against my crypto. One TEST borrower holding
@@ -122,12 +121,12 @@ async function withBank(name, value, body) {
   const before = process.env[name];
   process.env[name] = value;
   try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
     return await body();
   } finally {
     if (before === undefined) delete process.env[name];
     else process.env[name] = before;
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
   }
 }
 
@@ -165,11 +164,11 @@ async function reserveBalance(assetId) {
   return toUnits(res.json.result.data.reserveBalance);
 }
 
-function fundReserve(assetId, amount, ref) {
-  return execFileSync(
+async function fundReserve(assetId, amount, ref) {
+  return execText(
     process.execPath,
     [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'fund-loan-reserve', assetId, amount, ref, '--state', localStackState()],
-    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+    { cwd: ROOT, env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
   );
 }
 
@@ -208,7 +207,7 @@ test(`${J} #1 opens the application and picks the loan: its limits and rate, rat
   test.setTimeout(300_000);
   const who = await signUp(page, 'jb09');
   await verify(page, who);
-  expect(fund(who.email, 'BTC', '0.1').tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.1')).tx).toBeTruthy();
   const api = await bank(who);
   const product = await seededProduct(api);
   run.reset({ who, productId: product.id });
@@ -525,7 +524,7 @@ test(`${J} #4 opens the loan from the review: the collateral locked once, the pa
   expect(locked.BTC.free).toBe(beforeStuck.BTC.free - toUnits(request.collateralAmount));
   expect(locked.USDC.free).toBe(beforeStuck.USDC.free);
   // The reserve funded by the seed, then the bank's own resume job draws it; the borrower does nothing.
-  expect(fundReserve('USDC', '1000', `jb09-${RUN}`.slice(0, 64))).toContain('loan reserve USDC: funded 1000');
+  expect(await fundReserve('USDC', '1000', `jb09-${RUN}`.slice(0, 64))).toContain('loan reserve USDC: funded 1000');
   const resumed = await job('resume-pending-loans', { limit: 1000 });
   expect(resumed.status, JSON.stringify(resumed.body).slice(0, 300)).toBe(200);
   const mine = resumed.body.filter((r) => r.loanId === stuckId);

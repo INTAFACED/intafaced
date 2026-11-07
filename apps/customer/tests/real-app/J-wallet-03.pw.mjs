@@ -21,8 +21,8 @@ const NETWORK = 'TEST Ethereum';
 test.describe.configure({ mode: 'default' });
 
 /** One TEST chain delivery of `amount`, `confirmations` deep, as transfer `label` to `address`. Returns its transaction hash. */
-function chainDeposit(address, amount, confirmations, label) {
-  const out = tool('local-test-stack.mjs', 'chain-deposit', address, ASSET, amount, String(confirmations), '--tx', label);
+async function chainDeposit(address, amount, confirmations, label) {
+  const out = await tool('local-test-stack.mjs', 'chain-deposit', address, ASSET, amount, String(confirmations), '--tx', label);
   expect(out).toContain('"received":true');
   const tx = /^\s*tx\s+(0x[0-9a-f]{64}):\d+/m.exec(out)?.[1];
   expect(tx, out).toBeTruthy();
@@ -30,8 +30,8 @@ function chainDeposit(address, amount, confirmations, label) {
 }
 
 /** The TEST chain takes transfer `label` to `address` back, as a watcher reports a reorg. */
-function chainReorg(address, label) {
-  const out = tool('local-test-stack.mjs', 'chain-reorg', address, '--tx', label);
+async function chainReorg(address, label) {
+  const out = await tool('local-test-stack.mjs', 'chain-reorg', address, '--tx', label);
   expect(out).toContain('TEST chain reorg delivered');
   return out;
 }
@@ -100,7 +100,7 @@ async function heldDeposit(page, prefix, testInfo) {
   const mine = await clients(who);
   const { userId } = await api(who);
   const label = `${prefix}-${who.handle}-${LARGE}-r${testInfo.retry}`;
-  const tx = chainDeposit(address, LARGE, 6, label);
+  const tx = await chainDeposit(address, LARGE, 6, label);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
   return { who, address, mine, userId, label, tx };
@@ -147,7 +147,7 @@ test(`${J} #1 a large inbound deposit is held for the travel rule with the decla
   await expect(form.getByRole('alert')).toContainText('Fill in every field before sending.');
   await expect(panel).toHaveAttribute('data-state', 'awaiting_declaration');
   // Deeper on the chain, it is still held and nothing is credited.
-  chainDeposit(address, LARGE, 12, label);
+  await chainDeposit(address, LARGE, 12, label);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
   expect(await mine.usdt()).toBe(0n);
@@ -183,7 +183,7 @@ test(`${J} #2 the person declares it, it is under review; after compliance relea
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
   // Seen again deeper on the chain, nothing more moves.
-  chainDeposit(address, LARGE, 12, label);
+  await chainDeposit(address, LARGE, 12, label);
   expect(await mine.usdt()).toBe(toUnits(LARGE));
 });
 
@@ -223,7 +223,7 @@ test(`${J} #3 a wait on the sending platform runs past its deadline: still held,
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
   await expect(recordRow(page, tx)).toContainText('The sending platform did not answer in time. The deposit stays held');
   await expect(travelRule(page, tx)).toContainText('The wait for the sending platform has ended');
-  chainDeposit(address, LARGE, 12, label);
+  await chainDeposit(address, LARGE, 12, label);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'held_travel_rule');
   expect(await mine.usdt()).toBe(0n);
@@ -243,7 +243,7 @@ test(`${J} #4 compliance freezes the deposit address: the confirming deposit sho
   const label = `jw03f-${who.handle}-30-r${testInfo.retry}`;
 
   // TEST 30 USDT is on its way: 2 of 6 confirmations.
-  const tx = chainDeposit(address, '30', 2, label);
+  const tx = await chainDeposit(address, '30', 2, label);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'confirming');
 
@@ -265,7 +265,7 @@ test(`${J} #4 compliance freezes the deposit address: the confirming deposit sho
     );
 
     // The chain reaches full depth: still on hold, in words, and nothing is credited.
-    chainDeposit(address, '30', 6, label);
+    await chainDeposit(address, '30', 6, label);
     await page.reload();
     await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'on_hold');
     await expect(recordRow(page, tx)).toContainText('On hold');
@@ -311,7 +311,7 @@ test(`${J} #4 compliance freezes the deposit address: the confirming deposit sho
     await expect(history).toHaveCount(1, { timeout: 60_000 });
     await expect(history).toContainText(founderA.userId.slice(0, 8));
     await expect(history).toContainText(founderB.userId.slice(0, 8));
-    chainDeposit(address, '30', 9, label);
+    await chainDeposit(address, '30', 9, label);
     expect(await mine.usdt()).toBe(toUnits('30'));
   } finally {
     await a.context().close();
@@ -338,25 +338,25 @@ test(`${J} #5 a credited deposit the chain takes back is reversed once and the b
 
   // TEST 100 USDT credits at its published depth.
   const first = `jw03-${who.handle}-100-r${testInfo.retry}`;
-  const tx = chainDeposit(address, '100', 6, first);
+  const tx = await chainDeposit(address, '100', 6, first);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'credited');
   expect(await mine.usdt()).toBe(toUnits('100'));
 
   // The chain rewrites the block: reversed with the reason in words, and the balance drops by exactly 100. Reported again,
   // nothing more moves.
-  chainReorg(address, first);
+  await chainReorg(address, first);
   await page.reload();
   await expect(recordRow(page, tx).locator('[data-status]')).toHaveAttribute('data-status', 'reversed');
   await expect(recordRow(page, tx)).toContainText('Reversed');
   await expect(recordRow(page, tx)).toContainText('The network rewrote the block this deposit was in');
   expect(await mine.usdt()).toBe(0n);
-  chainReorg(address, first);
+  await chainReorg(address, first);
   expect(await mine.usdt()).toBe(0n);
 
   // TEST 50 credits, then 40 of it moves into a space of the person's own, so the main balance holds 10.
   const second = `jw03-${who.handle}-50-r${testInfo.retry}`;
-  const spentTx = chainDeposit(address, '50', 6, second);
+  const spentTx = await chainDeposit(address, '50', 6, second);
   expect(await mine.usdt()).toBe(toUnits('50'));
   await mine.bank('spaces.create', { assetId: ASSET, name: `Spent TEST ${testInfo.retry}` });
   const spaces = await mine.spaces();
@@ -366,7 +366,7 @@ test(`${J} #5 a credited deposit the chain takes back is reversed once and the b
   expect(await mine.usdt()).toBe(toUnits('10'));
 
   // The chain takes the 50 back: the 10 left cannot cover it, so nothing moves and the deposit goes to review, in words.
-  chainReorg(address, second);
+  await chainReorg(address, second);
   await page.reload();
   await expect(recordRow(page, spentTx).locator('[data-status]')).toHaveAttribute('data-status', 'needs_review');
   await expect(recordRow(page, spentTx)).toContainText('the funds are already spent, so support is reviewing it');

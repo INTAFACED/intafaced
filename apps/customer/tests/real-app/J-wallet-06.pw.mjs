@@ -17,8 +17,8 @@ const J = 'J-wallet-06';
 const ASSET = 'USDT';
 
 /** One TEST withdrawal of `amount` USDT in `state`. Returns its id. */
-function seedWithdrawal(who, state, amount, label) {
-  const out = tool('local-test-stack.mjs', 'seed-withdrawal', who.email, ASSET, amount, '--state', state, '--ref', label);
+async function seedWithdrawal(who, state, amount, label) {
+  const out = await tool('local-test-stack.mjs', 'seed-withdrawal', who.email, ASSET, amount, '--state', state, '--ref', label);
   const id = /^\s*withdrawal\s+([0-9a-f-]{36})$/m.exec(out)?.[1];
   expect(id, out).toMatch(/^[0-9a-f-]{36}$/);
   return id;
@@ -29,7 +29,7 @@ async function person(page, tag) {
   const who = await signUp(page, tag);
   await verify(page, who);
   await signIn(page, who);
-  expect(fund(who.email, ASSET, '100').tx).toBeTruthy();
+  expect((await fund(who.email, ASSET, '100')).tx).toBeTruthy();
   const client = await api(who);
   return {
     who,
@@ -69,7 +69,7 @@ const cancelPart = (page) => page.getByTestId('withdrawal-cancel');
 test(`${J} #1 a requested withdrawal is cancelled and nothing was posted`, async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const me = await person(page, 'w6a');
-  const id = seedWithdrawal(me.who, 'requested', '40', `jw06a-${me.who.handle}-r${testInfo.retry}`);
+  const id = await seedWithdrawal(me.who, 'requested', '40', `jw06a-${me.who.handle}-r${testInfo.retry}`);
   expect(await me.usdt()).toBe(toUnits('100'));
 
   await openWithdrawal(page, id);
@@ -88,7 +88,7 @@ test(`${J} #1 a requested withdrawal is cancelled and nothing was posted`, async
 test(`${J} #2 a held withdrawal not yet sent is cancelled twice, and its hold goes back once`, async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const me = await person(page, 'w6b');
-  const id = seedWithdrawal(me.who, 'held', '40', `jw06b-${me.who.handle}-r${testInfo.retry}`);
+  const id = await seedWithdrawal(me.who, 'held', '40', `jw06b-${me.who.handle}-r${testInfo.retry}`);
   expect(await me.usdt()).toBe(toUnits('60'));
 
   await openWithdrawal(page, id);
@@ -117,7 +117,7 @@ test(`${J} #2 a held withdrawal not yet sent is cancelled twice, and its hold go
 test(`${J} #3 a broadcast withdrawal cannot be cancelled: a typed refusal`, async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const me = await person(page, 'w6c');
-  const id = seedWithdrawal(me.who, 'broadcast', '40', `jw06c-${me.who.handle}-r${testInfo.retry}`);
+  const id = await seedWithdrawal(me.who, 'broadcast', '40', `jw06c-${me.who.handle}-r${testInfo.retry}`);
 
   await openWithdrawal(page, id);
   await expect(status(page)).toHaveAttribute('data-status', 'broadcast');
@@ -140,7 +140,7 @@ test(`${J} #4 after a lost reply the cancel is refused and the withdrawal stays 
 }, testInfo) => {
   test.setTimeout(180_000);
   const me = await person(page, 'w6d');
-  const id = seedWithdrawal(me.who, 'dispatching', '40', `jw06d-${me.who.handle}-r${testInfo.retry}`);
+  const id = await seedWithdrawal(me.who, 'dispatching', '40', `jw06d-${me.who.handle}-r${testInfo.retry}`);
 
   await openWithdrawal(page, id);
   await expect(status(page)).toHaveAttribute('data-status', 'dispatching');
@@ -165,7 +165,7 @@ test(`${J} #5 History filters by coin and status and pages past 200; an empty re
   test.setTimeout(300_000);
   const me = await person(page, 'w6e');
   const tag = `jw06e-${me.who.handle}-r${testInfo.retry}`;
-  const many = tool(
+  const many = await tool(
     'local-test-stack.mjs',
     'seed-withdrawal',
     me.who.email,
@@ -179,7 +179,7 @@ test(`${J} #5 History filters by coin and status and pages past 200; an empty re
     '205',
   );
   expect(many).toContain('withdrawals 205');
-  const few = tool(
+  const few = await tool(
     'local-test-stack.mjs',
     'seed-withdrawal',
     me.who.email,
@@ -193,7 +193,7 @@ test(`${J} #5 History filters by coin and status and pages past 200; an empty re
     '3',
   );
   expect(few).toContain('withdrawals 3');
-  const heldId = seedWithdrawal(me.who, 'held', '40', `${tag}-h`);
+  const heldId = await seedWithdrawal(me.who, 'held', '40', `${tag}-h`);
 
   await page.goto('/uc/withdraw');
   await page.mouse.move(0, 600);
@@ -246,7 +246,7 @@ test(`${J} #5 History filters by coin and status and pages past 200; an empty re
 test(`${J} #6 a returned withdrawal shows why and its amount back in available, once`, async ({ page }, testInfo) => {
   test.setTimeout(180_000);
   const me = await person(page, 'w6f');
-  const id = seedWithdrawal(me.who, 'sent', '40', `jw06f-${me.who.handle}-r${testInfo.retry}`);
+  const id = await seedWithdrawal(me.who, 'sent', '40', `jw06f-${me.who.handle}-r${testInfo.retry}`);
   expect(await me.usdt()).toBe(toUnits('60'));
 
   await openWithdrawal(page, id);

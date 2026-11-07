@@ -1,10 +1,9 @@
 // World: book, restart, stack
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, toUnits, tool, execText } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-08, in the running app (docs/roadmap/journeys.json): I earn on my savings. One TEST saver funded with TEST 1000
@@ -124,13 +123,13 @@ async function setStatus(poolId, status, reason, revision) {
   return res.json.result.data;
 }
 /** svc-bank restarted with the staking risk wording blank, or back on the stack's TEST wording. */
-function bankRiskWording(on) {
+async function bankRiskWording(on) {
   const name = 'LOCAL_STACK_BANK_EARN_RISK_WORDING';
   const before = process.env[name];
   if (on) delete process.env[name];
   else process.env[name] = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
   } finally {
     if (before === undefined) delete process.env[name];
     else process.env[name] = before;
@@ -173,11 +172,11 @@ async function job(procedure, input) {
 /** One day of earn interest for one pool. */
 const accrue = async (poolId, at) => (await job('ops.accrueInterest', { poolId, at: at.toISOString() })).results[0];
 /** Moves one TEST saving's opening back `days` days on this stack, so a day that has begun is its first. */
-function ageSaving(positionId, days) {
-  return execFileSync(
+async function ageSaving(positionId, days) {
+  return execText(
     process.execPath,
     [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'age-earn-position', positionId, String(days), '--state', localStackState()],
-    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+    { cwd: ROOT, env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
   );
 }
 /** The UTC day `at` falls in, and the 00:00Z it began at. */
@@ -186,21 +185,21 @@ const startOf = (at) => Date.parse(`${dayOf(at)}T00:00:00.000Z`);
 /** The unbonding release job for one pool, by the bank's own clock. */
 const release = (poolId) => job('ops.releaseUnbondedEarn', { poolId, limit: 10 });
 /** Ends one TEST saving's unbonding now on this stack (moves its two dates back), as seven days passing would. */
-function endUnbonding(positionId) {
-  return execFileSync(
+async function endUnbonding(positionId) {
+  return execText(
     process.execPath,
     [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'end-earn-unbonding', positionId, '--state', localStackState()],
-    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+    { cwd: ROOT, env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
   );
 }
 /** The renewal job for one pool, run at `at`. */
 const renew = (poolId, at) => job('ops.renewEarnTerms', { poolId, at: at.toISOString(), limit: 10 });
 /** The journey pool's TEST reserve, moved by the seed's own funding step; `ref` keys it, so a retry funds once. */
-function fundReserve(poolId, amount, ref) {
-  return execFileSync(
+async function fundReserve(poolId, amount, ref) {
+  return execText(
     process.execPath,
     [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), 'fund-earn-pool', poolId, amount, ref, '--state', localStackState()],
-    { cwd: ROOT, encoding: 'utf8', env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
+    { cwd: ROOT, env: { ...process.env, LOCAL_TEST: '1' }, timeout: 60_000 },
   );
 }
 /** One day of the bank's interest on `principal` at `bps`, as it pays it: the year's interest and then the day, cut down. */
@@ -232,7 +231,7 @@ test(`${J} #1 opens Earn and compares pools: pools side by side with rates, and 
   test.setTimeout(180_000);
   const who = await signUp(page, 'jb08');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '1000')).tx).toBeTruthy();
   run.reset({ who });
 
   // The journey's own flexible pool: opened at 1.25% with a TEST minimum of 10, then raised and cut by approved changes.
@@ -389,7 +388,7 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
     id: position.id,
     nextPayoutOn: dayOf(firstDay),
   });
-  expect(ageSaving(position.id, 2)).toContain(`saving ${position.id}: opened`);
+  expect(await ageSaving(position.id, 2)).toContain(`saving ${position.id}: opened`);
   const [aged] = (await api.query('earn.positions', { limit: 50, poolId: pool })).data;
   const yesterday = startOf(Date.now()) - DAY;
   expect(aged).toMatchObject({
@@ -402,7 +401,7 @@ test(`${J} #3 uses the calculator, then deposits below and above the minimum: ba
 
   // The bank's job pays that first day from the pool's TEST reserve: the saving is accruing, and the day paid is the
   // calculator's figure for one day, exactly, into the main balance read back from the bank.
-  expect(fundReserve(pool, '10', 'jb08-reserve')).toContain('reserve funded 10 USDT');
+  expect(await fundReserve(pool, '10', 'jb08-reserve')).toContain('reserve funded 10 USDT');
   const paidBefore = await mainUsdt(api);
   const day = await accrue(pool, new Date(yesterday + 60 * 60 * 1000));
   expect(day).toMatchObject({ date: dayOf(yesterday), paid: perDay, recipients: 1, alreadyAccrued: false });
@@ -538,7 +537,7 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   // A TEST staking-style pool of the journey's own: flexible, a 7-day unbonding, below the seeded pools' rates.
   const staking = await openPool({ kind: 'flexible', aprBps: 100, minDeposit: '10', label: 'staking', unbondingDays: 7 });
   run.write({ stakingPool: staking.id });
-  expect(fundReserve(staking.id, '5', `${J}-${RUN}-staking`)).toContain('reserve funded 5 USDT');
+  expect(await fundReserve(staking.id, '5', `${J}-${RUN}-staking`)).toContain('reserve funded 5 USDT');
   await signIn(page, who);
   await page.goto(poolPage(staking.id));
 
@@ -563,14 +562,14 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   await expect(risk.locator('[data-risk="ownership"] dd')).toHaveText(wording.data.ownership);
   await expect(risk).toContainText('while a saving is unbonding it earns nothing and cannot be taken back early');
   // Blank, the bank refuses by name and the page says the wording is not published, never that there is no risk.
-  bankRiskWording(false);
+  await bankRiskWording(false);
   try {
     expect(await api.query('earn.riskDisclosure')).toMatchObject({ ok: false, code: 'bank.earn_risk_wording_unset' });
     await page.reload();
     await expect(risk).toHaveAttribute('data-state', 'unset');
     await expect(risk).toContainText('That is not a statement that there is no risk.');
   } finally {
-    bankRiskWording(true);
+    await bankRiskWording(true);
   }
   expect(await api.query('earn.riskDisclosure')).toEqual(wording);
   await page.reload();
@@ -588,7 +587,7 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   expect(opened).toMatchObject({ principal: '100', maturesAt: null, unbondsAt: null, accrual: 'waiting' });
   // The job pays only a day that has begun, so the saving's opening moves back eight days: its first day is a week ago.
   const DAY = 24 * 60 * 60 * 1000;
-  expect(ageSaving(opened.id, 8)).toContain(`saving ${opened.id}: opened`);
+  expect(await ageSaving(opened.id, 8)).toContain(`saving ${opened.id}: opened`);
   const [position] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;
   expect(position).toMatchObject({ id: opened.id, accruesFrom: new Date(startOf(Date.now()) - 7 * DAY).toISOString() });
 
@@ -684,7 +683,7 @@ test(`${J} #6 opens a staking-style pool: unbonding states and pool status; a cl
   });
   expect(await release(staking.id)).toEqual({ released: [], skipped: [], next: null });
   expect(await mainUsdt(api)).toBe(before);
-  expect(endUnbonding(position.id)).toContain(`saving ${position.id}: unbonding ends`);
+  expect(await endUnbonding(position.id)).toContain(`saving ${position.id}: unbonding ends`);
   // Its unbonding now began seven days ago, so no day since pays it: today, a day that has begun, pays nobody in this
   // pool, and the main balance read back from the bank has not moved.
   const [ended] = (await api.query('earn.positions', { limit: 50, poolId: staking.id })).data;

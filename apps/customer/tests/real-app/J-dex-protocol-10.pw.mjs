@@ -64,7 +64,7 @@ async function fillOrder(page, { kind, side = 'Sell', amount, trigger, expiry })
 }
 
 test(`${J} starts: a TEST wallet holding TEST token A and no order yet`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await openOrders(page);
   await expect(orderList(page)).toContainText('No orders yet.');
 });

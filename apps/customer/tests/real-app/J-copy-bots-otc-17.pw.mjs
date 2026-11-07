@@ -55,7 +55,7 @@ test(`${J} #2 lets the price fall to the third safety level: the third order pla
   const botId = (await (await made).json()).result.data.id;
   run.write({ botId });
   // The book falls through three safety levels: the third safety order is placed once.
-  tool('local-test-market.mjs', 'move', 'BTC/USDT', '-6%');
+  await tool('local-test-market.mjs', 'move', 'BTC/USDT', '-6%');
   const bot = (await (await api(state('trader'))).get(`/api/trade/trpc/bots.get?input=${encodeURIComponent(JSON.stringify({ botId }))}`))
     .body.result.data;
   expect(bot.safetyOrders.filter((o) => o.n === 3)).toHaveLength(1);

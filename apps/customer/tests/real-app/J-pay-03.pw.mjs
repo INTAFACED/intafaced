@@ -100,7 +100,7 @@ test(`${J} #1 opens Receive: the handle with Copy and the toast "Copied" (with n
   await signOutBrowser(context);
   const stranger = await signUp(page, 'rs');
   await verify(page, stranger);
-  expect(fund(stranger.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(stranger.email, 'USDT', '100')).tx).toBeTruthy();
   run.reset({ me, stranger });
 
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);

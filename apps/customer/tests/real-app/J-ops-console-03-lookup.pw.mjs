@@ -48,7 +48,7 @@ test('J-ops-console-03 #8 trace a business key to its transaction and look the t
   test.setTimeout(240_000);
   const customer = await signUp(page, 'lk');
   const ref = `lookup-${randomBytes(4).toString('hex')}`;
-  const funded = fund(customer.email, 'USDT', AMOUNT, ref);
+  const funded = await fund(customer.email, 'USDT', AMOUNT, ref);
   expect(funded.tx).toBeTruthy();
   const businessKey = `deposit:local-test:LOCAL-TEST-${ref}`;
 

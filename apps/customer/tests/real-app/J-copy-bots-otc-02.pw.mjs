@@ -177,7 +177,7 @@ test(`${J} #7 lets the TEST number of consecutive failures pass: the follow auto
   test.setTimeout(180_000);
   const follower = state('follower');
   // The follower's USDT goes elsewhere (a hold on the desk), so each copy fails for lack of funds.
-  tool('local-test-gates.mjs', 'hold', follower.email, 'USDT', 'all');
+  await tool('local-test-gates.mjs', 'hold', follower.email, 'USDT', 'all');
   for (let i = 0; i < 5; i++) await takeBest(state('leader'), 'buy', '0.0005', `${J}-7-${i}-${state('tag')}`);
   await signIn(page, follower);
   await page.goto('/trade/copy?tab=follows');

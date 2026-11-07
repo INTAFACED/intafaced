@@ -22,12 +22,12 @@ const SERVICES = ['ledger', 'identity', 'bank', 'pay'];
 test.use({ timezoneId: 'UTC' });
 
 /** svc-ops restarted with the restore archive and target blank, or back on the stack's TEST values. */
-function restoreDesk(on) {
+async function restoreDesk(on) {
   const before = process.env.LOCAL_STACK_OPS_RESTORE;
   if (on) delete process.env.LOCAL_STACK_OPS_RESTORE;
   else process.env.LOCAL_STACK_OPS_RESTORE = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'ops');
+    await tool('local-test-stack.mjs', 'restart', 'ops');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_OPS_RESTORE;
     else process.env.LOCAL_STACK_OPS_RESTORE = before;
@@ -87,13 +87,13 @@ let marketStopped = false;
  * The runbook halts trading for a restore; on this stack the only trader is the TEST market maker, whose orders write
  * identity's trade admission decisions even while posting is frozen. #7 stops it for the restore window instead.
  */
-function marketMaker(running) {
+async function marketMaker(running) {
   if (running) {
-    tool('local-test-market.mjs');
+    await tool('local-test-market.mjs');
     marketStopped = false;
   } else {
     marketStopped = true;
-    tool('local-test-market.mjs', 'stop');
+    await tool('local-test-market.mjs', 'stop');
   }
 }
 
@@ -101,7 +101,7 @@ function marketMaker(running) {
 // freeze left on would refuse every later journey's posts on this stack, so it is lifted here on fresh pages when a test
 // ends with it on (a timeout closes that test's own pages before its own cleanup can run).
 test.afterEach(async ({ browser }) => {
-  if (marketStopped) marketMaker(true);
+  if (marketStopped) await marketMaker(true);
   if (!freezeOn) return;
   const a = await (await browser.newContext()).newPage();
   const b = await (await browser.newContext()).newPage();
@@ -241,7 +241,7 @@ test(`${J} #4 /restore with no archive configured refuses ops.restore_archive_un
   page,
 }) => {
   test.setTimeout(240_000);
-  restoreDesk(false);
+  await restoreDesk(false);
   try {
     await founderSignIn(page, 'a');
     await page.goto(`${ADMIN}/restore`, { waitUntil: 'load' });
@@ -253,7 +253,7 @@ test(`${J} #4 /restore with no archive configured refuses ops.restore_archive_un
     await expect(page.getByTestId('backups-empty')).toContainText('Code: ops.restore_archive_unconfigured');
     await expect(page.getByTestId('backups-count')).toHaveCount(0);
   } finally {
-    restoreDesk(true);
+    await restoreDesk(true);
   }
 });
 
@@ -280,7 +280,7 @@ test(`${J} #5 a stamp for each service is still listed after a restart; the same
   await a.reload({ waitUntil: 'load' });
   await expect(listed(a)).toHaveCount(4);
 
-  restoreDesk(true);
+  await restoreDesk(true);
   await a.reload({ waitUntil: 'load' });
   await expect(listed(a)).toHaveCount(4);
   for (const service of SERVICES) await expect(listed(a).filter({ hasText: marks[service] })).toHaveCount(1);
@@ -366,7 +366,7 @@ test(`${J} #7 finalize is refused with one approver and records with the second;
   await a.goto(runUrl, { waitUntil: 'load' });
   // The stamps, the checks and finalize run with trading halted and the posting freeze on, as the joint check requires,
   // and only those.
-  marketMaker(false);
+  await marketMaker(false);
   try {
     await frozen(a, b, `LOCAL TEST J-ops-console-08 #7 restore ${tag}`, async () => {
       await a.goto(runUrl, { waitUntil: 'load' });
@@ -412,7 +412,7 @@ test(`${J} #7 finalize is refused with one approver and records with the second;
       expect(done.body, JSON.stringify(done.body)).toMatchObject({ ok: true, step: 'execute' });
     });
   } finally {
-    marketMaker(true);
+    await marketMaker(true);
   }
   await a.goto(runUrl, { waitUntil: 'load' });
   await expect(a.getByTestId('restored')).toHaveText('Yes, all four steps are recorded');

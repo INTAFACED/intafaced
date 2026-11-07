@@ -452,7 +452,7 @@ test(`${J} #4 the payer opens the link: the fixed amount and asset before confir
     await expect(payerPage.locator('.amount')).toHaveText('5.00 USDT');
     const printReference = await payerContinues(payerPage);
     const sessionUrl = payerPage.url();
-    tool('local-test-stack.mjs', 'chain-deposit', printReference, 'USDT', '5', '12', '--tx', `j-merchant-04-print-${Date.now()}`);
+    await tool('local-test-stack.mjs', 'chain-deposit', printReference, 'USDT', '5', '12', '--tx', `j-merchant-04-print-${Date.now()}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
@@ -526,7 +526,7 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
     const run = Date.now();
 
     // The first TEST transfer covers part of it: the page says what arrived and what is missing.
-    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '60', '12', '--tx', `j-merchant-04-part-1-${run}`);
+    await tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '60', '12', '--tx', `j-merchant-04-part-1-${run}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByRole('status')).toHaveText('60.00 USDT of 100.00 USDT received, 40.00 USDT missing', { timeout: 2_000 });
@@ -538,7 +538,7 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
     expect(await pendingBalance(page, 'USDT')).toBe(before);
 
     // The second confirmed TEST transfer completes the payment.
-    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
+    await tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
@@ -548,7 +548,7 @@ test(`${J} #5 the payer pays in two transfers: TEST 60 of TEST 100 received and 
     // Once: delivering the second transfer again books nothing more.
     const after = await pendingBalance(page, 'USDT');
     expect(after).not.toBe(before);
-    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
+    await tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '40', '12', '--tx', `j-merchant-04-part-2-${run}`);
     expect(await pendingBalance(page, 'USDT')).toBe(after);
   } finally {
     await payer.close();
@@ -624,7 +624,17 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     const reference = await payerSendsByBank(payerPage, address, '30', 'EUR', 'Ada Lovelace');
     const sessionUrl = payerPage.url();
     await expect(payerPage.getByText('Waiting for your transfer')).toBeVisible();
-    tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
+    await tool(
+      'local-test-stack.mjs',
+      'bank-transfer',
+      reference,
+      'EUR',
+      '30',
+      '--tx',
+      `j-merchant-04-name-${run}`,
+      '--payer',
+      'A LOVELACE',
+    );
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByRole('status')).toHaveText('Your bank transfer arrived and is held for a check', { timeout: 2_000 });
@@ -633,7 +643,17 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     await expect(payerPage.getByText('Payment received')).toHaveCount(0);
 
     // Delivered again, the same transfer is still one held transfer, and nothing is credited.
-    tool('local-test-stack.mjs', 'bank-transfer', reference, 'EUR', '30', '--tx', `j-merchant-04-name-${run}`, '--payer', 'A LOVELACE');
+    await tool(
+      'local-test-stack.mjs',
+      'bank-transfer',
+      reference,
+      'EUR',
+      '30',
+      '--tx',
+      `j-merchant-04-name-${run}`,
+      '--payer',
+      'A LOVELACE',
+    );
     expect(noMoney(await eurBalance(page))).toBe(true);
 
     // The owner's payment is still open, held for a name check, with the reason; it was never captured.
@@ -648,7 +668,17 @@ test(`${J} #6 the payer pays by bank from an account in another name: the transf
     // The contrast: the same TEST bank and amount, from the name the payer gave, completes once and is credited.
     const matching = await payerSendsByBank(payerPage, address, '30', 'EUR', 'Grace Hopper');
     const matchingUrl = payerPage.url();
-    tool('local-test-stack.mjs', 'bank-transfer', matching, 'EUR', '30', '--tx', `j-merchant-04-match-${run}`, '--payer', 'GRACE  HOPPER');
+    await tool(
+      'local-test-stack.mjs',
+      'bank-transfer',
+      matching,
+      'EUR',
+      '30',
+      '--tx',
+      `j-merchant-04-match-${run}`,
+      '--payer',
+      'GRACE  HOPPER',
+    );
     await expect(async () => {
       await payerPage.goto(matchingUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });
@@ -731,7 +761,7 @@ test(`${J} #7 the payer is offered only the methods for the country and currency
     const reference = await payerContinues(payerPage);
     expect(reference).toMatch(/^addr_usdt_/);
     const sessionUrl = payerPage.url();
-    tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '7', '12', '--tx', `j-merchant-04-methods-${Date.now()}`);
+    await tool('local-test-stack.mjs', 'chain-deposit', reference, 'USDT', '7', '12', '--tx', `j-merchant-04-methods-${Date.now()}`);
     await expect(async () => {
       await payerPage.goto(sessionUrl);
       await expect(payerPage.getByText('Payment received')).toBeVisible({ timeout: 2_000 });

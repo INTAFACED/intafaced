@@ -50,8 +50,8 @@ async function desk(who, kind, procedure, input) {
 }
 
 /** The stack's own audit read of order lookups on one customer (svc-trade admin.audit.feed, as founder A). */
-function lookupAudit(customerId, orderId) {
-  const out = tool('local-test-gates.mjs', 'trade-audit', '--kind', 'orders.get', '--account', customerId);
+async function lookupAudit(customerId, orderId) {
+  const out = await tool('local-test-gates.mjs', 'trade-audit', '--kind', 'orders.get', '--account', customerId);
   const line = out.split('\n').find((l) => l.startsWith('TRADE_AUDIT_JSON '));
   if (!line) throw new Error(`trade-audit printed no rows line: ${out.slice(-300)}`);
   return JSON.parse(line.slice('TRADE_AUDIT_JSON '.length)).filter((row) => row.objectId === orderId);
@@ -170,7 +170,7 @@ test(`${J} #3 starts a reconcile sweep: orders checked and holds released counts
   const hold = times(orphanOrder.price, orphanOrder.amount);
   // LOCAL TEST fault: the order leaves the book and its cancel is lost on the way to svc-trade (run 42212975613: a cancel
   // that arrives is released by trade itself, leaving no orphan). Trade still has the order open, holding its funds.
-  tool('local-test-gates.mjs', 'engine-drop', SYMBOL, orphan);
+  await tool('local-test-gates.mjs', 'engine-drop', SYMBOL, orphan);
   expect((await customerOrder(customer, orphan)).status).toBe('open');
   const usedBefore = await usdtUsed(customer);
   const totalBefore = await usdtTotal(customer);
@@ -270,12 +270,12 @@ test(`${J} #4 proposes a trade bust: a second operator approves; the typed block
 test(`${J} #5 reads the audit of the lookup: one row with the agent, the customer and the time`, async ({ page }) => {
   const { customerId, reported } = run.read();
   const agent = await founderSignIn(page, 'b');
-  const before = lookupAudit(customerId, reported).length;
+  const before = (await lookupAudit(customerId, reported)).length;
   const at = Date.now();
   await page.goto(`${ADMIN}/trade-ops/orders/${reported}`);
   await expect(orderRead(page)).toHaveAttribute('data-order-id', reported);
   // That one lookup wrote one row.
-  const rows = lookupAudit(customerId, reported);
+  const rows = await lookupAudit(customerId, reported);
   expect(rows).toHaveLength(before + 1);
   const row = rows.at(-1);
   expect(row.operatorId).toBe(agent.userId);

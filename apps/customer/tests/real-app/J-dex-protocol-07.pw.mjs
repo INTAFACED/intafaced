@@ -1,5 +1,4 @@
 // World: none
-import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
@@ -8,7 +7,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { acceptRepresentation, CHAIN_ID, fundOnTestChain, testChain, TOKEN_A, TOKEN_B } from './dex.mjs';
-import { api, fromUnits, ORIGIN, ROOT, toUnits } from './stack.mjs';
+import { api, fromUnits, ORIGIN, ROOT, spawnText, toUnits } from './stack.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 import { tableIn } from './tables.mjs';
 
@@ -77,13 +76,12 @@ async function service(request, procedure, input) {
 /** The fixtures the run added, read once per worker. */
 let fixtures = null;
 test.beforeAll(async ({ playwright }) => {
-  const status = testChain();
+  const status = await testChain();
   expect(status.chain, 'this step reads the stack TEST chain; with no anvil the stack runs none').toBe('running');
   const tsx = path.join(ROOT, 'services/svc-protocol/node_modules/.bin/tsx');
-  const run = spawnSync(tsx, ['scripts/seed-token-pages.ts', chainRecordPath()], {
+  const run = await spawnText(tsx, ['scripts/seed-token-pages.ts', chainRecordPath()], {
     cwd: path.join(ROOT, 'services/svc-protocol'),
     env: { PATH: process.env.PATH, HOME: process.env.HOME, PROTOCOL_RPC_URL: GATE_URL, PROTOCOL_CHAIN_ID: String(TEST_CHAIN_ID) },
-    encoding: 'utf8',
     timeout: 120_000,
   });
   expect(run.status, `seed-token-pages.ts: ${run.stdout}${run.stderr}`).toBe(0);
@@ -669,8 +667,8 @@ test(`${J} #9 uses the 50 percent shortcut in the quick ticket: the amount is ha
   // deep TEST A/B pool, paying TEST Token B.
   const privateKey = testWalletKey();
   const owner = privateKeyToAccount(privateKey).address;
-  fundOnTestChain(owner);
-  await installTestWallet(page, { chainId: CHAIN_ID, tokens: [TOKEN_A, TOKEN_B], privateKey, rpcUrl: testChain().gateUrl });
+  await fundOnTestChain(owner);
+  await installTestWallet(page, { chainId: CHAIN_ID, tokens: [TOKEN_A, TOKEN_B], privateKey, rpcUrl: (await testChain()).gateUrl });
   await page.goto(`/dex/tokens/${TOKEN_A.address}`);
   const ticket = page.getByRole('form', { name: 'Quick trade' });
   await expect(ticket).toBeVisible(UNBUILT);

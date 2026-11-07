@@ -24,9 +24,9 @@ const base = dexRun(J);
 const dex = {
   ...base,
   onChain: true,
-  start(extra = {}) {
+  async start(extra = {}) {
     const walletKey = testWalletKey();
-    fundOnTestChain(privateKeyToAccount(walletKey).address);
+    await fundOnTestChain(privateKeyToAccount(walletKey).address);
     return base.run.reset({ walletKey, ...extra });
   },
 };
@@ -47,7 +47,7 @@ const testChainDef = defineChain({
 
 /** Gives the old approvals from the run's wallet, straight to the TEST chain, as a wallet the person used before would have. */
 async function giveOldApprovals() {
-  const owner = privateKeyToAccount(dex.key());
+  const owner = privateKeyToAccount(await dex.key());
   const sender = createWalletClient({ account: owner, chain: testChainDef, transport: http(GATE_URL) });
   const reader = createPublicClient({ chain: testChainDef, transport: http(GATE_URL) });
   for (const { token, spender, amount } of OLD_APPROVALS) {
@@ -80,7 +80,7 @@ async function person(page) {
 }
 
 test(`${J} starts: a TEST wallet with two active session keys and several old approvals`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await giveOldApprovals();
   await openSection(page, 'Session keys');
   await expect(bodyRows(tableIn(page, 'Session keys')).filter({ hasText: 'Active' })).toHaveCount(2, UNBUILT);
@@ -156,7 +156,7 @@ test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account 
   await openSection(page, 'Accounts');
   await expect(page.getByRole('region', { name: 'Sub-accounts' }).getByRole('table')).toBeVisible(UNBUILT);
   // The list holds the accounts this wallet controls, starting with the connected wallet itself.
-  const owner = privateKeyToAccount(dex.key()).address;
+  const owner = privateKeyToAccount(await dex.key()).address;
   await expect(bodyRows(tableIn(page, 'Sub-accounts')).filter({ hasText: owner })).toHaveCount(1);
   const multisig = page.getByRole('button', { name: 'Create a multi-signature account' });
   await expect(multisig).toBeDisabled();

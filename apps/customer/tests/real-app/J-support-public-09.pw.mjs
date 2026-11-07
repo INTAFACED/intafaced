@@ -149,12 +149,12 @@ async function withKey(key, method, procedure, input) {
 }
 
 /** svc-support restarted with the owner's comment cap blank, or back on the stack's TEST cap. */
-function supportCommentCap(on) {
+async function supportCommentCap(on) {
   const before = process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP;
   if (on) delete process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP;
   else process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'support');
+    await tool('local-test-stack.mjs', 'restart', 'support');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP;
     else process.env.LOCAL_STACK_SUPPORT_COMMENT_CAP = before;
@@ -249,7 +249,7 @@ test.describe('with a key', () => {
     const beforeBlank = await thread();
     expect(beforeBlank.filter((c) => c.authorRole === 'user').length).toBeLessThan(COMMENT_CAP);
     try {
-      supportCommentCap(false);
+      await supportCommentCap(false);
       const unset = await withKey(dev.key, 'POST', 'comment', {
         ticketId: dev.mine,
         body: unsetBody,
@@ -258,7 +258,7 @@ test.describe('with a key', () => {
       expect([unset.status, unset.code]).toEqual([412, 'support.comment_cap_unset']);
       expect(await thread()).toEqual(beforeBlank);
     } finally {
-      supportCommentCap(true);
+      await supportCommentCap(true);
     }
     expect((await thread()).some((c) => c.body === unsetBody)).toBe(false);
 

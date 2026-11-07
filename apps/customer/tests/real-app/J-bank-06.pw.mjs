@@ -145,7 +145,7 @@ test(`${J} #1 schedules a one-off for tomorrow: it is listed once with its date,
   test.setTimeout(240_000);
   const who = await signUp(page, 'jb6');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   run.reset({ who });
   const api = await bank(who);
   expect((await api.mutate('spaces.create', { assetId: 'USDT', name: TRIP })).ok).toBe(true);

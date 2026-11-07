@@ -70,12 +70,12 @@ async function receiveLink(page) {
 }
 
 /** Restarts identity with the TEST signing key (`on`) or with it blank. */
-function payQrKey(on) {
+async function payQrKey(on) {
   const before = process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY;
   if (on) delete process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY;
   else process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY;
     else process.env.LOCAL_STACK_IDENTITY_PAY_QR_KEY = before;
@@ -91,7 +91,7 @@ test(`${J} #3 QR: the signed code opens Send on the payee by account id; a tampe
   await signOutBrowser(page.context());
   const payer = await signUp(page, 'qp');
   await verify(page, payer);
-  expect(fund(payer.email, 'USDT', '10').tx).toBeTruthy();
+  expect((await fund(payer.email, 'USDT', '10')).tx).toBeTruthy();
   run.reset({ payee, payer });
 
   await signOutBrowser(page.context());
@@ -191,7 +191,7 @@ test(`${J} #3 QR: with the signing key blank, Receive refuses the QR code and a 
   const before = await record(payee);
   const held = await balances(payee, payer);
   try {
-    payQrKey(false);
+    await payQrKey(false);
     const mine = await answer(page, 'qr.mine', () => page.goto('/pay/receive'));
     expect(mine, 'with the key blank no code is made').toEqual({ status: 412, data: undefined, code: 'identity.qr_key_unset' });
     await expect(page.getByText('Your QR code isn’t set up')).toBeVisible();
@@ -214,7 +214,7 @@ test(`${J} #3 QR: with the signing key blank, Receive refuses the QR code and a 
     expect(await record(payee)).toEqual(before);
     expect(await balances(payee, payer)).toEqual(held);
   } finally {
-    payQrKey(true);
+    await payQrKey(true);
   }
   // Back on, the code shared before still opens Send on the payee.
   await signOutBrowser(page.context());

@@ -118,7 +118,7 @@ async function openSend(page) {
 }
 
 test(`${J} starts: a TEST wallet with TEST tokens and one address book entry`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
   await walletSection(page, 'Address book');
   await continueSignIn(page);
@@ -322,7 +322,7 @@ test(`${J} #6 creates a claim link for TEST tokens and shares it: a link with th
 
   // The recipient: another person with their own TEST wallet, in another browser, opens the link and claims once.
   const friendRun = dexRun(`${J}-recipient`);
-  friendRun.start();
+  await friendRun.start();
   const other = await browser.newContext();
   try {
     const recipient = await other.newPage();
@@ -331,8 +331,8 @@ test(`${J} #6 creates a claim link for TEST tokens and shares it: a link with th
     const friend = await installTestWallet(recipient, {
       chainId: CHAIN_ID,
       tokens: [TOKEN_A],
-      privateKey: friendRun.key(),
-      rpcUrl: testChain().gateUrl,
+      privateKey: await friendRun.key(),
+      rpcUrl: (await testChain()).gateUrl,
     });
     const friendBefore = await tokenBalance(TOKEN_A.address, friend.address);
     await recipient.goto(claimed.url);
@@ -389,13 +389,13 @@ test(`${J} #7 opens Activity and toggles failed and spam: the counts change with
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
   // A transfer this wallet sent that failed on the chain (more TEST Token A than it holds), and TEST Airdrop, a token no
   // pool lists, sent to it unasked by someone else.
-  const failed = await signer(dex.key()).sendTransaction({
+  const failed = await signer(await dex.key()).sendTransaction({
     to: TOKEN_A.address,
     data: encodeFunctionData({ abi: ERC20, functionName: 'transfer', args: [FRIEND, parseUnits('1000000000', TOKEN_A.decimals)] }),
     gas: 100_000n,
   });
   expect((await chain.waitForTransactionReceipt({ hash: failed })).status).toBe('reverted');
-  const spam = /in (0x[0-9a-fA-F]{64})/.exec(fundOnTestChain(wallet.address, 'spam'))?.[1];
+  const spam = /in (0x[0-9a-fA-F]{64})/.exec(await fundOnTestChain(wallet.address, 'spam'))?.[1];
   expect(spam, 'the TEST Airdrop transfer hash').toBeTruthy();
 
   await walletSection(page, 'Activity');
@@ -554,7 +554,7 @@ test(`${J} #9 opens Withdraw from the exchange with a wallet connected: destinat
   test.setTimeout(360_000);
   // A verified TEST account with an authenticator, TEST USDT, and the connected wallet's own address saved on TEST
   // Ethereum, approved by its emailed link and past its cooling-off (as J-wallet-05 starts), so the send can reach step-up.
-  tool('local-test-gates.mjs', 'withdraw-terms');
+  await tool('local-test-gates.mjs', 'withdraw-terms');
   const who = await signUp(page, 'dex04');
   await verify(page, who);
   await signIn(page, who);
@@ -572,7 +572,7 @@ test(`${J} #9 opens Withdraw from the exchange with a wallet connected: destinat
     await dialog.getByLabel('Authenticator code or recovery code').fill(await code());
     await dialog.getByRole('button', { name: 'Confirm' }).click();
   };
-  expect(fund(who.email, 'USDT', '10').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '10')).tx).toBeTruthy();
   const wallet = await connectWallet(page, dex, { tokens: [TOKEN_A] });
 
   await page.goto('/uc/withdraw/address');
@@ -606,7 +606,7 @@ test(`${J} #9 opens Withdraw from the exchange with a wallet connected: destinat
   } finally {
     await other.close();
   }
-  expect(tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
+  expect(await tool('local-test-stack.mjs', 'age-addresses', who.email, '25')).toContain('1 saved address(es)');
 
   // With the wallet connected, the destination is the wallet's address and the network the one it is saved on, both
   // read-only until Edit.

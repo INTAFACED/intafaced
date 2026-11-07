@@ -42,7 +42,7 @@ async function stakeReadable(client) {
 export async function approvedSeller(page) {
   const seller = await signUp(page, 'mks');
   await verify(page, seller);
-  expect(fund(seller.email, 'IFC', '1100').tx).toBeTruthy();
+  expect((await fund(seller.email, 'IFC', '1100')).tx).toBeTruthy();
   const client = await api(seller);
   const staked = data(await client.post('/api/token/trpc/stake', { amount: STAKE, tier: 'flex', stakeId: randomUUID() }), 'stake');
   expect(staked).toMatchObject({ amount: STAKE, status: 'active' });

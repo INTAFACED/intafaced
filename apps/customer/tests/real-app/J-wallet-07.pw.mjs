@@ -71,7 +71,7 @@ test(`${J} #1 moves TEST 20 from the main balance into a space: instant, no fee,
   test.setTimeout(180_000);
   const who = await signUp(page, 'w7');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   run.reset({ who });
   const bank = await bankFor(who);
   expect((await bank.call('mutation', 'spaces.create', { assetId: 'USDT', name: SPACE })).ok).toBe(true);

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -104,26 +104,66 @@ export function journeyState(id) {
   };
 }
 
-/** A stack tool, as `node tooling/scripts/<script> ...args`; returns its output. */
-export function tool(script, ...args) {
-  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 120_000,
+/**
+ * `execFileSync` without blocking the worker: resolves to the output, and a failure rejects with what `execFileSync`
+ * threw (`status`, `stdout`, `stderr`). A child can run for a minute (a restart, the founders' sign-ins waiting out TOTP
+ * steps), and a worker blocked that long never sees Edge close its idle kept-alive sockets, so its next call through
+ * Edge is written to a closed one and fails before any answer ("other side closed", #7461). It reads no input.
+ */
+export function execText(file, args, options) {
+  return new Promise((resolve, reject) => {
+    const child = execFile(file, args, { encoding: 'utf8', ...options }, (error, stdout, stderr) => {
+      if (!error) return resolve(stdout);
+      // A child stopped at `timeout` reads as `execFileSync` said it: "spawnSync <file> ETIMEDOUT".
+      if (error.killed && options?.timeout) Object.assign(error, { message: `spawnSync ${file} ETIMEDOUT`, code: 'ETIMEDOUT' });
+      reject(Object.assign(error, { status: typeof error.code === 'number' ? error.code : null, stdout, stderr }));
+    });
+    child.stdin.end();
   });
+}
+
+/**
+ * `spawnSync` without blocking the worker (see `execText`): resolves to `{ status, signal, stdout, stderr, error }` as
+ * `spawnSync` returns them, and never rejects. A child past `timeout` is stopped with SIGTERM and has an ETIMEDOUT error.
+ */
+export function spawnText(file, args, { timeout, ...options } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    let error;
+    child.stdout.setEncoding('utf8').on('data', (d) => (stdout += d));
+    child.stderr.setEncoding('utf8').on('data', (d) => (stderr += d));
+    const timer =
+      timeout > 0 &&
+      setTimeout(() => {
+        error = Object.assign(new Error(`spawnSync ${file} ETIMEDOUT`), { code: 'ETIMEDOUT' });
+        child.kill('SIGTERM');
+      }, timeout);
+    child.on('error', (e) => (error = e));
+    child.on('close', (status, signal) => {
+      if (timer) clearTimeout(timer);
+      resolve({ status, signal, stdout, stderr, error });
+    });
+    child.stdin.end();
+  });
+}
+
+/** A stack tool, as `node tooling/scripts/<script> ...args`; resolves to its output (`execText`). */
+export function tool(script, ...args) {
+  return execText(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], { cwd: ROOT, timeout: 120_000 });
 }
 
 /**
  * A stack service restarted with one of its TEST settings switched `off` (blank), or back on: the switch is set for the
  * restart only, and this process's environment is put back as it was.
  */
-export function restartWith(service, envKey, on) {
+export async function restartWith(service, envKey, on) {
   const before = process.env[envKey];
   if (on) delete process.env[envKey];
   else process.env[envKey] = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', service);
+    await tool('local-test-stack.mjs', 'restart', service);
   } finally {
     if (before === undefined) delete process.env[envKey];
     else process.env[envKey] = before;
@@ -209,8 +249,8 @@ export async function signUpInBrowser(page, who, { country = 'DE', dateOfBirth =
 }
 
 /** TEST funding through the real ledger; `ref` makes a replay of the same deposit. */
-export function fund(email, asset, amount, ref) {
-  const out = tool('local-test-stack.mjs', 'fund', email, asset, amount, ...(ref ? ['--ref', ref] : []));
+export async function fund(email, asset, amount, ref) {
+  const out = await tool('local-test-stack.mjs', 'fund', email, asset, amount, ...(ref ? ['--ref', ref] : []));
   return { out, tx: /ledger tx\s+(\S+)/.exec(out)?.[1], ref: /--ref\s+([A-Za-z0-9-]+)/.exec(out)?.[1] };
 }
 

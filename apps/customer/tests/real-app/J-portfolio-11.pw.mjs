@@ -283,12 +283,12 @@ test(`${J} #4 requests an export for a long range: a job row exists first, the s
 });
 
 /** The bank restarted with every export render held (a TEST fault), or back on renders that finish. */
-function bankRenderHold(on) {
+async function bankRenderHold(on) {
   const before = process.env.LOCAL_STACK_BANK_STATEMENT_HOLD;
   if (on) process.env.LOCAL_STACK_BANK_STATEMENT_HOLD = 'on';
   else delete process.env.LOCAL_STACK_BANK_STATEMENT_HOLD;
   try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_BANK_STATEMENT_HOLD;
     else process.env.LOCAL_STACK_BANK_STATEMENT_HOLD = before;
@@ -316,7 +316,7 @@ test(`${J} #5 a worker dies mid-render: the job re-queues on the same key and th
       { timeout: 30_000 },
     )
     .toBe(true);
-  bankRenderHold(true);
+  await bankRenderHold(true);
   try {
     const made = await (await api(who)).post('/api/bank/trpc/statements.jobs.create', request);
     expect(made.status, `bank.statements.jobs.create: ${JSON.stringify(made.body).slice(0, 300)}`).toBe(200);
@@ -328,7 +328,7 @@ test(`${J} #5 a worker dies mid-render: the job re-queues on the same key and th
     expect(claimed.sha256).toBeNull();
   } finally {
     // The worker dies with the bank; the bank comes back on renders that finish.
-    bankRenderHold(false);
+    await bankRenderHold(false);
   }
   // Its claim lapses and the job is made again: the same job, a second claim.
   await expect.poll(async () => (await listedJob(job.id))?.state, { timeout: 60_000 }).toBe('ready');

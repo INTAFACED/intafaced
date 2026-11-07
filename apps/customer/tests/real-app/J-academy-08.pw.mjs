@@ -66,7 +66,7 @@ async function staff(kind, procedure, input) {
 }
 
 /** Academy restarted with the stack's TEST post and message limits blank (`off`), or back on them. */
-const academyPostLimits = (on) => restartWith('academy', 'LOCAL_STACK_ACADEMY_POST_LIMITS', on);
+const academyPostLimits = async (on) => await restartWith('academy', 'LOCAL_STACK_ACADEMY_POST_LIMITS', on);
 
 async function learnerPage(browser, who) {
   const page = await (await browser.newContext({ baseURL: ORIGIN })).newPage();
@@ -173,7 +173,7 @@ test(`${J} #2 a question pressed twice is one post; a non-image file refuses by 
   const form = discussion(page).getByTestId('discussion-new-post');
   const outcome = form.getByTestId('discussion-outcome');
   // While the owner's post length is blank, a post refuses by that name and nothing is posted.
-  academyPostLimits(false);
+  await academyPostLimits(false);
   try {
     await form.getByLabel('Title', { exact: true }).fill(QUESTION);
     await form.getByLabel('Your post', { exact: true }).fill('TEST A post while no length is set.');
@@ -182,7 +182,7 @@ test(`${J} #2 a question pressed twice is one post; a non-image file refuses by 
     await expect(outcome).toContainText('Posting is off: Academy has not set how long a post may be. Nothing was posted.');
     expect(await read(run.me, 'discussionPosts', { courseSlug: SLUG, topicSlug: 'general', limit: 50 })).toEqual([]);
   } finally {
-    academyPostLimits(true);
+    await academyPostLimits(true);
   }
   await page.reload();
   await form.getByRole('combobox', { name: 'Kind of post', exact: true }).selectOption('question');

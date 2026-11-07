@@ -625,8 +625,8 @@ test.describe('recovery keys', () => {
     const heirApi = await api(heir);
     const heirBefore = await apiFree(heirApi);
     const heirLedgerBefore = await ledgerFree(heirApi.userId);
-    expect(fund(owner.email, 'USDT', '125').tx).toBeTruthy();
-    expect(fund(owner.email, 'BTC', '0.02').tx).toBeTruthy();
+    expect((await fund(owner.email, 'USDT', '125')).tx).toBeTruthy();
+    expect((await fund(owner.email, 'BTC', '0.02')).tx).toBeTruthy();
     // Two staff confirm a death notice on the owner (RC-identity-02). Recording it changes nothing; without a second
     // person's approval it is not confirmed; with one, the account is frozen and nobody signs in to it.
     const found = await support('query', 'accountDirectory.search', { email: owner.email });

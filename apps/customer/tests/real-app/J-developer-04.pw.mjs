@@ -158,7 +158,7 @@ test(`${J} #2 sends a timestamp just outside the owner window: the stale code; a
   expect(await balance(trade)).toEqual(before);
 
   // A blank owner window stays blank: every signed request is refused with the typed code, never a default window.
-  blankSigningWindow(true);
+  await blankSigningWindow(true);
   try {
     expect((await signingPolicy()).windowSeconds).toBeNull();
     const unset = await call('GET', '/api/v1/account/balance', trade);
@@ -166,7 +166,7 @@ test(`${J} #2 sends a timestamp just outside the owner window: the stale code; a
       'edge.request_window_unset',
     );
   } finally {
-    blankSigningWindow(false);
+    await blankSigningWindow(false);
   }
   expect(await balance(trade)).toEqual(before);
 
@@ -181,7 +181,7 @@ test(`${J} #3 sends a request with two invalid fields: one typed body listing bo
   const { who, trade } = run.read();
   const clientOrderId = `jd04-${RUN}-3`;
   // Funded, so "nothing held" compares a real balance: a refused order would have held USDT.
-  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '1000')).tx).toBeTruthy();
   const before = await balance(trade);
   expect(toUnits(before.balances?.USDT?.free) >= toUnits('1000'), JSON.stringify(before)).toBe(true);
   const reply = await call('POST', '/api/v1/orders', {
@@ -308,7 +308,7 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   test.setTimeout(300_000);
   const { who, trade } = run.read();
   // A buy the account can pay for and the market accepts, resting under the book: only the freeze can refuse it.
-  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '1000')).tx).toBeTruthy();
   const order = {
     symbol: 'BTC/USDT',
     type: 'limit',
@@ -318,7 +318,7 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
     clientOrderId: `jd04-${RUN}-6`,
   };
   // The platform posting freeze first, so the account is still open: a money call is refused, a read still works.
-  tool('local-test-gates.mjs', 'posting-freeze', 'on');
+  await tool('local-test-gates.mjs', 'posting-freeze', 'on');
   let failed;
   try {
     const before = await balance(trade);
@@ -337,7 +337,7 @@ test(`${J} #6 calls from a frozen account, then a money call during the platform
   // The freeze is platform-wide: it comes off whatever happened above, and a failure to lift it is said loudly,
   // without hiding the step's own failure.
   try {
-    tool('local-test-gates.mjs', 'posting-freeze', 'off');
+    await tool('local-test-gates.mjs', 'posting-freeze', 'off');
   } catch (error) {
     throw new Error(`the platform posting freeze is still ON and must be lifted by hand: ${error.message}`, { cause: failed });
   }

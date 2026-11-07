@@ -42,7 +42,7 @@ const PAIR = { chainId: '84532', sellToken: TOKEN_A.address, buyToken: TOKEN_B.a
 test(`${J} starts: a developer with an account, reading /developers`, async ({ page }) => {
   test.setTimeout(120_000);
   const who = await signUp(page, 'dex23');
-  dex.start({ who });
+  await dex.start({ who });
   await page.goto('/developers');
   await expect(main(page).getByRole('heading', { name: 'Developers', level: 1 })).toBeVisible();
 });

@@ -15,7 +15,7 @@ test('J-ops-console-01 #7 a business key in the cross-desk search shows the ledg
   test.setTimeout(360_000);
   const customer = await signUp(page, 'xs');
   const ref = `xsearch-${randomBytes(4).toString('hex')}`;
-  const funded = fund(customer.email, 'USDT', '15', ref);
+  const funded = await fund(customer.email, 'USDT', '15', ref);
   expect(funded.tx).toBeTruthy();
   const businessKey = `deposit:local-test:LOCAL-TEST-${ref}`;
 
@@ -52,7 +52,7 @@ test('J-ops-console-01 #7 a business key in the cross-desk search shows the ledg
   // svc-bank down: its section refuses in its own words and no other section changes.
   let failure = null;
   try {
-    tool('local-test-stack.mjs', 'stop', 'bank');
+    await tool('local-test-stack.mjs', 'stop', 'bank');
     await page.goto(searchUrl, { waitUntil: 'load' });
     await payments.getByRole('button', { name: 'Read the transfer record' }).click();
     await expect(payments.getByTestId('transfer-failed')).toContainText('svc-bank did not answer.', { timeout: 30_000 });
@@ -64,7 +64,7 @@ test('J-ops-console-01 #7 a business key in the cross-desk search shows the ledg
   }
   // Bring svc-bank back for the journeys after this one; a failure to restart never hides the section's own failure.
   try {
-    tool('local-test-stack.mjs', 'start', '--only', 'bank');
+    await tool('local-test-stack.mjs', 'start', '--only', 'bank');
   } catch (restart) {
     failure ??= restart;
   }

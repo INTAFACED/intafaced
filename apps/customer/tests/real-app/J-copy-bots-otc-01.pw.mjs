@@ -260,8 +260,8 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-  fund(unverified.email, 'USDT', '1000');
+  await tool('local-test-gates.mjs', 'verify');
+  await fund(unverified.email, 'USDT', '1000');
   await signOutBrowser(page.context());
   await signIn(page, unverified);
   const wizard = await openWizardAtLimits(page);
@@ -282,7 +282,7 @@ test(`${J} #5 presses Start copying: below the copy verification level, under a 
   // A blank country list refuses every follow, a verified person's too, and writes nothing. Funded first, so the
   // wizard's own free-balance check passes and the press reaches the service.
   const follower = state('follower');
-  fund(follower.email, 'USDT', '1000');
+  await fund(follower.email, 'USDT', '1000');
   const me = await api(follower);
   const followsBefore = await myFollows(me);
   try {
@@ -378,7 +378,7 @@ async function copyCountries(state) {
   if (state === 'blank') process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = 'blank';
   else delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
   try {
-    tool('local-test-stack.mjs', 'restart', 'trade');
+    await tool('local-test-stack.mjs', 'restart', 'trade');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION;
     else process.env.LOCAL_STACK_TRADE_COPY_JURISDICTION = before;
@@ -401,7 +401,7 @@ async function copyCountries(state) {
 // disclosure is asked for, so this step proves the review asks for none and Start is on once the limits are valid.
 test(`${J} #6 reaches the review with no risk disclosure to accept, and Start copying is on`, async ({ page }) => {
   const follower = state('follower');
-  fund(follower.email, 'USDT', '1000');
+  await fund(follower.email, 'USDT', '1000');
   await signIn(page, follower);
   const wizard = await openWizardAtLimits(page);
   await fillLimits(wizard, { perOrder: '50', total: '200', fixed: '20' });

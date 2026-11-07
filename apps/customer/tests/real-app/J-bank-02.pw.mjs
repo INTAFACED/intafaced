@@ -238,7 +238,7 @@ async function ask(page, method) {
 test(`${J} #1 presses Add money: every way to pay with its fee and arrival, a blank reading "not set"`, async ({ page }) => {
   const who = await signUp(page, 'jb2');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '50').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '50')).tx).toBeTruthy();
   run.reset({ who });
 
   await signIn(page, who);

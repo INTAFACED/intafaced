@@ -206,7 +206,7 @@ test(`${J} #6 sells coins that arrived by deposit: the sale reaches no lot, its 
 }) => {
   const who = account();
   // TEST 0.05 ETH arrives by deposit through the real ledger: no trade, so no cost is known.
-  expect(fund(who.email, 'ETH', '0.05').tx).toBeTruthy();
+  expect((await fund(who.email, 'ETH', '0.05')).tx).toBeTruthy();
   await signIn(page, who);
   await page.goto(deskPath('ETH/USDT'));
   const { bid } = await bestPrices('ETH/USDT');

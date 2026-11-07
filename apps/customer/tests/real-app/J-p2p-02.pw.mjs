@@ -20,8 +20,8 @@ const UNBUILT = { timeout: 5_000 };
 
 test.describe.configure({ mode: 'default' });
 
-test.beforeAll(() => {
-  tool('local-test-gates.mjs', 'p2p');
+test.beforeAll(async () => {
+  await tool('local-test-gates.mjs', 'p2p');
 });
 
 function journey() {
@@ -52,7 +52,7 @@ test('J-p2p-02 #1 the buyer marks the order paid and the seller gets one inbox r
   // The seller: verified, TEST 50 USDT, a TEST bank account, a sell ad, and a TEST passkey to confirm releases.
   const seller = await signUp(page, 'p2p02s');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '50').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '50')).tx).toBeTruthy();
   const sellerSession = await api(seller);
   const sellerPasskey = await testPasskey(sellerSession);
   const s = p2p(sellerSession, sellerPasskey);

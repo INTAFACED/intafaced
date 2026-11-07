@@ -95,7 +95,7 @@ test(`${J} #3 sets a target savings pool: each run routes the bought asset to fl
     .click(UNBUILT);
   await page.getByRole('dialog').getByLabel('Send what I buy to').selectOption('Flexible savings');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
-  tool('local-test-world.mjs', 'recurring-tick', '--rule', state('ruleId'));
+  await tool('local-test-world.mjs', 'recurring-tick', '--rule', state('ruleId'));
   const runs = (await getRule(buyer, state('ruleId'))).runs;
   expect(runs.at(-1).savingsKey).toMatch(new RegExp(`recurring:${state('ruleId')}:`));
 });
@@ -122,7 +122,7 @@ test(`${J} #5 changes the amount from 10 to 20: the next slot buys 20, earlier s
   await page.getByRole('dialog').getByLabel('Amount each time (USDT)').fill('20');
   await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click();
   const earlier = (await getRule(buyer, ruleId)).runs.map((r) => r.spent);
-  tool('local-test-world.mjs', 'recurring-tick', '--rule', ruleId);
+  await tool('local-test-world.mjs', 'recurring-tick', '--rule', ruleId);
   const runs = (await getRule(buyer, ruleId)).runs;
   expect(runs.slice(0, earlier.length).map((r) => r.spent)).toEqual(earlier);
   expect(toUnits(runs.at(-1).spent)).toBe(toUnits('20'));
@@ -133,13 +133,13 @@ test(`${J} #6 runs out of funds for a slot, then adds funds: suspended for insuf
 }) => {
   const buyer = state('buyer');
   const ruleId = state('ruleId');
-  tool('local-test-gates.mjs', 'hold', buyer.email, 'USDT', 'all');
-  tool('local-test-world.mjs', 'recurring-tick', '--rule', ruleId);
+  await tool('local-test-gates.mjs', 'hold', buyer.email, 'USDT', 'all');
+  await tool('local-test-world.mjs', 'recurring-tick', '--rule', ruleId);
   expect((await getRule(buyer, ruleId)).state).toBe('suspended_insufficient_funds');
   await signIn(page, buyer);
   await page.goto('/notifications');
   await expect(page.getByRole('article').filter({ hasText: 'Recurring buy paused: not enough USDT' })).toHaveCount(1, UNBUILT);
-  tool('local-test-gates.mjs', 'release', buyer.email, 'USDT', 'all');
+  await tool('local-test-gates.mjs', 'release', buyer.email, 'USDT', 'all');
   await expect.poll(async () => (await getRule(buyer, ruleId)).state, { timeout: 30_000 }).toBe('active');
 });
 

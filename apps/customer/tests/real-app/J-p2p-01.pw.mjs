@@ -36,8 +36,8 @@ const AD = { price: '0.92', min: '10', max: '50', total: '200' };
 
 test.describe.configure({ mode: 'default' });
 
-test.beforeAll(() => {
-  tool('local-test-gates.mjs', 'p2p');
+test.beforeAll(async () => {
+  await tool('local-test-gates.mjs', 'p2p');
 });
 
 function journey() {
@@ -60,7 +60,7 @@ test('J-p2p-01 #1 the P2P hub opens from More, lists every requirement, and a ta
   // ad shows a real record (#3).
   const seller = await signUp(page, 'p2p01s');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '500').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '500')).tx).toBeTruthy();
   const sellerSession = await api(seller);
   // The seller confirms releases with a TEST passkey, as the person does (P-trade-orders-07).
   const sellerPasskey = await testPasskey(sellerSession);
@@ -337,7 +337,7 @@ test('J-p2p-01 #4 a pair limit, the ongoing-order cap and the daily verification
   // verification level, 20 ongoing orders.
   const seller = await signUp(page, 'p2p01l');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '1200').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '1200')).tx).toBeTruthy();
   const s = p2p(await api(seller));
   await testInstrument(s, seller);
   const offer = await s.mutate('offers.create', {
@@ -426,7 +426,7 @@ test('J-p2p-01 #4 a payment method retired while the ad is open refuses in plain
   await registerRetiringMethod();
   const seller = await signUp(page, 'p2p01r');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '100')).tx).toBeTruthy();
   const s = p2p(await api(seller));
   await testInstrument(s, seller);
   await s.mutate('instruments.create', {
@@ -486,7 +486,7 @@ test('J-p2p-01 #4 after three cancelled orders buying is paused, in plain words 
   // Its own seller and buyer. The limit is the labelled TEST profile value: 3 cancelled orders within 24 hours.
   const seller = await signUp(page, 'p2p01x');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '100')).tx).toBeTruthy();
   const s = p2p(await api(seller));
   await testInstrument(s, seller);
   const offer = await s.mutate('offers.create', {
@@ -724,7 +724,7 @@ test('J-p2p-01 #7 a method that is not instant shows its settlement window on th
   expect(registered.settlement).toEqual({ instant: false, windowSeconds: SLOW_WINDOW_SECONDS });
   const seller = await signUp(page, 'p2p01n');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '100')).tx).toBeTruthy();
   const s = p2p(await api(seller));
   await testInstrument(s, seller);
   await s.mutate('instruments.create', {

@@ -61,7 +61,7 @@ test('J-ops-console-01 #3 the module health board shows every module, read, refu
   for (const module of unwired) await expectUnwired(b, module);
 
   // svc-p2p down: only the P2P row refuses, naming svc-p2p, with its code and no count; every other row keeps its state.
-  tool('local-test-stack.mjs', 'stop', 'p2p');
+  await tool('local-test-stack.mjs', 'stop', 'p2p');
   let failure = null;
   try {
     b = await board(page);
@@ -80,7 +80,7 @@ test('J-ops-console-01 #3 the module health board shows every module, read, refu
   // Bring svc-p2p back for the journeys after this one. A failure to restart is reported, but never in place of the
   // board's own failure above.
   try {
-    tool('local-test-stack.mjs', 'start', '--only', 'p2p');
+    await tool('local-test-stack.mjs', 'start', '--only', 'p2p');
   } catch (restart) {
     failure ??= restart;
   }

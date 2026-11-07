@@ -108,12 +108,12 @@ async function signUpStart(who, fields = {}) {
 }
 
 /** Identity restarted with sign-up published as closed, or back on the stack's TEST "open". */
-function registration(open) {
+async function registration(open) {
   const before = process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
   if (open) delete process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
   else process.env.LOCAL_STACK_IDENTITY_REGISTRATION = 'closed';
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_REGISTRATION;
     else process.env.LOCAL_STACK_IDENTITY_REGISTRATION = before;
@@ -121,12 +121,12 @@ function registration(open) {
 }
 
 /** Identity restarted with no mail transport, as a build without a mail provider runs, or back on the stack's outbox. */
-function mail(on) {
+async function mail(on) {
   const before = process.env.LOCAL_STACK_IDENTITY_MAIL;
   if (on) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
   else process.env.LOCAL_STACK_IDENTITY_MAIL = 'off';
   try {
-    tool('local-test-stack.mjs', 'restart', 'identity');
+    await tool('local-test-stack.mjs', 'restart', 'identity');
   } finally {
     if (before === undefined) delete process.env.LOCAL_STACK_IDENTITY_MAIL;
     else process.env.LOCAL_STACK_IDENTITY_MAIL = before;
@@ -201,13 +201,13 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   await noAccount(who);
 
   // With the owner's sign-up closed, the same good record is refused in words and nothing is made.
-  registration(false);
+  await registration(false);
   try {
     await details(page, who);
     await expect(notice(page)).toContainText('Sign-up is closed right now. Nothing was created.', { timeout: 15_000 });
     await noAccount(who);
   } finally {
-    registration(true);
+    await registration(true);
   }
 
   // A good record, with its account type picked, goes on to the code step; still no account until the code is entered.
@@ -245,7 +245,7 @@ test(`${J} #2 a too-short or breached password is refused with the rule in words
 
   // With the owner's breached-password list not set (identity restarted without it), the page says it is not set,
   // beside the password rule, before anything is typed.
-  restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', false);
+  await restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', false);
   try {
     // Identity may still be coming back up: open the page again until it has asked identity and shows the answer.
     await expect(async () => {
@@ -257,7 +257,7 @@ test(`${J} #2 a too-short or breached password is refused with the rule in words
     );
     await expect(page.getByText('At least 12 characters')).toBeVisible();
   } finally {
-    restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', true);
+    await restartWith('identity', 'LOCAL_STACK_IDENTITY_BREACH_LIST', true);
   }
 });
 
@@ -328,7 +328,7 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
   // With email switched off, the notice names it and no code is mailed; Email stays picked, nothing goes by phone, and
   // the person is offered the other channel to pick.
   const offline = person();
-  mail(false);
+  await mail(false);
   try {
     await details(page, offline);
     await expect(notice(page)).toContainText('Email delivery is switched off in this build, so a sign-up code cannot be sent.', {
@@ -343,7 +343,7 @@ test(`${J} #4 "check your email" reads the same for a known address, an early re
     expect(mailedCodes(offline.email)).toHaveLength(0);
     await noAccount(offline);
   } finally {
-    mail(true);
+    await mail(true);
   }
 });
 
@@ -465,7 +465,7 @@ test(`${J} #7 Account shows "verify your email", sends a code and the person typ
 test(`${J} #7 with email delivery switched off, sending the code from Account says so by name and nothing is sent`, async ({ page }) => {
   test.setTimeout(180_000);
   const who = await unprovedAccount();
-  mail(false);
+  await mail(false);
   try {
     await signIn(page, who);
     await page.goto('/uc/account');
@@ -478,7 +478,7 @@ test(`${J} #7 with email delivery switched off, sending the code from Account sa
     await expect(banner.getByLabel('Code from the email')).toHaveCount(0);
     expect(mailedCodes(who.email, 'email-confirm')).toHaveLength(0);
   } finally {
-    mail(true);
+    await mail(true);
   }
 });
 
@@ -505,7 +505,7 @@ test(`${J} #6 an old link from a mail shows "link expired" and a used one "link 
   const old = await nextLink(who.email, 0);
   const oldToken = new URL(old, 'http://x').searchParams.get('token');
   expect(old).toMatch(/^\/confirm-email\?token=/);
-  expect(tool('local-test-stack.mjs', 'expire-email-confirmations', who.email)).toContain('1 open email confirmation link(s)');
+  expect(await tool('local-test-stack.mjs', 'expire-email-confirmations', who.email)).toContain('1 open email confirmation link(s)');
   await page.goto(old);
   // Opening the page spends nothing; the person presses Confirm. The token leaves the address bar.
   await expect(page).toHaveURL(/\/confirm-email$/);
@@ -601,7 +601,7 @@ test(`${J} #8 a verified, funded account with an email never proved is stopped a
   await signIn(page, who);
   // Identity verification and TEST funds, so the email is the only thing missing.
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '1000').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '1000')).tx).toBeTruthy();
   await signIn(page, who);
 
   // The room says it before the person tries, and links back to step 7.

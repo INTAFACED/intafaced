@@ -260,7 +260,7 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
   // With identity unreachable the card says "unread", never "active".
   test.setTimeout(240_000);
   try {
-    tool('local-test-stack.mjs', 'stop', 'identity');
+    await tool('local-test-stack.mjs', 'stop', 'identity');
     const dark = await desk('lead', 'query', 'accountState', { ticketId: ticket.id });
     expect(dark).toEqual({ status: 'unread', reason: 'plane_dark' });
     // The console checks its founder with svc-identity before it reads anything, so with identity down the console
@@ -275,7 +275,7 @@ test(`${J} #5 the customer card shows the account state, never "active" when ide
     await expect(card.getByTestId('customer-account-state')).toHaveText('unread');
     await expect(card.getByTestId('customer-account-state')).toHaveAttribute('data-code', 'admin.upstream_refused');
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'identity');
+    await tool('local-test-stack.mjs', 'start', '--only', 'identity');
   }
 });
 

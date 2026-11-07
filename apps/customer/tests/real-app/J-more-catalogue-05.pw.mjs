@@ -30,14 +30,14 @@ const PUBLISHED = Object.fromEntries(
  */
 const POOL_FLAGS = ['LOCAL_STACK_MINING_POOL_PUBLISHED', 'LOCAL_STACK_MINING_POOL_POW', 'LOCAL_STACK_MINING_POOL_PROBE_TARGET'];
 const changed = journeyState(`${J}-blank`);
-function restartPool(flags = {}) {
+async function restartPool(flags = {}) {
   const before = Object.fromEntries(POOL_FLAGS.map((key) => [key, process.env[key]]));
   const plain = Object.keys(flags).length === 0;
   for (const key of POOL_FLAGS) delete process.env[key];
   Object.assign(process.env, flags);
   if (!plain) changed.write({ off: true });
   try {
-    tool('local-test-stack.mjs', 'restart', 'mining-pool');
+    await tool('local-test-stack.mjs', 'restart', 'mining-pool');
     if (plain) changed.reset({});
   } finally {
     for (const [key, value] of Object.entries(before)) {
@@ -46,9 +46,9 @@ function restartPool(flags = {}) {
     }
   }
 }
-const poolPublished = (on) => restartPool(on ? {} : { LOCAL_STACK_MINING_POOL_PUBLISHED: 'off' });
-const putPoolBack = () => {
-  if (changed.read().off) restartPool();
+const poolPublished = async (on) => await restartPool(on ? {} : { LOCAL_STACK_MINING_POOL_PUBLISHED: 'off' });
+const putPoolBack = async () => {
+  if (changed.read().off) await restartPool();
 };
 // A step that fails or times out never reaches its own end, so the hooks put the pool back before the next step.
 test.beforeAll(putPoolBack);
@@ -143,7 +143,7 @@ test(`${J} #1 opens /mining: the pool overview with coin, hardware and revenue s
     await expect(region.getByRole('paragraph')).toHaveText(PUBLISHED[key]);
   }
   // Unpublished: the pool restarted with every owner value blank; each section says "Not set" and nothing else.
-  poolPublished(false);
+  await poolPublished(false);
   try {
     await page.reload();
     for (const [section] of sections) {
@@ -155,7 +155,7 @@ test(`${J} #1 opens /mining: the pool overview with coin, hardware and revenue s
     await expect(page.getByText('Published overview')).toHaveCount(0);
     await expect(page.getByText(PUBLISHED.MINING_OVERVIEW_WHAT)).toHaveCount(0);
   } finally {
-    poolPublished(true);
+    await poolPublished(true);
   }
 });
 
@@ -179,7 +179,7 @@ test(`${J} #2 copies the pool address, the account id and the worker name: each 
   expect(await copy('worker name')).toBe(PUBLISHED.MINING_WORKER_NAME_PATTERN.replace('{worker}', 'Rig-A'));
 
   // A blank host: the typed refusal by its code, and nothing to copy.
-  poolPublished(false);
+  await poolPublished(false);
   try {
     await page.reload();
     const unset = connect.getByTestId('mining-connection-unset');
@@ -187,7 +187,7 @@ test(`${J} #2 copies the pool address, the account id and the worker name: each 
     await expect(unset).toHaveAttribute('role', 'alert');
     await expect(connect.getByRole('button', { name: /^Copy / })).toHaveCount(0);
   } finally {
-    poolPublished(true);
+    await poolPublished(true);
   }
 });
 
@@ -210,7 +210,7 @@ test(`${J} #3 presses the reachability test on an unreachable host: "Timed out" 
   // An address that never answers the handshake: "Timed out" with the measured wait, never a success.
   const silent = await silentListener();
   try {
-    restartPool({ LOCAL_STACK_MINING_POOL_PROBE_TARGET: `127.0.0.1:${silent.port}` });
+    await restartPool({ LOCAL_STACK_MINING_POOL_PROBE_TARGET: `127.0.0.1:${silent.port}` });
     await openMining(page);
     await expect(result).toHaveAttribute('data-result', 'none');
     await pressed();
@@ -228,7 +228,7 @@ test(`${J} #3 presses the reachability test on an unreachable host: "Timed out" 
   // A port nothing listens on: "Not reached", a different label from a time-out, and never a success; then one press
   // past the owner limit is the typed limit refusal and the last result stays as it was.
   try {
-    restartPool({ LOCAL_STACK_MINING_POOL_PROBE_TARGET: `127.0.0.1:${await closedPort()}` });
+    await restartPool({ LOCAL_STACK_MINING_POOL_PROBE_TARGET: `127.0.0.1:${await closedPort()}` });
     await page.reload();
     await expect(result).toHaveAttribute('data-result', 'none');
     for (let press = 1; press <= limit; press += 1) {
@@ -243,7 +243,7 @@ test(`${J} #3 presses the reachability test on an unreachable host: "Timed out" 
     await expect(result).toHaveText('Not reached: the pool address did not accept the connection');
     await expect(page.getByText(/^Reached in/)).toHaveCount(0);
   } finally {
-    restartPool();
+    await restartPool();
   }
 });
 
@@ -321,9 +321,10 @@ test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one wor
 
   // A stranger who has only the account id (no secret, or a wrong one) is refused by the door's code before it touches
   // the account: no worker, no share, and the owner's mode change for that rig still goes through.
-  const stranger = (...args) => tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--login', login, ...args);
-  expect(stranger('--share', `jmc05-${tag}-stranger`)).toMatch(/^refused mining\.stratum_secret_invalid: /);
-  expect(stranger('--share', `jmc05-${tag}-stranger`, '--secret', `msk_${'A'.repeat(43)}`)).toMatch(
+  const stranger = async (...args) =>
+    await tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--login', login, ...args);
+  expect(await stranger('--share', `jmc05-${tag}-stranger`)).toMatch(/^refused mining\.stratum_secret_invalid: /);
+  expect(await stranger('--share', `jmc05-${tag}-stranger`, '--secret', `msk_${'A'.repeat(43)}`)).toMatch(
     /^refused mining\.stratum_secret_invalid: /,
   );
   expect(await poolRoster(who)).toEqual([]);
@@ -334,10 +335,10 @@ test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one wor
     await page.getByRole('button', { name: 'Save mode' }).click();
     await expect(page.getByTestId('mining-mode-status')).toHaveText(`${mode} saved for Rig-A`);
   }
-  const rig = (...args) => tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--secret', secret, ...args);
+  const rig = async (...args) => await tool('local-test-stack.mjs', 'mining-share', who.email, '--pool', pool, '--secret', secret, ...args);
 
   // The rig connects to that address and its first share is accepted: exactly one worker, Rig-A, at weight 1.
-  expect(rig('--login', login, '--share', `jmc05-${tag}-first`)).toMatch(
+  expect(await rig('--login', login, '--share', `jmc05-${tag}-first`)).toMatch(
     new RegExp(
       `^accepted TEST share LOCAL-TEST-jmc05-${tag}-first for miner \\S+, login ${login.replaceAll('.', '\\.')}, .* through the miner door at ${pool.replaceAll('.', '\\.')} `,
     ),
@@ -349,11 +350,11 @@ test(`${J} #5 connects the rig Rig-A and submits a first accepted share: one wor
   await expect(cellsOf(workerRow(workers, 'Rig-A')).nth(2)).toHaveText('1');
 
   // The same share sent again is refused by name and keeps nothing: still one worker, weight unchanged.
-  expect(rig('--login', login, '--share', `jmc05-${tag}-first`)).toMatch(/^refused mining\.share_duplicate: /);
+  expect(await rig('--login', login, '--share', `jmc05-${tag}-first`)).toMatch(/^refused mining\.share_duplicate: /);
   expect(await poolRoster(who)).toEqual([['Rig-A', '1']]);
 
   // A share sent with the account id alone, no worker name, goes to the worker named default.
-  expect(rig('--login', account, '--share', `jmc05-${tag}-unnamed`)).toMatch(/^accepted TEST share /);
+  expect(await rig('--login', account, '--share', `jmc05-${tag}-unnamed`)).toMatch(/^accepted TEST share /);
   expect(await poolRoster(who)).toEqual([
     ['Rig-A', '1'],
     ['default', '1'],
@@ -375,7 +376,7 @@ test(`${J} #6 opens /mining/workers and sets a minimum difficulty: the list with
   for (let n = 1; n <= 20; n += 1) {
     const rig = `Rig-${String(n).padStart(2, '0')}`;
     expect(
-      tool('local-test-stack.mjs', 'mining-share', who.email, '--secret', secret, '--worker', rig, '--share', `jmc05-${tag}-${rig}`),
+      await tool('local-test-stack.mjs', 'mining-share', who.email, '--secret', secret, '--worker', rig, '--share', `jmc05-${tag}-${rig}`),
     ).toContain('accepted TEST share');
   }
   await openMining(page, '/mining/workers');
@@ -441,7 +442,8 @@ async function pooledWeight(page) {
   return String(weights.reduce((sum, weight) => sum + BigInt(weight), 0n));
 }
 
-const share = (...args) => tool('local-test-stack.mjs', 'mining-share', run.read().who.email, '--secret', run.read().secret, ...args);
+const share = async (...args) =>
+  await tool('local-test-stack.mjs', 'mining-share', run.read().who.email, '--secret', run.read().secret, ...args);
 
 test(`${J} #7 starts solo mining, or submits a share that fails validation: solo alongside pooled; an invalid share is refused by the proof-of-work check and a testnet flag is labelled`, async ({
   page,
@@ -451,7 +453,7 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
   const tag = `${run.read().tag}-${Date.now().toString(36)}`;
   // A valid share: the submitter finds a nonce that meets the TEST target for this window, account and rig, and sends no
   // weight; the pool accepts it. Rig-A then has a share in the open window.
-  expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-valid`)).toMatch(
+  expect(await share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-valid`)).toMatch(
     /^accepted TEST share LOCAL-TEST-jmc05-\S+-pow-valid for miner \S+, worker Rig-A, TEST testnet proof of work, valid nonce [0-9a-f]+ /,
   );
   await signIn(page, run.read().who);
@@ -507,7 +509,7 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
   expect(await modes()).toEqual({ 'Rig-A': 'pooled', 'Rig-S': 'solo' });
 
   // A solo share is stored on Rig-S and stays out of the pooled split: this account's pooled weight does not move.
-  expect(share('--worker', 'Rig-S', '--share', `jmc05-${tag}-solo`)).toContain('accepted TEST share');
+  expect(await share('--worker', 'Rig-S', '--share', `jmc05-${tag}-solo`)).toContain('accepted TEST share');
   expect(await pooledWeight(page)).toBe(before);
   await page.goto('/mining/workers');
   await page.getByRole('searchbox', { name: 'Filter workers' }).fill('rig-s');
@@ -516,7 +518,7 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
 
   // An invalid share (a nonce whose work misses the target) is refused by the proof-of-work check by its code, and no
   // weight moves anywhere.
-  expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-invalid`, '--invalid-pow')).toMatch(
+  expect(await share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-invalid`, '--invalid-pow')).toMatch(
     /^refused mining\.pow_invalid: TEST share LOCAL-TEST-jmc05-\S+-pow-invalid \(TEST testnet proof of work, invalid nonce [0-9a-f]+\); nothing was kept/,
   );
   expect(await pooledWeight(page)).toBe(before);
@@ -527,7 +529,7 @@ test(`${J} #7 starts solo mining, or submits a share that fails validation: solo
 
   // A second valid pooled share does move the pooled weight, by exactly its one unit, so the two checks above are not
   // reading a weight that never moves.
-  expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-valid-2`)).toContain('accepted TEST share');
+  expect(await share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-valid-2`)).toContain('accepted TEST share');
   expect(BigInt(await pooledWeight(page))).toBe(BigInt(before) + 1n);
 
   // Solo credit is the service's own typed refusal.
@@ -543,16 +545,16 @@ test(`${J} #7 with no published proof-of-work parameters: the room says so by it
   // Share ids are global to the pool; each attempt of this step labels its own.
   const tag = `${run.read().tag}-${Date.now().toString(36)}`;
   try {
-    restartPool({ LOCAL_STACK_MINING_POOL_POW: 'off' });
+    await restartPool({ LOCAL_STACK_MINING_POOL_POW: 'off' });
     await openMining(page, '/mining/workers');
     const unset = page.getByTestId('mining-pow-unset');
     await expect(unset).toHaveAttribute('data-code', 'mining.pow_spec_unset');
     await expect(unset).toHaveText('The pool has no published proof-of-work parameters, so it checks no work.');
     await expect(page.getByTestId('mining-pow')).toHaveCount(0);
     await expect(page.getByText(/testnet/i)).toHaveCount(0);
-    expect(share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-blank`)).toMatch(/^refused mining\.pow_spec_unset: /);
+    expect(await share('--worker', 'Rig-A', '--share', `jmc05-${tag}-pow-blank`)).toMatch(/^refused mining\.pow_spec_unset: /);
   } finally {
-    restartPool();
+    await restartPool();
   }
   // Published again: the TEST testnet label is back.
   await page.reload();

@@ -1,8 +1,7 @@
 // World: restart, stack
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { ROOT, journeyState, tool } from './stack.mjs';
+import { ROOT, execText, journeyState, tool } from './stack.mjs';
 import { forgetSession, nextCode } from './identity-factors.mjs';
 import {
   businessReadyPerson,
@@ -68,11 +67,9 @@ async function ownerApi() {
  * (`tooling/scripts/local-test-merchant-pricing.mjs`). Signing the two founders in can wait out TOTP steps, so it
  * gets longer than `tool`'s two minutes.
  */
-function merchantPricing(...args) {
-  const out = execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-merchant-pricing.mjs'), ...args], {
+async function merchantPricing(...args) {
+  const out = await execText(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-merchant-pricing.mjs'), ...args], {
     cwd: ROOT,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 300_000,
   });
   return JSON.parse(out.trim().split('\n').pop());
@@ -86,9 +83,9 @@ const calculator = (page) =>
   page.getByTestId('pay-section').filter({ has: page.getByRole('heading', { name: 'Fee calculator', level: 2 }) });
 
 /** The TEST settlement the stack posts to the business, read back as its row on Settlements. */
-function postedSettlement() {
+async function postedSettlement() {
   const { merchantId } = journey();
-  const out = tool('local-test-world.mjs', 'merchant-settlement', merchantId, '--net', '100', '--asset', 'USDT');
+  const out = await tool('local-test-world.mjs', 'merchant-settlement', merchantId, '--net', '100', '--asset', 'USDT');
   return /settlement\s+([0-9a-f-]{36})/.exec(out)?.[1];
 }
 
@@ -172,7 +169,7 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     { assetCode: 'USDT', clearing: expect.stringMatching(/^40(\.0+)?$/), available: expect.stringMatching(/^0(\.0+)?$/) },
   ]);
   try {
-    tool('local-test-stack.mjs', 'stop', 'ledger');
+    await tool('local-test-stack.mjs', 'stop', 'ledger');
     await expect(snapshot()).rejects.toThrow(/refused: 503 .*pay\.metrics_balance_unavailable/);
     // The page's own balance read is the one refused, with the balance code, not some other failure.
     const [pageRead] = await Promise.all([
@@ -192,7 +189,7 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
     await expect(page.locator('main')).not.toContainText(/(^|[^\d.,])0(\.0+)?\s*USDT|Now\s*0\b/);
   } finally {
     // `start` brings back only what is down; `restart` refuses a just-stopped process the system has not reaped yet.
-    tool('local-test-stack.mjs', 'start');
+    await tool('local-test-stack.mjs', 'start');
   }
   await expect(async () => {
     await page.reload();
@@ -322,7 +319,7 @@ test(`${J} #2 reads funds moving from clearing to available: funds wait until av
   await expect(all.getByRole('rowgroup').last().getByRole('row').getByRole('cell')).toHaveText(['USDT', '0.00 USDT', '40.00 USDT']);
 
   // (3) The TEST acquirer reports the funds available, signed, to the service's own webhook; the same run now settles.
-  tool('local-test-stack.mjs', 'card-funds', paymentId, 'available');
+  await tool('local-test-stack.mjs', 'card-funds', paymentId, 'available');
   const posted = await settle();
   expect(posted.id).toBe(waiting.id);
   expect(posted.status).toBe('posted');
@@ -379,7 +376,7 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
   test.setTimeout(600_000);
   const { merchantId } = journey();
   // The business's own TEST tier with a TEST USDT fee and no payout fee published, through the two-founder doors.
-  const priced = merchantPricing(merchantId, '--tier', 'priced');
+  const priced = await merchantPricing(merchantId, '--tier', 'priced');
   expect(priced).toMatchObject({ merchantId, onTier: true, payoutFee: null });
   const api = await ownerApi();
   await signInOwner(page, '/pay/pricing');
@@ -442,7 +439,7 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
   });
 
   // Published as not charged, the payout fee reads "Not charged"; until then it read "Not set" (above).
-  const published = merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
+  const published = await merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
   expect(published).toMatchObject({ tierId: priced.tierId, onTier: true, payoutFee: { kind: 'not_charged' } });
   await page.reload();
   await expect(pricedRow.getByRole('cell')).toHaveText(['USDT', PRICED_FEE_TEXT, 'Not charged']);
@@ -455,7 +452,7 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
   // A second TEST tier of the business's own with no fee at all: its fee and its payout fee read "Not set".
   // Whatever happens below, the business goes back to the priced tier (payout fee published) for the steps after this one.
   try {
-    const blank = merchantPricing(merchantId, '--tier', 'blank');
+    const blank = await merchantPricing(merchantId, '--tier', 'blank');
     expect(blank).toMatchObject({ merchantId, onTier: true, payoutFee: null });
     expect(blank.tierId).not.toBe(priced.tierId);
     await page.reload();
@@ -489,7 +486,10 @@ test(`${J} #3 reads Pricing and Fees: the tier fee table, a calculator on the li
     expect(await api.query('merchantControl.get', { merchantId })).toEqual(recordBefore);
     expect(await api.query('merchantControl.tiers.list', { merchantId })).toEqual(ladderBefore);
   } finally {
-    expect(merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ tierId: priced.tierId, onTier: true });
+    expect(await merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({
+      tierId: priced.tierId,
+      onTier: true,
+    });
   }
 });
 
@@ -649,7 +649,7 @@ test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amou
   expect(settlement, 'the TEST settlement #2 posted').toBeTruthy();
   const api = await ownerApi();
   // The business is on its own priced TEST tier (#3 leaves it there): a TEST daily payout cap of 500 USDT.
-  expect(merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ onTier: true });
+  expect(await merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged')).toMatchObject({ onTier: true });
   const posted = await api.query('settlement.get', { settlementId: settlement });
   expect(posted).toMatchObject({ id: settlement, merchantId, status: 'posted', assetId: 'USDT' });
   expect(scaled(posted.net) > scaled(CAPPED_DAILY_PAYOUT)).toBe(true);
@@ -716,7 +716,7 @@ test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amou
   });
   let failed = null;
   try {
-    expect(merchantPricing(merchantId, '--tier', 'capped', '--payout-not-charged')).toMatchObject({ onTier: true });
+    expect(await merchantPricing(merchantId, '--tier', 'capped', '--payout-not-charged')).toMatchObject({ onTier: true });
     let tight = null;
     await expect
       .poll(async () => {
@@ -749,7 +749,7 @@ test(`${J} #6 presses Pay out on a posted settlement: the whole net with no amou
   let restored = null;
   let restoreError = null;
   try {
-    restored = merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
+    restored = await merchantPricing(merchantId, '--tier', 'priced', '--payout-not-charged');
   } catch (err) {
     restoreError = err;
   }
@@ -936,7 +936,7 @@ test(`${J} #8 a finance teammate asks for the same: they request an approval and
   page,
 }) => {
   test.setTimeout(300_000);
-  expect(postedSettlement(), 'a TEST settlement for the teammate to ask about').toBeTruthy();
+  expect(await postedSettlement(), 'a TEST settlement for the teammate to ask about').toBeTruthy();
   // The finance teammate the journey starts with (#7 made them).
   const finance = await financeTeammate(page);
   await signInWithCode(page, finance, '/pay/team');

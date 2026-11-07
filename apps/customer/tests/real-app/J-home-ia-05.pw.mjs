@@ -75,10 +75,10 @@ async function told(session) {
 
 /** A real P2P trade, escrowed: a TEST seller's sell ad, taken for 10 USDT by a TEST buyer (as J-p2p-02 #1 does). */
 async function escrowedTrade(page) {
-  tool('local-test-gates.mjs', 'p2p');
+  await tool('local-test-gates.mjs', 'p2p');
   const seller = await signUp(page, 'hmns');
   await verify(page, seller);
-  expect(fund(seller.email, 'USDT', '50').tx).toBeTruthy();
+  expect((await fund(seller.email, 'USDT', '50')).tx).toBeTruthy();
   const sellerSession = await api(seller);
   const s = p2p(sellerSession, await testPasskey(sellerSession));
   await testInstrument(s, seller);
@@ -268,7 +268,7 @@ test(`${J} #2 a fill notice opens the trade in Activity and is marked read; a ca
   const { buyer, tradeId } = await escrowedTrade(page);
   const buyerSession = await api(buyer);
   expect((await buyerSession.post('/api/notify/trpc/notify.markAllRead', {})).status).toBe(200);
-  tool('local-test-stack.mjs', 'seed-notice', buyer.email, tradeId);
+  await tool('local-test-stack.mjs', 'seed-notice', buyer.email, tradeId);
   const escrow = (await told(buyerSession)).items.filter((item) => item.kind === 'p2p.escrow.locked');
   expect(escrow.filter((item) => item.readAt === null)).toEqual([expect.objectContaining({ href: `/p2p/trades/${tradeId}` })]);
   await signOutBrowser(page.context());

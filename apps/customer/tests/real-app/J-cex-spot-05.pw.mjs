@@ -280,7 +280,7 @@ test(`${J} #7 looks at Positions: not applicable to cash spot, no zero row`, asy
 
 test(`${J} #8 presses Flatten on a held coin: one reviewed market sell of all of it, the same order on every retry`, async ({ page }) => {
   const who = account();
-  expect(fund(who.email, 'BTC', '0.003', `${J}-8-${Date.now()}`).tx).toBeTruthy();
+  expect((await fund(who.email, 'BTC', '0.003', `${J}-8-${Date.now()}`)).tx).toBeTruthy();
   const before = await (await api(who)).balances();
   const btcFree = before.BTC.free;
   expect(toUnits(btcFree)).toBeGreaterThan(0n);

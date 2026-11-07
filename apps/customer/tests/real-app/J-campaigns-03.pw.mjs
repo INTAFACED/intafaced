@@ -113,7 +113,7 @@ async function verifyAs(page, who, level) {
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
+  await tool('local-test-gates.mjs', 'verify');
   await signOutBrowser(page.context());
 }
 
@@ -220,7 +220,7 @@ test(`${J} #1 opens /uc/promotion with no activity: an honest empty state, no in
   // Basic is what trading needs; the account's activity, where a posted reward's link opens, needs Full.
   await verifyAs(page, me, 'Basic');
   await verifyAs(page, me, 'Full');
-  expect(fund(me.email, 'USDT', '500').tx).toBeTruthy();
+  expect((await fund(me.email, 'USDT', '500')).tx).toBeTruthy();
   run.write({ me });
 
   expect(await mine(me)).toEqual({ rewards: [], totals: [], more: false });
@@ -477,7 +477,7 @@ test(`${J} #7 opens the hub while the campaigns service is down: the error state
   let hub = await openHub(page);
   await expect(row(hub, heldId)).toBeVisible();
   try {
-    tool('local-test-stack.mjs', 'stop', 'campaigns');
+    await tool('local-test-stack.mjs', 'stop', 'campaigns');
     hub = await openHub(page);
     await expect(hub).toHaveAttribute('data-state', 'failed');
     await expect(hub.getByTestId('rewards-failed')).toBeVisible();
@@ -485,7 +485,7 @@ test(`${J} #7 opens the hub while the campaigns service is down: the error state
     await expect(hub.getByTestId('reward-row')).toHaveCount(0);
     await expect(hub.getByTestId('rewards-empty')).toHaveCount(0);
   } finally {
-    tool('local-test-stack.mjs', 'start', '--only', 'campaigns');
+    await tool('local-test-stack.mjs', 'start', '--only', 'campaigns');
   }
   // Recovery: once it answers again, the hub reads the stored rewards afresh.
   await expect

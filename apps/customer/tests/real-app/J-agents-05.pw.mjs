@@ -116,12 +116,12 @@ async function agentComment(requestId, body) {
   return { call, answer: await ownCall('tool.try', call) };
 }
 /** Restarts svc-agents with one TEST switch set, then as it was (restartWith sets only `off`; the wait needs `short`). */
-function restartAgents(envKey, value) {
+async function restartAgents(envKey, value) {
   const before = process.env[envKey];
   if (value === undefined) delete process.env[envKey];
   else process.env[envKey] = value;
   try {
-    tool('local-test-stack.mjs', 'restart', 'agents');
+    await tool('local-test-stack.mjs', 'restart', 'agents');
   } finally {
     if (before === undefined) delete process.env[envKey];
     else process.env[envKey] = before;
@@ -448,14 +448,14 @@ test(`${J} #6 rejects another request and lets a third expire: the step ends wit
   expect(JSON.stringify(readBack.body)).toContain('agents.approval.rejected');
 
   // A third request, held under a short TEST wait, expires: it reads expired with its code, and approving it fails closed.
-  restartAgents('LOCAL_STACK_AGENTS_APPROVAL_TTL', 'short');
+  await restartAgents('LOCAL_STACK_AGENTS_APPROVAL_TTL', 'short');
   let toExpire;
   try {
     const expiring = await agentComment(`${J}:expire`, 'TEST comment, to expire');
     expect(expiring.answer.status, JSON.stringify(expiring.answer.body).slice(0, 300)).toBe(200);
     toExpire = { ...expiring, request: expiring.answer.body.result.data.request };
   } finally {
-    restartAgents('LOCAL_STACK_AGENTS_APPROVAL_TTL', undefined);
+    await restartAgents('LOCAL_STACK_AGENTS_APPROVAL_TTL', undefined);
   }
   await expect
     .poll(async () => (await ownRead('inbox', { limit: 100 })).find((r) => r.id === toExpire.request.id)?.status, { timeout: 120_000 })
@@ -476,7 +476,7 @@ test(`${J} #6 rejects another request and lets a third expire: the step ends wit
   const waiting = await agentComment(`${J}:identity`, 'TEST comment, identity down');
   expect(waiting.answer.status, JSON.stringify(waiting.answer.body).slice(0, 300)).toBe(200);
   const held = waiting.answer.body.result.data.request;
-  restartAgents('LOCAL_STACK_AGENTS_IDENTITY', 'off');
+  await restartAgents('LOCAL_STACK_AGENTS_IDENTITY', 'off');
   try {
     await page.reload();
     const heldRow = inbox(page).locator(`[data-request-id="${held.id}"]`);
@@ -485,7 +485,7 @@ test(`${J} #6 rejects another request and lets a third expire: the step ends wit
     await expect(heldRow).toContainText('Waiting for approval');
     expect((await ownRead('inbox', { limit: 100 })).find((r) => r.id === held.id)).toMatchObject({ status: 'waiting', ranAt: null });
   } finally {
-    restartAgents('LOCAL_STACK_AGENTS_IDENTITY', undefined);
+    await restartAgents('LOCAL_STACK_AGENTS_IDENTITY', undefined);
   }
   // Nothing of #6 reached the person's request, and no comment call of these requests ran.
   expect(await ticketComments()).toHaveLength(sent);
@@ -574,7 +574,7 @@ test(`${J} #7 turns on the automatic reviewer for no-value tools: "proceed" runs
 
   // With the reviewer's model unset the owner-decision notice shows, the switch stays the person's, and the call goes
   // to the person: it is held, waiting, and nothing is sent.
-  restartAgents('LOCAL_STACK_AGENTS_REVIEWER_MODEL', 'off');
+  await restartAgents('LOCAL_STACK_AGENTS_REVIEWER_MODEL', 'off');
   try {
     await openOwnAgent(page, agents, 'Rules');
     await expect(panel.getByRole('note').filter({ hasText: 'owner.decision' })).toContainText('reviewer');
@@ -591,6 +591,6 @@ test(`${J} #7 turns on the automatic reviewer for no-value tools: "proceed" runs
       'Waiting for approval',
     );
   } finally {
-    restartAgents('LOCAL_STACK_AGENTS_REVIEWER_MODEL', undefined);
+    await restartAgents('LOCAL_STACK_AGENTS_REVIEWER_MODEL', undefined);
   }
 });

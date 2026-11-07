@@ -54,7 +54,7 @@ async function sign(page) {
 }
 
 test(`${J} starts: a TEST lender wallet and a TEST borrower wallet holding TEST tokens`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: TOKENS });
 });
 

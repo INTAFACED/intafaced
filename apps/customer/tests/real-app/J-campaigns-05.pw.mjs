@@ -316,7 +316,7 @@ test(`${J} #5 after the window: refused by name and offered a reviewed change`, 
   const { referrer, token } = state('referrer', 'token');
   const late = await signUp(page, 'jc5l');
   // Time passes for this TEST account only: its sign-up moves back an hour, past the stack's ten-minute TEST window.
-  expect(tool('local-test-gates.mjs', 'age', late.handle, '3600')).toContain('LOCAL TEST');
+  expect(await tool('local-test-gates.mjs', 'age', late.handle, '3600')).toContain('LOCAL TEST');
   run.write({ late });
   await signOutBrowser(page.context());
   await signIn(page, late);
@@ -350,7 +350,7 @@ test(`${J} #5 after the window: refused by name and offered a reviewed change`, 
   // With no window set at all, a new account inside any window is refused by that name, never as "too late".
   await signOutBrowser(page.context());
   const unsetWho = await signUp(page, 'jc5u');
-  restartWith('identity', 'LOCAL_STACK_IDENTITY_REFERRAL_WINDOW', false);
+  await restartWith('identity', 'LOCAL_STACK_IDENTITY_REFERRAL_WINDOW', false);
   try {
     await signOutBrowser(page.context());
     await signIn(page, unsetWho);
@@ -366,7 +366,7 @@ test(`${J} #5 after the window: refused by name and offered a reviewed change`, 
     expect(direct.code).toBe('referral.attach_window_unset');
     expect((await (await api(unsetWho)).get('/api/identity/trpc/affiliates.myReferrer')).body.result.data).toBeNull();
   } finally {
-    restartWith('identity', 'LOCAL_STACK_IDENTITY_REFERRAL_WINDOW', true);
+    await restartWith('identity', 'LOCAL_STACK_IDENTITY_REFERRAL_WINDOW', true);
   }
 });
 
@@ -384,7 +384,7 @@ test(`${J} #6 a second person approves; the new parent applies from then; approv
   // On a fresh stack the operator's own account is minutes old and could still attach by link, which needs no review:
   // half an hour passes for it, past the ten-minute window and short of the one-hour lapse period.
   if (result(await ctx.edge.query('identity', 'affiliates.attachWindow', undefined, opA.token)).data?.state === 'open')
-    expect(tool('local-test-gates.mjs', 'age', opA.op.handle, '1800')).toContain('LOCAL TEST');
+    expect(await tool('local-test-gates.mjs', 'age', opA.op.handle, '1800')).toContain('LOCAL TEST');
   const asked = result(
     await ctx.edge.mutate('identity', 'affiliates.requestRebind', { token, reason: 'TEST: operator asks for their own change' }, opA.token),
   );
@@ -494,7 +494,7 @@ test(`${J} #7 my relationship screen shows the referrer and the date; with no fe
   expect(before.data.rows[0]).toMatchObject({ beneficiaryId: referrerId, payerId: friendId, hop: 0, commissionAmount: '0.1' });
 
   // An hour passes for the friend with no fee: the sweep ends the relationship once.
-  expect(tool('local-test-gates.mjs', 'age', friend.handle, '3700')).toContain('LOCAL TEST');
+  expect(await tool('local-test-gates.mjs', 'age', friend.handle, '3700')).toContain('LOCAL TEST');
   let lapse;
   await expect
     .poll(async () => (lapse = (await (await api(friend)).get('/api/identity/trpc/affiliates.myLapse')).body.result.data).ended, {

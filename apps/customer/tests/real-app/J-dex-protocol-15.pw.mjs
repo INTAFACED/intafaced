@@ -46,7 +46,7 @@ async function move(page, action, amount) {
 }
 
 test(`${J} starts: a TEST wallet holding TEST stable tokens`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: [TOKEN_A] });
 });
 

@@ -15,8 +15,8 @@ const EDITS_PER_DAY = 20;
 
 test.describe.configure({ mode: 'default' });
 
-test.beforeAll(() => {
-  tool('local-test-gates.mjs', 'p2p');
+test.beforeAll(async () => {
+  await tool('local-test-gates.mjs', 'p2p');
 });
 
 function journey() {
@@ -55,7 +55,7 @@ function nextUtcMidnight() {
 async function seller(page, prefix) {
   const who = await signUp(page, prefix);
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '300').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '300')).tx).toBeTruthy();
   const session = await api(who);
   const first = p2p(session);
   await testInstrument(first, who);

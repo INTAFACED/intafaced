@@ -92,8 +92,8 @@ async function earnTradeFees(page) {
   await page.getByRole('button', { name: 'Review request' }).click();
   await page.getByRole('button', { name: 'Submit this request' }).click();
   await expect(page.getByText('Your reviewed request')).toBeVisible();
-  tool('local-test-gates.mjs', 'verify');
-  expect(fund(trader.email, 'BTC', '0.01').tx).toBeTruthy();
+  await tool('local-test-gates.mjs', 'verify');
+  expect((await fund(trader.email, 'BTC', '0.01')).tx).toBeTruthy();
   const res = await (
     await api(trader)
   ).post('/api/v1/orders', {

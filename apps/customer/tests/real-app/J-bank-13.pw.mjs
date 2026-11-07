@@ -169,13 +169,13 @@ const cardOf = async (id) => (await cards()).find((card) => card.id === id);
 const panel = (page, card) => page.getByTestId(`card-${card.id}`);
 
 /** The bank's step-up rule on the stack (BANK_STEP_UP_MONEY_OUT): `required` for #5's restart only. */
-function stepUpRule(required) {
+async function stepUpRule(required) {
   const key = 'LOCAL_STACK_BANK_STEP_UP_MONEY_OUT';
   const before = process.env[key];
   if (required) process.env[key] = 'required';
   else delete process.env[key];
   try {
-    tool('local-test-stack.mjs', 'restart', 'bank');
+    await tool('local-test-stack.mjs', 'restart', 'bank');
   } finally {
     if (before === undefined) delete process.env[key];
     else process.env[key] = before;
@@ -189,7 +189,7 @@ test(`${J} #1 opens Cards and the product list: eligibility by country with the 
   test.setTimeout(240_000);
   const who = await signUp(page, 'jb13');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   run.reset({ who });
 
   await signInPerson(page);
@@ -430,7 +430,7 @@ test(`${J} #5 activates the card on arrival with step-up`, async ({ page }) => {
   const { totp } = await totpLib();
   const { secret, step } = await addAuthenticator(page, totp);
   run.write({ secret, step });
-  stepUpRule(true);
+  await stepUpRule(true);
   try {
     // Without a fresh confirmation the bank refuses and nothing changes.
     const bare = await (await bank()).mutate('cards.activate', { cardId: physicalId });
@@ -449,7 +449,7 @@ test(`${J} #5 activates the card on arrival with step-up`, async ({ page }) => {
     await expect(card).toContainText('Active');
     expect((await cardOf(physicalId)).status).toBe('active');
   } finally {
-    stepUpRule(false);
+    await stepUpRule(false);
   }
   // Active, it now authorises.
   const paid = await authorize(physicalId, '1');
@@ -581,7 +581,7 @@ async function awardXp(userId, xpDelta, rank) {
  * book, paying the taker fee in IFC, and the two TEST founders sweep `amount` of it into the pot.
  */
 async function earnFeesIntoPot(who, token, amount) {
-  expect(fund(who.email, 'USDT', '60').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '60')).tx).toBeTruthy();
   const order = await fetch(`${EDGE}/api/v1/orders`, {
     method: 'POST',
     headers: { origin: ORIGIN, authorization: `Bearer ${token}`, 'content-type': 'application/json' },

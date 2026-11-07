@@ -63,7 +63,7 @@ async function sale(page, name) {
 }
 
 test(`${J} starts: a connected TEST wallet, a token to sell and a quote asset`, async ({ page }) => {
-  dex.start();
+  await dex.start();
   await connectWallet(page, dex, { tokens: TOKENS });
 });
 

@@ -1,11 +1,10 @@
 // World: book, stack
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, json, signOutBrowser, toUnits } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fromUnits, fund, journeyState, json, signOutBrowser, toUnits, execText } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-07, in the running app (docs/roadmap/journeys.json): I organise money in pots, goals and a shared account. Steps 1
@@ -179,7 +178,7 @@ test(`${J} #1 opens a space with a goal: progress is exact, rounded down and cap
   test.setTimeout(180_000);
   const who = await signUp(page, 'jb07');
   await verify(page, who);
-  expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '100')).tx).toBeTruthy();
   run.reset({ who });
 
   // The space is made in the app with a goal of 50.
@@ -420,7 +419,7 @@ test(`${J} #4 sets an income sorter: one over 100% is refused, and a TEST 100 pa
   // A second TEST person who pays, holding TEST 100 USDT.
   const payer = await signUp(page, 'jb07p');
   await verify(page, payer);
-  expect(fund(payer.email, 'USDT', '100').tx).toBeTruthy();
+  expect((await fund(payer.email, 'USDT', '100')).tx).toBeTruthy();
   // Two spaces for the split, made through the person's own API (making a space in the app is step 1's).
   for (const name of [BILLS, SAVINGS]) {
     const made = await api.mutate('spaces.create', { assetId: 'USDT', name });
@@ -619,10 +618,9 @@ async function treasury(actionType, procedure, input, fields) {
   return res.json.result.data;
 }
 /** One of the stack's TEST seed commands (`tooling/scripts/local-test-seed.mjs`), on this stack. */
-function seed(...args) {
-  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
+async function seed(...args) {
+  return execText(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-seed.mjs'), ...args, '--state', localStackState()], {
     cwd: ROOT,
-    encoding: 'utf8',
     env: { ...process.env, LOCAL_TEST: '1' },
     timeout: 60_000,
   });
@@ -634,7 +632,7 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
   test.setTimeout(240_000);
   const who = person();
   const api = await bank(who);
-  expect(fund(who.email, 'USDT', '20').tx).toBeTruthy();
+  expect((await fund(who.email, 'USDT', '20')).tx).toBeTruthy();
   // A TEST instant-access pool of this run's own, opened through the treasury door and below the seeded pool's rate. The
   // bank pays only a day that has begun, and a pool's day once: a pool shared with earlier runs runs out of unpaid days.
   const RUN = process.env.JOURNEY_RUN_ID ?? `local-${Date.now()}`;
@@ -648,7 +646,7 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
     minDeposit: '1',
   };
   await treasury('bank.ops.createEarnPool', 'ops.createEarnPool', input, { ...input, aprBps: '150', termDays: '' });
-  expect(seed('fund-earn-pool', input.poolId, '1', `${J}-${RUN}`)).toContain('reserve funded 1 USDT');
+  expect(await seed('fund-earn-pool', input.poolId, '1', `${J}-${RUN}`)).toContain('reserve funded 1 USDT');
   const pools = await api.query('earn.pools', { limit: 50 });
   expect(pools.ok, JSON.stringify(pools.body ?? {}).slice(0, 300)).toBe(true);
   const pool = pools.data.find((row) => row.id === input.poolId);
@@ -679,7 +677,7 @@ test(`${J} #5 uses instant-access savings: the bank's rate, TEST 10 saved, three
     // saving's opening moves back three days on this stack: its days are the day before yesterday, yesterday and today.
     const DAY = 24 * 60 * 60 * 1000;
     const [saving] = saved;
-    expect(seed('age-earn-position', saving.id, '3')).toContain(`saving ${saving.id}: opened`);
+    expect(await seed('age-earn-position', saving.id, '3')).toContain(`saving ${saving.id}: opened`);
     const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
     const firstDay = Date.parse((await api.query('earn.positions', { limit: 50 })).data.find((row) => row.id === saving.id).accruesFrom);
     expect(firstDay).toBe(today - 2 * DAY);
@@ -757,7 +755,7 @@ test(`${J} #6 shares a pot: invites by handle, an invite that expires, a contrib
   await verify(page, viewer);
   const third = await signUp(page, 'jb07t');
   await signOutBrowser(page.context());
-  for (const p of [partner, viewer]) expect(fund(p.email, 'USDT', '20').tx).toBeTruthy();
+  for (const p of [partner, viewer]) expect((await fund(p.email, 'USDT', '20')).tx).toBeTruthy();
   const partnerApi = await bank(partner);
   const viewerApi = await bank(viewer);
   const potBalance = async () => toUnits(named(await spaces(who), POT).balance);
