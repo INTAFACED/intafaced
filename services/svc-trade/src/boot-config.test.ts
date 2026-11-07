@@ -340,17 +340,11 @@ describe('svc-trade boots on shipped configuration', () => {
     expect(read('docker-compose.apps.yml')).toMatch(/TRADE_FUTURES_PROFIT_SOURCE:\s*\$\{TRADE_FUTURES_PROFIT_SOURCE:-\}/);
   });
 
-  it('ships D26-P0-02 fee-share law while D26-P0-15 geo stays closed', async () => {
+  it('ships the copy fee-share law blank (owner figures are host-only, in the private records) while D26-P0-15 geo stays closed', async () => {
     const { parseCopyFeeShareLawJson } = await import('./copy/fee-share-law.js');
     const raw = shipped.get('TRADE_COPY_FEE_SHARE_LAW') ?? '';
-    const law = parseCopyFeeShareLawJson(raw);
-    expect(law.published).toBe(true);
-    if (law.published) {
-      expect(law.leaderShareBps).toBe(1000);
-      expect(law.earningsCapPerFollower).toBe('1000.00');
-      expect(law.decayRoundTrips).toBe(50);
-      expect(law.decayShareBps).toBe(5000);
-    }
+    expect(raw).toBe('');
+    expect(parseCopyFeeShareLawJson(raw)).toEqual({ published: false });
     const geoRaw = shipped.get('TRADE_COPY_JURISDICTION_LAW') ?? '';
     const { parseCopyJurisdictionLawJson } = await import('./copy/fee-share-law.js');
     const geo = parseCopyJurisdictionLawJson(geoRaw);
