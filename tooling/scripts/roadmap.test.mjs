@@ -225,7 +225,7 @@ test('the scoreboard counts a journey once every step passed in the real-app rep
           { title: 'J-cex-spot-01 #2 places a limit buy', ok: true, ...ok },
           { title: 'J-cex-spot-01 #3 shares the order', ok: false, tests: [{ status: 'unexpected' }] },
         ],
-        suites: [{ specs: [{ title: 'J-cex-spot-02 #1 presses twice', ok: true, tests: [{ status: 'flaky' }] }] }],
+        suites: [{ specs: [{ title: 'J-cex-spot-02 #1 presses twice', ok: true, tests: [{ status: 'expected' }] }] }],
       },
     ],
   };
@@ -460,4 +460,19 @@ test('a joined range names both slices; an id may touch `_`; a requirement id in
   ]);
   const [j] = parseJourneys(['## J-a-01: x', '- Order: 1', '| 1 | does | sees | CB-bots-02-CB-bots-19 | none |'].join('\n'), 'a', known);
   assert.deepEqual(j.steps[0].slices, ['CB-bots-02', 'CB-bots-19']);
+});
+
+test('a test that passed only on its retry is not a pass on the scoreboard (CI review on #7363, 1fbf031)', () => {
+  const report = {
+    suites: [
+      {
+        specs: [
+          { title: 'J-cex-spot-01 #1 signs up', ok: true, tests: [{ status: 'expected' }] },
+          { title: 'J-cex-spot-01 #2 places a limit buy', ok: true, tests: [{ status: 'flaky' }] },
+          { title: 'J-cex-spot-02 #1 presses twice', ok: true, tests: [{ status: 'expected' }, { status: 'flaky' }] },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual([...passedSteps(report)], ['J-cex-spot-01#1']);
 });

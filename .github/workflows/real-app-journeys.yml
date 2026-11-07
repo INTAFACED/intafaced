@@ -11,6 +11,14 @@
 # (Failure it prevents: the run ran every written step, built or not, so it was red on every run from 23 Oct 21:09 UTC,
 # run 40024672126, whether or not anything broke; a red that never turns green says nothing.)
 #
+# Flaky steps are set aside by the machine, never by an agent, and never a money step (owner decision 2026-11-07,
+# project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a test that fails and then
+# passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
+# its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
+# doesn't turn main red. A money step that is flaky is red. (Failure it prevents: with no retry and no way to set a test
+# aside, one flaky test turned main red, or a red was left standing and read as noise.) The cost: each failed test runs
+# twice; the failed tests of runs 1635, 1636 and 1639 took 83 to 102 journey-minutes of a run, spread over its shards.
+#
 # The journeys run in shards, each on its own fresh stack, and one job merges the shards' reports into the scoreboard.
 # (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and
 # 155, so no run finished and the scoreboard froze. Setup takes about 14 minutes and the journeys run one at a time, so
@@ -424,6 +432,8 @@ jobs:
           # targeted run, where a builder proves a step, keeps them too.
           JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && '1' || '0' }}
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.plan.outputs.fast_plan }}
+          # One retry of a failed test on main only (the set-aside above); a targeted run on a branch never retries.
+          JOURNEY_RETRIES: ${{ github.ref == 'refs/heads/main' && '1' || '0' }}
           SHARDS: ${{ needs.plan.outputs.shards }}
           SHARD: ${{ matrix.shard }}
           TOTAL: ${{ strategy.job-total }}
@@ -505,7 +515,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # the scoreboard counts merged slice PRs from history
+          # Full history: the scoreboard counts merged slice PRs from it, and the verdict reads main's earlier runs' commits
+          # for the set-aside list (it refuses a shallow clone).
+          fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -552,14 +564,6 @@ jobs:
             echo "No journey report: no shard's stack or browser started. See the shard jobs." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Keep the report
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: real-app-journeys
-          path: ${{ runner.temp }}/journeys/report.json
-          if-no-files-found: warn
-
       # A shard is red only when something other than its journeys failed (its setup, the stack, the time limit, the
       # Content-Security-Policy check); a shard that sent no report ran nothing the verdict could judge.
       - name: Red when a shard was red or sent no report
@@ -587,8 +591,20 @@ jobs:
       - name: Verdict tests
         if: always()
         run: node --test tooling/ci/journey-verdict.test.mjs
+      # It also writes the set-aside list (set-aside.json), kept with the report below.
       - name: Verdict against the list of steps not built yet
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch
+        run: node tooling/ci/journey-verdict.mjs --report "$RUNNER_TEMP/journeys/report.json" --fetch --set-aside-out "$RUNNER_TEMP/journeys/set-aside.json"
+
+      # After the verdict, so the set-aside list goes with the report; it runs whatever the verdict says.
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: real-app-journeys
+          path: |
+            ${{ runner.temp }}/journeys/report.json
+            ${{ runner.temp }}/journeys/set-aside.json
+          if-no-files-found: warn
