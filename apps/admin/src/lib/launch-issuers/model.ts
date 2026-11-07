@@ -26,6 +26,25 @@ export const LAUNCH_TYPES = ['token_sale', 'whitelist_drop', 'primary_subscripti
 export type LaunchType = (typeof LAUNCH_TYPES)[number];
 export const ALLOCATION_METHODS = ['pro_rata', 'tickets', 'tiered'] as const;
 export type AllocationMethod = (typeof ALLOCATION_METHODS)[number];
+/** svc-token's issuance kinds (RC-more-catalogue-23). Each but `token` needs its own detail. */
+export const ISSUANCE_KINDS = ['token', 'wrapped', 'synthetic', 'structured'] as const;
+export type IssuanceKind = (typeof ISSUANCE_KINDS)[number];
+export const ISSUANCE_KIND_LABEL: Readonly<Record<IssuanceKind, string>> = {
+  token: 'Token',
+  wrapped: 'Wrapped',
+  synthetic: 'Synthetic',
+  structured: 'Structured',
+};
+/** What each kind needs, as svc-token names the refusal when it is blank. */
+const ISSUANCE_DETAIL = { wrapped: 'backing asset', synthetic: 'oracle', structured: 'leg terms' } as const;
+export interface Issuance {
+  kind: IssuanceKind;
+  backingAsset: string | null;
+  oracle: string | null;
+  legTerms: string | null;
+  flags: string[];
+}
+const FLAG = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$/;
 
 /** Issuer review, as svc-token allows it: one step at a time, and a suspended issuer goes back through review. */
 export const ISSUER_NEXT: Record<LaunchIssuerState, readonly LaunchIssuerState[]> = {
@@ -56,9 +75,31 @@ export interface LaunchEventPayload {
   price: string | null;
   paymentAsset: string | null;
   rateSource: string | null;
+  /** Present only when the founders record an issuance kind: [kind, backing asset, oracle, leg terms, flags]. */
+  issuance?: [IssuanceKind, string | null, string | null, string | null, string[]];
 }
 
 const PAYLOAD_KEYS = 'id,issuerId,type,projectName,symbol,periods,method,perUserCap,ticketSize,tierWeights,price,paymentAsset,rateSource';
+const PAYLOAD_KEYS_ISSUANCE = `${PAYLOAD_KEYS},issuance`;
+
+const detailOrNull = (v: unknown): v is string | null =>
+  v === null || (typeof v === 'string' && v === v.trim() && v.length >= 1 && v.length <= 300);
+
+/** The issuance tuple read back strictly, as svc-token's `canonicalIssuance` would store it. */
+function issuanceTupleHolds(v: unknown): boolean {
+  if (!Array.isArray(v) || v.length !== 5) return false;
+  const [kind, backing, oracle, legs, flags] = v as unknown[];
+  if (typeof kind !== 'string' || !(ISSUANCE_KINDS as readonly string[]).includes(kind)) return false;
+  if (!detailOrNull(backing) || !detailOrNull(oracle) || !detailOrNull(legs)) return false;
+  const given = { wrapped: backing, synthetic: oracle, structured: legs } as const;
+  for (const [k, value] of Object.entries(given)) if ((k === kind) !== (value !== null)) return false;
+  return (
+    Array.isArray(flags) &&
+    flags.length <= 8 &&
+    flags.every((f) => typeof f === 'string' && FLAG.test(f)) &&
+    new Set(flags).size === flags.length
+  );
+}
 
 const amountOrNull = (v: unknown): v is string | null => v === null || (typeof v === 'string' && CANONICAL_AMOUNT.test(v));
 
@@ -73,7 +114,9 @@ export function readLaunchEventPayload(text: string): LaunchEventPayload | null 
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as Record<string, unknown>;
-  if (Object.keys(r).join(',') !== PAYLOAD_KEYS) return null;
+  const keys = Object.keys(r).join(',');
+  if (keys !== PAYLOAD_KEYS && keys !== PAYLOAD_KEYS_ISSUANCE) return null;
+  if (keys === PAYLOAD_KEYS_ISSUANCE && !issuanceTupleHolds(r.issuance)) return null;
   if (typeof r.id !== 'string' || !LAUNCH_ID.test(r.id) || typeof r.issuerId !== 'string' || !LAUNCH_ID.test(r.issuerId)) return null;
   if (typeof r.type !== 'string' || !(LAUNCH_TYPES as readonly string[]).includes(r.type)) return null;
   if (typeof r.projectName !== 'string' || r.projectName !== r.projectName.trim() || r.projectName.length < 1 || r.projectName.length > 120)
@@ -125,6 +168,13 @@ export interface LaunchDraftForm {
   price: string;
   paymentAsset: string;
   rateSource: string;
+  /** Blank: no issuance kind recorded. */
+  issuanceKind?: string;
+  backingAsset?: string;
+  oracle?: string;
+  legTerms?: string;
+  /** Compliance flags, comma separated: labels, never limits. */
+  flags?: string;
 }
 
 export const PERIOD_NAMES = ['Announce', 'Snapshot', 'Open', 'Close', 'Distribution'] as const;
@@ -161,6 +211,29 @@ export function draftPayload(form: LaunchDraftForm): { ok: true; event: string }
   if (paymentAsset !== null && !ASSET.test(paymentAsset)) return { ok: false, message: 'Currency: 2 to 12 capital letters or digits.' };
   const rateSource = blank(form.rateSource);
   if (rateSource !== null && rateSource.length > 120) return { ok: false, message: 'Rate source: at most 120 characters.' };
+  const kind = blank(form.issuanceKind ?? '');
+  let issuance: LaunchEventPayload['issuance'];
+  if (kind !== null) {
+    if (!(ISSUANCE_KINDS as readonly string[]).includes(kind)) return { ok: false, message: 'Choose the issuance kind.' };
+    const detail = { wrapped: blank(form.backingAsset ?? ''), synthetic: blank(form.oracle ?? ''), structured: blank(form.legTerms ?? '') };
+    if (kind !== 'token' && detail[kind as keyof typeof detail] === null)
+      return { ok: false, message: `A ${kind} issuance needs its ${ISSUANCE_DETAIL[kind as keyof typeof ISSUANCE_DETAIL]}.` };
+    for (const v of Object.values(detail))
+      if (v !== null && v.length > 300) return { ok: false, message: 'Issuance details: at most 300 characters each.' };
+    const flags = (form.flags ?? '')
+      .split(',')
+      .map((f) => f.trim())
+      .filter((f) => f !== '');
+    if (flags.length > 8 || flags.some((f) => !FLAG.test(f)) || new Set(flags).size !== flags.length)
+      return { ok: false, message: 'Compliance flags: up to 8 distinct labels of 1 to 40 letters, digits, spaces or dashes.' };
+    issuance = [
+      kind as IssuanceKind,
+      kind === 'wrapped' ? detail.wrapped : null,
+      kind === 'synthetic' ? detail.synthetic : null,
+      kind === 'structured' ? detail.structured : null,
+      flags,
+    ];
+  }
   const payload: LaunchEventPayload = {
     id: form.id.trim(),
     issuerId: form.issuerId.trim(),
@@ -175,6 +248,7 @@ export function draftPayload(form: LaunchDraftForm): { ok: true; event: string }
     price: blank(form.price),
     paymentAsset,
     rateSource,
+    ...(issuance ? { issuance } : {}),
   };
   const broken = draftRuleBroken(payload);
   if (broken) return { ok: false, message: broken };
@@ -193,6 +267,17 @@ export function createInputFor(payload: LaunchEventPayload) {
     periods: { announceAt, snapshotAt, openAt, closeAt, distributionAt },
     allocation: { method: payload.method, perUserCap: payload.perUserCap, ticketSize: payload.ticketSize, tierWeights: null },
     terms: { price: payload.price, paymentAsset: payload.paymentAsset, rateSource: payload.rateSource },
+    ...(payload.issuance
+      ? {
+          issuance: {
+            kind: payload.issuance[0],
+            backingAsset: payload.issuance[1],
+            oracle: payload.issuance[2],
+            legTerms: payload.issuance[3],
+            flags: payload.issuance[4],
+          },
+        }
+      : {}),
   };
 }
 
@@ -213,6 +298,8 @@ export interface LaunchEventRow {
   status: LaunchStatus;
   allocation: { method: AllocationMethod | null; perUserCap: string | null };
   terms: { price: string | null; paymentAsset: string | null };
+  /** Null when no issuance kind is recorded. */
+  issuance: Issuance | null;
   revision: number;
 }
 
@@ -259,6 +346,21 @@ export function readEventRow(r: unknown): LaunchEventRow | null {
   const t = r.terms;
   if (!isRecord(a) || !strOrNull(a.method) || !strOrNull(a.perUserCap) || !isRecord(t) || !strOrNull(t.price) || !strOrNull(t.paymentAsset))
     return null;
+  const iss = r.issuance ?? null;
+  if (
+    iss !== null &&
+    !(
+      isRecord(iss) &&
+      str(iss.kind) &&
+      (ISSUANCE_KINDS as readonly string[]).includes(iss.kind) &&
+      strOrNull(iss.backingAsset) &&
+      strOrNull(iss.oracle) &&
+      strOrNull(iss.legTerms) &&
+      Array.isArray(iss.flags) &&
+      iss.flags.every(str)
+    )
+  )
+    return null;
   return {
     id: r.id,
     issuer: { id: i.id, name: i.name, state: i.state as LaunchIssuerState },
@@ -269,6 +371,16 @@ export function readEventRow(r: unknown): LaunchEventRow | null {
     status: r.status as LaunchStatus,
     allocation: { method: a.method as AllocationMethod | null, perUserCap: a.perUserCap },
     terms: { price: t.price, paymentAsset: t.paymentAsset },
+    issuance:
+      iss === null
+        ? null
+        : {
+            kind: iss.kind as IssuanceKind,
+            backingAsset: iss.backingAsset as string | null,
+            oracle: iss.oracle as string | null,
+            legTerms: iss.legTerms as string | null,
+            flags: iss.flags as string[],
+          },
     revision: r.revision,
   };
 }

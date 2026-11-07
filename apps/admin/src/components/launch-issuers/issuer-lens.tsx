@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { IssuanceText } from '@/components/launch-issuers/issuance-text';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
@@ -244,6 +245,7 @@ export function IssuerLens({ read, userId }: { read: IssuerLensRead; userId: str
                 <th scope="col">Launch</th>
                 <th scope="col">Issuer</th>
                 <th scope="col">Status</th>
+                <th scope="col">Issuance</th>
                 <th scope="col">Opens</th>
                 <th scope="col">Revision</th>
                 <th scope="col">History</th>
@@ -259,6 +261,7 @@ export function IssuerLens({ read, userId }: { read: IssuerLensRead; userId: str
                     {e.issuer.name} · <span data-testid="launch-issuer-state">{STATE_LABEL[e.issuer.state]}</span>
                   </td>
                   <td data-testid="launch-status">{e.status}</td>
+                  <td>{e.issuance ? <IssuanceText issuance={e.issuance} /> : <span className="dk-muted">Not recorded</span>}</td>
                   <td>{formatWhen(e.periods.openAt)}</td>
                   <td>{e.revision}</td>
                   <td>
@@ -327,6 +330,5 @@ const PARKED: readonly (readonly [string, string])[] = [
     'subscribing, allocation and refunds have no ledger recipe wired yet (MC-launch-03), so there is no progress to read.',
   ],
   ['Fundraising milestones and investor records', 'svc-token keeps no milestone or investor record yet (RC-more-catalogue-22).'],
-  ['Wrapped, synthetic or structured issuance', 'svc-token records no issuance kind yet (RC-more-catalogue-23).'],
   ['Marketing claims evidence register', 'no service keeps claims and their evidence yet (RC-more-catalogue-24).'],
 ];

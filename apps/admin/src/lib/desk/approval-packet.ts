@@ -12,6 +12,7 @@ import {
   LAUNCH_ISSUER_STATES,
   LAUNCH_MOVE_TARGETS,
   readLaunchEventPayload,
+  type LaunchEventPayload,
   type LaunchIssuerState,
   type LaunchMoveTarget,
 } from '@/lib/launch-issuers/model';
@@ -284,6 +285,21 @@ export const WATERMARK = /^[\x21-\x7e]{1,256}$/;
 const CONTROL_VERSION = /^[1-9]\d{0,15}$/;
 
 /** `now`, or an instant exactly as `Date#toISOString` writes it: svc-ledger hashes that form, so no other spelling is signed. */
+/** A draft's issuance in the words the second founder approves. */
+function issuanceWords(i: LaunchEventPayload['issuance']): string {
+  if (!i) return 'not recorded';
+  const [kind, backing, oracle, legs, flags] = i;
+  const detail =
+    kind === 'wrapped'
+      ? `, backed by ${backing}`
+      : kind === 'synthetic'
+        ? `, tracking ${oracle}`
+        : kind === 'structured'
+          ? `, legs: ${legs}`
+          : '';
+  return `${kind}${detail}${flags.length ? `, flags ${flags.join(', ')}` : ''}`;
+}
+
 export function isRunInstant(value: unknown): value is string {
   if (value === 'now') return true;
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return false;
@@ -906,7 +922,7 @@ export function describeRequest(request: DeskRequest): string {
       if (!e) return 'This draft cannot be read.';
       const [announce, snapshot, open, close, distribution] = e.periods;
       const money = (v: string | null) => (v === null ? 'not set' : `${v} ${e.paymentAsset ?? ''}`.trim());
-      return `Save launch ${e.id} ("${e.projectName}", ${e.symbol}, ${e.type.replace(/_/g, ' ')}) for issuer ${e.issuerId} as a draft. Periods (UTC): announce ${announce}, snapshot ${snapshot}, open ${open}, close ${close}, distribution ${distribution}. Allocation ${e.method?.replace(/_/g, ' ') ?? 'not set'}, cap per account ${e.perUserCap === null ? 'not set' : `${e.perUserCap} ${e.symbol}`}, ticket size ${e.ticketSize ?? 'not set'}. Price ${money(e.price)}, currency ${e.paymentAsset ?? 'not set'}, rate source ${e.rateSource ?? 'not set'}. A draft is not published: nobody outside this console sees it until it is announced. No money moves.`;
+      return `Save launch ${e.id} ("${e.projectName}", ${e.symbol}, ${e.type.replace(/_/g, ' ')}) for issuer ${e.issuerId} as a draft. Periods (UTC): announce ${announce}, snapshot ${snapshot}, open ${open}, close ${close}, distribution ${distribution}. Allocation ${e.method?.replace(/_/g, ' ') ?? 'not set'}, cap per account ${e.perUserCap === null ? 'not set' : `${e.perUserCap} ${e.symbol}`}, ticket size ${e.ticketSize ?? 'not set'}. Price ${money(e.price)}, currency ${e.paymentAsset ?? 'not set'}, rate source ${e.rateSource ?? 'not set'}. Issuance ${issuanceWords(e.issuance)}. A draft is not published: nobody outside this console sees it until it is announced. No money moves.`;
     }
     case 'token.launch.event.move':
       return `Move launch ${request.eventId} to ${request.to}. svc-token checks the period and that the issuer is onboarded, and applies it only if the launch is still at revision ${request.revision}. No money moves.`;

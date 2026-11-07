@@ -103,7 +103,8 @@ function sameEvent(stored: LaunchEvent, e: ReturnType<typeof canonicalEvent>): b
       JSON.stringify(e.tierWeights?.map((t) => [formatAmount(t.minBasis), t.weight]) ?? null) &&
     sameAmount(stored.terms.price, e.price) &&
     stored.terms.paymentAsset === e.paymentAsset &&
-    stored.terms.rateSource === e.rateSource
+    stored.terms.rateSource === e.rateSource &&
+    JSON.stringify(stored.issuance) === JSON.stringify(e.issuance)
   );
 }
 
@@ -174,6 +175,21 @@ export interface TierWeight {
   weight: number;
 }
 
+/**
+ * What kind of asset a launch issues (RC-more-catalogue-23): a plain token, a wrapped asset (backed one to one by another
+ * asset), a synthetic (tracks a price through an oracle) or a structured asset (legs with their own terms). Its
+ * compliance flags are labels shown with it, never limits. Null when the founders recorded no kind.
+ */
+export const ISSUANCE_KINDS = ['token', 'wrapped', 'synthetic', 'structured'] as const;
+export type IssuanceKind = (typeof ISSUANCE_KINDS)[number];
+export interface Issuance {
+  kind: IssuanceKind;
+  backingAsset: string | null;
+  oracle: string | null;
+  legTerms: string | null;
+  flags: string[];
+}
+
 export interface LaunchEvent {
   id: string;
   issuer: { id: string; name: string; state: IssuerState };
@@ -186,6 +202,7 @@ export interface LaunchEvent {
   allocation: { method: AllocationMethod | null; perUserCap: Amount | null; ticketSize: Amount | null; tierWeights: TierWeight[] | null };
   terms: { price: Amount | null; paymentAsset: string | null; rateSource: string | null };
   snapshot: { count: number; total: Amount; hash: string; takenAt: Date } | null;
+  issuance: Issuance | null;
   revision: number;
 }
 
@@ -221,6 +238,8 @@ export interface CreateEventInput {
     tierWeights: Array<{ minBasis: string; weight: number }> | null;
   };
   terms: { price: string | null; paymentAsset: string | null; rateSource: string | null };
+  /** Optional: absent or null records no issuance kind. */
+  issuance?: Issuance | null;
 }
 
 export interface Basis {
@@ -334,6 +353,7 @@ export function canonicalEvent(input: CreateEventInput) {
     throw new LaunchError('Rate source must be 1 to 120 characters', 'launch.event_invalid');
   }
   if (rateSource !== null && price === null) throw new LaunchError('A rate source needs a price', 'launch.event_invalid');
+  const issuance = canonicalIssuance(input.issuance ?? null);
   return {
     id: input.id,
     issuerId: input.issuerId,
@@ -348,7 +368,48 @@ export function canonicalEvent(input: CreateEventInput) {
     price,
     paymentAsset: t.paymentAsset,
     rateSource,
+    issuance,
   };
+}
+
+const ISSUANCE_TEXT_MAX = 300;
+const FLAG_RE = /^[A-Za-z0-9][A-Za-z0-9 _-]{0,39}$/;
+
+/**
+ * The issuance as stored. Each kind needs its own detail and takes no other kind's: wrapped its backing asset
+ * (`launch.backing_unset`), synthetic its oracle (`launch.oracle_unset`), structured its leg terms
+ * (`launch.leg_terms_unset`); a plain token takes none. Flags are up to 8 distinct labels.
+ */
+export function canonicalIssuance(raw: Issuance | null): Issuance | null {
+  if (raw === null) return null;
+  if (!(ISSUANCE_KINDS as readonly string[]).includes(raw.kind))
+    throw new LaunchError('Issuance kind is not valid', 'launch.event_invalid');
+  const text = (v: string | null, name: string) => {
+    if (v === null) return null;
+    const t = v.trim();
+    if (t.length === 0) return null;
+    if (t.length > ISSUANCE_TEXT_MAX)
+      throw new LaunchError(`${name} must be at most ${ISSUANCE_TEXT_MAX} characters`, 'launch.event_invalid');
+    return t;
+  };
+  const backingAsset = text(raw.backingAsset, 'Backing asset');
+  const oracle = text(raw.oracle, 'Oracle');
+  const legTerms = text(raw.legTerms, 'Leg terms');
+  const needs = { wrapped: backingAsset, synthetic: oracle, structured: legTerms } as const;
+  if (raw.kind === 'wrapped' && backingAsset === null)
+    throw new LaunchError('A wrapped issuance needs its backing asset', 'launch.backing_unset');
+  if (raw.kind === 'synthetic' && oracle === null) throw new LaunchError('A synthetic issuance needs its oracle', 'launch.oracle_unset');
+  if (raw.kind === 'structured' && legTerms === null)
+    throw new LaunchError('A structured issuance needs its leg terms', 'launch.leg_terms_unset');
+  for (const [kind, value] of Object.entries(needs))
+    if (kind !== raw.kind && value !== null) throw new LaunchError(`Only a ${kind} issuance takes that detail`, 'launch.event_invalid');
+  const flags = raw.flags.map((f) => f.trim());
+  if (flags.length > 8 || flags.some((f) => !FLAG_RE.test(f)) || new Set(flags).size !== flags.length)
+    throw new LaunchError(
+      'Compliance flags are up to 8 distinct labels of 1 to 40 letters, digits, spaces or dashes',
+      'launch.event_invalid',
+    );
+  return { kind: raw.kind, backingAsset, oracle, legTerms, flags };
 }
 
 interface EventRow {
@@ -376,6 +437,11 @@ interface EventRow {
   snapshot_total: string | null;
   snapshot_hash: string | null;
   snapshot_taken_at: Date | null;
+  issuance_kind: IssuanceKind | null;
+  backing_asset: string | null;
+  oracle: string | null;
+  leg_terms: string | null;
+  issuance_flags: string[] | null;
   revision: number;
 }
 
@@ -409,6 +475,16 @@ function eventFromRow(row: EventRow): LaunchEvent {
       row.snapshot_count === null || row.snapshot_total === null || row.snapshot_hash === null || row.snapshot_taken_at === null
         ? null
         : { count: row.snapshot_count, total: parseAmount(row.snapshot_total), hash: row.snapshot_hash, takenAt: row.snapshot_taken_at },
+    issuance:
+      row.issuance_kind === null
+        ? null
+        : {
+            kind: row.issuance_kind,
+            backingAsset: row.backing_asset,
+            oracle: row.oracle,
+            legTerms: row.leg_terms,
+            flags: row.issuance_flags ?? [],
+          },
     revision: row.revision,
   };
 }
@@ -428,7 +504,8 @@ export class LaunchService {
              e.announce_at, e.snapshot_at, e.open_at, e.close_at, e.distribution_at, e.status,
              e.allocation_method, e.per_user_cap::text AS per_user_cap, e.ticket_size::text AS ticket_size, e.tier_weights,
              e.price::text AS price, e.payment_asset, e.rate_source,
-             e.snapshot_count, e.snapshot_total::text AS snapshot_total, e.snapshot_hash, e.snapshot_taken_at, e.revision
+             e.snapshot_count, e.snapshot_total::text AS snapshot_total, e.snapshot_hash, e.snapshot_taken_at,
+             e.issuance_kind, e.backing_asset, e.oracle, e.leg_terms, e.issuance_flags, e.revision
         FROM token.launch_events e
         JOIN token.launch_issuers i ON i.id = e.issuer_id
        WHERE true
@@ -642,12 +719,15 @@ export class LaunchService {
       await tx`
         INSERT INTO token.launch_events (
           id, issuer_id, type, project_name, symbol, announce_at, snapshot_at, open_at, close_at, distribution_at,
-          allocation_method, per_user_cap, ticket_size, tier_weights, price, payment_asset, rate_source, created_by, approved_by
+          allocation_method, per_user_cap, ticket_size, tier_weights, price, payment_asset, rate_source, created_by, approved_by,
+          issuance_kind, backing_asset, oracle, leg_terms, issuance_flags
         ) VALUES (
           ${e.id}, ${e.issuerId}, ${e.type}, ${e.projectName}, ${e.symbol},
           ${e.periods.announceAt}, ${e.periods.snapshotAt}, ${e.periods.openAt}, ${e.periods.closeAt}, ${e.periods.distributionAt},
           ${e.method}, ${fmt(e.perUserCap)}::numeric, ${fmt(e.ticketSize)}::numeric, ${weights},
-          ${fmt(e.price)}::numeric, ${e.paymentAsset}, ${e.rateSource}, ${by.actorId}, ${by.approverId}
+          ${fmt(e.price)}::numeric, ${e.paymentAsset}, ${e.rateSource}, ${by.actorId}, ${by.approverId},
+          ${e.issuance?.kind ?? null}, ${e.issuance?.backingAsset ?? null}, ${e.issuance?.oracle ?? null},
+          ${e.issuance?.legTerms ?? null}, ${e.issuance ? tx.json(e.issuance.flags) : null}
         )
       `;
       return { id: e.id, status: 'draft' as const, revision: 0 };

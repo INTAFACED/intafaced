@@ -525,6 +525,74 @@ describe('token launch issuer lens (J-more-catalogue-14)', () => {
     expect(payloadHashFor(create)).toBe(tokenActionPayloadHash(LAUNCH_EVENT_CREATE_ACTION, { event: canonical }));
   });
 
+  it('a draft with a wrapped issuance is svc-token’s canonical payload too, and one without stays as it was', () => {
+    const wrapped = draftPayload({
+      id: 'test-launch',
+      issuerId: 'test-issuer',
+      type: 'token_sale',
+      projectName: 'TEST Project',
+      symbol: 'TST',
+      periods: ['2026-11-01T00:00', '2026-11-01T01:00', '2026-11-01T02:00', '2026-11-01T10:00', '2026-11-01T11:00'],
+      method: '',
+      perUserCap: '',
+      ticketSize: '',
+      price: '',
+      paymentAsset: '',
+      rateSource: '',
+      issuanceKind: 'wrapped',
+      backingAsset: 'TEST BTC held one to one',
+      oracle: 'ignored for a wrapped issuance',
+      legTerms: '',
+      flags: 'TEST, testnet only',
+    });
+    if (!wrapped.ok) throw new Error(wrapped.message);
+    const payload = readLaunchEventPayload(wrapped.event);
+    if (!payload) throw new Error('payload unreadable');
+    expect(payload.issuance).toEqual(['wrapped', 'TEST BTC held one to one', null, null, ['TEST', 'testnet only']]);
+    const input = createInputFor(payload);
+    const canonical = launchEventPayload({
+      ...input,
+      periods: Object.fromEntries(Object.entries(input.periods).map(([k, v]) => [k, new Date(v)])) as never,
+    });
+    expect(canonical).toBe(wrapped.event);
+    expect(draft.event).not.toContain('issuance');
+    // A tuple svc-token would refuse never reads as a packet.
+    expect(readLaunchEventPayload(wrapped.event.replace('"wrapped","TEST BTC held one to one"', '"wrapped",null'))).toBeNull();
+    expect(readLaunchEventPayload(wrapped.event.replace('"wrapped"', '"synthetic"'))).toBeNull();
+  });
+
+  it('a kind with its detail blank is held back on the form, as svc-token would refuse it', () => {
+    const base = {
+      id: 'test-launch',
+      issuerId: 'test-issuer',
+      type: 'token_sale',
+      projectName: 'TEST Project',
+      symbol: 'TST',
+      periods: ['2026-11-01T00:00', '2026-11-01T01:00', '2026-11-01T02:00', '2026-11-01T10:00', '2026-11-01T11:00'] as [
+        string,
+        string,
+        string,
+        string,
+        string,
+      ],
+      method: '',
+      perUserCap: '',
+      ticketSize: '',
+      price: '',
+      paymentAsset: '',
+      rateSource: '',
+    };
+    expect(draftPayload({ ...base, issuanceKind: 'synthetic', oracle: ' ' })).toEqual({
+      ok: false,
+      message: 'A synthetic issuance needs its oracle.',
+    });
+    expect(draftPayload({ ...base, issuanceKind: 'structured' })).toEqual({
+      ok: false,
+      message: 'A structured issuance needs its leg terms.',
+    });
+    expect(draftPayload({ ...base, issuanceKind: 'token', flags: 'a,a' })).toMatchObject({ ok: false });
+  });
+
   it('is proposed against svc-token’s own verb at the revision read, a new draft at 0', () => {
     expect(proposeInputFor(issuer)).toEqual({
       actionType: LAUNCH_ISSUER_SET_ACTION,
