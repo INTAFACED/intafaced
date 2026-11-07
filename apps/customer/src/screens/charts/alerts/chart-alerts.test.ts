@@ -12,7 +12,7 @@ const alert = (over: Partial<PriceAlert>): PriceAlert => ({
   targetPrice: '65000',
   status: 'active',
   firedAt: null,
-  createdAt: new Date('2026-11-07T00:00:00Z'),
+  createdAt: '2026-11-07T00:00:00Z',
   ...over,
 });
 const markets = [
