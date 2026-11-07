@@ -696,3 +696,11 @@ test('the verdict job has full history, and a shallow clone fails', () => {
     /^\} else if \(fetch\) \{\n      assertFullHistory\(\);/,
   );
 });
+
+test('the pass history counts a pass only on the retry: an unbuilt step that passed that way is red when it fails (CI review on #7363, 1fbf031)', () => {
+  const passedSince = passesSince([[101, readReport(report(flaky('J-a-01 #2')))]]);
+  assert.equal(passedSince['J-a-01#2'], 101, 'a pass on the retry means the step was built');
+  const v = run(report(ok('J-a-01 #1'), bad('J-a-01 #2')), { passedSince });
+  assert.match(v.red.map((r) => r.why).join('\n'), /called unbuilt, but passed on main in run 101/);
+  assert.deepEqual(run(report(ok('J-a-01 #1'), bad('J-a-01 #2'))).red, [], 'without that pass, the unbuilt entry holds (the control)');
+});

@@ -52,7 +52,9 @@ const CANCELLED_LOOKUPS = 20;
 
 /**
  * Each journey step in a Playwright JSON report: "passed", "failed" or "skipped". The key is "J-<module>-NN#<step>",
- * as in tooling/scripts/roadmap.mjs passedSteps. A step with any test that did not end expected or flaky failed.
+ * as in tooling/scripts/roadmap.mjs passedSteps. A step with any test that did not end expected failed: a test that
+ * passed only on its retry (Playwright's "flaky", on main since JOURNEY_RETRIES) is not a pass, money step or not, so
+ * it never closes a journey's issue nor counts as passing (CI review on #7363, 1fbf031).
  */
 export function stepStates(report) {
   const states = new Map();
@@ -65,7 +67,7 @@ export function stepStates(report) {
       const state =
         tests.length && tests.every((t) => t.status === 'skipped')
           ? 'skipped'
-          : tests.length && tests.every((t) => t.status === 'expected' || t.status === 'flaky')
+          : tests.length && tests.every((t) => t.status === 'expected')
             ? 'passed'
             : 'failed';
       const had = states.get(key);
@@ -538,7 +540,12 @@ function selfTest() {
     [['J-a-01#1', 'failed']],
     'a failing duplicate title wins',
   );
-  eq([...stepStates(report(spec('J-a-01 #1 x', 'flaky')))], [['J-a-01#1', 'passed']], 'flaky counts as passed');
+  eq([...stepStates(report(spec('J-a-01 #1 x', 'flaky')))], [['J-a-01#1', 'failed']], 'a pass only on the retry is not a pass');
+  eq(
+    [...stepStates(report(spec('J-a-01 #1 x', 'expected'), spec('J-a-01 #1 y', 'flaky')))],
+    [['J-a-01#1', 'failed']],
+    'one test passing only on its retry fails the step',
+  );
   const m = (o) => new Map(Object.entries(o));
   eq(
     stepChanges(

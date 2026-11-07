@@ -40,7 +40,9 @@
  *     earlier list to read (none among main's last PRIOR_LOOKBACK runs), this run's list is incomplete and excuses
  *     nothing; a list starts fresh only when main never had one, so a step's cool-down is never forgotten;
  *   - its `notProven` names every set-aside step and every step with a test Playwright called flaky, so a count of proven
- *     steps leaves them out, and Main trust opens one issue per set-aside naming its owner and end date
+ *     steps leaves them out (project-state tooling/scoreboard/scoreboard.mjs reads it). In this repo no reader of
+ *     report.json counts a pass only on the retry as a pass (post-merge-trust.mjs stepStates, roadmap.mjs
+ *     passedSteps). Main trust opens one issue per set-aside naming its owner and end date
  *     (post-merge-trust.mjs).
  *
  * The rules are ported from the reader that already judged this baseline for the finish plan (project-state
@@ -394,7 +396,8 @@ export function priorSetAside(runs, read, predates = () => false) {
 export const excusedSetAside = ({ setAside, onMain, incomplete }) => (onMain && !incomplete ? setAside : {});
 
 /** The pass history after the named run: for each step, the newest run number that passed it. `reports` is
- *  [[runNumber, readReport() result]]. */
+ *  [[runNumber, readReport() result]]. A pass only on the retry counts here on purpose: a pass means the step was built,
+ *  so an `unbuilt` step that passed even once is red when it fails, which is the stricter reading for money steps too. */
 export function passesSince(reports) {
   const out = {};
   for (const [n, r] of reports)
