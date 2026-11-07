@@ -97,6 +97,7 @@ import quant from './local-stack-services/quant.mjs';
 import support, { SUPPORT_EMPTY_CATALOGUE_DB, onEmptyCatalogueDb, supportCatalogueOff } from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
 import campaigns from './local-stack-services/campaigns.mjs';
+import dex from './local-stack-services/dex.mjs';
 import ws from './local-stack-services/ws.mjs';
 import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
@@ -186,6 +187,8 @@ const PORTS = {
   protocol: 14520,
   // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
   indexer: 14524,
+  // The Protocol plane's order door: the wallet-signed order session and the person's own vault orders (J-dex-protocol-10).
+  dex: 14529,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
@@ -732,6 +735,7 @@ const BACKEND_PKGS = [
   'svc-ops',
   'svc-protocol',
   'svc-indexer',
+  'svc-dex',
   'svc-campaigns',
   'svc-ws',
 ];
@@ -1299,12 +1303,12 @@ const EDGE_UPSTREAMS = {
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
   INDEXER_URL: 'indexer',
+  DEX_URL: 'dex',
   CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -1340,6 +1344,7 @@ const SERVICES = [
   miningPool,
   protocol,
   indexer,
+  dex,
   campaigns,
   ws,
   // After ws and before edge: the edge's adapter status door reads both (startDependencies).

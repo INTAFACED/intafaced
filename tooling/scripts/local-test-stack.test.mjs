@@ -689,10 +689,10 @@ try {
     assert.equal(state === 'started' || state === 'absent', true, `Customer module ${m} (${envVar}) has no started service`);
     if (state === 'absent') absentButUsed.push(m);
   }
-  // Absent on purpose, with its reason in EDGE_ABSENT: dex is called by the Protocol rooms (#4835) and stays unwired.
-  // protocol is started (J-dex-protocol-01), mining too (svc-mining-pool binds HTTP_HOST since #5907), and indexer since the
-  // explorer pages (#6645, local-stack-services/indexer.mjs).
-  assert.deepEqual([...absentButUsed].sort(), ['dex'], `unexpected Customer modules without a service: ${absentButUsed}`);
+  // Every module the Customer app calls is started: protocol (J-dex-protocol-01), mining (svc-mining-pool binds HTTP_HOST
+  // since #5907), indexer since the explorer pages (#6645, local-stack-services/indexer.mjs), and dex since the wallet
+  // orders room (J-dex-protocol-10, local-stack-services/dex.mjs).
+  assert.deepEqual([...absentButUsed].sort(), [], `unexpected Customer modules without a service: ${absentButUsed}`);
 } finally {
   rmSync(planHome, { recursive: true, force: true });
 }
