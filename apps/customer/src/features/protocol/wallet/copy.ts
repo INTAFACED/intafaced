@@ -78,7 +78,6 @@ const en = {
   revokeReverted: 'The revoke failed on the network, so the allowance is unchanged.',
   revokeBuildFailed: 'The revoke could not be built, so nothing was sent. Try again.',
   revokeNotMined: 'The revoke was not mined in time. Your wallet may still send it; reload this section to read the chain again.',
-  empty_sessionKeys: 'No session keys. Session keys and connected apps are built in a later slice.',
   needsWallet: 'Connect a wallet to see this section.',
   hdr_time: 'Time',
   hdr_event: 'Event',
