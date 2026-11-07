@@ -71,6 +71,16 @@
       "value": "60",
       "note": "TEST wait of 60 seconds before a rejected lead applicant may apply again, so J-copy-bots-otc-10 #4 sees the wait refuse and then end on the real clock."
     },
+    "TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS": {
+      "service": "trade",
+      "value": "20",
+      "note": "TEST maximum chart alert age of 20 seconds, so J-copy-bots-otc-20 #2 sees an hour-old alert refused as stale. Not an owner decision."
+    },
+    "TRADE_SIGNAL_WEBHOOK_DAYS": {
+      "service": "trade",
+      "value": "30",
+      "note": "TEST life of 30 days for a chart alert webhook's place grant, so J-copy-bots-otc-20 can create one. Not an owner decision."
+    },
     "TRADE_BOTS_VERIFICATION_LEVEL": {
       "service": "trade",
       "value": "full",

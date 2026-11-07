@@ -46,6 +46,8 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import { signalsRouter } from './signals/router.js';
+import type { SignalDesk } from './signals/signal-desk.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
@@ -893,6 +895,7 @@ export function createTradeRouter(
   supportSummary?: SupportTradeSummaryReader,
   leadDesk?: LeadDesk,
   grid?: GridService,
+  signals?: SignalDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -923,6 +926,8 @@ export function createTradeRouter(
     support: supportTradeSummaryRouter(supportSummary),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
     bots: router({ grid: gridRouter(grid) }),
+    /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
+    signals: signalsRouter(signals),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

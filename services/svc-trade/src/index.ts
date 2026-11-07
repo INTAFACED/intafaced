@@ -42,6 +42,8 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
+import { registerSignalIntake } from './signals/intake-rest.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { operatorSeedTargets } from './admin/seed-config.js';
@@ -544,6 +546,28 @@ const grid = new GridService({
   fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
   stepUp,
 });
+// Chart alert webhooks (CB-bots-api-signal-01): an alert's order goes through the ordinary place path as the webhook's
+// creator, a market order of the alert's quantity under a key derived from the alert.
+const signalDesk = new SignalDesk({
+  sql,
+  now: () => new Date(),
+  marketIdBySymbol: async (symbol) => {
+    const market = await trade.marketBySymbol(symbol);
+    return market && market.kind === 'spot' && !market.paper && market.status === 'active' ? market.id : null;
+  },
+  placeOrder: (principal, input) =>
+    trade.placeOrder(principal, {
+      marketId: input.marketId,
+      side: input.side,
+      type: 'market',
+      qty: input.qty,
+      tif: 'IOC',
+      clientOrderId: input.clientOrderId,
+    }),
+  maxAlertAgeSeconds: parseSignalMaxAge(env.TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS),
+  webhookDays: parseSignalWebhookDays(env.TRADE_SIGNAL_WEBHOOK_DAYS),
+});
+registerSignalIntake(app, signalDesk);
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
   trade,
@@ -579,6 +603,7 @@ export const appRouter = createTradeRouter(
     reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
   }),
   grid,
+  signalDesk,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({
