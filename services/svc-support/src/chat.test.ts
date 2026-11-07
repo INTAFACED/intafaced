@@ -286,7 +286,7 @@ describe('closing', () => {
     expect(again.ticketId).toBe(closed.ticketId);
     expect(tickets[0]!.userId).toBe(ALICE);
     expect(tickets[0]!.body).toContain('Customer: hello');
-    expect(tickets[0]!.body).toContain('Support: hi, how can I help?');
+    expect(tickets[0]!.body).toContain('Operator: hi, how can I help?');
     const source = await chat.requestSource(closed.ticketId!);
     expect(source).toMatchObject({ source: 'chat', sessionId: session.id, profileType: 'business', profileRead: 'read' });
     expect(source!.transcript.map((m) => m.body)).toEqual(['hello', 'hi, how can I help?']);
@@ -307,7 +307,7 @@ describe('closing', () => {
     const many = Array.from({ length: 50 }, (_, i) => ({ author: 'customer' as const, body: 'x'.repeat(400), createdAt: `t${i}` }));
     const text = transcriptText(many);
     expect(text.length).toBeLessThanOrEqual(10_000);
-    expect(text).toContain('the rest of the 50 messages is in the chat transcript');
+    expect(text).toContain('the rest of the 50 messages is in the transcript linked to this request');
   });
 });
 
