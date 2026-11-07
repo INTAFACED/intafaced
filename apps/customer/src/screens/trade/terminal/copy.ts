@@ -17,9 +17,9 @@ const messages = {
   'Open orders': 'Open orders',
   'No open orders': 'No open orders',
   'Order history': 'Order history',
-  'No ended orders': 'No ended orders yet',
+  'No ended orders': 'No ended orders',
   Fills: 'Fills',
-  'No fills': 'No fills yet',
+  'No fills': 'No fills',
   'History partly unread': 'Part of your history could not be read just now, so it may be missing rows. It is read again shortly.',
 
   'Copied from {leader}': 'Copied from {leader}',
@@ -31,14 +31,14 @@ const messages = {
 
   'Child orders': 'Child orders',
   'Pick a schedule': 'Pick an algo order above to list its child orders and fills.',
-  'No child orders': 'No child orders yet',
+  'No child orders': 'No child orders',
   'Child orders of {id}': 'Child orders and fills of {id}',
 
   'Depth of market': 'Depth of market',
   'DOM preview title': 'Depth of market · Preview',
   'DOM preview engine': 'Engine: CFD dealing and MetaTrader 5-class account server',
   'DOM preview reason':
-    'Depth beyond our own books needs this engine, and it is not connected yet. Nothing below is a live price, and nothing here can be traded.',
+    'Depth beyond our own books needs this engine, and it is not connected. Nothing below is a live price, and nothing here can be traded.',
   'DOM live link': 'Live depth of our own BTC/USDT book is on the spot desk',
   'Preview · sample data': 'Preview · sample data',
   TEST: 'TEST',
