@@ -571,7 +571,8 @@ jobs:
       # Only `run` lets a pull request or a merge queue's commit through; anything else fails the seal, whoever opened the
       # pull request. Flipping it is a push to that branch, never a pull request, so a pause can't block the change that
       # lifts it. A push to main is never stopped, so main is still verified while paused. It runs after the other verdicts
-      # so they still show; after a flip back to `run`, re-run the seal (a new push does too). The default branch's copy
+      # so they still show. A flip re-runs the open pull requests' seals (factory-sweep.yml on that branch, the sweep in
+      # tooling/ci/factory-switch.mjs), so a green seal turns red on `pause` and back on `run`. The default branch's copy
       # decides, as for the steps above; the pull request's own copy only while main has none (the pull request that adds it).
       - name: The factory switch says run
         if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}

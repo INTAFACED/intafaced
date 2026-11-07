@@ -356,7 +356,7 @@ export const NOT_GATES = {
   'journey-seal.test.mjs':
     "not a gate: the node:test file of journey-seal.mjs, the planted cases of the journey-steps seal (a green run on the head seals; a red step, an older head, a missing step, a running run and an earlier attempt's report do not; a `Left-or-replaced:` line does; a malformed one fails). tooling-tests.mjs runs it with every other tooling test.",
   'factory-switch.mjs':
-    'merge-seal step: the factory switch, the one-line file FACTORY on the branch factory-switch, read through the contents API; only `run` passes, and anything else or an unreadable answer fails the seal closed. Needs a GitHub token, so a laptop verify cannot run it; `tooling/ci/factory-switch.test.mjs` checks the verdict and the read.',
+    "merge-seal step and sweep: the factory switch, the one-line file FACTORY on the branch factory-switch, read through the contents API; only `run` passes, and anything else or an unreadable answer fails the seal closed (also read by journey-seal.mjs). `--sweep` runs from factory-sweep.yml on that branch and re-runs the open pull requests' seals on a flip. Needs a GitHub token, so a laptop verify cannot run it; `tooling/ci/factory-switch.test.mjs` checks the verdict, the read and the sweep.",
   'factory-switch.test.mjs':
     'not a gate: the node:test file of factory-switch.mjs, its planted cases (only `run` passes; `pause`, blank, other text and a refused read fail). tooling-tests.mjs runs it with every other tooling test.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
