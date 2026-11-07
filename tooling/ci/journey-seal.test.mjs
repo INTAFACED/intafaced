@@ -11,6 +11,7 @@ import {
   fileSteps,
   fullVerdict,
   judgeTouched,
+  JOURNEY_TEST,
   touchedSteps,
   globRe,
   isSharedSetup,
@@ -812,6 +813,17 @@ test('the seal gap (#1249): a journey test change whose title names no step fail
   assert.equal(v.ok, false);
   assert.match(v.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of J-bank-13 #1, J-bank-13 #2, J-bank-13 #3/);
   assert.match(v.lines.join('\n'), /Left-or-replaced: J-bank-13 #1 #2 #3/);
+});
+
+test('JOURNEY_TEST: whole and split journey files, never the look sweeps', () => {
+  const id = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1] ?? null;
+  assert.equal(id('J-bank-13.pw.mjs'), 'J-bank-13');
+  assert.equal(id('J-ops-console-02-documents.pw.mjs'), 'J-ops-console-02');
+  assert.equal(id('J-wallet-04-security-lock.pw.mjs'), 'J-wallet-04');
+  assert.equal(id('J-copy-bots-otc-30.pw.mjs'), 'J-copy-bots-otc-30');
+  assert.equal(id('look-sweep-390.pw.mjs'), null);
+  assert.equal(id('J-bank-13.mjs'), null);
+  assert.equal(JOURNEY_TEST.test('apps/customer/tests/real-app/sub/J-bank-13.pw.mjs'), false);
 });
 
 test('a journey test change passes when the title names its steps or a strict line leaves them', async () => {

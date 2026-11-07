@@ -501,10 +501,12 @@ export async function pullFiles(get, repo, n) {
 }
 
 /**
- * A journey test file (`apps/customer/tests/real-app/J-bank-13.pw.mjs`) and its journey id. Only these hold journey
- * steps; the look sweeps and other `*.pw.mjs` files beside them do not.
+ * A journey test file and its journey id: `J-bank-13.pw.mjs`, or one of a journey split across files
+ * (`J-ops-console-02-documents.pw.mjs` holds J-ops-console-02's steps). Every journey id is letter-led segments and a
+ * final number (all 472 in docs/roadmap/journeys.json on 7 Nov 2026), so the id ends at the first number. Only these hold
+ * journey steps; the look sweeps and other `*.pw.mjs` files beside them do not.
  */
-export const JOURNEY_TEST = /^apps\/customer\/tests\/real-app\/(J-[a-z0-9]+(?:-[a-z0-9]+)*-\d+)\.pw\.mjs$/;
+export const JOURNEY_TEST = /^apps\/customer\/tests\/real-app\/(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)(?:-[a-z0-9-]+)?\.pw\.mjs$/;
 
 /**
  * The step keys a journey test file holds: each `test(` whose title starts with its journey id, written out
