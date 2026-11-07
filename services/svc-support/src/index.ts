@@ -30,6 +30,7 @@ import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 import { createSupportRouter } from './router.js';
 import { SqlCheckBook, VerificationChecks } from './verification-checks.js';
+import { SafetyCases, SqlSafetyBook } from './safety-cases.js';
 import { createTicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -243,6 +244,8 @@ const appRouter = createSupportRouter(
   // Balance disclosure gate: no owner serves the desk a check door yet (svc-identity, svc-trade, svc-pay), so none is wired:
   // every check refuses naming its owner, and every read refuses support.verification_checks_required.
   new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
+  // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
+  new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
 );
 const edgeContext = createEdgeContext({
   secret: env.EDGE_PRINCIPAL_SECRET,
