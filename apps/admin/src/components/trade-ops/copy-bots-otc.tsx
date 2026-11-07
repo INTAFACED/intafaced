@@ -195,7 +195,44 @@ function Lookup({ customer, lookup, href }: { customer: string; lookup: Outcome<
   );
 }
 
-function Quotes({ desk, href }: { desk: Outcome<QuoteDesk>; href: string }) {
+/** The quote desk's quotes, newest first, with their statuses (CB-ops-04). */
+export function QuoteList({ desk }: { desk: QuoteDesk }) {
+  return (
+    <Section title="Quotes" hint={`Open, accepted and settled quotes, newest first. Read ${when(desk.asOf)} UTC.`}>
+      {desk.quotes.length === 0 ? (
+        <p className="m-0 text-sm text-fg-2">No quotes.</p>
+      ) : (
+        <Table label="Quotes" density="dense" columns={quoteCols} rows={desk.quotes} getRowId={(q) => q.quoteId} />
+      )}
+    </Section>
+  );
+}
+
+/** Accepted quotes not settled by their deadline, each with its settle saga's key (CB-ops-04). */
+export function ExceptionList({ desk }: { desk: QuoteDesk }) {
+  return (
+    <Section
+      title="Settlement exceptions"
+      hint="Accepted quotes not settled by their deadline. The saga key names the settlement to look into; nothing here retries it."
+    >
+      {desk.exceptions.length === 0 ? (
+        <p className="m-0 text-sm text-fg-2">No settlement exceptions.</p>
+      ) : (
+        <Table label="Settlement exceptions" density="dense" columns={exceptionCols} rows={desk.exceptions} getRowId={(e) => e.quoteId} />
+      )}
+    </Section>
+  );
+}
+
+export function QuoteDeskRead({
+  desk,
+  href,
+  part = 'both',
+}: {
+  desk: Outcome<QuoteDesk>;
+  href: string;
+  part?: 'both' | 'quotes' | 'exceptions';
+}) {
   if (desk.kind !== 'ok')
     return (
       <div className="flex flex-col gap-2">
@@ -205,29 +242,8 @@ function Quotes({ desk, href }: { desk: Outcome<QuoteDesk>; href: string }) {
     );
   return (
     <div className="flex flex-col gap-4">
-      <Section title="Quotes" hint={`Open, accepted and settled quotes, newest first. Read ${when(desk.data.asOf)} UTC.`}>
-        {desk.data.quotes.length === 0 ? (
-          <p className="m-0 text-sm text-fg-2">No quotes.</p>
-        ) : (
-          <Table label="Quotes" density="dense" columns={quoteCols} rows={desk.data.quotes} getRowId={(q) => q.quoteId} />
-        )}
-      </Section>
-      <Section
-        title="Settlement exceptions"
-        hint="Accepted quotes not settled by their deadline. The saga key names the settlement to look into; nothing here retries it."
-      >
-        {desk.data.exceptions.length === 0 ? (
-          <p className="m-0 text-sm text-fg-2">No settlement exceptions.</p>
-        ) : (
-          <Table
-            label="Settlement exceptions"
-            density="dense"
-            columns={exceptionCols}
-            rows={desk.data.exceptions}
-            getRowId={(e) => e.quoteId}
-          />
-        )}
-      </Section>
+      {part !== 'exceptions' ? <QuoteList desk={desk.data} /> : null}
+      {part !== 'quotes' ? <ExceptionList desk={desk.data} /> : null}
       <ReadAgain href={href} />
     </div>
   );
@@ -266,7 +282,7 @@ export function CopyBotsOtcRoom(props: {
       </div>
       <div role="tabpanel" aria-label={props.tab === 'quotes' ? 'Quote desk' : 'Customer lookup'}>
         {props.tab === 'quotes' && props.desk ? (
-          <Quotes desk={props.desk} href={deskHref} />
+          <QuoteDeskRead desk={props.desk} href={deskHref} />
         ) : (
           <Lookup customer={props.customer} lookup={props.lookup} href={lookupHref} />
         )}
