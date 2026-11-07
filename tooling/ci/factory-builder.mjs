@@ -45,6 +45,13 @@ export const POLL_MS = 120_000;
 export const UNREADABLE_LIMIT = 3;
 export const KILL_GRACE_MS = 30_000;
 export const MAX_BODY = 60_000;
+/**
+ * Every command this script starts, by full path, with PATH=/usr/bin:/bin for it: a directory earlier on PATH (the
+ * runner image's /usr/local/bin is world-writable) could otherwise hold a fake `git` or `sudo` the agent planted, run
+ * with the factory token in its environment. (Found by review round 2 on #7386, with a planted fake `git`.)
+ */
+export const BIN = { git: '/usr/bin/git', gh: '/usr/bin/gh', sudo: '/usr/bin/sudo', pkill: '/usr/bin/pkill', pgrep: '/usr/bin/pgrep' };
+export const SAFE_PATH = '/usr/bin:/bin';
 const ADDENDUM = '.github/workflows/builder/ACTIONS.md';
 /** Variables the CLI's process never gets: the runner's command files (so it can't write to the public summary or to
  *  later steps' environment), the runner's own tokens, and every GitHub token. The CLI's own token is the one kept. */
@@ -257,7 +264,7 @@ export function agentCommand({ user, bin, args, env, work }) {
   if (!user) return { cmd: bin, args, env: own, cwd: work };
   const names = Object.keys(own).filter((k) => !SUDO_OWN.has(k) && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
   return {
-    cmd: 'sudo',
+    cmd: BIN.sudo,
     // `env -C`: the agent's home is closed to the runner, so the agent user itself enters the working tree.
     args: [
       '-n',
@@ -295,7 +302,7 @@ export function groupAlive(pgid) {
 function userAlive(user) {
   if (!user) return false;
   try {
-    execFileSync('pgrep', ['-u', user], { stdio: 'ignore' });
+    execFileSync(BIN.pgrep, ['-u', user], { stdio: 'ignore', env: { PATH: SAFE_PATH } });
     return true;
   } catch {
     return false;
@@ -308,7 +315,7 @@ function signalAll(pgid, user, sig) {
   } catch {}
   if (user)
     try {
-      execFileSync('sudo', ['-n', 'pkill', `-${sig.replace('SIG', '')}`, '-u', user], { stdio: 'ignore' });
+      execFileSync(BIN.sudo, ['-n', BIN.pkill, `-${sig.replace('SIG', '')}`, '-u', user], { stdio: 'ignore', env: { PATH: SAFE_PATH } });
     } catch {}
 }
 
@@ -408,11 +415,11 @@ const readIf = (f) => (existsSync(f) ? readFileSync(f, 'utf8') : null);
 
 /** git in the fresh publish repository only (never the agent's): no hooks, no global or system config. */
 function gitIn(dir, args, extraEnv = {}) {
-  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-C', dir, ...args], {
+  return execFileSync(BIN.git, ['-c', 'core.hooksPath=/dev/null', '-C', dir, ...args], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
-      PATH: process.env.PATH,
+      PATH: SAFE_PATH,
       HOME: dir,
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_CONFIG_GLOBAL: '/dev/null',
@@ -662,9 +669,9 @@ async function main(cmd, args, env) {
       } else console.log(`no ${test} on the head, so no journeys run`);
     }
     if (agent.asks.arm) {
-      execFileSync('gh', ['pr', 'merge', String(pull.number), '-R', env.REPO, '--auto', '--squash'], {
+      execFileSync(BIN.gh, ['pr', 'merge', String(pull.number), '-R', env.REPO, '--auto', '--squash'], {
         stdio: 'ignore',
-        env: { PATH: process.env.PATH, GH_TOKEN: env.GH_TOKEN, HOME: dir },
+        env: { PATH: SAFE_PATH, GH_TOKEN: env.GH_TOKEN, HOME: dir },
       });
       console.log(`#${pull.number}: squash auto-merge armed`);
     }

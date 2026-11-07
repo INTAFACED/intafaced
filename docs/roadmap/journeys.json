@@ -1845,7 +1845,7 @@
   },
   {
     "id": "J-cex-spot-01",
-    "title": "I sign up, get verified, fund TEST money, trade on the desk, see my result, and find withdrawal refused with its reason",
+    "title": "I sign up, get verified, fund my venue account from my wallet, trade on the desk, see my result, and withdraw back to my wallet",
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
@@ -1867,7 +1867,7 @@
   },
   {
     "id": "J-cex-spot-02",
-    "title": "I place orders safely: a retry, a lost answer or a double press never makes a second order or a second hold",
+    "title": "I place orders safely: a retry, a lost answer or a double press never makes a second order or asks for a second signature",
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
@@ -1957,7 +1957,7 @@
   },
   {
     "id": "J-cex-spot-07",
-    "title": "I arm a dead-man switch, export my orders and trades, and read my ledger history",
+    "title": "I arm a dead-man switch, export my orders and trades, and read my money history",
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
@@ -2130,7 +2130,7 @@
   },
   {
     "id": "J-cex-spot-16",
-    "title": "I list a market, set its state, halt it and set its limits with a second person approving",
+    "title": "I choose which venue markets to show, set their routing state, stop routing and set our limits, with a second person approving",
     "module": "cex-spot",
     "persona": "operator:risk",
     "tier": "core",
@@ -2148,7 +2148,7 @@
   },
   {
     "id": "J-cex-spot-17",
-    "title": "I publish and version fees, VIP tiers and convert limits",
+    "title": "I publish and version our builder fees, VIP tiers and convert limits",
     "module": "cex-spot",
     "persona": "operator:finance",
     "tier": "core",
@@ -2166,7 +2166,7 @@
   },
   {
     "id": "J-cex-spot-18",
-    "title": "I look up a customer's order and reconcile or bust a trade",
+    "title": "I look up a customer's routed order, and later reconcile or bust a trade on our own book",
     "module": "cex-spot",
     "persona": "operator:support",
     "tier": "core",
@@ -3089,7 +3089,7 @@
   },
   {
     "id": "J-derivatives-04",
-    "title": "I manage futures orders in the orders room, and learn which resting types are not live",
+    "title": "I manage futures orders in the orders room, and learn which order controls each venue offers",
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
@@ -3140,7 +3140,7 @@
   },
   {
     "id": "J-derivatives-07",
-    "title": "I understand a liquidation and its aftermath: ladder, fee, insurance fund and auto-deleveraging",
+    "title": "I understand a liquidation on the venue and its aftermath: fee, insurance fund and auto-deleveraging",
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
@@ -3227,7 +3227,7 @@
   },
   {
     "id": "J-derivatives-12",
-    "title": "I see my derivatives fees, VIP level, wallet summary and bills",
+    "title": "I see my derivatives fees, VIP level, account summary and bills",
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
@@ -3316,7 +3316,7 @@
   },
   {
     "id": "J-derivatives-17",
-    "title": "I reconcile P&L, funding and settlement against the ledger",
+    "title": "I reconcile the builder fees the venues report against the ledger",
     "module": "derivatives",
     "persona": "operator:finance",
     "tier": "core",
@@ -3475,6 +3475,39 @@
       { "n": 7, "slices": ["D-cross-05"], "noSlice": false },
       { "n": 8, "slices": ["D-cross-05"], "noSlice": false },
       { "n": 9, "slices": ["D-cross-05"], "noSlice": false }
+    ]
+  },
+  {
+    "id": "J-derivatives-27",
+    "title": "I trade a stock perpetual around the clock",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "advanced",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": ["D-multiasset-02"], "noSlice": false },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": ["D-multiasset-02"], "noSlice": false },
+      { "n": 4, "slices": ["D-multiasset-03"], "noSlice": false },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-derivatives-28",
+    "title": "My order goes to the best venue I can sign for",
+    "module": "derivatives",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 1,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
     ]
   },
   {
@@ -3853,7 +3886,7 @@
   },
   {
     "id": "J-dex-protocol-05",
-    "title": "Move value between the exchange, the wallet and another chain",
+    "title": "Move value between a trading venue, the wallet and another chain",
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "core",
@@ -4080,7 +4113,7 @@
   },
   {
     "id": "J-dex-protocol-17",
-    "title": "See what I pay, what I get back, and stake IFC to vote",
+    "title": "See what I pay, what I get back, and stake governance tokens to vote",
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "core",
@@ -4099,7 +4132,7 @@
   },
   {
     "id": "J-dex-protocol-18",
-    "title": "Trade a perpetual from the Web3 desk",
+    "title": "Trade a perpetual on an outside venue from the Web3 desk",
     "module": "dex-protocol",
     "persona": "pro-trader",
     "tier": "core",
@@ -4409,7 +4442,7 @@
   },
   {
     "id": "J-dex-protocol-31",
-    "title": "Watch protocol risk: liquidations, funding, oracles, hooks and the bridge",
+    "title": "Watch protocol risk: lending liquidations, oracles, hooks and the bridge",
     "module": "dex-protocol",
     "persona": "operator:risk",
     "tier": "core",
@@ -4429,7 +4462,7 @@
   },
   {
     "id": "J-dex-protocol-32",
-    "title": "Account for protocol revenue, rebates and the IFC buyback",
+    "title": "Account for protocol revenue, rebates and builder fees",
     "module": "dex-protocol",
     "persona": "operator:finance",
     "tier": "advanced",
@@ -7443,6 +7476,23 @@
     ]
   },
   {
+    "id": "J-portfolio-17",
+    "title": "I move in from another venue with my positions, history and bots",
+    "module": "portfolio",
+    "persona": "pro-trader",
+    "tier": "core",
+    "order": 2,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true },
+      { "n": 7, "slices": [], "noSlice": true }
+    ]
+  },
+  {
     "id": "J-support-public-01",
     "title": "Find an answer in the help centre without signing in",
     "module": "support-public",
@@ -7804,6 +7854,36 @@
     ]
   },
   {
+    "id": "J-support-public-21",
+    "title": "Anyone checks that customer balances are fully backed",
+    "module": "support-public",
+    "persona": "retail",
+    "tier": "core",
+    "order": 3,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true },
+      { "n": 5, "slices": [], "noSlice": true },
+      { "n": 6, "slices": [], "noSlice": true }
+    ]
+  },
+  {
+    "id": "J-support-public-22",
+    "title": "I read how INTAFACED trades and how it is kept fair",
+    "module": "support-public",
+    "persona": "retail",
+    "tier": "core",
+    "order": 3,
+    "steps": [
+      { "n": 1, "slices": [], "noSlice": true },
+      { "n": 2, "slices": [], "noSlice": true },
+      { "n": 3, "slices": [], "noSlice": true },
+      { "n": 4, "slices": [], "noSlice": true }
+    ]
+  },
+  {
     "id": "J-wallet-01",
     "title": "I see what I hold and what I can actually withdraw",
     "module": "wallet",
@@ -7935,7 +8015,7 @@
   },
   {
     "id": "J-wallet-09",
-    "title": "I link my self-custody wallet",
+    "title": "I connect my own wallet and fund my venue account from it",
     "module": "wallet",
     "persona": "pro-trader",
     "tier": "advanced",

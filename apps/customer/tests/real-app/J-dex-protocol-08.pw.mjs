@@ -1,8 +1,9 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
+import { privateKeyToAccount } from 'viem/accounts';
 import { bodyRows, tableIn } from './tables.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { signIn, signUp } from './desk.mjs';
 
 // J-dex-protocol-08, in the running app (docs/roadmap/journeys.json): keep my wallet safe with approvals, session keys,
 // risk cards and reporting. One test per step, titled "J-dex-protocol-08 #<n>", run in order with one TEST wallet on Base
@@ -30,13 +31,13 @@ async function openSection(page, name) {
   return wallet;
 }
 
-/** The run's TEST account, signed in (made by #6 on first use). */
+/**
+ * A new TEST account, signed in, for #6. A new one each attempt: a report from an earlier attempt stays open, so the same
+ * person on a retry would get the duplicate refusal first. Reporting needs a sign-in only, no balance.
+ */
 async function person(page) {
-  let who = account.run.read().who;
-  if (!who) {
-    who = await fundedTrader(page, 'dex08', '1');
-    account.run.reset({ who });
-  }
+  const who = await signUp(page, 'dex08');
+  account.run.reset({ who });
   await signIn(page, who);
   return who;
 }
@@ -96,6 +97,9 @@ test(`${J} #4 opens sub-accounts and a multi-signature account: the sub-account 
 }) => {
   await openSection(page, 'Accounts');
   await expect(page.getByRole('region', { name: 'Sub-accounts' }).getByRole('table')).toBeVisible(UNBUILT);
+  // The list holds the accounts this wallet controls, starting with the connected wallet itself.
+  const owner = privateKeyToAccount(dex.key()).address;
+  await expect(bodyRows(tableIn(page, 'Sub-accounts')).filter({ hasText: owner })).toHaveCount(1);
   const multisig = page.getByRole('button', { name: 'Create a multi-signature account' });
   await expect(multisig).toBeDisabled();
   await expect(page.getByText(/multi-signature contract is not deployed/)).toBeVisible();
@@ -116,13 +120,16 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
   browser,
 }) => {
   test.setTimeout(240_000);
-  await person(page);
+  const who = await person(page);
   await page.goto(`/chain/address/${SUSPECT}`);
   await page.getByRole('button', { name: 'Report this address' }).click(UNBUILT);
   const report = page.getByRole('dialog', { name: 'Report this address' });
   await report.getByRole('combobox', { name: 'Reason' }).selectOption({ label: 'Scam' });
   await report.getByRole('button', { name: 'Send report' }).click();
-  await expect(page.getByRole('status')).toContainText('Thank you. Your report was received.');
+  // The confirmation shows in the risk card (the card may also be re-reading its count, which is its own status line).
+  const mine = page.getByRole('region', { name: 'Address risk' });
+  await expect(mine.getByRole('status').filter({ hasText: 'Thank you. Your report was received.' })).toBeVisible();
+  await expect(report).toHaveCount(0);
   await page.getByRole('button', { name: 'Report this address' }).click();
   await report.getByRole('combobox', { name: 'Reason' }).selectOption({ label: 'Scam' });
   await report.getByRole('button', { name: 'Send report' }).click();
@@ -134,7 +141,8 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
     await other.goto(`/chain/address/${SUSPECT}`);
     const card = other.getByRole('region', { name: 'Address risk' });
     await expect(card).toContainText(/Reported \d+ times?/);
-    await expect(card).not.toContainText(account.run.read().who.handle);
+    await expect(card).not.toContainText(who.handle);
+    await expect(card).not.toContainText(who.email);
   } finally {
     await away.close();
   }
@@ -146,7 +154,19 @@ test(`${J} #7 opens the safety education and the audit room: each step opens its
   await openSection(page, 'Safety');
   const lessons = page.getByRole('list', { name: 'Stay safe' });
   await expect(lessons.getByRole('listitem')).not.toHaveCount(0, UNBUILT);
-  for (const link of await lessons.getByRole('link').all()) await expect(link).toHaveAttribute('href', /^\//);
+  // Each step opens its control: every lesson links to a page of the app, and that page opens (not "Page not found").
+  const targets = [];
+  for (const link of await lessons.getByRole('link').all()) {
+    await expect(link).toHaveAttribute('href', /^\//);
+    targets.push(await link.getAttribute('href'));
+  }
+  expect(targets.length).toBe(await lessons.getByRole('listitem').count());
+  for (const href of targets) {
+    await page.goto(href);
+    await expect(page.getByTestId('page-heading').first()).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Page not found' })).toHaveCount(0);
+    expect(new URL(page.url()).pathname).toBe(href);
+  }
   await page.goto('/chain/audit');
   const audits = tableIn(page, 'Audits');
   const rows = bodyRows(audits);
@@ -161,8 +181,13 @@ test(`${J} #8 follows the compromise guidance: an ordered list: revoke keys, rev
   await openSection(page, 'Safety');
   const steps = page.getByRole('list', { name: 'If your wallet is compromised' });
   await expect(steps.getByRole('listitem')).toHaveText([/^Revoke session keys/, /^Revoke approvals/, /^Move your funds/], UNBUILT);
-  for (const name of ['Revoke session keys', 'Revoke approvals', 'Move your funds'])
-    await expect(steps.getByRole('link', { name })).toBeVisible();
+  // Each step is linked to its control: the wallet's Session keys, Approvals and Send sections.
+  for (const [name, href] of [
+    ['Revoke session keys', '/wallet/session-keys'],
+    ['Revoke approvals', '/wallet/approvals'],
+    ['Move your funds', '/wallet/send'],
+  ])
+    await expect(steps.getByRole('link', { name })).toHaveAttribute('href', href);
 });
 
 test(`${J} #9 exports the embedded-login key once: shown once after a fresh passkey check and derives the owner address; a second request returns no key`, async ({

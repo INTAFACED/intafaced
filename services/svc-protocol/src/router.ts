@@ -98,6 +98,10 @@ import { buildCreateToken } from './launch/build.js';
 import { MAX_DECIMALS, MAX_NAME_BYTES, MAX_SYMBOL_BYTES, MAX_WHOLE_SUPPLY, parseTokenParams, TokenParamsError } from './launch/params.js';
 import { loadInternalSmartAccountsPackage } from './audit/pipeline.js';
 import { loadAuditRegistry } from './audit/registry.js';
+import { loadProductAudits } from './audit/products.js';
+import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
+import type { AddressRiskStore } from './address-risk/risk.js';
+import { protocolAuditProductsSchema, protocolPredictedAccountSchema } from '@intafaced/contracts/protocol-blockers';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
 import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
@@ -513,6 +517,8 @@ export interface ProtocolRouterDeps {
    * Absent = not wired, which refuses `protocol.wallet_session_unset`.
    */
   addressBook?: Omit<AddressBookDeps, 'chainId'>;
+  /** The address risk card's label store and the scam report queue (D-developer-compliance-01). Absent = not wired. */
+  addressRisk?: Omit<AddressRiskDeps, 'chainId'>;
   /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
@@ -535,6 +541,13 @@ export interface ProtocolRouterDeps {
     stuckMintAgeSeconds?: () => number | undefined;
   };
 }
+
+/** An unwired label store answers nothing: every read and report fails as a server error rather than inventing a record. */
+const unwiredAddressRiskStore: AddressRiskStore = {
+  labels: () => Promise.reject(new Error('address risk store is not wired')),
+  openReportCount: () => Promise.reject(new Error('address risk store is not wired')),
+  insertReport: () => Promise.reject(new Error('address risk store is not wired')),
+};
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
 const unwiredRepresentationStore: RepresentationStore = {
@@ -613,6 +626,11 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
   };
 
+  const addressRiskDeps: AddressRiskDeps = {
+    chainId: () => chain.config.chainId,
+    ...(deps.addressRisk ?? { store: unwiredAddressRiskStore, screeningLoaded: () => false }),
+  };
+
   function requireRelayEnabled() {
     if (!deps.relayEnabled()) {
       // Note what a kill-switch can and cannot do here. It stops US from
@@ -688,6 +706,9 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         }),
       )
       .query(() => loadAuditRegistry()),
+
+    /** The audit room's per-product rows: an owner-recorded external report per product, or none. Never inferred. */
+    auditProducts: publicProcedure.output(protocolAuditProductsSchema).query(() => loadProductAudits()),
 
     /**
      * IS ANY OF THIS REAL YET? — the question `health` cannot answer.
@@ -921,15 +942,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
      */
     predictAddress: publicJurisdictionProcedure('protocol', 'protocol')
       .input(z.object({ owner: addressSchema, userSalt: bytes32Schema.default(DEFAULT_USER_SALT) }))
-      .output(
-        z.object({
-          address: z.string(),
-          chainId: z.number(),
-          factory: z.string(),
-          implementation: z.string(),
-          deployed: z.boolean(),
-        }),
-      )
+      .output(protocolPredictedAccountSchema)
       .query(async ({ input }) => {
         requireAccountFactoryConfigured(chain.config.factory, chain.config.implementation);
         try {
@@ -1266,6 +1279,8 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     // ── Wallet address book (D-portfolio-wallet-03): src/address-book/router.ts ──
     walletSession: createWalletSessionRouter(addressBookDeps),
     addressBook: createAddressBookRouter(addressBookDeps),
+    addressRisk: createAddressRiskRouter(addressRiskDeps),
+    addressReports: createAddressReportsRouter(addressRiskDeps),
 
     // ── Claim links (D-swap-12) and speed up / cancel (RC-dex-protocol-01): src/wallet-tx/ ──
     ...createWalletTxRouters({

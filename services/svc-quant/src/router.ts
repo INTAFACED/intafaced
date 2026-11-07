@@ -36,6 +36,13 @@ import {
   type Context,
   type QuantBacktestResult,
   quantVersionDiffSchema,
+  quantQuotaAssignInputSchema,
+  quantQuotaAssignOutputSchema,
+  quantQuotaProfileSchema,
+  quantQuotaSchema,
+  quantQuotaSetInputSchema,
+  quantQuotaSetOutputSchema,
+  QUANT_QUOTA_RESOURCES,
 } from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
@@ -101,8 +108,14 @@ import {
   QUANT_STUDIO_LIST_LIMIT_UNSET,
   QUANT_STUDIO_NOT_FOUND,
   QUANT_STUDIO_RISK_BLOCK_REQUIRED,
+  QUANT_QUOTA_EXCEEDED,
+  QUANT_QUOTA_PROFILE_UNSET,
+  QUANT_QUOTA_REASON_UNSET,
+  QUANT_QUOTA_UNSET,
   QuantError,
 } from './errors.js';
+import { createMemoryQuota } from './quota/memory.js';
+import { parseLimit, type QuotaRepository } from './quota/quota.js';
 import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import type { TemplateRepository } from './templates/repository.js';
@@ -214,6 +227,9 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_SHARE_WINDOW_UNSET ||
             err.code === QUANT_SHARE_RATE_LIMITED ||
             err.code === QUANT_SIGNAL_RULES_SANDBOX ||
+            err.code === QUANT_QUOTA_UNSET ||
+            err.code === QUANT_QUOTA_EXCEEDED ||
+            err.code === QUANT_QUOTA_PROFILE_UNSET ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -380,6 +396,11 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly disclosure?: DisclosureRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly templates?: TemplateRepository;
+  /**
+   * Quota profiles and assignments (AL-limits-01), read by `quota.get` and written by `ops.quota.*`. The same store's
+   * gate is passed to the strategy and run repositories, which enforce it. Omitted in unit tests: no profile applies.
+   */
+  readonly quota?: QuotaRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
   /**
@@ -426,6 +447,13 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
+  const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
+  /** The reason an operator gives for a quota write: required, so every audit row says why. */
+  function quotaReason(raw: string): string {
+    const reason = raw.trim();
+    if (!reason) throw new QuantError(QUANT_QUOTA_REASON_UNSET, 'reason — a quota change needs a reason');
+    return reason;
+  }
   const shares = deps.share?.repository;
   const releaseNoteMax = deps.releaseNoteMax ?? null;
   /** A version's release note: blank is no note; a note needs the owner's cap, and is refused over it. */
@@ -550,7 +578,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               if (prior) idempotencyConflict(prior.operation);
               const built = buildSavedStrategy(input, 'studio_pending');
               const releaseNote = releaseNoteOf(input.releaseNote);
-              return strategies.create({
+              return await strategies.create({
                 accountId,
                 clientStrategyId: requireClientStrategyId(input.clientStrategyId),
                 idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
@@ -648,7 +676,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             if (!existing) missingStrategy();
             const built = buildSavedStrategy(input, input.id);
             const releaseNote = releaseNoteOf(input.releaseNote);
-            return strategies.revise({
+            return await strategies.revise({
               accountId,
               id: input.id,
               idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
@@ -744,7 +772,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             const prior = await replayOf(accountId, input.idempotencyKey);
             if (prior?.operation === 'restore') return prior.response;
             if (prior) idempotencyConflict(prior.operation);
-            return strategies.restore({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey) });
+            return await strategies.restore({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey) });
           } catch (err) {
             toTrpc(err);
           }
@@ -811,7 +839,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               },
               'studio_pending',
             );
-            return strategies.create({
+            return await strategies.create({
               accountId,
               clientStrategyId: requireClientStrategyId(input.clientStrategyId),
               idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
@@ -917,6 +945,47 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           toTrpc(err);
         }
       }),
+
+    quota: router({
+      /**
+       * The caller's plan (AL-limits-01): the profile that applies, and each resource's usage, counted from the stored
+       * rows, against its limit. A blank limit reads null and the screen says "not set"; with no profile, every limit does.
+       */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantQuotaSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const [applied, counts] = await Promise.all([quota.applied(accountId), quota.counts(accountId)]);
+            const limits = applied ? await quota.limits(applied.name) : [];
+            const used: Record<(typeof QUANT_QUOTA_RESOURCES)[number], bigint> = {
+              strategies: counts.strategies,
+              versions: counts.mostVersions,
+              concurrent_runs: counts.running,
+              paper_runs: counts.paperRuns,
+              runs: counts.runs,
+              // Nothing stores these yet: no log line is kept apart from its run's result, no collaborator can be added
+              // and no notice is sent, so the stored count is zero.
+              log_lines: 0n,
+              storage: counts.storage,
+              collaborators: 0n,
+              notifications: 0n,
+            };
+            return {
+              profile: applied?.name ?? null,
+              source: applied?.source ?? null,
+              resources: QUANT_QUOTA_RESOURCES.map((resource) => {
+                const limit = limits.find((row) => row.resource === resource)?.limit ?? null;
+                return { resource, used: used[resource].toString(), limit: limit === null ? null : limit.toString() };
+              }),
+              asOf: new Date().toISOString(),
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
 
     backtest: router({
       run: publicJurisdictionProcedure('quant', 'fiat')
@@ -1682,6 +1751,67 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      quota: router({
+        /** Sets one limit of one profile; blank is "not set". A reason is required and kept with the actor. */
+        set: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantQuotaSetInputSchema)
+          .output(quantQuotaSetOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              const saved = await quota.set({
+                profile: input.profile,
+                resource: input.resource,
+                limit: parseLimit(input.limit),
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+              return { ...saved, limit: saved.limit === null ? null : saved.limit.toString() };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** Attaches an account to a profile. A reason is required and kept with the actor. */
+        assign: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantQuotaAssignInputSchema)
+          .output(quantQuotaAssignOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              return await quota.assign({
+                accountId: input.accountId,
+                profile: input.profile,
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** One profile's limits as stored. */
+        profile: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(z.object({ profile: z.string().trim().min(1).max(80) }))
+          .output(quantQuotaProfileSchema)
+          .query(async ({ input }) => {
+            try {
+              const rows = await quota.limits(input.profile);
+              return {
+                profile: input.profile,
+                limits: QUANT_QUOTA_RESOURCES.map((resource) => {
+                  const row = rows.find((r) => r.resource === resource);
+                  return { resource, limit: row?.limit == null ? null : row.limit.toString(), setAt: row?.setAt ?? null };
+                }),
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
 
       template: router({
         /** The next version of a starter template. Every number stays blank; the row records who, why and when. */
