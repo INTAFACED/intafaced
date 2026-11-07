@@ -16,16 +16,16 @@ const en = {
   accountWalletStatus: 'Connected: it signs for every account here',
   accountSmart: 'Smart account',
   accountDeployed: 'Deployed',
-  accountNotDeployed: 'Not deployed yet: it is created the first time you use it',
+  accountNotDeployed: 'Not deployed: it is created the first time you use it',
   accountFactoryUnset: 'Not available: the smart account factory is not deployed on this network.',
   accountReading: 'Reading the network…',
-  custodialNote: 'Exchange sub-accounts are a separate thing and are not offered yet, so there is nothing to open for them here.',
+  custodialNote: 'Exchange sub-accounts are a separate thing and are not offered, so there is nothing to open for them here.',
   multisigTitle: 'Multi-signature accounts',
   multisigNote:
     'A shared account needs a set number of its signers to approve each action, each with their own wallet. No one can approve for another signer.',
   multisigCreate: 'Create a multi-signature account',
   multisigBlocked:
-    'The multi-signature contract is not deployed on this network yet, so a shared account cannot be made. How many signers it may have is also waiting for a decision.',
+    'The multi-signature contract is not deployed on this network, so a shared account cannot be made. How many signers it may have is also waiting for a decision.',
   // Safety
   safetyTitle: 'Stay safe',
   safetyNote: 'Habits that keep a wallet safe. Each one opens the control it is about.',
