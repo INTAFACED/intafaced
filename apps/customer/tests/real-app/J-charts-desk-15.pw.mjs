@@ -179,10 +179,10 @@ test(`${J} #1 projects a buy limit at a TEST price below the market: a preview-s
   await expect(previewLine()).toBeVisible();
   await expect(previewLine()).toHaveAttribute('data-side', 'buy');
   expect(Number(await previewLine().getAttribute('data-price'))).toBe(Number(price));
-  await expect(previewLine()).toContainText(/preview/i);
+  await expect(previewLine()).toContainText('Preview buy limit');
   await expect(previewLine()).toContainText(/not placed/i);
   previewStyle = await previewLine().evaluate((el) => getComputedStyle(el).borderTopStyle);
-  expect(['dashed', 'dotted']).toContain(previewStyle);
+  expect(previewStyle).toBe('dashed');
   // Drawn at its price on the chart, below the market's last price.
   await expectAtPrice(previewLine(), price);
   expect(await priceAt(centreY(await previewLine().boundingBox()))).toBeLessThan(await lastPrice());
@@ -251,6 +251,8 @@ test(`${J} #3 confirms: the order shows as a line with its size, and a retry sen
   const creates = placements(page);
   await ticket().getByRole('button', { name: 'Place' }).click();
   await expect(reviewOrder()).toBeVisible();
+  await expect(reviewOrder()).toContainText(`Buy ${AMOUNT} BTC`);
+  await expect(reviewOrder()).toContainText('Held on confirm');
   expect(creates).toHaveLength(0);
   expect((await usdt()).held).toBe(0n);
 
@@ -391,10 +393,15 @@ test(`${J} #5 drags beyond the protection distance: a confirmation naming the di
   await expect(protectionAsk()).toBeVisible();
   // It names the distance dragged from the last price, and the protection distance it goes beyond.
   const text = await protectionAsk().textContent();
-  const percents = [...text.matchAll(/(\d+(?:\.\d+)?)\s?%/g)].map((m) => Number(m[1]));
-  const dragged = (Math.abs(Number(target) - last) / last) * 100;
-  expect(percents.some((p) => Math.abs(p - dragged) < 0.2)).toBe(true);
-  expect(percents.some((p) => Math.abs(p - limit) < 0.005)).toBe(true);
+  const named = text.match(/^([\d,]+\.\d+) is (\d+\.\d\d)% from the last price, beyond the protection distance of (\d+\.\d\d)%/);
+  expect(named, text).toBeTruthy();
+  const [, priceText, distance, limitText] = named;
+  // The limit is the owner's TEST 5.00%, as the service publishes it.
+  expect(limitText).toBe('5.00');
+  expect(Number(limitText)).toBe(limit);
+  const dragged = Number(priceText.replaceAll(',', ''));
+  expect(Math.abs(Number(distance) - (Math.abs(dragged - last) / last) * 100)).toBeLessThan(0.1);
+  expect(Number(distance)).toBeGreaterThan(Number(limitText));
 
   // Before anything is sent: no order, check, replace or cancel went out, and the order rests as it was.
   await page.waitForTimeout(1000);
@@ -422,7 +429,8 @@ test(`${J} #6 opens the chart of a halted market: order entry on the chart is di
     // The refusal names the halt.
     const refusal = bar().getByTestId('chart-trading-refusal');
     await expect(refusal).toBeVisible({ timeout: 30_000 });
-    await expect(refusal).toContainText(/halt/i);
+    await expect(refusal).toContainText('this market is halted');
+    await expect(refusal).toHaveAttribute('data-code', 'trade.chart.order_entry_refused');
     // Order entry on the chart is disabled: the ticket button, the price-axis plus button and the order menu.
     await expect(orderOnChart()).toBeDisabled();
     await expect(ticket()).toHaveCount(0);
