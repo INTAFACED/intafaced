@@ -624,6 +624,29 @@ export function stackNotActive(err) {
 }
 
 /**
+ * The new `ladder` in the order it is placed while the maker's own quotes from the cycle before (`standing`: `side` and a
+ * decimal `price` each, or null when they are not known) still rest (exported for tests). Quotes that meet none of them go
+ * up first, in ladder order; the ones that would meet one go up after. The matching engine's self-trade prevention takes
+ * a standing quote off the book, unfilled, when a new quote of the same account meets it. So when the price has jumped
+ * (a `move` on the book a follower is quoted around), the first new bid used to expire every old ask under it while no
+ * new ask was up yet, and for that moment the book had no asks at all (failure it prevents: J-derivatives-06 #1 on
+ * branch run 42411089854, the long's market buy found no ask after J-derivatives-04 put the TEST price back, and on the
+ * local stack J-derivatives-04 #1's market buy left the book unfilled at 21:55:45 UTC, 7 Nov, between the maker's first
+ * new bid and its first new ask). With the side that meets nothing up first, each side always has a quote resting.
+ */
+export function placingOrder(ladder, standing) {
+  if (!Array.isArray(standing) || standing.length === 0) return ladder;
+  const prices = (side) => standing.filter((q) => q?.side === side).map((q) => toScaled(String(q.price)));
+  const oldBids = prices('buy');
+  const oldAsks = prices('sell');
+  const meets = (q) => {
+    const price = toScaled(q.price);
+    return q.side === 'buy' ? oldAsks.some((a) => price >= a) : oldBids.some((b) => price <= b);
+  };
+  return [...ladder.filter((q) => !meets(q)), ...ladder.filter((q) => meets(q))];
+}
+
+/**
  * The ids of resting quotes (open orders with `id`, `side` and a decimal `price`) that the new `ladder` would meet: a
  * sell at or under its best bid, or a buy at or over its best ask. A post-only quote that meets one is refused.
  */
@@ -826,6 +849,8 @@ async function runLoop(opts, home) {
   const crossings = new Map();
   /** The maker's resting quote ids per market, from the cycle before. */
   const quoted = new Map();
+  /** The maker's resting quotes per market from the cycle before, with their sides and prices (`placingOrder`). */
+  const standingQuotes = new Map();
   /** The `move` shift each walked market was last quoted at, so a changed shift is quoted as a clean jump. */
   const quotedShift = new Map();
   const place = (client, m, side, price, amount, tif) =>
@@ -926,7 +951,12 @@ async function runLoop(opts, home) {
         /** The quotes that rest, at the price each went in at (a band-refused one at the band's edge). */
         const resting = [];
         let refused = null;
-        for (const q of ladder) {
+        /** Those of last cycle's quotes not yet taken down, so the new ladder goes up without emptying a side. */
+        const still = new Set(previous ?? []);
+        const standing = (standingQuotes.get(m.symbol) ?? []).filter((q) => still.has(q.id));
+        /** This cycle's resting quotes with their ids, for the next cycle's `placingOrder`. */
+        const placed = [];
+        for (const q of placingOrder(ladder, standing)) {
           // A new post-only quote can meet one of the maker's own old quotes when the walk jumps; it is refused and
           // that level is quoted again next cycle.
           let quote = q;
@@ -944,12 +974,16 @@ async function runLoop(opts, home) {
           if (r.status === 201 && r.json?.id) {
             ids.push(r.json.id);
             // A post-only quote that would take is answered 201 but not open: it does not rest. A jump's quote may fill.
-            if (r.json.status === 'open') resting.push(quote);
+            if (r.json.status === 'open') {
+              resting.push(quote);
+              placed.push({ id: r.json.id, side: quote.side, price: quote.price });
+            }
             else if (r.json.status !== 'closed')
               refused = `${r.status} ${r.json.status} ${(r.json.rejectCode ?? '').toString().slice(0, 120)}`.trim();
           } else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) {
             ids.push(r.json.orderId);
             resting.push(quote);
+            placed.push({ id: r.json.orderId, side: quote.side, price: quote.price });
           } else refused = `${r.status} ${(r.json?.intafacedCode ?? r.json?.code ?? r.json?.error ?? r.text).toString().slice(0, 120)}`;
         }
         // An old quote whose cancel did not go through stays on the list, so the next cycle cancels it again (a 404 or
@@ -962,6 +996,9 @@ async function runLoop(opts, home) {
           if (r.status >= 300 && r.status !== 404 && r.status !== 409) stale.push(id);
         }
         quoted.set(m.symbol, [...ids, ...stale]);
+        // A stale quote whose cancel failed keeps its side and price, so the next ladder still goes up around it.
+        const kept = new Set(stale);
+        standingQuotes.set(m.symbol, [...placed, ...standing.filter((q) => kept.has(q.id))]);
         const rested = resting.length;
         log(
           `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
