@@ -48,8 +48,8 @@
     },
     "TRADE_COPY_FEE_SHARE_LAW": {
       "service": "trade",
-      "value": "{\"published\": true, \"leaderShareBps\": 2000, \"earningsCapPerFollower\": \"5000.00\", \"decayRoundTrips\": 100, \"decayShareBps\": 2500}",
-      "note": "TEST copy fee share, not the owner's figures (those are set on the host; see the private records): 20% of the trading fee on copied orders, capped at 5000 per follower, a quarter of that after 100 round trips."
+      "value": "{\"published\": true, \"leaderShareBps\": 1234, \"earningsCapPerFollower\": \"5000.00\", \"decayRoundTrips\": 100, \"decayShareBps\": 2500}",
+      "note": "LOCAL TEST ONLY, not an owner decision: a synthetic copy fee share (the owner's figures are set on the host; see the private records). 12.34% of the trading fee on copied orders, a value chosen to look synthetic, capped at 5000 per follower, a quarter of that after 100 round trips."
     },
     "TRADE_COPY_JURISDICTION_LAW": {
       "service": "trade",
