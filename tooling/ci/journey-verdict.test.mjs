@@ -20,7 +20,11 @@ const report = (...specs) => ({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
 const ok = (t, f) => spec(t, 'expected', f);
 const bad = (t, f) => spec(t, 'unexpected', f);
 const skip = (t, f) => spec(t, 'skipped', f);
-const flaky = (t, f) => spec(t, 'flaky', f);
+const flaky = (t, f) => ({
+  title: t,
+  file: f ?? 'J-a-01.pw.mjs',
+  tests: [{ status: 'flaky', results: [{ status: 'failed' }, { status: 'passed' }] }],
+});
 const parkedIssue = {
   issue: { number: 9, state: 'open', title: 'Journey broken on main: J-a-02' },
   comments: [
@@ -257,12 +261,13 @@ test('the last complete list on main carries on; an incomplete one is passed ove
   const lists = { 3: { incomplete: true, steps: [] }, 2: { steps: [{ step: 'J-a-01#1' }] }, 1: { steps: [] } };
   assert.deepEqual(
     priorSetAside(runs, (id) => lists[id] ?? null),
-    { steps: [{ step: 'J-a-01#1' }], from: 2 },
+    { steps: [{ step: 'J-a-01#1' }], from: 2, previous: false },
   );
   assert.deepEqual(
     priorSetAside(runs, () => null),
-    { steps: [], from: null },
+    { steps: [], from: null, previous: false },
   );
+  assert.equal(priorSetAside(runs, (id) => (id === 3 ? { steps: [] } : null)).previous, true, 'the run just before is complete');
 });
 
 test('set aside: a non-money step on the list that fails leaves the verdict green, and is reported', () => {
@@ -312,4 +317,53 @@ test('never excused: a set-aside step that is skipped or missing', () => {
   const setAside = aside({ 'J-a-01#1': 'flaky' }, 3);
   assert.match(run(report(skip('J-a-01 #1')), { setAside }).red[0].why, /skipped now/);
   assert.match(run(report(bad('J-a-01 #2')), { setAside }).red[0].why, /missing now/);
+});
+
+// GPT-6.1 Sol's review of 7f61f4d (#7363), both reproduced there and here before the fix.
+const retried = (title, ...results) => ({
+  title,
+  file: 'J-a-01.pw.mjs',
+  tests: [{ status: 'flaky', results: results.map((status) => ({ status })) }],
+});
+
+test('a failed test whose retry was skipped is a failure, not flaky: it gets no set-aside and is red', () => {
+  const newest = readReport(report(retried('J-a-01 #1', 'failed', 'skipped')));
+  assert.equal(newest.states['J-a-01#1'], 'failed');
+  assert.deepEqual(aside(newest.states, 3), {});
+  assert.match(run(report(retried('J-a-01 #1', 'failed', 'skipped'))).red[0].why, /failing, not in the baseline/);
+  // A real flake still reads as flaky: a failed attempt, then a passed one.
+  assert.equal(readReport(report(retried('J-a-01 #1', 'failed', 'passed'))).states['J-a-01#1'], 'flaky');
+  assert.equal(readReport(report(retried('J-a-01 #1', 'timedOut', 'passed'))).states['J-a-01#1'], 'flaky');
+  assert.equal(readReport(report(retried('J-a-01 #1', 'passed', 'failed'))).states['J-a-01#1'], 'failed');
+});
+
+test('two failures in a row stay red when the run between them kept an incomplete list', () => {
+  // Run 102: flaky, a complete list. Run 103: failed outright, its list incomplete. Run 104: failed outright.
+  const l102 = { steps: rows(aside({ 'J-a-01#1': 'flaky' }, 2), { 'J-a-01#1': 'flaky' }) };
+  const l103 = { incomplete: true, steps: rows(aside({}, 3, l102.steps), { 'J-a-01#1': 'failed' }) };
+  const lists = { 102: l102, 103: l103 };
+  const found = priorSetAside(
+    [
+      { id: 102, run_number: 102 },
+      { id: 103, run_number: 103 },
+    ],
+    (id) => lists[id] ?? null,
+  );
+  assert.equal(found.from, 102);
+  assert.equal(found.previous, false, 'run 102 is not the run just before 104');
+  const setAside = setAsideSteps({
+    prior: found.steps,
+    priorIsPrevious: found.previous,
+    money: moneyToo,
+    owners,
+    run: { number: 104, at: at(4) },
+  });
+  assert.equal(setAside['J-a-01#1'].since, 102, 'the end date still counts from run 102');
+  assert.match(run(report(bad('J-a-01 #1'), bad('J-a-01 #2')), { setAside }).red[0].why, /failing, not in the baseline/);
+});
+
+test('fail closed: a set-aside step excuses a failure only when the run just before showed it passing', () => {
+  const prior = rows(aside({ 'J-a-01#1': 'flaky' }, 2), { 'J-a-01#1': 'missing' });
+  const setAside = setAsideSteps({ prior, money: moneyToo, owners, run: { number: 103, at: at(3) } });
+  assert.match(run(report(bad('J-a-01 #1'), bad('J-a-01 #2')), { setAside }).red[0].why, /failing, not in the baseline/);
 });

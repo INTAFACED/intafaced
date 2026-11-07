@@ -78,11 +78,20 @@ const byStep = (a, b) => a.localeCompare(b, 'en', { numeric: true });
  * Each journey step in a Playwright JSON report: { states: { step: "passed"|"flaky"|"failed"|"skipped" }, files: { step: file } }.
  * Main trust's rule (post-merge-trust.mjs stepStates): a step with any test that did not end expected or flaky failed,
  * and a failing duplicate title never hides behind a passing one. A step whose tests all passed, at least one only on its
- * retry (Playwright's "flaky": it failed, then passed, on the same commit), is "flaky".
+ * retry, is "flaky": a test Playwright calls flaky counts only when an attempt failed (or timed out) and a later attempt
+ * passed. Playwright also calls a failed test whose retry was skipped flaky; that is a failure. `retried` holds every
+ * step with a test Playwright called flaky, which a count of proven steps must leave out whatever its state.
  */
+const FAILED_ATTEMPT = new Set(['failed', 'timedOut']);
+export const passedAfterFailing = (t) => {
+  const r = (t.results ?? []).map((x) => x.status);
+  const firstFail = r.findIndex((x) => FAILED_ATTEMPT.has(x));
+  return firstFail !== -1 && r.slice(firstFail + 1).includes('passed');
+};
 export function readReport(report) {
   const states = {};
   const files = {};
+  const retried = new Set();
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
@@ -90,10 +99,11 @@ export function readReport(report) {
       if (!m) continue;
       const key = `${m[1]}#${Number(m[2])}`;
       const tests = spec.tests ?? [];
+      if (tests.some((t) => t.status === 'flaky')) retried.add(key);
       const state =
         tests.length && tests.every((t) => t.status === 'skipped')
           ? 'skipped'
-          : tests.length && tests.every((t) => t.status === 'expected' || t.status === 'flaky')
+          : tests.length && tests.every((t) => t.status === 'expected' || (t.status === 'flaky' && passedAfterFailing(t)))
             ? tests.some((t) => t.status === 'flaky')
               ? 'flaky'
               : 'passed'
@@ -106,7 +116,7 @@ export function readReport(report) {
     for (const child of suite.suites ?? []) walk(child, here);
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
-  return { states, files };
+  return { states, files, retried };
 }
 
 /** The money rule (regression-issue-state.md "Money"; the same as project-state ready-journeys.mjs moneyRule). */
@@ -182,6 +192,7 @@ export function issueProblem(n, read) {
 }
 
 const RAN = new Set(['passed', 'flaky', 'failed']);
+const PASSED_BEFORE = new Set(['passed', 'flaky']);
 
 /**
  * The set-aside list after this run: { step: { since, sinceAt, until, active, owner, before } }. `prior` is the rows of
@@ -189,9 +200,10 @@ const RAN = new Set(['passed', 'flaky', 'failed']);
  * states (only on main: a branch run never retries); `run` is { number, at } for this run; `owners` maps a journey id to
  * its module area. A prior entry stays until SET_ASIDE_DAYS after its end (`active` while before the end), so a step
  * gets one set-aside at a time; a non-money step flaky in this run with no entry gets a new one. A money step never.
- * `before` is the step's state in the run that wrote `prior`.
+ * `before` is the step's state in the run just before this one, or null when `prior` is not that run's complete list
+ * (`priorIsPrevious` false): then no failure is excused this run (fail closed).
  */
-export function setAsideSteps({ prior = [], states = {}, money, owners = {}, run, days = SET_ASIDE_DAYS }) {
+export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {}, money, owners = {}, run, days = SET_ASIDE_DAYS }) {
   const now = Date.parse(run.at);
   const owner = (step) => (owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : 'unknown');
   const out = {};
@@ -203,7 +215,7 @@ export function setAsideSteps({ prior = [], states = {}, money, owners = {}, run
       until: e.until,
       active: now < Date.parse(e.until),
       owner: owner(e.step),
-      before: e.state,
+      before: priorIsPrevious ? (e.state ?? null) : null,
     };
   }
   for (const [step, s] of Object.entries(states))
@@ -254,12 +266,13 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
           : why,
         money: isMoney,
       });
-    // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, it didn't also fail outright in
-    // the run before (two in a row is broken), and its baseline entry (if any) is well formed. Skipped or missing never.
+    // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, the run just before this one
+    // showed it passing (two failures in a row is broken; an unknown previous result excuses nothing), and its baseline
+    // entry (if any) is well formed. Skipped or missing never.
     if (
       asideNow(step) &&
       newest.states[step] === 'failed' &&
-      setAside[step].before !== 'failed' &&
+      PASSED_BEFORE.has(setAside[step].before) &&
       !dupes.has(step) &&
       (!e || e.money === isMoney)
     ) {
@@ -295,15 +308,17 @@ export const PRIOR_LOOKBACK = 5;
 
 /**
  * The last complete set-aside list on main: `runs` is historyRuns() (oldest first), `read(id)` a run's set-aside.json or
- * null. The newest run whose list is there and complete wins; a run before the set-aside existed has none. Returns
- * { steps, from }.
+ * null. The newest run whose list is there and complete wins, so the end dates carry on; a run before the set-aside
+ * existed has none. `previous` is true only when that list is the run just before this one's: otherwise the step's
+ * previous result is unknown and no failure is excused (setAsideSteps priorIsPrevious). Returns { steps, from, previous }.
  */
 export function priorSetAside(runs, read) {
+  const newest = runs.at(-1);
   for (const r of [...runs].reverse().slice(0, PRIOR_LOOKBACK)) {
     const list = read(r.id);
-    if (list && !list.incomplete && Array.isArray(list.steps)) return { steps: list.steps, from: r.run_number };
+    if (list && !list.incomplete && Array.isArray(list.steps)) return { steps: list.steps, from: r.run_number, previous: r === newest };
   }
-  return { steps: [], from: null };
+  return { steps: [], from: null, previous: false };
 }
 
 /** The pass history after the named run: for each step, the newest run number that passed it. `reports` is
@@ -464,10 +479,15 @@ function main() {
   // targeted run on a branch never retries). An unreadable list is red, and this run's list says it is incomplete, so
   // the next run reads an earlier one instead of starting over.
   let prior = [];
+  let priorIsPrevious = false;
   let incomplete = false;
   try {
-    if (arg('--prior-set-aside')) prior = json(arg('--prior-set-aside')).steps ?? [];
-    else if (fetch) {
+    if (arg('--prior-set-aside')) {
+      // Offline: the file stands for the run just before this one, so an incomplete one excuses nothing.
+      const list = json(arg('--prior-set-aside'));
+      prior = list.steps ?? [];
+      priorIsPrevious = !list.incomplete;
+    } else if (fetch) {
       const current = ghApi(`/repos/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`);
       thisRun = { number: current.run_number, at: current.created_at };
       const recent = ghApi(`/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=30`).workflow_runs;
@@ -476,8 +496,11 @@ function main() {
         (id) => downloadReport(repo, id, 'set-aside.json'),
       );
       prior = found.steps;
+      priorIsPrevious = found.previous;
       console.log(
-        found.from ? `set-aside list carried on from run ${found.from}` : 'no earlier set-aside list on main: it starts from this run',
+        found.from
+          ? `set-aside list carried on from run ${found.from}${found.previous ? '' : ', not the run just before this one: no failure is excused this run'}`
+          : 'no earlier set-aside list on main: it starts from this run',
       );
     }
   } catch (e) {
@@ -485,7 +508,9 @@ function main() {
     problem(`the last run on main's set-aside list couldn't be read: ${e.message.split('\n')[0]}`);
   }
   const onMain = !target && (!fetch || process.env.GITHUB_REF === 'refs/heads/main');
-  const setAside = newest ? setAsideSteps({ prior, states: onMain ? newest.states : {}, money, owners, run: thisRun }) : {};
+  const setAside = newest
+    ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money, owners, run: thisRun })
+    : {};
   const verdict =
     newest && named
       ? judge({ newest, named, baseline, money, passedSince, issues, target, setAside })
@@ -495,10 +520,9 @@ function main() {
     .sort(([a], [b]) => byStep(a, b))
     .map(([step, { before, ...a }]) => ({ step, file: newest?.files[step] ?? null, state: newest?.states[step] ?? 'missing', ...a }));
   if (arg('--set-aside-out')) {
-    // Not proven from this run: every set-aside step, and every step that passed only on its retry, money or not.
-    const flakyNow = Object.entries(newest?.states ?? {})
-      .filter(([, st]) => st === 'flaky')
-      .map(([k]) => k);
+    // Not proven from this run: every set-aside step, and every step with a test Playwright called flaky (a pass only on
+    // its retry, or a failure whose retry was skipped), money or not.
+    const flakyNow = [...(newest?.retried ?? [])];
     const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow])].sort(byStep);
     const out = { days: SET_ASIDE_DAYS, run: thisRun, ...(incomplete || !newest ? { incomplete: true } : {}), steps: asideRows, notProven };
     writeFileSync(arg('--set-aside-out'), `${JSON.stringify(out, null, 2)}\n`);
