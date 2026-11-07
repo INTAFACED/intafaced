@@ -92,7 +92,7 @@ export function TemplatesMenu({
                         onApply(template);
                       }}
                     >
-                      <span className="cw-templates-name">{template.name}</span>
+                      <span className="cw-templates-name">{template.name}</span>{' '}
                       <span className="cw-templates-facts">{t('Template facts', { count: template.studies.length })}</span>
                     </button>
                   ))}
