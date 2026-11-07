@@ -139,6 +139,11 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_LIQUIDITY_ROUTER_ADDRESS: evmAddressDefaultZero,
     /**
+     * The liquidity incentives contract (D-liquidity-09). NO DEFAULT: zero refuses `protocol.liquidity_incentives_unset`
+     * and pools list no incentives.
+     */
+    PROTOCOL_LIQUIDITY_INCENTIVES_ADDRESS: evmAddressDefaultZero,
+    /**
      * The fee tiers a new pool is offered at, in whole bps, comma-separated (D-liquidity-03). An owner list with NO
      * DEFAULT: blank is null, `amm.feeTiers` refuses `amm.fee_tiers_unset`, and the form offers only a custom fee.
      */

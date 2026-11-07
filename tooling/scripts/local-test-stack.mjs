@@ -1492,6 +1492,7 @@ function testChain() {
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
     liquidityRouter: record.liquidityRouter ?? null,
+    liquidityIncentives: record.liquidityIncentives ?? null,
   };
 }
 

@@ -193,3 +193,45 @@ export type LiquidityPositions = z.infer<typeof liquidityPositionsOutputSchema>;
 export type LiquidityPositionRow = z.infer<typeof liquidityPositionRowSchema>;
 export type LiquidityPosition = z.infer<typeof liquidityPositionOutputSchema>;
 export type LiquidityExplain = z.infer<typeof liquidityExplainOutputSchema>;
+
+// ── Liquidity incentives (D-liquidity-09, J-dex-protocol-13 #8) ───────────────────────────────────────────────────────
+
+export const LIQUIDITY_INCENTIVES_UNSET = 'protocol.liquidity_incentives_unset' as const;
+
+export const incentiveRowSchema = z
+  .object({
+    id: z.number().int().nonnegative(),
+    pool: address,
+    rewardToken: liquidityTokenSchema,
+    incentivizer: address,
+    total: units,
+    blocks: z.number().int().positive(),
+    funded: z.boolean(),
+    /** `unfunded` cannot start; `ready` is funded and not started; `running` accrues; `ended` is past its last block. */
+    state: z.enum(['unfunded', 'ready', 'running', 'ended']),
+    startBlock: z.number().int().nullable(),
+    endBlock: z.number().int().nullable(),
+    staked: units,
+    /** The asking account's stake and earnings, and its share of everything staked now, in bps. */
+    yourStake: units,
+    yourReward: units,
+    yourSplitBps: z.number().int(),
+  })
+  .strict();
+export const liquidityIncentivesInputSchema = z.object({ pool: address, account: address.optional() });
+/** `amm.incentives`: every incentive announced for one pool, read from the incentives contract at one block. */
+export const liquidityIncentivesOutputSchema = z
+  .object({ contract: address, blockNumber: units, incentives: z.array(incentiveRowSchema) })
+  .strict();
+export const liquidityIncentiveCallInputSchema = z.object({
+  account: address,
+  id: z.number().int().nonnegative(),
+  action: z.enum(['stake', 'unstake', 'claim', 'start']),
+});
+/** `amm.buildIncentiveCall`: one unsigned call to the incentives contract; `stake` stakes every share the account holds. */
+export const liquidityIncentiveCallOutputSchema = z
+  .object({ call: protocolUnsignedCallSchema, contract: address, shares: units, pool: address })
+  .strict();
+export type LiquidityIncentiveRow = z.infer<typeof incentiveRowSchema>;
+export type LiquidityIncentives = z.infer<typeof liquidityIncentivesOutputSchema>;
+export type LiquidityIncentiveCall = z.infer<typeof liquidityIncentiveCallOutputSchema>;

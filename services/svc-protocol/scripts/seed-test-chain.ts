@@ -339,6 +339,8 @@ async function seed(out: string) {
   const claimEscrow = await seedClaimLinkParts(all);
   // Last, so every address seeded before it stays where it was.
   const liquidityRouter = await deploy('LiquidityRouter', [factory]);
+  // On-chain liquidity incentives (D-liquidity-09): each incentivizer funds its own; the seed creates none.
+  const liquidityIncentives = await deploy('LiquidityIncentives');
 
   const record = {
     node: version,
@@ -356,6 +358,7 @@ async function seed(out: string) {
     claimEscrow,
     claimExpiryBounds: TEST_CLAIM_EXPIRY_BOUNDS,
     liquidityRouter,
+    liquidityIncentives,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);

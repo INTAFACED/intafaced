@@ -44,6 +44,7 @@ import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
 import { createLiquidityProcedures } from './liquidity/procedures.js';
+import { createIncentiveProcedures } from './liquidity/incentives.js';
 import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/availability.js';
 import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
@@ -450,6 +451,8 @@ export interface ProtocolRouterDeps {
   ammFactoryAddress: () => Address;
   /** `PROTOCOL_LIQUIDITY_ROUTER_ADDRESS` (D-liquidity-02..04). Absent or zero: liquidity calls refuse. */
   liquidityRouter?: () => Address | null;
+  /** `PROTOCOL_LIQUIDITY_INCENTIVES_ADDRESS` (D-liquidity-09). Absent or zero: incentives refuse. */
+  liquidityIncentives?: () => Address | null;
   /** `PROTOCOL_AMM_FEE_TIERS_BPS` (D-liquidity-03). Absent or null: `amm.feeTiers` refuses `amm.fee_tiers_unset`. */
   feeTiers?: () => number[] | null;
   /**
@@ -1467,6 +1470,12 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
         quoteTtlSeconds: () => deps.swapQuoteTtlSeconds?.() ?? null,
         slippageBps: () => deps.swapSlippageBps(),
         readPairs: (factory) => readPairs(factory),
+        toTrpcError,
+      }),
+      ...createIncentiveProcedures({
+        client: () => chain.client,
+        rpcUrl: () => chain.config.rpcUrl,
+        incentives: () => deps.liquidityIncentives?.() ?? null,
         toTrpcError,
       }),
       ...createPoolFeesProcedures({

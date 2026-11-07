@@ -6,6 +6,7 @@ import { isServiceNotConnected, networkLabel } from '../blockers';
 import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explorer/parts';
 import { WatchShell } from '../watch/AddressPage';
 import { PriceChart } from './PriceChart';
+import { IncentivesPanel } from '../liquidity/Incentives';
 import { reservesWords } from './PoolsList';
 import { useExplorerWords } from './refusal';
 import { bpsPercent, pairName, tokenAmount, tokenSymbol } from './format';
@@ -84,6 +85,7 @@ export function PoolPage({ address }: { address: string }) {
       <>
         <PoolFacts pool={pool} t={t} />
         <FeesPanel key={pool.address} pool={pool.address} indexedFeeBps={pool.feeBps} t={t} />
+        <IncentivesPanel pool={pool.address} />
         <Panel title={t('chartTitle')}>
           <div role="group" aria-label={t('chartWidthGroup')} className="pool-chart-widths">
             {(['5m', '1h'] as const).map((width) => (

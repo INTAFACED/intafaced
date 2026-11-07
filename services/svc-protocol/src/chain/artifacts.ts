@@ -45,6 +45,7 @@ export type ArtifactName =
   | 'LiquidityPool'
   | 'LiquidityFactory'
   | 'LiquidityRouter'
+  | 'LiquidityIncentives'
   | 'FailClosedOracle'
   | 'IsolatedLendingMarket'
   | 'MerchantAccept'

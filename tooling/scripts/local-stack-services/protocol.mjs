@@ -35,6 +35,7 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_RPC_URL: chain ? chain.rpcUrl : UNUSED,
       ...(chain && process.env.LOCAL_STACK_PROTOCOL_AMM_FACTORY !== 'off' ? { PROTOCOL_AMM_FACTORY_ADDRESS: chain.factory } : {}),
       ...(chain?.liquidityRouter ? { PROTOCOL_LIQUIDITY_ROUTER_ADDRESS: chain.liquidityRouter } : {}),
+      ...(chain?.liquidityIncentives ? { PROTOCOL_LIQUIDITY_INCENTIVES_ADDRESS: chain.liquidityIncentives } : {}),
       // LOCAL TEST only (tooling/profiles/test-owner-values/protocol.json): the fee tiers offered when a pool is created,
       // in bps. Production stays blank: the form then offers only a custom fee, and the tier list refuses
       // amm.fee_tiers_unset.
