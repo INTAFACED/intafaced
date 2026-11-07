@@ -13,6 +13,7 @@ import {
   ownAgentEvalStartSchema,
   ownAgentAnalyticsSchema,
   ownAgentDryRunStartSchema,
+  ownAgentTestApproveSchema,
   ownAgentTestRunStartSchema,
   ownAgentToolTestStartSchema,
   type OwnAgentLiveEngine,
@@ -961,7 +962,28 @@ export function ownRouter(
           const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
           await assertOwnAgentOn(sqlOf(sql), agent.id);
           const engine = liveEngine ? liveEngine() : 'unknown';
-          return new OwnTestRunStore(sqlOf(sql), feeAssetId).engineRun(ctx.principal.userId, agent.id, input.requestId, input.ask, engine);
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).engineRun(ctx.principal.userId, agent.id, input.requestId, input.ask, engine, {
+            content: input.content ?? null,
+            outputSchema: input.outputSchema ?? null,
+          });
+        });
+      }),
+
+    /**
+     * The person approves a test run's value-moving action (AG-guardrails-03; J-agents-10 #2). Only the payload approved
+     * here counts: it must be the request's own, and the step the engine drafted must match it, or the run is refused
+     * `agents.payload.mismatch`. A test run sends nothing either way: no session, no reservation and no ledger call.
+     * Approving a decided run again returns its decision.
+     */
+    testApprove: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(ownAgentTestApproveSchema)
+      .output(ownAgentTestRunSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const { feeAssetId } = runDepsOf(run);
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new OwnTestRunStore(sqlOf(sql), feeAssetId).approve(ctx.principal.userId, agent.id, input.runId, input.payload);
         });
       }),
 

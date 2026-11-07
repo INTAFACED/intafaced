@@ -21,6 +21,8 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
     history: async () => fail(),
     setLabel: async () => fail(),
     variantCount: async () => fail(),
+    paperRuns: async () => fail(),
+    paperRun: async () => fail(),
   };
 }
 

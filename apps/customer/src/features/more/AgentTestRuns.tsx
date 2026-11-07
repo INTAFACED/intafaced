@@ -5,7 +5,8 @@ import { useResource } from '../../shared/resource';
 import type { ApiResult } from '../../shared/api';
 import { Button, DataTable, Failure, Field, Panel, Stat } from '../../shared/ui';
 import { TabList } from '../protocol/tokens/TabList';
-import { Read, Select } from './common';
+import { Read, Select, TextArea } from './common';
+import { GuardOutcome, replyShown } from './AgentTestGuards';
 import { toolWords } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
@@ -136,6 +137,8 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
   const api = useApi();
   const { t } = agentTestRunsCopy.useCopy();
   const [ask, setAsk] = useState('');
+  const [content, setContent] = useState('');
+  const [outputSchema, setOutputSchema] = useState('');
   const [ran, setRan] = useState<Extract<OwnAgentTestRun, { kind: 'engine_run' }> | null>(null);
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
@@ -161,7 +164,10 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
       setStarted(true);
       return;
     }
-    const res = await api.mutate('agents', 'own.testRun', { id: agent.id, requestId: keys.next(ask), ask }, ownAgentTestRunSchema);
+    // The question, the outside content and the schema are one request: any of them changed is a new one.
+    const requestId = keys.next(JSON.stringify([ask, content, outputSchema]));
+    const extras = { ...(content.trim() ? { content } : {}), ...(outputSchema.trim() ? { outputSchema } : {}) };
+    const res = await api.mutate('agents', 'own.testRun', { id: agent.id, requestId, ask, ...extras }, ownAgentTestRunSchema);
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
     if (!res.ok) return setRefused(res);
@@ -173,6 +179,8 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
       <h3>{t('runTitle')}</h3>
       <p className="muted">{t('runIntro')}</p>
       <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
+      <TextArea label={t('contentField')} value={content} maxLength={8000} onChange={setContent} />
+      <TextArea label={t('schemaField')} value={outputSchema} maxLength={4000} onChange={setOutputSchema} />
       {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
       <label className="agent-surface-choice">
         <input type="checkbox" checked={background} onChange={(event) => setBackground(event.target.checked)} /> {t('runInBackground')}
@@ -199,12 +207,15 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
               {ran.cost} {ran.assetId}
             </dd>
           </dl>
-          <section role="region" aria-label={t('replyTitle')}>
-            <h4>{t('replyTitle')}</h4>
-            <p>
-              <span data-testid="reply-label">{ran.label}</span> <span data-testid="reply-text">{ran.reply}</span>
-            </p>
-          </section>
+          <GuardOutcome agentId={agent.id} run={ran} onDecided={setRan} />
+          {replyShown(ran) ? (
+            <section role="region" aria-label={t('replyTitle')}>
+              <h4>{t('replyTitle')}</h4>
+              <p>
+                <span data-testid="reply-label">{ran.label}</span> <span data-testid="reply-text">{ran.reply}</span>
+              </p>
+            </section>
+          ) : null}
           <DataTable label={t('logTitle')} headers={[t('colStep'), t('colWhat'), t('colLabel')]}>
             {ran.log.map((row) => (
               <tr key={row.step} data-step={row.step}>
@@ -462,7 +473,7 @@ function TestRuns({ agent }: { agent: OwnAgent }) {
                         ? moneyToolWords(t, 'money', row.tool)
                         : toolWords(tools, row.tool)}
                   </td>
-                  <td>{t(row.kind === 'engine_run' ? 'outcome_answered' : `outcome_${row.effect.kind}`)}</td>
+                  <td>{t(row.kind === 'engine_run' ? `guard_${row.guard.outcome}` : `outcome_${row.effect.kind}`)}</td>
                   <td data-testid="test-run-cost">
                     {row.cost} {row.assetId}
                   </td>

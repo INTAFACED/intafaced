@@ -5,7 +5,17 @@ import { assertResultFits, assertRunResultCap } from './limit.js';
 import type { BeginRun, ClaimInput, FinishRun, RunRepository } from './repository.js';
 import { accountCounts } from '../quota/counts.js';
 import type { QuotaGate, QuotaResource } from '../quota/quota.js';
-import type { ClaimRow, CostBreakdown, RunCounts, RunKind, RunResultBody, StoredRun, StoredRunResult } from './types.js';
+import type {
+  ClaimRow,
+  CostBreakdown,
+  PaperSettings,
+  RunCounts,
+  RunKind,
+  RunResultBody,
+  StoredPaperRun,
+  StoredRun,
+  StoredRunResult,
+} from './types.js';
 
 interface RunSql {
   id: string;
@@ -66,7 +76,9 @@ function isImmutable(err: unknown): boolean {
 }
 
 function readKind(value: string): RunKind {
-  if (value !== 'backtest' && value !== 'sandbox') throw new QuantError('quant.params_invalid', 'run kind is not backtest or sandbox');
+  if (value !== 'backtest' && value !== 'sandbox' && value !== 'paper') {
+    throw new QuantError('quant.params_invalid', 'run kind is not backtest, sandbox or paper');
+  }
   return value;
 }
 
@@ -177,8 +189,38 @@ function claimOf(row: ClaimSql): ClaimRow {
   };
 }
 
+interface PaperSql {
+  cash: string;
+  holdings: unknown;
+  feed: string;
+  fee_role: string;
+  slippage_bps: string;
+  delay_bars: number;
+}
+
+function paperOf(row: RunSql & PaperSql): StoredPaperRun {
+  const holdings = Array.isArray(row.holdings)
+    ? row.holdings.map((h) => ({
+        symbol: String((h as { symbol?: unknown }).symbol ?? ''),
+        qty: String((h as { qty?: unknown }).qty ?? ''),
+      }))
+    : [];
+  if (row.feed !== 'own_venue' || (row.fee_role !== 'taker' && row.fee_role !== 'maker')) {
+    throw new QuantError('quant.params_invalid', 'paper run settings are not readable');
+  }
+  const settings: PaperSettings = {
+    cash: row.cash,
+    holdings,
+    feed: 'own_venue',
+    feeRole: row.fee_role,
+    slippageBps: row.slippage_bps,
+    delayBars: row.delay_bars,
+  };
+  return { run: runOf(row), settings };
+}
+
 /** What starting a run counts against: one more stored run, one more running now, and at least one more byte stored. */
-const RUN_QUOTAS: readonly QuotaResource[] = ['concurrent_runs', 'runs', 'storage'];
+const RUN_QUOTAS: readonly QuotaResource[] = ['concurrent_runs', 'paper_runs', 'runs', 'storage'];
 
 /**
  * `quota`: the account's plan limits (AL-limits-01), checked in the same transaction as a new run row. Omitted only by
@@ -194,6 +236,7 @@ export function createPostgresRunRepository(
   const runs = relation(schema, 'runs');
   const claims = relation(schema, 'claims');
   const runLabels = relation(schema, 'run_labels');
+  const paperRuns = relation(schema, 'paper_runs');
 
   async function query<T>(db: Sql | TransactionSql, text: string, params: readonly unknown[]): Promise<T[]> {
     return db.unsafe(text, params as never[]);
@@ -232,6 +275,28 @@ export function createPostgresRunRepository(
       const rows = db === sql ? await insert(sql) : await (db as TransactionSql).savepoint((sp) => insert(sp));
       const row = rows[0];
       if (!row) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+      if (input.paper) {
+        const p = input.paper;
+        await query(
+          db,
+          `INSERT INTO ${paperRuns}
+             (run_id, account_id, strategy_id, strategy_version, cash, holdings, feed, fee_role, slippage_bps, delay_bars, started_at)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11)`,
+          [
+            row.id,
+            input.userId,
+            input.strategyId,
+            input.strategyVersion,
+            p.cash,
+            p.holdings,
+            p.feed,
+            p.feeRole,
+            p.slippageBps,
+            p.delayBars,
+            row.started_at,
+          ],
+        );
+      }
       return runOf(row);
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
@@ -261,11 +326,13 @@ export function createPostgresRunRepository(
             { resource: 'concurrent_runs', used: counts.running, adding: 1n },
             { resource: 'runs', used: counts.runs, adding: 1n },
             { resource: 'storage', used: counts.storage, adding: 1n },
+            ...(input.kind === 'paper' ? [{ resource: 'paper_runs' as const, used: counts.paperRuns, adding: 1n }] : []),
           ]);
           return insertRun(tx, input);
         });
       }
-      return insertRun(sql, input);
+      // A paper run's row and its settings are one write.
+      return input.paper ? sql.begin((tx) => insertRun(tx, input)) : insertRun(sql, input);
     },
 
     async finish(input: FinishRun) {
@@ -407,6 +474,30 @@ export function createPostgresRunRepository(
       return { label: rows[0].label };
     },
 
+    async paperRuns(input) {
+      const rows = await query<RunSql & PaperSql>(
+        sql,
+        `SELECT r.*, p.cash, p.holdings, p.feed, p.fee_role, p.slippage_bps, p.delay_bars
+           FROM ${runs} r JOIN ${paperRuns} p ON p.run_id = r.id
+          WHERE r.user_id = $1::uuid AND ($2::text IS NULL OR r.strategy_id = $2)
+          ORDER BY r.started_at DESC, r.id DESC
+          LIMIT $3`,
+        [input.userId, input.strategyId, input.limit],
+      );
+      return rows.map(paperOf);
+    },
+
+    async paperRun(input) {
+      const rows = await query<RunSql & PaperSql>(
+        sql,
+        `SELECT r.*, p.cash, p.holdings, p.feed, p.fee_role, p.slippage_bps, p.delay_bars
+           FROM ${runs} r JOIN ${paperRuns} p ON p.run_id = r.id
+          WHERE r.id = $1 AND r.user_id = $2::uuid`,
+        [input.id, input.userId],
+      );
+      return rows[0] ? paperOf(rows[0]) : null;
+    },
+
     async okKinds(input) {
       const ok = (kind: RunKind) =>
         `EXISTS (SELECT 1 FROM ${runs} WHERE user_id = $1::uuid AND kind = '${kind}' AND finished_at IS NOT NULL AND outcome_code = 'ok')`;
@@ -430,16 +521,18 @@ export function createPostgresRunRepository(
       const byOutcome = new Map<string, number>();
       let backtest = 0;
       let sandbox = 0;
+      let paper = 0;
       for (const row of rows) {
         const count = Number(row.n);
         if (!Number.isInteger(count)) throw new QuantError('quant.params_invalid', 'run count is not an integer');
         if (row.kind === 'backtest') backtest += count;
         if (row.kind === 'sandbox') sandbox += count;
+        if (row.kind === 'paper') paper += count;
         const outcome = row.outcome_code ?? '';
         byOutcome.set(outcome, (byOutcome.get(outcome) ?? 0) + count);
       }
       return {
-        byKind: { backtest, sandbox },
+        byKind: { backtest, sandbox, paper },
         byOutcome: [...byOutcome.entries()].map(([outcome, count]) => ({ outcome, count })),
         asOf: new Date().toISOString(),
       };
