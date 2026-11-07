@@ -9,6 +9,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, bestPrices, fund, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { followOnScreen, listLeader, userIdOf } from './copy.mjs';
+import { staffSignIn } from './staff.mjs';
 
 // J-copy-bots-otc-13, in the running app (docs/roadmap/journeys.json): support finds a customer's follows, bots and OTC
 // quotes and reads the module numbers, on the founder console. One test per step, titled "J-copy-bots-otc-13 #<n>", run
@@ -17,7 +18,7 @@ import { followOnScreen, listLeader, userIdOf } from './copy.mjs';
 // #1 first makes the customer (a verified TEST account following a TEST leader once, with two TEST bots made through its
 // own algo door), so the live counts are not zero. #1 has two more tests: one source failing alone (svc-trade's own
 // database role loses its read of the follows table, given back after) and svc-trade restarted with a blank window.
-// #2 looks the customer up as founder a; "#2 as a support operator" is red, named for its blocker.
+// #2 looks the customer up as founder a, then as the stack's TEST support staff member (staff.mjs).
 // #3 uses a founder session whose scope list leaves lookup out (`local-test-gates.mjs scoped-session`).
 // #4 makes a real failed settlement (a TEST quote accepted and left past the desk's settle window), a settled quote and
 // an open quote, and reads each back on the desk by its id. The bots are stopped once the file is done, pass or fail.
@@ -322,11 +323,42 @@ test(`${J} #2 looks up a customer with one follow and two bots: listed with thei
   run.write({ seen: { follows: [{ followId, state: shownState }], bots: [...held].sort(byBot) } });
 });
 
-test(`${J} #2 as a support operator`, async () => {
-  throw new Error(
-    `${J} #2 as a support operator is blocked: the founder console has no non-founder staff login, so no support ` +
-      'operator can sign in to look a customer up. #2 above runs as founder a.',
-  );
+test(`${J} #2 looks up as a support operator: the customer's follow and two bots listed with their statuses`, async ({ page, browser }) => {
+  test.setTimeout(240_000);
+  const customer = state('customer');
+  const customerId = state('customerId');
+  const followId = state('followId');
+  const bots = state('bots');
+  const me = await api(customer);
+  const reads = await founderReads();
+  const sql = tradeDb(reads.ctx);
+  try {
+    // The stack's TEST support member (identity's TEST roster: admin:read and support:lookup, no founder rights).
+    const { userId: supportId } = await staffSignIn(page, browser, 'support');
+    expect(supportId, 'support staff is not one of the founders').not.toBe(reads.pair.a.op.userId);
+    expect(supportId).not.toBe(reads.pair.b.op.userId);
+    const [{ since }] = await sql`SELECT now() AS since`;
+    await page.goto(`${ADMIN}/trade-ops/copy-bots-otc`);
+    await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1 })).toBeVisible(UNBUILT);
+    const follow = await ownFollow(me, followId);
+    const held = await botStatuses(me, bots);
+    await page.getByRole('searchbox', { name: 'Find a customer' }).fill(customer.email);
+    await page.getByRole('searchbox', { name: 'Find a customer' }).press('Enter');
+    // Each row read back by its own id, with its status as svc-trade gives it to the customer.
+    const follows = page.getByRole('table', { name: 'Follows', exact: true });
+    await expect(follows.locator('tbody tr')).toHaveCount(1);
+    await expect(cellOf(follows, followId, 1)).toHaveText(followState(follow, Date.now()));
+    await expect(cellOf(follows, followId, 0)).toHaveText(state('leaderName'));
+    const listed = page.getByRole('table', { name: 'Bots', exact: true });
+    await expect(listed.locator('tbody tr')).toHaveCount(2);
+    for (const { botId, status } of held) await expect(cellOf(listed, botId, 3)).toHaveText(status);
+    // svc-trade audited the lookup once, under the support member, not a founder.
+    const [{ n }] = await sql`SELECT count(*)::int AS n FROM trade.operator_audit
+      WHERE kind = 'copy_bots_otc.lookup' AND operator_id = ${supportId} AND account_id = ${customerId} AND occurred_at >= ${since}`;
+    expect(n).toBe(1);
+  } finally {
+    await sql.end();
+  }
 });
 
 test(`${J} #3 looks up as an agent without the lookup scope: refused`, async ({ page }) => {
@@ -341,9 +373,8 @@ test(`${J} #3 looks up as an agent without the lookup scope: refused`, async ({ 
         WHERE kind = 'copy_bots_otc.lookup' AND operator_id = ${operatorId} AND account_id = ${customerId} AND occurred_at >= ${since}`
     )[0].n;
   try {
-    // What the lookup reads just before the refusal. #2's own snapshot can be stale here: when a step of this file fails
-    // (the support-operator step always does, by name), Playwright starts a fresh worker and runs afterAll, which
-    // cancels the bots. The follow is read against #2's snapshot too, since afterAll never touches it.
+    // What the lookup reads just before the refusal. #2's own snapshot can be stale here: when a step of this file fails,
+    // Playwright starts a fresh worker and runs afterAll, which cancels the bots. The follow is read against #2's snapshot too, since afterAll never touches it.
     const before = await reads.lookup(customerId);
     const project = (r) => ({
       follows: r.follows.map((f) => ({ followId: f.followId, state: f.state })),
