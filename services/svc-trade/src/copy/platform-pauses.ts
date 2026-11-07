@@ -394,11 +394,27 @@ export class PlatformPauseDesk {
   }
 }
 
-/** Why a copy mirror is refused now (its lead or its market is paused by the platform), or null. */
+/** One spelling of a symbol for matching: `ETH/USDT`, `ETHUSDT` and `eth-usdt` are the same market. */
+const symbolKey = (symbol: string) => symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/** The halted symbol a market reference names, as the pause was written, or null. */
+function haltedSymbol(snapshot: PauseSnapshot, ref: string | null | undefined): string | null {
+  if (!ref) return null;
+  const key = symbolKey(ref);
+  for (const symbol of snapshot.symbols) if (symbolKey(symbol) === key) return symbol;
+  return null;
+}
+
+/**
+ * Why a copy mirror is refused now (its lead or its market is paused by the platform), or null. `marketId` is the
+ * mirror plan's market reference, which the copy driver keeps as the fill's symbol, so it is matched as a market id and
+ * as a symbol.
+ */
 export function mirrorPausedReason(snapshot: PauseSnapshot, leaderUserId: string, marketId: string, symbol?: string | null): string | null {
   if (snapshot.leaderUserIds.has(leaderUserId)) return 'Copying this lead is paused by the platform';
-  if (snapshot.marketIds.has(marketId) || (symbol && snapshot.symbols.has(symbol))) {
-    return `Copying on ${symbol ?? snapshot.symbolOfMarket.get(marketId) ?? marketId} is paused by the platform`;
+  const halted = haltedSymbol(snapshot, symbol) ?? haltedSymbol(snapshot, marketId);
+  if (snapshot.marketIds.has(marketId) || halted) {
+    return `Copying on ${halted ?? snapshot.symbolOfMarket.get(marketId) ?? marketId} is paused by the platform`;
   }
   return null;
 }
@@ -412,5 +428,5 @@ export function newBotPausedReason(snapshot: PauseSnapshot, botType: string, sym
 
 /** Whether bot orders on this market stop now: its symbol is halted. A paused bot type never stops a running bot. */
 export function botOrdersHalted(snapshot: PauseSnapshot, symbol: string, marketId?: string | null): boolean {
-  return snapshot.symbols.has(symbol) || (!!marketId && snapshot.marketIds.has(marketId));
+  return haltedSymbol(snapshot, symbol) !== null || (!!marketId && snapshot.marketIds.has(marketId));
 }

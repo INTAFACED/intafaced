@@ -222,7 +222,9 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(1);
   // What the follower already holds keeps running: the copied position is untouched.
   expect((await (await api(follower)).balances()).BTC.total).toBe(holding);
+  // The follow's skipped copies name the reason in the follower's words.
   const detail = await openFollow(page, leaderRef);
+  await detail.getByRole('tab', { name: 'Skipped' }).click();
   await expect(detail.getByText('Paused by the platform').first()).toBeVisible();
 });
 

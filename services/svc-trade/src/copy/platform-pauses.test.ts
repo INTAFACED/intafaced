@@ -45,6 +45,14 @@ describe('the gates read the active pauses', () => {
       'Copying on ETH/USDT is paused by the platform',
     );
     expect(mirrorPausedReason(snapshot({ symbols: ['ETH/USDT'], marketIds: ['m-eth'] }), 'leader-2', 'm-btc')).toBeNull();
+    // The copy driver's mirror plan keeps the fill's symbol where the market id goes: a halt on that symbol refuses it.
+    expect(mirrorPausedReason(snapshot({ symbols: ['ETH/USDT'], marketIds: ['m-eth'] }), 'leader-2', 'ETH/USDT')).toBe(
+      'Copying on ETH/USDT is paused by the platform',
+    );
+    expect(mirrorPausedReason(snapshot({ symbols: ['ETH/USDT'], marketIds: ['m-eth'] }), 'leader-2', 'ETHUSDT')).toBe(
+      'Copying on ETH/USDT is paused by the platform',
+    );
+    expect(mirrorPausedReason(snapshot({ symbols: ['ETH/USDT'], marketIds: ['m-eth'] }), 'leader-2', 'BTC/USDT')).toBeNull();
   });
 
   it('refuses a new bot of a paused type or on a halted symbol', () => {
