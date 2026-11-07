@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TradingControlError } from '../controls/trading-controls.js';
-import { canonicalSymbol, parseSignalMaxAge, parseSignalWebhookDays, SignalDesk, type SignalPorts } from './signal-desk.js';
+import { canonicalSymbol, parseSignalMaxAge, parseSignalWebhookDays, SignalDesk, SignalError, type SignalPorts } from './signal-desk.js';
 
 describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
   it('reads the market the way a person names it', () => {
@@ -81,13 +81,14 @@ describe('a webhook places only for a person who may place a trade order', () =>
     }) as never;
 
   function world(opts: {
-    liveTier: 'none' | 'basic';
+    liveTier: 'none' | 'basic' | (() => Promise<'none' | 'basic'>);
     placeOrder?: () => Promise<{ id: string }>;
-    hook?: Partial<{ state: 'active' | 'paused' | 'ended'; grant_expires_at: Date }>;
+    hook?: Partial<{ state: 'active' | 'paused' | 'ended'; grant_expires_at: Date; region: string }>;
   }) {
     const writes: string[] = [];
     const orders: Array<{ userId: string; input: { marketId: string }; webhookId: string }> = [];
     const admissions: string[] = [];
+    const tierAsked: string[] = [];
     let result: { status: number; body: Record<string, unknown> } | null = null;
     const hook = {
       id: HOOK,
@@ -123,7 +124,10 @@ describe('a webhook places only for a person who may place a trade order', () =>
       sql,
       now: () => NOW,
       marketIdBySymbol: async () => 'm-btc',
-      liveTier: async () => opts.liveTier,
+      liveTier: async (userId) => {
+        tierAsked.push(userId);
+        return typeof opts.liveTier === 'function' ? opts.liveTier() : opts.liveTier;
+      },
       admitStart: async (_p, businessId) => {
         admissions.push(businessId);
         return {};
@@ -139,7 +143,7 @@ describe('a webhook places only for a person who may place a trade order', () =>
     });
     const alert = (alertId: string, extra: Record<string, unknown> = {}) =>
       desk.ingest(HOOK, { token: TOKEN, alertId, time: NOW.toISOString(), side: 'buy', amount: '0.01', ...extra });
-    return { desk, alert, writes, orders, admissions };
+    return { desk, alert, writes, orders, admissions, tierAsked };
   }
 
   it('creates for a basic person, keeping the region for the alerts', async () => {
@@ -197,6 +201,42 @@ describe('a webhook places only for a person who may place a trade order', () =>
     expect(out.status).toBe(422);
     expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'tier.insufficient', orderId: null }] });
     expect(w.orders).toEqual([]);
+  });
+
+  it('refuses an alert when the live tier cannot be read: no order, never the stored tier', async () => {
+    const w = world({
+      liveTier: async () => {
+        throw new SignalError('identity is unreachable', 'trade.signal_tier_unavailable', 503);
+      },
+    });
+    const out = await w.alert('a-unreachable');
+    expect(out.status).toBe(422);
+    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'trade.signal_tier_unavailable', orderId: null }] });
+    expect(w.orders).toEqual([]);
+  });
+
+  it("reads the live tier of the webhook's creator, never of a user the alert names", async () => {
+    const w = world({ liveTier: 'basic' });
+    await w.alert('a-who', { userId: 'u-other', user_id: 'u-other' });
+    expect(w.tierAsked).toEqual(['u-1']);
+  });
+
+  it('refuses an alert by jurisdiction on the region kept at create: no order', async () => {
+    // A screening list that blocks KP (the shared check's jurisdiction half); DE stays allowed.
+    vi.stubEnv('INTAFACED_SANCTIONS_REGIONS', 'KP');
+    vi.stubEnv('INTAFACED_SANCTIONS_LIST_SOURCE', 'test-fixture');
+    try {
+      const w = world({ liveTier: 'basic', hook: { region: 'KP' } });
+      const out = await w.alert('a-region');
+      expect(out.status).toBe(422);
+      expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', code: 'denied.region_blocked', orderId: null }] });
+      expect(w.orders).toEqual([]);
+      // The same list lets a DE webhook place, so the refusal above is the region's.
+      const de = world({ liveTier: 'basic' });
+      expect((await de.alert('a-region-de')).status).toBe(200);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it('refuses an alert for a restricted account as trade.desk_restricted: no order', async () => {
