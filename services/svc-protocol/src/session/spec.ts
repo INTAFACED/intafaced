@@ -86,6 +86,16 @@ export const FORBIDDEN_SIGNATURES = [
   // addresses inside a struct with dynamic fields; a fake pair token drains the quote side
   'launch((address,string,string,uint8,uint256,address,uint16,uint256,uint256,uint64,bytes32))', // MemeLaunch
   'createToken(bytes32,(string,string,uint8,uint256,address))', // TokenFactory
+  // Router v2 and SovereignPermit (D-swap-03, D-swap-intents-01): a session never grants or uses a permit (PRM-5), and
+  // router v2's recipient sits in a struct with dynamic fields, so it cannot be bound to the account; refused outright.
+  'exactIn((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))', // SovereignRouterV2
+  'exactOut((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))', // SovereignRouterV2
+  'selfPermit(address,uint256,uint256,uint8,bytes32,bytes32,bool)', // SovereignRouterV2
+  'standingPermit(address,uint160,uint48,uint48,uint256,bytes)', // SovereignRouterV2
+  'permit(address,address,address,uint160,uint48,uint48,uint256,bytes)', // SovereignPermit standing allowance
+  'permitTransferFrom(address,uint256,uint256,uint256,address,address,uint256,bytes)', // SovereignPermit
+  // Permit2-style `transferFrom(owner, to, amount, token)`: pulls under an allowance to a caller-named recipient.
+  'transferFrom(address,address,uint160,address)', // SovereignPermit
 ] as const;
 
 /** selector → the signature it came from, for error messages a human can act on. */

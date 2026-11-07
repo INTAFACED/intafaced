@@ -58,6 +58,14 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-swap-v2": {
+      "types": "./dist/protocol-swap-v2.d.ts",
+      "default": "./dist/protocol-swap-v2.js"
+    },
+    "./protocol-intent": {
+      "types": "./dist/protocol-intent.d.ts",
+      "default": "./dist/protocol-intent.js"
+    },
     "./protocol-address-book": {
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"

@@ -17,6 +17,7 @@
 //   node tooling/scripts/local-test-chain.mjs fund <address>    TEST ETH for gas + TEST Token A and B (stack.mjs tool())
 //   node tooling/scripts/local-test-chain.mjs fund <address> stable   TEST USD only and no TEST ETH (J-dex-protocol-02 #11)
 //   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
+//   node tooling/scripts/local-test-chain.mjs fund <address> plain    TEST Token C, the token with no permit (J-dex-protocol-03)
 //
 // `serve` also runs the TEST network-fee relayer (RC-dex-protocol-02) on RELAY_URL: a stand-in for the relay a person's
 // signed fee-token swap is handed to. It takes one call for the seeded FeeTokenRelay's swap(), sends it from the seeded
@@ -40,6 +41,8 @@ export const CHAIN_PORTS = { gate: 14530, anvil: 14531, control: 14532, secondGa
 export const GATE_URL = `http://${HOST}:${CHAIN_PORTS.gate}`;
 /** The TEST network-fee relayer's submit URL (svc-protocol's PROTOCOL_FEE_RELAY_URL on the stack). */
 export const RELAY_URL = `http://${HOST}:${CHAIN_PORTS.relay}/relay`;
+/** The TEST intent filler's feed (D-swap-09): svc-protocol hands it each open signed order. */
+export const FILL_URL = `http://${HOST}:${CHAIN_PORTS.relay}/fill`;
 /** FeeTokenRelay.swap's selector: the one call the TEST relayer sends. */
 export const RELAY_SWAP_SELECTOR = '0xff292559';
 /**
@@ -219,8 +222,9 @@ async function relay(req, res) {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(body));
   };
+  if (req.method === 'POST' && new URL(req.url, `http://${HOST}`).pathname === '/fill') return fillLater(req, answer);
   if (req.method !== 'POST' || new URL(req.url, `http://${HOST}`).pathname !== '/relay')
-    return answer(404, { error: 'relay.not_found: POST /relay only' });
+    return answer(404, { error: 'relay.not_found: POST /relay or /fill only' });
   let raw = '';
   for await (const chunk of req) {
     raw += chunk;
@@ -257,6 +261,48 @@ async function relay(req, res) {
   }
 }
 
+/**
+ * POST /fill {id, reactor, order, signature, permit}: the TEST intent filler (D-swap-09, J-dex-protocol-03 #7), a stand-in
+ * for outside fillers. It takes an order svc-protocol hands it and fills it at its decay's midpoint, chain time, through
+ * the seed script (the impersonated TEST filler pays the decayed output from TEST tokens it mints). Only the seeded
+ * reactor's orders are taken. Answers {scheduled: seconds from now} at once; the fill itself is on chain later.
+ */
+async function fillLater(req, answer) {
+  let raw = '';
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > 64_000) return answer(413, { error: 'fill.too_large' });
+  }
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return answer(400, { error: 'fill.bad_json' });
+  }
+  const record = fs.existsSync(chainRecordPath()) ? JSON.parse(fs.readFileSync(chainRecordPath(), 'utf8')) : null;
+  if (!record?.reactor) return answer(503, { error: 'fill.unseeded: the TEST chain has no reactor yet' });
+  if (typeof body?.reactor !== 'string' || body.reactor.toLowerCase() !== record.reactor.toLowerCase())
+    return answer(400, { error: 'fill.wrong_reactor: only the seeded reactor is filled' });
+  const order = body.order ?? {};
+  if (!/^\d+$/.test(String(order.decayStart)) || !/^\d+$/.test(String(order.decayEnd)) || !HEX.test(String(body.signature)))
+    return answer(400, { error: 'fill.bad_order' });
+  const head = await anvilRpc('eth_getBlockByNumber', ['latest', false]);
+  const now = Number(BigInt(head.timestamp));
+  const midpoint = Math.floor((Number(order.decayStart) + Number(order.decayEnd)) / 2);
+  const wait = Math.max(0, midpoint - now);
+  const encoded = Buffer.from(JSON.stringify({ order, signature: body.signature, permit: body.permit ?? null })).toString('base64');
+  setTimeout(() => {
+    const tsx = path.join(PROTOCOL_DIR, 'node_modules', '.bin', 'tsx');
+    const child = spawn(tsx, [path.join(PROTOCOL_DIR, 'scripts', 'seed-test-chain.ts'), 'fill', encoded, chainRecordPath()], {
+      cwd: PROTOCOL_DIR,
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, PROTOCOL_RPC_URL: GATE_URL, PROTOCOL_CHAIN_ID: String(TEST_CHAIN_ID) },
+      stdio: ['ignore', 'inherit', 'inherit'],
+    });
+    child.on('error', (err) => console.error(`the TEST filler could not start: ${err.message}`));
+  }, wait * 1000);
+  return answer(200, { scheduled: wait, filler: record.intentFiller ?? null });
+}
+
 async function cmdGate(state, network) {
   if (!['open', 'closed'].includes(state) || ![undefined, 'second'].includes(network)) throw new Error('usage: gate open|closed [second]');
   const answer = await control(`?gate=${state}${network ? `&network=${network}` : ''}`);
@@ -265,8 +311,8 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam]');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'plain'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable|spam|plain]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -289,7 +335,7 @@ if (runningAsCli) {
   else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg, extra);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam]');
+    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|plain]');
     process.exit(2);
   }
 }

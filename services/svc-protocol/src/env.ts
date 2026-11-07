@@ -184,6 +184,34 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_CLAIM_ESCROW_ADDRESS: evmAddressDefaultZero,
     /**
+     * Router v2 swaps (D-swap-03, D-swap-intents-01, -02): the SovereignRouterV2 contract, the SovereignPermit contract it
+     * pulls standing allowances through, and the wrapped native token it wraps around a swap. NO DEFAULTS: any one zero
+     * and every v2 swap procedure refuses `protocol.router_v2_unset`; the v1 pool swap is unchanged.
+     */
+    PROTOCOL_ROUTER_V2_ADDRESS: evmAddressDefaultZero,
+    PROTOCOL_SOVEREIGN_PERMIT_ADDRESS: evmAddressDefaultZero,
+    PROTOCOL_WRAPPED_NATIVE_ADDRESS: evmAddressDefaultZero,
+    /**
+     * The longest a permit signature or a standing allowance may last, in seconds (D-swap-intents-01). An owner setting.
+     * NO DEFAULT: blank refuses `protocol.permit.lifetime_unset` and no permit is built.
+     */
+    PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS: z.string().default('').transform(parsePositiveWhole),
+    /**
+     * Signed intent orders (D-swap-09): the SovereignReactor contract; the owner's allowed decay window as "min,max"
+     * seconds; and where open orders are handed to fillers (the filler feed). NO DEFAULTS: a zero reactor refuses
+     * `dex.intent.reactor_unset`, blank bounds refuse `dex.intent.decay_bounds_unset`, and with no filler URL an order
+     * is kept but nobody is told (it expires unfilled and costs the swapper nothing).
+     */
+    PROTOCOL_INTENT_REACTOR_ADDRESS: evmAddressDefaultZero,
+    PROTOCOL_INTENT_DECAY_BOUNDS: z
+      .string()
+      .default('')
+      .transform((raw) => {
+        const [min, max] = raw.split(',').map((part) => parsePositiveWhole(part.trim()));
+        return min != null && max != null && min <= max ? { minSeconds: min, maxSeconds: max } : null;
+      }),
+    PROTOCOL_INTENT_FILLER_URL: blankIsUnset(z.string().url().optional()),
+    /**
      * Speed up and cancel (RC-dex-protocol-01): how much a replacement raises both fee fields, in basis points (1 to
      * 10000), and the most per gas any replacement may offer, in whole wei. NO DEFAULTS: blank refuses
      * `protocol.fee_bump_unset` / `protocol.fee_ceiling_unset` and nothing is built.

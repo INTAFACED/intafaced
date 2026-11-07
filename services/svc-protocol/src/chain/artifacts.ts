@@ -72,6 +72,11 @@ export type ArtifactName =
   | 'FeeTokenRelay'
   | 'ClaimLinkEscrow'
   | 'TestToken'
+  | 'TestPlainToken'
+  | 'TestWrappedNative'
+  | 'SovereignPermit'
+  | 'SovereignRouterV2'
+  | 'SovereignReactor'
   | 'RwaRegistry'
   | 'CardPull';
 

@@ -134,6 +134,14 @@ library SessionKeyLib {
     bytes4 internal constant SEL_CARD_SET_SETTLEMENT = 0x8f4e6f37; // setSettlement(address)
     bytes4 internal constant SEL_PAYMASTER_WITHDRAW_FLOAT = 0xf9bf1347; // withdrawFloat(address,uint256)
     bytes4 internal constant SEL_CLAIM_LINK_CREATE = 0x9c1d17ce; // create(address,uint256,address,uint64)
+    // Router v2 and SovereignPermit (D-swap-03, D-swap-intents-01): no permit through a session (PRM-5), and router v2's
+    // recipient sits in a struct with dynamic fields, so it cannot be bound to the account.
+    bytes4 internal constant SEL_ROUTER_V2_EXACT_IN = 0xcf2af4bc; // exactIn((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))
+    bytes4 internal constant SEL_ROUTER_V2_EXACT_OUT = 0x083c696d; // exactOut((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))
+    bytes4 internal constant SEL_ROUTER_V2_SELF_PERMIT = 0x53f2c956; // selfPermit(address,uint256,uint256,uint8,bytes32,bytes32,bool)
+    bytes4 internal constant SEL_ROUTER_V2_STANDING_PERMIT = 0xdfc0aacf; // standingPermit(address,uint160,uint48,uint48,uint256,bytes)
+    bytes4 internal constant SEL_SOVEREIGN_PERMIT_ALLOWANCE = 0x0c9c8e22; // permit(address,address,address,uint160,uint48,uint48,uint256,bytes)
+    bytes4 internal constant SEL_SOVEREIGN_PERMIT_TRANSFER = 0xcd280ab8; // permitTransferFrom(address,uint256,uint256,uint256,address,address,uint256,bytes)
 
     // ── The recipient-bearing selectors ──────────────────────────────────────
     //
@@ -292,6 +300,12 @@ library SessionKeyLib {
             selector == SEL_CARD_SET_SETTLEMENT ||
             selector == SEL_PAYMASTER_WITHDRAW_FLOAT ||
             selector == SEL_CLAIM_LINK_CREATE ||
+            selector == SEL_ROUTER_V2_EXACT_IN ||
+            selector == SEL_ROUTER_V2_EXACT_OUT ||
+            selector == SEL_ROUTER_V2_SELF_PERMIT ||
+            selector == SEL_ROUTER_V2_STANDING_PERMIT ||
+            selector == SEL_SOVEREIGN_PERMIT_ALLOWANCE ||
+            selector == SEL_SOVEREIGN_PERMIT_TRANSFER ||
             selector == SEL_UPGRADE_TO_AND_CALL;
     }
 
