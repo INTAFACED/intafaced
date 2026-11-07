@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * The headless builder's steps (.github/workflows/builder.yml): one journey per run, the pinned CLI headless on a fresh
- * runner, its pushes made with the factory token so CI runs on them. Each subcommand is one step of the workflow:
+ * runner, as an unprivileged agent user that holds no GitHub token. Every step runs this file from main's checkout
+ * (the job's working directory), never from the agent's working tree. Each subcommand is one step:
  *
  *   check     the dispatched journey and area are well formed, the journey is in docs/roadmap/journeys.json and isn't
  *             parked; writes its module (the project-state folder of its step words) to GITHUB_OUTPUT.
@@ -9,23 +10,29 @@
  *             `run`. A pause ends the run cleanly; an unreadable switch fails it (closed).
  *   branch    the branch this run builds on: the journey's open PR's branch when there is one (a successor resumes it),
  *             else factory/<journey>, or factory/<journey>-r<run number> when that name is already taken.
+ *   status    the resumed PR's head and its CI runs (names, states, links), for the agent, which can't read GitHub.
  *   prompt    fetches project-state BUILDER.md and the journey's section of its module's journeys.md with the factory
- *             token, and writes the builder's prompt to a file. Nothing from project-state is ever printed.
- *   run       runs the pinned CLI headless with the prompt; everything it prints goes to files in the job, never the log.
- *             Every POLL_MS it reads the switch; a pause, three unreadable reads in a row or the hard deadline stops it.
- *   handover  appends one line to the branch's open PR's body (run, end time, why it ended, head), so a run that was
- *             stopped before it wrote its own handover lines still leaves the successor a trace.
+ *             token, and writes the agent's prompt to a file. Nothing from project-state is ever printed.
+ *   run       runs the CLI headless with the prompt, as the agent user when AGENT_USER is set; everything it prints
+ *             goes to files in the job, never the log. Every POLL_MS it reads the switch (no token: the repo is public);
+ *             a pause, three unreadable reads in a row or the hard stop ends it. However it ends, the agent's processes
+ *             get SIGTERM, then after the grace SIGKILL, and the step exits only once none is left.
+ *   publish   after the agent's processes are gone: takes the agent's commits from a bundle into a fresh repository,
+ *             pushes them to refs/heads/<the picked branch> only (never a force, never another ref), opens or updates
+ *             the PR from the agent's PR text, adds the run's Handover-run line, and, if the agent asked, starts the
+ *             journey's Real-app journeys run and arms squash auto-merge. The factory token reaches only this step and
+ *             the read-only ones before the agent starts.
  *   stats     the run's usage, numbers only, from the CLI's final result event (the trial measures usage per hour).
  *
  * Public-repo hygiene: intafaced is public and anyone can read its logs. Nothing here prints text it fetched from
- * project-state or the CLI's output; messages carry only our own words, numbers, ids that passed a strict pattern, and
- * quoted, shortened input (so input can't add lines or workflow commands to the log).
+ * project-state, the agent's PR text or the CLI's output; messages carry only our own words, numbers, ids that passed a
+ * strict pattern, and quoted, shortened input (so input can't add lines or workflow commands to the log).
  */
-import { spawn } from 'node:child_process';
-import { appendFileSync, closeSync, existsSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { judgeSwitch, readSwitch } from './factory-switch.mjs';
+import { judgeSwitch, readSwitch, SWITCH_BRANCH, SWITCH_FILE } from './factory-switch.mjs';
 
 export const PROJECT_STATE = 'INTAFACED/project-state';
 export const JOURNEY_RE = /^J-[a-z0-9]+(?:-[a-z0-9]+)*-\d{2,3}[a-z]?$/;
@@ -37,12 +44,31 @@ export const HARD_MIN = 320;
 export const POLL_MS = 120_000;
 export const UNREADABLE_LIMIT = 3;
 export const KILL_GRACE_MS = 30_000;
+export const MAX_BODY = 60_000;
 const ADDENDUM = '.github/workflows/builder/ACTIONS.md';
-/** Variables the CLI's process never gets: the runner's command files (so it can't write to the public summary or
- *  to later steps' environment) and the runner's own tokens. */
-const RUNNER_ONLY = /^(GITHUB_(STEP_SUMMARY|OUTPUT|ENV|PATH|STATE)|ACTIONS_.*)$/;
+/** Variables the CLI's process never gets: the runner's command files (so it can't write to the public summary or to
+ *  later steps' environment), the runner's own tokens, and every GitHub token. The CLI's own token is the one kept. */
+const NEVER_TO_AGENT = /^(GITHUB_(STEP_SUMMARY|OUTPUT|ENV|PATH|STATE)|ACTIONS_.*|RUNNER_.*|INPUT_.*)$|TOKEN|_PAT$|^GH_/;
+const KEEP = new Set(['CLAUDE_CODE_OAUTH_TOKEN']);
+/** Variables sudo sets for the agent itself, so they aren't carried over. */
+const SUDO_OWN = new Set([
+  'AGENT_PATH',
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'MAIL',
+  'SUDO_USER',
+  'SUDO_UID',
+  'SUDO_GID',
+  'SUDO_COMMAND',
+  'PWD',
+  'OLDPWD',
+]);
 
 const quote = (s) => JSON.stringify(String(s ?? '').slice(0, 60));
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** The dispatch inputs against journeys.json: { journey, module } or { error }. */
 export function checkInputs(journey, area, journeys) {
@@ -67,22 +93,68 @@ export function journeySection(markdown, journey) {
   return lines.slice(start, end).join('\n').trim();
 }
 
+/** The journey's own branch names: factory/<journey> and factory/<journey>-r<n>, nothing else. */
+export const ownBranch = (journey) => new RegExp(`^${escapeRe(BRANCH_PREFIX + journey)}(?:-r\\d+)?$`);
+
 /**
  * The branch to build on. A successor resumes the journey's open PR (the oldest, if somehow there are two); otherwise
  * a fresh branch from main, never one that already exists (a merged or closed journey PR's branch is history).
  */
 export function pickBranch({ journey, runNumber, openPulls, repo, taken }) {
-  const own = new RegExp(`^${BRANCH_PREFIX}${journey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:-r\\d+)?$`);
+  const own = ownBranch(journey);
   const mine = (openPulls ?? [])
     .filter((p) => p?.head?.repo?.full_name === repo && p?.base?.ref === 'main' && own.test(p?.head?.ref ?? ''))
     .sort((a, b) => a.number - b.number);
-  if (mine.length) return { branch: mine[0].head.ref, resume: true, pr: mine[0].number };
+  if (mine.length) return { branch: mine[0].head.ref, resume: true, pr: mine[0].number, head: mine[0].head.sha };
   const plain = `${BRANCH_PREFIX}${journey}`;
-  return { branch: taken ? `${plain}-r${runNumber}` : plain, resume: false, pr: null };
+  return { branch: taken ? `${plain}-r${runNumber}` : plain, resume: false, pr: null, head: null };
 }
 
-/** The builder's prompt: the run's facts, the Actions addendum, the brief (placeholders filled), the step words. */
-export function buildPrompt({ brief, section, addendum, run }) {
+/** The one ref a run may push: refs/heads/<its branch>, and only a branch of its own journey. Anything else throws. */
+export function pushRef(branch, journey) {
+  if (!JOURNEY_RE.test(journey ?? '')) throw new Error('the journey is not a journey id, so nothing is pushed');
+  if (typeof branch !== 'string' || !ownBranch(journey).test(branch))
+    throw new Error(`refusing to push ${quote(branch)}: a builder pushes only refs/heads/${BRANCH_PREFIX}${journey}`);
+  return `refs/heads/${branch}`;
+}
+
+/**
+ * Whether to push, from what the fresh repository found. `remoteHead` is the branch's head on GitHub (null if it has
+ * none), `newHead` the agent's, `isAncestor(a, b)` whether a is in b's history, `mainHead` main's head.
+ */
+export function publishPlan({ remoteHead, newHead, mainHead, isAncestor }) {
+  if (!/^[0-9a-f]{40}$/.test(newHead ?? '')) return { push: false, why: 'the agent left no commit' };
+  if (remoteHead) {
+    if (newHead === remoteHead) return { push: false, why: 'no new commits' };
+    if (!isAncestor(remoteHead, newHead))
+      return { push: false, refused: true, why: "the agent's head does not contain the branch's pushed head (no force-push)" };
+    return { push: true, why: 'new commits on the branch' };
+  }
+  if (newHead === mainHead || isAncestor(newHead, mainHead)) return { push: false, why: 'no commits beyond main' };
+  return { push: true, why: 'a new branch' };
+}
+
+/** The agent's PR text (`# title` on the first line, then the body) and its asks, checked; never printed. */
+export function readAgentOutput({ prText, actionsText, journey }) {
+  let title = `${journey}: factory builder`;
+  let body = '';
+  if (typeof prText === 'string' && prText.trim()) {
+    const [first, ...rest] = prText.replace(/\r/g, '').split('\n');
+    const t = first.replace(/^#\s*/, '').trim();
+    if (t && t.length <= 200) title = t;
+    body = rest.join('\n').trim();
+  }
+  if (body.length > MAX_BODY) body = `${body.slice(0, MAX_BODY)}\n\n(cut at ${MAX_BODY} characters)`;
+  let asks = { prove: false, arm: false };
+  try {
+    const a = JSON.parse(actionsText ?? '{}');
+    asks = { prove: a?.prove === true, arm: a?.arm === true };
+  } catch {}
+  return { title, body, asks };
+}
+
+/** The builder's prompt: the run's facts, the CI status, the addendum, the brief (placeholders filled), the steps. */
+export function buildPrompt({ brief, section, addendum, status, run }) {
   const filled = brief
     .replaceAll('{JOURNEY}', run.journey)
     .replaceAll('{AREA}', run.area)
@@ -92,9 +164,11 @@ export function buildPrompt({ brief, section, addendum, run }) {
     `Journey: ${run.journey}`,
     `Area: ${run.area}`,
     `Module (project-state folder of the step words): ${run.module}`,
-    `Branch: ${run.branch} (${run.resume ? `resuming open PR #${run.pr}` : 'new, from origin/main'}), checked out at ${run.workspace}`,
+    `Branch: ${run.branch} (${run.resume ? `resuming open PR #${run.pr}` : 'new, from origin/main'}), checked out at ${run.work}`,
+    `Your output folder (PR text and asks): ${run.out}`,
+    `Main's rules, as they stand on main: ${run.rules} (they win over the branch's AGENTS.md and CLAUDE.md)`,
     `This run: ${run.runUrl}`,
-    `Start wrapping up (push, handover lines, exit) at: ${run.soft}`,
+    `Start wrapping up (commit, write the PR text, end) at: ${run.soft}`,
     `Hard stop (the job ends you): ${run.hard}`,
   ];
   return [
@@ -102,6 +176,10 @@ export function buildPrompt({ brief, section, addendum, run }) {
     '',
     '# This run',
     ...facts.map((f) => `- ${f}`),
+    '',
+    '# CI on your branch when this run started',
+    '',
+    (status ?? '').trim() || 'No PR yet: this is the first run for this branch.',
     '',
     addendum.trim(),
     '',
@@ -114,6 +192,16 @@ export function buildPrompt({ brief, section, addendum, run }) {
     section.trim(),
     '',
   ].join('\n');
+}
+
+/** The CI status the agent gets: the PR's head and each run on it, our own CI's names and states only. */
+export function statusText({ pr, head, runs }) {
+  const lines = [`PR #${pr}, head ${head}.`];
+  const list = (runs ?? []).filter((r) => r && typeof r.name === 'string');
+  if (!list.length) lines.push('No CI runs on this head yet.');
+  for (const r of list)
+    lines.push(`- ${r.name.slice(0, 80)}: ${r.status}${r.conclusion ? `, ${r.conclusion}` : ''} (run ${r.id}, ${r.html_url})`);
+  return lines.join('\n');
 }
 
 /** What the watcher does now: keep going, or stop and why. */
@@ -155,46 +243,139 @@ export function usageStats(jsonl) {
   };
 }
 
-/** The CLI's environment: the step's, minus the runner's command files and tokens. */
+/** The CLI's environment: the step's, minus the runner's files and tokens and every GitHub token. */
 export function childEnv(env) {
-  return Object.fromEntries(Object.entries(env).filter(([k]) => !RUNNER_ONLY.test(k)));
+  return Object.fromEntries(Object.entries(env).filter(([k]) => KEEP.has(k) || !NEVER_TO_AGENT.test(k)));
 }
 
-// ---- GitHub, through the factory token ----
+/**
+ * How the CLI is started. As the agent user: through sudo, with only the filtered variables' names carried over (the
+ * values travel in the environment, never in the command line), PATH set for it, its home its own.
+ */
+export function agentCommand({ user, bin, args, env, work }) {
+  const own = childEnv(env);
+  if (!user) return { cmd: bin, args, env: own, cwd: work };
+  const names = Object.keys(own).filter((k) => !SUDO_OWN.has(k) && /^[A-Za-z_][A-Za-z0-9_]*$/.test(k));
+  return {
+    cmd: 'sudo',
+    // `env -C`: the agent's home is closed to the runner, so the agent user itself enters the working tree.
+    args: [
+      '-n',
+      '-u',
+      user,
+      '-H',
+      `--preserve-env=${names.join(',')}`,
+      '--',
+      '/usr/bin/env',
+      '-C',
+      work,
+      `PATH=${env.AGENT_PATH ?? env.PATH}`,
+      bin,
+      ...args,
+    ],
+    env: own,
+    cwd: '/',
+  };
+}
+
+// ---- Processes ----
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Whether any process is left in the group (EPERM: one is, run by another user). */
+export function groupAlive(pgid) {
+  try {
+    process.kill(-pgid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM';
+  }
+}
+
+function userAlive(user) {
+  if (!user) return false;
+  try {
+    execFileSync('pgrep', ['-u', user], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function signalAll(pgid, user, sig) {
+  try {
+    process.kill(-pgid, sig);
+  } catch {}
+  if (user)
+    try {
+      execFileSync('sudo', ['-n', 'pkill', `-${sig.replace('SIG', '')}`, '-u', user], { stdio: 'ignore' });
+    } catch {}
+}
+
+/**
+ * Ends every process the CLI started: SIGTERM to its process group (and, as the agent user, to all of that user's
+ * processes, wherever they moved), the grace, then SIGKILL, and returns only once none is left (or throws).
+ */
+export async function stopAll({ pgid, user, graceMs = KILL_GRACE_MS, step = 100 }) {
+  const alive = () => groupAlive(pgid) || userAlive(user);
+  if (!alive()) return 'none left';
+  signalAll(pgid, user, 'SIGTERM');
+  for (let t = 0; t < graceMs && alive(); t += step) await sleep(step);
+  if (!alive()) return 'ended on SIGTERM';
+  signalAll(pgid, user, 'SIGKILL');
+  for (let t = 0; t < 10_000 && alive(); t += step) await sleep(step);
+  if (alive()) throw new Error('processes of the agent are still running after SIGKILL');
+  return 'killed after the grace';
+}
+
+// ---- GitHub ----
 
 /** GitHub's API root: GITHUB_API_URL, which every Actions job sets, else github.com's (the tests plant a local one). */
 const apiRoot = () => process.env.GITHUB_API_URL || 'https://api.github.com';
+const timed = (init) => ({ ...init, signal: AbortSignal.timeout(30_000) });
 
 function api(token) {
-  const headers = { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' };
-  const call = async (method, path, body) => {
-    const res = await fetch(`${apiRoot()}${path}`, {
-      method,
-      headers: body ? { ...headers, 'content-type': 'application/json' } : headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+  const headers = { accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28' };
+  if (token) headers.authorization = `Bearer ${token}`;
+  const call = (method, path, body, accept) =>
+    fetch(
+      `${apiRoot()}${path}`,
+      timed({
+        method,
+        headers: { ...headers, ...(accept ? { accept } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      }),
+    );
+  const ok = async (res, what) => {
+    if (!res.ok) throw new Error(`${what}: HTTP ${res.status}`);
     return res;
   };
   return {
-    async json(path) {
-      const res = await call('GET', path);
-      if (!res.ok) throw new Error(`GET ${path.split('?')[0]}: HTTP ${res.status}`);
-      return res.json();
-    },
-    async status(path) {
-      return (await call('GET', path)).status;
-    },
-    async raw(repo, file) {
-      const path = `/repos/${repo}/contents/${file}?ref=main`;
-      const res = await fetch(`${apiRoot()}${path}`, { headers: { ...headers, accept: 'application/vnd.github.raw' } });
-      if (!res.ok) throw new Error(`GET ${repo} ${file}: HTTP ${res.status}`);
-      return res.text();
-    },
-    async patch(path, body) {
-      const res = await call('PATCH', path, body);
-      if (!res.ok) throw new Error(`PATCH ${path}: HTTP ${res.status}`);
+    json: async (path) => (await ok(await call('GET', path), `GET ${path.split('?')[0]}`)).json(),
+    status: async (path) => (await call('GET', path)).status,
+    raw: async (repo, file) =>
+      (
+        await ok(await call('GET', `/repos/${repo}/contents/${file}?ref=main`, null, 'application/vnd.github.raw'), `GET ${repo} ${file}`)
+      ).text(),
+    send: async (method, path, body) => {
+      const res = await ok(await call(method, path, body), `${method} ${path}`);
+      return res.status === 204 ? null : res.json();
     },
   };
+}
+
+/** The switch without a token (the repository is public): the agent's step holds no GitHub token at all. */
+async function switchVerdict(repo) {
+  try {
+    const res = await fetch(
+      `${apiRoot()}/repos/${repo}/contents/${SWITCH_FILE}?ref=${SWITCH_BRANCH}`,
+      timed({ headers: { accept: 'application/vnd.github.raw' } }),
+    );
+    if (!res.ok) return 'unreadable';
+    return judgeSwitch(await res.text()).pass ? 'run' : 'pause';
+  } catch {
+    return 'unreadable';
+  }
 }
 
 async function openPulls(gh, repo) {
@@ -222,19 +403,24 @@ function output(pairs) {
   else process.stdout.write(text);
 }
 
-/** A read that hangs counts as unreadable, so the watcher never stalls on GitHub. */
-const timedFetch = (url, init) =>
-  fetch(String(url).replace('https://api.github.com', apiRoot()), { ...init, signal: AbortSignal.timeout(30_000) });
-
-async function switchVerdict(env) {
-  try {
-    return judgeSwitch(await readSwitch({ repo: env.REPO, token: env.GH_TOKEN, fetchImpl: timedFetch })).pass ? 'run' : 'pause';
-  } catch {
-    return 'unreadable';
-  }
-}
-
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+const readIf = (f) => (existsSync(f) ? readFileSync(f, 'utf8') : null);
+
+/** git in the fresh publish repository only (never the agent's): no hooks, no global or system config. */
+function gitIn(dir, args, extraEnv = {}) {
+  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', '-C', dir, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      PATH: process.env.PATH,
+      HOME: dir,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_TERMINAL_PROMPT: '0',
+      ...extraEnv,
+    },
+  }).trim();
+}
 
 async function main(cmd, args, env) {
   if (cmd === 'check') {
@@ -247,11 +433,10 @@ async function main(cmd, args, env) {
   }
   if (cmd === 'switch') {
     need(env, 'REPO', 'GH_TOKEN');
-    const text = await readSwitch({ repo: env.REPO, token: env.GH_TOKEN, fetchImpl: timedFetch }); // throws: unreadable fails the run closed
-    const v = judgeSwitch(text);
+    const fetchImpl = (url, init) => fetch(String(url).replace('https://api.github.com', apiRoot()), timed(init));
+    const v = judgeSwitch(await readSwitch({ repo: env.REPO, token: env.GH_TOKEN, fetchImpl })); // throws: fails closed
     output({ run: v.pass ? 'true' : 'false' });
-    if (v.pass) console.log('FACTORY=run: the builder starts');
-    else console.log(`::notice title=Factory paused::${v.why}, so no builder starts`);
+    console.log(v.pass ? 'FACTORY=run: the builder starts' : `::notice title=Factory paused::${v.why}, so no builder starts`);
     return 0;
   }
   if (cmd === 'branch') {
@@ -263,13 +448,25 @@ async function main(cmd, args, env) {
     const st = await gh.status(`/repos/${env.REPO}/branches/${encodeURIComponent(plain)}`);
     if (st !== 200 && st !== 404) throw new Error(`GET branch ${plain}: HTTP ${st}`);
     const b = pickBranch({ journey: env.JOURNEY, runNumber: env.RUN_NUMBER, openPulls: pulls, repo: env.REPO, taken: st === 200 });
-    output({ branch: b.branch, resume: String(b.resume), pr: b.pr ?? '' });
+    pushRef(b.branch, env.JOURNEY);
+    output({ branch: b.branch, resume: String(b.resume), pr: b.pr ?? '', head: b.head ?? '' });
     console.log(b.resume ? `resuming #${b.pr} on ${b.branch}` : `new branch ${b.branch} from origin/main`);
     return 0;
   }
+  if (cmd === 'status') {
+    need(env, 'BUILDER_DIR');
+    let text = '';
+    if (env.RESUME === 'true') {
+      need(env, 'REPO', 'GH_TOKEN', 'PR', 'HEAD');
+      const runs = await api(env.GH_TOKEN).json(`/repos/${env.REPO}/actions/runs?head_sha=${env.HEAD}&per_page=100`);
+      text = statusText({ pr: env.PR, head: env.HEAD, runs: runs?.workflow_runs });
+    }
+    writeFileSync(join(env.BUILDER_DIR, 'status.md'), text);
+    console.log(`status written: ${Buffer.byteLength(text)} bytes`);
+    return 0;
+  }
   if (cmd === 'prompt') {
-    need(env, 'GH_TOKEN', 'JOURNEY', 'AREA', 'MODULE', 'BRANCH', 'RUN_URL', 'STARTED_AT', 'GITHUB_WORKSPACE');
-    const dir = args[0];
+    need(env, 'GH_TOKEN', 'JOURNEY', 'AREA', 'MODULE', 'BRANCH', 'RUN_URL', 'STARTED_AT', 'GITHUB_WORKSPACE', 'BUILDER_DIR', 'WORK', 'OUT');
     const gh = api(env.GH_TOKEN);
     const brief = await gh.raw(PROJECT_STATE, 'BUILDER.md');
     const file = `operation-zero/modules/${env.MODULE}/acceptance/journeys.md`;
@@ -280,6 +477,7 @@ async function main(cmd, args, env) {
       brief,
       section,
       addendum: readFileSync(join(env.GITHUB_WORKSPACE, ADDENDUM), 'utf8'),
+      status: readIf(join(env.BUILDER_DIR, 'status.md')),
       run: {
         journey: env.JOURNEY,
         area: env.AREA,
@@ -287,121 +485,203 @@ async function main(cmd, args, env) {
         branch: env.BRANCH,
         resume: env.RESUME === 'true',
         pr: env.PR,
-        workspace: env.GITHUB_WORKSPACE,
+        work: env.WORK,
+        out: env.OUT,
+        rules: '/opt/factory-cli/main-AGENTS.md',
         runUrl: env.RUN_URL,
         soft: iso(start + SOFT_MIN * 60_000),
         hard: iso(start + HARD_MIN * 60_000),
       },
     });
-    writeFileSync(join(dir, 'prompt.txt'), prompt);
+    writeFileSync(join(env.BUILDER_DIR, 'prompt.txt'), prompt);
     console.log(
       `prompt written: ${Buffer.byteLength(prompt)} bytes (brief ${Buffer.byteLength(brief)}, steps ${Buffer.byteLength(section)})`,
     );
     return 0;
   }
   if (cmd === 'run') {
-    need(env, 'REPO', 'GH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_BIN', 'STARTED_AT');
-    const dir = args[0];
+    need(env, 'REPO', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_BIN', 'STARTED_AT', 'BUILDER_DIR', 'WORK');
+    const dir = env.BUILDER_DIR;
     const hardAt = Number(env.STARTED_AT) * 1000 + HARD_MIN * 60_000;
     const pollMs = Number(env.POLL_MS ?? POLL_MS);
-    const cliArgs = JSON.parse(env.CLAUDE_ARGS ?? '[]');
+    const graceMs = Number(env.KILL_GRACE_MS ?? KILL_GRACE_MS);
+    const user = env.AGENT_USER || null;
+    const c = agentCommand({ user, bin: env.CLAUDE_BIN, args: JSON.parse(env.CLAUDE_ARGS ?? '[]'), env, work: env.WORK });
     const stdin = openSync(join(dir, 'prompt.txt'), 'r');
     const out = openSync(join(dir, 'out.jsonl'), 'a');
     const err = openSync(join(dir, 'err.log'), 'a');
     const startedAt = Date.now();
-    const child = spawn(env.CLAUDE_BIN, cliArgs, {
-      cwd: env.GITHUB_WORKSPACE,
-      env: childEnv(env),
-      stdio: [stdin, out, err],
-      detached: true,
-    });
+    // Its own process group (detached), so one signal reaches everything it starts that stays in the group.
+    const child = spawn(c.cmd, c.args, { cwd: c.cwd, env: c.env, stdio: [stdin, out, err], detached: true });
     [stdin, out, err].forEach((fd) => closeSync(fd));
     let reason = null;
     let unreadable = 0;
-    const stopGroup = (why) => {
+    const stop = (why) => {
       if (reason) return;
       reason = why;
       console.log(`stopping the builder: ${why}`);
-      try {
-        process.kill(-child.pid, 'SIGTERM');
-      } catch {}
-      setTimeout(() => {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch {}
-      }, KILL_GRACE_MS).unref();
+      signalAll(child.pid, user, 'SIGTERM');
     };
-    const deadline = setTimeout(() => stopGroup('deadline'), Math.max(0, hardAt - Date.now()));
-    // A cancelled run (gh run cancel) signals this step: the CLI's whole process group goes with it.
-    for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => stopGroup('cancelled'));
+    const deadline = setTimeout(() => stop('deadline'), Math.max(0, hardAt - Date.now()));
+    // A cancelled run (gh run cancel) signals this step: the CLI and everything it started go with it.
+    for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => stop('cancelled'));
     let busy = false;
     const poll = setInterval(async () => {
       if (busy) return;
       busy = true;
-      const verdict = await switchVerdict(env);
+      const verdict = await switchVerdict(env.REPO);
       busy = false;
       unreadable = verdict === 'unreadable' ? unreadable + 1 : 0;
       const a = nextAction({ now: Date.now(), hardAt, verdict, unreadable });
-      if (a.stop) stopGroup(a.stop);
+      if (a.stop) stop(a.stop);
     }, pollMs);
     const { code, signal } = await new Promise((resolve) => {
-      child.on('error', (e) => resolve({ code: null, signal: null, spawnError: e.code ?? 'spawn failed' }));
-      child.on('exit', (c, s) => resolve({ code: c, signal: s }));
+      child.on('error', () => resolve({ code: null, signal: null }));
+      child.on('exit', (cd, s) => resolve({ code: cd, signal: s }));
     });
     clearTimeout(deadline);
     clearInterval(poll);
+    // However the CLI ended, nothing it started outlives this step.
+    const cleanup = await stopAll({ pgid: child.pid, user, graceMs });
     const ended = reason ?? (code === 0 ? 'done' : 'error');
     const minutes = Math.round((Date.now() - startedAt) / 6000) / 10;
     writeFileSync(join(dir, 'end.json'), JSON.stringify({ reason: ended, code, signal, minutes, endedAt: iso(Date.now()) }));
-    console.log(`the builder ended: ${ended} after ${minutes} min (exit ${code ?? 'none'}${signal ? `, ${signal}` : ''})`);
+    console.log(
+      `the builder ended: ${ended} after ${minutes} min (exit ${code ?? 'none'}${signal ? `, ${signal}` : ''}); its processes: ${cleanup}`,
+    );
     if (ended === 'error') {
       console.log('::error title=Builder failed::the CLI exited non-zero; its output stays inside the job (public logs)');
       return 1;
     }
     return 0;
   }
-  if (cmd === 'handover') {
-    need(env, 'REPO', 'GH_TOKEN', 'BRANCH', 'RUN_ID', 'RUN_URL');
-    const dir = args[0];
-    const end = existsSync(join(dir, 'end.json')) ? JSON.parse(readFileSync(join(dir, 'end.json'), 'utf8')) : null;
-    const reason = end?.reason ?? 'ended before the builder ran';
+  if (cmd === 'publish') {
+    need(env, 'REPO', 'GH_TOKEN', 'JOURNEY', 'BRANCH', 'RUN_ID', 'RUN_URL', 'BUILDER_DIR');
+    const dir = env.BUILDER_DIR;
+    const ref = pushRef(env.BRANCH, env.JOURNEY);
     const gh = api(env.GH_TOKEN);
-    const pull = (await openPulls(gh, env.REPO)).find((p) => p?.head?.ref === env.BRANCH && p?.head?.repo?.full_name === env.REPO);
-    if (!pull) {
-      console.log(`no open PR for ${env.BRANCH} (${reason}): nothing to hand over on a PR`);
-      return 0;
+    const end = readIf(join(dir, 'end.json')) ? JSON.parse(readIf(join(dir, 'end.json'))) : null;
+    let reason = end?.reason ?? 'ended before the builder ran';
+    // A fresh repository, filled only from the agent's bundle (data, not a repository whose config or hooks could run)
+    // and from GitHub. The token is in git's environment for the push alone, never in a command line.
+    const repoDir = join(dir, 'publish');
+    mkdirSync(repoDir, { recursive: true });
+    gitIn(repoDir, ['init', '-q']);
+    const url = `${env.GITHUB_SERVER_URL || 'https://github.com'}/${env.REPO}.git`;
+    const bundle = join(dir, 'branch.bundle');
+    let newHead = null;
+    if (existsSync(bundle)) {
+      gitIn(repoDir, ['fetch', '-q', '--no-tags', bundle, 'HEAD:refs/factory/new']);
+      newHead = gitIn(repoDir, ['rev-parse', 'refs/factory/new']);
     }
+    gitIn(repoDir, ['fetch', '-q', '--no-tags', url, 'refs/heads/main:refs/remotes/origin/main']);
+    const mainHead = gitIn(repoDir, ['rev-parse', 'refs/remotes/origin/main']);
+    const st = await gh.status(`/repos/${env.REPO}/branches/${encodeURIComponent(env.BRANCH)}`);
+    if (st !== 200 && st !== 404) throw new Error(`GET branch: HTTP ${st}`);
+    let remoteHead = null;
+    if (st === 200) {
+      gitIn(repoDir, ['fetch', '-q', '--no-tags', url, `${ref}:refs/remotes/origin/branch`]);
+      remoteHead = gitIn(repoDir, ['rev-parse', 'refs/remotes/origin/branch']);
+    }
+    const isAncestor = (a, b) => {
+      try {
+        gitIn(repoDir, ['merge-base', '--is-ancestor', a, b]);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const plan = publishPlan({ remoteHead, newHead, mainHead, isAncestor });
+    let head = remoteHead;
+    if (plan.push) {
+      const auth = Buffer.from(`x-access-token:${env.GH_TOKEN}`).toString('base64');
+      console.log(`::add-mask::${auth}`);
+      try {
+        gitIn(repoDir, ['push', '-q', '--no-verify', url, `refs/factory/new:${ref}`], {
+          GIT_CONFIG_COUNT: '1',
+          GIT_CONFIG_KEY_0: `http.${env.GITHUB_SERVER_URL || 'https://github.com'}/.extraheader`,
+          GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${auth}`,
+        });
+        head = newHead;
+        console.log(`pushed ${newHead} to ${ref} (${plan.why})`);
+      } catch (e) {
+        reason = `${reason}; push refused`;
+        console.log(
+          `::warning title=Push refused::${ref}: ${
+            String(e.stderr ?? e.message)
+              .split('\n')
+              .find((l) => /error|denied|refus|reject/i.test(l))
+              ?.slice(0, 200) ?? 'git push failed'
+          }`,
+        );
+      }
+    } else {
+      if (plan.refused) reason = `${reason}; not pushed: ${plan.why}`;
+      console.log(`nothing pushed: ${plan.why}`);
+    }
+    if (!head) {
+      console.log('no branch on GitHub, so no PR');
+      return plan.refused ? 1 : 0;
+    }
+    const agent = readAgentOutput({
+      prText: readIf(join(dir, 'pr.md')),
+      actionsText: readIf(join(dir, 'actions.json')),
+      journey: env.JOURNEY,
+    });
+    let pull = (await openPulls(gh, env.REPO)).find((p) => p?.head?.ref === env.BRANCH && p?.head?.repo?.full_name === env.REPO);
     const line = handoverLine({
-      body: pull.body,
+      body: agent.body,
       runId: env.RUN_ID,
       runUrl: env.RUN_URL,
       endedAt: end?.endedAt ?? iso(Date.now()),
       reason,
-      head: pull.head.sha,
+      head,
     });
-    if (!line) {
-      console.log(`#${pull.number}: this run's handover line is already there`);
-      return 0;
+    const body = `${agent.body}${line ? `\n\n${line}` : ''}\n`;
+    if (pull) {
+      await gh.send('PATCH', `/repos/${env.REPO}/pulls/${pull.number}`, { title: agent.title, body });
+      console.log(`#${pull.number}: updated, with the handover line (${reason})`);
+    } else {
+      pull = await gh.send('POST', `/repos/${env.REPO}/pulls`, { title: agent.title, head: env.BRANCH, base: 'main', body, draft: false });
+      console.log(`#${pull.number}: opened`);
     }
-    const body = `${(pull.body ?? '').trimEnd()}\n\n${line}\n`;
-    if (body.length > 65_000) {
-      console.log(`::warning title=Handover not written::#${pull.number}'s body is near GitHub's limit`);
-      return 0;
+    if (agent.asks.prove) {
+      const test = `apps/customer/tests/real-app/${env.JOURNEY}.pw.mjs`;
+      let has = true;
+      try {
+        gitIn(repoDir, ['cat-file', '-e', `${head}:${test}`]);
+      } catch {
+        has = false;
+      }
+      if (has) {
+        await gh.send('POST', `/repos/${env.REPO}/actions/workflows/real-app-journeys.yml/dispatches`, {
+          ref: env.BRANCH,
+          inputs: { journeys: `${env.JOURNEY}.pw.mjs` },
+        });
+        console.log(`started the Real-app journeys run of ${env.JOURNEY}.pw.mjs on ${env.BRANCH}`);
+      } else console.log(`no ${test} on the head, so no journeys run`);
     }
-    await gh.patch(`/repos/${env.REPO}/pulls/${pull.number}`, { body });
-    console.log(`#${pull.number}: handover line added (${reason}, head ${pull.head.sha})`);
-    return 0;
+    if (agent.asks.arm) {
+      execFileSync('gh', ['pr', 'merge', String(pull.number), '-R', env.REPO, '--auto', '--squash'], {
+        stdio: 'ignore',
+        env: { PATH: process.env.PATH, GH_TOKEN: env.GH_TOKEN, HOME: dir },
+      });
+      console.log(`#${pull.number}: squash auto-merge armed`);
+    }
+    return plan.refused ? 1 : 0;
   }
   if (cmd === 'stats') {
-    const dir = args[0];
-    const file = join(dir, 'out.jsonl');
-    const s = existsSync(file) ? usageStats(readFileSync(file, 'utf8')) : null;
+    need(env, 'BUILDER_DIR');
+    const s = usageStats(readIf(join(env.BUILDER_DIR, 'out.jsonl')) ?? '');
     if (!s) {
       console.log('no usage: the CLI wrote no final result (it was stopped, or never started)');
       return 0;
     }
-    const rows = Object.entries(s).map(([k, v]) => `${k}=${v ?? 'missing'}`);
-    console.log(rows.join(' '));
+    console.log(
+      Object.entries(s)
+        .map(([k, v]) => `${k}=${v ?? 'missing'}`)
+        .join(' '),
+    );
     if (env.GITHUB_STEP_SUMMARY)
       appendFileSync(
         env.GITHUB_STEP_SUMMARY,
