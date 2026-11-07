@@ -6,6 +6,8 @@ import { useState } from 'react';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import {
   ALLOCATION_METHODS,
+  ISSUANCE_KINDS,
+  ISSUANCE_KIND_LABEL,
   LAUNCH_TYPES,
   PERIOD_NAMES,
   draftPayload,
@@ -13,6 +15,7 @@ import {
   type LaunchEventRow,
   type LaunchIssuer,
 } from '@/lib/launch-issuers/model';
+import { IssuanceText } from '@/components/launch-issuers/issuance-text';
 import '@/components/desk.css';
 
 /**
@@ -34,6 +37,11 @@ const EMPTY: LaunchDraftForm = {
   price: '',
   paymentAsset: '',
   rateSource: '',
+  issuanceKind: '',
+  backingAsset: '',
+  oracle: '',
+  legTerms: '',
+  flags: '',
 };
 
 export function LaunchDraftDesk({
@@ -156,6 +164,46 @@ export function LaunchDraftDesk({
             <input value={form.rateSource} onChange={(e) => set('rateSource')(e.target.value)} />
           </label>
         </div>
+        <fieldset className="dk-stack" aria-label="Issuance">
+          <legend>Issuance (wrapped, synthetic or structured assets; blank: not recorded)</legend>
+          <div className="dk-row">
+            <label>
+              Issuance kind
+              <select value={form.issuanceKind} onChange={(e) => set('issuanceKind')(e.target.value)}>
+                <option value="">Not recorded</option>
+                {ISSUANCE_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {ISSUANCE_KIND_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {form.issuanceKind === 'wrapped' && (
+              <label>
+                Backing asset
+                <input value={form.backingAsset} onChange={(e) => set('backingAsset')(e.target.value)} />
+              </label>
+            )}
+            {form.issuanceKind === 'synthetic' && (
+              <label>
+                Oracle
+                <input value={form.oracle} onChange={(e) => set('oracle')(e.target.value)} />
+              </label>
+            )}
+            {form.issuanceKind === 'structured' && (
+              <label>
+                Leg terms
+                <input value={form.legTerms} onChange={(e) => set('legTerms')(e.target.value)} />
+              </label>
+            )}
+            {form.issuanceKind !== '' && (
+              <label>
+                Compliance flags (comma separated; shown as labels, never limits)
+                <input value={form.flags} onChange={(e) => set('flags')(e.target.value)} />
+              </label>
+            )}
+          </div>
+        </fieldset>
       </form>
       <ControlDesk
         key="launch-draft"
@@ -182,6 +230,7 @@ export function LaunchDraftDesk({
             {drafts.map((d) => (
               <li key={d.id} data-launch={d.id}>
                 {d.projectName} ({d.symbol}) <code>{d.id}</code> for {d.issuer.name}, revision {d.revision}
+                {d.issuance && <IssuanceText issuance={d.issuance} />}
               </li>
             ))}
           </ul>

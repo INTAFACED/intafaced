@@ -31,5 +31,9 @@ export function launchEventPayload(input: CreateEventInput): string {
     price: amt(e.price),
     paymentAsset: e.paymentAsset,
     rateSource: e.rateSource,
+    // Only a launch with a recorded issuance carries the key, so a launch without one hashes as it always has.
+    ...(e.issuance
+      ? { issuance: [e.issuance.kind, e.issuance.backingAsset, e.issuance.oracle, e.issuance.legTerms, e.issuance.flags] }
+      : {}),
   });
 }

@@ -183,6 +183,50 @@ describe('J-more-catalogue-11 launch service', () => {
     ).toBe('launch.event_invalid');
   });
 
+  it('records a wrapped, synthetic or structured issuance with its kind, and refuses a kind without its detail by name', async () => {
+    await onboardedIssuer();
+    const wrapped = { kind: 'wrapped' as const, backingAsset: 'TEST BTC held one to one', oracle: null, legTerms: null, flags: ['TEST'] };
+    await launch.createEvent(event({ issuance: wrapped }), BY);
+    expect((await launch.getAnyEvent('test-open-launch')).issuance).toEqual(wrapped);
+    // A retry with the same issuance replays; another issuance under the same id conflicts.
+    await launch.createEvent(event({ issuance: wrapped }), BY);
+    expect(await refusal(launch.createEvent(event({ issuance: { ...wrapped, flags: [] } }), BY))).toBe('launch.event_conflict');
+    const structured = {
+      kind: 'structured' as const,
+      backingAsset: null,
+      oracle: null,
+      legTerms: 'TEST two legs: 80% note, 20% call',
+      flags: [],
+    };
+    await launch.createEvent(event({ id: 'test-structured', issuance: structured }), BY);
+    expect((await launch.getAnyEvent('test-structured')).issuance).toEqual(structured);
+    expect((await launch.getAnyEvent('test-structured')).issuance?.kind).toBe('structured');
+    // A launch with no issuance records none: nothing is invented.
+    await launch.createEvent(event({ id: 'test-plain' }), BY);
+    expect((await launch.getAnyEvent('test-plain')).issuance).toBeNull();
+    const blank = { backingAsset: null, oracle: null, legTerms: null, flags: [] };
+    expect(await refusal(launch.createEvent(event({ id: 'test-w', issuance: { kind: 'wrapped', ...blank } }), BY))).toBe(
+      'launch.backing_unset',
+    );
+    expect(await refusal(launch.createEvent(event({ id: 'test-s', issuance: { kind: 'synthetic', ...blank, oracle: '  ' } }), BY))).toBe(
+      'launch.oracle_unset',
+    );
+    expect(await refusal(launch.createEvent(event({ id: 'test-l', issuance: { kind: 'structured', ...blank } }), BY))).toBe(
+      'launch.leg_terms_unset',
+    );
+    // A kind takes no other kind's detail, and flags are labels with limits on their form only.
+    expect(
+      await refusal(launch.createEvent(event({ id: 'test-x', issuance: { kind: 'token', ...blank, oracle: 'TEST oracle' } }), BY)),
+    ).toBe('launch.event_invalid');
+    expect(await refusal(launch.createEvent(event({ id: 'test-f', issuance: { kind: 'token', ...blank, flags: ['a', 'a'] } }), BY))).toBe(
+      'launch.event_invalid',
+    );
+    // The table holds the same rule past the service.
+    await expect(sql`UPDATE token.launch_events SET backing_asset = NULL WHERE id = 'test-open-launch'`).rejects.toThrow(
+      /launch_events_issuance_ck/,
+    );
+  });
+
   it('issuer review moves one step at a time, a retry replays, and a stale revision refuses', async () => {
     await launch.setIssuer({ id: 'test-issuer', name: 'TEST Issuer', state: 'applied', expectedRevision: 0, ...who });
     expect(
