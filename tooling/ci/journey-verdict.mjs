@@ -402,8 +402,13 @@ const ghPages = (path, key) => {
   }
   throw new Error(`${path}: more than 20 pages`);
 };
+/** True only when `gh run download` failed because the run has no such artifact. Any other failure (a refused or
+ *  rate-limited call, a network or server error) is not "no artifact": the list is unreadable, and unreadable is red. */
+export function missingArtifact(stderr) {
+  return /no valid artifacts found to download|no artifact matches any of the names or patterns provided/i.test(String(stderr ?? ''));
+}
 /** A JSON file from a run's journeys artifact (report.json by default). When `optional`, a run with no such artifact, or an
- *  artifact without the file, gives null (a malformed file still throws). */
+ *  artifact without the file, gives null; a download that fails for any other reason, or a malformed file, throws. */
 function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
@@ -412,7 +417,7 @@ function downloadReport(repo, runId, file = 'report.json', optional = file !== '
         stdio: ['ignore', 'ignore', 'pipe'],
       });
     } catch (e) {
-      if (optional) return null;
+      if (optional && missingArtifact(e.stderr)) return null;
       throw e;
     }
     const f = join(dir, file);

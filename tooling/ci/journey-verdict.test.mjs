@@ -13,6 +13,7 @@ import {
   readReport,
   regressionState,
   manifestsAt,
+  missingArtifact,
   setAsideGuard,
   setAsideSteps,
 } from './journey-verdict.mjs';
@@ -540,4 +541,22 @@ test('p2p is a money journey: its escrow and settlement steps are never set asid
     money: { 'J-p2p-40#1': false },
   });
   assert.equal(one['J-p2p-40#1'], true);
+});
+
+test('a set-aside list that cannot be downloaded is unreadable (red), not "no list" (CI review on #7363, c9fcdb2)', () => {
+  // gh run download's own words when the run has no such artifact: then an older run's list may carry on.
+  assert.equal(missingArtifact(Buffer.from('no valid artifacts found to download\n')), true);
+  assert.equal(missingArtifact('no artifact matches any of the names or patterns provided'), true);
+  // Anything else is a failed read, and must not lengthen the set-aside by falling back to an older list.
+  assert.equal(missingArtifact(Buffer.from('HTTP 403: API rate limit exceeded for user ID 1\n')), false);
+  assert.equal(missingArtifact('HTTP 502: Bad Gateway'), false);
+  assert.equal(missingArtifact(''), false);
+  assert.equal(missingArtifact(undefined), false);
+});
+
+test('downloadReport gives null only for a missing artifact, so a refused download of the list stays red', () => {
+  const src = readFileSync(fileURLToPath(new URL('./journey-verdict.mjs', import.meta.url)), 'utf8');
+  const body = src.slice(src.indexOf('function downloadReport('), src.indexOf('export function manifestsAt('));
+  assert.match(body, /if \(optional && missingArtifact\(e\.stderr\)\) return null;/);
+  assert.doesNotMatch(body, /if \(optional\) return null;\n\s*throw e;/);
 });
