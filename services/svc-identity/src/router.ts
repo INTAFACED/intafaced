@@ -931,7 +931,7 @@ export function createIdentityRouter(
     /**
      * Owner-published commission tier law (DIRECTION §8).
      * Blank / unpublished → accrue refuses when the request omits tiers.
-     * Default unpublished — never invent 10/5/2%.
+     * Default unpublished — never invent a rate.
      */
     accrualTierLaw?: AccrualTierLaw;
     /**
