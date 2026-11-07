@@ -21,7 +21,7 @@ export function BridgeRoutes({ api, t }: { api: ApiClient; t: Translate }) {
     resource.status === 'failed' &&
     (resource.failure.code === BRIDGE_ROUTES_UNSET || (resource.failure.message ?? '').startsWith(BRIDGE_ROUTES_UNSET));
   const list = resource.status === 'ready' ? resource.data.routes : [];
-  const headers = [t('hdr_from'), t('hdr_to'), t('hdr_token'), t('hdr_provider')];
+  const headers = [t('hdr_from'), t('hdr_to'), t('hdr_asset'), t('hdr_provider')];
   return (
     <>
       <Panel title={t('bridgeRoutes')}>

@@ -210,6 +210,8 @@ const en = {
   bridgeRoutes: 'Bridge routes',
   bridgeTransfers: 'Bridge transfers',
   hdr_provider: 'Provider',
+  // Not 'Token': the To column must be the only header whose name holds the word "to".
+  hdr_asset: 'Asset',
   hdr_amount_sent: 'Amount',
   hdr_state: 'State',
   hdr_started: 'Started',
