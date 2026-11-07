@@ -64,7 +64,10 @@ export const protocolApprovalRouteOutputSchema = z
     /** The owner's allowance to SovereignPermit now. */
     permitContractAllowance: units,
     /** The owner's standing allowance for router v2 in SovereignPermit: amount left and expiry (chain seconds), or null. */
-    standing: z.object({ amount: units, expiration: units, nonce: z.number().int().min(0) }).strict().nullable(),
+    standing: z
+      .object({ amount: units, expiration: units, nonce: z.number().int().min(0) })
+      .strict()
+      .nullable(),
     blockNumber: units,
     blockTime: units,
   })
@@ -121,7 +124,9 @@ export const protocolPathsInputSchema = z
 export type ProtocolPathsInput = z.infer<typeof protocolPathsInputSchema>;
 
 /** One hop of a path: the pool, the token it pays and what it pays (exact in) or must be paid (exact out) at the read. */
-export const protocolPathHopSchema = z.object({ pool: address, tokenIn: address, tokenOut: address, amountIn: units, amountOut: units }).strict();
+export const protocolPathHopSchema = z
+  .object({ pool: address, tokenIn: address, tokenOut: address, amountIn: units, amountOut: units })
+  .strict();
 
 /** `protocol.amm.paths`: the best path for the request at one block, with each hop's amounts. */
 export const protocolPathOutputSchema = z

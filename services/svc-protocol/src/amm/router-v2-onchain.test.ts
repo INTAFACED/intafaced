@@ -503,7 +503,14 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
       // The standing allowance on token B (set in the earlier test) has expired: the pull is refused before it is sent.
       expect(
         await refusal(
-          buildSwapV2(deps(), { ...base, path: [tokenB, tokenA], pools: [pools.AB], amount: '1000000000000000000', pull: 'standing', simulate: true }),
+          buildSwapV2(deps(), {
+            ...base,
+            path: [tokenB, tokenA],
+            pools: [pools.AB],
+            amount: '1000000000000000000',
+            pull: 'standing',
+            simulate: true,
+          }),
         ),
       ).toBe('protocol.permit.allowance_expired');
     });
