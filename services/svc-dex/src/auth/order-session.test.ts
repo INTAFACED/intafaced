@@ -7,9 +7,10 @@ import { OrderSessions, checkOrderSessionSetting, type OrderSessionSetting } fro
 import { FileSessionStore } from './session-store.js';
 import { parseCapSchedule } from './settings.js';
 import type { DexTypedData } from '@intafaced/contracts/protocol-dex-orders';
+import type { Hex } from 'viem';
 
-const KEY = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
-const OTHER = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a' as const;
+const KEY: Hex = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+const OTHER: Hex = '0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a';
 const wallet = privateKeyToAccount(KEY);
 const TOKEN_A = '0x00000000000000000000000000000000000a11ce';
 const SETTING: OrderSessionSetting = {
@@ -24,15 +25,16 @@ function sessions(setting: OrderSessionSetting = SETTING, at = { now: new Date('
   return { at, svc: new OrderSessions(setting, new FileSessionStore(dir, () => at.now.getTime()), () => at.now), dir };
 }
 
-async function sign(typed: DexTypedData, key = KEY) {
+async function sign(typed: DexTypedData, key: Hex = KEY): Promise<Hex> {
   const { EIP712Domain: _d, ...types } = typed.types;
   const m = typed.message as Record<string, string>;
-  return privateKeyToAccount(key).signTypedData({
+  const args = {
     domain: typed.domain,
-    types: types as never,
+    types,
     primaryType: 'OrderSession',
-    message: { ...m, expiresAt: BigInt(m.expiresAt!) } as never,
-  });
+    message: { ...m, expiresAt: BigInt(m.expiresAt!) },
+  };
+  return privateKeyToAccount(key).signTypedData(args as never);
 }
 
 describe('the order session (D-limit-dca-01, SIG-1..SIG-3)', () => {
