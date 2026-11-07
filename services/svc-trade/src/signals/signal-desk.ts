@@ -185,14 +185,15 @@ export class SignalDesk {
   async create(
     principal: Principal,
     input: { symbol: string; clientRequestId: string },
-    /** The request's region as the edge resolved it; kept on the webhook for the jurisdiction check on each alert. */
+    /**
+     * The request's region as the edge resolved it; kept on the webhook for the jurisdiction check on each alert. The
+     * create itself is gated by its procedure (`scopedProcedure(..., { module: 'trade' })`: tier and jurisdiction).
+     */
     region: string,
   ): Promise<SignalWebhookView & { readonly token: string | null }> {
     const days = this.ports.webhookDays;
     if (days === null)
       throw new SignalError('The platform has not set how long a webhook may place orders', 'trade.signal_webhook_life_not_set', 412);
-    // Who may place a trade order at all (OWNER 88): the same check as a signed-in order, before anything is read or written.
-    assertPlaceEligible({ tier: principal.tier, region });
     const symbol = canonicalSymbol(input.symbol);
     if (!symbol) throw new SignalError('Market is not a symbol such as BTC/USDT', 'trade.signal_symbol_invalid', 400, 'symbol');
     const marketId = await this.ports.marketIdBySymbol(symbol);

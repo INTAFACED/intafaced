@@ -59,8 +59,9 @@ describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
 });
 
 /**
- * Who may place through a webhook (OWNER 88): the shared check in spot/place-eligibility.ts, at create on the request's
- * tier and on every alert on the creator's live tier, never the tier the stored grant carries. A fake database answers
+ * What an alert can do, and who may place through a webhook (OWNER 88). An alert never picks the market, the trader or
+ * the parent, and a paused, ended or expired webhook places nothing. On every alert the shared check in
+ * spot/place-eligibility.ts runs on the creator's live tier, never the tier the stored grant carries. A fake database answers
  * by statement; every write is recorded so a test can see that a refusal placed nothing.
  */
 describe('a webhook places only for a person who may place a trade order', () => {
@@ -79,9 +80,13 @@ describe('a webhook places only for a person who may place a trade order', () =>
       expiresAt: new Date('2026-11-08T00:00:00Z'),
     }) as never;
 
-  function world(opts: { liveTier: 'none' | 'basic'; placeOrder?: () => Promise<{ id: string }> }) {
+  function world(opts: {
+    liveTier: 'none' | 'basic';
+    placeOrder?: () => Promise<{ id: string }>;
+    hook?: Partial<{ state: 'active' | 'paused' | 'ended'; grant_expires_at: Date }>;
+  }) {
     const writes: string[] = [];
-    const orders: unknown[] = [];
+    const orders: Array<{ userId: string; input: { marketId: string }; webhookId: string }> = [];
     const admissions: string[] = [];
     let result: { status: number; body: Record<string, unknown> } | null = null;
     const hook = {
@@ -99,6 +104,7 @@ describe('a webhook places only for a person who may place a trade order', () =>
       state: 'active',
       created_at: NOW,
       updated_at: NOW,
+      ...opts.hook,
     };
     const sql = Object.assign(
       async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -124,25 +130,17 @@ describe('a webhook places only for a person who may place a trade order', () =>
       },
       placeOrder:
         opts.placeOrder ??
-        (async (_p, input) => {
-          orders.push(input);
+        (async (p, input, webhookId) => {
+          orders.push({ userId: p.userId, input, webhookId });
           return { id: 'o-1' };
         }),
       maxAlertAgeSeconds: 20,
       webhookDays: 30,
     });
-    const alert = (alertId: string) => desk.ingest(HOOK, { token: TOKEN, alertId, time: NOW.toISOString(), side: 'buy', amount: '0.01' });
+    const alert = (alertId: string, extra: Record<string, unknown> = {}) =>
+      desk.ingest(HOOK, { token: TOKEN, alertId, time: NOW.toISOString(), side: 'buy', amount: '0.01', ...extra });
     return { desk, alert, writes, orders, admissions };
   }
-
-  it('refuses a create below basic as tier.insufficient, writing and admitting nothing', async () => {
-    const w = world({ liveTier: 'basic' });
-    await expect(w.desk.create(principal('none'), { symbol: 'BTCUSDT', clientRequestId: 'req-00000001' }, 'DE')).rejects.toMatchObject({
-      code: 'tier.insufficient',
-    });
-    expect(w.writes).toEqual([]);
-    expect(w.admissions).toEqual([]);
-  });
 
   it('creates for a basic person, keeping the region for the alerts', async () => {
     const w = world({ liveTier: 'basic' });
@@ -156,6 +154,41 @@ describe('a webhook places only for a person who may place a trade order', () =>
     const out = await w.alert('a-ok');
     expect(out.status).toBe(200);
     expect(w.orders).toHaveLength(1);
+  });
+
+  it("ignores an alert's market and trader: the order is the webhook's market, for its creator, under the webhook", async () => {
+    const w = world({ liveTier: 'basic' });
+    const out = await w.alert('a-pick', {
+      marketId: 'm-eth',
+      symbol: 'ETH/USDT',
+      market: 'ETHUSDT',
+      userId: 'u-other',
+      user_id: 'u-other',
+    });
+    expect(out.status).toBe(200);
+    expect(w.orders).toEqual([{ userId: 'u-1', input: expect.objectContaining({ marketId: 'm-btc' }), webhookId: HOOK }]);
+  });
+
+  it('refuses an alert to a paused webhook as trade.signal_paused (409): no order', async () => {
+    const w = world({ liveTier: 'basic', hook: { state: 'paused' } });
+    const out = await w.alert('a-paused');
+    expect(out).toMatchObject({ status: 409, body: { code: 'trade.signal_paused' } });
+    expect(w.orders).toEqual([]);
+  });
+
+  it('refuses an alert to an ended webhook as trade.signal_webhook_ended (410): no order', async () => {
+    const w = world({ liveTier: 'basic', hook: { state: 'ended' } });
+    const out = await w.alert('a-ended');
+    expect(out).toMatchObject({ status: 410, body: { code: 'trade.signal_webhook_ended' } });
+    expect(w.orders).toEqual([]);
+  });
+
+  it("places nothing once the webhook's life is over, though its row still reads active", async () => {
+    const w = world({ liveTier: 'basic', hook: { grant_expires_at: new Date('2026-11-07T11:59:59Z') } });
+    const out = await w.alert('a-expired');
+    expect(out.status).toBe(422);
+    expect(out.body).toMatchObject({ ok: false, intents: [{ status: 'refused', orderId: null }] });
+    expect(w.orders).toEqual([]);
   });
 
   it('refuses an alert when the live tier is below basic, though the stored grant says basic: no order', async () => {
