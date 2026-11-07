@@ -539,7 +539,7 @@ async function restingBuy(percent, tag) {
     price,
     amount: SMALL,
     timeInForce: 'GTC',
-    clientOrderId: `${J}-${tag}-${who.email}`,
+    clientOrderId: `jcd14-${tag}-${RUN}`,
   });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
   return res.body;
@@ -616,7 +616,7 @@ test(`${J} #6 turns instant placement on; a click sends after the settings summa
     amount: SMALL,
     timeInForce: 'GTC',
     postOnly: false,
-    clientOrderId: `${J}-check-6-${who.email}`,
+    clientOrderId: `jcd14-check-6-${RUN}`,
   });
   expect(check.status, JSON.stringify(check.body).slice(0, 300)).toBe(200);
   const heldBefore = await usdtHeld();
