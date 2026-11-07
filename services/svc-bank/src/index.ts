@@ -16,6 +16,7 @@ import {
 } from '@intafaced/contracts';
 import { JetStreamEventBus } from '@intafaced/events';
 import { env } from './env.js';
+import { parseRemindPolicy } from './transfers/personal-pay.js';
 import { readBankWatermark } from './restore-watermark.js';
 import { createBankServices, createIdentityRecipientState, unconfiguredRecipientState } from './bank-service.js';
 import { createIdentityBusinessDirectory, unconfiguredBusinessDirectory } from './business/business-directory.js';
@@ -149,6 +150,7 @@ const onrampPartner = onrampPartnerFor(
 
 const bank = createBankServices(sql, ledger, history, {
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
+  remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
   onrampPartner,
   nativeAssetId: env.TOKEN_ASSET_ID,
@@ -889,4 +891,12 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       process.exit(0);
     })();
   });
+}
+
+/** The owner's reminder rule: blank is none (reminders refuse); a value that does not read refuses boot. */
+function readRemindPolicy(raw: string | undefined) {
+  if (!raw || !raw.trim()) return null;
+  const policy = parseRemindPolicy(raw);
+  if (!policy) throw new Error('BANK_REQUEST_REMIND_POLICY_JSON must be {"cap":<1-100>,"windowSeconds":<60-7776000>} or blank');
+  return policy;
 }

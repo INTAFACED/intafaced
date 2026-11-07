@@ -19,11 +19,15 @@ import { lineTotals, signStatement, statementCsv, statementLines, statementPdf, 
 /** What a statement file holds. */
 export const STATEMENT_REPORTS = ['statement', 'ledger', 'trades', 'balances'] as const;
 export type StatementReport = (typeof STATEMENT_REPORTS)[number];
-/** The activity kinds a `trades` file reads: trade lines, and fee lines (kept only when they belong to an order). */
-const TRADE_KINDS = ['trade', 'fee'] as const;
+/**
+ * The activity kinds a `trades` file reads: trade lines, conversions (a Convert is a trade the person made, listed under
+ * its own kind in Activity), and fee lines (kept only when they belong to an order).
+ */
+const TRADE_KINDS = ['trade', 'convert', 'fee'] as const;
 
-/** A trade line, or a fee the ledger links to one of the person's orders; a withdrawal or listing fee is not a trade. */
-const isTradeLine = (item: ActivityItem) => item.kind === 'trade' || (item.kind === 'fee' && item.orderId !== undefined);
+/** A trade or conversion line, or a fee the ledger links to one of the person's orders; a withdrawal or listing fee is not a trade. */
+const isTradeLine = (item: ActivityItem) =>
+  item.kind === 'trade' || item.kind === 'convert' || (item.kind === 'fee' && item.orderId !== undefined);
 
 const MAX_ROWS = 5_000;
 const MAX_SPAN_MS = 366 * 24 * 60 * 60 * 1000;

@@ -43,7 +43,14 @@ import {
   unwiredApprovalConsumer,
   type ActionApprovalConsumer,
 } from './ledger/action-approval-consume.js';
-import { HISTORY_RAILS, parseHistoryDoorInput, parseHistoryPageInput, parseHistoryRange, serializeHistoryPage } from './ledger/history.js';
+import {
+  HISTORY_PRODUCTS,
+  HISTORY_RAILS,
+  parseHistoryDoorInput,
+  parseHistoryPageInput,
+  parseHistoryRange,
+  serializeHistoryPage,
+} from './ledger/history.js';
 import { LEDGER_DOOR_CALLERS } from './door-callers.js';
 import { applyCallerBinding, type CallerBindingOptions, type PostCaller } from './caller-binding.js';
 import { RECIPE_REQUIRED_CODE, assertKnownRecipePost } from './recipe-gate.js';
@@ -464,6 +471,8 @@ export function createLedgerRouter(
               entryId: z.string(),
               /** `meta.rail` when allow-listed (see `HISTORY_RAILS`), else null. */
               rail: z.enum(HISTORY_RAILS).nullable(),
+              /** `meta.product` when allow-listed (see `HISTORY_PRODUCTS`), else null. */
+              product: z.enum(HISTORY_PRODUCTS).nullable(),
               /** The page owner's own trade order this line belongs to (hold, amend, release, fill), else null. */
               orderId: z.string().min(1).max(128).nullable(),
               /** Decimal string: the fee taken from the owner's receiving line of a fill (`0` when none), else null. */

@@ -61,4 +61,4 @@ Within the floor, these win over any agent's or reviewer's preference.
 - [`docs/adr/`](docs/adr/): settled decisions. [`docs/runbooks/`](docs/runbooks/): operations. [`docs/refs/`](docs/refs/): measured front-end references.
 - [`tooling/agent-protocol/AGENT_PROTOCOL.md`](tooling/agent-protocol/AGENT_PROTOCOL.md): service shape. [`apps/customer/README.md`](apps/customer/README.md): where customer screens and rooms go.
 - Each service's `README.md`: read it before you edit that service. Find code with `rg`.
-- Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `triage-labels.md`, `domain.md`. Active work and owners: open GitHub PRs and issues. The original product spec is `INTAFACED_DEFINITIVE_BUILD.md`.
+- Issues, labels and domain notes: `docs/agents/issue-tracker.md`, `triage-labels.md`, `domain.md`. Active work and owners: open GitHub PRs and issues. The original product spec, `INTAFACED_DEFINITIVE_BUILD.md`, is private: INTAFACED/project-state `product/INTAFACED_DEFINITIVE_BUILD.md`.

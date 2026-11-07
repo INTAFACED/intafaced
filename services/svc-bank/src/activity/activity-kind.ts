@@ -42,6 +42,12 @@
  * posts: `bank.earn.*` is earn, `token.stake`/`token.unstake` is staking, `token.yield.distributed`, card
  * cashback and any `reward*` or `token.yield*` reason is reward. Dividends and corporate actions have no ledger
  * reason on this platform and are not invented. A client that does not know these kinds treats them as `other`.
+ *
+ * CONVERT vs TRADE. A Convert settles as a house fill (`trade / trade.fill.mm_maker`), the same reason a desk order
+ * filled against the house maker posts. The fill's own `meta.product = 'convert'` (set by svc-trade convert/settle.ts,
+ * echoed allow-listed by the ledger's history page as `product`) is what tells them apart: a fill that says it is a
+ * convert is `convert`; every other fill stays `trade`. Its hold and any release stay order lines. Added after the earn
+ * kinds (PF-activity-01); a client that does not know it treats it as `other`.
  */
 
 export const ACTIVITY_KINDS = [
@@ -50,6 +56,7 @@ export const ACTIVITY_KINDS = [
   'transfer_in',
   'transfer_out',
   'trade',
+  'convert',
   'fee',
   'payment',
   'withdrawal',
@@ -172,12 +179,17 @@ export const KIND_BY_REASON_PREFIX: ReadonlyArray<readonly [string, Row]> = [
 /** Rails whose credit is a local-test "welcome funds" grant. The ledger page reports the rail (allow-listed, else null). */
 export const WELCOME_FUNDS_RAILS: ReadonlySet<string> = new Set<string>(['local-test']);
 
+/** The fill a Convert posts (`recipes.marketMakerMakerFill`); only it may say `product: 'convert'` and be a conversion. */
+const CONVERT_FILL_REASONS: ReadonlySet<string> = new Set<string>(['trade/trade.fill.mm_maker']);
+
 export interface ClassifyInput {
   readonly module: string;
   readonly reason: string;
   readonly direction: EntryDirection;
   /** The rail a deposit arrived on, when the ledger page says (null or absent = unknown). */
   readonly rail?: string | null;
+  /** The product a posting settles, when the ledger page says (allow-listed `meta.product`; null or absent = none). */
+  readonly product?: string | null;
 }
 
 /** The direction the person sees, from the ledger's `debit increases` convention. */
@@ -192,6 +204,7 @@ export function classify(input: ClassifyInput): ActivityKind {
     KIND_BY_REASON_PREFIX.find(([prefix]) => input.reason.startsWith(prefix))?.[1] ??
     'other';
   if (row === 'transfer') return input.direction === 'debit' ? 'transfer_in' : 'transfer_out';
+  if (row === 'trade' && input.product === 'convert' && CONVERT_FILL_REASONS.has(`${input.module}/${input.reason}`)) return 'convert';
   if (row === 'deposit' && input.rail != null && WELCOME_FUNDS_RAILS.has(input.rail)) return 'welcome_funds';
   return row;
 }
@@ -203,6 +216,7 @@ export const ACTIVITY_KIND_LABELS: Readonly<Record<ActivityKind, string>> = {
   transfer_in: 'Transfer received',
   transfer_out: 'Transfer sent',
   trade: 'Trade',
+  convert: 'Convert',
   fee: 'Fee',
   payment: 'Payment',
   withdrawal: 'Withdrawal',

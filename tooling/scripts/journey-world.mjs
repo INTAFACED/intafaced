@@ -47,13 +47,18 @@ const MARKET_READS = new Set(['status']);
 
 // The order, algo, bot and position routes on a shared book. A write to one, however it is sent, is a change to the book.
 const BOOK_ROUTE = String.raw`\/api\/(?:v1\/(?:orders|futures\/orders|algo|bots\/|positions)|trade\/trpc\/algo\.create)`;
+// A quoted route, written bare (`'/api/v1/orders'`) or after a template prefix or an origin (`${EDGE}/api/v1/orders`,
+// `'http://127.0.0.1:14500/api/v1/orders'`): a call that names the stack's address first is the same write.
+const ROUTE_AT = String.raw`['"\x60](?:\$\{[^}\n]{1,80}\}|https?:\/\/[^'"\x60\s\/]{1,80})?` + BOOK_ROUTE;
 const BOOK = [
-  // `me.post('/api/v1/orders', …)`, `client.post(…)`.
-  new RegExp(String.raw`\.post\(\s*['\x60]` + BOOK_ROUTE),
+  // `me.post('/api/v1/orders', …)`, `client.post(`${EDGE}/api/v1/orders`, …)`.
+  new RegExp(String.raw`\.post\(\s*` + ROUTE_AT),
   // `call('POST', '/api/v1/bots/grid', …)`, `http('POST', …)`, `fetch(…, { method: 'POST' … })` near the route.
-  new RegExp(String.raw`['"]POST['"]\s*,\s*['\x60]` + BOOK_ROUTE),
-  new RegExp(String.raw`method:\s*['"]POST['"][^;]{0,200}?path:\s*['\x60]` + BOOK_ROUTE, 's'),
-  new RegExp(String.raw`path:\s*['\x60]` + BOOK_ROUTE + String.raw`[^;]{0,200}?method:\s*['"]POST['"]`, 's'),
+  new RegExp(String.raw`['"]POST['"]\s*,\s*` + ROUTE_AT),
+  new RegExp(String.raw`method:\s*['"]POST['"][^;]{0,200}?path:\s*` + ROUTE_AT, 's'),
+  new RegExp(String.raw`path:\s*` + ROUTE_AT + String.raw`[^;]{0,200}?method:\s*['"]POST['"]`, 's'),
+  // `fetch(`${EDGE}/api/v1/orders`, { method: 'POST', … })`: the route as the first argument, the method after it.
+  new RegExp(String.raw`\bfetch\(\s*` + ROUTE_AT + String.raw`[^;]{0,200}?method:\s*['"]POST['"]`, 's'),
   // The same through the screens: a click on the button that places, opens, closes or swaps…
   /getByRole\(\s*'button',\s*\{\s*name:\s*['`/]\^?(?:Buy|Sell|Open long|Open short|Close position|Confirm (?:open|close|buy|sell|swap)|Place order|Place as|Swap)\b[^\n]*?\)\s*\)?\s*\.(?:dbl)?click\(/,
   // …and a helper that names such a button by a computed name (desk.mjs `confirm`: 'Confirm buy' : 'Confirm sell').

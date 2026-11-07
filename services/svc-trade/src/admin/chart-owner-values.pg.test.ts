@@ -132,6 +132,7 @@ describe('charts module owner values (C-ops-04)', () => {
       brushPointCap: null,
       delayedBoundarySeconds: null,
       renderBudgetMs: null,
+      orderProtectionBps: null,
     });
     expect(view.dataClasses.map((row) => row.symbol)).toEqual(['BTC/USDT', 'ETH/USDT']);
     expect(view.dataClasses.every((row) => row.dataClass === null && row.version === null)).toBe(true);
@@ -447,6 +448,7 @@ describe('charts module owner values (C-ops-04)', () => {
       brushPointCap: null,
       delayedBoundarySeconds: null,
       renderBudgetMs: null,
+      orderProtectionBps: null,
     });
     expect(await reader.dataClassFor('BTC/USDT')).toBeNull();
 

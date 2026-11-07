@@ -35,6 +35,7 @@ const PAGER = '71111111-1111-4111-8111-111111111111';
 const OTHER = '72222222-2222-4222-8222-222222222222';
 const EMPTY = '73333333-3333-4333-8333-333333333333';
 const RAILER = '74444444-4444-4444-8444-444444444444';
+const CONVERTER = '75555555-5555-4555-8555-555555555555';
 
 async function openAdmin(): Promise<{ url: string; stop: () => Promise<void> }> {
   const envUrl = process.env.TEST_DATABASE_URL?.trim();
@@ -286,6 +287,57 @@ describe('PostgresLedger.historyPage', () => {
       scope({ ownerId: RAILER, limit: 200, cursor: encodeHistoryCursor({ entryId: first.entries[1]!.entryId }) }),
     );
     expect(resumed.entries.map((e) => e.entryId)).toEqual(ids.slice(2));
+  });
+
+  it('returns an allow-listed product: a Convert fill says `convert`; a desk house fill, a hold and any other product say null', async () => {
+    await engine.post(recipes.marketMakerSeedFund({ assetId: 'BTC', amount: amt('10'), seedId: 'product-btc' }));
+    await engine.post(
+      recipes.deposit({ userId: CONVERTER, assetId: 'USDT', amount: amt('100'), rail: 'crypto-native', railRef: 'product-u' }),
+    );
+    const fill = (n: string, product?: 'convert') => {
+      const order = `product-taker-${n}`;
+      const maker = `product-maker-${n}`;
+      return [
+        recipes.orderHold({ orderId: order, userId: CONVERTER, assetId: 'USDT', amount: amt('10') }),
+        recipes.marketMakerOrderHold({ orderId: maker, assetId: 'BTC', amount: amt('0.001') }),
+        recipes.marketMakerMakerFill({
+          fillId: `product-fill-${n}`,
+          takerId: CONVERTER,
+          makerOrderId: maker,
+          takerOrderId: order,
+          baseAsset: 'BTC',
+          quoteAsset: 'USDT',
+          qty: amt('0.001'),
+          quoteAmount: amt('10'),
+          takerSide: 'buy',
+          makerFeeBps: 0,
+          takerFeeBps: 0,
+          ...(product ? { product } : {}),
+        }),
+      ];
+    };
+    for (const post of fill('desk')) await engine.post(post);
+    for (const post of fill('convert', 'convert')) await engine.post(post);
+    // A product this door does not know never crosses it.
+    const [hold, mmHold, odd] = fill('odd');
+    await engine.post(hold!);
+    await engine.post(mmHold!);
+    await engine.post({ ...odd!, meta: { ...odd!.meta, product: 'not-a-known-product' } });
+
+    const page = await engine.historyPage(scope({ ownerId: CONVERTER, limit: 200 }));
+    const shown = [...page.entries].reverse().map((e) => [e.reason, e.assetId, e.product]);
+    expect(shown).toEqual([
+      ['deposit.credited', 'USDT', null],
+      ['order.hold', 'USDT', null],
+      ['trade.fill.mm_maker', 'BTC', null],
+      ['order.hold', 'USDT', null],
+      ['trade.fill.mm_maker', 'BTC', 'convert'],
+      ['order.hold', 'USDT', null],
+      ['trade.fill.mm_maker', 'BTC', null],
+    ]);
+    const wire = JSON.stringify(serializeHistoryPage(page));
+    expect(wire).toContain('"product":"convert"');
+    expect(wire).not.toContain('not-a-known-product');
   });
 
   it('does not touch the old `history`: ascending bare array, window required, cursor still refused', async () => {

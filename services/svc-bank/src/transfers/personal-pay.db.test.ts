@@ -122,6 +122,8 @@ describe('personal send and request (Postgres)', () => {
       nativeAssetId: 'IFC',
       // A labelled TEST space limit, so the router's create door is open in this suite.
       spaceLimit: '10',
+      // A labelled TEST reminder rule (PP-send-request-13): two reminders per request in any 24 hours.
+      remindPolicy: { cap: 2, windowSeconds: 86_400 },
       recipients: memoryRecipientState(),
       handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
       requestNotices: {
@@ -843,5 +845,245 @@ describe('personal send and request (Postgres)', () => {
     ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(writeOnly.transfers.quote({ assetId: 'USDT', amount: '1' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(writeOnly.transfers.get({ ledgerTxId: 'missing' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('reminders stop at the owner cap in the window, name the next allowed time, and a retried reminder is not counted twice', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '3',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-remind-cap',
+    });
+    const t0 = new Date('2026-11-06T10:00:00.000Z');
+    const t1 = new Date('2026-11-06T11:00:00.000Z');
+    const first = await bank.personalPay.remindRequest(ADA, opened.requestId, 'remind-cap-1', t0);
+    expect(first.reminder).toEqual({ sentInWindow: 1, cap: 2, windowSeconds: 86_400, nextAllowedAt: null });
+    // The same reminder asked again (a lost reply): the same one, not a second.
+    const again = await bank.personalPay.remindRequest(ADA, opened.requestId, 'remind-cap-1', t1);
+    expect(again.reminder.sentInWindow).toBe(1);
+    const second = await bank.personalPay.remindRequest(ADA, opened.requestId, 'remind-cap-2', t1);
+    expect(second.reminder).toEqual({ sentInWindow: 2, cap: 2, windowSeconds: 86_400, nextAllowedAt: '2026-11-07T10:00:00.000Z' });
+    await expect(bank.personalPay.remindRequest(ADA, opened.requestId, 'remind-cap-3', t1)).rejects.toMatchObject({
+      code: 'bank.personal_request_remind_capped',
+      message: expect.stringContaining('2026-11-07T10:00:00.000Z'),
+    });
+    expect(created.filter((row) => row.requestId === opened.requestId).map((row) => row.sequence)).toEqual([1, 2, 3]);
+    // Once the first reminder leaves the window, one more may go.
+    const later = await bank.personalPay.remindRequest(ADA, opened.requestId, 'remind-cap-3', new Date('2026-11-07T10:00:01.000Z'));
+    expect(later.reminder.sentInWindow).toBe(2);
+    // Only the asker reads the count.
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    await expect(bob.personalRequest.reminders({ requestId: opened.requestId })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.personal_request_not_payee'),
+    });
+  });
+
+  it('with no reminder rule published, a reminder refuses bank.reminder_policy_unset and nothing is sent', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '3',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-remind-unset',
+    });
+    const unset = new PersonalPayService(db.sql, ledger, bank.transfers, bank.spaces, {
+      handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+    });
+    await expect(unset.remindRequest(ADA, opened.requestId, 'remind-unset-1')).rejects.toMatchObject({
+      code: 'bank.reminder_policy_unset',
+    });
+    const rows = await db.sql`SELECT 1 FROM bank.personal_request_reminds WHERE request_id = ${opened.requestId}`;
+    expect(rows).toHaveLength(0);
+  });
+
+  it('report and block: declined, one case, the block active, the asker sees only Declined and cannot ask again', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '9',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-report-1',
+    });
+    const reported = await bob.personalRequest.report({ requestId: opened.requestId, reason: 'scam', block: true });
+    expect(reported.request.status).toBe('declined');
+    expect(reported.safety).toMatchObject({ reason: 'scam', state: 'open', blocked: true });
+    // A retried report is the same case.
+    const again = await bob.personalRequest.report({ requestId: opened.requestId, reason: 'scam', block: true });
+    expect(again.safety.caseId).toBe(reported.safety.caseId);
+    const cases = await db.sql`SELECT key FROM bank.personal_request_reports WHERE request_id = ${opened.requestId}`;
+    expect(cases).toEqual([{ key: `report:${opened.requestId}` }]);
+    const blocks = await db.sql`SELECT key FROM bank.personal_request_blocks WHERE user_id = ${BOB}`;
+    expect(blocks).toEqual([{ key: `block:${BOB}:${ADA}` }]);
+    expect(await bob.personalRequest.safety({ requestId: opened.requestId })).toEqual(reported.safety);
+
+    // The asker: Declined, and no word of a report or block.
+    const seen = await ada.personalRequest.get({ requestId: opened.requestId });
+    expect(seen.status).toBe('declined');
+    expect(Object.keys(seen).sort()).toEqual([
+      'amount',
+      'assetId',
+      'createdAt',
+      'expiresAt',
+      'ledgerTxId',
+      'note',
+      'notice',
+      'payeeHandle',
+      'payeeUserId',
+      'payerHandle',
+      'payerUserId',
+      'requestId',
+      'status',
+    ]);
+    expect(seen.notice).toEqual({ delivered: true, blocker: null });
+    await expect(ada.personalRequest.safety({ requestId: opened.requestId })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.personal_request_not_found'),
+    });
+    await expect(
+      ada.personalRequest.create({
+        payerUserId: BOB,
+        assetId: 'USDT',
+        amount: '1',
+        expiresAt: '2026-12-01T00:00:00.000Z',
+        idempotencyKey: 'request-report-2',
+      }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('bank.personal_request_unavailable') });
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey.startsWith('bank.transfer.p2p:'))).toHaveLength(0);
+  });
+
+  it('a report without a block declines and files the case; the asker may still ask', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '9',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-report-noblock',
+    });
+    const reported = await bob.personalRequest.report({ requestId: opened.requestId, reason: 'spam', block: false });
+    expect(reported.request.status).toBe('declined');
+    expect(reported.safety.blocked).toBe(false);
+    const next = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '1',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-report-noblock-2',
+    });
+    expect(next.status).toBe('open');
+    // The asker cannot report their own request.
+    await expect(ada.personalRequest.report({ requestId: next.requestId, reason: 'spam', block: false })).rejects.toMatchObject({
+      message: expect.stringContaining('bank.personal_request_not_payer'),
+    });
+  });
+
+  it('a request paid under its own key twice posts once and answers the first receipt', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '12',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-own-key',
+    });
+    const from = await bank.spaces.ensurePrimary(BOB, 'USDT');
+    await ledger.post(
+      recipes.deposit({ userId: BOB, assetId: 'USDT', amount: parseAmount('30'), rail: 'test', railRef: `bob-own-key-${Math.random()}` }),
+    );
+    const pay = () =>
+      bob.transfers.toUser({
+        transferId: `request:${opened.requestId}`,
+        fromSpaceId: from.id,
+        toUserId: ADA,
+        amount: '12',
+        requestId: opened.requestId,
+      });
+    const first = await pay();
+    const second = await pay();
+    expect(second.ledgerTxId).toBe(first.ledgerTxId);
+    expect(ledger.journal().filter((tx) => tx.idempotencyKey === `bank.transfer.p2p:request:${opened.requestId}:0`)).toHaveLength(1);
+    expect(await available(BOB)).toBe('18');
+    expect((await ada.personalRequest.get({ requestId: opened.requestId })).status).toBe('paid');
+  });
+
+  it('a blocked asker cannot remind about another open request, and an expired request can still be reported and blocked', async () => {
+    await ready();
+    const bob = await caller(BOB, ['bank:read', 'bank:write']);
+    const t0 = new Date('2026-11-06T10:00:00.000Z');
+    const other = await bank.personalPay.createRequest({
+      payeeUserId: ADA,
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: parseAmount('2'),
+      expiresAt: new Date('2026-12-01T00:00:00.000Z'),
+      idempotencyKey: 'request-block-other',
+      now: t0,
+    });
+    const short = await bank.personalPay.createRequest({
+      payeeUserId: ADA,
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: parseAmount('3'),
+      expiresAt: new Date('2026-11-06T11:00:00.000Z'),
+      idempotencyKey: 'request-block-short',
+      now: t0,
+    });
+    // Expired: reported as it stands, not declined, with the case and the block written.
+    const reported = await bank.personalPay.reportRequest(
+      BOB,
+      short.requestId,
+      { reason: 'harassment', block: true },
+      new Date('2026-11-06T12:00:00.000Z'),
+    );
+    expect(reported.request.status).toBe('expired');
+    expect(reported.safety).toMatchObject({ reason: 'harassment', blocked: true });
+    await expect(
+      bank.personalPay.remindRequest(ADA, other.requestId, 'remind-after-block', new Date('2026-11-06T12:00:00.000Z')),
+    ).rejects.toMatchObject({
+      code: 'bank.personal_request_unavailable',
+    });
+    const rows = await db.sql`SELECT 1 FROM bank.personal_request_reminds WHERE request_id = ${other.requestId}`;
+    expect(rows).toHaveLength(0);
+    expect((await bob.personalRequest.get({ requestId: other.requestId })).status).toBe('open');
+  });
+
+  it('a reminder whose notice could not go out does not use up the window', async () => {
+    await ready();
+    const ada = await caller(ADA, ['bank:read', 'bank:write']);
+    const opened = await ada.personalRequest.create({
+      payerUserId: BOB,
+      assetId: 'USDT',
+      amount: '3',
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      idempotencyKey: 'request-remind-lost',
+    });
+    const failing = new PersonalPayService(db.sql, ledger, bank.transfers, bank.spaces, {
+      handles: memoryPartyHandles({ [ADA]: 'ada', [BOB]: 'bob' }),
+      notices: {
+        created: async () => {
+          throw new Error('bus down');
+        },
+        paid: async () => {},
+      },
+      remindPolicy: { cap: 1, windowSeconds: 86_400 },
+    });
+    const at = new Date('2026-11-06T10:00:00.000Z');
+    const lost = await failing.remindRequest(ADA, opened.requestId, 'remind-lost-1', at);
+    expect(lost.notice.delivered).toBe(false);
+    expect(lost.reminder.sentInWindow).toBe(0);
+    const sent = await bank.personalPay.remindRequest(ADA, opened.requestId, 'remind-lost-2', at);
+    expect(sent.notice.delivered).toBe(true);
+    expect(sent.reminder.sentInWindow).toBe(1);
   });
 });
