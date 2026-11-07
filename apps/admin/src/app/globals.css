@@ -1621,6 +1621,16 @@ code {
   accent-color: var(--if-short);
 }
 
+/* A native checkbox inside a packages/ui section ([data-slot]). The kit's reset sets every input to appearance: none
+   with no border or background, which leaves a checkbox 0 by 0 and invisible: the Seeding room's "Enabled" switch could
+   be neither seen nor clicked (J-cex-spot-20, run 42279661666). This brings back the native box. */
+.adm-native-check {
+  appearance: auto;
+  inline-size: 1rem;
+  block-size: 1rem;
+  accent-color: var(--if-short);
+}
+
 /* ── Callouts ───────────────────────────────────────────────────────────── */
 
 .adm-callout {

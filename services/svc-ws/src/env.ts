@@ -222,6 +222,13 @@ const schema = baseEnvSchema
       INTAFACED_SBE_JAVA: z.string().min(1).optional(),
 
       /**
+       * Dedicated read key for `GET /internal/sbe/consumers` (the SBE tape's consumers), signed by svc-edge alone for
+       * the founder console (J-cex-spot-20 #3). Never INTERNAL_SERVICE_SECRET. Unset: that read refuses
+       * `ws_status_unconfigured`; the tape itself is untouched.
+       */
+      WS_STATUS_READ_SECRET: z.string().min(32).optional(),
+
+      /**
        * Optional. When set, `/private/stream` and `/drop-copy/stream` accept
        * `access_token`. Private fans order/fill/position; drop-copy fans
        * executions on a separate durable. Unset → both upgrades 403.
@@ -381,6 +388,7 @@ export const SVC_WS_OWN_ENV_KEYS = [
   'WS_TRADE_RECENT_LIMIT',
   'WS_TRADES_DURABLE',
   'INTAFACED_SBE_JAVA',
+  'WS_STATUS_READ_SECRET',
   'JWT_ACCESS_SECRET',
   'JWT_ISSUER',
   'JWT_AUDIENCE',

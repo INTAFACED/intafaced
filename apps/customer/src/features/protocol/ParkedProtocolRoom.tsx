@@ -29,6 +29,7 @@ import { BlocksList } from './explorer/pages';
 import { TokensNav } from './tokens/TokensRoom';
 import { PoolsList } from './pools/PoolsList';
 import { BridgeRoutes } from './rails/BridgeRoutes';
+import { AuditProducts } from './AuditProducts';
 import './explorer/explorer.css';
 import './protocol.css';
 
@@ -497,7 +498,13 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
         </DataTable>
       </Panel>
     );
-  else if (tab === 'audit') body = auditPanel;
+  else if (tab === 'audit')
+    body = (
+      <>
+        <AuditProducts api={api} />
+        {auditPanel}
+      </>
+    );
   else if (slug === 'dex' && tab === 'swap') body = <SwapForm />;
   else if (slug === 'dex' && tab === 'pools')
     body = (

@@ -39,6 +39,8 @@ export type ReconcileCase =
   | 'open_hold_no_engine_unknown'
   | 'open_hold_engine_cleared'
   | 'open_engine_no_hold'
+  /** A sweep's look found the order live on the book: a sweep never cancels a live order, so nothing was done. */
+  | 'open_engine_live_left'
   | 'recovery_required_live'
   | 'recovery_required_absent'
   | 'recovery_required_no_hold'
@@ -309,6 +311,10 @@ export type TradeErrorCode =
   // venue is between sessions and the same order will be fine on Monday.
   | 'trade.market_closed'
   | 'trade.mode_limit_only'
+  /** Cancel-only mode: a new order is refused; cancel works. */
+  | 'trade.mode_cancel_only'
+  /** Post-only mode: an order that would take liquidity is refused. */
+  | 'trade.mode_post_only'
   | 'trade.market_halted'
   /** Matching operator halt of ALL markets. New submits refuse; cancel stays. Distinct from one-market halt. */
   | 'trade.venue_halted'

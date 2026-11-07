@@ -186,7 +186,7 @@ test(`${J} #6 sends a post-only buy that would cross, then one that rests`, asyn
   await expect.poll(async () => held(await (await api(who)).balances(), 'USDT')).toBe(0n);
 });
 
-test(`${J} #7 picks good-till-date: a past time sends nothing; at the expiry the order shows expired and its hold comes back`, async ({
+test(`${J} #7 picks good-till-date: the review shows the chosen expiry, a past time sends nothing, and at the expiry the order shows expired and its hold comes back`, async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -209,7 +209,9 @@ test(`${J} #7 picks good-till-date: a past time sends nothing; at the expiry the
   await buyForm(page).getByRole('button', { name: 'Buy BTC' }).click();
   const review = reviewSheet(page);
   await expect(review).toContainText('Good till date');
-  await expect(review).toContainText('Expires');
+  // The review's Expires row is the time that was picked, as this browser writes it.
+  const picked = await page.evaluate((ms) => new Date(ms).toLocaleString(), at);
+  await expect(review.locator('div', { has: page.locator('dt', { hasText: /^Expires$/ }) }).locator('dd')).toHaveText(picked);
   await confirm(page, 'buy');
   expect(sent).toHaveLength(1);
   expect(sent[0]).toMatchObject({ timeInForce: 'GTD', expireAt: new Date(at).toISOString() });

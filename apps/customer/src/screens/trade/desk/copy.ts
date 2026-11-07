@@ -64,6 +64,7 @@ const messages = {
   C: 'C',
   Change: 'Change',
   'Market rules': 'Market rules',
+  'Read the trading rulebook': 'Read the trading rulebook',
   'Price step': 'Price step',
   'Amount step': 'Amount step',
   'Smallest amount': 'Smallest amount',

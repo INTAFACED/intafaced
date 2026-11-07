@@ -114,7 +114,7 @@ for (const feature of ready) {
     '',
     '## Before you start',
     '',
-    '- `INTAFACED_DEFINITIVE_BUILD.md` — the spec, including the doctrines (§0) that settle ambiguity',
+    '- `INTAFACED_DEFINITIVE_BUILD.md` (private: INTAFACED/project-state `product/`) — the spec, including the doctrines (§0) that settle ambiguity',
     '- `tooling/agent-protocol/AGENT_PROTOCOL.md` — the hard prohibitions',
     '- `CONTRIBUTING.md` §2 — **work in a worktree, never the main checkout**',
     '',

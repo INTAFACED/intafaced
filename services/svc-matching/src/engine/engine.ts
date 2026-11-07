@@ -19,6 +19,14 @@ import {
   type SpreadFillPublisher,
 } from './spread-book.js';
 import { fromWireSpread, readSpreadListing, spreadIdentity, toWireSpread, type SpreadListingInput } from './spread-instrument.js';
+import {
+  rulebookEffectivePast,
+  rulebookImmutableRefuse,
+  presentPublishedRulebook,
+  presentRulebookHistory,
+  type RulebookDraft,
+  type RulebookVersion,
+} from '../rulebook.js';
 import { flattenCloseOrder, netPositionOf, positionFlatResult, type ClosePositionCommand } from './close-position.js';
 import {
   dualControlRefuse,
@@ -235,6 +243,8 @@ export class MatchingEngine {
   /** Owner spread listings, rebuilt from `spread_list` journal records. Empty means nothing is listed. */
   private readonly spreads = new Map<MarketId, SpreadInstrument>();
   private readonly spreadFills: SpreadFillPublisher | null;
+  /** Owner rulebook versions in publish order, rebuilt from `rulebook_version` journal records. Empty means unpublished. */
+  private readonly rulebook: RulebookVersion[] = [];
 
   constructor(options: MatchingEngineOptions) {
     this.journal = options.journal;
@@ -275,9 +285,23 @@ export class MatchingEngine {
     this.deadSessions.clear();
     this.inFlight.clear();
     this.spreads.clear();
+    this.rulebook.length = 0;
     for (const record of records) {
       if (record.kind === 'spread_list' && !this.spreads.has(record.marketId)) {
         this.spreads.set(record.marketId, fromWireSpread(record.instrument));
+      }
+      if (record.kind === 'rulebook_version' && !this.rulebook.some((v) => v.version === record.version)) {
+        this.rulebook.push({
+          version: record.version,
+          effectiveAt: record.effectiveAt,
+          publishedAt: record.at,
+          supersedes: record.supersedes,
+          digest: record.digest,
+          sections: record.sections,
+          operatorId: record.operatorId,
+          confirmOperatorId: record.confirmOperatorId,
+          approvalId: record.approvalId,
+        });
       }
     }
     const replayed = replayJournal(records);
@@ -441,6 +465,89 @@ export class MatchingEngine {
       if (this.isListed(marketId)) ids.add(marketId);
     }
     return [...ids].sort();
+  }
+
+  /** Public rulebook: the version in force at the engine's clock, with its sections. Unpublished when none is. */
+  rulebookView() {
+    return presentPublishedRulebook(this.rulebook, this.clock());
+  }
+
+  /** Public rulebook history, newest publish first, with the sections each version changed. */
+  rulebookHistory() {
+    return presentRulebookHistory(this.rulebook, this.clock());
+  }
+
+  /**
+   * Whether a draft may be published, read before any approval is spent: `same` when this exact version is already
+   * published (a retry returns the first), `immutable` when the id is published with other text, `effective_past` when
+   * its effective time has already gone by.
+   */
+  rulebookPrecheck(
+    draft: RulebookDraft,
+  ):
+    | { readonly kind: 'new' }
+    | { readonly kind: 'same'; readonly published: RulebookVersion }
+    | { readonly kind: 'refused'; readonly rejected: { readonly code: string; readonly message: string } } {
+    const existing = this.rulebook.find((v) => v.version === draft.version);
+    if (existing) {
+      return existing.digest === draft.digest
+        ? { kind: 'same', published: existing }
+        : { kind: 'refused', rejected: rulebookImmutableRefuse(draft.version) };
+    }
+    const past = rulebookEffectivePast(draft, this.clock());
+    return past ? { kind: 'refused', rejected: past } : { kind: 'new' };
+  }
+
+  /**
+   * Publish one rulebook version (RC-cex-spot-08). The router consumes the two-person approval first; this journals the
+   * version with who proposed and approved it, and only then serves it. Publish is keyed `rulebook:<version>`: the same
+   * draft again returns the first publish, other text under a published id refuses `matching.rulebook_immutable`.
+   */
+  async publishRulebook(
+    draft: RulebookDraft,
+    cmd: { readonly operatorId?: string | null; readonly confirmOperatorId?: string | null; readonly approvalId: string },
+  ): Promise<RulebookPublishResult> {
+    return withEngineSpan('matching.rulebookPublish', { marketId: draft.version }, async () => {
+      const operatorId = readOperatorId(cmd);
+      const confirmOperatorId = readConfirmOperatorId(cmd);
+      const dual = dualControlRefuse(operatorId, confirmOperatorId);
+      if (dual) return { accepted: false, version: draft.version, alreadyPublished: false, rejected: dual };
+      const existing = this.rulebook.find((v) => v.version === draft.version);
+      if (existing) {
+        if (existing.digest === draft.digest)
+          return { accepted: true, version: existing.version, alreadyPublished: true, published: existing };
+        return { accepted: false, version: draft.version, alreadyPublished: false, rejected: rulebookImmutableRefuse(draft.version) };
+      }
+      const now = this.clock();
+      const past = rulebookEffectivePast(draft, now);
+      if (past) return { accepted: false, version: draft.version, alreadyPublished: false, rejected: past };
+      const at = now.toISOString();
+      const version: RulebookVersion = {
+        version: draft.version,
+        effectiveAt: draft.effectiveAt ?? at,
+        publishedAt: at,
+        supersedes: this.rulebook.at(-1)?.version ?? null,
+        digest: draft.digest,
+        sections: draft.sections,
+        operatorId: operatorId as string,
+        confirmOperatorId: confirmOperatorId as string,
+        approvalId: cmd.approvalId,
+      };
+      this.journal.append({
+        kind: 'rulebook_version',
+        at,
+        operatorId: version.operatorId,
+        confirmOperatorId: version.confirmOperatorId,
+        approvalId: version.approvalId,
+        version: version.version,
+        effectiveAt: version.effectiveAt,
+        supersedes: version.supersedes,
+        digest: version.digest,
+        sections: version.sections,
+      });
+      this.rulebook.push(version);
+      return { accepted: true, version: version.version, alreadyPublished: false, published: version };
+    });
   }
 
   /** Owner spread listings, sorted by id. Empty when nothing is listed — never a sample instrument. */
@@ -1691,6 +1798,15 @@ export interface SpreadBookView {
   readonly bestAsk: string | null;
   readonly lastPrice: string | null;
 }
+
+export type RulebookPublishResult =
+  | { readonly accepted: true; readonly version: string; readonly alreadyPublished: boolean; readonly published: RulebookVersion }
+  | {
+      readonly accepted: false;
+      readonly version: string;
+      readonly alreadyPublished: false;
+      readonly rejected: { readonly code: string; readonly message: string };
+    };
 
 export interface SpreadListResult {
   readonly accepted: boolean;
