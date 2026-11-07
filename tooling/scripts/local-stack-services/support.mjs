@@ -43,6 +43,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // LOCAL TEST only, labelled in the same file: the desk group fraud reports go to (the journey makes it).
     // Production stays blank and every fraud report refuses (support.fraud_route_unset) until the owner names one.
     SUPPORT_FRAUD_GROUP: 'TEST Compliance',
+    // LOCAL TEST only, labelled in the same file: a complaint's final-response limit in calendar days (J-bank-18 #5).
+    // Production stays blank: complaints are still acknowledged and every deadline reads "not set" until the owner sets it.
+    SUPPORT_COMPLAINT_RESPONSE_DAYS: '14',
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
     // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',
