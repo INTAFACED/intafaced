@@ -17,6 +17,7 @@ import {
   rateLimitSummary,
   registerRateLimit,
   registerSecurityHeaders,
+  stampKeyMeteredHeaders,
   stampRateLimitRefuseHeaders,
   type RateLimitConfig,
 } from './hardening.js';
@@ -25,7 +26,9 @@ import { adapterRead, FIX_STATUS_UPSTREAM_PATH, registerAdapterStatusRoute, SBE_
 import { httpMatchingApprovalRead, httpMatchingControl, httpMatchingHealthRead, registerMatchingOperatorRoutes } from './matching-proxy.js';
 import { readMatchingUrl, registerMatchingVenueHaltGuard } from './matching-venue-halt.js';
 import { markAuthOutcome, registerMetrics } from './metrics.js';
-import { createQuotaStore, decideGateway, parseSandboxHosts, sandboxOf } from './gateway-plane.js';
+import { decideGateway, parseSandboxHosts, sandboxOf } from './gateway-plane.js';
+import { KeyBuckets, parseRouteCosts } from './rate-bucket.js';
+import { registerRateLimitsDoor } from './rate-limits-door.js';
 import { apiKeyRefusalBody } from './api-key-refusal.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
@@ -181,8 +184,10 @@ app.log[rateLimitState.level]({ appEnv: env.APP_ENV, ...rateLimit }, rateLimitSt
 
 const envLookup = (name: string): string | undefined => process.env[name];
 
-/** Per-key quota for the API-key plane (`gateway-plane.ts`). IP throttle stays in hardening.ts. */
-const keyQuota = createQuotaStore();
+/** Every API key's token bucket on this replica (`rate-bucket.ts`). The address throttle stays in hardening.ts. */
+const keyBuckets = new KeyBuckets();
+/** The owner's per-route cost table. Empty while unset: every key call is then refused `edge.cost_unset`. */
+const routeCosts = parseRouteCosts(env.EDGE_RATE_ROUTE_COSTS);
 /** Hosts that address the sandbox environment (`EDGE_SANDBOX_HOSTS`). Empty: every sandbox key refuses `env.mismatch`. */
 const sandboxHosts = parseSandboxHosts(env.EDGE_SANDBOX_HOSTS);
 
@@ -349,6 +354,9 @@ registerMatchingOperatorRoutes(app, {
   healthRead: matchingUrl ? httpMatchingHealthRead(matchingUrl, env.UPSTREAM_TIMEOUT_MS) : null,
   readApproval: httpMatchingApprovalRead(env.IDENTITY_URL, env.UPSTREAM_TIMEOUT_MS),
 });
+
+// The published cost table and a key's usage for its owner (J-developer-06 #1 #3).
+registerRateLimitsDoor(app, { tokens: tokenConfig, sessionLive, buckets: keyBuckets, costs: routeCosts });
 
 // The FIX and SBE adapters' own status (J-cex-spot-20 #3), each signed with its own read key.
 registerAdapterStatusRoute(app, {
@@ -521,10 +529,10 @@ await app.register(async (api) => {
       pathname: url.pathname,
       method: req.method,
       principal: exchanged.principal,
-      quota: keyQuota,
+      buckets: keyBuckets,
+      keyRateLimit: exchanged.keyRateLimit,
+      costs: routeCosts,
       now: Date.now(),
-      max: env.EDGE_RATE_LIMIT_MAX,
-      windowMs: env.EDGE_RATE_LIMIT_WINDOW_MS,
       host: req.headers.host,
       sandboxHosts,
     });
@@ -532,16 +540,19 @@ await app.register(async (api) => {
       reply.header('x-intafaced-key-env', sandboxOf(exchanged.principal) ? 'sandbox' : 'live');
     }
     if (!gate.allow) {
-      if (gate.status === 429) {
+      if (gate.status === 429 && gate.limited) {
         const resetSeconds = Math.max(1, Number(gate.body.retryAfterSeconds) || 1);
         stampRateLimitRefuseHeaders(reply, {
-          limit: env.EDGE_RATE_LIMIT_MAX,
+          limit: gate.limited.limit,
           resetSeconds,
           bucket: EDGE_API_KEY_RATE_BUCKET,
+          cost: gate.limited.cost,
+          reason: gate.limited.reason,
         });
       }
       return reply.code(gate.status).send(gate.body);
     }
+    if (gate.metered) stampKeyMeteredHeaders(reply, { ...gate.metered, bucket: EDGE_API_KEY_RATE_BUCKET });
 
     const csrf = refuseCookieCsrf({
       method: req.method,

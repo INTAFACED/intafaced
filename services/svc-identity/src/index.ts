@@ -143,6 +143,8 @@ import { createRequestSigningPolicyRouter } from './request-signing-policy-route
 import { createApiKeyRequestSignRouter } from './api-key-request-sign-router.js';
 import { createDeveloperKeysRouter } from './developer-keys-router.js';
 import { parseApiKeyCapByTier, parseApiKeyIdleExpirySeconds, passkeyMintRule } from './auth/developer-keys.js';
+import { installApiKeyRateExchange, parseRatePolicy } from './auth/api-rate-limits.js';
+import { createApiRateLimitsRouter } from './api-rate-limits-router.js';
 import { createDeveloperSandboxesRouter } from './developer-sandboxes-router.js';
 import { parseSandboxBaseUrl, parseSandboxCapByTier } from './auth/developer-sandboxes.js';
 import { installApiKeyProductExchange, requestProductAls } from './auth/auth-service-product.js';
@@ -562,6 +564,9 @@ const waitlist = new WaitlistService(
   parseWaveSize(env.IDENTITY_WAITLIST_WAVE_SIZE),
 );
 
+// The owner's API rate tiers (blank: none set). Every key exchange carries the key's limit for the edge.
+const ratePolicy = parseRatePolicy(env.IDENTITY_API_RATE_LIMITS);
+installApiKeyRateExchange(auth, sql, ratePolicy);
 installApiKeyIpExchange(auth, sql);
 installApiKeyAccountExchange(auth, sql);
 installApiKeyProductExchange(auth, sql);
@@ -740,6 +745,7 @@ export const appRouter = mergeRouters(
     signingEncKey,
     signingWindowSeconds: requestSignWindowSeconds,
   }),
+  createApiRateLimitsRouter(sql, ratePolicy),
   createDeveloperSandboxesRouter({
     sql,
     gate: auth,

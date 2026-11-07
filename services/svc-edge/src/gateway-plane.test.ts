@@ -7,7 +7,6 @@ import { EDGE_API_KEY_RATE_BUCKET, EDGE_RATE_COST } from './hardening.js';
 import {
   GATEWAY_DIALECTS,
   GATEWAY_KEY_PLANE,
-  createQuotaStore,
   decideGateway,
   doorForPath,
   envMismatchBody,
@@ -19,8 +18,11 @@ import {
   requiredScopeFor,
   sandboxOf,
   scopeRefuseBody,
-  takeQuota,
 } from './gateway-plane.js';
+import { KeyBuckets } from './rate-bucket.js';
+
+const LIMIT = { tier: 'base', burst: 10, refillPerMinute: 600 } as const;
+const COSTS = [{ route: '* /api/**', cost: 1 }] as const;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const USER = '11111111-1111-4111-8111-111111111111';
@@ -77,10 +79,10 @@ describe('api.gateway plane', () => {
       pathname: '/api/v1/markets',
       method: 'GET',
       principal: principal({ scopes: ['pay:read'] }),
-      quota: createQuotaStore(),
+      buckets: new KeyBuckets(),
+      keyRateLimit: LIMIT,
+      costs: COSTS,
       now: 0,
-      max: 10,
-      windowMs: 60_000,
     });
     expect(decided.allow).toBe(false);
     if (decided.allow) return;
@@ -97,10 +99,10 @@ describe('api.gateway plane', () => {
       pathname: '/api/pay/trpc/health',
       method: 'GET',
       principal: principal({ scopes: ['trade:read'] }),
-      quota: createQuotaStore(),
+      buckets: new KeyBuckets(),
+      keyRateLimit: LIMIT,
+      costs: COSTS,
       now: 0,
-      max: 10,
-      windowMs: 60_000,
     });
     expect(decided.allow).toBe(false);
     if (decided.allow) return;
@@ -120,28 +122,30 @@ describe('api.gateway plane', () => {
   });
 
   it('same live key with both read scopes passes both doors at the live host', () => {
-    const quota = createQuotaStore();
+    const buckets = new KeyBuckets();
     const key = principal({ scopes: ['trade:read', 'pay:read'], key_env: 'live' });
     const trade = decideGateway({
       pathname: '/api/v1/markets',
       method: 'GET',
       principal: key,
-      quota,
+      buckets,
+      keyRateLimit: LIMIT,
+      costs: COSTS,
       now: 1,
-      max: 10,
-      windowMs: 60_000,
     });
     const pay = decideGateway({
       pathname: '/api/pay/trpc/health',
       method: 'GET',
       principal: key,
-      quota,
+      buckets,
+      keyRateLimit: LIMIT,
+      costs: COSTS,
       now: 1,
-      max: 10,
-      windowMs: 60_000,
     });
-    expect(trade).toEqual({ allow: true, sandbox: false });
-    expect(pay).toEqual({ allow: true, sandbox: false });
+    expect(trade).toMatchObject({ allow: true, sandbox: false });
+    expect(pay).toMatchObject({ allow: true, sandbox: false });
+    // One bucket for the key across both doors: two calls of cost 1 out of a burst of 10.
+    expect(pay).toMatchObject({ metered: { limit: 10, remaining: 8, cost: 1 } });
   });
 
   describe('environment rule: env.mismatch before any scope work', () => {
@@ -151,10 +155,10 @@ describe('api.gateway plane', () => {
         pathname,
         method,
         principal: p,
-        quota: createQuotaStore(),
+        buckets: new KeyBuckets(),
+        keyRateLimit: LIMIT,
+        costs: COSTS,
         now: 0,
-        max: 10,
-        windowMs: 60_000,
         host,
         sandboxHosts: SANDBOX_HOSTS,
       });
@@ -216,7 +220,7 @@ describe('api.gateway plane', () => {
 
     it('a key with no environment is live, never a sandbox key', () => {
       expectMismatch(decide(principal({ key_env: undefined, scopes: ['pay:read'] }), 'localhost:14500'));
-      expect(decide(principal({ key_env: undefined, scopes: ['pay:read'] }), '127.0.0.1:14500')).toEqual({ allow: true, sandbox: false });
+      expect(decide(principal({ key_env: undefined, scopes: ['pay:read'] }), '127.0.0.1:14500')).toMatchObject({ allow: true, sandbox: false });
     });
 
     it('the mismatch comes before the scope check: a scopeless key learns nothing about scopes', () => {
@@ -226,20 +230,20 @@ describe('api.gateway plane', () => {
     });
 
     it('a mismatch spends no quota', () => {
-      const quota = createQuotaStore();
+      const buckets = new KeyBuckets();
       const key = principal({ key_env: 'sandbox', scopes: ['pay:read'] });
       const call = {
         pathname: '/api/pay/v1/payments',
         method: 'GET',
         principal: key,
-        quota,
+        buckets,
+        keyRateLimit: LIMIT,
+        costs: COSTS,
         now: 0,
-        max: 10,
-        windowMs: 60_000,
         sandboxHosts: SANDBOX_HOSTS,
       };
       decideGateway({ ...call, host: '127.0.0.1:14500' });
-      expect(quota.size).toBe(0);
+      expect(buckets.usage('key-1', USER, 0).state).toBe('none');
     });
 
     it('trade has no sandbox backing: a sandbox key at the trade door is refused even at the sandbox host', () => {
@@ -249,8 +253,8 @@ describe('api.gateway plane', () => {
     });
 
     it('pay is sandbox-backed: a sandbox key at the sandbox host passes the pay door, marked sandbox', () => {
-      expect(decide(sandboxPay, 'localhost:14500')).toEqual({ allow: true, sandbox: true });
-      expect(decide(sandboxPay, 'sandbox.example:443', '/api/pay/v1/payments', 'POST')).toEqual({ allow: true, sandbox: true });
+      expect(decide(sandboxPay, 'localhost:14500')).toMatchObject({ allow: true, sandbox: true });
+      expect(decide(sandboxPay, 'sandbox.example:443', '/api/pay/v1/payments', 'POST')).toMatchObject({ allow: true, sandbox: true });
     });
 
     it('with no sandbox host set, every sandbox key is refused at every door', () => {
@@ -262,10 +266,10 @@ describe('api.gateway plane', () => {
               pathname,
               method: 'GET',
               principal: sandboxPay,
-              quota: createQuotaStore(),
+              buckets: new KeyBuckets(),
+              keyRateLimit: LIMIT,
+              costs: COSTS,
               now: 0,
-              max: 10,
-              windowMs: 60_000,
               host,
               sandboxHosts: none,
             }),
@@ -315,46 +319,60 @@ describe('api.gateway plane', () => {
       pathname: '/api/pay/trpc/health',
       method: 'GET',
       principal: principal({ kid: undefined, scopes: [] }),
-      quota: createQuotaStore(),
+      buckets: new KeyBuckets(),
+      keyRateLimit: LIMIT,
+      costs: COSTS,
       now: 0,
-      max: 1,
-      windowMs: 60_000,
     });
     expect(decided.allow).toBe(true);
   });
 
-  it('quota past the budget is edge.rate_limited — existing edge code', () => {
-    const quota = createQuotaStore();
+  it('a key past its burst is edge.rate_limited with reason, retry-after and the cost — existing edge code', () => {
+    const buckets = new KeyBuckets();
     const key = principal({ scopes: ['trade:read'] });
-    const first = decideGateway({
-      pathname: '/api/v1/markets',
-      method: 'GET',
-      principal: key,
-      quota,
-      now: 0,
-      max: 1,
-      windowMs: 60_000,
-    });
-    const second = decideGateway({
-      pathname: '/api/v1/markets',
-      method: 'GET',
-      principal: key,
-      quota,
-      now: 1,
-      max: 1,
-      windowMs: 60_000,
-    });
+    const call = (now: number) =>
+      decideGateway({
+        pathname: '/api/v1/markets',
+        method: 'GET',
+        principal: key,
+        buckets,
+        keyRateLimit: { tier: 'base', burst: 1, refillPerMinute: 60 },
+        costs: COSTS,
+        now,
+      });
+    const first = call(0);
+    const second = call(1);
     expect(first.allow).toBe(true);
     expect(second.allow).toBe(false);
     if (second.allow) return;
     expect(second.status).toBe(429);
     expect(second.body.code).toBe('edge.rate_limited');
-    expect(second.body).toMatchObject(quotaRefuseBody(second.body.retryAfterSeconds as number));
+    expect(second.body).toMatchObject(quotaRefuseBody(1, 'global', 1));
     expect(second.body).toMatchObject({
+      reason: 'global',
+      retryAfterSeconds: 1,
       remaining: 0,
       bucket: EDGE_API_KEY_RATE_BUCKET,
       cost: EDGE_RATE_COST,
+      docs: '/developers/rate-limits',
     });
+    expect(second.limited).toEqual({ reason: 'global', limit: 1, cost: 1 });
+    // One token refills in a second at 60 a minute.
+    expect(call(1001).allow).toBe(true);
+  });
+
+  it('a key with no limit stated, or a call with no cost in the table, is refused and nothing is counted', () => {
+    const buckets = new KeyBuckets();
+    const key = principal({ scopes: ['trade:read'] });
+    const base = { pathname: '/api/v1/markets', method: 'GET', principal: key, buckets, now: 0 };
+    for (const keyRateLimit of [null, undefined]) {
+      const decided = decideGateway({ ...base, keyRateLimit, costs: COSTS });
+      expect(decided).toMatchObject({ allow: false, status: 503, body: { code: 'edge.limits_unset' } });
+    }
+    const uncosted = decideGateway({ ...base, keyRateLimit: LIMIT, costs: [{ route: 'GET /api/pay/**', cost: 1 }] });
+    expect(uncosted).toMatchObject({ allow: false, status: 503, body: { code: 'edge.cost_unset' } });
+    expect(decideGateway({ ...base, keyRateLimit: LIMIT, costs: [] })).toMatchObject({ body: { code: 'edge.cost_unset' } });
+    expect(buckets.usage('key-1', USER, 0).state).toBe('none');
   });
 
   it('sandbox flag is key_env, never a silent upgrade of live', () => {
@@ -362,13 +380,6 @@ describe('api.gateway plane', () => {
     expect(sandboxOf(principal({ key_env: 'live' }))).toBe(false);
     expect(sandboxOf(principal({ key_env: undefined }))).toBe(false);
     expect(sandboxOf(null)).toBe(false);
-  });
-
-  it('takeQuota resets after the window', () => {
-    const store = createQuotaStore();
-    expect(takeQuota(store, 'k', 0, 1, 10)).toEqual({ ok: true });
-    expect(takeQuota(store, 'k', 5, 1, 10).ok).toBe(false);
-    expect(takeQuota(store, 'k', 10, 1, 10)).toEqual({ ok: true });
   });
 
   it('index.ts consults this plane after principal exchange', () => {

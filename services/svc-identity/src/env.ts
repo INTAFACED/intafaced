@@ -251,6 +251,14 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
       /**
+       * Owner setting: API rate tiers for keys and the most a reviewer may grant one key (DV-limits-01, J-developer-06).
+       * JSON `{"tiers":[{"id":"base"|"sandbox","burst":n,"refillPerMinute":n}],"grantCeilingPerMinute":n|null}`. NO
+       * DEFAULT. Blank: no tier is set, so the key exchange hands the edge no limit and the edge refuses every key call
+       * (`edge.limits_unset`), the limits page shows the not-set banner and every limit request refuses
+       * `identity.rate_limits_unset`. Parsed at start by `parseRatePolicy`; a value that does not parse stops the service.
+       */
+      IDENTITY_API_RATE_LIMITS: z.string().optional(),
+      /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
        * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move
