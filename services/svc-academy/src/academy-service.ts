@@ -173,6 +173,7 @@ import { mayHost, type HostRightsSource } from './host-rights.js';
 import type { StakeSource } from './stake-source.js';
 import { isConstructed, type StreamCredential, type StreamProvider } from './stream/provider.js';
 import { withAcademySpan } from './tracing.js';
+import { LearnerDesk, requireReason } from './learners/learner-desk.js';
 
 /**
  * ACADEMY LOBBIES (§8.3, §XIII "live session lobbies, capacity tiers").
@@ -401,7 +402,17 @@ const revocationRecord = (r: RevocationRow): AcademyCertRevocation => ({
   revokedAt: r.revoked_at,
 });
 
+/** The caller's own due date: staff's later date for them when there is one, else everyone's (J-academy-14 #5). */
+function dueFor(dueAt: Date | null, extendedUntil: Date | null): { dueAt: string | null; dueExtended: boolean } {
+  if (dueAt === null) return { dueAt: null, dueExtended: false };
+  return extendedUntil !== null && extendedUntil.getTime() > dueAt.getTime()
+    ? { dueAt: extendedUntil.toISOString(), dueExtended: true }
+    : { dueAt: dueAt.toISOString(), dueExtended: false };
+}
+
 export class AcademyService {
+  /** J-academy-14: the staff desk for one learner. */
+  readonly learners: LearnerDesk;
   private readonly customer: AcademyCustomerStore;
   private readonly assessments: AssessmentRepository;
   private readonly release: ReleaseAccess;
@@ -451,6 +462,7 @@ export class AcademyService {
   ) {
     this.customer = new AcademyCustomerStore(sql);
     this.release = new ReleaseAccess(sql);
+    this.learners = new LearnerDesk(sql);
     this.featured = new FeaturedSlot(sql);
     this.courseRecords = new CourseRecords(sql, {
       maxSections: this.options.outlineMaxSections ?? null,
@@ -1967,6 +1979,7 @@ export class AcademyService {
         rule,
         ruleMet: this.completionRuleMet(row.slug, rule, passed, watched),
         completedAt: completedAt.get(row.slug)?.toISOString() ?? null,
+        ...dueFor(view.dueAt, view.extendedUntil),
       };
     });
     return { slug: path, items };
@@ -2314,6 +2327,9 @@ export class AcademyService {
    */
   async readCurriculumItem(input: { userId: string; slug: string; now?: Date }) {
     await this.release.assertMayRead({ userId: input.userId, itemSlug: input.slug, now: input.now });
+    // An ended access record on the item's course closes it (J-academy-14); no record leaves the free enrolment in charge.
+    const path = getCurriculumItem(input.slug.trim())?.path;
+    if (path) await this.learners.assertAccess(input.userId, path, input.now ?? new Date());
     return curriculumItemView(input.slug);
   }
 
@@ -2622,6 +2638,7 @@ export class AcademyService {
     }
     if (decision.alreadyComplete) return decision.record;
     await this.release.assertMayComplete({ userId: input.userId, itemSlug: slug });
+    await this.learners.assertAccess(input.userId, getCurriculumItem(slug)!.path, input.now ?? new Date());
     const now = input.now ?? new Date();
     const quiz = await this.assessments.definition(slug);
     if (quiz && quiz.passMark === null) {
@@ -2642,6 +2659,26 @@ export class AcademyService {
     await this.settleCertificatesNeeding(input.userId, slug, now);
     await this.settleProgrammesHolding(input.userId, slug, now);
     return record;
+  }
+
+  /**
+   * J-academy-14 #3: staff record an item complete for a learner, with a reason, whatever the item's own rule or lock
+   * (that is the point of the override). The completion is the learner's ordinary one, so progress, certificates and
+   * programmes count it; the learner's audit names who and why. Keyed by the console's request: a replay records nothing
+   * twice. An item already complete is left as it is.
+   */
+  async staffMarkComplete(input: { userId: string; itemSlug: string; reason: string; key: string; operatorId: string; now?: Date }) {
+    const slug = input.itemSlug.trim();
+    const reason = requireReason(input.reason);
+    if (!hasCurriculumSlug(slug)) throw new AcademyError('Unknown curriculum item', 'academy.curriculum_not_found');
+    const now = input.now ?? new Date();
+    if (await this.learners.recorded(input.key)) return { userId: input.userId, done: `already recorded under ${input.key}` };
+    if (await this.currentCompletion(this.sql, input.userId, slug)) return { userId: input.userId, done: 'the item was already complete' };
+    await this.recordCompletion(input.userId, slug, now);
+    await this.learners.recordMarkComplete({ userId: input.userId, itemSlug: slug, reason, key: input.key, actorId: input.operatorId, now });
+    await this.settleCertificatesNeeding(input.userId, slug, now);
+    await this.settleProgrammesHolding(input.userId, slug, now);
+    return { userId: input.userId, done: 'marked complete for the learner' };
   }
 
   /** Records one completion and its history row; a concurrent completion of the same item returns that one. */
