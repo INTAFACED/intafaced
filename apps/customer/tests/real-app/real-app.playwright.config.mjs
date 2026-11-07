@@ -10,7 +10,10 @@ export default defineConfig({
   testMatch: process.env.JOURNEY_FILES ? process.env.JOURNEY_FILES.split(' ').filter(Boolean) : '*.pw.mjs',
   workers: 1,
   fullyParallel: false,
-  retries: 0,
+  // A run on main retries a failed test once (JOURNEY_RETRIES=1, set by the Real-app journeys workflow), so a test that
+  // fails and then passes on the same commit ends "flaky" and the machine sets its step aside; a money step never
+  // (tooling/ci/journey-verdict.mjs, owner decision 2026-11-07). Everywhere else, no retry: a builder's run shows a red.
+  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,
   timeout: 90_000,
   // The Real-app journeys workflow stops a shard's journeys here, before its job's own limit, so the shard still sends
   // its report and only the journeys it did not reach count as not run. Unset locally: no limit.

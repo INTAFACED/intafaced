@@ -23,6 +23,9 @@
  *   A shard that hit its time limit (the job's, or the limit the shard puts on its own journeys so it still reports):
  *   open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue naming the jobs; it closes on the
  *   next run where no job hit its limit.
+ *   A step the run's verdict set aside (the artifact's set-aside.json, journey-verdict.mjs: it failed, then passed on its
+ *   retry, on main, and it is not money): open one "Set aside on main until <date>: <step>" issue naming its owner and
+ *   end date, once per set-aside. Its owner closes it with the fix.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -123,6 +126,28 @@ export const outsideCause = (check) => (OUTSIDE_CAUSES[check] ? ['', OUTSIDE_CAU
 export const checkIssueTitle = (check) => `Broken on main: ${check}`;
 export const timeLimitIssueTitle = (check) => `Broken on main: ${check} (time limit)`;
 export const journeyIssueTitle = (journey) => `Journey broken on main: ${journey}`;
+export const setAsideIssueTitle = (row) => `Set aside on main until ${String(row.until).slice(0, 10)}: ${row.step.replace('#', ' #')}`;
+
+/** The issue for a step the verdict set aside (a row of set-aside.json). */
+export function setAsideIssueBody(row, runUrl) {
+  const until = String(row.until).slice(0, 16).replace('T', ' ');
+  return [
+    `\`${row.step.replace('#', ' #')}\` failed, then passed on its retry, on main (first in run ${row.since}; this issue comes from [this run](${runUrl})), so the machine set it aside until ${until} UTC (tooling/ci/journey-verdict.mjs).`,
+    '',
+    `- Owner: ${row.owner} (its journey's module in docs/roadmap/journeys.json).`,
+    '- Until then it still runs and each run shows its result, it does not count as proven, and its failure does not turn main red.',
+    `- After ${until} UTC, a failure, or a pass only on its retry, turns main's journeys verdict red again.`,
+    `- Fix the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}.`,
+    '',
+    `<!-- set-aside: ${row.step} -->`,
+    '_Opened by tooling/ci/post-merge-trust.mjs. A money step is never set aside._',
+  ].join('\n');
+}
+
+/** The set-aside rows that need an issue: active, with no open issue of their title yet. */
+export function setAsideToOpen(rows, openTitles) {
+  return (rows ?? []).filter((r) => r.active && typeof r.step === 'string' && !openTitles.has(setAsideIssueTitle(r)));
+}
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
 const STEPS_MARK = /<!-- steps: ([^>]*) -->/g;
 
@@ -269,8 +294,9 @@ async function between(repo, from, to) {
   return { commits: json?.commits ?? [], url: `https://github.com/${repo}/compare/${from.slice(0, 10)}...${to.slice(0, 10)}` };
 }
 
-/** The journeys report of a run, or null when the run kept none (the stack or browser did not start). */
-async function journeyReport(repo, runId) {
+/** A JSON file of a run's journeys artifact (its report by default), or null when the run kept none (the stack or browser
+ *  did not start). */
+async function journeyReport(repo, runId, file = 'report.json') {
   const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?name=${JOURNEYS_ARTIFACT}&per_page=5`);
   const artifact = (json?.artifacts ?? []).find((a) => a.name === JOURNEYS_ARTIFACT && !a.expired);
   if (!artifact) return null;
@@ -285,7 +311,7 @@ async function journeyReport(repo, runId) {
     writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
     const entry = execFileSync('unzip', ['-Z1', zip], { encoding: 'utf8' })
       .split('\n')
-      .find((e) => e.endsWith('journeys/report.json') || e === 'report.json');
+      .find((e) => e.endsWith(`journeys/${file}`) || e === file);
     if (!entry) return null;
     return JSON.parse(execFileSync('unzip', ['-p', zip, entry], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }));
   } finally {
@@ -391,9 +417,24 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
   return `- Closed #${issue.number} (no job hit its time limit)`;
 }
 
+/** One issue per step the run's verdict set aside, naming its owner and end date. */
+async function setAsideCheck({ repo, runId, runUrl }) {
+  const list = await journeyReport(repo, runId, 'set-aside.json');
+  if (!list) return null;
+  const open = new Set((await openIssuesTitled(repo, 'Set aside on main until ')).map((i) => i.title));
+  const lines = [];
+  for (const row of setAsideToOpen(list.steps, open)) {
+    const { json } = await gh('POST', `/repos/${repo}/issues`, { title: setAsideIssueTitle(row), body: setAsideIssueBody(row, runUrl) });
+    lines.push(`- ${row.step} set aside until ${row.until} (owner: ${row.owner}): opened #${json?.number}`);
+  }
+  return lines;
+}
+
 async function journeysCheck(ctx) {
   const timeLine = await timeLimitCheck(ctx);
   if (timeLine) summary(['### Journeys time limit', '', timeLine]);
+  const asideLines = await setAsideCheck(ctx);
+  if (asideLines?.length) summary(['### Set aside by the machine', '', ...asideLines]);
   const { repo, runId, sha, runUrl, earlier } = ctx;
   const now = await journeyReport(repo, runId);
   if (!now)
@@ -592,7 +633,30 @@ function selfTest() {
   );
   eq(breakingCommitLines([], 'u')[0].startsWith('No commit changed between these runs'), true, 'same commit: no breaking commit named');
   eq(breakingCommitLines([c('a'.repeat(40), 'x')], 'u'), ['The breaking commit:', '- `aaaaaaaaaa` x'], 'one breaking commit');
-  console.log('✓ post-merge-trust --self-test OK (28 fixtures)');
+  const row = {
+    step: 'J-a-01#3',
+    until: '2026-11-14T06:00:00.000Z',
+    since: 1700,
+    active: true,
+    owner: 'the alpha area',
+    file: 'J-a-01.pw.mjs',
+  };
+  eq(setAsideIssueTitle(row), 'Set aside on main until 2026-11-14: J-a-01 #3', 'set-aside issue title');
+  eq(
+    setAsideToOpen(
+      [row, { ...row, step: 'J-a-01#4', active: false }, { ...row, step: 'J-a-01#5' }],
+      new Set([setAsideIssueTitle({ ...row, step: 'J-a-01#5' })]),
+    ).map((r) => r.step),
+    ['J-a-01#3'],
+    'an issue opens once per active set-aside; an ended one opens none',
+  );
+  const body = setAsideIssueBody(row, 'https://x/runs/9');
+  eq(
+    ['Owner: the alpha area', '2026-11-14 06:00 UTC', 'J-a-01.pw.mjs', 'does not count as proven'].every((t) => body.includes(t)),
+    true,
+    'set-aside issue names owner, end date and file',
+  );
+  console.log('✓ post-merge-trust --self-test OK (31 fixtures)');
 }
 
 async function main() {

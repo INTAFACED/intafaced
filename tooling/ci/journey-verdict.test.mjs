@@ -2,13 +2,24 @@
 //   node --test tooling/ci/journey-verdict.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { historyRuns, issueProblem, judge, moneyRule, passesSince, readReport, regressionState } from './journey-verdict.mjs';
+import {
+  SET_ASIDE_DAYS,
+  historyRuns,
+  issueProblem,
+  judge,
+  moneyRule,
+  passesSince,
+  readReport,
+  regressionState,
+  setAsideSteps,
+} from './journey-verdict.mjs';
 
 const spec = (title, status, file = 'J-a-01.pw.mjs') => ({ title, file, tests: [{ status }] });
 const report = (...specs) => ({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
 const ok = (t, f) => spec(t, 'expected', f);
 const bad = (t, f) => spec(t, 'unexpected', f);
 const skip = (t, f) => spec(t, 'skipped', f);
+const flaky = (t, f) => spec(t, 'flaky', f);
 const parkedIssue = {
   issue: { number: 9, state: 'open', title: 'Journey broken on main: J-a-02' },
   comments: [
@@ -195,4 +206,71 @@ test("history: only main's own finished runs between the named run and this one"
     historyRuns(runs, { repo, namedCreated: r(1, 1).created_at, thisCreated: r(7, 7).created_at, thisId: 7 }).map((x) => x.run_number),
     [2, 6],
   );
+});
+
+// The set-aside (OWNER 225, 227): a step that failed, then passed on its retry, on main, is set aside by the machine for
+// SET_ASIDE_DAYS from the first such run, never a money step.
+const at = (day) => `2026-11-${String(day).padStart(2, '0')}T00:00:00.000Z`;
+const moneyToo = { ...money, 'J-a-05#1': true };
+const aside = (runs, now) => setAsideSteps(runs, { money: moneyToo, owners: { 'J-a-01': 'alpha' }, now });
+
+test('a flaky test reads as "flaky", and a failing duplicate still wins', () => {
+  assert.equal(readReport(report(flaky('J-a-01 #1'))).states['J-a-01#1'], 'flaky');
+  assert.equal(readReport(report(ok('J-a-01 #1 a'), flaky('J-a-01 #1 b'))).states['J-a-01#1'], 'flaky');
+  assert.equal(readReport(report(flaky('J-a-01 #1 a'), bad('J-a-01 #1 b'))).states['J-a-01#1'], 'failed');
+  assert.deepEqual(passesSince([[101, readReport(report(flaky('J-a-01 #2')))]]), { 'J-a-01#2': 101 });
+});
+
+test('the set-aside list: non-money flaky steps, from the first flaky run, never a money step', () => {
+  const runs = [
+    { number: 101, at: at(1), states: { 'J-a-01#1': 'failed' } },
+    { number: 102, at: at(2), states: { 'J-a-01#1': 'flaky', 'J-a-05#1': 'flaky', 'J-a-06#1': 'flaky' } },
+    { number: 103, at: at(3), states: { 'J-a-01#1': 'flaky' } },
+  ];
+  const list = aside(runs, at(4));
+  assert.deepEqual(Object.keys(list), ['J-a-01#1']); // J-a-05 is money; J-a-06 is missing from journeys.json, so money
+  assert.equal(list['J-a-01#1'].since, 102);
+  assert.equal(list['J-a-01#1'].until, new Date(Date.parse(at(2)) + SET_ASIDE_DAYS * 864e5).toISOString());
+  assert.equal(list['J-a-01#1'].active, true);
+  assert.equal(list['J-a-01#1'].owner, 'the alpha area');
+  assert.equal(aside(runs, at(2 + SET_ASIDE_DAYS))['J-a-01#1'].active, false); // the end date counts from run 102, not 103
+});
+
+test('set aside: a non-money step on the list that fails leaves the verdict green, and is reported', () => {
+  const setAside = aside([{ number: 102, at: at(2), states: { 'J-a-01#1': 'flaky' } }], at(3));
+  const v = run(report(bad('J-a-01 #1'), bad('J-a-01 #2')), { setAside });
+  assert.deepEqual(v.red, []);
+  assert.deepEqual(v.setAside, ['J-a-01#1']);
+  // The same failure with no set-aside is red (the planted break, unchanged).
+  assert.match(run(report(bad('J-a-01 #1'), bad('J-a-01 #2'))).red[0].why, /failing, not in the baseline/);
+});
+
+test('set aside: a flaky non-money step in this run is green while its set-aside lasts', () => {
+  const setAside = aside([{ number: 103, at: at(3), states: { 'J-a-01#1': 'flaky' } }], at(3));
+  assert.deepEqual(run(report(flaky('J-a-01 #1'), bad('J-a-01 #2')), { setAside }).red, []);
+});
+
+test('never set aside: a money step that failed, then passed on its retry, is red', () => {
+  const v = run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, setAside: {} });
+  assert.deepEqual(
+    v.red.map((r) => [r.step, r.money]),
+    [['J-a-05#1', true]],
+  );
+  assert.match(v.red[0].why, /money step is never set aside/);
+  // Even a hand-made list naming it changes nothing: the verdict reads the money rule itself.
+  const forged = { 'J-a-05#1': { active: true, until: at(30) } };
+  assert.equal(run(report(ok('J-a-01 #1'), flaky('J-a-05 #1')), { money: moneyToo, setAside: forged }).red.length, 1);
+  assert.equal(run(report(ok('J-a-01 #1'), bad('J-a-05 #1')), { money: moneyToo, setAside: forged }).red.length, 1);
+});
+
+test('after the end date: a failure, or a pass only on the retry, is red again', () => {
+  const setAside = aside([{ number: 102, at: at(2), states: { 'J-a-01#1': 'flaky' } }], at(2 + SET_ASIDE_DAYS));
+  assert.match(run(report(bad('J-a-01 #1')), { setAside }).red[0].why, /failing, not in the baseline/);
+  assert.match(run(report(flaky('J-a-01 #1')), { setAside }).red[0].why, /after its set-aside ended/);
+});
+
+test('never excused: a set-aside step that is skipped or missing', () => {
+  const setAside = aside([{ number: 102, at: at(2), states: { 'J-a-01#1': 'flaky' } }], at(3));
+  assert.match(run(report(skip('J-a-01 #1')), { setAside }).red[0].why, /skipped now/);
+  assert.match(run(report(bad('J-a-01 #2')), { setAside }).red[0].why, /missing now/);
 });
