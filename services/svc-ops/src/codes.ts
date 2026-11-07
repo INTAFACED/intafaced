@@ -50,9 +50,17 @@ import {
   STAFF_HOLD_EXPIRY_TOO_LONG,
   STAFF_HOLD_CONFIRM_ACCOUNT_UNSET,
   STAFF_HOLD_NOT_FOUND,
+  CLAIM_EVIDENCE_MISSING,
+  CLAIM_NOT_FOUND,
+  CLAIM_SELF_APPROVAL,
+  CLAIMS_STORAGE_UNCONFIGURED,
 } from '@intafaced/contracts';
 
 export {
+  CLAIM_EVIDENCE_MISSING,
+  CLAIM_NOT_FOUND,
+  CLAIM_SELF_APPROVAL,
+  CLAIMS_STORAGE_UNCONFIGURED,
   STAFF_HOLD_STORAGE_UNCONFIGURED,
   STAFF_HOLD_LEDGER_UNCONFIGURED,
   STAFF_HOLD_STATE_ILLEGAL,
@@ -386,6 +394,10 @@ export type OpsRefuseCode =
   | typeof STAFF_HOLD_EXPIRY_TOO_LONG
   | typeof STAFF_HOLD_CONFIRM_ACCOUNT_UNSET
   | typeof STAFF_HOLD_NOT_FOUND
+  | typeof CLAIM_EVIDENCE_MISSING
+  | typeof CLAIM_NOT_FOUND
+  | typeof CLAIM_SELF_APPROVAL
+  | typeof CLAIMS_STORAGE_UNCONFIGURED
   /** A ledger refusal passed through as the ledger typed it (a staff hold post refused for funds or the posting freeze). */
   | `ledger.${string}`;
 

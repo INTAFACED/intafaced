@@ -130,6 +130,10 @@
       "types": "./dist/ops-console-announcements.d.ts",
       "default": "./dist/ops-console-announcements.js"
     },
+    "./ops-marketing-claims": {
+      "types": "./dist/ops-marketing-claims.d.ts",
+      "default": "./dist/ops-marketing-claims.js"
+    },
     "./ops-console-preferences": {
       "types": "./dist/ops-console-preferences.d.ts",
       "default": "./dist/ops-console-preferences.js"
