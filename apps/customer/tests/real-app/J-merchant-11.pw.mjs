@@ -43,7 +43,8 @@ function inviteMail(on) {
   }
 }
 
-const members = (page) => page.getByRole('table', { name: 'Members' });
+// The shared DataTable names its scrolling region, not the table inside it.
+const members = (page) => page.locator('[data-slot="data-table"][aria-label="Members"]');
 const memberRow = (page, text) => members(page).getByRole('row').filter({ hasText: text });
 const masked = (email) => `${email.slice(0, 1)}***${email.slice(email.lastIndexOf('@'))}`;
 const confirmDialog = (page) => page.getByRole('dialog').locator('[data-testid="form-stack"] > button').last();
