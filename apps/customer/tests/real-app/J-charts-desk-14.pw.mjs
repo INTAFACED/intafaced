@@ -750,7 +750,7 @@ test(`${J} #8 reads my place in the queue and the fill probability of a resting 
       price,
       amount,
       timeInForce: 'GTC',
-      clientOrderId: `${J}-queue-${tag}-${who.email}`,
+      clientOrderId: `jcd14-queue-${tag}-${RUN}`,
     });
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
     return res.body;
