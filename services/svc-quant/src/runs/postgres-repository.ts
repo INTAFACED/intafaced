@@ -3,6 +3,8 @@ import { QUANT_RUN_IMMUTABLE, QUANT_RUN_NOT_FOUND, QuantError } from '../errors.
 import { decodeListCursor, encodeListCursor, idempotencyConflict } from '../studio/keys.js';
 import { assertResultFits, assertRunResultCap } from './limit.js';
 import type { BeginRun, ClaimInput, FinishRun, RunRepository } from './repository.js';
+import { accountCounts } from '../quota/counts.js';
+import type { QuotaGate, QuotaResource } from '../quota/quota.js';
 import type { ClaimRow, CostBreakdown, RunCounts, RunKind, RunResultBody, StoredRun, StoredRunResult } from './types.js';
 
 interface RunSql {
@@ -175,7 +177,19 @@ function claimOf(row: ClaimSql): ClaimRow {
   };
 }
 
-export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: number | null | undefined = undefined): RunRepository {
+/** What starting a run counts against: one more stored run, one more running now, and at least one more byte stored. */
+const RUN_QUOTAS: readonly QuotaResource[] = ['concurrent_runs', 'runs', 'storage'];
+
+/**
+ * `quota`: the account's plan limits (AL-limits-01), checked in the same transaction as a new run row. Omitted only by
+ * tests that do not exercise quotas; `src/index.ts` always passes it.
+ */
+export function createPostgresRunRepository(
+  sql: Sql,
+  schema = 'quant',
+  cap: number | null | undefined = undefined,
+  quota?: QuotaGate,
+): RunRepository {
   const resultCap = assertRunResultCap(cap);
   const runs = relation(schema, 'runs');
   const claims = relation(schema, 'claims');
@@ -194,6 +208,39 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
     return row ? runOf(row) : null;
   }
 
+  async function insertRun(db: Sql | TransactionSql, input: BeginRun): Promise<StoredRun> {
+    const id = `run_${crypto.randomUUID()}`;
+    const insert = async (target: Sql | TransactionSql) =>
+      query<RunSql>(
+        target,
+        `INSERT INTO ${runs}
+           (id, user_id, scope_key, idempotency_key, kind, strategy_id, strategy_version, started_at, finished_at, outcome_code, result)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL)
+         RETURNING *`,
+        [
+          id,
+          input.userId,
+          scopeKey(input.userId),
+          input.idempotencyKey,
+          input.kind,
+          input.strategyId,
+          input.strategyVersion,
+          new Date().toISOString(),
+        ],
+      );
+    try {
+      const rows = db === sql ? await insert(sql) : await (db as TransactionSql).savepoint((sp) => insert(sp));
+      const row = rows[0];
+      if (!row) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+      return runOf(row);
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err;
+      const again = await loadByKey(db, input.userId, input.idempotencyKey);
+      if (!again) throw err;
+      return again;
+    }
+  }
+
   return {
     async replay(userId, idempotencyKey) {
       return loadByKey(sql, userId, idempotencyKey);
@@ -202,34 +249,23 @@ export function createPostgresRunRepository(sql: Sql, schema = 'quant', cap: num
     async begin(input: BeginRun) {
       const existing = await loadByKey(sql, input.userId, input.idempotencyKey);
       if (existing) return existing;
-      const id = `run_${crypto.randomUUID()}`;
-      try {
-        const rows = await query<RunSql>(
-          sql,
-          `INSERT INTO ${runs}
-             (id, user_id, scope_key, idempotency_key, kind, strategy_id, strategy_version, started_at, finished_at, outcome_code, result)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL)
-           RETURNING *`,
-          [
-            id,
-            input.userId,
-            scopeKey(input.userId),
-            input.idempotencyKey,
-            input.kind,
-            input.strategyId,
-            input.strategyVersion,
-            new Date().toISOString(),
-          ],
-        );
-        const row = rows[0];
-        if (!row) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
-        return runOf(row);
-      } catch (err) {
-        if (!isUniqueViolation(err)) throw err;
-        const again = await loadByKey(sql, input.userId, input.idempotencyKey);
-        if (!again) throw err;
-        return again;
+      const userId = input.userId;
+      if (quota && userId) {
+        // A replay under the same key is never counted again: it is read back after the lock, before the check.
+        return sql.begin(async (tx) => {
+          await quota.lock(tx, userId, RUN_QUOTAS);
+          const raced = await loadByKey(tx, userId, input.idempotencyKey);
+          if (raced) return raced;
+          const counts = await accountCounts(tx, schema, userId);
+          await quota.check(tx, userId, [
+            { resource: 'concurrent_runs', used: counts.running, adding: 1n },
+            { resource: 'runs', used: counts.runs, adding: 1n },
+            { resource: 'storage', used: counts.storage, adding: 1n },
+          ]);
+          return insertRun(tx, input);
+        });
       }
+      return insertRun(sql, input);
     },
 
     async finish(input: FinishRun) {
