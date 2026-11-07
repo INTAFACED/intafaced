@@ -13,6 +13,8 @@ const ALERTS = '/notifications?view=alerts';
 const SWEEP_MS = 60_000;
 
 test.describe.configure({ mode: 'serial' });
+// An action on a part that never becomes usable fails in 15 s, not at the step's time limit.
+test.use({ actionTimeout: 15_000 });
 
 let page;
 test.beforeAll(async ({ browser }) => {
@@ -88,7 +90,11 @@ const daysAhead = (days) =>
 async function createAlert({ condition, price, name, message, expires, repeat }) {
   await marketSelect().selectOption({ label: 'BTC/USDT' });
   await form().getByLabel('Notify me when the price is').selectOption({ label: condition });
-  if (repeat) await form().getByTestId('alerts-repeat').getByRole('checkbox').check();
+  if (repeat) {
+    // The page draws its own box over the input, so the person clicks the label.
+    await form().getByTestId('alerts-repeat').click();
+    await expect(form().getByTestId('alerts-repeat').getByRole('checkbox')).toBeChecked();
+  }
   await form().getByLabel('Price (USDT)').fill(price);
   await form()
     .getByLabel('Name (optional)')
