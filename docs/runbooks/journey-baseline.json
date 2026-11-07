@@ -48,8 +48,8 @@
   ],
   "counts": {
     "stepsInRun": 1521,
-    "failing": 538,
-    "unbuilt": 533,
+    "failing": 539,
+    "unbuilt": 534,
     "regression": 5,
     "notBaselined": 0
   },
@@ -651,6 +651,13 @@
       "state": "unbuilt",
       "money": true,
       "why": "compute tiers are not built (RC-algo-dev-05)"
+    },
+    {
+      "step": "J-algo-dev-15#8",
+      "file": "apps/customer/tests/real-app/J-algo-dev-15.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the promotion gate is not built (AL-lifecycle-01); the step has never passed on main (its test file arrives with #7334)"
     },
     {
       "step": "J-bank-09#1",
