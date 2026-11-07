@@ -249,24 +249,28 @@ export class AuditLog {
     userId: string,
     input: {
       status: ActionStatus | null;
-      after: { at: string; sessionId: string; sequence: number } | null;
+      /** The previous page's last row: its time in whole microseconds since the epoch, its session and sequence. */
+      after: { atUs: string; sessionId: string; sequence: number } | null;
       limit: number;
     },
-  ): Promise<AuditedAction[]> {
+  ): Promise<{ rows: AuditedAction[]; lastAtUs: string | null }> {
     const page = assertUserLogPageLimit(input.limit);
-    const at = input.after?.at ?? null;
+    const atUs = input.after?.atUs ?? null;
     const sessionId = input.after?.sessionId ?? null;
     const sequence = input.after?.sequence ?? null;
-    const rows = await this.sql<ActionRow[]>`
-      SELECT * FROM agents.agent_actions
+    // Compared at the stored precision (microseconds), so a row in the same millisecond as the cursor is never skipped.
+    const rows = await this.sql<Array<ActionRow & { occurred_us: string }>>`
+      SELECT *, (extract(epoch FROM occurred_at) * 1000000)::bigint::text AS occurred_us
+        FROM agents.agent_actions
        WHERE user_id = ${userId}
          AND (${input.status}::text IS NULL OR status = ${input.status}::agents.action_status)
-         AND (${at}::timestamptz IS NULL
-              OR (occurred_at, session_id, sequence) < (${at}::timestamptz, ${sessionId}::uuid, ${sequence}::int))
+         AND (${atUs}::text IS NULL
+              OR (occurred_at, session_id, sequence) < (
+                   timestamptz 'epoch' + ${atUs}::bigint * interval '1 microsecond', ${sessionId}::uuid, ${sequence}::int))
        ORDER BY occurred_at DESC, session_id DESC, sequence DESC
        LIMIT ${page}
     `;
-    return rows.map(toAction);
+    return { rows: rows.map(toAction), lastAtUs: rows.at(-1)?.occurred_us ?? null };
   }
 
   /** How many of the person's log rows there are, optionally of one outcome only. */

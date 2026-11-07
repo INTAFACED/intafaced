@@ -285,6 +285,39 @@ function signed(userId: string) {
       await expect(caller().log.export({ limit: 3, cursor: 'not-a-cursor' })).rejects.toThrow('agents.refused.cursor_invalid');
     });
 
+    it('an export page boundary inside one millisecond skips no row, and its audit row counts the rows it returned', async () => {
+      // Rows that share a millisecond but not a microsecond: a cursor kept at milliseconds would skip the ones between.
+      const [session] = await sql<Array<{ id: string }>>`
+        INSERT INTO agents.agent_sessions (user_id, agent_id, guardrail, guardrail_version)
+        VALUES (${USER}, 'probe', ${sql.json({ limits: {}, tools: [] })}, 1) RETURNING id::text
+      `;
+      const times = [
+        '2026-11-07T09:00:00.123456Z',
+        '2026-11-07T09:00:00.123300Z',
+        '2026-11-07T09:00:00.123100Z',
+        '2026-11-07T09:00:00.122900Z',
+      ];
+      for (const [sequence, at] of times.entries())
+        await sql`
+          INSERT INTO agents.agent_actions (session_id, user_id, agent_id, sequence, kind, status, user_message_key, hash, occurred_at)
+          VALUES (${session!.id}, ${USER}, 'probe', ${sequence}, 'tool_call', 'executed', 'agents.ok', ${`test-hash-${sequence}`}, ${at}::timestamptz)
+        `;
+      const ids: string[] = [];
+      let cursor: string | undefined;
+      for (;;) {
+        const page = await caller().log.export({ limit: 1, requestId: 'review-export-ms', ...(cursor ? { cursor } : {}) });
+        ids.push(...page.rows.map((row) => row.id));
+        if (!page.nextCursor) break;
+        cursor = page.nextCursor;
+      }
+      expect(ids).toHaveLength(times.length);
+      expect(new Set(ids).size).toBe(times.length);
+      const [audit] = await sql<Array<{ row_count: number }>>`
+        SELECT row_count FROM agents.agent_log_reads WHERE business_key = ${`agents:logexport:${USER}:review-export-ms`}
+      `;
+      expect(audit).toEqual({ row_count: times.length });
+    });
+
     it('usage by agent, user and task each add up to the sealed windows', async () => {
       await ranSession();
       await ranSession();

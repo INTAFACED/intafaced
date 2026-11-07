@@ -168,26 +168,27 @@ export function reviewRoutes(deps: ReviewDeps, kit: ReviewKit) {
         guard(async () => {
           const after = input.cursor ? decodeLogCursor(input.cursor) : null;
           const limit = input.limit;
-          const rows = await runtime.audit.forUserAfter(ctx.principal.userId, {
+          const { rows, lastAtUs } = await runtime.audit.forUserAfter(ctx.principal.userId, {
             status: input.outcome ?? null,
             after,
             limit: limit as number,
           });
           const last = rows.at(-1);
+          const returned = (after?.returned ?? 0) + rows.length;
           const full = limit !== undefined && rows.length === Math.min(500, limit);
-          // The last page of an export writes its one audit row: who exported, the filter and how many rows it held.
+          // The last page of an export writes its one audit row: who exported, the filter and how many rows it returned.
           if (!full && input.requestId)
             await recordOwnExport(db(), {
               userId: ctx.principal.userId,
               requestId: input.requestId,
               filter: { outcome: input.outcome ?? 'all', format: input.format ?? 'csv' },
-              rowCount: await runtime.audit.countForUser(ctx.principal.userId, input.outcome ?? null),
+              rowCount: returned,
             });
           return {
             rows: rows.map(toActionOutput),
             nextCursor:
-              full && last
-                ? encodeLogCursor({ at: last.occurredAt.toISOString(), sessionId: last.sessionId, sequence: last.sequence })
+              full && last && lastAtUs
+                ? encodeLogCursor({ atUs: lastAtUs, sessionId: last.sessionId, sequence: last.sequence, returned })
                 : null,
           };
         }),

@@ -319,30 +319,35 @@ export async function runTrace(sql: Sql, input: { sessionId: string; requestId: 
 
 // ── The activity log: filtered, counted and exported whole ──────────────────
 
-/** A position in the log, newest first: the last row's time, session and sequence. */
+/** A position in the log, newest first: the last row's time (whole microseconds), session and sequence, and how many
+ * rows the export has returned so far, so its last page can record exactly what it held. */
 export interface LogCursor {
-  readonly at: string;
+  readonly atUs: string;
   readonly sessionId: string;
   readonly sequence: number;
+  readonly returned: number;
 }
 
 export function encodeLogCursor(cursor: LogCursor): string {
-  return Buffer.from(JSON.stringify([cursor.at, cursor.sessionId, cursor.sequence])).toString('base64url');
+  return Buffer.from(JSON.stringify([cursor.atUs, cursor.sessionId, cursor.sequence, cursor.returned])).toString('base64url');
 }
 
 export function decodeLogCursor(text: string): LogCursor {
   try {
-    const [at, sessionId, sequence] = JSON.parse(Buffer.from(text, 'base64url').toString('utf8')) as unknown[];
+    const [atUs, sessionId, sequence, returned] = JSON.parse(Buffer.from(text, 'base64url').toString('utf8')) as unknown[];
     if (
-      typeof at === 'string' &&
-      Number.isFinite(Date.parse(at)) &&
+      typeof atUs === 'string' &&
+      /^-?\d{1,20}$/.test(atUs) &&
       typeof sessionId === 'string' &&
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId) &&
       typeof sequence === 'number' &&
       Number.isSafeInteger(sequence) &&
-      sequence >= 0
+      sequence >= 0 &&
+      typeof returned === 'number' &&
+      Number.isSafeInteger(returned) &&
+      returned > 0
     )
-      return { at, sessionId, sequence };
+      return { atUs, sessionId, sequence, returned };
   } catch {
     /* refused below */
   }
