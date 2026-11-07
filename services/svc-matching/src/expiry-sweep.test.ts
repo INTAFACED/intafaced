@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import { MemoryEventBus } from '@intafaced/events';
 import { MatchingEngine } from './engine/engine.js';
+// The process installs this wrapper on MatchingEngine.cancel at boot (index.ts); the sweep must pass through it.
+import { installIfmCrash } from './engine/ifm-crash.js';
+
+installIfmCrash();
 import { MemoryJournal } from './engine/journal.js';
 import { startExpirySweep } from './expiry-sweep.js';
 
