@@ -91,6 +91,7 @@ import { readOcoFromBody } from './spot/oco-place.js';
 import { createBodyRefusal } from './create-body-refusal.js';
 import { massCancelAccountRefuse, massCancelSessionRefuse, readSessionId } from './spot/matching-client.js';
 import { privateRead, privateWith, privateWrite, publicRead } from './route-inventory.js';
+import { attachQueuePositionRoute, type QueuePositionDeps } from './spot/queue-position.js';
 import { attachGridRestRoutes } from './grid/grid-rest.js';
 import type { GridService } from './grid/grid-service.js';
 
@@ -188,6 +189,8 @@ export interface PrivateRestDeps {
   convert?: ConvertRestPort;
   /** Ledger history and statement export (J-cex-spot-07 #5, #6). Absent: those routes answer 503 `trade.statements_unmounted`. */
   statements?: StatementRestDeps;
+  /** My place in the queue and the estimated fill chance of a resting order (J-charts-desk-14 #8). */
+  queuePosition?: QueuePositionDeps;
   /** Futures orders through the matching book, wired while TRADE_FUTURES_MATCHING_ENABLED is on. Absent: not mounted. */
   futuresOrders?: MatchedOrdersRestDeps;
   /** D-ops-01 gated list. Absent: the route answers 503 `trade.gated_list_unmounted`. */
@@ -1310,6 +1313,7 @@ export function registerPrivateRest(app: FastifyInstance, deps: PrivateRestDeps)
   attachAlgoRestRoutes(app, deps.algo, { requirePrincipal, requireTradeJurisdiction });
   attachRfqExportRoute(app, deps.rfqExport, requirePrincipal);
   attachStatementRoutes(app, deps.statements, requirePrincipal);
+  attachQueuePositionRoute(app, deps.queuePosition, requirePrincipal);
 
   /**
    * Jurisdiction gate for money writes — mirrors `scopedProcedure(..., { module: 'trade' })`.

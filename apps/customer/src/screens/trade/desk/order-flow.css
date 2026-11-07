@@ -284,4 +284,19 @@
     color: var(--if-fg);
     text-decoration: underline;
   }
+
+  .of-queue {
+    display: grid;
+    gap: var(--if-space-2);
+  }
+  .of-queue li {
+    display: grid;
+    gap: var(--if-space-0-5);
+    padding-block: var(--if-space-1-5);
+    border-block-end: 0.0625rem solid var(--if-line);
+  }
+  .of-queue-order {
+    color: var(--if-fg);
+    font-variant-numeric: tabular-nums;
+  }
 }

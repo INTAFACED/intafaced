@@ -385,6 +385,12 @@ export interface MatchingClient {
    */
   depth(marketId: string, limit: number): Promise<EngineDepth>;
   /**
+   * Native per-order queue (`GET /markets/:id/depth/l3?limit=`), for the caller's own place in it (J-charts-desk-14 #8).
+   * Matching's answer as sent; a 404 is MatchingNoBookError, transport or 5xx MatchingUnavailableError. Optional so a
+   * test stub that never reads the queue need not carry it.
+   */
+  l3Queue?(marketId: string, limit: number): Promise<unknown>;
+  /**
    * Non-destructive liveness read — GET /markets/:marketId/orders.
    * Prefer this over cancel when only asking "is order X live?".
    * Matching 200 `{ orders: [] }` is a live empty list. Matching 404 throws
@@ -631,6 +637,27 @@ export function createMatchingClient(
      * Matching 200 `{ bids:[], asks:[] }` is a real empty book and stays 200.
      * Transport / 5xx stays MatchingUnavailableError (public 502).
      */
+    async l3Queue(marketId, limit) {
+      const published = publishedMatchingDepthLimit(limit);
+      const path = `/markets/${encodeURIComponent(marketId)}/depth/l3?limit=${published}`;
+      let response: Response;
+      try {
+        response = await send(`${url}${path}`, { method: 'GET', headers: authHeaders('GET', path) });
+      } catch (err) {
+        throw new MatchingUnavailableError(`svc-matching ${path} is unreachable: ${(err as Error).message}`);
+      }
+      if (response.status === 404) throw new MatchingNoBookError(marketId);
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        throw new MatchingUnavailableError(`svc-matching ${path} failed (${response.status}): ${detail}`);
+      }
+      try {
+        return (await response.json()) as unknown;
+      } catch (err) {
+        throw new MatchingUnavailableError(`svc-matching ${path} returned a body that is not JSON: ${(err as Error).message}`);
+      }
+    },
+
     async depth(marketId, limit) {
       const published = publishedMatchingDepthLimit(limit);
       const path = `/markets/${encodeURIComponent(marketId)}/depth?limit=${published}`;

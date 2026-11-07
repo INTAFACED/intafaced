@@ -19,7 +19,8 @@ import { busCopyNotices } from './copy/copy-notices.js';
 import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
-import { bookHaltFromBoard, createMatchingClient } from './spot/matching-client.js';
+import { bookHaltFromBoard, createMatchingClient, MatchingNoBookError } from './spot/matching-client.js';
+import { QUEUE_L3_UNAVAILABLE, QueueReadError, type L3Answer } from './spot/queue-position.js';
 import { createMatchingRulebookReader } from './spot/matching-rulebook.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
@@ -1519,6 +1520,23 @@ registerPrivateRest(app, {
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },
+  queuePosition: {
+    getOrder: (principal, orderId) => trade.getOrder(principal, orderId),
+    marketById: (marketId) => trade.marketById(marketId),
+    l3: async (marketId) => {
+      try {
+        return (await matching.l3Queue!(marketId, 500)) /* levels a side: the public window's ceiling */ as L3Answer;
+      } catch (err) {
+        // No book in matching for this market: no native queue to place the order in.
+        if (err instanceof MatchingNoBookError) throw new QueueReadError(QUEUE_L3_UNAVAILABLE, err.message, 404);
+        throw err;
+      }
+    },
+    // At most a page of prints: a busier window undercounts what traded, so the estimate is never higher than the tape.
+    tapeSince: (marketId, sinceMs) => trade.publicTape(marketId, 500, sinceMs) /* one page, the tape's ceiling */,
+    windowSeconds: async () => (await chartOwnerValuesPublicReader(sql).scalars()).queueFillWindowSeconds,
+    now: () => new Date(),
+  },
   icebergDisplay: sqlIcebergDisplay(sql),
   stopTriggers,
   // A stop-market is bounded by the same per-market cap as a market order on its pair.

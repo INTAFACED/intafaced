@@ -14,6 +14,7 @@ export const CHART_SCALAR_KEYS = [
   'delayedBoundarySeconds',
   'renderBudgetMs',
   'orderProtectionBps',
+  'queueFillWindowSeconds',
 ] as const;
 export type ChartScalarKey = (typeof CHART_SCALAR_KEYS)[number];
 
@@ -43,6 +44,11 @@ export const CHART_SCALARS: readonly ChartScalarInfo[] = [
     key: 'orderProtectionBps',
     label: 'Order protection distance (basis points)',
     meaning: 'How far from the last price a chart order may be moved before the person must confirm the distance.',
+  },
+  {
+    key: 'queueFillWindowSeconds',
+    label: 'Fill chance window (seconds)',
+    meaning: 'The trades a resting order’s estimated chance to fill is measured over. Blank shows the place in the queue with no chance.',
   },
 ];
 

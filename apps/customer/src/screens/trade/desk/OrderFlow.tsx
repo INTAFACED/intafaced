@@ -29,6 +29,7 @@ import { useNow } from './hooks';
 import type { DeskMarket } from './market';
 import { STALE_BOOK_MS } from './OrderBook';
 import { flowCopy } from './order-flow-copy';
+import { percentOf, useQueuePositions, windowWords } from './queue-position';
 import {
   bucketOf,
   buildLadder,
@@ -445,6 +446,90 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
   );
 }
 
+/** My resting limit orders on this market with their place in the queue and the estimated chance (J-charts-desk-14 #8). */
+function QueuePanel({ market, mine }: { market: DeskMarket; mine: readonly Order[] }) {
+  const { t } = flowCopy.useCopy();
+  const resting = useMemo(() => mine.filter((order) => order.type === 'limit' && order.price), [mine]);
+  const ids = useMemo(() => resting.map((order) => order.id), [resting]);
+  const reads = useQueuePositions(ids, true);
+  const amountPlaces = placesOf(market.lotSize);
+  return (
+    <section className="of-section" aria-label={t('Queue title')} data-testid="of-queue">
+      <h3 className="of-title">{t('Queue title')}</h3>
+      {resting.length === 0 ? (
+        <p className="of-note">{t('Queue none', { pair: market.symbol })}</p>
+      ) : (
+        <ul className="of-queue">
+          {resting.map((order) => {
+            const read = reads.status === 'ready' ? reads.data.find((row) => row.orderId === order.id) : undefined;
+            const view = read?.ok ? read.view : null;
+            const percent = view?.fillProbability ? percentOf(view.fillProbability) : null;
+            const window = view?.windowSeconds ? windowWords(view.windowSeconds) : null;
+            return (
+              <li
+                key={order.id}
+                data-testid="of-queue-row"
+                data-order-id={order.id}
+                data-orders-ahead={view?.ordersAhead ?? ''}
+                data-size-ahead={view?.sizeAhead ?? ''}
+                data-fill-probability={view?.fillProbability ?? ''}
+                data-window-seconds={view?.windowSeconds ?? ''}
+                data-source={view?.source ?? ''}
+              >
+                <span className="of-queue-order">
+                  {t('Queue order', {
+                    side: order.side === 'buy' ? t('Buy') : t('Sell'),
+                    amount: fmtAmount(order.remaining, { places: amountPlaces }),
+                    asset: market.base,
+                    price: fmtPrice(order.price ?? '', market.tickSize),
+                  })}
+                </span>
+                {reads.status === 'loading' || (reads.status === 'ready' && !read) ? (
+                  <Skeleton height={16} className="bg-field" />
+                ) : read && !read.ok ? (
+                  <span className="of-note of-note--bad" data-code={read.code ?? undefined}>
+                    {read.code === 'trade.order_not_open'
+                      ? t('Queue not open')
+                      : read.code === 'trade.l3_unavailable'
+                        ? t('Queue no l3')
+                        : t('Queue unavailable')}
+                  </span>
+                ) : view ? (
+                  <>
+                    <span data-testid="of-queue-place">
+                      {view.ordersAhead === 0
+                        ? t('Queue first')
+                        : view.ordersAhead === 1
+                          ? t('Queue ahead one', { size: fmtAmount(view.sizeAhead, { places: amountPlaces }), asset: market.base })
+                          : t('Queue ahead', {
+                              n: view.ordersAhead,
+                              size: fmtAmount(view.sizeAhead, { places: amountPlaces }),
+                              asset: market.base,
+                            })}
+                    </span>
+                    <span className="of-note">{t('Queue source')}</span>
+                    <span data-testid="of-queue-chance" data-refusal={view.fillProbabilityRefusal ?? undefined}>
+                      {percent && window
+                        ? t('Queue chance', {
+                            percent,
+                            n: window.n,
+                            unit: window.unit === 'minutes' ? t('Queue minutes') : t('Queue seconds'),
+                          })
+                        : t('Queue chance unset')}
+                    </span>
+                  </>
+                ) : reads.status === 'error' || reads.status === 'refused' ? (
+                  <span className="of-note of-note--bad">{t('Queue unavailable')}</span>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 /** The DOM widget on the desk: the ladder, time and sales and the depth chart for the chart's market. */
 export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zone, setting, onSetting, onPick, onClose, instant }: Props) {
   const { t } = flowCopy.useCopy();
@@ -568,7 +653,10 @@ export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zon
         ) : null}
       </AlertDialog>
       <div className="of-body">
-        <div className="of-col">{ladder}</div>
+        <div className="of-col">
+          {ladder}
+          <QueuePanel market={market} mine={mine} />
+        </div>
         <div className="of-col">
           {data ? <DepthChart market={market} data={data} /> : null}
           <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} />
