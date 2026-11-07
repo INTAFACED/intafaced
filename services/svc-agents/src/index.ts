@@ -217,6 +217,7 @@ const appRouter = createAgentsRouter({
   meter,
   feeAssetId: env.AGENTS_FEE_ASSET_ID,
   meteringEnabled: env.AGENTS_METERING_ENABLED,
+  fleet: { registryLimit: env.AGENTS_REGISTRY_LIST_LIMIT ?? null },
   opsLog: {
     reasons: parseReasons(env.AGENTS_LOG_READ_REASONS),
     limit: env.AGENTS_OPS_ACTIONS_LIMIT ?? null,

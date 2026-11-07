@@ -73,6 +73,7 @@ import type { PolicyBaseline } from './own/guardrails.js';
 import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
+import { fleetRouter, type FleetSettings } from './fleet/control.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -304,6 +305,8 @@ export interface AgentsRouterDeps {
   readonly runtime: AgentRuntime;
   /** The owner's values for the operator agent log. Absent, every value is blank and each read refuses its code. */
   readonly opsLog?: OpsLogSettings;
+  /** The operator fleet registry's owner values (AG-registry-01). Absent is blank: the registry read refuses. */
+  readonly fleet?: FleetSettings;
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
@@ -4050,6 +4053,8 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),
     opsLog: opsLogRouter(sql, deps.opsLog ?? { reasons: null, limit: null, retentionDays: null }),
+    /** Every agent on the platform for an operator: the registry, its export and the switches (AG-registry-01, AG-control-02). */
+    fleet: fleetRouter(sql, deps.fleet ?? { registryLimit: null }),
   });
 }
 

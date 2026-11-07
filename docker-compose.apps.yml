@@ -1387,6 +1387,8 @@ services:
       AGENTS_LOG_READ_REASONS:
       AGENTS_OPS_ACTIONS_LIMIT:
       AGENTS_TRANSCRIPT_RETENTION_DAYS:
+      # The operator fleet registry's page size; unset refuses the registry read.
+      AGENTS_REGISTRY_LIST_LIMIT:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:

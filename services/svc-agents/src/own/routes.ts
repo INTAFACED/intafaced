@@ -58,6 +58,7 @@ import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { executeProcedure } from '../procedures.js';
+import { AGENT_DISABLED, ownAgentSwitch } from '../fleet/control.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
 import {
@@ -276,6 +277,11 @@ class DoorRefusal extends Error {
 function wholeNumber(text: string | undefined): number | undefined {
   const value = text?.trim() ?? '';
   return /^[0-9]{1,6}$/.test(value) ? Number(value) : undefined;
+}
+
+/** New work of a quarantined agent, or of one whose kind is off, refuses `agents.agent.disabled` (AG-control-02). */
+async function assertOwnAgentOn(sql: Sql, agentId: string): Promise<void> {
+  if ((await ownAgentSwitch(sql, agentId)) !== 'active') throw new TRPCError({ code: 'FORBIDDEN', message: AGENT_DISABLED });
 }
 
 /** The person's own agent and a session of it. Not theirs, or not this agent's: one answer, so no oracle for others. */
@@ -895,6 +901,20 @@ export function ownRouter(
      * run keeps beside it: no provider is called, no session is opened, and no reservation, usage row or ledger call is
      * made. The same request id again is that run.
      */
+    /**
+     * Whether the agent may start new work: `active`, or the operator's switch that stops it (AG-control-02). The owner
+     * reads it; only an operator sets it, and only two founders lift it.
+     */
+    status: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput)
+      .output(z.object({ status: z.enum(['active', 'quarantined', 'disabled_by_kind']) }))
+      .query(({ ctx, input }) =>
+        guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return { status: await ownAgentSwitch(sqlOf(sql), agent.id) };
+        }),
+      ),
+
     testRun: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(ownAgentTestRunStartSchema)
       .output(ownAgentTestRunSchema)
@@ -903,6 +923,7 @@ export function ownRouter(
         return guard(async () => {
           const { feeAssetId, liveEngine } = runDepsOf(run);
           const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          await assertOwnAgentOn(sqlOf(sql), agent.id);
           const engine = liveEngine ? liveEngine() : 'unknown';
           return new OwnTestRunStore(sqlOf(sql), feeAssetId).engineRun(ctx.principal.userId, agent.id, input.requestId, input.ask, engine);
         });
@@ -1166,6 +1187,7 @@ export function ownRouter(
           guard(async () => {
             const { runtime } = runDepsOf(run);
             const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            await assertOwnAgentOn(sqlOf(sql), agent.id);
             if (!(await readOwnCaps(sqlOf(sql), ctx.principal.userId, agent.id))) throw new OwnAgentRefusal('agents.spend.cap_unset');
             const session = await runtime.openOwnSession({ userId: ctx.principal.userId, guardrail: ownGuardrail(agent) });
             // The session keeps this version's instructions for its whole life (AG-builder-03); its tools and cap are in
