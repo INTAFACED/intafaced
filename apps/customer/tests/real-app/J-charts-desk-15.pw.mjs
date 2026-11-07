@@ -3,255 +3,422 @@ import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, times, toUnits, tool } from './stack.mjs';
 import { fundedTrader, held, openOrders, placements, signIn } from './desk.mjs';
 
-// J-charts-desk-15 "I place and move orders from the chart itself", in the running app. One test per step, titled
-// "J-charts-desk-15 #<n>", run in order in one signed-in browser on one TEST account funded with TEST 1000 USDT.
-// Prices on the chart are found from the chart itself: the price-axis plus button names the price under the pointer, so
-// two readings give the chart's own price-to-pixel line, and a drag goes to the pixel of the price wanted.
+// J-charts-desk-15 "I place and move orders from the chart itself", in the running app. Independent tests (OWNER 212):
+// written from the step's own words by someone other than the builder, one test per step, titled "J-charts-desk-15 #<n>".
+// The steps run in order in one signed-in browser, on one TEST account funded with TEST 1000 USDT, on the BTC/USDT
+// chart (an open market). Step 6 halts the ETH/USDT book and resumes it after.
+//
+// The money lines, each checked where its step does it:
+// - an order is held only on confirm (#1 and #3: nothing is held, or exists, before Confirm);
+// - a re-price cancels the old order, its hold released once, and holds the new one under a key that is the same on
+//   every retry (#4: the browser's own replace request, sent again, answers with the same one replacement and one hold);
+// - a drag past the protection distance asks first (#5: nothing is sent, not even a check, before the person answers).
+//
+// Prices on the chart come from the chart itself: the price-axis plus button names the price under the pointer, so two
+// readings give the chart's price-to-pixel line, and a drag goes to the pixel of the price wanted.
 const J = 'J-charts-desk-15';
+const BOOK = 'BTC/USDT';
 const CHART = '/charts/BTC-USDT';
-const HALTED = 'ETH/USDT'; // step 6 halts this book, not the BTC one the steps before trade
+const HALTED = 'ETH/USDT';
 const AMOUNT = '0.001';
+const FUNDED = '1000';
 
 test.describe.configure({ mode: 'serial' });
 
 let page;
 let who;
-let order; // the order placed in #3, as the service holds it
+let previewStyle; // the preview line's border style in #1, which an order's line in #3 must not share
+let order; // the order #3 placed, then the replacement #4 made, as the service holds it
+
 test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 2200 } });
   page = await context.newPage();
-  who = await fundedTrader(page, 'jcd15', '1000');
+  who = await fundedTrader(page, 'ijcd15', FUNDED);
 });
 test.afterAll(async () => {
   await page?.context().close();
 });
 
-const host = () => page.getByTestId('cw').getByTestId('wc-host');
-const trading = () => page.getByTestId('cw').getByTestId('chart-trading');
+const chart = () => page.getByTestId('cw');
+const host = () => chart().getByTestId('wc-host');
+const bar = () => chart().getByTestId('chart-trading');
+const orderOnChart = () => bar().getByRole('button', { name: 'Order on chart' });
 const ticket = () => page.getByRole('form', { name: 'Order from the chart' });
 const priceField = () => ticket().getByLabel(/Limit price/);
+const amountField = () => ticket().getByLabel(/Amount/);
+const previewLine = () => page.getByTestId('chart-preview-line');
 const orderLines = () => page.getByTestId('chart-order-line');
+const plus = () => page.getByTestId('chart-axis-plus');
+const orderMenu = () => page.getByRole('menu', { name: 'Order at this price' });
+const reviewOrder = () => page.getByRole('dialog', { name: 'Review order' });
+const reviewMove = () => page.getByRole('dialog', { name: 'Review the replacement' });
+const protectionAsk = () => page.getByRole('alertdialog', { name: 'Beyond the protection distance' });
+const note = () => page.getByTestId('chart-trading-note');
 
-/** A whole-USDT price at `percent` of the best bid. */
-async function atBid(percent, symbol = 'BTC/USDT') {
+/** A whole-USDT price at `percent` of the best bid: a buy there rests, below the market. */
+async function belowBid(percent, symbol = BOOK) {
   const { bid } = await bestPrices(symbol);
   const one = toUnits('1');
-  return fromUnits(((toUnits(bid) * BigInt(Math.round(percent * 10))) / 1000n / one) * one);
+  return fromUnits(((toUnits(bid) * BigInt(Math.round(percent * 100))) / 10_000n / one) * one);
 }
 
-async function lastPrice(symbol = 'BTC/USDT') {
+async function lastPrice(symbol = BOOK) {
   const { status, body } = await (await api(who)).get(`/api/v1/ticker/${encodeURIComponent(symbol)}`);
   expect(status).toBe(200);
-  return body.last ?? body.close;
+  return Number(body.last ?? body.close);
 }
 
-/** The price pane's box on the page: the overlay names where it sits in the chart (a volume pane sits below it). */
-async function pricePaneBox() {
+/** The owner's protection distance for the market, in percent, as the service publishes it to the chart. */
+async function protectionPercent(symbol = BOOK) {
+  const { status, body } = await (await api(who)).get(`/api/v1/charts/owner-values?symbol=${encodeURIComponent(symbol)}`);
+  expect(status).toBe(200);
+  expect(body.orderProtectionBps, 'the protection distance is set on the test stack').toEqual(expect.any(Number));
+  return body.orderProtectionBps / 100;
+}
+
+/** USDT on hold and in total for the account, in ledger units. */
+async function usdt() {
+  const balances = await (await api(who)).balances();
+  return { held: held(balances, 'USDT'), total: toUnits(balances.USDT?.total ?? '0') };
+}
+
+/** The price pane's box on the page, as the chart's overlay names it (a volume pane may sit below it). */
+async function pricePane() {
   const box = await host().boundingBox();
-  const overlay = page.getByTestId('cw').getByTestId('chart-trading-overlay');
+  const overlay = chart().getByTestId('chart-trading-overlay');
   const top = Number(await overlay.getAttribute('data-pane-top'));
   const height = Number(await overlay.getAttribute('data-pane-height'));
   expect(height).toBeGreaterThan(0);
   return { x: box.x, y: box.y + top, width: box.width, height };
 }
 
-/** The price the chart names under the pointer at a fraction of the price pane's height, from the price-axis plus button. */
-async function axisPriceAt(fy) {
-  const box = await pricePaneBox();
-  const y = box.y + box.height * fy;
-  await page.mouse.move(box.x + box.width * 0.5, y - 1);
-  await page.mouse.move(box.x + box.width * 0.5, y);
-  const plus = page.getByTestId('chart-axis-plus');
-  await expect(plus).toBeVisible();
-  await expect.poll(async () => Math.abs((await plus.boundingBox()).y + (await plus.boundingBox()).height / 2 - y)).toBeLessThan(2);
-  return { y, price: Number(await plus.getAttribute('data-price')) };
+/** Hover the price pane at a fraction of its height; returns the pixel and the price the plus button names there. */
+async function hoverAt(fy) {
+  const pane = await pricePane();
+  const y = pane.y + pane.height * fy;
+  await page.mouse.move(pane.x + pane.width * 0.5, y - 2);
+  await page.mouse.move(pane.x + pane.width * 0.5, y);
+  await expect(plus()).toBeVisible();
+  await expect.poll(async () => Math.abs(centreY(await plus().boundingBox()) - y)).toBeLessThan(2);
+  return { x: pane.x + pane.width * 0.5, y, price: await plus().getAttribute('data-price') };
 }
 
-/** The page pixel of a price on the chart, from two of the chart's own readings (the price scale is linear). */
-async function yOfPrice(price) {
-  const a = await axisPriceAt(0.25);
-  const b = await axisPriceAt(0.75);
-  return a.y + ((Number(price) - a.price) * (b.y - a.y)) / (b.price - a.price);
+const centreY = (box) => box.y + box.height / 2;
+
+/** The page pixel of a price, from two of the chart's own readings (the price scale is linear). */
+async function yOf(price) {
+  const a = await hoverAt(0.25);
+  const b = await hoverAt(0.75);
+  return a.y + ((Number(price) - Number(a.price)) * (b.y - a.y)) / (Number(b.price) - Number(a.price));
 }
 
-/** Drag the order line's handle to the pixel of `price`. */
-async function dragLineTo(line, price) {
-  const target = await yOfPrice(price);
+/** Hover the price pane at page pixel `y`; returns the price the plus button names there. */
+async function priceAt(y) {
+  const pane = await pricePane();
+  await page.mouse.move(pane.x + pane.width * 0.5, y - 2);
+  await page.mouse.move(pane.x + pane.width * 0.5, y);
+  await expect(plus()).toBeVisible();
+  await expect.poll(async () => Math.abs(centreY(await plus().boundingBox()) - y)).toBeLessThan(2);
+  return Number(await plus().getAttribute('data-price'));
+}
+
+/** The line sits at `price` on the chart: the chart's own reading at the line's height is that price, to within 6 pixels. */
+async function expectAtPrice(line, price) {
+  // Where the line is drawn as the person first sees it, before the pointer touches the chart.
+  const y = centreY(await line.boundingBox());
+  const pane = await pricePane();
+  expect(
+    y,
+    `the line is drawn inside the price pane (${pane.y}..${pane.y + pane.height}) without the pointer moving`,
+  ).toBeGreaterThanOrEqual(pane.y);
+  expect(y, `the line is drawn inside the price pane (${pane.y}..${pane.y + pane.height}) without the pointer moving`).toBeLessThanOrEqual(
+    pane.y + pane.height,
+  );
+  const there = await priceAt(y);
+  const perPixel = Math.abs(there - (await priceAt(y - 20))) / 20;
+  expect(perPixel).toBeGreaterThan(0);
+  expect(Math.abs(there - Number(price)), `the line reads ${there} at its height, for ${price}`).toBeLessThanOrEqual(6 * perPixel);
+}
+
+/** Press the order line's handle and drop it at the pixel of `price`. */
+async function drag(line, price) {
+  const to = await yOf(price);
   const box = await line.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.move(box.x + box.width / 2, centreY(box));
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, target, { steps: 12 });
+  await page.mouse.move(box.x + box.width / 2, to, { steps: 15 });
   await page.mouse.up();
 }
 
-/** Every create-order and replace request this page sends from now on. */
+/** Every write about an order this page sends from now on: creates, checks, replaces, amends and cancels. */
 function orderWrites() {
   const sent = [];
   page.on('request', (request) => {
     const path = new URL(request.url()).pathname;
-    if (request.method() === 'POST' && (path === '/api/v1/orders' || /^\/api\/v1\/orders\/[^/]+\/replace$/.test(path))) sent.push(path);
+    if (request.method() !== 'GET' && path.startsWith('/api/v1/orders')) sent.push(`${request.method()} ${path}`);
   });
   return sent;
 }
 
-test(`${J} #1 projects a buy limit at a TEST price below the market: a preview-styled line, and no order until Place and Confirm`, async () => {
+test(`${J} #1 projects a buy limit at a TEST price below the market: a preview-styled line, and no order exists until Place is pressed and confirmed`, async () => {
   await signIn(page, who);
   await page.goto(CHART);
   await expect(host()).toBeVisible();
   await expect(host()).toHaveAttribute('data-bars', /^[1-9]/);
-  const sent = orderWrites();
-  const price = await atBid(97);
-  await trading().getByRole('button', { name: 'Order on chart' }).click();
+  const creates = placements(page);
+  const price = await belowBid(97);
+  expect(Number(price)).toBeLessThan(await lastPrice());
+
+  await orderOnChart().click();
+  await expect(ticket()).toBeVisible();
   await ticket().getByLabel('Side').selectOption('buy');
   await priceField().fill(price);
-  await ticket()
-    .getByLabel(/Amount/)
-    .fill(AMOUNT);
-  const preview = page.getByTestId('chart-preview-line');
-  await expect(preview).toBeVisible();
-  await expect(preview).toHaveAttribute('data-side', 'buy');
-  await expect(preview).toHaveAttribute('data-price', price);
-  await expect(preview).toContainText('Preview buy limit');
-  await expect(preview).toContainText('not placed');
-  // Dashed, unlike an order's line: the preview style.
-  expect(await preview.evaluate((el) => getComputedStyle(el).borderTopStyle)).toBe('dashed');
-  // It is below the market: lower on the chart than the last price.
-  expect((await preview.boundingBox()).y).toBeGreaterThan((await yOfPrice(await lastPrice())) - 1);
+  await amountField().fill(AMOUNT);
+
+  // The projection: a buy line at that price, styled as a preview and saying it is not placed.
+  await expect(previewLine()).toBeVisible();
+  await expect(previewLine()).toHaveAttribute('data-side', 'buy');
+  expect(Number(await previewLine().getAttribute('data-price'))).toBe(Number(price));
+  await expect(previewLine()).toContainText('Preview buy limit');
+  await expect(previewLine()).toContainText(/not placed/i);
+  previewStyle = await previewLine().evaluate((el) => getComputedStyle(el).borderTopStyle);
+  expect(previewStyle).toBe('dashed');
+  // Drawn at its price on the chart, below the market's last price.
+  await expectAtPrice(previewLine(), price);
+  expect(await priceAt(centreY(await previewLine().boundingBox()))).toBeLessThan(await lastPrice());
+
+  // No order exists and nothing is held while it is only projected.
   await page.waitForTimeout(1000);
-  expect(sent).toHaveLength(0);
+  expect(creates).toHaveLength(0);
   expect(await openOrders(who)).toHaveLength(0);
+  expect((await usdt()).held).toBe(0n);
   await expect(orderLines()).toHaveCount(0);
+
+  // Place pressed, not yet confirmed: the review shows, and still no order exists and nothing is held.
+  await ticket().getByRole('button', { name: 'Place' }).click();
+  await expect(reviewOrder()).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(creates).toHaveLength(0);
+  expect(await openOrders(who)).toHaveLength(0);
+  expect((await usdt()).held).toBe(0n);
+  await expect(orderLines()).toHaveCount(0);
+
+  // Backing out of the review leaves no order behind.
+  await reviewOrder().getByRole('button', { name: 'Cancel' }).click();
+  await expect(reviewOrder()).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(creates).toHaveLength(0);
+  expect(await openOrders(who)).toHaveLength(0);
 });
 
 test(`${J} #2 creates an order at a price from the price-axis plus button or the context menu: the ticket opens at that price`, async () => {
-  // The plus button: the ticket's price is the price the button names.
-  const reading = await axisPriceAt(0.4);
-  const plus = page.getByTestId('chart-axis-plus');
-  const named = await plus.getAttribute('data-price');
-  expect(Math.abs(Number(named) - reading.price)).toBeLessThan(0.0001);
-  await expect(plus).toHaveAccessibleName(/^Create an order at /);
-  await plus.click();
+  // Start from a closed ticket, so it is the plus button that opens it.
+  if (await ticket().isVisible()) await orderOnChart().click();
+  await expect(ticket()).toHaveCount(0);
+
+  // The plus button on the price axis names the price under the pointer; pressed, the ticket opens at that price.
+  const hovered = await hoverAt(0.4);
+  expect(Number(hovered.price)).toBeGreaterThan(0);
+  await expect(plus()).toHaveAccessibleName(/Create an order at/);
+  await plus().click();
   await expect(ticket()).toBeVisible();
-  await expect(priceField()).toHaveValue(named);
-  // The context menu at another height: the ticket opens at that price, on the side chosen.
-  const box = await pricePaneBox();
-  const at = await axisPriceAt(0.6);
-  const menuPrice = await page.getByTestId('chart-axis-plus').getAttribute('data-price');
-  await page.mouse.click(box.x + box.width * 0.5, at.y, { button: 'right' });
-  const menu = page.getByRole('menu', { name: 'Order at this price' });
-  await expect(menu).toBeVisible();
-  await menu.getByRole('menuitem', { name: /^Buy limit at / }).click();
-  await expect(menu).toHaveCount(0);
+  expect(Number(await priceField().inputValue())).toBe(Number(hovered.price));
+
+  // The context menu at another price: the ticket opens at that price, on the side chosen.
+  await orderOnChart().click();
+  await expect(ticket()).toHaveCount(0);
+  const there = await hoverAt(0.6);
+  expect(Number(there.price)).not.toBe(Number(hovered.price));
+  await page.mouse.click(there.x, there.y, { button: 'right' });
+  await expect(orderMenu()).toBeVisible();
+  await orderMenu()
+    .getByRole('menuitem', { name: /Buy limit at/ })
+    .click();
+  await expect(orderMenu()).toHaveCount(0);
+  await expect(ticket()).toBeVisible();
   await expect(ticket().getByLabel('Side')).toHaveValue('buy');
-  await expect(priceField()).toHaveValue(menuPrice);
+  expect(Number(await priceField().inputValue())).toBe(Number(there.price));
+
+  // Opening the ticket creates nothing.
   expect(await openOrders(who)).toHaveLength(0);
+  expect((await usdt()).held).toBe(0n);
 });
 
 test(`${J} #3 confirms: the order shows as a line with its size, and a retry sends the same key and creates one order`, async () => {
-  const price = await atBid(97);
+  const price = await belowBid(97);
   await priceField().fill(price);
-  await ticket()
-    .getByLabel(/Amount/)
-    .fill(AMOUNT);
-  const sent = placements(page);
-  // The first send reaches the service, and the browser loses its answer: the person sees it was not confirmed.
-  let lostOnce = false;
-  await page.route(
-    (url) => url.pathname === '/api/v1/orders',
-    async (route) => {
-      if (route.request().method() !== 'POST' || lostOnce) return route.continue();
-      lostOnce = true;
-      await route.fetch();
-      // The page may already have given up on this request (J-cex-spot-11 #6, run 42177314372): only that is tolerated.
-      await route.abort('failed').catch((err) => {
-        if (!/already handled/.test(String(err?.message))) throw err;
-      });
-    },
-  );
+  await amountField().fill(AMOUNT);
+  const creates = placements(page);
   await ticket().getByRole('button', { name: 'Place' }).click();
-  const review = page.getByRole('dialog', { name: 'Review order' });
-  await expect(review).toContainText(`Buy ${AMOUNT} BTC`);
-  await expect(review).toContainText('Held on confirm');
-  expect(sent).toHaveLength(0); // Place only asks for the review
-  await review.getByRole('button', { name: 'Confirm' }).click();
+  await expect(reviewOrder()).toBeVisible();
+  await expect(reviewOrder()).toContainText(`Buy ${AMOUNT} BTC`);
+  await expect(reviewOrder()).toContainText('Held on confirm');
+  expect(creates).toHaveLength(0);
+  expect((await usdt()).held).toBe(0n);
+
+  // The first send reaches the service and its answer is lost on the way back, so the person retries it.
+  let lost = false;
+  const isCreate = (url) => url.pathname === '/api/v1/orders';
+  await page.route(isCreate, async (route) => {
+    if (route.request().method() !== 'POST' || lost) return route.continue();
+    lost = true;
+    await route.fetch();
+    await route.abort('failed').catch((err) => {
+      if (!/already handled/.test(String(err?.message))) throw err;
+    });
+  });
+  await reviewOrder().getByRole('button', { name: 'Confirm' }).click();
+  await expect.poll(() => lost).toBe(true);
   const again = page.getByTestId('chart-send-again');
   await expect(again).toBeVisible();
   await again.click();
-  await expect(page.getByTestId('chart-trading-note')).toContainText('is on the book');
-  await page.unroute((url) => url.pathname === '/api/v1/orders');
-  // Two sends, one number: the service kept one order.
-  expect(sent).toHaveLength(2);
-  expect(sent[1].clientOrderId).toBe(sent[0].clientOrderId);
+  await expect(note()).toContainText(/on the book/i);
+  await page.unroute(isCreate);
+
+  // The retry sent the same key, and the service holds one order under it, at the price confirmed.
+  expect(creates).toHaveLength(2);
+  expect(creates[0].clientOrderId).toEqual(expect.any(String));
+  expect(creates[1].clientOrderId).toBe(creates[0].clientOrderId);
   const orders = await openOrders(who);
   expect(orders).toHaveLength(1);
-  expect(orders[0].clientOrderId).toBe(sent[0].clientOrderId);
+  expect(orders[0].clientOrderId).toBe(creates[0].clientOrderId);
+  expect(orders[0].side).toBe('buy');
   expect(Number(orders[0].price)).toBe(Number(price));
+  expect(Number(orders[0].amount)).toBe(Number(AMOUNT));
   order = orders[0];
-  // Held once: exactly the order's price x amount.
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(times(order.price, order.amount));
-  // The line on the chart, with its size.
-  const line = orderLines();
-  await expect(line).toHaveCount(1);
+
+  // Held once, on confirm: exactly price x amount, and nothing lost.
+  const money = await usdt();
+  expect(money.held).toBe(times(order.price, order.amount));
+  expect(money.total).toBe(toUnits(FUNDED));
+
+  // The order on the chart: one line, for that order, showing its size, at its price, in an order's style.
+  await expect(orderLines()).toHaveCount(1);
+  const line = orderLines().first();
   await expect(line).toHaveAttribute('data-order-id', order.id);
-  expect(Number(await line.getAttribute('data-amount'))).toBe(Number(AMOUNT));
-  await expect(line).toContainText(`Buy`);
+  await expect(line).toContainText(AMOUNT);
   await expect(line).toContainText('BTC');
+  await expectAtPrice(line, order.price);
+  expect(await line.evaluate((el) => getComputedStyle(el).borderTopStyle)).not.toBe(previewStyle);
+  await expect(previewLine()).toHaveCount(0);
 });
 
-test(`${J} #4 drags the order line to a new price: a review of the replacement, and the old order is cancelled only on confirm`, async () => {
+test(`${J} #4 drags the order line to a new price: a review of the replacement, and the old order is cancelled only when the new one is confirmed`, async () => {
+  const limit = await protectionPercent();
+  const last = await lastPrice();
+  // Inside the protection distance: half of it below the last price, and a whole USDT away from the order's price.
+  const target = String(Math.floor(last * (1 - limit / 200)));
+  expect(Math.abs(Number(target) - Number(order.price))).toBeGreaterThanOrEqual(1);
+  const before = await usdt();
   const sent = orderWrites();
-  const target = await atBid(96.5); // 3.5% under the market: inside the TEST protection distance of 5%
-  await dragLineTo(orderLines().first(), target);
-  const review = page.getByRole('dialog', { name: 'Review the replacement' });
-  await expect(review).toBeVisible();
-  await expect(review).toContainText('cancelled only when you confirm');
-  // Nothing sent yet: the old order still rests, its hold untouched.
+
+  await drag(orderLines().first(), target);
+  await expect(reviewMove()).toBeVisible();
+  // The review names the replacement and says the old order stays until the new one is confirmed.
+  await expect(reviewMove()).toContainText(/replace/i);
+  await expect(reviewMove()).toContainText(/cancelled only when you confirm/i);
+  // Nothing cancelled or placed while the review is open: the old order rests, its hold untouched.
   await page.waitForTimeout(1000);
-  expect(sent).toHaveLength(0);
-  const before = await openOrders(who);
-  expect(before.map((o) => o.id)).toEqual([order.id]);
-  await review.getByRole('button', { name: 'Confirm' }).click();
-  await expect(page.getByTestId('chart-trading-note')).toContainText('The order now rests at');
-  expect(sent.filter((p) => p.endsWith('/replace'))).toHaveLength(1);
+  expect(sent.filter((s) => !s.endsWith('/orders/preview'))).toEqual([]);
+  expect((await openOrders(who)).map((o) => o.id)).toEqual([order.id]);
+  expect((await usdt()).held).toBe(before.held);
+
+  // Backing out keeps the old order exactly as it was.
+  await reviewMove().getByRole('button', { name: 'Cancel' }).click();
+  await expect(reviewMove()).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(sent.filter((s) => !s.endsWith('/orders/preview'))).toEqual([]);
+  expect((await openOrders(who)).map((o) => [o.id, o.price])).toEqual([[order.id, order.price]]);
+
+  // Dragged again and confirmed: one replace, the old order cancelled, the new one resting at the dragged price.
+  await drag(orderLines().first(), target);
+  await expect(reviewMove()).toBeVisible();
+  const replaceSent = page.waitForRequest(
+    (r) => r.method() === 'POST' && /\/api\/v1\/orders\/[^/]+\/replace$/.test(new URL(r.url()).pathname),
+  );
+  const replaceAnswered = page.waitForResponse((r) => /\/api\/v1\/orders\/[^/]+\/replace$/.test(new URL(r.url()).pathname));
+  await reviewMove().getByRole('button', { name: 'Confirm' }).click();
+  const request = await replaceSent;
+  const answer = await replaceAnswered;
+  expect(answer.status()).toBe(200);
+  const first = await answer.json();
+  await expect(note()).toContainText(/now rests at/i);
+  expect(sent.filter((s) => s.endsWith('/replace'))).toHaveLength(1);
+  expect(sent.filter((s) => s.startsWith('DELETE'))).toEqual([]);
   const after = await openOrders(who);
   expect(after).toHaveLength(1);
-  expect(after[0].id).not.toBe(order.id);
-  // The new price is the dragged one (to a few ticks of the pixel), and it is held once: the old hold was released.
-  expect(Math.abs(Number(after[0].price) - Number(target))).toBeLessThan(Number(target) * 0.002);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(times(after[0].price, after[0].amount));
+  const moved = after[0];
+  expect(moved.id).not.toBe(order.id);
+  expect(moved.id).toBe(first.replacementOrderId);
+  expect(Math.abs(Number(moved.price) - Number(target))).toBeLessThan(Number(target) * 0.002);
+  const old = await (await api(who)).get(`/api/v1/orders/${encodeURIComponent(order.id)}`);
+  expect(old.status).toBe(200);
+  expect(String(old.body.status)).toMatch(/cancel/i);
+
+  // The old hold released once and the new one held once: exactly the new price x amount, and nothing lost.
+  let money = await usdt();
+  expect(money.held).toBe(times(moved.price, moved.amount));
+  expect(money.total).toBe(toUnits(FUNDED));
+
+  // A retry of the same re-price carries the same key: sent again as it was, the service answers with the same one
+  // replacement and holds nothing more.
+  const key = request.postDataJSON()?.clientOrderId;
+  expect(key).toEqual(expect.any(String));
+  const retry = await (await api(who)).post(new URL(request.url()).pathname, request.postDataJSON());
+  expect(retry.status).toBe(200);
+  expect(retry.body.replacementOrderId).toBe(first.replacementOrderId);
+  expect(retry.body.idempotent).toBe(true);
+  expect((await openOrders(who)).map((o) => o.id)).toEqual([moved.id]);
+  money = await usdt();
+  expect(money.held).toBe(times(moved.price, moved.amount));
+  expect(money.total).toBe(toUnits(FUNDED));
+
+  // The chart shows the one order, at its new price.
   await expect(orderLines()).toHaveCount(1);
-  await expect(orderLines().first()).toHaveAttribute('data-order-id', after[0].id);
-  order = after[0];
+  await expect(orderLines().first()).toHaveAttribute('data-order-id', moved.id);
+  await expectAtPrice(orderLines().first(), moved.price);
+  order = moved;
 });
 
 test(`${J} #5 drags beyond the protection distance: a confirmation naming the distance before anything is sent`, async () => {
-  const sent = orderWrites();
-  const previews = [];
-  page.on('request', (r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/orders/preview' && previews.push(r));
+  const limit = await protectionPercent();
   const last = await lastPrice();
-  const target = await atBid(90); // 10% under the market
-  await dragLineTo(orderLines().first(), target);
-  const ask = page.getByRole('alertdialog', { name: 'Beyond the protection distance' });
-  await expect(ask).toBeVisible();
-  // The distance named is the dragged price's distance from the last price, and the limit is the owner's TEST 5.00%.
-  const text = await ask.textContent();
-  const [, priceText, distance, limit] = text.match(
-    /^([\d,]+\.\d+) is (\d+\.\d\d)% from the last price, beyond the protection distance of (\d+\.\d\d)%/,
-  );
-  expect(limit).toBe('5.00');
+  // Twice the protection distance below the last price.
+  const target = String(Math.floor(last * (1 - (2 * limit) / 100)));
+  expect(Number(target)).toBeGreaterThan(0);
+  const before = await usdt();
+  const sent = orderWrites();
+
+  await drag(orderLines().first(), target);
+  await expect(protectionAsk()).toBeVisible();
+  // It names the distance dragged from the last price, and the protection distance it goes beyond.
+  const text = await protectionAsk().textContent();
+  const named = text.match(/^([\d,]+\.\d+) is (\d+\.\d\d)% from the last price, beyond the protection distance of (\d+\.\d\d)%/);
+  expect(named, text).toBeTruthy();
+  const [, priceText, distance, limitText] = named;
+  // The limit is the owner's TEST 5.00%, as the service publishes it.
+  expect(limitText).toBe('5.00');
+  expect(Number(limitText)).toBe(limit);
   const dragged = Number(priceText.replaceAll(',', ''));
-  expect(Math.abs(Number(distance) - (Math.abs(dragged - Number(last)) / Number(last)) * 100)).toBeLessThan(0.1);
-  expect(Number(distance)).toBeGreaterThan(5);
-  // Before anything is sent: no order, replace or even a preview went out, and the order is as it was.
+  expect(Math.abs(Number(distance) - (Math.abs(dragged - last) / last) * 100)).toBeLessThan(0.1);
+  expect(Number(distance)).toBeGreaterThan(Number(limitText));
+
+  // Before anything is sent: no order, check, replace or cancel went out, and the order rests as it was.
   await page.waitForTimeout(1000);
-  expect(sent).toHaveLength(0);
-  expect(previews).toHaveLength(0);
-  await ask.getByRole('button', { name: 'Cancel' }).click();
-  await expect(ask).toHaveCount(0);
+  expect(sent).toEqual([]);
   expect((await openOrders(who)).map((o) => [o.id, o.price])).toEqual([[order.id, order.price]]);
+  expect((await usdt()).held).toBe(before.held);
+
+  // Declined: still nothing sent, the order unchanged and its line back at its price.
+  await protectionAsk().getByRole('button', { name: 'Cancel' }).click();
+  await expect(protectionAsk()).toHaveCount(0);
+  await page.waitForTimeout(500);
+  expect(sent).toEqual([]);
+  expect((await openOrders(who)).map((o) => [o.id, o.price])).toEqual([[order.id, order.price]]);
+  await expectAtPrice(orderLines().first(), order.price);
 });
 
-test(`${J} #6 opens the chart of a halted market: order entry on the chart is disabled with the refusal naming the halt`, async () => {
+test(`${J} #6 opens the chart of a halted market: order entry on the chart is disabled, with the refusal naming the halt`, async () => {
   const sent = orderWrites();
   let halted = false;
   try {
@@ -259,18 +426,24 @@ test(`${J} #6 opens the chart of a halted market: order entry on the chart is di
     halted = true;
     await page.goto(`/charts/${HALTED.replace('/', '-')}`);
     await expect(host()).toBeVisible();
-    const refusal = trading().getByTestId('chart-trading-refusal');
-    await expect(refusal).toContainText('this market is halted', { timeout: 30_000 });
+    // The refusal names the halt.
+    const refusal = bar().getByTestId('chart-trading-refusal');
+    await expect(refusal).toBeVisible({ timeout: 30_000 });
+    await expect(refusal).toContainText('this market is halted');
     await expect(refusal).toHaveAttribute('data-code', 'trade.chart.order_entry_refused');
-    await expect(trading().getByRole('button', { name: 'Order on chart' })).toBeDisabled();
-    // No plus button and no order menu on the halted chart.
+    // Order entry on the chart is disabled: the ticket button, the price-axis plus button and the order menu.
+    await expect(orderOnChart()).toBeDisabled();
+    await expect(ticket()).toHaveCount(0);
     const box = await host().boundingBox();
-    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
-    await expect(page.getByTestId('chart-axis-plus')).toHaveCount(0);
-    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5, { button: 'right' });
-    await expect(page.getByRole('menu', { name: 'Order at this price' })).toHaveCount(0);
-    await page.waitForTimeout(1000);
-    expect(sent).toHaveLength(0);
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.3);
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.35);
+    await page.waitForTimeout(500);
+    await expect(plus()).toHaveCount(0);
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.35, { button: 'right' });
+    await page.waitForTimeout(500);
+    await expect(orderMenu()).toHaveCount(0);
+    // Nothing reached the service for the halted market.
+    expect(sent).toEqual([]);
     expect(await openOrders(who, HALTED)).toHaveLength(0);
   } finally {
     try {
