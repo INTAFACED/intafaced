@@ -139,7 +139,7 @@ export function KycReviewQueue({ me }: { me: string }) {
                   return (
                     <tr key={c.caseId} data-testid="kyc-queue-row" data-case={c.caseId} data-assignee={who(c.assignedTo, me)}>
                       <td>
-                        <Link href={`/accounts/${encodeURIComponent(c.userId)}/kyc/${encodeURIComponent(c.caseId)}`}>
+                        <Link href={`/identity-ops/kyc/${encodeURIComponent(c.caseId)}`}>
                           <code>{c.caseId.slice(0, 8)}</code>
                         </Link>
                       </td>

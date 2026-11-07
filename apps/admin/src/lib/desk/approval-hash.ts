@@ -27,6 +27,8 @@ export const LAUNCH_EVENT_MOVE = 'token.launch.event.move';
 export const KYC_DOCUMENT_GET = 'kyc.doc.get';
 /** The verb svc-identity binds a selfie decision to (`kyc.selfie.decide`). */
 export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
+export const KYC_REJECT = 'kyc.reject';
+export const KYC_APPROVE = 'kyc.approve';
 
 /**
  * How a console request becomes an identity approval, and how the target service recomputes the same hash.
@@ -182,6 +184,17 @@ export function payloadHashFor(request: DeskRequest): string {
     // svc-identity `consumePrivileged(…, 'kyc.selfie.decide', { selfieId, decision })`, in this order.
     case 'identity.kyc_selfie.decide':
       return shaIdentity(KYC_SELFIE_DECIDE, { selfieId: request.selfieId, decision: request.decision });
+    // svc-identity `kycRejectApprovalFields`: { targetId: 'kyc.reject', recordId, reasonCode, customerNote, noteVisible }, in this order.
+    case 'identity.kyc_case.reject':
+      return shaIdentity(KYC_REJECT, {
+        recordId: request.recordId,
+        reasonCode: request.reasonCode,
+        customerNote: '',
+        noteVisible: 'false',
+      });
+    // svc-identity `consumePrivileged(…, 'kyc.approve', { recordId })`.
+    case 'identity.kyc_case.approve':
+      return shaIdentity(KYC_APPROVE, { recordId: request.recordId });
     // svc-identity `waitlist.waves.release`: { targetId: 'waitlist.wave.release', wave, size }, in this order.
     case 'campaigns.waitlist.wave_release':
       return shaIdentity(WAVE_RELEASE_TARGET, { wave: request.wave, size: request.size });
@@ -406,6 +419,12 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         payloadHash,
         policyVersion: 'v1',
       };
+    // svc-identity consumes a KYC decision against its own verb as the target id, at version 1.
+    case 'identity.kyc_case.reject':
+    case 'identity.kyc_case.approve': {
+      const verb = request.kind === 'identity.kyc_case.reject' ? KYC_REJECT : KYC_APPROVE;
+      return { actionType: verb, targetService: 'svc-identity', targetId: verb, expectedVersion: '1', payloadHash, policyVersion: 'v1' };
+    }
     // svc-identity consumes a selfie decision against its own verb as the target id, at version 1.
     case 'identity.kyc_selfie.decide':
       return {

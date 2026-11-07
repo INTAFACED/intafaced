@@ -106,3 +106,99 @@ test('J-identity-20 #1 the queue is a cursor page of pending cases in the owner 
     await founder.context().close();
   }
 });
+
+test('J-identity-20 #2 a case shows the record, reason codes, history and notes; a decision with a listed reason code stores once, a retry returns the stored result, a different code is refused', async ({
+  browser,
+}) => {
+  test.setTimeout(480_000);
+  const target = await pendingCase('jc');
+  const compliance = await (await browser.newContext()).newPage();
+  const founder = await (await browser.newContext()).newPage();
+  await staffSignIn(compliance, browser, 'compliance');
+  await founderSignIn(founder, 'a');
+  try {
+    // Opens the case: the record, the owner's reason codes and the history.
+    await compliance.goto(`${ADMIN}/identity-ops/kyc/${target.caseId}`, { waitUntil: 'load' });
+    const review = compliance.getByTestId('kyc-case-review');
+    await expect(review).toBeVisible({ timeout: 60_000 });
+    await expect(review.getByTestId('kyc-case-record')).toContainText(target.recordId);
+    await expect(review.getByTestId('kyc-case-record-status')).toHaveText('pending');
+    await expect(review.getByTestId('kyc-case-state')).toHaveText('submitted');
+    const codes = review.getByTestId('kyc-case-reason-codes').locator('li');
+    await expect(codes).toHaveCount(2);
+    await expect(review.getByTestId('kyc-case-reason-codes')).toContainText('document_unreadable');
+    await expect(review.getByTestId('kyc-case-reason-codes')).toContainText('name_mismatch');
+    const history = review.getByTestId('kyc-case-history').locator('li');
+    await expect(history).toHaveCount(1);
+    await expect(history.first()).toHaveAttribute('data-state', 'submitted');
+
+    // Notes: a reviewer adds one and it shows on the case; the customer never sees it.
+    await expect(review.getByTestId('kyc-case-notes-empty')).toBeVisible();
+    const noteText = `TEST: ID photo is blurred (${Date.now()})`;
+    await review.getByLabel('Add a note').fill(noteText);
+    await review.getByRole('button', { name: 'Add note' }).click();
+    await expect(review.getByTestId('kyc-case-note-added')).toBeVisible({ timeout: 60_000 });
+    await expect(review.getByTestId('kyc-case-note')).toHaveCount(1);
+    await expect(review.getByTestId('kyc-case-note').first()).toContainText(noteText);
+    const customer = await api(target.who);
+    const own = await customer.get(`/api/identity/trpc/kyc.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`);
+    expect(JSON.stringify(own.body)).not.toContain(noteText);
+
+    // A decision with a listed reason code: compliance asks, the founder approves that record and that code, compliance runs it.
+    const decide = async (code) => {
+      await compliance.reload({ waitUntil: 'load' });
+      await expect(review).toBeVisible({ timeout: 60_000 });
+      await review.getByLabel('Reason code').selectOption(code);
+      const desk = review.getByTestId('control-desk');
+      const phrase = `REJECT KYC ${target.recordId.slice(0, 8)}`;
+      await desk.getByLabel(/to confirm$/).fill(phrase);
+      await desk.getByRole('button', { name: 'Ask a second person to approve: reject with this reason' }).click();
+      await expect(desk.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+      const packet = (await desk.getByLabel('Request packet').inputValue()).trim();
+      await founder.goto(`${ADMIN}/identity-ops/kyc/${target.caseId}`, { waitUntil: 'load' });
+      const deskB = founder.getByTestId('kyc-case-review').getByTestId('control-desk');
+      await deskB.getByLabel('Request packet').fill(packet);
+      await expect(deskB.getByTestId('packet-summary')).toContainText(`reason ${code}`);
+      await deskB.getByLabel(/to approve or run it$/).fill(phrase);
+      await deskB.getByRole('button', { name: 'Approve this request' }).click();
+      await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+      const run = async () => {
+        await desk.getByLabel(/to approve or run it$/).fill(phrase);
+        await desk.getByRole('button', { name: 'Run the approved request' }).click();
+        await expect(desk.getByTestId('step-reply')).toBeVisible({ timeout: 60_000 });
+      };
+      return { desk, run };
+    };
+
+    // Stores once.
+    const first = await decide('name_mismatch');
+    await first.run();
+    await expect(first.desk.getByTestId('step-reply')).toContainText(`as rejected with reason name_mismatch`, { timeout: 60_000 });
+    const rejected = await customer.get(`/api/identity/trpc/kyc.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`);
+    const decided = rejected.body?.result?.data?.cases?.find((c) => c.id === target.caseId);
+    expect(decided?.state).toBe('rejected');
+    expect(decided?.reason?.code).toBe('name_mismatch');
+    expect(decided?.history?.length).toBe(2);
+
+    // A retry of the same decision returns the stored result: the same reason, no new history step.
+    await first.run();
+    await expect(first.desk.getByTestId('step-reply')).toContainText(`as rejected with reason name_mismatch`, { timeout: 60_000 });
+    const again = await customer.get(`/api/identity/trpc/kyc.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`);
+    const stored = again.body?.result?.data?.cases?.find((c) => c.id === target.caseId);
+    expect(stored?.reason?.code).toBe('name_mismatch');
+    expect(stored?.history?.length).toBe(2);
+
+    // A different code on the decided case is refused (kyc.case_state) and nothing changes.
+    const second = await decide('document_unreadable');
+    await second.run();
+    await expect(second.desk.getByTestId('step-reply')).toHaveAttribute('data-tone', /danger|warn/, { timeout: 60_000 });
+    await expect(second.desk.getByTestId('step-reply')).toContainText('kyc.case_state');
+    await compliance.reload({ waitUntil: 'load' });
+    await expect(review.getByTestId('kyc-case-state')).toHaveText('rejected', { timeout: 60_000 });
+    await expect(review.getByTestId('kyc-case-reason')).toContainText('name_mismatch');
+    await expect(review.getByTestId('kyc-case-history').locator('li')).toHaveCount(2);
+  } finally {
+    await compliance.context().close();
+    await founder.context().close();
+  }
+});

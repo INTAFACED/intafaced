@@ -12,6 +12,7 @@ export type ApprovalEndpoint =
   | '/api/accounts/archive'
   | '/api/accounts/documents'
   | '/api/accounts/selfies'
+  | '/api/identity-ops/kyc/decide'
   | '/api/accounts/tier'
   | '/api/accounts/limits'
   | '/api/accounts/holds'
