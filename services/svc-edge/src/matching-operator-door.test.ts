@@ -159,4 +159,52 @@ describe('edge founder matching door', () => {
     expect(calls).toBe(0);
     await app.close();
   });
+
+  it('forwards rulebook check and publish to matching with the founder principal and the draft body', async () => {
+    const seen: { path: string; method: string; userId: string | undefined; body: unknown }[] = [];
+    const matching: MatchingOperatorCall = async (path, method, principal, body) => {
+      seen.push({ path, method, userId: principal.userId, body });
+      return { status: 200, body: { accepted: true } };
+    };
+    const app = Fastify({ logger: false });
+    registerAdminRoutes(app, admin(), matching);
+    await app.ready();
+    const headers = { authorization: await bearer(['admin:write']) };
+    const draft = { version: 'TEST-v1', sections: { participation: 'TEST participation.' } };
+    const check = await app.inject({ method: 'POST', url: '/admin/matching/rulebook/check', headers, payload: draft });
+    expect(check.statusCode).toBe(200);
+    const publish = await app.inject({
+      method: 'POST',
+      url: '/admin/matching/rulebook/publish',
+      headers,
+      payload: { ...draft, approvalId: 'appr-1', operationId: 'op-1' },
+    });
+    expect(publish.statusCode).toBe(200);
+    expect(seen).toEqual([
+      { path: '/operator/rulebook/check', method: 'POST', userId: OPERATOR, body: draft },
+      {
+        path: '/operator/rulebook/publish',
+        method: 'POST',
+        userId: OPERATOR,
+        body: { ...draft, approvalId: 'appr-1', operationId: 'op-1' },
+      },
+    ]);
+    // A read-only or MFA-less session never reaches matching.
+    const readOnly = await app.inject({
+      method: 'POST',
+      url: '/admin/matching/rulebook/publish',
+      headers: { authorization: await bearer(['admin:read']) },
+      payload: draft,
+    });
+    expect(readOnly.statusCode).toBe(403);
+    const noMfa = await app.inject({
+      method: 'POST',
+      url: '/admin/matching/rulebook/check',
+      headers: { authorization: await bearer(['admin:write'], false) },
+      payload: draft,
+    });
+    expect(noMfa.statusCode).toBe(401);
+    expect(seen).toHaveLength(2);
+    await app.close();
+  });
 });

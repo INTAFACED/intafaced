@@ -161,6 +161,22 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Whether one market is halted',
   },
   {
+    name: 'fetchRulebook',
+    method: 'GET',
+    path: '/api/v1/rulebook',
+    product: 'spot',
+    access: 'public',
+    summary: 'The trading rulebook in force, section by section',
+  },
+  {
+    name: 'fetchRulebookVersions',
+    method: 'GET',
+    path: '/api/v1/rulebook/versions',
+    product: 'spot',
+    access: 'public',
+    summary: 'Every published rulebook version and what each changed',
+  },
+  {
     name: 'fetchMarketLifecycle',
     method: 'GET',
     path: '/api/v1/market-lifecycle/:symbol',

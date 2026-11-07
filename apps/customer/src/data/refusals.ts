@@ -95,6 +95,14 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   priceInvalid: { title: 'Check the price', body: 'Enter a price that is close to the market price.' },
   belowMinimum: { title: 'Amount is too small', body: 'Enter a larger amount to continue.' },
   orderTypeUnsupported: { title: "That order type isn't offered", body: 'This market takes limit and market orders only.' },
+  marketCancelOnly: {
+    title: 'This market is cancel-only',
+    body: 'New orders are paused here. Your open orders stay, and you can still cancel them. Nothing was held.',
+  },
+  marketPostOnly: {
+    title: 'This market is post-only',
+    body: 'Only orders that rest on the book are taken right now. Nothing was held.',
+  },
   marketLimitOnly: {
     title: 'Market orders are paused here',
     body: 'This market is taking limit orders only right now. Place a limit order instead. Nothing was held.',

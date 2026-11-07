@@ -21,7 +21,8 @@ later. Otherwise: Telegram → branch → PR (CONTRIBUTING.md §4).
 
 ## Doctrine
 
-<!-- Which section of INTAFACED_DEFINITIVE_BUILD.md governs this. If none does,
+<!-- Which section of the founding document governs this (INTAFACED_DEFINITIVE_BUILD.md,
+     private, in INTAFACED/project-state at product/). If none does,
      say so — that itself is worth knowing before anyone starts. -->
 
 Section: §

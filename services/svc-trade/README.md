@@ -110,6 +110,18 @@ principal claim; no identity vendor is called from this service.
 | `admin.agreements.list` / `.export`   | compliance view of stored acceptances; the CSV export is capped by `TRADE_OPERATOR_EXPORT_CAP` (blank refuses) and audited |
 | `admin.eligibilityRules.get` / `.set` | versioned questions, pass mark and minimum tier; any blank part refuses `eligibility_rules_incomplete`                     |
 
+**Fees and convert, finance reads (J-cex-spot-17).** Read only, `admin:read`, behind the console's Fees and convert room.
+Fee versions themselves are `admin.fees.get` / `admin.fees.set` (two-person, a stated effective time; an order keeps the
+version in force when it was placed, `spot/fee-schedule-store.ts`). A schedule change moves no money.
+
+| Procedure                    | What it does                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `admin.fees.snapshots`       | finished fee tier snapshot runs, newest first (`limit` 1-100, required): version, accounts, accounts above regular, counted volume                                             |
+| `admin.convertDesk.settings` | Convert open or paused, each coin's maximum per conversion, spread, quote hold time, desk-price size ranges; a blank one is `null`, a set one Convert refuses carries its code |
+| `admin.convertDesk.quotes`   | convert quotes of one `side`, newest first (`limit` 1-100, required), exact amounts and the spread in the quote as given                                                       |
+
+An unwired convert read refuses `trade.convert_settings_unwired`; a missing page size refuses `fees_desk_limit_unset`.
+
 **Charts module owner values (C-ops-04, LD-14).** Five counts and a data class per market, held here until account sync
 exists. Blank is `null` ("not set"); nothing has a default. Operator writes need `admin:write`, a reason, and a
 `clientRequestId` (idempotent); each write leaves an audit row (`chart_owner_values.set` or `chart_data_class.set`) with the
@@ -318,6 +330,40 @@ Liveness is `MatchingClient.listOrders` (GET), not cancel-as-probe. Cancel is re
 await trade.reconcileOrder(orderId);
 // tests: src/spot/order-route-reconcile.test.ts
 ```
+
+### Operator reconcile sweep (J-cex-spot-18 #3)
+
+`admin.orders.startReconcileSweep({ clientRequestId, reason })` checks plain resting limit orders that hold funds (stop,
+OCO, bracket, iceberg and seeded orders are not looked at, nor is an order changed within the owner's age floor), listing
+each market's book once. A book list that comes back as a full page (svc-matching answers at most 500 and no cursor)
+cannot prove an order absent, so that market's orders are reported as not read. An order the engine lists is left exactly
+as it is, and any earlier sighting of a miss is dropped. An order the engine no longer has is released only on a later
+sweep's **second sighting** of that miss, at least the age floor after the first, with the book not listing it in between
+(`trade.operator_sweep_sightings`): a fill the engine made reaches `trade.fills` late, on the bus, so one look at an empty
+book and empty fills is not proof. The release is then the
+single-order reconcile's (`reconcileOrder(id, { leaveLive: true })`): once, through the order's cancel path, and only when
+`trade.fills` prove no fill. A fill that never reaches trade at all is not something either look can see.
+
+One sweep runs at a time (advisory lock; a duplicate of a running request refuses `reconcile_sweep_in_flight`). A request
+id is kept with its reason: the same request returns its stored counts, the id with another reason refuses
+`client_request_conflict`. The run, its stored answer and its summary audit row are one transaction. The result names each
+order's outcome: released, first sighted, waiting, kept (fills unproven), ended with no hold, other, not read, and
+failed after acting (logged with the order id).
+
+Switch and owner values, each refusing when off or blank: `TRADE_OPERATOR_SWEEP_ENABLED` (off by default;
+`reconcile_sweep_disabled`), `TRADE_OPERATOR_SWEEP_LIMIT` (orders per run, 1 to 10000) and
+`TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS` (1 s to 1 day, used twice: how long an order must have gone unchanged before a
+sweep looks at it, and how long its miss must last between sightings; both `reconcile_sweep_unconfigured`).
+The scheduled job below (`TRADE_RECONCILE_JOBS_ENABLED`) is separate and unchanged.
+
+### Trade bust (J-cex-spot-18 #4)
+
+`admin.orders.bust({ orderId, approvalId, clientRequestId, reason })` consumes identity's two-person approval of
+`trade.bust` (targetService `svc-trade`, expectedVersion the order's fill count, payload `bustApprovalBody` in
+`src/admin/bust.ts`), then refuses `trade_bust_recipe_missing`: no ledger-client recipe reverses a fill yet, so nothing
+moves. The approval book can only consume, so the approval is spent either way. The operator carrying it out must not be
+its approver (`approval_executor_is_approver`). Each refusal is audited once per request with the proposer, the approver
+and the executor.
 
 ### Scheduled engine ↔ ledger reconcile (A10)
 

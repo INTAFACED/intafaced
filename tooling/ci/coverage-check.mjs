@@ -4,7 +4,9 @@
  *
  * WHY THIS FILE EXISTS
  * ────────────────────
- * `INTAFACED_DEFINITIVE_BUILD.md` §25, line 740, says verbatim:
+ * The founding document (`INTAFACED_DEFINITIVE_BUILD.md`, now in the private
+ * INTAFACED/project-state repo at `product/INTAFACED_DEFINITIVE_BUILD.md`)
+ * §25, line 740, says verbatim:
  *
  *   "Coverage check: every named feature in Vol. I chapters I–XIX appears above
  *    exactly once with an owner and phase. CI carries `coverage-check`: this
@@ -68,7 +70,7 @@
  * WHAT IT DOES NOT DO — a gate that cries wolf gets disabled
  * ─────────────────────────────────────────────────────────
  * It reads structured data only: this YAML, `tooling/tracker/features.mjs` as a
- * module, and the law's `## N ·` chapter headings. It does not grep prose, does
+ * module, and the law's `## N ·` chapter headings (through the law index below). It does not grep prose, does
  * not pattern-match commentary, and skips fenced code blocks when indexing the
  * law, so an example that happens to look like a heading cannot fire it.
  *
@@ -90,16 +92,34 @@
  * older note that said gates.mjs lived only on a stranded branch is obsolete —
  * gates.mjs is on main and this scan is one of its rows.
  *
+ * THE LAW INDEX — the law is private, its structure is not
+ * ─────────────────────────────────────────────────────────
+ * The law left this public repo (owner decision 2026-11-07: "Move it private
+ * now"). Every check here needs only its structure: the `## N ·` chapters and
+ * their line spans, which lines are blank, and each chapter's title as far as
+ * coverage.yaml already spells it. `tooling/coverage-law-index.json` holds
+ * exactly that, plus the law's SHA-256, and CI reads it. A title the YAML does
+ * not already publish is stored as "" — so a YAML title can only pass if it is
+ * a prefix of the real one, and nothing of the law is published that was not.
+ * With the private copy at hand, `--law <path>` re-derives the index from it,
+ * fails if the committed one differs, and runs every check against the law
+ * itself; add `--write-index` to rewrite the index after the law changes.
+ * Limit: CI cannot see the private copy, so it cannot notice the law changing
+ * without the index being regenerated. Whoever changes the law reruns this.
+ *
  * Usage:
  *   node tooling/ci/coverage-check.mjs            run every check
  *   node tooling/ci/coverage-check.mjs --report   print the coverage report only
+ *   node tooling/ci/coverage-check.mjs --law <path> [--write-index]
  */
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const LAW_PATH = 'INTAFACED_DEFINITIVE_BUILD.md';
+const LAW_PATH = 'INTAFACED/project-state:product/INTAFACED_DEFINITIVE_BUILD.md';
+const INDEX_PATH = 'tooling/coverage-law-index.json';
 const YAML_PATH = 'tooling/coverage.yaml';
 const TRACKER_PATH = 'tooling/tracker/features.mjs';
 
@@ -333,24 +353,103 @@ try {
   process.exit(1);
 }
 
-const law = readFileSync(join(ROOT, LAW_PATH), 'utf8').split(/\r?\n/);
-
-/** Chapter headings of the law. Code fences excluded so an example cannot fire this. */
-const chapters = [];
-{
+/**
+ * The law's structure (see "THE LAW INDEX" above). Code fences excluded so an
+ * example cannot fire this. A title keeps only what coverage.yaml already says.
+ */
+function indexLaw(text, yamlSections) {
+  const lines = text.split(/\r?\n/);
+  const yamlTitle = new Map(yamlSections.filter((s) => typeof s?.id === 'number').map((s) => [s.id, String(s.title ?? '')]));
+  const found = [];
   let inFence = false;
-  for (let i = 0; i < law.length; i++) {
-    if (/^\s*```/.test(law[i])) {
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*```/.test(lines[i])) {
       inFence = !inFence;
       continue;
     }
     if (inFence) continue;
-    const m = /^## (\d+) · (.+)$/.exec(law[i]);
-    if (m) chapters.push({ id: Number(m[1]), title: m[2].trim(), line: i + 1 });
+    const m = /^## (\d+) · (.+)$/.exec(lines[i]);
+    if (m) {
+      const id = Number(m[1]);
+      const full = m[2].trim();
+      const t = yamlTitle.get(id);
+      found.push({ id, title: t && full.startsWith(t) ? t : '', line: i + 1 });
+    }
   }
-  for (let i = 0; i < chapters.length; i++) {
-    chapters[i].endLine = i + 1 < chapters.length ? chapters[i + 1].line - 1 : law.length;
+  const blankLines = [];
+  for (let i = 0; i < lines.length; i++) if (lines[i].trim() === '') blankLines.push(i + 1);
+  return {
+    law: LAW_PATH,
+    sha256: createHash('sha256').update(text).digest('hex'),
+    lines: lines.length,
+    chapters: found,
+    blankLines,
+  };
+}
+
+const lawArg = process.argv.indexOf('--law');
+if (lawArg === -1 && process.argv.includes('--write-index')) {
+  console.error('\n✖ coverage-check: --write-index needs --law <path>: the index is written only from the private law.\n');
+  process.exit(1);
+}
+let lawIndex;
+if (lawArg !== -1) {
+  const lawFile = process.argv[lawArg + 1];
+  if (!lawFile || lawFile.startsWith('--') || !existsSync(lawFile)) {
+    console.error(`\n✖ coverage-check: --law needs the path of the private copy of the law (${LAW_PATH}).\n`);
+    process.exit(1);
   }
+  lawIndex = indexLaw(readFileSync(lawFile, 'utf8'), doc.sections ?? []);
+  const fresh = JSON.stringify(lawIndex, null, 2) + '\n';
+  if (process.argv.includes('--write-index')) {
+    writeFileSync(join(ROOT, INDEX_PATH), fresh);
+    console.log(`wrote ${INDEX_PATH} from ${resolve(lawFile)}`);
+  } else if (!existsSync(join(ROOT, INDEX_PATH)) || readFileSync(join(ROOT, INDEX_PATH), 'utf8') !== fresh) {
+    fail(
+      'law-index',
+      `${INDEX_PATH} does not match the law at ${lawFile}: the law changed, or coverage.yaml's titles did, since it was written.`,
+      'Rerun with --law <path> --write-index and commit the index.',
+    );
+  }
+} else {
+  if (!existsSync(join(ROOT, INDEX_PATH))) {
+    console.error(`\n✖ coverage-check: ${INDEX_PATH} does not exist.\n`);
+    console.error(`  It is the law's structure (the law itself is private: ${LAW_PATH}).`);
+    console.error('  Without it no cite can be resolved. Regenerate it with --law <path> --write-index.\n');
+    process.exit(1);
+  }
+  try {
+    lawIndex = JSON.parse(readFileSync(join(ROOT, INDEX_PATH), 'utf8'));
+  } catch (err) {
+    console.error(`\n✖ coverage-check: ${INDEX_PATH} could not be read.\n  ${err.message}\n`);
+    process.exit(1);
+  }
+}
+
+// The index decides chapter spans and blank-line refusals, so a field that is missing or of the wrong shape is a
+// broken input and refuses by name: read as empty, it would silently pass cites the law would fail.
+{
+  const isLine = (n) => Number.isInteger(n) && n >= 1;
+  const bad = [];
+  if (!isLine(lawIndex?.lines)) bad.push('lines: a whole number of at least 1');
+  if (!Array.isArray(lawIndex?.blankLines) || !lawIndex.blankLines.every(isLine)) bad.push('blankLines: an array of line numbers');
+  if (
+    !Array.isArray(lawIndex?.chapters) ||
+    !lawIndex.chapters.every((c) => Number.isInteger(c?.id) && isLine(c?.line) && typeof c?.title === 'string')
+  ) {
+    bad.push('chapters: an array of { id, title, line }');
+  }
+  if (bad.length) {
+    console.error(`\n✖ coverage-check: ${INDEX_PATH} is malformed. It needs ${bad.join('; ')}.\n`);
+    console.error('  Regenerate it with --law <path> --write-index.\n');
+    process.exit(1);
+  }
+}
+const lawLength = lawIndex.lines;
+const blankLines = new Set(lawIndex.blankLines);
+const chapters = lawIndex.chapters.map((c) => ({ ...c }));
+for (let i = 0; i < chapters.length; i++) {
+  chapters[i].endLine = i + 1 < chapters.length ? chapters[i + 1].line - 1 : lawLength;
 }
 const chapterById = new Map(chapters.map((c) => [c.id, c]));
 
@@ -428,7 +527,12 @@ const MIN_NOTE = 20;
       continue;
     }
     if (s.title && !ch.title.startsWith(String(s.title))) {
-      fail('sections', `§${s.id} title drifted. coverage.yaml: "${s.title}" · law ${LAW_PATH}:${ch.line}: "${ch.title}"`);
+      fail(
+        'sections',
+        `§${s.id} title drifted. coverage.yaml: "${s.title}" is not a prefix of the title the law index holds for ` +
+          `${LAW_PATH}:${ch.line}: "${ch.title}" (the part coverage.yaml spelled when the index was written; "" if that was wrong).`,
+        'Check the heading in the private law. If it really starts with this, regenerate the index: --law <path> --write-index.',
+      );
     }
     if (s.disposition !== 'mapped' && s.disposition !== 'exempt') {
       fail('sections', `§${s.id} disposition must be "mapped" or "exempt", got ${JSON.stringify(s.disposition)}`);
@@ -472,7 +576,7 @@ function resolveCite(cite) {
   if (line < ch.line || line > ch.endLine) {
     return { ok: false, why: `cites ${LAW_PATH}:${line} as §${sec}, but §${sec} spans lines ${ch.line}–${ch.endLine}` };
   }
-  if (law[line - 1].trim() === '') return { ok: false, why: `cites ${LAW_PATH}:${line}, which is a blank line` };
+  if (blankLines.has(line)) return { ok: false, why: `cites ${LAW_PATH}:${line}, which is a blank line` };
   return { ok: true, sec, line };
 }
 

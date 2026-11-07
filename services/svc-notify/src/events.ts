@@ -620,7 +620,7 @@ export async function subscribeNotificationEvents(
     await attach(bus, 'securityFactorChanged', securityFactorChanged.subject, 'notify-security-factor-changed', async (payload) => {
       // I-signin-sessions-08: a sign-in factor of the account changed. The security category cannot be turned off, and the
       // notice points to Security, where the owner can sign out everywhere if it was not them. One row per change: the
-      // business key from svc-identity is the dedupe key. Inbox only: svc-identity already mails the proved address in the
+      // business key from svc-identity is the dedupe key, and the row carries it. Inbox only: svc-identity already mails the proved address in the
       // change's own transaction, and that mail is never muted or held for a digest.
       nakIfRetryable(
         await notify.create({
@@ -633,7 +633,8 @@ export async function subscribeNotificationEvents(
               : payload.change === 'new_device'
                 ? 'notify.identity.security.new_device.body'
                 : 'notify.identity.security.factor_changed.body',
-          params: {},
+          // The business key, so Home can tell this notice from the "Needs you" item identity keys by it (new_device).
+          params: { noticeKey: payload.noticeKey },
           href: '/uc/safe',
           severity: 'action',
           sourceSubject: securityFactorChanged.subject,

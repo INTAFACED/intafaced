@@ -21,14 +21,20 @@ export function MarketRulesList({ market }: { market: DeskMarket }) {
     [t('Rule open orders'), market.openOrderCap ? t('Rule open orders value', { cap: market.openOrderCap }) : none],
   ];
   return (
-    <dl aria-label={t('Market rules')}>
-      {rows.map(([name, value]) => (
-        <div key={name}>
-          <dt>{name}</dt>
-          <dd className="if-num">{value}</dd>
-        </div>
-      ))}
-    </dl>
+    <>
+      <dl aria-label={t('Market rules')}>
+        {rows.map(([name, value]) => (
+          <div key={name}>
+            <dt>{name}</dt>
+            <dd className="if-num">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {/* The venue-wide rules behind these values (RC-cex-spot-08). */}
+      <a className="text-link" href="/rulebook">
+        {t('Read the trading rulebook')}
+      </a>
+    </>
   );
 }
 
