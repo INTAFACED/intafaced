@@ -73,6 +73,7 @@ const REGRESSION_TITLE = /^(Journey broken on main|Broken on main): /;
 const STATE_LINE = /^Regression state: (fixed|reverted|parked)\b/;
 const PARKED = /^Regression state: parked\s+[—–-]+\s*(\S.*)$/;
 const MAIN_EVENTS = new Set(['push', 'schedule', 'workflow_dispatch']);
+const MAIN_REF = 'refs/heads/main';
 const byStep = (a, b) => a.localeCompare(b, 'en', { numeric: true });
 
 /**
@@ -348,7 +349,8 @@ export const PRIOR_LOOKBACK = 5;
 
 /**
  * The last complete set-aside list on main: `runs` is historyRuns() (oldest first), `read(id)` a run's set-aside.json or
- * null (read(id, run) also gets the run). The newest run whose list is there and complete wins, so the end dates carry on; a run before the set-aside
+ * null (read(id, run) also gets the run). The newest run whose list is there, complete and written on `refs/heads/main`
+ * (never a tag named main) wins, so the end dates carry on; a run before the set-aside
  * existed has none. `previous` is true only when that list is the run just before this one's: otherwise the step's
  * previous result is unknown and no failure is excused (setAsideSteps priorIsPrevious). Returns { steps, from, previous }.
  */
@@ -356,7 +358,8 @@ export function priorSetAside(runs, read) {
   const newest = runs.at(-1);
   for (const r of [...runs].reverse().slice(0, PRIOR_LOOKBACK)) {
     const list = read(r.id, r);
-    if (list && !list.incomplete && Array.isArray(list.steps)) return { steps: list.steps, from: r.run_number, previous: r === newest };
+    if (list && list.ref === MAIN_REF && !list.incomplete && Array.isArray(list.steps))
+      return { steps: list.steps, from: r.run_number, previous: r === newest };
   }
   return { steps: [], from: null, previous: false };
 }
@@ -422,7 +425,7 @@ function downloadReport(repo, runId, file = 'report.json', optional = file !== '
     rmSync(dir, { recursive: true, force: true });
   }
 }
-function manifestsAt(root) {
+export function manifestsAt(root) {
   const manifests = new Map();
   for (const parent of ['apps', 'services', 'packages', 'tooling']) {
     const dir = join(root, parent);
@@ -555,7 +558,7 @@ function main() {
     incomplete = true;
     problem(`the last run on main's set-aside list couldn't be read: ${e.message.split('\n')[0]}`);
   }
-  const onMain = !target && (!fetch || process.env.GITHUB_REF === 'refs/heads/main');
+  const onMain = !target && (!fetch || process.env.GITHUB_REF === MAIN_REF);
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
@@ -572,7 +575,15 @@ function main() {
     // its retry, or a failure whose retry was skipped), money or not.
     const flakyNow = [...(newest?.retried ?? [])];
     const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow])].sort(byStep);
-    const out = { days: SET_ASIDE_DAYS, run: thisRun, ...(incomplete || !newest ? { incomplete: true } : {}), steps: asideRows, notProven };
+    // The ref it ran on: the next run takes the list only from refs/heads/main.
+    const out = {
+      days: SET_ASIDE_DAYS,
+      run: thisRun,
+      ref: process.env.GITHUB_REF ?? null,
+      ...(incomplete || !newest ? { incomplete: true } : {}),
+      steps: asideRows,
+      notProven,
+    };
     writeFileSync(arg('--set-aside-out'), `${JSON.stringify(out, null, 2)}\n`);
   }
   const lines = [

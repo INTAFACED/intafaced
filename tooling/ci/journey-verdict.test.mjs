@@ -12,9 +12,12 @@ import {
   priorSetAside,
   readReport,
   regressionState,
+  manifestsAt,
   setAsideGuard,
   setAsideSteps,
 } from './journey-verdict.mjs';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 const spec = (title, status, file = 'J-a-01.pw.mjs') => ({ title, file, tests: [{ status }] });
 const report = (...specs) => ({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
@@ -259,7 +262,11 @@ test('the set-aside list carries on from run to run, ends on time, and is not re
 
 test('the last complete list on main carries on; an incomplete one is passed over', () => {
   const runs = [1, 2, 3].map((n) => ({ id: n, run_number: n }));
-  const lists = { 3: { incomplete: true, steps: [] }, 2: { steps: [{ step: 'J-a-01#1' }] }, 1: { steps: [] } };
+  const lists = {
+    3: { ref: 'refs/heads/main', incomplete: true, steps: [] },
+    2: { ref: 'refs/heads/main', steps: [{ step: 'J-a-01#1' }] },
+    1: { ref: 'refs/heads/main', steps: [] },
+  };
   assert.deepEqual(
     priorSetAside(runs, (id) => lists[id] ?? null),
     { steps: [{ step: 'J-a-01#1' }], from: 2, previous: false },
@@ -268,7 +275,11 @@ test('the last complete list on main carries on; an incomplete one is passed ove
     priorSetAside(runs, () => null),
     { steps: [], from: null, previous: false },
   );
-  assert.equal(priorSetAside(runs, (id) => (id === 3 ? { steps: [] } : null)).previous, true, 'the run just before is complete');
+  assert.equal(
+    priorSetAside(runs, (id) => (id === 3 ? { ref: 'refs/heads/main', steps: [] } : null)).previous,
+    true,
+    'the run just before is complete',
+  );
 });
 
 test('set aside: a non-money step on the list that fails leaves the verdict green, and is reported', () => {
@@ -340,8 +351,8 @@ test('a failed test whose retry was skipped is a failure, not flaky: it gets no 
 
 test('two failures in a row stay red when the run between them kept an incomplete list', () => {
   // Run 102: flaky, a complete list. Run 103: failed outright, its list incomplete. Run 104: failed outright.
-  const l102 = { steps: rows(aside({ 'J-a-01#1': 'flaky' }, 2), { 'J-a-01#1': 'flaky' }) };
-  const l103 = { incomplete: true, steps: rows(aside({}, 3, l102.steps), { 'J-a-01#1': 'failed' }) };
+  const l102 = { ref: 'refs/heads/main', steps: rows(aside({ 'J-a-01#1': 'flaky' }, 2), { 'J-a-01#1': 'flaky' }) };
+  const l103 = { ref: 'refs/heads/main', incomplete: true, steps: rows(aside({}, 3, l102.steps), { 'J-a-01#1': 'failed' }) };
   const lists = { 102: l102, 103: l103 };
   const found = priorSetAside(
     [
@@ -434,4 +445,85 @@ test("a carried list's end date is re-derived from its start, never taken as wri
   // A start in the future, or none, carries nothing.
   assert.deepEqual(aside({}, 3, [{ step: 'J-a-01#1', since: 1, sinceAt: at(20), until: at(27), state: 'passed' }]), {});
   assert.deepEqual(aside({}, 3, [{ step: 'J-a-01#1', since: 1, until: at(9), state: 'passed' }]), {});
+});
+
+// The OG's round 2 (the fresh Opus review's blocker): money fails closed, on the repo's own journeys.json and slices.json.
+const ROOT = fileURLToPath(new URL('../..', import.meta.url));
+const repoJson = (f) => JSON.parse(readFileSync(`${ROOT}${f}`, 'utf8'));
+const realJourneys = repoJson('docs/roadmap/journeys.json');
+const realSlices = repoJson('docs/roadmap/slices.json');
+const realMoney = moneyRule({ journeys: realJourneys, slices: realSlices, manifests: manifestsAt(ROOT) });
+const realGuard = setAsideGuard({ journeys: realJourneys, slices: realSlices, money: realMoney });
+
+test("the reviewer's case: J-wallet-01 #1 and J-pay-01 #1, non-money by the slice rule, are never set aside and are red when flaky", () => {
+  for (const step of ['J-wallet-01#1', 'J-pay-01#1']) {
+    assert.equal(realMoney[step], false, `${step}: the slice rule alone calls it non-money (the hole)`);
+    assert.equal(realGuard[step], true, `${step}: the set-aside guard calls it money`);
+  }
+  const states = { 'J-wallet-01#1': 'flaky', 'J-pay-01#1': 'flaky' };
+  assert.deepEqual(setAsideSteps({ states, money: realGuard, run: { number: 103, at: at(3) } }), {});
+  const newest = readReport(report(flaky('J-wallet-01 #1'), flaky('J-pay-01 #1')));
+  const v = judge({
+    newest,
+    named: readReport(report()),
+    baseline: { run: { number: 100 }, steps: [] },
+    money: realMoney,
+    guard: realGuard,
+    setAside: {},
+  });
+  assert.deepEqual(v.red.map((r) => r.step).sort(), ['J-pay-01#1', 'J-wallet-01#1']);
+  assert.ok(v.red.every((r) => /money step is never set aside/.test(r.why)));
+});
+
+test("money by the proof count's definition: every wallet, bank and pay step and J-ops-console-27 is guarded, whatever its slices", () => {
+  const named = Object.keys(realGuard).filter((k) => /^J-(wallet|bank|pay)-\d+#/.test(k) || k.startsWith('J-ops-console-27#'));
+  assert.ok(named.length > 100, `found ${named.length}`);
+  assert.deepEqual(
+    named.filter((k) => !realGuard[k]),
+    [],
+  );
+  const one = (id) =>
+    setAsideGuard({
+      journeys: [{ id, steps: [{ n: 1, slices: ['UI'] }] }],
+      slices: [{ id: 'UI', touches: ['customer: charts'] }],
+      money: { [`${id}#1`]: false },
+    })[`${id}#1`];
+  assert.deepEqual(['J-wallet-09', 'J-bank-03', 'J-pay-04', 'J-ops-console-27', 'J-charts-01'].map(one), [true, true, true, true, false]);
+});
+
+test('missing or empty slices count as money: no slices key, an empty list, a slice that touches nothing, an unknown slice', () => {
+  const journeys = [
+    {
+      id: 'J-a-08',
+      steps: [{ n: 1 }, { n: 2, slices: [] }, { n: 3, slices: ['EMPTY'] }, { n: 4, slices: ['GONE'] }, { n: 5, slices: ['UI'] }],
+    },
+  ];
+  const slices = [
+    { id: 'UI', touches: ['customer: charts'] },
+    { id: 'EMPTY', touches: [] },
+  ];
+  const money = Object.fromEntries([1, 2, 3, 4, 5].map((n) => [`J-a-08#${n}`, false]));
+  const g = setAsideGuard({ journeys, slices, money });
+  assert.deepEqual(
+    [1, 2, 3, 4, 5].map((n) => g[`J-a-08#${n}`]),
+    [true, true, true, true, false],
+  );
+  const fromRepo = Object.keys(realGuard).filter((k) => {
+    const [id, n] = k.split('#');
+    const st = realJourneys.find((j) => j.id === id).steps.find((x) => String(x.n) === n);
+    return !(st.slices?.length > 0);
+  });
+  assert.deepEqual(
+    fromRepo.filter((k) => !realGuard[k]),
+    [],
+    'every step in journeys.json with no slices is guarded',
+  );
+});
+
+test('the list is taken only from a run on refs/heads/main: a tag named main, or a list with no ref, feeds nothing', () => {
+  const runs = [{ id: 1, run_number: 1 }];
+  const list = (ref) => () => ({ ref, steps: [{ step: 'J-a-01#1' }] });
+  assert.equal(priorSetAside(runs, list('refs/heads/main')).from, 1);
+  assert.deepEqual(priorSetAside(runs, list('refs/tags/main')), { steps: [], from: null, previous: false });
+  assert.deepEqual(priorSetAside(runs, list(undefined)), { steps: [], from: null, previous: false });
 });
