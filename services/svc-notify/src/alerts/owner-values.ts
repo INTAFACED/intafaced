@@ -7,8 +7,10 @@
  *   notify.opsAlertOwnerValues.get   admin:read   every value, where it comes from, who set it and when, and the history
  *   notify.opsAlertOwnerValues.set   admin:write  one value per write, with a reason; a blank value clears it to "not set"
  *
- * A plan is the account's verification level as its session carries it (`none`, `basic`, `full`, `institutional`): the
- * per-account level this platform already gates on. Each write is one append-only row, so the rows are the audit: who,
+ * A plan is the account plan of the owner's plan table (BK-acct-04, `BANK_PLANS_JSON` in svc-bank; svc-notify reads the
+ * same table as NOTIFY_ACCOUNT_PLANS_JSON). It is the product's one plan. Nobody can subscribe yet, so every person is on
+ * the table's default plan, the bank's own rule. A blank table is "not set": no plan quota applies and the page says so.
+ * Each write is one append-only row, so the rows are the audit: who,
  * when, the old and new value, and the reason, all in one insert. A value the page has never written falls back to the
  * deployment's own setting (NOTIFY_ALERT_MAX_ACTIVE_PRICE, NOTIFY_ALERT_TRIGGER_LOG_DAYS), and the page says which one
  * applies. A cleared value is "not set" and refuses the action that needs it; nothing here holds a default number.
@@ -16,8 +18,40 @@
 import type { Sql } from 'postgres';
 import { hasScope, type Principal } from '@intafaced/auth';
 
-export const ALERT_PLANS = ['none', 'basic', 'full', 'institutional'] as const;
-export type AlertPlan = (typeof ALERT_PLANS)[number];
+/** A plan id of the owner's table: lower case, as svc-bank parses it. */
+export type AlertPlan = string;
+export const PLAN_ID = /^[a-z][a-z0-9-]{0,31}$/;
+
+/** The owner's account plans, as much of the table as alerts need: the ids, their names, and the default. */
+export interface AccountPlans {
+  readonly defaultPlanId: string;
+  readonly plans: readonly { readonly id: string; readonly name: string }[];
+}
+
+/**
+ * The owner's plan table from its JSON (`{ defaultPlanId, plans: [{ id, name, … }] }`, the bank's shape), or null when it
+ * is blank or not in shape: then no plan is known and the page says "not set".
+ */
+export function parseAccountPlans(raw: string | undefined | null): AccountPlans | null {
+  if (!raw?.trim()) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  const o = parsed as { defaultPlanId?: unknown; plans?: unknown };
+  if (!Array.isArray(o.plans) || o.plans.length === 0 || typeof o.defaultPlanId !== 'string') return null;
+  const plans: { id: string; name: string }[] = [];
+  for (const p of o.plans as Array<Record<string, unknown>>) {
+    if (typeof p.id !== 'string' || !PLAN_ID.test(p.id) || typeof p.name !== 'string' || p.name.trim() === '' || p.name.length > 80) {
+      return null;
+    }
+    plans.push({ id: p.id, name: p.name });
+  }
+  if (new Set(plans.map((p) => p.id)).size !== plans.length || !plans.some((p) => p.id === o.defaultPlanId)) return null;
+  return { defaultPlanId: o.defaultPlanId, plans };
+}
 
 export const ALERT_OWNER_KEYS = ['priceQuota', 'triggerLogDays'] as const;
 export type AlertOwnerKey = (typeof ALERT_OWNER_KEYS)[number];
@@ -75,6 +109,8 @@ export interface OwnerValueChange {
 }
 
 export interface AlertOwnerValuesView {
+  /** The owner's plans, or null while the plan table is not set. */
+  readonly plans: AccountPlans | null;
   readonly quotas: readonly OwnerValueView[];
   readonly triggerLogDays: OwnerValueView;
   /** Newest first. */
@@ -104,16 +140,27 @@ type Row = {
 
 const slot = (key: AlertOwnerKey, plan: AlertPlan | null) => `${key}:${plan ?? ''}`;
 
-/** The plan a session carries; anything else is `none`, the lowest. */
-export function planOf(tier: string | null | undefined): AlertPlan {
-  return (ALERT_PLANS as readonly string[]).includes(tier ?? '') ? (tier as AlertPlan) : 'none';
+/**
+ * The plan a person is on: the account's own plan id where one can be read, else the default plan. No subscription can be
+ * made yet (svc-bank, BK-acct-04), so it is the default for everyone. Null while the plan table is not set.
+ */
+export function planOf(plans: AccountPlans | null, accountPlanId?: string | null): AlertPlan | null {
+  if (!plans) return null;
+  if (accountPlanId && plans.plans.some((p) => p.id === accountPlanId)) return accountPlanId;
+  return plans.defaultPlanId;
 }
 
 export class AlertOwnerValues {
   constructor(
     private readonly sql: Sql,
     private readonly deployment: DeploymentAlertValues,
+    private readonly plans: AccountPlans | null,
   ) {}
+
+  /** The plan this person's quota is read for (the default plan for everyone today), or null while no plan table is set. */
+  planFor(accountPlanId?: string | null): AlertPlan | null {
+    return planOf(this.plans, accountPlanId);
+  }
 
   private async latest(): Promise<Map<string, Row>> {
     const rows = await this.sql<Row[]>`
@@ -142,10 +189,12 @@ export class AlertOwnerValues {
   }
 
   /** What applies to a person on `plan` now. One read; nothing is cached, so a saved value applies to the next create. */
-  async effective(plan: AlertPlan): Promise<{ maxActivePrice: number | null; triggerLogDays: number | null }> {
+  async effective(plan: AlertPlan | null): Promise<{ maxActivePrice: number | null; triggerLogDays: number | null }> {
     const latest = await this.latest();
     return {
-      maxActivePrice: this.viewOf('priceQuota', plan, latest.get(slot('priceQuota', plan))).value,
+      // No plan table: no plan quota can apply, so the deployment's own setting does, as before plans existed.
+      maxActivePrice:
+        plan === null ? this.deployment.maxActivePrice : this.viewOf('priceQuota', plan, latest.get(slot('priceQuota', plan))).value,
       triggerLogDays: this.viewOf('triggerLogDays', null, latest.get(slot('triggerLogDays', null))).value,
     };
   }
@@ -156,7 +205,8 @@ export class AlertOwnerValues {
       SELECT id::text AS id, key, plan, value, old_value, operator_id, reason, created_at
         FROM notify.alert_owner_values ORDER BY id DESC LIMIT ${HISTORY_LIMIT}`;
     return {
-      quotas: ALERT_PLANS.map((plan) => this.viewOf('priceQuota', plan, latest.get(slot('priceQuota', plan)))),
+      plans: this.plans,
+      quotas: (this.plans?.plans ?? []).map(({ id: plan }) => this.viewOf('priceQuota', plan, latest.get(slot('priceQuota', plan)))),
       triggerLogDays: this.viewOf('triggerLogDays', null, latest.get(slot('triggerLogDays', null))),
       history: history.map((r) => ({
         id: r.id,
@@ -180,8 +230,13 @@ export class AlertOwnerValues {
       throw new AlertOwnerValueError(NOTIFY_OWNER_VALUE_INVALID, 'unknown owner value');
     }
     const plan = input.key === 'priceQuota' ? (input.plan ?? null) : null;
-    if (input.key === 'priceQuota' && (plan === null || !(ALERT_PLANS as readonly string[]).includes(plan))) {
-      throw new AlertOwnerValueError(NOTIFY_OWNER_VALUE_INVALID, 'a quota is set for one plan');
+    if (input.key === 'priceQuota' && (plan === null || !this.plans?.plans.some((p) => p.id === plan))) {
+      throw new AlertOwnerValueError(
+        NOTIFY_OWNER_VALUE_INVALID,
+        this.plans
+          ? "a quota is set for one plan of the owner's plan table"
+          : "the owner's plan table is not set, so no plan quota can be set",
+      );
     }
     const bound = ALERT_OWNER_BOUNDS[input.key];
     if (input.value !== null && (!Number.isInteger(input.value) || input.value < 1 || input.value > bound)) {

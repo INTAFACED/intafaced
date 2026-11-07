@@ -3,17 +3,15 @@
  * `notify.opsAlertOwnerValues.get` answers them, parsed. Client-safe. No number is held here: the bounds are svc-notify's.
  */
 
-export const ALERT_PLANS = ['none', 'basic', 'full', 'institutional'] as const;
-export type AlertPlan = (typeof ALERT_PLANS)[number];
+/** A plan id of the owner's account plan table (BK-acct-04). */
+export type AlertPlan = string;
 export type AlertOwnerKey = 'priceQuota' | 'triggerLogDays';
+export const PLAN_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
-/** A plan is the account's verification level; this is how the page names each one. */
-export const PLAN_LABEL: Readonly<Record<AlertPlan, string>> = {
-  none: 'Not verified',
-  basic: 'Basic',
-  full: 'Full',
-  institutional: 'Institutional',
-};
+export interface AccountPlans {
+  readonly defaultPlanId: string;
+  readonly plans: readonly { readonly id: string; readonly name: string }[];
+}
 
 export interface OwnerValueView {
   readonly key: AlertOwnerKey;
@@ -38,6 +36,8 @@ export interface OwnerValueChange {
 }
 
 export interface AlertOwnerValuesView {
+  /** The owner's plans, or null while the plan table is not set. */
+  readonly plans: AccountPlans | null;
   readonly quotas: readonly OwnerValueView[];
   readonly triggerLogDays: OwnerValueView;
   readonly history: readonly OwnerValueChange[];
@@ -48,7 +48,18 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object
 const intOrNull = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v));
 const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
 const isKey = (v: unknown): v is AlertOwnerKey => v === 'priceQuota' || v === 'triggerLogDays';
-const isPlanOrNull = (v: unknown): v is AlertPlan | null => v === null || (ALERT_PLANS as readonly unknown[]).includes(v);
+const isPlanOrNull = (v: unknown): v is AlertPlan | null => v === null || (typeof v === 'string' && PLAN_ID.test(v));
+
+function parsePlans(v: unknown): AccountPlans | null | undefined {
+  if (v === null) return null;
+  if (!isObj(v) || typeof v.defaultPlanId !== 'string' || !Array.isArray(v.plans)) return undefined;
+  const plans: { id: string; name: string }[] = [];
+  for (const p of v.plans) {
+    if (!isObj(p) || typeof p.id !== 'string' || typeof p.name !== 'string') return undefined;
+    plans.push({ id: p.id, name: p.name });
+  }
+  return { defaultPlanId: v.defaultPlanId, plans };
+}
 
 function parseValue(v: unknown): OwnerValueView | null {
   if (!isObj(v) || !isKey(v.key) || !isPlanOrNull(v.plan) || !intOrNull(v.value)) return null;
@@ -70,7 +81,8 @@ export function parseAlertOwnerValuesView(raw: unknown): AlertOwnerValuesView | 
   if (!isObj(raw) || !Array.isArray(raw.quotas) || !Array.isArray(raw.history) || typeof raw.canWrite !== 'boolean') return null;
   const quotas = raw.quotas.map(parseValue);
   const retention = parseValue(raw.triggerLogDays);
-  if (quotas.some((q) => q === null) || retention === null) return null;
+  const plans = parsePlans(raw.plans);
+  if (quotas.some((q) => q === null) || retention === null || plans === undefined) return null;
   const history: OwnerValueChange[] = [];
   for (const h of raw.history) {
     if (!isObj(h) || typeof h.id !== 'string' || !isKey(h.key) || !isPlanOrNull(h.plan)) return null;
@@ -87,11 +99,14 @@ export function parseAlertOwnerValuesView(raw: unknown): AlertOwnerValuesView | 
       at: h.at,
     });
   }
-  return { quotas: quotas as OwnerValueView[], triggerLogDays: retention, history, canWrite: raw.canWrite };
+  return { plans, quotas: quotas as OwnerValueView[], triggerLogDays: retention, history, canWrite: raw.canWrite };
 }
 
 export const valueText = (v: number | null): string => (v === null ? 'Not set' : String(v));
 export const sourceText = (v: OwnerValueView): string =>
   v.source === 'page' ? 'Set on this page' : 'Deployment setting (never set on this page)';
-export const keyLabel = (key: AlertOwnerKey, plan: AlertPlan | null): string =>
-  key === 'priceQuota' ? `Price alert quota, ${PLAN_LABEL[plan ?? 'none']}` : 'Trigger log retention (days)';
+/** A plan's name from the owner's table, or its id when the table no longer lists it (an old history row). */
+export const planName = (plans: AccountPlans | null, plan: AlertPlan | null): string =>
+  plans?.plans.find((p) => p.id === plan)?.name ?? plan ?? '';
+export const keyLabel = (plans: AccountPlans | null, key: AlertOwnerKey, plan: AlertPlan | null): string =>
+  key === 'priceQuota' ? `Price alert quota, ${planName(plans, plan)}` : 'Trigger log retention (days)';

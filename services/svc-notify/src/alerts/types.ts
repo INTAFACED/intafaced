@@ -231,7 +231,7 @@ export type CreatePriceAlertInput = {
    * same step that writes the alert, so two creates racing cannot both pass. Left out, no cap is checked.
    */
   readonly maxOpen?: number;
-  /** The person's plan (their session's verification level): picks the founder's price-alert quota. Left out: `none`. */
+  /** The person's account plan id, where one is known: picks the founder's price-alert quota. Left out: the default plan. */
   readonly plan?: AlertPlan;
 };
 

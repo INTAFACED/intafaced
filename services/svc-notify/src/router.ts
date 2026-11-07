@@ -1,11 +1,10 @@
 import { z } from 'zod';
 import {
   ALERT_OWNER_KEYS,
-  ALERT_PLANS,
   AlertOwnerValueError,
   NOTIFY_OWNER_VALUE_FORBIDDEN,
   NOTIFY_OWNER_VALUE_STALE,
-  planOf,
+  PLAN_ID,
   type AlertOwnerValues,
 } from './alerts/owner-values.js';
 import { guestNotificationsRouter } from './guests/router.js';
@@ -954,7 +953,7 @@ export function createNotifyRouter(
             z
               .object({
                 key: z.enum(ALERT_OWNER_KEYS),
-                plan: z.enum(ALERT_PLANS).nullable().optional(),
+                plan: z.string().regex(PLAN_ID).nullable().optional(),
                 value: z.number().int().nullable(),
                 expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
                 reason: z.string().max(500),
@@ -1829,7 +1828,6 @@ export function createNotifyRouter(
             }
             const row = await alerts.create({
               userId: ctx.principal.userId,
-              plan: planOf(ctx.principal.tier),
               marketId: input.marketId,
               kind,
               direction: input.direction,
@@ -1892,7 +1890,6 @@ export function createNotifyRouter(
           try {
             const rows = await alerts.createMany({
               userId: ctx.principal.userId,
-              plan: planOf(ctx.principal.tier),
               marketIds: input.marketIds,
               direction: input.direction,
               targetPrice: input.targetPrice,
@@ -1991,7 +1988,7 @@ export function createNotifyRouter(
         )
         .query(async ({ ctx }) => {
           if (!alerts) return { kind: 'price' as const, used: 0, max: null, burst: null, maxConditions: null };
-          return alerts.quota(ctx.principal.userId, new Date(), planOf(ctx.principal.tier));
+          return alerts.quota(ctx.principal.userId);
         }),
 
       /**

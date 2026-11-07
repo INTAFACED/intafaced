@@ -2,7 +2,7 @@ import { tradeOpsRoute } from '@/lib/trade-ops/bff';
 import { refused, type Outcome } from '@/lib/trade-ops/outcome';
 import type { TradeCtx } from '@/lib/trade-ops/edge';
 import { parseWholeNumberText, reasonReady } from '@/lib/trade-ops/charts-owner-values-model';
-import { ALERT_PLANS, type AlertPlan } from '@/lib/trade-ops/alert-owner-values-model';
+import { PLAN_ID, type AlertPlan } from '@/lib/trade-ops/alert-owner-values-model';
 import { readAlertOwnerValues, writeAlertOwnerValue } from '@/lib/trade-ops/alert-owner-values-calls';
 
 /**
@@ -25,9 +25,9 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
   if (key === null) return bad('alert_owner_value.bad_key', 'Unknown alert setting.');
   let plan: AlertPlan | null = null;
   if (key === 'priceQuota') {
-    if (typeof body.plan !== 'string' || !(ALERT_PLANS as readonly string[]).includes(body.plan))
+    if (typeof body.plan !== 'string' || !PLAN_ID.test(body.plan))
       return bad('alert_owner_value.bad_plan', 'Choose the plan this quota is for.');
-    plan = body.plan as AlertPlan;
+    plan = body.plan;
   }
   const expectedVersion = typeof body.expectedVersion === 'string' && VERSION.test(body.expectedVersion) ? body.expectedVersion : null;
   if (expectedVersion === null) return bad('alert_owner_value.bad_version', 'Read the values again: the version on the form is missing.');

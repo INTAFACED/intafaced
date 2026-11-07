@@ -25,9 +25,12 @@ export function AlertOwnerValuesPanel({ initial }: { initial: AlertOwnerValuesVi
     <div className="flex flex-col gap-6">
       <PageSection title="Alerts (notification service)">
         <div className="flex flex-col gap-2">
-          <p className="text-sm text-fg-2">
-            A plan is the account&apos;s verification level. A price alert past its plan&apos;s quota is refused; a blank quota refuses
-            every price alert for that plan.
+          <p className="text-sm text-fg-2" data-testid="alert-plans" data-default-plan={view.plans?.defaultPlanId}>
+            {view.plans === null
+              ? "Account plans: not set. The owner's plan table is not published, so no quota can be set per plan; the deployment setting applies to everyone."
+              : `Account plans from the owner's plan table. Everyone is on ${
+                  view.plans.plans.find((p) => p.id === view.plans?.defaultPlanId)?.name ?? view.plans.defaultPlanId
+                } until subscribing to a plan is built. A price alert past its plan's quota is refused; a blank quota refuses every price alert on that plan.`}
           </p>
           <table className="w-full text-sm" aria-label="Alert owner values">
             <thead>
@@ -49,7 +52,7 @@ export function AlertOwnerValuesPanel({ initial }: { initial: AlertOwnerValuesVi
             </thead>
             <tbody>
               {rows.map((v) => {
-                const label = keyLabel(v.key, v.plan);
+                const label = keyLabel(view.plans, v.key, v.plan);
                 const slot = slotOf(v);
                 const text = draft[slot] ?? (v.value === null ? '' : String(v.value));
                 const typed = parseWholeNumberText(text);
@@ -166,7 +169,7 @@ export function AlertOwnerValuesPanel({ initial }: { initial: AlertOwnerValuesVi
                   <td className="py-1 pr-4" data-field="who">
                     {h.operatorId}
                   </td>
-                  <td className="py-1 pr-4">{keyLabel(h.key, h.plan)}</td>
+                  <td className="py-1 pr-4">{keyLabel(view.plans, h.key, h.plan)}</td>
                   <td className="py-1 pr-4" data-field="old">
                     {valueText(h.oldValue)}
                   </td>

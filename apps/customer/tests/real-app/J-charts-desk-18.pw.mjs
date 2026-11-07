@@ -14,6 +14,10 @@ import { EDGE, api } from './stack.mjs';
 const J = 'J-charts-desk-18';
 const RUN = Date.now().toString(36);
 const SETTINGS = `${ADMIN}/trade-ops/charts/settings`;
+// The owner's account plan table on the stack is a TEST table (tooling/profiles/test-owner-values/notify.json, the same
+// table svc-bank reads): everyone is on its default plan, TEST Standard, until subscribing is built.
+const PLAN = 'standard';
+const PLAN_LABEL = 'Price alert quota, TEST Standard';
 
 async function openSettings(page) {
   await page.goto(SETTINGS);
@@ -54,8 +58,15 @@ test(`${J} #5 opens the module's settings page: compare cap, alert quotas and re
   const cap = (await chartValues()).compareCap;
   const capInput = page.getByLabel('Compare cap: new value', { exact: true });
   await expect(capInput).toHaveValue(cap === null ? '' : String(cap));
-  // Alert quotas, one per plan, and the trigger log retention: each a number or "Not set", with where it comes from.
-  for (const plan of ['none', 'basic', 'full', 'institutional']) {
+  // Alert quotas, one per plan of the owner's (TEST) plan table, and the trigger log retention: each a number or
+  // "Not set", with where it comes from.
+  await expect(page.getByTestId('alert-plans')).toHaveAttribute('data-default-plan', PLAN);
+  const plans = await page
+    .getByRole('table', { name: 'Alert owner values' })
+    .locator('tr[data-key="priceQuota"]')
+    .evaluateAll((rows) => rows.map((r) => r.getAttribute('data-plan')));
+  expect(plans).toContain(PLAN);
+  for (const plan of plans) {
     const row = alertRow(page, 'priceQuota', plan);
     await expect(row.locator('[data-field=current]')).toHaveText(/^(\d+|Not set)$/);
     await expect(row.locator('[data-field=source]')).toHaveText(
@@ -98,7 +109,7 @@ test(`${J} #6 sets an alert quota for a plan and saves: the change is recorded w
   browser,
 }) => {
   test.setTimeout(180_000);
-  // A fresh customer who has not verified is on the "Not verified" plan (`none`).
+  // A fresh customer is on the default plan, TEST Standard: nobody can subscribe to another yet.
   const who = await signUp(page, `cd18q${RUN}`);
   const client = await api(who);
   const quotaLine = () => page.getByTestId('alerts-quota');
@@ -109,23 +120,23 @@ test(`${J} #6 sets an alert quota for a plan and saves: the change is recorded w
   const desk = await context.newPage();
   const founder = await founderSignIn(desk, 'a');
   await openSettings(desk);
-  const row = alertRow(desk, 'priceQuota', 'none');
+  const row = alertRow(desk, 'priceQuota', PLAN);
   const before = await row.locator('[data-field=current]').textContent();
   // The customer sees what applies to their plan now.
   await expect(quotaLine()).toContainText(before === 'Not set' ? 'has not been set' : `0 of ${before} price alerts in use`);
 
   // A TEST quota of 2 for the plan, saved with a reason.
-  const label = 'Price alert quota, Not verified';
-  const reason = `${J} #6 TEST quota of 2 for unverified accounts (${RUN})`;
+  const label = PLAN_LABEL;
+  const reason = `${J} #6 TEST quota of 2 for the TEST Standard plan (${RUN})`;
   const startedAt = Date.now();
   await saveValue(desk, label, '2', reason);
   try {
     await openSettings(desk);
-    await expect(alertRow(desk, 'priceQuota', 'none').locator('[data-field=current]')).toHaveText('2');
-    await expect(alertRow(desk, 'priceQuota', 'none')).toHaveAttribute('data-source', 'page');
+    await expect(alertRow(desk, 'priceQuota', PLAN).locator('[data-field=current]')).toHaveText('2');
+    await expect(alertRow(desk, 'priceQuota', PLAN)).toHaveAttribute('data-source', 'page');
     // Recorded with who and when: the newest change names the founder, the time, the old and new value and the reason.
     const change = desk.getByRole('table', { name: 'Alert settings changes' }).locator('tbody tr').first();
-    await expect(change).toHaveAttribute('data-plan', 'none');
+    await expect(change).toHaveAttribute('data-plan', PLAN);
     await expect(change.locator('[data-field=who]')).toHaveText(founder.userId);
     const at = Date.parse(await change.locator('[data-field=at]').getAttribute('data-at'));
     expect(at).toBeGreaterThanOrEqual(startedAt - 5_000);

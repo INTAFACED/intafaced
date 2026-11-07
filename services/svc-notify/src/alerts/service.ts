@@ -510,10 +510,10 @@ export class AlertService {
     return this.ownerValues;
   }
 
-  /** The founder's alert values for this plan (J-charts-desk-18 #5 #6), or the deployment's limits while unwired. */
-  async ownerLimits(plan: AlertPlan = 'none'): Promise<{ maxActivePrice: number | null; triggerLogDays: number | null }> {
+  /** The founder's alert values for the person's plan (the default plan today; J-charts-desk-18 #5 #6), or the deployment's limits while unwired. */
+  async ownerLimits(accountPlanId?: AlertPlan | null): Promise<{ maxActivePrice: number | null; triggerLogDays: number | null }> {
     if (!this.ownerValues) return { maxActivePrice: this.limits.maxActivePrice, triggerLogDays: this.limits.triggerLogDays };
-    return this.ownerValues.effective(plan);
+    return this.ownerValues.effective(this.ownerValues.planFor(accountPlanId));
   }
 
   /** The burst rule when both owner values are set, else `null`: the rule is off and nothing is stopped for triggering often. */
