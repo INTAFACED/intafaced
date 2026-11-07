@@ -146,12 +146,8 @@ test(`${J} #1 opens the DOM from the chart; it binds to the chart's symbol and r
   await setLadder('Double', '2 ticks');
   await expect(dom()).toHaveAttribute('data-columns', 'double');
 
-  // The chart's symbol changes from the desk's own market picker.
-  await page.getByRole('button', { name: 'Choose a market' }).click();
-  await page
-    .getByRole('link', { name: new RegExp(`^${OTHER.replace('/', '\\/')}`) })
-    .first()
-    .click();
+  // The chart's symbol changes from the desk's own market list.
+  await page.getByTestId('dk-left').getByTestId('dk-mk-row').filter({ hasText: OTHER }).first().locator('a.dk-mk-link').click();
   await expect(page).toHaveURL(new RegExp(`${deskPath(OTHER)}$`));
   await expect(page.getByTestId('if-desk')).toHaveAttribute('data-market', OTHER);
   // The DOM is still open, now bound to the new symbol, with the same ladder settings.
@@ -192,13 +188,13 @@ test(`${J} #2 reads time and sales and the depth chart: the tape with filters an
   const hiddenNote = tapeRegion().getByTestId('of-tape-hidden');
 
   // No minimum: the small print is on the tape and nothing is hidden.
-  await tapeRegion().getByLabel('Minimum amount').fill('');
+  await tapeRegion().getByLabel('Hide trades under').fill('');
   await expect.poll(async () => (await amounts()).some((a) => same(a, SMALL)), { timeout: 15_000 }).toBe(true);
   await expect(hiddenNote).toHaveAttribute('data-hidden', '0');
 
   // A minimum of 0.003 BTC: every print under it leaves the tape and is counted as hidden; the large one stays.
   await tapeRegion().getByLabel('Units').selectOption({ label: 'BTC' });
-  await tapeRegion().getByLabel('Minimum amount').fill(BETWEEN);
+  await tapeRegion().getByLabel('Hide trades under').fill(BETWEEN);
   await expect.poll(async () => (await amounts()).every((a) => toUnits(a) >= toUnits(BETWEEN))).toBe(true);
   // The large market buy may fill across levels: its prints add up to it at least once on the tape.
   expect((await amounts()).length).toBeGreaterThan(0);
@@ -210,12 +206,12 @@ test(`${J} #2 reads time and sales and the depth chart: the tape with filters an
 
   // The same filter in quote units: 50 USDT lets the small print (about 65 USDT) back on, and hides anything smaller.
   await tapeRegion().getByLabel('Units').selectOption({ label: 'USDT' });
-  await tapeRegion().getByLabel('Minimum amount').fill('50');
+  await tapeRegion().getByLabel('Hide trades under').fill('50');
   await expect.poll(async () => (await amounts()).some((a) => same(a, SMALL))).toBe(true);
   expect((await values()).every((v) => toUnits(v) >= toUnits('50'))).toBe(true);
 
   // Accumulate at price: no two rows next to each other share a price and side any more.
-  await tapeRegion().getByLabel('Minimum amount').fill('');
+  await tapeRegion().getByLabel('Hide trades under').fill('');
   await tapeRegion().getByLabel('Accumulate at price').check();
   const pairs = await tapeRows().evaluateAll((els) => els.map((el) => `${el.getAttribute('data-price')}|${el.getAttribute('data-side')}`));
   for (let i = 1; i < pairs.length; i++) expect(pairs[i], `rows ${i - 1} and ${i}`).not.toBe(pairs[i - 1]);
@@ -336,7 +332,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   await openDesk();
   await openDom();
   await setLadder('Single', '1 tick');
-  await chartTrade().getByLabel('Amount (BTC)').fill(SMALL);
+  await chartTrade().getByLabel('Click size (BTC)').fill(SMALL);
   const sent = placements(page);
 
   // The best ask on the ladder.
@@ -434,9 +430,9 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(same(await sell.innerText(), await sell.getAttribute('data-price'))).toBe(true);
 
   const sent = placements(page);
-  await group.getByLabel('Amount (BTC)').fill(SMALL);
+  await group.getByLabel('Click size (BTC)').fill(SMALL);
   // Buy at market: the ticket's Market tab takes it and the review opens; nothing is sent.
-  await group.getByLabel('Order type').selectOption({ label: 'Market' });
+  await group.getByLabel('Order kind').selectOption({ label: 'Market' });
   await buy.click();
   const review = reviewSheet(page);
   await expect(review).toContainText('Review your buy');
@@ -445,7 +441,7 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
   // Sell, limit at the touch: the review is a sell at the best bid the button showed.
-  await group.getByLabel('Order type').selectOption({ label: 'Limit at the touch' });
+  await group.getByLabel('Order kind').selectOption({ label: 'Limit at the touch' });
   const bidShown = await sell.getAttribute('data-price');
   await sell.click();
   await expect(review).toContainText('Review your sell');
@@ -455,7 +451,7 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   await expect(review).toHaveCount(0);
 
   // A type the market does not take: the desk's existing reason, and no review, no draft.
-  await group.getByLabel('Order type').selectOption({ label: 'Trailing stop' });
+  await group.getByLabel('Order kind').selectOption({ label: 'Trailing stop' });
   const ticketBefore = await buyForm().getByRole('textbox', { name: 'Price' }).inputValue();
   await buy.click();
   const note = group.getByTestId('of-chart-note');
@@ -546,7 +542,7 @@ test(`${J} #6 turns instant placement on; a click sends after the settings summa
   await openDesk();
   await openDom();
   await setLadder('Single', '1 tick');
-  await chartTrade().getByLabel('Amount (BTC)').fill(SMALL);
+  await chartTrade().getByLabel('Click size (BTC)').fill(SMALL);
   const sent = placements(page);
 
   // Off by default: the switch is off and says so, and a ladder click opens its review; nothing is sent.
@@ -570,7 +566,7 @@ test(`${J} #6 turns instant placement on; a click sends after the settings summa
     'Market orders, Close among them, always show their review first.',
     'Cancel from the ladder acts at once, with no review.',
     'Every order is still checked first. A refusal still stops it, and the order holds exactly what a reviewed order holds.',
-    `Each click uses the amount set on the chart: ${SMALL} BTC.`,
+    `Each click uses the click size set on the chart: ${SMALL} BTC.`,
     'You can turn it off here at any time. Off, every click opens its review again.',
   ])
     await expect(summary.getByText(line, { exact: true })).toBeVisible();
@@ -624,7 +620,7 @@ test(`${J} #6 turns instant placement on; a click sends after the settings summa
   expect((await usdtHeld()) - heldBefore).toBe(toUnits(check.body.holdAmount));
 
   // On, a market order still shows its review: Buy at market from the chart opens it, and nothing more is sent.
-  await chartTrade().getByLabel('Order type').selectOption({ label: 'Market' });
+  await chartTrade().getByLabel('Order kind').selectOption({ label: 'Market' });
   await chartTrade().getByTestId('of-chart-buy').click();
   await expect(reviewSheet(page)).toContainText('Review your buy');
   await reviewSheet(page).getByRole('button', { name: 'Cancel' }).click();
@@ -654,7 +650,7 @@ test(`${J} #7 uses one-click close, cancel and size presets; each acts once with
   await setInstant(false);
   const sent = placements(page);
   const deletes = cancels();
-  const amountField = chartTrade().getByLabel('Amount (BTC)');
+  const amountField = chartTrade().getByLabel('Click size (BTC)');
   const presets = chartTrade().getByRole('group', { name: 'Size presets' });
 
   // A preset, reviewed: it sets the click amount once, and the next ladder click still opens its review with it.
