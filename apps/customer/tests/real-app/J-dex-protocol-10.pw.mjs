@@ -329,7 +329,7 @@ test(`${J} #8 cancels an order and withdraws: the unfilled rest returns to the w
 test(`${J} #9 sends tokens straight to the vault by mistake: the credit is unchanged and the sweep returns them to the maker only`, async ({
   page,
 }) => {
-  let wallet = await openOrders(page);
+  const wallet = await openOrders(page);
   let vault = room(page).getByRole('region', { name: 'Order vault' });
   const before = await creditText(vault);
   // A plain token transfer to the vault address, sent from the wallet on the TEST chain, is not a deposit.
@@ -349,7 +349,9 @@ test(`${J} #9 sends tokens straight to the vault by mistake: the credit is uncha
     args: [vaultAddress, parseUnits('50', 6)],
   });
   await page.waitForTimeout(2_000);
-  wallet = await openOrders(page);
+  // The same wallet, the room read again (connecting a second time on one page would install the TEST wallet twice).
+  await page.reload();
+  await expect(room(page).getByRole('heading', { name: 'Orders', level: 1 })).toBeVisible(UNBUILT);
   vault = room(page).getByRole('region', { name: 'Order vault' });
   // No credit moves.
   await expect(vault.getByRole('status')).toContainText('Tokens sent to the vault without a deposit are not credited', { timeout: 15_000 });

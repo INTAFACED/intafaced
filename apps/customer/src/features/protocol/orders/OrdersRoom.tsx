@@ -9,7 +9,7 @@ import { createProtocolApi, type RepresentationStatus } from '../api';
 import { REGION_BLOCKED_CODE } from '../region';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
 import { RepresentationPanel } from '../wallet/RepresentationPanel';
-import { useWallet, type Sequence } from '../wallet/WalletProvider';
+import { useWallet, waitMined, type Sequence } from '../wallet/WalletProvider';
 import { ordersCopy, refusalKey, type OrdersTranslate } from './copy';
 import { OrderForm } from './OrderForm';
 import { OrderList } from './OrderList';
@@ -69,6 +69,8 @@ export function OrdersRoom() {
   const [representation, setRepresentation] = useState<{ status: RepresentationStatus; resolve: (ok: boolean) => void } | null>(null);
   const sendSequence = useRef(wallet.sendSequence);
   sendSequence.current = wallet.sendSequence;
+  const readNode = useRef(wallet.read);
+  readNode.current = wallet.read;
 
   const gated = useCallback(
     async (then: () => Promise<void>): Promise<string | null> => {
@@ -93,7 +95,15 @@ export function OrdersRoom() {
   const send = useCallback(
     async (sequence: Sequence): Promise<string | null> => {
       const result = await sendSequence.current(sequence);
-      if (result.status === 'sent') return null;
+      if (result.status === 'sent') {
+        // The wallet waits for every step but the last; the room waits for the last too, so a read after it sees the
+        // change, and a refused last step is never shown as done.
+        const last = result.hashes[result.hashes.length - 1];
+        if (!last) return null;
+        const mined = await waitMined((hash) => readNode.current('eth_getTransactionReceipt', [hash]), last, 120_000);
+        if (mined.status === 'success') return null;
+        return mined.status === 'reverted' ? t('walletReverted') : t('walletNotMined');
+      }
       if (result.status === 'rejected') return t('walletRejected');
       return t('walletFailed', { message: result.message });
     },

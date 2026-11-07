@@ -74,6 +74,8 @@ const en = {
   gateRejected: 'You did not accept the terms. Nothing was signed.',
   walletRejected: 'You cancelled in your wallet. Nothing was sent.',
   walletFailed: 'Your wallet could not send this: {message}',
+  walletReverted: 'The network refused the last step, so nothing changed. Your vault credit is as it was.',
+  walletNotMined: 'The last step is not mined yet. Your wallet may still send it; read the vault again in a moment.',
   needSession: 'Sign the order session first.',
 
   vaultTitle: 'Order vault',
