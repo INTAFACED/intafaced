@@ -39,10 +39,12 @@ export interface QuotaNeed {
   readonly adding: bigint;
 }
 
-/** Which profile applies to an account: its own assignment, or the owner's default. */
+/** Which profile applies to an account: an operator's assignment of it, or the profile its plan maps to. */
 export interface AppliedProfile {
   readonly name: string;
-  readonly source: 'assigned' | 'default';
+  readonly source: 'assigned' | 'plan';
+  /** The plan id the profile came from; null when an operator assigned the account. */
+  readonly plan: string | null;
 }
 
 /** A profile's stored limit for one resource; null is blank ("not set"). */
@@ -96,7 +98,11 @@ export function judgeNeeds(
   needs: readonly QuotaNeed[],
 ): void {
   if (needs.length === 0) return;
-  if (!profile) throw new QuantError(QUANT_QUOTA_PROFILE_UNSET, 'no quota profile applies to this account: the default profile is not set');
+  if (!profile)
+    throw new QuantError(
+      QUANT_QUOTA_PROFILE_UNSET,
+      'no quota profile applies to this account: its plan maps to no profile, or the plan table is not set',
+    );
   const ordered = [...needs].sort((a, b) => QUOTA_RESOURCES.indexOf(a.resource) - QUOTA_RESOURCES.indexOf(b.resource));
   for (const need of ordered) {
     const limit = limitOf(need.resource);

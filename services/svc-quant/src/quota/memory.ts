@@ -1,5 +1,6 @@
 import { QUANT_IDEMPOTENCY_CONFLICT, QuantError } from '../errors.js';
 import type { AccountCounts } from './counts.js';
+import { DEFAULT_PLAN_PORT, planProfileOf, type PlanPort, type PlanProfiles } from './plans.js';
 import { judgeNeeds, type AppliedProfile, type QuotaGate, type QuotaLimitRow, type QuotaRepository, type QuotaResource } from './quota.js';
 
 /**
@@ -7,7 +8,8 @@ import { judgeNeeds, type AppliedProfile, type QuotaGate, type QuotaLimitRow, ty
  * transaction; the race at the limit is proven there (quota.pg.test.ts), not here.
  */
 export function createMemoryQuota(options: {
-  defaultProfile: string | null;
+  plans: PlanProfiles | null;
+  planPort?: PlanPort;
   now?: () => Date;
   /** What an account holds; tests that read usage pass it. Omitted, every count reads zero. */
   counts?: (accountId: string) => Promise<AccountCounts>;
@@ -20,10 +22,11 @@ export function createMemoryQuota(options: {
   const assignments = new Map<string, string>();
   const writes = new Map<string, { action: string; request: string; response: unknown }>();
 
-  function applied(accountId: string): AppliedProfile | null {
+  async function applied(accountId: string): Promise<AppliedProfile | null> {
     const own = assignments.get(accountId);
-    if (own) return { name: own, source: 'assigned' };
-    return options.defaultProfile ? { name: options.defaultProfile, source: 'default' } : null;
+    if (own) return { name: own, source: 'assigned', plan: null };
+    const mapped = await planProfileOf(options.plans, options.planPort ?? DEFAULT_PLAN_PORT, accountId);
+    return mapped ? { name: mapped.profile, source: 'plan', plan: mapped.plan } : null;
   }
 
   function replay<T>(key: string, action: string, request: string): T | null {
@@ -74,7 +77,7 @@ export function createMemoryQuota(options: {
       return undefined;
     },
     async check(_db, accountId, needs) {
-      const profile = applied(accountId);
+      const profile = await applied(accountId);
       const rows = profile ? limits.get(profile.name) : undefined;
       judgeNeeds(profile, (resource) => rows?.get(resource)?.limit ?? null, needs);
     },

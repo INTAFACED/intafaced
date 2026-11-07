@@ -161,10 +161,12 @@ const schema = baseEnvSchema
        */
       QUANT_RELEASE_NOTE_MAX: blankable(z.string().regex(/^(?:[1-9]\d{0,2}|1\d{3}|2000)$/)),
       /**
-       * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
-       * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.
+       * The owner's plan to quota profile table (AL-limits-01 on the bank's plan ids, BK-acct-04), as JSON:
+       * `{ "defaultPlanId": "<id>", "profiles": { "<planId>": "<profile>" } }`. An account is on the default plan until
+       * its plan can be read. NO DEFAULT: blank, or a plan with no profile, and every counted write (a strategy, a
+       * version, a run) refuses `quant.quota_profile_unset`.
        */
-      QUANT_DEFAULT_QUOTA_PROFILE: blankable(z.string().max(80)),
+      QUANT_PLAN_PROFILES_JSON: blankable(z.string().max(4000)),
       /**
        * TEST only: a profile the local and CI stack seeds, as JSON `{ "profile": "TEST …", "limits": { "<resource>":
        * "<whole number>" } }`. Only a name starting with TEST is accepted; a row an operator already set is never

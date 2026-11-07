@@ -14,6 +14,7 @@ import { openRunRepository } from './runs/open.js';
 import { openStrategyRepository } from './studio/open.js';
 import { openQuota } from './quota/open.js';
 import { parseQuotaSeed } from './quota/quota.js';
+import { parsePlanProfiles } from './quota/plans.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 registerProcessHooks(
@@ -43,7 +44,7 @@ const venueVaultSet = env.QUANT_VENUE_VAULT !== undefined;
 // Quotas by plan (AL-limits-01): the gate is checked inside every strategy and run write's own transaction.
 const quota = openQuota(
   { DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX },
-  { defaultProfile: env.QUANT_DEFAULT_QUOTA_PROFILE ?? null, seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED) },
+  { plans: parsePlanProfiles(env.QUANT_PLAN_PROFILES_JSON), seed: parseQuotaSeed(env.QUANT_TEST_QUOTA_SEED) },
 );
 const strategies = openStrategyRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);
 const runs = openRunRepository({ DATABASE_URL: env.DATABASE_URL, DATABASE_POOL_MAX: env.DATABASE_POOL_MAX }, quota.gate);

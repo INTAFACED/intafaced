@@ -73,7 +73,7 @@ describe('quotas on Postgres (AL-limits-01)', () => {
   const sql = postgres(url, { max: 8, onnotice: () => undefined });
   const quota = createPostgresQuota(sql, {
     schema: SCHEMA,
-    defaultProfile: 'TEST seeded',
+    plans: { defaultPlanId: 'standard', profiles: { standard: 'TEST seeded' } },
     seed: { profile: 'TEST seeded', limits: { strategies: '2', versions: '5', concurrent_runs: '5', runs: '2', storage: '10000000' } },
   });
   const app = createQuantRouter({
@@ -160,7 +160,7 @@ describe('quotas on Postgres (AL-limits-01)', () => {
     // A second process seeding the same profile inserts nothing over it.
     const again = createPostgresQuota(sql, {
       schema: SCHEMA,
-      defaultProfile: 'TEST seeded',
+      plans: { defaultPlanId: 'standard', profiles: { standard: 'TEST seeded' } },
       seed: { profile: 'TEST seeded', limits: { strategies: '2' } },
     });
     const limits = await again.repository.limits('TEST seeded');
