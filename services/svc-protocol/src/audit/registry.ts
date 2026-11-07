@@ -10,6 +10,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { PROTOCOL_AUDIT_PRODUCTS } from '@intafaced/contracts/protocol-blockers';
 import { evaluatePackage, INTERNAL_SMART_ACCOUNTS, type AuditRecord, type PackageClaim } from './pipeline.js';
 
 export type SuiteFingerprint = {
@@ -30,6 +31,8 @@ const ExternalClaimSchema = z.object({
   signedBy: z.string().min(1),
   signedAt: z.string().min(1),
   expectedHash: z.string().regex(HASH),
+  /** The Protocol products the report covers (the audit room's rows). Absent covers none. */
+  products: z.array(z.enum(PROTOCOL_AUDIT_PRODUCTS)).optional(),
 });
 
 const ExternalClaimsFileSchema = z.object({
@@ -96,11 +99,17 @@ export function loadInternalPackageRecords(root: string = repoRootFromThisFile()
   return [loadPackageRecord(root, INTERNAL_SMART_ACCOUNTS)];
 }
 
-export function loadExternalPackageRecords(root: string = repoRootFromThisFile()): AuditRecord[] {
+export type ExternalClaim = z.infer<typeof ExternalClaimSchema>;
+
+/** The owner-committed external claims, as written. Empty when the file is absent. */
+export function loadExternalClaims(root: string = repoRootFromThisFile()): ExternalClaim[] {
   const claimsPath = join(root, EXTERNAL_CLAIMS_PATH);
   if (!existsSync(claimsPath)) return [];
-  const parsed = ExternalClaimsFileSchema.parse(JSON.parse(readFileSync(claimsPath, 'utf8')));
-  return parsed.claims.map((claim) =>
+  return ExternalClaimsFileSchema.parse(JSON.parse(readFileSync(claimsPath, 'utf8'))).claims;
+}
+
+export function loadExternalPackageRecords(root: string = repoRootFromThisFile()): AuditRecord[] {
+  return loadExternalClaims(root).map((claim) =>
     loadPackageRecord(root, {
       id: claim.id,
       packagePath: claim.packagePath,
