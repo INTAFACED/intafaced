@@ -1,5 +1,5 @@
-# Throwaway probe for #7386 (no secrets, push to this branch only): the builder's `run` step as the agent user on a
-# hosted runner, with a fake CLI that leaves a setsid'd child ignoring SIGTERM. Not for merge.
+# Throwaway probe for #7386 (no secrets, push to this branch only): builder.yml's "Close every directory on PATH"
+# step, copied byte for byte, then whether the agent user can write anything on PATH. Not for merge.
 name: Builder probe
 on:
   push:
@@ -9,53 +9,60 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      AGENT_USER: factory-agent
-      WORK: /home/factory-agent/work
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
-      - name: Agent user, fake CLI
+      - name: Pin the job's node
+        run: echo "NODE_BIN=$(command -v node)" >> "$GITHUB_ENV"
+      - name: Before
+        run: ls -ld /usr/local/bin /opt/hostedtoolcache /usr/local/bin/node
+      - name: Close every directory on PATH
+        shell: /usr/bin/bash -e {0}
         run: |
-          echo "NODE_BIN=$(command -v node)" >> "$GITHUB_ENV"
-          echo "BUILDER_DIR=$RUNNER_TEMP/builder" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/builder"
-          echo "the prompt" > "$RUNNER_TEMP/builder/prompt.txt"
-          sudo useradd --create-home --shell /bin/bash "$AGENT_USER"
-          AGENT_PATH="$(dirname "$(command -v node)"):/usr/sbin:/usr/bin:/sbin:/bin"
-          echo "AGENT_PATH=$AGENT_PATH" >> "$GITHUB_ENV"
-          sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "/home/$AGENT_USER" PATH="$AGENT_PATH" mkdir -p "$WORK"
-          sudo mkdir -p /opt/fake
-          sudo tee /opt/fake/cli > /dev/null <<'CLI'
-          #!/bin/sh
-          { id -un; pwd; env | grep -c -E 'GH_TOKEN|GITHUB_TOKEN|FACTORY_GH_TOKEN' ; } > /home/factory-agent/seen
-          setsid sh -c 'trap "" TERM; exec sleep 600' &
-          echo "PRINTED-BY-THE-CLI"
-          exec sleep 600
-          CLI
-          sudo sed -i 's/^          //' /opt/fake/cli
-          sudo chmod 755 /opt/fake/cli
-      - name: Run as the agent, stopped at the hard stop
+          # The PATH directories and the node's, plus the directory of everything their links point to (a link in
+          # /usr/local/bin may name a program under /usr/local/lib), with every directory above each.
+          dirs=$(printf '%s\n' "${PATH//:/$'\n'}" "$(/usr/bin/dirname "$NODE_BIN")" | /usr/bin/sort -u)
+          roots=""
+          for d in $dirs; do
+            [ -d "$d" ] || continue
+            roots="$roots $d"
+            for l in $(/usr/bin/find "$d" -maxdepth 1 -type l); do
+              t=$(/usr/bin/readlink -f "$l" || true)
+              [ -n "$t" ] && roots="$roots $(/usr/bin/dirname "$t")"
+            done
+          done
+          roots=$(printf '%s\n' $roots | /usr/bin/sort -u)
+          for d in $roots; do
+            /usr/bin/sudo /usr/bin/chmod -R go-w "$d"
+            up="$d"
+            while [ "$up" != "/" ]; do /usr/bin/sudo /usr/bin/chmod go-w "$up"; up=$(/usr/bin/dirname "$up"); done
+          done
+          open=""
+          for d in $roots; do
+            up="$d"
+            while [ "$up" != "/" ]; do
+              if [ -n "$(/usr/bin/find "$up" -maxdepth 0 -perm /022)" ]; then open="$open $up"; fi
+              up=$(/usr/bin/dirname "$up")
+            done
+            # The programs too, following links to what they name.
+            w=$(/usr/bin/find -L "$d" -maxdepth 1 -perm /022 2>/dev/null | /usr/bin/head -5)
+            if [ -n "$w" ]; then open="$open $w"; fi
+          done
+          if [ -n "$open" ]; then echo "::error title=PATH writable::still writable by group or others:$open"; exit 1; fi
+          echo "every directory on PATH, the directories its links name, every directory above them and their programs are closed to group and others"
+
+      - name: After, as the agent user
+        shell: /usr/bin/bash -e {0}
         env:
-          REPO: ${{ github.repository }}
-          CLAUDE_CODE_OAUTH_TOKEN: fake
-          GH_TOKEN: must-not-reach
-          CLAUDE_BIN: /opt/fake/cli
-          POLL_MS: '5000'
-          KILL_GRACE_MS: '3000'
+          PATH: /usr/bin:/bin
         run: |
-          echo "STARTED_AT=$(( $(date -u +%s) - 320*60 + 20 ))" >> "$GITHUB_ENV"
-          export STARTED_AT=$(( $(date -u +%s) - 320*60 + 20 ))
-          "$NODE_BIN" tooling/ci/factory-builder.mjs run
-      - name: What the agent saw, and what is left
-        if: always()
-        run: |
-          sudo cat /home/factory-agent/seen
-          grep -c PRINTED-BY-THE-CLI "$BUILDER_DIR/out.jsonl"
-          cat "$BUILDER_DIR/end.json"; echo
-          if pgrep -u "$AGENT_USER" -a; then echo "LEFT OVER"; exit 1; else echo "no process of the agent left"; fi
+          /usr/bin/sudo /usr/sbin/useradd --create-home factory-agent
+          n=0
+          for d in /usr/local/bin /usr/bin /opt/hostedtoolcache "$(/usr/bin/dirname "$NODE_BIN")" "$NODE_BIN" /usr/local/bin/node; do
+            if /usr/bin/sudo -n -u factory-agent /usr/bin/test -w "$d"; then echo "WRITABLE $d"; n=$((n+1)); fi
+          done
+          /usr/bin/sudo -n -u factory-agent /usr/bin/touch /usr/local/bin/git 2>/dev/null && echo "PLANTED /usr/local/bin/git" && n=$((n+1))
+          ls -ld /usr/local/bin /opt/hostedtoolcache
+          echo "writable by the agent: $n"; [ "$n" = 0 ]
