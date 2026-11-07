@@ -99,6 +99,8 @@ import { buildCreateToken } from './launch/build.js';
 import { MAX_DECIMALS, MAX_NAME_BYTES, MAX_SYMBOL_BYTES, MAX_WHOLE_SUPPLY, parseTokenParams, TokenParamsError } from './launch/params.js';
 import { loadInternalSmartAccountsPackage } from './audit/pipeline.js';
 import { loadAuditRegistry } from './audit/registry.js';
+import { loadProductAudits } from './audit/products.js';
+import { protocolAuditProductsSchema, protocolPredictedAccountSchema } from '@intafaced/contracts/protocol-blockers';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
 import { deploymentsFor, loadNetworkRegistry } from './networks/registry.js';
@@ -694,6 +696,9 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
       )
       .query(() => loadAuditRegistry()),
 
+    /** The audit room's per-product rows: an owner-recorded external report per product, or none. Never inferred. */
+    auditProducts: publicProcedure.output(protocolAuditProductsSchema).query(() => loadProductAudits()),
+
     /**
      * IS ANY OF THIS REAL YET? — the question `health` cannot answer.
      *
@@ -926,15 +931,7 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
      */
     predictAddress: publicJurisdictionProcedure('protocol', 'protocol')
       .input(z.object({ owner: addressSchema, userSalt: bytes32Schema.default(DEFAULT_USER_SALT) }))
-      .output(
-        z.object({
-          address: z.string(),
-          chainId: z.number(),
-          factory: z.string(),
-          implementation: z.string(),
-          deployed: z.boolean(),
-        }),
-      )
+      .output(protocolPredictedAccountSchema)
       .query(async ({ input }) => {
         requireAccountFactoryConfigured(chain.config.factory, chain.config.implementation);
         try {
