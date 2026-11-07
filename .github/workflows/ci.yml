@@ -568,24 +568,20 @@ jobs:
         # The default branch's copy decides which changes need the review. Editing this step is a .github/ change, which needs it.
         run: node "$RUNNER_TEMP/base/tooling/ci/review-marker.mjs"
       # The factory switch (owner decision 2026-11-07): the one-line file FACTORY on the unprotected branch factory-switch.
-      # Only `run` lets a pull request or a merge queue's commit through; `pause`, a missing file or branch, an unreadable
-      # answer or anything else fails the seal, whoever opened the pull request. Flipping it is a push to that branch, never
-      # a pull request, so a pause can't block the change that lifts it. A push to main is never stopped, so main is still
-      # verified while paused. It runs after the other verdicts so they still show. After a flip back to `run`, re-run the
-      # seal (a new push does too). Read it: gh api -H 'Accept: application/vnd.github.raw' 'repos/INTAFACED/intafaced/contents/FACTORY?ref=factory-switch'
+      # Only `run` lets a pull request or a merge queue's commit through; anything else fails the seal, whoever opened the
+      # pull request. Flipping it is a push to that branch, never a pull request, so a pause can't block the change that
+      # lifts it. A push to main is never stopped, so main is still verified while paused. It runs after the other verdicts
+      # so they still show; after a flip back to `run`, re-run the seal (a new push does too). The default branch's copy
+      # decides, as for the steps above; the pull request's own copy only while main has none (the pull request that adds it).
       - name: The factory switch says run
         if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
-          if ! raw=$(gh api -H 'Accept: application/vnd.github.raw' "repos/$REPO/contents/FACTORY?ref=factory-switch" 2>&1); then
-            echo "::error title=Factory switch unreadable::FACTORY on branch factory-switch could not be read, so nothing merges: $raw"
-            exit 1
+          switch="$RUNNER_TEMP/base/tooling/ci/factory-switch.mjs"
+          if [ ! -f "$switch" ]; then
+            switch=tooling/ci/factory-switch.mjs
+            echo "::notice::the default branch has no tooling/ci/factory-switch.mjs yet; this pull request's copy reads the switch"
           fi
-          state=$(printf '%s' "$raw" | tr -d '[:space:]')
-          if [ "$state" != run ]; then
-            echo "::error title=Factory paused::FACTORY on branch factory-switch says '$state', not 'run', so nothing merges (owner decision 2026-11-07)."
-            exit 1
-          fi
-          echo "FACTORY=run"
+          node "$switch"
