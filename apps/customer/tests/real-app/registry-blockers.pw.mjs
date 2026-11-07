@@ -4,6 +4,7 @@ import { signIn, signUp, verify } from './desk.mjs';
 import { matchPath } from '../../src/app/path-match.ts';
 import { features } from '../../src/app/feature-registry.ts';
 import { journeyState } from './stack.mjs';
+import { publishedNotices } from './notices.mjs';
 
 // The blocked-room sweep: every feature-registry row that is not live is opened in the running app, signed in as a
 // verified TEST account. Blocked means reachable and not yet proven live (AGENTS.md), so each of its rooms must render
@@ -15,6 +16,9 @@ import { journeyState } from './stack.mjs';
 // - { proof }: the reason is proof state only (no journey proves the room yet); the room renders and needs no blocker line.
 // - { silent }: the room names no blocker where the person sees it. The test fails by name until the room says it.
 // - { noRoute }: the row has no route of its own (a switch or a section).
+// - { at, shows, feed }: a public feed that other journeys write to on the shared stack. The row reads what the service
+//   publishes first: with nothing published the room shows `shows`, its empty statement, exactly; with notices published
+//   it shows each one's own card and not the empty statement.
 const SWEEP = {
   deposit: { at: '/uc/recharge', shows: 'Needs a payment partner, which is not connected.' },
   withdraw: { at: '/uc/withdraw', shows: 'no custody signer is set up' },
@@ -59,10 +63,10 @@ const SWEEP = {
   'more-rooms': { proof: 'its reason is that it is not a first-release customer path' },
   'promotions-dividends': { proof: 'its reason is that the room is not redesigned' },
   'strategy-subaccounts': { noRoute: true },
-  // The notice feed as itself: its empty statement, or the notices other journeys publish on the shared stack (each open up
-  // to NOTICE_DRAIN_MINUTES, notices.mjs), whichever is true when this row runs. Asking for empty alone failed whenever
-  // such a notice was still open (main runs 42178080178 and 42179200864).
-  'public-extras': { at: '/notice', shows: /No public notices are published|Published \d/ },
+  // Other journeys publish TEST notices on the shared stack (each open up to NOTICE_DRAIN_MINUTES, notices.mjs), so the
+  // feed is checked against what svc-notify publishes when this row runs. Asking for empty alone failed whenever such a
+  // notice was still open (main runs 42178080178 and 42179200864).
+  'public-extras': { at: '/notice', shows: 'No public notices are published', feed: 'notices' },
 };
 
 const run = journeyState(`registry-blockers-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -101,8 +105,8 @@ test('every blocked registry row has a sweep entry, and every entry is a blocked
 
 for (const feature of blocked) {
   test(`registry blocker: ${feature.id}`, async ({ page }) => {
-    test.setTimeout(30_000 + 8_000 * routes(feature).length);
     const entry = SWEEP[feature.id];
+    test.setTimeout(30_000 + 8_000 * routes(feature).length + (entry?.feed ? 60_000 : 0));
     if (!entry) throw new Error(`${feature.id} is blocked and has no sweep entry: add what its room shows to registry-blockers.pw.mjs`);
     if (entry.noRoute) {
       expect(routes(feature), `${feature.id} is marked as having no route`).toEqual([]);
@@ -124,6 +128,26 @@ for (const feature of blocked) {
     if (entry.silent)
       throw new Error(`${feature.id}: its room names no blocker where the person sees it: ${entry.silent} (reason: ${feature.reason})`);
     if (entry.proof) return;
+    if (entry.feed === 'notices') {
+      // The service's published list and the room agree: read the list, open the room, check it. A notice published or
+      // drained between the two reads differently, so the pair is taken again until they agree, within the time box.
+      await expect(async () => {
+        const rows = (await publishedNotices()).filter((notice) => notice.kind !== 'changelog');
+        await page.goto(entry.at);
+        if (rows.length === 0) {
+          await expect(page.getByText(entry.shows, { exact: true }).first(), `${feature.id} at ${entry.at}, none published`).toBeVisible({
+            timeout: 10_000,
+          });
+          return;
+        }
+        for (const notice of rows)
+          await expect(page.getByTestId(`notice-${notice.id}`), `${feature.id}: published notice ${notice.id}`).toBeVisible({
+            timeout: 10_000,
+          });
+        await expect(page.getByText(entry.shows), `${feature.id}: no empty statement beside ${rows.length} published`).toHaveCount(0);
+      }).toPass({ timeout: 60_000 });
+      return;
+    }
     if (new URL(page.url()).pathname !== entry.at) await page.goto(entry.at);
     await expect(page.getByText(entry.shows, { exact: false }).first(), `${feature.id} at ${entry.at}`).toBeVisible();
   });
