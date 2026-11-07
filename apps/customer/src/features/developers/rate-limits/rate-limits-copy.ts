@@ -22,7 +22,8 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   ceiling: 'The most one key may be granted: {count} calls a minute.',
   ceilingUnset: 'The most one key may be granted is not set, so no higher limit can be granted yet.',
   costsTitle: 'Cost per route',
-  costsLead: 'The first row that matches a call sets its cost. * stands for one part of the path, ** for the rest, and * as the method for any method.',
+  costsLead:
+    'The first row that matches a call sets its cost. * stands for one part of the path, ** for the rest, and * as the method for any method.',
   costsUnset: 'No route costs are set yet. Until they are, every call made with an API key is refused with edge.cost_unset.',
   costsFailed: 'The cost table could not be read.',
   colRoute: 'Route',
@@ -37,7 +38,8 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
     'Wait at least the retry-after seconds before the next try. If that try is refused too, back off exponentially: double the wait each time, up to a cap you choose, and add random jitter to each wait (any value between zero and the wait), so many clients refused together do not all retry at the same moment.',
   backoffExample: 'For example: wait retry-after, then a random time up to 2 seconds, then up to 4, then up to 8, and so on.',
   formTitle: 'Ask for a higher limit',
-  formLead: 'Ask for a higher refill for one of your live keys, and tell us when a spike in traffic is coming. A reviewer answers every request.',
+  formLead:
+    'Ask for a higher refill for one of your live keys, and tell us when a spike in traffic is coming. A reviewer answers every request.',
   formSignIn: 'Sign in to ask for a higher limit.',
   formUnset: 'Limits not set: rate-limit tiers are not set yet, so no higher limit can be asked for.',
   formNoKeys: 'You have no live API keys to ask for.',

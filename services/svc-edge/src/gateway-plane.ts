@@ -81,7 +81,11 @@ export function scopeRefuseBody(door: GatewayDoor, scope: Scope): Record<string,
  * (`global`: the key's bucket is spent; `endpoint`: the route costs more than the key's whole burst). The request id
  * is added on the way out (`reply-envelope.ts`).
  */
-export function quotaRefuseBody(retryAfterSeconds: number, reason: RateLimitReason = 'global', cost: number = EDGE_RATE_COST): Record<string, unknown> {
+export function quotaRefuseBody(
+  retryAfterSeconds: number,
+  reason: RateLimitReason = 'global',
+  cost: number = EDGE_RATE_COST,
+): Record<string, unknown> {
   return {
     error: userCopy('edge.rate_limited'),
     code: 'edge.rate_limited',

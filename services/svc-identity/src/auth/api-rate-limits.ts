@@ -160,7 +160,8 @@ interface RequestRow {
   reviewed_at: Date | null;
 }
 
-const live = (key: { revoked: boolean; expires_at: Date | null }, now: Date) => !key.revoked && (key.expires_at === null || key.expires_at.getTime() > now.getTime());
+const live = (key: { revoked: boolean; expires_at: Date | null }, now: Date) =>
+  !key.revoked && (key.expires_at === null || key.expires_at.getTime() > now.getTime());
 
 function toRequest(row: RequestRow): LimitRequest {
   return {
@@ -192,7 +193,10 @@ function checkSpike(starts: string | null, ends: string | null, now: Date): void
   if (starts === null && ends === null) return;
   const real = (day: string | null) => day !== null && new Date(`${day}T00:00:00.000Z`).toISOString().slice(0, 10) === day;
   if (!real(starts) || !real(ends) || starts! > ends! || ends! < utcDay(now)) {
-    throw new RateLimitError('Give both spike dates, the first on or before the last, and the last not in the past', 'identity.limit_spike_invalid');
+    throw new RateLimitError(
+      'Give both spike dates, the first on or before the last, and the last not in the past',
+      'identity.limit_spike_invalid',
+    );
   }
 }
 
@@ -325,7 +329,9 @@ export async function reviewLimitRequest(
 ): Promise<LimitRequest> {
   return sql.begin(async (tx) => {
     const t = tx as unknown as Sql;
-    const found = await t<Array<RequestRow & { revoked: boolean; expires_at: Date | null; mode: string; rate_refill_per_minute_granted: number | null }>>`
+    const found = await t<
+      Array<RequestRow & { revoked: boolean; expires_at: Date | null; mode: string; rate_refill_per_minute_granted: number | null }>
+    >`
       SELECT ${REQUEST_COLUMNS(t)}, k.revoked, k.expires_at, k.mode, k.rate_refill_per_minute_granted
       FROM api_limit_requests r JOIN api_keys k ON k.id = r.key_id
       WHERE r.id = ${input.id}
@@ -333,7 +339,8 @@ export async function reviewLimitRequest(
     `;
     const row = found[0];
     if (!row) throw new RateLimitError('That limit request does not exist', 'identity.limit_request_not_found');
-    if (row.user_id === actorId) throw new RateLimitError('A reviewer cannot decide a request on their own key', 'identity.limit_review_own');
+    if (row.user_id === actorId)
+      throw new RateLimitError('A reviewer cannot decide a request on their own key', 'identity.limit_review_own');
     if (row.status !== 'waiting') throw new RateLimitError('That limit request was already decided', 'identity.limit_request_decided');
     const reason = input.reason.trim();
     const current = keyRateLimit(policy, row);

@@ -57,6 +57,9 @@ export function registerRateLimitsDoor(app: FastifyInstance, deps: RateLimitsDoo
     if (!KEY_ID.test(keyId)) {
       return reply.code(400).header('cache-control', 'no-store').send({ error: 'A key id is a UUID', code: 'edge.request_invalid' });
     }
-    return reply.code(200).header('cache-control', 'no-store').send(deps.buckets.usage(keyId, principal.userId, clock()));
+    return reply
+      .code(200)
+      .header('cache-control', 'no-store')
+      .send(deps.buckets.usage(keyId, principal.userId, clock()));
   });
 }

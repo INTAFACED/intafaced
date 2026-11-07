@@ -44,15 +44,11 @@ export type RateTiersOutput = z.infer<typeof rateTiersOutputSchema>;
  * One key's limit as identity hands it to the edge in the key exchange. Null: no tier applies (blank tiers), so the
  * edge refuses every call of that key with `edge.limits_unset`.
  */
-export const keyRateLimitSchema = z
-  .object({ tier: z.enum([...RATE_TIER_IDS, 'granted']), burst: count, refillPerMinute: count })
-  .strict();
+export const keyRateLimitSchema = z.object({ tier: z.enum([...RATE_TIER_IDS, 'granted']), burst: count, refillPerMinute: count }).strict();
 export type KeyRateLimit = z.infer<typeof keyRateLimitSchema>;
 
 /** One row of the edge's cost table: `METHOD /path` with `*` for one segment and a trailing `**` for the rest. */
-export const routeCostSchema = z
-  .object({ route: z.string().regex(/^(\*|GET|POST|PUT|PATCH|DELETE) \/\S*$/), cost: count })
-  .strict();
+export const routeCostSchema = z.object({ route: z.string().regex(/^(\*|GET|POST|PUT|PATCH|DELETE) \/\S*$/), cost: count }).strict();
 export type RouteCost = z.infer<typeof routeCostSchema>;
 
 /** `GET /api/edge/rate-limits/costs`: the cost table, first match wins. An empty list means the owner has set none. */

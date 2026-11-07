@@ -341,9 +341,7 @@ function LimitRequests({ tiers, tiersSet }: { tiers: RateTiersOutput | null; tie
                         : t('spikeNone')}
                     </td>
                     <td>{t(STATUS_KEY[request.status])}</td>
-                    <td>
-                      {request.grantedPerMinute === null ? t('answerNone') : t('answerGranted', { count: request.grantedPerMinute })}
-                    </td>
+                    <td>{request.grantedPerMinute === null ? t('answerNone') : t('answerGranted', { count: request.grantedPerMinute })}</td>
                   </tr>
                 ))}
             </tbody>

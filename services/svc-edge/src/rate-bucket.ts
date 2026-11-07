@@ -81,7 +81,16 @@ export class KeyBuckets {
     if ((this.takes += 1) % 1000 === 0) this.prune(now);
     let bucket = this.buckets.get(kid);
     if (!bucket) {
-      bucket = { tokens: limit.burst, at: now, burst: limit.burst, refillPerMinute: limit.refillPerMinute, userId, since: now, used: 0, refused: 0 };
+      bucket = {
+        tokens: limit.burst,
+        at: now,
+        burst: limit.burst,
+        refillPerMinute: limit.refillPerMinute,
+        userId,
+        since: now,
+        used: 0,
+        refused: 0,
+      };
       this.buckets.set(kid, bucket);
     }
     const perMs = limit.refillPerMinute / 60_000;
@@ -93,7 +102,13 @@ export class KeyBuckets {
     bucket.refillPerMinute = limit.refillPerMinute;
     if (cost > limit.burst) {
       bucket.refused += 1;
-      return { ok: false, reason: 'endpoint', retryAfterSeconds: Math.ceil((cost - limit.burst) / perMs / 1000) || 1, cost, burst: limit.burst };
+      return {
+        ok: false,
+        reason: 'endpoint',
+        retryAfterSeconds: Math.ceil((cost - limit.burst) / perMs / 1000) || 1,
+        cost,
+        burst: limit.burst,
+      };
     }
     if (bucket.tokens + 1e-9 < cost) {
       bucket.refused += 1;

@@ -98,7 +98,10 @@ export function stampRateLimitRefuseHeaders(
 }
 
 /** An allowed key call: what the key's bucket holds after it, so a client can pace itself before a 429. */
-export function stampKeyMeteredHeaders(reply: HeaderReply, input: { limit: number; remaining: number; cost: number; bucket: string }): void {
+export function stampKeyMeteredHeaders(
+  reply: HeaderReply,
+  input: { limit: number; remaining: number; cost: number; bucket: string },
+): void {
   reply.header(RATE_LIMIT_HEADER.limit, input.limit);
   reply.header(RATE_LIMIT_HEADER.remaining, input.remaining);
   reply.header(RATE_LIMIT_HEADER.bucket, input.bucket);

@@ -220,7 +220,10 @@ describe('api.gateway plane', () => {
 
     it('a key with no environment is live, never a sandbox key', () => {
       expectMismatch(decide(principal({ key_env: undefined, scopes: ['pay:read'] }), 'localhost:14500'));
-      expect(decide(principal({ key_env: undefined, scopes: ['pay:read'] }), '127.0.0.1:14500')).toMatchObject({ allow: true, sandbox: false });
+      expect(decide(principal({ key_env: undefined, scopes: ['pay:read'] }), '127.0.0.1:14500')).toMatchObject({
+        allow: true,
+        sandbox: false,
+      });
     });
 
     it('the mismatch comes before the scope check: a scopeless key learns nothing about scopes', () => {
