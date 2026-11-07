@@ -10,6 +10,7 @@ import { ordinaryClick, p2pReturn, useCurrentNavigation } from './p2p-return';
 import './p2p-counterparty.css';
 import { p2pDepth } from './personal/p2p-depth-copy';
 import { ContactActions } from './personal/ContactActions';
+import { CompletionRatesByPeriod } from './personal/CompletionRates';
 import './personal/p2p-depth.css';
 
 /** "@handle" when identity gave one, otherwise "Member". Never the account id, in full or short. */
@@ -117,7 +118,7 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
   const count = new Intl.NumberFormat(requestedLocale, { maximumFractionDigits: 0 });
   const back = { offer: 'backOffer', order: 'backOrder', offers: 'backOffers', orders: 'backOrders' } as const;
   return (
-    <div className="p2p-counterparty" lang={languageFor('record')} dir={directionFor('record')}>
+    <div className="p2p-counterparty" data-testid="counterparty-page" lang={languageFor('record')} dir={directionFor('record')}>
       <a
         className="text-link p2p-counterparty-return"
         href={destination.href}
@@ -137,10 +138,21 @@ export function P2PCounterparty({ pay, userId, returnTo }: { pay: PersonalPayApi
             <div className="p2p-counterparty-record">
               <div className="p2p-counterparty-history">
                 <CounterpartyMetrics data={data} />
+                <CompletionRatesByPeriod data={data} />
                 <PayDetails
                   values={[
-                    [t('cancelled'), count.format(data.cancelled)],
-                    [t('disputed'), count.format(data.disputed)],
+                    [
+                      t('cancelled'),
+                      <span data-counterparty-metric="cancelled" lang={requestedLocale}>
+                        {count.format(data.cancelled)}
+                      </span>,
+                    ],
+                    [
+                      t('disputed'),
+                      <span data-counterparty-metric="disputed" lang={requestedLocale}>
+                        {count.format(data.disputed)}
+                      </span>,
+                    ],
                     [
                       t('lost'),
                       <span data-counterparty-metric="lost" lang={requestedLocale}>

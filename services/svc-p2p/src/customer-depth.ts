@@ -6,6 +6,7 @@
  * invent a handle, a fee, or a notification delivery.
  */
 import { createHash } from 'node:crypto';
+import { ONGOING_TRADE_STATUSES } from './take-limits.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -57,6 +58,7 @@ export class DepthError extends Error {
       | 'p2p.chat_text_required'
       | 'p2p.export_range_invalid'
       | 'p2p.contact_self'
+      | 'p2p.block_open_order'
       | 'p2p.trade_not_found',
   ) {
     super(message);
@@ -114,6 +116,12 @@ export function throwWriteClaim(claim: WriteClaim): void {
   if (claim.kind === 'in_progress') {
     throw new DepthError('p2p.idempotency_in_progress', 'p2p.idempotency_in_progress');
   }
+}
+
+/** Serialises a block and a take between the same two people (either order of the pair), for this transaction. */
+export async function lockContactPair(tx: Sql, a: string, b: string): Promise<void> {
+  const [low, high] = a < b ? [a, b] : [b, a];
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.contact_pair:${low}:${high}`}, 0))`;
 }
 
 export async function eitherBlocked(sql: Sql, a: string, b: string): Promise<boolean> {
@@ -455,6 +463,20 @@ export async function setContact(
     });
     if (claim.kind === 'replay') return;
     throwWriteClaim(claim);
+    // P-ads-merchant-22: a blocked pair cannot chat, so a block waits until no order between them is still open. Blocking
+    // in the middle of one would cut off the talk the order (and any dispute about it) depends on.
+    if (input.kind === 'block' && input.present) {
+      // The same pair lock a take holds while it checks the block, so a block and a take between the two cannot both
+      // see the other as absent and commit an open order between a blocked pair.
+      await lockContactPair(tx, input.ownerId, input.peerId);
+      const open = await tx<Array<{ n: number }>>`
+        SELECT 1 AS n FROM p2p.p2p_trades
+         WHERE status::text = ANY(${[...ONGOING_TRADE_STATUSES]}::text[])
+           AND ((buyer_id = ${input.ownerId} AND seller_id = ${input.peerId}) OR (buyer_id = ${input.peerId} AND seller_id = ${input.ownerId}))
+         LIMIT 1
+      `;
+      if (open[0]) throw new DepthError('p2p.block_open_order', 'p2p.block_open_order');
+    }
     if (input.present) {
       await tx`
         INSERT INTO p2p.contacts (owner_id, peer_id, kind)
