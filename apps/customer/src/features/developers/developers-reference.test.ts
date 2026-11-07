@@ -332,7 +332,7 @@ describe('the machine-readable files', () => {
   });
 
   it('gives every written page of the portal a markdown variant, except the live pages', () => {
-    const written = SECTIONS.filter((section) => section.page && !['status', 'changelog', 'rate-limits'].includes(section.id)).map(
+    const written = SECTIONS.filter((section) => section.page && !['status', 'changelog'].includes(section.id)).map(
       (section) => section.id,
     );
     expect(written.filter((id) => !DOCS_PAGES.some((page) => page.slug === id))).toEqual([]);

@@ -10,6 +10,8 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   modelCost:
     'Each call spends its route’s cost from the bucket. When the bucket holds less than the call’s cost, the call is refused with 429 and nothing is done.',
   modelReplica: 'Each server counts on its own, and a restart fills every bucket again.',
+  liveNumbers:
+    'The tiers and the cost per route are set by the owner and read live, never written into these pages: the tiers from /api/identity/trpc/apiRateTiers and the costs from /api/edge/rate-limits/costs. The page /developers/rate-limits shows both.',
   tiersTitle: 'Rate-limit tiers',
   tiersUnset: 'No rate-limit tiers are set yet. Until they are, every call made with an API key is refused with edge.limits_unset.',
   tiersFailed: 'The tiers could not be read.',
