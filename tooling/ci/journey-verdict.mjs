@@ -24,26 +24,31 @@
  *
  * THE SET-ASIDE (owner decision 2026-11-07, project-state OWNER 225 and 227: flaky tests set aside by the machine, money
  * checks never waived). A run on main retries a failed journey test once (JOURNEY_RETRIES in real-app-journeys.yml), so
- * a test that fails and then passes on the same commit ends "flaky" in Playwright's report. The set-aside list is
- * computed here, from main's own runs only, never from a file or an issue anyone can edit:
- *   - a step is set aside from the first run on main (since the baseline's named run) where it was flaky, until
- *     SET_ASIDE_DAYS after that run started; its owner is its journey's module area (docs/roadmap/journeys.json);
- *   - a money step (by the money rule above, at this run's commit) is never set aside: flaky is red for it, because a
- *     retry that passed never waives a money check;
- *   - a set-aside step still runs, and its result is shown in the summary; while it is set aside, its failure leaves
- *     the verdict green. Skipped or missing is never excused, and after its end date a failure, or a pass only on the
- *     retry, is red again;
- *   - the list goes into the run's artifact as set-aside.json (--set-aside-out), so a count of proven steps leaves those
- *     steps out, and Main trust opens one issue per step naming its owner and end date (post-merge-trust.mjs).
+ * a test that fails and then passes on the same commit ends "flaky" in Playwright's report. The set-aside list is kept
+ * by the machine alone: each run on main writes it into its own artifact (set-aside.json, --set-aside-out) and the next
+ * run on main reads it from there (--fetch), so no file or issue anyone can edit feeds it:
+ *   - a non-money step that is flaky in a run on main is set aside from that run for SET_ASIDE_DAYS; its owner is its
+ *     journey's module area (docs/roadmap/journeys.json). Once that ends it is not set aside again for another
+ *     SET_ASIDE_DAYS, so the time stays limited;
+ *   - a money step (by the money rule above, at this run's commit) is never set aside, and neither is a step whose
+ *     set-aside ended: a pass only on the retry then counts as a failure, judged by the rules above;
+ *   - a set-aside step still runs, and the summary shows its result; while it is set aside, a failure leaves the verdict
+ *     green, unless it also failed outright in the run before (two in a row is broken, not flaky). Skipped or missing
+ *     is never excused;
+ *   - its `notProven` names every set-aside step and every step that passed only on its retry, so a count of proven
+ *     steps leaves them out, and Main trust opens one issue per set-aside naming its owner and end date
+ *     (post-merge-trust.mjs).
  *
  * The rules are ported from the reader that already judged this baseline for the finish plan (project-state
  * tooling/truth/ready-journeys.mjs judgeJourneys and ready.mjs regressionState), so the run and that reader agree.
  *
  *   node tooling/ci/journey-verdict.mjs --report <report.json> [--baseline <file>] [--target "<files>"]
- *        [--named-report <report.json>] [--history-dir <dir of <run number>/report.json and run.json { created_at }>]
- *        [--issues-file <json { "<n>": { issue, comments } }>] [--run-number <n>] [--now <ISO time>]   (offline)
+ *        [--named-report <report.json>] [--history-dir <dir of <run number>/report.json>]
+ *        [--issues-file <json { "<n>": { issue, comments } }>]
+ *        [--prior-set-aside <set-aside.json>] [--run-number <n>] [--now <ISO time>]       (offline)
  *   (CI) GH_TOKEN GITHUB_REPOSITORY GITHUB_RUN_ID node tooling/ci/journey-verdict.mjs --report <report.json> --fetch
- *        reads the named run's report, the pass history since it and the regression issues with GET requests only.
+ *        reads the named run's report, the pass history since it, the regression issues and the last run on main's
+ *        set-aside.json with GET requests only.
  *   Either form takes --set-aside-out <file>: the set-aside list as JSON, written even when the verdict is red.
  * Exit 0 = green, 1 = red. Writes the verdict to GITHUB_STEP_SUMMARY when it is set.
  */
@@ -179,26 +184,37 @@ export function issueProblem(n, read) {
 const RAN = new Set(['passed', 'flaky', 'failed']);
 
 /**
- * The set-aside list: each non-money step that was flaky in a run on main, from the first such run, until SET_ASIDE_DAYS
- * after it started. `runs` is [{ number, at (ISO start), states }] for main's runs since the baseline's named run, this one
- * included; `owners` maps a journey id to its module area; `now` is this run's start. A money step never enters it.
- * Returns { step: { since, sinceAt, until, active, owner } }.
+ * The set-aside list after this run: { step: { since, sinceAt, until, active, owner, before } }. `prior` is the rows of
+ * the last run on main's set-aside.json ([{ step, since, sinceAt, until, state }]); `states` is this run's readReport()
+ * states (only on main: a branch run never retries); `run` is { number, at } for this run; `owners` maps a journey id to
+ * its module area. A prior entry stays until SET_ASIDE_DAYS after its end (`active` while before the end), so a step
+ * gets one set-aside at a time; a non-money step flaky in this run with no entry gets a new one. A money step never.
+ * `before` is the step's state in the run that wrote `prior`.
  */
-export function setAsideSteps(runs, { money, owners = {}, now, days = SET_ASIDE_DAYS }) {
+export function setAsideSteps({ prior = [], states = {}, money, owners = {}, run, days = SET_ASIDE_DAYS }) {
+  const now = Date.parse(run.at);
+  const owner = (step) => (owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : 'unknown');
   const out = {};
-  for (const r of [...runs].sort((a, b) => a.number - b.number))
-    for (const [step, s] of Object.entries(r.states)) {
-      if (s !== 'flaky' || out[step] || (money[step] ?? true)) continue;
-      const until = new Date(Date.parse(r.at) + days * DAY_MS).toISOString();
-      const area = owners[step.split('#')[0]];
+  for (const e of prior) {
+    if (typeof e?.step !== 'string' || (money[e.step] ?? true) || !(now < Date.parse(e.until) + days * DAY_MS)) continue;
+    out[e.step] = {
+      since: e.since,
+      sinceAt: e.sinceAt,
+      until: e.until,
+      active: now < Date.parse(e.until),
+      owner: owner(e.step),
+      before: e.state,
+    };
+  }
+  for (const [step, s] of Object.entries(states))
+    if (s === 'flaky' && !out[step] && !(money[step] ?? true))
       out[step] = {
-        since: r.number,
-        sinceAt: r.at,
-        until,
-        active: Date.parse(now) < Date.parse(until),
-        owner: area ? `the ${area} area` : 'unknown',
+        since: run.number,
+        sinceAt: run.at,
+        until: new Date(now + days * DAY_MS).toISOString(),
+        active: true,
+        owner: owner(step),
       };
-    }
   return out;
 }
 
@@ -210,9 +226,11 @@ export function setAsideSteps(runs, { money, owners = {}, now, days = SET_ASIDE_
  */
 export function judge({ newest, named, baseline, money, passedSince = {}, issues = {}, target = null, setAside = {} }) {
   const inScope = (step, files) => !target || target.has(files[step]);
+  // A pass only on the retry counts as a failure unless the step is set aside (a money step never is).
+  const asideNow = (step) => setAside[step]?.active && !(money[step] ?? true);
   const failing = new Set(
     Object.entries(newest.states)
-      .filter(([, s]) => s === 'failed')
+      .filter(([k, s]) => s === 'failed' || (s === 'flaky' && !asideNow(k)))
       .map(([k]) => k),
   );
   for (const [step, s] of Object.entries(named.states))
@@ -224,26 +242,27 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
   const runNo = baseline?.run?.number;
   const red = [];
   const kept = [];
-  // A step that failed and then passed on its retry is red when it is money (a retry never waives a money check) or when
-  // its set-aside has ended; otherwise it is set aside.
-  for (const [step, s] of Object.entries(newest.states).sort(([a], [b]) => byStep(a, b))) {
-    if (s !== 'flaky') continue;
-    if (money[step] ?? true)
-      red.push({
-        step,
-        why: 'failed, then passed on its retry: a money step is never set aside, so an intermittent failure is a real bug',
-        money: true,
-      });
-    else if (setAside[step] && !setAside[step].active)
-      red.push({ step, why: `failed, then passed on its retry, after its set-aside ended on ${setAside[step].until}`, money: false });
-  }
   for (const step of [...failing].sort(byStep)) {
     const isMoney = money[step] ?? true; // a step missing from journeys.json counts as money
     const e = entries.get(step);
-    const no = (why) => red.push({ step, why, money: isMoney });
-    // Set aside by the machine: it ran and failed, it is not money, its end date has not passed, and its baseline entry
-    // (if any) is well formed. Skipped or missing is never excused.
-    if (setAside[step]?.active && !isMoney && newest.states[step] === 'failed' && !dupes.has(step) && (!e || e.money === isMoney)) {
+    const flaky = newest.states[step] === 'flaky';
+    const no = (why) =>
+      red.push({
+        step,
+        why: flaky
+          ? `failed, then passed on its retry, and ${isMoney ? 'a money step is never set aside' : 'it is not set aside now'}: ${why}`
+          : why,
+        money: isMoney,
+      });
+    // Set aside by the machine: it ran and failed, it is not money, its set-aside lasts, it didn't also fail outright in
+    // the run before (two in a row is broken), and its baseline entry (if any) is well formed. Skipped or missing never.
+    if (
+      asideNow(step) &&
+      newest.states[step] === 'failed' &&
+      setAside[step].before !== 'failed' &&
+      !dupes.has(step) &&
+      (!e || e.money === isMoney)
+    ) {
       kept.push(step);
       continue;
     }
@@ -251,7 +270,7 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
       if (notBaselined.has(step)) no(`listed as notBaselined in run ${runNo}'s baseline, so it counts as failing`);
       else
         no(
-          newest.states[step] === 'failed'
+          newest.states[step] === 'failed' || flaky
             ? 'failing, not in the baseline'
             : `passed in run ${runNo}, ${newest.states[step] ?? 'missing'} now`,
         );
@@ -269,6 +288,22 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
     } else no(`state "${e.state}" is not one the baseline allows`);
   }
   return { failing: failing.size, red, setAside: kept };
+}
+
+/** How many of main's newest finished runs to look through for the last complete set-aside list. */
+export const PRIOR_LOOKBACK = 5;
+
+/**
+ * The last complete set-aside list on main: `runs` is historyRuns() (oldest first), `read(id)` a run's set-aside.json or
+ * null. The newest run whose list is there and complete wins; a run before the set-aside existed has none. Returns
+ * { steps, from }.
+ */
+export function priorSetAside(runs, read) {
+  for (const r of [...runs].reverse().slice(0, PRIOR_LOOKBACK)) {
+    const list = read(r.id);
+    if (list && !list.incomplete && Array.isArray(list.steps)) return { steps: list.steps, from: r.run_number };
+  }
+  return { steps: [], from: null };
 }
 
 /** The pass history after the named run: for each step, the newest run number that passed it. `reports` is
@@ -309,14 +344,18 @@ const ghPages = (path, key) => {
   }
   throw new Error(`${path}: more than 20 pages`);
 };
-function downloadReport(repo, runId) {
+/** A JSON file from a run's journeys artifact (report.json by default); `null` when `optional` and the file is absent. */
+function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
     execFileSync('gh', ['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], {
       stdio: ['ignore', 'ignore', 'pipe'],
     });
-    const f = join(dir, 'report.json');
-    if (!existsSync(f)) throw new Error(`run ${runId}'s ${JOURNEYS_ARTIFACT} artifact has no report.json`);
+    const f = join(dir, file);
+    if (!existsSync(f)) {
+      if (optional) return null;
+      throw new Error(`run ${runId}'s ${JOURNEYS_ARTIFACT} artifact has no ${file}`);
+    }
     return json(f);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -363,9 +402,10 @@ function main() {
   let named = null;
   let passedSince = {};
   let issues = {};
-  // Main's runs since the named run, for the set-aside list: [{ number, at, states }].
-  let history = [];
-  let thisRun = { number: Number(arg('--run-number') ?? process.env.GITHUB_RUN_NUMBER), at: arg('--now') ?? new Date().toISOString() };
+  let thisRun = {
+    number: Number(arg('--run-number') ?? process.env.GITHUB_RUN_NUMBER) || null,
+    at: arg('--now') ?? new Date().toISOString(),
+  };
   try {
     if (arg('--named-report')) named = readReport(json(arg('--named-report')));
     else if (fetch) named = readReport(downloadReport(repo, baseline.run.id));
@@ -381,13 +421,9 @@ function main() {
         .map((n) => [Number(n), readReport(json(join(dir, n, 'report.json')))])
         .filter(([n]) => n > baseline.run.number);
       passedSince = passesSince(reports);
-      history = reports
-        .filter(([n]) => existsSync(join(dir, String(n), 'run.json')))
-        .map(([number, r]) => ({ number, at: json(join(dir, String(number), 'run.json')).created_at, states: r.states }));
     } else if (fetch) {
       const namedRun = ghApi(`/repos/${repo}/actions/runs/${baseline.run.id}`);
       const current = ghApi(`/repos/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`);
-      thisRun = { number: current.run_number, at: current.created_at };
       const all = ghPages(
         `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
         'workflow_runs',
@@ -401,7 +437,6 @@ function main() {
       for (const r of runs) {
         try {
           reports.push([r.run_number, readReport(downloadReport(repo, r.id))]);
-          history.push({ number: r.run_number, at: r.created_at, states: reports.at(-1)[1].states });
         } catch (e) {
           throw new Error(
             `run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`,
@@ -425,11 +460,32 @@ function main() {
       }
     }
 
-  // The set-aside list counts this run's own flaky steps only on main (a targeted run on a branch never retries).
+  // The set-aside list: the last run on main's, carried on, plus this run's own flaky steps when it ran on main (a
+  // targeted run on a branch never retries). An unreadable list is red, and this run's list says it is incomplete, so
+  // the next run reads an earlier one instead of starting over.
+  let prior = [];
+  let incomplete = false;
+  try {
+    if (arg('--prior-set-aside')) prior = json(arg('--prior-set-aside')).steps ?? [];
+    else if (fetch) {
+      const current = ghApi(`/repos/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`);
+      thisRun = { number: current.run_number, at: current.created_at };
+      const recent = ghApi(`/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=30`).workflow_runs;
+      const found = priorSetAside(
+        historyRuns(recent, { repo, namedCreated: '', thisCreated: current.created_at, thisId: current.id }),
+        (id) => downloadReport(repo, id, 'set-aside.json'),
+      );
+      prior = found.steps;
+      console.log(
+        found.from ? `set-aside list carried on from run ${found.from}` : 'no earlier set-aside list on main: it starts from this run',
+      );
+    }
+  } catch (e) {
+    incomplete = true;
+    problem(`the last run on main's set-aside list couldn't be read: ${e.message.split('\n')[0]}`);
+  }
   const onMain = !target && (!fetch || process.env.GITHUB_REF === 'refs/heads/main');
-  const setAside = newest
-    ? setAsideSteps(onMain ? [...history, { ...thisRun, states: newest.states }] : history, { money, owners, now: thisRun.at })
-    : {};
+  const setAside = newest ? setAsideSteps({ prior, states: onMain ? newest.states : {}, money, owners, run: thisRun }) : {};
   const verdict =
     newest && named
       ? judge({ newest, named, baseline, money, passedSince, issues, target, setAside })
@@ -437,10 +493,14 @@ function main() {
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
     .sort(([a], [b]) => byStep(a, b))
-    .map(([step, a]) => ({ step, file: newest?.files[step] ?? null, state: newest?.states[step] ?? 'missing', ...a }));
+    .map(([step, { before, ...a }]) => ({ step, file: newest?.files[step] ?? null, state: newest?.states[step] ?? 'missing', ...a }));
   if (arg('--set-aside-out')) {
-    const notProven = asideRows.filter((r) => r.active || r.state === 'flaky').map((r) => r.step);
-    const out = { days: SET_ASIDE_DAYS, run: thisRun, steps: asideRows, notProven };
+    // Not proven from this run: every set-aside step, and every step that passed only on its retry, money or not.
+    const flakyNow = Object.entries(newest?.states ?? {})
+      .filter(([, st]) => st === 'flaky')
+      .map(([k]) => k);
+    const notProven = [...new Set([...asideRows.filter((r) => r.active).map((r) => r.step), ...flakyNow])].sort(byStep);
+    const out = { days: SET_ASIDE_DAYS, run: thisRun, ...(incomplete || !newest ? { incomplete: true } : {}), steps: asideRows, notProven };
     writeFileSync(arg('--set-aside-out'), `${JSON.stringify(out, null, 2)}\n`);
   }
   const lines = [

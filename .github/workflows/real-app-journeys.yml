@@ -13,10 +13,11 @@
 #
 # Flaky steps are set aside by the machine, never by an agent, and never a money step (owner decision 2026-11-07,
 # project-state OWNER 225 and 227). A run on main retries a failed test once (JOURNEY_RETRIES); a test that fails and then
-# passes on the same commit ends "flaky", and the verdict sets its step aside for a limited time, computed from main's own
-# runs: it still runs and is shown, it isn't counted as proven (the run's set-aside.json), and its failure doesn't turn
-# main red. A money step that is flaky is red. (Failure it prevents: with no retry and no way to set a test aside, one
-# flaky test turned main red, or a red was left standing and read as noise.)
+# passes on the same commit ends "flaky", and the verdict sets its step aside for 7 days, a list each main run keeps in
+# its own artifact (set-aside.json) for the next: it still runs and is shown, it isn't counted as proven, and its failure
+# doesn't turn main red. A money step that is flaky is red. (Failure it prevents: with no retry and no way to set a test
+# aside, one flaky test turned main red, or a red was left standing and read as noise.) The cost: each failed test runs
+# twice; the failed tests of runs 1635, 1636 and 1639 took 83 to 102 journey-minutes of a run, spread over its shards.
 #
 # The journeys run in shards, each on its own fresh stack, and one job merges the shards' reports into the scoreboard.
 # (Failure it prevents: one job running every journey hit its 45-minute limit from 23 Oct 02:26 UTC, runs 122, 140 and

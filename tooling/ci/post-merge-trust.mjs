@@ -25,7 +25,8 @@
  *   next run where no job hit its limit.
  *   A step the run's verdict set aside (the artifact's set-aside.json, journey-verdict.mjs: it failed, then passed on its
  *   retry, on main, and it is not money): open one "Set aside on main until <date>: <step>" issue naming its owner and
- *   end date, once per set-aside. Its owner closes it with the fix.
+ *   end date, once per set-aside (never again once closed); its owner may close it with the fix, and it closes itself
+ *   on the first run after its end date.
  *
  * A job that hits its time limit ends "cancelled", not "timed_out", like a run replaced by a newer one. A cancelled
  * run whose job carries GitHub's "exceeded the maximum execution time" annotation counts as timed out (red).
@@ -135,7 +136,7 @@ export function setAsideIssueBody(row, runUrl) {
     `\`${row.step.replace('#', ' #')}\` failed, then passed on its retry, on main (first in run ${row.since}; this issue comes from [this run](${runUrl})), so the machine set it aside until ${until} UTC (tooling/ci/journey-verdict.mjs).`,
     '',
     `- Owner: ${row.owner} (its journey's module in docs/roadmap/journeys.json).`,
-    '- Until then it still runs and each run shows its result, it does not count as proven, and its failure does not turn main red.',
+    '- Until then it still runs and each run shows its result, it does not count as proven, and its failure does not turn main red, unless it fails outright in two runs in a row (broken, not flaky).',
     `- After ${until} UTC, a failure, or a pass only on its retry, turns main's journeys verdict red again.`,
     `- Fix the test or the code it checks, never by weakening the test${row.file ? `: apps/customer/tests/real-app/${row.file}` : ''}.`,
     '',
@@ -144,9 +145,19 @@ export function setAsideIssueBody(row, runUrl) {
   ].join('\n');
 }
 
-/** The set-aside rows that need an issue: active, with no open issue of their title yet. */
-export function setAsideToOpen(rows, openTitles) {
-  return (rows ?? []).filter((r) => r.active && typeof r.step === 'string' && !openTitles.has(setAsideIssueTitle(r)));
+/**
+ * What to do with the set-aside issues: `rows` is set-aside.json's steps, `issues` every set-aside issue (open or closed,
+ * by title). Opens one for each active row that has none yet; closes the open one of each row whose set-aside ended.
+ */
+export function setAsideIssueActions(rows, issues) {
+  const byTitle = new Map((issues ?? []).map((i) => [i.title, i]));
+  const ok = (rows ?? []).filter((r) => typeof r?.step === 'string');
+  return {
+    open: ok.filter((r) => r.active && !byTitle.has(setAsideIssueTitle(r))),
+    close: ok
+      .filter((r) => !r.active && byTitle.get(setAsideIssueTitle(r))?.state === 'open')
+      .map((r) => ({ row: r, issue: byTitle.get(setAsideIssueTitle(r)) })),
+  };
 }
 const CHECK_RED = /failed twice on `([0-9a-f]{7,40})`/g;
 const STEPS_MARK = /<!-- steps: ([^>]*) -->/g;
@@ -420,12 +431,22 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
 /** One issue per step the run's verdict set aside, naming its owner and end date. */
 async function setAsideCheck({ repo, runId, runUrl }) {
   const list = await journeyReport(repo, runId, 'set-aside.json');
-  if (!list) return null;
-  const open = new Set((await openIssuesTitled(repo, 'Set aside on main until ')).map((i) => i.title));
+  if (!list?.steps?.length) return null;
+  const q = encodeURIComponent(`repo:${repo} is:issue in:title "Set aside on main until"`);
+  const { json: found } = await gh('GET', `/search/issues?q=${q}&per_page=100`);
+  const { open, close } = setAsideIssueActions(list.steps, found?.items ?? []);
   const lines = [];
-  for (const row of setAsideToOpen(list.steps, open)) {
+  for (const row of open) {
     const { json } = await gh('POST', `/repos/${repo}/issues`, { title: setAsideIssueTitle(row), body: setAsideIssueBody(row, runUrl) });
     lines.push(`- ${row.step} set aside until ${row.until} (owner: ${row.owner}): opened #${json?.number}`);
+  }
+  for (const { row, issue } of close) {
+    await closeIssue(
+      repo,
+      issue,
+      `The set-aside of ${row.step.replace('#', ' #')} ended on ${row.until}: a failure, or a pass only on its retry, now turns main's journeys verdict red ([run](${runUrl})).\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
+    );
+    lines.push(`- ${row.step}: set-aside ended, closed #${issue.number}`);
   }
   return lines;
 }
@@ -642,13 +663,24 @@ function selfTest() {
     file: 'J-a-01.pw.mjs',
   };
   eq(setAsideIssueTitle(row), 'Set aside on main until 2026-11-14: J-a-01 #3', 'set-aside issue title');
+  const ended = { ...row, step: 'J-a-01#4', active: false };
+  const acts = setAsideIssueActions(
+    [row, ended, { ...row, step: 'J-a-01#5' }, { ...row, step: 'J-a-01#6' }],
+    [
+      { title: setAsideIssueTitle(ended), state: 'open', number: 4 },
+      { title: setAsideIssueTitle({ ...row, step: 'J-a-01#5' }), state: 'open', number: 5 },
+      { title: setAsideIssueTitle({ ...row, step: 'J-a-01#6' }), state: 'closed', number: 6 },
+    ],
+  );
   eq(
-    setAsideToOpen(
-      [row, { ...row, step: 'J-a-01#4', active: false }, { ...row, step: 'J-a-01#5' }],
-      new Set([setAsideIssueTitle({ ...row, step: 'J-a-01#5' })]),
-    ).map((r) => r.step),
+    acts.open.map((r) => r.step),
     ['J-a-01#3'],
-    'an issue opens once per active set-aside; an ended one opens none',
+    'an issue opens once per active set-aside, never again once closed',
+  );
+  eq(
+    acts.close.map((c) => c.issue.number),
+    [4],
+    'an ended set-aside closes its open issue',
   );
   const body = setAsideIssueBody(row, 'https://x/runs/9');
   eq(
@@ -656,7 +688,7 @@ function selfTest() {
     true,
     'set-aside issue names owner, end date and file',
   );
-  console.log('✓ post-merge-trust --self-test OK (31 fixtures)');
+  console.log('✓ post-merge-trust --self-test OK (32 fixtures)');
 }
 
 async function main() {
