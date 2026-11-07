@@ -209,6 +209,7 @@ const SKIP_WORDS: Record<string, string> = {
   paused: 'You had paused this follow',
   stopped: 'You had stopped this follow',
   lead_stopped: 'The leader was stopped by the platform',
+  platform_paused: 'Paused by the platform',
   risk_control: 'One of your risk controls held it back',
   insufficient_funds: 'Your balance did not cover it',
   max_copy_total: 'It would have gone past your limits',

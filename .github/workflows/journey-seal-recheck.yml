@@ -57,4 +57,5 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OLD_TITLE: ${{ github.event.changes.title.from }}
+          OLD_BODY: ${{ github.event.changes.body.from }} # an env value, never part of the script text
         run: node tooling/ci/journey-seal.mjs --recheck
