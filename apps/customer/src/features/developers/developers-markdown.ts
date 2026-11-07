@@ -38,8 +38,11 @@ const code = (text: string) => `\`${text}\``;
 const sectionTarget = (section: Section) =>
   section.page ? `/developers/${section.id}` : section.published ? section.published.href : portal('waitsFor', { slice: section.waitsFor });
 
-/** Pages of this portal that read live data (notices an operator publishes), so they have no static markdown variant. */
-const LIVE_PAGES = ['status', 'changelog'] as const;
+/**
+ * Pages of this portal that read live data (notices an operator publishes, the owner's rate tiers and route costs as the
+ * services enforce them), so they have no static markdown variant.
+ */
+const LIVE_PAGES = ['status', 'changelog', 'rate-limits'] as const;
 
 export type DocsPage = { slug: string; title: string; summary: string; body: () => string };
 
