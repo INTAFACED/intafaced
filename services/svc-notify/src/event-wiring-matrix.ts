@@ -156,6 +156,18 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row trade.copy.stopped for the follower, the reason in words, once per follow and close-only',
   },
   {
+    event: 'tradeMarginCalled',
+    durable: 'notify-trade-margin-called',
+    subject: 'intafaced.trade.margin_call.created',
+    effect: 'Critical inbox row + fan-out when a futures position is margin-called, once per call (the liquidation warning, always on)',
+  },
+  {
+    event: 'tradeRiskLevelCrossed',
+    durable: 'notify-trade-risk-level-crossed',
+    subject: 'intafaced.trade.risk_level.crossed',
+    effect: "Inbox row trade.risk_level.crossed when a futures position reaches one of the trader's own risk levels, once per crossing",
+  },
+  {
     event: 'agentUsageAlertCrossed',
     durable: 'notify-agent-usage-alert',
     subject: 'intafaced.agents.usage_alert.crossed',

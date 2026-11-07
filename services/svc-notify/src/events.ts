@@ -10,6 +10,8 @@ import {
   bankScheduledFailed,
   copySkipped,
   copyStopped,
+  tradeMarginCalled,
+  tradeRiskLevelCrossed,
   agentUsageAlertCrossed,
   agentApprovalRequested,
   supportTicketResolved,
@@ -907,6 +909,62 @@ export async function subscribeNotificationEvents(
           // A stop is one-way, so one notice per follow and close-only.
           sourceIdempotencyKey: `${payload.followId}:${payload.closeOnly}`,
           outOfApp: false,
+        }),
+      );
+    }),
+  );
+
+  // A futures margin call is the liquidation warning (J-derivatives-06 #6): always on, whatever the trader's own risk
+  // levels. `critical` makes the dispatcher try every out-of-app channel and record a refusal where none is registered,
+  // and ignore a channel mute, as for a loan's margin call. One row per call: the key is (position, sequence), and a
+  // position that recovered and fell again is the next sequence.
+  attachments.push(
+    await attach(bus, 'tradeMarginCalled', tradeMarginCalled.subject, 'notify-trade-margin-called', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.margin_call',
+          titleKey: 'notify.trade.margin_call.title',
+          bodyKey: 'notify.trade.margin_call.body',
+          params: {
+            positionId: payload.positionId,
+            symbol: payload.symbol,
+            healthPct: (payload.healthBps / 100).toFixed(2),
+            sequence: payload.sequence,
+            calledAt: payload.calledAt,
+          },
+          href: '/trade/futures',
+          severity: 'critical',
+          sourceSubject: tradeMarginCalled.subject,
+          sourceIdempotencyKey: `${payload.positionId}:${payload.sequence}`,
+        }),
+      );
+    }),
+  );
+
+  // A futures position reached one of the trader's own liquidation-risk levels (J-derivatives-06 #6). One row per
+  // crossing: the key is (position, level, generation); the ratio falling back under the level ends the crossing, and
+  // the next rise is the next generation.
+  attachments.push(
+    await attach(bus, 'tradeRiskLevelCrossed', tradeRiskLevelCrossed.subject, 'notify-trade-risk-level-crossed', async (payload) => {
+      nakIfRetryable(
+        await notify.create({
+          userId: payload.userId,
+          kind: 'trade.risk_level.crossed',
+          titleKey: 'notify.trade.risk_level.crossed.title',
+          bodyKey: 'notify.trade.risk_level.crossed.body',
+          params: {
+            positionId: payload.positionId,
+            symbol: payload.symbol,
+            level: payload.level,
+            marginRatio: payload.marginRatio,
+            generation: payload.generation,
+            crossedAt: payload.crossedAt,
+          },
+          href: '/trade/futures',
+          severity: 'action',
+          sourceSubject: tradeRiskLevelCrossed.subject,
+          sourceIdempotencyKey: `${payload.positionId}:${payload.level}:${payload.generation}`,
         }),
       );
     }),

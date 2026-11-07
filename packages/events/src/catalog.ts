@@ -1348,6 +1348,62 @@ export const copyStopped = defineEvent(
   'A follow stopped copying new leader fills. With closeOnly it still mirrors closes of what it already holds. A stop is one-way (close-only can only become left), so consumers dedupe on (followId, closeOnly). The follower is told the reason.',
 );
 
+/**
+ * A futures position was margin-called (J-derivatives-06 #6, D-account-03): its health (equity over maintenance) fell
+ * under the venue's margin-call level and is still above liquidation. svc-trade writes the call row first
+ * (`trade.position_margin_calls`) and publishes after; the row clears when the position is healthy again, so a second
+ * fall is a new call with the next `sequence`. Consumers dedupe on (positionId, sequence). This is the liquidation
+ * warning: the trader cannot turn it off. Nothing moved; no amount crosses here.
+ */
+export const tradeMarginCalled = defineEvent(
+  'trade',
+  'margin_call',
+  'created',
+  1,
+  z.object({
+    positionId: z.string().guid(),
+    userId: userIdSchema,
+    marketId: z.string().min(1).max(64),
+    symbol: z.string().min(1).max(64),
+    /** Per-position call number, from 1. The business key for at-least-once delivery. */
+    sequence: z.number().int().min(1),
+    /** Equity over maintenance when the call was raised, in basis points (10000 = at liquidation). */
+    healthBps: z.number().int().min(0),
+    calledAt: z.string().datetime({ offset: true }),
+  }),
+  'A futures position fell under the margin-call level. One per call (positionId, sequence); a recovered position that falls again is a new sequence. The trader is told, and cannot turn this off.',
+);
+
+/** A margin-ratio percent as svc-trade writes it: up to 18 places, above 0 and below 100. */
+const riskPercentSchema = z.string().regex(/^\d{1,2}(\.\d{1,18})?$/, 'a percent below 100 as a decimal string');
+
+/**
+ * A futures position's margin ratio (maintenance over equity) reached one of the trader's own liquidation-risk levels
+ * (J-derivatives-06 #6, D-account-03). svc-trade records the crossing first (`trade.futures_risk_alert_crossings`) and
+ * publishes after; the crossing ends when the ratio is back under the level, so the next rise is a new `generation`.
+ * Consumers dedupe on (positionId, level, generation): one alert per crossing. Nothing moved.
+ */
+export const tradeRiskLevelCrossed = defineEvent(
+  'trade',
+  'risk_level',
+  'crossed',
+  1,
+  z.object({
+    positionId: z.string().guid(),
+    userId: userIdSchema,
+    marketId: z.string().min(1).max(64),
+    symbol: z.string().min(1).max(64),
+    /** The trader's level, a margin-ratio percent ("60" = maintenance is 60% of equity). */
+    level: riskPercentSchema,
+    /** The margin ratio the tick read when it crossed, a percent. At or above the level; may pass 100 on a gap. */
+    marginRatio: z.string().regex(/^\d+(\.\d{1,18})?$/),
+    /** Per (position, level) crossing number, from 1. */
+    generation: z.number().int().min(1),
+    crossedAt: z.string().datetime({ offset: true }),
+  }),
+  'A futures position reached a liquidation-risk level its trader set. One per crossing (positionId, level, generation); the ratio falling back under the level ends the crossing. The trader is told.',
+);
+
 export const projectionUpdated = defineEvent(
   'indexer',
   'projection',
@@ -2060,6 +2116,8 @@ export const EVENT_CATALOG = {
   copySkipped,
   copyFailed,
   copyStopped,
+  tradeMarginCalled,
+  tradeRiskLevelCrossed,
   projectionUpdated,
 } as const;
 
