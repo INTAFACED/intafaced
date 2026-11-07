@@ -51,7 +51,12 @@ export async function POST(request: Request) {
   // The audit line names who did what to which case. It never carries a note's words.
   console.warn(
     JSON.stringify({
-      audit: step.op === 'assign' ? `admin.kyc_case_${step.action}` : 'admin.kyc_case_note',
+      audit:
+        step.op === 'assign'
+          ? `admin.kyc_case_${step.action}`
+          : step.op === 'appeal'
+            ? `admin.kyc_appeal_${step.decision}`
+            : 'admin.kyc_case_note',
       at: new Date().toISOString(),
       actor: session.session.userId,
       caseId: step.caseId,

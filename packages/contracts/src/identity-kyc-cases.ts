@@ -81,6 +81,24 @@ export const kycReviewNoteSchema = z.object({
 });
 export type KycReviewNote = z.infer<typeof kycReviewNoteSchema>;
 
+/**
+ * An appeal on a rejected case (I-kyc-compliance-02, J-identity-20 #8). The customer appeals a rejection once, within the
+ * owner's window (`kyc.appeal_closed` outside it or when unset); a final rejection refuses `kyc.case_final`. A reviewer other
+ * than the one who rejected decides it (`kyc.same_reviewer`): `upheld` makes the rejection final, `overturned` sends the
+ * request back to the queue.
+ */
+export const kycAppealSchema = z.object({
+  id: z.string().guid(),
+  caseId: z.string().guid(),
+  body: z.string().min(1).max(2000),
+  submittedAt: isoSchema,
+  decision: z.enum(['upheld', 'overturned']).nullable(),
+  decidedAt: isoSchema.nullable(),
+});
+export type KycAppeal = z.infer<typeof kycAppealSchema>;
+export const kycAppealSubmitInputSchema = z.object({ caseId: z.string().guid(), body: z.string().trim().min(1).max(2000) });
+export const kycAppealDecideInputSchema = z.object({ caseId: z.string().guid(), decision: z.enum(['upheld', 'overturned']) });
+
 export const kycReviewCaseInputSchema = z.object({ caseId: z.string().guid() });
 export const kycReviewCaseSchema = z.object({
   userId: z.string().guid(),
@@ -91,6 +109,10 @@ export const kycReviewCaseSchema = z.object({
   /** The owner's reject reasons, in the owner's order. Empty when the list is unset: a reject then refuses. */
   reasonCodes: z.array(z.object({ code: kycReasonCodeSchema, reason: z.string().min(1) })),
   notes: z.array(kycReviewNoteSchema),
+  /** A final rejection takes no more appeals. */
+  final: z.boolean(),
+  /** The appeals on this case, oldest first. */
+  appeals: z.array(kycAppealSchema),
 });
 export type KycReviewCase = z.infer<typeof kycReviewCaseSchema>;
 

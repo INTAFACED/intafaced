@@ -280,6 +280,8 @@ const schema = serviceEnvSchema
       IDENTITY_KYC_REVIEW_HOURS_BY_LEVEL: z.string().optional(),
       /** The verification review queue's page size (I-kyc-compliance-02), 1 to 200. Unset: the queue refuses `kyc.queue_page_size_unset`. */
       IDENTITY_KYC_QUEUE_PAGE_SIZE: z.string().optional(),
+      /** How long after a rejection the customer may appeal it, in seconds (I-kyc-compliance-02). Unset: appeals are closed (`kyc.appeal_closed`). */
+      IDENTITY_KYC_APPEAL_WINDOW_SECONDS: z.string().optional(),
       /**
        * Owner setting (I-kyc-compliance-01): the reasons a verification can be rejected for, a JSON array of
        * `{"code","reason","guidance"}` (code lower case with underscores; reason up to 200 characters, what the customer

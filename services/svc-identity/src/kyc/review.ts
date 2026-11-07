@@ -7,6 +7,7 @@
  * and `kyc.reject`, with their second factor and second person.
  */
 import type {
+  KycAppeal,
   KycReviewAssignment,
   KycReviewCase,
   KycReviewList,
@@ -22,7 +23,12 @@ export type KycReviewErrorCode =
   | 'kyc.case_unknown'
   | 'kyc.case_assigned'
   | 'kyc.case_not_assigned'
-  | 'kyc.case_state';
+  | 'kyc.case_state'
+  | 'kyc.case_final'
+  | 'kyc.appeal_closed'
+  | 'kyc.appeal_open'
+  | 'kyc.appeal_none'
+  | 'kyc.same_reviewer';
 
 export class KycReviewError extends Error {
   constructor(
@@ -68,8 +74,42 @@ interface QueueRow {
   assigned_at: Date | null;
 }
 
+/** `IDENTITY_KYC_APPEAL_WINDOW_SECONDS`: whole seconds from 1 to 31,622,400 (a year). Unset or blank is null: appeals are closed. */
+export function parseKycAppealWindowSeconds(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const t = raw.trim();
+  const n = Number(t);
+  if (!/^\d+$/.test(t) || n < 1 || n > 31_622_400)
+    throw new Error('IDENTITY_KYC_APPEAL_WINDOW_SECONDS must be a whole number of seconds from 1 to 31622400');
+  return n;
+}
+
+interface AppealRow {
+  id: string;
+  case_id: string;
+  body: string;
+  submitted_at: Date;
+  decision: 'upheld' | 'overturned' | null;
+  decided_at: Date | null;
+}
+
+function toAppeal(r: AppealRow): KycAppeal {
+  return {
+    id: r.id,
+    caseId: r.case_id,
+    body: r.body,
+    submittedAt: r.submitted_at.toISOString(),
+    decision: r.decision,
+    decidedAt: r.decided_at?.toISOString() ?? null,
+  };
+}
+
+const APPEAL_COLUMNS = 'id, case_id, body, submitted_at, decision, decided_at';
+
 export interface KycReviewDeskOptions {
   readonly pageSize: number | null;
+  /** The owner's appeal window after a rejection, in seconds. Null: appeals are closed. */
+  readonly appealWindowSeconds?: number | null;
   readonly reasons: KycRejectReasons;
 }
 
@@ -146,9 +186,15 @@ export class KycReviewDesk {
   /** One case for review: the case as the person sees it, its claim, the owner's reject reasons and the internal notes. */
   async read(caseId: string): Promise<KycReviewCase> {
     const [row] = await this.sql<
-      Array<{ user_id: string; status: KycReviewCase['recordStatus']; assigned_to: string | null; assigned_at: Date | null }>
+      Array<{
+        user_id: string;
+        status: KycReviewCase['recordStatus'];
+        assigned_to: string | null;
+        assigned_at: Date | null;
+        final: boolean;
+      }>
     >`
-      SELECT c.user_id, r.status, c.assigned_to, c.assigned_at
+      SELECT c.user_id, r.status, c.assigned_to, c.assigned_at, c.final
       FROM kyc_cases c JOIN kyc_records r ON r.id = c.record_id WHERE c.id = ${caseId}`;
     if (!row) throw new KycReviewError('No such verification case', 'kyc.case_unknown');
     const cases = await listKycCases(this.sql, row.user_id, 200, this.options.reasons);
@@ -162,6 +208,8 @@ export class KycReviewDesk {
       assignedAt: row.assigned_at?.toISOString() ?? null,
       reasonCodes: [...this.options.reasons.values()].map((r) => ({ code: r.code, reason: r.reason })),
       notes: await this.notes(caseId),
+      final: row.final,
+      appeals: await this.appeals(caseId),
     };
   }
 
@@ -172,6 +220,78 @@ export class KycReviewDesk {
       INSERT INTO kyc_case_notes (case_id, author_id, body, created_at) VALUES (${caseId}, ${authorId}, ${body}, ${at})
       RETURNING id, created_at`;
     return { id: row!.id, authorId, body, at: row!.created_at.toISOString() };
+  }
+
+  /**
+   * The customer appeals their own rejected case, once per rejection, within the owner's window after the decision. A final
+   * rejection refuses `kyc.case_final`; outside the window, or with no window set, `kyc.appeal_closed`. Another person's case
+   * is `kyc.case_unknown`, so nobody learns it exists. The same appeal again returns the stored one.
+   */
+  async submitAppeal(userId: string, caseId: string, body: string, at = new Date()): Promise<KycAppeal> {
+    return await this.sql.begin(async (tx) => {
+      const [c] = await tx<Array<{ user_id: string; state: string; version: number; final: boolean; decided_at: Date | null }>>`
+        SELECT user_id, state, version, final, decided_at FROM kyc_cases WHERE id = ${caseId} FOR UPDATE`;
+      if (!c || c.user_id !== userId) throw new KycReviewError('No such verification case', 'kyc.case_unknown');
+      if (c.final) throw new KycReviewError('This rejection is final; it takes no more appeals', 'kyc.case_final');
+      if (c.state !== 'rejected') throw new KycReviewError(`This case is ${c.state}; only a rejection can be appealed`, 'kyc.case_state');
+      const window = this.options.appealWindowSeconds ?? null;
+      if (window === null) throw new KycReviewError('Appeals are closed: the owner has not set an appeal window', 'kyc.appeal_closed');
+      if (!c.decided_at || at.getTime() > c.decided_at.getTime() + window * 1000)
+        throw new KycReviewError('The time to appeal this rejection has passed', 'kyc.appeal_closed');
+      const [prior] = await tx<AppealRow[]>`
+        SELECT ${tx.unsafe(APPEAL_COLUMNS)} FROM kyc_case_appeals WHERE case_id = ${caseId} AND case_version = ${c.version}`;
+      if (prior) {
+        if (prior.body === body) return toAppeal(prior);
+        throw new KycReviewError('This rejection already has an appeal', 'kyc.appeal_open');
+      }
+      const [row] = await tx<AppealRow[]>`
+        INSERT INTO kyc_case_appeals (case_id, case_version, user_id, body, submitted_at)
+        VALUES (${caseId}, ${c.version}, ${userId}, ${body}, ${at})
+        RETURNING ${tx.unsafe(APPEAL_COLUMNS)}`;
+      return toAppeal(row!);
+    });
+  }
+
+  /**
+   * A reviewer decides the open appeal on a rejected case. The reviewer who rejected it may not (`kyc.same_reviewer`). A final
+   * rejection refuses `kyc.case_final`; no open appeal, `kyc.appeal_none`. Upholding makes the rejection final. Overturning
+   * sends the request back to the queue (record pending, case submitted, one history step), unless a newer request follows it.
+   */
+  async decideAppeal(caseId: string, reviewerId: string, decision: 'upheld' | 'overturned', at = new Date()): Promise<KycAppeal> {
+    return await this.sql.begin(async (tx) => {
+      const [c] = await tx<Array<{ record_id: string; state: string; version: number; final: boolean; decided_by: string | null }>>`
+        SELECT record_id, state, version, final, decided_by FROM kyc_cases WHERE id = ${caseId} FOR UPDATE`;
+      if (!c) throw new KycReviewError('No such verification case', 'kyc.case_unknown');
+      if (c.final) throw new KycReviewError('This rejection is final; its appeal is decided', 'kyc.case_final');
+      if (c.state !== 'rejected') throw new KycReviewError(`This case is ${c.state}; only a rejection has an appeal`, 'kyc.case_state');
+      const [open] = await tx<AppealRow[]>`
+        SELECT ${tx.unsafe(APPEAL_COLUMNS)} FROM kyc_case_appeals
+        WHERE case_id = ${caseId} AND case_version = ${c.version} AND decision IS NULL FOR UPDATE`;
+      if (!open) throw new KycReviewError('This case has no appeal waiting for a decision', 'kyc.appeal_none');
+      if (c.decided_by !== null && c.decided_by === reviewerId)
+        throw new KycReviewError('You rejected this case; a different reviewer decides its appeal', 'kyc.same_reviewer');
+      if (decision === 'upheld') {
+        await tx`UPDATE kyc_cases SET final = true, updated_at = ${at} WHERE id = ${caseId}`;
+      } else {
+        const [follows] = await tx<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE previous_case_id = ${caseId} LIMIT 1`;
+        if (follows) throw new KycReviewError('A newer request follows this case, so it cannot be reopened', 'kyc.case_state');
+        const version = c.version + 1;
+        await tx`UPDATE kyc_cases SET state = 'submitted', version = ${version}, decided_by = NULL, decided_at = NULL,
+          assigned_to = NULL, assigned_at = NULL, updated_at = ${at} WHERE id = ${caseId}`;
+        await tx`INSERT INTO kyc_case_events (case_id, version, state, at) VALUES (${caseId}, ${version}, 'submitted', ${at})`;
+        await tx`UPDATE kyc_records SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL WHERE id = ${c.record_id}`;
+      }
+      const [row] = await tx<AppealRow[]>`
+        UPDATE kyc_case_appeals SET decision = ${decision}, decided_by = ${reviewerId}, decided_at = ${at} WHERE id = ${open.id}
+        RETURNING ${tx.unsafe(APPEAL_COLUMNS)}`;
+      return toAppeal(row!);
+    });
+  }
+
+  private async appeals(caseId: string): Promise<KycAppeal[]> {
+    const rows = await this.sql<AppealRow[]>`
+      SELECT ${this.sql.unsafe(APPEAL_COLUMNS)} FROM kyc_case_appeals WHERE case_id = ${caseId} ORDER BY submitted_at ASC, id ASC`;
+    return rows.map(toAppeal);
   }
 
   private async notes(caseId: string): Promise<KycReviewNote[]> {

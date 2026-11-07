@@ -6,7 +6,8 @@
 
 export type KycReviewStep =
   | { readonly op: 'assign'; readonly caseId: string; readonly action: 'claim' | 'release' }
-  | { readonly op: 'note'; readonly caseId: string; readonly body: string };
+  | { readonly op: 'note'; readonly caseId: string; readonly body: string }
+  | { readonly op: 'appeal'; readonly caseId: string; readonly decision: 'upheld' | 'overturned' };
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -16,6 +17,8 @@ export function readKycReviewStep(raw: unknown): KycReviewStep | null {
   const r = raw as Record<string, unknown>;
   if (typeof r.caseId !== 'string' || !UUID.test(r.caseId)) return null;
   if (r.op === 'assign' && (r.action === 'claim' || r.action === 'release')) return { op: 'assign', caseId: r.caseId, action: r.action };
+  if (r.op === 'appeal' && (r.decision === 'upheld' || r.decision === 'overturned'))
+    return { op: 'appeal', caseId: r.caseId, decision: r.decision };
   if (r.op === 'note' && typeof r.body === 'string' && r.body.trim().length >= 1 && r.body.trim().length <= 2000)
     return { op: 'note', caseId: r.caseId, body: r.body.trim() };
   return null;
@@ -41,6 +44,12 @@ const BY_CODE: Readonly<Record<string, Omit<KycReviewRefusal, 'code'>>> = {
   },
   'kyc.queue_cursor_invalid': { title: 'That page marker is not valid', body: 'Go back to the first page and page forward again.' },
   'auth.kyc_self_review': { title: 'This is your own verification', body: 'Nobody reviews their own case. Another reviewer takes it.' },
+  'kyc.case_final': { title: 'This rejection is final', body: 'Its appeal is decided, so it takes no more appeals or decisions.' },
+  'kyc.appeal_none': { title: 'No appeal is waiting', body: 'This case has no appeal waiting for a decision.' },
+  'kyc.same_reviewer': {
+    title: 'You rejected this case',
+    body: 'A different reviewer decides its appeal, so the first decision is checked by a second person.',
+  },
   'mfa.required': {
     title: 'A second factor is needed',
     body: 'Identity needs a session signed in with your second factor for the review queue.',

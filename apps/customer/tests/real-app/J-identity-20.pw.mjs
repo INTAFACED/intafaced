@@ -202,3 +202,65 @@ test('J-identity-20 #2 a case shows the record, reason codes, history and notes;
     await founder.context().close();
   }
 });
+
+test('J-identity-20 #8 an appeal on a final rejection refuses with kyc.case_final; one outside the window is refused', async ({
+  browser,
+}) => {
+  test.setTimeout(480_000);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  // Two TEST customers, each rejected through the two-person path by the stack's TEST operators.
+  const inTime = await pendingCase('ja');
+  const late = await pendingCase('jl');
+  for (const c of [inTime, late]) {
+    const out = await gates.rejectPending(ctx, c.who.handle, 'document_unreadable');
+    expect(
+      out.every((r) => r.ok),
+      JSON.stringify(out),
+    ).toBe(true);
+  }
+  const lateRejectedAt = Date.now();
+  const appeal = async (c, body) => {
+    const customer = await api(c.who);
+    return customer.post('/api/identity/trpc/kyc.appeal.submit', { caseId: c.caseId, body });
+  };
+
+  // The customer appeals inside the window; it waits on the case for a reviewer.
+  const filed = await appeal(inTime, 'TEST: my ID photo is sharp, please look again');
+  expect(filed.body?.result?.data?.decision, JSON.stringify(filed.body).slice(0, 300)).toBeNull();
+
+  const compliance = await (await browser.newContext()).newPage();
+  await staffSignIn(compliance, browser, 'compliance');
+  try {
+    // Compliance (not the reviewer who rejected) decides the appeal: upheld, so the rejection is final.
+    await compliance.goto(`${ADMIN}/identity-ops/kyc/${inTime.caseId}`, { waitUntil: 'load' });
+    const review = compliance.getByTestId('kyc-case-review');
+    await expect(review).toBeVisible({ timeout: 60_000 });
+    await expect(review.getByTestId('kyc-case-state')).toHaveText('rejected');
+    await expect(review.getByTestId('kyc-case-appeal')).toHaveCount(1);
+    await expect(review.getByTestId('kyc-case-appeal').first()).toHaveAttribute('data-decision', 'open');
+    await expect(review.getByTestId('kyc-case-appeal').first()).toContainText('please look again');
+    await review.getByRole('button', { name: 'Uphold the rejection' }).click();
+    await expect(review.getByTestId('kyc-case-appeal-decided')).toBeVisible({ timeout: 60_000 });
+    await expect(review.getByTestId('kyc-case-final')).toBeVisible({ timeout: 60_000 });
+    await expect(review.getByTestId('kyc-case-appeal').first()).toHaveAttribute('data-decision', 'upheld');
+
+    // An appeal on the final rejection refuses with kyc.case_final: the customer's, and a reviewer's decision on it again.
+    const again = await appeal(inTime, 'TEST: one more try');
+    expect(again.status).not.toBe(200);
+    expect(JSON.stringify(again.body)).toContain('kyc.case_final');
+    await review.getByRole('button', { name: 'Uphold the rejection' }).click();
+    await expect(review.getByTestId('kyc-case-appeal-refusal')).toHaveAttribute('data-code', 'kyc.case_final', { timeout: 60_000 });
+
+    // One outside the window is refused (the stack's TEST window is 90 seconds), and nothing is filed.
+    const wait = lateRejectedAt + 95_000 - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    const closed = await appeal(late, 'TEST: too late');
+    expect(closed.status).not.toBe(200);
+    expect(JSON.stringify(closed.body)).toContain('kyc.appeal_closed');
+    await compliance.goto(`${ADMIN}/identity-ops/kyc/${late.caseId}`, { waitUntil: 'load' });
+    await expect(compliance.getByTestId('kyc-case-review').getByTestId('kyc-case-appeals-empty')).toBeVisible({ timeout: 60_000 });
+  } finally {
+    await compliance.context().close();
+  }
+});

@@ -6,6 +6,9 @@ import { KycCaseError, kycRejectApprovalFields, requireRejectReason, type KycRej
 import {
   kycHistoryOutputSchema,
   kycReasonCodeSchema,
+  kycAppealDecideInputSchema,
+  kycAppealSchema,
+  kycAppealSubmitInputSchema,
   kycReviewAddNoteInputSchema,
   kycReviewAssignInputSchema,
   kycReviewAssignmentSchema,
@@ -261,6 +264,11 @@ export function toTrpcError(err: unknown): TRPCError {
       case 'kyc.case_assigned':
       case 'kyc.case_not_assigned':
       case 'kyc.case_state':
+      case 'kyc.case_final':
+      case 'kyc.appeal_closed':
+      case 'kyc.appeal_open':
+      case 'kyc.appeal_none':
+      case 'kyc.same_reviewer':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
@@ -2635,6 +2643,24 @@ export function createIdentityRouter(
         }),
 
       /**
+       * The customer appeals their own rejected case, once per rejection, within the owner's window (I-kyc-compliance-02,
+       * J-identity-20 #8). A final rejection refuses `kyc.case_final`; outside the window or with none set, `kyc.appeal_closed`.
+       * No `userId` input: nobody appeals another person's case.
+       */
+      appeal: router({
+        submit: scopedProcedure('identity:write')
+          .input(kycAppealSubmitInputSchema)
+          .output(kycAppealSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await requireKycReview().submitAppeal(ctx.principal.userId, input.caseId, input.body);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
+
+      /**
        * The verification review queue (I-kyc-compliance-02, J-identity-20 #1 #2), compliance only, with a second factor.
        * `list` is a page of open cases oldest first in the owner's page size; `assign` claims (compare-and-set) or releases
        * a case, and a case another reviewer holds refuses `kyc.case_assigned`; nobody claims their own case. `case` is one
@@ -2674,6 +2700,21 @@ export function createIdentityRouter(
             try {
               requireMfa(ctx.principal);
               return await requireKycReview().read(input.caseId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /** Decide the open appeal on a rejected case: a reviewer other than the one who rejected it (I-kyc-compliance-02, J-identity-20 #8). */
+        decideAppeal: scopedProcedure('admin:compliance')
+          .input(kycAppealDecideInputSchema)
+          .output(kycAppealSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              const desk = requireKycReview();
+              assertNotOwnKyc(await desk.caseOwner(input.caseId), [ctx.principal.userId]);
+              return await desk.decideAppeal(input.caseId, ctx.principal.userId, input.decision);
             } catch (err) {
               throw toTrpcError(err);
             }

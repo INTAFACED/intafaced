@@ -1,9 +1,11 @@
 import 'server-only';
 import {
+  kycAppealSchema,
   kycReviewAssignmentSchema,
   kycReviewCaseSchema,
   kycReviewListOutputSchema,
   kycReviewNoteSchema,
+  type KycAppeal,
   type KycReviewAssignment,
   type KycReviewCase,
   type KycReviewList,
@@ -56,7 +58,18 @@ export async function readKycCase(ctx: FounderCallContext, caseId: string): Prom
 export async function runKycReviewStep(
   ctx: FounderCallContext,
   step: KycReviewStep,
-): Promise<KycReviewAnswer<KycReviewAssignment | KycReviewNote>> {
+): Promise<KycReviewAnswer<KycReviewAssignment | KycReviewNote | KycAppeal>> {
+  if (step.op === 'appeal')
+    return answer(
+      await founderCall(
+        ctx,
+        'identity',
+        'kyc.review.decideAppeal',
+        'POST',
+        { caseId: step.caseId, decision: step.decision },
+        parseWith(kycAppealSchema),
+      ),
+    );
   if (step.op === 'assign')
     return answer(
       await founderCall(

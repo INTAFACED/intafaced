@@ -40,6 +40,7 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
   const [noteReply, setNoteReply] = useState<KycReviewRefusal | 'added' | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [appealReply, setAppealReply] = useState<KycReviewRefusal | 'upheld' | 'overturned' | null>(null);
 
   async function load() {
     setView(await fetchCase(caseId));
@@ -55,6 +56,14 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
     const reply = await postReviewStep<{ id: string }>({ op: 'note', caseId, body: note });
     setNoteReply(reply.ok ? 'added' : reply.refusal);
     if (reply.ok) setNote('');
+    setBusy(false);
+    await load();
+  }
+
+  async function decideAppeal(decision: 'upheld' | 'overturned') {
+    setBusy(true);
+    const reply = await postReviewStep<{ decision: string }>({ op: 'appeal', caseId, decision });
+    setAppealReply(reply.ok ? decision : reply.refusal);
     setBusy(false);
     await load();
   }
@@ -118,6 +127,37 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
           </li>
         ))}
       </ol>
+
+      <h3>Appeals</h3>
+      {c.final ? <p data-testid="kyc-case-final">This rejection is final: its appeal is decided and it takes no more appeals.</p> : null}
+      {c.appeals.length === 0 ? (
+        <p data-testid="kyc-case-appeals-empty">No appeal on this case.</p>
+      ) : (
+        <ul data-testid="kyc-case-appeals">
+          {c.appeals.map((a) => (
+            <li key={a.id} data-testid="kyc-case-appeal" data-decision={a.decision ?? 'open'}>
+              <span>{a.body}</span>{' '}
+              <span className="dk-muted">
+                (appealed <time dateTime={a.submittedAt}>{a.submittedAt}</time>;{' '}
+                {a.decision === null ? 'waiting for a decision' : `${a.decision} ${a.decidedAt ?? ''}`})
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {c.appeals.length > 0 ? (
+        <div className="dk-row" role="group" aria-label="Appeal decision">
+          <button type="button" className="adm-btn" disabled={busy} onClick={() => void decideAppeal('upheld')}>
+            Uphold the rejection
+          </button>
+          <button type="button" className="adm-btn" disabled={busy} onClick={() => void decideAppeal('overturned')}>
+            Overturn: send back to the queue
+          </button>
+        </div>
+      ) : null}
+      {appealReply === 'upheld' ? <p data-testid="kyc-case-appeal-decided">Appeal decided: the rejection is upheld and final.</p> : null}
+      {appealReply === 'overturned' ? <p data-testid="kyc-case-appeal-decided">Appeal decided: the request is back on the queue.</p> : null}
+      {appealReply && typeof appealReply === 'object' ? <RefusalLine refusal={appealReply} testId="kyc-case-appeal-refusal" /> : null}
 
       <h3>Internal notes</h3>
       <p className="dk-muted">Notes are for reviewers only. The customer never sees them.</p>

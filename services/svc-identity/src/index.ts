@@ -4,7 +4,7 @@ import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
 import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './kyc/profile.js';
 import { KycPoaDesk, parseKycPoaMaxAgeDays, parseKycPoaTypes } from './kyc/proof-of-address.js';
-import { KycReviewDesk, parseKycQueuePageSize } from './kyc/review.js';
+import { KycReviewDesk, parseKycAppealWindowSeconds, parseKycQueuePageSize } from './kyc/review.js';
 import { KycSelfieDesk, parseKycHandoffTtlSeconds, parseKycLivenessRecheckFor } from './kyc/selfie.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
@@ -696,6 +696,7 @@ export const appRouter = mergeRouters(
     // The verification review queue (I-kyc-compliance-02): the owner's page size and reject reasons.
     kycReview: new KycReviewDesk(sql, {
       pageSize: parseKycQueuePageSize(env.IDENTITY_KYC_QUEUE_PAGE_SIZE),
+      appealWindowSeconds: parseKycAppealWindowSeconds(env.IDENTITY_KYC_APPEAL_WINDOW_SECONDS),
       reasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     }),
     kycCapabilityReasons,
