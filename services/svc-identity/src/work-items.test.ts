@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { workItemsOutputSchema } from '@intafaced/contracts';
-import { verificationItem } from './work-items.js';
+import { newDeviceItem, verificationItem } from './work-items.js';
 
 const USER = '11111111-1111-4111-8111-111111111111';
 const RECORD = '22222222-2222-4222-8222-222222222222';
@@ -58,5 +58,20 @@ describe('identity verification work item', () => {
       const item = verificationItem(USER, newest, NOW);
       expect(workItemsOutputSchema.safeParse({ items: [item] }).success).toBe(true);
     }
+  });
+});
+
+describe('identity new-device work item', () => {
+  it('asks about one new-device sign-in by its notice key, linking to Security, and the contract accepts it', () => {
+    const item = newDeviceItem(`factor-changed:${USER}:3`);
+    expect(item).toEqual({
+      id: `new_device:factor-changed:${USER}:3`,
+      kind: 'new_device',
+      source: 'identity',
+      severity: 'action',
+      titleKey: 'identity.new_device.review',
+      link: '/uc/safe',
+    });
+    expect(workItemsOutputSchema.safeParse({ items: [item, verificationItem(USER, null, NOW)] }).success).toBe(true);
   });
 });

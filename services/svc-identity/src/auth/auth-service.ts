@@ -111,6 +111,7 @@ import {
   approveFromSession,
   approveWithCode,
   completeAuthorisation,
+  confirmDeviceSignIn,
   deviceLabel,
   gateDevice,
   listDevices,
@@ -1020,6 +1021,10 @@ export class AuthService {
 
   async removeTrustedDevice(userId: string, deviceId: string): Promise<{ removed: boolean; sessionsEnded: number }> {
     return removeDevice(this.deviceDeps(), { userId, deviceId });
+  }
+
+  async confirmTrustedDeviceSignIn(userId: string, deviceId: string): Promise<{ confirmed: number }> {
+    return confirmDeviceSignIn(this.deviceDeps(), { userId, deviceId });
   }
 
   private loginCodeDeps(): LoginCodeDeps {

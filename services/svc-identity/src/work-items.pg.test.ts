@@ -10,8 +10,13 @@ import { createTestDb } from './fixture-truncate.testkit.js';
 import { AuthService } from './auth/auth-service.js';
 import { RankService } from './rank/rank-service.js';
 import { createWorkItemsRouter } from './work-items.js';
+import { queueFactorChangedNotice } from './auth/factor-changed-notice.js';
+import { trustDevice } from './auth/trusted-devices.js';
 
-/** `workItems.list` against Postgres: the newest record decides the one verification item, for the signed person only. */
+/**
+ * `workItems.list` against Postgres: the newest record decides the one verification item, for the signed person only,
+ * and each unanswered new-device sign-in on a still-trusted device is one `new_device` item until "This was me" or removal.
+ */
 
 const URL = process.env.TEST_DATABASE_URL ?? 'postgres://intafaced_ops:intafaced_ops@localhost:5433/intafaced_test';
 const here = dirname(fileURLToPath(import.meta.url));
@@ -101,6 +106,68 @@ if (!available) {
     expect((await (await as(other)).workItems.list()).items).toEqual([
       expect.objectContaining({ id: `verification:${other}`, titleKey: 'identity.verification.start' }),
     ]);
+  });
+
+  /** A device trusted by a completed new-device sign-in, with its event, as completeAuthorisation writes them. */
+  async function newDeviceSignIn(userId: string, label: string) {
+    return db.sql.begin(async (tx) => {
+      const now = new Date();
+      const device = await trustDevice(
+        tx,
+        { check: true },
+        {
+          userId,
+          label,
+          now,
+          trustedBy: 'approval',
+        },
+      );
+      const noticeKey = await queueFactorChangedNotice(tx, { userId, change: 'new_device', now, trustedDeviceId: device.id });
+      return { deviceId: device.id, noticeKey };
+    });
+  }
+
+  it('lists each unanswered new-device sign-in, newest first, until "This was me" or the device is removed', async () => {
+    const me = await signUp();
+    const other = await signUp();
+    const api = await as(me);
+    const kinds = async () => (await api.workItems.list()).items.filter((item) => item.kind === 'new_device');
+    expect(await kinds()).toEqual([]);
+
+    const laptop = await newDeviceSignIn(me, 'TEST laptop');
+    const phone = await newDeviceSignIn(me, 'TEST phone');
+    // A factor change that is not a new device is no item.
+    await db.sql.begin((tx) => queueFactorChangedNotice(tx, { userId: me, change: 'totp_added', now: new Date() }));
+    expect(await kinds()).toEqual([
+      {
+        id: `new_device:${phone.noticeKey}`,
+        kind: 'new_device',
+        source: 'identity',
+        severity: 'action',
+        titleKey: 'identity.new_device.review',
+        link: '/uc/safe',
+      },
+      expect.objectContaining({ id: `new_device:${laptop.noticeKey}` }),
+    ]);
+    // Security marks the device that has one.
+    const devices = await auth.trustedDevices(me, null);
+    expect(devices.find((d) => d.id === phone.deviceId)?.newSignIn).toBe(true);
+
+    // "This was me" ends that one item, once; only the account's own device answers.
+    expect(await auth.confirmTrustedDeviceSignIn(other, phone.deviceId)).toEqual({ confirmed: 0 });
+    expect(await auth.confirmTrustedDeviceSignIn(me, phone.deviceId)).toEqual({ confirmed: 1 });
+    expect(await auth.confirmTrustedDeviceSignIn(me, phone.deviceId)).toEqual({ confirmed: 0 });
+    expect((await auth.trustedDevices(me, null)).find((d) => d.id === phone.deviceId)?.newSignIn).toBe(false);
+    expect((await kinds()).map((item) => item.id)).toEqual([`new_device:${laptop.noticeKey}`]);
+
+    // Removing the device ends its item too.
+    expect(await auth.removeTrustedDevice(me, laptop.deviceId)).toMatchObject({ removed: true });
+    expect(await kinds()).toEqual([]);
+
+    // Someone else's sign-ins never show here.
+    await newDeviceSignIn(other, 'TEST tablet');
+    expect(await kinds()).toEqual([]);
+    expect((await (await as(other)).workItems.list()).items.filter((item) => item.kind === 'new_device')).toHaveLength(1);
   });
 
   it('names a lapsed approval, and refuses an API key or a sub-account', async () => {

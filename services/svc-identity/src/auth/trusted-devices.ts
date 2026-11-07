@@ -95,6 +95,8 @@ export interface TrustedDeviceRow {
   readonly lastSeenAt: Date;
   readonly trustedUntil: Date | null;
   readonly current: boolean;
+  /** A new-device sign-in on it that the person has not yet confirmed (Home's "Needs you" asks about it). */
+  readonly newSignIn: boolean;
 }
 
 const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -457,7 +459,8 @@ export async function completeAuthorisation(
     });
     // "New device sign-in" (I-signin-sessions-08, J-identity-06 #7): one mail to the proved address and one inbox notice,
     // queued in this transaction, so the completion that trusts the device sends it once and a rolled-back one sends none.
-    await queueFactorChangedNotice(tx, { userId: row.user_id, change: 'new_device', now });
+    // The event names the device, so Home's "Needs you" asks "was this you?" until the person confirms it or removes it.
+    await queueFactorChangedNotice(tx, { userId: row.user_id, change: 'new_device', now, trustedDeviceId: device.id });
     return { userId: row.user_id, mfa: row.mfa, trustedDeviceId: device.id, deviceKey: device.key };
   });
 }
@@ -485,10 +488,22 @@ export async function listDevices(
 ): Promise<TrustedDeviceRow[]> {
   const now = deps.now();
   const rows = await deps.sql<
-    Array<{ id: string; label: string; first_seen_at: Date; last_seen_at: Date; trusted_until: Date | null; current: boolean }>
+    Array<{
+      id: string;
+      label: string;
+      first_seen_at: Date;
+      last_seen_at: Date;
+      trusted_until: Date | null;
+      current: boolean;
+      new_sign_in: boolean;
+    }>
   >`
     SELECT t.id, t.label, t.first_seen_at, t.last_seen_at, t.trusted_until,
-           EXISTS (SELECT 1 FROM sessions s WHERE s.id = ${input.sessionId} AND s.trusted_device_id = t.id) AS current
+           EXISTS (SELECT 1 FROM sessions s WHERE s.id = ${input.sessionId} AND s.trusted_device_id = t.id) AS current,
+           EXISTS (
+             SELECT 1 FROM security_factor_events e
+              WHERE e.user_id = t.user_id AND e.trusted_device_id = t.id AND e.change = 'new_device' AND e.reviewed_at IS NULL
+           ) AS new_sign_in
     FROM trusted_devices t
     WHERE t.user_id = ${input.userId} AND t.removed_at IS NULL AND (t.trusted_until IS NULL OR t.trusted_until > ${now})
     ORDER BY t.last_seen_at DESC
@@ -501,7 +516,24 @@ export async function listDevices(
     lastSeenAt: r.last_seen_at,
     trustedUntil: r.trusted_until,
     current: r.current,
+    newSignIn: r.new_sign_in,
   }));
+}
+
+/**
+ * The person says a new-device sign-in on one of their devices was them: its "Needs you" item ends. Only the account's
+ * own events change, and a repeat confirms nothing more. Removing the device ends the item too (removeDevice).
+ */
+export async function confirmDeviceSignIn(
+  deps: TrustedDeviceDeps,
+  input: { userId: string; deviceId: string },
+): Promise<{ confirmed: number }> {
+  const rows = await deps.sql<Array<{ id: string }>>`
+    UPDATE security_factor_events SET reviewed_at = ${deps.now()}
+    WHERE user_id = ${input.userId} AND trusted_device_id = ${input.deviceId} AND change = 'new_device' AND reviewed_at IS NULL
+    RETURNING id
+  `;
+  return { confirmed: rows.length };
 }
 
 /** Stop trusting a device and end the sessions signed in on it. The next sign-in there asks again. */
