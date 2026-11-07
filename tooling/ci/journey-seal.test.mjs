@@ -1048,3 +1048,35 @@ test('a completed newest run on the current head, nothing else going: exactly on
   assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
   assert.equal(rerunBlocker({ sha: STALE_OLD, pulls: [pr7398()], headRuns: [] }), null);
 });
+
+test('fullVerdict: two journey files sharing one step id, both run, make a full run; one of them gone is short of it', () => {
+  // J-wallet-04 #7 is in J-wallet-04.pw.mjs ("the bank's half") and J-wallet-04-security-lock.pw.mjs ("identity's half").
+  // The step-to-file map keeps one file a step, so the seal read a clean full run as short of the other (#7492's seal,
+  // run 42419894849 attempt 2). The files each run ran decide it.
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const rep = (...specs) => readReport({ suites: [{ specs }] });
+  const both = () => [
+    spec('J-w-04 #1', 'expected', 'J-w-04.pw.mjs'),
+    spec("J-w-04 #7 (the bank's half)", 'expected', 'J-w-04.pw.mjs'),
+    spec("J-w-04 #7 (identity's half)", 'expected', 'J-w-04-lock.pw.mjs'),
+  ];
+  const named = rep(...both());
+  const inputs = {
+    baseline: { run: { number: 100, id: 1 }, steps: [] },
+    money: { 'J-w-04#1': false, 'J-w-04#7': false },
+    reports: new Map(),
+  };
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
+  const v = (report, r = read) => fullVerdict({ repo: REPO, report, run: run(1), inputs, read: r });
+  assert.deepEqual(named.ran, ['J-w-04-lock.pw.mjs', 'J-w-04.pw.mjs'], 'the report lists both files it ran');
+  const full = v(rep(...both()));
+  assert.deepEqual([full.missing, full.red], [[], []], 'both files ran: a full run, clean');
+  const short = v(rep(...both().slice(0, 2)));
+  assert.deepEqual(short.missing, ['J-w-04-lock.pw.mjs'], 'the file left out is named, though its step id ran in the other');
+  const noList = v(rep(...both()), () => ({ named: { ...named, ran: undefined }, passedSince: {}, issues: {}, problems: [] }));
+  assert.deepEqual(
+    noList.red.map((r) => r.why),
+    ["the named run's report has no list of the files it ran"],
+    'a named run without its file list fails closed',
+  );
+});

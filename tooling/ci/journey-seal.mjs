@@ -459,8 +459,8 @@ export function makeIo(repo, token) {
         const zip = join(dir, 'a.zip');
         writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
         const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
-        const { states, files } = readReport(JSON.parse(text));
-        return { states, files, artifact: art.id };
+        const { states, files, ran } = readReport(JSON.parse(text));
+        return { states, files, ran, artifact: art.id };
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
@@ -493,8 +493,13 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
-  const have = new Set(Object.values(report.files ?? {}));
-  const missing = [...new Set(Object.values(got.named.files))].filter((f) => !have.has(f)).sort();
+  // The files each run ran, never the step-to-file map: that keeps one file a step, so a step id two files share
+  // (J-wallet-04 #7) dropped one of them on both sides, and a clean full run read as short of it (#7492's seal,
+  // run 42419894849 attempt 2). A report without its list is read as having run nothing: short, so never sealed full.
+  if (!Array.isArray(got.named.ran))
+    return { red: [...red, { step: '(input)', why: "the named run's report has no list of the files it ran" }], failing: 0, missing: [] };
+  const have = new Set(report.ran ?? []);
+  const missing = got.named.ran.filter((f) => !have.has(f));
   // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
   // verdict is: a red step there fails the seal; only a run clean on all it has is passed over (judgeFullRun).
   const target = missing.length ? have : null;
