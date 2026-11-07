@@ -16,6 +16,7 @@ import { TopSearch } from './TopSearch';
 import { isMerchantArea } from '../features/pay/portal/chrome/model';
 import { groups } from '../features/pay/portal/home-layout/groups';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
+import { ModeNotSaved } from './ModeNotSaved';
 
 // The merchant portal's chrome and menu load only when a merchant page or the Pay menu needs them.
 export const preloadMerchantChrome = () => import('../features/pay/portal/chrome/Chrome').then((m) => ({ default: m.MerchantTopBar }));
@@ -226,14 +227,17 @@ function ModeControl() {
 function ModeSwitch() {
   const { t: tp } = proCopy.useCopy();
   return (
-    <Tooltip>
-      <TooltipTrigger render={<span className="tb-mode max-[1000px]:hidden" />}>
-        <ModeControl />
-      </TooltipTrigger>
-      <TooltipContent side="bottom" align="end">
-        {tp('Switch tip')}
-      </TooltipContent>
-    </Tooltip>
+    <span className="tb-mode-wrap max-[1000px]:hidden">
+      <Tooltip>
+        <TooltipTrigger render={<span className="tb-mode" />}>
+          <ModeControl />
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end">
+          {tp('Switch tip')}
+        </TooltipContent>
+      </Tooltip>
+      <ModeNotSaved />
+    </span>
   );
 }
 
