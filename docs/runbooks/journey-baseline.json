@@ -48,7 +48,7 @@
   ],
   "counts": {
     "stepsInRun": 1521,
-    "failing": 529,
+    "failing": 538,
     "unbuilt": 533,
     "regression": 5,
     "notBaselined": 0
@@ -671,63 +671,63 @@
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(locator).toBeVisible() failed"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the upcoming and delisting rows with their date (SP-markets-data-02)"
     },
     {
       "step": "J-cex-spot-14#5",
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(received).toContain(expected) // indexOf"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the per-market maintenance flag (SP-developer-status-01)"
     },
     {
       "step": "J-cex-spot-14#6",
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "a session market with a published lifecycle whose session is shut now"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: a closed session on a stack session market (SP-developer-status-01)"
     },
     {
       "step": "J-cex-spot-14#7",
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "a market inside its opening window or in the higher-risk zone"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the opening window and the higher-risk zone (SP-markets-data-02)"
     },
     {
       "step": "J-cex-spot-14#8",
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "the ticker carries a spread field"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the spreads route and the ticker spread (SP-markets-data-01)"
     },
     {
       "step": "J-cex-spot-14#9",
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(locator).toBeVisible() failed"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the analytics room (SP-markets-data-03)"
     },
     {
       "step": "J-cex-spot-14#10",
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(locator).toBeVisible() failed"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the equity \"licence not named\" row (SP-markets-data-03)"
     },
     {
       "step": "J-cex-spot-14#11",
       "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "expect(locator).toBeVisible() failed"
+      "why": "never passed on main: #7250 (5e3a063fc) wrote the test before this slice was built; missing: the price improvement row (SP-markets-data-04)"
     },
     {
       "step": "J-charts-desk-07#3",
       "file": "apps/customer/tests/real-app/J-charts-desk-07.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
+      "why": "never passed on main: #7281 (3d88e2a32) created this journey file with #3 to #6 written before their slice; missing: saved named layouts with their symbol and interval, and the replace prompt (C-workspace-02)"
     },
     {
       "step": "J-copy-bots-otc-01#5",
