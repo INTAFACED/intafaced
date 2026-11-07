@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type { Principal } from '@intafaced/auth';
-import { createTestDatabase, postgresAvailable } from '@intafaced/db';
+import { createTestDatabase } from '@intafaced/db';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader, type ClaimRecordInput } from '@intafaced/contracts';
 import { migrateOutreach } from '../db/migrate.js';
 import { OpsService } from '../ops-service.js';
@@ -113,48 +113,41 @@ describe('marketing claims evidence register', () => {
   });
 });
 
-const claimsPg = await postgresAvailable();
-
-if (!claimsPg) {
-  describe.skip('marketing claims register (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
+// Real PostgreSQL, unconditionally: CI provides the database, and a run without one fails rather than passes.
+describe('marketing claims register on real PostgreSQL', () => {
+  it('stores, survives a new store, refuses self-approval and an unevidenced publish at the table, and its log is append-only', async () => {
+    const database = await createTestDatabase({ service: 'ops' });
+    const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
+    try {
+      await migrateOutreach(sql);
+      const { caller } = build(new SqlClaimStore(sql));
+      const a = await caller(A);
+      const input = claim();
+      const first = await a.claims.record(input);
+      expect(await a.claims.record(input)).toMatchObject({ outcome: 'replayed', claim: { id: first.claim.id } });
+      const bare = await a.claims.record(claim({ evidence: null }));
+      await expect(a.claims.publish({ id: first.claim.id })).rejects.toThrow(/ops\.claim_self_approval/);
+      // The refused attempt is in the log: it committed before the refusal was thrown.
+      expect(
+        (await sql`SELECT outcome, code FROM ops.marketing_claim_log WHERE claim_id = ${first.claim.id} ORDER BY seq`).map(
+          (r) => `${r.outcome}:${r.code ?? ''}`,
+        ),
+      ).toEqual(['created:', 'refused:ops.claim_self_approval']);
+      await (await caller(B)).claims.publish({ id: first.claim.id });
+      expect((await new SqlClaimStore(sql).list(10)).find((c) => c.id === first.claim.id)).toMatchObject({
+        status: 'published',
+        approverId: B,
+      });
+      // The table holds the rules even past the desk: no publish without evidence, no approver who is the author.
+      await expect(
+        sql`UPDATE ops.marketing_claims SET status = 'published', approver_id = ${B}, published_at = now() WHERE id = ${bare.claim.id}`,
+      ).rejects.toThrow();
+      await expect(sql`UPDATE ops.marketing_claims SET approver_id = ${A} WHERE id = ${first.claim.id}`).rejects.toThrow();
+      await expect(sql`DELETE FROM ops.marketing_claim_log`).rejects.toThrow(/append-only/);
+      await migrateOutreach(sql, 'down');
+    } finally {
+      await sql.end();
+      await database.drop();
+    }
   });
-} else {
-  describe('marketing claims register on real PostgreSQL', () => {
-    it('stores, survives a new store, refuses self-approval and an unevidenced publish at the table, and its log is append-only', async () => {
-      const database = await createTestDatabase({ service: 'ops' });
-      const sql = postgres(database.url, { max: 4, onnotice: () => undefined });
-      try {
-        await migrateOutreach(sql);
-        const { caller } = build(new SqlClaimStore(sql));
-        const a = await caller(A);
-        const input = claim();
-        const first = await a.claims.record(input);
-        expect(await a.claims.record(input)).toMatchObject({ outcome: 'replayed', claim: { id: first.claim.id } });
-        const bare = await a.claims.record(claim({ evidence: null }));
-        await expect(a.claims.publish({ id: first.claim.id })).rejects.toThrow(/ops\.claim_self_approval/);
-        // The refused attempt is in the log: it committed before the refusal was thrown.
-        expect(
-          (await sql`SELECT outcome, code FROM ops.marketing_claim_log WHERE claim_id = ${first.claim.id} ORDER BY seq`).map(
-            (r) => `${r.outcome}:${r.code ?? ''}`,
-          ),
-        ).toEqual(['created:', 'refused:ops.claim_self_approval']);
-        await (await caller(B)).claims.publish({ id: first.claim.id });
-        expect((await new SqlClaimStore(sql).list(10)).find((c) => c.id === first.claim.id)).toMatchObject({
-          status: 'published',
-          approverId: B,
-        });
-        // The table holds the rules even past the desk: no publish without evidence, no approver who is the author.
-        await expect(
-          sql`UPDATE ops.marketing_claims SET status = 'published', approver_id = ${B}, published_at = now() WHERE id = ${bare.claim.id}`,
-        ).rejects.toThrow();
-        await expect(sql`UPDATE ops.marketing_claims SET approver_id = ${A} WHERE id = ${first.claim.id}`).rejects.toThrow();
-        await expect(sql`DELETE FROM ops.marketing_claim_log`).rejects.toThrow(/append-only/);
-        await migrateOutreach(sql, 'down');
-      } finally {
-        await sql.end();
-        await database.drop();
-      }
-    });
-  });
-}
+});
