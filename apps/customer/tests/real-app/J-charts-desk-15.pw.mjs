@@ -112,6 +112,25 @@ async function yOf(price) {
   return a.y + ((Number(price) - Number(a.price)) * (b.y - a.y)) / (Number(b.price) - Number(a.price));
 }
 
+/** Hover the price pane at page pixel `y`; returns the price the plus button names there. */
+async function priceAt(y) {
+  const pane = await pricePane();
+  await page.mouse.move(pane.x + pane.width * 0.5, y - 2);
+  await page.mouse.move(pane.x + pane.width * 0.5, y);
+  await expect(plus()).toBeVisible();
+  await expect.poll(async () => Math.abs(centreY(await plus().boundingBox()) - y)).toBeLessThan(2);
+  return Number(await plus().getAttribute('data-price'));
+}
+
+/** The line sits at `price` on the chart: the chart's own reading at the line's height is that price, to within 6 pixels. */
+async function expectAtPrice(line, price) {
+  const y = centreY(await line.boundingBox());
+  const there = await priceAt(y);
+  const perPixel = Math.abs(there - (await priceAt(y - 20))) / 20;
+  expect(perPixel).toBeGreaterThan(0);
+  expect(Math.abs(there - Number(price)), `the line reads ${there} at its height, for ${price}`).toBeLessThanOrEqual(6 * perPixel);
+}
+
 /** Press the order line's handle and drop it at the pixel of `price`. */
 async function drag(line, price) {
   const to = await yOf(price);
@@ -156,9 +175,8 @@ test(`${J} #1 projects a buy limit at a TEST price below the market: a preview-s
   previewStyle = await previewLine().evaluate((el) => getComputedStyle(el).borderTopStyle);
   expect(['dashed', 'dotted']).toContain(previewStyle);
   // Drawn at its price on the chart, below the market's last price.
-  const at = await yOf(price);
-  expect(Math.abs(centreY(await previewLine().boundingBox()) - at)).toBeLessThan(6);
-  expect(at).toBeGreaterThan(await yOf(await lastPrice()));
+  await expectAtPrice(previewLine(), price);
+  expect(await priceAt(centreY(await previewLine().boundingBox()))).toBeLessThan(await lastPrice());
 
   // No order exists and nothing is held while it is only projected.
   await page.waitForTimeout(1000);
@@ -269,7 +287,7 @@ test(`${J} #3 confirms: the order shows as a line with its size, and a retry sen
   await expect(line).toHaveAttribute('data-order-id', order.id);
   await expect(line).toContainText(AMOUNT);
   await expect(line).toContainText('BTC');
-  expect(Math.abs(centreY(await line.boundingBox()) - (await yOf(order.price)))).toBeLessThan(6);
+  await expectAtPrice(line, order.price);
   expect(await line.evaluate((el) => getComputedStyle(el).borderTopStyle)).not.toBe(previewStyle);
   await expect(previewLine()).toHaveCount(0);
 });
@@ -347,7 +365,7 @@ test(`${J} #4 drags the order line to a new price: a review of the replacement, 
   // The chart shows the one order, at its new price.
   await expect(orderLines()).toHaveCount(1);
   await expect(orderLines().first()).toHaveAttribute('data-order-id', moved.id);
-  expect(Math.abs(centreY(await orderLines().first().boundingBox()) - (await yOf(moved.price)))).toBeLessThan(6);
+  await expectAtPrice(orderLines().first(), moved.price);
   order = moved;
 });
 
@@ -381,7 +399,7 @@ test(`${J} #5 drags beyond the protection distance: a confirmation naming the di
   await page.waitForTimeout(500);
   expect(sent).toEqual([]);
   expect((await openOrders(who)).map((o) => [o.id, o.price])).toEqual([[order.id, order.price]]);
-  expect(Math.abs(centreY(await orderLines().first().boundingBox()) - (await yOf(order.price)))).toBeLessThan(6);
+  await expectAtPrice(orderLines().first(), order.price);
 });
 
 test(`${J} #6 opens the chart of a halted market: order entry on the chart is disabled, with the refusal naming the halt`, async () => {
