@@ -58,13 +58,15 @@ async function trust(page, tab) {
   return panel;
 }
 
-/** The typed confirmation the console asks for on `form`, read from its own label ("Type <phrase> to confirm"). */
+/** The typed confirmation the console asks for on `form`, read from its own label. */
 async function phraseOf(form) {
-  const label = await form
-    .getByText(/^Type .+ to confirm$/)
-    .first()
-    .innerText();
-  return /^Type (.+) to confirm$/.exec(label.trim())[1];
+  // The console writes it as: Type <code>PHRASE</code> to confirm.
+  const code = form
+    .locator('label')
+    .filter({ hasText: /to confirm$/ })
+    .locator('code')
+    .first();
+  return (await code.innerText()).trim();
 }
 
 /** Founder A fills `fill(form)` on tab `tab`, asks, and founder B approves; returns A's reply. `stopAfterAsk` asks only. */
