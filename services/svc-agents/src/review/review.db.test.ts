@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { assertTestDatabase } from '@intafaced/db';
 import { describe, expect, it, beforeAll, beforeEach, afterEach, afterAll } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
@@ -86,13 +86,8 @@ function signed(userId: string) {
   });
 }
 
-const available = await postgresAvailable(URL);
-
-if (!available) {
-  describe.skip('svc-agents review reads (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+// Runs unconditionally: CI provides the database, and without one this suite fails rather than skips.
+{
   const sql = postgres(URL, {
     max: 4,
     connection: { search_path: 'agents,public', application_name: 'svc-agents-review-test' },
