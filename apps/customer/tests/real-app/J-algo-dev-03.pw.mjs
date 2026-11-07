@@ -8,7 +8,7 @@ import { userIdOf } from './copy.mjs';
 // J-algo-dev-03, in the running app (docs/roadmap/journeys.json): keep strategies organised and stay inside the plan
 // limits. One test per step, titled "J-algo-dev-03 #<n>", run in order on one TEST developer who starts signed in,
 // verified and with no strategy. Every strategy in Algo dev is simulated; nothing here moves money. Steps whose slice
-// is not built yet (AL-live-01's paper runs for #6, RC-algo-dev-05 for #8) check their step's text with a short wait,
+// is not built yet (RC-algo-dev-05 for #8) check their step's text with a short wait,
 // so they fail fast and name what is missing.
 const J = 'J-algo-dev-03';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -391,18 +391,97 @@ const ROOMY = {
   notifications: '100',
 };
 
+/** Starts a paper run of the newest version from the strategy's page, on our exchange's own prices. */
+async function startPaper(page) {
+  const paper = page.getByTestId('quant-paper');
+  await paper.getByRole('button', { name: 'Start a paper run' }).click();
+  const form = paper.getByTestId('quant-paper-start');
+  await form.getByLabel('Starting cash (simulated)').fill('1000');
+  await form.getByRole('combobox', { name: /^Price data/ }).selectOption('own_venue');
+  await form.getByRole('combobox', { name: /^Fee rate/ }).selectOption('taker');
+  await form.getByLabel('Slippage (basis points)').fill('5');
+  await form.getByLabel('Delay (bars)').fill('0');
+  await form.getByRole('button', { name: 'Start', exact: true }).click();
+  return form;
+}
+
 test(`${J} #6 starts a fourth concurrent run when the plan allows three: a refusal naming the resource with its used and allowed counts; zero refuses every create; unset reads "not set"`, async ({
   page,
 }) => {
-  await signIn(page, developer());
-  const { strategyId } = run.read();
-  if (!strategyId) throw new Error(`${J} #1 listed no strategy, so this step has nothing to run`);
-  // A concurrent run is a paper run that keeps going until it is stopped (AL-live-01); the one-shot runs finish at once.
+  test.setTimeout(10 * 60_000);
+  // A second TEST developer with one saved strategy: its paper runs are stored runs too, so the first developer's counts
+  // (#7, #9) stay this journey's own.
+  const second = await signUp(page, 'jq');
+  await verify(page, second);
+  await signIn(page, second);
+  await saveSignalStrategy(page, 'TEST paper strategy');
+  await page.goto('/quant/strategies');
+  const strategyId = await page.getByTestId('quant-strategy-row').first().getAttribute('data-id');
+  expect(strategyId).toBeTruthy();
+  const door = await quotaDoor();
+  const userId = await userIdOf(second);
+  const three = planName('three concurrent runs');
+  await door.plan(three, { ...ROOMY, concurrent_runs: '3' });
+  await door.assign(userId, three);
+
+  // Three paper runs keep running at once.
   await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
-  await expect(
-    page.getByRole('button', { name: 'Start a paper run' }),
-    'paper runs that keep running are not built (AL-live-01)',
-  ).toBeVisible(UNBUILT);
+  const paper = page.getByTestId('quant-paper');
+  for (let n = 1; n <= 3; n += 1) {
+    await startPaper(page);
+    await expect(paper.getByTestId('quant-paper-note')).toHaveText('Version 1 is running on paper.');
+    await expect(paper.locator('[data-testid="quant-paper-run"][data-state="running"]')).toHaveCount(n);
+  }
+
+  // The fourth is refused, naming concurrent runs with 3 used of 3 allowed, and starts nothing.
+  const form = await startPaper(page);
+  const refusal = form.getByTestId('quant-quota-refusal');
+  await expect(refusal).toHaveAttribute('data-resource', 'concurrent_runs');
+  await expect(refusal).toHaveAttribute('data-kind', 'exceeded');
+  await expect(refusal).toContainText('Your plan allows 3 concurrent runs: 3 used of 3 allowed. Nothing was added.');
+  await page.reload();
+  await expect(paper.getByTestId('quant-paper-run')).toHaveCount(3);
+  await expect(paper.locator('[data-testid="quant-paper-run"][data-state="running"]')).toHaveCount(3);
+  await page.goto('/quant/strategies');
+  const concurrent = page.getByTestId('quant-usage').locator('[data-resource="concurrent_runs"]');
+  await expect(concurrent).toHaveAttribute('data-used', '3');
+  await expect(concurrent).toHaveAttribute('data-limit', '3');
+
+  // Stopped, the three no longer run; a limit of zero then refuses every start, with none running.
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  for (let left = 3; left > 0; left -= 1) {
+    await paper
+      .locator('[data-testid="quant-paper-run"][data-state="running"]')
+      .first()
+      .getByRole('button', { name: /^Stop the paper run/ })
+      .click();
+    await expect(paper.locator('[data-testid="quant-paper-run"][data-state="running"]')).toHaveCount(left - 1);
+  }
+  await expect(paper.locator('[data-testid="quant-paper-run"][data-state="stopped"]')).toHaveCount(3);
+  const zero = planName('zero concurrent runs');
+  await door.plan(zero, { ...ROOMY, concurrent_runs: '0' });
+  await door.assign(userId, zero);
+  const atZero = (await startPaper(page)).getByTestId('quant-quota-refusal');
+  await expect(atZero).toHaveAttribute('data-resource', 'concurrent_runs');
+  await expect(atZero).toContainText('Your plan allows 0 concurrent runs: 0 used of 0 allowed. Nothing was added.');
+  await page.reload();
+  await expect(paper.getByTestId('quant-paper-run')).toHaveCount(3);
+
+  // With the limit unset, the usage view reads "not set" and a start is refused by name.
+  const unset = planName('unset concurrent runs');
+  await door.plan(unset, { ...ROOMY, concurrent_runs: null });
+  await door.assign(userId, unset);
+  await page.goto('/quant/strategies');
+  await expect(concurrent).toHaveAttribute('data-limit', '');
+  await expect(concurrent.locator('td').nth(1)).toHaveText('not set');
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  const atUnset = (await startPaper(page)).getByTestId('quant-quota-refusal');
+  await expect(atUnset).toHaveAttribute('data-kind', 'unset');
+  await expect(atUnset).toContainText(
+    "Your plan's limit for concurrent runs is not set, so nothing of that kind can be added. Nothing was added.",
+  );
+  await page.reload();
+  await expect(paper.getByTestId('quant-paper-run')).toHaveCount(3);
 });
 
 test(`${J} #7 opens the usage view: counts for strategies, runs, storage and collaborators against the plan`, async ({ page }) => {
