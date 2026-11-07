@@ -25,6 +25,7 @@
  * `amend_released`. Remainder owed back is derived from fills plus that column.
  */
 
+import { NO_PAUSES, botOrdersHalted, type PauseSnapshot } from '../copy/platform-pauses.js';
 import type { Sql } from 'postgres';
 import { TradingControlError, type TradingAdmissionPort, type TradingOperationKind } from '../controls/trading-controls.js';
 import type { BotVerificationPolicy } from '../algo/bots-verification.js';
@@ -706,6 +707,7 @@ export class TradeService {
   private readonly affiliatePayout: AffiliatePayoutPort;
   /** Best-effort FIX drop-copy hitch after settle (never fails the fill). */
   private readonly dropCopyIngest: DropCopyIngestPort;
+  private readPlatformPauses: () => Promise<PauseSnapshot> = async () => NO_PAUSES;
   private onCopyMirrorFill?: (notice: {
     orderId: string;
     fillId: string;
@@ -770,6 +772,7 @@ export class TradeService {
       {
         now: () => this.now(),
         randomId: () => crypto.randomUUID(),
+        platformHalted: async (parent) => botOrdersHalted(await this.platformPauses(), parent.symbol, parent.marketId),
         placeChild: async (req) => {
           // Child is an ordinary order — same path, same holds, same gates.
           const parent = this.algo.get(req.parentId);
@@ -1394,6 +1397,16 @@ export class TradeService {
     takerFeeAsset: string;
   }): Promise<void> {
     return fillFlow.notifyAffiliateAccrue(this.internal, input);
+  }
+
+  /** The platform's copy and bots pauses (CB-ops-03), read by algo creates and slice ticks. */
+  bindPlatformPauses(read: () => Promise<PauseSnapshot>): void {
+    this.readPlatformPauses = read;
+  }
+
+  /** The active copy and bots pauses; none until a reader is bound. */
+  platformPauses(): Promise<PauseSnapshot> {
+    return this.readPlatformPauses();
   }
 
   /** After the fill is stored. Failure is logged; the settled fill stays settled. */

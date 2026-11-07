@@ -199,6 +199,33 @@ export async function searchAccounts(
   };
 }
 
+/** The most account ids one handle lookup takes: a desk asks for the owners on the page it shows, never the whole base. */
+export const HANDLES_CAP = 200;
+
+/**
+ * The handle of each account id an operator's desk shows (an owner column, AG-registry-01): id and handle only, no email,
+ * status or tier. An id with no account is left out, never answered with an invented handle. Every lookup writes one
+ * `account_search` audit row, the same as a search, holding only a hash of the sorted ids.
+ */
+export async function accountHandles(sql: Sql, context: Context, ids: readonly string[]): Promise<{ id: string; handle: string }[]> {
+  const actorId = requireReader(context, 'admin:compliance');
+  const unique = [...new Set(ids.map((id) => id.toLowerCase()))].sort();
+  const rows =
+    unique.length === 0
+      ? []
+      : await sql<Array<{ id: string; handle: string }>>`
+          SELECT u.id, u.handle::text AS handle FROM users u WHERE u.id = ANY(${unique}::uuid[]) ORDER BY u.id
+        `;
+  const queryHash = createHash('sha256')
+    .update(`ids\0${unique.join(',')}`)
+    .digest('hex');
+  await sql`
+    INSERT INTO operator_read_audit (audit_id, actor_id, kind, query_hash)
+    VALUES (${randomUUID()}, ${actorId}, 'account_search', ${queryHash})
+  `;
+  return rows.map((row) => ({ id: row.id, handle: row.handle }));
+}
+
 export async function accountCounts(
   sql: Sql,
   context: Context,

@@ -10,6 +10,7 @@ import { GuardOutcome, replyShown } from './AgentTestGuards';
 import { toolWords } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
+import './agents-session.css';
 import {
   ownAgentAnalyticsSchema,
   ownAgentCatalogueSchema,
@@ -142,11 +143,27 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
   const keys = usePressKeys('own-test', agent.id);
+  const [background, setBackground] = useState(false);
+  const [started, setStarted] = useState(false);
 
   async function runTest() {
     setBusy(true);
     setRan(null);
     setRefused(null);
+    setStarted(false);
+    if (background) {
+      const res = await api.mutate(
+        'agents',
+        'own.backgroundRun',
+        { id: agent.id, requestId: keys.next(`background:${ask}`), ask },
+        z.object({ id: z.string() }).passthrough(),
+      );
+      setBusy(false);
+      if (res.ok || refusalCode(res)) keys.settled();
+      if (!res.ok) return setRefused(res);
+      setStarted(true);
+      return;
+    }
     // The question, the outside content and the schema are one request: any of them changed is a new one.
     const requestId = keys.next(JSON.stringify([ask, content, outputSchema]));
     const extras = { ...(content.trim() ? { content } : {}), ...(outputSchema.trim() ? { outputSchema } : {}) };
@@ -164,9 +181,14 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
       <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
       <TextArea label={t('contentField')} value={content} maxLength={8000} onChange={setContent} />
       <TextArea label={t('schemaField')} value={outputSchema} maxLength={4000} onChange={setOutputSchema} />
+      {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
+      <label className="agent-surface-choice">
+        <input type="checkbox" checked={background} onChange={(event) => setBackground(event.target.checked)} /> {t('runInBackground')}
+      </label>
       <Button disabled={busy} onClick={() => void runTest()}>
         {t('runTest')}
       </Button>
+      {started ? <p className="muted">{t('backgroundStarted')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
       {ran ? (
         <section role="region" aria-label={t('engineRun')}>
