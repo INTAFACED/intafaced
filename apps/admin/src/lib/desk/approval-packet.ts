@@ -610,7 +610,12 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (keys !== 'displayName,email,kind,requestId') return null;
     if (typeof raw.requestId !== 'string' || !STAFF_REQUEST_ID.test(raw.requestId)) return null;
     if (typeof raw.email !== 'string' || raw.email !== raw.email.trim().toLowerCase() || !STAFF_EMAIL.test(raw.email)) return null;
-    if (typeof raw.displayName !== 'string' || raw.displayName !== raw.displayName.trim() || raw.displayName.length < 1 || raw.displayName.length > 120)
+    if (
+      typeof raw.displayName !== 'string' ||
+      raw.displayName !== raw.displayName.trim() ||
+      raw.displayName.length < 1 ||
+      raw.displayName.length > 120
+    )
       return null;
     return { kind: 'identity.staff.invite', requestId: raw.requestId, email: raw.email, displayName: raw.displayName };
   }

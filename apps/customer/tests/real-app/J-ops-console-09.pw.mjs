@@ -115,7 +115,11 @@ test(`${J} #1 sets the approval policy for an action: a blank count is policy_un
     email: `staff-j09-${tag}-blank@local-test.invalid`,
     displayName: 'J09 blank policy',
   };
-  const refusedInvite = await step(a, '/api/identity-ops/staff', { step: 'propose', request: invite, confirm: `INVITE ${invite.email.toUpperCase()}` });
+  const refusedInvite = await step(a, '/api/identity-ops/staff', {
+    step: 'propose',
+    request: invite,
+    confirm: `INVITE ${invite.email.toUpperCase()}`,
+  });
   expect(refusedInvite.body.ok, JSON.stringify(refusedInvite.body)).toBe(false);
   expect(refusedInvite.body.refusal.code).toBe('action_approval.policy_unset');
 
@@ -183,7 +187,12 @@ test(`${J} #2 invites a staff member: the same founder approving is refused same
   await expect(desk.getByRole('button', { name: 'Approve this request' })).toBeDisabled();
 
   // The same founder approving is refused by identity with its typed code.
-  const own = await step(a, '/api/identity-ops/staff', { step: 'approve', request: packet.request, confirm: phrase, approvalId: packet.approvalId });
+  const own = await step(a, '/api/identity-ops/staff', {
+    step: 'approve',
+    request: packet.request,
+    confirm: phrase,
+    approvalId: packet.approvalId,
+  });
   expect(own.body.ok, JSON.stringify(own.body)).toBe(false);
   expect(own.body.refusal.code).toBe('action_approval.same_person');
   const before = await read(a, '/api/identity-ops/staff');

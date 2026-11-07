@@ -32,7 +32,10 @@ export async function loadPolicyRows(ctx: FounderCallContext): Promise<PolicyRow
     undefined,
     parseWith(z.object({ policies: z.array(actionApprovalPolicyEntrySchema) })),
   );
-  return { asOf: new Date().toISOString(), policies: partFrom(result, (d) => d.policies, { service: 'svc-identity', forbiddenMessage: forbidden }) };
+  return {
+    asOf: new Date().toISOString(),
+    policies: partFrom(result, (d) => d.policies, { service: 'svc-identity', forbiddenMessage: forbidden }),
+  };
 }
 
 export interface StaffView {
@@ -42,7 +45,10 @@ export interface StaffView {
 
 export async function loadStaff(ctx: FounderCallContext): Promise<StaffView> {
   const result = await founderCall(ctx, 'identity', 'staff.list', 'GET', undefined, parseWith(staffListSchema));
-  return { asOf: new Date().toISOString(), staff: partFrom(result, (d) => d.staff, { service: 'svc-identity', forbiddenMessage: forbidden }) };
+  return {
+    asOf: new Date().toISOString(),
+    staff: partFrom(result, (d) => d.staff, { service: 'svc-identity', forbiddenMessage: forbidden }),
+  };
 }
 
 const WRONG_STATE: ExecuteReply = { ok: false, refusal: explainRefusal('admin.ops_invalid_response', 502, true) };

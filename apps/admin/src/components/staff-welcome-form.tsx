@@ -4,7 +4,17 @@ import { useState } from 'react';
 import { formatWhen } from '@/lib/as-of';
 
 /** The invited person sets their own password. The password goes only to this console's own route, once. */
-export function StaffWelcomeForm({ token, email, displayName, expiresAt }: { token: string; email: string; displayName: string; expiresAt: string }) {
+export function StaffWelcomeForm({
+  token,
+  email,
+  displayName,
+  expiresAt,
+}: {
+  token: string;
+  email: string;
+  displayName: string;
+  expiresAt: string;
+}) {
   const [password, setPassword] = useState('');
   const [again, setAgain] = useState('');
   const [busy, setBusy] = useState(false);
@@ -49,16 +59,30 @@ export function StaffWelcomeForm({ token, email, displayName, expiresAt }: { tok
   return (
     <form className="adm-stack" onSubmit={(e) => void submit(e)} data-testid="staff-welcome-form">
       <p>
-        This invite is for <strong data-testid="staff-welcome-name">{displayName}</strong> (<span data-testid="staff-welcome-email">{email}</span>). It
-        works until {formatWhen(expiresAt)}, once.
+        This invite is for <strong data-testid="staff-welcome-name">{displayName}</strong> (
+        <span data-testid="staff-welcome-email">{email}</span>). It works until {formatWhen(expiresAt)}, once.
       </p>
       <div className="adm-field">
         <label htmlFor="sw-password">Your new password</label>
-        <input id="sw-password" className="adm-input" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input
+          id="sw-password"
+          className="adm-input"
+          type="password"
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
       </div>
       <div className="adm-field">
         <label htmlFor="sw-again">The same password again</label>
-        <input id="sw-again" className="adm-input" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
+        <input
+          id="sw-again"
+          className="adm-input"
+          type="password"
+          autoComplete="new-password"
+          value={again}
+          onChange={(e) => setAgain(e.target.value)}
+        />
         {mismatch && <p className="dk-why">The two passwords are not the same.</p>}
       </div>
       <button type="submit" className="adm-btn" data-tone="primary" disabled={busy || mismatch || password === '' || again === ''}>

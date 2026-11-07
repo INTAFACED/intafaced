@@ -40,7 +40,15 @@ function valuesOf(entry: ActionApprovalPolicyEntry | undefined) {
   };
 }
 
-function PolicyRowControls({ entries, userId, onChanged }: { entries: readonly ActionApprovalPolicyEntry[]; userId: string; onChanged: () => void }) {
+function PolicyRowControls({
+  entries,
+  userId,
+  onChanged,
+}: {
+  entries: readonly ActionApprovalPolicyEntry[];
+  userId: string;
+  onChanged: () => void;
+}) {
   const [actionType, setActionType] = useState<PolicyGovernedActionType>(entries[0]!.actionType);
   const entry = entries.find((e) => e.actionType === actionType);
   const [values, setValues] = useState(() => valuesOf(entry));
@@ -96,11 +104,22 @@ function PolicyRowControls({ entries, userId, onChanged }: { entries: readonly A
       </div>
       <div className="adm-field">
         <label htmlFor="pd-count">Approvals needed, other than the requester</label>
-        <input id="pd-count" className="adm-input" inputMode="numeric" value={values.requiredApprovals} onChange={(e) => set('requiredApprovals')(e.target.value)} />
+        <input
+          id="pd-count"
+          className="adm-input"
+          inputMode="numeric"
+          value={values.requiredApprovals}
+          onChange={(e) => set('requiredApprovals')(e.target.value)}
+        />
       </div>
       <div className="adm-field">
         <label htmlFor="pd-audience">Who may approve</label>
-        <select id="pd-audience" className="adm-input" value={values.approverAudience} onChange={(e) => set('approverAudience')(e.target.value)}>
+        <select
+          id="pd-audience"
+          className="adm-input"
+          value={values.approverAudience}
+          onChange={(e) => set('approverAudience')(e.target.value)}
+        >
           <option value="">Not set</option>
           <option value="founder">Founders</option>
           <option value="operator">Operators</option>
@@ -113,7 +132,13 @@ function PolicyRowControls({ entries, userId, onChanged }: { entries: readonly A
       </div>
       <div className="adm-field">
         <label htmlFor="pd-age">Longest life of a request, in seconds</label>
-        <input id="pd-age" className="adm-input" inputMode="numeric" value={values.maxAgeSeconds} onChange={(e) => set('maxAgeSeconds')(e.target.value)} />
+        <input
+          id="pd-age"
+          className="adm-input"
+          inputMode="numeric"
+          value={values.maxAgeSeconds}
+          onChange={(e) => set('maxAgeSeconds')(e.target.value)}
+        />
       </div>
     </ControlDesk>
   );
@@ -140,7 +165,11 @@ export function ChangePolicyDesk({ initial, userId }: { initial: PolicyRowsDeskV
           {loading ? 'Reading…' : 'Refresh'}
         </button>
       </div>
-      {view ? <ChangePolicyRoom asOf={view.asOf} policies={view.policies} /> : <p className="dk-why">svc-identity could not be read. Nothing is shown rather than a guess.</p>}
+      {view ? (
+        <ChangePolicyRoom asOf={view.asOf} policies={view.policies} />
+      ) : (
+        <p className="dk-why">svc-identity could not be read. Nothing is shown rather than a guess.</p>
+      )}
       {entries && entries.length > 0 && <PolicyRowControls entries={entries} userId={userId} onChanged={() => void reload()} />}
     </div>
   );

@@ -193,7 +193,9 @@ export function payloadHashFor(request: DeskRequest): string {
       return shaIdentity(APPROVAL_POLICY_SET_ACTION_TYPE, approvalPolicySetPayloadFields(request));
     // svc-identity `staff.invite`: sha256 of `staffChangePayloadText(staffChangeApprovalSubject('identity.staff.invite', …))`.
     case 'identity.staff.invite':
-      return `sha256:${createHash('sha256').update(staffChangePayloadText(staffInviteSubject(request))).digest('hex')}`;
+      return `sha256:${createHash('sha256')
+        .update(staffChangePayloadText(staffInviteSubject(request)))
+        .digest('hex')}`;
     // svc-identity `consumePrivileged(…, 'kyc.doc.get', { documentId })`: { targetId: 'kyc.doc.get', documentId }.
     case 'identity.kyc_document.open':
       return shaIdentity(KYC_DOCUMENT_GET, { documentId: request.documentId });

@@ -212,7 +212,8 @@ export class StaffDirectory {
     let activated: StaffRow | undefined;
     await this.deps.registerAccount({ email: peek.staff.email, password, deviceKey }, async (tx, userId) => {
       const open = await this.openToken(tx, token, true);
-      if (!open || open.staff.id !== peek.staff.id) throw new StaffDirectoryError('This invite link is not valid any more', IDENTITY_STAFF_INVITE_INVALID);
+      if (!open || open.staff.id !== peek.staff.id)
+        throw new StaffDirectoryError('This invite link is not valid any more', IDENTITY_STAFF_INVITE_INVALID);
       await tx`UPDATE staff_invite_tokens SET used_at = now() WHERE token_hash = ${tokenHashOf(token)}`;
       [activated] = await tx.unsafe<StaffRow[]>(
         `UPDATE staff_members SET user_id = $1, status = 'active', activated_at = now(), version = version + 1

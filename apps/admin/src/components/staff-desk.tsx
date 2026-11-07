@@ -95,7 +95,14 @@ function InviteControls({ userId, onChanged }: { userId: string; onChanged: () =
     >
       <div className="adm-field">
         <label htmlFor="sd-email">Their email</label>
-        <input id="sd-email" className="adm-input" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input
+          id="sd-email"
+          className="adm-input"
+          type="email"
+          autoComplete="off"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
       </div>
       <div className="adm-field">
         <label htmlFor="sd-name">Their name</label>

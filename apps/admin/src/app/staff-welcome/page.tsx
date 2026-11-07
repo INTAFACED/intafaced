@@ -38,7 +38,8 @@ export default async function StaffWelcomePage({ searchParams }: { searchParams:
         </p>
       ) : invitation.state === 'invalid' ? (
         <p role="alert" data-testid="staff-welcome-invalid">
-          This invite link does not work: it is unknown, already used or past its end. Ask a founder for a new invite. Code: {invitation.code}
+          This invite link does not work: it is unknown, already used or past its end. Ask a founder for a new invite. Code:{' '}
+          {invitation.code}
         </p>
       ) : (
         <StaffWelcomeForm token={token} email={invitation.email} displayName={invitation.displayName} expiresAt={invitation.expiresAt} />
