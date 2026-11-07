@@ -49,7 +49,6 @@ import {
   type SweepResult,
 } from './bust.js';
 import { ChartOwnerValuesAdmin } from './chart-owner-values.js';
-import { MarketModeAdmin } from './market-mode.js';
 import { SeedConfigAdmin } from './seed-config.js';
 import { MakerProgrammeAdmin } from './maker-programme.js';
 import { FuturesContractsAdmin } from './futures-contracts.js';
@@ -155,8 +154,6 @@ export class TradeOpsAdmin {
   readonly agreements: AgreementsAdmin;
   /** Charts module owner values and the per-market data class (C-ops-04, LD-14). */
   readonly chartOwnerValues: ChartOwnerValuesAdmin;
-  /** A market's trading mode, set by two operators (SP-developer-status-01, J-cex-spot-14 #3 #4). */
-  readonly marketMode: MarketModeAdmin;
   readonly seedConfig: SeedConfigAdmin;
   /** The maker incentive programme and the launch-liquidity plan per market (J-cex-spot-20 #8). */
   readonly makerProgramme: MakerProgrammeAdmin;
@@ -184,7 +181,6 @@ export class TradeOpsAdmin {
     });
     this.agreements = new AgreementsAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.chartOwnerValues = new ChartOwnerValuesAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
-    this.marketMode = new MarketModeAdmin({ sql: deps.sql, approvals: deps.approvals, now: () => nowOf(deps) });
     this.seedConfig = new SeedConfigAdmin({ sql: deps.sql, approvals: deps.approvals });
     this.makerProgramme = new MakerProgrammeAdmin({ sql: deps.sql, approvals: deps.approvals });
     this.futuresContracts = new FuturesContractsAdmin({

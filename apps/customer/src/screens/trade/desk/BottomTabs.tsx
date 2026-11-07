@@ -9,7 +9,7 @@ import { HistoryFilters } from './HistoryFilters';
 import { filterHistory, NO_HISTORY_FILTER, type HistoryFilter } from './history-filter';
 import { Amount, fmtAmount, isHiddenPath, StateBlock, Tabs, TabsList, TabsPanel, TabsTab, type Loadable } from './deps';
 import { floorToLot } from './order-math';
-import { flattenOn, type DeskMarket } from './market';
+import type { DeskMarket } from './market';
 import { CancelAll } from './CancelAll';
 import { CancelMany } from './CancelMany';
 import { DeadMan } from './DeadMan';
@@ -173,10 +173,7 @@ export const BottomTabs = memo(function BottomTabs({
                           <Amount value={fmtAmount(entry?.used ?? '0', { places: 8 })} />
                         </td>
                         <td>
-                          {asset === market.base &&
-                          userId &&
-                          flattenOn(market) &&
-                          floorToLot(entry?.free ?? '0', market.lotSize) !== null ? (
+                          {asset === market.base && userId && market.open && floorToLot(entry?.free ?? '0', market.lotSize) !== null ? (
                             <button
                               type="button"
                               className="dk-cancel-all"

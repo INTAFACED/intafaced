@@ -109,8 +109,6 @@ const TRADE_ERROR_MAP: Record<TradeErrorCode, Arm> = {
    */
   'trade.market_closed': { ccxt: 'ExchangeNotAvailable', status: 503 },
   'trade.mode_limit_only': { ccxt: 'InvalidOrder', status: 400 },
-  'trade.mode_cancel_only': { ccxt: 'InvalidOrder', status: 400 },
-  'trade.mode_post_only': { ccxt: 'InvalidOrder', status: 400 },
   'trade.market_halted': { ccxt: 'BadSymbol', status: 403 },
   /**
    * Operator halt of ALL markets. New submits refuse. Cancel stays — not

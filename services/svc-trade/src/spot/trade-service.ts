@@ -922,8 +922,6 @@ export class TradeService {
       'trade.lifecycle_authority_stale',
       'trade.market_closed',
       'trade.unknown_schedule',
-      'trade.mode_cancel_only',
-      'trade.mode_post_only',
     ]);
     const code = knownCodes.has(decision.reasonCode as TradeErrorCode)
       ? (decision.reasonCode as TradeErrorCode)

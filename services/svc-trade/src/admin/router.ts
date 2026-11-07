@@ -7,7 +7,6 @@ import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError } from '@intafaced/auth';
 import { TradeOpsError } from './common.js';
-import { SETTABLE_MARKET_MODES } from './market-mode.js';
 import type { TradeOpsAdmin } from './service.js';
 
 const limit = z.number().int().min(1).max(200);
@@ -494,25 +493,6 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       set: operatorWrite
         .input(chartOwnerValueSet)
         .mutation(({ ctx, input }) => ready().chartOwnerValues.set(ctx.principal, input).catch(fail)),
-    }),
-    marketMode: router({
-      get: operator
-        .input(z.object({ symbol: z.string().trim().min(1).max(40) }).strict())
-        .query(({ ctx, input }) => ready().marketMode.get(ctx.principal, input.symbol).catch(fail)),
-      set: operatorWrite
-        .input(
-          z
-            .object({
-              symbol: z.string().trim().min(1).max(40),
-              mode: z.enum(SETTABLE_MARKET_MODES),
-              expectedMode: z.string().trim().min(1).max(40),
-              reason,
-              approvalId: z.string().trim().min(1).max(128),
-              operationId: z.string().trim().min(1).max(128),
-            })
-            .strict(),
-        )
-        .mutation(({ ctx, input }) => ready().marketMode.set(ctx.principal, input).catch(fail)),
     }),
     agreements: router({
       get: operator

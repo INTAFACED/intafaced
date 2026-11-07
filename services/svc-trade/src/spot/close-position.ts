@@ -68,7 +68,7 @@ type CloseHost = {
   feeTierAt: (userId: string) => Promise<string>;
   requireMarket: (input: { symbol?: string; marketId?: string }) => Promise<Market>;
   findOrder: (orderId: string) => Promise<OrderRecord | null>;
-  assertLifecycleAction: (market: Market, action: 'PLACE', orderType?: string) => Promise<LifecycleAdmissionProof>;
+  assertLifecycleAction: (market: Market, action: 'PLACE') => Promise<LifecycleAdmissionProof>;
   applySubmitResult: (market: Market, orderId: string, result: EngineSubmitResult) => Promise<void>;
   markRecoveryRequired: (orderId: string, reason: 'SUBMIT_UNKNOWN') => Promise<void>;
 };
@@ -136,7 +136,6 @@ export async function closeSpotPosition(svc: TradeService, principal: Principal,
     );
   }
 
-  // A flatten is a close, which limit-only admits (its allowed actions keep CLOSE), so no order type is passed here.
   const lifecycleProof = await host.assertLifecycleAction(market, 'PLACE');
   // The fee tier is read before the engine is asked: once the flatten has printed, the row must be written whatever
   // else is down, so nothing that can fail is read between the two.

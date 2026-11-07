@@ -34,12 +34,10 @@ export interface MarketMode {
   symbol: string;
   state: string | null;
   reasonCode: string | null;
-  /** When the service observed that mode (the lifecycle read's own time), or null when it reported none. */
-  observedAt: string | null;
 }
 
 const statusListingSchema = marketSchema.pick({ symbol: true, spot: true, paper: true }).extend({
-  lifecycle: z.object({ state: z.string(), reasonCode: z.string().nullish(), observedAt: z.string().nullish() }).passthrough().nullish(),
+  lifecycle: z.object({ state: z.string(), reasonCode: z.string().nullish() }).passthrough().nullish(),
 });
 
 /** The public markets read, kept to the fields /status shows. Spot, real (not paper) markets only. */
@@ -51,27 +49,9 @@ export function marketModesFetcher(api: ApiClient): Fetcher<MarketMode[]> {
       ok: true,
       data: result.data
         .filter((m) => m.spot && !m.paper)
-        .map((m) => ({
-          symbol: m.symbol,
-          state: m.lifecycle?.state ?? null,
-          reasonCode: m.lifecycle?.reasonCode ?? null,
-          observedAt: m.lifecycle?.observedAt ?? null,
-        })),
+        .map((m) => ({ symbol: m.symbol, state: m.lifecycle?.state ?? null, reasonCode: m.lifecycle?.reasonCode ?? null })),
     };
   };
-}
-
-/**
- * The as-of time of the modes table: the oldest time the service observed a listed mode, so no row is shown fresher
- * than it is; null when none was.
- */
-export function modesAsOf(rows: readonly MarketMode[]): string | null {
-  let oldest: string | null = null;
-  for (const row of rows) {
-    if (row.observedAt && !Number.isNaN(Date.parse(row.observedAt)) && (oldest === null || Date.parse(row.observedAt) < Date.parse(oldest)))
-      oldest = row.observedAt;
-  }
-  return oldest === null ? null : new Date(Date.parse(oldest)).toISOString();
 }
 
 export type ModeKey =
