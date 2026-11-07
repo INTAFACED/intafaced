@@ -160,6 +160,17 @@ const schema = baseEnvSchema
        * save that writes a note (`quant.release_note_limit_unset`); a save without a note still saves. At most 2000.
        */
       QUANT_RELEASE_NOTE_MAX: blankable(z.string().regex(/^(?:[1-9]\d{0,2}|1\d{3}|2000)$/)),
+      /**
+       * The owner's default quota profile (AL-limits-01): the profile an account with no assignment falls under. NO
+       * DEFAULT: blank, every counted write (a strategy, a version, a run) refuses `quant.quota_profile_unset`.
+       */
+      QUANT_DEFAULT_QUOTA_PROFILE: blankable(z.string().max(80)),
+      /**
+       * TEST only: a profile the local and CI stack seeds, as JSON `{ "profile": "TEST …", "limits": { "<resource>":
+       * "<whole number>" } }`. Only a name starting with TEST is accepted; a row an operator already set is never
+       * overwritten. Never set outside a test stack.
+       */
+      QUANT_TEST_QUOTA_SEED: blankable(z.string().max(4000)),
       /** Required only when DATABASE_URL is set. Blank is not 10. */
       DATABASE_POOL_MAX: z
         .string()

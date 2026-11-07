@@ -36,6 +36,18 @@ import {
   type Context,
   type QuantBacktestResult,
   quantVersionDiffSchema,
+  quantQuotaAssignInputSchema,
+  quantQuotaAssignOutputSchema,
+  quantQuotaProfileSchema,
+  quantQuotaSchema,
+  quantQuotaSetInputSchema,
+  quantQuotaSetOutputSchema,
+  QUANT_QUOTA_RESOURCES,
+  QUANT_PAPER_FEEDS,
+  QUANT_PAPER_LIST_MAX,
+  quantPaperListSchema,
+  quantPaperRunSchema,
+  quantPaperStartInputSchema,
 } from '@intafaced/contracts';
 import type { BacktestCostModel } from '@intafaced/quant-honesty';
 import { missingLake, type BacktestLake } from './backtest/lake.js';
@@ -101,8 +113,18 @@ import {
   QUANT_STUDIO_LIST_LIMIT_UNSET,
   QUANT_STUDIO_NOT_FOUND,
   QUANT_STUDIO_RISK_BLOCK_REQUIRED,
+  QUANT_QUOTA_EXCEEDED,
+  QUANT_QUOTA_PROFILE_UNSET,
+  QUANT_QUOTA_REASON_UNSET,
+  QUANT_QUOTA_UNSET,
+  QUANT_PAPER_LIST_LIMIT_UNSET,
+  QUANT_BACKTEST_RULES_REQUIRED,
   QuantError,
 } from './errors.js';
+import { paperKey, paperSettingsOf, paperView } from './paper/view.js';
+import type { StoredPaperRun } from './runs/types.js';
+import { createMemoryQuota } from './quota/memory.js';
+import { parseLimit, type QuotaRepository } from './quota/quota.js';
 import type { DisclosureRepository } from './disclosure/repository.js';
 import { openDisclosureRepository } from './disclosure/open.js';
 import type { TemplateRepository } from './templates/repository.js';
@@ -214,6 +236,9 @@ function toTrpc(err: unknown): never {
             err.code === QUANT_SHARE_WINDOW_UNSET ||
             err.code === QUANT_SHARE_RATE_LIMITED ||
             err.code === QUANT_SIGNAL_RULES_SANDBOX ||
+            err.code === QUANT_QUOTA_UNSET ||
+            err.code === QUANT_QUOTA_EXCEEDED ||
+            err.code === QUANT_QUOTA_PROFILE_UNSET ||
             err.code === 'quant.venue_vault_unset'
           ? 'PRECONDITION_FAILED'
           : err.code === QUANT_DATABASE_URL_UNSET || err.code === QUANT_DATABASE_POOL_MAX_UNSET
@@ -307,7 +332,7 @@ const costBreakdown = z
 
 const runDetailOutput = z.object({
   runId: z.string(),
-  kind: z.enum(['backtest', 'sandbox']),
+  kind: z.enum(['backtest', 'sandbox', 'paper']),
   strategyId: z.string().nullable(),
   strategyVersion: z.number().int().positive().nullable(),
   started: z.string(),
@@ -380,6 +405,11 @@ export interface QuantRouterDeps extends SandboxDeps {
   readonly disclosure?: DisclosureRepository;
   /** Omitted refuses by naming the missing database. Production passes Postgres. */
   readonly templates?: TemplateRepository;
+  /**
+   * Quota profiles and assignments (AL-limits-01), read by `quota.get` and written by `ops.quota.*`. The same store's
+   * gate is passed to the strategy and run repositories, which enforce it. Omitted in unit tests: no profile applies.
+   */
+  readonly quota?: QuotaRepository;
   /** Omitted uses the published byte cap. Pass null only to prove the cap refuses. */
   readonly runResultCap?: number | null;
   /**
@@ -426,6 +456,25 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
+  const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
+  /** A paper run as the screen reads it, from its own strategy version. */
+  async function presentPaper(accountId: string, paper: StoredPaperRun) {
+    const found = await strategies.get({ accountId, id: paper.run.strategyId ?? '' });
+    const version = found?.versions.find((row) => row.version === paper.run.strategyVersion);
+    if (!found || !version) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+    return paperView(
+      paper,
+      { id: found.id, version: version.version, modules: version.modules, risk: version.risk },
+      { fees, history },
+      now(),
+    );
+  }
+  /** The reason an operator gives for a quota write: required, so every audit row says why. */
+  function quotaReason(raw: string): string {
+    const reason = raw.trim();
+    if (!reason) throw new QuantError(QUANT_QUOTA_REASON_UNSET, 'reason — a quota change needs a reason');
+    return reason;
+  }
   const shares = deps.share?.repository;
   const releaseNoteMax = deps.releaseNoteMax ?? null;
   /** A version's release note: blank is no note; a note needs the owner's cap, and is refused over it. */
@@ -550,7 +599,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               if (prior) idempotencyConflict(prior.operation);
               const built = buildSavedStrategy(input, 'studio_pending');
               const releaseNote = releaseNoteOf(input.releaseNote);
-              return strategies.create({
+              return await strategies.create({
                 accountId,
                 clientStrategyId: requireClientStrategyId(input.clientStrategyId),
                 idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
@@ -648,7 +697,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             if (!existing) missingStrategy();
             const built = buildSavedStrategy(input, input.id);
             const releaseNote = releaseNoteOf(input.releaseNote);
-            return strategies.revise({
+            return await strategies.revise({
               accountId,
               id: input.id,
               idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
@@ -744,7 +793,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             const prior = await replayOf(accountId, input.idempotencyKey);
             if (prior?.operation === 'restore') return prior.response;
             if (prior) idempotencyConflict(prior.operation);
-            return strategies.restore({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey) });
+            return await strategies.restore({ accountId, id: input.id, idempotencyKey: requireIdempotencyKey(input.idempotencyKey) });
           } catch (err) {
             toTrpc(err);
           }
@@ -811,7 +860,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               },
               'studio_pending',
             );
-            return strategies.create({
+            return await strategies.create({
               accountId,
               clientStrategyId: requireClientStrategyId(input.clientStrategyId),
               idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
@@ -917,6 +966,187 @@ export function createQuantRouter(deps: QuantRouterDeps) {
           toTrpc(err);
         }
       }),
+
+    quota: router({
+      /**
+       * The caller's plan (AL-limits-01): the profile that applies, and each resource's usage, counted from the stored
+       * rows, against its limit. A blank limit reads null and the screen says "not set"; with no profile, every limit does.
+       */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ ...accountField }).optional())
+        .output(quantQuotaSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input?.accountId);
+            const [applied, counts] = await Promise.all([quota.applied(accountId), quota.counts(accountId)]);
+            const limits = applied ? await quota.limits(applied.name) : [];
+            const used: Record<(typeof QUANT_QUOTA_RESOURCES)[number], bigint> = {
+              strategies: counts.strategies,
+              versions: counts.mostVersions,
+              concurrent_runs: counts.running,
+              paper_runs: counts.paperRuns,
+              runs: counts.runs,
+              // Nothing stores these yet: no log line is kept apart from its run's result, no collaborator can be added
+              // and no notice is sent, so the stored count is zero.
+              log_lines: 0n,
+              storage: counts.storage,
+              collaborators: 0n,
+              notifications: 0n,
+            };
+            return {
+              profile: applied?.name ?? null,
+              source: applied?.source ?? null,
+              resources: QUANT_QUOTA_RESOURCES.map((resource) => {
+                const limit = limits.find((row) => row.resource === resource)?.limit ?? null;
+                return { resource, used: used[resource].toString(), limit: limit === null ? null : limit.toString() };
+              }),
+              asOf: new Date().toISOString(),
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
+
+    paper: router({
+      /**
+       * Starts a paper run of one saved signal-rules version on the exchange's own prices (AL-live-01). The key is derived
+       * from the version's run count the start dialog read, so a retry after a lost reply reads the same run. An outside
+       * market feed refuses `feed.market` and stores nothing. The start counts against the plan (AL-limits-01).
+       */
+      start: publicJurisdictionProcedure('quant', 'fiat')
+        .input(quantPaperStartInputSchema.extend(accountField))
+        .output(quantPaperRunSchema)
+        .mutation(async ({ input, ctx }) =>
+          withQuantSpan('quant.paper.start', { language: 'rules' }, async () => {
+            try {
+              const accountId = accountOf(ctx, input.accountId);
+              const found = await strategies.get({ accountId, id: input.strategyId });
+              const version = found && !found.deletedAt ? found.versions.find((row) => row.version === input.strategyVersion) : undefined;
+              if (!found || !version) missingStrategy();
+              const key = paperKey(found.id, version.version, input.ordinal);
+              const prior = await runs.replay(accountId, key);
+              const priorPaper = prior ? await runs.paperRun({ userId: accountId, id: prior.id }) : null;
+              if (priorPaper) return await presentPaper(accountId, priorPaper);
+              const feed = input.feed.trim();
+              if (feed !== 'own_venue') {
+                if ((QUANT_PAPER_FEEDS as readonly string[]).includes(feed)) {
+                  throw new TRPCError({
+                    code: 'PRECONDITION_FAILED',
+                    message:
+                      'feed.market — an outside market feed is needed for this and is switched off in this build; no run was started',
+                  });
+                }
+                throw new QuantError('quant.params_invalid', `feed — ${feed || 'blank'} is not a data feed`);
+              }
+              if (!version.modules) {
+                throw new QuantError(QUANT_BACKTEST_RULES_REQUIRED, 'a paper run runs signal rules; this version trades by order blocks');
+              }
+              const settings = paperSettingsOf(input);
+              const begun = await runs.begin({
+                userId: accountId,
+                idempotencyKey: key,
+                kind: 'paper',
+                strategyId: found.id,
+                strategyVersion: version.version,
+                paper: settings,
+              });
+              const paper = await runs.paperRun({ userId: accountId, id: begun.id });
+              if (!paper) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+              return await presentPaper(accountId, paper);
+            } catch (err) {
+              if (err instanceof TRPCError) throw err;
+              toTrpc(err);
+            }
+          }),
+        ),
+
+      /** Stops one of the caller's paper runs: no new order after this, and the record stays. Stopping again changes nothing. */
+      stop: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ runId: z.string().min(1).max(128), ...accountField }))
+        .output(quantPaperRunSchema)
+        .mutation(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const paper = await runs.paperRun({ userId: accountId, id: input.runId });
+            if (!paper) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            if (!paper.run.finished) {
+              try {
+                await runs.finish({
+                  id: paper.run.id,
+                  userId: accountId,
+                  outcome: 'stopped',
+                  stored: { detail: null, response: { stopped: true } },
+                });
+              } catch (err) {
+                // Stopped by another tab first: the row is finished either way.
+                if (!(err instanceof QuantError) || err.code !== QUANT_RUN_IMMUTABLE) throw err;
+              }
+            }
+            const stopped = await runs.paperRun({ userId: accountId, id: input.runId });
+            if (!stopped) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            return await presentPaper(accountId, stopped);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** The caller's paper runs of one strategy, newest first, with each version's run count. A blank page size refuses. */
+      list: publicJurisdictionProcedure('quant', 'fiat')
+        .input(
+          z.object({
+            strategyId: z.string().min(1).max(128),
+            limit: z.number().int().min(1).max(QUANT_PAPER_LIST_MAX).optional(),
+            ...accountField,
+          }),
+        )
+        .output(quantPaperListSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            if (input.limit === undefined) {
+              throw new QuantError(QUANT_PAPER_LIST_LIMIT_UNSET, 'limit — the page size of the paper run list is unset');
+            }
+            // Every run of the strategy, for the counts; the plan's paper-run limit bounds how many there are.
+            const all = await runs.paperRuns({ userId: accountId, strategyId: input.strategyId, limit: 10_000 });
+            const counts = new Map<number, number>();
+            for (const row of all) counts.set(row.run.strategyVersion ?? 0, (counts.get(row.run.strategyVersion ?? 0) ?? 0) + 1);
+            return {
+              runs: all.slice(0, input.limit).map((row) => ({
+                runId: row.run.id,
+                strategyId: row.run.strategyId ?? '',
+                strategyVersion: row.run.strategyVersion ?? 1,
+                state: row.run.finished ? ('stopped' as const) : ('running' as const),
+                startedAt: row.run.started,
+                stoppedAt: row.run.finished,
+                cash: row.settings.cash,
+                feed: row.settings.feed,
+              })),
+              counts: [...counts.entries()]
+                .filter(([version]) => version > 0)
+                .sort((a, b) => a[0] - b[0])
+                .map(([strategyVersion, n]) => ({ strategyVersion, runs: n })),
+            };
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+
+      /** One of the caller's paper runs, with its fills, position and equity derived on this read. */
+      get: publicJurisdictionProcedure('quant', 'fiat')
+        .input(z.object({ runId: z.string().min(1).max(128), ...accountField }))
+        .output(quantPaperRunSchema)
+        .query(async ({ input, ctx }) => {
+          try {
+            const accountId = accountOf(ctx, input.accountId);
+            const paper = await runs.paperRun({ userId: accountId, id: input.runId });
+            if (!paper) throw new QuantError(QUANT_RUN_NOT_FOUND, 'run not found');
+            return await presentPaper(accountId, paper);
+          } catch (err) {
+            toTrpc(err);
+          }
+        }),
+    }),
 
     backtest: router({
       run: publicJurisdictionProcedure('quant', 'fiat')
@@ -1601,7 +1831,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             .object({
               from: z.string().optional().nullable(),
               to: z.string().optional().nullable(),
-              kind: z.enum(['backtest', 'sandbox']).optional().nullable(),
+              kind: z.enum(['backtest', 'sandbox', 'paper']).optional().nullable(),
               userId: z.string().guid().optional().nullable(),
               limit: z.number().int().optional(),
               cursor: z.string().optional().nullable(),
@@ -1613,7 +1843,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             runs: z.array(
               z.object({
                 id: z.string(),
-                kind: z.enum(['backtest', 'sandbox']),
+                kind: z.enum(['backtest', 'sandbox', 'paper']),
                 userId: z.string().guid().nullable(),
                 started: z.string(),
                 duration: z.number().int().nullable(),
@@ -1662,7 +1892,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
         )
         .output(
           z.object({
-            byKind: z.object({ backtest: z.number().int(), sandbox: z.number().int() }),
+            byKind: z.object({ backtest: z.number().int(), sandbox: z.number().int(), paper: z.number().int() }),
             byOutcome: z.array(z.object({ outcome: z.string(), count: z.number().int() })),
             asOf: z.string(),
           }),
@@ -1674,7 +1904,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
               to: requireWindowBound(input?.to, 'to'),
             });
             return {
-              byKind: { backtest: counts.byKind.backtest, sandbox: counts.byKind.sandbox },
+              byKind: { backtest: counts.byKind.backtest, sandbox: counts.byKind.sandbox, paper: counts.byKind.paper },
               byOutcome: counts.byOutcome.map((row) => ({ outcome: row.outcome, count: row.count })),
               asOf: counts.asOf,
             };
@@ -1682,6 +1912,67 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             toTrpc(err);
           }
         }),
+
+      quota: router({
+        /** Sets one limit of one profile; blank is "not set". A reason is required and kept with the actor. */
+        set: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantQuotaSetInputSchema)
+          .output(quantQuotaSetOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              const saved = await quota.set({
+                profile: input.profile,
+                resource: input.resource,
+                limit: parseLimit(input.limit),
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+              return { ...saved, limit: saved.limit === null ? null : saved.limit.toString() };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** Attaches an account to a profile. A reason is required and kept with the actor. */
+        assign: scopedProcedure('admin:write', { module: 'quant', plane: 'fiat' })
+          .input(quantQuotaAssignInputSchema)
+          .output(quantQuotaAssignOutputSchema)
+          .mutation(async ({ input, ctx }) => {
+            try {
+              const reason = quotaReason(input.reason);
+              return await quota.assign({
+                accountId: input.accountId,
+                profile: input.profile,
+                reason,
+                actor: ctx.principal.userId,
+                idempotencyKey: input.idempotencyKey,
+              });
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+
+        /** One profile's limits as stored. */
+        profile: scopedProcedure('admin:read', { module: 'quant', plane: 'fiat' })
+          .input(z.object({ profile: z.string().trim().min(1).max(80) }))
+          .output(quantQuotaProfileSchema)
+          .query(async ({ input }) => {
+            try {
+              const rows = await quota.limits(input.profile);
+              return {
+                profile: input.profile,
+                limits: QUANT_QUOTA_RESOURCES.map((resource) => {
+                  const row = rows.find((r) => r.resource === resource);
+                  return { resource, limit: row?.limit == null ? null : row.limit.toString(), setAt: row?.setAt ?? null };
+                }),
+              };
+            } catch (err) {
+              toTrpc(err);
+            }
+          }),
+      }),
 
       template: router({
         /** The next version of a starter template. Every number stays blank; the row records who, why and when. */
