@@ -46,7 +46,7 @@
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
- *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
+ *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -528,8 +528,12 @@ export function fileSteps(journey, text) {
  * (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so the seal
  * judged none of their steps; project-state #1249 comment 6681706701.)
  */
-export function judgeTouched({ title, body, touched }) {
+export function judgeTouched({ title, body, touched, repo }) {
   if (!touched.length) return { ok: true, lines: [] };
+  // GitHub's Revert button (title `Revert "…"`, body line `Reverts owner/repo#n`) passes, as judgeSteps lets it: a red
+  // main is fixed or undone within 2 hours (project-state OWNER 180), so a revert never waits on a body line.
+  const reverts = revertOf({ title, body, repo });
+  if (reverts) return { ok: true, lines: [`a revert of #${reverts} (GitHub's Revert form): its journey tests need no steps named`] };
   const left = exemptions(body);
   if (left.problems.length)
     return {
@@ -553,6 +557,15 @@ export function judgeTouched({ title, body, touched }) {
     );
   }
   return { ok: lines.length === 0, lines };
+}
+
+/** The pull request a GitHub revert undoes: the title is exactly `Revert "…"` and a body line, at column 0, is exactly
+ *  `Reverts <this repo>#n`, as GitHub's Revert button writes them. Null for anything else. */
+export function revertOf({ title, body, repo }) {
+  if (!isRevert(title) || !repo) return null;
+  const esc = String(repo).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`^Reverts ${esc}#(\\d+)[ \\t]*$`, 'm').exec(String(body ?? '').replace(/\r/g, ''));
+  return m ? Number(m[1]) : null;
 }
 
 /** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
@@ -581,6 +594,7 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   const paths = await io.files(number);
   const shared = paths.filter(isSharedSetup);
   const touched = judgeTouched({
+    repo,
     title: pull.title,
     body: pull.body,
     touched: await touchedSteps({ paths, head, base: pull.base?.sha, text: (f, ref) => io.text(f, ref) }),
@@ -672,13 +686,21 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
 export const namesSteps = (title) => titleSteps(title).length > 0 || titleProblems(title).length > 0;
 
 /**
- * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`).
+ * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`),
+ * and a body that has an exemption-like line now or had one before the edit (`oldBody`), so removing a line re-runs it.
  * A title edited from "fix J-bank-13" to "J-bank-13 #1-#100" is judged, so its green seal turns red.
  */
-export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', shared = new Set() }) =>
+export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', oldBody = '', shared = new Set() }) =>
   (pulls ?? [])
     .filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo)
-    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle) || LOOKS_EXEMPT.test(p.body ?? '') || shared.has(p.number));
+    .filter(
+      (p) =>
+        namesSteps(p.title) ||
+        namesSteps(oldTitle) ||
+        LOOKS_EXEMPT.test(p.body ?? '') ||
+        LOOKS_EXEMPT.test(oldBody ?? '') ||
+        shared.has(p.number),
+    );
 
 /** The open pull requests on `sha` that `recheckPulls` would not take by their title: their numbers that touch shared
  *  setup (`filesOf(n)`: the changed paths). */
@@ -695,7 +717,7 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
  * before an edit, OLD_TITLE), each with its seal re-run. A head no open pull request names is left alone.
  */
 async function recheck({ repo, token }) {
-  const { SHA, PR_NUMBER, OLD_TITLE = '' } = process.env;
+  const { SHA, PR_NUMBER, OLD_TITLE = '', OLD_BODY = '' } = process.env;
   if (!SHA40.test(SHA ?? '')) throw new Error('recheck needs SHA');
   const get = (path) => api(path, token);
   const post = async (path) => {
@@ -714,7 +736,7 @@ async function recheck({ repo, token }) {
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
   const shared = await sharedPulls({ pulls, sha: SHA, repo, filesOf: (n) => pullFiles(get, repo, n) });
-  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, shared });
+  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, oldBody: OLD_BODY, shared });
   if (!named.length)
     return console.log(`no open pull request on ${SHA} names journey steps or touches shared setup; the seal is left as it is`);
   console.log(

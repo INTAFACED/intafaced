@@ -881,3 +881,59 @@ test('the recheck takes a pull request whose body gained an exemption line, so l
     [9],
   );
 });
+
+test("a GitHub revert of a journey-test PR passes; a fake Revert title without GitHub's body line does not", async () => {
+  const revert = await touchedPull({
+    title: 'Revert "test(journeys): J-bank-13 waits for the card list"',
+    body: 'Reverts INTAFACED/intafaced#7434',
+  });
+  assert.equal(revert.ok, true, "GitHub's Revert form is never slowed by a body line (OWNER 180)");
+  assert.match(revert.lines.join('\n'), /a revert of #7434/);
+  const fake = await touchedPull({ title: 'Revert "test(journeys): J-bank-13 waits for the card list"', body: 'undoes the flaky wait' });
+  assert.equal(fake.ok, false, 'a Revert title alone is not a revert');
+  assert.match(fake.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
+  assert.equal(
+    (await touchedPull({ title: 'Revert "x"', body: 'Reverts someone/else#7434' })).ok,
+    false,
+    "another repository's PR is not this one's revert",
+  );
+  assert.equal(
+    (await touchedPull({ title: 'Revert "x" and more', body: 'Reverts INTAFACED/intafaced#7434' })).ok,
+    false,
+    'more after the quote',
+  );
+  assert.equal(
+    (await touchedPull({ title: 'Revert "x"', body: '  Reverts INTAFACED/intafaced#7434' })).ok,
+    false,
+    'the line at column 0 only',
+  );
+});
+
+test('the recheck takes a pull request whose body lost its exemption line (OLD_BODY), so removing it re-runs the seal', () => {
+  const p = {
+    number: 10,
+    title: 'test(journeys): waits',
+    body: 'nothing left here',
+    state: 'open',
+    head: { sha: HEAD },
+    base: { repo: { full_name: REPO } },
+  };
+  assert.deepEqual(recheckPulls({ pulls: [p], sha: HEAD, repo: REPO }), [], 'no line now and no old body: left alone');
+  assert.deepEqual(
+    recheckPulls({ pulls: [p], sha: HEAD, repo: REPO, oldBody: 'Left-or-replaced: J-bank-13 #3' }).map((x) => x.number),
+    [10],
+  );
+});
+
+test('journey-seal-recheck.yml passes the old body to the recheck as an env value', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/journey-seal-recheck.yml', import.meta.url), 'utf8');
+  assert.match(yml, /\n {10}OLD_BODY: \$\{\{ github\.event\.changes\.body\.from \}\}/);
+  assert.doesNotMatch(
+    yml
+      .split('\n')
+      .filter((l) => /^\s+run:/.test(l))
+      .join('\n'),
+    /changes\.body/,
+    'never in the script text',
+  );
+});
