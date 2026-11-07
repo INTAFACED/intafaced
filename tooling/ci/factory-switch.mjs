@@ -17,7 +17,8 @@ export const SWITCH_FILE = 'FACTORY';
 export function judgeSwitch(text) {
   const state = typeof text === 'string' ? text.trim() : '';
   if (state === 'run') return { pass: true, state };
-  return { pass: false, state, why: `${SWITCH_FILE} on branch ${SWITCH_BRANCH} says '${state}', not 'run'` };
+  // Quoted and cut short, so the file's text can't add lines (or workflow commands) to the log.
+  return { pass: false, state, why: `${SWITCH_FILE} on branch ${SWITCH_BRANCH} says ${JSON.stringify(state.slice(0, 40))}, not "run"` };
 }
 
 /** Reads the file's raw text through the contents API; any non-200 answer throws, so the seal fails closed. */

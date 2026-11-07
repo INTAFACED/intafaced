@@ -13,7 +13,8 @@ test('pause, blank and any other text fail', () => {
   for (const t of ['pause', 'pause\n', '', '   ', 'Run', 'RUN', 'running', 'run\npause', 'paused', undefined, null]) {
     assert.equal(judgeSwitch(t).pass, false, JSON.stringify(t));
   }
-  assert.match(judgeSwitch('pause\n').why, /says 'pause', not 'run'/);
+  assert.match(judgeSwitch('pause\n').why, /says "pause", not "run"/);
+  assert.doesNotMatch(judgeSwitch('pause\n::warning::x').why, /\n/);
 });
 
 test('reads the raw file on the factory-switch branch', async () => {
