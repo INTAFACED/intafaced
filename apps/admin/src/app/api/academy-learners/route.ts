@@ -20,7 +20,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const incomplete = (body: string) =>
   Response.json(
-    { ok: false, title: 'That request is not complete', body, next: 'Nothing was changed. Correct it and try again.', code: null, changed: 'no' },
+    {
+      ok: false,
+      title: 'That request is not complete',
+      body,
+      next: 'Nothing was changed. Correct it and try again.',
+      code: null,
+      changed: 'no',
+    },
     { status: 400, headers: NO_STORE },
   );
 

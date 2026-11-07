@@ -42,7 +42,8 @@ async function staff(kind, procedure, input) {
     return { ctx, token: await sessions.a.tradeOpsToken() };
   })();
   const { ctx, token } = await staffDoor;
-  const res = kind === 'query' ? await ctx.edge.query('academy', procedure, input, token) : await ctx.edge.mutate('academy', procedure, input, token);
+  const res =
+    kind === 'query' ? await ctx.edge.query('academy', procedure, input, token) : await ctx.edge.mutate('academy', procedure, input, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return JSON.parse(res.text).result.data;
 }
@@ -165,7 +166,9 @@ test(`${J} #1 a support agent finds the stuck learner and opens their page: prof
   const closed = await learnerRead(learner, 'curriculumItem', { slug: items.mark });
   expect(codeOf(closed), JSON.stringify(closed.body).slice(0, 300)).toBe('academy.grant_expired');
   await learnerTab.goto(`/academy/${items.mark}`);
-  await expect(learnerTab.getByText('Your access to this course has ended, so its items do not open. Ask support to reinstate it.')).toBeVisible();
+  await expect(
+    learnerTab.getByText('Your access to this course has ended, so its items do not open. Ask support to reinstate it.'),
+  ).toBeVisible();
 
   // The support agent searches for the learner by their email and lands on their page.
   await founderSignIn(page, 'b');
@@ -242,7 +245,9 @@ test(`${J} #2 their progress lists every item with its status and attempts, the 
   await expect(itemRow(page, items.mark).getByTestId('item-status')).toHaveText('Not started');
 });
 
-test(`${J} #3 Mark complete with no reason is refused by name; with a reason the item is complete and the event is listed`, async ({ page }) => {
+test(`${J} #3 Mark complete with no reason is refused by name; with a reason the item is complete and the event is listed`, async ({
+  page,
+}) => {
   const { learnerId, items, learner } = run.read();
   if (!learnerId) throw new Error(`${J} #1 left no learner`);
   await founderSignIn(page, 'b');
@@ -256,8 +261,14 @@ test(`${J} #3 Mark complete with no reason is refused by name; with a reason the
   await expect(learnerPage(page).getByTestId('learner-audit').locator('[data-audit="marked_complete"]')).toHaveCount(0);
 
   const reason = `TEST ${J}: finished offline, confirmed by support`;
-  await itemRow(page, items.mark).getByRole('form', { name: /^Mark .+ complete$/ }).getByLabel(/^Reason: Mark/).fill(reason);
-  await itemRow(page, items.mark).getByRole('form', { name: /^Mark .+ complete$/ }).getByRole('button', { name: 'Mark complete' }).click();
+  await itemRow(page, items.mark)
+    .getByRole('form', { name: /^Mark .+ complete$/ })
+    .getByLabel(/^Reason: Mark/)
+    .fill(reason);
+  await itemRow(page, items.mark)
+    .getByRole('form', { name: /^Mark .+ complete$/ })
+    .getByRole('button', { name: 'Mark complete' })
+    .click();
   await expect(outcome(page)).toContainText('Done: item marked complete for the learner');
   await expect(itemRow(page, items.mark)).toHaveAttribute('data-item-status', 'completed');
   const event = learnerPage(page).getByTestId('learner-audit').locator('[data-audit="marked_complete"]');
@@ -334,7 +345,11 @@ test(`${J} #5 an extension for this learner: they see the extended date, others 
     await tab.goto(`/academy/${items.undone}`);
     const due = tab.locator(`[data-outline-item="${items.due}"]`).getByTestId('outline-due');
     await expect(due).toBeVisible();
-    const seen = { extended: await due.getAttribute('data-due-extended'), text: await due.textContent(), page: await tab.locator('main').textContent() };
+    const seen = {
+      extended: await due.getAttribute('data-due-extended'),
+      text: await due.textContent(),
+      page: await tab.locator('main').textContent(),
+    };
     await context.close();
     return seen;
   };

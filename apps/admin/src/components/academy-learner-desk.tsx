@@ -180,7 +180,10 @@ function Notes({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean; 
         <ol className="dk-stack">
           {page.notes.map((n) => (
             <li key={n.n} data-note={n.n}>
-              <span>{n.body}</span> <span className="dk-muted">· {formatWhen(n.at)} by {n.authorId}</span>
+              <span>{n.body}</span>{' '}
+              <span className="dk-muted">
+                · {formatWhen(n.at)} by {n.authorId}
+              </span>
             </li>
           ))}
         </ol>
@@ -235,7 +238,12 @@ function Tags({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean; s
         </ul>
       )}
       {page.canChange && (
-        <ReasonForm label="Add a tag" button="Add tag" busy={busy} onSubmit={(reason) => void send({ op: 'tag', userIds: [page.userId], tag, reason })}>
+        <ReasonForm
+          label="Add a tag"
+          button="Add tag"
+          busy={busy}
+          onSubmit={(reason) => void send({ op: 'tag', userIds: [page.userId], tag, reason })}
+        >
           <label>
             Tag
             <input value={tag} onChange={(e) => setTag(e.target.value.trim().toLowerCase())} maxLength={40} aria-label="Tag" />
@@ -302,7 +310,14 @@ function ItemRow({ userId, item, canChange, busy, send }: { userId: string; item
           label={`Mark ${item.title} complete`}
           button="Mark complete"
           busy={busy}
-          onSubmit={(reason) => void send({ op: 'markComplete', itemSlug: item.slug, reason, key: `override:${userId}:${item.slug}:${item.history.length + 1}` })}
+          onSubmit={(reason) =>
+            void send({
+              op: 'markComplete',
+              itemSlug: item.slug,
+              reason,
+              key: `override:${userId}:${item.slug}:${item.history.length + 1}`,
+            })
+          }
         />
       )}
       {canChange && item.dueAt && (
@@ -322,7 +337,12 @@ function ItemRow({ userId, item, canChange, busy, send }: { userId: string; item
         >
           <label>
             New due date (your time)
-            <input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} aria-label={`New due date: ${item.title}`} />
+            <input
+              type="datetime-local"
+              value={until}
+              onChange={(e) => setUntil(e.target.value)}
+              aria-label={`New due date: ${item.title}`}
+            />
           </label>
         </ReasonForm>
       )}
@@ -345,7 +365,14 @@ function Progress({ view, busy, send }: { view: LearnerView; busy: boolean; send
             <h4>{PATH[course.pathSlug]}</h4>
             <ol className="dk-stack">
               {course.items.map((item) => (
-                <ItemRow key={`${item.slug}-${view.asOf}`} userId={view.userId} item={item} canChange={part.data.canChange} busy={busy} send={send} />
+                <ItemRow
+                  key={`${item.slug}-${view.asOf}`}
+                  userId={view.userId}
+                  item={item}
+                  canChange={part.data.canChange}
+                  busy={busy}
+                  send={send}
+                />
               ))}
             </ol>
           </div>
@@ -382,7 +409,9 @@ export function AcademyLearnerDesk({ userId, initial }: { userId: string; initia
       </p>
       <span className="dk-asof">{view ? `Read ${formatAsOf(view.asOf)}` : 'No read yet'}</span>
       <Outcome reply={reply} />
-      {!view && <p className="dk-why">The console could not reach its own server for this learner. Nothing is shown rather than a guess.</p>}
+      {!view && (
+        <p className="dk-why">The console could not reach its own server for this learner. Nothing is shown rather than a guess.</p>
+      )}
       {view && <Profile view={view} />}
       {page?.kind === 'failed' && <Failed title="Could not read the learner" message={page.message} code={page.code} />}
       {view && page?.kind === 'ok' && (

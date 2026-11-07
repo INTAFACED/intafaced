@@ -131,7 +131,9 @@ export const academyLearnerProgressSchema = z.object({
 export type AcademyLearnerProgress = z.infer<typeof academyLearnerProgressSchema>;
 
 /** `admin.addLearnerNote`: an internal note. Never returned to the learner. */
-export const academyAddLearnerNoteInputSchema = z.object({ userId: account, body: z.string().trim().min(1).max(2000), key: requestKey }).strict();
+export const academyAddLearnerNoteInputSchema = z
+  .object({ userId: account, body: z.string().trim().min(1).max(2000), key: requestKey })
+  .strict();
 
 /** `admin.markCompleteFor`: staff record an item complete for the learner, with a reason. */
 export const academyMarkCompleteForInputSchema = z
@@ -139,7 +141,9 @@ export const academyMarkCompleteForInputSchema = z
   .strict();
 
 /** `admin.voidQuizAttempt`: one finished attempt no longer counts, so the learner may retake within the rules left. */
-export const academyVoidQuizAttemptInputSchema = z.object({ userId: account, attemptId: z.string().guid(), reason: reasonAsTyped }).strict();
+export const academyVoidQuizAttemptInputSchema = z
+  .object({ userId: account, attemptId: z.string().guid(), reason: reasonAsTyped })
+  .strict();
 
 /** `admin.grantLearnerExtension`: this learner's own later date on an item with a window. */
 export const academyGrantLearnerExtensionInputSchema = z
@@ -153,18 +157,28 @@ export const academyGrantAccessInputSchema = z
 
 /** `admin.reinstateAccess`: the same record granted again (`reinstate:<grant>:<n>`), with a reason and an optional new end. */
 export const academyReinstateAccessInputSchema = z
-  .object({ userId: account, grantId: z.string().guid(), reason: reasonAsTyped, expiresAt: isoInstant.nullable(), n: z.number().int().positive() })
+  .object({
+    userId: account,
+    grantId: z.string().guid(),
+    reason: reasonAsTyped,
+    expiresAt: isoInstant.nullable(),
+    n: z.number().int().positive(),
+  })
   .strict();
 
 /** `admin.tagLearners` and `admin.untagLearner`: a keyword on one or many learners. Tags are never renamed. */
-export const academyTagLearnersInputSchema = z.object({ userIds: z.array(account).min(1).max(200), tag: tagName, reason: reasonAsTyped }).strict();
+export const academyTagLearnersInputSchema = z
+  .object({ userIds: z.array(account).min(1).max(200), tag: tagName, reason: reasonAsTyped })
+  .strict();
 export const academyUntagLearnerInputSchema = z.object({ userId: account, tag: tagName, reason: reasonAsTyped }).strict();
 
 /** `admin.learnerTags`: every tag with how many learners carry it. */
 export const academyLearnerTagsSchema = z.array(z.object({ tag: z.string().min(1), learners: z.number().int().nonnegative() }));
 
 /** `admin.learners`: the learners report, filtered by tag when one is named. */
-export const academyLearnersInputSchema = z.object({ tag: tagName.optional(), limit: z.number().int().min(1).max(200).optional() }).strict();
+export const academyLearnersInputSchema = z
+  .object({ tag: tagName.optional(), limit: z.number().int().min(1).max(200).optional() })
+  .strict();
 export const academyLearnersSchema = z.object({
   tag: z.string().nullable(),
   rows: z.array(

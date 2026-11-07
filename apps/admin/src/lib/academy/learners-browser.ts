@@ -6,7 +6,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(v
 
 export async function fetchLearner(userId: string): Promise<LearnerView | null> {
   try {
-    const res = await fetch(`/api/academy-learners?userId=${encodeURIComponent(userId)}`, { cache: 'no-store', credentials: 'same-origin' });
+    const res = await fetch(`/api/academy-learners?userId=${encodeURIComponent(userId)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
     if (!res.ok) return null;
     const body: unknown = await res.json();
     return isRecord(body) && typeof body.asOf === 'string' && isRecord(body.page) && isRecord(body.progress) && isRecord(body.card)

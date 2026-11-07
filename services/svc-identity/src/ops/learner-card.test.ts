@@ -19,8 +19,14 @@ describe('learnerCard.lookup (J-academy-14 #1)', () => {
 
   it('needs admin:read on an interactive second-factor session, and reads nothing otherwise', async () => {
     await expect(lookupLearnerCard(noSql, ctx(['academy:read']), { handle: 'abc' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(lookupLearnerCard(noSql, ctx(['admin:read'], { kid: 'key' }), { handle: 'abc' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(lookupLearnerCard(noSql, ctx(['admin:read'], { sub_account: true }), { handle: 'abc' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
-    await expect(lookupLearnerCard(noSql, ctx(['admin:read'], { mfa: false }), { handle: 'abc' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    await expect(lookupLearnerCard(noSql, ctx(['admin:read'], { kid: 'key' }), { handle: 'abc' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(lookupLearnerCard(noSql, ctx(['admin:read'], { sub_account: true }), { handle: 'abc' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(lookupLearnerCard(noSql, ctx(['admin:read'], { mfa: false }), { handle: 'abc' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
   });
 });

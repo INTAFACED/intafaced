@@ -11,7 +11,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError, type Context } from '@intafaced/contracts';
-import { identityLearnerCardInputSchema, identityLearnerCardResultSchema, type IdentityLearnerCard } from '@intafaced/contracts/identity-learner-card';
+import {
+  identityLearnerCardInputSchema,
+  identityLearnerCardResultSchema,
+  type IdentityLearnerCard,
+} from '@intafaced/contracts/identity-learner-card';
 import { maskEmail } from './account-directory.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -45,7 +49,16 @@ export async function lookupLearnerCard(sql: Sql, context: Context, input: z.inf
   const actorId = reader(context);
   const term = learnerCardTerm(input);
   const rows = await sql<
-    Array<{ id: string; handle: string; email: string; status: IdentityLearnerCard['status']; created_at: Date; total: number; recent: number; last_at: Date | null }>
+    Array<{
+      id: string;
+      handle: string;
+      email: string;
+      status: IdentityLearnerCard['status'];
+      created_at: Date;
+      total: number;
+      recent: number;
+      last_at: Date | null;
+    }>
   >`
     SELECT u.id, u.handle::text AS handle, u.email::text AS email, u.status, u.created_at,
            (SELECT count(*)::int FROM sessions s WHERE s.user_id = u.id) AS total,

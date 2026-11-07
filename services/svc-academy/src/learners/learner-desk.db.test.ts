@@ -87,7 +87,18 @@ const QUIZ = {
   attemptLimit: 1,
   timeLimitSeconds: null,
   reviewMode: 'score_only' as const,
-  questions: [{ id: 'q1', prompt: 'TEST?', points: 1, choices: [{ id: 'a', text: 'TEST a' }, { id: 'b', text: 'TEST b' }], correctChoiceId: 'a' }],
+  questions: [
+    {
+      id: 'q1',
+      prompt: 'TEST?',
+      points: 1,
+      choices: [
+        { id: 'a', text: 'TEST a' },
+        { id: 'b', text: 'TEST b' },
+      ],
+      correctChoiceId: 'a',
+    },
+  ],
 };
 
 async function items(academy: AcademyService) {
@@ -101,14 +112,23 @@ describe('access records', () => {
     await academy.enrolCourse({ userId: USER, slug: PATH, track: 'audit' });
     const slug = (await items(academy))[0]!.items[0]!.slug;
     const t0 = new Date();
-    await academy.learners.grantAccess({ userId: USER, pathSlug: PATH, reason: 'TEST', expiresAt: new Date(t0.getTime() + 1000), actorId: STAFF, now: t0 });
+    await academy.learners.grantAccess({
+      userId: USER,
+      pathSlug: PATH,
+      reason: 'TEST',
+      expiresAt: new Date(t0.getTime() + 1000),
+      actorId: STAFF,
+      now: t0,
+    });
     // A repeat of the first grant is the same record.
     await academy.learners.grantAccess({ userId: USER, pathSlug: PATH, reason: 'TEST again', expiresAt: null, actorId: STAFF, now: t0 });
     await expect(academy.readCurriculumItem({ userId: USER, slug, now: t0 })).resolves.toBeTruthy();
     const later = new Date(t0.getTime() + 5000);
     await expect(academy.readCurriculumItem({ userId: USER, slug, now: later })).rejects.toMatchObject({ code: 'academy.grant_expired' });
     await expect(academy.readCurriculumItem({ userId: USER, slug, now: later })).rejects.toMatchObject({ code: 'academy.grant_expired' });
-    await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: slug, now: later })).rejects.toMatchObject({ code: 'academy.grant_expired' });
+    await expect(academy.markCurriculumComplete({ userId: USER, itemSlug: slug, now: later })).rejects.toMatchObject({
+      code: 'academy.grant_expired',
+    });
     const ended = (await academy.learners.page(USER, true, later)).access.filter((g) => g.pathSlug === PATH);
     expect(ended).toHaveLength(1);
     expect(ended[0]).toMatchObject({ state: 'expired', reason: 'TEST' });
@@ -117,10 +137,14 @@ describe('access records', () => {
 
     // A reinstatement names the event it becomes; a stale number refuses and changes nothing; blank reasons refuse.
     const grantId = ended[0]!.id!;
-    await expect(academy.learners.reinstate({ userId: USER, grantId, reason: ' ', expiresAt: null, n: 3, actorId: STAFF })).rejects.toMatchObject({
+    await expect(
+      academy.learners.reinstate({ userId: USER, grantId, reason: ' ', expiresAt: null, n: 3, actorId: STAFF }),
+    ).rejects.toMatchObject({
       code: 'academy.reason_required',
     });
-    await expect(academy.learners.reinstate({ userId: USER, grantId, reason: 'TEST', expiresAt: null, n: 2, actorId: STAFF })).rejects.toMatchObject({
+    await expect(
+      academy.learners.reinstate({ userId: USER, grantId, reason: 'TEST', expiresAt: null, n: 2, actorId: STAFF }),
+    ).rejects.toMatchObject({
       code: 'academy.revision_stale',
     });
     await expect(
@@ -129,7 +153,9 @@ describe('access records', () => {
     await academy.learners.reinstate({ userId: USER, grantId, reason: 'TEST back', expiresAt: null, n: 3, actorId: STAFF });
     // A replay of the same reinstatement answers and writes nothing; one more on the live record refuses.
     await academy.learners.reinstate({ userId: USER, grantId, reason: 'TEST back', expiresAt: null, n: 3, actorId: STAFF });
-    await expect(academy.learners.reinstate({ userId: USER, grantId, reason: 'TEST', expiresAt: null, n: 4, actorId: STAFF })).rejects.toMatchObject({
+    await expect(
+      academy.learners.reinstate({ userId: USER, grantId, reason: 'TEST', expiresAt: null, n: 4, actorId: STAFF }),
+    ).rejects.toMatchObject({
       code: 'academy.grant_active',
     });
     const back = (await academy.learners.page(USER, true)).access.filter((g) => g.pathSlug === PATH);
@@ -148,7 +174,13 @@ describe('access records', () => {
       academy.learners.grantAccess({ userId: USER, pathSlug: PATH, reason: '', expiresAt: null, actorId: STAFF }),
     ).rejects.toMatchObject({ code: 'academy.reason_required' });
     await expect(
-      academy.learners.grantAccess({ userId: USER, pathSlug: PATH, reason: 'TEST', expiresAt: new Date(Date.now() - 1000), actorId: STAFF }),
+      academy.learners.grantAccess({
+        userId: USER,
+        pathSlug: PATH,
+        reason: 'TEST',
+        expiresAt: new Date(Date.now() - 1000),
+        actorId: STAFF,
+      }),
     ).rejects.toMatchObject({ code: 'academy.window_invalid' });
     expect((await academy.learners.page(USER, true)).access[0]!.id).toBeNull();
   });
@@ -160,7 +192,12 @@ describe('progress and overrides', () => {
     await academy.enrolCourse({ userId: USER, slug: PATH, track: 'audit' });
     const [first, second] = (await items(academy))[0]!.items;
     const done = await academy.markCurriculumComplete({ userId: USER, itemSlug: first!.slug });
-    await academy.undoCurriculumComplete({ userId: USER, itemSlug: first!.slug, completedAt: done.completedAt.toISOString(), clientRequestId: 'TEST-undo' });
+    await academy.undoCurriculumComplete({
+      userId: USER,
+      itemSlug: first!.slug,
+      completedAt: done.completedAt.toISOString(),
+      clientRequestId: 'TEST-undo',
+    });
     const row = (await items(academy))[0]!.items[0]!;
     expect(row.status).toBe('undone');
     expect(row.history.map((h) => h.event)).toEqual(['completed', 'undone']);
@@ -214,12 +251,7 @@ describe('notes, tags and permissions', () => {
     await academy.learners.addNote({ userId: USER, body, key: 'note:1', actorId: STAFF });
     expect((await academy.learners.page(USER, true)).notes).toEqual([expect.objectContaining({ n: 1, body, authorId: STAFF })]);
     const learner = caller(academy, USER, ['academy:read', 'academy:write']);
-    const reads = await Promise.all([
-      learner.myLearning(),
-      learner.myAccessGrants(),
-      learner.myProgress(),
-      learner.myEnrollments(),
-    ]);
+    const reads = await Promise.all([learner.myLearning(), learner.myAccessGrants(), learner.myProgress(), learner.myEnrollments()]);
     expect(JSON.stringify(reads)).not.toContain(body);
     await expect(learner.admin.learner({ userId: USER })).rejects.toMatchObject({ code: 'FORBIDDEN' });
   });
@@ -247,9 +279,10 @@ describe('notes, tags and permissions', () => {
     expect((await reader.admin.learner({ userId: USER })).canChange).toBe(false);
     expect((await reader.admin.learnerProgress({ userId: USER })).canChange).toBe(false);
     const slug = (await items(academy))[0]!.items[0]!.slug;
-    await expect(
-      reader.admin.markCompleteFor({ userId: USER, itemSlug: slug, reason: 'TEST', key: 'override:x' }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN', message: expect.stringContaining('academy.permission_denied') });
+    await expect(reader.admin.markCompleteFor({ userId: USER, itemSlug: slug, reason: 'TEST', key: 'override:x' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: expect.stringContaining('academy.permission_denied'),
+    });
     await expect(reader.admin.addLearnerNote({ userId: USER, body: 'TEST', key: 'k' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     await expect(reader.admin.tagLearners({ userIds: [USER], tag: 'x', reason: 'TEST' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect((await academy.learners.page(USER, true)).audit).toEqual([]);

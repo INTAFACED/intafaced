@@ -34,7 +34,8 @@ const ACADEMY: PartLabels = {
 };
 const IDENTITY: PartLabels = {
   service: 'svc-identity',
-  forbiddenMessage: 'Identity did not accept your session for the learner lookup (it needs admin:read on a signed-in session with a second factor).',
+  forbiddenMessage:
+    'Identity did not accept your session for the learner lookup (it needs admin:read on a signed-in session with a second factor).',
 };
 
 /** The learner desk's own words for the codes it shares with other desks; the rest come from the shared catalogue. */
@@ -94,7 +95,9 @@ export async function loadLearners(ctx: FounderCallContext, tag: string | null):
   const handles: Record<string, string> = {};
   if (report.kind === 'ok' && report.data) {
     const cards = await Promise.all(
-      report.data.rows.slice(0, 50).map((row) => founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', { userId: row.userId }, readCard)),
+      report.data.rows
+        .slice(0, 50)
+        .map((row) => founderCall(ctx, 'identity', 'learnerCard.lookup', 'GET', { userId: row.userId }, readCard)),
     );
     for (const card of cards) if (card.kind === 'ok' && card.data?.card) handles[card.data.card.id] = card.data.card.handle;
   }
@@ -124,7 +127,13 @@ function reply(result: FounderCallResult<unknown>, what: string): { status: numb
 
 /** What the operator sent, checked as svc-academy checks it (a blank reason goes through, so svc-academy refuses it by name). */
 const OPS = {
-  addNote: { schema: academyAddLearnerNoteInputSchema, procedure: 'admin.addLearnerNote', what: 'internal note saved', why: 'Write the note.', parse: readChange },
+  addNote: {
+    schema: academyAddLearnerNoteInputSchema,
+    procedure: 'admin.addLearnerNote',
+    what: 'internal note saved',
+    why: 'Write the note.',
+    parse: readChange,
+  },
   markComplete: {
     schema: academyMarkCompleteForInputSchema,
     procedure: 'admin.markCompleteFor',
@@ -132,7 +141,13 @@ const OPS = {
     why: 'Choose an item.',
     parse: readChange,
   },
-  voidAttempt: { schema: academyVoidQuizAttemptInputSchema, procedure: 'admin.voidQuizAttempt', what: 'quiz attempt voided', why: 'Choose an attempt.', parse: readChange },
+  voidAttempt: {
+    schema: academyVoidQuizAttemptInputSchema,
+    procedure: 'admin.voidQuizAttempt',
+    what: 'quiz attempt voided',
+    why: 'Choose an attempt.',
+    parse: readChange,
+  },
   extension: {
     schema: academyGrantLearnerExtensionInputSchema,
     procedure: 'admin.grantLearnerExtension',
@@ -140,10 +155,34 @@ const OPS = {
     why: 'Give a new due date and time.',
     parse: readChange,
   },
-  grantAccess: { schema: academyGrantAccessInputSchema, procedure: 'admin.grantAccess', what: 'access granted', why: 'Choose a course.', parse: readChange },
-  reinstate: { schema: academyReinstateAccessInputSchema, procedure: 'admin.reinstateAccess', what: 'access reinstated', why: 'Choose the access record.', parse: readChange },
-  tag: { schema: academyTagLearnersInputSchema, procedure: 'admin.tagLearners', what: 'tag added', why: 'A tag is lower-case letters, digits and dashes, up to 40.', parse: readAdded },
-  untag: { schema: academyUntagLearnerInputSchema, procedure: 'admin.untagLearner', what: 'tag removed', why: 'Choose a tag.', parse: readChange },
+  grantAccess: {
+    schema: academyGrantAccessInputSchema,
+    procedure: 'admin.grantAccess',
+    what: 'access granted',
+    why: 'Choose a course.',
+    parse: readChange,
+  },
+  reinstate: {
+    schema: academyReinstateAccessInputSchema,
+    procedure: 'admin.reinstateAccess',
+    what: 'access reinstated',
+    why: 'Choose the access record.',
+    parse: readChange,
+  },
+  tag: {
+    schema: academyTagLearnersInputSchema,
+    procedure: 'admin.tagLearners',
+    what: 'tag added',
+    why: 'A tag is lower-case letters, digits and dashes, up to 40.',
+    parse: readAdded,
+  },
+  untag: {
+    schema: academyUntagLearnerInputSchema,
+    procedure: 'admin.untagLearner',
+    what: 'tag removed',
+    why: 'Choose a tag.',
+    parse: readChange,
+  },
 } as const;
 
 export type LearnerOp = keyof typeof OPS;

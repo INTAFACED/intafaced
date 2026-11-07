@@ -189,7 +189,12 @@ export class LearnerDesk {
       })),
       ...access.flatMap((g) =>
         g.events.map((e) => ({
-          kind: e.kind === 'granted' ? ('grant_granted' as const) : e.kind === 'expired' ? ('grant_expired' as const) : ('grant_reinstated' as const),
+          kind:
+            e.kind === 'granted'
+              ? ('grant_granted' as const)
+              : e.kind === 'expired'
+                ? ('grant_expired' as const)
+                : ('grant_reinstated' as const),
           at: e.at,
           actorId: e.actorId,
           reason: e.reason,
@@ -207,7 +212,11 @@ export class LearnerDesk {
       canChange,
       enrolments: enrolments
         .filter((e) => isPath(e.path_slug))
-        .map((e) => ({ pathSlug: e.path_slug as CurriculumPath, enrolledAt: e.enrolled_at.toISOString(), leftAt: e.left_at?.toISOString() ?? null })),
+        .map((e) => ({
+          pathSlug: e.path_slug as CurriculumPath,
+          enrolledAt: e.enrolled_at.toISOString(),
+          leftAt: e.left_at?.toISOString() ?? null,
+        })),
       access,
       notes: notes.map((n) => ({ n: n.n, body: n.body, authorId: n.author_id, at: n.at.toISOString() })),
       tags: tags.map((t) => ({ tag: t.tag, addedBy: t.added_by, addedAt: t.added_at.toISOString() })),
@@ -344,7 +353,16 @@ export class LearnerDesk {
 
   private async event(
     tx: Sql,
-    e: { userId: string; kind: LearnerEventKind; key: string; itemSlug: string | null; detail: string; reason: string; actorId: string; now: Date },
+    e: {
+      userId: string;
+      kind: LearnerEventKind;
+      key: string;
+      itemSlug: string | null;
+      detail: string;
+      reason: string;
+      actorId: string;
+      now: Date;
+    },
   ): Promise<void> {
     await tx`
       INSERT INTO academy.learner_events (user_id, kind, key, item_slug, detail, reason, actor_id, at)
@@ -374,7 +392,13 @@ export class LearnerDesk {
   }
 
   /** One finished quiz attempt no longer counts. A repeat on a voided attempt answers as the first void did. */
-  async voidAttempt(input: { userId: string; attemptId: string; reason: string; actorId: string; now?: Date }): Promise<{ voidedAt: string }> {
+  async voidAttempt(input: {
+    userId: string;
+    attemptId: string;
+    reason: string;
+    actorId: string;
+    now?: Date;
+  }): Promise<{ voidedAt: string }> {
     const reason = requireReason(input.reason);
     const now = input.now ?? new Date();
     return transaction(this.sql, async (tx) => {
@@ -383,7 +407,8 @@ export class LearnerDesk {
         SELECT slug, score, max_score, voided_at FROM academy.assessment_attempts
          WHERE id = ${input.attemptId} AND user_id = ${input.userId} FOR UPDATE
       `;
-      if (!row) throw new AcademyError('academy.attempt_not_found no finished attempt of this learner has that id', 'academy.attempt_not_found');
+      if (!row)
+        throw new AcademyError('academy.attempt_not_found no finished attempt of this learner has that id', 'academy.attempt_not_found');
       if (row.voided_at) return { voidedAt: row.voided_at.toISOString() };
       await tx`
         UPDATE academy.assessment_attempts SET voided_at = ${now}, voided_by = ${input.actorId}, void_reason = ${reason}
@@ -436,7 +461,15 @@ export class LearnerDesk {
    * answers as the first did, and an `n` that is no longer next refuses `academy.revision_stale`. Only an ended record
    * is reinstated; a live one refuses `academy.grant_active`.
    */
-  async reinstate(input: { userId: string; grantId: string; reason: string; expiresAt: Date | null; n: number; actorId: string; now?: Date }) {
+  async reinstate(input: {
+    userId: string;
+    grantId: string;
+    reason: string;
+    expiresAt: Date | null;
+    n: number;
+    actorId: string;
+    now?: Date;
+  }) {
     const reason = requireReason(input.reason);
     const now = input.now ?? new Date();
     if (input.expiresAt && input.expiresAt.getTime() <= now.getTime())

@@ -39,7 +39,10 @@ export function mayChange(ctx: Context): boolean {
 /** The actor of a change, refused by name when the session may only read. */
 function changer(ctx: Context): string {
   if (!mayChange(ctx))
-    throw new AcademyError('academy.permission_denied this session may read a learner but not change one (admin:write)', 'academy.permission_denied');
+    throw new AcademyError(
+      'academy.permission_denied this session may read a learner but not change one (admin:write)',
+      'academy.permission_denied',
+    );
   return ctx.principal!.userId;
 }
 

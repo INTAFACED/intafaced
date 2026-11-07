@@ -2675,7 +2675,14 @@ export class AcademyService {
     if (await this.learners.recorded(input.key)) return { userId: input.userId, done: `already recorded under ${input.key}` };
     if (await this.currentCompletion(this.sql, input.userId, slug)) return { userId: input.userId, done: 'the item was already complete' };
     await this.recordCompletion(input.userId, slug, now);
-    await this.learners.recordMarkComplete({ userId: input.userId, itemSlug: slug, reason, key: input.key, actorId: input.operatorId, now });
+    await this.learners.recordMarkComplete({
+      userId: input.userId,
+      itemSlug: slug,
+      reason,
+      key: input.key,
+      actorId: input.operatorId,
+      now,
+    });
     await this.settleCertificatesNeeding(input.userId, slug, now);
     await this.settleProgrammesHolding(input.userId, slug, now);
     return { userId: input.userId, done: 'marked complete for the learner' };
