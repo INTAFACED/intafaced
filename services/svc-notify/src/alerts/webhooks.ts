@@ -288,9 +288,12 @@ export class PostgresAlertDeliveryStore implements AlertDeliveryStore {
           WHERE user_id = ${userId} AND alert_id = ANY(${[...alertIds]}::uuid[]) ORDER BY seq, attempt LIMIT 500
         `
       : await this.sql<AttemptRow[]>`
-          SELECT ${this.sql.unsafe(ATTEMPT_COLUMNS)} FROM notify.alert_webhook_attempts
-          WHERE user_id = ${userId} ORDER BY created_at DESC, seq, attempt LIMIT 500
+          SELECT * FROM (
+            SELECT ${this.sql.unsafe(ATTEMPT_COLUMNS)}, created_at AS listed_at FROM notify.alert_webhook_attempts
+            WHERE user_id = ${userId} ORDER BY created_at DESC LIMIT 500
+          ) newest ORDER BY listed_at, seq, attempt
         `;
+    // The newest 500, listed oldest first like the memory store: attempt 1 before its retries.
     return rows.map(attemptOf);
   }
 }

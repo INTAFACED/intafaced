@@ -201,7 +201,8 @@ export function AlertChannelsField({
 export function WebhookAttempts({ attempts, stamp }: { attempts: readonly WebhookAttempt[]; stamp: (iso: string) => string }) {
   const copy = alertsCopy.useCopy();
   if (attempts.length === 0) return null;
-  const made = attempts.filter((row) => row.status !== 'pending');
+  // In the order they were made: trigger by trigger, attempt 1 first, whatever order the service lists them in.
+  const made = attempts.filter((row) => row.status !== 'pending').sort((a, b) => a.trigger - b.trigger || a.attempt - b.attempt);
   const waiting = attempts.filter((row) => row.status === 'pending');
   return (
     <ol className="nf-body nf-body--wrap nf-attempts" aria-label={copy.t('webhookLog')} data-testid="alert-webhook-log">
