@@ -384,9 +384,20 @@ function readHeld(p) {
  * 42415885511); when it moved up before the sell, the maker's new bid stood above the buy, so the sell met the maker
  * and the person's own buy stayed open (main run 42419522734).
  */
-export function quotesThisCycle(symbol, holds) {
-  return !holds.has(symbol);
+export function quotesThisCycle(symbol, holds, now = Date.now()) {
+  const askedAt = holds.get(symbol);
+  return askedAt === undefined || now - askedAt > HOLD_MAX_MS;
 }
+
+/**
+ * How long a hold lasts at most (exported for tests). A hold lives in a file (`holdFile`), so it outlives the process
+ * that asked for it: a journey worker killed mid-step runs no `release`, and the world restore that clears it
+ * (`unshift`) runs only when the next file starts. Past this it lapses and the market is quoted again, whatever else
+ * failed (failure it prevents: a run aborted inside J-cex-spot-03 #8 left the shared stack's BTC/USDT book frozen for
+ * every later run and every person using it). It is longer than a journey step may run (90 s, real-app.playwright.config.mjs),
+ * so a step never loses its hold part-way.
+ */
+export const HOLD_MAX_MS = 150_000;
 
 /** Whether a cycle that started after a hold was asked for has passed the market by (exported for tests). */
 export function holdTaken(held, symbol, askedAt) {
@@ -941,7 +952,10 @@ async function runLoop(opts, home) {
     /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
     const mids = new Map();
     const shifts = readShifts(p);
-    const holds = readHolds(p);
+    // Only holds still in force; one past HOLD_MAX_MS is quoted again from this cycle.
+    const asked = readHolds(p);
+    const cycleAt = Date.now();
+    const holds = new Map([...asked].filter(([k]) => !quotesThisCycle(k, asked, cycleAt)));
     if (holds.size > 0) {
       // Written before this cycle quotes anything: a held market is passed by from here, so `hold` can return.
       const startedAt = Date.now();
@@ -952,7 +966,7 @@ async function runLoop(opts, home) {
     let current = null;
     try {
       for (const { market: m, leader } of order) {
-        if (!quotesThisCycle(m.symbol, holds)) {
+        if (!quotesThisCycle(m.symbol, holds, cycleAt)) {
           // Its leader's book stands still too, so a follower quoted round it stays where it was.
           log(`${m.symbol} held: its quotes rest as they are, no crossing this cycle`);
           continue;
