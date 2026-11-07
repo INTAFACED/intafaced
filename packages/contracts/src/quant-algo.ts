@@ -649,7 +649,10 @@ const quotaWhole = z.string().regex(/^\d{1,18}$/, 'a whole number as a decimal s
 /** `quota.get`: the caller's profile, and each resource's usage against its limit (null: not set), counted from stored rows. */
 export const quantQuotaSchema = z.object({
   profile: z.string().nullable(),
-  source: z.enum(['assigned', 'default']).nullable(),
+  /** `plan`: the profile the account's plan maps to; `assigned`: an operator set this account's profile. */
+  source: z.enum(['assigned', 'plan']).nullable(),
+  /** The plan id the profile came from: the account's own, or the default plan while none can be read. */
+  plan: z.string().nullable(),
   resources: z.array(z.object({ resource: quantQuotaResourceSchema, used: quotaWhole, limit: quotaWhole.nullable() })),
   asOf: z.string(),
 });

@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 import { QUANT_DATABASE_POOL_MAX_UNSET, QUANT_DATABASE_URL_UNSET, QuantError } from '../errors.js';
 import { createPostgresQuota } from './postgres.js';
+import type { PlanProfiles } from './plans.js';
 import type { QuotaGate, QuotaRepository, QuotaSeed } from './quota.js';
 
 function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_POOL_MAX_UNSET, detail: string): QuotaRepository {
@@ -22,7 +23,7 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
  */
 export function openQuota(
   env: { DATABASE_URL?: string | undefined; DATABASE_POOL_MAX?: string | undefined },
-  options: { defaultProfile: string | null; seed: QuotaSeed | null },
+  options: { plans: PlanProfiles | null; seed: QuotaSeed | null },
 ): { repository: QuotaRepository; gate: QuotaGate | undefined; close: () => Promise<void> } {
   const url = env.DATABASE_URL?.trim();
   if (!url) return { repository: refuse(QUANT_DATABASE_URL_UNSET, 'DATABASE_URL is unset'), gate: undefined, close: async () => undefined };
@@ -36,6 +37,6 @@ export function openQuota(
     };
   }
   const sql = postgres(url, { max: pool, onnotice: () => undefined });
-  const quota = createPostgresQuota(sql, { defaultProfile: options.defaultProfile, seed: options.seed });
+  const quota = createPostgresQuota(sql, { plans: options.plans, seed: options.seed });
   return { repository: quota.repository, gate: quota.gate, close: () => sql.end({ timeout: 5 }) };
 }

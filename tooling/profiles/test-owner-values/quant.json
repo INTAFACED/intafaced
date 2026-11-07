@@ -66,15 +66,15 @@
       "value": "500",
       "note": "TEST longest release note on a saved strategy version, in characters."
     },
-    "QUANT_DEFAULT_QUOTA_PROFILE": {
-      "service": "quant",
-      "value": "TEST developer",
-      "note": "TEST default quota profile: an account with no assignment falls under it, so a journey's new developer can save and run."
-    },
     "QUANT_TEST_QUOTA_SEED": {
       "service": "quant",
       "value": "{\"profile\":\"TEST developer\",\"limits\":{\"strategies\":\"200\",\"versions\":\"200\",\"concurrent_runs\":\"20\",\"paper_runs\":\"500\",\"runs\":\"2000\",\"log_lines\":\"1000000\",\"storage\":\"500000000\",\"collaborators\":\"10\",\"notifications\":\"1000\"}}",
       "note": "TEST limits of the TEST developer profile, seeded once on the local and CI stack, high enough that no other journey meets them; a journey that proves a limit assigns its own TEST profile."
+    },
+    "QUANT_PLAN_PROFILES_JSON": {
+      "service": "quant",
+      "value": "{\"defaultPlanId\":\"standard\",\"profiles\":{\"standard\":\"TEST developer\",\"plus\":\"TEST developer\"}}",
+      "note": "TEST plan to quota profile table on the bank's TEST plan ids (BANK_PLANS_JSON: standard is the default, plus): both on the roomy TEST developer profile, so no other journey meets a limit."
     }
   }
 }

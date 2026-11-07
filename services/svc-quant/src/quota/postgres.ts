@@ -1,6 +1,7 @@
 import type { Sql } from 'postgres';
 import { QUANT_IDEMPOTENCY_CONFLICT, QuantError } from '../errors.js';
 import { accountCounts } from './counts.js';
+import { DEFAULT_PLAN_PORT, planProfileOf, type PlanPort, type PlanProfiles } from './plans.js';
 import {
   isQuotaResource,
   judgeNeeds,
@@ -29,8 +30,10 @@ interface LimitSql {
 
 export interface PostgresQuotaOptions {
   readonly schema?: string;
-  /** The owner's default profile for an account with no assignment. Null refuses `quant.quota_profile_unset`. */
-  readonly defaultProfile: string | null;
+  /** The owner's plan to profile table. Null, or an unmapped plan, refuses `quant.quota_profile_unset`. */
+  readonly plans: PlanProfiles | null;
+  /** The account's plan id; omitted, every account is on the default plan. */
+  readonly planPort?: PlanPort;
   /** The TEST stack's seeded profile; inserted once, never over a row an operator set. Null everywhere else. */
   readonly seed?: QuotaSeed | null;
   readonly now?: () => Date;
@@ -74,8 +77,9 @@ export function createPostgresQuota(sql: Sql, options: PostgresQuotaOptions): { 
 
   async function appliedIn(db: Db, accountId: string): Promise<AppliedProfile | null> {
     const rows = await query<{ profile: string }>(db, `SELECT profile FROM ${assignments} WHERE account_id = $1`, [accountId]);
-    if (rows[0]) return { name: rows[0].profile, source: 'assigned' };
-    return options.defaultProfile ? { name: options.defaultProfile, source: 'default' } : null;
+    if (rows[0]) return { name: rows[0].profile, source: 'assigned', plan: null };
+    const mapped = await planProfileOf(options.plans, options.planPort ?? DEFAULT_PLAN_PORT, accountId);
+    return mapped ? { name: mapped.profile, source: 'plan', plan: mapped.plan } : null;
   }
 
   async function limitsIn(db: Db, profile: string): Promise<QuotaLimitRow[]> {

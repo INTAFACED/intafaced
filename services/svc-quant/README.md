@@ -180,9 +180,11 @@ strategy source or the run key.
 A quota profile is a name with one limit per resource: saved strategies, versions per strategy, concurrent runs, paper
 runs, stored runs, stored log lines, source and result storage in bytes, collaborators per strategy and notifications per
 day. Each limit is an owner value. A blank limit refuses `quant.quota_unset` naming the resource; `0` refuses every
-create of it. An account is attached to a profile by `ops.quota.assign` (`admin:write`, a reason, an audit row); without
-one, `QUANT_DEFAULT_QUOTA_PROFILE` applies, and while that is blank every counted write refuses
-`quant.quota_profile_unset`. `ops.quota.set` (`admin:write`, a reason, keyed) sets one limit; `ops.quota.profile`
+create of it. An account is attached to a profile by `ops.quota.assign` (`admin:write`, a reason, an audit row);
+without one, the profile its plan maps to applies. The plan is the bank's account plan id (BK-acct-04), and
+`QUANT_PLAN_PROFILES_JSON` is the owner's table (`{ "defaultPlanId", "profiles": { "<planId>": "<profile>" } }`). Until
+an account's plan can be read, every account is on the default plan; an unreadable plan reads as the default, never a
+bigger one. A blank table or an unmapped plan refuses every counted write with `quant.quota_profile_unset`. `ops.quota.set` (`admin:write`, a reason, keyed) sets one limit; `ops.quota.profile`
 (`admin:read`) reads a profile. A profile is a name, not a price: tiers, pricing and billing are not here.
 
 Counted writes are `studio.save` and `studio.clone` (a strategy, its first version and its source bytes),

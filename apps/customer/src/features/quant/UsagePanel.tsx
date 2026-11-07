@@ -24,8 +24,9 @@ export function UsagePanel({ revision }: { revision: number }) {
           {(data) => (
             <>
               {data.profile ? (
-                <p data-testid="quant-usage-plan" data-profile={data.profile} data-source={data.source ?? ''}>
-                  {t('plan', { profile: data.profile })} ({data.source === 'assigned' ? t('planAssigned') : t('planDefault')})
+                <p data-testid="quant-usage-plan" data-profile={data.profile} data-source={data.source ?? ''} data-plan={data.plan ?? ''}>
+                  {t('plan', { profile: data.profile })} (
+                  {data.source === 'assigned' ? t('planAssigned') : t('planOf', { plan: data.plan ?? '' })})
                 </p>
               ) : (
                 <p data-testid="quant-usage-plan" data-profile="" role="status">

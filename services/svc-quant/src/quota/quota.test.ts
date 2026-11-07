@@ -40,8 +40,12 @@ function signed(userId: string, scopes: string[] = ['trade:read']) {
   });
 }
 
-function setup(defaultProfile: string | null = 'TEST default') {
-  const quota = createMemoryQuota({ defaultProfile });
+function setup(defaultProfile: string | null = 'TEST default', planPort?: { planOf: (id: string) => Promise<string | null> }) {
+  // The bank's TEST plan ids (BANK_PLANS_JSON): standard is the default; plus has its own profile.
+  const quota = createMemoryQuota({
+    plans: defaultProfile ? { defaultPlanId: 'standard', profiles: { standard: defaultProfile, plus: 'TEST plus' } } : null,
+    ...(planPort ? { planPort } : {}),
+  });
   const app = createQuantRouter({
     wired: true,
     venueVaultSet: false,
@@ -107,7 +111,8 @@ describe('quotas by plan (AL-limits-01)', () => {
     await expect(a.studio.save(strategy(1))).rejects.toThrow('quant.quota_unset — strategies: the limit for saved strategies is not set');
     const usage = await a.quota.get();
     expect(usage.profile).toBe('TEST default');
-    expect(usage.source).toBe('default');
+    expect(usage.source).toBe('plan');
+    expect(usage.plan).toBe('standard');
     expect(usage.resources.find((row) => row.resource === 'strategies')).toEqual({ resource: 'strategies', used: '0', limit: null });
     expect(usage.resources.map((row) => row.resource)).toEqual([
       'strategies',
@@ -130,7 +135,30 @@ describe('quotas by plan (AL-limits-01)', () => {
     expect(usage.resources.every((row) => row.limit === null)).toBe(true);
   });
 
-  it('applies an assigned profile over the default', async () => {
+  it("picks the profile the account's plan maps to; an unreadable or unknown plan reads as the default, never a bigger one", async () => {
+    const plans: Record<string, string> = { [ACCOUNT_B]: 'plus' };
+    const t = setup('TEST default', {
+      planOf: async (id) => {
+        if (id === ACCOUNT_A) throw new Error('plan read down');
+        return plans[id] ?? null;
+      },
+    });
+    for (const profile of ['TEST default', 'TEST plus']) {
+      await t.limit(profile, 'strategies', profile === 'TEST plus' ? '2' : '1');
+      await t.limit(profile, 'versions', '5');
+      await t.limit(profile, 'storage', '1000000');
+    }
+    expect(await t.b.quota.get()).toMatchObject({ profile: 'TEST plus', source: 'plan', plan: 'plus' });
+    await t.b.studio.save(strategy(1));
+    await t.b.studio.save(strategy(2));
+    await expect(t.b.studio.save(strategy(3))).rejects.toThrow('quant.quota_exceeded — strategies: 2 used of 2 allowed');
+    // Account A's plan can't be read: it is on the default plan's profile.
+    expect(await t.a.quota.get()).toMatchObject({ profile: 'TEST default', plan: 'standard' });
+    await t.a.studio.save(strategy(1));
+    await expect(t.a.studio.save(strategy(2))).rejects.toThrow('quant.quota_exceeded — strategies: 1 used of 1 allowed');
+  });
+
+  it('applies an assigned profile over the plan', async () => {
     const { a, b, writer, limit } = setup();
     await limit('TEST default', 'strategies', '5');
     await limit('TEST default', 'versions', '5');
@@ -144,7 +172,7 @@ describe('quotas by plan (AL-limits-01)', () => {
     await b.studio.save(strategy(1));
     await b.studio.save(strategy(2));
     expect((await a.quota.get()).source).toBe('assigned');
-    expect((await b.quota.get()).source).toBe('default');
+    expect((await b.quota.get()).source).toBe('plan');
   });
 
   it('counts versions per strategy and a restore from the recycle bin as one more saved strategy', async () => {
@@ -217,7 +245,7 @@ describe('quotas by plan (AL-limits-01)', () => {
 
   it('judges needs in resource order and reads limits as whole numbers', () => {
     expect(() =>
-      judgeNeeds({ name: 'p', source: 'default' }, (r) => (r === 'runs' ? 3n : null), [
+      judgeNeeds({ name: 'p', source: 'plan', plan: 'standard' }, (r) => (r === 'runs' ? 3n : null), [
         { resource: 'runs', used: 3n, adding: 1n },
         { resource: 'concurrent_runs', used: 0n, adding: 1n },
       ]),

@@ -7,8 +7,8 @@ const en = {
   intro: 'What this account holds, counted from what is stored, against the limits of its plan.',
   plan: 'Plan: {profile}',
   planAssigned: 'set for this account',
-  planDefault: 'the default plan',
-  planUnset: 'No plan applies to this account: the default plan is not set, so a new strategy or run is refused.',
+  planOf: 'from your plan, {plan}',
+  planUnset: 'No quota profile applies to this account: its plan has none set, so a new strategy or run is refused.',
   resource: 'Resource',
   used: 'Used',
   limit: 'Limit',
@@ -28,7 +28,7 @@ const en = {
   refusedTitle: 'Refused by your plan',
   exceeded: 'Your plan allows {limit} {resource}: {used} used of {limit} allowed. Nothing was added.',
   unset: "Your plan's limit for {resource} is not set, so nothing of that kind can be added. Nothing was added.",
-  profileUnset: 'No plan applies to this account: the default plan is not set. Nothing was added.',
+  profileUnset: 'No quota profile applies to this account: its plan has none set. Nothing was added.',
   refusedUsage: 'See the usage view on Strategies.',
 } as const;
 

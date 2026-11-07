@@ -447,7 +447,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
   const judgement = deps.judgement ?? NO_JUDGEMENT;
   const disclosure = deps.disclosure ?? openDisclosureRepository({}).repository;
   const templates = deps.templates ?? openTemplateRepository({}).repository;
-  const quota = deps.quota ?? createMemoryQuota({ defaultProfile: null }).repository;
+  const quota = deps.quota ?? createMemoryQuota({ plans: null }).repository;
   /** The reason an operator gives for a quota write: required, so every audit row says why. */
   function quotaReason(raw: string): string {
     const reason = raw.trim();
@@ -975,6 +975,7 @@ export function createQuantRouter(deps: QuantRouterDeps) {
             return {
               profile: applied?.name ?? null,
               source: applied?.source ?? null,
+              plan: applied?.plan ?? null,
               resources: QUANT_QUOTA_RESOURCES.map((resource) => {
                 const limit = limits.find((row) => row.resource === resource)?.limit ?? null;
                 return { resource, used: used[resource].toString(), limit: limit === null ? null : limit.toString() };
