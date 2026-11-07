@@ -55,15 +55,20 @@ export function useCompromiseCase() {
 export function Compromised() {
   const { t, languageFor } = copy.useCopy();
   const { resource, reload } = useCompromiseCase();
+  // While the case reloads after a change (a report filed, a review made), the page keeps showing the case it has, so the
+  // forms and what they just said ("Report filed on your case.") stay; only the first read shows the loading state.
+  const last = useRef<{ case: CompromiseCase | null } | null>(null);
+  if (resource.status === 'ready') last.current = { case: resource.data?.case ?? null };
+  const shown = resource.status === 'ready' || resource.status === 'loading' ? last.current : null;
   return (
     <div data-testid="compromised" className="security stack" lang={languageFor('title')}>
       <header>
         <h1>{t('title')}</h1>
         <p className="muted">{t('intro')}</p>
       </header>
-      {resource.status === 'loading' && <Loading />}
+      {resource.status === 'loading' && !shown && <Loading />}
       {resource.status === 'failed' && <Failure result={resource.failure} retry={reload} />}
-      {resource.status === 'ready' && (resource.data?.case ? <OpenCase open={resource.data.case} reload={reload} /> : <Start />)}
+      {shown && (shown.case ? <OpenCase open={shown.case} reload={reload} /> : <Start />)}
       <p className="muted">
         <a className="text-link" href="/help/official-channels">
           {t('scamLinks')}
