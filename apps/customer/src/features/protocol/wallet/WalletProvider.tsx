@@ -18,6 +18,7 @@ import {
   type Eip1193Provider,
   type SignRequest,
   type SignResult,
+  type TypedDataDocument,
 } from './eip1193';
 
 /** Remembered only to restore the same wallet without a prompt. Storage may be absent or blocked; the page works without it. */
@@ -48,15 +49,29 @@ function browserStore(): Storage | undefined {
 /** The node reads a room may make through the wallet. Nothing here can sign or send. */
 export type ReadMethod = 'eth_getTransactionReceipt' | 'eth_blockNumber';
 const READ_METHODS: ReadonlySet<string> = new Set<ReadMethod>(['eth_getTransactionReceipt', 'eth_blockNumber']);
+type TransactionRequest = Extract<SignRequest, { kind: 'transaction' }>;
+/**
+ * One step of a sequence: a transaction to send; typed data to sign (a permit); or a transaction that can only be built
+ * once the signatures before it exist (the swap that carries the permit). A built step shows `preview` on the sheet,
+ * every part of it but the signatures, which go in exactly as signed.
+ */
+export type SequenceStep =
+  | { label: string; request: TransactionRequest }
+  | { label: string; sign: TypedDataDocument }
+  | {
+      label: string;
+      preview: string;
+      prepare: (signatures: string[]) => Promise<{ ok: true; request: TransactionRequest } | { ok: false; message: string }>;
+    };
 export interface Sequence {
   /** The sheet's list of steps is named by this, for example "Swap steps". */
   title: string;
-  steps: Array<{ label: string; request: Extract<SignRequest, { kind: 'transaction' }> }>;
+  steps: SequenceStep[];
   /** Facts the person checks before every step, such as each token's contract address. */
   facts?: Array<{ label: string; value: string }>;
 }
 export type SequenceResult =
-  | { status: 'sent'; hashes: string[] }
+  | { status: 'sent'; hashes: string[]; signatures?: string[] }
   | { status: 'rejected'; sent: string[] }
   | { status: 'failed'; step: number; sent: string[]; message: string; reverted?: boolean };
 /** How long a step may wait to be mined before the next one is given up (the person's wallet still holds the first). */
@@ -403,7 +418,12 @@ export function WalletProvider({ children, discovery = true, scope }: { children
       const notConnected: SequenceResult = { status: 'failed', step: 0, sent: [], message: t('signNotConnected') };
       if (!connected || !address || next.steps.length === 0) return Promise.resolve(notConnected);
       for (const step of next.steps) {
-        const refused = refuseReason(step.request);
+        const refused =
+          'request' in step
+            ? refuseReason(step.request)
+            : 'sign' in step
+              ? refuseReason({ kind: 'typedData', typedData: step.sign })
+              : null;
         if (refused) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: `${refused} Nothing was signed or sent.` });
       }
       if (!chainGuard(chainId).ok) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
@@ -417,8 +437,30 @@ export function WalletProvider({ children, discovery = true, scope }: { children
           resolve,
           run: async () => {
             const sent: string[] = [];
+            const signatures: string[] = [];
             for (const [index, step] of next.steps.entries()) {
-              const result = await runSignRequest(wallet.provider, account, step.request);
+              if ('sign' in step) {
+                const signed = await runSignRequest(wallet.provider, account, { kind: 'typedData', typedData: step.sign });
+                if (signed.status === 'rejected') return { status: 'rejected', sent };
+                if (signed.status !== 'signed')
+                  return {
+                    status: 'failed',
+                    step: index,
+                    sent,
+                    message: signed.status === 'failed' ? signed.message : t('signNotConnected'),
+                  };
+                signatures.push(signed.signature);
+                continue;
+              }
+              let request: TransactionRequest;
+              if ('prepare' in step) {
+                const built = await step.prepare([...signatures]);
+                if (!built.ok) return { status: 'failed', step: index, sent, message: built.message };
+                const refused = refuseReason(built.request);
+                if (refused) return { status: 'failed', step: index, sent, message: `${refused} Nothing was signed or sent.` };
+                request = built.request;
+              } else request = step.request;
+              const result = await runSignRequest(wallet.provider, account, request);
               if (result.status === 'rejected') return { status: 'rejected', sent };
               if (result.status !== 'sent')
                 return {
@@ -444,7 +486,7 @@ export function WalletProvider({ children, discovery = true, scope }: { children
                   message: t(mined.status === 'reverted' ? 'seqReverted' : 'seqNotMined'),
                 };
             }
-            return { status: 'sent', hashes: sent };
+            return { status: 'sent', hashes: sent, signatures };
           },
         });
       });
@@ -589,7 +631,14 @@ export function SequenceSheet({
   return (
     <Dialog title={t('sheetTitle')} onClose={onCancel}>
       <div data-sheet="sequence">
-        <p>{t('seqSends', { count: String(sequence.steps.length) })}</p>
+        <p>
+          {sequence.steps.some((step) => 'sign' in step)
+            ? t('seqSignsAndSends', {
+                signs: String(sequence.steps.filter((step) => 'sign' in step).length),
+                count: String(sequence.steps.filter((step) => !('sign' in step)).length),
+              })
+            : t('seqSends', { count: String(sequence.steps.length) })}
+        </p>
         <dl className="protocol-facts">
           <div>
             <dt>{t('fact_account')}</dt>
@@ -615,7 +664,11 @@ export function SequenceSheet({
           <summary>{t('sheetExact')}</summary>
           {sequence.steps.map((step, index) => (
             <pre key={index} className="numeric" data-sheet-payload>
-              {payloadText(step.request, account, chainId)}
+              {'request' in step
+                ? payloadText(step.request, account, chainId)
+                : 'sign' in step
+                  ? payloadText({ kind: 'typedData', typedData: step.sign }, account, chainId)
+                  : step.preview}
             </pre>
           ))}
         </details>
