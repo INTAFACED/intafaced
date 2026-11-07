@@ -159,6 +159,21 @@ export const SUITES = [
     sources: ['amm/ConstantProductPool.sol', 'amm/IERC20Minimal.sol', 'amm/PoolFactory.sol'],
   },
   {
+    name: 'liquidity',
+    expect: 'compiles',
+    /**
+     * D-liquidity-01..04: the v2 pool (fungible ERC-20 shares, re-entry guard, skim and sync), its factory, and the
+     * router for add, remove, create-and-seed and swap-and-add. Its own suite, so the deployed v1 `amm` artefacts and
+     * their sourceHash stay as they are.
+     */
+    sources: [
+      'liquidity/LiquidityPool.sol',
+      'liquidity/LiquidityFactory.sol',
+      'liquidity/LiquidityRouter.sol',
+      'amm/IERC20Minimal.sol',
+    ],
+  },
+  {
     name: 'oracle',
     expect: 'compiles',
     /** S-A12 — fail-closed dual-source marks. Never reads AMM. */
