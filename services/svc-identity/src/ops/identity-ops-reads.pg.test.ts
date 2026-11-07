@@ -309,22 +309,22 @@ if (!databaseUrl) {
       expect(JSON.stringify(audits)).not.toContain(target.email);
 
       // Handles by account id: id and handle only, an unknown id left out, one audit row holding only a hash of the ids.
-      const before = await db.sql<Array<{ n: string }>>`
+      const auditsBefore = await db.sql<Array<{ n: string }>>`
         SELECT count(*)::text AS n FROM operator_read_audit WHERE actor_id = ${signed.userId} AND kind = 'account_search'
       `;
       const unknown = randomUUID();
       const handles = await reader.accountDirectory.handles({ ids: [target.userId, unknown, target.userId.toUpperCase()] });
       expect(handles.rows).toEqual([{ id: target.userId, handle: 'zzqtarget1' }]);
       expect(JSON.stringify(handles)).not.toContain('@');
-      const after = await db.sql<Array<{ n: string; query_hash: string }>>`
+      const auditsAfter = await db.sql<Array<{ n: string; query_hash: string }>>`
         SELECT count(*) OVER ()::text AS n, query_hash FROM operator_read_audit
          WHERE actor_id = ${signed.userId} AND kind = 'account_search' ORDER BY created_at DESC LIMIT 1
       `;
-      expect(Number(after[0]?.n)).toBe(Number(before[0]?.n) + 1);
+      expect(Number(auditsAfter[0]?.n)).toBe(Number(auditsBefore[0]?.n) + 1);
       const idsHash = createHash('sha256')
         .update(`ids\0${[target.userId, unknown].sort().join(',')}`)
         .digest('hex');
-      expect(after[0]?.query_hash).toBe(idsHash);
+      expect(auditsAfter[0]?.query_hash).toBe(idsHash);
       await expect(customer.accountDirectory.handles({ ids: [target.userId] })).rejects.toMatchObject({ code: 'FORBIDDEN' });
 
       const counts = await reader.accountDirectory.counts({});
