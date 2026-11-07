@@ -282,6 +282,8 @@ const schema = serviceEnvSchema
       IDENTITY_KYC_QUEUE_PAGE_SIZE: z.string().optional(),
       /** How long after a rejection the customer may appeal it, in seconds (I-kyc-compliance-02). Unset: appeals are closed (`kyc.appeal_closed`). */
       IDENTITY_KYC_APPEAL_WINDOW_SECONDS: z.string().optional(),
+      /** How many days the customer has to answer a request for information (I-kyc-compliance-03). Unset: no deadline is set. */
+      IDENTITY_KYC_RFI_DAYS: z.string().optional(),
       /**
        * Owner setting (I-kyc-compliance-01): the reasons a verification can be rejected for, a JSON array of
        * `{"code","reason","guidance"}` (code lower case with underscores; reason up to 200 characters, what the customer

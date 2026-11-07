@@ -9,6 +9,8 @@ import {
   kycAppealDecideInputSchema,
   kycAppealSchema,
   kycAppealSubmitInputSchema,
+  kycInfoTaskSchema,
+  kycRequestInfoInputSchema,
   kycReviewAddNoteInputSchema,
   kycReviewAssignInputSchema,
   kycReviewAssignmentSchema,
@@ -2700,6 +2702,24 @@ export function createIdentityRouter(
             try {
               requireMfa(ctx.principal);
               return await requireKycReview().read(input.caseId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        /**
+         * Ask the customer for named items on an open case (I-kyc-compliance-03, J-identity-20 #3): the case becomes
+         * info_requested with one task per item, due by the owner's deadline; kycInfoRequested goes out after commit.
+         */
+        requestInfo: scopedProcedure('admin:compliance')
+          .input(kycRequestInfoInputSchema)
+          .output(z.object({ caseId: z.string().guid(), tasks: z.array(kycInfoTaskSchema) }))
+          .mutation(async ({ ctx, input }) => {
+            try {
+              requireMfa(ctx.principal);
+              refuseAgentKycReview(ctx);
+              const desk = requireKycReview();
+              assertNotOwnKyc(await desk.caseOwner(input.caseId), [ctx.principal.userId]);
+              return { caseId: input.caseId, tasks: await desk.requestInfo(input.caseId, ctx.principal.userId, input.items) };
             } catch (err) {
               throw toTrpcError(err);
             }

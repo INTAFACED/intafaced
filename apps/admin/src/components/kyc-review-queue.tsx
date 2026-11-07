@@ -36,7 +36,7 @@ export async function fetchQueue(cursor: string | null): Promise<Answer<KycRevie
 }
 
 /** A claim, release or note, as the signed-in person. */
-export async function postReviewStep<T>(step: Record<string, string>): Promise<Answer<T>> {
+export async function postReviewStep<T>(step: Record<string, unknown>): Promise<Answer<T>> {
   try {
     const res = await fetch('/api/identity-ops/kyc', {
       method: 'POST',

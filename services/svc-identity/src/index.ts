@@ -4,7 +4,7 @@ import { parseKycCapabilitiesByLevel } from './kyc/capabilities.js';
 import { parseKycAttemptLimit } from './kyc/attempts.js';
 import { KycProfileDesk, parseKycDocumentTypes, parseKycUploadCaps } from './kyc/profile.js';
 import { KycPoaDesk, parseKycPoaMaxAgeDays, parseKycPoaTypes } from './kyc/proof-of-address.js';
-import { KycReviewDesk, parseKycAppealWindowSeconds, parseKycQueuePageSize } from './kyc/review.js';
+import { KycReviewDesk, parseKycAppealWindowSeconds, parseKycQueuePageSize, parseKycRfiDays } from './kyc/review.js';
 import { KycSelfieDesk, parseKycHandoffTtlSeconds, parseKycLivenessRecheckFor } from './kyc/selfie.js';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
@@ -697,6 +697,7 @@ export const appRouter = mergeRouters(
     kycReview: new KycReviewDesk(sql, {
       pageSize: parseKycQueuePageSize(env.IDENTITY_KYC_QUEUE_PAGE_SIZE),
       appealWindowSeconds: parseKycAppealWindowSeconds(env.IDENTITY_KYC_APPEAL_WINDOW_SECONDS),
+      rfiDays: parseKycRfiDays(env.IDENTITY_KYC_RFI_DAYS),
       reasons: parseKycRejectReasons(env.IDENTITY_KYC_REJECT_REASONS),
     }),
     kycCapabilityReasons,

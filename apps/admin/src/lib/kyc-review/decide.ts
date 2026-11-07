@@ -1,15 +1,19 @@
 import 'server-only';
-import { z } from 'zod';
 import type { ExecuteFn } from '@/lib/desk/approval-steps';
-import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
+import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { failureRefusal } from '@/lib/ops-desk/execute';
 
-const kycRecord = z.object({
-  id: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected', 'expired']),
-  reviewedAt: z.string().nullable(),
-});
+const STATUSES = ['pending', 'approved', 'rejected', 'expired'] as const;
+
+/** Identity's KYC record answer, exactly: an id, a known status and when it was reviewed. Anything else is unreadable. */
+function readKycRecord(raw: unknown): { id: string; status: (typeof STATUSES)[number]; reviewedAt: string | null } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== 'string' || !(STATUSES as readonly unknown[]).includes(r.status)) return null;
+  if (r.reviewedAt !== null && typeof r.reviewedAt !== 'string') return null;
+  return { id: r.id, status: r.status as (typeof STATUSES)[number], reviewedAt: r.reviewedAt as string | null };
+}
 
 /**
  * Decide one verification case (I-kyc-compliance-01 and -02) at identity, as the signed-in reviewer, after a second person
@@ -36,7 +40,7 @@ export function kycCaseDecideExecute(ctx: FounderCallContext): ExecuteFn {
             operationId: ids.operationId,
           }
         : { recordId: request.recordId, approvalId: ids.approvalId, operationId: ids.operationId },
-      parseWith(kycRecord),
+      readKycRecord,
     );
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);
     const want = reject ? 'rejected' : 'approved';

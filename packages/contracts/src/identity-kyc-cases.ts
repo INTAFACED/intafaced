@@ -8,7 +8,8 @@ import { z } from 'zod';
  * case rejected before reasons existed. `note` is the reviewer's note, present only when the reviewer marked it for
  * the customer. `followsCaseId` is the rejected case a resubmission follows. No document, image or reviewer is here.
  */
-export const KYC_CASE_STATES = ['submitted', 'approved', 'rejected', 'expired'] as const;
+/** `info_requested`: a reviewer asked for more (I-kyc-compliance-03); the case waits for the customer's answers. */
+export const KYC_CASE_STATES = ['submitted', 'info_requested', 'approved', 'rejected', 'expired'] as const;
 export const kycCaseStateSchema = z.enum(KYC_CASE_STATES);
 export type KycCaseState = z.infer<typeof kycCaseStateSchema>;
 
@@ -16,6 +17,18 @@ export type KycCaseState = z.infer<typeof kycCaseStateSchema>;
 export const kycReasonCodeSchema = z.string().regex(/^[a-z][a-z0-9_]{1,63}$/);
 
 const isoSchema = z.string().datetime({ offset: true });
+
+/**
+ * One task of a request for information (I-kyc-compliance-03): what the reviewer asked for (`key`, a short code, and `hint`,
+ * what to send), its state, and when it is due (null when the owner states no deadline).
+ */
+export const kycInfoTaskSchema = z.object({
+  key: kycReasonCodeSchema,
+  hint: z.string().min(1).max(500),
+  state: z.enum(['requested', 'provided']),
+  dueAt: isoSchema.nullable(),
+});
+export type KycInfoTask = z.infer<typeof kycInfoTaskSchema>;
 
 export const kycCaseSchema = z.object({
   id: z.string().guid(),
@@ -32,6 +45,8 @@ export const kycCaseSchema = z.object({
   reason: z.object({ code: kycReasonCodeSchema, text: z.string().min(1).nullable(), guidance: z.string().min(1).nullable() }).nullable(),
   note: z.string().min(1).max(500).nullable(),
   history: z.array(z.object({ version: z.number().int().min(1), state: kycCaseStateSchema, at: isoSchema })).min(1),
+  /** The tasks of the case's latest request for information, oldest first; empty when none was asked. */
+  tasks: z.array(kycInfoTaskSchema),
 });
 export type KycCase = z.infer<typeof kycCaseSchema>;
 
@@ -117,3 +132,12 @@ export const kycReviewCaseSchema = z.object({
 export type KycReviewCase = z.infer<typeof kycReviewCaseSchema>;
 
 export const kycReviewAddNoteInputSchema = z.object({ caseId: z.string().guid(), body: z.string().trim().min(1).max(2000) });
+
+/** `kyc.review.requestInfo`: ask the customer for one to ten named items on an open case (I-kyc-compliance-03). */
+export const kycRequestInfoInputSchema = z.object({
+  caseId: z.string().guid(),
+  items: z
+    .array(z.object({ key: kycReasonCodeSchema, hint: z.string().trim().min(1).max(500) }))
+    .min(1)
+    .max(10),
+});

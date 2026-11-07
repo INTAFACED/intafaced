@@ -59,9 +59,11 @@ export async function POST(request: Request) {
       audit:
         step.op === 'assign'
           ? `admin.kyc_case_${step.action}`
-          : step.op === 'appeal'
-            ? `admin.kyc_appeal_${step.decision}`
-            : 'admin.kyc_case_note',
+          : step.op === 'rfi'
+            ? 'admin.kyc_case_info_requested'
+            : step.op === 'appeal'
+              ? `admin.kyc_appeal_${step.decision}`
+              : 'admin.kyc_case_note',
       at: new Date().toISOString(),
       actor: session.session.userId,
       caseId: step.caseId,

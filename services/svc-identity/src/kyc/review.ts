@@ -74,6 +74,15 @@ interface QueueRow {
   assigned_at: Date | null;
 }
 
+/** `IDENTITY_KYC_RFI_DAYS`: whole days from 1 to 365. Unset or blank is null: a request for information sets no deadline. */
+export function parseKycRfiDays(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const t = raw.trim();
+  if (!/^\d+$/.test(t) || Number(t) < 1 || Number(t) > 365)
+    throw new Error('IDENTITY_KYC_RFI_DAYS must be a whole number of days from 1 to 365');
+  return Number(t);
+}
+
 /** `IDENTITY_KYC_APPEAL_WINDOW_SECONDS`: whole seconds from 1 to 31,622,400 (a year). Unset or blank is null: appeals are closed. */
 export function parseKycAppealWindowSeconds(raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === '') return null;
@@ -110,6 +119,8 @@ export interface KycReviewDeskOptions {
   readonly pageSize: number | null;
   /** The owner's appeal window after a rejection, in seconds. Null: appeals are closed. */
   readonly appealWindowSeconds?: number | null;
+  /** The owner's deadline for a request for information, in days. Null: no deadline is set and the page says so. */
+  readonly rfiDays?: number | null;
   readonly reasons: KycRejectReasons;
 }
 
@@ -285,6 +296,50 @@ export class KycReviewDesk {
         UPDATE kyc_case_appeals SET decision = ${decision}, decided_by = ${reviewerId}, decided_at = ${at} WHERE id = ${open.id}
         RETURNING ${tx.unsafe(APPEAL_COLUMNS)}`;
       return toAppeal(row!);
+    });
+  }
+
+  /**
+   * A reviewer asks the customer for named items on an open case (I-kyc-compliance-03). The case moves to `info_requested`
+   * with one task per item, each due by the owner's deadline (none when unset), in one transaction with its history row,
+   * which the relay publishes as kycInfoRequested. Only an open (submitted) case can ask: anything else is `kyc.case_state`.
+   * The same request again returns the stored tasks.
+   */
+  async requestInfo(
+    caseId: string,
+    reviewerId: string,
+    items: ReadonlyArray<{ key: string; hint: string }>,
+    at = new Date(),
+  ): Promise<Array<{ key: string; hint: string; state: 'requested' | 'provided'; dueAt: string | null }>> {
+    const keys = new Set(items.map((i) => i.key));
+    if (keys.size !== items.length) throw new KycReviewError('Each item is asked for once', 'kyc.case_state');
+    return await this.sql.begin(async (tx) => {
+      const [c] = await tx<Array<{ state: string; version: number }>>`SELECT state, version FROM kyc_cases WHERE id = ${caseId} FOR UPDATE`;
+      if (!c) throw new KycReviewError('No such verification case', 'kyc.case_unknown');
+      const read = async (version: number) =>
+        (
+          await tx<Array<{ item_key: string; hint: string; state: 'requested' | 'provided'; due_at: Date | null }>>`
+            SELECT item_key, hint, state, due_at FROM kyc_case_requests WHERE case_id = ${caseId} AND case_version = ${version}
+            ORDER BY created_at, item_key`
+        ).map((r) => ({ key: r.item_key, hint: r.hint, state: r.state, dueAt: r.due_at?.toISOString() ?? null }));
+      if (c.state === 'info_requested') {
+        const stored = await read(c.version);
+        const same = stored.length === items.length && items.every((i) => stored.some((t) => t.key === i.key && t.hint === i.hint));
+        if (same) return stored;
+        throw new KycReviewError('This case already waits on the customer for information', 'kyc.case_state');
+      }
+      if (c.state !== 'submitted')
+        throw new KycReviewError(`This case is ${c.state}; only an open case can ask for information`, 'kyc.case_state');
+      const version = c.version + 1;
+      const days = this.options.rfiDays ?? null;
+      const dueAt = days === null ? null : new Date(at.getTime() + days * 86_400_000);
+      await tx`UPDATE kyc_cases SET state = 'info_requested', version = ${version}, updated_at = ${at} WHERE id = ${caseId}`;
+      await tx`INSERT INTO kyc_case_events (case_id, version, state, reason_code, at)
+        VALUES (${caseId}, ${version}, 'info_requested', ${items[0]!.key}, ${at})`;
+      for (const item of items)
+        await tx`INSERT INTO kyc_case_requests (case_id, case_version, item_key, hint, due_at, requested_by, created_at)
+          VALUES (${caseId}, ${version}, ${item.key}, ${item.hint}, ${dueAt}, ${reviewerId}, ${at})`;
+      return await read(version);
     });
   }
 

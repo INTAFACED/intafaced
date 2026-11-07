@@ -7,7 +7,10 @@
 export type KycReviewStep =
   | { readonly op: 'assign'; readonly caseId: string; readonly action: 'claim' | 'release' }
   | { readonly op: 'note'; readonly caseId: string; readonly body: string }
-  | { readonly op: 'appeal'; readonly caseId: string; readonly decision: 'upheld' | 'overturned' };
+  | { readonly op: 'appeal'; readonly caseId: string; readonly decision: 'upheld' | 'overturned' }
+  | { readonly op: 'rfi'; readonly caseId: string; readonly items: ReadonlyArray<{ key: string; hint: string }> };
+
+const ITEM_KEY = /^[a-z][a-z0-9_]{1,63}$/;
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -17,6 +20,18 @@ export function readKycReviewStep(raw: unknown): KycReviewStep | null {
   const r = raw as Record<string, unknown>;
   if (typeof r.caseId !== 'string' || !UUID.test(r.caseId)) return null;
   if (r.op === 'assign' && (r.action === 'claim' || r.action === 'release')) return { op: 'assign', caseId: r.caseId, action: r.action };
+  if (r.op === 'rfi' && Array.isArray(r.items) && r.items.length >= 1 && r.items.length <= 10) {
+    const items: Array<{ key: string; hint: string }> = [];
+    for (const item of r.items as unknown[]) {
+      if (!item || typeof item !== 'object') return null;
+      const { key, hint } = item as Record<string, unknown>;
+      if (typeof key !== 'string' || !ITEM_KEY.test(key) || typeof hint !== 'string') return null;
+      const text = hint.trim();
+      if (text.length < 1 || text.length > 500) return null;
+      items.push({ key, hint: text });
+    }
+    return { op: 'rfi', caseId: r.caseId, items };
+  }
   if (r.op === 'appeal' && (r.decision === 'upheld' || r.decision === 'overturned'))
     return { op: 'appeal', caseId: r.caseId, decision: r.decision };
   if (r.op === 'note' && typeof r.body === 'string' && r.body.trim().length >= 1 && r.body.trim().length <= 2000)

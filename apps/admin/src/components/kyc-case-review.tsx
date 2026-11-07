@@ -57,6 +57,8 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
   const [noteReply, setNoteReply] = useState<KycReviewRefusal | 'added' | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [rfiItems, setRfiItems] = useState<Array<{ key: string; hint: string }>>([{ key: '', hint: '' }]);
+  const [rfiReply, setRfiReply] = useState<KycReviewRefusal | 'sent' | null>(null);
   const [caps, setCaps] = useState<Answer<KycCapabilitiesOutput> | null>(null);
   const [appealReply, setAppealReply] = useState<KycReviewRefusal | 'upheld' | 'overturned' | null>(null);
 
@@ -76,6 +78,14 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
     const reply = await postReviewStep<{ id: string }>({ op: 'note', caseId, body: note });
     setNoteReply(reply.ok ? 'added' : reply.refusal);
     if (reply.ok) setNote('');
+    setBusy(false);
+    await load();
+  }
+
+  async function requestInfo() {
+    setBusy(true);
+    const reply = await postReviewStep<unknown>({ op: 'rfi', caseId, items: rfiItems });
+    setRfiReply(reply.ok ? 'sent' : reply.refusal);
     setBusy(false);
     await load();
   }
@@ -160,6 +170,74 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
           </li>
         ))}
       </ol>
+
+      <h3>Request for information</h3>
+      {c.case.tasks.length > 0 ? (
+        <ul data-testid="kyc-case-tasks">
+          {c.case.tasks.map((t) => (
+            <li key={t.key} data-testid="kyc-case-task" data-task={t.key} data-state={t.state}>
+              <code>{t.key}</code>: {t.hint} · {t.state} ·{' '}
+              {t.dueAt ? (
+                <>
+                  due <time dateTime={t.dueAt}>{t.dueAt}</time>
+                </>
+              ) : (
+                'no deadline stated'
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {c.case.state === 'submitted' ? (
+        <div className="dk-stack" data-testid="kyc-case-rfi">
+          {rfiItems.map((item, i) => (
+            <div className="dk-row" key={i}>
+              <label className="dk-stack">
+                <span>Item code {i + 1}</span>
+                <input
+                  aria-label={`Item code ${i + 1}`}
+                  value={item.key}
+                  onChange={(e) => setRfiItems((all) => all.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))}
+                />
+              </label>
+              <label className="dk-stack">
+                <span>What to send {i + 1}</span>
+                <input
+                  aria-label={`What to send ${i + 1}`}
+                  value={item.hint}
+                  onChange={(e) => setRfiItems((all) => all.map((x, j) => (j === i ? { ...x, hint: e.target.value } : x)))}
+                />
+              </label>
+            </div>
+          ))}
+          <div className="dk-row">
+            <button
+              type="button"
+              className="adm-btn"
+              disabled={rfiItems.length >= 10}
+              onClick={() => setRfiItems((all) => [...all, { key: '', hint: '' }])}
+            >
+              Add an item
+            </button>
+            <button
+              type="button"
+              className="adm-btn"
+              disabled={busy || rfiItems.some((x) => x.key.trim() === '' || x.hint.trim() === '')}
+              onClick={() => void requestInfo()}
+            >
+              Request information
+            </button>
+          </div>
+          <p className="dk-muted">
+            The case waits on the customer, who sees each item and its deadline on their verification page. The deadline is the
+            owner&apos;s.
+          </p>
+        </div>
+      ) : null}
+      {rfiReply === 'sent' ? (
+        <p data-testid="kyc-case-rfi-sent">Information requested. The customer is told on their verification page.</p>
+      ) : null}
+      {rfiReply && typeof rfiReply === 'object' ? <RefusalLine refusal={rfiReply} testId="kyc-case-rfi-refusal" /> : null}
 
       <h3>Capabilities</h3>
       {caps === null ? (

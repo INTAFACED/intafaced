@@ -1,11 +1,13 @@
 import 'server-only';
 import {
   kycAppealSchema,
+  kycInfoTaskSchema,
   kycReviewAssignmentSchema,
   kycReviewCaseSchema,
   kycReviewListOutputSchema,
   kycReviewNoteSchema,
   type KycAppeal,
+  type KycInfoTask,
   type KycReviewAssignment,
   type KycReviewCase,
   type KycReviewList,
@@ -14,6 +16,20 @@ import {
 import { kycCapabilitiesOutputSchema, type KycCapabilitiesOutput } from '@intafaced/contracts/identity-kyc-capabilities';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { explainKycReview, type KycReviewRefusal, type KycReviewStep } from './model';
+
+/** Identity's answer to a request for information: the case and its tasks, each exactly the contract's. */
+function readTasks(raw: unknown): { caseId: string; tasks: KycInfoTask[] } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.caseId !== 'string' || !Array.isArray(r.tasks)) return null;
+  const tasks: KycInfoTask[] = [];
+  for (const t of r.tasks) {
+    const parsed = kycInfoTaskSchema.safeParse(t);
+    if (!parsed.success) return null;
+    tasks.push(parsed.data);
+  }
+  return { caseId: r.caseId, tasks };
+}
 
 /** What the console route returns: identity's answer, or its refusal in words. */
 export type KycReviewAnswer<T> = { readonly ok: true; readonly data: T } | { readonly ok: false; readonly refusal: KycReviewRefusal };
@@ -64,7 +80,11 @@ export async function readKycCase(ctx: FounderCallContext, caseId: string): Prom
 export async function runKycReviewStep(
   ctx: FounderCallContext,
   step: KycReviewStep,
-): Promise<KycReviewAnswer<KycReviewAssignment | KycReviewNote | KycAppeal>> {
+): Promise<KycReviewAnswer<KycReviewAssignment | KycReviewNote | KycAppeal | { caseId: string; tasks: KycInfoTask[] }>> {
+  if (step.op === 'rfi')
+    return answer(
+      await founderCall(ctx, 'identity', 'kyc.review.requestInfo', 'POST', { caseId: step.caseId, items: step.items }, readTasks),
+    );
   if (step.op === 'appeal')
     return answer(
       await founderCall(

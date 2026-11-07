@@ -253,13 +253,19 @@ export async function listKycCases(sql: Sql, userId: string, limit: number, reas
       customer_note: string | null;
       note_visible: boolean;
       history: Array<{ version: number; state: KycCaseState; at: string }>;
+      tasks: Array<{ key: string; hint: string; state: 'requested' | 'provided'; due_at: string | null }>;
     }>
   >`
     SELECT c.id, c.record_id, r.tier, r.jurisdiction, c.state, c.version, c.previous_case_id, c.created_at, c.decided_at,
            r.expires_at, (c.state = 'approved' AND r.expires_at IS NOT NULL AND r.expires_at <= now()) AS lapsed,
            c.reason_code, c.customer_note, c.note_visible,
            COALESCE((SELECT json_agg(json_build_object('version', e.version, 'state', e.state, 'at', e.at) ORDER BY e.version)
-                     FROM kyc_case_events e WHERE e.case_id = c.id), '[]'::json) AS history
+                     FROM kyc_case_events e WHERE e.case_id = c.id), '[]'::json) AS history,
+           COALESCE((SELECT json_agg(json_build_object('key', q.item_key, 'hint', q.hint, 'state', q.state, 'due_at', q.due_at)
+                     ORDER BY q.created_at, q.item_key)
+                     FROM kyc_case_requests q WHERE q.case_id = c.id
+                       AND q.case_version = (SELECT max(q2.case_version) FROM kyc_case_requests q2 WHERE q2.case_id = c.id)),
+                    '[]'::json) AS tasks
     FROM kyc_cases c JOIN kyc_records r ON r.id = c.record_id
     WHERE c.user_id = ${userId}
     ORDER BY c.created_at DESC, c.id DESC LIMIT ${limit}`;
@@ -282,6 +288,7 @@ export async function listKycCases(sql: Sql, userId: string, limit: number, reas
       reason: c.reason_code ? { code: c.reason_code, text: listed?.reason ?? null, guidance: listed?.guidance ?? null } : null,
       note: c.note_visible && c.customer_note ? c.customer_note : null,
       history,
+      tasks: c.tasks.map((t) => ({ key: t.key, hint: t.hint, state: t.state, dueAt: t.due_at ? new Date(t.due_at).toISOString() : null })),
     };
   });
 }
@@ -337,6 +344,13 @@ async function relayCase(deps: KycCaseRelayDeps, caseId: string): Promise<number
           'kycSubmitted',
           { userId: held.user_id, caseId, version: row.version, previousCaseId: held.previous_case_id, submittedAt: at },
           { idempotencyKey: `identity.kyc.submitted:${caseId}:${row.version}` },
+        );
+        sent += 1;
+      } else if (row.state === 'info_requested') {
+        await deps.bus.publish(
+          'kycInfoRequested',
+          { userId: held.user_id, caseId, version: row.version, reasonCode: row.reason_code ?? 'information_requested', requestedAt: at },
+          { idempotencyKey: `identity.kyc.info_requested:${caseId}:${row.version}` },
         );
         sent += 1;
       } else if (row.state === 'rejected' && row.reason_code) {

@@ -2,7 +2,8 @@
 import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { unconfirmedAccount } from './p2p.mjs';
-import { api } from './stack.mjs';
+import { randomBytes } from 'node:crypto';
+import { api, ORIGIN, signUpInBrowser } from './stack.mjs';
 import { staffSignIn } from './staff.mjs';
 
 // J-identity-20: I work the verification queue (compliance). Signed in to the admin app as compliance (the stack's TEST
@@ -352,5 +353,72 @@ test('J-identity-20 #6 approving a level turns its mapped capabilities active in
   } finally {
     await compliance.context().close();
     await founder.context().close();
+  }
+});
+
+test('J-identity-20 #3 a request for information with a deadline: the case becomes "information requested" with tasks; the customer is told', async ({
+  browser,
+  page,
+}) => {
+  test.setTimeout(480_000);
+  // A TEST customer signed up in this browser, with one pending request.
+  const handle = `jr${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+  const who = { handle, email: `${handle}@local-test.invalid`, password: `TEST-${randomBytes(9).toString('base64url')}-9a` };
+  await signUpInBrowser(page, who);
+  const customer = await api(who);
+  const submitted = await customer.post('/api/identity/trpc/kyc.submit', { tier: 'basic', jurisdiction: 'DE' });
+  const record = submitted.body?.result?.data;
+  expect(record?.status, JSON.stringify(submitted.body).slice(0, 300)).toBe('pending');
+  const history = async () =>
+    (await customer.get(`/api/identity/trpc/kyc.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`)).body?.result?.data
+      ?.cases ?? [];
+  const caseId = (await history()).find((c) => c.recordId === record.id)?.id;
+  expect(caseId).toBeTruthy();
+
+  const compliance = await (await browser.newContext()).newPage();
+  await staffSignIn(compliance, browser, 'compliance');
+  try {
+    // Compliance raises a request for two items; the owner's deadline (the stack's TEST value: 7 days) applies to each.
+    await compliance.goto(`${ADMIN}/identity-ops/kyc/${caseId}`, { waitUntil: 'load' });
+    const review = compliance.getByTestId('kyc-case-review');
+    await expect(review.getByTestId('kyc-case-rfi')).toBeVisible({ timeout: 60_000 });
+    await review.getByLabel('Item code 1').fill('proof_of_address');
+    await review.getByLabel('What to send 1').fill('TEST: a utility bill from the last three months');
+    await review.getByRole('button', { name: 'Add an item' }).click();
+    await review.getByLabel('Item code 2').fill('source_of_funds');
+    await review.getByLabel('What to send 2').fill('TEST: a payslip or bank statement');
+    const askedAt = Date.now();
+    await review.getByRole('button', { name: 'Request information' }).click();
+    await expect(review.getByTestId('kyc-case-rfi-sent')).toBeVisible({ timeout: 60_000 });
+
+    // The case becomes "information requested" with two tasks, each due seven days out.
+    await expect(review.getByTestId('kyc-case-state')).toHaveText('info_requested', { timeout: 60_000 });
+    const tasks = review.getByTestId('kyc-case-task');
+    await expect(tasks).toHaveCount(2);
+    await expect(tasks.nth(0)).toHaveAttribute('data-task', 'proof_of_address');
+    await expect(tasks.nth(1)).toHaveAttribute('data-task', 'source_of_funds');
+    for (const t of await tasks.all()) await expect(t).toHaveAttribute('data-state', 'requested');
+    const due = await tasks.nth(0).locator('time').getAttribute('datetime');
+    const days = (Date.parse(due ?? '') - askedAt) / 86_400_000;
+    expect(days).toBeGreaterThan(6.99);
+    expect(days).toBeLessThan(7.01);
+    // It waits on the customer, so it leaves the review queue's open cases.
+    await expect(review.getByTestId('kyc-case-rfi')).toHaveCount(0);
+
+    // The customer is told: their verification page shows the case as "Information requested" with each task and its deadline.
+    await page.goto(`${ORIGIN}/verification`);
+    const shown = page.locator(`[data-testid="verification__case"][data-case="${caseId}"]`);
+    await expect(shown).toHaveAttribute('data-state', 'info_requested', { timeout: 60_000 });
+    await expect(shown).toContainText('Information requested');
+    const items = shown.getByTestId('verification__case-task');
+    await expect(items).toHaveCount(2);
+    await expect(items.nth(0)).toContainText('TEST: a utility bill from the last three months');
+    await expect(items.nth(0)).toContainText('Due');
+    await expect(items.nth(1)).toContainText('TEST: a payslip or bank statement');
+    const theirs = (await history()).find((c) => c.id === caseId);
+    expect(theirs?.state).toBe('info_requested');
+    expect(theirs?.tasks?.map((t) => t.key)).toEqual(['proof_of_address', 'source_of_funds']);
+  } finally {
+    await compliance.context().close();
   }
 });

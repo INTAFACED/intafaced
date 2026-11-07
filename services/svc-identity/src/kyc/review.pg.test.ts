@@ -16,7 +16,14 @@ import { createTestDb } from '../fixture-truncate.testkit.js';
 import { RankService } from '../rank/rank-service.js';
 import { AuthService } from '../auth/auth-service.js';
 import { parseKycRejectReasons } from './cases.js';
-import { KycReviewDesk, KycReviewError, decodeQueueCursor, parseKycAppealWindowSeconds, parseKycQueuePageSize } from './review.js';
+import {
+  KycReviewDesk,
+  KycReviewError,
+  decodeQueueCursor,
+  parseKycAppealWindowSeconds,
+  parseKycQueuePageSize,
+  parseKycRfiDays,
+} from './review.js';
 
 function identityTestUrl(): string {
   const raw = process.env.TEST_DATABASE_URL ?? 'postgres://test:test@127.0.0.1:55432/intafaced_test';
@@ -208,6 +215,34 @@ describe('KYC review queue', () => {
       expect(read.case.state).toBe('submitted');
       expect(read.case.history.map((h) => h.state)).toEqual(['submitted', 'rejected', 'submitted']);
       expect(read.final).toBe(false);
+    });
+    it('a request for information moves the case to info_requested with one task per item, due by the owner deadline', async () => {
+      expect(parseKycRfiDays(undefined)).toBeNull();
+      expect(parseKycRfiDays('7')).toBe(7);
+      expect(() => parseKycRfiDays('0')).toThrow();
+      const userId = await person();
+      const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+      const [{ id: caseId }] = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE record_id = ${record.id}`;
+      const at = new Date();
+      const items = [
+        { key: 'proof_of_address', hint: 'TEST: a recent bill' },
+        { key: 'source_of_funds', hint: 'TEST: a payslip' },
+      ];
+      const tasks = await desk().requestInfo(caseId!, await person(), items, at);
+      expect(tasks.map((t) => [t.key, t.state])).toEqual([
+        ['proof_of_address', 'requested'],
+        ['source_of_funds', 'requested'],
+      ]);
+      expect(tasks[0]!.dueAt).toBe(new Date(at.getTime() + 7 * 86_400_000).toISOString());
+      // The same request again returns the stored tasks; a different one refuses.
+      expect(await desk().requestInfo(caseId!, await person(), items)).toEqual(tasks);
+      expect(await code(desk().requestInfo(caseId!, await person(), [{ key: 'other', hint: 'TEST' }]))).toBe('kyc.case_state');
+      const [seen] = await history(userId);
+      expect(seen).toMatchObject({ id: caseId, state: 'info_requested', version: 2 });
+      expect(seen!.tasks.map((t) => t.key)).toEqual(['proof_of_address', 'source_of_funds']);
+      // It waits on the customer, so it is not on the open queue.
+      const page = await desk(200).list(null);
+      expect(page.cases.map((c) => c.caseId)).not.toContain(caseId);
     });
   });
 });
