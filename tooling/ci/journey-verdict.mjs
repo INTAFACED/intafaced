@@ -441,7 +441,7 @@ export function missingArtifact(stderr) {
 }
 /** A JSON file from a run's journeys artifact (report.json by default). When `optional`, a run with no such artifact, or an
  *  artifact without the file, gives null; a download that fails for any other reason, or a malformed file, throws. */
-function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
+export function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
     try {
@@ -475,16 +475,82 @@ export function manifestsAt(root) {
   return manifests;
 }
 
+/** The baseline and the money rule as a checkout at `root` holds them (the run's own commit; for the merge seal, the
+ *  default branch's copy). */
+export function rootInputs(root, baselineFile) {
+  const journeys = json(join(root, 'docs/roadmap/journeys.json'));
+  const slices = json(join(root, 'docs/roadmap/slices.json'));
+  const money = moneyRule({ journeys, slices, manifests: manifestsAt(root) });
+  return {
+    baseline: json(baselineFile ?? join(root, BASELINE_PATH)),
+    money,
+    // The set-aside's own money guard and each journey's owner (its module area).
+    guard: setAsideGuard({ journeys, slices, money }),
+    owners: Object.fromEntries(journeys.map((j) => [j.id, j.module])),
+  };
+}
+
+/**
+ * The verdict's inputs read from GitHub, GET only: the baseline's named run's report, the pass history on main after it
+ * and before the run judged (`thisRunId`, or `thisRun` when already read), and the regression issues the baseline names.
+ * Returns { named, passedSince, issues, problems }; each input that can't be read is a problem, which is red, never
+ * green. `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
+ */
+export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new Map(), log = console.log }) {
+  const problems = [];
+  const reportOf = (id) => {
+    if (!reports.has(id)) reports.set(id, readReport(downloadReport(repo, id)));
+    return reports.get(id);
+  };
+  let named = null;
+  let passedSince = {};
+  const issues = {};
+  try {
+    named = reportOf(baseline.run.id);
+  } catch (e) {
+    problems.push(`the baseline's named run ${baseline?.run?.number} (${baseline?.run?.id}) report couldn't be read: ${e.message}`);
+  }
+  try {
+    const namedRun = ghApi(`/repos/${repo}/actions/runs/${baseline.run.id}`);
+    const run = thisRun ?? ghApi(`/repos/${repo}/actions/runs/${thisRunId}`);
+    const all = ghPages(
+      `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
+      'workflow_runs',
+    );
+    const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: run.created_at, thisId: run.id });
+    if (runs.length > HISTORY_MAX)
+      throw new Error(
+        `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
+      );
+    const read = [];
+    for (const r of runs) {
+      try {
+        read.push([r.run_number, reportOf(r.id)]);
+      } catch (e) {
+        throw new Error(`run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`);
+      }
+    }
+    log(`pass history: ${read.length} finished run(s) on main after run ${baseline.run.number}`);
+    passedSince = passesSince(read);
+  } catch (e) {
+    problems.push(`the pass history couldn't be read: ${e.message}`);
+  }
+  for (const n of [...new Set((baseline.steps ?? []).filter((e) => e.state === 'regression').map((e) => e.issue))]) {
+    try {
+      issues[n] = { issue: ghApi(`/repos/${repo}/issues/${n}`), comments: ghPages(`/repos/${repo}/issues/${n}/comments`) };
+    } catch (e) {
+      issues[n] = { problem: e.message.split('\n')[0] };
+    }
+  }
+  return { named, passedSince, issues, problems };
+}
+
 function main() {
   const root = process.cwd();
   const red = [];
   const problem = (why) => red.push({ step: '(input)', why, money: true });
   const reportFile = arg('--report');
-  const baseline = json(arg('--baseline') ?? join(root, BASELINE_PATH));
-  const journeys = json(join(root, 'docs/roadmap/journeys.json'));
-  const money = moneyRule({ journeys, slices: json(join(root, 'docs/roadmap/slices.json')), manifests: manifestsAt(root) });
-  const owners = Object.fromEntries(journeys.map((j) => [j.id, j.module]));
-  const guard = setAsideGuard({ journeys, slices: json(join(root, 'docs/roadmap/slices.json')), money });
+  const { baseline, money, guard, owners } = rootInputs(root, arg('--baseline'));
   const targetText = arg('--target') ?? process.env.JOURNEYS_TARGET ?? '';
   const target = targetText.trim()
     ? new Set(
@@ -508,59 +574,31 @@ function main() {
     number: Number(arg('--run-number') ?? process.env.GITHUB_RUN_NUMBER) || null,
     at: arg('--now') ?? new Date().toISOString(),
   };
-  try {
-    if (arg('--named-report')) named = readReport(json(arg('--named-report')));
-    else if (fetch) named = readReport(downloadReport(repo, baseline.run.id));
-    else problem("no report of the baseline's named run was given");
-  } catch (e) {
-    problem(`the baseline's named run ${baseline?.run?.number} (${baseline?.run?.id}) report couldn't be read: ${e.message}`);
-  }
-  try {
-    if (arg('--history-dir')) {
-      const dir = arg('--history-dir');
-      const reports = readdirSync(dir)
-        .filter((n) => /^\d+$/.test(n) && existsSync(join(dir, n, 'report.json')))
-        .map((n) => [Number(n), readReport(json(join(dir, n, 'report.json')))])
-        .filter(([n]) => n > baseline.run.number);
-      passedSince = passesSince(reports);
-    } else if (fetch) {
-      const namedRun = ghApi(`/repos/${repo}/actions/runs/${baseline.run.id}`);
-      const current = ghApi(`/repos/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`);
-      const all = ghPages(
-        `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
-        'workflow_runs',
-      );
-      const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: current.created_at, thisId: current.id });
-      if (runs.length > HISTORY_MAX)
-        throw new Error(
-          `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
-        );
-      const reports = [];
-      for (const r of runs) {
-        try {
-          reports.push([r.run_number, readReport(downloadReport(repo, r.id))]);
-        } catch (e) {
-          throw new Error(
-            `run ${r.run_number}'s report couldn't be read (${e.message.split('\n')[0]}), so a pass in it can't be ruled out`,
-          );
-        }
-      }
-      console.log(`pass history: ${reports.length} finished run(s) on main after run ${baseline.run.number}`);
-      passedSince = passesSince(reports);
-    } else problem("no pass history since the baseline's named run was given");
-  } catch (e) {
-    problem(`the pass history couldn't be read: ${e.message}`);
-  }
-  const wanted = [...new Set((baseline.steps ?? []).filter((e) => e.state === 'regression').map((e) => e.issue))];
-  if (arg('--issues-file')) issues = json(arg('--issues-file'));
-  else if (fetch)
-    for (const n of wanted) {
-      try {
-        issues[n] = { issue: ghApi(`/repos/${repo}/issues/${n}`), comments: ghPages(`/repos/${repo}/issues/${n}/comments`) };
-      } catch (e) {
-        issues[n] = { problem: e.message.split('\n')[0] };
-      }
+  if (fetch) {
+    const got = fetchInputs({ repo, baseline, thisRunId: process.env.GITHUB_RUN_ID });
+    ({ named, passedSince, issues } = got);
+    for (const why of got.problems) problem(why);
+  } else {
+    try {
+      if (arg('--named-report')) named = readReport(json(arg('--named-report')));
+      else problem("no report of the baseline's named run was given");
+    } catch (e) {
+      problem(`the baseline's named run ${baseline?.run?.number} (${baseline?.run?.id}) report couldn't be read: ${e.message}`);
     }
+    try {
+      if (arg('--history-dir')) {
+        const dir = arg('--history-dir');
+        const reports = readdirSync(dir)
+          .filter((n) => /^\d+$/.test(n) && existsSync(join(dir, n, 'report.json')))
+          .map((n) => [Number(n), readReport(json(join(dir, n, 'report.json')))])
+          .filter(([n]) => n > baseline.run.number);
+        passedSince = passesSince(reports);
+      } else problem("no pass history since the baseline's named run was given");
+    } catch (e) {
+      problem(`the pass history couldn't be read: ${e.message}`);
+    }
+    if (arg('--issues-file')) issues = json(arg('--issues-file'));
+  }
 
   // The set-aside list: the last run on main's, carried on, plus this run's own flaky steps when it ran on main (a
   // targeted run on a branch never retries). An unreadable list is red, and this run's list says it is incomplete, so

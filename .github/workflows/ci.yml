@@ -504,7 +504,8 @@ jobs:
     permissions:
       contents: read
       actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
-      pull-requests: read # the changed files, to tell whether this change needs the independent review
+      pull-requests: read # the changed files, to tell whether this change needs the independent review or a full journeys run
+      issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
     needs: [changes, gates, format, build, test-full]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -533,6 +534,9 @@ jobs:
       # 2026-11-06; #7202 merged with its named steps red in its own run). On a merge queue's commit, every queued pull
       # request on its own head. journey-seal-recheck.yml re-runs this job when a journeys run finishes or a title or body
       # is edited. The default branch's copy decides, as for the review below.
+      # A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP in journey-seal.mjs), whatever its
+      # title, also needs the newest finished full journeys run on its exact head clean by the journeys verdict, judged with
+      # the default branch's baseline (the pilot lead's rule of 7 Nov 2026, moved from a message into CI).
       - name: Require the named journey steps on this exact head
         if: steps.base.outcome == 'success'
         env:

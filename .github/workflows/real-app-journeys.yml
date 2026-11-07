@@ -56,7 +56,13 @@ on:
       - 'package.json'
       - 'turbo.json'
       - 'tsconfig*.json'
+      # The journey stack's shared setup: SHARED_SETUP in tooling/ci/journey-seal.mjs, which journey-seal.test.mjs keeps
+      # in step with these lines (its real-app helpers come in under apps/**).
+      - 'tooling/scripts/local-stack-services/**'
+      - 'tooling/scripts/local-stack-fixtures/**'
       - 'tooling/scripts/local-test-*.mjs'
+      - 'tooling/scripts/journey-world.mjs'
+      - 'tooling/scripts/local-infra-bootstrap.sh'
       - 'tooling/scripts/roadmap.mjs'
       - 'tooling/scripts/journey-shards*.mjs'
       - 'tooling/scripts/journey-fail-fast.mjs'
