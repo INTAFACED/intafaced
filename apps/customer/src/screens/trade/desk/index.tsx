@@ -9,6 +9,9 @@ import '../chart/chart.css';
 import { BookPanel, STALE_BOOK_MS, Tape, type BookPick } from './OrderBook';
 import { ArrangeBar, ArrangeChrome, DeskLayoutMenu, dropTarget, useDeskLayout } from './DeskLayout';
 import { gridColumns, isUntouched, type WidgetId } from './workspace';
+import type { SavedDeskLayout } from './saved-layouts';
+import type { ChartInterval } from '../chart/candles';
+import { navigate } from '../../../app/location';
 import { BottomTabs, type BottomTab } from './BottomTabs';
 import { ChartPanel } from './ChartPanel';
 import { FeedStatus } from './FeedStatus';
@@ -28,7 +31,7 @@ import {
   normalizePair,
   useFavorites,
 } from './deps';
-import { findMarket, type DeskMarket } from './market';
+import { findMarket, pairOf, type DeskMarket } from './market';
 import { useNow } from './hooks';
 import type { Reference, Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
@@ -96,14 +99,23 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const chrome = (id: WidgetId) => <ArrangeChrome desk={desk} id={id} name={widgetName(id)} />;
   const bookFrame = useMemo(() => frame('book'), [custom, layout, arranging]); // eslint-disable-line react-hooks/exhaustive-deps
   const bookChrome = useMemo(() => chrome('book'), [layout, arranging, t]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A saved layout opened from the Layouts menu: its chart interval, and its market when that is another one.
+  const [requestedInterval, setRequestedInterval] = useState<{ interval: ChartInterval; nonce: number } | null>(null);
+  const onOpenLayout = useCallback(
+    (opened: SavedDeskLayout) => {
+      setRequestedInterval((previous) => ({ interval: opened.interval, nonce: (previous?.nonce ?? 0) + 1 }));
+      if (opened.symbol !== symbol) navigate(`/trade/spot/${pairOf(opened.symbol)}`);
+    },
+    [symbol],
+  );
   const status = useMemo(
     () => (
       <>
         <FeedStatus symbol={symbol} />
-        <DeskLayoutMenu desk={desk} />
+        <DeskLayoutMenu desk={desk} symbol={symbol} onOpenLayout={onOpenLayout} />
       </>
     ),
-    [symbol, desk.layout, desk.arranging], // eslint-disable-line react-hooks/exhaustive-deps
+    [symbol, desk.layout, desk.arranging, desk.saved, desk.note, onOpenLayout], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const toggleFavorite = useCallback(() => toggle(symbol), [toggle, symbol]);
   const picker = useMemo(() => <PairPicker selected={symbol} />, [symbol]);
@@ -160,7 +172,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         </aside>
         <div data-testid="dk-centre" className="dk-centre" {...frame('chart')}>
           {chrome('chart')}
-          <ChartPanel market={market} openOrders={openOrders} fills={fills} />
+          <ChartPanel market={market} openOrders={openOrders} fills={fills} requestedInterval={requestedInterval} />
           <OrderPanel
             market={market}
             reference={reference}

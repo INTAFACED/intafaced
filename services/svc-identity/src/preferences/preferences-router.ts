@@ -6,6 +6,8 @@ import { uiViewPreferenceSchema } from '@intafaced/contracts/ui-view-preferences
 import { homeTilesPreferenceSchema } from '@intafaced/contracts/home-tiles-preferences';
 import { savedScreensPreferenceSchema, watchlistsPreferenceSchema } from '@intafaced/contracts/watchlists-preferences';
 import { addressWatchesPreferenceSchema, tokenWatchlistPreferenceSchema } from '@intafaced/contracts/protocol-watch-preferences';
+import { deskLayoutsPreferenceSchema } from '@intafaced/contracts/desk-layouts-preferences';
+import { chartTemplatesPreferenceSchema } from '@intafaced/contracts/chart-templates-preferences';
 import { ACCOUNT_DISPLAY_NAMESPACE } from './account-display.js';
 import { getPreferences, PreferencesError, setPreferences, type PreferenceSettings, type PreferenceView } from './preferences.js';
 import { PREFERENCES_VERSION_CONFLICT, TRADE_VIEWS_NAMESPACE } from './trade-views.js';
@@ -37,6 +39,8 @@ const preference = z.union([
   savedScreensPreferenceSchema,
   tokenWatchlistPreferenceSchema,
   addressWatchesPreferenceSchema,
+  deskLayoutsPreferenceSchema,
+  chartTemplatesPreferenceSchema,
 ]);
 const stored = z.literal('stored');
 const storedPreference = z.union([
@@ -48,6 +52,8 @@ const storedPreference = z.union([
   savedScreensPreferenceSchema.extend({ outcome: stored }).strict(),
   tokenWatchlistPreferenceSchema.extend({ outcome: stored }).strict(),
   addressWatchesPreferenceSchema.extend({ outcome: stored }).strict(),
+  deskLayoutsPreferenceSchema.extend({ outcome: stored }).strict(),
+  chartTemplatesPreferenceSchema.extend({ outcome: stored }).strict(),
 ]);
 
 function preferenceError(error: unknown): never {

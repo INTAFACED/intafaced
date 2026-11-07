@@ -27,34 +27,27 @@ import type { DeskMarket } from './market';
 import { placesOf } from './text';
 import { MarketRulesList } from './MarketRules';
 import { zoneName } from './time';
-
-type Mode = 'candles' | 'line';
-const isSetting = (value: unknown): value is { interval: ChartInterval; mode: Mode } =>
-  typeof value === 'object' &&
-  value !== null &&
-  'interval' in value &&
-  'mode' in value &&
-  [...CHART_INTERVALS, ...MORE_INTERVALS].includes((value as { interval: ChartInterval }).interval) &&
-  ((value as { mode: Mode }).mode === 'candles' || (value as { mode: Mode }).mode === 'line');
+import { CHART_SETTING_DEFAULT, CHART_SETTING_KEY, isChartSetting, type ChartSetting } from './chart-setting';
 
 interface Props {
   market: DeskMarket;
   openOrders: Loadable<Order[]>;
   fills: Loadable<Trade[]>;
+  /** An interval asked for from outside the panel (a saved layout opened); each new nonce is applied once. */
+  requestedInterval?: { interval: ChartInterval; nonce: number } | null;
 }
 
 const intervalLabel = (interval: ChartInterval) => (interval === '1d' ? '1D' : interval === '1w' ? '1W' : interval);
 
 /** Centre top (UI-SPEC 5.7): Chart and Info tabs, interval toolbar, candles or line, full screen. */
-export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills }: Props) {
+export const ChartPanel = memo(function ChartPanel({ market, openOrders, fills, requestedInterval }: Props) {
   const { t } = deskCopy.useCopy();
   const { timeZone } = usePreferences();
-  const [setting, setSetting] = useDeviceSetting<{ interval: ChartInterval; mode: Mode }>(
-    'trade-desk-chart',
-    { interval: '15m', mode: 'candles' },
-    isSetting,
-  );
+  const [setting, setSetting] = useDeviceSetting<ChartSetting>(CHART_SETTING_KEY, CHART_SETTING_DEFAULT, isChartSetting);
   const { interval, mode } = setting;
+  useEffect(() => {
+    if (requestedInterval) setSetting((current) => ({ ...current, interval: requestedInterval.interval }));
+  }, [requestedInterval?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tab, setTab] = useState<'chart' | 'info'>('chart');
   const [full, setFull] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
