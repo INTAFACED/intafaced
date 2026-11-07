@@ -166,6 +166,17 @@ export const appRouter = createProtocolRouter({
         }
       : null,
   claimEscrow: () => env.PROTOCOL_CLAIM_ESCROW_ADDRESS as `0x${string}`,
+  swapV2: () =>
+    isZeroAddress(env.PROTOCOL_ROUTER_V2_ADDRESS) ||
+    isZeroAddress(env.PROTOCOL_SOVEREIGN_PERMIT_ADDRESS) ||
+    isZeroAddress(env.PROTOCOL_WRAPPED_NATIVE_ADDRESS)
+      ? null
+      : {
+          router: env.PROTOCOL_ROUTER_V2_ADDRESS as `0x${string}`,
+          sovereignPermit: env.PROTOCOL_SOVEREIGN_PERMIT_ADDRESS as `0x${string}`,
+          wrappedNative: env.PROTOCOL_WRAPPED_NATIVE_ADDRESS as `0x${string}`,
+        },
+  permitLifetimeCapSeconds: () => env.PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS,
   replacement: () => ({ bumpBps: env.PROTOCOL_TX_FEE_BUMP_BPS, ceilingWei: env.PROTOCOL_TX_FEE_CEILING_WEI }),
   priceSetting: () =>
     env.PROTOCOL_PRICE_USD_TOKENS && env.PROTOCOL_PRICE_MIN_RESERVE_USD !== null

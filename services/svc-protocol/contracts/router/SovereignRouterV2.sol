@@ -106,13 +106,23 @@ contract SovereignRouterV2 {
     // ---------------------------------------------------------------- approvals by signature
 
     /**
-     * Uses the caller's EIP-2612 signature on `token` naming this router as spender. When the allowance is already at
-     * least `value` (the permit was submitted by someone else first) it does nothing, so a front-run cannot block the
-     * swap; the token's own nonce makes a signature count once.
+     * Uses the caller's EIP-2612 signature on `token` naming this router (`toPermitContract` false: one signature for
+     * this swap) or SovereignPermit (true: the token-level approval a standing allowance pulls through) as spender. When
+     * that allowance is already at least `value` (someone submitted the permit first) it does nothing, so a front-run
+     * cannot block the swap; the token's own nonce makes a signature count once.
      */
-    function selfPermit(address token, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) public {
-        if (IERC20Minimal(token).allowance(msg.sender, address(this)) >= value) return;
-        IPermitToken(token).permit(msg.sender, address(this), value, deadline, v, r, s);
+    function selfPermit(
+        address token,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s,
+        bool toPermitContract
+    ) public {
+        address spender = toPermitContract ? address(sovereignPermit) : address(this);
+        if (IERC20Minimal(token).allowance(msg.sender, spender) >= value) return;
+        IPermitToken(token).permit(msg.sender, spender, value, deadline, v, r, s);
     }
 
     /// Sets the caller's standing allowance for this router in SovereignPermit from the caller's signature.

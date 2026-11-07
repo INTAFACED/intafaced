@@ -75,7 +75,7 @@ export const protocolPoolQuoteOutputSchema = z.object({
 });
 export type ProtocolPoolQuote = z.infer<typeof protocolPoolQuoteOutputSchema>;
 
-/** A call the person's wallet signs and sends. `value` is always "0": nothing this service builds moves native value. */
+/** A call the person's wallet signs and sends. `value` is the native amount it sends: "0" except a native-input swap. */
 export const protocolUnsignedCallSchema = z.object({
   to: address,
   data: z.string().regex(/^0x([0-9a-fA-F]{2})*$/),

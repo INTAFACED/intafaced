@@ -30,7 +30,7 @@ contract SovereignPermit {
         uint48 nonce;
     }
 
-    bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,uint256 chainId,address verifyingContract)");
+    bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
     bytes32 public constant PERMIT_TRANSFER_TYPEHASH =
         keccak256("PermitTransferFrom(address token,uint256 amount,address spender,uint256 nonce,uint256 deadline)");
     bytes32 public constant PERMIT_ALLOWANCE_TYPEHASH = keccak256(
@@ -62,7 +62,7 @@ contract SovereignPermit {
     error ZeroAddress();
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
-        return keccak256(abi.encode(DOMAIN_TYPEHASH, keccak256("SovereignPermit"), block.chainid, address(this)));
+        return keccak256(abi.encode(DOMAIN_TYPEHASH, keccak256("SovereignPermit"), keccak256("1"), block.chainid, address(this)));
     }
 
     // ---------------------------------------------------------------- signature transfer (PRM-2)

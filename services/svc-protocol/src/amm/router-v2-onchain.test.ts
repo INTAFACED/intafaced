@@ -14,6 +14,8 @@ import { createWalletClient, http, parseUnits, type Abi, type Address, type Hex 
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { loadArtifact } from '../chain/artifacts.js';
 import type { DevChainClients } from '../../scripts/dev-chain.js';
+import type { ProtocolSwapPairs } from '@intafaced/contracts';
+import { bestPath, buildPermit, buildSwapV2, readApprovalRoute, type SwapV2Deps } from './swap-v2.js';
 
 const devChainMod = await (async () => {
   try {
@@ -38,7 +40,7 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
   let tokenA: Address; // EIP-2612 permit
   let tokenB: Address; // EIP-2612 permit
   let tokenC: Address; // no permit
-  const pools: Record<string, Address> = {};
+  const pools = {} as Record<'AB' | 'BC' | 'WB', Address>;
   const owner = privateKeyToAccount(generatePrivateKey());
   let ownerWallet: ReturnType<typeof createWalletClient>;
 
@@ -139,7 +141,12 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
       v: Number(`0x${signature.slice(130, 132)}`),
     };
   }
-  const permitDomain = async () => ({ name: 'SovereignPermit', chainId: await c.publicClient.getChainId(), verifyingContract: permit });
+  const permitDomain = async () => ({
+    name: 'SovereignPermit',
+    version: '1',
+    chainId: await c.publicClient.getChainId(),
+    verifyingContract: permit,
+  });
 
   beforeAll(async () => {
     c = await devChainMod.devSuiteClients(import.meta.url);
@@ -152,7 +159,7 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     tokenA = await deploy('TestToken', ['RV2 A', 'RV2A', 6]);
     tokenB = await deploy('TestToken', ['RV2 B', 'RV2B', 18]);
     tokenC = await deploy('TestPlainToken', ['RV2 C', 'RV2C', 18]);
-    const seedPool = async (key: string, a: Address, b: Address, amountA: bigint, amountB: bigint) => {
+    const seedPool = async (key: 'AB' | 'BC' | 'WB', a: Address, b: Address, amountA: bigint, amountB: bigint) => {
       await write(factory, 'PoolFactory', 'createPool', [a, b, 30]);
       const pool = await read<Address>(factory, 'PoolFactory', 'getPool', [a, b, 30]);
       for (const [t, amount] of [
@@ -200,7 +207,11 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     };
     const { encodeFunctionData } = await import('viem');
     const calls = [
-      encodeFunctionData({ abi: abi('SovereignRouterV2'), functionName: 'selfPermit', args: [tokenA, amount, deadline, p.v, p.r, p.s] }),
+      encodeFunctionData({
+        abi: abi('SovereignRouterV2'),
+        functionName: 'selfPermit',
+        args: [tokenA, amount, deadline, p.v, p.r, p.s, false],
+      }),
       encodeFunctionData({ abi: abi('SovereignRouterV2'), functionName: 'exactIn', args: [swap] }),
     ];
     const before = await balance(tokenB, owner.address);
@@ -410,5 +421,91 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     expect(await revertOf(router, 'SovereignRouterV2', 'exactOut', [swap((await now()) - 1n)], parseUnits('1', 18))).toBe('Expired');
     expect(await revertOf(router, 'SovereignRouterV2', 'exactOut', [swap(0n)], parseUnits('1', 18))).toBe('Expired');
     expect(await reservesOf(pools.WB)).toEqual(before);
+  });
+  describe('the v2 swap procedures (swap-v2.ts) on the same contracts', () => {
+    const refusal = (work: Promise<unknown>) =>
+      work.then(
+        () => 'no refusal',
+        (err: { cause?: { code?: string } }) => err.cause?.code ?? String(err),
+      );
+    const pairsAt = async (): Promise<ProtocolSwapPairs> => {
+      const blockNumber = await c.publicClient.getBlockNumber();
+      const list = await Promise.all(
+        Object.values(pools).map(async (pool) => {
+          const [token0, token1, [reserve0, reserve1]] = await Promise.all([
+            read<Address>(pool, 'ConstantProductPool', 'token0'),
+            read<Address>(pool, 'ConstantProductPool', 'token1'),
+            reservesOf(pool),
+          ]);
+          return { pool, token0, token1, feeBps: 30, reserve0: reserve0.toString(), reserve1: reserve1.toString(), blockTimestampLast: 0 };
+        }),
+      );
+      return { factory, blockNumber: blockNumber.toString(), tokens: [], pools: list, skipped: 0 };
+    };
+    let cap: number | null = 3600;
+    const deps = (): SwapV2Deps => ({
+      client: () => c.publicClient,
+      chainId: () => c.walletClient.chain!.id,
+      setting: () => ({ router, sovereignPermit: permit, wrappedNative: weth }),
+      permitLifetimeCapSeconds: () => cap,
+      slippageCeilingBps: () => 300,
+      pairs: pairsAt,
+      toTrpcError: (err) => err as never,
+    });
+
+    it("names the approval route: the token's own permit, or an approve transaction for a token with none", async () => {
+      expect((await readApprovalRoute(deps(), owner.address, tokenA)).route).toBe('native_permit');
+      expect((await readApprovalRoute(deps(), owner.address, tokenC)).route).toBe('approve_only');
+    });
+
+    it('builds an exact permit for the amount and deadline; refuses a blank cap, a past or over-cap expiry and a token with no permit', async () => {
+      const t = await now();
+      const input = { owner: owner.address, token: tokenA, amount: '10000000', mode: 'exact' as const, expiresAt: String(t + 300n) };
+      const built = await buildPermit(deps(), input);
+      expect(built.tokenPermit?.message).toMatchObject({ spender: router, value: '10000000', deadline: String(t + 300n) });
+      expect(await refusal(buildPermit(deps(), { ...input, token: tokenC }))).toBe('protocol.permit.not_supported');
+      expect(await refusal(buildPermit(deps(), { ...input, expiresAt: String(t - 1n) }))).toBe('protocol.deadline_past');
+      expect(await refusal(buildPermit(deps(), { ...input, expiresAt: String(t + 4000n) }))).toBe('protocol.permit.lifetime_over_cap');
+      cap = null;
+      expect(await refusal(buildPermit(deps(), input))).toBe('protocol.permit.lifetime_unset');
+      cap = 3600;
+    });
+
+    it('a multi-hop route with no hop limit refuses by name; with one it returns the path and each hop', async () => {
+      const ask = { tokenIn: tokenA, tokenOut: tokenC, kind: 'exact_in' as const, amount: '1000000', hops: 2, maxHops: null };
+      expect(await refusal(bestPath(deps(), ask))).toBe('dex.route.max_hops_unset');
+      expect(await refusal(bestPath(deps(), { ...ask, maxHops: 1 }))).toBe('dex.route.over_max_hops');
+      const path = await bestPath(deps(), { ...ask, maxHops: 2 });
+      expect(path.path.map((a) => a.toLowerCase())).toEqual([tokenA, tokenB, tokenC].map((a) => a.toLowerCase()));
+      expect(path.hops).toHaveLength(2);
+    });
+
+    it('builds a swap whose per-hop minimums come from a fresh read; refuses a zero or past deadline; a simulated expired standing pull refuses by name', async () => {
+      const t = await now();
+      const base = {
+        owner: owner.address,
+        kind: 'exact_in' as const,
+        path: [tokenA, tokenB, tokenC],
+        pools: [pools.AB, pools.BC],
+        amount: '1000000',
+        slippageBps: 100,
+        deadline: String(t + 300n),
+        pull: 'allowance' as const,
+        unwrapOut: false,
+        simulate: false,
+      };
+      const built = await buildSwapV2(deps(), base);
+      expect(built.minOutPerHop).toHaveLength(2);
+      built.minOutPerHop.forEach((min, i) => expect(BigInt(min)).toBe((BigInt(built.quoted[i]!) * 9_900n) / 10_000n));
+      expect(await refusal(buildSwapV2(deps(), { ...base, deadline: '0' }))).toBe('protocol.deadline_required');
+      expect(await refusal(buildSwapV2(deps(), { ...base, deadline: String(t - 1n) }))).toBe('protocol.deadline_past');
+      expect(await refusal(buildSwapV2(deps(), { ...base, slippageBps: 301 }))).toBe('protocol.swap_slippage_over_ceiling');
+      // The standing allowance on token B (set in the earlier test) has expired: the pull is refused before it is sent.
+      expect(
+        await refusal(
+          buildSwapV2(deps(), { ...base, path: [tokenB, tokenA], pools: [pools.AB], amount: '1000000000000000000', pull: 'standing', simulate: true }),
+        ),
+      ).toBe('protocol.permit.allowance_expired');
+    });
   });
 });
