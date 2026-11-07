@@ -342,7 +342,9 @@ test(`${J} #2 looks up as a support operator: the customer's follow and two bots
     await expect(page.getByRole('heading', { name: 'Copy, bots and OTC', level: 1 })).toBeVisible(UNBUILT);
     const follow = await ownFollow(me, followId);
     const held = await botStatuses(me, bots);
-    await page.getByRole('searchbox', { name: 'Find a customer' }).fill(customer.email);
+    // Support looks the customer up by account id (as a support case carries it). An email lookup asks identity's
+    // account search first, which needs admin:compliance, a scope the TEST support role does not hold.
+    await page.getByRole('searchbox', { name: 'Find a customer' }).fill(customerId);
     await page.getByRole('searchbox', { name: 'Find a customer' }).press('Enter');
     // Each row read back by its own id, with its status as svc-trade gives it to the customer.
     const follows = page.getByRole('table', { name: 'Follows', exact: true });
