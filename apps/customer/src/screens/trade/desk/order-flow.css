@@ -232,4 +232,56 @@
   .of-trade-note[data-tone='bad'] {
     color: var(--if-error-text);
   }
+
+  .of-presets {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--if-space-1);
+  }
+  .of-presets button[aria-pressed='true'] {
+    background: var(--if-pill-active);
+    color: var(--if-fg);
+  }
+  .of-trade .of-close-position {
+    border: 0.0625rem solid var(--if-line-strong);
+  }
+  .of-trade button:disabled {
+    color: var(--if-fg-disabled);
+    cursor: not-allowed;
+  }
+  .of-instant-badge {
+    padding-inline: var(--if-space-2);
+    border-radius: var(--if-r-xs);
+    background: var(--if-warn);
+    color: var(--if-bg);
+  }
+  .of-settings {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--if-space-2);
+  }
+  .of-settings [role='switch'][aria-checked='true'] {
+    background: var(--if-lime-soft);
+    color: var(--if-fg);
+  }
+  .of-summary {
+    display: grid;
+    gap: var(--if-space-1-5);
+    padding-inline-start: var(--if-space-4);
+    color: var(--if-fg-2);
+  }
+  .of-cancel {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .of-cancel:hover {
+    color: var(--if-fg);
+    text-decoration: underline;
+  }
 }

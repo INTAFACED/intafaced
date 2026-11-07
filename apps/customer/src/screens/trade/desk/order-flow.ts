@@ -52,6 +52,15 @@ export function stepOf(tickSize: string, ticks: number): string | null {
   return unscale(tick * BigInt(ticks));
 }
 
+/** The ladder bucket a price falls in at `step`: bids round down, asks round up. Null for a price that is not a decimal. */
+export function bucketOf(price: string, side: 'buy' | 'sell', step: string): string | null {
+  const units = scaled(price);
+  const stepUnits = scaled(step);
+  if (units === null || stepUnits === null || stepUnits <= 0n) return null;
+  const floor = (units / stepUnits) * stepUnits;
+  return unscale(side === 'buy' || floor === units ? floor : floor + stepUnits);
+}
+
 export interface LadderRow {
   price: string;
   /** Resting size on the bid at this bucket, '' when none. */
@@ -249,3 +258,23 @@ export function spreadOf(bestBid: string | null, bestAsk: string | null): string
   if (bid === null || ask === null || ask < bid) return null;
   return unscale(ask - bid);
 }
+
+/** Instant placement (J-charts-desk-14 #6): off by default; on only with the person's agreement and its time. */
+export interface InstantSetting {
+  on: boolean;
+  /** When the person agreed to the summary (UTC ISO); null while off. */
+  agreedAt: string | null;
+}
+
+export const INSTANT_OFF: InstantSetting = { on: false, agreedAt: null };
+
+/** A stored setting is on only with an agreement time: on without one reads as off. */
+export function isInstantSetting(value: unknown): value is InstantSetting {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.on === false) return v.agreedAt === null;
+  return v.on === true && typeof v.agreedAt === 'string' && !Number.isNaN(Date.parse(v.agreedAt));
+}
+
+/** The device key the setting is kept under: one per signed-in person, so another login on the device starts off. */
+export const instantKey = (userId: string | null) => `trade-desk-instant:${userId ?? 'signed-out'}`;

@@ -4,17 +4,33 @@
  * chart draw the SAME book snapshot (its engine sequence is on both), and nothing here holds a balance or sends an order.
  * A click on a ladder cell asks the desk's own ticket for a draft at that price; the ticket reviews it (OrderForm).
  */
-import { memo, useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import type { Preferences } from '../../../shared/preferences';
-import { fmtAmount, fmtPrice, refusalCopy, StateBlock, Skeleton, type Loadable } from './deps';
-import { useTape } from './data';
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  Button,
+  fmtAmount,
+  fmtPrice,
+  refusalCopy,
+  StateBlock,
+  Skeleton,
+  type Loadable,
+} from './deps';
+import { useDeskApi, useRefreshPrivate, useTape } from './data';
+import { useDataEnv } from '../../../data/hooks';
 import { useNow } from './hooks';
 import type { DeskMarket } from './market';
 import { STALE_BOOK_MS } from './OrderBook';
 import { flowCopy } from './order-flow-copy';
 import {
+  bucketOf,
   buildLadder,
   depthCurve,
   LADDER_STEPS,
@@ -45,6 +61,49 @@ interface Props {
   onSetting: (next: DomSetting) => void;
   onPick: (pick: LadderPick) => void;
   onClose: () => void;
+  /** Instant placement is on: a cancel from the ladder acts at once, with no review. */
+  instant: boolean;
+}
+
+/**
+ * One-click cancel from the ladder (J-charts-desk-14 #7): every open order of mine in the row's bucket. Reviewed, it asks
+ * first and lists them; instant, it cancels at once. Either way one DELETE goes per order, once: nothing retries it.
+ */
+function useLadderCancel(instant: boolean) {
+  const { t } = flowCopy.useCopy();
+  const api = useDeskApi();
+  const env = useDataEnv();
+  const refresh = useRefreshPrivate();
+  const busy = useRef(false);
+  const [asking, setAsking] = useState<{ price: string; orders: Order[] } | null>(null);
+  const [note, setNote] = useState<{ tone: 'good' | 'bad'; text: string } | null>(null);
+  const run = async (price: string, orders: readonly Order[], tickSize: string) => {
+    if (busy.current || orders.length === 0) return;
+    busy.current = true;
+    setAsking(null);
+    let done = 0;
+    let refused: string | null = null;
+    let unsure = false;
+    for (const order of orders) {
+      env.poller.recordExternalRequest();
+      const result = await api.cancel(order);
+      if (result.ok) done += 1;
+      else if (result.reason === 'uncertain') unsure = true;
+      else refused = result.message ?? refusalCopy(result.code ?? '').title;
+    }
+    busy.current = false;
+    refresh();
+    const at = fmtPrice(price, tickSize);
+    if (unsure) setNote({ tone: 'bad', text: t('Cancel unsure') });
+    else if (refused !== null) setNote({ tone: 'bad', text: t('Cancel refused', { reason: refused }) });
+    else setNote({ tone: 'good', text: t('Cancel done', { n: done, price: at }) });
+  };
+  const ask = (price: string, orders: Order[], tickSize: string) => {
+    setNote(null);
+    if (instant) void run(price, orders, tickSize);
+    else setAsking({ price, orders });
+  };
+  return { ask, asking, setAsking, run, note };
 }
 
 function Ladder({
@@ -54,6 +113,7 @@ function Ladder({
   columns,
   stepTicks,
   onPick,
+  onCancel,
 }: {
   market: DeskMarket;
   data: OrderBook;
@@ -61,6 +121,7 @@ function Ladder({
   columns: LadderColumns;
   stepTicks: LadderStep;
   onPick: (pick: LadderPick) => void;
+  onCancel: (price: string, orders: Order[]) => void;
 }) {
   const { t } = flowCopy.useCopy();
   const step = stepOf(market.tickSize, stepTicks) ?? market.tickSize;
@@ -68,6 +129,22 @@ function Ladder({
   const amountPlaces = placesOf(market.lotSize);
   const size = (value: string) => (value === '' ? '' : fmtAmount(value, { places: amountPlaces, fixed: true }));
   const double = columns === 'double';
+  const ordersAt = (price: string) => mine.filter((order) => order.price && bucketOf(order.price, order.side, step) === price);
+  const cancelButton = (price: string, shown: string) => {
+    const orders = ordersAt(price);
+    if (orders.length === 0) return shown;
+    return (
+      <button
+        type="button"
+        className="of-cancel"
+        data-testid="of-cancel"
+        aria-label={t('Cancel at', { price: fmtPrice(price, market.tickSize) })}
+        onClick={() => onCancel(price, orders)}
+      >
+        {shown} ×
+      </button>
+    );
+  };
   if (ladder.rows.length === 0)
     return (
       <p className="of-note" data-testid="of-ladder-empty">
@@ -115,7 +192,7 @@ function Ladder({
             >
               {double ? (
                 <span role="gridcell" className="of-mine" data-testid="of-my-bid">
-                  {size(row.myBid)}
+                  {row.myBid ? cancelButton(row.price, size(row.myBid)) : ''}
                 </span>
               ) : null}
               <span role="gridcell" className="of-cell of-cell--bid">
@@ -143,8 +220,15 @@ function Ladder({
               </span>
               <span role="gridcell" className="of-mine" data-testid={double ? 'of-my-ask' : 'of-mine'}>
                 {double
-                  ? size(row.myAsk)
-                  : [row.myBid && `+${size(row.myBid)}`, row.myAsk && `−${size(row.myAsk)}`].filter(Boolean).join(' ')}
+                  ? row.myAsk
+                    ? cancelButton(row.price, size(row.myAsk))
+                    : ''
+                  : row.myBid || row.myAsk
+                    ? cancelButton(
+                        row.price,
+                        [row.myBid && `+${size(row.myBid)}`, row.myAsk && `−${size(row.myAsk)}`].filter(Boolean).join(' '),
+                      )
+                    : ''}
               </span>
             </div>
           );
@@ -362,8 +446,10 @@ function DepthChart({ market, data }: { market: DeskMarket; data: OrderBook }) {
 }
 
 /** The DOM widget on the desk: the ladder, time and sales and the depth chart for the chart's market. */
-export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zone, setting, onSetting, onPick, onClose }: Props) {
+export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zone, setting, onSetting, onPick, onClose, instant }: Props) {
   const { t } = flowCopy.useCopy();
+  const cancel = useLadderCancel(instant);
+  const onCancel = (price: string, orders: Order[]) => cancel.ask(price, orders, market.tickSize);
   const now = useNow(1000);
   const data = book.status === 'ready' ? book.data : null;
   const mine = useMemo(
@@ -381,7 +467,17 @@ export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zon
     const words = refusalCopy(book.code, { pair: market.symbol.replace('/', '-') });
     ladder = <StateBlock kind="refused" title={words.title} body={words.body} action={words.action} />;
   } else if (data)
-    ladder = <Ladder market={market} data={data} mine={mine} columns={setting.columns} stepTicks={setting.stepTicks} onPick={onPick} />;
+    ladder = (
+      <Ladder
+        market={market}
+        data={data}
+        mine={mine}
+        columns={setting.columns}
+        stepTicks={setting.stepTicks}
+        onPick={onPick}
+        onCancel={onCancel}
+      />
+    );
   else ladder = <p className="of-note">{t('Ladder empty')}</p>;
 
   return (
@@ -431,6 +527,46 @@ export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zon
           {t('Ladder old')}
         </p>
       ) : null}
+      {cancel.note ? (
+        <p className={cancel.note.tone === 'bad' ? 'of-note of-note--bad' : 'of-note'} role="status" data-testid="of-cancel-note">
+          {cancel.note.text}
+        </p>
+      ) : null}
+      <AlertDialog open={cancel.asking !== null} onOpenChange={(open) => !open && cancel.setAsking(null)}>
+        {cancel.asking ? (
+          <AlertDialogContent className="dk-review" data-testid="of-cancel-review">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('Cancel review title', { price: fmtPrice(cancel.asking.price, market.tickSize) })}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {cancel.asking.orders
+                  .map((order) =>
+                    t('Cancel review line', {
+                      side: order.side === 'buy' ? t('Buy') : t('Sell'),
+                      amount: order.remaining,
+                      asset: market.base,
+                      price: fmtPrice(order.price ?? '', market.tickSize),
+                    }),
+                  )
+                  .join('; ')}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <Button variant="secondary" size={40} onClick={() => cancel.setAsking(null)}>
+                {t('Cancel review keep')}
+              </Button>
+              <Button
+                variant="primary"
+                size={40}
+                onClick={() => {
+                  if (cancel.asking) void cancel.run(cancel.asking.price, cancel.asking.orders, market.tickSize);
+                }}
+              >
+                {t('Cancel review confirm')}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        ) : null}
+      </AlertDialog>
       <div className="of-body">
         <div className="of-col">{ladder}</div>
         <div className="of-col">

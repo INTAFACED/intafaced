@@ -28,13 +28,13 @@ import {
   normalizePair,
   useFavorites,
 } from './deps';
-import { findMarket, type DeskMarket } from './market';
+import { findMarket, flattenOn, type DeskMarket } from './market';
 import { useNow } from './hooks';
 import { useDeviceSetting } from '../../../features/trade/hooks';
 import { OrderFlow, type LadderPick } from './OrderFlow';
 import { ChartTrade, clickAmountOk, type ChartPick } from './ChartTrade';
-import { DEFAULT_DOM, isDomSetting, type DomSetting } from './order-flow';
-import type { Reference, Side } from './order-math';
+import { DEFAULT_DOM, INSTANT_OFF, instantKey, isDomSetting, isInstantSetting, type DomSetting, type InstantSetting } from './order-flow';
+import { floorToLot, type Reference, type Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
 
 function PairPicker({ selected }: { selected: string }) {
@@ -55,7 +55,7 @@ function PairPicker({ selected }: { selected: string }) {
 function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMarket[]; side: Side | null }) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
-  const { timeZone } = usePreferences();
+  const { timeZone, quickSizes } = usePreferences();
   const ticker = useTickerRow(market.symbol, { intervalMs: DESK_INTERVALS.ticker });
   const book = useBook(market.symbol);
   const balances = useBalances();
@@ -130,6 +130,9 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
   const closeDom = useCallback(() => setDom((now) => ({ ...now, open: false })), [setDom]);
   // The amount a ladder click or a chart Buy/Sell puts on the ticket.
   const [clickAmount, setClickAmount] = useState('');
+  // Instant placement (J-charts-desk-14 #6): off by default, kept per device and per person with the agreement's time.
+  const [instant, setInstant] = useDeviceSetting<InstantSetting>(instantKey(userId), INSTANT_OFF, isInstantSetting);
+  const instantFlag = instant.on ? ({ instant: true } as const) : {};
   const lot = market.lotSize;
   const onLadderPick = useCallback(
     (pick: LadderPick) =>
@@ -140,8 +143,9 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         review: true,
         side: pick.side,
         type: 'limit',
+        ...instantFlag,
       })),
-    [clickAmount, lot],
+    [clickAmount, lot, instant.on], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const onChartTrade = useCallback(
     (pick: ChartPick) =>
@@ -152,12 +156,35 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
         review: true,
         side: pick.side,
         type: pick.type,
+        // A market order always shows its review, instant placement or not (J-cex-spot-13 #2).
+        ...(pick.type === 'limit' ? instantFlag : {}),
       })),
-    [],
+    [instant.on], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  // One-click close (J-charts-desk-14 #7): the desk's own Flatten of every free lot of the base. It is a market sell, so
+  // it always shows its review, instant placement or not (J-cex-spot-13 #2).
+  const freeBase = balances.status === 'ready' ? (balances.data[market.base]?.free ?? '0') : null;
+  const closable = freeBase !== null && flattenOn(market) && floorToLot(freeBase, lot) !== null ? freeBase : null;
+  const onChartClose = useCallback(() => {
+    if (closable === null) return;
+    setSuggestion((previous) => ({ price: '', amount: closable, flatten: true, nonce: (previous?.nonce ?? 0) + 1 }));
+  }, [closable]);
   const chartTrade = useMemo(
-    () => <ChartTrade market={market} reference={reference} amount={clickAmount} onAmount={setClickAmount} onTrade={onChartTrade} />,
-    [market, reference, clickAmount, onChartTrade],
+    () => (
+      <ChartTrade
+        market={market}
+        reference={reference}
+        amount={clickAmount}
+        onAmount={setClickAmount}
+        onTrade={onChartTrade}
+        instant={instant}
+        onInstant={setInstant}
+        presets={quickSizes}
+        closable={closable}
+        onClose={onChartClose}
+      />
+    ),
+    [market, reference, clickAmount, onChartTrade, instant, setInstant, quickSizes, closable, onChartClose],
   );
 
   return (
@@ -211,6 +238,7 @@ function Desk({ market, markets, side }: { market: DeskMarket; markets: DeskMark
               onSetting={setDom}
               onPick={onLadderPick}
               onClose={closeDom}
+              instant={instant.on}
             />
           ) : null}
           <OrderPanel

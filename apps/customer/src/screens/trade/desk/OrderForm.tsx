@@ -32,6 +32,7 @@ import {
   TabsTab,
   type Loadable,
 } from './deps';
+import { flowCopy } from './order-flow-copy';
 import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
@@ -182,6 +183,7 @@ function SideForm({
   onPlaced,
 }: SideProps) {
   const { t } = deskCopy.useCopy();
+  const flow = flowCopy.useCopy();
   const env = useDataEnv();
   const [price, setPrice] = useState('');
   const [stopPrice, setStopPrice] = useState('');
@@ -277,7 +279,7 @@ function SideForm({
   // A click on the DOM ladder or a chart Buy/Sell (J-charts-desk-14): this side's ticket takes the price and amount and
   // opens its own review once the order check allows it. It is the desk's own review and confirm, so the order holds
   // exactly as one typed here, and nothing is sent until the person confirms.
-  const reviewPending = useRef<OrderType | null>(null);
+  const reviewPending = useRef<{ type: OrderType; instant: boolean } | null>(null);
   useEffect(() => {
     if (!suggestion?.review) return;
     if (suggestion.side !== side) {
@@ -289,7 +291,7 @@ function SideForm({
       setTotalEdit(null);
       const lots = suggestion.amount ? floorToLot(suggestion.amount, market.lotSize) : null;
       setAmount(lots ?? '');
-      reviewPending.current = lots !== null ? (suggestion.type ?? 'limit') : null;
+      reviewPending.current = lots !== null ? { type: suggestion.type ?? 'limit', instant: suggestion.instant === true } : null;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
@@ -413,10 +415,10 @@ function SideForm({
 
   useEffect(() => {
     const wanted = reviewPending.current;
-    if (wanted === null || type !== wanted) return;
+    if (wanted === null || type !== wanted.type) return;
     if (canSend) {
       reviewPending.current = null;
-      void startReview();
+      void startReview(wanted.instant);
     } else if (!tradable || !checked.ok || live.state === 'blocked' || live.state === 'error') reviewPending.current = null;
   });
 
@@ -428,7 +430,12 @@ function SideForm({
     } else if (live.state === 'blocked' || live.state === 'error') flattenPending.current = false;
   });
 
-  async function startReview() {
+  /**
+   * The order check, then the review. With `instant` (the person turned instant placement on, J-charts-desk-14 #6) a
+   * checked order goes straight to `confirm` instead of the review dialog: the same check, the same refusals, the same
+   * number and the same send; only the dialog is skipped.
+   */
+  async function startReview(instant = false) {
     if (!canSend || busyRef.current || !checked.ok) return;
     busyRef.current = true;
     setBusy(true);
@@ -456,19 +463,29 @@ function SideForm({
       if (!result.ok) setFailure(failureOf(result, context));
       else if (previewIsOrderable(result.data) && holdShort(result.data, spendAsset, available))
         setFailure(refusalFailure('ledger.insufficient_funds', context));
-      else if (previewIsOrderable(result.data)) setReview({ draft: parsed.data, preview: result.data, changed: false });
-      else setFailure(previewFailure(result.data, context, market.tickSize));
+      else if (previewIsOrderable(result.data)) {
+        const checkedReview = { draft: parsed.data, preview: result.data, changed: false };
+        // Only a limit order skips the review: a market order always shows it (J-cex-spot-13 #2).
+        if (instant && parsed.data.type === 'limit') {
+          setBusy(false);
+          busyRef.current = false;
+          await confirm(checkedReview);
+          return;
+        }
+        setReview(checkedReview);
+      } else setFailure(previewFailure(result.data, context, market.tickSize));
     }
     setBusy(false);
     busyRef.current = false;
   }
 
-  async function confirm() {
-    if (!review || busyRef.current || !userId) return;
+  async function confirm(given: { draft: Draft; preview: Preview; changed: boolean } | null = review) {
+    if (!given || busyRef.current || !userId) return;
+    const instantSend = given !== review;
     busyRef.current = true;
     setBusy(true);
     setFailure(null);
-    const { draft: sending, preview } = review;
+    const { draft: sending, preview } = given;
     const reservation = await reserve(userId, {
       kind: 'place',
       symbol: sending.symbol,
@@ -531,6 +548,8 @@ function SideForm({
                     })
                   : t('Order placed done', { side: sideWord }),
           );
+          // Sent with no review: the line says so, so an instant send is never mistaken for a reviewed one.
+          if (instantSend) setStatus((now) => (now ? `${flow.t('Sent instantly')} ${now}` : now));
           setReview(null);
           if (preferences.resetSizeOnSubmit) {
             setAmount('');

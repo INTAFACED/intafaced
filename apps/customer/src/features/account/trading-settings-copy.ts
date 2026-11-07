@@ -5,7 +5,7 @@ const en = {
   lead: 'How the order form behaves on this device.',
   summary: 'Show the order summary before sending',
   summaryLocked:
-    'Always on. The summary can be turned off only for limit orders under a size cap, and no cap is set. Market orders always show it.',
+    'Always on. The summary can be turned off only for limit orders under a size cap, and no cap is set. Market orders always show it. Instant placement on the desk’s chart is a separate choice, off until you turn it on there, and it too sends only limit orders without a review.',
   reset: 'Clear the amount after an order goes through',
   resetHint: 'Off keeps the amount, so the next order starts from the same size.',
   quickSizes: 'Quick sizes',

@@ -50,6 +50,8 @@ export interface BookPick {
   review?: true;
   side?: 'buy' | 'sell';
   type?: 'limit' | 'market';
+  /** Instant placement was on at the click (J-charts-desk-14 #6): the checked order is sent with no review dialog. */
+  instant?: true;
 }
 
 const Row = memo(function Row({

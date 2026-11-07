@@ -9,8 +9,9 @@ import { awayBid, chosePro, deskPath, fundedTrader, held, openOrders, placements
 // never typed in. Money line: a ladder order is the desk's own order (its review, its confirm, its hold), and nothing is
 // sent from a click without the review.
 //
-// Steps #6 (instant placement), #7 (one-click close, cancel and size presets) and #8 (queue position and fill chance)
-// are not in this file yet: they land with their code, so this file never carries a step that is red by design.
+// Step #8 (queue position and fill chance) is not in this file yet: it lands with its code, so this file never carries a
+// step that is red by design. Instant placement sends LIMIT orders only: a market order (Buy or Sell at market, Close)
+// always shows its review, as the desk's order summary rule has it (J-cex-spot-13 #2).
 const J = 'J-charts-desk-14';
 const SYMBOL = 'BTC/USDT';
 const OTHER = 'ETH/USDT';
@@ -464,4 +465,270 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   expect(await buyForm().getByRole('textbox', { name: 'Price' }).inputValue()).toBe(ticketBefore);
   await page.waitForTimeout(1_000);
   expect(sent).toEqual([]);
+});
+
+/** Every DELETE of one order (a cancel) the page sends from now on, by order id. */
+function cancels() {
+  const sent = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (request.method() === 'DELETE' && /^\/api\/v1\/orders\/[^/]+$/.test(path)) sent.push(decodeURIComponent(path.split('/').pop()));
+  });
+  return sent;
+}
+
+/** Whether any review sheet opened while `act` ran and for `ms` after it. */
+async function reviewShownDuring(act, ms = 2_500) {
+  let shown = false;
+  const watch = setInterval(async () => {
+    if (
+      (await reviewSheet(page)
+        .count()
+        .catch(() => 0)) > 0
+    )
+      shown = true;
+  }, 100);
+  try {
+    await act();
+    await page.waitForTimeout(ms);
+  } finally {
+    clearInterval(watch);
+  }
+  return shown || (await reviewSheet(page).count()) > 0;
+}
+
+const instantSwitch = () => chartTrade().getByRole('switch', { name: 'Instant placement' });
+
+async function openSettings() {
+  const toggle = chartTrade().getByRole('button', { name: 'Trading settings' });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  await expect(instantSwitch()).toBeVisible();
+}
+
+async function setInstant(on) {
+  await openSettings();
+  if ((await instantSwitch().getAttribute('aria-checked')) === String(on)) return;
+  await instantSwitch().click();
+  if (on) {
+    const summary = page.getByRole('alertdialog', { name: 'Turn on instant placement?' });
+    await expect(summary).toBeVisible();
+    await summary.getByRole('button', { name: 'Turn on instant placement' }).click();
+    await expect(summary).toHaveCount(0);
+  }
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', String(on));
+}
+
+/** A resting buy of mine at `percent` of the best bid, placed through the API; returns the order as the service has it. */
+async function restingBuy(percent, tag) {
+  const price = await awayBid(percent);
+  const res = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'limit',
+    side: 'buy',
+    price,
+    amount: SMALL,
+    timeInForce: 'GTC',
+    clientOrderId: `${J}-${tag}-${who.email}`,
+  });
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+  return res.body;
+}
+
+async function usdtHeld() {
+  const res = await (await api(who)).get('/api/v1/balance');
+  expect(res.status).toBe(200);
+  return held(res.body, 'USDT');
+}
+
+test(`${J} #6 turns instant placement on; a click sends after the settings summary, and off it always reviews`, async () => {
+  await openDesk();
+  await openDom();
+  await setLadder('Single', '1 tick');
+  await chartTrade().getByLabel('Amount (BTC)').fill(SMALL);
+  const sent = placements(page);
+
+  // Off by default: the switch is off and says so, and a ladder click opens its review; nothing is sent.
+  await openSettings();
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
+  await expect(chartTrade().getByTestId('of-instant-note')).toHaveText(
+    'Off: every ladder click, chart Buy or Sell, close and cancel opens its review first.',
+  );
+  const lowest = () => rows().last();
+  await lowest().getByTestId('of-ask-cell').click();
+  await expect(reviewSheet(page)).toContainText('Review your buy');
+  await reviewSheet(page).getByRole('button', { name: 'Cancel' }).click();
+  expect(sent).toEqual([]);
+
+  // Turning it on shows the settings summary first; keeping reviewing leaves it off.
+  await instantSwitch().click();
+  const summary = page.getByRole('alertdialog', { name: 'Turn on instant placement?' });
+  await expect(summary).toBeVisible();
+  for (const line of [
+    'A limit order from a ladder click, or from Buy and Sell on the chart, is sent at once with no review.',
+    'Market orders, Close among them, always show their review first.',
+    'Cancel from the ladder acts at once, with no review.',
+    'Every order is still checked first. A refusal still stops it, and the order holds exactly what a reviewed order holds.',
+    `Each click uses the amount set on the chart: ${SMALL} BTC.`,
+    'You can turn it off here at any time. Off, every click opens its review again.',
+  ])
+    await expect(summary.getByText(line, { exact: true })).toBeVisible();
+  await summary.getByRole('button', { name: 'Keep reviewing' }).click();
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
+
+  // Agreed: on, stored with the time of the agreement.
+  const before = Date.now();
+  await instantSwitch().click();
+  await page
+    .getByRole('alertdialog', { name: 'Turn on instant placement?' })
+    .getByRole('button', { name: 'Turn on instant placement' })
+    .click();
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'true');
+  const stored = await page.evaluate(() =>
+    Object.entries(localStorage)
+      .filter(([key]) => key.startsWith('trade-desk-instant:'))
+      .map(([, value]) => JSON.parse(value)),
+  );
+  expect(stored).toHaveLength(1);
+  expect(stored[0].on).toBe(true);
+  expect(Date.parse(stored[0].agreedAt)).toBeGreaterThanOrEqual(before - 1_000);
+  expect(Date.parse(stored[0].agreedAt)).toBeLessThanOrEqual(Date.now());
+  await expect(chartTrade().getByTestId('of-instant-on')).toHaveAttribute('data-agreed-at', stored[0].agreedAt);
+  await expect(chartTrade().getByTestId('of-instant-note')).toContainText('On since');
+
+  // On: a ladder click sends the checked limit order with no review, once, and it holds what the order check said.
+  const restPrice = await lowest().getAttribute('data-price');
+  const check = await (
+    await api(who)
+  ).post('/api/v1/orders/preview', {
+    symbol: SYMBOL,
+    side: 'buy',
+    type: 'limit',
+    price: restPrice,
+    amount: SMALL,
+    timeInForce: 'GTC',
+    postOnly: false,
+    clientOrderId: `${J}-check-6-${who.email}`,
+  });
+  expect(check.status, JSON.stringify(check.body).slice(0, 300)).toBe(200);
+  const heldBefore = await usdtHeld();
+  const openBefore = (await openOrders(who)).length;
+  const reviewed = await reviewShownDuring(() => lowest().getByTestId('of-ask-cell').click());
+  expect(reviewed, 'no review opens with instant placement on').toBe(false);
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ side: 'buy', type: 'limit', amount: SMALL });
+  expect(same(sent[0].price, restPrice)).toBe(true);
+  await expect(buyForm().getByRole('status')).toContainText('Sent at once (instant placement is on).');
+  await expect.poll(async () => (await openOrders(who)).length).toBe(openBefore + 1);
+  expect((await usdtHeld()) - heldBefore).toBe(toUnits(check.body.holdAmount));
+
+  // On, a market order still shows its review: Buy at market from the chart opens it, and nothing more is sent.
+  await chartTrade().getByLabel('Order type').selectOption({ label: 'Market' });
+  await chartTrade().getByTestId('of-chart-buy').click();
+  await expect(reviewSheet(page)).toContainText('Review your buy');
+  await reviewSheet(page).getByRole('button', { name: 'Cancel' }).click();
+  expect(sent).toHaveLength(1);
+
+  // Off again: no summary to turn it off, and a ladder click reviews again; nothing is sent.
+  await instantSwitch().click();
+  await expect(instantSwitch()).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByRole('alertdialog', { name: 'Turn on instant placement?' })).toHaveCount(0);
+  await lowest().getByTestId('of-ask-cell').click();
+  await expect(reviewSheet(page)).toContainText('Review your buy');
+  await reviewSheet(page).getByRole('button', { name: 'Cancel' }).click();
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(1);
+});
+
+test(`${J} #7 uses one-click close, cancel and size presets; each acts once with its reviewed or instant setting`, async () => {
+  // Size presets are the person's own quick sizes, set in Account, Trading settings.
+  await page.goto('/view');
+  await page.getByRole('textbox', { name: 'Quick sizes' }).fill(`${SMALL}, 0.002`);
+  await page.getByRole('button', { name: 'Save quick sizes' }).click();
+  await expect(page.getByText('Quick sizes saved.')).toBeVisible();
+
+  await openDesk();
+  await openDom();
+  await setLadder('Single', '1 tick');
+  await setInstant(false);
+  const sent = placements(page);
+  const deletes = cancels();
+  const amountField = chartTrade().getByLabel('Amount (BTC)');
+  const presets = chartTrade().getByRole('group', { name: 'Size presets' });
+
+  // A preset, reviewed: it sets the click amount once, and the next ladder click still opens its review with it.
+  await amountField.fill('');
+  await presets.getByRole('button', { name: 'Use 0.002 BTC' }).click();
+  await expect(amountField).toHaveValue('0.002');
+  await expect(presets.getByRole('button', { name: 'Use 0.002 BTC' })).toHaveAttribute('aria-pressed', 'true');
+  expect(sent).toEqual([]);
+  await rows().last().getByTestId('of-ask-cell').click();
+  await expect(reviewSheet(page)).toContainText('Review your buy');
+  await expect(reviewValue('Amount')).toContainText('0.002');
+  await reviewSheet(page).getByRole('button', { name: 'Cancel' }).click();
+  expect(sent).toEqual([]);
+
+  // One-click cancel, reviewed: the row with my resting order asks first, then cancels it once.
+  const first = await restingBuy(88, 'cancel-reviewed');
+  const firstRow = rows().and(page.locator(`[data-price="${canon(first.price)}"]`));
+  await expect(firstRow.getByRole('button', { name: /^Cancel my orders at / })).toBeVisible({ timeout: 15_000 });
+  const heldBefore = await usdtHeld();
+  await firstRow.getByRole('button', { name: /^Cancel my orders at / }).click();
+  const ask = page.getByRole('alertdialog', { name: /^Cancel your orders at / });
+  await expect(ask).toBeVisible();
+  await expect(ask).toContainText(`Buy ${SMALL} BTC at`);
+  expect(deletes).toEqual([]);
+  await ask.getByRole('button', { name: 'Cancel these orders' }).click();
+  await expect.poll(() => deletes).toEqual([first.id]);
+  await expect(page.getByTestId('of-cancel-note')).toContainText('Cancelled 1 at');
+  await expect.poll(async () => (await openOrders(who)).some((o) => o.id === first.id)).toBe(false);
+  // Its hold came back: the USDT held fell by what the order held.
+  await expect.poll(async () => heldBefore - (await usdtHeld())).toBeGreaterThan(0n);
+
+  // Instant: a preset and a ladder click send at once, once, at the preset's amount.
+  await setInstant(true);
+  await presets.getByRole('button', { name: `Use ${SMALL} BTC` }).click();
+  await expect(amountField).toHaveValue(SMALL);
+  const shownBuy = await reviewShownDuring(() => rows().last().getByTestId('of-ask-cell').click());
+  expect(shownBuy).toBe(false);
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({ side: 'buy', type: 'limit', amount: SMALL });
+
+  // One-click cancel, instant: no question, one cancel.
+  const second = await restingBuy(87, 'cancel-instant');
+  const secondRow = rows().and(page.locator(`[data-price="${canon(second.price)}"]`));
+  await expect(secondRow.getByRole('button', { name: /^Cancel my orders at / })).toBeVisible({ timeout: 15_000 });
+  const shownCancel = await reviewShownDuring(() => secondRow.getByRole('button', { name: /^Cancel my orders at / }).click(), 1_500);
+  expect(shownCancel).toBe(false);
+  await expect(page.getByRole('alertdialog', { name: /^Cancel your orders at / })).toHaveCount(0);
+  await expect.poll(() => deletes).toEqual([first.id, second.id]);
+  await expect.poll(async () => (await openOrders(who)).some((o) => o.id === second.id)).toBe(false);
+
+  // One-click close: a market sell of every free lot of BTC. A market order keeps its review even with instant on; once
+  // confirmed it sends once, and the free BTC goes under one lot.
+  const { precision } = await market();
+  const lot = toUnits(precision.amount);
+  const balance = await (await api(who)).get('/api/v1/balance');
+  const freeBtc = toUnits(balance.body.BTC?.free ?? '0');
+  expect(freeBtc).toBeGreaterThanOrEqual(lot);
+  const close = chartTrade().getByTestId('of-chart-close');
+  await expect(close).toBeEnabled();
+  await close.click();
+  await expect(reviewSheet(page)).toContainText('Review your sell');
+  await expect(reviewValue('Price')).toHaveText('Market price');
+  const closing = toUnits(canon(await reviewValue('Amount').innerText()));
+  expect(closing).toBe((freeBtc / lot) * lot);
+  expect(sent).toHaveLength(1);
+  await page.getByRole('button', { name: 'Confirm sell' }).click();
+  await expect(reviewSheet(page)).toHaveCount(0, { timeout: 15_000 });
+  await expect.poll(() => sent.length).toBe(2);
+  expect(sent[1]).toMatchObject({ side: 'sell', type: 'market' });
+  await expect
+    .poll(async () => toUnits((await (await api(who)).get('/api/v1/balance')).body.BTC?.free ?? '0'), { timeout: 15_000 })
+    .toBeLessThan(lot);
+  await page.waitForTimeout(1_000);
+  expect(sent).toHaveLength(2);
+  expect(deletes).toHaveLength(2);
+  await setInstant(false);
 });

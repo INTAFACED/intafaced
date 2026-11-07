@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { Trade } from '@intafaced/exchange-contract/schemas';
-import { buildLadder, DEFAULT_DOM, depthCurve, isDomSetting, spreadOf, stepOf, tapeView } from './order-flow';
+import {
+  bucketOf,
+  buildLadder,
+  DEFAULT_DOM,
+  depthCurve,
+  INSTANT_OFF,
+  instantKey,
+  isDomSetting,
+  isInstantSetting,
+  spreadOf,
+  stepOf,
+  tapeView,
+} from './order-flow';
 
 const book = {
   bids: [
@@ -140,5 +152,30 @@ describe('spread and settings', () => {
     expect(isDomSetting({ ...DEFAULT_DOM, stepTicks: 3 })).toBe(false);
     expect(isDomSetting({ ...DEFAULT_DOM, minAmount: 'abc' })).toBe(false);
     expect(isDomSetting(null)).toBe(false);
+  });
+});
+
+describe('instant placement setting', () => {
+  it('is off by default, and on only with the time the person agreed', () => {
+    expect(isInstantSetting(INSTANT_OFF)).toBe(true);
+    expect(INSTANT_OFF.on).toBe(false);
+    expect(isInstantSetting({ on: true, agreedAt: '2026-11-07T08:00:00.000Z' })).toBe(true);
+    expect(isInstantSetting({ on: true, agreedAt: null })).toBe(false);
+    expect(isInstantSetting({ on: true, agreedAt: 'yesterday' })).toBe(false);
+    expect(isInstantSetting({ on: false, agreedAt: '2026-11-07T08:00:00.000Z' })).toBe(false);
+  });
+
+  it('is kept per person on the device', () => {
+    expect(instantKey('u1')).not.toBe(instantKey('u2'));
+    expect(instantKey(null)).toBe('trade-desk-instant:signed-out');
+  });
+});
+
+describe('ladder buckets for my orders', () => {
+  it('a buy rounds down and a sell rounds up, as the book does', () => {
+    expect(bucketOf('100.01', 'buy', '0.02')).toBe('100');
+    expect(bucketOf('100.01', 'sell', '0.02')).toBe('100.02');
+    expect(bucketOf('100.02', 'sell', '0.02')).toBe('100.02');
+    expect(bucketOf('x', 'buy', '0.02')).toBeNull();
   });
 });
