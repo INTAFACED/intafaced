@@ -82,7 +82,7 @@ function EnginePanel({ name, children }: { name: string; children: ReactNode }) 
       data-blurred="true"
       aria-label={t('blurred', { name })}
       className="preview-engine"
-      style={{ filter: 'blur(2px)' }}
+      style={{ filter: 'blur(0.125rem)' }}
     >
       {children}
     </div>
