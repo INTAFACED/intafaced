@@ -654,9 +654,12 @@ export function render(slices, allJourneys = []) {
   return out.join('\n');
 }
 
-/** The whole file in the repo's prettier format, so the format check never disagrees with --check. */
-async function compose(slices, journeys = []) {
-  const existing = existsSync(OUTPUT) ? readFileSync(OUTPUT, 'utf8') : '';
+/**
+ * The whole file in the repo's prettier format, so the format check never disagrees with --check. `existing` is the
+ * current docs/ROADMAP.md, whose hand-written plan above GENERATED_MARK is kept; tooling/ci/journey-list-guard.mjs passes a
+ * pull request's copy to rebuild it with the default branch's code.
+ */
+export async function compose(slices, journeys = [], existing = existsSync(OUTPUT) ? readFileSync(OUTPUT, 'utf8') : '') {
   const at = existing.indexOf(GENERATED_MARK);
   const plan = at === -1 ? existing : existing.slice(0, at);
   const prettier = await import('prettier');

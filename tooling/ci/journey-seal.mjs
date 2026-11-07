@@ -112,15 +112,13 @@ export function titleProblems(title) {
 }
 
 /**
- * The steps a body exempts, and the exemption-like lines it can't accept: { steps: Set, problems: [line] }. One fence
- * tracker over the raw lines (a fence opens at any indent, so one inside a list counts) and HTML comments stripped; a
- * line inside either is code or hidden and exempts nothing. Outside them, a `Left-or-replaced:` line at column 0 whose
- * rest is only full step ids (`J-bank-13 #1 #3, J-bank-14 #2`) exempts those steps; every other line that looks like an
- * exemption is a problem, and so is an exemption line with anything else after the colon or a range that can't be read.
+ * A pull request body's lines that are neither inside a fenced code block nor inside an HTML comment, as written (not
+ * trimmed). One fence tracker over the raw lines (a fence opens at any indent, so one inside a list counts); HTML comments
+ * are blanked first. The strict body lines (`Left-or-replaced:` here, `Journey-retired:` in journey-list-guard.mjs) are
+ * read only from these, so a line in code or hidden in a comment never counts.
  */
-export function exemptions(body) {
-  const steps = new Set();
-  const problems = [];
+export function linesOutsideCode(body) {
+  const out = [];
   let fence = null;
   for (const line of String(body ?? '')
     .replace(/\r/g, '')
@@ -135,6 +133,22 @@ export function exemptions(body) {
       fence = f[1];
       continue;
     }
+    out.push(line);
+  }
+  return out;
+}
+
+/**
+ * The steps a body exempts, and the exemption-like lines it can't accept: { steps: Set, problems: [line] }. One fence
+ * tracker over the raw lines (a fence opens at any indent, so one inside a list counts) and HTML comments stripped; a
+ * line inside either is code or hidden and exempts nothing. Outside them, a `Left-or-replaced:` line at column 0 whose
+ * rest is only full step ids (`J-bank-13 #1 #3, J-bank-14 #2`) exempts those steps; every other line that looks like an
+ * exemption is a problem, and so is an exemption line with anything else after the colon or a range that can't be read.
+ */
+export function exemptions(body) {
+  const steps = new Set();
+  const problems = [];
+  for (const line of linesOutsideCode(body)) {
     if (!LOOKS_EXEMPT.test(line)) continue;
     const m = EXEMPT_LINE.exec(line);
     const rest = m ? m[1] : '';
