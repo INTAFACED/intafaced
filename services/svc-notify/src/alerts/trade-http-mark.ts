@@ -235,6 +235,14 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
 
   return {
     kind: 'live',
+    async marketIdsBySymbol() {
+      try {
+        const byId = await loadSymbols(AbortSignal.timeout(timeoutMs));
+        return new Map([...byId].map(([id, symbol]) => [symbol, id] as const));
+      } catch {
+        return null;
+      }
+    },
     async quote(marketId: string, at?: Date): Promise<MarkQuote> {
       const now = at ?? new Date();
       return markOf(await readTicker(marketId, now), now);
