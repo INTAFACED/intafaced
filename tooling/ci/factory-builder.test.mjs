@@ -285,7 +285,7 @@ test('as the agent user, the CLI starts through sudo with variable names only on
     work: '/home/a/work',
     env: { PATH: '/x', AGENT_PATH: '/a', HOME: '/h', CLAUDE_CODE_OAUTH_TOKEN: 'SECRET-OAUTH', GH_TOKEN: 'PAT', DB: 'd' },
   });
-  assert.equal(c.cmd, 'sudo');
+  assert.equal(c.cmd, '/usr/bin/sudo');
   assert.deepEqual(c.args, [
     '-n',
     '-u',
@@ -332,6 +332,75 @@ const PAT_STEPS = [
   'Write the prompt',
   'Publish',
 ];
+
+/** Shell words that aren't programs looked up on PATH: bash keywords and builtins, and the step's own function. */
+const NOT_LOOKED_UP = new Set([
+  'if',
+  'then',
+  'else',
+  'elif',
+  'fi',
+  'for',
+  'in',
+  'do',
+  'done',
+  'while',
+  'until',
+  '!',
+  '{',
+  '}',
+  '[',
+  ']',
+  'echo',
+  'exit',
+  'true',
+  'false',
+  'as_agent',
+]);
+
+/** The bare program names a step's `run` calls: every command word that is neither a full path nor the job's node. */
+export function commandWords(stepText) {
+  const m = /\n        run: (?:\|\n([\s\S]*)|'(.*)'|(.*))$/.exec(stepText);
+  if (!m) return [];
+  const script = m[1] ?? m[2] ?? m[3] ?? '';
+  const bare = [];
+  for (const raw of script.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    for (let seg of line.split(/;|&&|\|\||\||\$\(|`/)) {
+      seg = seg.trim().replace(/^\)+\s*/, '');
+      if (!seg || /^[a-z_]+\(\)/i.test(seg)) continue; // a function definition
+      if (/^for\s/.test(seg)) continue; // `for x in ...`: words, not a command
+      let words = seg.split(/\s+/);
+      while (
+        words.length &&
+        (NOT_LOOKED_UP.has(words[0]) &&
+        words[0] !== 'as_agent' &&
+        words[0] !== 'echo' &&
+        words[0] !== 'exit' &&
+        words[0] !== 'true' &&
+        words[0] !== 'false' &&
+        words[0] !== '['
+          ? true
+          : /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]))
+      )
+        words = words.slice(1);
+      const w = words[0];
+      if (
+        !w ||
+        w.startsWith('/') ||
+        w.startsWith('"/') ||
+        w.startsWith('"$NODE_BIN"') ||
+        NOT_LOOKED_UP.has(w) ||
+        /^[>]/.test(w) ||
+        /^"?\$/.test(w)
+      )
+        continue;
+      bare.push(w);
+    }
+  }
+  return bare;
+}
 
 export function workflowProblems(wf) {
   const p = [];
@@ -426,8 +495,8 @@ export function workflowProblems(wf) {
   const kill = stepOf(build, 'Stop every process of the agent');
   if (
     !/if: always\(\)/.test(kill) ||
-    !/sudo pkill -KILL -u "\$AGENT_USER"/.test(kill) ||
-    !/pgrep -u "\$AGENT_USER"[\s\S]*exit 1/.test(kill)
+    !/\/usr\/bin\/sudo \/usr\/bin\/pkill -KILL -u "\$AGENT_USER"/.test(kill) ||
+    !/\/usr\/bin\/pgrep -u "\$AGENT_USER"[\s\S]*exit 1/.test(kill)
   )
     p.push('every process of the agent is stopped before the publish');
   const names = steps(build).map((s) => s.name);
@@ -438,6 +507,23 @@ export function workflowProblems(wf) {
     p.push('the publish comes after the agent is stopped');
   if (names.at(-1) !== 'Last, stop anything left' || !/if: always\(\)/.test(stepOf(build, 'Last, stop anything left')))
     p.push('the last step stops anything left');
+  // PATH: closed before the agent user exists, and from then on no step calls a program by its bare name.
+  const close = stepOf(build, 'Close every directory on PATH');
+  if (
+    !(
+      names.indexOf('Close every directory on PATH') >= 0 &&
+      names.indexOf('Close every directory on PATH') < names.indexOf('The agent user and its working tree')
+    ) ||
+    !/\/usr\/bin\/sudo \/usr\/bin\/chmod -R go-w "\$d"/.test(close) ||
+    !/-perm \/022/.test(close) ||
+    !/::error title=PATH writable::[\s\S]*exit 1/.test(close)
+  )
+    p.push('every directory on PATH is closed, and checked, before the agent user exists');
+  for (const s of steps(build).slice(names.indexOf('The agent user and its working tree'))) {
+    if (!/\n        shell: \/usr\/bin\/bash -e \{0\}\n/.test(s.text)) p.push(`step ${s.name} runs /usr/bin/bash by its path`);
+    if (!/\n          PATH: \/usr\/bin:\/bin\n/.test(s.text)) p.push(`step ${s.name} runs with PATH=/usr/bin:/bin`);
+    for (const word of commandWords(s.text)) p.push(`step ${s.name} calls ${word} by its bare name`);
+  }
   return p;
 }
 
@@ -501,13 +587,31 @@ test('each planted fault in the workflow is caught', () => {
     'the output printed': plant(`run: '"$NODE_BIN" tooling/ci/factory-builder.mjs stats'`, 'run: cat "$BUILDER_DIR/out.jsonl"'),
     'the CLI run in the shell': plant(`run: '"$NODE_BIN" tooling/ci/factory-builder.mjs run'`, 'run: \'"$CLAUDE_BIN" -p < prompt.txt\''),
     'leftovers not stopped': plant(
-      '      - name: Stop every process of the agent\n        if: always() && steps.agent.outcome != \'skipped\'\n        run: |\n          sudo pkill -KILL -u "$AGENT_USER" || true\n',
-      "      - name: Stop every process of the agent\n        if: always() && steps.agent.outcome != 'skipped'\n        run: |\n          true\n",
+      '          /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true\n          /usr/bin/sleep 2\n',
+      '          /usr/bin/true\n          /usr/bin/sleep 2\n',
     ),
     'no time limit': plant('timeout-minutes: 340 #', 'timeout-minutes: 360 #'),
     'two runs of one journey': plant('  group: builder-${{ inputs.journey }}\n', '  group: builder-${{ github.run_id }}\n'),
     'the switch ignored': plant("    if: needs.gate.outputs.run == 'true'\n", ''),
     'a self-hosted runner': WF.replace('runs-on: ubuntu-latest', 'runs-on: self-hosted'),
+    'PATH left open': plant('            /usr/bin/sudo /usr/bin/chmod -R go-w "$d"\n', '            true\n'),
+    'a bare sudo after the agent': plant('/usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/cat', 'sudo -n -u "$AGENT_USER" /usr/bin/cat'),
+    'a bare pgrep after the agent': plant(
+      'if /usr/bin/pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi\n\n      # The agent',
+      'if pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi\n\n      # The agent',
+    ),
+    'a bare pkill after the agent': plant(
+      '          /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true\n          /usr/bin/sleep 2\n',
+      '          sudo pkill -KILL -u "$AGENT_USER" || true\n          /usr/bin/sleep 2\n',
+    ),
+    'the job PATH after the agent': plant(
+      "      - name: Publish\n        if: always() && steps.take.outcome == 'success'\n        shell: /usr/bin/bash -e {0}\n        env:\n          PATH: /usr/bin:/bin\n",
+      "      - name: Publish\n        if: always() && steps.take.outcome == 'success'\n        shell: /usr/bin/bash -e {0}\n        env:\n",
+    ),
+    'bash found on PATH after the agent': plant(
+      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n",
+      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n",
+    ),
     'the area optional': WF.replace(/(      area:\n(?:        .*\n)*?        required: )true/, '$1false'),
     'an unpinned model': WF.replace(/"--model","[a-z0-9-]+"/, '"--model","sonnet"'),
     'another effort': plant('"--effort","medium"', '"--effort","high"'),
@@ -745,10 +849,24 @@ async function publishCase(branch) {
   git(seed, 'bundle', 'create', '-q', join(dir, 'branch.bundle'), 'HEAD');
   writeFileSync(join(dir, 'pr.md'), '# feat: J-identity-13\n\nbody\n');
   writeFileSync(join(dir, 'end.json'), JSON.stringify({ reason: 'done', endedAt: 'T' }));
+  // Fakes of every program the step could run, earlier on PATH, as the agent could plant them in a writable
+  // directory: each records that it ran, and whether it saw the token, then runs the real one (review round 2's
+  // planted fault), so only the record shows it ran.
+  const fake = join(root, 'fake-bin');
+  mkdirSync(fake);
+  const ran = join(root, 'fakes-ran');
+  for (const name of ['git', 'gh', 'sudo', 'pkill', 'pgrep', 'node', 'env', 'sh', 'bash']) {
+    writeFileSync(
+      join(fake, name),
+      `#!/bin/sh\necho "${name} token=\${GH_TOKEN:+seen} auth-header=\${GIT_CONFIG_VALUE_0:+seen}" >> "${ran}"\n[ -x /usr/bin/${name} ] && exec /usr/bin/${name} "$@"\nexit 1\n`,
+    );
+    chmodSync(join(fake, name), 0o755);
+  }
   const log = [];
   const server = await apiServer(log);
   try {
     const r = await runStep('publish', {
+      PATH: `${fake}:${process.env.PATH}`,
       REPO: 'o/r',
       GH_TOKEN: 'pat',
       JOURNEY: 'J-identity-13',
@@ -760,7 +878,7 @@ async function publishCase(branch) {
       GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
     });
     const refs = git(remote, 'for-each-ref', '--format=%(refname) %(objectname)');
-    return { ...r, refs, mainBefore, agentHead, log };
+    return { ...r, refs, mainBefore, agentHead, log, fakesRan: existsSync(ran) ? readFileSync(ran, 'utf8') : '' };
   } finally {
     server.close();
   }
@@ -769,6 +887,7 @@ async function publishCase(branch) {
 test("publish pushes the agent's commits to its journey's branch only, and opens the PR with the handover line", async () => {
   const r = await publishCase('factory/J-identity-13');
   assert.equal(r.code, 0, r.out);
+  assert.equal(r.fakesRan, '', 'no program earlier on PATH ran (a fake git there would have seen the token)');
   assert.ok(r.refs.includes(`refs/heads/factory/J-identity-13 ${r.agentHead}`), r.refs);
   assert.ok(
     r.refs.includes(`refs/heads/main ${r.mainBefore}`) && r.refs.includes(`refs/heads/factory-switch ${r.mainBefore}`),

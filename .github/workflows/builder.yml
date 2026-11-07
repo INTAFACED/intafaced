@@ -215,20 +215,66 @@ jobs:
           PR: ${{ steps.branch.outputs.pr }}
         run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt'
 
+      # Before the agent user exists: no directory on PATH (nor the tool-cache node's, nor any directory above them) may
+      # be writable by group or others, and no program in them either. The runner image makes /usr/local/bin
+      # world-writable, and it sits ahead of /usr/bin, so the agent could otherwise plant a fake `git` or `sudo` that a
+      # later step runs with the factory token. (Found by review round 2 on #7386, with a planted fake `git`.)
+      - name: Close every directory on PATH
+        shell: /usr/bin/bash -e {0}
+        run: |
+          # The PATH directories and the node's, plus the directory of everything their links point to (a link in
+          # /usr/local/bin may name a program under /usr/local/lib), with every directory above each.
+          dirs=$(printf '%s\n' "${PATH//:/$'\n'}" "$(/usr/bin/dirname "$NODE_BIN")" | /usr/bin/sort -u)
+          roots=""
+          for d in $dirs; do
+            [ -d "$d" ] || continue
+            roots="$roots $d"
+            for l in $(/usr/bin/find "$d" -maxdepth 1 -type l); do
+              t=$(/usr/bin/readlink -f "$l" || true)
+              [ -n "$t" ] && roots="$roots $(/usr/bin/dirname "$t")"
+            done
+          done
+          roots=$(printf '%s\n' $roots | /usr/bin/sort -u)
+          for d in $roots; do
+            /usr/bin/sudo /usr/bin/chmod -R go-w "$d"
+            up="$d"
+            while [ "$up" != "/" ]; do /usr/bin/sudo /usr/bin/chmod go-w "$up"; up=$(/usr/bin/dirname "$up"); done
+          done
+          open=""
+          for d in $roots; do
+            up="$d"
+            while [ "$up" != "/" ]; do
+              if [ -n "$(/usr/bin/find "$up" -maxdepth 0 -perm /022)" ]; then open="$open $up"; fi
+              up=$(/usr/bin/dirname "$up")
+            done
+            # The programs too, following links to what they name.
+            w=$(/usr/bin/find -L "$d" -maxdepth 1 -perm /022 2>/dev/null | /usr/bin/head -5)
+            if [ -n "$w" ]; then open="$open $w"; fi
+          done
+          if [ -n "$open" ]; then echo "::error title=PATH writable::still writable by group or others:$open"; exit 1; fi
+          echo "every directory on PATH, the directories its links name, every directory above them and their programs are closed to group and others"
+
       # The agent user and its working tree: everything from the branch (its clone, its install scripts) runs as that
-      # user, never as the runner. No secret is in this step.
+      # user, never as the runner. No secret is in this step. From here on every step runs with PATH=/usr/bin:/bin and
+      # calls each program by its full path (the job's node by its tool-cache path).
       - name: The agent user and its working tree
         id: agent
+        shell: /usr/bin/bash -e {0}
         env:
+          PATH: /usr/bin:/bin
           BRANCH: ${{ steps.branch.outputs.branch }}
           RESUME: ${{ steps.branch.outputs.resume }}
           SERVER: ${{ github.server_url }}
         run: |
-          sudo useradd --create-home --shell /bin/bash "$AGENT_USER"
-          if sudo -n -u "$AGENT_USER" -H sudo -n true 2>/dev/null; then echo "::error::the agent user can sudo"; exit 1; fi
-          AGENT_PATH="/home/$AGENT_USER/.tools/node_modules/.bin:$(dirname "$NODE_BIN"):/usr/sbin:/usr/bin:/sbin:/bin"
+          /usr/bin/sudo /usr/sbin/useradd --create-home --shell /bin/bash "$AGENT_USER"
+          if /usr/bin/sudo -n -u "$AGENT_USER" -H /usr/bin/sudo -n /usr/bin/true 2>/dev/null; then echo "::error::the agent user can sudo"; exit 1; fi
+          AGENT_PATH="/home/$AGENT_USER/.tools/node_modules/.bin:$(/usr/bin/dirname "$NODE_BIN"):/usr/sbin:/usr/bin:/sbin:/bin"
           echo "AGENT_PATH=$AGENT_PATH" >> "$GITHUB_ENV"
-          as_agent() { sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "/home/$AGENT_USER" PATH="$AGENT_PATH" "$@"; }
+          # Nothing on the job's PATH, nor the node it runs, is writable by the agent user.
+          for f in $(/usr/bin/printf '%s\n' /usr/bin /bin /usr/sbin /sbin "$(/usr/bin/dirname "$NODE_BIN")" "$NODE_BIN" /usr/local/bin); do
+            if /usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/test -w "$f"; then echo "::error::the agent user can write $f"; exit 1; fi
+          done
+          as_agent() { /usr/bin/sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "/home/$AGENT_USER" PATH="$AGENT_PATH" "$@"; }
           as_agent mkdir -p "$OUT"
           as_agent git clone -q --no-tags "$SERVER/$REPO.git" "$WORK"
           if [ "$RESUME" = "true" ]; then
@@ -250,7 +296,9 @@ jobs:
       # step's environment holds no GitHub token, and the CLI's gets none.
       - name: Build
         id: build
+        shell: /usr/bin/bash -e {0}
         env:
+          PATH: /usr/bin:/bin
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
           FACTORY_OUT: /home/factory-agent/out
           CLAUDE_ARGS: '["-p","--model","claude-opus-5-5","--effort","medium","--dangerously-skip-permissions","--setting-sources","","--settings","/opt/factory-cli/settings.json","--output-format","stream-json","--verbose"]'
@@ -259,24 +307,30 @@ jobs:
       # Nothing of the agent's outlives the CLI into the steps that hold the factory token.
       - name: Stop every process of the agent
         if: always() && steps.agent.outcome != 'skipped'
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
         run: |
-          sudo pkill -KILL -u "$AGENT_USER" || true
-          sleep 2
-          if pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi
+          /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true
+          /usr/bin/sleep 2
+          if /usr/bin/pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi
 
       # The agent's commits as a bundle (data), made by the agent user; then its processes are stopped again, and the
       # files it leaves for the publish step are read as the agent user (a link it planted reaches nothing more).
       - name: Take the agent's commits
         id: take
         if: always() && steps.agent.outcome == 'success'
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
         run: |
-          sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "$WORK" PATH=/usr/bin:/bin git bundle create -q "$OUT/branch.bundle" HEAD || true
-          sudo pkill -KILL -u "$AGENT_USER" || true
-          sleep 1
-          if pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi
+          /usr/bin/sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "$WORK" PATH=/usr/bin:/bin /usr/bin/git bundle create -q "$OUT/branch.bundle" HEAD || true
+          /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true
+          /usr/bin/sleep 1
+          if /usr/bin/pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi
           for f in branch.bundle pr.md actions.json; do
-            if sudo -n -u "$AGENT_USER" test -f "$OUT/$f"; then
-              sudo -n -u "$AGENT_USER" cat "$OUT/$f" > "$BUILDER_DIR/$f"
+            if /usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/test -f "$OUT/$f"; then
+              /usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/cat "$OUT/$f" > "$BUILDER_DIR/$f"
             fi
           done
 
@@ -285,16 +339,24 @@ jobs:
       # squash auto-merge).
       - name: Publish
         if: always() && steps.take.outcome == 'success'
+        shell: /usr/bin/bash -e {0}
         env:
+          PATH: /usr/bin:/bin
           GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
           BRANCH: ${{ steps.branch.outputs.branch }}
         run: '"$NODE_BIN" tooling/ci/factory-builder.mjs publish'
 
       - name: Usage (numbers only)
         if: always() && steps.build.outcome != 'skipped'
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
         run: '"$NODE_BIN" tooling/ci/factory-builder.mjs stats'
 
       - name: Last, stop anything left
         if: always()
+        shell: /usr/bin/bash -e {0}
+        env:
+          PATH: /usr/bin:/bin
         run: |
-          if id "$AGENT_USER" > /dev/null 2>&1; then sudo pkill -KILL -u "$AGENT_USER" || true; fi
+          if /usr/bin/id "$AGENT_USER" > /dev/null 2>&1; then /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true; fi
