@@ -9,7 +9,7 @@ import { keyHolder, makeKey, withKey } from './developer.mjs';
 // them pass and may not weaken them. The person is a TEST account with a passkey and one read-only key whose IP list is
 // 127.0.0.1. Before step 1 the key makes three calls straight to Edge, as a developer's program would: one answered,
 // one denied (a read-only key placing an order), and one from 127.0.0.2, outside its IP list (CI runs on Linux, where
-// every 127.x address is the machine's own, so the call leaves from that address). The steps run in order on one page.
+// every 127.x address is the machine's own, so the call leaves from that address). Each step reads that start; a worker started again after a failed step makes it afresh.
 //
 // Names this file asks the product for, where main has nothing yet (the builder implements them as written):
 // - the key detail page has a table named "Call log", one row per call, each with data-request-id (the x-request-id
@@ -27,7 +27,7 @@ const UNBUILT = { timeout: 10_000 };
 const BODY_MARK = `jd8body${Date.now().toString(36)}`;
 const HEADER_MARK = `jd8header${Date.now().toString(36)}`;
 
-test.describe.configure({ mode: 'serial' });
+test.describe.configure({ mode: 'default' });
 
 /** @type {import('@playwright/test').Page} */
 let page;
