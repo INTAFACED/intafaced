@@ -36,6 +36,9 @@
  *   - a set-aside step still runs, and the summary shows its result; while it is set aside, a failure leaves the verdict
  *     green only when the run just before this one on main showed it passing (two failures in a row is broken, not
  *     flaky; a missing or incomplete record of that run excuses nothing). Skipped or missing is never excused;
+ *   - only on main: a branch run or a targeted run neither adds to the list nor is excused by it. With no complete
+ *     earlier list to read (none among main's last PRIOR_LOOKBACK runs), this run's list is incomplete and excuses
+ *     nothing; a list starts fresh only when main never had one, so a step's cool-down is never forgotten;
  *   - its `notProven` names every set-aside step and every step with a test Playwright called flaky, so a count of proven
  *     steps leaves them out, and Main trust opens one issue per set-aside naming its owner and end date
  *     (post-merge-trust.mjs).
@@ -334,35 +337,61 @@ export function judge({ newest, named, baseline, money, guard = money, passedSin
   return { failing: failing.size, red, setAside: kept };
 }
 
-/** Whether `sha` is this checkout's HEAD or an ancestor of it (the journeys job checks out with full history). */
-const isAncestor = (sha) => {
+/** A git command's exit: 0 or 1 (a plain no). Any other failure (a missing object, a shallow clone, no git) throws, so a
+ *  git error is never read as "no" (CI review on #7363, 7a3b0af). `exec` stands in for execFileSync in tests. */
+function gitYes(args, exec = execFileSync) {
   try {
-    execFileSync('git', ['merge-base', '--is-ancestor', String(sha), 'HEAD'], { stdio: 'ignore' });
-    return /^[0-9a-f]{40}$/i.test(String(sha));
-  } catch {
-    return false;
+    exec('git', args, { stdio: 'ignore' });
+    return true;
+  } catch (e) {
+    if (e?.status === 1) return false;
+    throw new Error(`git ${args[0]} failed (${e?.status ?? e?.code ?? e?.message}), so the set-aside list can't be read`);
   }
-};
+}
+/** Whether `sha` is this checkout's HEAD or an ancestor of it. Throws on a git error, never false. */
+export function isAncestor(sha, exec) {
+  if (!/^[0-9a-f]{40}$/i.test(String(sha))) throw new Error(`not a commit: ${sha}`);
+  return gitYes(['merge-base', '--is-ancestor', String(sha), 'HEAD'], exec);
+}
+/** Whether the journeys workflow at `sha` writes a set-aside list. A run on a commit before it never had one. */
+export function writesSetAside(sha, exec) {
+  if (!/^[0-9a-f]{40}$/i.test(String(sha))) throw new Error(`not a commit: ${sha}`);
+  return gitYes(['grep', '-q', '-F', '-e', '--set-aside-out', String(sha), '--', `.github/workflows/${JOURNEYS_FILE}`], exec);
+}
+/** The verdict reads main's history (isAncestor, writesSetAside), so a shallow clone is an error, never a short history. */
+export function assertFullHistory(exec = execFileSync) {
+  const out = String(exec('git', ['rev-parse', '--is-shallow-repository'], { encoding: 'utf8' })).trim();
+  if (out !== 'false') throw new Error(`this checkout is shallow (${out || 'unknown'}): the verdict job needs fetch-depth: 0`);
+}
 
 /** How many of main's newest finished runs to look through for the last complete set-aside list. */
 export const PRIOR_LOOKBACK = 5;
 
 /**
  * The last complete set-aside list on main: `runs` is historyRuns() (oldest first), `read(id)` a run's set-aside.json or
- * null (read(id, run) also gets the run). The newest run whose list is there, complete and written on `refs/heads/main`
- * (never a tag named main) wins, so the end dates carry on; a run before the set-aside
- * existed has none. `previous` is true only when that list is the run just before this one's: otherwise the step's
+ * null (read(id, run) also gets the run), `predates(run)` true when the run's commit is from before the set-aside existed.
+ * The newest run whose list is there, complete and written on `refs/heads/main` (never a tag named main) wins, so the end
+ * dates carry on. `previous` is true only when that list is the run just before this one's: otherwise the step's
  * previous result is unknown and no failure is excused (setAsideSteps priorIsPrevious). Returns { steps, from, previous }.
+ * A fresh list (`fresh`) starts only when main never had one: no runs, or a run from before the set-aside is reached
+ * first. Otherwise, with no complete list among PRIOR_LOOKBACK runs, the list is `unreadable`: this run's list is then
+ * incomplete and excuses nothing (fail closed), since a fresh start would forget each step's cool-down.
  */
-export function priorSetAside(runs, read) {
+export function priorSetAside(runs, read, predates = () => false) {
   const newest = runs.at(-1);
   for (const r of [...runs].reverse().slice(0, PRIOR_LOOKBACK)) {
     const list = read(r.id, r);
     if (list && list.ref === MAIN_REF && !list.incomplete && Array.isArray(list.steps))
       return { steps: list.steps, from: r.run_number, previous: r === newest };
+    if (!list && predates(r)) return { steps: [], from: null, previous: false, fresh: true };
   }
-  return { steps: [], from: null, previous: false };
+  if (!runs.length) return { steps: [], from: null, previous: false, fresh: true };
+  return { steps: [], from: null, previous: false, unreadable: true };
 }
+
+/** The set-aside judge() may use: only on main, from a complete list. Off main (a branch or a targeted run) and when
+ *  this run's list is incomplete it excuses nothing (CI review on #7363, 7a3b0af). */
+export const excusedSetAside = ({ setAside, onMain, incomplete }) => (onMain && !incomplete ? setAside : {});
 
 /** The pass history after the named run: for each step, the newest run number that passed it. `reports` is
  *  [[runNumber, readReport() result]]. */
@@ -536,13 +565,22 @@ function main() {
   let prior = [];
   let priorIsPrevious = false;
   let incomplete = false;
+  const carry = (found, from) => {
+    if (found.unreadable) {
+      incomplete = true;
+      console.log(`::warning::no complete set-aside list ${from}: this run's list is incomplete and excuses nothing`);
+      return;
+    }
+    prior = found.steps;
+    priorIsPrevious = found.previous;
+  };
   try {
     if (arg('--prior-set-aside')) {
-      // Offline: the file stands for the run just before this one, so an incomplete one excuses nothing.
+      // Offline: the file stands for the run just before this one; an incomplete one leaves no complete list to read.
       const list = json(arg('--prior-set-aside'));
-      prior = list.steps ?? [];
-      priorIsPrevious = !list.incomplete;
+      carry(list.incomplete ? { unreadable: true } : { steps: list.steps ?? [], previous: true }, 'in the given file');
     } else if (fetch) {
+      assertFullHistory();
       const current = ghApi(`/repos/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`);
       thisRun = { number: current.run_number, at: current.created_at };
       const recent = ghApi(`/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=30`).workflow_runs;
@@ -550,26 +588,39 @@ function main() {
         historyRuns(recent, { repo, namedCreated: '', thisCreated: current.created_at, thisId: current.id }),
         // Only a run whose commit is in this run's history: a run on anything else named main never feeds the list.
         (id, r) => (isAncestor(r.head_sha) ? downloadReport(repo, id, 'set-aside.json') : null),
+        (r) => isAncestor(r.head_sha) && !writesSetAside(r.head_sha),
       );
-      prior = found.steps;
-      priorIsPrevious = found.previous;
+      carry(found, `in main's last ${PRIOR_LOOKBACK} finished runs`);
       console.log(
         found.from
           ? `set-aside list carried on from run ${found.from}${found.previous ? '' : ', not the run just before this one: no failure is excused this run'}`
-          : 'no earlier set-aside list on main: it starts from this run',
+          : found.fresh
+            ? 'no earlier set-aside list on main: it starts from this run'
+            : '',
       );
     }
   } catch (e) {
     incomplete = true;
     problem(`the last run on main's set-aside list couldn't be read: ${e.message.split('\n')[0]}`);
   }
-  const onMain = !target && (!fetch || process.env.GITHUB_REF === MAIN_REF);
+  // On main only: a branch run or a targeted run neither adds to the list nor is excused by it.
+  const onMain = !target && (process.env.GITHUB_REF ?? (fetch ? null : MAIN_REF)) === MAIN_REF;
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
   const verdict =
     newest && named
-      ? judge({ newest, named, baseline, money, guard, passedSince, issues, target, setAside })
+      ? judge({
+          newest,
+          named,
+          baseline,
+          money,
+          guard,
+          passedSince,
+          issues,
+          target,
+          setAside: excusedSetAside({ setAside, onMain, incomplete }),
+        })
       : { failing: 0, red: [], setAside: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)

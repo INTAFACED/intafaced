@@ -16,8 +16,15 @@ import {
   missingArtifact,
   setAsideGuard,
   setAsideSteps,
+  isAncestor,
+  writesSetAside,
+  assertFullHistory,
+  excusedSetAside,
 } from './journey-verdict.mjs';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const spec = (title, status, file = 'J-a-01.pw.mjs') => ({ title, file, tests: [{ status }] });
@@ -274,7 +281,7 @@ test('the last complete list on main carries on; an incomplete one is passed ove
   );
   assert.deepEqual(
     priorSetAside(runs, () => null),
-    { steps: [], from: null, previous: false },
+    { steps: [], from: null, previous: false, unreadable: true },
   );
   assert.equal(
     priorSetAside(runs, (id) => (id === 3 ? { ref: 'refs/heads/main', steps: [] } : null)).previous,
@@ -525,8 +532,8 @@ test('the list is taken only from a run on refs/heads/main: a tag named main, or
   const runs = [{ id: 1, run_number: 1 }];
   const list = (ref) => () => ({ ref, steps: [{ step: 'J-a-01#1' }] });
   assert.equal(priorSetAside(runs, list('refs/heads/main')).from, 1);
-  assert.deepEqual(priorSetAside(runs, list('refs/tags/main')), { steps: [], from: null, previous: false });
-  assert.deepEqual(priorSetAside(runs, list(undefined)), { steps: [], from: null, previous: false });
+  assert.deepEqual(priorSetAside(runs, list('refs/tags/main')), { steps: [], from: null, previous: false, unreadable: true });
+  assert.deepEqual(priorSetAside(runs, list(undefined)), { steps: [], from: null, previous: false, unreadable: true });
 });
 
 test('p2p is a money journey: its escrow and settlement steps are never set aside', () => {
@@ -559,4 +566,133 @@ test('downloadReport gives null only for a missing artifact, so a refused downlo
   const body = src.slice(src.indexOf('function downloadReport('), src.indexOf('export function manifestsAt('));
   assert.match(body, /if \(optional && missingArtifact\(e\.stderr\)\) return null;/);
   assert.doesNotMatch(body, /if \(optional\) return null;\n\s*throw e;/);
+});
+
+// ── CI review on #7363, 7a3b0af: the set-aside only on main, and a fresh list only when main never had one ──
+
+const freeStep = Object.keys(realGuard).find((k) => realGuard[k] === false);
+/** The verdict CLI offline on one failing step `freeStep`, with a prior list that has it set aside and passing before. */
+function cli({ ref, target, priorIncomplete = false, state = 'unexpected' }) {
+  const dir = mkdtempSync(join(tmpdir(), 'verdict-test-'));
+  const [id, n] = freeStep.split('#');
+  const f = (name, body) => (writeFileSync(join(dir, name), JSON.stringify(body)), join(dir, name));
+  const newest = {
+    suites: [
+      {
+        file: `${id}.pw.mjs`,
+        specs: [state === 'flaky' ? flaky(`${id} #${n}`, `${id}.pw.mjs`) : spec(`${id} #${n}`, state, `${id}.pw.mjs`)],
+      },
+    ],
+  };
+  mkdirSync(join(dir, 'history'));
+  const args = [
+    'tooling/ci/journey-verdict.mjs',
+    ...['--report', f('report.json', newest), '--named-report', f('named.json', { suites: [] })],
+    ...['--baseline', f('baseline.json', { run: { number: 1, id: 1 }, steps: [] }), '--history-dir', join(dir, 'history')],
+    ...['--issues-file', f('issues.json', {}), '--now', at(3), '--run-number', '103'],
+    '--prior-set-aside',
+    f('prior.json', {
+      ref: 'refs/heads/main',
+      ...(priorIncomplete ? { incomplete: true } : {}),
+      steps: [{ step: freeStep, since: 102, sinceAt: at(2), state: 'passed' }],
+    }),
+    ...(target ? ['--target', target] : []),
+  ];
+  const env = { ...process.env, GITHUB_STEP_SUMMARY: '' };
+  delete env.GITHUB_REF;
+  delete env.JOURNEYS_TARGET;
+  if (ref) env.GITHUB_REF = ref;
+  return spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8' }).status;
+}
+
+test('off main the set-aside excuses nothing: a branch or targeted run with a carried active entry is red when the step fails', () => {
+  assert.ok(freeStep, 'a real step the guard allows to be set aside');
+  assert.equal(cli({ ref: 'refs/heads/main' }), 0, 'on main the carried entry keeps the failure out of the red (the control)');
+  assert.equal(cli({ ref: 'refs/heads/feature' }), 1, 'a branch run');
+  assert.equal(cli({ ref: 'refs/pull/7363/merge' }), 1, 'a pull request run');
+  assert.equal(cli({ ref: 'refs/heads/main', target: `${freeStep.split('#')[0]}.pw.mjs` }), 1, 'a targeted run');
+  assert.deepEqual(excusedSetAside({ setAside: { a: 1 }, onMain: false, incomplete: false }), {});
+  assert.deepEqual(excusedSetAside({ setAside: { a: 1 }, onMain: true, incomplete: false }), { a: 1 });
+});
+
+test('no complete earlier list: fail closed, never fresh; fresh only when main never had a list', () => {
+  const runs = [1, 2, 3].map((n) => ({ id: n, run_number: n }));
+  const incomplete = () => ({ ref: 'refs/heads/main', incomplete: true, steps: [] });
+  // Every list in the window incomplete or missing, on commits that write lists: unreadable, not fresh.
+  assert.equal(priorSetAside(runs, incomplete).unreadable, true);
+  assert.equal(
+    priorSetAside(
+      runs,
+      () => null,
+      () => false,
+    ).unreadable,
+    true,
+  );
+  const many = Array.from({ length: 9 }, (_, i) => ({ id: i + 1, run_number: i + 1 }));
+  assert.equal(
+    priorSetAside(many, (id) => (id === 1 ? { ref: 'refs/heads/main', steps: [] } : null)).unreadable,
+    true,
+    'past the lookback',
+  );
+  // A run from before the set-aside reached first: main never had a list, so it starts fresh.
+  assert.deepEqual(
+    priorSetAside(
+      runs,
+      () => null,
+      (r) => r.id <= 2,
+    ),
+    { steps: [], from: null, previous: false, fresh: true },
+  );
+  assert.equal(priorSetAside([], () => null).fresh, true);
+  // An incomplete list from a run that predates nothing stays unreadable, even if `predates` would say yes.
+  assert.equal(priorSetAside(runs, incomplete, () => true).unreadable, true);
+  // A step in cool-down keeps it: no fresh 7 days. The CLI with no complete list excuses nothing, even a flaky step.
+  assert.equal(excusedSetAside({ setAside: { a: 1 }, onMain: true, incomplete: true }).a, undefined);
+  assert.equal(cli({ ref: 'refs/heads/main', state: 'flaky' }), 0, 'with a complete list, a flaky set-aside step is green (the control)');
+  assert.equal(cli({ ref: 'refs/heads/main', state: 'flaky', priorIncomplete: true }), 1, 'no complete list: the flaky step is red');
+  assert.equal(cli({ ref: 'refs/heads/main', priorIncomplete: true }), 1, 'no complete list: the failure is red');
+});
+
+test('isAncestor and writesSetAside throw on a git error, and say no only on git exit 1', () => {
+  const sha = 'a'.repeat(40);
+  const exitWith = (status) => () => {
+    throw Object.assign(new Error('git'), { status });
+  };
+  assert.equal(
+    isAncestor(sha, () => ''),
+    true,
+  );
+  assert.equal(isAncestor(sha, exitWith(1)), false);
+  assert.throws(() => isAncestor(sha, exitWith(128)), /git merge-base failed \(128\)/);
+  assert.throws(
+    () =>
+      isAncestor(sha, () => {
+        throw Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' });
+      }),
+    /ENOENT/,
+  );
+  assert.throws(() => isAncestor('main', () => ''), /not a commit/);
+  assert.equal(writesSetAside(sha, exitWith(1)), false);
+  assert.throws(() => writesSetAside(sha, exitWith(128)), /failed/);
+  // Against this checkout: HEAD is its own ancestor, and HEAD's workflow writes the list.
+  const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  assert.equal(isAncestor(head), true);
+  assert.equal(writesSetAside(head), true);
+  assert.throws(() => isAncestor('0'.repeat(40)), /failed/, 'a commit this clone lacks (a shallow clone) is an error');
+});
+
+test('the verdict job has full history, and a shallow clone fails', () => {
+  assert.throws(() => assertFullHistory(() => 'true\n'), /shallow/);
+  assert.throws(() => assertFullHistory(() => ''), /shallow/);
+  assert.doesNotThrow(() => assertFullHistory(() => 'false\n'));
+  const wf = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  const job = wf.slice(wf.indexOf('\n  scoreboard:\n'));
+  assert.ok(job.includes('journey-verdict.mjs --report'), 'the verdict runs in the scoreboard job');
+  const checkout = job.slice(job.indexOf('actions/checkout@'), job.indexOf('\n      - uses:', job.indexOf('actions/checkout@')));
+  assert.match(checkout, /fetch-depth: 0\b/);
+  const src = readFileSync(join(ROOT, 'tooling/ci/journey-verdict.mjs'), 'utf8');
+  assert.match(
+    src.slice(src.indexOf('} else if (fetch) {\n      assertFullHistory')),
+    /^\} else if \(fetch\) \{\n      assertFullHistory\(\);/,
+  );
 });
