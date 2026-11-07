@@ -41,9 +41,6 @@ describe('chart numbers', () => {
     expect(priceFormat('0.01').formatter(65000)).toBe('65,000.00');
     expect(priceFormat('0.00001').formatter(0.1234567)).toBe('0.12346');
     expect(priceFormat('1').formatter(1234.5)).toBe('1,235');
-    // The person's locale groups and points the digits (J-charts-desk-07 #7); English stays the default.
-    expect(priceFormat('0.01', 'fr').formatter(65000)).toBe('65\u202f000,00');
-    expect(priceFormat('0.01', 'es').formatter(65000.5)).toBe('65.000,50');
   });
 });
 
@@ -78,13 +75,6 @@ describe('legendValues', () => {
 
   it('marks a rise with a plus', () => {
     expect(legendValues(candle(0, '100', '110', '100', '110'), '0.01').change).toBe('+10.00 (+10.00%)');
-  });
-
-  it('writes the numbers as the person’s locale does', () => {
-    const legend = legendValues(candle(0, '83351.0', '83351.0', '83253.2', '83281.8'), '0.1', 'fr');
-    expect(legend.open).toBe('83\u202f351,0');
-    expect(legend.close).toBe('83\u202f281,8');
-    expect(legend.change).toMatch(/^−69,2 \(−0,08\s?%\)$/);
   });
 });
 

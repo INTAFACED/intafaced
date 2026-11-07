@@ -635,70 +635,9 @@ const messages = {
   'Order status rejected': 'Rejected',
   'Order type limit': 'Limit',
   'Order type market': 'Market',
-  Layouts: 'Layouts',
-  'Desk layout': 'Desk layout',
-  'Desk preset': 'Desk preset',
-  Classic: 'Classic',
-  Advanced: 'Advanced',
-  'Arranged on this device': 'Arranged on this device.',
-  'Arrange widgets': 'Arrange widgets',
-  'Reset desk': 'Reset desk',
-  'Reset the desk?': 'Reset the desk?',
-  'Reset the desk to the {preset} preset? The arrangement on this device is replaced.':
-    'Reset the desk to the {preset} preset? The arrangement on this device is replaced.',
-  Reset: 'Reset',
-  Move: 'Move',
-  'Move {widget}': 'Move {widget}',
-  'Resize {widget}': 'Resize {widget}',
-  'Drag a widget onto another to swap them, or drag an edge to resize it.':
-    'Drag a widget onto another to swap them, or drag an edge to resize it.',
-  Done: 'Done',
-  'Market trades': 'Market trades',
-  'Desk layout recovered': 'The desk layout saved on this device could not be read, so the Classic preset is shown.',
   'Side buy': 'Buy',
   'Side sell': 'Sell',
   'Market price word': 'Market',
 } as const;
 
-/**
- * The chart's own words in the languages the app writes (packages/i18n: en, es and fr). Every other desk string falls
- * back to English (C-embed-feed-ops-03, J-charts-desk-07 #7).
- */
-export const deskCopy = defineCopy('trade.desk', messages, {
-  fr: {
-    Chart: 'Graphique',
-    'Chart intervals': 'Intervalles du graphique',
-    'More intervals': 'Autres intervalles',
-    Candles: 'Bougies',
-    Line: 'Ligne',
-    'Chart style': 'Style du graphique',
-    'Full screen': 'Plein écran',
-    'Exit full screen': 'Quitter le plein écran',
-    'Chart of {pair}': 'Graphique des prix de {pair}',
-    'No trades in this period': 'Aucune transaction sur cette période.',
-    'Couldn’t load the chart': 'Impossible de charger le graphique.',
-    O: 'Ouv.',
-    H: 'Haut',
-    L: 'Bas',
-    C: 'Clôt.',
-    Change: 'Variation',
-  },
-  es: {
-    Chart: 'Gráfico',
-    'Chart intervals': 'Intervalos del gráfico',
-    'More intervals': 'Más intervalos',
-    Candles: 'Velas',
-    Line: 'Línea',
-    'Chart style': 'Estilo del gráfico',
-    'Full screen': 'Pantalla completa',
-    'Exit full screen': 'Salir de pantalla completa',
-    'Chart of {pair}': 'Gráfico de precios de {pair}',
-    'No trades in this period': 'No hay operaciones en este periodo.',
-    'Couldn’t load the chart': 'No se pudo cargar el gráfico.',
-    O: 'Apert.',
-    H: 'Máx.',
-    L: 'Mín.',
-    C: 'Cierre',
-    Change: 'Variación',
-  },
-});
+export const deskCopy = defineCopy('trade.desk', messages);
