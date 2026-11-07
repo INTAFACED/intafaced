@@ -207,6 +207,103 @@ test(`${J} #4 edits an alert from one price to another: the new price and a modi
   expect(muted.indexOf('Created')).toBeLessThan(muted.indexOf('Modified'));
 });
 
+const CHART = '/charts/BTC-USDT';
+const chartHost = () => page.getByTestId('cw').getByTestId('wc-host');
+
+/** The price pane's box on the page: the trading overlay names where it sits in the chart (a volume pane sits below it). */
+async function pricePaneBox() {
+  const box = await chartHost().boundingBox();
+  const overlay = page.getByTestId('cw').getByTestId('chart-trading-overlay');
+  const top = Number(await overlay.getAttribute('data-pane-top'));
+  const height = Number(await overlay.getAttribute('data-pane-height'));
+  expect(height).toBeGreaterThan(0);
+  return { x: box.x, y: box.y + top, width: box.width, height };
+}
+
+/** The price the chart names under the pointer at a fraction of the price pane's height, from the price-axis plus button. */
+async function axisPriceAt(fy) {
+  const box = await pricePaneBox();
+  const y = box.y + box.height * fy;
+  await page.mouse.move(box.x + box.width * 0.5, y - 1);
+  await page.mouse.move(box.x + box.width * 0.5, y);
+  const plus = page.getByTestId('chart-axis-plus');
+  await expect(plus).toBeVisible();
+  await expect.poll(async () => Math.abs((await plus.boundingBox()).y + (await plus.boundingBox()).height / 2 - y)).toBeLessThan(2);
+  return { y, price: Number(await plus.getAttribute('data-price')) };
+}
+
+/** The chart's own price-to-pixel line, from two readings of the price axis (the scale is linear). */
+async function chartScale() {
+  const a = await axisPriceAt(0.25);
+  const b = await axisPriceAt(0.75);
+  return {
+    yOf: (price) => a.y + ((Number(price) - a.price) * (b.y - a.y)) / (b.price - a.price),
+    perPixel: (a.price - b.price) / (b.y - a.y),
+  };
+}
+
+test(`${J} #5 sees the alert level on the chart and drags it: the level line moves and the alert updates once`, async () => {
+  // A level the chart shows: the price the chart's own axis names a third of the way down its price pane, on the tick.
+  await page.goto(CHART);
+  await expect(chartHost()).toBeVisible();
+  const level = fromCents(cents(String((await axisPriceAt(0.3)).price.toFixed(2))));
+  // An active alert that does not fire during the step: crossing towards the level from the other side of the market.
+  const above = cents(level) > cents(await lastText());
+  const condition = above ? 'Crossing down through' : 'Crossing up through';
+  await page.goto(ALERTS);
+  await expect(marketSelect()).toBeEnabled();
+  await createAlert({ condition, price: level, name: 'TEST on the chart' });
+  await page.goto(CHART);
+  await expect(chartHost()).toBeVisible();
+  // The level on the chart: its handle names the condition and the exact price, and sits at that price's pixel.
+  const line = page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${level} USDT` });
+  await expect(line).toHaveCount(1);
+  await expect(line).toHaveAttribute('data-price', level);
+  await expect(page.getByTestId('chart-alert-row').filter({ hasText: `Alert: ${condition} ${level} USDT` })).toHaveCount(1);
+  const scale = await chartScale();
+  const atLevel = await line.boundingBox();
+  expect(Math.abs(atLevel.y + atLevel.height / 2 - scale.yOf(level)), 'the handle sits at its price').toBeLessThan(3);
+
+  // Every edit this page sends from now on.
+  const edits = [];
+  page.on('request', (request) => {
+    if (/notify\.updateAlert\b/.test(request.url()) && request.method() === 'POST') edits.push(request.postData());
+  });
+  // Drag the handle up by 40 pixels: the chart names the price it is dropped at.
+  const from = atLevel.y + atLevel.height / 2;
+  const to = from - 40;
+  await page.mouse.move(atLevel.x + atLevel.width / 2, from);
+  await page.mouse.down();
+  await page.mouse.move(atLevel.x + atLevel.width / 2, to, { steps: 12 });
+  await page.mouse.up();
+  const note = page.getByTestId('chart-alerts-note');
+  await expect(note).toHaveAttribute('data-tone', 'good');
+  const moved = /^The alert now watches (\d+(?:\.\d+)?) USDT\.$/.exec(((await note.textContent()) ?? '').trim())?.[1];
+  expect(moved, 'the note names the price the service now holds').toBeTruthy();
+  // The new price is where the handle was dropped, within a few pixels' worth of price, and above the old one.
+  expect(cents(moved) > cents(level), `${moved} is above ${level}`).toBe(true);
+  expect(Math.abs(Number(moved) - (Number(level) + 40 * scale.perPixel)), 'dropped at its pixel').toBeLessThan(4 * scale.perPixel + 0.01);
+  // The line moved: one handle, at the new price and its pixel; none left at the old one.
+  const movedLine = page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${moved} USDT` });
+  await expect(movedLine).toHaveCount(1);
+  await expect(page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${level} USDT` })).toHaveCount(0);
+  const atMoved = await movedLine.boundingBox();
+  expect(Math.abs(atMoved.y + atMoved.height / 2 - scale.yOf(moved)), 'the handle sits at its new price').toBeLessThan(3);
+  // Once: one edit, at that price.
+  await page.waitForTimeout(2_000);
+  expect(edits, 'one edit was sent for one drag').toHaveLength(1);
+  expect(edits[0]).toContain(`"targetPrice":"${moved}"`);
+  // The service holds it: after a reload the chart and the alerts page both show the new price, with a modified time.
+  await page.reload();
+  await expect(page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${moved} USDT` })).toHaveCount(1);
+  await page.goto(ALERTS);
+  await expect(marketSelect()).toBeEnabled();
+  const row = rowWith('TEST on the chart');
+  await expect(row.getByTestId('nf-body').first()).toHaveText(`${condition} ${moved} USDT`);
+  await expect(row).toHaveAttribute('data-status', 'active');
+  await expect(row.locator('.nf-muted')).toContainText('Modified');
+});
+
 test(`${J} #6 reads the trigger log: when it fired, at what price, in the person's time zone, for the retention window`, async () => {
   test.setTimeout(4 * SWEEP_MS);
   // At or below a level above the market: the next sweep reads a mark under it and fires.
