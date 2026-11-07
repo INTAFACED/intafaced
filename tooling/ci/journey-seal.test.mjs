@@ -772,13 +772,8 @@ test("SHARED_SETUP and real-app-journeys.yml's push trigger do not drift", () =>
 
 // ---- A pull request that changes a journey test names the steps it touches (judgeTouched) ----
 
-const BANK13 = [
-  "const J = 'J-bank-13';",
-  'test(`${J} #1 opens Cards`, async ({ page }) => {});',
-  'test.skip(`${J} #2 orders a card`, async () => {});',
-  "test('J-bank-13 #3 freezes it', async () => {});",
-  '// J-wallet-05 #4 is mentioned in a comment, not a test',
-].join('\n');
+// A journey file's text, kept as data in its own file: a skip line typed into a test file reads as a skipped test.
+const BANK13 = readFileSync(new URL('./fixtures/journey-seal-bank13.txt', import.meta.url), 'utf8');
 
 test('fileSteps: the steps a journey test file holds, by ${J} or written out, never a mention', () => {
   assert.deepEqual(fileSteps('J-bank-13', BANK13), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3']);
