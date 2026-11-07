@@ -5,6 +5,8 @@ import {
   ADDRESS_REPORT_NOTE_MAX,
   type AddressReportKind,
 } from '@intafaced/contracts/protocol-address-risk';
+import type { ProtocolAddressRisk } from '@intafaced/contracts/protocol-address-risk';
+import { safeReturnTo } from '../../../app/navigation';
 import { Button, Dialog, Failure, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
@@ -28,7 +30,9 @@ export function AddressRisk({ address }: { address: string }) {
   const { resource, reload } = useResource((signal) => api.addressRisk(address, signal), `address-risk:${address.toLowerCase()}`);
   const [open, setOpen] = useState(false);
   const [thanks, setThanks] = useState(false);
-  const risk = resource.status === 'ready' ? resource.data : null;
+  // After a report the count is read again quietly: the card keeps showing what it had until the new read lands.
+  const [fresh, setFresh] = useState<ProtocolAddressRisk | null>(null);
+  const risk = fresh ?? (resource.status === 'ready' ? resource.data : null);
   return (
     <section aria-label={t('title')}>
       <Panel title={t('title')}>
@@ -46,7 +50,7 @@ export function AddressRisk({ address }: { address: string }) {
                 {risk.labels.map((label) => (
                   <li key={label.kind}>
                     {t('label', { value: label.value, kind: t(`kind_${label.kind}`), reason: label.reason })}{' '}
-                    {label.evidenceUrl && (
+                    {label.evidenceUrl && /^https?:\/\//.test(label.evidenceUrl) && (
                       <a href={label.evidenceUrl} rel="noreferrer noopener" target="_blank">
                         {t('evidence')}
                       </a>
@@ -75,7 +79,8 @@ export function AddressRisk({ address }: { address: string }) {
           </Button>
         ) : (
           <p>
-            {t('reportSignIn')} <a href="/login">{t('signIn')}</a>
+            {t('reportSignIn')}{' '}
+            <a href={`/login?redirect=${encodeURIComponent(safeReturnTo(`/chain/address/${address}`))}`}>{t('signIn')}</a>
           </p>
         )}
         {thanks && <p role="status">{t('received')}</p>}
@@ -87,7 +92,9 @@ export function AddressRisk({ address }: { address: string }) {
             onSent={() => {
               setOpen(false);
               setThanks(true);
-              reload();
+              void api.addressRisk(address).then((next) => {
+                if (next.ok) setFresh(next.data);
+              });
             }}
           />
         )}
@@ -106,12 +113,17 @@ export function ReportDialog({ address, api, onClose, onSent }: { address: strin
   async function send(event: FormEvent) {
     event.preventDefault();
     setState('sending');
-    const result = await api.reportAddress({
-      address,
-      kind,
-      ...(evidence.trim() ? { evidenceUrl: evidence.trim() } : {}),
-      ...(note.trim() ? { note: note.trim() } : {}),
-    });
+    let result: Awaited<ReturnType<Api['reportAddress']>>;
+    try {
+      result = await api.reportAddress({
+        address,
+        kind,
+        ...(evidence.trim() ? { evidenceUrl: evidence.trim() } : {}),
+        ...(note.trim() ? { note: note.trim() } : {}),
+      });
+    } catch {
+      return setState('failed');
+    }
     if (result.ok) return onSent();
     const code = result.code ?? result.message;
     setState(

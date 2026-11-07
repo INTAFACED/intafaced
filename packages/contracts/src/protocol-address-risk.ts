@@ -40,7 +40,11 @@ export const protocolAddressLabelSchema = z.object({
   source: z.enum(ADDRESS_LABEL_SOURCES),
   reputation: z.enum(ADDRESS_REPUTATIONS),
   reason: z.string(),
-  evidenceUrl: z.string().nullable(),
+  /** Only ever an http(s) link (the table refuses anything else), so the card can show it as a link. */
+  evidenceUrl: z
+    .string()
+    .regex(/^https?:\/\//)
+    .nullable(),
   setAt: z.string(),
   version: z.number().int().positive(),
 });

@@ -39,7 +39,7 @@ export class PostgresAddressRiskStore implements AddressRiskStore {
   async labels(chainId: number, address: Address): Promise<LabelRecord[]> {
     const rows = await this.sql<LabelRow[]>`
       SELECT kind, value, source, reputation, reason, evidence_url, version, updated_at FROM protocol.address_labels
-      WHERE chain_id = ${chainId} AND address = ${toChecksum(address)} ORDER BY kind`;
+      WHERE chain_id = ${chainId} AND lower(address) = ${address.toLowerCase()} ORDER BY kind`;
     return rows.map((r) => ({
       kind: r.kind,
       value: r.value,
@@ -55,7 +55,7 @@ export class PostgresAddressRiskStore implements AddressRiskStore {
   async openReportCount(chainId: number, address: Address): Promise<number> {
     const [row] = await this.sql<{ count: string }[]>`
       SELECT count(*)::text AS count FROM protocol.address_reports
-      WHERE chain_id = ${chainId} AND address = ${toChecksum(address)} AND status = 'open'`;
+      WHERE chain_id = ${chainId} AND lower(address) = ${address.toLowerCase()} AND status = 'open'`;
     return Number(row?.count ?? '0');
   }
 

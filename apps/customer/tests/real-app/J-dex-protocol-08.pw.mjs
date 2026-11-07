@@ -31,13 +31,13 @@ async function openSection(page, name) {
   return wallet;
 }
 
-/** The run's TEST account, signed in (made by #6 on first use). Reporting needs a sign-in only, no balance. */
+/**
+ * A new TEST account, signed in, for #6. A new one each attempt: a report from an earlier attempt stays open, so the same
+ * person on a retry would get the duplicate refusal first. Reporting needs a sign-in only, no balance.
+ */
 async function person(page) {
-  let who = account.run.read().who;
-  if (!who) {
-    who = await signUp(page, 'dex08');
-    account.run.reset({ who });
-  }
+  const who = await signUp(page, 'dex08');
+  account.run.reset({ who });
   await signIn(page, who);
   return who;
 }
@@ -120,7 +120,7 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
   browser,
 }) => {
   test.setTimeout(240_000);
-  await person(page);
+  const who = await person(page);
   await page.goto(`/chain/address/${SUSPECT}`);
   await page.getByRole('button', { name: 'Report this address' }).click(UNBUILT);
   const report = page.getByRole('dialog', { name: 'Report this address' });
@@ -141,7 +141,8 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
     await other.goto(`/chain/address/${SUSPECT}`);
     const card = other.getByRole('region', { name: 'Address risk' });
     await expect(card).toContainText(/Reported \d+ times?/);
-    await expect(card).not.toContainText(account.run.read().who.handle);
+    await expect(card).not.toContainText(who.handle);
+    await expect(card).not.toContainText(who.email);
   } finally {
     await away.close();
   }

@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Sql } from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Address } from 'viem';
+import { getAddress } from 'viem';
 import { assertTestDatabase, createDb, postgresAvailable } from '@intafaced/db';
 import { PostgresAddressRiskStore } from './risk.pg.js';
 import { readAddressRisk, submitReport } from './risk.js';
@@ -16,7 +16,7 @@ const available = URL ? await postgresAvailable(URL) : false;
 const db = URL && available ? createDb({ url: URL, schema: 'protocol', max: 2 }, {}) : null;
 const sql: Sql | null = db?.sql ?? null;
 const CHAIN_ID = 84532;
-const SUSPECT = '0x000000000000000000000000000000000000bAD1' as Address;
+const SUSPECT = getAddress('0x000000000000000000000000000000000000bad1');
 const REPORTER = '44444444-4444-4444-8444-444444444444';
 
 if (!sql) {
@@ -27,7 +27,7 @@ if (!sql) {
   describe('address risk store (Postgres)', () => {
     const cleanup = async () => {
       await sql!`DELETE FROM protocol.address_reports WHERE address = ${SUSPECT}`;
-      await sql!`DELETE FROM protocol.address_labels WHERE address = ${SUSPECT}`;
+      await sql!`DELETE FROM protocol.address_labels WHERE lower(address) = ${SUSPECT.toLowerCase()}`;
     };
     beforeAll(async () => {
       await assertTestDatabase(sql!, 'svc-protocol risk.pg.test');
@@ -38,6 +38,13 @@ if (!sql) {
     afterAll(async () => {
       await cleanup();
       await db!.close();
+    });
+
+    it('refuses an evidence link that is not http(s) in the table itself', async () => {
+      await expect(
+        sql!`INSERT INTO protocol.address_labels (chain_id, address, kind, value, source, reputation, reason, set_by, evidence_url)
+             VALUES (${CHAIN_ID}, ${SUSPECT}, 'risk', 'TEST', 'curator', 'CAUTION', 'TEST', 'TEST', 'javascript:alert(1)')`,
+      ).rejects.toThrow(/address_labels_evidence_ck/);
     });
 
     it('one open report per person and address, enforced by the database; the count reads it', async () => {
@@ -51,10 +58,10 @@ if (!sql) {
       expect((await readAddressRisk(store, { chainId: CHAIN_ID, address: SUSPECT, screeningLoaded: false })).openReports).toBe(1);
     });
 
-    it('reads a published label with its reason', async () => {
+    it('reads a published label with its reason, whatever letter case it was stored in', async () => {
       await sql!`
         INSERT INTO protocol.address_labels (chain_id, address, kind, value, source, reputation, reason, set_by)
-        VALUES (${CHAIN_ID}, ${SUSPECT}, 'phishing', 'TEST phishing', 'curator', 'UNSAFE', 'TEST: drains approvals', 'TEST')`;
+        VALUES (${CHAIN_ID}, ${SUSPECT.toLowerCase()}, 'phishing', 'TEST phishing', 'curator', 'UNSAFE', 'TEST: drains approvals', 'TEST')`;
       const risk = await readAddressRisk(new PostgresAddressRiskStore(sql!), {
         chainId: CHAIN_ID,
         address: SUSPECT,
