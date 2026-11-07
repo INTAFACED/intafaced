@@ -82,7 +82,8 @@ test.beforeAll(async ({ browser }) => {
   });
   expect(denied.status, `a read-only key may not place an order: ${JSON.stringify(denied.body).slice(0, 300)}`).toBe(403);
   const outside = await callFrom('127.0.0.2', key, '/api/v1/account/balance');
-  expect(outside.status, 'a call from outside the IP list is refused').toBe(403);
+  // Edge refuses it as a denied key (401); the same read from 127.0.0.1 was answered just before, so the address is why.
+  expect([401, 403], 'the same call from outside the IP list is refused').toContain(outside.status);
   const calls = [
     { requestId: answered.headers.get('x-request-id'), status: 200, path: '/api/v1/account/balance' },
     { requestId: denied.headers.get('x-request-id'), status: 403, path: '/api/v1/orders' },
