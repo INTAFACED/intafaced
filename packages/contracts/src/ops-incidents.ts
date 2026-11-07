@@ -6,8 +6,9 @@ import { MODULE_IDS } from '@intafaced/config/modules';
  * and who takes part, resolve it, and read the metrics. The public status page belongs to the developer and support modules;
  * this is the staff incident.
  *
- * - An incident declared with no severity is `pending`. A severity outside `INCIDENT_SEVERITIES` refuses
- *   `ops.severity_unknown`.
+ * - An incident declared with no severity is `pending`. The severities it can be given are an owner setting
+ *   (`OPS_INCIDENT_SEVERITIES` in svc-ops): while it is blank, declaring with a severity refuses
+ *   `ops.incident_severities_unset`; a name not in it refuses `ops.severity_unknown`.
  * - A private incident is seen only by its participants: to anyone else its id is `ops.incident_not_found` (never
  *   "forbidden", which would say it exists), it is not listed, and it is left out of the metrics.
  * - Each change carries a `requestKey` (the console's business key for that action), so a lost reply is read back, never
@@ -23,12 +24,15 @@ export const INCIDENT_ASSIGNEE_NOT_PARTICIPANT = 'ops.assignee_not_participant' 
 export const INCIDENT_SEVERITY_UNKNOWN = 'ops.severity_unknown' as const;
 export const INCIDENT_ALREADY_RESOLVED = 'ops.incident_already_resolved' as const;
 export const INCIDENT_STORAGE_UNCONFIGURED = 'ops.incident_storage_unconfigured' as const;
+/** No severities are set (`OPS_INCIDENT_SEVERITIES` is blank), so an incident can only be declared pending. */
+export const INCIDENT_SEVERITIES_UNSET = 'ops.incident_severities_unset' as const;
 /** The same request key was sent before with a different body: it is a different request, so it is refused, not merged. */
 export const INCIDENT_REQUEST_KEY_REUSED = 'ops.incident_request_key_reused' as const;
 
-/** The severities an incident can carry once it is assessed. Until then it is `pending`. */
-export const INCIDENT_SEVERITIES = ['critical', 'major', 'minor'] as const;
+/** An incident not assessed yet. Every other severity name comes from the owner's list. */
 export const INCIDENT_SEVERITY_PENDING = 'pending' as const;
+/** How a severity name is spelt in the owner's list: lower snake case, at most 40 characters, never `pending`. */
+export const INCIDENT_SEVERITY_NAME = /^(?!pending$)[a-z][a-z0-9_]{0,39}$/;
 export const INCIDENT_STATUSES = ['active', 'resolved'] as const;
 
 const iso = z.string().datetime({ offset: true });
@@ -36,7 +40,7 @@ const id = z.string().uuid();
 const userId = z.string().min(1).max(128);
 const requestKey = z.string().trim().min(8).max(160);
 
-export const incidentSeveritySchema = z.enum([INCIDENT_SEVERITY_PENDING, ...INCIDENT_SEVERITIES]);
+export const incidentSeveritySchema = z.union([z.literal(INCIDENT_SEVERITY_PENDING), z.string().regex(INCIDENT_SEVERITY_NAME)]);
 export type IncidentSeverity = z.infer<typeof incidentSeveritySchema>;
 
 export const incidentSchema = z.object({
@@ -102,7 +106,12 @@ export const incidentListInputSchema = z.object({
   module: z.enum(MODULE_IDS).optional(),
   limit: z.number().int().min(1).max(200),
 });
-export const incidentListOutputSchema = z.object({ incidents: z.array(incidentSchema), asOf: iso });
+/** `severities` is the owner's list, or null while it is blank (declaring with a severity then refuses). */
+export const incidentListOutputSchema = z.object({
+  incidents: z.array(incidentSchema),
+  severities: z.array(z.string().regex(INCIDENT_SEVERITY_NAME)).nullable(),
+  asOf: iso,
+});
 
 export const incidentNoteInputSchema = z.object({ incidentId: id, requestKey, body: z.string().trim().min(1).max(2000) });
 export const incidentInviteInputSchema = z.object({ incidentId: id, requestKey, userId });
@@ -130,8 +139,27 @@ export const incidentMetricsSchema = z.object({
 });
 export type IncidentMetrics = z.infer<typeof incidentMetricsSchema>;
 
-/** The severity an incident is declared with: pending when none is given, null when the name is not a known one. */
-export function declaredSeverity(raw: string | undefined): IncidentSeverity | null {
-  if (raw === undefined) return INCIDENT_SEVERITY_PENDING;
-  return (INCIDENT_SEVERITIES as readonly string[]).includes(raw) ? (raw as IncidentSeverity) : null;
+/**
+ * The severity an incident is declared with, against the owner's list (`null`: blank): pending when none is given, or the
+ * typed refusal.
+ */
+export function declaredSeverity(
+  raw: string | undefined,
+  configured: readonly string[] | null,
+): { ok: true; severity: IncidentSeverity } | { ok: false; code: typeof INCIDENT_SEVERITIES_UNSET | typeof INCIDENT_SEVERITY_UNKNOWN } {
+  if (raw === undefined) return { ok: true, severity: INCIDENT_SEVERITY_PENDING };
+  if (configured === null) return { ok: false, code: INCIDENT_SEVERITIES_UNSET };
+  return configured.includes(raw) ? { ok: true, severity: raw } : { ok: false, code: INCIDENT_SEVERITY_UNKNOWN };
+}
+
+/**
+ * The owner's severity list from its setting: comma separated, each name spelt as `INCIDENT_SEVERITY_NAME`, none twice. Blank
+ * is null (no severities). Anything else throws, so a misspelt list refuses boot instead of being half read.
+ */
+export function parseIncidentSeverities(raw: string | undefined): string[] | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const names = raw.split(',').map((n) => n.trim());
+  if (names.some((n) => !INCIDENT_SEVERITY_NAME.test(n)) || new Set(names).size !== names.length)
+    throw new Error('OPS_INCIDENT_SEVERITIES: a comma list of distinct lower snake case names, none of them pending');
+  return names;
 }

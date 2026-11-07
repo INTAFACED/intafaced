@@ -15,6 +15,7 @@ import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
 import { SqlIncidentStore } from './incidents/store.js';
+import { parseIncidentSeverities } from '@intafaced/contracts';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
@@ -215,6 +216,7 @@ const appRouter = createOpsRouter(
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
     incidents: crmSql ? new SqlIncidentStore(crmSql) : undefined,
+    incidentSeverities: parseIncidentSeverities(env.OPS_INCIDENT_SEVERITIES),
     staffHolds,
     homeConfig: homeConfigFromEnv(env),
     reconciliationAlerts: reconciliationAlerts ?? undefined,

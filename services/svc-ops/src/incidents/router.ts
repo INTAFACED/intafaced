@@ -5,7 +5,7 @@ import {
   INCIDENT_NOT_FOUND,
   INCIDENT_REQUEST_KEY_REUSED,
   INCIDENT_SEVERITY_UNKNOWN,
-  INCIDENT_SEVERITIES,
+  INCIDENT_SEVERITIES_UNSET,
   INCIDENT_STORAGE_UNCONFIGURED,
   declaredSeverity,
   incidentDeclareInputSchema,
@@ -28,12 +28,15 @@ const guards = { module: 'core-ops' as const, plane: 'fiat' as const };
 
 export interface IncidentsDeps {
   readonly store: IncidentStore | undefined;
+  /** The owner's severity list (`OPS_INCIDENT_SEVERITIES`), or null while it is blank. */
+  readonly severities: readonly string[] | null;
   readonly now: () => string;
 }
 
 const TRPC_CODE: Readonly<Record<string, 'BAD_REQUEST' | 'NOT_FOUND' | 'CONFLICT' | 'PRECONDITION_FAILED'>> = {
   [INCIDENT_NOT_FOUND]: 'NOT_FOUND',
   [INCIDENT_SEVERITY_UNKNOWN]: 'BAD_REQUEST',
+  [INCIDENT_SEVERITIES_UNSET]: 'PRECONDITION_FAILED',
   [INCIDENT_ASSIGNEE_NOT_PARTICIPANT]: 'PRECONDITION_FAILED',
   [INCIDENT_ALREADY_RESOLVED]: 'CONFLICT',
   [INCIDENT_REQUEST_KEY_REUSED]: 'CONFLICT',
@@ -72,7 +75,11 @@ export function createIncidentsRouter(deps: IncidentsDeps) {
     list: scopedProcedure('admin:read', guards)
       .input(incidentListInputSchema)
       .output(incidentListOutputSchema)
-      .query(async ({ ctx, input }) => ({ incidents: await storeOf(deps).list(ctx.principal.userId, input), asOf: deps.now() })),
+      .query(async ({ ctx, input }) => ({
+        incidents: await storeOf(deps).list(ctx.principal.userId, input),
+        severities: deps.severities === null ? null : [...deps.severities],
+        asOf: deps.now(),
+      })),
     get: scopedProcedure('admin:read', guards)
       .input(incidentGetInputSchema)
       .output(incidentDetailSchema)
@@ -88,14 +95,17 @@ export function createIncidentsRouter(deps: IncidentsDeps) {
       .input(incidentDeclareInputSchema)
       .output(incidentDetailSchema)
       .mutation(async ({ ctx, input }) => {
-        const severity = declaredSeverity(input.severity);
-        if (severity === null)
+        const checked = declaredSeverity(input.severity, deps.severities);
+        if (!checked.ok)
           throw refusal(
-            new OpsError(
-              INCIDENT_SEVERITY_UNKNOWN,
-              `${input.severity} is not a severity; use one of ${INCIDENT_SEVERITIES.join(', ')}, or none for pending`,
-            ),
+            checked.code === INCIDENT_SEVERITIES_UNSET
+              ? new OpsError(checked.code, 'no severities are set (OPS_INCIDENT_SEVERITIES is blank): declare it without one, as pending')
+              : new OpsError(
+                  checked.code,
+                  `${input.severity} is not a severity; use one of ${deps.severities!.join(', ')}, or none for pending`,
+                ),
           );
+        const severity = checked.severity;
         const values = {
           requestKey: input.requestKey,
           title: input.title,

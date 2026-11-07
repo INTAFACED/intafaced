@@ -256,6 +256,8 @@ export interface OperatorDeskConfig {
   readonly serviceRecords?: ServiceRecordStore;
   /** Staff incidents. Absent means every call refuses `ops.incident_storage_unconfigured`. */
   readonly incidents?: IncidentStore;
+  /** The owner's incident severities (`OPS_INCIDENT_SEVERITIES`). Absent or null: blank. */
+  readonly incidentSeverities?: readonly string[] | null;
   /** Staff holds on funds. Absent means every call refuses `ops.hold_storage_unconfigured`. */
   readonly staffHolds?: StaffHoldDesk;
   /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
@@ -852,7 +854,7 @@ export function createOpsRouter(
 
     services: createServiceRecordsRouter({ store: desks.serviceRecords, now }),
 
-    incidents: createIncidentsRouter({ store: desks.incidents, now }),
+    incidents: createIncidentsRouter({ store: desks.incidents, severities: desks.incidentSeverities ?? null, now }),
 
     staffHolds: createStaffHoldsRouter(
       desks.staffHolds ??

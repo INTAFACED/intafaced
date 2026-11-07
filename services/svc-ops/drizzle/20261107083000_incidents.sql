@@ -10,7 +10,8 @@ CREATE TABLE ops.incidents (
  number bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
  title text NOT NULL CHECK (char_length(title) BETWEEN 1 AND 200),
  module text CHECK (char_length(module) BETWEEN 1 AND 40),
- severity text NOT NULL CHECK (severity IN ('pending', 'critical', 'major', 'minor')),
+ -- 'pending', or a name from the owner's list (OPS_INCIDENT_SEVERITIES) as it stood when the incident was declared.
+ severity text NOT NULL CHECK (severity ~ '^[a-z][a-z0-9_]{0,39}$'),
  status text NOT NULL CHECK (status IN ('active', 'resolved')),
  private boolean NOT NULL,
  declared_by text NOT NULL,

@@ -6,6 +6,7 @@ import {
   INCIDENT_NOT_FOUND,
   INCIDENT_REQUEST_KEY_REUSED,
   declaredSeverity,
+  parseIncidentSeverities,
 } from '@intafaced/contracts';
 import { createTestDatabase } from '@intafaced/db';
 import { migrateOutreach } from '../db/migrate.js';
@@ -50,7 +51,7 @@ describe('staff incidents on real PostgreSQL', () => {
 
       // No severity is pending; the declare under the same key is the same incident.
       const values = { requestKey: 'console:declare:pg-1', title: 'TEST ledger lag', module: 'ledger' as const, private: false };
-      const first = await store.declare({ ...values, severity: declaredSeverity(undefined)! }, A, '2026-11-07T08:00:00.000Z');
+      const first = await store.declare({ ...values, severity: 'pending' }, A, '2026-11-07T08:00:00.000Z');
       expect(first.incident).toMatchObject({ severity: 'pending', status: 'active', module: 'ledger', endedAt: null });
       expect(first.participants.map((p) => p.userId)).toEqual([A]);
       const again = await store.declare({ ...values, severity: 'pending' }, A, '2026-11-07T08:00:05.000Z');
@@ -58,7 +59,14 @@ describe('staff incidents on real PostgreSQL', () => {
       expect(await codeOf(store.declare({ ...values, title: 'another', severity: 'pending' }, A, '2026-11-07T08:00:06.000Z'))).toBe(
         INCIDENT_REQUEST_KEY_REUSED,
       );
-      expect(declaredSeverity('apocalyptic')).toBeNull();
+      expect(declaredSeverity(undefined, null)).toEqual({ ok: true, severity: 'pending' });
+      expect(declaredSeverity('major', null)).toEqual({ ok: false, code: 'ops.incident_severities_unset' });
+      expect(declaredSeverity('apocalyptic', ['critical', 'major'])).toEqual({ ok: false, code: 'ops.severity_unknown' });
+      expect(declaredSeverity('major', ['critical', 'major'])).toEqual({ ok: true, severity: 'major' });
+      expect(parseIncidentSeverities('')).toBeNull();
+      expect(parseIncidentSeverities('critical, major')).toEqual(['critical', 'major']);
+      expect(() => parseIncidentSeverities('critical,pending')).toThrow();
+      expect(() => parseIncidentSeverities('Major')).toThrow();
       const id = first.incident.id;
 
       // A timeline note added twice under one key is one note.

@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { MODULE_IDS } from '@intafaced/config/modules';
-import { INCIDENT_SEVERITIES } from '@intafaced/contracts/ops-incidents';
+import { INCIDENT_SEVERITIES_UNSET } from '@intafaced/contracts/ops-incidents';
 import { IncidentForm } from '@/components/incident-form';
 import { formatAsOf } from '@/lib/as-of';
 import { requireFounderPage } from '@/lib/founder-page';
@@ -89,6 +89,11 @@ export default async function IncidentsPage() {
       </section>
       <section className="dk-stack" aria-labelledby="h-declare">
         <h2 id="h-declare">Declare an incident</h2>
+        {list.kind === 'read' && list.data.severities === null ? (
+          <p className="dk-muted" data-testid="incident-severities-unset">
+            No severities are set, so an incident can only be declared pending. Code: {INCIDENT_SEVERITIES_UNSET}
+          </p>
+        ) : null}
         <IncidentForm
           action="declare"
           testId="incident-declare"
@@ -106,7 +111,10 @@ export default async function IncidentsPage() {
               name: 'severity',
               label: 'Severity',
               kind: 'select',
-              options: [{ value: '', label: 'Not assessed yet (pending)' }, ...INCIDENT_SEVERITIES.map((s) => ({ value: s, label: s }))],
+              options: [
+                { value: '', label: 'Not assessed yet (pending)' },
+                ...(list.kind === 'read' && list.data.severities ? list.data.severities : []).map((s) => ({ value: s, label: s })),
+              ],
             },
             { name: 'private', label: 'Private: only the people taking part can see it', kind: 'checkbox' },
           ]}
