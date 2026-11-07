@@ -57,6 +57,24 @@ const storedDrawings = () =>
       .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? '{}').drawings ?? []),
   );
 
+/** Where the chart draws a selected drawing's handle now, in page pixels (`readDrawnLines`). */
+async function handleAt(row, index) {
+  const id = await row.getAttribute('data-drawing-id');
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  const read = () =>
+    host.evaluate(
+      (el, [want, at]) =>
+        el
+          .readDrawnLines?.()
+          .find((d) => d.id === want)
+          ?.handles.find((h) => h.index === at) ?? null,
+      [id, index],
+    );
+  await expect.poll(read, `drawing ${id} shows handle ${index}`).not.toBeNull();
+  const [h, box] = [await read(), await host.boundingBox()];
+  return { x: box.x + h.x, y: box.y + h.y };
+}
+
 /** Test arithmetic only: the expected figure at two decimals, for the fixture's own points. */
 const cents = (value) => (Math.round(value * 100) / 100).toFixed(2);
 
@@ -216,7 +234,8 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   await pick(page, 'Select');
   await select(brush, /^Brush \d+$/);
   const strokeBefore = pricesOf(stroke);
-  await drag(start, { x: start.x, y: start.y - 30 });
+  const first = await handleAt(brush, 0);
+  await drag(first, { x: first.x, y: first.y - 30 });
   await expect.poll(async () => pricesOf(await pointText(brush).textContent())[0]).not.toBe(strokeBefore[0]);
   const strokeAfter = pricesOf(await pointText(brush).textContent());
   expect(strokeAfter.slice(1), 'the other points of the stroke stay where they were').toEqual(strokeBefore.slice(1));
