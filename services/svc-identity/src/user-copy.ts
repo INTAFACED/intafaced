@@ -40,6 +40,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
  * `auth.mfa_required` already aliases a catalog row.
  */
 const LOCAL_COPY: Readonly<Record<string, string>> = {
+  'auth.session_idle': 'You were signed out because this device was idle for longer than your idle sign-out. Sign in again.',
   'auth.password_unchanged': 'Choose a new password that is different from your current one.',
   'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
   'auth.password_breached': 'That password is known from a data breach. Choose a different one.',

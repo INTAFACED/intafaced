@@ -62,6 +62,10 @@
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"
     },
+    "./protocol-address-risk": {
+      "types": "./dist/protocol-address-risk.d.ts",
+      "default": "./dist/protocol-address-risk.js"
+    },
     "./protocol-wallet-tx": {
       "types": "./dist/protocol-wallet-tx.d.ts",
       "default": "./dist/protocol-wallet-tx.js"

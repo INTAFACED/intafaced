@@ -17,6 +17,7 @@ import { RecoveryKeys } from './RecoveryKeys';
 import { AntiPhishing } from './AntiPhishing';
 import { SecurityChecklist } from './SecurityChecklist';
 import { Devices } from './Devices';
+import { SessionLimits } from './SessionLimits';
 import { CloseAccount } from './CloseAccount';
 import { FreezeAccount } from './FreezeAccount';
 import { CompromiseDeviceReview } from './CompromiseDeviceReview';
@@ -824,6 +825,7 @@ export function Security() {
           </section>
           <Devices onChanged={() => setSeatVersion((value) => value + 1)} />
           <CompromiseDeviceReview />
+          <SessionLimits />
           <TrustedDevices onChanged={() => setSeatVersion((value) => value + 1)} />
           <PasskeyNames revision={passkeyRevision} />
           <SigninMethods revision={passkeyRevision} onChanged={methodsChanged} />

@@ -439,6 +439,14 @@ export const rooms: readonly Room[] = [
     screen: 'trade/convert',
   },
   {
+    path: '/trade/terminal',
+    title: 'Terminal',
+    description: 'Orders, positions, history and depth in one view',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/terminal',
+  },
+  {
     path: '/execution',
     title: 'Execution',
     description: 'Cross-venue execution',

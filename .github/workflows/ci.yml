@@ -82,6 +82,7 @@ jobs:
     permissions:
       contents: read
       actions: read # the journey baseline guard downloads the journeys runs' reports on main
+      pull-requests: read # the journey list guard reads the pull request's current body
     steps:
       # fetch-depth: 0 — the value-gate step at the end of this job needs
       # `origin/main` and ten ancestor subjects. The default is 1, which gives
@@ -160,6 +161,28 @@ jobs:
             guard="$RUNNER_TEMP/main/$guard"
           fi
           node "$guard" --repo "$REPO" --base-ref origin/main
+
+      # The journey list is the finish line (OWNER 1), from main like the guard above (tooling/ci/journey-list-guard.mjs):
+      # a journey or step on main may leave docs/roadmap/journeys.json, or its live count, only on a body line
+      # `Journey-retired: J-bank-13 #2 (OWNER <n>)`; every step's slice ids are slices in docs/roadmap/slices.json; and
+      # docs/ROADMAP.md is what main's roadmap.mjs builds from the pull request's records (intafaced #7438's read: a drop and
+      # a made-up slice id passed every check). Main's copy runs in a worktree of main, so its import of roadmap.mjs is
+      # main's too; the worktree borrows this checkout's node_modules for prettier. It reads the body from the API, so
+      # re-running this job after a body edit reads the new body. Falls back to the PR copy only while main has none.
+      - name: Journey list guard (rules from main)
+        if: github.event_name == 'pull_request' && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          guard=tooling/ci/journey-list-guard.mjs
+          if git cat-file -e "origin/main:$guard" 2>/dev/null; then
+            git worktree add --detach "$RUNNER_TEMP/list-base" origin/main
+            ln -s "$GITHUB_WORKSPACE/node_modules" "$RUNNER_TEMP/list-base/node_modules"
+            guard="$RUNNER_TEMP/list-base/$guard"
+          fi
+          node "$guard" --base-ref origin/main
 
       # The redesign's drift lint, from main like the guard above: changed lines in apps/customer and packages/ui/src/lit take
       # their look from role tokens (no raw colours, pixel sizes or left/right sides). It ratchets: lines already on
@@ -504,7 +527,8 @@ jobs:
     permissions:
       contents: read
       actions: read # the CI review's runs and their jobs on the head (ci-review.yml); no comment or status is read
-      pull-requests: read # the changed files, to tell whether this change needs the independent review
+      pull-requests: read # the changed files, to tell whether this change needs the independent review or a full journeys run
+      issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
     needs: [changes, gates, format, build, test-full]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -533,6 +557,9 @@ jobs:
       # 2026-11-06; #7202 merged with its named steps red in its own run). On a merge queue's commit, every queued pull
       # request on its own head. journey-seal-recheck.yml re-runs this job when a journeys run finishes or a title or body
       # is edited. The default branch's copy decides, as for the review below.
+      # A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP in journey-seal.mjs), whatever its
+      # title, also needs the newest finished full journeys run on its exact head clean by the journeys verdict, judged with
+      # the default branch's baseline (the pilot lead's rule of 7 Nov 2026, moved from a message into CI).
       - name: Require the named journey steps on this exact head
         if: steps.base.outcome == 'success'
         env:
@@ -568,3 +595,22 @@ jobs:
           REPO: ${{ github.repository }}
         # The default branch's copy decides which changes need the review. Editing this step is a .github/ change, which needs it.
         run: node "$RUNNER_TEMP/base/tooling/ci/review-marker.mjs"
+      # The factory switch (owner decision 2026-11-07): the one-line file FACTORY on the unprotected branch factory-switch.
+      # Only `run` lets a pull request or a merge queue's commit through; anything else fails the seal, whoever opened the
+      # pull request. Flipping it is a push to that branch, never a pull request, so a pause can't block the change that
+      # lifts it. A push to main is never stopped, so main is still verified while paused. It runs after the other verdicts
+      # so they still show. A flip re-runs the open pull requests' seals (factory-sweep.yml on that branch, the sweep in
+      # tooling/ci/factory-switch.mjs), so a green seal turns red on `pause` and back on `run`. The default branch's copy
+      # decides, as for the steps above; the pull request's own copy only while main has none (the pull request that adds it).
+      - name: The factory switch says run
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          switch="$RUNNER_TEMP/base/tooling/ci/factory-switch.mjs"
+          if [ ! -f "$switch" ]; then
+            switch=tooling/ci/factory-switch.mjs
+            echo "::notice::the default branch has no tooling/ci/factory-switch.mjs yet; this pull request's copy reads the switch"
+          fi
+          node "$switch"
