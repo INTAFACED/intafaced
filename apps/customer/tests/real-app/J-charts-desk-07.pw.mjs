@@ -186,7 +186,11 @@ test(`${J} #4 opens the same account on another device; the layout and its autos
 test(`${J} #5 copies, exports and deletes a layout, then recovers the deleted one with its charts`, async () => {
   await openDesk();
   await layouts().click();
-  const row = (name) => layoutsMenu().getByRole('listitem').filter({ hasText: name });
+  // A row by its exact name: "Scalp" must not also match "Scalp (copy)".
+  const row = (name) =>
+    layoutsMenu()
+      .getByRole('listitem')
+      .filter({ has: page.getByText(name, { exact: true }) });
   await row('Scalp').getByRole('button', { name: 'Copy' }).click({ timeout: 5_000 });
   await expect(row('Scalp (copy)')).toHaveCount(1);
   const download = page.waitForEvent('download');
