@@ -49,7 +49,7 @@
   "counts": {
     "stepsInRun": 1521,
     "failing": 529,
-    "unbuilt": 524,
+    "unbuilt": 533,
     "regression": 5,
     "notBaselined": 0
   },
@@ -665,6 +665,69 @@
       "state": "unbuilt",
       "money": true,
       "why": "Red by name (LOAN-02): the bank's risk sweep reads the margin-call and liquidation thresholds from the product, not from the loan, so no door edits them for a product with open loans. The loan's own s"
+    },
+    {
+      "step": "J-cex-spot-14#1",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-cex-spot-14#5",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(received).toContain(expected) // indexOf"
+    },
+    {
+      "step": "J-cex-spot-14#6",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "a session market with a published lifecycle whose session is shut now"
+    },
+    {
+      "step": "J-cex-spot-14#7",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "a market inside its opening window or in the higher-risk zone"
+    },
+    {
+      "step": "J-cex-spot-14#8",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "the ticker carries a spread field"
+    },
+    {
+      "step": "J-cex-spot-14#9",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-cex-spot-14#10",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-cex-spot-14#11",
+      "file": "apps/customer/tests/real-app/J-cex-spot-14.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "expect(locator).toBeVisible() failed"
+    },
+    {
+      "step": "J-charts-desk-07#3",
+      "file": "apps/customer/tests/real-app/J-charts-desk-07.pw.mjs",
+      "state": "unbuilt",
+      "money": true,
+      "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
       "step": "J-copy-bots-otc-01#5",
