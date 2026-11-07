@@ -353,12 +353,12 @@ test(`${J} #4 reads the REST conventions and the trading API reference index: UR
     await expect(row.getByRole('cell').first(), name).toContainText(stream.path);
     await expect(row.getByRole('cell').last(), name).toHaveText(stream.access === 'private' ? 'your own data; trade:read' : 'public');
   }
-  // The stack sets no multiplexed idle window (owner-unpublished), so that door is listed down with its typed code and
-  // every other door is up.
+  // The stack publishes every stream limit as a labelled TEST value (tooling/profiles/test-owner-values/ws.json), the
+  // multiplexed idle window included, so every door is up.
   expect(
     liveStreams.map(({ door, mounted, refusal }) => [door, mounted, refusal ?? null]),
     JSON.stringify(liveStreams),
-  ).toEqual(liveStreams.map(({ door }) => (door === 'mux' ? ['mux', false, 'ws.mux_idle_unset'] : [door, true, null])));
+  ).toEqual(liveStreams.map(({ door }) => [door, true, null]));
 
   // With the Customer server's WebSocket upstream blank, the inventory refuses with its typed code, and the reference
   // still lists every stream; restored, the inventory reads back the same.

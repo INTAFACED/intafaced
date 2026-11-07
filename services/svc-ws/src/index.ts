@@ -458,6 +458,7 @@ registerRoutes(app, {
   privateAuthorityConfigured: () => authority !== null,
   dropCopyBus: busLifecycle.dropCopyBus,
   pollMs: env.WS_POLL_INTERVAL_MS,
+  timing: { heartbeatMs: env.WS_HEARTBEAT_MS, muxIdleMs },
 });
 registerTapeLabelDoor(app);
 const sbeConsumers = new SbeConsumers();

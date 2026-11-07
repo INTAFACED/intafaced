@@ -102,6 +102,12 @@ export interface RouteOptions {
   readonly pollMs?: number;
   /** The multiplexed door and its two feed hubs. Omit = not mounted; `/health` says nothing about it. */
   readonly mux?: { readonly gateway: MuxGateway; readonly tickerHub: TickerHub; readonly candleHub: CandleHub };
+  /**
+   * The keepalive rule every door runs, published on `/streams` so the developer pages read it live: the ping cadence
+   * (a socket that misses one pong is ended) and the multiplexed idle close (null while unpublished: the door is down).
+   * Omitted in tests that do not read it; `/streams` then names both null.
+   */
+  readonly timing?: { readonly heartbeatMs: number; readonly muxIdleMs: number | undefined };
 }
 
 function sendL2Sbe(
@@ -255,7 +261,10 @@ export function registerRoutes(app: FastifyInstance, options: RouteOptions): voi
   app.get('/policy', async () => describeGatewayPolicy());
 
   /** Every channel this process serves, from the lists its doors parse (`stream-inventory.ts`). */
-  app.get('/streams', async () => ({ streams: streamInventory({ muxMounted: options.mux !== undefined }) }));
+  app.get('/streams', async () => ({
+    streams: streamInventory({ muxMounted: options.mux !== undefined }),
+    timing: { heartbeatMs: options.timing?.heartbeatMs ?? null, muxIdleMs: options.timing?.muxIdleMs ?? null },
+  }));
 
   async function sendNativeL3(
     marketId: string,
