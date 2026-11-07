@@ -325,7 +325,8 @@ test(`${J} #3 halts a symbol: copy mirrors and bot slices on it stop`, async ({ 
   // Copy mirrors on ETH/USDT stop: the leader's next ETH fill is refused as paused by the platform, nothing is copied.
   await leadFill(leader2, 'buy', '0.01', `${J}-3-b-${tag}`, 'ETH/USDT');
   await skippedAs(follower, follow2Id, 1);
-  // Minutes have passed since the follower signed in on this page (the TWAP, the halt, three slice intervals).
+  // The TWAP owner was made on this page after the follower signed in, and fundedTrader's verify() signs the page out
+  // (desk.mjs signOutBrowser), so the follower signs in again here.
   await signIn(page, follower);
   await expect(copiedOrders(await openFollow(page, leader2Ref))).toHaveCount(1);
   await page.goto('/trade/copy?tab=follows');
