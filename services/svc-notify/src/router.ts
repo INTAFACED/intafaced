@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import {
+  ALERT_OWNER_KEYS,
+  ALERT_PLANS,
+  AlertOwnerValueError,
+  NOTIFY_OWNER_VALUE_FORBIDDEN,
+  NOTIFY_OWNER_VALUE_STALE,
+  planOf,
+  type AlertOwnerValues,
+} from './alerts/owner-values.js';
 import { guestNotificationsRouter } from './guests/router.js';
 import { guestVerificationRouter } from './guests/verification-router.js';
 import { statusPageRouter, type StatusPageDeps } from './status-page/router.js';
@@ -590,6 +599,13 @@ function priceAlertToWire(row: PriceAlert) {
  * @param loadVenueIncident Matching halt / incident-silence truth. Default is
  * unwired — `ok` is process liveness, never an invented all-clear.
  */
+/** The owner values store, or a typed refusal while this process has none wired. */
+function ownerValuesOrRefuse(alerts: AlertService | undefined): AlertOwnerValues {
+  const values = alerts?.ownerValuesStore();
+  if (!values) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.alert_owner_values_unwired' });
+  return values;
+}
+
 export function createNotifyRouter(
   notify: NotifyService,
   alerts?: AlertService,
@@ -926,6 +942,45 @@ export function createNotifyRouter(
             });
           }
         }),
+
+      /**
+       * The alert owner values (J-charts-desk-18 #5 #6): the price-alert quota per plan and the trigger-log retention, where
+       * each comes from, who set it and when. `get` is admin:read; `set` is admin:write, one value per write with a reason.
+       */
+      opsAlertOwnerValues: router({
+        get: scopedProcedure('admin:read', { module: 'notify' }).query(async ({ ctx }) => ownerValuesOrRefuse(alerts).get(ctx.principal)),
+        set: scopedProcedure('admin:write', { module: 'notify' })
+          .input(
+            z
+              .object({
+                key: z.enum(ALERT_OWNER_KEYS),
+                plan: z.enum(ALERT_PLANS).nullable().optional(),
+                value: z.number().int().nullable(),
+                expectedVersion: z.string().regex(/^(?:0|[1-9]\d*)$/),
+                reason: z.string().max(500),
+                clientRequestId: z.string().trim().min(1).max(160),
+              })
+              .strict(),
+          )
+          .mutation(async ({ ctx, input }) => {
+            try {
+              return await ownerValuesOrRefuse(alerts).set(ctx.principal, input);
+            } catch (err) {
+              if (err instanceof AlertOwnerValueError) {
+                throw new TRPCError({
+                  code:
+                    err.code === NOTIFY_OWNER_VALUE_FORBIDDEN
+                      ? 'FORBIDDEN'
+                      : err.code === NOTIFY_OWNER_VALUE_STALE
+                        ? 'CONFLICT'
+                        : 'BAD_REQUEST',
+                  message: `${err.code}: ${err.message}`,
+                });
+              }
+              throw err;
+            }
+          }),
+      }),
 
       operatorProviderHealth: scopedProcedure('admin:read', { module: 'notify' })
         .output(
@@ -1774,6 +1829,7 @@ export function createNotifyRouter(
             }
             const row = await alerts.create({
               userId: ctx.principal.userId,
+              plan: planOf(ctx.principal.tier),
               marketId: input.marketId,
               kind,
               direction: input.direction,
@@ -1836,6 +1892,7 @@ export function createNotifyRouter(
           try {
             const rows = await alerts.createMany({
               userId: ctx.principal.userId,
+              plan: planOf(ctx.principal.tier),
               marketIds: input.marketIds,
               direction: input.direction,
               targetPrice: input.targetPrice,
@@ -1934,7 +1991,7 @@ export function createNotifyRouter(
         )
         .query(async ({ ctx }) => {
           if (!alerts) return { kind: 'price' as const, used: 0, max: null, burst: null, maxConditions: null };
-          return alerts.quota(ctx.principal.userId);
+          return alerts.quota(ctx.principal.userId, new Date(), planOf(ctx.principal.tier));
         }),
 
       /**

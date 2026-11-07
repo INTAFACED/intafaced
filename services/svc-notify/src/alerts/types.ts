@@ -16,6 +16,8 @@
  * `number`. The portfolio refuse arm carries zero money fields.
  */
 
+import type { AlertPlan } from './owner-values.js';
+
 /** Watches evaluated against an injected mark source. */
 export type SourcedAlertKind = 'price' | 'funding' | 'liquidation_proximity' | 'whale';
 
@@ -229,6 +231,8 @@ export type CreatePriceAlertInput = {
    * same step that writes the alert, so two creates racing cannot both pass. Left out, no cap is checked.
    */
   readonly maxOpen?: number;
+  /** The person's plan (their session's verification level): picks the founder's price-alert quota. Left out: `none`. */
+  readonly plan?: AlertPlan;
 };
 
 /**

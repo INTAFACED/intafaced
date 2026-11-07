@@ -11,6 +11,7 @@
  * were re-activated (MVP: one-shot fire).
  */
 
+import type { AlertOwnerValues, AlertPlan } from './owner-values.js';
 import type { CreateResult, NotifyService } from '../notify-service.js';
 import { acceptAlertMark, outOfAppRequiredRefusal } from './accepted-mark.js';
 import { canonicalDecimalString, isValidPositivePrice } from './decimal.js';
@@ -389,7 +390,7 @@ export class AlertService {
     opts: { alertId?: string; limit: number },
     now: Date = new Date(),
   ): Promise<{ retentionDays: number; triggers: readonly AlertTrigger[] }> {
-    const days = this.limits.triggerLogDays;
+    const days = (await this.ownerLimits()).triggerLogDays;
     if (days === null) {
       throw new AlertLimitError(NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET, 'the owner has not set how long the trigger log is kept');
     }
@@ -415,10 +416,11 @@ export class AlertService {
     // Only price alerts have a quota setting. A blank one refuses the create, as every other blank owner limit does.
     let maxOpen: number | undefined;
     if (kind === 'price') {
-      if (this.limits.maxActivePrice === null) {
+      const { maxActivePrice } = await this.ownerLimits(input.plan);
+      if (maxActivePrice === null) {
         throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
       }
-      maxOpen = this.limits.maxActivePrice;
+      maxOpen = maxActivePrice;
       // An alert past its time is not open, so it must not use up a place.
       await this.store.expireDue(now);
     }
@@ -463,7 +465,8 @@ export class AlertService {
     const expiresAt = assertAlertExpiry(rule.expiresAt, this.limits, now);
     const extras = assertAlertExtras(rule.extras, this.limits);
     const frequency = assertAlertFrequency(rule.frequency, rule.condition ?? 'greater_than', this.limits);
-    if (this.limits.maxActivePrice === null) {
+    const { maxActivePrice } = await this.ownerLimits(input.plan);
+    if (maxActivePrice === null) {
       throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
     }
     await this.store.expireDue(now);
@@ -480,7 +483,7 @@ export class AlertService {
           extras,
           frequency,
         })),
-        this.limits.maxActivePrice,
+        maxActivePrice,
       );
     } catch (err) {
       if (err instanceof AlertQuotaReachedError) {
@@ -495,6 +498,24 @@ export class AlertService {
     }
   }
 
+  private ownerValues: AlertOwnerValues | null = null;
+
+  /** Wires the founder's settings (index.ts). Unwired, the deployment's own limits apply, as before. */
+  attachOwnerValues(values: AlertOwnerValues): void {
+    this.ownerValues = values;
+  }
+
+  /** The founder's settings store, for the console's read and write; null while unwired. */
+  ownerValuesStore(): AlertOwnerValues | null {
+    return this.ownerValues;
+  }
+
+  /** The founder's alert values for this plan (J-charts-desk-18 #5 #6), or the deployment's limits while unwired. */
+  async ownerLimits(plan: AlertPlan = 'none'): Promise<{ maxActivePrice: number | null; triggerLogDays: number | null }> {
+    if (!this.ownerValues) return { maxActivePrice: this.limits.maxActivePrice, triggerLogDays: this.limits.triggerLogDays };
+    return this.ownerValues.effective(plan);
+  }
+
   /** The burst rule when both owner values are set, else `null`: the rule is off and nothing is stopped for triggering often. */
   burstRule(): { readonly windowMs: number; readonly max: number } | null {
     const { burstWindowMinutes, burstMaxTriggers } = this.limits;
@@ -507,6 +528,7 @@ export class AlertService {
   async quota(
     userId: string,
     now: Date = new Date(),
+    plan?: AlertPlan,
   ): Promise<{
     readonly kind: 'price';
     readonly used: number;
@@ -520,7 +542,7 @@ export class AlertService {
     return {
       kind: 'price',
       used: await this.store.countOpen(userId, 'price'),
-      max: this.limits.maxActivePrice,
+      max: (await this.ownerLimits(plan)).maxActivePrice,
       burst:
         burstWindowMinutes !== null && burstMaxTriggers !== null
           ? { windowMinutes: burstWindowMinutes, maxTriggers: burstMaxTriggers }
@@ -690,8 +712,9 @@ export class AlertService {
    */
   async evaluateDueAlerts(at: Date = new Date()): Promise<AlertSweepReport> {
     await this.store.expireDue(at);
-    if (this.limits.triggerLogDays !== null) {
-      await this.triggerLog.prune(new Date(at.getTime() - this.limits.triggerLogDays * 86_400_000));
+    const { triggerLogDays } = await this.ownerLimits();
+    if (triggerLogDays !== null) {
+      await this.triggerLog.prune(new Date(at.getTime() - triggerLogDays * 86_400_000));
     }
     const markets = await this.store.activeMarkets();
     let fired = 0;
@@ -863,7 +886,7 @@ export class AlertService {
         notificationId = created.notification?.id ?? null;
         // Logged after the inbox has it and before the watch is counted or marked fired: a crash between the two retries and
         // the (alert id, number) key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
-        if (this.limits.triggerLogDays !== null) {
+        if ((await this.ownerLimits()).triggerLogDays !== null) {
           await this.triggerLog.record(triggerOf(alert, outcome.markPrice, at, notificationId, seq));
         }
         // Known limit: a crash between the inbox write above and this count leaves the count and the remembered side as they
