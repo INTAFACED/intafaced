@@ -225,6 +225,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
+    // LOCAL TEST idle sign-out and signed-in device limit (I-signin-sessions-06, J-identity-06 #4), labelled in the same
+    // profile, never an owner decision. Off on a normal start, so every other journey signs in with no device limit;
+    // `LOCAL_STACK_IDENTITY_SESSION_LIMITS=on` on a restart sets both for J-identity-06 #4, which restarts without it after.
+    ...(process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS === 'on'
+      ? { SESSION_IDLE_SECONDS: testValue('SESSION_IDLE_SECONDS'), SESSION_MAX_CONCURRENT: testValue('SESSION_MAX_CONCURRENT') }
+      : {}),
     // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
     // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).

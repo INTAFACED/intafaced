@@ -286,6 +286,16 @@
       "value": "3",
       "note": "TEST: a person may change their handle three times in the life of the account, so the receive card shows the changes left and the cap refusal can be reached (J-pay-03 #2)."
     },
+    "SESSION_IDLE_SECONDS": {
+      "service": "identity",
+      "value": "3600",
+      "note": "LOCAL TEST ONLY, not an owner decision: a one hour idle sign-out, set only while J-identity-06 #4 restarts identity with LOCAL_STACK_IDENTITY_SESSION_LIMITS=on, so a shorter own time can apply and a longer one is refused."
+    },
+    "SESSION_MAX_CONCURRENT": {
+      "service": "identity",
+      "value": "3",
+      "note": "LOCAL TEST ONLY, not an owner decision: three signed-in devices per account, set only while J-identity-06 #4 restarts identity with LOCAL_STACK_IDENTITY_SESSION_LIMITS=on, so the fourth sign-in ends the oldest device."
+    },
     "IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS": {
       "service": "identity",
       "value": "7776000",

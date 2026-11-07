@@ -173,6 +173,7 @@ import { DEFAULT_REFRESH_REUSE_GRACE_SECONDS, REFRESH_RECOVERY_SECONDS_CEILING }
 import { openRefreshToken, sealRefreshToken } from './refresh-grace.js';
 import { credentialsFor, type PasskeyPurpose } from './passkey-purposes.js';
 import type { RankService } from '../rank/rank-service.js';
+import { effectiveIdleSeconds, endOldestBeyondLimit, type SessionLimits } from './session-limits.js';
 
 /**
  * AUTH (§4.1, §9).
@@ -201,6 +202,7 @@ export class AuthError extends Error {
       | 'auth.mfa_already_enrolled'
       | 'auth.session_invalid'
       | 'auth.session_reused'
+      | 'auth.session_idle'
       | 'auth.not_found'
       | 'auth.kyc_not_pending'
       | 'auth.kyc_self_review'
@@ -643,6 +645,13 @@ export class AuthService {
   private founderSessionConfigValue = '';
   /** The labelled TEST staff roster; undefined (production, or none set) grants no staff scope. */
   private staffTestRoster: StaffTestRoster | undefined;
+  /** The owner's idle sign-out and device limit (I-signin-sessions-06); both unset until index.ts sets them. */
+  private sessionLimits: SessionLimits = { idleSeconds: null, maxConcurrent: null };
+
+  /** Sets the owner's idle sign-out and device limit, parsed at start by `parseSessionLimits`. */
+  setSessionLimits(limits: SessionLimits): void {
+    this.sessionLimits = limits;
+  }
 
   constructor(
     private readonly sql: Sql,
@@ -1726,14 +1735,26 @@ export class AuthService {
       async (tx) => {
         const [user] = await tx<Array<{ status: string }>>`SELECT status FROM users WHERE id = ${userId} FOR UPDATE`;
         if (!user || user.status !== 'active') throw new AuthError('Account is unavailable', 'auth.account_frozen');
-        return tx<
+        // The owner's device limit (I-signin-sessions-06): a sign-in beyond it ends the oldest device, under the users lock.
+        const endedIds = await endOldestBeyondLimit(tx, userId, this.sessionLimits.maxConcurrent);
+        const rows = await tx<
           Array<{ id: string; family_id: string }>
         >`INSERT INTO sessions (user_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${userId}, ${hashToken(refreshToken)}, ${options.device ?? null}, ${options.ip ?? currentRequestIp()}, ${currentUserAgent()}, ${options.mfa}, ${expiresAt}, ${options.trustedDeviceId ?? null}) RETURNING id, family_id`;
+        return { rows, endedIds };
       },
       { isolation: 'read committed' },
     );
-    const sessionId = inserted[0]!.id;
-    const familyId = inserted[0]!.family_id;
+    if (inserted.endedIds.length > 0) {
+      // One at a time: each close takes the founder-controls lock, so a first sign-in under a new limit that ends many
+      // devices never holds many connections waiting on it.
+      for (const id of inserted.endedIds) await syncNavigatorSessionClosed(this.sql, id);
+      this.log.warn(
+        { userId, endedSessions: inserted.endedIds.length, maxDevices: this.sessionLimits.maxConcurrent },
+        'identity.security.session_limit',
+      );
+    }
+    const sessionId = inserted.rows[0]!.id;
+    const familyId = inserted.rows[0]!.family_id;
     void syncNavigatorSessionOpen(this.sql, sessionId, userId);
     // Pay is not on the sign-in path. A slow or refused claim must not delay or fail the session.
     void this.claimConfirmedEmailInvites(userId).catch((err: unknown) => {
@@ -1748,7 +1769,11 @@ export class AuthService {
     return { accessToken, refreshToken, expiresAt: accessExpiresAt, sessionId, userId, mfaRequired: false };
   }
 
-  async refresh(refreshToken: string, options: { device?: string; ip?: string } = {}): Promise<SessionTokens> {
+  async refresh(
+    refreshToken: string,
+    /** `idle`: the app saw no use since its last refresh (its timer in an unused tab), so the idle time keeps running. */
+    options: { device?: string; ip?: string; idle?: boolean } = {},
+  ): Promise<SessionTokens> {
     const hash = hashToken(refreshToken);
     // Resolve the owner grant before the row lock. A pay round trip must not
     // sit inside the session transaction.
@@ -1772,8 +1797,12 @@ export class AuthService {
       ip: string | null;
       user_agent: string | null;
       trusted_device_id: string | null;
+      idle_signout_seconds: number | null;
+      idle_for: number;
+      active_since: Date;
     };
     type RefreshOutcome =
+      | { kind: 'idle'; sessionId: string }
       | { kind: 'reuse'; userId: string; sessionId: string }
       | { kind: 'frozen'; userId: string; sessionId: string; status: string }
       | { kind: 'expired'; sessionId: string }
@@ -1790,7 +1819,7 @@ export class AuthService {
     const result = await transaction<RefreshOutcome>(this.sql, async (tx) => {
       const rows = await tx<
         RefreshRow[]
-      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
+      >`SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, u.status AS user_status, s.rotated_at, s.successor_id, s.successor_refresh, s.device, s.family_id, s.ip, s.user_agent, s.trusted_device_id, u.idle_signout_seconds, floor(extract(epoch FROM now() - coalesce(s.active_at, s.last_used_at, s.created_at)))::int AS idle_for, coalesce(s.active_at, s.last_used_at, s.created_at) AS active_since FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.refresh_hash = ${hash} FOR UPDATE OF s, u`;
       const session = rows[0];
       if (!session) throw new AuthError('Session not found', 'auth.session_invalid');
       if (session.revoked) {
@@ -1806,6 +1835,8 @@ export class AuthService {
         const grace = await this.graceTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null);
         if (grace) return { kind: 'grace', tokens: grace };
         const recovered = await this.recoverTokens(tx, session, session.user_id === peekedUserId ? peekedScopes : null, options.device);
+        // A lost reply recovered after the device sat idle past its limit: that sign-in ends, as a refresh would.
+        if (recovered === 'idle') return { kind: 'idle', sessionId: session.successor_id ?? session.id };
         if (recovered) {
           return {
             kind: 'recovered',
@@ -1834,6 +1865,13 @@ export class AuthService {
         await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
         return { kind: 'frozen', userId: session.user_id, sessionId: session.id, status: session.user_status };
       }
+      // Idle sign-out (I-signin-sessions-06): the shorter of the owner's and the person's own, measured by the database
+      // clock from this sign-in's last refresh. Past it, this sign-in ends and the person signs in again.
+      const idleLimit = this.idleLimitFor(session.idle_signout_seconds);
+      if (idleLimit !== null && session.idle_for > idleLimit) {
+        await tx`UPDATE sessions SET revoked = true WHERE id = ${session.id}`;
+        return { kind: 'idle', sessionId: session.id };
+      }
       const rotatedAt = new Date();
       await tx`UPDATE sessions SET revoked = true, last_used_at = now(), rotated_at = ${rotatedAt} WHERE id = ${session.id}`;
       // The row that still holds a sealed copy of THIS session's refresh token
@@ -1848,7 +1886,7 @@ export class AuthService {
       // The successor stays on the predecessor's trusted device (I-signin-sessions-07).
       const nextSession = await tx<
         Array<{ id: string }>
-      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}) RETURNING id`;
+      >`INSERT INTO sessions (user_id, family_id, refresh_hash, device, ip, user_agent, mfa, expires_at, trusted_device_id, active_at) VALUES (${session.user_id}, ${session.family_id}, ${hashToken(nextToken)}, ${options.device ?? session.device}, ${options.ip ?? currentRequestIp() ?? session.ip}, ${currentUserAgent() ?? session.user_agent}, ${session.mfa}, ${expiresAt}, ${session.trusted_device_id}, ${options.idle === true ? session.active_since : null}) RETURNING id`;
       const sessionId = nextSession[0]!.id;
       await tx`UPDATE sessions SET successor_id = ${sessionId}, successor_refresh = ${sealRefreshToken(this.tokens.secret, nextToken)} WHERE id = ${session.id}`;
       const tier = await this.kycTier(session.user_id, tx);
@@ -1911,6 +1949,10 @@ export class AuthService {
       await syncNavigatorSessionClosed(this.sql, result.sessionId);
       throw new AuthError('Session expired', 'auth.session_invalid');
     }
+    if (result.kind === 'idle') {
+      await syncNavigatorSessionClosed(this.sql, result.sessionId);
+      throw new AuthError('Signed out after being idle', 'auth.session_idle');
+    }
     await syncNavigatorSessionClosed(this.sql, result.previousSessionId);
     void syncNavigatorSessionOpen(this.sql, result.tokens.sessionId, result.tokens.userId);
     return result.tokens;
@@ -1923,6 +1965,16 @@ export class AuthService {
    * for the same successor session. Outside the window the caller either
    * recovers a lost reply or burns the family.
    */
+  /**
+   * The idle sign-out that applies to one account: the shorter of the owner's and the person's own. A stored own value
+   * shorter than one access token's life (the access lifetime was raised after it was saved) counts as that life, so a
+   * person using the app is never signed out between two refreshes.
+   */
+  private idleLimitFor(ownSeconds: number | null): number | null {
+    const own = ownSeconds === null ? null : Math.max(ownSeconds, this.tokens.accessTtlSeconds);
+    return effectiveIdleSeconds(this.sessionLimits.idleSeconds, own);
+  }
+
   private async graceTokens(
     tx: Sql,
     session: {
@@ -1996,7 +2048,7 @@ export class AuthService {
     },
     peekedScopes: readonly Scope[] | null,
     requestDevice: string | undefined,
-  ): Promise<{ tokens: SessionTokens; ageSeconds: number } | null> {
+  ): Promise<{ tokens: SessionTokens; ageSeconds: number } | 'idle' | null> {
     if (this.recoveryMs <= 0) return null;
     if (session.user_status !== 'active') return null;
     if (!session.rotated_at || !session.successor_id || !session.successor_refresh) return null;
@@ -2016,10 +2068,13 @@ export class AuthService {
         successor_id: string | null;
         family_id: string;
         trusted_device_id: string | null;
+        idle_signout_seconds: number | null;
+        idle_for: number;
       }>
     >`
-      SELECT id, user_id, revoked, mfa, expires_at, rotated_at, successor_id, family_id, trusted_device_id
-      FROM sessions WHERE id = ${session.successor_id} FOR UPDATE
+      SELECT s.id, s.user_id, s.revoked, s.mfa, s.expires_at, s.rotated_at, s.successor_id, s.family_id, s.trusted_device_id,
+        u.idle_signout_seconds, floor(extract(epoch FROM now() - coalesce(s.active_at, s.last_used_at, s.created_at)))::int AS idle_for
+      FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ${session.successor_id} FOR UPDATE OF s
     `;
     const successor = rows[0];
     if (!successor || successor.user_id !== session.user_id) return null;
@@ -2027,6 +2082,11 @@ export class AuthService {
     if (successor.rotated_at !== null) return null;
     if (successor.successor_id !== null) return null;
     if (successor.expires_at.getTime() <= Date.now()) return null;
+    const idleLimit = this.idleLimitFor(successor.idle_signout_seconds);
+    if (idleLimit !== null && successor.idle_for > idleLimit) {
+      await tx`UPDATE sessions SET revoked = true WHERE id = ${successor.id}`;
+      return 'idle';
+    }
     const tier = await this.kycTier(successor.user_id, tx);
     const scopes = successor.user_id === session.user_id && peekedScopes ? peekedScopes : this.defaultScopes();
     const { token: accessToken, expiresAt: accessExpiresAt } = await issueAccessToken(
