@@ -5,6 +5,11 @@ import {
 } from '@intafaced/contracts/protocol-contract-source';
 import { z } from 'zod';
 import {
+  protocolAddressReportReceiptSchema,
+  protocolAddressRiskSchema,
+  type ProtocolAddressReportInput,
+} from '@intafaced/contracts/protocol-address-risk';
+import {
   dexHealthSchema,
   indexerStatusSchema,
   protocolAuditProductsSchema,
@@ -101,6 +106,12 @@ export function createProtocolApi(api: ApiClient) {
   return {
     chainStatus: (signal?: AbortSignal) => api.query('protocol', 'chainStatus', undefined, chainStatusSchema, { signal }),
     auditStatus: (signal?: AbortSignal) => api.query('protocol', 'auditStatus', undefined, auditStatusSchema, { signal }),
+    /** The address risk card: published labels, the open-report count and the screening state (D-developer-compliance-01). */
+    addressRisk: (address: string, signal?: AbortSignal) =>
+      api.query('protocol', 'addressRisk.read', { address }, protocolAddressRiskSchema, { signal }),
+    /** Files a scam report as the signed-in person. A second open report for the same address refuses as a duplicate. */
+    reportAddress: (input: ProtocolAddressReportInput) =>
+      api.mutate('protocol', 'addressReports.submit', input, protocolAddressReportReceiptSchema),
     /** The smart account `owner` controls on this network (its counterfactual address) and whether it is deployed. */
     predictAccount: (owner: string, signal?: AbortSignal) =>
       api.query('protocol', 'predictAddress', { owner }, protocolPredictedAccountSchema, { signal }),
