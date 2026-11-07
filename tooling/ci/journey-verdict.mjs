@@ -30,7 +30,7 @@
  *   - a non-money step that is flaky in a run on main is set aside from that run for SET_ASIDE_DAYS; its owner is its
  *     journey's module area (docs/roadmap/journeys.json). Once that ends it is not set aside again for another
  *     SET_ASIDE_DAYS, so the time stays limited;
- *   - a money step is never set aside (setAsideGuard: the money rule above, a wallet, bank or pay journey,
+ *   - a money step is never set aside (setAsideGuard: the money rule above, a wallet, bank, pay or p2p journey,
  *     J-ops-console-27, or a step with no slices or a slice that touches nothing), and neither is a step whose set-aside
  *     ended: a pass only on the retry then counts as a failure, judged by the rules above;
  *   - a set-aside step still runs, and the summary shows its result; while it is set aside, a failure leaves the verdict
@@ -150,8 +150,8 @@ export function moneyRule({ journeys, slices, manifests }) {
 
 /**
  * The set-aside's own money guard, wider than the money rule (which stays the baseline's): a step is never set aside
- * when the money rule calls it money, its journey is a wallet, bank or pay journey or J-ops-console-27 (the money
- * journeys of project-state's proof definition), it has no slices, or any of its slices touches nothing or is unknown.
+ * when the money rule calls it money, its journey is a wallet, bank, pay or p2p journey (p2p: escrow and settlement)
+ * or J-ops-console-27 (the money journeys of project-state's proof definition, plus p2p), it has no slices, or any of its slices touches nothing or is unknown.
  * Unknown means money, as a step missing from journeys.json already does. Returns { step: true when guarded }.
  */
 export function setAsideGuard({ journeys, slices, money }) {
@@ -163,7 +163,7 @@ export function setAsideGuard({ journeys, slices, money }) {
       const ids = st.slices ?? [];
       out[key] =
         (money[key] ?? true) ||
-        /^J-(wallet|bank|pay)-/.test(j.id) ||
+        /^J-(wallet|bank|pay|p2p)-/.test(j.id) ||
         j.id === 'J-ops-console-27' ||
         ids.length === 0 ||
         ids.some((id) => !(touches.get(id)?.length > 0));

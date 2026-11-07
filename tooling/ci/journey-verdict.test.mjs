@@ -527,3 +527,17 @@ test('the list is taken only from a run on refs/heads/main: a tag named main, or
   assert.deepEqual(priorSetAside(runs, list('refs/tags/main')), { steps: [], from: null, previous: false });
   assert.deepEqual(priorSetAside(runs, list(undefined)), { steps: [], from: null, previous: false });
 });
+
+test('p2p is a money journey: its escrow and settlement steps are never set aside', () => {
+  for (const step of ['J-p2p-15#6', 'J-p2p-19#1', 'J-p2p-19#3', 'J-p2p-19#4']) assert.equal(realGuard[step], true, step);
+  assert.deepEqual(
+    Object.keys(realGuard).filter((k) => k.startsWith('J-p2p-') && !realGuard[k]),
+    [],
+  );
+  const one = setAsideGuard({
+    journeys: [{ id: 'J-p2p-40', steps: [{ n: 1, slices: ['UI'] }] }],
+    slices: [{ id: 'UI', touches: ['customer: p2p'] }],
+    money: { 'J-p2p-40#1': false },
+  });
+  assert.equal(one['J-p2p-40#1'], true);
+});
