@@ -222,13 +222,13 @@ test(`${J} #3 chooses a standing allowance with an expiry: the expiry is shown; 
   });
   const signedAt = (await chain.getBlock()).timestamp;
   expect(BigInt(expiration) - signedAt).toBeLessThanOrEqual(60n);
-  // Expiry is the chain's time, not the page's: once it has passed, pressing Swap again is refused, and SovereignPermit
-  // itself refuses the pull.
-  await expect(async () => {
-    await swapButton(page).click();
-    await expect(swap(page).getByRole('alert')).toContainText('The standing allowance expired', { timeout: 2_000 });
-  }).toPass({ timeout: 150_000 });
-  expect((await chain.getBlock()).timestamp).toBeGreaterThan(BigInt(expiration));
+  // Expiry is the chain's time, not the page's: once the chain's clock has passed it, pressing Swap again is refused,
+  // and SovereignPermit itself refuses the pull.
+  await expect
+    .poll(async () => (await chain.getBlock()).timestamp, { timeout: 150_000, message: `chain time passes ${expiration}` })
+    .toBeGreaterThan(BigInt(expiration));
+  await swapButton(page).click();
+  await expect(swap(page).getByRole('alert')).toContainText('The standing allowance expired', { timeout: 15_000 });
   const pull = [wallet.address, routerV2, 1n, TOKEN_A.address];
   expect(await revertOf(sovereignPermit, permitAbi, 'transferFrom', pull, routerV2)).toBe('AllowanceExpired');
   await expect(sheet(page)).toHaveCount(0);
@@ -267,6 +267,17 @@ test(`${J} #4 builds a three-hop swap with the hop limit blank: a typed refusal 
   wallet.beforeNextSend(
     (tx) => same(tx.to ?? '', routerV2),
     async () => {
+      try {
+        await moveMiddlePool();
+      } catch (err) {
+        moverFailure = err;
+        throw err;
+      }
+    },
+  );
+  let moverFailure = null;
+  const moveMiddlePool = async () => {
+    {
       const amount = parseUnits('9000', TOKEN_C.decimals);
       await chain.waitForTransactionReceipt({
         hash: await moverWallet.writeContract({
@@ -284,14 +295,15 @@ test(`${J} #4 builds a three-hop swap with the hop limit blank: a typed refusal 
           args: [TOKEN_C.address, amount, 1n, mover],
         }),
       });
-      expect(moved.status).toBe('success');
-    },
-  );
+      if (moved.status !== 'success') throw new Error(`the TEST mover's swap reverted: ${moved.transactionHash}`);
+    }
+  };
   await swapButton(page).click();
   await expect(sheet(page).getByRole('term').filter({ hasText: 'Hop 2 minimum' })).toBeVisible();
   await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
   // The approve for exactly 10 is mined first; then the swap is sent after the price moved.
   await expect(status(page)).toHaveText('Failed', { timeout: 90_000 });
+  expect(moverFailure, "the TEST mover's swap went through first").toBeNull();
   await expect(page.getByRole('region', { name: 'Swap status' })).toContainText('Hop 2 would now pay less than its minimum');
   // The whole swap reverted with nothing moved: the swap transaction is mined as reverted, no token left the wallet and
   // nothing arrived, and the first and last pools hold what they held.

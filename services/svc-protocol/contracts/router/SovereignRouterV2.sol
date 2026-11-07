@@ -34,6 +34,10 @@ interface ISovereignPermit {
         bytes calldata signature
     ) external;
     function transferFrom(address owner, address to, uint160 amount, address token) external;
+    function allowance(address owner, address token, address spender)
+        external
+        view
+        returns (uint160 amount, uint48 expiration, uint48 nonce);
 }
 
 /**
@@ -125,7 +129,11 @@ contract SovereignRouterV2 {
         IPermitToken(token).permit(msg.sender, spender, value, deadline, v, r, s);
     }
 
-    /// Sets the caller's standing allowance for this router in SovereignPermit from the caller's signature.
+    /**
+     * Sets the caller's standing allowance for this router in SovereignPermit from the caller's signature. When that
+     * nonce is already spent (someone submitted the signature first, or the owner replaced it) it does nothing, so a
+     * front-run cannot block the swap; the swap then pulls through whatever allowance is in place, or reverts there.
+     */
     function standingPermit(
         address token,
         uint160 amount,
@@ -134,6 +142,8 @@ contract SovereignRouterV2 {
         uint256 sigDeadline,
         bytes calldata signature
     ) public {
+        (,, uint48 current) = sovereignPermit.allowance(msg.sender, token, address(this));
+        if (current > nonce) return;
         sovereignPermit.permit(msg.sender, token, address(this), amount, expiration, nonce, sigDeadline, signature);
     }
 

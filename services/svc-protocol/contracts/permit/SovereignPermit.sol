@@ -134,6 +134,7 @@ contract SovereignPermit {
         uint256 sigDeadline,
         bytes calldata signature
     ) external {
+        if (owner == address(0)) revert ZeroAddress();
         if (block.timestamp > sigDeadline) revert SignatureExpired();
         if (expiration <= block.timestamp) revert ExpirationInPast();
         Allowance storage current = allowance[owner][token][spender];
@@ -147,11 +148,17 @@ contract SovereignPermit {
         emit AllowanceSet(owner, token, spender, amount, expiration);
     }
 
-    /// The owner sets or clears (amount 0) a standing allowance directly, with no signature.
+    /**
+     * The owner sets or clears (amount 0) a standing allowance directly, with no signature. It also spends the
+     * allowance's nonce, so a standing-allowance signature signed earlier and never submitted can no longer set it back.
+     */
     function approve(address token, address spender, uint160 amount, uint48 expiration) external {
         Allowance storage current = allowance[msg.sender][token][spender];
         current.amount = amount;
         current.expiration = expiration;
+        unchecked {
+            current.nonce += 1;
+        }
         emit AllowanceSet(msg.sender, token, spender, amount, expiration);
     }
 

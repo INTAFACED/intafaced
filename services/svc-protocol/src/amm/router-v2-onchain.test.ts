@@ -28,6 +28,7 @@ const chainUp = devChainMod ? await devChainMod.devChainReachable() : false;
 const describeOnChain = !devChainMod || (!chainUp && !devChainMod.devChainRequired()) ? describe.skip : describe;
 
 const PULL = { allowance: 0, standing: 1, native: 2 } as const;
+const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 const abi = (name: Parameters<typeof loadArtifact>[0]) => loadArtifact(name).abi as Abi;
 
 describeOnChain('router v2 and SovereignPermit onchain', () => {
@@ -422,6 +423,95 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     expect(await revertOf(router, 'SovereignRouterV2', 'exactOut', [swap(0n)], parseUnits('1', 18))).toBe('Expired');
     expect(await reservesOf(pools.WB)).toEqual(before);
   });
+  it('a standing-allowance signature submitted first by someone else does not block the swap; a revoke spends its nonce', async () => {
+    const amount = parseUnits('2', 18);
+    await ownerCall(tokenB, 'TestToken', 'approve', [permit, amount * 10n]);
+    const [, , nonce] = await read<readonly [bigint, number, number]>(permit, 'SovereignPermit', 'allowance', [
+      owner.address,
+      tokenB,
+      router,
+    ]);
+    const expiration = (await now()) + 600n;
+    const sigDeadline = (await now()) + 300n;
+    const signAllowance = (n: number) =>
+      permitDomain().then((domain) =>
+        owner.signTypedData({
+          domain,
+          types: {
+            PermitAllowance: [
+              { name: 'token', type: 'address' },
+              { name: 'spender', type: 'address' },
+              { name: 'amount', type: 'uint160' },
+              { name: 'expiration', type: 'uint48' },
+              { name: 'nonce', type: 'uint48' },
+              { name: 'sigDeadline', type: 'uint256' },
+            ],
+          },
+          primaryType: 'PermitAllowance',
+          message: { token: tokenB, spender: router, amount, expiration: Number(expiration), nonce: n, sigDeadline },
+        }),
+      );
+    const signature = await signAllowance(nonce);
+    // A watcher submits the signature straight to SovereignPermit first.
+    await write(permit, 'SovereignPermit', 'permit', [
+      owner.address,
+      tokenB,
+      router,
+      amount,
+      Number(expiration),
+      nonce,
+      sigDeadline,
+      signature,
+    ]);
+    const { encodeFunctionData } = await import('viem');
+    const swap = {
+      path: [tokenB, tokenA],
+      pools: [pools.AB],
+      amount,
+      limit: 1n,
+      minOutPerHop: [1n],
+      to: owner.address,
+      deadline: sigDeadline,
+      pull: PULL.standing,
+      unwrapOut: false,
+    };
+    await ownerCall(router, 'SovereignRouterV2', 'multicall', [
+      [
+        encodeFunctionData({
+          abi: abi('SovereignRouterV2'),
+          functionName: 'standingPermit',
+          args: [tokenB, amount, Number(expiration), nonce, sigDeadline, signature],
+        }),
+        encodeFunctionData({ abi: abi('SovereignRouterV2'), functionName: 'exactIn', args: [swap] }),
+      ],
+    ]);
+    // A signature signed and never used no longer counts once the owner revokes directly.
+    const unused = await signAllowance(nonce + 1);
+    await ownerCall(permit, 'SovereignPermit', 'approve', [tokenB, router, 0n, 0]);
+    expect(
+      await revertOf(
+        permit,
+        'SovereignPermit',
+        'permit',
+        [owner.address, tokenB, router, amount, Number(expiration), nonce + 1, sigDeadline, unused],
+        0n,
+        c.deployer,
+      ),
+    ).toBe('BadNonce');
+    // And no allowance is ever written for the zero owner.
+    expect(
+      await revertOf(
+        permit,
+        'SovereignPermit',
+        'permit',
+        [ZERO, tokenB, router, amount, Number(expiration), 0, sigDeadline, '0x'],
+        0n,
+        c.deployer,
+      ),
+    ).toBe('ZeroAddress');
+    await routerHoldsNothing();
+  });
+
   describe('the v2 swap procedures (swap-v2.ts) on the same contracts', () => {
     const refusal = (work: Promise<unknown>) =>
       work.then(
@@ -493,6 +583,7 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
         pull: 'allowance' as const,
         unwrapOut: false,
         simulate: false,
+        maxHops: 2 as number | null,
       };
       const built = await buildSwapV2(deps(), base);
       expect(built.minOutPerHop).toHaveLength(2);
@@ -500,6 +591,17 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
       expect(await refusal(buildSwapV2(deps(), { ...base, deadline: '0' }))).toBe('protocol.deadline_required');
       expect(await refusal(buildSwapV2(deps(), { ...base, deadline: String(t - 1n) }))).toBe('protocol.deadline_past');
       expect(await refusal(buildSwapV2(deps(), { ...base, slippageBps: 301 }))).toBe('protocol.swap_slippage_over_ceiling');
+      // The limits the person saw go in as they are; looser than the ceiling or above the fresh read refuses.
+      const shownMins = built.minOutPerHop;
+      const sent = await buildSwapV2(deps(), { ...base, minOutPerHop: shownMins });
+      expect(sent.minOutPerHop).toEqual(shownMins);
+      expect(await refusal(buildSwapV2(deps(), { ...base, minOutPerHop: ['1', '1'] }))).toBe('protocol.swap_min_out_below_bound');
+      expect(await refusal(buildSwapV2(deps(), { ...base, minOutPerHop: built.quoted.map((q) => String(BigInt(q) + 1n)) }))).toBe(
+        'protocol.swap.hop_below_min',
+      );
+      // A multi-hop build names its hop limit, as the path read does.
+      expect(await refusal(buildSwapV2(deps(), { ...base, maxHops: null }))).toBe('dex.route.max_hops_unset');
+      expect(await refusal(buildSwapV2(deps(), { ...base, maxHops: 1 }))).toBe('dex.route.over_max_hops');
       // The standing allowance on token B (set in the earlier test) has expired: the pull is refused before it is sent.
       expect(
         await refusal(

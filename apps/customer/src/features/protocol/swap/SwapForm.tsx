@@ -584,7 +584,9 @@ export function SwapForm() {
    * swap, or a standing allowance), then one swap call that carries the signatures. Every step is on one sheet first.
    */
   const sendSwapV2 = async (owner: string) => {
-    if (!v2 || !tokenIn || !tokenOut || slippageBps === null || deadlineSeconds === null) return;
+    if (!v2 || !tokenIn || !tokenOut || slippageBps === null || deadlineSeconds === null || !setting) return;
+    // The deadline: the person's own, or the quote's lifetime counted from now (the path is read again just below).
+    const deadline = typedDeadline ?? Math.ceil(Date.now() / 1000) + setting.quoteTtlSeconds;
     const feesNow = await api.feeLevels();
     if (!feesNow.ok) return setProblem(t('feeUnread'));
     const feeNow = chosenFee(feesNow.data, feeChoice, customFee);
@@ -662,7 +664,10 @@ export function SwapForm() {
       tokenOut,
       native: nativeIn,
       slippageBps,
-      deadline: BigInt(deadlineSeconds),
+      minOutPerHop: limits.minOutPerHop,
+      maxIn: limits.maxIn,
+      maxHops: useV2Quote ? maxHops : null,
+      deadline: BigInt(deadline),
       allowance: nativeIn ? 'onchain' : allowance,
       standingSeconds,
       renewStanding,

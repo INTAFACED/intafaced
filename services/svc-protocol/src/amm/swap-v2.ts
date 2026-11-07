@@ -455,6 +455,12 @@ export async function buildSwapV2(deps: SwapV2Deps, input: ProtocolBuildSwapV2In
   const path = input.path.map((token) => getAddress(token));
   const pools = input.pools.map((pool) => getAddress(pool));
   if (path.length !== pools.length + 1) throw refuse('BAD_REQUEST', 'protocol.swap.bad_path', 'A path has one more token than pools.');
+  if (pools.length > MAX_PATH_HOPS)
+    throw refuse('BAD_REQUEST', ROUTE_OVER_MAX_HOPS, `This service builds paths of at most ${MAX_PATH_HOPS} hops.`);
+  if (pools.length > 1 && input.maxHops === null)
+    throw refuse('BAD_REQUEST', ROUTE_MAX_HOPS_UNSET, `A ${pools.length}-hop route needs a hop limit; none is set.`);
+  if (input.maxHops !== null && pools.length > input.maxHops)
+    throw refuse('BAD_REQUEST', ROUTE_OVER_MAX_HOPS, `${pools.length} hops is more than the hop limit of ${input.maxHops}.`);
   const pairs = await deps.pairs();
   const listed = new Set(pairs.pools.map((pool) => pool.pool.toLowerCase()));
   const unlisted = pools.find((pool) => !listed.has(pool.toLowerCase()));
@@ -465,26 +471,45 @@ export async function buildSwapV2(deps: SwapV2Deps, input: ProtocolBuildSwapV2In
   if (native && (input.tokenPermit || input.standing))
     throw refuse('BAD_REQUEST', 'protocol.swap.native_path', 'A native-input swap needs no permit.');
   const blockNumber = BigInt(pairs.blockNumber);
-  const block = await client.getBlock({ blockNumber });
+  const amount = BigInt(input.amount);
+  const bps = BigInt(input.slippageBps);
+  const [block, quoted] = await Promise.all([
+    client.getBlock({ blockNumber }),
+    client.readContract({
+      address: setting.router,
+      abi: ROUTER_V2_ABI,
+      functionName: input.kind === 'exact_in' ? 'quoteExactIn' : 'quoteExactOut',
+      args: [path, pools, amount],
+      blockNumber,
+    }),
+  ]);
   const deadline = BigInt(input.deadline);
   if (deadline <= block.timestamp)
     throw refuse('BAD_REQUEST', DEADLINE_PAST, `The deadline ${deadline} is not after the chain's time ${block.timestamp}.`);
-  const amount = BigInt(input.amount);
-  const bps = BigInt(input.slippageBps);
-  const quoted = await client.readContract({
-    address: setting.router,
-    abi: ROUTER_V2_ABI,
-    functionName: input.kind === 'exact_in' ? 'quoteExactIn' : 'quoteExactOut',
-    args: [path, pools, amount],
-    blockNumber,
-  });
+  const ceilingBps = BigInt(ceiling);
   let minOutPerHop: bigint[] = [];
   let limit: bigint;
   let amountIn: bigint;
   let amountOut: bigint;
   if (input.kind === 'exact_in') {
-    // Each hop's minimum is its own fresh output less the slippage; a minimum that rounds to zero is no bound.
-    minOutPerHop = quoted.map((out) => (out * (10_000n - bps)) / 10_000n);
+    // Each hop's minimum is the one the person saw, checked against this fresh read: never looser than the owner's
+    // ceiling allows, never above what the hop pays now. Absent, it is the fresh output less the slippage.
+    if (input.minOutPerHop) {
+      if (input.minOutPerHop.length !== quoted.length) throw refuse('BAD_REQUEST', 'protocol.swap.bad_path', 'One minimum per hop.');
+      input.minOutPerHop.forEach((text, hop) => {
+        const min = BigInt(text);
+        if (min < (quoted[hop]! * (10_000n - ceilingBps)) / 10_000n)
+          throw refuse(
+            'BAD_REQUEST',
+            'protocol.swap_min_out_below_bound',
+            `Hop ${hop + 1}'s minimum is looser than the slippage ceiling allows.`,
+          );
+        if (min > quoted[hop]!) throw refuse('CONFLICT', HOP_BELOW_MIN, `Hop ${hop + 1} now pays less than its minimum; the price moved.`);
+      });
+    }
+    minOutPerHop = input.minOutPerHop
+      ? input.minOutPerHop.map((text) => BigInt(text))
+      : quoted.map((out) => (out * (10_000n - bps)) / 10_000n);
     if (minOutPerHop.some((min) => min === 0n))
       throw refuse(
         'BAD_REQUEST',
@@ -495,8 +520,17 @@ export async function buildSwapV2(deps: SwapV2Deps, input: ProtocolBuildSwapV2In
     amountIn = amount;
     amountOut = limit;
   } else {
-    // The most paid is the fresh input plus the slippage, rounded up.
-    limit = (quoted[0]! * (10_000n + bps) + 9_999n) / 10_000n;
+    // The most paid is the one the person saw, checked against this fresh read; absent, the fresh input plus the
+    // slippage, rounded up.
+    const fresh = quoted[0]!;
+    if (input.maxIn) {
+      const maxIn = BigInt(input.maxIn);
+      if (maxIn > (fresh * (10_000n + ceilingBps) + 9_999n) / 10_000n)
+        throw refuse('BAD_REQUEST', 'protocol.swap_max_in_above_bound', 'The most paid is looser than the slippage ceiling allows.');
+      if (maxIn < fresh)
+        throw refuse('CONFLICT', 'protocol.swap.price_moved', 'The swap now costs more than the most you set; the price moved.');
+    }
+    limit = input.maxIn ? BigInt(input.maxIn) : (fresh * (10_000n + bps) + 9_999n) / 10_000n;
     amountIn = limit;
     amountOut = amount;
   }

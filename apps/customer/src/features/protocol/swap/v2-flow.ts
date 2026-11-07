@@ -1,3 +1,4 @@
+import { encodeFunctionData, parseAbi } from 'viem';
 import type { ProtocolPathOutput, ProtocolSwapV2Settings } from '@intafaced/contracts/protocol-swap-v2';
 import type { ProtocolSwapToken } from '@intafaced/contracts/protocol-swap';
 import type { SequenceStep } from '../wallet/WalletProvider';
@@ -54,6 +55,11 @@ export interface V2PlanInput {
   tokenOut: ProtocolSwapToken;
   native: boolean;
   slippageBps: number;
+  /** The limits the person saw: exact in, each hop's minimum; exact out, the most paid. Sent as they are; the service checks them. */
+  minOutPerHop: bigint[];
+  maxIn: bigint | null;
+  /** The person's hop limit (null: blank). */
+  maxHops: number | null;
   deadline: bigint;
   allowance: AllowanceChoice;
   standingSeconds: number;
@@ -80,6 +86,7 @@ export type V2Plan =
   | { ok: false; code: string | undefined; message: string; expiredAt?: bigint };
 
 const hex = (value: string) => `0x${BigInt(value).toString(16)}`;
+const APPROVE_ABI = parseAbi(['function approve(address spender, uint256 amount) returns (bool)']);
 
 /**
  * The steps for one v2 swap. Approvals come first (approve transactions, then signatures), then the swap, which is built
@@ -96,6 +103,11 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
   let pull: 'allowance' | 'standing' | 'native' = input.native ? 'native' : 'allowance';
   let usesStanding = false;
   let approveSteps = 0;
+  const limitsInput = {
+    maxHops: input.maxHops,
+    ...(input.kind === 'exact_in' ? { minOutPerHop: input.minOutPerHop.map(String) } : {}),
+    ...(input.maxIn !== null ? { maxIn: input.maxIn.toString() } : {}),
+  };
 
   if (!input.native && tokenIn) {
     if (input.allowance === 'onchain') {
@@ -109,7 +121,11 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
             kind: 'transaction',
             to: tokenIn.address,
             // approve(router v2, exactly what this swap needs): never unlimited.
-            data: `0x095ea7b3${input.settings.router.slice(2).toLowerCase().padStart(64, '0')}${input.need.toString(16).padStart(64, '0')}`,
+            data: encodeFunctionData({
+              abi: APPROVE_ABI,
+              functionName: 'approve',
+              args: [input.settings.router as `0x${string}`, input.need],
+            }),
             ...input.fee,
           },
         });
@@ -150,6 +166,7 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
           slippageBps: input.slippageBps,
           deadline: input.deadline.toString(),
           pull,
+          ...limitsInput,
           simulate: true,
         });
         if (!check.ok) return { ok: false, code: check.code, message: check.message, expiredAt: BigInt(existing.expiration) };
@@ -202,8 +219,11 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
         path: input.path,
         pools: input.pools,
         amount: input.amount.toString(),
+        ...(input.kind === 'exact_in' ? { minOutPerHop: input.minOutPerHop.map(String) } : { maxIn: input.maxIn?.toString() }),
+        value: input.native ? (input.kind === 'exact_in' ? input.amount : (input.maxIn ?? 0n)).toString() : '0',
         deadline: input.deadline.toString(),
         pull,
+        signatures: 'inserted exactly as you sign them in the steps above',
       },
       null,
       2,
@@ -218,6 +238,7 @@ export async function planV2Swap(input: V2PlanInput): Promise<V2Plan> {
         slippageBps: input.slippageBps,
         deadline: input.deadline.toString(),
         pull,
+        ...limitsInput,
         ...(tokenPermit ? { tokenPermit: { ...tokenPermit, signature: signatures[0]! } } : {}),
         ...(standing ? { standing: { ...standing, signature: signatures[signs - 1]! } } : {}),
         // Checked against the chain first unless an approve transaction mined just now is what makes it valid.

@@ -162,6 +162,15 @@ export const protocolBuildSwapV2InputSchema = z
       .object({ amount: positive, expiration: positive, nonce: z.number().int().min(0), sigDeadline: positive, signature })
       .strict()
       .optional(),
+    /**
+     * The limits the person saw and signs for. Exact in: each hop's minimum. Exact out: the most paid. The service checks
+     * them against its own fresh read: looser than the owner's slippage ceiling allows refuses, and tighter than the fresh
+     * read (the price already moved) refuses. Absent, the service sets them from `slippageBps`.
+     */
+    minOutPerHop: z.array(positive).optional(),
+    maxIn: positive.optional(),
+    /** The person's hop limit; a multi-hop path with none refuses `dex.route.max_hops_unset`. */
+    maxHops: z.number().int().positive().nullable().default(null),
     /** Simulate the call from the owner before returning it (no approve transaction is still waiting to be sent). */
     simulate: z.boolean().default(false),
   })
