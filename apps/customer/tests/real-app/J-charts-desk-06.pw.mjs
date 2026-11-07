@@ -8,9 +8,8 @@ import { openOrders, signUp } from './desk.mjs';
 // The figures are checked against the same arithmetic on the stored points, at the tick size (BTC-USDT, 0.01). The person
 // is a fresh TEST account, so step 5 can read the account's open orders from Edge and show the position box placed none.
 //
-// Gaps this draft does not close: the brush needs the owner's point cap set on this workbench (a TEST value); until it is,
-// step 4's stroke is refused with its typed message and the step fails on purpose. Bar 50 and bar 80 are placed by
-// fraction of the chart's width, so the figures are checked against the stored points, not the bar indexes.
+// The brush needs the owner's point cap on this workbench; the TEST stack sets a TEST value, and with it blank step 4's
+// stroke is refused with its typed message and the step fails. Bar 50 and bar 80 are placed by fraction of the chart's width, so the figures are checked against the stored points, not the bar indexes.
 const J = 'J-charts-desk-06';
 const LEVELS = ['0', '0.236', '0.382', '0.5', '0.618', '0.786', '1'];
 const EXTENSION = ['0', '0.618', '1', '1.618', '2.618'];
