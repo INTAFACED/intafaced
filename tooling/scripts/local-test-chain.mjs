@@ -17,6 +17,8 @@
 //   node tooling/scripts/local-test-chain.mjs fund <address>    TEST ETH for gas + TEST Token A and B (stack.mjs tool())
 //   node tooling/scripts/local-test-chain.mjs fund <address> stable   TEST USD only and no TEST ETH (J-dex-protocol-02 #11)
 //   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
+//   node tooling/scripts/local-test-chain.mjs orders-market <price> [<take> <minOut> <amountIn>]   the TEST order market
+//   node tooling/scripts/local-test-chain.mjs orders-stale       TEST A's order mark ages past the bound (J-dex-protocol-10)
 //
 // `serve` also runs the TEST network-fee relayer (RC-dex-protocol-02) on RELAY_URL: a stand-in for the relay a person's
 // signed fee-token swap is handed to. It takes one call for the seeded FeeTokenRelay's swap(), sends it from the seeded
@@ -281,6 +283,23 @@ async function cmdFund(address, kind) {
   if (r.status !== 0) process.exit(1);
 }
 
+/**
+ * The TEST order market (J-dex-protocol-10): `orders-market <price> [<take> <minOut> <amountIn>]` marks TEST A at `price`
+ * TEST B on the TEST oracle and sets the TEST order pool's depth (deep, or room for exactly one partial fill of `take`
+ * for an order of `amountIn` with `minOut`); `orders-stale` ages TEST A's mark past the oracle's bound. Only the order
+ * vault reads these marks and that pool, so no other journey sees them move.
+ */
+async function cmdOrders(command, args) {
+  const status = await chainStatus();
+  if (status.chain !== 'running') {
+    console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so there is no order market');
+    process.exit(1);
+  }
+  const r = runSeedScript([command, chainRecordPath(), ...args]);
+  console.log(r.output);
+  if (r.status !== 0) process.exit(1);
+}
+
 const runningAsCli = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (runningAsCli) {
   const [command, arg, extra] = process.argv.slice(2);
@@ -288,8 +307,11 @@ if (runningAsCli) {
   else if (command === 'status') console.log(JSON.stringify(await chainStatus()));
   else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg, extra);
+  else if (command === 'orders-market' || command === 'orders-stale') await cmdOrders(command, process.argv.slice(3));
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam]');
+    console.error(
+      'usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam] | orders-market <price> [<take> <minOut> <amountIn>] | orders-stale',
+    );
     process.exit(2);
   }
 }

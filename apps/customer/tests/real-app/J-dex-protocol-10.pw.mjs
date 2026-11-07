@@ -1,6 +1,9 @@
-// World: book
+// World: book, restart, stack
+import { createWalletClient, http, parseAbi, parseUnits } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
-import { TOKEN_A, UNBUILT, connectWallet, continueSignIn, dexRun } from './dex.mjs';
+import { tool } from './stack.mjs';
+import { TOKEN_A, UNBUILT, acceptRepresentation, connectWallet, continueSignIn, dexRun, testChain } from './dex.mjs';
 
 // J-dex-protocol-10, in the running app (docs/roadmap/journeys.json): place, edit and cancel limit, take-profit, stop and
 // trailing orders from my own wallet. One test per step, titled "J-dex-protocol-10 #<n>", run in order with one TEST
@@ -8,10 +11,10 @@ import { TOKEN_A, UNBUILT, connectWallet, continueSignIn, dexRun } from './dex.m
 // sits in the order vault under the wallet's own deposit credit and is only ever withdrawn to the maker; nothing posts to
 // the ledger. While the keeper or a node is absent the room says rail.crypto; a blank order cap schedule refuses with its
 // own code.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - the Orders room (/dex/orders) is not in the Web3 route table, so #1 to #9 stop at its heading;
-// - svc-dex (D-limit-dca-01 to -04: the order session, vault credit, trigger keeper and order list) does not run on the
-//   stack, and the stack has no TEST chain, oracle or keeper for the price-cross steps (#3, #4, #5, #7, #8).
+// The journey runs on the stack's LOCAL TEST chain (dex.mjs ON_TEST_CHAIN): the order vault, the TEST oracle and the TEST
+// A/B order pool are seeded there, and svc-dex's keeper fills through that pool. The TEST world moves the price the
+// person watches (`local-test-chain.mjs orders-market`, `orders-stale`): it marks TEST A on the TEST oracle and sets the
+// order pool's depth. Only the order vault reads those marks and that pool, so no other journey sees them move.
 const J = 'J-dex-protocol-10';
 const dex = dexRun(J);
 
@@ -32,6 +35,9 @@ const inState = (page, state) =>
     .getByRole('row')
     .filter({ has: page.getByRole('cell', { name: state, exact: true }) });
 
+/** The TEST order market: TEST A marked at `price` TEST B, the order pool deep, or with room for one exact partial fill. */
+const market = (price, partial = []) => tool('local-test-chain.mjs', 'orders-market', String(price), ...partial.map(String));
+
 /** The first order in `state`, pinned by its order id so it stays the same row when its state changes. */
 async function pinned(page, state) {
   const id = await inState(page, state).first().getByTestId('order-id').innerText(UNBUILT);
@@ -43,6 +49,20 @@ async function creditText(vault) {
   const text = await vault.getByTestId('vault-credit').innerText(UNBUILT);
   expect(text).toMatch(/^[\d,.]+ TEST A$/);
   return text;
+}
+
+/**
+ * The person approves in their wallet: the representation once per fresh wallet (J-dex-protocol-01 #8), then the
+ * plain-words sheet that comes before every wallet prompt, once per signature or call sequence the action asks for.
+ */
+async function inWallet(page, sheets = 1) {
+  const representation = page.locator('[data-panel="representation"]');
+  const proceed = page.getByRole('button', { name: 'Continue in wallet' });
+  for (let i = 0; i < sheets; i += 1) {
+    await expect(representation.or(proceed).first()).toBeVisible({ timeout: 15_000 });
+    if (await representation.isVisible()) await acceptRepresentation(page);
+    await proceed.first().click();
+  }
 }
 
 /** Opens the Orders room with the run's wallet connected. */
@@ -63,8 +83,21 @@ async function fillOrder(page, { kind, side = 'Sell', amount, trigger, expiry })
   if (expiry !== undefined) await form.getByRole('textbox', { name: /^Expires/ }).fill(expiry);
 }
 
+/** Deposits `amount` of the vault's chosen token and waits for the credit to show it. */
+async function deposit(page, amount, symbol = 'TEST A') {
+  const vault = room(page).getByRole('region', { name: 'Order vault' });
+  await vault.getByRole('combobox', { name: 'Token' }).selectOption({ label: symbol });
+  await vault.getByRole('textbox', { name: /^Deposit amount/ }).fill(amount, UNBUILT);
+  await vault.getByRole('button', { name: 'Deposit' }).click();
+  await inWallet(page);
+  await expect(vault.getByRole('status')).toContainText(`Deposited ${amount} ${symbol}`, { timeout: 30_000 });
+  return vault;
+}
+
 test(`${J} starts: a TEST wallet holding TEST token A and no order yet`, async ({ page }) => {
   dex.start();
+  // The TEST order market starts deep, at 1.00 TEST B for each TEST A.
+  market('1.00');
   await openOrders(page);
   await expect(orderList(page)).toContainText('No orders yet.');
 });
@@ -93,9 +126,7 @@ test(`${J} #2 deposits 100 TEST and creates a sell-above order with an expiry: t
   page,
 }) => {
   await openOrders(page);
-  const vault = room(page).getByRole('region', { name: 'Order vault' });
-  await vault.getByRole('textbox', { name: /^Deposit amount/ }).fill('100', UNBUILT);
-  await vault.getByRole('button', { name: 'Deposit' }).click();
+  const vault = await deposit(page, '100');
   await expect(vault.getByTestId('vault-credit')).toHaveText('100 TEST A');
 
   // A price order with no expiry never reaches the service.
@@ -105,7 +136,8 @@ test(`${J} #2 deposits 100 TEST and creates a sell-above order with an expiry: t
 
   await fillOrder(page, { kind: 'Sell above', amount: '100', trigger: '1.25', expiry: '24' });
   await orderForm(page).getByRole('button', { name: 'Place order' }).click();
-  await expect(orderRow(page, 'Sell above')).toContainText('Open');
+  await inWallet(page);
+  await expect(orderRow(page, 'Sell above')).toContainText('Open', { timeout: 15_000 });
 });
 
 test(`${J} #3 watches the price cross the trigger: the keeper fills at least the minimum output, 40 of 100 leaves 60, a stale oracle leaves it open with the reason`, async ({
@@ -114,20 +146,27 @@ test(`${J} #3 watches the price cross the trigger: the keeper fills at least the
   await openOrders(page);
   const row = orderRow(page, 'Sell above');
   await expect(row).toBeVisible(UNBUILT);
-  // The TEST price crosses the trigger with enough depth for 40 only: a partial fill leaves 60 open.
-  await expect(row).toContainText('Filled 40 of 100');
+  // The TEST price crosses the trigger (1.30 against 1.25) with depth in the pool for 40 only, at the order's own minimum
+  // output: a partial fill leaves 60 open.
+  const minOut = (await row.getByText(/^Min\. /).innerText()).match(/Min\. ([\d.]+) TEST B/)[1];
+  market('1.30', [parseUnits('40', 6), parseUnits(minOut, 18), parseUnits('100', 6)]);
+  await expect(row).toContainText('Filled 40 of 100', { timeout: 30_000 });
   await expect(row).toContainText('60 open');
   await row.getByRole('button', { name: 'History' }).click();
   const history = page.getByRole('dialog', { name: 'Order history' });
   await expect(history).toContainText('Received at least the minimum output');
   // With the oracle stale the order stays open and the attempt log says why.
-  await expect(history.getByRole('list', { name: 'Keeper attempts' })).toContainText('Price is stale');
+  tool('local-test-chain.mjs', 'orders-stale');
+  await expect(history.getByRole('list', { name: 'Keeper attempts' })).toContainText('Price is stale', { timeout: 20_000 });
+  await page.keyboard.press('Escape');
   await expect(row).toContainText('Open');
 });
 
 test(`${J} #4 creates a take-profit and stop pair: one leg filling cancels its sibling "cancelled by link"; a take-profit below the stop on a sell is refused`, async ({
   page,
 }) => {
+  // A fresh, deep TEST market at 1.00 again.
+  market('1.00');
   await openOrders(page);
   // A take-profit priced under its own stop on a sell cannot both make sense: refused before any call.
   await orderForm(page).getByRole('combobox', { name: 'Order type' }).selectOption({ label: 'Take-profit and stop' }, UNBUILT);
@@ -153,33 +192,56 @@ test(`${J} #4 creates a take-profit and stop pair: one leg filling cancels its s
     .getByRole('textbox', { name: /^Stop price/ })
     .fill('0.80');
   await orderForm(page).getByRole('button', { name: 'Place order' }).click();
-  await expect(ofKind(page, 'Take-profit')).toContainText('Open');
+  // One signature for each leg.
+  await inWallet(page, 2);
+  await expect(ofKind(page, 'Take-profit')).toContainText('Open', { timeout: 15_000 });
   await expect(ofKind(page, 'Stop')).toContainText('Open');
-  // The take-profit leg fills in full; its stop sibling ends with the link as its reason.
-  await expect(ofKind(page, 'Take-profit')).toContainText('Filled');
-  await expect(ofKind(page, 'Stop')).toContainText('Cancelled by link');
+  // The TEST price falls to the stop: the stop leg fills in full; its take-profit sibling ends with the link as its reason.
+  // (The stop leg, not the take-profit, so the open sell-above of #2 at 1.25 stays open for #6 to #8.)
+  market('0.80');
+  await expect(ofKind(page, 'Stop')).toContainText('Filled', { timeout: 30_000 });
+  await expect(ofKind(page, 'Take-profit')).toContainText('Cancelled by link');
 });
 
 test(`${J} #5 creates a bracket and a trailing stop: the bracket covers the filled part of its parent, the trailing trigger follows the price one way only`, async ({
   page,
 }) => {
   await openOrders(page);
+  // The bracket's parent buys TEST A with TEST B, so the vault needs TEST B credit for it.
+  await deposit(page, '20', 'TEST B');
   await orderForm(page).getByRole('combobox', { name: 'Order type' }).selectOption({ label: 'Bracket' }, UNBUILT);
   await fillOrder(page, { kind: 'Bracket', side: 'Buy', amount: '20', trigger: '0.95', expiry: '24' });
+  // Its exits: a take-profit above and a stop below what it buys at.
+  await orderForm(page)
+    .getByRole('textbox', { name: /^Take-profit price/ })
+    .fill('1.10');
+  await orderForm(page)
+    .getByRole('textbox', { name: /^Stop price/ })
+    .fill('0.70');
   await orderForm(page).getByRole('button', { name: 'Place order' }).click();
-  const bracket = orderRow(page, 'Bracket');
-  await expect(bracket).toBeVisible();
-  // Its exit legs cover exactly the part of the parent that filled, and no more.
+  // One signature for the parent and one for each exit.
+  await inWallet(page, 3);
+  const bracket = ofKind(page, 'Bracket');
+  await expect(bracket).toBeVisible({ timeout: 15_000 });
+  // The price is 0.80, under the 0.95 entry: the parent buys. Its exit legs cover exactly the part of the parent that
+  // filled, and no more.
+  await expect(bracket.getByTestId('order-filled')).not.toHaveText('0', { timeout: 30_000 });
+  await expect(bracket.getByTestId('bracket-cover')).not.toHaveText('Covers 0 of 20', { timeout: 30_000 });
   const filled = (await bracket.getByTestId('order-filled').innerText()).replace(/ .*/, '');
   await expect(bracket.getByTestId('bracket-cover')).toHaveText(`Covers ${filled} of 20`);
 
   await fillOrder(page, { kind: 'Trailing stop', amount: '10', trigger: '5%', expiry: '24' });
   await orderForm(page).getByRole('button', { name: 'Place order' }).click();
+  await inWallet(page);
   const trailing = orderRow(page, 'Trailing stop');
+  await expect(trailing).toBeVisible({ timeout: 15_000 });
+  await expect(trailing.getByTestId('order-trigger')).not.toHaveText('—', { timeout: 15_000 });
   const read = async (id) => Number((await trailing.getByTestId(id).innerText()).replace(/[^\d.]/g, ''));
   // The TEST price moves up and then down. Sampled over that move, the trigger rises with the price and never falls.
+  const moves = { 4: '0.84', 10: '0.88', 18: '0.86', 26: '0.85' };
   const samples = [];
   for (let i = 0; i < 40; i += 1) {
+    if (moves[i]) market(moves[i]);
     samples.push({ mark: await read('order-mark'), trigger: await read('order-trigger') });
     await page.waitForTimeout(500);
   }
@@ -191,6 +253,12 @@ test(`${J} #5 creates a bracket and a trailing stop: the bracket covers the fill
 
 test(`${J} #6 opens the order list and filters by state: open, filled and expired orders, paged at 100, with history`, async ({ page }) => {
   await openOrders(page);
+  // An order with a lifetime of 18 seconds, so the list has an expired one.
+  await fillOrder(page, { kind: 'Sell above', amount: '5', trigger: '2.00', expiry: '0.005' });
+  await orderForm(page).getByRole('button', { name: 'Place order' }).click();
+  await inWallet(page);
+  await expect(inState(page, 'Expired').first()).toBeVisible({ timeout: 60_000 });
+
   const filter = room(page).getByRole('combobox', { name: 'State' });
   for (const state of ['Open', 'Filled', 'Expired']) {
     await filter.selectOption({ label: state }, UNBUILT);
@@ -211,15 +279,21 @@ test(`${J} #7 edits the trigger of an open order, then a filled one: the version
 }) => {
   await openOrders(page);
   const open = await pinned(page, 'Open');
+  const version = Number((await open.getByTestId('order-version').innerText()).replace(/\D/g, ''));
   await open.getByRole('button', { name: 'Edit' }).click();
   const edit = page.getByRole('dialog', { name: 'Edit order' });
-  const version = Number((await open.getByTestId('order-version').innerText()).replace(/\D/g, ''));
   await edit.getByRole('textbox', { name: /^Trigger price/ }).fill('1.30');
+  const filledBefore = (await open.getByTestId('order-filled').innerText()) !== '0';
   await edit.getByRole('button', { name: 'Save' }).click();
-  await expect(open.getByTestId('order-version')).toHaveText(`v${version + 1}`);
+  // The new version is a new signature; an order that filled before also replaces the old one on chain.
+  await inWallet(page);
+  if (filledBefore) await inWallet(page);
+  await expect(open.getByTestId('order-version')).toHaveText(`v${version + 1}`, { timeout: 30_000 });
   await expect(open.getByTestId('order-trigger')).toContainText('1.30');
   await open.getByRole('button', { name: 'History' }).click();
-  await expect(page.getByRole('dialog', { name: 'Order history' })).toContainText(`Keeper checked at 1.30 (v${version + 1})`);
+  await expect(page.getByRole('dialog', { name: 'Order history' })).toContainText(`Keeper checked at 1.30 (v${version + 1})`, {
+    timeout: 15_000,
+  });
   await page.keyboard.press('Escape');
 
   const filled = await pinned(page, 'Filled');
@@ -236,26 +310,50 @@ test(`${J} #8 cancels an order and withdraws: the unfilled rest returns to the w
   await open.getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('dialog', { name: 'Cancel order' }).getByRole('button', { name: 'Cancel order' }).click();
   await expect(open).toContainText('Cancelled');
+  // The cancel's on-chain call, from the wallet.
+  await inWallet(page);
   // A keeper fill landing in the same second finds the order cancelled in the stored state and is refused.
   await open.getByRole('button', { name: 'History' }).click();
-  await expect(page.getByRole('dialog', { name: 'Order history' })).toContainText('Fill refused: the order was cancelled');
+  await expect(page.getByRole('dialog', { name: 'Order history' })).toContainText('Fill refused: the order was cancelled', {
+    timeout: 15_000,
+  });
   await page.keyboard.press('Escape');
 
   const before = await creditText(vault);
   await vault.getByRole('button', { name: 'Withdraw to my wallet' }).click();
-  await expect(vault.getByRole('status')).toContainText(`${before} returned to your wallet`);
+  await inWallet(page);
+  await expect(vault.getByRole('status')).toContainText(`${before} returned to your wallet`, { timeout: 30_000 });
   await expect(vault.getByTestId('vault-credit')).toHaveText('0 TEST A');
 });
 
 test(`${J} #9 sends tokens straight to the vault by mistake: the credit is unchanged and the sweep returns them to the maker only`, async ({
   page,
 }) => {
-  const wallet = await openOrders(page);
-  const vault = room(page).getByRole('region', { name: 'Order vault' });
+  let wallet = await openOrders(page);
+  let vault = room(page).getByRole('region', { name: 'Order vault' });
   const before = await creditText(vault);
-  // A plain token transfer to the vault address (sent from the wallet on the TEST chain) is not a deposit: no credit moves.
-  await expect(vault.getByRole('status')).toContainText('Tokens sent to the vault without a deposit are not credited');
+  // A plain token transfer to the vault address, sent from the wallet on the TEST chain, is not a deposit.
+  const vaultAddress = await vault.getByText(/^0x[0-9a-fA-F]{40}$/).innerText();
+  const chain = testChain();
+  const viemChain = {
+    id: 84532,
+    name: 'TEST chain',
+    nativeCurrency: { name: 'TEST ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: { default: { http: [chain.gateUrl] } },
+  };
+  const sender = createWalletClient({ account: privateKeyToAccount(dex.key()), chain: viemChain, transport: http(chain.gateUrl) });
+  await sender.writeContract({
+    address: TOKEN_A.address,
+    abi: parseAbi(['function transfer(address to, uint256 amount) returns (bool)']),
+    functionName: 'transfer',
+    args: [vaultAddress, parseUnits('50', 6)],
+  });
+  await page.waitForTimeout(2_000);
+  wallet = await openOrders(page);
+  vault = room(page).getByRole('region', { name: 'Order vault' });
+  // No credit moves.
+  await expect(vault.getByRole('status')).toContainText('Tokens sent to the vault without a deposit are not credited', { timeout: 15_000 });
   await expect(vault.getByTestId('vault-credit')).toHaveText(before);
   await vault.getByRole('button', { name: 'Return stray tokens' }).click();
-  await expect(vault.getByRole('status')).toContainText(`Returned to ${wallet.address}`);
+  await expect(vault.getByRole('status')).toContainText(`Returned to ${wallet.address}`, { timeout: 30_000 });
 });

@@ -71,6 +71,7 @@ export type ArtifactName =
   | 'ScopedPaymaster'
   | 'FeeTokenRelay'
   | 'ClaimLinkEscrow'
+  | 'OrderVault'
   | 'TestToken'
   | 'RwaRegistry'
   | 'CardPull';

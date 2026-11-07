@@ -50,6 +50,11 @@
       "service": "dex",
       "value": "[{\"token\":\"0x00000000000000000000000000000000000a11ce\",\"symbol\":\"TEST A\",\"max\":\"10000\"},{\"token\":\"0x00000000000000000000000000000000000b0b00\",\"symbol\":\"TEST B\",\"max\":\"10000\"}]",
       "note": "TEST order cap schedule: at most 10,000 TEST Token A and 10,000 TEST Token B open in orders per session. Not a product limit. Blank in production refuses dex.order.cap_unset."
+    },
+    "DEX_ORDER_TRAIL_BOUNDS_BPS": {
+      "service": "dex",
+      "value": "100,2000",
+      "note": "TEST trailing distance bounds, 1% to 20%. Not a product bound. Blank in production refuses dex.order.trail_bounds_unset."
     }
   }
 }

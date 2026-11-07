@@ -88,3 +88,189 @@ export const dexAuthLogoutOutputSchema = z.object({ revoked: z.literal(true), wa
 export const dexOrdersCountInputSchema = z.object({ wallet: address });
 /** How many orders a wallet has, in any state: a count only, so a page can say "no orders yet" before a session. */
 export const dexOrdersCountOutputSchema = z.object({ wallet: address, count: z.number().int().nonnegative() });
+
+// ── Wallet orders (D-limit-dca-01 to -04) ────────────────────────────────────────────────────────────────────────────
+
+export const DEX_ORDER_REFUSALS = [
+  'dex.order.bad_request',
+  'dex.order.not_found',
+  'dex.order.conflict',
+  'dex.internal',
+  'dex.order.pair_unset',
+  'rail.crypto',
+  'dex.order.amount_invalid',
+  'dex.order.min_size_unset',
+  'dex.order.below_min_size',
+  'dex.order.expiry_required',
+  'dex.order.expiry_invalid',
+  'dex.order.slippage_unset',
+  'dex.order.restricted_list_unset',
+  'dex.order.restricted_token',
+  'dex.order.trigger_invalid',
+  'dex.order.tp_not_above_sl',
+  'dex.order.tp_not_below_sl',
+  'dex.order.trigger_not_allowed_on_trailing',
+  'dex.order.trail_bounds_unset',
+  'dex.order.trail_out_of_bounds',
+  'dex.order.insufficient_credit',
+  'dex.order.cap_exceeded',
+  'dex.order.draft_expired',
+  'dex.order.signature_invalid',
+  'dex.order.not_editable',
+  'dex.order.not_cancellable',
+  'dex.order.nothing_to_sweep',
+  'dex.order.nothing_to_withdraw',
+  'dex.order.price_unavailable',
+] as const;
+export type DexOrderRefusal = (typeof DEX_ORDER_REFUSALS)[number];
+
+const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
+const orderIdShape = z.string().regex(/^0x[0-9a-fA-F]{64}$/);
+const token = z.object({ address, symbol: z.string(), decimals: z.number().int() });
+const session = z.string().min(1).max(4096);
+
+/** One call the person's wallet sends: the service builds it, the wallet signs it. */
+export const dexUnsignedCallSchema = z.object({ label: z.string(), to: address, data: hex });
+export type DexUnsignedCall = z.infer<typeof dexUnsignedCallSchema>;
+
+export const DEX_ORDER_CREATE_KINDS = [
+  'sell_above',
+  'sell_below',
+  'buy_above',
+  'buy_below',
+  'take_profit_and_stop',
+  'bracket',
+  'trailing_stop',
+] as const;
+export const DEX_ORDER_STATES = ['open', 'waiting', 'executing', 'filled', 'cancelled', 'cancelled_by_link', 'expired'] as const;
+export type DexOrderState = (typeof DEX_ORDER_STATES)[number];
+
+export const dexVaultInputSchema = z.object({ wallet: address, token: address.optional() });
+export const dexVaultOutputSchema = z.object({ vault: address, token, tokens: z.array(token), credit: decimal, strays: decimal });
+export const dexDepositInputSchema = z.object({ wallet: address, token: address, amount: z.string().max(64) });
+export const dexCallsOutputSchema = z.object({ calls: z.array(dexUnsignedCallSchema) });
+export const dexWithdrawOutputSchema = z.object({ amount: decimal, symbol: z.string(), call: dexUnsignedCallSchema });
+export const dexSweepInputSchema = z.object({ accessToken: session, token: address.optional() });
+export const dexSweepOutputSchema = z.object({
+  returned: decimal,
+  symbol: z.string(),
+  to: address,
+  txHash: hex,
+  pending: z.boolean().optional(),
+});
+
+export const dexOrderPrepareInputSchema = z.object({
+  accessToken: session,
+  kind: z.enum(DEX_ORDER_CREATE_KINDS),
+  side: z.enum(['buy', 'sell']),
+  amount: z.string().max(64),
+  trigger: z.string().max(64).optional(),
+  takeProfit: z.string().max(64).optional(),
+  stop: z.string().max(64).optional(),
+  trailPercent: z.string().max(16).optional(),
+  expiryHours: z.string().max(16).optional(),
+});
+export const dexOrderPrepareOutputSchema = z.object({
+  draftId: z.string(),
+  orders: z.array(
+    z.object({
+      kind: z.string(),
+      name: z.string(),
+      typedData: dexTypedDataSchema.extend({ domain: z.record(z.string(), z.unknown()) }),
+      minOut: decimal,
+      minOutSymbol: z.string(),
+    }),
+  ),
+  warnings: z.array(z.object({ code: z.string(), percentage: z.string() })),
+  sheet: z.object({ rate: z.string(), resting: z.string() }),
+});
+export type DexOrderPrepared = z.infer<typeof dexOrderPrepareOutputSchema>;
+export const dexOrderCreateInputSchema = z.object({
+  accessToken: session,
+  draftId: z.string().max(64),
+  signatures: z.array(hex).min(1).max(3),
+});
+
+export const dexOrderViewSchema = z.object({
+  id: orderIdShape,
+  kind: z.string(),
+  kindName: z.string(),
+  side: z.enum(['buy', 'sell']),
+  state: z.enum(DEX_ORDER_STATES),
+  stateName: z.string(),
+  amount: decimal,
+  filled: decimal,
+  open: decimal,
+  baseSymbol: z.string(),
+  quoteSymbol: z.string(),
+  trigger: z.string().nullable(),
+  trailPercent: z.string().nullable(),
+  mark: z.string().nullable(),
+  minOut: decimal,
+  minOutSymbol: z.string(),
+  cover: decimal.nullable(),
+  version: z.number().int(),
+  expiresAt: z.string(),
+  createdAt: z.string(),
+  editable: z.boolean(),
+  cancellable: z.boolean(),
+  siblings: z.array(orderIdShape),
+  parentId: orderIdShape.nullable(),
+  sheet: z.object({ rate: z.string(), resting: z.string() }),
+});
+export type DexOrderView = z.infer<typeof dexOrderViewSchema>;
+export const dexOrderCreateOutputSchema = z.object({ orders: z.array(dexOrderViewSchema) });
+
+export const dexOrderListInputSchema = z.object({
+  accessToken: session,
+  state: z.enum(DEX_ORDER_STATES).optional(),
+  cursor: z.string().max(16).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+});
+export const dexOrderListOutputSchema = z.object({
+  orders: z.array(dexOrderViewSchema),
+  total: z.number().int(),
+  pageSize: z.number().int(),
+  next: z.string().nullable(),
+});
+
+export const dexOrderRefInputSchema = z.object({ accessToken: session, id: orderIdShape });
+export const dexOrderHistoryOutputSchema = z.object({
+  id: orderIdShape,
+  events: z.array(
+    z.object({
+      at: z.string(),
+      type: z.string(),
+      amountIn: z.string().optional(),
+      amountOut: z.string().optional(),
+      minOut: z.string().optional(),
+      price: z.string().optional(),
+      label: z.string().optional(),
+      txHash: z.string().optional(),
+      version: z.number().int().optional(),
+      trigger: z.string().optional(),
+    }),
+  ),
+  attempts: z.array(
+    z.object({
+      at: z.string(),
+      reason: z.string(),
+      version: z.number().int(),
+      trigger: z.string().optional(),
+      price: z.string().optional(),
+    }),
+  ),
+});
+export type DexOrderHistory = z.infer<typeof dexOrderHistoryOutputSchema>;
+
+export const dexOrderEditInputSchema = dexOrderRefInputSchema.extend({ trigger: z.string().max(64) });
+export const dexOrderEditPreparedSchema = z.object({
+  draftId: z.string(),
+  typedData: dexTypedDataSchema.extend({ domain: z.record(z.string(), z.unknown()) }),
+  version: z.number().int(),
+  replaceOnChain: z.boolean(),
+  sheet: z.string(),
+  call: dexUnsignedCallSchema.nullable(),
+});
+export const dexOrderUpdateInputSchema = z.object({ accessToken: session, draftId: z.string().max(64), signature: hex });
+export const dexOrderCancelOutputSchema = z.object({ order: dexOrderViewSchema, copy: z.string(), calls: z.array(dexUnsignedCallSchema) });

@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DexOrderCap } from '@intafaced/contracts/protocol-dex-orders';
-import { Button, DataTable, EmptyState, Page, Panel } from '../../../shared/ui';
+import { Button, EmptyState, Page, Panel } from '../../../shared/ui';
 import { currentPreferences, usePreferences } from '../../../shared/preferences';
 import type { ApiResult } from '../../../shared/api';
 import { stamp } from '../../../screens/money/time';
 import { useApi } from '../../session/session';
+import { createProtocolApi, type RepresentationStatus } from '../api';
+import { REGION_BLOCKED_CODE } from '../region';
 import { APP_CHAIN_ID } from '../wallet/eip1193';
-import { useWallet } from '../wallet/WalletProvider';
-import { ordersCopy, type OrdersTranslate } from './copy';
+import { RepresentationPanel } from '../wallet/RepresentationPanel';
+import { useWallet, type Sequence } from '../wallet/WalletProvider';
+import { ordersCopy, refusalKey, type OrdersTranslate } from './copy';
+import { OrderForm } from './OrderForm';
+import { OrderList } from './OrderList';
 import {
   createOrdersApi,
   forgetSession,
@@ -17,49 +22,88 @@ import {
   type OrderSession,
   type OrdersApi,
 } from './orders-api';
+import { VaultPanel } from './VaultPanel';
 import '../protocol.css';
 
-type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
-
-/** Codes with their own words in copy.ts; any other code reads as a plain refusal, still with its code. */
-const KNOWN = new Set([
-  'dex.auth.challenge_replayed',
-  'dex.auth.challenge_invalid',
-  'dex.auth.signature_not_owner',
-  'dex.auth.unauthenticated',
-  'dex.auth.session_unset',
-  'dex.auth.lifetime_unset',
-  'dex.order.cap_unset',
-]);
+export type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
 
 /** The words for a refusal, with its code as support text, so a person can quote it. */
 export function refusalWords(t: OrdersTranslate, refusal: Refusal): string {
   if (!refusal.code) return refusal.reason === 'unreachable' || refusal.reason === 'uncertain' ? t('unreachable') : t('refusedOther');
-  const key = KNOWN.has(refusal.code) ? (`refused_${refusal.code.replace(/\./g, '_')}` as Parameters<OrdersTranslate>[0]) : null;
+  const key = refusalKey(refusal.code);
   return t('refused', { words: key ? t(key as 'refusedOther') : t('refusedOther'), code: refusal.code });
 }
 
-function useOrdersApi(): OrdersApi {
-  const transport = useApi();
-  return useMemo(() => createOrdersApi(transport), [transport]);
+/** What every action of the room gets: the API, the wallet, the session, and the representation gate before signing. */
+export interface OrdersContext {
+  readonly api: OrdersApi;
+  readonly address: string;
+  readonly session: OrderSession | null;
+  readonly t: OrdersTranslate;
+  /** Runs `then` once the wallet has accepted the representation; returns a refusal's words when it cannot. */
+  readonly gated: (then: () => Promise<void>) => Promise<string | null>;
+  /** Sends the calls through the wallet's sequence sheet; null on success, else the words. */
+  readonly send: (sequence: Sequence) => Promise<string | null>;
+  /** Bumps after any change, so the vault and the list read again. */
+  readonly revision: number;
+  readonly changed: () => void;
 }
 
 /**
  * /dex/orders (D-limit-dca-01 to -04): the person's own orders, from their own wallet. The order session comes first:
- * its scope, expiry and cap are on the page before the wallet is asked to sign anything.
+ * its scope, expiry and cap are on the page before the wallet is asked to sign anything. Every action that signs passes
+ * the representation gate first, as Send does.
  */
 export function OrdersRoom() {
   const { language } = usePreferences();
   const { t } = ordersCopy.forLocale(language);
   const wallet = useWallet();
   const address = wallet.status === 'connected' && wallet.connected ? wallet.address : null;
-  const api = useOrdersApi();
+  const transport = useApi();
+  const api = useMemo(() => createOrdersApi(transport), [transport]);
+  const protocol = useMemo(() => createProtocolApi(transport), [transport]);
   const [session, setSession] = useState<OrderSession | null>(() => (address ? (rememberedSession(address) ?? null) : null));
   useEffect(() => setSession(address ? (rememberedSession(address) ?? null) : null), [address]);
+  const [revision, setRevision] = useState(0);
+  const changed = useCallback(() => setRevision((n) => n + 1), []);
+  const [representation, setRepresentation] = useState<{ status: RepresentationStatus; resolve: (ok: boolean) => void } | null>(null);
+  const sendSequence = useRef(wallet.sendSequence);
+  sendSequence.current = wallet.sendSequence;
 
+  const gated = useCallback(
+    async (then: () => Promise<void>): Promise<string | null> => {
+      if (!address) return t('connectBody');
+      const gate = await protocol.representationStatus(address);
+      if (!gate.ok)
+        return gate.code === REGION_BLOCKED_CODE
+          ? t('gateRegion')
+          : gate.code === 'compliance.representation_unset'
+            ? t('gateUnset')
+            : t('gateUnavailable');
+      if (!gate.data.accepted) {
+        const accepted = await new Promise<boolean>((resolve) => setRepresentation({ status: gate.data, resolve }));
+        if (!accepted) return t('gateRejected');
+      }
+      await then();
+      return null;
+    },
+    [address, protocol, t],
+  );
+
+  const send = useCallback(
+    async (sequence: Sequence): Promise<string | null> => {
+      const result = await sendSequence.current(sequence);
+      if (result.status === 'sent') return null;
+      if (result.status === 'rejected') return t('walletRejected');
+      return t('walletFailed', { message: result.message });
+    },
+    [t],
+  );
+
+  const ctx: OrdersContext | null = address ? { api, address, session, t, gated, send, revision, changed } : null;
   return (
     <Page eyebrow={t('eyebrow')} title={t('title')} description={t('description')}>
-      {!address ? (
+      {!ctx ? (
         <Panel title={t('connectTitle')}>
           <EmptyState title={t('connectTitle')} action={<a href="/wallet">{t('connectAction')}</a>}>
             {t('connectBody')}
@@ -67,8 +111,21 @@ export function OrdersRoom() {
         </Panel>
       ) : (
         <>
-          <SessionPanel api={api} address={address} session={session} onSession={setSession} t={t} />
-          <OrderList api={api} address={address} session={session} t={t} />
+          {representation && (
+            <RepresentationPanel
+              address={ctx.address}
+              status={representation.status}
+              api={protocol}
+              onEnd={(end) => {
+                representation.resolve(end.kind === 'accepted');
+                setRepresentation(null);
+              }}
+            />
+          )}
+          <SessionPanel ctx={ctx} onSession={setSession} />
+          <VaultPanel ctx={ctx} />
+          <OrderForm ctx={ctx} />
+          <OrderList ctx={ctx} />
         </>
       )}
     </Page>
@@ -88,19 +145,8 @@ function CapRows({ cap, t }: { cap: readonly DexOrderCap[]; t: OrdersTranslate }
   );
 }
 
-function SessionPanel({
-  api,
-  address,
-  session,
-  onSession,
-  t,
-}: {
-  api: OrdersApi;
-  address: string;
-  session: OrderSession | null;
-  onSession: (session: OrderSession | null) => void;
-  t: OrdersTranslate;
-}) {
+function SessionPanel({ ctx, onSession }: { ctx: OrdersContext; onSession: (session: OrderSession | null) => void }) {
+  const { api, address, session, t } = ctx;
   const wallet = useWallet();
   const sign = useRef(wallet.sign);
   sign.current = wallet.sign;
@@ -158,19 +204,18 @@ function SessionPanel({
     setSignedOut(true);
   };
 
+  const expires = session ? session.accessExpiresAt : challenge?.sessionExpiresAt;
   const shown = session ?? challenge;
   return (
     <Panel title={t('sessionTitle')} aria-label={t('sessionTitle')}>
       <p className="muted">{t('sessionIntro')}</p>
-      {shown ? (
+      {shown && expires ? (
         <dl className="kv">
           <dt>{t('sessionScope')}</dt>
           <dd>{shown.scope}</dd>
           <dt>{t('sessionExpires')}</dt>
           <dd>
-            <time dateTime={session ? session.accessExpiresAt : challenge!.sessionExpiresAt}>
-              {stamp(session ? session.accessExpiresAt : challenge!.sessionExpiresAt, currentPreferences().timeZone)}
-            </time>
+            <time dateTime={expires}>{stamp(expires, currentPreferences().timeZone)}</time>
           </dd>
           <dt>{t('sessionCap')}</dt>
           <dd>
@@ -197,43 +242,12 @@ function SessionPanel({
           </Button>
         )}
       </div>
-      {session && <p role="status">{t('sessionSigned', { time: stamp(session.accessExpiresAt, currentPreferences().timeZone) })}</p>}
-      {signedOut && <p role="status">{t('sessionSignedOut')}</p>}
+      {session ? (
+        <p role="status">{t('sessionSigned', { time: stamp(session.accessExpiresAt, currentPreferences().timeZone) })}</p>
+      ) : (
+        signedOut && <p role="status">{t('sessionSignedOut')}</p>
+      )}
       {problem && <p role="alert">{problem}</p>}
-    </Panel>
-  );
-}
-
-function OrderList({ api, address, session, t }: { api: OrdersApi; address: string; session: OrderSession | null; t: OrdersTranslate }) {
-  const [count, setCount] = useState<number | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    void api.count(address).then((result) => {
-      if (!live) return;
-      if (result.ok) setCount(result.data.count);
-      else setProblem(refusalWords(t, result));
-    });
-    return () => {
-      live = false;
-    };
-  }, [api, address, session, t]);
-  const headers = [t('hdrId'), t('hdrType'), t('hdrSide'), t('hdrAmount'), t('hdrTrigger'), t('hdrState'), t('hdrActions')];
-  return (
-    <Panel title={t('listTitle')}>
-      <DataTable label={t('listTitle')} headers={headers}>
-        <tr>
-          <td colSpan={headers.length}>
-            {problem ? (
-              <p role="alert">{problem}</p>
-            ) : count === 0 ? (
-              <EmptyState title={t('listEmpty')} />
-            ) : count !== null && !session ? (
-              <EmptyState title={t('listNeedsSession')} />
-            ) : null}
-          </td>
-        </tr>
-      </DataTable>
     </Panel>
   );
 }

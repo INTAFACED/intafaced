@@ -11,6 +11,14 @@ import {
   dexOrderWarnTokensField,
 } from './order/trigger-settings.js';
 import { dexAuthSecretField, dexAuthTtlField, dexOrderCapScheduleField } from './auth/settings.js';
+import {
+  dexOrderChainIdField,
+  dexOrderKeeperField,
+  dexOrderPairsField,
+  dexOrderRpcField,
+  dexOrderTrailBoundsField,
+  dexOrderVaultField,
+} from './vault/settings.js';
 
 /**
  * svc-dex environment.
@@ -241,6 +249,19 @@ const schema = baseEnvSchema
        * selling that token. NO DEFAULT. Blank refuses `dex.order.cap_unset` and no session is written.
        */
       DEX_ORDER_CAP_SCHEDULE: dexOrderCapScheduleField.optional(),
+      /**
+       * The order vault's node, network, contract and keeper (D-limit-dca-01 to -04). NO DEFAULTS. Any of them blank,
+       * the vault is unwired and every order action reads rail.crypto. The keeper is an address the node sends from
+       * (this process holds no key).
+       */
+      DEX_ORDER_RPC_URL: dexOrderRpcField.optional(),
+      DEX_ORDER_CHAIN_ID: dexOrderChainIdField.optional(),
+      DEX_ORDER_VAULT_ADDRESS: dexOrderVaultField.optional(),
+      DEX_ORDER_KEEPER_ADDRESS: dexOrderKeeperField.optional(),
+      /** The pair the vault trades: JSON [{ base, quote, pool }]. NO DEFAULT. Blank refuses `dex.order.pair_unset`. */
+      DEX_ORDER_PAIRS: dexOrderPairsField.optional(),
+      /** Trailing distance bounds, "min,max" basis points. NO DEFAULT. Blank refuses `dex.order.trail_bounds_unset`. */
+      DEX_ORDER_TRAIL_BOUNDS_BPS: dexOrderTrailBoundsField.optional(),
       DEX_ORDER_STORE_DIR: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().min(1).optional()),
     }),
   )

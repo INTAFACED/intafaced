@@ -667,3 +667,25 @@ describe('committed claim-link escrow artefacts match the Solidity in this tree 
       expect(names).toContain(required);
   });
 });
+
+describe('committed order vault artefacts match the Solidity in this tree (D-limit-dca-01)', () => {
+  const orderVault = (SUITES as Suite[]).find((s) => s.name === 'order-vault');
+
+  it('compiles OrderVault in its own suite, with a sourceHash that matches the .sol files on disk', () => {
+    expect(orderVault?.expect).toBe('compiles');
+    const artefact = loadArtifact('OrderVault');
+    expect(artefact.contractName).toBe('OrderVault');
+    expect(artefact.suite).toBe('order-vault');
+    expect(artefact.sourceHash).toBe(computeSourceHash(suiteSources(orderVault, collectSources())));
+  });
+
+  it('is keyless: no owner, admin, pause or upgrade; the maker alone withdraws and cancels', () => {
+    const names = loadArtifact('OrderVault')
+      .abi.filter((entry) => entry.type === 'function')
+      .map((entry) => ('name' in entry ? entry.name : ''));
+    for (const forbidden of ['owner', 'pause', 'unpause', 'upgradeTo', 'transferOwnership', 'setOracle', 'setSweeper', 'execute'])
+      expect(names, `OrderVault must not expose ${forbidden}()`).not.toContain(forbidden);
+    for (const required of ['deposit', 'withdraw', 'fill', 'cancel', 'raiseVersion', 'poke', 'sweepUncredited', 'credit', 'remaining'])
+      expect(names).toContain(required);
+  });
+});

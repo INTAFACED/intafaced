@@ -1496,6 +1496,9 @@ function testChain() {
     usdToken: record.tokens?.USD?.address ?? null,
     feeRelay: record.feeRelay ?? null,
     claimEscrow: record.claimEscrow ?? null,
+    orderVault: record.orderVault ?? null,
+    orderPool: record.orderPool ?? null,
+    orderKeeper: record.orderKeeper ?? null,
   };
 }
 
