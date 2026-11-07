@@ -92,6 +92,7 @@ const CODE_WORDS = {
   'agents.own.delete_unconfirmed': 'code_own_delete_unconfirmed',
   'agents.own.delete_published': 'code_own_delete_published',
   'agents.own.delete_has_sessions': 'code_own_delete_has_sessions',
+  'agents.agent.disabled': 'code_agent_disabled',
 } as const;
 const wordsKey = (code: string) => (Object.hasOwn(CODE_WORDS, code) ? CODE_WORDS[code as keyof typeof CODE_WORDS] : null);
 
@@ -479,6 +480,7 @@ export function OwnAgentPage({ id }: { id: string }) {
               onChange={setPage}
               label={t('pagesLabel')}
             />
+            <AgentStatus id={agent.id} />
             <p className="muted" data-testid="agent-version">
               {t(agent.state === 'published' ? 'versionPublished' : 'versionDraft', { version: String(agent.version) })}
             </p>
@@ -533,6 +535,32 @@ export function OwnAgentPage({ id }: { id: string }) {
         );
       }}
     </Read>
+  );
+}
+
+const agentStatusSchema = z.object({ status: z.enum(['active', 'quarantined', 'disabled_by_kind']) });
+
+/**
+ * Whether the agent may start new work (AG-control-02). Switched off by an operator, the page says so on every tab, with
+ * the service's refusal code and the open button off; only an operator switches it off and only two founders restore it.
+ */
+function AgentStatus({ id }: { id: string }) {
+  const api = useApi();
+  const { t } = agentBuilderCopy.useCopy();
+  const loaded = useResource((signal) => api.query('agents', 'own.status', { id }, agentStatusSchema, { signal }), `own-status:${id}`);
+  if (loaded.resource.status !== 'ready') return null;
+  const off = loaded.resource.data.status !== 'active';
+  return (
+    <section aria-label={t('agentStatusTitle')}>
+      <p data-testid="agent-status">{t(off ? 'status_disabled' : 'status_active')}</p>
+      {off ? (
+        <>
+          <p className="muted">{t('disabledNote')}</p>
+          <Refusal code="agents.agent.disabled" />
+          <Button disabled>{t('openSession')}</Button>
+        </>
+      ) : null}
+    </section>
   );
 }
 

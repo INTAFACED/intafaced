@@ -111,14 +111,14 @@ interface Guardrailish {
   readonly limits?: { readonly maxSpendPerSession?: unknown };
 }
 
-/** Every agent on the platform, product agents first, then by name and reference. */
+/** Every agent on the platform: product agents by id, then people's agents newest first, so a page never hides a new one. */
 export async function readFleet(sql: Sql): Promise<FleetRow[]> {
   const [products, owns, switches, kinds, owners, runs, surfaces] = await Promise.all([
     sql<{ agent_id: string; name: string | null; guardrail: Guardrailish; enabled: boolean }[]>`
-      SELECT agent_id, name, guardrail, enabled FROM agents.agent_definitions WHERE agent_id NOT LIKE 'own.%'
+      SELECT agent_id, name, guardrail, enabled FROM agents.agent_definitions WHERE agent_id NOT LIKE 'own.%' ORDER BY agent_id
     `,
     sql<{ id: string; owner_id: string; name: string; tools: string[]; per_session_cap: string | null; state: string }[]>`
-      SELECT id, owner_id, name, tools, per_session_cap::text AS per_session_cap, state FROM agents.own_agents
+      SELECT id, owner_id, name, tools, per_session_cap::text AS per_session_cap, state FROM agents.own_agents ORDER BY created_at DESC, id
     `,
     sql<SwitchRow[]>`SELECT agent_ref AS key, reason, set_by, set_at, restore_requested_by FROM agents.agent_switches`,
     sql<SwitchRow[]>`SELECT kind AS key, reason, set_by, set_at, restore_requested_by FROM agents.agent_kind_switches`,
@@ -189,11 +189,7 @@ export async function readFleet(sql: Sql): Promise<FleetRow[]> {
       ),
     );
   }
-  const kindOrder = (kind: FleetKind) => (kind === 'product' ? 0 : 1);
-  return rows.sort(
-    (a, b) =>
-      kindOrder(a.kind) - kindOrder(b.kind) || (a.name ?? '').localeCompare(b.name ?? '') || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0),
-  );
+  return rows;
 }
 
 export interface FleetFilter {
