@@ -6,7 +6,7 @@ import { existsSync, readFileSync as readText } from 'node:fs';
 import { ORIGIN, ROOT, api, fund, mailedLines, restartWith, signOutBrowser, signUpInBrowser, stackFile } from './stack.mjs';
 import { asDesk } from './help-centre.mjs';
 import { keyHolder, makeKey, withKey } from './developer.mjs';
-import { addAuthenticator, nextCode } from './identity-factors.mjs';
+import { nextCode } from './identity-factors.mjs';
 
 // J-identity-13, in the running app (docs/roadmap/journeys.json): I think my account was compromised. Tests titled
 // "J-identity-13 #<n>" prove a whole step. #3 to #6 follow one TEST person in order (their case, their freeze, their
@@ -65,6 +65,36 @@ async function caseOf(session) {
   const read = await session.get(CASE);
   expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
   return read.body.result.data.case;
+}
+
+/**
+ * Adds an authenticator app on an account that already holds a passkey: identity asks for the second step first, so the
+ * person confirms it is them with the passkey, the setup then starts by itself, and the code from the app confirms it.
+ */
+async function addAuthenticatorAfterPasskey(page, totp) {
+  await page.goto('/uc/safe');
+  await page.getByRole('button', { name: 'Start authenticator setup' }).click();
+  await page.getByRole('button', { name: 'Start authenticator setup' }).last().click();
+  const showKey = page.getByRole('button', { name: 'Show setup key' });
+  const refusal = page.getByTestId('failure');
+  await expect(showKey.or(refusal.getByRole('button', { name: 'Confirm it is you' }))).toBeVisible();
+  if (!(await showKey.isVisible())) {
+    await refusal.getByRole('button', { name: 'Confirm it is you' }).click();
+    const sheet = page.getByRole('dialog', { name: /confirm it’s you/i });
+    await sheet.getByRole('button', { name: 'Use a passkey' }).click();
+    await expect(sheet).toBeHidden();
+  }
+  await showKey.click();
+  const secret = await page.getByLabel('Authenticator setup key').inputValue();
+  let step, first;
+  do {
+    step = Math.floor(Date.now() / 30_000);
+    first = totp(secret);
+  } while (Math.floor(Date.now() / 30_000) !== step);
+  await page.getByLabel('Six-digit authenticator code').fill(first);
+  await page.getByRole('button', { name: 'Confirm authenticator' }).click();
+  await expect(page.getByTestId('security__authenticator')).toContainText('accepted');
+  return { secret, step };
 }
 
 const checklistItem = (page, item) => page.getByTestId('compromised__checklist').locator(`li[data-item="${item}"]`);
@@ -155,7 +185,7 @@ test(`${J} #2 a phishing report signed in or out is a ticket in the phishing cat
   await page.getByRole('link', { name: 'Report a scam message' }).click();
   await expect(page).toHaveURL(/\/support\/new\?topic=phishing$/);
   await expect(page.getByRole('combobox', { name: 'Topic' })).toHaveValue('phishing');
-  await expect(page.getByRole('note')).toContainText('Do not click links, open attachments or reply to the message.');
+  await expect(page.getByRole('note').filter({ hasText: 'Do not click links, open attachments or reply to the message.' })).toBeVisible();
   await page.getByLabel('Subject', { exact: true }).fill('TEST a mail asked for my password');
   await page.getByLabel('What happened').fill('TEST a mail that looks like yours asked me to sign in on another site.');
 
@@ -245,7 +275,7 @@ test(`${J} #3 "my account is compromised" ends every session and key, freezes th
   const key = await makeKey(page, { name: 'compromised', preset: 'Read only' });
   const before = await api(who);
   expect((await withKey(key, { path: STATUS })).status).toBe(200);
-  const added = await addAuthenticator(page, totp);
+  const added = await addAuthenticatorAfterPasskey(page, totp);
   s.secret = added.secret;
   s.step = added.step;
   // TEST funds, so #5 can show the report moves none.
