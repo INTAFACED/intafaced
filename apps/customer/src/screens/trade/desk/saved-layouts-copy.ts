@@ -46,7 +46,17 @@ const messages = {
 
 export const layoutsCopy = defineCopy('trade.desk.layouts', messages);
 
+const REFUSALS = [
+  'identity.desk_layout_cap_exceeded',
+  'identity.desk_layout_cap_unset',
+  'identity.desk_layout_restore_full',
+  'identity.desk_layout_restore_unset',
+  'identity.desk_layout_restore_expired',
+  'reply.unknown',
+] as const;
+type RefusalKey = (typeof REFUSALS)[number] | 'Write failed';
+
 /** The words for a refused write: its own sentence when the code is one the menu knows, else the general one. */
-export function refusalKey(code: string): keyof typeof messages {
-  return code in messages ? (code as keyof typeof messages) : 'Write failed';
+export function refusalKey(code: string): RefusalKey {
+  return (REFUSALS as readonly string[]).includes(code) ? (code as RefusalKey) : 'Write failed';
 }

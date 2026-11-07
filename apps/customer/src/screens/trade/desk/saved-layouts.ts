@@ -10,7 +10,6 @@
  *   owner's limits (how many layouts, how many deleted kept and for how long) are identity's to check; a refusal is shown
  *   with its reason and nothing is changed here.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
   deskLayoutsPreferenceSchema,
@@ -20,20 +19,14 @@ import {
   type DeskLayoutsValue,
   type SavedDeskLayout,
 } from '@intafaced/contracts/desk-layouts-preferences';
-import { useSession } from '../../../features/session/session';
-import { CONFLICT, rebaseAndWrite, type RecordIo } from '../../../features/watchlists/rebase';
+import { useAccountRecord, type AccountRecord, type RecordWrite } from '../../../features/preferences/account-record';
 import type { DeskLayout } from './workspace';
 
 export type { SavedDeskLayout, DeskLayoutsValue };
 
-export type SavedLayouts =
-  | { status: 'signed-out' }
-  | { status: 'loading' }
-  | { status: 'failed'; reload: () => void }
-  | { status: 'ready'; value: DeskLayoutsValue };
-
-/** How a write ended: saved, refused by the account with its code, or unknown (the reply was lost; the list was read again). */
-export type LayoutWrite = { ok: true } | { ok: false; code: string };
+export type SavedLayouts = AccountRecord<DeskLayoutsValue>;
+/** How a write ended: saved, or refused by the account with its code (`reply.unknown`: the reply was lost; the list was read again). */
+export type LayoutWrite = RecordWrite;
 
 /** An id from the name and the time: lower-case letters, digits and dashes, unique enough for one person's list. */
 export function layoutId(name: string, now: Date): string {
@@ -136,82 +129,16 @@ export function exportFile(layout: SavedDeskLayout): { name: string; text: strin
 }
 
 const storedSchema = deskLayoutsPreferenceSchema.extend({ outcome: z.literal('stored') });
-const isConflict = (result: { status?: number; code?: string; message: string }) =>
-  result.status === 409 || result.code === 'CONFLICT' || result.message.includes(CONFLICT);
-const UNKNOWN = 'reply.unknown';
 
 /** The signed-in account's saved desk layouts, and the writes on them. */
 export function useSavedLayouts() {
-  const { api, userId } = useSession();
-  const [layouts, setLayouts] = useState<SavedLayouts>(userId ? { status: 'loading' } : { status: 'signed-out' });
-  const [revision, setRevision] = useState(0);
-  const record = useRef<{ version: number; value: DeskLayoutsValue } | null>(null);
-
-  const read = useCallback(
-    async (signal?: AbortSignal) =>
-      api.query('identity', 'preferences.get', { namespace: DESK_LAYOUTS_NAMESPACE }, deskLayoutsPreferenceSchema, { signal }),
-    [api],
-  );
-  const adopt = useCallback((version: number, value: DeskLayoutsValue | null) => {
-    record.current = { version, value: value ?? EMPTY_DESK_LAYOUTS };
-    setLayouts({ status: 'ready', value: value ?? EMPTY_DESK_LAYOUTS });
-  }, []);
-
-  useEffect(() => {
-    record.current = null;
-    if (!userId) {
-      setLayouts({ status: 'signed-out' });
-      return;
-    }
-    const controller = new AbortController();
-    setLayouts({ status: 'loading' });
-    void read(controller.signal).then((result) => {
-      if (controller.signal.aborted) return;
-      if (result.ok) adopt(result.data.version, result.data.value);
-      else setLayouts({ status: 'failed', reload: () => setRevision((count) => count + 1) });
-    });
-    return () => controller.abort();
-  }, [userId, read, adopt, revision]);
-
-  const change = useCallback(
-    async (update: (value: DeskLayoutsValue) => DeskLayoutsValue): Promise<LayoutWrite> => {
-      const start = record.current;
-      if (!userId || !start) return { ok: false, code: 'auth.required' };
-      const io: RecordIo<DeskLayoutsValue> = {
-        read: async () => {
-          const result = await read();
-          return result.ok ? { version: result.data.version, value: result.data.value } : null;
-        },
-        write: async (value, ifVersion) => {
-          const result = await api.mutate(
-            'identity',
-            'preferences.set',
-            { namespace: DESK_LAYOUTS_NAMESPACE, value, ifVersion, clientRequestId: deskLayoutsRequestId(userId, ifVersion, value) },
-            storedSchema,
-          );
-          if (result.ok) return { ok: true, version: result.data.version, value: result.data.value };
-          return {
-            ok: false,
-            code: isConflict(result)
-              ? CONFLICT
-              : result.reason === 'uncertain' || result.reason === 'unreachable'
-                ? UNKNOWN
-                : (result.code ?? result.message),
-          };
-        },
-      };
-      const written = await rebaseAndWrite(start, io, update, EMPTY_DESK_LAYOUTS);
-      if (written.record) adopt(written.record.version, written.record.value);
-      if (written.outcome.ok) return { ok: true };
-      if (written.outcome.code === UNKNOWN) {
-        const latest = await io.read();
-        if (latest) adopt(latest.version, latest.value);
-      }
-      return { ok: false, code: written.outcome.code };
-    },
-    [api, userId, read, adopt],
-  );
-
-  return { layouts, change };
+  const { record, change } = useAccountRecord<DeskLayoutsValue>({
+    namespace: DESK_LAYOUTS_NAMESPACE,
+    schema: deskLayoutsPreferenceSchema,
+    stored: storedSchema,
+    empty: EMPTY_DESK_LAYOUTS,
+    requestId: deskLayoutsRequestId,
+  });
+  return { layouts: record, change };
 }
 export type SavedLayoutsState = ReturnType<typeof useSavedLayouts>;
