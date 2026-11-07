@@ -4,6 +4,7 @@ import type { Sql } from 'postgres';
 import type { ConversionService } from '../conversion/service.js';
 import type { ReceiptAssetPlaces } from '../merchant-ops/receipt-branding.js';
 import type { TeamEmailInviteLimit } from '../merchant-ops/team-email.js';
+import type { TeamInviteMail } from '../merchant-ops/team-invite-mail.js';
 import type { WebhookRetryLimit } from '../merchant-ops/webhooks.js';
 import type { ControlService } from '../control/service.js';
 import type { FounderAuthority } from '../founder-authority.js';
@@ -93,6 +94,7 @@ export function createPayNamespaces(deps: {
   webhooksAllowLocalHttp?: boolean;
   webhookRetry?: WebhookRetryLimit;
   teamEmailInvite?: TeamEmailInviteLimit;
+  teamInviteMail?: TeamInviteMail;
   payHalts?: PayHaltsDeps;
   treasury?: FounderTreasuryDeps;
   control?: ControlService;
@@ -119,6 +121,7 @@ export function createPayNamespaces(deps: {
     webhooksAllowLocalHttp: deps.webhooksAllowLocalHttp,
     webhookRetry: deps.webhookRetry,
     teamEmailInvite: deps.teamEmailInvite,
+    teamInviteMail: deps.teamInviteMail,
     evidence: deps.evidence,
     invoiceLinks: deps.invoiceLinks,
     disputes: deps.disputes,

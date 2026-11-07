@@ -133,6 +133,8 @@ export const memberSchema = z.object({
   createdAt: timestamp,
   activatedAt: timestamp.nullable(),
   removedAt: timestamp.nullable(),
+  /** When a pending email invitation and its link run out; absent or null for anything else. */
+  expiresAt: timestamp.nullable().optional(),
   cursor: z.string().nullable(),
 });
 export type Member = z.infer<typeof memberSchema>;
@@ -148,7 +150,13 @@ export const teamEventSchema = z.object({
 export type TeamEvent = z.infer<typeof teamEventSchema>;
 export const teamMeSchema = z.object({ merchantId: z.string(), userId: z.string(), role: memberRoleSchema });
 export const invitationSchema = z.array(
-  z.object({ memberId: z.string(), merchantId: z.string(), role: z.enum(teamRoles), invitedAt: timestamp }),
+  z.object({
+    memberId: z.string(),
+    merchantId: z.string(),
+    role: z.enum(teamRoles),
+    invitedAt: timestamp,
+    expiresAt: timestamp.nullable().optional(),
+  }),
 );
 export type Invitation = z.infer<typeof invitationSchema>[number];
 

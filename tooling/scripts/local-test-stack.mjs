@@ -43,6 +43,7 @@
  *   node tooling/scripts/local-test-stack.mjs age-linked-accounts <email> <hours>   TEST fixture: past a cooling-off
  *   node tooling/scripts/local-test-stack.mjs expire-address-approvals <email>   TEST fixture: open approval links run out
  *   node tooling/scripts/local-test-stack.mjs expire-email-confirmations <email>   TEST fixture: open email confirmation links run out
+ *   node tooling/scripts/local-test-stack.mjs expire-team-invites <email>   TEST fixture: pending team invitations to that address run out
  *   node tooling/scripts/local-test-stack.mjs expire-deposit-addresses <email>   TEST fixture: open extra deposit addresses expire
  *   node tooling/scripts/local-test-stack.mjs expire-staff-holds <email>   TEST fixture: open staff holds with an expiry reach it
  *   node tooling/scripts/local-test-stack.mjs age-task-progress <email> <campaignId> <days>   TEST fixture: a task campaign's counted events happened days earlier
@@ -3026,6 +3027,30 @@ function cmdExpireEmailConfirmations(args) {
   say(`  ${moved.length} open email confirmation link(s) of ${who} now expired (LOCAL TEST fixture)`);
 }
 
+/**
+ * `expire-team-invites <email>`: every pending team invitation mailed to that address (J-merchant-11 #2) runs out now,
+ * so a journey can show the invitation reading Expired and its link refused, without waiting the TEST lifetime out. The
+ * invitation stays pending; nothing is accepted, removed or re-sent, and no account is looked up.
+ */
+function cmdExpireTeamInvites(args) {
+  const [email] = args;
+  if (!email || !email.includes('@')) fail('usage: node tooling/scripts/local-test-stack.mjs expire-team-invites <email>', 2);
+  const secrets = localFixtureSecrets();
+  const moved = psql(
+    secrets,
+    `UPDATE pay.merchant_team_members
+        SET invite_expires_at = now() - interval '1 minute'
+      WHERE status = 'invited' AND invite_expires_at > now()
+        AND (user_id = 'email:' || lower(:'email') OR split_part(coalesce(label, ''), chr(30), 2) = 'email:' || lower(:'email'))
+      RETURNING id`,
+    { db: DB_NAME, user: 'svc_pay', password: secrets.pgService, vars: { email: email.trim() }, tuples: true },
+  )
+    .trim()
+    .split('\n')
+    .filter((line) => /^[0-9a-f-]{36}$/.test(line));
+  say(`  ${moved.length} pending team invitation(s) to ${email} now expired (LOCAL TEST fixture)`);
+}
+
 // The pool's own reference check, from its build, so a TEST nonce is found exactly as the pool verifies it.
 async function miningPow() {
   try {
@@ -3874,6 +3899,7 @@ async function runCli() {
   else if (cmd === 'expire-email-confirmations') cmdExpireEmailConfirmations(rest);
   else if (cmd === 'expire-deposit-addresses') cmdExpireDepositAddresses(rest);
   else if (cmd === 'expire-staff-holds') cmdExpireStaffHolds(rest);
+  else if (cmd === 'expire-team-invites') cmdExpireTeamInvites(rest);
   else if (cmd === 'age-task-progress') cmdAgeTaskProgress(rest);
   else if (cmd === 'seed-notice') cmdSeedNotice(rest);
   else if (cmd === 'age-addresses') cmdAgeAddresses(rest);
@@ -3885,7 +3911,7 @@ async function runCli() {
     process.exit(ok ? 0 : 1);
   } else
     fail(
-      `unknown command "${cmd}". Use: start | build | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | age-task-progress | seed-notice | plan | restart | customer-dist`,
+      `unknown command "${cmd}". Use: start | build | stop | status | fund | seed-withdrawal | age-addresses | age-linked-accounts | expire-address-approvals | expire-email-confirmations | expire-deposit-addresses | expire-staff-holds | expire-team-invites | age-task-progress | seed-notice | plan | restart | customer-dist`,
       2,
     );
 }

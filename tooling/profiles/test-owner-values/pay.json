@@ -56,6 +56,21 @@
       "value": "30",
       "note": "TEST days a business has to finish its verification application. Not an owner decision."
     },
+    "PAY_TEAM_EMAIL_INVITE_MAX": {
+      "service": "pay",
+      "value": "20",
+      "note": "TEST most email team invitations a business may send in the window. Not an owner decision."
+    },
+    "PAY_TEAM_EMAIL_INVITE_WINDOW_MS": {
+      "service": "pay",
+      "value": "3600000",
+      "note": "TEST window for that count, one hour. Not an owner decision."
+    },
+    "PAY_TEAM_EMAIL_INVITE_TTL_MS": {
+      "service": "pay",
+      "value": "604800000",
+      "note": "TEST lifetime of an email team invitation and its link, 7 days. Not an owner decision."
+    },
     "PAY_PRODUCT_IMAGE_MAX_BYTES": {
       "service": "pay",
       "value": "500000",
