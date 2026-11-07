@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { OpsDeskView, type OpsDeskViewProps } from './ops-desk';
+import { OpsDeskView, keepOpenRow, type OpsDeskViewProps } from './ops-desk';
 import {
   VendorActions,
   AmbassadorActions,
@@ -831,5 +831,24 @@ describe('Personal Pay desk', () => {
     const html = render(props('pay', view('pay', [])));
     expect(html).toContain('data-testid="transfer-lookup"');
     expect(html).toContain('Look up one transfer');
+  });
+});
+
+describe('an open row that a re-read no longer lists', () => {
+  const row = (id: string) => ({ id, cells: [] }) as unknown as Row;
+  it('stays open, marked as gone, so the reply of the action that removed it is not lost', () => {
+    const seen = new Map<string, Row>();
+    const before = keepOpenRow('market.listings', [row('a'), row('b')], seen, 'market.listings:b');
+    expect(before).toEqual({ rows: [row('a'), row('b')], gone: null });
+    const after = keepOpenRow('market.listings', [row('a')], seen, 'market.listings:b');
+    expect(after.gone).toEqual(row('b'));
+    expect(after.rows.map((r) => r.id)).toEqual(['a', 'b']);
+  });
+  it('keeps nothing for a closed row, a row of another list, or a row it never showed', () => {
+    const seen = new Map<string, Row>();
+    keepOpenRow('market.listings', [row('a'), row('b')], seen, null);
+    expect(keepOpenRow('market.listings', [row('a')], seen, null).gone).toBeNull();
+    expect(keepOpenRow('market.listings', [row('a')], seen, 'market.sales:b').gone).toBeNull();
+    expect(keepOpenRow('market.listings', [row('a')], seen, 'market.listings:never').gone).toBeNull();
   });
 });

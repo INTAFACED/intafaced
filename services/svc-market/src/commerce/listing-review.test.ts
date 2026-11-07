@@ -129,7 +129,7 @@ describe('listing review: applied, two founders decide, only approved is public'
     const again = await decide(commerce, data, 'approved');
     expect(again.businessKey).toBe(result.businessKey);
     // A replay answers the decision as it was taken, even after the listing moved on.
-    await db.sql`UPDATE market.listings SET status = 'taken_down', review_state = 'taken_down' WHERE id = ${data}`;
+    await db.sql`UPDATE market.listings SET review_state = 'rejected' WHERE id = ${data}`;
     expect((await decide(commerce, data, 'approved')).reviewState).toBe('approved');
     const audit = await commerce.listingReviewDecisions({ actorScope: MARKET_OPS_SCOPE, limit: 50 });
     expect(audit.map((d) => [d.listingId, d.decision, d.reason, d.actorId, d.approverId])).toEqual([

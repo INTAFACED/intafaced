@@ -152,15 +152,35 @@ export function ExportCsv({ spec, data, asOf }: { spec: ReadSpec; data: Extract<
   );
 }
 
+/**
+ * The list's rows, plus the row the founder has open when a re-read no longer lists it (`gone`), from what this list last
+ * showed (`seen`, updated here). Only that one row is kept, and only while it stays open.
+ */
+export function keepOpenRow(
+  readId: string,
+  current: readonly Row[],
+  seen: Map<string, Row>,
+  openKey: string | null,
+): { rows: readonly Row[]; gone: Row | null } {
+  for (const row of current) seen.set(row.id, row);
+  const openId = openKey?.startsWith(`${readId}:`) ? openKey.slice(readId.length + 1) : null;
+  const gone = openId !== null && !current.some((r) => r.id === openId) ? (seen.get(openId) ?? null) : null;
+  return { rows: gone ? [...current, gone] : current, gone };
+}
+
 export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewProps) {
-  if (data.rows.length === 0) {
+  // The rows this list last showed. A row the founder has open that a re-read no longer lists (a listing just taken
+  // down, a request just decided) stays open, marked as gone, so the action's reply is never lost with the row.
+  const seen = useRef(new Map<string, Row>());
+  const { rows, gone } = keepOpenRow(spec.id, data.rows, seen.current, openKey);
+  if (rows.length === 0) {
     return (
       <p className="dk-muted" data-testid="list-empty">
         {spec.emptyText}
       </p>
     );
   }
-  const head = tableCells(data.rows[0]!);
+  const head = tableCells(rows[0]!);
   const table = (
     <div className="dk-table-wrap" role="region" aria-label={spec.title} tabIndex={0}>
       <table className="adm-table">
@@ -175,11 +195,27 @@ export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewPro
           </tr>
         </thead>
         <tbody>
-          {data.rows.map((row) => {
+          {rows.map((row) => {
             const key = `${spec.id}:${row.id}`;
             const open = openKey === key;
+            const left = row === gone;
             return (
-              <RowFragment key={row.id} columns={head.length + 1} open={open} detail={<DetailPanel spec={spec} row={row} ctx={ctx} />}>
+              <RowFragment
+                key={row.id}
+                columns={head.length + 1}
+                open={open}
+                gone={left}
+                detail={
+                  <>
+                    {left && (
+                      <p className="dk-muted" data-testid="row-gone">
+                        This row is no longer in this list since the desk was read again; what is shown is its last read.
+                      </p>
+                    )}
+                    <DetailPanel spec={spec} row={row} ctx={ctx} />
+                  </>
+                }
+              >
                 {tableCells(row).map((c) => (
                   <td key={c.key} className={c.kind === 'text' && c.label.toLowerCase().includes('id') ? 'dk-packet' : undefined}>
                     <CellValueView cell={c} />
@@ -217,10 +253,24 @@ export function ListView({ spec, data, ctx, openKey, onOpen, asOf }: ListViewPro
   );
 }
 
-function RowFragment({ children, open, detail, columns }: { children: ReactNode; open: boolean; detail: ReactNode; columns: number }) {
+function RowFragment({
+  children,
+  open,
+  detail,
+  columns,
+  gone = false,
+}: {
+  children: ReactNode;
+  open: boolean;
+  detail: ReactNode;
+  columns: number;
+  gone?: boolean;
+}) {
   return (
     <>
-      <tr data-open={open ? 'true' : undefined}>{children}</tr>
+      <tr data-open={open ? 'true' : undefined} data-gone={gone ? 'true' : undefined}>
+        {children}
+      </tr>
       {open && (
         <tr>
           <td colSpan={columns}>{detail}</td>
