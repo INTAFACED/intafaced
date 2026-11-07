@@ -1106,25 +1106,18 @@
       "why": "TimeoutError: locator.click: Timeout 5000ms exceeded."
     },
     {
-      "step": "J-copy-bots-otc-10#4",
-      "file": "apps/customer/tests/real-app/J-copy-bots-otc-10.pw.mjs",
-      "state": "unbuilt",
-      "money": true,
-      "why": "UNSET: the owner's wait before a rejected applicant may apply again is not an owner setting yet (CB-copy-12); svc-trade answered trade.copy_lead_reapply_wait_unset"
-    },
-    {
       "step": "J-copy-bots-otc-10#6",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-10.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "UNBUILT: CB-copy-pro-share-11 (master center) and CB-copy-pro-share-06 (whitelists): pooled master applications and whitelists are read from no service"
+      "why": "custody, move later (OWNER 226): UNBUILT: CB-copy-pro-share-11 (master center) and CB-copy-pro-share-06 (whitelists): pooled master applications and whitelists are read from no service"
     },
     {
       "step": "J-copy-bots-otc-10#7",
       "file": "apps/customer/tests/real-app/J-copy-bots-otc-10.pw.mjs",
       "state": "unbuilt",
       "money": true,
-      "why": "UNBUILT: CB-copy-pro-share-09 (takeovers) and CB-copy-pro-share-03 (levels): takeovers per pool and day and the level ratios are read from no service"
+      "why": "custody, move later (OWNER 226): UNBUILT: CB-copy-pro-share-09 (takeovers) and CB-copy-pro-share-03 (levels): takeovers per pool and day and the level ratios are read from no service"
     },
     {
       "step": "J-copy-bots-otc-11#1",
