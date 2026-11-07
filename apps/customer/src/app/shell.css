@@ -413,6 +413,27 @@
     gap: var(--if-space-1-5);
     padding: var(--if-space-2-5) var(--if-space-3);
   }
+  /* The Simple or Pro switch, and the note under it when the account did not take the choice (J-home-ia-03 #2). */
+  .tb-mode-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  .tb-mode-note {
+    font-size: var(--if-text-xs);
+    line-height: var(--if-leading-xs);
+    color: var(--tb-fg-2);
+  }
+  .tb-mode-wrap > .tb-mode-note {
+    position: absolute;
+    top: calc(100% + var(--if-space-1-5));
+    inset-inline-end: 0;
+    z-index: 50;
+    width: max-content;
+    padding: var(--if-space-1-5) var(--if-space-2-5);
+    background: var(--tb-panel);
+    border: 1px solid var(--if-line-popup);
+    border-radius: var(--if-r-lg);
+  }
   .tb-account-mode__label {
     font-size: var(--if-text-xs);
     line-height: var(--if-leading-xs);

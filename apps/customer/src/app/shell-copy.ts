@@ -109,6 +109,7 @@ const messages = {
   Notifications: 'Notifications',
   'Notifications, {count} unread': 'Notifications, {count} unread',
   'Account menu': 'Account menu',
+  'Mode not saved': 'Not saved to your account. Your choice applies on this device.',
   'Log in': 'Log in',
   'Sign up': 'Sign up',
   Layout: 'Layout',
@@ -129,6 +130,7 @@ const messages = {
 export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineCopy('customer.shell', messages, {
   es: {
     'Skip to content': 'Ir al contenido',
+    'Mode not saved': 'No se guardó en tu cuenta. Tu elección se aplica en este dispositivo.',
     'Customer doors': 'Secciones del cliente',
     'One account.': 'Una cuenta.',
     'Your next move.': 'Tu próximo paso.',
@@ -180,6 +182,7 @@ export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineC
   },
   fr: {
     'Skip to content': 'Aller au contenu',
+    'Mode not saved': 'Non enregistré sur votre compte. Votre choix s’applique sur cet appareil.',
     'Customer doors': 'Espaces clients',
     'One account.': 'Un compte.',
     'Your next move.': 'Votre prochaine étape.',

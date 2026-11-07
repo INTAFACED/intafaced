@@ -15,6 +15,7 @@ import { navigate } from './location';
 import { shellCopy } from './shell-copy';
 import { proCopy } from '../screens/home/pro-copy';
 import { ShellSwitch } from '../features/protocol/ShellSwitch';
+import { ModeNotSaved } from './ModeNotSaved';
 
 const profileSchema = z.object({ displayName: z.string().nullable() });
 
@@ -146,6 +147,7 @@ function ModeRow() {
           { value: 'pro', label: t('Pro') },
         ]}
       />
+      <ModeNotSaved />
     </li>
   );
 }
