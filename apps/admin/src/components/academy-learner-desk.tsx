@@ -19,7 +19,8 @@ import { Failed, Outcome } from '@/components/academy-courses-desk';
 
 type Item = AcademyLearnerProgress['courses'][number]['items'][number];
 type Grant = AcademyLearnerPage['access'][number];
-type Send = (body: Record<string, unknown>) => Promise<void>;
+/** One change; resolves true when svc-academy recorded it. */
+type Send = (body: Record<string, unknown>) => Promise<boolean>;
 
 const PATH: Record<string, string> = { foundations: 'Foundations', markets: 'Markets', builder: 'Builder', sovereign: 'Sovereign' };
 const STATUS: Record<Item['status'], string> = { completed: 'Completed', not_started: 'Not started', undone: 'Undone' };
@@ -41,7 +42,8 @@ function ReasonForm({
   label: string;
   button: string;
   busy: boolean;
-  onSubmit: (reason: string) => void;
+  /** True when the change was recorded: only then is the typed reason cleared. */
+  onSubmit: (reason: string) => Promise<boolean>;
   children?: ReactNode;
 }) {
   const [reason, setReason] = useState('');
@@ -51,7 +53,9 @@ function ReasonForm({
       aria-label={label}
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit(reason);
+        void onSubmit(reason).then((done) => {
+          if (done) setReason('');
+        });
       }}
     >
       {children}
@@ -134,7 +138,7 @@ function Access({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean;
                   label={`Reinstate ${PATH[g.pathSlug]} access`}
                   button="Reinstate access"
                   busy={busy}
-                  onSubmit={(reason) => void send({ op: 'reinstate', grantId: g.id, reason, expiresAt: null, n: g.events.length + 1 })}
+                  onSubmit={(reason) => send({ op: 'reinstate', grantId: g.id, reason, expiresAt: null, n: g.events.length + 1 })}
                 />
               )}
             </li>
@@ -146,7 +150,7 @@ function Access({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean;
           label="Grant access"
           button="Grant access"
           busy={busy}
-          onSubmit={(reason) => void send({ op: 'grantAccess', pathSlug: path, reason, expiresAt: ends ? instant(ends) : null })}
+          onSubmit={(reason) => send({ op: 'grantAccess', pathSlug: path, reason, expiresAt: ends ? instant(ends) : null })}
         >
           <label>
             Course
@@ -194,7 +198,9 @@ function Notes({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean; 
           aria-label="Add an internal note"
           onSubmit={(e) => {
             e.preventDefault();
-            void send({ op: 'addNote', body, key: `note:${page.userId}:${page.notes.length + 1}` });
+            void send({ op: 'addNote', body, key: `note:${page.userId}:${page.notes.length + 1}` }).then((done) => {
+              if (done) setBody('');
+            });
           }}
         >
           <label>
@@ -230,7 +236,7 @@ function Tags({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean; s
                   label={`Remove tag ${t.tag}`}
                   button="Remove tag"
                   busy={busy}
-                  onSubmit={(reason) => void send({ op: 'untag', tag: t.tag, reason })}
+                  onSubmit={(reason) => send({ op: 'untag', tag: t.tag, reason })}
                 />
               )}
             </li>
@@ -238,7 +244,7 @@ function Tags({ page, busy, send }: { page: AcademyLearnerPage; busy: boolean; s
         </ul>
       )}
       {page.canChange && (
-        <ReasonForm label="Add a tag" button="Add tag" busy={busy} onSubmit={(reason) => void send({ op: 'tag', tag, reason })}>
+        <ReasonForm label="Add a tag" button="Add tag" busy={busy} onSubmit={(reason) => send({ op: 'tag', tag, reason })}>
           <label>
             Tag
             <input value={tag} onChange={(e) => setTag(e.target.value.trim().toLowerCase())} maxLength={40} aria-label="Tag" />
@@ -291,7 +297,7 @@ function ItemRow({ userId, item, canChange, busy, send }: { userId: string; item
                       label={`Reset quiz attempt ${a.attemptId}`}
                       button="Reset this attempt"
                       busy={busy}
-                      onSubmit={(reason) => void send({ op: 'voidAttempt', attemptId: a.attemptId, reason })}
+                      onSubmit={(reason) => send({ op: 'voidAttempt', attemptId: a.attemptId, reason })}
                     />
                   )}
                 </li>
@@ -306,7 +312,7 @@ function ItemRow({ userId, item, canChange, busy, send }: { userId: string; item
           button="Mark complete"
           busy={busy}
           onSubmit={(reason) =>
-            void send({
+            send({
               op: 'markComplete',
               itemSlug: item.slug,
               reason,
@@ -321,7 +327,7 @@ function ItemRow({ userId, item, canChange, busy, send }: { userId: string; item
           button="Grant extension"
           busy={busy}
           onSubmit={(reason) =>
-            void send({
+            send({
               op: 'extension',
               itemSlug: item.slug,
               until: instant(until),
@@ -360,14 +366,7 @@ function Progress({ view, busy, send }: { view: LearnerView; busy: boolean; send
             <h4>{PATH[course.pathSlug]}</h4>
             <ol className="dk-stack">
               {course.items.map((item) => (
-                <ItemRow
-                  key={`${item.slug}-${view.asOf}`}
-                  userId={view.userId}
-                  item={item}
-                  canChange={part.data.canChange}
-                  busy={busy}
-                  send={send}
-                />
+                <ItemRow key={item.slug} userId={view.userId} item={item} canChange={part.data.canChange} busy={busy} send={send} />
               ))}
             </ol>
           </div>
@@ -389,10 +388,13 @@ export function AcademyLearnerDesk({ userId, initial }: { userId: string; initia
 
   const send: Send = async (body) => {
     setBusy(true);
-    setReply(await postLearnerChange({ userId, ...body }));
-    setBusy(false);
-    // Whatever the answer, the page shows the learner as the services hold them now.
+    const answer = await postLearnerChange({ userId, ...body });
+    setReply(answer);
+    // Whatever the answer, the page shows the learner as the services hold them now. The forms stay as they are across
+    // the read (nothing typed is lost), and every button waits until it is done.
     await reload();
+    setBusy(false);
+    return answer.ok;
   };
 
   const page = view?.page;
@@ -432,8 +434,8 @@ export function AcademyLearnerDesk({ userId, initial }: { userId: string; initia
               </ul>
             )}
           </section>
-          <Notes key={`notes-${view.asOf}`} page={page.data} busy={busy} send={send} />
-          <Tags key={`tags-${view.asOf}`} page={page.data} busy={busy} send={send} />
+          <Notes page={page.data} busy={busy} send={send} />
+          <Tags page={page.data} busy={busy} send={send} />
           <Progress view={view} busy={busy} send={send} />
           <section className="dk-stack" aria-labelledby="h-learner-audit" data-testid="learner-audit">
             <h3 id="h-learner-audit">Audit</h3>
