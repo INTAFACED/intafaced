@@ -2618,6 +2618,11 @@ export function createIdentityRouter(
             const customerNote = input.customerNote ?? null;
             const noteVisible = input.noteVisible ?? false;
             await auth.assertKycRejectable(input.recordId, { reasonCode: input.reasonCode, customerNote, noteVisible });
+            // A retry of the same reject returns the stored result and spends no second approval: it changes nothing.
+            if (await auth.isKycRejectStored?.(input.recordId, { reasonCode: input.reasonCode, customerNote, noteVisible })) {
+              const stored = await auth.getKycRecord(input.recordId);
+              if (stored) return presentKyc(stored);
+            }
             // The second operator approves what the customer will read: the reason, the note and whether it shows.
             const parties = await consumePrivileged(
               ctx.principal.userId,

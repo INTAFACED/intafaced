@@ -216,6 +216,19 @@ export async function rejectKycCase(
  * is refused here first (`kyc.case_state`). The same reject again passes, to return the stored result. The decision's
  * own transaction checks again under its lock.
  */
+/**
+ * The same reject again on a record already rejected with this exact decision (code, note, visibility): a retry, which
+ * returns the stored result and spends no approval, because it changes nothing (I-kyc-compliance-01, T-8).
+ */
+export async function isStoredReject(sql: Sql, recordId: string, decision: KycRejectDecision): Promise<boolean> {
+  const [row] = await sql<
+    Array<{ status: string; reason_code: string | null; customer_note: string | null; note_visible: boolean | null }>
+  >`
+    SELECT r.status, c.reason_code, c.customer_note, c.note_visible
+    FROM kyc_records r LEFT JOIN kyc_cases c ON c.record_id = r.id WHERE r.id = ${recordId}`;
+  return row?.status === 'rejected' && sameReject({ ...row, note_visible: row.note_visible ?? false }, decision);
+}
+
 export async function assertRejectable(sql: Sql, recordId: string, decision: KycRejectDecision): Promise<void> {
   const [row] = await sql<
     Array<{ status: string; reason_code: string | null; customer_note: string | null; note_visible: boolean | null }>

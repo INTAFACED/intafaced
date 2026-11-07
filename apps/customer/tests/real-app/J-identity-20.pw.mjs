@@ -5,7 +5,7 @@ import { unconfirmedAccount } from './p2p.mjs';
 import { randomBytes } from 'node:crypto';
 import { api, ORIGIN, signUpInBrowser } from './stack.mjs';
 import { businessReadyPerson, openBusiness, sentForReview } from './merchant.mjs';
-import { staffSignIn } from './staff.mjs';
+import { staffSignIn, staffVerified } from './staff.mjs';
 
 // J-identity-20: I work the verification queue (compliance). Signed in to the admin app as compliance (the stack's TEST
 // compliance member), on the verification queue. Money: none. The second reviewer is a TEST founder. Every case here is a
@@ -435,6 +435,12 @@ test('J-identity-20 #9 a business application shows compliance the same status t
   await expect(businessNote).toBeVisible({ timeout: 60_000 });
   const businessSees = (await businessNote.innerText()).trim();
 
+  // svc-pay's reads admit a caller verified at the pay module's level, as they admit a verified founder: the TEST compliance
+  // member is verified the way any person is, then signs in, so the session carries that level.
+  const first = await (await browser.newContext()).newPage();
+  await staffSignIn(first, browser, 'compliance');
+  await first.context().close();
+  await staffVerified('compliance');
   const compliance = await (await browser.newContext()).newPage();
   await staffSignIn(compliance, browser, 'compliance');
   try {

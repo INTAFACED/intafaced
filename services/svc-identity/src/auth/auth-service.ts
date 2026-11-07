@@ -4,6 +4,7 @@ import { transaction } from '@intafaced/db';
 import {
   approveKycCase,
   assertRejectable,
+  isStoredReject,
   listKycCases,
   openKycCase,
   rejectKycCase,
@@ -3168,6 +3169,11 @@ export class AuthService {
    */
   async assertKycRejectable(recordId: string, decision: KycRejectDecision): Promise<void> {
     await assertRejectable(this.sql, recordId, decision);
+  }
+
+  /** True when this exact reject is already stored on the record: a retry, answered with the stored result. */
+  async isKycRejectStored(recordId: string, decision: KycRejectDecision): Promise<boolean> {
+    return await isStoredReject(this.sql, recordId, decision);
   }
 
   async listPendingKyc(limit: number): Promise<KycRecordView[]> {
