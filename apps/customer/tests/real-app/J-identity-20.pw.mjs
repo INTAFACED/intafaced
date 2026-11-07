@@ -4,6 +4,7 @@ import { ADMIN, founderSignIn } from './admin.mjs';
 import { unconfirmedAccount } from './p2p.mjs';
 import { randomBytes } from 'node:crypto';
 import { api, ORIGIN, signUpInBrowser } from './stack.mjs';
+import { businessReadyPerson, openBusiness, sentForReview } from './merchant.mjs';
 import { staffSignIn } from './staff.mjs';
 
 // J-identity-20: I work the verification queue (compliance). Signed in to the admin app as compliance (the stack's TEST
@@ -418,6 +419,34 @@ test('J-identity-20 #3 a request for information with a deadline: the case becom
     const theirs = (await history()).find((c) => c.id === caseId);
     expect(theirs?.state).toBe('info_requested');
     expect(theirs?.tasks?.map((t) => t.key)).toEqual(['proof_of_address', 'source_of_funds']);
+  } finally {
+    await compliance.context().close();
+  }
+});
+
+test('J-identity-20 #9 a business application shows compliance the same status the business sees', async ({ browser, page }) => {
+  test.setTimeout(480_000);
+  // A TEST business sends its verification for review from its own onboarding step, which then reads "in review".
+  const who = await businessReadyPerson(page, 'jk');
+  const merchantId = await openBusiness(page, who, 'TEST Identity Twenty Ltd');
+  await sentForReview(page, who);
+  await page.goto('/pay/onboarding/verification');
+  const businessNote = page.getByRole('note').filter({ hasText: 'INTAFACED' });
+  await expect(businessNote).toBeVisible({ timeout: 60_000 });
+  const businessSees = (await businessNote.innerText()).trim();
+
+  const compliance = await (await browser.newContext()).newPage();
+  await staffSignIn(compliance, browser, 'compliance');
+  try {
+    // Compliance opens the application from the verification queue by the business's merchant id.
+    await compliance.goto(`${ADMIN}/identity-ops/kyc`, { waitUntil: 'load' });
+    await compliance.getByLabel('Merchant id').fill(merchantId);
+    await compliance.getByRole('button', { name: 'Open business application' }).click();
+    const app = compliance.getByTestId('kyb-application');
+    await expect(app).toHaveAttribute('data-merchant', merchantId, { timeout: 60_000 });
+    await expect(app.getByTestId('kyb-application-status')).toHaveAttribute('data-status', 'pending');
+    // The same status, in the same words the business reads.
+    await expect(app.getByTestId('kyb-application-business-sees')).toHaveText(businessSees);
   } finally {
     await compliance.context().close();
   }

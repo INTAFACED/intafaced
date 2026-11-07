@@ -109,6 +109,15 @@ export function KycReviewQueue({ me }: { me: string }) {
           time. Decisions are made on the case.
         </p>
       </header>
+      <form className="dk-row" action="/identity-ops/kyc/business" method="get" data-testid="kyb-open">
+        <label className="dk-stack">
+          <span>Business application: merchant id</span>
+          <input name="merchantId" aria-label="Merchant id" pattern="[0-9a-fA-F-]{36}" required />
+        </label>
+        <button type="submit" className="adm-btn">
+          Open business application
+        </button>
+      </form>
       {page === null ? (
         <p data-testid="kyc-queue-loading">Reading the queue from identity…</p>
       ) : !page.ok ? (
