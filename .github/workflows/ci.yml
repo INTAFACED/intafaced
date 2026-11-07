@@ -567,3 +567,17 @@ jobs:
           REPO: ${{ github.repository }}
         # The default branch's copy decides which changes need the review. Editing this step is a .github/ change, which needs it.
         run: node "$RUNNER_TEMP/base/tooling/ci/review-marker.mjs"
+      # The factory switch (owner decision 2026-11-07): the repo variable FACTORY. Only `run` lets a pull request or a merge queue's commit
+      # through; `pause`, a blank or anything else fails the seal, whoever opened the pull request. A push to main is never
+      # stopped, so main is still verified while paused. It runs after the other verdicts so they still show. After a flip
+      # back to `run`, re-run the seal (a new push does too). Builders read it with `gh variable get FACTORY -R INTAFACED/intafaced`.
+      - name: The factory switch says run
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
+        env:
+          FACTORY: ${{ vars.FACTORY }}
+        run: |
+          if [ "$FACTORY" != run ]; then
+            echo "::error title=Factory paused::The repo variable FACTORY is '${FACTORY:-unset}', not 'run', so nothing merges (owner decision 2026-11-07). Read it with: gh variable get FACTORY -R INTAFACED/intafaced"
+            exit 1
+          fi
+          echo "FACTORY=run"
