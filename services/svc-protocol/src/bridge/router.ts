@@ -9,7 +9,7 @@ const procedure = publicJurisdictionProcedure('protocol', 'protocol');
  * attestation and the mint wait on the owner's decision on bridging scope and provider, so nothing here signs, holds a key
  * or posts to the ledger.
  */
-export function createBridgeRouter(deps: { loadRoutes?: () => unknown } = {}) {
+export function createBridgeRouter(deps: { loadRoutes?: (() => unknown) | undefined } = {}) {
   return router({
     routes: router({
       list: procedure.output(bridgeRoutesListOutputSchema).query(() => {

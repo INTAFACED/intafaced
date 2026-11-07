@@ -215,10 +215,10 @@ const en = {
   hdr_started: 'Started',
   bridgeRoutesUnset: 'No bridge routes are set. Routes are an owner decision.',
   ownerDecision: 'Owner decision',
-  providerUnset: 'Not named yet',
+  providerUnset: 'Not named by the owner',
   startTransfer: 'Start a transfer',
   startTransferBlocked: 'A transfer needs a published route.',
-  bridgeTransfersEmpty: 'No bridge transfers from this wallet yet.',
+  bridgeTransfersEmpty: 'This wallet has made no bridge transfers.',
   // Actions
   actionsTitle: 'Actions',
   actionsNote: 'Every action is shown. Each stays disabled and names the first thing blocking it.',
