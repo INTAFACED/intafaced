@@ -149,6 +149,7 @@ describe('typed text and labels', () => {
       delayedBoundarySeconds: '30',
       renderBudgetMs: '500',
       orderProtectionBps: '500',
+      queueFillWindowSeconds: '',
     });
   });
 
