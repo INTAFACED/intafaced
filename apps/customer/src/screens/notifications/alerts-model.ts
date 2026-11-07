@@ -66,6 +66,8 @@ export type Refusal =
   | 'quotaReached'
   | 'notFound'
   | 'logOff'
+  | 'webhookOff'
+  | 'webhookRejected'
   | 'other';
 
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
@@ -100,6 +102,8 @@ export function settleFailure(failure: Failure): Settled {
   if (/alert\.not_editable/.test(said)) return { kind: 'refused', refusal: 'notEditable' };
   if (/notify\.alert_trigger_log_retention_unset/.test(said)) return { kind: 'refused', refusal: 'logOff' };
   if (/alert\.(kind_unpublished|portfolio_view_unpublished)/.test(said)) return { kind: 'refused', refusal: 'unpublished' };
+  if (/notify\.alert_webhook_policy_unset/.test(said)) return { kind: 'refused', refusal: 'webhookOff' };
+  if (/alert\.(webhook_url_refused|webhook_url_missing|channel_unknown)/.test(said)) return { kind: 'refused', refusal: 'webhookRejected' };
   if (failure.status === 400 || /BAD_REQUEST/.test(said)) return { kind: 'refused', refusal: 'badRequest' };
   if (failure.reason === 'unreachable' || failure.reason === 'invalid_response') return { kind: 'unknown' };
   return { kind: 'refused', refusal: 'other' };

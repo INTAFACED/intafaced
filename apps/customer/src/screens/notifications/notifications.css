@@ -619,4 +619,36 @@
       width: calc(100% - 32px);
     }
   }
+  /* An alert's popup over the page (J-charts-desk-10): only while one shows. */
+  .nf-cues {
+    position: fixed;
+    inset-block-end: 1rem;
+    inset-inline-end: 1rem;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-inline-size: min(22.5rem, calc(100vw - 2rem));
+  }
+  .nf-cue {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    background: var(--if-bg);
+  }
+  .nf-channels .nf-channel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-block-end: 0.5rem;
+  }
+  .nf-channel__box {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .nf-attempts {
+    margin: 0;
+    padding-inline-start: 1.25rem;
+  }
 }

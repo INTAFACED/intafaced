@@ -227,6 +227,9 @@ export const priceAlertSchema = z.object({
   stopReason: z.enum(['burst']).nullable().optional(),
   // The price it watches. A service that does not send it watches the mark.
   source: z.enum(ALERT_SOURCES).optional(),
+  // How it reaches the person (J-charts-desk-10). A service that does not send them names no channel beyond the inbox.
+  channels: z.array(z.enum(['inapp', 'popup', 'sound', 'email', 'push', 'webhook'])).optional(),
+  webhookUrl: z.string().nullable().optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 export type AlertFrequency = 'once' | 'every_crossing';
@@ -263,7 +266,15 @@ export interface AlertIntent {
   frequency?: AlertFrequency;
   /** Left out, the alert watches the mark. */
   source?: AlertSource;
+  /** Channels beyond the in-app inbox (which every alert writes). Left out, the inbox alone. */
+  channels?: AlertChannel[];
+  /** The webhook's URL, with the webhook channel. */
+  webhookUrl?: string;
 }
+
+/** How an alert reaches the person: the inbox always, and any of these. */
+export const ALERT_CHANNELS = ['inapp', 'popup', 'sound', 'email', 'push', 'webhook'] as const;
+export type AlertChannel = (typeof ALERT_CHANNELS)[number];
 
 export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
 
@@ -337,6 +348,8 @@ export function createPriceAlert(
       ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
       ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
       ...(intent.source && intent.source !== 'mark' ? { source: intent.source } : {}),
+      ...(intent.channels && intent.channels.some((c) => c !== 'inapp') ? { channels: intent.channels } : {}),
+      ...(intent.webhookUrl && intent.channels?.includes('webhook') ? { webhookUrl: intent.webhookUrl } : {}),
     },
     z.object({
       alert: priceAlertSchema.refine(
@@ -527,3 +540,114 @@ export function createPriceAlerts(
     }),
   );
 }
+
+// ── Following a watchlist (J-charts-desk-09 #7, C-alerts-scan-03) ───────────────────────────────────────────────
+// `notify.createWatchlistAlert` and `notify.stopWatchlistAlert` (notify:write), `notify.watchlistAlerts` (notify:read). The list is
+// the account's own (`trade.watchlists`), read by the service from identity: the page sends only which list, never its markets.
+
+/** Why the last check of a followed list added nothing it should have. Null when it had nothing to refuse. */
+export const WATCH_RULE_SYNC_CODES = [
+  'identity.watchlists_unavailable',
+  'alert.watchlist_not_found',
+  'alert.markets_unavailable',
+  'alert.quota_reached',
+  'notify.alert_quota_unset',
+  'alert.watchlist_sync_failed',
+] as const;
+export type WatchRuleSyncCode = (typeof WATCH_RULE_SYNC_CODES)[number];
+
+export const watchRuleSchema = z.object({
+  id: z.string().guid(),
+  listId: z.string().min(1).max(40),
+  listName: z.string().min(1).max(40),
+  condition: z.enum(ALERT_CONDITIONS),
+  targetPrice: z.string().min(1).max(64),
+  status: z.enum(['active', 'stopped']),
+  markets: z.array(z.string()),
+  createdAt: date,
+  lastSyncAt: date.nullable(),
+  // A code this page does not know reads as one it cannot name, never as "nothing refused".
+  lastSyncCode: z.string().nullable(),
+});
+export type WatchRule = z.infer<typeof watchRuleSchema>;
+
+export const listWatchRules = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<{ items: WatchRule[] }>> =>
+  api.query('notify', 'notify.watchlistAlerts', undefined, z.object({ items: z.array(watchRuleSchema).max(100) }), { signal });
+
+export interface FollowIntent {
+  listId: string;
+  condition: AlertCondition;
+  /** A positive decimal string, exactly as the person typed it (trimmed). */
+  targetPrice: string;
+}
+
+/** Follow a list. The answer must be this person's alerts, one per covered market, each with the rule just sent, or it is not believed. */
+export function createWatchRule(
+  api: ApiClient,
+  intent: FollowIntent,
+  userId: string,
+): Promise<ApiResult<{ rule: WatchRule; alerts: PriceAlert[] }>> {
+  return api.mutate(
+    'notify',
+    'notify.createWatchlistAlert',
+    { listId: intent.listId, condition: intent.condition, targetPrice: intent.targetPrice },
+    z
+      .object({ rule: watchRuleSchema, alerts: z.array(priceAlertSchema).min(1) })
+      .refine(
+        ({ rule, alerts }) =>
+          rule.listId === intent.listId &&
+          rule.condition === intent.condition &&
+          canonicalPrice(rule.targetPrice) === canonicalPrice(intent.targetPrice) &&
+          alerts.every(
+            (row) =>
+              row.userId === userId &&
+              row.kind === 'price' &&
+              row.status === 'active' &&
+              row.condition === intent.condition &&
+              canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice),
+          ) &&
+          JSON.stringify(alerts.map((row) => row.marketId).sort()) === JSON.stringify([...rule.markets].sort()),
+        'Returned alerts do not match',
+      ),
+  );
+}
+
+/** Stop following a list. Its alerts stay. Stopping twice is harmless. */
+export const stopWatchRule = (api: ApiClient, id: string): Promise<ApiResult<{ rule: WatchRule | null }>> =>
+  api.mutate(
+    'notify',
+    'notify.stopWatchlistAlert',
+    { id },
+    z
+      .object({ rule: watchRuleSchema.nullable() })
+      .refine(({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'), 'Returned rule does not match'),
+  );
+
+// ── How an alert reaches the person (J-charts-desk-10, C-alerts-scan-04) ────────────────────────────────────────
+// `notify.alertWebhookPolicy` and `notify.alertWebhookAttempts` (notify:read).
+
+const webhookPolicySchema = z.object({
+  policy: z
+    .object({ maxAttempts: z.number().int().min(1), backoffMs: z.array(z.number().int().positive()) })
+    .refine((p) => p.backoffMs.length === p.maxAttempts - 1, 'one wait for each retry')
+    .nullable(),
+});
+export type WebhookPolicy = NonNullable<z.infer<typeof webhookPolicySchema>['policy']>;
+/** The webhook retry policy the service publishes; `policy: null` while the owner has not set it. */
+export const readWebhookPolicy = (api: ApiClient, signal?: AbortSignal) =>
+  api.query('notify', 'notify.alertWebhookPolicy', undefined, webhookPolicySchema, { signal });
+
+export const webhookAttemptSchema = z.object({
+  alertId: z.string(),
+  trigger: z.number().int(),
+  attempt: z.number().int(),
+  status: z.enum(['pending', 'delivered', 'failed']),
+  httpStatus: z.number().int().nullable(),
+  error: z.string().nullable(),
+  dueAt: date,
+  attemptedAt: date.nullable(),
+});
+export type WebhookAttempt = z.infer<typeof webhookAttemptSchema>;
+/** Every webhook attempt of the person's alerts: the delivery log and its error diagnostics. */
+export const listWebhookAttempts = (api: ApiClient, signal?: AbortSignal) =>
+  api.query('notify', 'notify.alertWebhookAttempts', undefined, z.object({ items: z.array(webhookAttemptSchema).max(500) }), { signal });

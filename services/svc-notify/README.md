@@ -825,8 +825,31 @@ a row. A redelivery reuses the same key and cannot double-send.
 - Watchlist alert (C-alerts-scan-03c): `notify.createAlerts` takes up to 100 market ids and one rule and creates one alert per
   market, checked like a single create, as one step: all or none. The batch is held to the same price-alert quota as a whole
   (`alert.quota_reached`, with how many are open and how many were asked for), a market named twice is made once, and a blank cap
-  or price refuses as a single create does. The service holds no watchlist: the caller sends the list, so a market added to a
-  list later is not picked up (C-alerts-scan-03d needs the account-side list).
+  or price refuses as a single create does. This batch holds no watchlist: the caller sends the markets, so a later addition
+  is not picked up. Following a list (below) does pick additions up.
+- How an alert reaches the person (J-charts-desk-10, C-alerts-scan-04): `notify.createAlert` takes `channels` (any of `popup`,
+  `sound`, `email`, `push`, `webhook`; the in-app inbox is always on) and a `webhookUrl`, stored in `notify.alert_channels`
+  (migration `20261107092357`); `notify.alerts` returns each alert's channels. Email and push go through the fan-out's own
+  channels, which refuse by name while their gateway is not configured, so nothing reports an alert as emailed or pushed.
+  Popup and sound are played by the customer app while it is open. The webhook is our own adapter: when an alert fires, one
+  attempt per trigger is queued (`notify.alert_webhook_attempts`, keyed alert, trigger and attempt), and a pass every two
+  seconds POSTs each due attempt once with the alert's JSON body. A failure queues the next attempt after the published wait,
+  until the last: `NOTIFY_ALERT_WEBHOOK_MAX_ATTEMPTS` (every POST, the first included) and `NOTIFY_ALERT_WEBHOOK_BACKOFF_MS`
+  (comma-separated waits, one per retry), both blank by default, which refuses the webhook channel
+  (`notify.alert_webhook_policy_unset`). `notify.alertWebhookPolicy` publishes the policy; `notify.alertWebhookAttempts` is the
+  person's delivery log with each HTTP status or error. A webhook URL must be https to a public address, checked on save and
+  pinned on send. `NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER=on` lets a TEST receiver on this machine's loopback through, and
+  boot refuses it unless APP_ENV is exactly dev or test.
+- Following a watchlist (J-charts-desk-09 #7, C-alerts-scan-03d): `notify.createWatchlistAlert({listId, condition, targetPrice})`
+  reads the person's account lists from identity (`preferences.watchlistsFor`, a service-only door svc-notify alone may call,
+  signed with its own key once S2S is on, else `INTERNAL_SERVICE_SECRET`; `IDENTITY_URL`), maps each symbol to its market id
+  through the trade market list the marks read, and stores one price alert per market and the rule
+  (`notify.watchlist_alerts`, migration `20261107074033`) in one transaction under the price-alert quota. Each alert sweep first
+  reads every active rule's list again (one identity read per person) and adds an alert for each market added since, all or
+  none under the quota, before evaluating, so an addition is watched from that sweep on. A sweep that cannot read the lists or
+  the markets, finds the list gone, or meets the quota adds nothing and records why on the rule (`last_sync_code`). Nothing is
+  taken away: a market taken off the list keeps its alert, and a market once covered is never added again, even after its alert
+  was deleted. `notify.watchlistAlerts` lists the rules; `notify.stopWatchlistAlert({id})` stops following and keeps the alerts.
 - Not built here, and refused rather than faked: trigger frequencies other than once (C-alerts-scan-01c) and technical
   (indicator) alerts (C-alerts-scan-01d).
 

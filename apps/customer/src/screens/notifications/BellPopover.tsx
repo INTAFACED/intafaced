@@ -6,6 +6,7 @@ import { notifyCopy } from './copy';
 import { announceChange } from './notify-api';
 import { InboxFailure, NotificationRow } from './NotificationRow';
 import { useInboxView, useUnreadCount } from './use-notifications';
+import { AlertCues } from './AlertCues';
 
 /** How many notifications the popover lists; the rest are one click away under "See all". */
 export const POPOVER_ITEMS = 8;
@@ -34,6 +35,7 @@ export function BellPopover({ path }: { path?: string }) {
   const shown = unread && unread > 99 ? '99+' : unread;
   return (
     <Popover open={open} onOpenChange={setOpen}>
+      <AlertCues unread={unread} />
       <PopoverTrigger
         render={<button type="button" />}
         data-testid="tb-bell"

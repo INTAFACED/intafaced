@@ -2,7 +2,7 @@ import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
 import { edgeTrustFromEnv } from '@intafaced/config';
-import { retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
+import { createIdentityWatchlistsClient, retainRawBody, s2sFromEnv, type StatusPage } from '@intafaced/contracts';
 import { createGuestIngressContext } from './guests/context.js';
 import { GuestNotificationService } from './guests/service.js';
 import { channelGuestMailSender, GuestVerificationService, outboxGuestMailSender } from './guests/verification.js';
@@ -53,6 +53,16 @@ import { subscribeNotificationEvents } from './events.js';
 import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './alerts/service.js';
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
 import { PostgresAlertStore } from './alerts/store.js';
+import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
+import {
+  AlertWebhookDelivery,
+  IN_APP_ONLY,
+  PostgresAlertDeliveryStore,
+  parseBackoff,
+  webhookBody,
+  webhookPolicy,
+  webhookTargetCheck,
+} from './alerts/webhooks.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
@@ -339,6 +349,34 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
+/**
+ * How an alert reaches the person (J-charts-desk-10): its channels and the webhook adapter, with the owner's published retry
+ * policy. A local TEST receiver is let through only under NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER=on, which env.ts refuses
+ * outside APP_ENV dev and test.
+ */
+const alertDelivery = new PostgresAlertDeliveryStore(sql);
+const alertWebhookPolicy = webhookPolicy(env.NOTIFY_ALERT_WEBHOOK_MAX_ATTEMPTS, parseBackoff(env.NOTIFY_ALERT_WEBHOOK_BACKOFF_MS));
+const allowLocalTestReceiver = env.NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER === 'on';
+const alertWebhookCheck = webhookTargetCheck({ allowLocalTestReceiver });
+const alertWebhooks = new AlertWebhookDelivery(alertDelivery, alertWebhookPolicy, {
+  allowLocalTestReceiver,
+  timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+});
+/** The market's symbol for the webhook body, from the same market list the marks read; its id when the list is unread. */
+async function symbolOf(marketId: string): Promise<string> {
+  const bySymbol = alertMarks.marketIdsBySymbol ? await alertMarks.marketIdsBySymbol() : null;
+  for (const [symbol, id] of bySymbol ?? []) if (id === marketId) return symbol;
+  return marketId;
+}
+const queueAlertWebhook = async (
+  alert: Parameters<typeof webhookBody>[0],
+  trigger: { seq: number; markPrice: string; at: Date; message: string | null },
+) => {
+  const choice = (await alertDelivery.choices([alert.id])).get(alert.id) ?? IN_APP_ONLY;
+  if (!choice.channels.includes('webhook')) return;
+  const body = webhookBody(alert, { ...trigger, market: await symbolOf(alert.marketId) });
+  await alertWebhooks.queue(alert, choice, trigger.seq, body, trigger.at);
+};
 const alerts = new AlertService(
   new PostgresAlertStore(sql),
   alertMarks,
@@ -355,6 +393,18 @@ const alerts = new AlertService(
     burstMaxTriggers: env.NOTIFY_ALERT_BURST_MAX_TRIGGERS ?? null,
   },
   new PostgresAlertTriggerLog(sql),
+  queueAlertWebhook,
+);
+/**
+ * Watchlist alerts (J-charts-desk-09 #7): the person's lists come from identity (`preferences.watchlistsFor`, svc-notify only),
+ * and the listed markets from the same trade market list the marks read. A blank IDENTITY_URL or service secret leaves the
+ * client unwired: a create refuses `identity.watchlists_unavailable` and the sweep adds nothing, saying why on each rule.
+ */
+const watchRules = new WatchRuleService(
+  alerts,
+  new PostgresWatchRuleStore(sql),
+  createIdentityWatchlistsClient({ identityUrl: process.env.IDENTITY_URL, secret: process.env.INTERNAL_SERVICE_SECRET, s2s: s2sKey }),
+  async () => (alertMarks.marketIdsBySymbol ? alertMarks.marketIdsBySymbol() : null),
 );
 /** Last alert sweep — see the interval below. Null until the first pass completes. */
 let lastAlertSweep: AlertSweepReport | null = null;
@@ -408,6 +458,8 @@ export const appRouter = createNotifyRouter(
       addressWindowMs: env.NOTIFY_GUEST_ADDRESS_WINDOW_MS,
     },
   ),
+  watchRules,
+  { store: alertDelivery, policy: alertWebhookPolicy, check: alertWebhookCheck },
 );
 export type AppRouter = typeof appRouter;
 
@@ -583,12 +635,29 @@ const alertSweepRecorder = {
 
 // Boot pass — an interval-only driver made `/ready` read "never ran" and left
 // watches blind until the first tick.
-void runAlertSweepPass(alerts, alertSweepRecorder);
+void runAlertSweepPass(alerts, alertSweepRecorder, watchRules);
 
 const alertSweep = setInterval(() => {
-  void runAlertSweepPass(alerts, alertSweepRecorder);
+  void runAlertSweepPass(alerts, alertSweepRecorder, watchRules);
 }, ALERT_SWEEP_INTERVAL_MS);
 alertSweep.unref();
+
+/**
+ * THE ALERT WEBHOOK PASS (J-charts-desk-10 #3, #4): every two seconds, each due attempt is POSTed once and logged; a failure
+ * queues the next attempt after the published wait, until the last. Fail-safe: a pass that cannot run logs and waits.
+ */
+let webhookPassRunning = false;
+const alertWebhookPass = setInterval(() => {
+  if (webhookPassRunning) return;
+  webhookPassRunning = true;
+  void alertWebhooks
+    .tick()
+    .catch((err) => app.log.error({ err }, 'svc-notify alert webhook pass failed — due attempts wait for the next pass'))
+    .finally(() => {
+      webhookPassRunning = false;
+    });
+}, 2_000);
+alertWebhookPass.unref();
 
 /**
  * THE MAINTENANCE REMINDER SWEEP (SP-status-03): makes each published window's reminder rows and sends the due ones.
@@ -655,6 +724,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       clearInterval(reaper);
       clearInterval(alertSweep);
+      clearInterval(alertWebhookPass);
       for (const sub of subscriptions) await sub.unsubscribe().catch(() => undefined);
       await app.close();
       await bus.close();

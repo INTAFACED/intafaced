@@ -40,6 +40,18 @@ import {
 } from './alerts/service.js';
 import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.js';
 import { AlertValidationError } from './alerts/store.js';
+import { WatchRuleError, type WatchRule, type WatchRuleService } from './alerts/watch-rules.js';
+import {
+  ALERT_CHANNELS,
+  AlertChannelError,
+  IN_APP_ONLY,
+  NOTIFY_ALERT_WEBHOOK_POLICY_UNSET,
+  assertChannelChoice,
+  type AlertChannelChoice,
+  type AlertDeliveryStore,
+  type WebhookPolicy,
+  type WebhookTargetCheck,
+} from './alerts/webhooks.js';
 import {
   ALERT_CONDITIONS,
   ALERT_FREQUENCIES,
@@ -485,6 +497,10 @@ const alertExtras = {
   frequency: z.enum(ALERT_FREQUENCIES).optional(),
   /** Which price a price alert is evaluated against: `mark` (the default: mid when two-sided, else last), `bid`, `ask` or `last`. */
   source: z.enum(ALERT_PRICE_SOURCES).optional(),
+  /** How the alert reaches the person (J-charts-desk-10): in-app always, and any of popup, sound, email, push and webhook. */
+  channels: z.array(z.enum(ALERT_CHANNELS)).max(ALERT_CHANNELS.length).optional(),
+  /** The webhook's URL, needed with the webhook channel: https to a public address (a local TEST receiver on the test stack). */
+  webhookUrl: z.string().max(2048).nullable().optional(),
   /** Added level conditions on the same market; all must hold with the main one. */
   extras: z
     .array(z.object({ condition: z.enum(EXTRA_CONDITIONS), targetPrice: z.string().min(1).max(64) }))
@@ -516,6 +532,9 @@ const priceAlertOutput = z.object({
   /** Why a stopped alert was stopped by the platform: `burst` (it triggered too often). Null for a pause by the person. */
   stopReason: z.enum(['burst']).nullable(),
   lastFiredAt: z.string().nullable(),
+  /** The channels it reaches, where the answer names them (the list and a create). */
+  channels: z.array(z.enum(ALERT_CHANNELS)).optional(),
+  webhookUrl: z.string().nullable().optional(),
 });
 
 /**
@@ -558,8 +577,37 @@ function alertManagerError(err: unknown): unknown {
   return err;
 }
 
-function priceAlertToWire(row: PriceAlert) {
+const watchRuleOutput = z.object({
+  id: z.string(),
+  listId: z.string(),
+  listName: z.string(),
+  condition: z.enum(ALERT_CONDITIONS),
+  targetPrice: z.string(),
+  status: z.enum(['active', 'stopped']),
+  markets: z.array(z.string()),
+  createdAt: z.string(),
+  lastSyncAt: z.string().nullable(),
+  lastSyncCode: z.string().nullable(),
+});
+
+function watchRuleToWire(row: WatchRule) {
   return {
+    id: row.id,
+    listId: row.listId,
+    listName: row.listName,
+    condition: row.condition,
+    targetPrice: row.targetPrice,
+    status: row.status,
+    markets: [...row.markets],
+    createdAt: row.createdAt.toISOString(),
+    lastSyncAt: row.lastSyncAt ? row.lastSyncAt.toISOString() : null,
+    lastSyncCode: row.lastSyncCode,
+  };
+}
+
+function priceAlertToWire(row: PriceAlert, choice?: AlertChannelChoice) {
+  return {
+    ...(choice ? { channels: [...choice.channels], webhookUrl: choice.webhookUrl } : {}),
     id: row.id,
     userId: row.userId,
     marketId: row.marketId,
@@ -599,7 +647,24 @@ export function createNotifyRouter(
   statusPage?: StatusPageDeps,
   navMetrics?: NavMetricStore,
   verifications?: GuestVerificationService,
+  watchRules?: WatchRuleService,
+  delivery?: { store: AlertDeliveryStore; policy: WebhookPolicy | null; check: WebhookTargetCheck },
 ) {
+  /** The channels a create asked for, checked before anything is stored. Without delivery wired, in-app alone. */
+  const choiceOf = async (input: { channels?: readonly string[]; webhookUrl?: string | null }): Promise<AlertChannelChoice> => {
+    const asked = (input.channels ?? []).filter((c) => c !== 'inapp');
+    if (!delivery) {
+      if (asked.length > 0) throw new AlertChannelError(NOTIFY_ALERT_WEBHOOK_POLICY_UNSET, 'alert delivery is not wired');
+      return IN_APP_ONLY;
+    }
+    return assertChannelChoice(input, delivery.policy, delivery.check);
+  };
+  const channelError = (err: AlertChannelError) =>
+    new TRPCError({
+      code: err.code === NOTIFY_ALERT_WEBHOOK_POLICY_UNSET ? 'PRECONDITION_FAILED' : 'BAD_REQUEST',
+      message: err.message,
+      cause: err,
+    });
   return router({
     guestNotifications: guestNotificationsRouter(guests),
     guestVerification: guestVerificationRouter(verifications),
@@ -1640,8 +1705,10 @@ export function createNotifyRouter(
           try {
             const limit = assertNotifyAlertsListLimit(input?.limit);
             if (!alerts) return { items: [], evaluation: NO_ALERT_SERVICE };
+            const rows = await alerts.list(ctx.principal.userId, limit);
+            const choices = delivery ? await delivery.store.choices(rows.map((row) => row.id)) : new Map<string, AlertChannelChoice>();
             return {
-              items: (await alerts.list(ctx.principal.userId, limit)).map(priceAlertToWire),
+              items: rows.map((row) => priceAlertToWire(row, choices.get(row.id) ?? IN_APP_ONLY)),
               evaluation: alerts.evaluationStatus(),
             };
           } catch (err) {
@@ -1772,6 +1839,8 @@ export function createNotifyRouter(
             if (condition && condition !== 'crossing' && directionOfCondition(condition) !== input.direction) {
               throw new TRPCError({ code: 'BAD_REQUEST', message: 'alert.invalid_direction: condition and direction disagree' });
             }
+            const channelInput = input as { channels?: readonly string[]; webhookUrl?: string | null };
+            const choice = await choiceOf(channelInput);
             const row = await alerts.create({
               userId: ctx.principal.userId,
               marketId: input.marketId,
@@ -1786,11 +1855,21 @@ export function createNotifyRouter(
               ...(extras.frequency ? { frequency: extras.frequency } : {}),
               ...(extras.source ? { source: extras.source } : {}),
             });
+            if (delivery && choice !== IN_APP_ONLY) {
+              // Stored with the alert, or the alert is taken back: an alert never fires without the channels it was set to.
+              try {
+                await delivery.store.setChoice(ctx.principal.userId, row.id, choice);
+              } catch (err) {
+                await alerts.remove(ctx.principal.userId, row.id).catch(() => undefined);
+                throw err;
+              }
+            }
             return {
-              alert: priceAlertToWire(row),
+              alert: priceAlertToWire(row, choice),
               evaluation: kind === 'whale' ? alerts.whaleEvaluationStatus() : alerts.evaluationStatus(),
             };
           } catch (err) {
+            if (err instanceof AlertChannelError) throw channelError(err);
             if (err instanceof NotifyPriceUnsetError) {
               throw new TRPCError({
                 code: 'PRECONDITION_FAILED',
@@ -1847,12 +1926,104 @@ export function createNotifyRouter(
               ...(input.frequency ? { frequency: input.frequency } : {}),
               ...(input.source ? { source: input.source } : {}),
             });
-            return { alerts: rows.map(priceAlertToWire), evaluation: alerts.evaluationStatus() };
+            return { alerts: rows.map((row) => priceAlertToWire(row)), evaluation: alerts.evaluationStatus() };
           } catch (err) {
             if (err instanceof AlertValidationError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
             throw alertManagerError(err);
           }
         }),
+
+      /**
+       * A watchlist alert (J-charts-desk-09 #7): one price rule on every market of one of the person's watchlists, read from
+       * identity. One price alert per market is stored with the rule, all or none, under the price-alert quota; each sweep then
+       * adds an alert for a market added to the list since. Refuses `identity.watchlists_unavailable` when identity gives no
+       * answer and `alert.watchlist_not_found` for a list the person does not have: never an empty list standing in for either.
+       */
+      createWatchlistAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            listId: z.string().min(1).max(40),
+            condition: z.enum(ALERT_CONDITIONS),
+            /** Decimal string. Optional so a blank price reaches `notify.price_unset` instead of a Zod "Required". */
+            targetPrice: z.string().max(64).optional(),
+          }),
+        )
+        .output(z.object({ rule: watchRuleOutput, alerts: z.array(priceAlertOutput).min(1) }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts || !watchRules) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'identity.watchlists_unavailable' });
+          try {
+            const made = await watchRules.create({ userId: ctx.principal.userId, ...input });
+            return { rule: watchRuleToWire(made.rule), alerts: made.alerts.map((row) => priceAlertToWire(row)) };
+          } catch (err) {
+            if (err instanceof WatchRuleError) {
+              throw new TRPCError({
+                code: err.code === 'alert.watchlist_not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED',
+                message: err.code,
+                cause: err,
+              });
+            }
+            // Named by code (`alert.invalid_market: …`), so the page can say which refusal it was.
+            throw alertManagerError(err);
+          }
+        }),
+
+      /** The person's watchlist alerts, newest first, each with the markets it covers and why its last sweep added nothing. */
+      watchlistAlerts: scopedProcedure('notify:read', { module: 'notify' })
+        .output(z.object({ items: z.array(watchRuleOutput) }))
+        .query(async ({ ctx }) => ({ items: watchRules ? (await watchRules.list(ctx.principal.userId)).map(watchRuleToWire) : [] })),
+
+      /** Stop following a list. The alerts it made stay, each managed on its own. Stopping twice is harmless. */
+      stopWatchlistAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(z.object({ id: z.string().guid() }))
+        .output(z.object({ rule: watchRuleOutput.nullable() }))
+        .mutation(async ({ ctx, input }) => {
+          const row = watchRules ? await watchRules.stop(ctx.principal.userId, input.id) : null;
+          return { rule: row ? watchRuleToWire(row) : null };
+        }),
+
+      /**
+       * The alert webhook's published retry policy (J-charts-desk-10 #4): the most POSTs one trigger gets, the first included,
+       * and the wait before each retry. Null while the owner has not set it: the webhook channel is then refused.
+       */
+      alertWebhookPolicy: scopedProcedure('notify:read', { module: 'notify' })
+        .output(z.object({ policy: z.object({ maxAttempts: z.number().int(), backoffMs: z.array(z.number().int()) }).nullable() }))
+        .query(() => ({
+          policy: delivery?.policy ? { maxAttempts: delivery.policy.maxAttempts, backoffMs: [...delivery.policy.backoffMs] } : null,
+        })),
+
+      /** Every webhook attempt of the person's alerts, oldest first per trigger: the delivery log and its error diagnostics. */
+      alertWebhookAttempts: scopedProcedure('notify:read', { module: 'notify' })
+        .input(z.object({ alertIds: z.array(z.string().guid()).max(100).optional() }).optional())
+        .output(
+          z.object({
+            items: z.array(
+              z.object({
+                alertId: z.string(),
+                trigger: z.number().int(),
+                attempt: z.number().int(),
+                status: z.enum(['pending', 'delivered', 'failed']),
+                httpStatus: z.number().int().nullable(),
+                error: z.string().nullable(),
+                dueAt: z.string(),
+                attemptedAt: z.string().nullable(),
+              }),
+            ),
+          }),
+        )
+        .query(async ({ ctx, input }) => ({
+          items: delivery
+            ? (await delivery.store.attempts(ctx.principal.userId, input?.alertIds)).map((row) => ({
+                alertId: row.alertId,
+                trigger: row.seq,
+                attempt: row.attempt,
+                status: row.status,
+                httpStatus: row.httpStatus,
+                error: row.error,
+                dueAt: row.dueAt.toISOString(),
+                attemptedAt: row.attemptedAt ? row.attemptedAt.toISOString() : null,
+              }))
+            : [],
+        })),
 
       cancelAlert: scopedProcedure('notify:write', { module: 'notify' })
         .input(z.object({ id: z.string().guid() }))

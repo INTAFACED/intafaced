@@ -297,6 +297,19 @@ const schema = serviceEnvSchema
       NOTIFY_ALERT_BURST_MAX_TRIGGERS: blankAsAbsent(z.coerce.number().int().min(1).max(1000).optional()),
 
       /**
+       * The alert webhook's published retry policy (J-charts-desk-10 #4). NO DEFAULT. The most POSTs one trigger gets, the first
+       * included, and the wait before each retry in milliseconds, comma separated (one fewer than the attempts). Either blank,
+       * or the two disagreeing, refuses the webhook channel (`notify.alert_webhook_policy_unset`).
+       */
+      NOTIFY_ALERT_WEBHOOK_MAX_ATTEMPTS: blankAsAbsent(z.coerce.number().int().min(1).max(20).optional()),
+      NOTIFY_ALERT_WEBHOOK_BACKOFF_MS: blankAsAbsent(z.string().max(200).optional()),
+      /**
+       * LOCAL TEST ONLY: `on` lets an alert webhook POST to a TEST receiver on this machine's loopback (http or https, any port).
+       * Refused at boot unless APP_ENV is exactly dev or test; unset, every webhook must be https to a public address.
+       */
+      NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER: blankAsAbsent(z.enum(['on']).optional()),
+
+      /**
        * Days an alert's trigger-log row is kept. NO DEFAULT. Blank / unset writes no log and the trigger log read refuses
        * (`notify.alert_trigger_log_retention_unset`); alerts still fire.
        */
@@ -343,6 +356,14 @@ const schema = serviceEnvSchema
           message: `${channel} gateway URL is set without ${names.token}. An unauthenticated notification gateway is an open relay — set the token, or unset the URL and let the channel refuse honestly.`,
         });
       }
+    }
+
+    if (parsed.NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER === 'on' && parsed.APP_ENV !== 'dev' && parsed.APP_ENV !== 'test') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER'],
+        message: `notify.alert_webhook_local_receiver_refused: a local TEST webhook receiver is allowed only when APP_ENV is exactly dev or test (APP_ENV=${parsed.APP_ENV})`,
+      });
     }
 
     const enforced = (ENFORCED_APP_ENVS as readonly string[]).includes(parsed.APP_ENV);
