@@ -18,6 +18,7 @@ import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/sc
 import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, fundOnTestChain, walletSection } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { EDGE, ORIGIN } from './stack.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp } from './desk.mjs';
 
@@ -365,8 +366,12 @@ test(`${J} #8 follows the compromise guidance: an ordered list: revoke keys, rev
 });
 
 test(`${J} #9 exports the embedded-login key once: shown once after a fresh passkey check and derives the owner address; a second request returns no key`, async ({
-  page,
+  browser,
 }) => {
+  // A passkey needs a domain for its relying party (WebAuthn refuses the IP 127.0.0.1), so this step uses the same
+  // stack on localhost, as the other passkey journeys do.
+  const context = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  const page = await context.newPage();
   // A passkey on this device: Chromium's virtual authenticator, user-verified and able to derive a secret (PRF).
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
@@ -419,4 +424,5 @@ test(`${J} #9 exports the embedded-login key once: shown once after a fresh pass
     },
   );
   expect(JSON.stringify(await status.json())).toContain('"exported":true');
+  await context.close();
 });
