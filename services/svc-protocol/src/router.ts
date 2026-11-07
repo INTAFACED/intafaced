@@ -43,6 +43,7 @@ import {
 import { computeAccountAddress, DEFAULT_USER_SALT, AddressDerivationError } from './accounts/address.js';
 import { AccountRegistry, bindingMessage, ClaimRefusedError } from './accounts/registry.js';
 import { assertMyAccountsListLimit, MY_ACCOUNTS_LIST_LIMIT_CAP, MyAccountsListLimitUnsetError } from './accounts/my-accounts-list-limit.js';
+import { createLiquidityProcedures } from './liquidity/procedures.js';
 import type { ProtocolChain } from './chain/client.js';
 import { ChainUnavailableError, CHAIN_PUBLIC_TEXT, classifyChainError, isZeroAddress } from './chain/availability.js';
 import { GasPercentilesUnsetError, type GasPercentileSetting } from './chain/gas-price.js';
@@ -445,6 +446,10 @@ export interface ProtocolRouterDeps {
   relayEnabled: () => boolean;
   /** Pool factory address on PROTOCOL_CHAIN_ID (0x0 = not deployed yet). */
   ammFactoryAddress: () => Address;
+  /** `PROTOCOL_LIQUIDITY_ROUTER_ADDRESS` (D-liquidity-02..04). Absent or zero: liquidity calls refuse. */
+  liquidityRouter?: () => Address | null;
+  /** `PROTOCOL_AMM_FEE_TIERS_BPS` (D-liquidity-03). Absent or null: `amm.feeTiers` refuses `amm.fee_tiers_unset`. */
+  feeTiers?: () => number[] | null;
   /**
    * `PROTOCOL_SWAP_SLIPPAGE_BPS`. Null when blank. The swap builder and the
    * session check refuse — they do not invent a tolerance.
@@ -1456,6 +1461,17 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     }),
 
     amm: router({
+      ...createLiquidityProcedures({
+        client: () => chain.client,
+        rpcUrl: () => chain.config.rpcUrl,
+        factory: () => deps.ammFactoryAddress(),
+        router: () => deps.liquidityRouter?.() ?? null,
+        feeTiers: () => deps.feeTiers?.() ?? null,
+        quoteTtlSeconds: () => deps.swapQuoteTtlSeconds?.() ?? null,
+        slippageBps: () => deps.swapSlippageBps(),
+        readPairs: (factory) => readPairs(factory),
+        toTrpcError,
+      }),
       ...createPoolFeesProcedures({
         chain: poolFeesChain(
           () => chain.client,
