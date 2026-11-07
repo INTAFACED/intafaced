@@ -1,0 +1,37 @@
+import { defineCopy } from '../../../../shared/i18n';
+
+/** Copy for the embedded login's Keys section (RC-dex-protocol-05). It promises no recovery. */
+const en = {
+  title: 'Embedded login',
+  note: 'An embedded login is a key this browser makes and keeps for you, locked by a passkey on this device. It owns its own account; we never see the key.',
+  connectedNote: 'A wallet you connect keeps its own keys, so there is nothing of it to export here.',
+  none: 'This device has no embedded login.',
+  create: 'Create an embedded login',
+  creating: 'Making the key and its passkey…',
+  owner: 'Owner address',
+  createdAt: 'Made {time}',
+  export: 'Export my key',
+  exportNote: 'You can see the key once. After that it is never shown again, on any device.',
+  confirmTitle: 'Confirm with your passkey',
+  warning: 'Anyone with this key controls this wallet. We cannot recover it.',
+  phraseLabel: 'Type EXPORT to confirm',
+  phrase: 'EXPORT',
+  show: 'Show my key',
+  cancel: 'Cancel',
+  checking: 'Waiting for your passkey…',
+  keyTitle: 'Your key',
+  keyNote: 'Write it down now. It hides in 60 seconds, or when you leave this tab, and is not shown again.',
+  copy: 'Copy',
+  copied: 'Copied.',
+  hide: 'Hide it now',
+  hidden: 'The key is hidden. It was shown once and cannot be shown again.',
+  spent: 'This key was already exported. It is not shown again, on this or any other device.',
+  phraseWrong: 'Type EXPORT exactly to confirm.',
+  storageBlocked: 'This browser does not let the page keep a key, so no key was made. Allow site storage and try again.',
+  prfUnsupported: 'This passkey cannot lock a key on this device, so no key was made or shown.',
+  passkeyCancelled: 'The passkey check did not finish, so nothing was shown.',
+  statusFailed: 'Whether this key was already exported could not be checked, so it was not shown. Try again.',
+  recordFailed: 'The key was shown, but saving the record that it was shown failed. This page saves it again the next time it opens here.',
+} as const;
+
+export const embeddedCopy = defineCopy('customer.protocol.wallet.embedded', en);

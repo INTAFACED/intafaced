@@ -24,6 +24,7 @@ import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
 import { PostgresAddressRiskStore } from './address-risk/risk.pg.js';
+import { PostgresEmbeddedExportStore } from './embedded/exports.pg.js';
 import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
@@ -77,6 +78,7 @@ for (const tableName of [
   'address_labels',
   'address_label_history',
   'address_reports',
+  'embedded_exports',
 ]) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
@@ -187,6 +189,7 @@ export const appRouter = createProtocolRouter({
   },
   // No AML list source is connected, so the sanctioned set is empty and the risk card says the list is not loaded.
   addressRisk: { store: new PostgresAddressRiskStore(db.sql), screeningLoaded: () => false },
+  embedded: { store: new PostgresEmbeddedExportStore(db.sql) },
   addressBook: {
     store: new PostgresAddressBookStore(db.sql),
     session: () => walletSessionSetting,

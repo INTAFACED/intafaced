@@ -50,6 +50,7 @@ const en = {
   section_sessionKeys: 'Session keys',
   section_accounts: 'Accounts',
   section_safety: 'Safety',
+  section_keys: 'Keys',
   section_claimLinks: 'Claim links',
   sections: 'Wallet sections',
   empty_activity: 'No wallet activity to show. Activity appears once the indexer reads this address.',

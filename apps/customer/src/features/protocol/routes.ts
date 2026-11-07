@@ -23,6 +23,7 @@ export const WALLET_SECTIONS = {
   sessionKeys: '/wallet/session-keys',
   accounts: '/wallet/accounts',
   safety: '/wallet/safety',
+  keys: '/wallet/embedded',
 } as const;
 export type WalletSection = keyof typeof WALLET_SECTIONS;
 

@@ -17,6 +17,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, fundOnTestChain, walletSection } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
+import { EDGE, ORIGIN } from './stack.mjs';
 import { bodyRows, tableIn } from './tables.mjs';
 import { signIn, signUp } from './desk.mjs';
 
@@ -366,17 +367,56 @@ test(`${J} #8 follows the compromise guidance: an ordered list: revoke keys, rev
 test(`${J} #9 exports the embedded-login key once: shown once after a fresh passkey check and derives the owner address; a second request returns no key`, async ({
   page,
 }) => {
+  // A passkey on this device: Chromium's virtual authenticator, user-verified and able to derive a secret (PRF).
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', {
+    options: {
+      protocol: 'ctap2',
+      transport: 'internal',
+      hasResidentKey: true,
+      hasUserVerification: true,
+      isUserVerified: true,
+      automaticPresenceSimulation: true,
+      hasPrf: true,
+    },
+  });
+  const assertions = async () => {
+    const { credentials } = await cdp.send('WebAuthn.getCredentials', { authenticatorId });
+    return credentials.reduce((sum, c) => sum + c.signCount, 0);
+  };
   await page.goto('/wallet');
   await walletSection(page, 'Keys');
+  await page.getByRole('button', { name: 'Create an embedded login' }).click(UNBUILT);
+  const owner = page.getByTestId('embedded-owner');
+  await expect(owner).toHaveText(/^0x[0-9a-fA-F]{40}$/, { timeout: 30_000 });
+  const ownerAddress = (await owner.textContent()).trim();
   const exportKey = page.getByRole('button', { name: 'Export my key' });
   await expect(exportKey).toBeVisible(UNBUILT);
   await exportKey.click();
-  await expect(page.getByRole('dialog', { name: 'Confirm with your passkey' })).toBeVisible();
+  const confirm = page.getByRole('dialog', { name: 'Confirm with your passkey' });
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText('Anyone with this key controls this wallet. We cannot recover it.');
+  await confirm.getByLabel('Type EXPORT to confirm').fill('EXPORT');
+  const before = await assertions();
+  await confirm.getByRole('button', { name: 'Show my key' }).click();
+  // Shown once, after a fresh passkey check, and it derives the owner address.
   const shown = page.getByTestId('exported-key');
-  await expect(shown).toHaveText(/^0x[0-9a-f]{64}$/);
+  await expect(shown).toHaveText(/^0x[0-9a-f]{64}$/, { timeout: 30_000 });
+  expect(await assertions()).toBeGreaterThan(before);
+  expect(privateKeyToAccount((await shown.textContent()).trim()).address).toBe(ownerAddress);
+  // A second request returns no key.
   await page.reload();
   await walletSection(page, 'Keys');
   await page.getByRole('button', { name: 'Export my key' }).click();
   await expect(page.getByRole('alert')).toContainText('This key was already exported');
   await expect(page.getByTestId('exported-key')).toHaveCount(0);
+  // And no other device can have it either: the service holds the fact that it was shown.
+  const status = await fetch(
+    `${EDGE}/api/protocol/trpc/embedded.status?input=${encodeURIComponent(JSON.stringify({ account: ownerAddress }))}`,
+    {
+      headers: { origin: ORIGIN },
+    },
+  );
+  expect(JSON.stringify(await status.json())).toContain('"exported":true');
 });

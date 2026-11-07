@@ -4,6 +4,7 @@ import {
   protocolContractReadOutputSchema,
 } from '@intafaced/contracts/protocol-contract-source';
 import { z } from 'zod';
+import { protocolEmbeddedStatusSchema } from '@intafaced/contracts/protocol-embedded';
 import { protocolSessionGrantCallSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
 import {
   protocolAddressReportReceiptSchema,
@@ -121,6 +122,12 @@ export function createProtocolApi(api: ApiClient) {
     /** Files a scam report as the signed-in person. A second open report for the same address refuses as a duplicate. */
     reportAddress: (input: ProtocolAddressReportInput) =>
       api.mutate('protocol', 'addressReports.submit', input, protocolAddressReportReceiptSchema),
+    /** Whether the embedded login's key of `account` was already shown once, on any device (RC-dex-protocol-05). */
+    embeddedStatus: (account: string, signal?: AbortSignal) =>
+      api.query('protocol', 'embedded.status', { account }, protocolEmbeddedStatusSchema, { signal }),
+    /** Records that the key was shown, signed by the key itself. Carries the account and a signature, never the key. */
+    embeddedMarkExported: (input: { account: string; signature: string }) =>
+      api.mutate('protocol', 'embedded.markExported', input, protocolEmbeddedStatusSchema),
     /** Every session key `account` granted, from its own logs, with the on-chain status at one block (D-portfolio-wallet-02). */
     sessionsList: (account: string, signal?: AbortSignal) =>
       api.query('protocol', 'sessions.list', { account }, protocolSessionsListSchema, { signal }),
