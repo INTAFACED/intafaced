@@ -238,7 +238,8 @@ export function createTradeHttpMarkSource(options: TradeHttpMarkOptions): MarkSo
     async marketIdsBySymbol() {
       try {
         const byId = await loadSymbols(AbortSignal.timeout(timeoutMs));
-        return new Map([...byId].map(([id, symbol]) => [symbol, id] as const));
+        // A body that named no market is no answer, never "nothing is listed".
+        return byId.size === 0 ? null : new Map([...byId].map(([id, symbol]) => [symbol, id] as const));
       } catch {
         return null;
       }

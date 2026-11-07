@@ -118,6 +118,16 @@ describe.skipIf(!available)('PostgresWatchRuleStore', () => {
     expect(await rules().stop(person(), made.rule.id, NOW)).toBeNull();
   });
 
+  it('stores one active follow of a list with one rule, so a second save racing the first stores nothing', async () => {
+    const u = person();
+    await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);
+    await expect(rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW)).rejects.toMatchObject({
+      code: 'alert.watchlist_already_followed',
+    });
+    expect(await rules().list(u)).toHaveLength(1);
+    expect(await alerts().countOpen(u, 'price')).toBe(1);
+  });
+
   it('records why a sweep added nothing, and clears it', async () => {
     const u = person();
     const made = await rules().create(rule(u, ['m-btc']), [input(u, 'm-btc')], 20, NOW);

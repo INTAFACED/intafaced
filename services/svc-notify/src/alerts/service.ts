@@ -484,6 +484,7 @@ export class AlertService {
       readonly targetPrice?: string | null;
     },
     now: Date = new Date(),
+    opts: { readonly expire?: boolean } = {},
   ): Promise<{ readonly inputs: readonly CreatePriceAlertInput[]; readonly maxOpen: number }> {
     const { marketIds, ...rule } = input;
     const markets = [...new Set(marketIds.map((id) => id.trim()).filter((id) => id !== ''))];
@@ -497,7 +498,7 @@ export class AlertService {
     if (this.limits.maxActivePrice === null) {
       throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
     }
-    await this.store.expireDue(now);
+    if (opts.expire !== false) await this.store.expireDue(now);
     return {
       inputs: markets.map((marketId) => ({
         ...rule,

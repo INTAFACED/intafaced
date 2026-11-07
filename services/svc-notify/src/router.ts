@@ -1913,7 +1913,7 @@ export function createNotifyRouter(
                 cause: err,
               });
             }
-            if (err instanceof AlertValidationError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+            // Named by code (`alert.invalid_market: …`), so the page can say which refusal it was.
             throw alertManagerError(err);
           }
         }),

@@ -43,6 +43,7 @@ const REFUSAL_KEY = {
   'notify.alert_quota_unset': 'refusedQuotaOff',
   'notify.price_unset': 'followRefusedPrice',
   'alert.invalid_market': 'followEmptyList',
+  'alert.watchlist_already_followed': 'followRefusedTwice',
 } as const;
 
 const SYNC_KEY = {
@@ -51,6 +52,7 @@ const SYNC_KEY = {
   'alert.markets_unavailable': 'followSyncMarkets',
   'alert.quota_reached': 'followSyncQuota',
   'notify.alert_quota_unset': 'followSyncQuotaOff',
+  'alert.watchlist_sync_failed': 'followSyncFailed',
 } as const;
 
 /** Answers that do not say whether the write was stored. */

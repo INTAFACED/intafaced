@@ -170,6 +170,53 @@ describe('watchlist alerts', () => {
   });
 });
 
+describe('watchlist alerts: one rule never holds back another', () => {
+  it('records a failing rule and goes on to the next', async () => {
+    const r = rig();
+    await create(r);
+    await r.rules.create({ userId: 'u2', listId: 'majors', condition: 'greater_than', targetPrice: '100000' }, NOW);
+    const real = r.store.addMarkets.bind(r.store);
+    let calls = 0;
+    r.store.addMarkets = async (...args) => {
+      calls += 1;
+      if (calls === 1) throw new Error('database went away');
+      return real(...args);
+    };
+    r.setLists([{ id: 'majors', name: 'TEST majors', symbols: ['BTC/USDT', 'ETH/USDT', 'IFC/USDT'] }]);
+    expect(await r.rules.sync(NOW)).toMatchObject({ rules: 2, added: 1, refusals: { 'alert.watchlist_sync_failed': 1 } });
+    expect((await r.rules.list('u1'))[0]!.lastSyncCode).toBe('alert.watchlist_sync_failed');
+    expect((await r.rules.list('u2'))[0]).toMatchObject({ markets: ['m-btc', 'm-eth', 'm-ifc'], lastSyncCode: null });
+  });
+
+  it('takes one rule at least, stops past its time budget, and takes the longest unchecked first', async () => {
+    const r = rig();
+    const first = await create(r);
+    const second = await create(r, { targetPrice: '90000' });
+    await r.store.recordSync(first.rule.id, new Date(NOW.getTime() + 1_000), null);
+    // The budget allows one rule: the one checked longest ago.
+    const report = await r.rules.sync(new Date(NOW.getTime() + 2_000), 0);
+    expect(report.rules).toBe(1);
+    const rows = await r.rules.list('u1');
+    expect(rows.find((x) => x.id === second.rule.id)!.lastSyncAt).toEqual(new Date(NOW.getTime() + 2_000));
+  });
+
+  it('marks every rule it checked with this pass, even with nothing to add', async () => {
+    const r = rig();
+    await create(r);
+    const later = new Date(NOW.getTime() + 60_000);
+    await r.rules.sync(later);
+    expect((await r.rules.list('u1'))[0]).toMatchObject({ lastSyncAt: later, lastSyncCode: null });
+  });
+
+  it('refuses following the same list with the same rule twice, and allows another price', async () => {
+    const r = rig();
+    await create(r);
+    await expect(create(r, { targetPrice: '100000.00' })).rejects.toMatchObject({ code: 'alert.watchlist_already_followed' });
+    await expect(create(r, { targetPrice: '90000' })).resolves.toBeTruthy();
+    expect(await r.alerts.list('u1')).toHaveLength(4);
+  });
+});
+
 describe('marketsOf', () => {
   it("keeps the list's order, each market once, leaving out unlisted symbols and covered markets", () => {
     const list = { id: 'x', name: 'x', symbols: ['ETH/USDT', 'NOPE/USDT', 'BTC/USDT', 'IFC/USDT'] };

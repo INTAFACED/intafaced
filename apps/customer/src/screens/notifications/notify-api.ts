@@ -539,6 +539,7 @@ export const WATCH_RULE_SYNC_CODES = [
   'alert.markets_unavailable',
   'alert.quota_reached',
   'notify.alert_quota_unset',
+  'alert.watchlist_sync_failed',
 ] as const;
 export type WatchRuleSyncCode = (typeof WATCH_RULE_SYNC_CODES)[number];
 

@@ -283,6 +283,8 @@ const en = {
     'A market was added to the list, but you are at your limit of price alerts, so it has no alert. Cancel or delete one to make room.',
   followSyncQuotaOff: 'The number of price alerts you can hold has not been set on this platform, so no new market was added.',
   followSyncUnknown: 'The last check added nothing, for a reason this page cannot name.',
+  followSyncFailed: 'The last check of this list failed, so no new market was added. It is tried again at the next check.',
+  followRefusedTwice: 'You already follow this list with the same alert. Nothing was saved.',
 } as const;
 
 const es = {

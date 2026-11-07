@@ -14,6 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { IdentityWatchlist, IdentityWatchlistsPort } from '@intafaced/contracts';
+import { canonicalDecimalString } from './decimal.js';
 import { AlertLimitError, quotaLimitError, type AlertService } from './service.js';
 import { AlertQuotaReachedError, AlertValidationError, insertPriceAlerts, type MemoryAlertStore } from './store.js';
 import { directionOfCondition, type AlertCondition, type AlertDirection, type CreatePriceAlertInput, type PriceAlert } from './types.js';
@@ -23,7 +24,8 @@ export type WatchRuleSyncCode =
   | 'alert.watchlist_not_found'
   | 'alert.markets_unavailable'
   | 'alert.quota_reached'
-  | 'notify.alert_quota_unset';
+  | 'notify.alert_quota_unset'
+  | 'alert.watchlist_sync_failed';
 
 export type WatchRule = {
   readonly id: string;
@@ -46,7 +48,10 @@ export type NewWatchRule = Pick<WatchRule, 'userId' | 'listId' | 'listName' | 'c
 
 /** A create refused because the list could not be read or holds nothing an alert can watch. Nothing was stored. */
 export class WatchRuleError extends Error {
-  constructor(readonly code: 'identity.watchlists_unavailable' | 'alert.watchlist_not_found' | 'alert.markets_unavailable') {
+  constructor(
+    readonly code:
+      'identity.watchlists_unavailable' | 'alert.watchlist_not_found' | 'alert.markets_unavailable' | 'alert.watchlist_already_followed',
+  ) {
     super(code);
     this.name = 'WatchRuleError';
   }
@@ -110,6 +115,16 @@ export class WatchRuleService {
       { userId: input.userId, marketIds, direction, condition: input.condition, targetPrice: input.targetPrice },
       now,
     );
+    const targetPrice = inputs[0]!.targetPrice.trim();
+    // The same list with the same rule twice would put two identical alerts on every market, now and on each later addition.
+    const followed = (await this.store.list(input.userId)).some(
+      (rule) =>
+        rule.status === 'active' &&
+        rule.listId === list.id &&
+        rule.condition === input.condition &&
+        canonicalDecimalString(rule.targetPrice) === canonicalDecimalString(targetPrice),
+    );
+    if (followed) throw new WatchRuleError('alert.watchlist_already_followed');
     try {
       return await this.store.create(
         {
@@ -118,7 +133,7 @@ export class WatchRuleService {
           listName: list.name,
           condition: input.condition,
           direction,
-          targetPrice: inputs[0]!.targetPrice,
+          targetPrice,
           markets: inputs.map((row) => row.marketId),
         },
         inputs,
@@ -130,58 +145,83 @@ export class WatchRuleService {
     }
   }
 
-  /** The sweep's first step: every active rule picks up the markets added to its list since. One identity read per person. */
-  async sync(at: Date = new Date()): Promise<WatchRuleSweepReport> {
-    const rules = await this.store.active();
+  /**
+   * The sweep's first step: every active rule picks up the markets added to its list since. One identity read per person.
+   * A rule that fails for any reason records it and the pass goes on to the next, so one rule never holds back another. The
+   * pass takes at least one rule and stops taking more after `budgetMs`, so the evaluation of alerts already held never waits long on identity; the rules
+   * left are taken first on the next pass, as they are the longest unchecked.
+   */
+  async sync(at: Date = new Date(), budgetMs = WATCH_RULE_SYNC_BUDGET_MS): Promise<WatchRuleSweepReport> {
+    const started = Date.now();
+    const rules = [...(await this.store.active())].sort(
+      (a, b) => (a.lastSyncAt?.getTime() ?? 0) - (b.lastSyncAt?.getTime() ?? 0) || a.createdAt.getTime() - b.createdAt.getTime(),
+    );
     const byUser = new Map<string, Awaited<ReturnType<IdentityWatchlistsPort['read']>>>();
     let directory: ReadonlyMap<string, string> | null | undefined;
+    let expired = false;
     let added = 0;
+    let checked = 0;
     const refusals: Record<string, number> = {};
     const refuse = async (rule: WatchRule, code: WatchRuleSyncCode) => {
       refusals[code] = (refusals[code] ?? 0) + 1;
       await this.store.recordSync(rule.id, at, code);
     };
     for (const rule of rules) {
-      let read = byUser.get(rule.userId);
-      if (!read) {
-        read = await this.lists.read({ userId: rule.userId });
-        byUser.set(rule.userId, read);
-      }
-      if (read.state !== 'read') {
-        await refuse(rule, 'identity.watchlists_unavailable');
-        continue;
-      }
-      const list = read.lists.find((row) => row.id === rule.listId);
-      if (!list) {
-        await refuse(rule, 'alert.watchlist_not_found');
-        continue;
-      }
-      if (directory === undefined) directory = await this.markets();
-      if (!directory) {
-        await refuse(rule, 'alert.markets_unavailable');
-        continue;
-      }
-      const fresh = marketsOf(list, directory, rule.markets);
-      if (fresh.length === 0) {
-        if (rule.lastSyncCode !== null || rule.lastSyncAt === null) await this.store.recordSync(rule.id, at, null);
-        continue;
-      }
+      // At least one rule a pass, so every rule is reached in turn however slow identity is.
+      if (checked > 0 && Date.now() - started >= budgetMs) break;
+      checked += 1;
       try {
-        const { inputs, maxOpen } = await this.alerts.prepareMany(
-          { userId: rule.userId, marketIds: fresh, direction: rule.direction, condition: rule.condition, targetPrice: rule.targetPrice },
-          at,
-        );
-        const rows = await this.store.addMarkets(rule, inputs, maxOpen, at);
-        added += rows?.length ?? 0;
-      } catch (err) {
-        if (err instanceof AlertQuotaReachedError) await refuse(rule, 'alert.quota_reached');
-        else if (err instanceof AlertLimitError && err.code === 'notify.alert_quota_unset') await refuse(rule, 'notify.alert_quota_unset');
-        else throw err;
+        let read = byUser.get(rule.userId);
+        if (!read) {
+          read = await this.lists.read({ userId: rule.userId });
+          byUser.set(rule.userId, read);
+        }
+        if (read.state !== 'read') {
+          await refuse(rule, 'identity.watchlists_unavailable');
+          continue;
+        }
+        const list = read.lists.find((row) => row.id === rule.listId);
+        if (!list) {
+          await refuse(rule, 'alert.watchlist_not_found');
+          continue;
+        }
+        if (directory === undefined) directory = await this.markets();
+        if (!directory) {
+          await refuse(rule, 'alert.markets_unavailable');
+          continue;
+        }
+        const fresh = marketsOf(list, directory, rule.markets);
+        if (fresh.length === 0) {
+          // Checked, with nothing to add: the page's "last checked" is this pass.
+          await this.store.recordSync(rule.id, at, null);
+          continue;
+        }
+        try {
+          // Alerts past their time are retired once a pass, before the first quota count, not once a rule.
+          const { inputs, maxOpen } = await this.alerts.prepareMany(
+            { userId: rule.userId, marketIds: fresh, direction: rule.direction, condition: rule.condition, targetPrice: rule.targetPrice },
+            at,
+            { expire: !expired },
+          );
+          expired = true;
+          const rows = await this.store.addMarkets(rule, inputs, maxOpen, at);
+          added += rows?.length ?? 0;
+        } catch (err) {
+          if (err instanceof AlertQuotaReachedError) await refuse(rule, 'alert.quota_reached');
+          else if (err instanceof AlertLimitError && err.code === 'notify.alert_quota_unset')
+            await refuse(rule, 'notify.alert_quota_unset');
+          else throw err;
+        }
+      } catch {
+        await refuse(rule, 'alert.watchlist_sync_failed').catch(() => undefined);
       }
     }
-    return { rules: rules.length, added, refusals };
+    return { rules: checked, added, refusals };
   }
 }
+
+/** How long one pass may spend following lists before the alert evaluation runs. */
+export const WATCH_RULE_SYNC_BUDGET_MS = 15_000;
 
 /** A crossing either way has no side of its own; the stored direction then says nothing and `above` is kept, as a create does. */
 function directionFor(condition: AlertCondition): AlertDirection {
@@ -299,6 +339,16 @@ export class PostgresWatchRuleStore implements WatchRuleStore {
   constructor(private readonly sql: Sql) {}
 
   async create(rule: NewWatchRule, inputs: readonly CreatePriceAlertInput[], maxOpen: number, at: Date) {
+    try {
+      return await this.createOnce(rule, inputs, maxOpen, at);
+    } catch (err) {
+      // Two saves of the same follow racing: the second meets the one-follow index, and nothing of it is stored.
+      if ((err as { code?: string }).code === '23505') throw new WatchRuleError('alert.watchlist_already_followed');
+      throw err;
+    }
+  }
+
+  private async createOnce(rule: NewWatchRule, inputs: readonly CreatePriceAlertInput[], maxOpen: number, at: Date) {
     return this.sql.begin(async (raw) => {
       const tx = raw as unknown as Sql;
       const alerts = await insertPriceAlerts(tx, inputs, maxOpen);

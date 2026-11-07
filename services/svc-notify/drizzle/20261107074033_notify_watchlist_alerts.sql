@@ -27,3 +27,6 @@ CREATE TABLE IF NOT EXISTS "notify"."watchlist_alerts" (
 );
 CREATE INDEX IF NOT EXISTS "watchlist_alerts_user_idx" ON "notify"."watchlist_alerts" ("user_id", "created_at" DESC);
 CREATE INDEX IF NOT EXISTS "watchlist_alerts_active_idx" ON "notify"."watchlist_alerts" ("created_at") WHERE "status" = 'active';
+-- One follow of a list with one rule: the same list, condition and price twice would put two identical alerts on every market.
+CREATE UNIQUE INDEX IF NOT EXISTS "watchlist_alerts_one_follow_idx"
+  ON "notify"."watchlist_alerts" ("user_id", "list_id", "condition", "target_price") WHERE "status" = 'active';
