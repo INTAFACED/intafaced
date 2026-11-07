@@ -27,6 +27,7 @@ import {
   quotesInTheWay,
   quotesThisCycle,
   holdTaken,
+  HOLD_MAX_MS,
   stackNotActive,
   STACK_INACTIVE_LIMIT_MS,
   fromScaled,
@@ -97,6 +98,26 @@ try {
   assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {});
   r = run(home, ['hold', 'NOPE/USDT']);
   assert.equal(r.status, 2, r.stderr);
+
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-03 #8) does not outlive the
+  // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
+  // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
+  run(home, ['hold', 'BTC/USDT']);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(holdFile, 'utf8'))['BTC/USDT']));
+  const realApp = resolve(dirname(script), '../../apps/customer/tests/real-app');
+  const between = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-03.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
+    ],
+    { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },
+  );
+  assert.equal(between.status, 0, between.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {}, 'a hold outlived the journey file that set it');
   // 5. Through the command line as well: a real-looking target never gets past the guard.
   r = run(home, ['start', '--edge-url', 'https://api.intafaced.com']);
   assert.equal(r.status, 1, r.stderr);
@@ -591,9 +612,13 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
 // cycle that started after it was asked for has passed the market by (J-cex-spot-03 #8, #7490).
 {
   const holds = new Map([['BTC/USDT', 1_000]]);
-  assert.equal(quotesThisCycle('BTC/USDT', holds), false);
-  assert.equal(quotesThisCycle('ETH/USDT', holds), true);
-  assert.equal(quotesThisCycle('BTC/USDT', new Map()), true);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 2_000), false);
+  assert.equal(quotesThisCycle('ETH/USDT', holds, 2_000), true);
+  assert.equal(quotesThisCycle('BTC/USDT', new Map(), 2_000), true);
+  // A hold left set (a worker killed mid-step runs no release) lapses on its own, but never inside one step's 90 s.
+  assert.ok(HOLD_MAX_MS > 90_000);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 1_000 + 90_000), false);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 1_000 + HOLD_MAX_MS + 1), true);
   assert.equal(holdTaken({}, 'BTC/USDT', 1_000), false);
   assert.equal(holdTaken({ 'BTC/USDT': 999 }, 'BTC/USDT', 1_000), false);
   assert.equal(holdTaken({ 'BTC/USDT': 1_000 }, 'BTC/USDT', 1_000), false);
