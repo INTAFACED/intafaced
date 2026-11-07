@@ -8,7 +8,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
-import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { AuthService } from './auth-service.js';
 import {
@@ -118,13 +118,8 @@ const migrations = readdirSync(drizzleDir)
   .sort()
   .map((name) => readFileSync(join(drizzleDir, name), 'utf8'));
 
-const available = await postgresAvailable(DATABASE_URL);
-
-if (!available) {
-  describe.skip('API rate limits against Postgres (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+// Runs unconditionally: CI provides the database.
+{
   const db: TestDb = await createTestDb({
     service: 'identity',
     url: DATABASE_URL,
