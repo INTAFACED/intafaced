@@ -13,9 +13,16 @@ import {
   type KycReviewList,
   type KycReviewNote,
 } from '@intafaced/contracts/identity-kyc-cases';
+import {
+  kycLevelSettingChangeSchema,
+  kycLevelSettingsViewSchema,
+  type KycLevelSettingChange,
+  type KycLevelSettingsView,
+} from '@intafaced/contracts/identity-kyc-levels';
 import { kycCapabilitiesOutputSchema, type KycCapabilitiesOutput } from '@intafaced/contracts/identity-kyc-capabilities';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { readKybCurrent, type KybCurrent } from './business';
+import type { KycLevelStep } from './model';
 import { explainKycReview, type KycReviewRefusal, type KycReviewStep } from './model';
 
 /** Identity's answer to a request for information: the case and its tasks, each exactly the contract's. */
@@ -63,7 +70,9 @@ function answer<T>(result: FounderCallResult<T>): KycReviewAnswer<T> {
 /** One page of open cases, as the signed-in person. */
 export async function readKycQueue(ctx: FounderCallContext, cursor: string | null): Promise<KycReviewAnswer<KycReviewList>> {
   return answer(
-    await founderCall(ctx, 'identity', 'kyc.review.list', 'GET', cursor ? { cursor } : {}, parseWith(kycReviewListOutputSchema)),
+    await founderCall(ctx, 'identity', 'kyc.review.list', 'GET', cursor ? { cursor } : {}, parseWith(kycReviewListOutputSchema), {
+      sendEmptyInput: true,
+    }),
   );
 }
 
@@ -75,6 +84,22 @@ export async function readKycCapabilities(ctx: FounderCallContext, userId: strin
 /** A business's verification status as svc-pay holds it (`kyb.current`), read as the signed-in reviewer. */
 export async function readBusinessApplication(ctx: FounderCallContext, merchantId: string): Promise<KycReviewAnswer<KybCurrent>> {
   return answer(await founderCall(ctx, 'pay', 'kyb.current', 'GET', { merchantId }, readKybCurrent));
+}
+
+/** Per-level requirements and review times: in force, published, and the changes waiting for a second person. */
+export async function readLevelSettings(ctx: FounderCallContext): Promise<KycReviewAnswer<KycLevelSettingsView>> {
+  return answer(await founderCall(ctx, 'identity', 'kyc.review.levelSettings', 'GET', {}, parseWith(kycLevelSettingsViewSchema)));
+}
+
+/** Propose, approve or withdraw a per-level change, as the signed-in person. */
+export async function runLevelStep(ctx: FounderCallContext, step: KycLevelStep): Promise<KycReviewAnswer<KycLevelSettingChange>> {
+  const parse = parseWith(kycLevelSettingChangeSchema);
+  if (step.op === 'propose') {
+    const { op: _op, ...input } = step;
+    return answer(await founderCall(ctx, 'identity', 'kyc.review.proposeLevelChange', 'POST', input, parse));
+  }
+  const procedure = step.op === 'approve' ? 'kyc.review.approveLevelChange' : 'kyc.review.withdrawLevelChange';
+  return answer(await founderCall(ctx, 'identity', procedure, 'POST', { changeId: step.changeId }, parse));
 }
 
 /** One case for review, as the signed-in person. */

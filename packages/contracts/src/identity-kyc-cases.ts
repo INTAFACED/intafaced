@@ -71,6 +71,12 @@ export const kycReviewQueueRowSchema = z.object({
   assignedAt: isoSchema.nullable(),
   /** Staff only: the case names the same person as another account's verification (I-kyc-compliance-14). */
   duplicateFlag: z.boolean(),
+  /**
+   * When the level's stated review time runs out for this case (I-kyc-compliance-05), or null when none is stated; `overdue`
+   * is true once it has passed, and the queue shows an escalation line.
+   */
+  reviewDueAt: isoSchema.nullable(),
+  overdue: z.boolean(),
 });
 export type KycReviewQueueRow = z.infer<typeof kycReviewQueueRowSchema>;
 
@@ -131,6 +137,9 @@ export const kycReviewCaseSchema = z.object({
    * anything the customer reads.
    */
   duplicateOfUserId: z.string().guid().nullable(),
+  /** As on the queue row: when the stated review time runs out, and whether it has. */
+  reviewDueAt: isoSchema.nullable(),
+  overdue: z.boolean(),
   /** A final rejection takes no more appeals. */
   final: z.boolean(),
   /** The appeals on this case, oldest first. */

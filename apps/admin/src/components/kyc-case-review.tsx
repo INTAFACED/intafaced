@@ -148,6 +148,15 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
         </dd>
       </dl>
 
+      {c.overdue && c.reviewDueAt ? (
+        <article className="adm-callout" data-tone="danger" role="status" data-testid="kyc-case-overdue">
+          <strong>Overdue</strong>
+          <p>
+            The stated review time for {c.case.tier} ran out at <time dateTime={c.reviewDueAt}>{c.reviewDueAt}</time>. Escalate it to a
+            second reviewer now.
+          </p>
+        </article>
+      ) : null}
       {c.duplicateOfUserId ? (
         <article className="adm-callout" data-tone="warn" role="status" data-testid="kyc-case-duplicate" data-other={c.duplicateOfUserId}>
           <strong>Duplicate identity flag</strong>

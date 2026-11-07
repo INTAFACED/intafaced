@@ -106,7 +106,7 @@ export function KycReviewQueue({ me }: { me: string }) {
         <h1>Verification queue</h1>
         <p className="dk-muted">
           Open verification cases, oldest first, read from identity as you. Claim a case before you work it: a case has one reviewer at a
-          time. Decisions are made on the case.
+          time. Decisions are made on the case. <Link href="/identity-ops/kyc/levels">Requirements and review times by level</Link>
         </p>
       </header>
       <form className="dk-row" action="/identity-ops/kyc/business" method="get" data-testid="kyb-open">
@@ -151,6 +151,12 @@ export function KycReviewQueue({ me }: { me: string }) {
                         <Link href={`/identity-ops/kyc/${encodeURIComponent(c.caseId)}`}>
                           <code>{c.caseId.slice(0, 8)}</code>
                         </Link>
+                        {c.overdue && c.reviewDueAt ? (
+                          <p className="adm-callout" data-tone="danger" data-testid="kyc-queue-overdue">
+                            Overdue: the stated review time for {c.tier} ran out at <time dateTime={c.reviewDueAt}>{c.reviewDueAt}</time>.
+                            Escalate it to a second reviewer now.
+                          </p>
+                        ) : null}
                         {c.duplicateFlag ? (
                           <span className="adm-chip" data-tone="warn" data-testid="kyc-queue-duplicate">
                             Duplicate identity

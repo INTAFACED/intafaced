@@ -133,7 +133,7 @@ export function VerificationLadder({
                 <Copy k="notPublished" />
               </p>
             )}
-            {rung.reviewHours === null ? (
+            {rung.reviewHours === null && rung.reviewMinutes === null ? (
               <p data-testid="verification__review-time" className="verification__review-time muted" data-stated="false">
                 <Copy k="noReviewTime" />{' '}
                 <a className="text-link" href="/support">
@@ -142,7 +142,13 @@ export function VerificationLadder({
               </p>
             ) : (
               <p data-testid="verification__review-time" className="verification__review-time" data-stated="true">
-                {rung.reviewHours === 1 ? <Copy k="reviewTimeOne" /> : <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />}
+                {rung.reviewHours === null ? (
+                  <Copy k="reviewTimeMinutes" params={{ minutes: String(rung.reviewMinutes) }} />
+                ) : rung.reviewHours === 1 ? (
+                  <Copy k="reviewTimeOne" />
+                ) : (
+                  <Copy k="reviewTime" params={{ hours: String(rung.reviewHours) }} />
+                )}
               </p>
             )}
             <h4>

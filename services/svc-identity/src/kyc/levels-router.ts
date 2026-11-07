@@ -11,7 +11,11 @@ import { describeLevels, type KycLadderSettings } from './levels.js';
  * an expiry still carries its old level until it refreshes; the features listed per level do not depend on it. No input:
  * a caller reads only their own ladder, for the region the edge stamped on this request (blank reads as unresolved).
  */
-export function createKycLevelsRouter(deps: { kycTier: (userId: string) => Promise<KycTier>; settings: KycLadderSettings }) {
+export function createKycLevelsRouter(deps: {
+  kycTier: (userId: string) => Promise<KycTier>;
+  /** The settings in force, or a read of them (compliance's approved edits over the owner's published values). */
+  settings: KycLadderSettings | (() => Promise<KycLadderSettings>);
+}) {
   return router({
     describe: scopedProcedure('identity:read')
       .input(z.object({}).strict().optional())
@@ -22,7 +26,7 @@ export function createKycLevelsRouter(deps: { kycTier: (userId: string) => Promi
           held: await deps.kycTier(ctx.principal.userId),
           region,
           regionResolved: isRegionResolved(region),
-          settings: deps.settings,
+          settings: typeof deps.settings === 'function' ? await deps.settings() : deps.settings,
         });
       }),
   });

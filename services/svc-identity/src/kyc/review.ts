@@ -120,9 +120,18 @@ export interface KycReviewDeskOptions {
   readonly pageSize: number | null;
   /** The owner's appeal window after a rejection, in seconds. Null: appeals are closed. */
   readonly appealWindowSeconds?: number | null;
+  /** The stated review time per level in minutes, as in force now (compliance's edits over the owner's). Absent: none stated. */
+  readonly reviewMinutes?: () => Promise<ReadonlyMap<string, number>>;
   /** The owner's deadline for a request for information, in days. Null: no deadline is set and the page says so. */
   readonly rfiDays?: number | null;
   readonly reasons: KycRejectReasons;
+}
+
+/** When a case's stated review time runs out, and whether it has; none stated reads null and never overdue. */
+function due(submittedAt: Date, minutes: number | undefined, now = new Date()): { reviewDueAt: string | null; overdue: boolean } {
+  if (minutes === undefined) return { reviewDueAt: null, overdue: false };
+  const at = new Date(submittedAt.getTime() + minutes * 60_000);
+  return { reviewDueAt: at.toISOString(), overdue: now.getTime() > at.getTime() };
 }
 
 export class KycReviewDesk {
@@ -131,8 +140,13 @@ export class KycReviewDesk {
     private readonly options: KycReviewDeskOptions,
   ) {}
 
+  private async minutes(): Promise<ReadonlyMap<string, number>> {
+    return this.options.reviewMinutes ? await this.options.reviewMinutes() : new Map();
+  }
+
   /** One page of open cases, oldest first. */
   async list(cursor: string | null | undefined): Promise<KycReviewList> {
+    const minutes = await this.minutes();
     const pageSize = this.options.pageSize;
     if (pageSize === null) throw new KycReviewError('The owner has not set the review queue page size', 'kyc.queue_page_size_unset');
     const after = cursor ? decodeQueueCursor(cursor) : null;
@@ -158,6 +172,7 @@ export class KycReviewDesk {
         assignedTo: r.assigned_to,
         assignedAt: r.assigned_at?.toISOString() ?? null,
         duplicateFlag: r.duplicate,
+        ...due(r.created_at, minutes.get(r.tier)),
       })),
       nextCursor: rows.length > pageSize && last ? encodeQueueCursor(last.created_at, last.id) : null,
     };
@@ -224,6 +239,10 @@ export class KycReviewDesk {
       reasonCodes: [...this.options.reasons.values()].map((r) => ({ code: r.code, reason: r.reason })),
       notes: await this.notes(caseId),
       duplicateOfUserId: row.duplicate_of_user_id,
+      // Only an open case can be overdue: a decided one has its answer.
+      ...(found.state === 'submitted'
+        ? due(new Date(found.submittedAt), (await this.minutes()).get(found.tier))
+        : { reviewDueAt: null, overdue: false }),
       final: row.final,
       appeals: await this.appeals(caseId),
     };

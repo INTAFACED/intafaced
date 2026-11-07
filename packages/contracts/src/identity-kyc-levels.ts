@@ -70,6 +70,11 @@ export const kycLadderRungSchema = z
     requirements: kycLevelRequirementsSchema,
     /** The owner's stated review time for this level, in hours. `null` = no review time is stated. */
     reviewHours: z.number().int().positive().nullable(),
+    /**
+     * The same stated review time in minutes (I-kyc-compliance-05): compliance may edit it, with a second person, to a time
+     * that is not whole hours; `reviewHours` is then null and this is exact. `null` = no review time is stated.
+     */
+    reviewMinutes: z.number().int().positive().nullable(),
   })
   .strict();
 export type KycLadderRung = z.infer<typeof kycLadderRungSchema>;
@@ -90,3 +95,53 @@ export const kycLevelsDescribeOutputSchema = z
     'one current rung',
   );
 export type KycLevelsDescribeOutput = z.infer<typeof kycLevelsDescribeOutputSchema>;
+
+/**
+ * Editing per-level requirements and review times (I-kyc-compliance-05, J-identity-20 #7), compliance only. A change for one
+ * level waits for a second person; once a different person approves it, it takes effect. `restore` puts the level back to
+ * the owner's published values.
+ */
+export const KYC_SETTABLE_LEVELS = ['basic', 'full', 'institutional'] as const;
+export const kycSettableLevelSchema = z.enum(KYC_SETTABLE_LEVELS);
+export type KycSettableLevel = z.infer<typeof kycSettableLevelSchema>;
+
+export const kycLevelSettingChangeSchema = z.object({
+  id: z.string().guid(),
+  level: kycSettableLevelSchema,
+  restore: z.boolean(),
+  requirements: z.array(kycRequirementKeySchema).nullable(),
+  reviewMinutes: z.number().int().positive().nullable(),
+  state: z.enum(['waiting', 'applied', 'withdrawn']),
+  proposedBy: z.string(),
+  proposedAt: z.string().datetime({ offset: true }),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().datetime({ offset: true }).nullable(),
+});
+export type KycLevelSettingChange = z.infer<typeof kycLevelSettingChangeSchema>;
+
+const levelValues = z.object({
+  requirements: z.array(kycRequirementKeySchema).nullable(),
+  reviewMinutes: z.number().int().positive().nullable(),
+});
+
+export const kycLevelSettingsViewSchema = z.object({
+  levels: z.array(
+    levelValues.extend({
+      level: kycSettableLevelSchema,
+      /** The owner's published values, which a restore goes back to. */
+      published: levelValues,
+      /** True when an approved change is in force for this level. */
+      edited: z.boolean(),
+    }),
+  ),
+  waiting: z.array(kycLevelSettingChangeSchema),
+});
+export type KycLevelSettingsView = z.infer<typeof kycLevelSettingsViewSchema>;
+
+export const kycLevelSettingProposeInputSchema = z.object({
+  level: kycSettableLevelSchema,
+  restore: z.boolean(),
+  requirements: z.array(kycRequirementKeySchema).min(1).max(KYC_REQUIREMENT_KEYS.length).nullable(),
+  reviewMinutes: z.number().int().min(1).max(525_600).nullable(),
+});
+export const kycLevelSettingDecideInputSchema = z.object({ changeId: z.string().guid() });

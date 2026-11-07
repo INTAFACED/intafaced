@@ -10,6 +10,38 @@ export type KycReviewStep =
   | { readonly op: 'appeal'; readonly caseId: string; readonly decision: 'upheld' | 'overturned' }
   | { readonly op: 'rfi'; readonly caseId: string; readonly items: ReadonlyArray<{ key: string; hint: string }> };
 
+/** A per-level settings step (I-kyc-compliance-05): propose a change for one level, or approve or withdraw a waiting one. */
+export type KycLevelStep =
+  | {
+      readonly op: 'propose';
+      readonly level: 'basic' | 'full' | 'institutional';
+      readonly restore: boolean;
+      readonly requirements: readonly string[] | null;
+      readonly reviewMinutes: number | null;
+    }
+  | { readonly op: 'approve' | 'withdraw'; readonly changeId: string };
+
+const LEVELS = ['basic', 'full', 'institutional'] as const;
+
+/** A settings step the route accepts, or null. */
+export function readKycLevelStep(raw: unknown): KycLevelStep | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if ((r.op === 'approve' || r.op === 'withdraw') && typeof r.changeId === 'string' && UUID.test(r.changeId))
+    return { op: r.op, changeId: r.changeId };
+  if (r.op !== 'propose' || !(LEVELS as readonly unknown[]).includes(r.level) || typeof r.restore !== 'boolean') return null;
+  const requirements =
+    r.requirements === null
+      ? null
+      : Array.isArray(r.requirements) && r.requirements.every((k) => typeof k === 'string' && ITEM_KEY.test(k))
+        ? (r.requirements as string[])
+        : undefined;
+  if (requirements === undefined || (requirements !== null && requirements.length === 0)) return null;
+  const minutes = r.reviewMinutes;
+  if (minutes !== null && !(typeof minutes === 'number' && Number.isInteger(minutes) && minutes >= 1 && minutes <= 525_600)) return null;
+  return { op: 'propose', level: r.level as (typeof LEVELS)[number], restore: r.restore, requirements, reviewMinutes: minutes };
+}
+
 const ITEM_KEY = /^[a-z][a-z0-9_]{1,63}$/;
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,6 +97,12 @@ const BY_CODE: Readonly<Record<string, Omit<KycReviewRefusal, 'code'>>> = {
     title: 'You rejected this case',
     body: 'A different reviewer decides its appeal, so the first decision is checked by a second person.',
   },
+  'kyc.level_change_waiting': {
+    title: 'A change for this level already waits',
+    body: 'A second person approves or the proposer withdraws it first.',
+  },
+  'kyc.level_change_state': { title: 'This change is already decided', body: 'Reload the page to see what is in force.' },
+  'kyc.requirement_unknown': { title: 'Unknown requirement', body: 'Only the requirements this platform knows can be asked for.' },
   'mfa.required': {
     title: 'A second factor is needed',
     body: 'Identity needs a session signed in with your second factor for the review queue.',

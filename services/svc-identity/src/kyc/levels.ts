@@ -35,6 +35,8 @@ export const KYC_FEATURE_GUARDS: Readonly<Record<KycLadderFeature, { module: Mod
 export interface KycLadderSettings {
   readonly requirements: ReadonlyMap<KycTier, readonly KycRequirementKey[]>;
   readonly reviewHours: ReadonlyMap<KycTier, number>;
+  /** Exact review times in minutes, once compliance edited one (I-kyc-compliance-05). Absent: whole hours only. */
+  readonly reviewMinutes?: ReadonlyMap<KycTier, number>;
 }
 
 export const EMPTY_KYC_LADDER_SETTINGS: KycLadderSettings = { requirements: new Map(), reviewHours: new Map() };
@@ -124,6 +126,13 @@ export function requirementsFor(settings: KycLadderSettings, level: KycTier): Ky
   return keys ? { published: true, keys: [...keys] } : { published: false };
 }
 
+/** A level's stated review time in minutes, or null when none is stated. */
+export function reviewMinutesOf(settings: KycLadderSettings, level: KycTier): number | null {
+  if (settings.reviewMinutes) return settings.reviewMinutes.get(level) ?? null;
+  const hours = settings.reviewHours.get(level);
+  return hours === undefined ? null : hours * 60;
+}
+
 export function describeLevels(input: {
   held: KycTier;
   region: string;
@@ -140,6 +149,7 @@ export function describeLevels(input: {
       features: KYC_LADDER_FEATURES.map((feature) => featureAt(feature, level, input.region)),
       requirements: requirementsFor(input.settings, level),
       reviewHours: input.settings.reviewHours.get(level) ?? null,
+      reviewMinutes: reviewMinutesOf(input.settings, level),
     })),
   };
 }
