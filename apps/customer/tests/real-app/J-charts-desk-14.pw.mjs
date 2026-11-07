@@ -1,6 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, EDGE, fromUnits, ORIGIN, toUnits } from './stack.mjs';
+import { api, bestPrices, EDGE, fromUnits, ORIGIN, otherTrader, toUnits } from './stack.mjs';
 import { awayBid, chosePro, deskPath, fundedTrader, held, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
 
 // J-charts-desk-14 "I read the order flow: time and sales, depth, ladder and the DOM, and trade from the ladder", in the
@@ -9,8 +9,7 @@ import { awayBid, chosePro, deskPath, fundedTrader, held, openOrders, placements
 // never typed in. Money line: a ladder order is the desk's own order (its review, its confirm, its hold), and nothing is
 // sent from a click without the review.
 //
-// Step #8 (queue position and fill chance) is not in this file yet: it lands with its code, so this file never carries a
-// step that is red by design. Instant placement sends LIMIT orders only: a market order (Buy or Sell at market, Close)
+// Instant placement sends LIMIT orders only: a market order (Buy or Sell at market, Close)
 // always shows its review, as the desk's order summary rule has it (J-cex-spot-13 #2).
 const J = 'J-charts-desk-14';
 const SYMBOL = 'BTC/USDT';
@@ -727,4 +726,84 @@ test(`${J} #7 uses one-click close, cancel and size presets; each acts once with
   expect(sent).toHaveLength(2);
   expect(deletes).toHaveLength(2);
   await setInstant(false);
+});
+
+test(`${J} #8 reads my place in the queue and the fill probability of a resting order`, async () => {
+  // Two resting buys of mine at one price no one else bids: the first is first in the queue, the second has exactly the
+  // first ahead of it.
+  const price = await awayBid(86);
+  const client = await api(who);
+  const placeAt = async (tag, amount) => {
+    const res = await client.post('/api/v1/orders', {
+      symbol: SYMBOL,
+      type: 'limit',
+      side: 'buy',
+      price,
+      amount,
+      timeInForce: 'GTC',
+      clientOrderId: `${J}-queue-${tag}-${who.email}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+    return res.body;
+  };
+  const first = await placeAt('first', SMALL);
+  const second = await placeAt('second', '0.002');
+
+  await openDesk();
+  await openDom();
+  await setLadder('Single', '1 tick');
+  const queue = page.getByRole('region', { name: 'My place in the queue' });
+  const rowOf = (order) => queue.locator(`[data-testid="of-queue-row"][data-order-id="${order.id}"]`);
+
+  // The place, from the order book's own queue.
+  await expect(rowOf(first)).toHaveAttribute('data-source', 'native_l3', { timeout: 20_000 });
+  await expect(rowOf(first)).toHaveAttribute('data-orders-ahead', '0');
+  await expect(rowOf(first).getByTestId('of-queue-place')).toHaveText('First in the queue at this price');
+  await expect(rowOf(second)).toHaveAttribute('data-orders-ahead', '1');
+  expect(same(await rowOf(second).getAttribute('data-size-ahead'), SMALL)).toBe(true);
+  await expect(rowOf(second).getByTestId('of-queue-place')).toHaveText(`1 order ahead of yours, ${SMALL} BTC`);
+  await expect(rowOf(second)).toContainText('From the order book’s own queue');
+  // The same level on the ladder holds exactly the two of them.
+  const level = rows().and(page.locator(`[data-price="${canon(price)}"]`));
+  await expect.poll(async () => same(await level.getAttribute('data-bid'), '0.003')).toBe(true);
+  expect(same(await level.getAttribute('data-my-bid'), '0.003')).toBe(true);
+
+  // The estimated chance: over the owner's window, the base traded at or through the price over the size to clear.
+  const answer = await client.get(`/api/v1/orders/${encodeURIComponent(second.id)}/queue`);
+  expect(answer.status, JSON.stringify(answer.body).slice(0, 300)).toBe(200);
+  const view = answer.body;
+  expect(view).toMatchObject({ orderId: second.id, ordersAhead: 1, source: 'native_l3', fillProbabilityRefusal: null });
+  expect(view.windowSeconds).toBeGreaterThan(0);
+  const needed = toUnits(view.sizeAhead) + toUnits(view.remaining);
+  const ratio = (toUnits(view.tradedInWindow) * toUnits('1')) / needed;
+  expect(toUnits(view.fillProbability)).toBe(ratio > toUnits('1') ? toUnits('1') : ratio);
+  // What traded is the public tape's own prints at or under the price, in the window that ends at the answer's time.
+  const asOf = Date.parse(view.asOf);
+  const tape = await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent(SYMBOL)}?limit=500&since=${asOf - view.windowSeconds * 1000}`, {
+    headers: { origin: ORIGIN },
+  }).then((r) => r.json());
+  const traded = tape
+    .filter((t) => t.timestamp <= asOf && toUnits(t.price) <= toUnits(price))
+    .reduce((sum, t) => sum + toUnits(t.amount), 0n);
+  expect(toUnits(view.tradedInWindow)).toBe(traded);
+  // The desk shows the service's estimate as a percent, floored to a tenth, with its window.
+  const permille = (toUnits(view.fillProbability) * 1000n) / toUnits('1');
+  const minutes = view.windowSeconds % 60 === 0;
+  await expect(rowOf(second).getByTestId('of-queue-chance')).toHaveText(
+    `Estimated chance to fill: ${permille / 10n}.${permille % 10n}%, from the trades at or through your price over the last ${
+      minutes ? view.windowSeconds / 60 : view.windowSeconds
+    } ${minutes ? 'minutes' : 'seconds'}`,
+    { timeout: 20_000 },
+  );
+
+  // Someone else's order has no place for me to read: it is not found, with no hint it exists.
+  const theirs = await (await api(otherTrader())).get(`/api/v1/orders/${encodeURIComponent(second.id)}/queue`);
+  expect(theirs.status).toBe(404);
+  expect(theirs.body.intafacedCode).toBe('trade.order_not_found');
+
+  // Once the first is cancelled, the second moves up to first.
+  const cancelled = await client.delete(`/api/v1/orders/${encodeURIComponent(first.id)}`);
+  expect(cancelled.status, JSON.stringify(cancelled.body).slice(0, 300)).toBeLessThan(300);
+  await expect(rowOf(second)).toHaveAttribute('data-orders-ahead', '0', { timeout: 20_000 });
+  await expect(rowOf(second).getByTestId('of-queue-place')).toHaveText('First in the queue at this price');
 });
