@@ -828,6 +828,7 @@ export type BankErrorCode =
   | 'bank.card_programme_span_too_long'
   /** Ramp health window was omitted or outside 1..720 hours. */
   | 'bank.ramp_health_window_unset'
+  | 'bank.onramp_quotes_limit_unset'
   /** Transfer health window was omitted or outside 1..720 hours. */
   | 'bank.transfer_health_window_unset'
   /** Failed-transfer window was omitted or outside 1..720 hours. */

@@ -74,9 +74,24 @@ public final class FixAcceptorMain {
             System.exit(2);
             return;
         }
-        try (FixAcceptor ignored = FixAcceptor.start(parsed.config, orderApp, orderStore.path);
-                FixDropCopyAcceptor dropIgnored = FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path);
+        try (FixAcceptor orderEntry = FixAcceptor.start(parsed.config, orderApp, orderStore.path);
+                FixDropCopyAcceptor dropAcceptor = FixDropCopyAcceptor.start(dropCopy.config, dropApp, store.path);
                 DropCopyIngest ingestIgnored = ingestStarted.ingest) {
+            // The adapter's own status on the ingest listener: its sessions and the CompID map it submits with.
+            Map<String, String> compIdAccounts =
+                    MatchingSubmitPort.readCompIdAccountMap(env.get(MatchingSubmitPort.COMPID_ACCOUNT_JSON_ENV));
+            ingestStarted.ingest.mount(AdapterStatus.HEALTH_PATH, AdapterStatus.health());
+            ingestStarted.ingest.mount(
+                    AdapterStatus.PATH,
+                    AdapterStatus.handler(
+                            () -> {
+                                java.util.List<AdapterStatus.SessionRow> rows = new java.util.ArrayList<>(
+                                        AdapterStatus.rows(AdapterStatus.ORDER_ENTRY, orderEntry.sessions(), compIdAccounts));
+                                rows.addAll(AdapterStatus.rows(AdapterStatus.DROP_COPY, dropAcceptor.sessions(), null));
+                                return AdapterStatus.json(rows, compIdAccounts, java.time.Instant.now());
+                            },
+                            env.get(AdapterStatus.SECRET_ENV),
+                            s2s));
             Thread.currentThread().join();
         }
     }

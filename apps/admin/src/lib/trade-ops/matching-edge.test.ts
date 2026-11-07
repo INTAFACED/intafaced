@@ -28,6 +28,49 @@ describe('matching health (svc-edge /admin/trade-ops/matching/health)', () => {
     expect(String(url)).toBe('http://isolated-edge:4000/admin/trade-ops/matching/health');
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer founder-session-token');
   });
+  it('carries the engine figures and per-operation latency; a missing one is null, never zero (J-cex-spot-20 #1)', async () => {
+    const reading = { count: 2, errors: 0, p50Ms: 5, p99Ms: 10, perMinute: '0.40' };
+    fetchMock.mockResolvedValue(
+      reply(200, {
+        venueHalted: false,
+        restingOrders: 7,
+        journalRecords: 41,
+        markets: 3,
+        admissionOpen: true,
+        admissionReason: null,
+        holdHalted: [],
+        metrics: { startedAt: '2026-11-06T10:00:00.000Z', operations: { submit: reading, depth: { ...reading, count: -1 } } },
+        asOf: '2026-10-18T01:00:00.000Z',
+        ageMs: 12,
+      }),
+    );
+    const out = await readMatchingHealth(ctx);
+    expect(out).toMatchObject({
+      kind: 'ok',
+      data: {
+        markets: 3,
+        admission: { open: true, reason: null },
+        holdHalted: [],
+        engineStartedAt: '2026-11-06T10:00:00.000Z',
+        operations: { submit: reading, cancel: null, depth: null },
+      },
+    });
+  });
+  it('an answer with only the three halt fields reads every other figure as unread', async () => {
+    fetchMock.mockResolvedValue(
+      reply(200, { venueHalted: false, restingOrders: 1, journalRecords: 2, asOf: '2026-10-18T01:00:00.000Z', ageMs: 3 }),
+    );
+    expect(await readMatchingHealth(ctx)).toMatchObject({
+      kind: 'ok',
+      data: {
+        markets: null,
+        admission: null,
+        holdHalted: null,
+        engineStartedAt: null,
+        operations: { submit: null, cancel: null, depth: null },
+      },
+    });
+  });
   it('shows the typed refusal when matching is not configured, never zeros', async () => {
     fetchMock.mockResolvedValue(
       reply(503, { outcome: 'refused', error: 'MATCHING_URL is unpublished.', code: 'matching_unconfigured', key: 'MATCHING_URL' }),

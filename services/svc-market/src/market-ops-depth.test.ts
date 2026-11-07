@@ -337,6 +337,11 @@ describe('market ops depth', () => {
       expect(first.status).toBe('taken_down');
       expect(calls.n).toBe(1);
       expect(ledger.journal().length).toBe(journal);
+      // The seller's own list shows the listing's review state: taken down by an operator, not their approved review.
+      expect((await commerce.myListings(VENDOR_USER, { limit: 50 })).find((row) => row.id === listing.id)).toMatchObject({
+        status: 'taken_down',
+        reviewState: 'taken_down',
+      });
       const again = await commerce.takedownListing(
         {
           actorId: OPERATOR,

@@ -12,6 +12,8 @@ export default ({ c, secrets, urlOf, PORTS, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_
       // The private and drop-copy doors check a customer's ownership with identity, the same way the edge does.
       IDENTITY_URL: urlOf('identity'),
       IDENTITY_OWNERSHIP_SECRET: secrets.edgeAuthority,
+      // The SBE consumer list's read key; svc-edge signs with the same one for the founder console (J-cex-spot-20 #3).
+      WS_STATUS_READ_SECRET: secrets.wsStatusRead,
       EDGE_ALLOWED_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
       // Every WS_* limit, ceiling and window (depth, connections, lag, the multiplexed door's idle time) is
       // owner-unpublished: left unset, so each door refuses by its own *_unset code.

@@ -28,6 +28,7 @@ import { FileJournal } from './engine/journal.js';
 import { shutdownMatching } from './shutdown.js';
 import { registerHealth } from './health.js';
 import { registerMetrics } from './metrics.js';
+import { OperationLatency, registerOperationLatency } from './operation-latency.js';
 import { registerRoutes } from './router.js';
 import { createIdentityApprovalClient, parseOperatorIds, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
@@ -109,7 +110,10 @@ const app = Fastify({ logger: { level: env.LOG_LEVEL } });
  */
 registerMetrics(app, { service: env.SERVICE_NAME });
 
-registerHealth(app, env.SERVICE_NAME, engine, journal);
+// Submit, cancel and depth latency since this process started, carried on /health for the console (J-cex-spot-20 #1).
+const operationLatency = new OperationLatency(new Date());
+registerOperationLatency(app, operationLatency, (marketId) => engine.markets.includes(marketId));
+registerHealth(app, env.SERVICE_NAME, engine, journal, operationLatency);
 
 /**
  * Readiness is stricter than liveness. A disabled engine is alive — it still
@@ -139,7 +143,6 @@ registerRoutes(app, engine, env.INTERNAL_SERVICE_SECRET, {
   // (compose-pin tests are law). Order writes are money instructions: unbound
   // v1 HMAC must 401 here. Callers already send serviceAuthHeadersForBody.
   bodyBind: 'require',
-  rulebookVersion: env.MATCHING_RULEBOOK_VERSION,
   approvals: actionApprovals,
   operatorIds: parseOperatorIds(env.MATCHING_OPERATOR_IDS),
   ...(env.EDGE_PRINCIPAL_SECRET ? { edgePrincipalSecret: env.EDGE_PRINCIPAL_SECRET } : {}),
