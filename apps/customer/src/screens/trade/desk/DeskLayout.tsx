@@ -220,13 +220,17 @@ export function DeskLayoutMenu({
     if (name === '') return setForm({ ...form, problem: l('Name needed') });
     if (name.length > NAME_MAX) return setForm({ ...form, problem: l('Name too long') });
     if (!replace && saved.status === 'ready' && findByName(saved.value, name)) return setForm({ ...form, replacing: true, problem: null });
+    // The menu closes at once, as a save is asked for; a refused save opens it again with the reason and the name kept.
+    const asked = { ...form, replacing: false };
+    setForm(null);
+    setOpen(false);
     setBusy(true);
     const result = await desk.saveDesk(name, symbol);
     setBusy(false);
-    if (result.ok) {
-      setForm(null);
-      setOpen(false);
-    } else setForm({ ...form, replacing: false, problem: l(refusalKey(result.code)) });
+    if (!result.ok) {
+      setForm({ ...asked, problem: l(refusalKey(result.code)) });
+      setOpen(true);
+    }
   };
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();

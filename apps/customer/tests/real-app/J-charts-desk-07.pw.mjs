@@ -212,6 +212,8 @@ test(`${J} #6 saves a chart template with indicators and drawings and applies it
   await page.getByRole('button', { name: 'Save as template' }).click();
   await page.getByLabel('Template name').fill('TEST studies');
   await page.getByRole('button', { name: 'Save template' }).click();
+  // Kept by the account before the page is left: leaving at once could cut the write off.
+  await expect(page.getByTestId('cw-template-saved')).toHaveAttribute('data-template', 'TEST studies');
   await page.goto('/charts/ETH-USDT');
   await page.getByRole('button', { name: 'Templates' }).click();
   await page.getByRole('menuitem', { name: 'TEST studies' }).click();
