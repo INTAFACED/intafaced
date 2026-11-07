@@ -89,6 +89,12 @@ export interface ReadSpec {
   readonly rowsKey?: string;
   /** List only: dotted path of a stable id inside a row. */
   readonly idKey?: string;
+  /**
+   * List only: keep only the rows whose value at this dotted path is exactly `equals` (one KYC case's documents out of the
+   * person's list). Whether the page is full is still judged on what the service sent, so a full page of other rows still says
+   * more may exist.
+   */
+  readonly rowsWhere?: { readonly key: string; readonly equals: string };
   /** List only, instead of `idKey`: the service gives these rows no id (a total per vendor and asset). They are shown by position and carry no row action. */
   readonly anonymousRows?: true;
   readonly columns: readonly Column[];
