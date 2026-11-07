@@ -115,13 +115,13 @@ export function tool(script, ...args) {
 }
 
 /**
- * A stack service restarted with one of its TEST settings switched `off` (blank), or back on: the switch is set for the
- * restart only, and this process's environment is put back as it was.
+ * A stack service restarted with one of its TEST settings switched `off` (blank), or `on`: the switch is set for the
+ * restart only, and this process's environment is put back as it was. Most switches are on unless `off`; an opt-in one
+ * (notify's `LOCAL_STACK_NOTIFY_MAIL`) is on only when `on`, which every other switch also reads as on.
  */
 export function restartWith(service, envKey, on) {
   const before = process.env[envKey];
-  if (on) delete process.env[envKey];
-  else process.env[envKey] = 'off';
+  process.env[envKey] = on ? 'on' : 'off';
   try {
     tool('local-test-stack.mjs', 'restart', service);
   } finally {
