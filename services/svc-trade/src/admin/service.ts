@@ -4,6 +4,7 @@
  * of an account writes one append-only audit row. Money figures stay exact
  * decimal strings.
  */
+import { FeedHealthDesk } from './feed-health.js';
 import { randomUUID } from 'node:crypto';
 import type { Sql } from 'postgres';
 import type { Principal } from '@intafaced/auth';
@@ -166,8 +167,11 @@ export class TradeOpsAdmin {
   readonly copyBotsOtc: CopyBotsOtcAdmin;
   /** Fee tier snapshot runs, Convert's owner values and its quotes, read only (J-cex-spot-17). */
   readonly feesConvert: FeesConvertDesk;
+  /** Market feed health and the feed event journal, read only (C-ops-01, J-charts-desk-18 #1 #2). */
+  readonly feedHealth: FeedHealthDesk;
 
   constructor(private readonly deps: TradeOpsDeps) {
+    this.feedHealth = new FeedHealthDesk({ sql: deps.sql, now: () => nowOf(deps) });
     this.feesConvert = new FeesConvertDesk({ sql: deps.sql, ...(deps.convert ? { convert: deps.convert } : {}) });
     this.copyBotsOtc = new CopyBotsOtcAdmin({
       sql: deps.sql,

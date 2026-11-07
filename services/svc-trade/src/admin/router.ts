@@ -3,6 +3,7 @@
  * Writes are `admin:write`. Procedures exist even when the service is
  * unwired: they refuse `trade_ops_admin_unconfigured`.
  */
+import { FEED_GAP_WINDOW_MAX_MINUTES } from './feed-health.js';
 import { z } from 'zod';
 import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { AuthError } from '@intafaced/auth';
@@ -488,6 +489,19 @@ export function tradeOpsAdminRouter(admin?: TradeOpsAdmin) {
       convert: operatorWrite
         .input(z.object({ market: id, reason, approvalId, clientRequestId }).strict())
         .mutation(({ ctx, input }) => ready().futuresContracts.premarketConvert(ctx.principal, input).catch(fail)),
+    }),
+    feedHealth: router({
+      list: operator.query(({ ctx }) => ready().feedHealth.list(ctx.principal).catch(fail)),
+      market: operator
+        .input(
+          z
+            .object({
+              symbol: z.string().trim().min(1).max(64),
+              gapWindowMinutes: z.number().int().min(1).max(FEED_GAP_WINDOW_MAX_MINUTES),
+            })
+            .strict(),
+        )
+        .query(({ ctx, input }) => ready().feedHealth.market(ctx.principal, input).catch(fail)),
     }),
     chartOwnerValues: router({
       get: operator.query(({ ctx }) => ready().chartOwnerValues.get(ctx.principal).catch(fail)),

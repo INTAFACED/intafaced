@@ -150,6 +150,7 @@ import { HOUSE_MM_API_KEY_ID } from './spot/auth-attribution.js';
 import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
 import { startCandleJobs } from './spot/candle-jobs.js';
+import { FEED_WATCH_INTERVAL_MS, runFeedWatchTick } from './admin/feed-health.js';
 import { startTrailingMarkJobs } from './spot/trailing-mark-jobs.js';
 import { startFeeTierJobs } from './spot/fee-tier-jobs.js';
 import { markSourceFromDepth } from './futures/mark-from-depth.js';
@@ -841,6 +842,13 @@ const conditionalJobs = startConditionalOrderJobs({
     if (failure != null) throw failure;
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'futures conditional job tick failed'),
+});
+// J-charts-desk-18 #2: the feed watcher writes the feed event journal. It judges nothing while the owner's delayed
+// boundary is blank (admin/feed-health.ts), so the interval is an operational tick, like svc-notify's alert sweep.
+const feedWatch = createJobHost({ onError: (name, err) => app.log.error({ err, job: name }, 'feed watch tick failed') });
+feedWatch.every('feed-watch', FEED_WATCH_INTERVAL_MS, async () => {
+  const r = await runFeedWatchTick(sql);
+  if (r.drops > 0 || r.reconnects > 0) app.log.info({ ...r }, 'feed watch wrote journal rows');
 });
 const candleJobs = startCandleJobs({
   sql,
@@ -1581,6 +1589,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
       mmSeedJobs.stop();
       algoJobs.stop();
       copyMirrorJobs.stopAll();
+      feedWatch.stopAll();
       limitConvertJobs.stopAll();
       gridJobs.stopAll();
       optionsExerciseJobs.stop();
