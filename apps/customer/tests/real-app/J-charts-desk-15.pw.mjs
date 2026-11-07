@@ -124,7 +124,16 @@ async function priceAt(y) {
 
 /** The line sits at `price` on the chart: the chart's own reading at the line's height is that price, to within 6 pixels. */
 async function expectAtPrice(line, price) {
+  // Where the line is drawn as the person first sees it, before the pointer touches the chart.
   const y = centreY(await line.boundingBox());
+  const pane = await pricePane();
+  expect(
+    y,
+    `the line is drawn inside the price pane (${pane.y}..${pane.y + pane.height}) without the pointer moving`,
+  ).toBeGreaterThanOrEqual(pane.y);
+  expect(y, `the line is drawn inside the price pane (${pane.y}..${pane.y + pane.height}) without the pointer moving`).toBeLessThanOrEqual(
+    pane.y + pane.height,
+  );
   const there = await priceAt(y);
   const perPixel = Math.abs(there - (await priceAt(y - 20))) / 20;
   expect(perPixel).toBeGreaterThan(0);
