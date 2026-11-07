@@ -7,7 +7,8 @@ import { defineCopy } from '../../../shared/i18n';
 const en = {
   // Accounts
   subAccountsTitle: 'Sub-accounts',
-  subAccountsNote: 'Every account this wallet controls on this network. Your wallet signs for each of them; we hold no key.',
+  subAccountsNote: 'This wallet and its smart account on this network. Your wallet signs for both; we hold no key.',
+  accountsWrongNetwork: 'Your wallet is on another network. Switch it to this network to see its accounts here.',
   hdr_account: 'Account',
   hdr_address: 'Address',
   hdr_status: 'Status',
@@ -16,7 +17,7 @@ const en = {
   accountSmart: 'Smart account',
   accountDeployed: 'Deployed',
   accountNotDeployed: 'Not deployed yet: it is created the first time you use it',
-  accountUnreadable: 'Not available: {reason}',
+  accountFactoryUnset: 'Not available: the smart account factory is not deployed on this network.',
   accountReading: 'Reading the network…',
   custodialNote: 'Exchange sub-accounts are a separate thing and are not offered yet, so there is nothing to open for them here.',
   multisigTitle: 'Multi-signature accounts',

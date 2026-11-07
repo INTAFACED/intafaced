@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Button, DataTable, EmptyState, Panel } from '../../../shared/ui';
+import { Button, DataTable, EmptyState, Failure, Panel } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { useApi } from '../../session/session';
@@ -18,7 +18,10 @@ export function AccountsPanel() {
   const { t } = safetyCopy.forLocale(language);
   const { t: tw } = walletCopy.forLocale(language);
   const wallet = useWallet();
-  const owner = wallet.status === 'connected' ? wallet.address : null;
+  const connected = wallet.status === 'connected' ? wallet.address : null;
+  // A wallet on another network is told so: the accounts read here are this network's, not the wallet's current one.
+  const wrongNetwork = connected !== null && wallet.guard !== null && wallet.guard !== undefined && !wallet.guard.ok;
+  const owner = wrongNetwork ? null : connected;
   const headers = [t('hdr_account'), t('hdr_address'), t('hdr_status')];
   return (
     <>
@@ -30,7 +33,7 @@ export function AccountsPanel() {
           <DataTable label={t('subAccountsTitle')} headers={headers}>
             <tr>
               <td colSpan={headers.length}>
-                <EmptyState title={tw('needsWallet')} />
+                <EmptyState title={wrongNetwork ? t('accountsWrongNetwork') : tw('needsWallet')} />
               </td>
             </tr>
           </DataTable>
@@ -55,7 +58,7 @@ function OwnedAccounts({ owner, headers }: { owner: string; headers: string[] })
   const { t } = safetyCopy.forLocale(language);
   const transport = useApi();
   const api = useMemo(() => createProtocolApi(transport), [transport]);
-  const { resource } = useResource((signal) => api.predictAccount(owner, signal), `wallet:accounts:${owner.toLowerCase()}`);
+  const { resource, reload } = useResource((signal) => api.predictAccount(owner, signal), `wallet:accounts:${owner.toLowerCase()}`);
   return (
     <DataTable label={t('subAccountsTitle')} headers={headers}>
       <tr>
@@ -75,8 +78,10 @@ function OwnedAccounts({ owner, headers }: { owner: string; headers: string[] })
             ) : (
               t('accountNotDeployed')
             )
+          ) : isFactoryUnset(resource.failure.message) ? (
+            t('accountFactoryUnset')
           ) : (
-            t('accountUnreadable', { reason: smartAccountReason(resource.failure.message) })
+            <Failure result={resource.failure} retry={reload} />
           )}
         </td>
       </tr>
@@ -84,7 +89,11 @@ function OwnedAccounts({ owner, headers }: { owner: string; headers: string[] })
   );
 }
 
-/** The service's refusal in plain words: an unset factory is named as not deployed; anything else as not answering. */
-export function smartAccountReason(message: string): string {
-  return /factory/i.test(message) ? 'the smart account factory is not deployed on this network' : 'the network did not answer';
+/**
+ * svc-protocol's `requireAccountFactoryConfigured` refusal (PRECONDITION_FAILED, no typed code on the wire): named as the
+ * factory not being deployed. Every other failure, a region refusal or a network that did not answer included, is shown
+ * by the shared Failure, which reads its code.
+ */
+export function isFactoryUnset(message: string): boolean {
+  return /factory\/implementation is not configured/i.test(message);
 }

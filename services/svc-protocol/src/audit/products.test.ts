@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AuditRecord } from './pipeline.js';
 import { loadProductAudits, productAudits } from './products.js';
-import type { ExternalClaim } from './registry.js';
+import { evaluateExternalClaim, type ExternalClaim } from './registry.js';
 
 const HASH = `0x${'1'.repeat(64)}` as const;
 const claim = (over: Partial<ExternalClaim> = {}): ExternalClaim => ({
@@ -34,18 +34,41 @@ describe('audit room per-product rows (D-developer-compliance-02)', () => {
   });
 
   it('an owner-recorded report whose hash matches fills only the products it names, with date, scope and link', () => {
-    const rows = productAudits([claim()], [record(true)], []);
+    const rows = productAudits(
+      [{ claim: claim({ scope: 'TEST: the swap router', reportUrl: 'https://example.test/r' }), record: record(true) }],
+      [],
+    );
     expect(rows.products.find((row) => row.product === 'swap')?.external).toEqual({
       id: 'TEST-report',
       packagePath: 'docs/TEST-report.md',
       signedBy: 'TEST auditor',
       signedAt: '2026-11-07',
+      scope: 'TEST: the swap router',
+      reportUrl: 'https://example.test/r',
     });
     expect(rows.products.filter((row) => row.external !== null)).toHaveLength(1);
   });
 
   it('a report whose hash does not match, or that names no product, fills nothing', () => {
-    expect(productAudits([claim()], [record(false)], []).products.every((row) => row.external === null)).toBe(true);
-    expect(productAudits([claim({ products: undefined })], [record(true)], []).products.every((row) => row.external === null)).toBe(true);
+    const none = (rows: ReturnType<typeof productAudits>) => rows.products.every((row) => row.external === null);
+    expect(none(productAudits([{ claim: claim(), record: record(false) }], []))).toBe(true);
+    expect(none(productAudits([{ claim: claim({ products: undefined }), record: record(true) }], []))).toBe(true);
+    // A claim whose package could not be read fills nothing.
+    expect(none(productAudits([{ claim: claim(), record: null }], []))).toBe(true);
+  });
+
+  it("a claim never borrows another claim's passing check, even with the same id", () => {
+    const rows = productAudits(
+      [
+        { claim: claim({ products: ['swap'] }), record: record(true) },
+        { claim: claim({ products: ['bridge', 'lending'] }), record: record(false) },
+      ],
+      [],
+    );
+    expect(rows.products.filter((row) => row.external !== null).map((row) => row.product)).toEqual(['swap']);
+  });
+
+  it('a claim whose package file is missing is skipped, never thrown', () => {
+    expect(evaluateExternalClaim(claim({ packagePath: 'no/such/TEST-report.md' }))).toBeNull();
   });
 });

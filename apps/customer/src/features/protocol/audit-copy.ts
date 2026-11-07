@@ -15,8 +15,11 @@ const en = {
   product_launch: 'Launch',
   product_bridge: 'Bridge',
   externalNone: 'External audit: not done',
-  externalDone: 'External audit by {by}, {at}. Scope and report: {scope} ({path})',
+  externalDone: 'External audit by {by}, {at}. Scope: {scope}.',
+  externalReport: 'Read the report',
+  externalNoLink: 'The report is kept at {path}.',
   internal: 'Our own tests, not an audit',
+  internalNone: 'None recorded',
 } as const;
 
 export const auditCopy = defineCopy('customer.protocol.audit', en);

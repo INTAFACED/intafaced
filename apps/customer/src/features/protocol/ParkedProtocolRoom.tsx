@@ -500,7 +500,7 @@ export function ParkedProtocolRoom({ slug, subPath }: { slug: Slug; subPath?: st
   else if (tab === 'audit')
     body = (
       <>
-        <AuditProducts />
+        <AuditProducts api={api} />
         {auditPanel}
       </>
     );

@@ -362,6 +362,10 @@ export const protocolAuditProductsSchema = z.object({
           packagePath: z.string(),
           signedBy: z.string(),
           signedAt: z.string(),
+          /** The report's scope in its own words; null when the claim gives none. */
+          scope: z.string().nullable(),
+          /** Where the report can be read; null when the claim gives no link. */
+          reportUrl: z.string().nullable(),
         })
         .nullable(),
     }),
@@ -370,3 +374,13 @@ export const protocolAuditProductsSchema = z.object({
   internal: z.array(z.object({ id: z.string(), packagePath: z.string() })),
 });
 export type ProtocolAuditProducts = z.infer<typeof protocolAuditProductsSchema>;
+
+/** svc-protocol `predictAddress`: the smart account a wallet owns on the configured chain (CREATE2) and whether it has code. */
+export const protocolPredictedAccountSchema = z.object({
+  address: z.string(),
+  chainId: z.number(),
+  factory: z.string(),
+  implementation: z.string(),
+  deployed: z.boolean(),
+});
+export type ProtocolPredictedAccount = z.infer<typeof protocolPredictedAccountSchema>;
