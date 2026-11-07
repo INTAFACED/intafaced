@@ -73,3 +73,21 @@ export const deskLayoutsPreferenceSchema = z
 export type DeskLayoutsPreference = z.infer<typeof deskLayoutsPreferenceSchema>;
 
 export const EMPTY_DESK_LAYOUTS: DeskLayoutsValue = { layouts: [], active: null, deleted: [] };
+
+/**
+ * The client request id of a write: a business key, never random. One id per (person, version read, value written), so a
+ * retry after a lost reply returns the first stored result.
+ */
+export function deskLayoutsRequestId(userId: string, ifVersion: number, value: unknown): string {
+  return `${DESK_LAYOUTS_NAMESPACE}:${userId.toLowerCase()}:${ifVersion}:${digest(JSON.stringify(value))}`;
+}
+
+/** A short, stable digest (FNV-1a, 64 bits), so the id stays well under the 200 characters the door allows. */
+function digest(text: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= BigInt(text.charCodeAt(index));
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
