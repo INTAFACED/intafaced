@@ -124,20 +124,27 @@ test('J-ops-console-01 #6 Ctrl K and "ledger" lists matching pages and actions, 
 test('J-ops-console-01 #6 scope: pages the person lacks scope for are not listed', async ({ page, browser }) => {
   await staffSignIn(page, browser, 'support');
   await page.goto(`${ADMIN}/accounts`);
-  await expect(page.getByRole('button', { name: /^Search Ctrl K/ })).toBeEnabled();
-  // The nav shows the support desk its own pages, and no ledger page.
-  const nav = page.getByRole('navigation', { name: 'Operator console' }).first();
-  await expect(nav.getByRole('link', { name: 'Account controls' })).toBeVisible();
-  await expect(nav.getByRole('link', { name: 'Ledger ops' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Search Ctrl K', exact: true })).toBeEnabled();
+  // The nav shows the support desk its own pages, and no ledger page. The desktop bar is the one on screen.
+  const nav = page.locator('nav.adm-nav--desktop');
+  await expect(nav.getByRole('link', { name: 'Account controls', exact: true })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Ledger ops', exact: true })).toHaveCount(0);
   await page.keyboard.press('Control+k');
   const palette = page.getByTestId('command-palette');
   await expect(palette).toBeVisible();
+  // An option by its label alone (each option also shows a hint, which can name another page): the whole label, exactly.
+  const option = (label) =>
+    palette.getByRole('option').filter({ has: page.locator('.adm-palette-label', { hasText: new RegExp(`^${label}$`) }) });
+  // Every option whose label mentions a word, for the "not listed" checks (wider is stricter there).
+  const mentioning = (pattern) => palette.getByRole('option').filter({ has: page.locator('.adm-palette-label', { hasText: pattern }) });
   // A page this person has scope for is listed, so an empty list cannot pass for a filtered one.
   await page.keyboard.type('account controls');
-  await expect(palette.getByRole('option', { name: /^Account controls/ })).toBeVisible();
+  await expect(option('Account controls')).toHaveCount(1);
   await palette.getByRole('combobox').fill('ledger');
-  await expect(palette.getByRole('option', { name: /Ledger ops/ })).toHaveCount(0);
-  await expect(palette.getByRole('option', { name: /Freeze or unfreeze ledger posting/ })).toHaveCount(0);
-  await expect(palette.getByRole('option', { name: /Halt or clear a pay rail/ })).toHaveCount(0);
-  await expect(palette.getByRole('option', { name: /Ledger restore proof|Prove a ledger restore/ })).toHaveCount(0);
+  // The list has moved on to "ledger": the balance lookup (on Bank ops, an area this person reads) is listed.
+  await expect(option('Look up a customer balance and its ledger entries')).toHaveCount(1);
+  await expect(mentioning(/Ledger ops/)).toHaveCount(0);
+  await expect(mentioning(/Freeze or unfreeze ledger posting/)).toHaveCount(0);
+  await expect(mentioning(/Halt or clear a pay rail/)).toHaveCount(0);
+  await expect(mentioning(/Ledger restore proof|Prove a ledger restore/)).toHaveCount(0);
 });
