@@ -55,7 +55,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HANDLES_CAP = 200;
 
 /** The handles of the accounts a registry page names. An id identity does not answer for stays an id on the page. */
-async function handlesFor(ctx: FounderCallContext, rows: readonly Json[]): Promise<Record<string, string> | FleetAnswer> {
+async function handlesFor(ctx: FounderCallContext, rows: readonly Json[]): Promise<{ handles: Record<string, string>; unread: boolean }> {
   const ids = new Set<string>();
   for (const row of rows) {
     for (const id of [row.ownerId, row.publisherId]) if (isString(id) && UUID.test(id)) ids.add(id.toLowerCase());
@@ -73,10 +73,11 @@ async function handlesFor(ctx: FounderCallContext, rows: readonly Json[]): Promi
       { ids: all.slice(at, at + HANDLES_CAP) },
       parseHandles,
     );
-    if (result.kind !== 'ok') return refusalOf(result);
+    // Identity not answering leaves the ids on the page, said so; it never hides the registry svc-agents returned.
+    if (result.kind !== 'ok') return { handles, unread: true };
     for (const row of result.data) handles[row.id.toLowerCase()] = row.handle;
   }
-  return handles;
+  return { handles, unread: false };
 }
 
 const filterOf = (action: Extract<FleetAction, { action: 'registry' | 'export' }>) => ({
@@ -89,9 +90,8 @@ export async function runFleet(ctx: FounderCallContext, action: FleetAction): Pr
     case 'registry': {
       const result = await founderCall(ctx, 'agents', 'fleet.registry', 'GET', filterOf(action), parseRegistry);
       if (result.kind !== 'ok') return refusalOf(result);
-      const handles = await handlesFor(ctx, result.data.rows as Json[]);
-      if ('kind' in handles && (handles.kind === 'refused' || handles.kind === 'ok')) return handles as FleetAnswer;
-      return { kind: 'ok', data: { ...result.data, handles, me: ctx.session.userId.toLowerCase() } };
+      const { handles, unread } = await handlesFor(ctx, result.data.rows as Json[]);
+      return { kind: 'ok', data: { ...result.data, handles, handlesUnread: unread, me: ctx.session.userId.toLowerCase() } };
     }
     case 'export': {
       const result = await founderCall(

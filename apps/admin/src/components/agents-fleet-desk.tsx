@@ -39,6 +39,8 @@ interface Registry {
   readonly limit: number;
   readonly handles: Readonly<Record<string, string>>;
   readonly me: string;
+  /** Identity did not name the accounts: the page shows account ids instead of handles. */
+  readonly handlesUnread: boolean;
   /** The filter this answer is for: the matching count shows only for the filter on screen. */
   readonly riskFor: RiskSignal | '';
 }
@@ -177,6 +179,7 @@ export function AgentsFleetDesk({ csrf }: { csrf: string }) {
       )}
       {registry && (
         <>
+          {registry.handlesUnread && <p className="dk-muted">Identity did not answer, so accounts show as ids, not handles.</p>}
           <dl className="dk-row">
             <div>
               <dt>Total</dt>
