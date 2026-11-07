@@ -13,10 +13,7 @@ import { CONFLICT, rebaseAndWrite, type RecordIo } from '../watchlists/rebase';
 type Failure = Extract<ApiResult<unknown>, { ok: false }>;
 
 export type AccountRecord<T> =
-  | { status: 'signed-out' }
-  | { status: 'loading' }
-  | { status: 'failed'; reload: () => void }
-  | { status: 'ready'; value: T };
+  { status: 'signed-out' } | { status: 'loading' } | { status: 'failed'; reload: () => void } | { status: 'ready'; value: T };
 
 /** How a write ended: stored, or refused with the account's code (`reply.unknown` when the reply was lost; the record was read again). */
 export type RecordWrite = { ok: true } | { ok: false; code: string };
