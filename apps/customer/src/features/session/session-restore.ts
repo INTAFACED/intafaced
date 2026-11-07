@@ -39,9 +39,60 @@ const BACKOFF_MAX_MS = 60_000;
  * Why a refresh ended the session, when the server said so. Shown to the person; never guessed. `subaccount_ended`: the
  * tab acted as a sub-account and is back on the main account, because the sub-account could not be confirmed again.
  */
-export type SessionNotice = 'reused' | 'frozen' | 'subaccount_ended';
+export type SessionNotice = 'reused' | 'frozen' | 'idle' | 'subaccount_ended';
 export function noticeFor(code: string | undefined): SessionNotice | null {
-  return code === 'auth.session_reused' ? 'reused' : code === 'auth.account_frozen' ? 'frozen' : null;
+  if (code === 'auth.session_reused') return 'reused';
+  if (code === 'auth.account_frozen') return 'frozen';
+  return code === 'auth.session_idle' ? 'idle' : null;
+}
+
+/**
+ * When this browser was last used and last refreshed its sign-in, shared by its tabs (I-signin-sessions-06). A refresh
+ * the timer makes with no use since the one before tells identity so (`idle: true`), and the idle sign-out keeps
+ * counting: an open tab nobody touches is a device left unused. Without storage, or with a missing value, a refresh
+ * counts as use, as it always did: the idle sign-out then ends only a device that stops refreshing.
+ */
+const USED_AT = 'intafaced.session.used-at';
+const REFRESHED_AT = 'intafaced.session.refreshed-at';
+function stamp(key: string, at: number) {
+  try {
+    globalThis.localStorage?.setItem(key, String(at));
+  } catch {
+    // No storage: the next refresh counts as use.
+  }
+}
+function stamped(key: string): number | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(key);
+    const at = raw === null || raw === undefined ? NaN : Number(raw);
+    return Number.isFinite(at) ? at : null;
+  } catch {
+    return null;
+  }
+}
+/** True only when this browser saw a refresh and no use after it. */
+export function unusedSinceRefresh(): boolean {
+  const used = stamped(USED_AT);
+  const refreshed = stamped(REFRESHED_AT);
+  return used !== null && refreshed !== null && used <= refreshed;
+}
+/** Marks use (a key, a click or a touch) at most once every few seconds; returns the way to stop listening. */
+export function watchUse(now: () => number = Date.now): () => void {
+  const target = globalThis.window;
+  if (!target?.addEventListener) return () => undefined;
+  let last = 0;
+  const used = () => {
+    const at = now();
+    if (at - last < 5_000) return;
+    last = at;
+    stamp(USED_AT, at);
+  };
+  const events = ['pointerdown', 'keydown', 'touchstart'] as const;
+  for (const name of events) target.addEventListener(name, used, { capture: true, passive: true });
+  used();
+  return () => {
+    for (const name of events) target.removeEventListener(name, used, { capture: true });
+  };
 }
 
 export type RefreshOutcome =
@@ -103,31 +154,38 @@ export function createSessionRefresher(
   });
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
-  const attempt = async () => mapRefreshResult(await api.mutate('identity', 'auth.refresh', {}, sessionSchema));
-  async function once(): Promise<RefreshOutcome> {
-    const first = await attempt();
+  const attempt = async (idle: boolean) => {
+    const outcome = mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
+    if (outcome.kind === 'session') stamp(REFRESHED_AT, Date.now());
+    return outcome;
+  };
+  async function once(idle: boolean): Promise<RefreshOutcome> {
+    const first = await attempt(idle);
     if (first.kind !== 'unavailable') return first;
     if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
-    return attempt();
+    return attempt(idle);
   }
-  async function locked(): Promise<RefreshOutcome> {
+  async function locked(idle: () => boolean): Promise<RefreshOutcome> {
     const locks = options.locks === undefined ? browserLocks() : (options.locks ?? undefined);
-    if (!locks) return once();
+    if (!locks) return once(idle());
     let started = false;
     try {
       return await locks.request(REFRESH_LOCK, async () => {
         started = true;
-        return once();
+        // Read under the lock: another tab may have refreshed (and been used) while this one waited.
+        return once(idle());
       });
     } catch {
       // The lock could not be taken (blocked or opaque origin): refresh without it. Once the callback has run, never run twice.
-      return started ? { kind: 'unavailable' } : once();
+      return started ? { kind: 'unavailable' } : once(idle());
     }
   }
   return {
-    refresh(): Promise<RefreshOutcome> {
+    /** `unused`: the timer's refresh; it tells identity when this browser saw no use since its last refresh. */
+    refresh(options: { unused?: boolean } = {}): Promise<RefreshOutcome> {
       if (!flight) {
-        const started: Promise<RefreshOutcome> = locked().finally(() => {
+        const idle = () => options.unused === true && unusedSinceRefresh();
+        const started: Promise<RefreshOutcome> = locked(idle).finally(() => {
           if (flight === started) flight = null;
         });
         flight = started;
@@ -280,6 +338,7 @@ export function createSessionController(
   let state: SessionState = { session: null, restoring: true, restoreFailed: false, notice: null };
   let epoch = 0;
   let active = false;
+  let stopWatchingUse: (() => void) | null = null;
   let failures = 0;
   let boot: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -322,7 +381,7 @@ export function createSessionController(
   async function silent(forSession: Session) {
     timer = undefined;
     const started = epoch;
-    const outcome = await refresher.refresh();
+    const outcome = await refresher.refresh({ unused: true });
     if (epoch !== started || state.session?.accessToken !== forSession.accessToken) return;
     if (outcome.kind === 'session') {
       // Other tabs on the main account take the rotated main token; this tab keeps acting as its sub-account when it was.
@@ -531,6 +590,7 @@ export function createSessionController(
     /** Idempotent: the boot refresh runs once however often this is called (React StrictMode mounts twice). */
     start(): Promise<void> {
       active = true;
+      stopWatchingUse ??= watchUse(now);
       if (!channel) {
         channel = openChannel();
         if (channel) channel.onmessage = (event) => heard(event.data);
@@ -541,6 +601,8 @@ export function createSessionController(
     },
     stop() {
       active = false;
+      stopWatchingUse?.();
+      stopWatchingUse = null;
       disarm();
       if (reentryTimer !== undefined) clearTimeout(reentryTimer);
       reentryTimer = undefined;

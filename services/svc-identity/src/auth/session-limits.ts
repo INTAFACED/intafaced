@@ -29,15 +29,20 @@ function wholeAboveZero(name: string, raw: string | undefined, max: number): num
   return Number(value);
 }
 
-/** The two owner settings from the environment; a value that is not a whole number above zero stops the service. */
-export function parseSessionLimits(env: {
-  SESSION_IDLE_SECONDS?: string | undefined;
-  SESSION_MAX_CONCURRENT?: string | undefined;
-}): SessionLimits {
-  return {
-    idleSeconds: wholeAboveZero('SESSION_IDLE_SECONDS', env.SESSION_IDLE_SECONDS, 31_536_000),
-    maxConcurrent: wholeAboveZero('SESSION_MAX_CONCURRENT', env.SESSION_MAX_CONCURRENT, 10_000),
-  };
+/**
+ * The two owner settings from the environment; a value that is not a whole number above zero stops the service, and so
+ * does an idle sign-out shorter than one access token's life (a sign-in refreshes once per access token, so it would
+ * sign out a person while they use the app, and leave the person no time they may choose).
+ */
+export function parseSessionLimits(
+  env: { SESSION_IDLE_SECONDS?: string | undefined; SESSION_MAX_CONCURRENT?: string | undefined },
+  tokens: { accessTtlSeconds: number },
+): SessionLimits {
+  const idleSeconds = wholeAboveZero('SESSION_IDLE_SECONDS', env.SESSION_IDLE_SECONDS, 31_536_000);
+  if (idleSeconds !== null && idleSeconds < tokens.accessTtlSeconds) {
+    throw new Error(`SESSION_IDLE_SECONDS must be at least one access token's life (JWT_ACCESS_TTL_SECONDS, ${tokens.accessTtlSeconds})`);
+  }
+  return { idleSeconds, maxConcurrent: wholeAboveZero('SESSION_MAX_CONCURRENT', env.SESSION_MAX_CONCURRENT, 10_000) };
 }
 
 /** The idle time that applies to one account: the shorter of the owner's and the person's own, or null when neither is set. */
@@ -59,10 +64,14 @@ export function ownIdleRange(limits: SessionLimits, tokens: { accessTtlSeconds: 
  */
 export async function endOldestBeyondLimit(tx: Sql, userId: string, maxConcurrent: number | null): Promise<string[]> {
   if (maxConcurrent === null) return [];
+  // A device is a sign-in family; its age is its first sign-in (the family's first row, live or rotated), not its
+  // latest refresh, so the device signed in on longest ago ends, as Security says.
   const live = await tx<Array<{ family_id: string }>>`
     SELECT family_id FROM sessions
-    WHERE user_id = ${userId} AND revoked = false AND expires_at > now()
-    GROUP BY family_id ORDER BY min(created_at) ASC, family_id ASC`;
+    WHERE user_id = ${userId}
+    GROUP BY family_id
+    HAVING bool_or(revoked = false AND expires_at > now())
+    ORDER BY min(created_at) ASC, family_id ASC`;
   const over = live.length - maxConcurrent + 1;
   if (over <= 0) return [];
   const families = live.slice(0, over).map((row) => row.family_id);
@@ -70,6 +79,11 @@ export async function endOldestBeyondLimit(tx: Sql, userId: string, maxConcurren
     UPDATE sessions SET revoked = true
     WHERE user_id = ${userId} AND revoked = false AND family_id IN ${tx(families)}
     RETURNING id`;
+  // An ended device is signed out, not attacked: its rotated tokens lose their rotation stamp, so presenting one later
+  // (a lost reply, a second tab) is a dead token (auth.session_invalid), never reuse that would end every other device.
+  await tx`
+    UPDATE sessions SET rotated_at = NULL, successor_id = NULL, successor_refresh = NULL
+    WHERE user_id = ${userId} AND family_id IN ${tx(families)} AND (rotated_at IS NOT NULL OR successor_id IS NOT NULL)`;
   return ended.map((row) => row.id);
 }
 

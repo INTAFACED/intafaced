@@ -72,7 +72,10 @@ export function SessionLimits() {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const minutes = minutesFrom(String(new FormData(event.currentTarget).get('idle-minutes') ?? ''));
-    if (minutes === null) return setProblem(t('notMinutes'));
+    if (minutes === null) {
+      setNote(null);
+      return setProblem(t('notMinutes'));
+    }
     void save(minutes * 60, view!.range);
   }
 

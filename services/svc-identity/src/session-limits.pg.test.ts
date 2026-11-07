@@ -21,21 +21,27 @@ import {
  * I-signin-sessions-06, J-identity-06 #4: idle sign-out (the shorter of the owner's and the person's own) and the
  * signed-in device limit (a sign-in beyond it ends the oldest device).
  */
+const T = { accessTtlSeconds: 900 };
 describe('session limit settings', () => {
   it('reads blank as unset and stops the start on a value that is not a whole number above zero', () => {
-    expect(parseSessionLimits({})).toEqual({ idleSeconds: null, maxConcurrent: null });
-    expect(parseSessionLimits({ SESSION_IDLE_SECONDS: ' ', SESSION_MAX_CONCURRENT: '' })).toEqual({
+    expect(parseSessionLimits({}, T)).toEqual({ idleSeconds: null, maxConcurrent: null });
+    expect(parseSessionLimits({ SESSION_IDLE_SECONDS: ' ', SESSION_MAX_CONCURRENT: '' }, T)).toEqual({
       idleSeconds: null,
       maxConcurrent: null,
     });
-    expect(parseSessionLimits({ SESSION_IDLE_SECONDS: '3600', SESSION_MAX_CONCURRENT: '3' })).toEqual({
+    expect(parseSessionLimits({ SESSION_IDLE_SECONDS: '3600', SESSION_MAX_CONCURRENT: '3' }, T)).toEqual({
       idleSeconds: 3600,
       maxConcurrent: 3,
     });
     for (const bad of ['0', '-1', '1.5', 'off', '1e3']) {
-      expect(() => parseSessionLimits({ SESSION_IDLE_SECONDS: bad })).toThrow(/SESSION_IDLE_SECONDS/);
-      expect(() => parseSessionLimits({ SESSION_MAX_CONCURRENT: bad })).toThrow(/SESSION_MAX_CONCURRENT/);
+      expect(() => parseSessionLimits({ SESSION_IDLE_SECONDS: bad }, T)).toThrow(/SESSION_IDLE_SECONDS/);
+      expect(() => parseSessionLimits({ SESSION_MAX_CONCURRENT: bad }, T)).toThrow(/SESSION_MAX_CONCURRENT/);
     }
+  });
+
+  it('stops the start on an owner idle sign-out shorter than one access token’s life', () => {
+    expect(() => parseSessionLimits({ SESSION_IDLE_SECONDS: '600' }, T)).toThrow(/JWT_ACCESS_TTL_SECONDS/);
+    expect(parseSessionLimits({ SESSION_IDLE_SECONDS: '900' }, T).idleSeconds).toBe(900);
   });
 
   it('applies the shorter of the owner’s and the person’s own idle time', () => {
@@ -93,8 +99,20 @@ if (!(await postgresAvailable(URL))) {
     return { handle, userId: user!.id };
   };
   const login = (handle: string) => auth.login({ identifier: handle, password: PASSWORD, device: 'Phone' });
+  // The sign-in was last used this many minutes ago: every clock the idle time may read moves back together.
   const idleFor = (sessionId: string, minutes: number) =>
-    db.sql`UPDATE sessions SET created_at = created_at - make_interval(mins => ${minutes}) WHERE id = ${sessionId}`;
+    db.sql`
+      UPDATE sessions SET created_at = created_at - make_interval(mins => ${minutes}),
+        last_used_at = last_used_at - make_interval(mins => ${minutes}),
+        active_at = active_at - make_interval(mins => ${minutes})
+      WHERE id = ${sessionId}`;
+  // The device's first sign-in, over every row of its family (rotated ones too).
+  const firstSignIns = async (userId: string) =>
+    (
+      await db.sql<Array<{ family_id: string }>>`
+        SELECT family_id FROM sessions WHERE user_id = ${userId}
+        GROUP BY family_id HAVING bool_or(revoked = false) ORDER BY min(created_at)`
+    ).map((row) => row.family_id);
   const liveFamilies = async (userId: string) =>
     (
       await db.sql<Array<{ family_id: string }>>`
@@ -148,6 +166,36 @@ if (!(await postgresAvailable(URL))) {
       // Clearing goes back to the owner's.
       expect((await me.setIdleSignout({ seconds: null })).appliedIdleSeconds).toBe(3600);
     });
+
+    it('keeps the idle time running across a refresh the app made with no use since the last (an unused tab’s timer)', async () => {
+      const { handle } = await account();
+      const first = await login(handle);
+      await idleFor(first.sessionId, 40);
+      // The timer refreshes with no use: the new sign-in carries the 40 minutes already idle.
+      const timed = await auth.refresh(first.refreshToken, { idle: true });
+      await idleFor(timed.sessionId, 21);
+      await expect(auth.refresh(timed.refreshToken, { idle: true })).rejects.toMatchObject({ code: 'auth.session_idle' });
+    });
+
+    it('restarts the idle time at a refresh after use, so a person using the app is never signed out', async () => {
+      const { handle } = await account();
+      const first = await login(handle);
+      await idleFor(first.sessionId, 40);
+      const used = await auth.refresh(first.refreshToken);
+      await idleFor(used.sessionId, 21);
+      const again = await auth.refresh(used.refreshToken, { idle: true });
+      expect(again.sessionId).not.toBe(used.sessionId);
+    });
+
+    it('counts a stored own time shorter than one access token’s life as that life', async () => {
+      const { handle, userId } = await account();
+      const first = await login(handle);
+      await db.sql`UPDATE users SET idle_signout_seconds = 60 WHERE id = ${userId}`;
+      await idleFor(first.sessionId, 10);
+      const next = await auth.refresh(first.refreshToken);
+      await idleFor(next.sessionId, 16);
+      await expect(auth.refresh(next.refreshToken)).rejects.toMatchObject({ code: 'auth.session_idle' });
+    });
   });
 
   describe('signed-in device limit (I-signin-sessions-06)', () => {
@@ -173,6 +221,33 @@ if (!(await postgresAvailable(URL))) {
       await login(handle);
       expect(await liveFamilies(userId)).toHaveLength(3);
       expect(await liveFamilies(userId)).toContain(await familyOf(tip.sessionId));
+    });
+
+    it('ends the device signed in on longest ago even when it was refreshed most recently', async () => {
+      const { handle, userId } = await account();
+      const first = await login(handle);
+      await db.sql`UPDATE sessions SET created_at = created_at - interval '2 days' WHERE id = ${first.sessionId}`;
+      const second = await login(handle);
+      await db.sql`UPDATE sessions SET created_at = created_at - interval '1 day' WHERE id = ${second.sessionId}`;
+      await login(handle);
+      // The first device is used today: its live row is new, its sign-in is still the oldest.
+      const refreshed = await auth.refresh(first.refreshToken);
+      expect((await firstSignIns(userId))[0]).toBe(await familyOf(first.sessionId));
+      await login(handle);
+      await expect(auth.refresh(refreshed.refreshToken)).rejects.toMatchObject({ code: 'auth.session_invalid' });
+      expect(await liveFamilies(userId)).toContain(await familyOf(second.sessionId));
+    });
+
+    it('signs an ended device out without ending the others when it presents an older token again', async () => {
+      const { handle, userId } = await account();
+      const first = await login(handle);
+      await auth.refresh(first.refreshToken);
+      await login(handle);
+      await login(handle);
+      await login(handle);
+      // The ended device presents its rotated token (a lost reply, a second tab): it is dead, not reuse.
+      await expect(auth.refresh(first.refreshToken)).rejects.toMatchObject({ code: 'auth.session_invalid' });
+      expect(await liveFamilies(userId)).toHaveLength(3);
     });
 
     it('holds the limit when sign-ins race: the users row lock makes them take turns', async () => {

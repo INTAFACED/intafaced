@@ -1854,11 +1854,19 @@ export function createIdentityRouter(
         }),
 
       refresh: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
+        .input(
+          z
+            .object({
+              refreshToken: z.string().min(1).optional(),
+              /** The app saw no use since its last refresh (an unused tab's timer): the idle sign-out keeps counting. */
+              idle: z.boolean().optional(),
+            })
+            .optional(),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken));
+            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken), input?.idle === true ? { idle: true } : {});
             return sessionWire(ctx, session);
           } catch (err) {
             if (

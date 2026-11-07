@@ -362,7 +362,7 @@ const auth = new AuthService(
   env.IDENTITY_SUB_ACCOUNT_KINDS,
 );
 // The owner's idle sign-out and device limit (I-signin-sessions-06); a value that is not a whole number stops the start.
-const sessionLimits = parseSessionLimits(env);
+const sessionLimits = parseSessionLimits(env, { accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS });
 auth.setSessionLimits(sessionLimits);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
