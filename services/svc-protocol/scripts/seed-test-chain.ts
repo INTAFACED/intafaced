@@ -216,6 +216,10 @@ async function seed(out: string) {
       if (!v2Code || v2Code === '0x') {
         const v2 = await seedRouterV2Parts(clients(), record.factory);
         writeFileSync(out, `${JSON.stringify({ ...current, tokens: TEST_TOKENS, ...v2 }, null, 2)}\n`);
+      } else if (!(current as { reactor?: Address }).reactor) {
+        // A chain seeded before intent orders existed gets the reactor and the TEST filler now.
+        const intents = await seedIntentParts(clients());
+        writeFileSync(out, `${JSON.stringify({ ...current, ...intents }, null, 2)}\n`);
       }
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
@@ -477,7 +481,96 @@ async function seedRouterV2Parts({ publicClient, walletClient }: Clients, factor
     );
     pools.push({ label: p.label, pool, feeBps: 30, token0, token1 });
   }
-  return { routerV2, sovereignPermit, wrappedNative: WETH.address, v2Pools: pools };
+  return {
+    routerV2,
+    sovereignPermit,
+    wrappedNative: WETH.address,
+    v2Pools: pools,
+    ...(await seedIntentParts({ publicClient, walletClient })),
+  };
+}
+
+/**
+ * The TEST intent filler (D-swap-09, J-dex-protocol-03 #7): an address with no key, impersonated on this anvil only, that
+ * local-test-chain.mjs uses to fill a signed intent order at its decay's midpoint. It is a stand-in for the outside
+ * fillers of D-swap-intents-04: it pays the decayed output from TEST tokens it mints itself.
+ */
+export const TEST_INTENT_FILLER: Address = '0x00000000000000000000000000000000f111e500';
+
+/** SovereignReactor and the TEST filler's gas. Runs on automine, inside the seed. */
+async function seedIntentParts({ publicClient, walletClient }: Pick<Clients, 'publicClient' | 'walletClient'>) {
+  const a = artifact('SovereignReactor');
+  const hash = await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args: [] });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`reactor deploy failed: ${hash}`);
+  await publicClient.request({ method: 'anvil_impersonateAccount', params: [TEST_INTENT_FILLER] } as never);
+  await publicClient.request({ method: 'anvil_setBalance', params: [TEST_INTENT_FILLER, toHex(parseUnits('1000', 18))] } as never);
+  return { reactor: receipt.contractAddress, intentFiller: TEST_INTENT_FILLER };
+}
+
+type FillOrder = {
+  swapper: Address;
+  tokenIn: Address;
+  amountIn: string;
+  tokenOut: Address;
+  startOut: string;
+  endOut: string;
+  decayStart: string;
+  decayEnd: string;
+  deadline: string;
+  nonce: string;
+};
+
+/**
+ * `fill <base64 json>`: the TEST filler fills one signed order on the reactor the record names, now: it mints the most the
+ * order can pay of TEST tokenOut to itself, approves the reactor for it, and calls fill with the swapper's signature and
+ * permit. The reactor pays the decayed output of this second; the rest stays with the filler.
+ */
+async function fillIntent(encoded: string, recordFile: string) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  const record = JSON.parse(readFileSync(recordFile, 'utf8')) as { reactor: Address };
+  const { order, signature, permit } = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as {
+    order: FillOrder;
+    signature: Hex;
+    permit: { value: string; deadline: string; signature: Hex } | null;
+  };
+  await publicClient.request({ method: 'anvil_impersonateAccount', params: [TEST_INTENT_FILLER] } as never);
+  const send = async (request: Parameters<typeof walletClient.writeContract>[0]) => {
+    const hash = await walletClient.writeContract({ ...request, account: TEST_INTENT_FILLER, chain: walletClient.chain } as never);
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error(`filler transaction failed: ${hash}`);
+    return receipt;
+  };
+  const tokenAbi = artifact('TestToken').abi;
+  await send({ address: order.tokenOut, abi: tokenAbi, functionName: 'mint', args: [TEST_INTENT_FILLER, BigInt(order.startOut)] } as never);
+  await send({ address: order.tokenOut, abi: tokenAbi, functionName: 'approve', args: [record.reactor, BigInt(order.startOut)] } as never);
+  const split = (sig: Hex) => ({
+    r: `0x${sig.slice(2, 66)}` as Hex,
+    s: `0x${sig.slice(66, 130)}` as Hex,
+    v: Number.parseInt(sig.slice(130, 132), 16),
+  });
+  const p = permit
+    ? { value: BigInt(permit.value), deadline: BigInt(permit.deadline), ...split(permit.signature) }
+    : { value: 0n, deadline: 0n, v: 0, r: toHex(0, { size: 32 }), s: toHex(0, { size: 32 }) };
+  const o = {
+    ...order,
+    amountIn: BigInt(order.amountIn),
+    startOut: BigInt(order.startOut),
+    endOut: BigInt(order.endOut),
+    decayStart: BigInt(order.decayStart),
+    decayEnd: BigInt(order.decayEnd),
+    deadline: BigInt(order.deadline),
+    nonce: BigInt(order.nonce),
+  };
+  const receipt = await send({
+    address: record.reactor,
+    abi: artifact('SovereignReactor').abi,
+    functionName: 'fill',
+    args: [o, signature, p],
+    gas: 500_000n,
+  } as never);
+  console.log(`filled by the TEST filler in ${receipt.transactionHash}`);
 }
 
 /** What `fund <address> plain` gives: TEST Token C, the token with no permit (J-dex-protocol-03). */
@@ -555,5 +648,7 @@ if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'plain') await fundPlain(getAddress(arg));
+else if (command === 'fill' && arg && kind) await fillIntent(arg, kind);
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|plain]');
+else
+  throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|plain] | fill <base64 order> <record.json>');

@@ -4,7 +4,7 @@
  * after the deadline reverts Expired; a bad decay reverts BadDecay; a cancelled order cannot fill; the swapper signs a
  * permit with the order and pays no gas; the reactor holds nothing.
  *
- * Skips without a chain; CI with REQUIRE_EVM_CHAIN=1 must run it. Sends from this file's own derived account.
+ * Needs a disposable chain (CI starts one, REQUIRE_EVM_CHAIN=1); without one it fails. Sends from this file's own derived account.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createWalletClient, http, parseSignature, parseUnits, type Abi, type Address, type Hex } from 'viem';
@@ -12,15 +12,8 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { loadArtifact } from '../chain/artifacts.js';
 import type { DevChainClients } from '../../scripts/dev-chain.js';
 
-const devChainMod = await (async () => {
-  try {
-    return await import('../../scripts/dev-chain.js');
-  } catch {
-    return null;
-  }
-})();
-const chainUp = devChainMod ? await devChainMod.devChainReachable() : false;
-const describeOnChain = !devChainMod || (!chainUp && !devChainMod.devChainRequired()) ? describe.skip : describe;
+// Runs unconditionally: CI starts the disposable chain (REQUIRE_EVM_CHAIN=1); with no chain here it fails, by name.
+const devChainMod = await import('../../scripts/dev-chain.js');
 const abi = (name: Parameters<typeof loadArtifact>[0]) => loadArtifact(name).abi as Abi;
 
 const ORDER_TYPES = {
@@ -39,8 +32,7 @@ const ORDER_TYPES = {
 } as const;
 const NO_PERMIT = { value: 0n, deadline: 0n, v: 0, r: `0x${'0'.repeat(64)}` as Hex, s: `0x${'0'.repeat(64)}` as Hex };
 
-describeOnChain('SovereignReactor onchain', () => {
-  if (!devChainMod) return;
+describe('SovereignReactor onchain', () => {
   let c: DevChainClients;
   let reactor: Address;
   let tokenIn: Address;

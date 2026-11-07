@@ -40,6 +40,7 @@ import {
   type ProtocolPathOutput,
 } from '@intafaced/contracts/protocol-swap-v2';
 import { createSwapV2Api } from './api-v2';
+import { IntentOrderPanel } from './IntentOrderPanel';
 import {
   NATIVE_VALUE,
   STANDING_CHOICES,
@@ -149,6 +150,7 @@ export function SwapForm() {
   const v2Settings = useResource((signal) => v2Api.settings(signal), 'swap:v2-settings');
   const v2 = v2Settings.resource.status === 'ready' ? v2Settings.resource.data : null;
   const [kind, setKind] = useState<SwapKind>('exact_in');
+  const [intentMode, setIntentMode] = useState(false);
   const [amountOutText, setAmountOut] = useState('');
   const [allowance, setAllowance] = useState<AllowanceChoice>('onchain');
   const [standingSeconds, setStandingSeconds] = useState<number>(STANDING_CHOICES[0]);
@@ -910,11 +912,22 @@ export function SwapForm() {
             ))}
           </div>
           <div role="radiogroup" aria-label={t('swapKind')} className="protocol-actions">
-            {(['exact_in', 'exact_out'] as const).map((entry) => (
+            {(['exact_in', 'exact_out', 'intent'] as const).map((entry) => (
               <label key={entry} className="field field--check">
-                <input type="radio" name="swap-kind" value={entry} checked={kind === entry} onChange={() => setKind(entry)} />
-                <span>{t(entry === 'exact_in' ? 'exactIn' : 'exactOut')}</span>{' '}
-                <small className="muted">{t(entry === 'exact_in' ? 'exactInHint' : 'exactOutHint')}</small>
+                <input
+                  type="radio"
+                  name="swap-kind"
+                  value={entry}
+                  checked={entry === 'intent' ? intentMode : !intentMode && kind === entry}
+                  onChange={() => {
+                    setIntentMode(entry === 'intent');
+                    if (entry !== 'intent') setKind(entry);
+                  }}
+                />
+                <span>{t(entry === 'exact_in' ? 'exactIn' : entry === 'exact_out' ? 'exactOut' : 'intentOrder')}</span>{' '}
+                <small className="muted">
+                  {t(entry === 'exact_in' ? 'exactInHint' : entry === 'exact_out' ? 'exactOutHint' : 'intentOrderHint')}
+                </small>
               </label>
             ))}
           </div>
@@ -1192,6 +1205,7 @@ export function SwapForm() {
           </Dialog>
         )}
       </Panel>
+      {intentMode && <IntentOrderPanel tokens={tokens} />}
       {track && (
         <SwapStatus
           track={track}

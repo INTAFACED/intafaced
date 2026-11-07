@@ -105,6 +105,11 @@
       "service": "protocol",
       "value": "2592000",
       "note": "TEST cap (30 days) on how long a permit signature or a standing allowance may last (D-swap-intents-01, J-dex-protocol-03). Blank in production refuses protocol.permit.lifetime_unset."
+    },
+    "PROTOCOL_INTENT_DECAY_BOUNDS": {
+      "service": "protocol",
+      "value": "60,86400",
+      "note": "TEST allowed decay window for signed intent orders, one minute to one day (D-swap-09, J-dex-protocol-03). Blank in production refuses dex.intent.decay_bounds_unset."
     }
   }
 }

@@ -23,6 +23,7 @@ import { badgeChainIsMainnet, badgeChainIsRestartable, badgeWindowFromSetting, n
 import { PostgresBadgeStore } from './nft/founding-badge.pg.js';
 import { representationFromSetting } from './representation/representation.js';
 import { PostgresRepresentationStore } from './representation/representation.pg.js';
+import { PostgresIntentStore } from './intent/intents.js';
 import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
@@ -177,6 +178,12 @@ export const appRouter = createProtocolRouter({
           wrappedNative: env.PROTOCOL_WRAPPED_NATIVE_ADDRESS as `0x${string}`,
         },
   permitLifetimeCapSeconds: () => env.PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS,
+  intent: {
+    reactor: () => env.PROTOCOL_INTENT_REACTOR_ADDRESS as `0x${string}`,
+    decayBounds: () => env.PROTOCOL_INTENT_DECAY_BOUNDS,
+    fillerUrl: () => env.PROTOCOL_INTENT_FILLER_URL ?? null,
+    store: new PostgresIntentStore(db.sql),
+  },
   replacement: () => ({ bumpBps: env.PROTOCOL_TX_FEE_BUMP_BPS, ceilingWei: env.PROTOCOL_TX_FEE_CEILING_WEI }),
   priceSetting: () =>
     env.PROTOCOL_PRICE_USD_TOKENS && env.PROTOCOL_PRICE_MIN_RESERVE_USD !== null

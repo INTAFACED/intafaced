@@ -17,7 +17,7 @@
 // the fee in a token refuses protocol.fee_relay_unset.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { chainRecordPath, RELAY_URL } from '../local-test-chain.mjs';
+import { chainRecordPath, FILL_URL, RELAY_URL } from '../local-test-chain.mjs';
 
 /**
  * Router v2's TEST parts from the chain's own record (J-dex-protocol-03): the router, SovereignPermit and TEST Wrapped
@@ -100,6 +100,14 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
           : {};
       })(),
       PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS: '2592000',
+      // LOCAL TEST only, labelled in the same file: the seeded reactor for signed intent orders (D-swap-09), the TEST
+      // allowed decay window (one minute to one day) and the TEST filler feed local-test-chain.mjs serves. Production
+      // stays blank and intent orders refuse dex.intent.reactor_unset and dex.intent.decay_bounds_unset.
+      ...(() => {
+        const v2 = chain ? routerV2Parts() : null;
+        return v2?.reactor ? { PROTOCOL_INTENT_REACTOR_ADDRESS: v2.reactor, PROTOCOL_INTENT_FILLER_URL: FILL_URL } : {};
+      })(),
+      PROTOCOL_INTENT_DECAY_BOUNDS: '60,86400',
       PROTOCOL_TX_FEE_BUMP_BPS: '2000',
       PROTOCOL_TX_FEE_CEILING_WEI: '100000000000',
     };

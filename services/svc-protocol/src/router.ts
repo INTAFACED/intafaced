@@ -82,6 +82,7 @@ import { createWalletTxRouters } from './wallet-tx/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
 import { createSwapV2Procedures, type SwapV2Setting } from './amm/swap-v2.js';
+import { createIntentRouter, MemoryIntentStore, type IntentStore } from './intent/intents.js';
 import { tokenLogsChain } from './amm/token-reader.js';
 import { assertMinAmountOut, requireSwapSlippageBps, SwapSlippageError } from './amm/slippage.js';
 import {
@@ -456,6 +457,16 @@ export interface ProtocolRouterDeps {
    * swap procedures refuse `protocol.router_v2_unset`.
    */
   swapV2?: () => SwapV2Setting | null;
+  /**
+   * Signed intent orders (D-swap-09): the reactor, the owner's decay window bounds, the filler feed URL and the store.
+   * Absent: `intent.*` refuses `dex.intent.reactor_unset`.
+   */
+  intent?: {
+    reactor: () => Address;
+    decayBounds: () => { minSeconds: number; maxSeconds: number } | null;
+    fillerUrl: () => string | null;
+    store: IntentStore;
+  };
   /** `PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS`. Null or absent: `amm.buildPermit` refuses `protocol.permit.lifetime_unset`. */
   permitLifetimeCapSeconds?: () => number | null;
   /** `PROTOCOL_SWAP_QUOTE_TTL_SECONDS`. Null or absent: `amm.swapSettings` refuses. */
@@ -543,6 +554,9 @@ export interface ProtocolRouterDeps {
     stuckMintAgeSeconds?: () => number | undefined;
   };
 }
+
+/** Never written to: an unwired intent router refuses `dex.intent.reactor_unset` before it reads or writes a row. */
+const unwiredIntentStore: IntentStore = new MemoryIntentStore();
 
 /** Never reached with a setting: an unwired representation has none, so it refuses `compliance.representation_unset` first. */
 const unwiredRepresentationStore: RepresentationStore = {
@@ -1274,6 +1288,15 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     // ── Wallet address book (D-portfolio-wallet-03): src/address-book/router.ts ──
     walletSession: createWalletSessionRouter(addressBookDeps),
     addressBook: createAddressBookRouter(addressBookDeps),
+    intent: createIntentRouter({
+      client: () => chain.client,
+      chainId: () => chain.config.chainId,
+      reactor: () => deps.intent?.reactor() ?? ('0x0000000000000000000000000000000000000000' as Address),
+      decayBounds: () => deps.intent?.decayBounds() ?? null,
+      fillerUrl: () => deps.intent?.fillerUrl() ?? null,
+      store: deps.intent?.store ?? unwiredIntentStore,
+      toTrpcError: (err) => (err instanceof TRPCError ? err : toTrpcError(classifyChainError(err, 'intent', chain.config.rpcUrl))),
+    }),
 
     // ── Claim links (D-swap-12) and speed up / cancel (RC-dex-protocol-01): src/wallet-tx/ ──
     ...createWalletTxRouters({

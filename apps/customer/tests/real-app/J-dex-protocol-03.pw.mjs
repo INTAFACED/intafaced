@@ -1,7 +1,7 @@
 // World: none
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
-import { createPublicClient, createWalletClient, defineChain, http, parseAbi, parseSignature, parseUnits } from 'viem';
+import { createPublicClient, createWalletClient, defineChain, http, parseAbi, parseAbiItem, parseSignature, parseUnits } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
 import {
@@ -25,8 +25,10 @@ import {
 // itself through the gate, never through the service.
 // - #1 to #5 run on router v2 and SovereignPermit (D-swap-03, D-swap-intents-01, -02), seeded by
 //   services/svc-protocol/scripts/seed-test-chain.ts with a three-hop route A, C, USD, B.
-// - #6 and #7 (signed intent orders, D-swap-09) and #8 and #9 (smart-account delegation and signer keys, D-swap-intents-05)
-//   are not built yet, so each fails at its first missing part, quickly (UNBUILT).
+// - #6 and #7 run on SovereignReactor (D-swap-09): the order is signed gasless, kept by svc-protocol, and filled at its
+//   decay's midpoint by the stack's TEST filler (tooling/scripts/local-test-chain.mjs), a stand-in for outside fillers.
+// - #8 and #9 (smart-account delegation and signer keys, D-swap-intents-05) are not built yet, so each fails at its first
+//   missing part, quickly (UNBUILT).
 const J = 'J-dex-protocol-03';
 const dex = dexRun(J);
 
@@ -114,9 +116,35 @@ async function chooseManual(page) {
   if (await notice.isVisible()) await notice.getByRole('button', { name: 'I understand' }).click();
 }
 
-/** The nonce of each typed-data message the wallet signed, in order. */
-const signedNonces = (wallet) =>
-  wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4').map((r) => String(JSON.parse(r.params[1]).message.nonce));
+/** The intent order's decay in #6 and #7: long enough to see it decay, short enough for the run. */
+const DECAY_MINUTES = 2;
+const reactorAbi = parseAbi([
+  'struct Order { address swapper; address tokenIn; uint256 amountIn; address tokenOut; uint256 startOut; uint256 endOut; uint256 decayStart; uint256 decayEnd; uint256 deadline; uint256 nonce; }',
+  'struct Permit { uint256 value; uint256 deadline; uint8 v; bytes32 r; bytes32 s; }',
+  'function fill(Order o, bytes signature, Permit permit) returns (uint256)',
+  'error NonceUsed()',
+  'error Expired()',
+]);
+const filledEvent = parseAbiItem(
+  'event Filled(bytes32 indexed orderHash, address indexed swapper, address indexed filler, uint256 nonce, uint256 amountIn, uint256 amountOut, uint256 filledAt)',
+);
+const NO_PERMIT = { value: 0n, deadline: 0n, v: 0, r: `0x${'0'.repeat(64)}`, s: `0x${'0'.repeat(64)}` };
+const toOrder = (o) => ({
+  ...o,
+  amountIn: BigInt(o.amountIn),
+  startOut: BigInt(o.startOut),
+  endOut: BigInt(o.endOut),
+  decayStart: BigInt(o.decayStart),
+  decayEnd: BigInt(o.decayEnd),
+  deadline: BigInt(o.deadline),
+  nonce: BigInt(o.nonce),
+});
+/** Base units written the way the app writes them: whole part, at most 6 decimals cut, no trailing zeros, no grouping. */
+function shownUnits(units, decimals, places = 6) {
+  const scale = 10n ** BigInt(decimals);
+  const fraction = (units % scale).toString().padStart(decimals, '0').slice(0, places).replace(/0+$/, '');
+  return `${units / scale}${fraction ? `.${fraction}` : ''}`;
+}
 
 /** Opens the intent order form (Swap's "Intent order" mode). */
 async function openIntent(page) {
@@ -361,41 +389,75 @@ test(`${J} #6 places a signed intent order with a Dutch-auction decay: starts at
   page,
 }) => {
   const { wallet, form } = await openIntent(page);
+  const sendsBefore = wallet.sends.length;
   await form.getByRole('combobox', { name: 'You pay' }).selectOption({ label: TOKEN_A.name });
   await form.getByRole('combobox', { name: 'You receive' }).selectOption({ label: TOKEN_B.name });
   await form.getByRole('textbox', { name: /^Amount you pay/ }).fill('10');
   await form.getByRole('textbox', { name: /^Floor/ }).fill('9');
-  await form.getByRole('textbox', { name: /^Decay over \(minutes\)/ }).fill('10');
+  await form.getByRole('textbox', { name: /^Decay over \(minutes\)/ }).fill(String(DECAY_MINUTES));
   await form.getByRole('button', { name: 'Review order' }).click();
   const review = page.getByRole('dialog', { name: 'Review the intent order' });
-  await expect(review).toContainText(/Starts at [\d,.]+ TEST Token B/);
-  await expect(review).toContainText('Decays to 9 TEST Token B over 10 minutes');
-  await review.getByRole('button', { name: 'Continue in wallet' }).click();
+  const startsAt = (await review.getByText(/^Starts at [\d,.]+ TEST Token B/).innerText()).match(/Starts at ([\d,.]+)/)[1];
+  await expect(review).toContainText(`Decays to 9 TEST Token B over ${DECAY_MINUTES} minutes`);
+  await review.getByRole('button', { name: 'Sign the order' }).click();
+  // The wallet's own plain-words sheet comes before its prompts, as for every signing action.
+  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
   const orders = page.getByRole('region', { name: 'Intent orders' }).getByRole('table');
-  await expect(orders.getByRole('row').filter({ hasText: 'Open' })).toHaveCount(1);
-  // Each order is signed over its own nonce, so no signature can stand for a second order.
-  await form.getByRole('button', { name: 'Review order' }).click();
-  await review.getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(orders.getByRole('row').filter({ hasText: 'Open' })).toHaveCount(2);
-  expect(new Set(signedNonces(wallet)).size).toBe(signedNonces(wallet).length);
+  await expect(orders.getByRole('row').filter({ hasText: 'Open' })).toHaveCount(1, { timeout: 15_000 });
+  // Gasless: the wallet signed (the token's permit, then the order) and sent nothing.
+  expect(wallet.sends.length).toBe(sendsBefore);
+  const signed = wallet.requests.filter((r) => r.method === 'eth_signTypedData_v4');
+  const orderRequest = signed.at(-1);
+  const order = JSON.parse(orderRequest.params[1]).message;
+  expect(JSON.parse(orderRequest.params[1]).primaryType).toBe('IntentOrder');
+  // It starts at the best price shown and decays to the floor over the stated time.
+  expect(order.startOut).toBe(parseUnits(startsAt.replaceAll(',', ''), TOKEN_B.decimals).toString());
+  expect(order.endOut).toBe(parseUnits('9', TOKEN_B.decimals).toString());
+  expect(BigInt(order.decayEnd) - BigInt(order.decayStart)).toBe(BigInt(DECAY_MINUTES * 60));
+  const permit = signed.at(-2);
+  dex.run.write({ intent: { order, signature: orderRequest.signature } });
+  // A replayed signature is refused: the same signature on an order for more is not the swapper's, and nothing is kept.
+  const replay = await page.request.post('/api/protocol/trpc/intent.post', {
+    data: {
+      order: { ...order, amountIn: String(BigInt(order.amountIn) * 2n) },
+      signature: orderRequest.signature,
+      permit: { value: order.amountIn, deadline: order.deadline, signature: permit.signature },
+    },
+  });
+  expect(replay.ok()).toBe(false);
+  expect(await replay.text()).toContain('dex.intent.bad_signature');
+  await page.reload();
+  await expect(orders.getByRole('row').filter({ hasText: 'Open' })).toHaveCount(1, { timeout: 15_000 });
 });
 
 test(`${J} #7 watches the order fill at the midpoint: received equals the decayed price at that second and the order reads filled`, async ({
   page,
 }) => {
-  // #6's order decays over 10 minutes; the TEST filler takes it at the midpoint, about 5 minutes in.
-  test.setTimeout(660_000);
+  // #6's order decays over DECAY_MINUTES; the stack's TEST filler takes it at the midpoint.
+  test.setTimeout((DECAY_MINUTES * 60 + 120) * 1000);
+  const { order, signature } = dex.run.read().intent ?? {};
+  expect(order, '#6 placed an order').toBeTruthy();
   await openIntent(page);
   const orders = page.getByRole('region', { name: 'Intent orders' }).getByRole('table');
-  await expect(orders).toBeVisible(UNBUILT);
   const filled = orders.getByRole('row').filter({ hasText: 'Filled' });
-  await expect(filled).toHaveCount(1, { timeout: 600_000 });
-  // The row names the fill second and the decayed price there, and the received amount is that price.
+  await expect(filled).toHaveCount(1, { timeout: (DECAY_MINUTES * 60 + 60) * 1000 });
+  // The row names the decayed price at the fill's second and what was received, and they are the same.
   const text = await filled.innerText();
   const price = text.match(/Price at fill ([\d,.]+)/)?.[1];
   const received = text.match(/Received ([\d,.]+)/)?.[1];
   expect(price).toBeTruthy();
   expect(received).toBe(price);
+  // On chain: the Filled event's amount is exactly the linear decay at the block's second, near the midpoint.
+  const { reactor } = record();
+  const [fill] = await chain.getLogs({ address: reactor, event: filledEvent, args: { swapper: order.swapper }, fromBlock: 0n });
+  expect(fill, 'a Filled event for the swapper').toBeTruthy();
+  const t = fill.args.filledAt;
+  const [s0, e0, ds, de] = [order.startOut, order.endOut, order.decayStart, order.decayEnd].map(BigInt);
+  expect(fill.args.amountOut).toBe(s0 - ((s0 - e0) * (t - ds)) / (de - ds));
+  expect(t > ds && t < de).toBe(true);
+  expect(received.replaceAll(',', '')).toBe(shownUnits(fill.args.amountOut, TOKEN_B.decimals));
+  // The order's signature cannot be used again: a second fill reverts.
+  expect(await revertOf(reactor, reactorAbi, 'fill', [toOrder(order), signature, NO_PERMIT], record().intentFiller)).toBe('NonceUsed');
 });
 
 test(`${J} #8 delegates to a smart account and batches approve and swap: both succeed or both revert; an existing delegation is refused; with the relay off the user-submit fallback and blocker`, async ({
