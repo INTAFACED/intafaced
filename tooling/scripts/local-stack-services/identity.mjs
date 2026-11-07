@@ -225,6 +225,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
+    // LOCAL TEST idle sign-out and signed-in device limit (I-signin-sessions-06, J-identity-06 #4), labelled in the same
+    // profile, never an owner decision. Off on a normal start, so every other journey signs in with no device limit;
+    // `LOCAL_STACK_IDENTITY_SESSION_LIMITS=on` on a restart sets both for J-identity-06 #4, which restarts without it after.
+    ...(process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS === 'on'
+      ? { SESSION_IDLE_SECONDS: testValue('SESSION_IDLE_SECONDS'), SESSION_MAX_CONCURRENT: testValue('SESSION_MAX_CONCURRENT') }
+      : {}),
     // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
     // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).
@@ -233,6 +239,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST limit override policy (J-ops-console-04 #12), labelled TEST in the same profile, never an owner decision:
     // blank refuses every override with identity.limit_ceiling_unset.
     IDENTITY_LIMIT_OVERRIDE_POLICY: testValue('IDENTITY_LIMIT_OVERRIDE_POLICY'),
+    // LOCAL TEST staff roster (OWNER 44), labelled TEST in the same profile, never an owner decision: one TEST member per
+    // role (support, compliance, risk, finance), so staff journeys sign in to the console as staff, not as a founder
+    // (apps/customer/tests/real-app/staff.mjs). Identity reads it only with APP_ENV exactly dev or test and refuses boot with
+    // it anywhere else; production keeps the blank roster and the founder-only console.
+    IDENTITY_STAFF_TEST_ROSTER: testValue('IDENTITY_STAFF_TEST_ROSTER'),
     // LOCAL TEST referral attach window and code length (J-campaigns-05), labelled TEST in the same profile. Blank refuses
     // every link attach (referral.attach_window_unset) and every new code (referral.code_length_unset).
     // `LOCAL_STACK_IDENTITY_REFERRAL_WINDOW=off` on a start or restart leaves the attach window blank, so its refusal can

@@ -26,6 +26,7 @@ vi.mock('../../shared/test-build', async (original) => {
 });
 
 import { HomeInbox } from './HomeInbox';
+import type { NeedsYouShown } from './work-list';
 
 const credited = {
   id: '00000000-0000-4000-8000-000000000002',
@@ -71,5 +72,44 @@ describe('The newest inbox row on Home (J-home-ia-11 #3)', () => {
     expect(renderToString(<HomeInbox />)).toBe('');
     inbox.state = { status: 'failed', failure: { ok: false, reason: 'down', code: 'notify.unavailable', status: 503 } as never };
     expect(renderToString(<HomeInbox />)).toBe('');
+  });
+
+  // A new device that signed in is one "Needs you" item on Home, until the person answers it (svc-identity work-items.ts).
+  const NOTICE_KEY = 'factor-changed:user-a:1';
+  const newDevice = {
+    ...credited,
+    id: '00000000-0000-4000-8000-000000000003',
+    kind: 'identity.security.new_device',
+    titleKey: 'notify.identity.security.new_device.title',
+    bodyKey: 'notify.identity.security.new_device.body',
+    title: 'New device sign-in',
+    body: 'A new device was approved and signed in to your account.',
+    params: { noticeKey: NOTICE_KEY },
+    href: '/uc/safe',
+    severity: 'action' as const,
+    createdAt: '2026-10-31T00:00:00Z',
+  };
+  const carried: NeedsYouShown = { settled: true, noticeKeys: new Set([NOTICE_KEY]) };
+
+  it('shows the newest row "Needs you" does not already carry', () => {
+    inbox.state = { status: 'ready', items: [newDevice, credited], nextCursor: null };
+    const html = renderToString(<HomeInbox needsYou={carried} />);
+    expect(html.match(/data-testid="nf-row"/g) ?? []).toHaveLength(1);
+    expect(html).toContain('100 USDT');
+    expect(html).not.toContain('New device sign-in');
+  });
+
+  it('shows the new-device notice itself when "Needs you" does not carry it: off the page, or another sign-in', () => {
+    inbox.state = { status: 'ready', items: [newDevice, credited], nextCursor: null };
+    for (const needsYou of [null, { settled: true, noticeKeys: new Set(['factor-changed:user-a:7']) }]) {
+      const html = renderToString(<HomeInbox needsYou={needsYou} />);
+      expect(html.match(/data-testid="nf-row"/g) ?? []).toHaveLength(1);
+      expect(html).toContain('New device sign-in');
+    }
+  });
+
+  it('draws nothing while "Needs you" is still loading, so the row never changes under the reader', () => {
+    inbox.state = { status: 'ready', items: [newDevice, credited], nextCursor: null };
+    expect(renderToString(<HomeInbox needsYou={{ settled: false, noticeKeys: new Set() }} />)).toBe('');
   });
 });

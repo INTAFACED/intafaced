@@ -49,7 +49,7 @@ The full slice specs (behaviour, tests, failure cases, references) live in the p
 
 ### Journey map
 
-Done is defined by 443 journeys (2922 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 19 steps still need a capability no slice covers yet.
+Done is defined by 448 journeys (2952 steps) in `modules/<module>/acceptance/journeys.md`; a journey is finished when its browser test passes on the real stack built from main. Order 1 is a module's first usable journey, and lane queues take its slices first. 46 steps still need a capability no slice covers yet.
 
 | Module         | Journeys | Order 1 | Order 2 | Order 3 | Steps | Steps with no slice |
 | -------------- | -------- | ------- | ------- | ------- | ----- | ------------------- |
@@ -57,7 +57,8 @@ Done is defined by 443 journeys (2922 steps) in `modules/<module>/acceptance/jou
 | bank           | 30       | 8       | 13      | 9       | 180   | 0                   |
 | copy-bots-otc  | 30       | 5       | 13      | 12      | 205   | 1                   |
 | dex-protocol   | 30       | 5       | 16      | 9       | 250   | 0                   |
-| derivatives    | 26       | 7       | 9       | 10      | 186   | 0                   |
+| derivatives    | 28       | 8       | 10      | 10      | 199   | 10                  |
+| support-public | 22       | 4       | 11      | 7       | 171   | 14                  |
 | agents         | 21       | 2       | 12      | 7       | 134   | 3                   |
 | identity       | 21       | 7       | 8       | 6       | 133   | 1                   |
 | p2p            | 21       | 2       | 12      | 7       | 117   | 0                   |
@@ -66,12 +67,11 @@ Done is defined by 443 journeys (2922 steps) in `modules/<module>/acceptance/jou
 | campaigns      | 20       | 4       | 9       | 7       | 123   | 0                   |
 | cex-spot       | 20       | 4       | 11      | 5       | 169   | 0                   |
 | ops-console    | 20       | 5       | 12      | 3       | 175   | 0                   |
-| support-public | 20       | 4       | 11      | 5       | 161   | 4                   |
 | charts-desk    | 19       | 3       | 8       | 8       | 120   | 0                   |
 | developer      | 18       | 4       | 9       | 5       | 116   | 0                   |
+| portfolio      | 17       | 3       | 9       | 5       | 100   | 10                  |
 | academy        | 16       | 4       | 8       | 4       | 97    | 0                   |
 | algo-dev       | 16       | 1       | 8       | 7       | 105   | 0                   |
-| portfolio      | 16       | 3       | 8       | 5       | 93    | 3                   |
 | home-ia        | 11       | 3       | 5       | 3       | 58    | 0                   |
 | more-catalogue | 11       | 4       | 5       | 2       | 69    | 1                   |
 
@@ -111,7 +111,7 @@ Parked by the owner (OWNER 183, 6 Nov 2026): kept in the plan and visible, built
 | J-dex-protocol-27 Mint and sell NFTs, and spend with the Sovereign Card                              | steps #1, #2, #3, #4     | after launch (OWNER 183 (2): NFT minting and sales)                                                              |
 | J-dex-protocol-28 Issue assets, raise funds and use the treasury yield vault                         | steps #1, #2, #3         | after launch (OWNER 183 (2): own-chain extras, asset issuance)                                                   |
 | J-dex-protocol-29 Run the protocol desk: metrics, labels, quoters, listings and pool control         | steps #8                 | the core (the 67 spine journeys) passes (OWNER 183 (3): the chain (INTACHAIN listing rooms))                     |
-| J-dex-protocol-32 Account for protocol revenue, rebates and the IFC buyback                          | steps #8                 | after launch (OWNER 183 (2): own-chain extras, buyback)                                                          |
+| J-dex-protocol-32 Account for protocol revenue, rebates and builder fees                             | steps #8                 | after launch (OWNER 183 (2): own-chain extras, buyback)                                                          |
 | J-more-catalogue-20 Understand and use IFC: stake, real yield, supply and burns                      | steps #3                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
 | J-ops-console-24 Watch capital and counterparties, run a buyback, plan a wind-down and keep evidence | steps #4                 | after launch (desk ruling within OWNER 183 (2), 6 Nov; the scope audit names IFC buyback)                        |
 

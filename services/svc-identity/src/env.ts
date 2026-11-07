@@ -251,6 +251,17 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
       /**
+       * Owner setting: the most seconds a sign-in may go without a refresh before its next refresh is refused
+       * (`auth.session_idle`, I-signin-sessions-06). NO DEFAULT. Blank: no idle sign-out; a sign-in still ends at its
+       * absolute lifetime. A person may choose a shorter one in Security. Parsed at start by `parseSessionLimits`.
+       */
+      SESSION_IDLE_SECONDS: z.string().optional(),
+      /**
+       * Owner setting: the most devices (sign-ins) one account may be signed in on at once; a sign-in beyond it ends the
+       * oldest (I-signin-sessions-06). NO DEFAULT. Blank: no limit, and Security says so. Parsed by `parseSessionLimits`.
+       */
+      SESSION_MAX_CONCURRENT: z.string().optional(),
+      /**
        * Owner setting: the account product tiers an operator may move an account onto (J-ops-console-04 #11). A JSON list of
        * `{ id, name, terms: { ratePercent, monthlyFee, feeAssetId, dailyLimit, clearingDays } }`, terms as decimal strings or
        * null. NO DEFAULT. Blank or invalid: `accountControls.tiers` answers `identity.account_tiers_unset` and every move
