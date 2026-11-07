@@ -100,9 +100,9 @@ async function twoFounders(browser, ask) {
 
 /** Pause a scope through the form. */
 const pauseScope = (kind, value) => async (a) => {
-  await a.getByLabel('Scope').selectOption(kind === 'lead' ? 'Lead' : kind === 'bot_type' ? 'Bot type' : 'Symbol');
-  if (kind === 'bot_type') await a.getByLabel('Bot type').selectOption({ value });
-  else await a.getByLabel(kind === 'lead' ? 'Lead' : 'Symbol').fill(value);
+  await a.getByLabel('Scope', { exact: true }).selectOption(kind === 'lead' ? 'Lead' : kind === 'bot_type' ? 'Bot type' : 'Symbol');
+  if (kind === 'bot_type') await a.getByLabel('Bot type', { exact: true }).selectOption({ value });
+  else await a.getByLabel(kind === 'lead' ? 'Lead' : 'Symbol', { exact: true }).fill(value);
 };
 
 /** Resume a paused scope from its row. */
@@ -160,6 +160,9 @@ async function algoGet(who, algoId) {
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
 }
+
+/** The slices an algo bot has taken: children placed and misses recorded. */
+const slicesOf = (parent) => (parent.children?.length ?? 0) + (parent.misses?.length ?? 0);
 
 const codeOf = (body) => body?.error?.data?.cause?.code ?? body?.error?.json?.data?.cause?.code;
 
@@ -287,15 +290,19 @@ test(`${J} #3 halts a symbol: copy mirrors and bot slices on it stop`, async ({ 
   expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
   const twapId = made.body.result.data.id;
   run.write({ twapOwner: owner, twapId });
-  await expect.poll(async () => (await algoGet(owner, twapId)).children?.length ?? 0, { timeout: 90_000 }).toBeGreaterThan(0);
+  // A slice is a placed child or a recorded miss (no liquidity at the limit): either way the bot acted at its due time.
+  await expect
+    .poll(async () => slicesOf(await algoGet(owner, twapId)), { timeout: 120_000, message: 'the TWAP took no slice before the halt' })
+    .toBeGreaterThan(0);
 
   await twoFounders(browser, pauseScope('symbol', 'ETH/USDT'));
 
-  // Bot slices on ETH/USDT stop: over three slice intervals no slice is placed, and the bot is still live, not ended.
-  const slicesAtHalt = (await algoGet(owner, twapId)).children.length;
+  // Bot slices on ETH/USDT stop: over three slice intervals the bot takes no slice (no child placed, no miss), and it is
+  // still live, not ended.
+  const slicesAtHalt = slicesOf(await algoGet(owner, twapId));
   await page.waitForTimeout(65_000);
   const halted = await algoGet(owner, twapId);
-  expect(halted.children.length, 'no slice placed while the symbol is halted').toBe(slicesAtHalt);
+  expect(slicesOf(halted), `no slice while the symbol is halted: ${JSON.stringify(halted).slice(0, 400)}`).toBe(slicesAtHalt);
   expect(halted.status).toBe('active');
   // A new bot on ETH/USDT is refused by the pause's code.
   const another = await (
@@ -324,8 +331,8 @@ test(`${J} #4 tries a pause with one founder: refused`, async ({ browser }) => {
   const a = await killSwitch(browser, 'a');
   const before = await readPauses(a);
   expect(pausedNow(before, 'bot_type', 'twap')).toBe(false);
-  await a.getByLabel('Scope').selectOption('Bot type');
-  await a.getByLabel('Bot type').selectOption({ value: 'twap' });
+  await a.getByLabel('Scope', { exact: true }).selectOption('Bot type');
+  await a.getByLabel('Bot type', { exact: true }).selectOption({ value: 'twap' });
   const [answer] = await Promise.all([
     a.waitForResponse((r) => r.url().endsWith('/api/trade-ops/copy-bots-pauses') && r.request().postDataJSON()?.action === 'now'),
     a.getByRole('button', { name: 'Pause now' }).click(),
