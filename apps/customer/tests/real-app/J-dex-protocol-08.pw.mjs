@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { TOKEN_A, UNBUILT, connectWallet, dexRun, walletSection } from './dex.mjs';
 import { privateKeyToAccount } from 'viem/accounts';
 import { bodyRows, tableIn } from './tables.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { signIn, signUp } from './desk.mjs';
 
 // J-dex-protocol-08, in the running app (docs/roadmap/journeys.json): keep my wallet safe with approvals, session keys,
 // risk cards and reporting. One test per step, titled "J-dex-protocol-08 #<n>", run in order with one TEST wallet on Base
@@ -31,11 +31,11 @@ async function openSection(page, name) {
   return wallet;
 }
 
-/** The run's TEST account, signed in (made by #6 on first use). */
+/** The run's TEST account, signed in (made by #6 on first use). Reporting needs a sign-in only, no balance. */
 async function person(page) {
   let who = account.run.read().who;
   if (!who) {
-    who = await fundedTrader(page, 'dex08', '1');
+    who = await signUp(page, 'dex08');
     account.run.reset({ who });
   }
   await signIn(page, who);
@@ -126,7 +126,10 @@ test(`${J} #6 reports a scam address: a confirmation; a second report by the sam
   const report = page.getByRole('dialog', { name: 'Report this address' });
   await report.getByRole('combobox', { name: 'Reason' }).selectOption({ label: 'Scam' });
   await report.getByRole('button', { name: 'Send report' }).click();
-  await expect(page.getByRole('status')).toContainText('Thank you. Your report was received.');
+  // The confirmation shows in the risk card (the card may also be re-reading its count, which is its own status line).
+  const mine = page.getByRole('region', { name: 'Address risk' });
+  await expect(mine.getByRole('status').filter({ hasText: 'Thank you. Your report was received.' })).toBeVisible();
+  await expect(report).toHaveCount(0);
   await page.getByRole('button', { name: 'Report this address' }).click();
   await report.getByRole('combobox', { name: 'Reason' }).selectOption({ label: 'Scam' });
   await report.getByRole('button', { name: 'Send report' }).click();
