@@ -166,12 +166,7 @@ export const SUITES = [
      * router for add, remove, create-and-seed and swap-and-add. Its own suite, so the deployed v1 `amm` artefacts and
      * their sourceHash stay as they are.
      */
-    sources: [
-      'liquidity/LiquidityPool.sol',
-      'liquidity/LiquidityFactory.sol',
-      'liquidity/LiquidityRouter.sol',
-      'amm/IERC20Minimal.sol',
-    ],
+    sources: ['liquidity/LiquidityPool.sol', 'liquidity/LiquidityFactory.sol', 'liquidity/LiquidityRouter.sol', 'amm/IERC20Minimal.sol'],
   },
   {
     name: 'oracle',
