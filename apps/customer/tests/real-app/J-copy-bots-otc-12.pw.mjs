@@ -54,7 +54,12 @@ async function killSwitch(browser, key = 'a') {
   const page = await (await browser.newContext()).newPage();
   await founderSignIn(page, key);
   await page.goto(`${ADMIN}/trade-ops/kill-switch`);
-  await page.getByRole('tab', { name: 'Copy and bots' }).click(UNBUILT);
+  // A click before the page hydrates is lost, so click until the tab is selected.
+  const tab = page.getByRole('tab', { name: 'Copy and bots' });
+  await expect(async () => {
+    await tab.click(UNBUILT);
+    await expect(tab).toHaveAttribute('aria-selected', 'true', { timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
   return page;
 }
 
