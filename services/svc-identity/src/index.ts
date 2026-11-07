@@ -575,7 +575,9 @@ installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey, requestSignWindowSeconds);
 
 const stepUpStore = new SqlCustomerStepUpStore(sql);
-const consolePolicyRows = new ConsolePolicyRows(sql, () => env.IDENTITY_ACTION_APPROVAL_POLICIES);
+const consolePolicyRows = new ConsolePolicyRows(sql, () => env.IDENTITY_ACTION_APPROVAL_POLICIES, {
+  warn: (obj, msg) => app.log.warn(obj, msg),
+});
 await consolePolicyRows.refresh();
 consolePolicyRows.start();
 const actionApprovals = new ActionApprovalService(

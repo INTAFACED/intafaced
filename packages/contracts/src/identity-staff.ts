@@ -490,6 +490,11 @@ export const staffAcceptInputSchema = z
   .object({ token: inviteToken, password: z.string().min(1).max(256), deviceKey: z.string().min(16).max(128).optional() })
   .strict();
 export const staffAcceptResultSchema = z.object({ staff: staffEntrySchema }).strict();
+
+/** `staff.invite`: the record written, whether the mail service took the link, and the spent approval's approver. */
+export const staffInviteResultSchema = z
+  .object({ staff: staffEntrySchema, mailed: z.boolean(), approverId: z.string(), auditId: z.string() })
+  .strict();
 export type StaffAcceptResult = z.infer<typeof staffAcceptResultSchema>;
 
 // ── Access overview ─────────────────────────────────────────────────────────

@@ -15,7 +15,12 @@ describe('the staff invite and policy row hashes match svc-identity', () => {
   } as const;
 
   it('an invite is hashed over the named person, no roles, as identity hashes it', () => {
-    const subject = staffChangeApprovalSubject('identity.staff.invite', { ...invite, roleIds: [] });
+    const subject = staffChangeApprovalSubject('identity.staff.invite', {
+      requestId: invite.requestId,
+      email: invite.email,
+      displayName: invite.displayName,
+      roleIds: [],
+    });
     const expected = `sha256:${createHash('sha256').update(staffChangePayloadText(subject)).digest('hex')}`;
     expect(payloadHashFor(invite)).toBe(expected);
     expect(proposeInputFor(invite)).toMatchObject({

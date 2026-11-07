@@ -62,7 +62,8 @@ export function ChangePolicyRoom({ asOf, policies }: ChangePolicyRoomProps) {
         is refused and must be proposed again.
       </p>
       <p className="dk-muted">
-        A row comes from the deployment's owner setting until two founders set it here; a row set here then stands in for it.
+        A row comes from the deployment's owner setting. Two founders can set a staff change's row here, and it then stands in for it; the
+        ledger correction rows move money and are set only in the deployment.
       </p>
       {policies.kind === 'failed' ? (
         <div

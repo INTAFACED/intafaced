@@ -1,7 +1,11 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import type { ActionApprovalPolicyEntry, PolicyGovernedActionType } from '@intafaced/contracts';
+import {
+  isConsoleSettablePolicyActionType,
+  type ActionApprovalPolicyEntry,
+  type ConsoleSettablePolicyActionType,
+} from '@intafaced/contracts';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import type { Part } from '@/lib/desk/part';
 import { ChangePolicyRoom } from './room';
@@ -49,7 +53,7 @@ function PolicyRowControls({
   userId: string;
   onChanged: () => void;
 }) {
-  const [actionType, setActionType] = useState<PolicyGovernedActionType>(entries[0]!.actionType);
+  const [actionType, setActionType] = useState<ConsoleSettablePolicyActionType>(entries[0]!.actionType as ConsoleSettablePolicyActionType);
   const entry = entries.find((e) => e.actionType === actionType);
   const [values, setValues] = useState(() => valuesOf(entry));
   const set = (key: keyof typeof values) => (v: string) => setValues((old) => ({ ...old, [key]: v }));
@@ -90,7 +94,7 @@ function PolicyRowControls({
           className="adm-input"
           value={actionType}
           onChange={(e) => {
-            const next = e.target.value as PolicyGovernedActionType;
+            const next = e.target.value as ConsoleSettablePolicyActionType;
             setActionType(next);
             setValues(valuesOf(entries.find((x) => x.actionType === next)));
           }}
@@ -158,6 +162,8 @@ export function ChangePolicyDesk({ initial, userId }: { initial: PolicyRowsDeskV
     }
   }, []);
   const entries = view && view.policies.kind === 'ok' ? view.policies.data : null;
+  // Only the staff changes are set here; the ledger correction rows move money and stay the deployment owner's.
+  const settable = entries ? entries.filter((e) => isConsoleSettablePolicyActionType(e.actionType)) : null;
   return (
     <div className="dk-stack" data-testid="change-policy-desk">
       <div className="dk-row">
@@ -170,7 +176,7 @@ export function ChangePolicyDesk({ initial, userId }: { initial: PolicyRowsDeskV
       ) : (
         <p className="dk-why">svc-identity could not be read. Nothing is shown rather than a guess.</p>
       )}
-      {entries && entries.length > 0 && <PolicyRowControls entries={entries} userId={userId} onChanged={() => void reload()} />}
+      {settable && settable.length > 0 && <PolicyRowControls entries={settable} userId={userId} onChanged={() => void reload()} />}
     </div>
   );
 }

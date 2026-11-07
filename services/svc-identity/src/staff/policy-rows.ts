@@ -10,14 +10,19 @@
  * approves the exact four values, and the approval is spent here once, in the same transaction as the write. A row is
  * bound to the version its founders read, so a row changed since refuses `action_approval.target_mismatch`.
  *
+ * Only the privileged staff changes (`CONSOLE_SETTABLE_POLICY_ACTION_TYPES`) can be set here. The ledger correction rows
+ * move money and stay the deployment owner's alone: a stored row for any other type is never read.
+ *
  * The approval service reads the policy synchronously on every propose, approve and consume, so this keeps the console
- * rows in memory: read at start, after every write here, and every few seconds (a write on another instance reaches this
- * one within that interval).
+ * rows in memory: read at start, after every write here, and every few seconds. A failed read is logged. Once the last
+ * good read is older than `staleAfterMs`, every console-settable type reads as unset (`action_approval.policy_unset`)
+ * until a read succeeds again: an instance that cannot see a row another instance tightened never keeps the old one.
  */
 import type { Sql } from 'postgres';
 import {
   APPROVAL_POLICY_SET_ACTION_TYPE,
-  POLICY_GOVERNED_ACTION_TYPES,
+  CONSOLE_SETTABLE_POLICY_ACTION_TYPES,
+  isConsoleSettablePolicyActionType,
   approvalPolicySetPayloadFields,
   type ActionApprovalPolicyEntry,
   type ApprovalPolicySetInput,
@@ -63,16 +68,43 @@ export function overlayPolicyRows(deployment: string | undefined, rows: Readonly
   return JSON.stringify(out);
 }
 
+/** Every console-settable type as an unset row: what a stale instance reads. */
+const ALL_UNSET: ReadonlyMap<string, ConsoleRow> = new Map(CONSOLE_SETTABLE_POLICY_ACTION_TYPES.map((t) => [t, { row: {}, version: 0 }]));
+
+export interface ConsolePolicyRowsOptions {
+  /** How old the last good read may be before every console-settable type reads as unset. */
+  readonly staleAfterMs?: number;
+  readonly clock?: () => number;
+  readonly warn?: (obj: Record<string, unknown>, msg: string) => void;
+}
+
 export class ConsolePolicyRows {
   private rows: ReadonlyMap<string, ConsoleRow> = new Map();
+  private freshAt = Number.NEGATIVE_INFINITY;
   private timer: NodeJS.Timeout | null = null;
   readonly source: ApprovalPolicySource;
+  private readonly staleAfterMs: number;
+  private readonly clock: () => number;
+  private readonly warn: (obj: Record<string, unknown>, msg: string) => void;
 
   constructor(
     private readonly sql: Sql,
     private readonly deployment: () => string | undefined,
+    options: ConsolePolicyRowsOptions = {},
   ) {
-    this.source = approvalPolicySource(() => overlayPolicyRows(this.deployment(), this.rows));
+    this.staleAfterMs = options.staleAfterMs ?? 30_000;
+    this.clock = options.clock ?? (() => Date.now());
+    this.warn = options.warn ?? (() => undefined);
+    this.source = approvalPolicySource(() => overlayPolicyRows(this.deployment(), this.current()));
+  }
+
+  /** True when the last good read is too old to judge by. */
+  stale(): boolean {
+    return this.clock() - this.freshAt > this.staleAfterMs;
+  }
+
+  private current(): ReadonlyMap<string, ConsoleRow> {
+    return this.stale() ? ALL_UNSET : this.rows;
   }
 
   async refresh(): Promise<void> {
@@ -81,15 +113,25 @@ export class ConsolePolicyRows {
     `;
     const next = new Map<string, ConsoleRow>();
     for (const r of found) {
-      if (!(POLICY_GOVERNED_ACTION_TYPES as readonly string[]).includes(r.action_type) || !isRecord(r.row)) continue;
+      if (!isConsoleSettablePolicyActionType(r.action_type) || !isRecord(r.row)) continue;
       const row = Object.fromEntries(Object.entries(r.row).map(([k, v]) => [k, typeof v === 'string' ? v : '']));
       next.set(r.action_type, { row, version: r.version });
     }
     this.rows = next;
+    this.freshAt = this.clock();
   }
 
   start(everyMs = 5000): void {
-    this.timer = setInterval(() => void this.refresh().catch(() => undefined), everyMs);
+    this.timer = setInterval(
+      () =>
+        void this.refresh().catch((err: unknown) =>
+          this.warn(
+            { err: err instanceof Error ? err.message : String(err), stale: this.stale() },
+            'identity.approval_policy_rows_refresh_failed',
+          ),
+        ),
+      everyMs,
+    );
     this.timer.unref();
   }
 
@@ -100,7 +142,7 @@ export class ConsolePolicyRows {
   /** Every governed type, set or unset, with where its row comes from and the console version to bind a change to. */
   entries(): ActionApprovalPolicyEntry[] {
     return approvalPolicyEntries(this.source).map((entry) => {
-      const consoleRow = this.rows.get(entry.actionType);
+      const consoleRow = this.current().get(entry.actionType);
       return { ...entry, source: consoleRow ? 'console' : 'deployment', rowVersion: String(consoleRow?.version ?? 0) };
     });
   }

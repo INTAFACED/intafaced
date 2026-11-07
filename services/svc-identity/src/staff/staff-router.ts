@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  approvalPolicyRowsReadSchema,
   approvalPolicySetInputSchema,
   approvalPolicySetResultSchema,
   protectedProcedure,
@@ -12,8 +13,8 @@ import {
   staffAcceptResultSchema,
   staffInvitationInputSchema,
   staffInvitationSchema,
+  staffInviteResultSchema,
   staffListSchema,
-  staffEntrySchema,
 } from '@intafaced/contracts/identity-staff';
 import { isInteractiveFounderPrincipal } from '../auth/action-approval-audience.js';
 import type { ActionApprovalService } from '../auth/action-approval-service.js';
@@ -52,9 +53,7 @@ export function createStaffRouter(deps: {
   return router({
     approvalPolicy: router({
       /** Every governed type's row as identity reads it now, with its source and the version to bind a change to. */
-      rows: founder
-        .output(z.object({ policies: z.array(approvalPolicySetResultSchema.shape.entry) }))
-        .query(() => ({ policies: deps.rows.entries() })),
+      rows: founder.output(approvalPolicyRowsReadSchema).query(() => ({ policies: deps.rows.entries() })),
       set: founder
         .input(approvalPolicySetInputSchema)
         .output(approvalPolicySetResultSchema)
@@ -65,7 +64,7 @@ export function createStaffRouter(deps: {
       /** The invite's fields are checked by identity itself (`readStaffInvite`), so an open link is refused by name. */
       invite: founder
         .input(z.unknown())
-        .output(z.object({ staff: staffEntrySchema, mailed: z.boolean(), approverId: z.string(), auditId: z.string() }))
+        .output(staffInviteResultSchema)
         .mutation(({ ctx, input }) => deps.directory.invite(ctx.principal.userId, input).catch(map)),
       invitation: publicProcedure
         .input(staffInvitationInputSchema)

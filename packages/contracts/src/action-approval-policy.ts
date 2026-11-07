@@ -116,9 +116,27 @@ export type ActionApprovalPoliciesRead = z.infer<typeof actionApprovalPoliciesRe
  */
 export const APPROVAL_POLICY_SET_ACTION_TYPE = 'identity.approval_policy.set' as const;
 
+/**
+ * The governed types whose row two founders may set in the console: the privileged staff changes only. The ledger
+ * correction rows (`ops.ledger.*`) move money and stay deployment-only owner values; no console row is ever read for them.
+ */
+export const CONSOLE_SETTABLE_POLICY_ACTION_TYPES = [
+  'identity.staff.invite',
+  'identity.staff.disable',
+  'identity.staff.remove',
+  'identity.roles.define',
+  'identity.roles.assign',
+  'identity.roles.unassign',
+] as const satisfies readonly PolicyGovernedActionType[];
+export type ConsoleSettablePolicyActionType = (typeof CONSOLE_SETTABLE_POLICY_ACTION_TYPES)[number];
+
+export function isConsoleSettablePolicyActionType(actionType: string): actionType is ConsoleSettablePolicyActionType {
+  return (CONSOLE_SETTABLE_POLICY_ACTION_TYPES as readonly string[]).includes(actionType);
+}
+
 export const approvalPolicySetFieldsSchema = z
   .object({
-    actionType: z.enum(POLICY_GOVERNED_ACTION_TYPES),
+    actionType: z.enum(CONSOLE_SETTABLE_POLICY_ACTION_TYPES),
     requiredApprovals: z.string().trim().max(12),
     approverAudience: z.string().trim().max(32),
     applier: z.string().trim().max(64),
@@ -151,4 +169,7 @@ export function approvalPolicySetPayloadFields(v: ApprovalPolicySetFields): Reco
 }
 
 export const approvalPolicySetResultSchema = z.object({ entry: actionApprovalPolicyEntrySchema }).strict();
+
+/** `approvalPolicy.rows`: every governed type's row with its source and console version. */
+export const approvalPolicyRowsReadSchema = z.object({ policies: z.array(actionApprovalPolicyEntrySchema) });
 export type ApprovalPolicySetResult = z.infer<typeof approvalPolicySetResultSchema>;

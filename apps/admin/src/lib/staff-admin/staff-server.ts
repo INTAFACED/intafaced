@@ -1,7 +1,6 @@
 import 'server-only';
-import { z } from 'zod';
-import { actionApprovalPolicyEntrySchema, approvalPolicySetResultSchema, type ActionApprovalPolicyEntry } from '@intafaced/contracts';
-import { staffEntrySchema, staffListSchema, type StaffEntry } from '@intafaced/contracts/identity-staff';
+import { approvalPolicyRowsReadSchema, approvalPolicySetResultSchema, type ActionApprovalPolicyEntry } from '@intafaced/contracts';
+import { staffInviteResultSchema, staffListSchema, type StaffEntry } from '@intafaced/contracts/identity-staff';
 import { founderCall, parseWith, type FounderCallContext } from '@/lib/desk/founder-call';
 import type { ExecuteFn } from '@/lib/desk/approval-steps';
 import type { ExecuteReply } from '@/lib/desk/approval-types';
@@ -24,14 +23,7 @@ export interface PolicyRowsView {
 }
 
 export async function loadPolicyRows(ctx: FounderCallContext): Promise<PolicyRowsView> {
-  const result = await founderCall(
-    ctx,
-    'identity',
-    'approvalPolicy.rows',
-    'GET',
-    undefined,
-    parseWith(z.object({ policies: z.array(actionApprovalPolicyEntrySchema) })),
-  );
+  const result = await founderCall(ctx, 'identity', 'approvalPolicy.rows', 'GET', undefined, parseWith(approvalPolicyRowsReadSchema));
   return {
     asOf: new Date().toISOString(),
     policies: partFrom(result, (d) => d.policies, { service: 'svc-identity', forbiddenMessage: forbidden }),
@@ -112,7 +104,7 @@ export function staffInviteExecute(ctx: FounderCallContext): ExecuteFn {
         roleIds: [],
         approval: { approvalId: ids.approvalId, operationId: ids.operationId, payloadHash: payloadHashFor(request) },
       },
-      parseWith(z.object({ staff: staffEntrySchema, mailed: z.boolean(), approverId: z.string(), auditId: z.string() })),
+      parseWith(staffInviteResultSchema),
     );
     if (result.kind === 'refused') return refusedReply(result.refusal);
     if (result.kind !== 'ok') return failureRefusal('svc-identity', 'identity', result);

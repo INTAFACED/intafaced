@@ -18,7 +18,7 @@ import {
 import { RESTORE_NO, RESTORE_SERVICES, type RestoreServiceName } from '@/lib/restore/model';
 import { STAFF_HOLD_AMOUNT_PATTERN, STAFF_HOLD_ASSET_PATTERN } from '@intafaced/contracts/ops-staff-holds';
 import { kycSelfieDecisionSchema, type KycSelfieDecision } from '@intafaced/contracts/identity-kyc-selfie';
-import { approvalPolicySetFieldsSchema, type PolicyGovernedActionType } from '@intafaced/contracts';
+import { approvalPolicySetFieldsSchema, type ConsoleSettablePolicyActionType } from '@intafaced/contracts';
 import {
   accountLimitAmountSchema,
   accountLimitAssetIdSchema,
@@ -115,7 +115,7 @@ export type DeskRequest =
    */
   | {
       readonly kind: 'identity.approval_policy.set';
-      readonly actionType: PolicyGovernedActionType;
+      readonly actionType: ConsoleSettablePolicyActionType;
       readonly requiredApprovals: string;
       readonly approverAudience: string;
       readonly applier: string;
