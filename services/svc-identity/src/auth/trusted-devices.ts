@@ -17,7 +17,6 @@ import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 
 import type { Sql, TransactionSql } from 'postgres';
 import type { TrustedDeviceState, TrustedDeviceTrustedBy } from '@intafaced/contracts';
 import type { PasswordResetMail } from './password-reset.js';
-import { queueFactorChangedNotice } from './factor-changed-notice.js';
 
 export const DEVICE_COOKIE_NAME = 'ifc_dk';
 /**
@@ -455,9 +454,6 @@ export async function completeAuthorisation(
       trustedBy,
       presentedKey: input.presentedKey,
     });
-    // "New device sign-in" (I-signin-sessions-08, J-identity-06 #7): one mail to the proved address and one inbox notice,
-    // queued in this transaction, so the completion that trusts the device sends it once and a rolled-back one sends none.
-    await queueFactorChangedNotice(tx, { userId: row.user_id, change: 'new_device', now });
     return { userId: row.user_id, mfa: row.mfa, trustedDeviceId: device.id, deviceKey: device.key };
   });
 }

@@ -100,8 +100,7 @@ describe('catalog — the key set is closed and complete', () => {
     // An own agent's monthly spend alert in the inbox (J-agents-02 #6) adds a title and a body key.
     // The guest verification email for a support request (SP-tickets-01) adds a title and a body key.
     // A held tool call of an own agent in the inbox (J-agents-05 #4) adds two title keys and a body key.
-    // A new device approved and signed in (I-signin-sessions-08, J-identity-06 #7) adds a title and a body key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(312);
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(310);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(
