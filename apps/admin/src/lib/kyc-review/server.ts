@@ -11,6 +11,7 @@ import {
   type KycReviewList,
   type KycReviewNote,
 } from '@intafaced/contracts/identity-kyc-cases';
+import { kycCapabilitiesOutputSchema, type KycCapabilitiesOutput } from '@intafaced/contracts/identity-kyc-capabilities';
 import { founderCall, parseWith, type FounderCallContext, type FounderCallResult } from '@/lib/desk/founder-call';
 import { explainKycReview, type KycReviewRefusal, type KycReviewStep } from './model';
 
@@ -47,6 +48,11 @@ export async function readKycQueue(ctx: FounderCallContext, cursor: string | nul
   return answer(
     await founderCall(ctx, 'identity', 'kyc.review.list', 'GET', cursor ? { cursor } : {}, parseWith(kycReviewListOutputSchema)),
   );
+}
+
+/** One person's capabilities (what their verification lets them do), as the signed-in reviewer. */
+export async function readKycCapabilities(ctx: FounderCallContext, userId: string): Promise<KycReviewAnswer<KycCapabilitiesOutput>> {
+  return answer(await founderCall(ctx, 'identity', 'kyc.capabilities.getFor', 'GET', { userId }, parseWith(kycCapabilitiesOutputSchema)));
 }
 
 /** One case for review, as the signed-in person. */

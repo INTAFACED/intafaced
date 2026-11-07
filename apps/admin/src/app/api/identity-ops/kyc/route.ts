@@ -2,7 +2,7 @@ import { adminBffSession } from '@/lib/admin-bff-gate';
 import { readAdminJson } from '@/lib/admin-json';
 import { moduleDisabledResponse } from '@/lib/modules';
 import { readKycReviewStep, UUID } from '@/lib/kyc-review/model';
-import { readKycCase, readKycQueue, runKycReviewStep } from '@/lib/kyc-review/server';
+import { readKycCapabilities, readKycCase, readKycQueue, runKycReviewStep } from '@/lib/kyc-review/server';
 
 /**
  * The verification review queue (I-kyc-compliance-02, J-identity-20 #1 #2). GET reads one page of open cases
@@ -25,6 +25,11 @@ export async function GET(request: Request) {
   const session = await adminBffSession(request);
   if (session instanceof Response) return session;
   const params = new URL(request.url).searchParams;
+  const capabilitiesFor = params.get('capabilitiesFor');
+  if (capabilitiesFor !== null) {
+    if (!UUID.test(capabilitiesFor)) return reply({ ok: false }, 400);
+    return reply(await readKycCapabilities(session, capabilitiesFor));
+  }
   const caseId = params.get('caseId');
   if (caseId !== null) {
     if (!UUID.test(caseId)) return reply({ ok: false }, 400);

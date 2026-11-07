@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { KycCapabilitiesOutput } from '@intafaced/contracts/identity-kyc-capabilities';
 import type { KycReviewCase } from '@intafaced/contracts/identity-kyc-cases';
 import { ControlDesk, type ControlAction } from '@/components/control-desk';
 import { postReviewStep, RefusalLine } from '@/components/kyc-review-queue';
@@ -23,6 +24,22 @@ async function fetchCase(caseId: string): Promise<Answer<KycReviewCase>> {
   return { ok: false, refusal: { code: null, title: 'Identity did not answer', body: 'Reload the case.' } };
 }
 
+async function fetchCapabilities(userId: string): Promise<Answer<KycCapabilitiesOutput>> {
+  try {
+    const res = await fetch(`/api/identity-ops/kyc?capabilitiesFor=${encodeURIComponent(userId)}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+    });
+    const body = (await res.json().catch(() => null)) as Answer<KycCapabilitiesOutput> | null;
+    if (body && (body.ok === true || body.ok === false)) return body;
+  } catch {
+    // falls through to the unknown answer below
+  }
+  return { ok: false, refusal: { code: null, title: 'Identity did not answer', body: 'Reload the case.' } };
+}
+
+const LEVEL_ORDER = { none: 0, basic: 1, full: 2, institutional: 3 } as const;
+
 function who(id: string | null, me: string): string {
   if (id === null) return 'Nobody';
   return id === me ? 'You' : 'Another reviewer';
@@ -40,10 +57,13 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
   const [noteReply, setNoteReply] = useState<KycReviewRefusal | 'added' | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [caps, setCaps] = useState<Answer<KycCapabilitiesOutput> | null>(null);
   const [appealReply, setAppealReply] = useState<KycReviewRefusal | 'upheld' | 'overturned' | null>(null);
 
   async function load() {
-    setView(await fetchCase(caseId));
+    const next = await fetchCase(caseId);
+    setView(next);
+    if (next.ok) setCaps(await fetchCapabilities(next.data.userId));
   }
   useEffect(() => {
     void load();
@@ -80,6 +100,19 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
     build: () => ({ kind: 'identity.kyc_case.reject', recordId: c.case.recordId, reasonCode }),
     danger: true,
   };
+  const approve: ControlAction = {
+    heading: 'Approve this level',
+    submitLabel: 'Ask a second person to approve: approve this level',
+    needsReason: false,
+    reasonLabel: '',
+    build: () => ({ kind: 'identity.kyc_case.approve', recordId: c.case.recordId }),
+    danger: false,
+  };
+  const tier = c.case.tier;
+  const ownCaps = caps?.ok ? caps.data.capabilities.filter((r) => r.grantedAt === tier) : [];
+  const levelCaps = caps?.ok
+    ? caps.data.capabilities.filter((r) => r.grantedAt !== null && LEVEL_ORDER[r.grantedAt] <= LEVEL_ORDER[tier])
+    : [];
   return (
     <section className="dk-stack" data-testid="kyc-case-review" data-case={caseId} data-state={c.case.state}>
       <h2>Review</h2>
@@ -127,6 +160,49 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
           </li>
         ))}
       </ol>
+
+      <h3>Capabilities</h3>
+      {caps === null ? (
+        <p>Reading capabilities…</p>
+      ) : !caps.ok ? (
+        <RefusalLine refusal={caps.refusal} testId="kyc-case-capabilities-refusal" />
+      ) : (
+        <div className="dk-stack" data-testid="kyc-case-capabilities" data-mapped={String(caps.data.mapped)}>
+          {!caps.data.mapped ? (
+            <p data-testid="kyc-case-capabilities-unmapped">
+              The owner has not mapped capabilities to levels, so approving this request grants no capability.
+            </p>
+          ) : ownCaps.length === 0 ? (
+            <p data-testid="kyc-case-level-unmapped">
+              No capability is mapped to {tier} itself, so approving it grants none of its own
+              {levelCaps.length > 0 ? `; it carries what the levels below it grant (${levelCaps.map((r) => r.capability).join(', ')})` : ''}
+              .
+            </p>
+          ) : (
+            <p data-testid="kyc-case-level-grants">
+              Approving {tier} turns on, in one step: {levelCaps.map((r) => r.capability).join(', ')}.
+            </p>
+          )}
+          <table className="adm-table">
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th>State</th>
+                <th>Granted from</th>
+              </tr>
+            </thead>
+            <tbody>
+              {caps.data.capabilities.map((r) => (
+                <tr key={r.capability} data-testid="kyc-case-capability" data-capability={r.capability} data-state={r.state}>
+                  <td>{r.capability}</td>
+                  <td>{r.state}</td>
+                  <td>{r.grantedAt ?? 'No level'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <h3>Appeals</h3>
       {c.final ? <p data-testid="kyc-case-final">This rejection is final: its appeal is decided and it takes no more appeals.</p> : null}
@@ -198,17 +274,32 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
           </select>
         </label>
       ) : null}
-      <ControlDesk
-        key={`${c.case.recordId}:${reasonCode}`}
-        endpoint="/api/identity-ops/kyc/decide"
-        userId={me}
-        blockedReason={null}
-        formHold={c.reasonCodes.length === 0 ? 'The owner has not published reject reasons, so no reject can be asked for.' : null}
-        action={action}
-        consequence={`Identity rejects request ${c.case.recordId} with reason ${reasonCode}, and the customer is told the reason and what to do. A different person approves this request and this reason first; identity refuses if either of you is the customer. Running the same approved request again returns the stored result.`}
-        blockedButtonLabel="Decision unavailable"
-        onChanged={() => void load()}
-      />
+      <div data-testid="kyc-case-approve">
+        <ControlDesk
+          key={`approve:${c.case.recordId}`}
+          endpoint="/api/identity-ops/kyc/decide"
+          userId={me}
+          blockedReason={null}
+          formHold={c.recordStatus === 'pending' ? null : `This request is ${c.recordStatus}; only a pending request can be approved.`}
+          action={approve}
+          consequence={`Identity approves request ${c.case.recordId} for level ${tier} and turns on, in the same step, the capabilities the owner mapped to it and the levels below it. A different person approves this request first; identity refuses if either of you is the customer.`}
+          blockedButtonLabel="Approval unavailable"
+          onChanged={() => void load()}
+        />
+      </div>
+      <div data-testid="kyc-case-reject">
+        <ControlDesk
+          key={`${c.case.recordId}:${reasonCode}`}
+          endpoint="/api/identity-ops/kyc/decide"
+          userId={me}
+          blockedReason={null}
+          formHold={c.reasonCodes.length === 0 ? 'The owner has not published reject reasons, so no reject can be asked for.' : null}
+          action={action}
+          consequence={`Identity rejects request ${c.case.recordId} with reason ${reasonCode}, and the customer is told the reason and what to do. A different person approves this request and this reason first; identity refuses if either of you is the customer. Running the same approved request again returns the stored result.`}
+          blockedButtonLabel="Decision unavailable"
+          onChanged={() => void load()}
+        />
+      </div>
     </section>
   );
 }

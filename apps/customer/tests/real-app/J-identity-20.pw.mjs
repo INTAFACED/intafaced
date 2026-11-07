@@ -149,14 +149,14 @@ test('J-identity-20 #2 a case shows the record, reason codes, history and notes;
       await compliance.reload({ waitUntil: 'load' });
       await expect(review).toBeVisible({ timeout: 60_000 });
       await review.getByLabel('Reason code').selectOption(code);
-      const desk = review.getByTestId('control-desk');
+      const desk = review.getByTestId('kyc-case-reject').getByTestId('control-desk');
       const phrase = `REJECT KYC ${target.recordId.slice(0, 8)}`;
       await desk.getByLabel(/to confirm$/).fill(phrase);
       await desk.getByRole('button', { name: 'Ask a second person to approve: reject with this reason' }).click();
       await expect(desk.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
       const packet = (await desk.getByLabel('Request packet').inputValue()).trim();
       await founder.goto(`${ADMIN}/identity-ops/kyc/${target.caseId}`, { waitUntil: 'load' });
-      const deskB = founder.getByTestId('kyc-case-review').getByTestId('control-desk');
+      const deskB = founder.getByTestId('kyc-case-review').getByTestId('kyc-case-reject').getByTestId('control-desk');
       await deskB.getByLabel('Request packet').fill(packet);
       await expect(deskB.getByTestId('packet-summary')).toContainText(`reason ${code}`);
       await deskB.getByLabel(/to approve or run it$/).fill(phrase);
@@ -262,5 +262,95 @@ test('J-identity-20 #8 an appeal on a final rejection refuses with kyc.case_fina
     await expect(compliance.getByTestId('kyc-case-review').getByTestId('kyc-case-appeals-empty')).toBeVisible({ timeout: 60_000 });
   } finally {
     await compliance.context().close();
+  }
+});
+
+/** Compliance asks for an approval of the case's level, the founder approves it on their console, compliance runs it. */
+async function approveLevel(compliance, founder, c) {
+  await compliance.goto(`${ADMIN}/identity-ops/kyc/${c.caseId}`, { waitUntil: 'load' });
+  const desk = compliance.getByTestId('kyc-case-approve').getByTestId('control-desk');
+  const phrase = `APPROVE KYC ${c.recordId.slice(0, 8)}`;
+  await desk.getByLabel(/to confirm$/).fill(phrase, { timeout: 60_000 });
+  await desk.getByRole('button', { name: 'Ask a second person to approve: approve this level' }).click();
+  await expect(desk.getByTestId('packet-made')).toBeVisible({ timeout: 60_000 });
+  const packet = (await desk.getByLabel('Request packet').inputValue()).trim();
+  await founder.goto(`${ADMIN}/identity-ops/kyc/${c.caseId}`, { waitUntil: 'load' });
+  const deskB = founder.getByTestId('kyc-case-approve').getByTestId('control-desk');
+  await deskB.getByLabel('Request packet').fill(packet, { timeout: 60_000 });
+  await expect(deskB.getByTestId('packet-summary')).toContainText(`Approve verification request ${c.recordId}`);
+  await deskB.getByLabel(/to approve or run it$/).fill(phrase);
+  await deskB.getByRole('button', { name: 'Approve this request' }).click();
+  await expect(deskB.getByTestId('step-reply')).toContainText('Approved.', { timeout: 60_000 });
+  await desk.getByLabel(/to approve or run it$/).fill(phrase);
+  await desk.getByRole('button', { name: 'Run the approved request' }).click();
+  await expect(desk.getByTestId('step-reply')).toContainText(`Identity recorded request ${c.recordId} as approved`, { timeout: 60_000 });
+}
+
+/** The capability states the case page shows, read again from identity. */
+async function capabilityStates(page, caseId) {
+  await page.goto(`${ADMIN}/identity-ops/kyc/${caseId}`, { waitUntil: 'load' });
+  const rows = page.getByTestId('kyc-case-capability');
+  await expect(rows).toHaveCount(5, { timeout: 60_000 });
+  return Object.fromEntries(
+    await rows.evaluateAll((els) => els.map((el) => [el.getAttribute('data-capability'), el.getAttribute('data-state')])),
+  );
+}
+
+test('J-identity-20 #6 approving a level turns its mapped capabilities active in one step; a mapping not set grants nothing', async ({
+  browser,
+}) => {
+  test.setTimeout(480_000);
+  const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
+  const ctx = await gates.makeContext({ log: () => {} });
+  const basic = await pendingCase('jb');
+  const compliance = await (await browser.newContext()).newPage();
+  const founder = await (await browser.newContext()).newPage();
+  await staffSignIn(compliance, browser, 'compliance');
+  await founderSignIn(founder, 'a');
+  try {
+    // Before: the request marks basic's mapped capabilities pending (the stack's TEST mapping: crypto custody, transfer, trade).
+    const before = await capabilityStates(compliance, basic.caseId);
+    expect(before).toEqual({
+      custody_crypto: 'pending',
+      custody_fiat: 'unrequested',
+      transfer_crypto: 'pending',
+      transfer_fiat: 'unrequested',
+      trade_crypto: 'pending',
+    });
+    await expect(compliance.getByTestId('kyc-case-level-grants')).toContainText('custody_crypto, transfer_crypto, trade_crypto');
+
+    // One approval turns all three active in one step; what is mapped to a higher level stays off.
+    await approveLevel(compliance, founder, basic);
+    expect(await capabilityStates(compliance, basic.caseId)).toEqual({
+      custody_crypto: 'active',
+      custody_fiat: 'unrequested',
+      transfer_crypto: 'active',
+      transfer_fiat: 'unrequested',
+      trade_crypto: 'active',
+    });
+    await expect(compliance.getByTestId('kyc-case-record-status')).toHaveText('approved');
+
+    // A level with no mapping of its own grants nothing: a person who holds full asks for institutional, which the TEST
+    // mapping leaves unset; approving it changes no capability.
+    const holder = await pendingCase('ji');
+    const record = await (await api(holder.who)).post('/api/identity/trpc/kyc.submit', { tier: 'full', jurisdiction: 'DE' });
+    expect(record.body?.result?.data?.status, JSON.stringify(record.body).slice(0, 300)).toBe('pending');
+    const approved = await gates.approvePending(ctx, null, { userIds: [holder.userId] });
+    expect(approved.length, JSON.stringify(approved)).toBeGreaterThan(0);
+    const customer = await api(holder.who);
+    const inst = await customer.post('/api/identity/trpc/kyc.submit', { tier: 'institutional', jurisdiction: 'DE' });
+    expect(inst.body?.result?.data?.status, JSON.stringify(inst.body).slice(0, 300)).toBe('pending');
+    const hist = await customer.get(`/api/identity/trpc/kyc.history?input=${encodeURIComponent(JSON.stringify({ limit: 10 }))}`);
+    const instCase = hist.body?.result?.data?.cases?.find((c) => c.recordId === inst.body.result.data.id);
+    expect(instCase?.state).toBe('submitted');
+    const institutional = { caseId: instCase.id, recordId: instCase.recordId };
+    const held = await capabilityStates(compliance, institutional.caseId);
+    await expect(compliance.getByTestId('kyc-case-level-unmapped')).toContainText('No capability is mapped to institutional');
+    await approveLevel(compliance, founder, institutional);
+    expect(await capabilityStates(compliance, institutional.caseId)).toEqual(held);
+    await expect(compliance.getByTestId('kyc-case-record-status')).toHaveText('approved');
+  } finally {
+    await compliance.context().close();
+    await founder.context().close();
   }
 });
