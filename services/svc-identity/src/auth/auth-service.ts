@@ -1023,8 +1023,8 @@ export class AuthService {
     return removeDevice(this.deviceDeps(), { userId, deviceId });
   }
 
-  async confirmTrustedDeviceSignIn(userId: string, deviceId: string): Promise<{ confirmed: number }> {
-    return confirmDeviceSignIn(this.deviceDeps(), { userId, deviceId });
+  async confirmTrustedDeviceSignIn(userId: string, deviceId: string, sessionId: string | null): Promise<{ confirmed: number }> {
+    return confirmDeviceSignIn(this.deviceDeps(), { userId, deviceId, sessionId });
   }
 
   private loginCodeDeps(): LoginCodeDeps {

@@ -4,11 +4,6 @@ import { NotificationRow, useInboxView, type Notification } from './deps';
 import { HOME_LINKS } from './links';
 import { shownInNeedsYou, type NeedsYouShown } from './work-list';
 
-/**
- * How many of the newest rows Home reads, so it can pass over the ones "Needs you" already carries: identity lists at
- * most 20 new-device sign-ins (svc-identity work-items.ts), so one more row is always one it does not.
- */
-const READ_ROWS = 21;
 /** How often an open Home reads the inbox again, as the notice board does, so a new row shows and a read one loses its dot. */
 const REREAD_MS = 60_000;
 
@@ -23,7 +18,8 @@ const REREAD_MS = 60_000;
  */
 export function HomeInbox({ needsYou = null }: { needsYou?: NeedsYouShown | null }) {
   const { t } = homeCopy.useCopy();
-  const { inbox, state, markets } = useInboxView({ limit: READ_ROWS, unreadOnly: false });
+  // The newest row, and one more for each notice "Needs you" carries, so one is always left that it does not.
+  const { inbox, state, markets } = useInboxView({ limit: 1 + (needsYou?.noticeKeys.size ?? 0), unreadOnly: false });
   const [now, setNow] = useState(() => Date.now());
   const reread = useRef(() => {});
   reread.current = () => {
@@ -39,10 +35,11 @@ export function HomeInbox({ needsYou = null }: { needsYou?: NeedsYouShown | null
     if (code) console.warn(`home inbox: unread (${code})`);
   }, [code]);
   // A re-read keeps the last answer on screen while it loads; a failed read draws nothing, as on first load.
-  const last = useRef<Notification | undefined>(undefined);
-  if (state.status === 'ready') last.current = state.items.find((item) => !shownInNeedsYou(item, needsYou));
-  else if (state.status === 'failed') last.current = undefined;
-  const latest = last.current;
+  // The row is picked from the last answer each time, so a notice "Needs you" has just taken on is never left here.
+  const last = useRef<readonly Notification[]>([]);
+  if (state.status === 'ready') last.current = state.items;
+  else if (state.status === 'failed') last.current = [];
+  const latest = last.current.find((item) => !shownInNeedsYou(item, needsYou));
   if (!latest || (needsYou !== null && !needsYou.settled)) return null;
   return (
     <section data-testid="home-inbox" className="home-inbox" aria-labelledby="home-inbox-title">

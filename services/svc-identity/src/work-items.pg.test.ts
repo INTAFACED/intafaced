@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -112,28 +113,34 @@ if (!available) {
   async function newDeviceSignIn(userId: string, label: string) {
     return db.sql.begin(async (tx) => {
       const now = new Date();
-      const device = await trustDevice(
-        tx,
-        { check: true },
-        {
-          userId,
-          label,
-          now,
-          trustedBy: 'approval',
-        },
-      );
+      const device = await trustDevice(tx, { check: true }, { userId, label, now, trustedBy: 'approval' });
       const noticeKey = await queueFactorChangedNotice(tx, { userId, change: 'new_device', now, trustedDeviceId: device.id });
       return { deviceId: device.id, noticeKey };
     });
   }
+  /** A session signed in on one device of the account, as issueSession writes it. */
+  async function sessionOn(userId: string, deviceId: string | null) {
+    const [row] = await db.sql<Array<{ id: string }>>`
+      INSERT INTO sessions (user_id, refresh_hash, mfa, expires_at, trusted_device_id)
+      VALUES (${userId}, ${randomBytes(32).toString('hex')}, true, now() + interval '1 day', ${deviceId})
+      RETURNING id
+    `;
+    return row!.id;
+  }
 
-  it('lists each unanswered new-device sign-in, newest first, until "This was me" or the device is removed', async () => {
+  it('lists each still-trusted device with an unanswered new-device sign-in, newest first, until "This was me" or removal', async () => {
     const me = await signUp();
     const other = await signUp();
     const api = await as(me);
     const kinds = async () => (await api.workItems.list()).items.filter((item) => item.kind === 'new_device');
     expect(await kinds()).toEqual([]);
 
+    const desk = (
+      await db.sql.begin((tx) =>
+        trustDevice(tx, { check: true }, { userId: me, label: 'TEST desk', now: new Date(), trustedBy: 'sign-up' }),
+      )
+    ).id;
+    const fromDesk = await sessionOn(me, desk);
     const laptop = await newDeviceSignIn(me, 'TEST laptop');
     const phone = await newDeviceSignIn(me, 'TEST phone');
     // A factor change that is not a new device is no item.
@@ -149,16 +156,29 @@ if (!available) {
       },
       expect.objectContaining({ id: `new_device:${laptop.noticeKey}` }),
     ]);
-    // Security marks the device that has one.
+    // Security marks the device that has one, and only that kind of device.
     const devices = await auth.trustedDevices(me, null);
     expect(devices.find((d) => d.id === phone.deviceId)?.newSignIn).toBe(true);
+    expect(devices.find((d) => d.id === desk)?.newSignIn).toBe(false);
 
-    // "This was me" ends that one item, once; only the account's own device answers.
-    expect(await auth.confirmTrustedDeviceSignIn(other, phone.deviceId)).toEqual({ confirmed: 0 });
-    expect(await auth.confirmTrustedDeviceSignIn(me, phone.deviceId)).toEqual({ confirmed: 1 });
-    expect(await auth.confirmTrustedDeviceSignIn(me, phone.deviceId)).toEqual({ confirmed: 0 });
+    // The device the alert is about cannot clear it, nor can a caller with no session of this account.
+    const fromPhone = await sessionOn(me, phone.deviceId);
+    for (const sessionId of [fromPhone, null, await sessionOn(other, null)]) {
+      await expect(auth.confirmTrustedDeviceSignIn(me, phone.deviceId, sessionId)).rejects.toMatchObject({
+        code: 'identity.confirm_from_another_device',
+      });
+    }
+    // "This was me" from another device ends that one item, once; only the account's own device answers.
+    expect(await auth.confirmTrustedDeviceSignIn(me, phone.deviceId, fromDesk)).toEqual({ confirmed: 1 });
+    expect(await auth.confirmTrustedDeviceSignIn(me, phone.deviceId, fromDesk)).toEqual({ confirmed: 0 });
     expect((await auth.trustedDevices(me, null)).find((d) => d.id === phone.deviceId)?.newSignIn).toBe(false);
     expect((await kinds()).map((item) => item.id)).toEqual([`new_device:${laptop.noticeKey}`]);
+
+    // A device approved again before it was answered asks once, by its newest sign-in.
+    const again = await db.sql.begin((tx) =>
+      queueFactorChangedNotice(tx, { userId: me, change: 'new_device', now: new Date(), trustedDeviceId: laptop.deviceId }),
+    );
+    expect((await kinds()).map((item) => item.id)).toEqual([`new_device:${again}`]);
 
     // Removing the device ends its item too.
     expect(await auth.removeTrustedDevice(me, laptop.deviceId)).toMatchObject({ removed: true });

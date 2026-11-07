@@ -10,3 +10,6 @@ ALTER TABLE "identity"."security_factor_events" ADD COLUMN IF NOT EXISTS "review
 UPDATE "identity"."security_factor_events" SET "reviewed_at" = now() WHERE "change" = 'new_device' AND "reviewed_at" IS NULL;
 CREATE INDEX IF NOT EXISTS "security_factor_events_unreviewed_idx"
   ON "identity"."security_factor_events" ("user_id") WHERE "change" = 'new_device' AND "reviewed_at" IS NULL;
+-- Security's devices list and the item read find a device's unanswered sign-in by its device.
+CREATE INDEX IF NOT EXISTS "security_factor_events_unreviewed_device_idx"
+  ON "identity"."security_factor_events" ("trusted_device_id") WHERE "change" = 'new_device' AND "reviewed_at" IS NULL;

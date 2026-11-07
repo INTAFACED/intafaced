@@ -19,7 +19,8 @@ const messages = {
   newSignIn: 'New sign-in. If this wasn’t you, remove it, then sign out everywhere and contact Support.',
   confirm: 'This was me',
   confirmLabel: 'This was me: {device}',
-  confirmed: 'Thanks. Home no longer asks about that sign-in.',
+  confirmElsewhere: 'To say this was you, open Security on another of your devices.',
+  confirmed: 'Thanks. “Needs you” on Home no longer asks about that sign-in.',
   removedNone: 'That device was already removed.',
   waitingTitle: 'Waiting for your approval',
   waitingBody: 'Someone signed in with your password on these browsers. Approve only if it was you.',
@@ -38,6 +39,7 @@ const messages = {
   'auth.device_not_trusted': 'Approve new sign-ins from a browser that is itself trusted. This one is not.',
   'identity.device_not_found': 'That sign-in request was not found. It may have been for another account.',
   'auth.code_expired': 'That sign-in request has run out.',
+  'identity.confirm_from_another_device': 'Confirm a new sign-in from another of your devices, or remove it if it was not you.',
 } as const;
 
 export const trustedDevicesCopy = defineCopy('account-trusted-devices', messages);

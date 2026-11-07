@@ -43,7 +43,12 @@ export function approveStepUp(flowId: string): StepUpBegin {
 }
 
 /** The refusals this card words itself. */
-export const TRUSTED_DEVICE_CODES = ['auth.device_not_trusted', 'identity.device_not_found', 'auth.code_expired'] as const;
+export const TRUSTED_DEVICE_CODES = [
+  'auth.device_not_trusted',
+  'identity.device_not_found',
+  'auth.code_expired',
+  'identity.confirm_from_another_device',
+] as const;
 export type TrustedDeviceCode = (typeof TRUSTED_DEVICE_CODES)[number];
 export const trustedDeviceCode = (code: string | undefined): TrustedDeviceCode | undefined =>
   (TRUSTED_DEVICE_CODES as readonly string[]).includes(code ?? '') ? (code as TrustedDeviceCode) : undefined;

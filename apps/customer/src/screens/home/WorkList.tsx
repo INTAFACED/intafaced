@@ -62,8 +62,12 @@ export function WorkList({
   const { list, retry } = useWorkList();
   const report = useRef(onShown);
   report.current = onShown;
+  // Once it has settled, a re-read (Try again) keeps reporting the last answer, so the inbox row does not blink.
+  const settledOnce = useRef(false);
   const shownKey = list.state === 'ready' ? `ready:${list.items.map((item) => item.id).join('|')}` : list.state;
   useEffect(() => {
+    if (list.state === 'loading' && settledOnce.current) return;
+    if (list.state !== 'loading') settledOnce.current = true;
     report.current?.(needsYouShown(list));
     // Reported again only when what is shown changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps

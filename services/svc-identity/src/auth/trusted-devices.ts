@@ -43,6 +43,7 @@ export type TrustedDeviceErrorCode =
   | 'auth.code_expired'
   | 'auth.too_many_attempts'
   | 'identity.device_not_found'
+  | 'identity.confirm_from_another_device'
   | 'vendor.email';
 
 export interface DeviceAuthorisationDetails {
@@ -523,17 +524,32 @@ export async function listDevices(
 /**
  * The person says a new-device sign-in on one of their devices was them: its "Needs you" item ends. Only the account's
  * own events change, and a repeat confirms nothing more. Removing the device ends the item too (removeDevice).
+ *
+ * It is answered from another of the account's devices, never from the device it asks about: whoever holds that device
+ * may be the one the alert is about, so it cannot clear the alert itself. It takes no step-up, because whoever signed in
+ * there already passed the same factors; being somewhere else is what the alert asks the owner to prove.
  */
 export async function confirmDeviceSignIn(
   deps: TrustedDeviceDeps,
-  input: { userId: string; deviceId: string },
+  input: { userId: string; deviceId: string; sessionId: string | null },
 ): Promise<{ confirmed: number }> {
-  const rows = await deps.sql<Array<{ id: string }>>`
-    UPDATE security_factor_events SET reviewed_at = ${deps.now()}
-    WHERE user_id = ${input.userId} AND trusted_device_id = ${input.deviceId} AND change = 'new_device' AND reviewed_at IS NULL
-    RETURNING id
-  `;
-  return { confirmed: rows.length };
+  return deps.sql.begin(async (tx) => {
+    const [session] = await tx<Array<{ trusted_device_id: string | null }>>`
+      SELECT trusted_device_id FROM sessions WHERE id = ${input.sessionId} AND user_id = ${input.userId}
+    `;
+    if (!session || session.trusted_device_id === input.deviceId) {
+      throw new TrustedDeviceError(
+        'Confirm a new sign-in from another of your devices, or remove it if it was not you.',
+        'identity.confirm_from_another_device',
+      );
+    }
+    const rows = await tx<Array<{ id: string }>>`
+      UPDATE security_factor_events SET reviewed_at = ${deps.now()}
+      WHERE user_id = ${input.userId} AND trusted_device_id = ${input.deviceId} AND change = 'new_device' AND reviewed_at IS NULL
+      RETURNING id
+    `;
+    return { confirmed: rows.length };
+  });
 }
 
 /** Stop trusting a device and end the sessions signed in on it. The next sign-in there asks again. */

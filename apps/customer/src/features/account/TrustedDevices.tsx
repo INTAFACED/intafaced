@@ -24,7 +24,7 @@ type Refusal = Extract<ApiResult<unknown>, { ok: false }>;
  * Trusted devices in Security (I-signin-sessions-07). Lists the browsers this account trusts, says whether the owner
  * turned the new-device check on, and lets the owner approve a waiting sign-in or remove a device. Both confirm who you
  * are first (authenticator code or passkey). A device with a new-device sign-in not yet answered says so, with "This was
- * me" beside Remove: either one ends Home's "Needs you" item for it.
+ * me" beside Remove (on any other device: the one the alert is about cannot clear it): either ends Home's item for it.
  */
 export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
   const { t, languageFor } = copy.useCopy();
@@ -204,11 +204,12 @@ export function TrustedDevices({ onChanged }: { onChanged?: () => void }) {
                 </span>
                 {device.newSignIn && (
                   <p data-testid="security__new-sign-in" className="notice">
-                    {t('newSignIn')}
+                    {t('newSignIn')} {device.current ? t('confirmElsewhere') : null}
                   </p>
                 )}
               </div>
-              {device.newSignIn && (
+              {/* The device the alert is about cannot clear it: "This was me" is answered from another device. */}
+              {device.newSignIn && !device.current && (
                 <Button
                   variant="secondary"
                   disabled={busy}
