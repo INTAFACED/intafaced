@@ -5,9 +5,9 @@
 // branch of the journey, never main or factory-switch, and never a force). tooling-tests.mjs runs this file.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -516,7 +516,9 @@ export function workflowProblems(wf) {
     ) ||
     !/\/usr\/bin\/sudo \/usr\/bin\/chmod -R go-w "\$d"/.test(close) ||
     !/-perm \/022/.test(close) ||
-    !/\/usr\/bin\/find -H "\$up" -maxdepth 0 -perm \/022/.test(close) ||
+    !/closed\(\) \{ \[ -z "\$\(\/usr\/bin\/find -H "\$1" -maxdepth 0 -perm \/022\)" \]; \}/.test(close) ||
+    !/\/usr\/bin\/find -L "\$d" -maxdepth 1 ! -type l -perm \/022/.test(close) ||
+    !/if ! closed "\$up"; then open="\$open \$l"; break; fi/.test(close) ||
     !/::error title=PATH writable::[\s\S]*exit 1/.test(close)
   )
     p.push('every directory on PATH is closed, and checked, before the agent user exists');
@@ -595,7 +597,15 @@ test('each planted fault in the workflow is caught', () => {
     'two runs of one journey': plant('  group: builder-${{ inputs.journey }}\n', '  group: builder-${{ github.run_id }}\n'),
     'the switch ignored': plant("    if: needs.gate.outputs.run == 'true'\n", ''),
     'a self-hosted runner': WF.replace('runs-on: ubuntu-latest', 'runs-on: self-hosted'),
-    'a linked directory judged by the link': plant('/usr/bin/find -H "$up" -maxdepth 0', '/usr/bin/find "$up" -maxdepth 0'),
+    'a linked directory judged by the link': plant('/usr/bin/find -H "$1" -maxdepth 0', '/usr/bin/find "$1" -maxdepth 0'),
+    'a broken link judged by its own mode': plant(
+      '/usr/bin/find -L "$d" -maxdepth 1 ! -type l -perm /022',
+      '/usr/bin/find -L "$d" -maxdepth 1 -perm /022',
+    ),
+    'a broken link into an open directory let through': plant(
+      'if ! closed "$up"; then open="$open $l"; break; fi',
+      'if ! closed "$up"; then break; fi',
+    ),
     'PATH left open': plant('            /usr/bin/sudo /usr/bin/chmod -R go-w "$d"\n', '            true\n'),
     'a bare sudo after the agent': plant('/usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/cat', 'sudo -n -u "$AGENT_USER" /usr/bin/cat'),
     'a bare pgrep after the agent': plant(
@@ -624,42 +634,98 @@ test('each planted fault in the workflow is caught', () => {
   }
 });
 
-// The PATH check's directory test, run as written in the workflow: a directory that is a link (/bin on Ubuntu 24.04,
-// whose own mode is 0777) is judged by what it names. It needs GNU find (CI's Ubuntu runners); elsewhere it says so.
-const gnuFind = (() => {
+// The PATH step's check, run as written in the workflow (between its two marker lines) on planted trees under a closed
+// home (the check walks every directory above, so a tree under /tmp, which is 1777, would always fail). It needs GNU
+// find and readlink (CI's Ubuntu runners); elsewhere it says so and skips.
+const gnuTools = (() => {
   try {
-    return /GNU findutils/.test(execFileSync('/usr/bin/find', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+    const v = (cmd) => execFileSync(cmd, ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return /GNU findutils/.test(v('/usr/bin/find')) && /GNU coreutils/.test(v('/usr/bin/readlink'));
   } catch {
     return false;
   }
 })();
 
-export function dirCheck(wf) {
-  const m = /if \[ -n "\$\((\/usr\/bin\/find [^)]*"\$up" -maxdepth 0 -perm \/022)\)" \]/.exec(stepOf(wf, 'Close every directory on PATH'));
-  if (!m) throw new Error('the PATH step has no directory check');
-  return (up) => execFileSync('/bin/bash', ['-c', `up="$1"; ${m[1]}`, 'check', up], { encoding: 'utf8' }).trim();
+export function checkOf(wf) {
+  const step = stepOf(wf, 'Close every directory on PATH');
+  const a = step.indexOf('# --- the check');
+  const b = step.indexOf('# --- end of the check ---');
+  if (a < 0 || b < a) throw new Error('the PATH step has no marked check');
+  const script = step
+    .slice(step.indexOf('\n', a) + 1, b)
+    .split('\n')
+    .map((l) => l.slice(10))
+    .join('\n');
+  // The open paths the check finds for these roots, '' when everything is closed.
+  return (roots) =>
+    execFileSync('/bin/bash', ['-e', '-c', `roots="$1"\n${script}\nprintf '%s' "$open"`, 'check', roots.join(' ')], {
+      encoding: 'utf8',
+    }).trim();
+}
+
+/** The check as it was on main at ad52b4d (before broken links were judged by their target), for the failing-before case. */
+const OLD_PROGRAM_LINE = '/usr/bin/find -L "$d" -maxdepth 1 -perm /022 2>/dev/null | /usr/bin/head -5';
+const oldCheck = (wf) =>
+  checkOf(
+    wf
+      .replace('/usr/bin/find -L "$d" -maxdepth 1 ! -type l -perm /022 2>/dev/null | /usr/bin/head -5', OLD_PROGRAM_LINE)
+      .replace(
+        /            # A broken link is safe only[\s\S]*?\n            done\n(?=          done\n          # --- end of the check ---)/,
+        '',
+      ),
+  );
+
+function closedTree() {
+  const base = mkdtempSync(join(homedir(), '.factory-path-'));
+  chmodSync(base, 0o755);
+  const dir = (...p) => {
+    const d = join(base, ...p);
+    mkdirSync(d, { recursive: true, mode: 0o755 });
+    return d;
+  };
+  return { base, dir };
 }
 
 test(
-  'the PATH check judges a linked directory by what it names, not by the link',
-  { skip: gnuFind ? false : 'needs GNU find (runs on CI)' },
+  'the PATH check judges a linked directory by what it names, and a broken link by who can create what it names',
+  { skip: gnuTools ? false : 'needs GNU find and readlink (runs on CI)' },
   () => {
-    const root = mkdtempSync(join(tmpdir(), 'path-'));
-    const closed = join(root, 'usr-bin');
-    const open = join(root, 'open');
-    mkdirSync(closed, { mode: 0o755 });
-    mkdirSync(open);
-    chmodSync(open, 0o777);
-    execFileSync('/bin/ln', ['-s', closed, join(root, 'bin')]);
-    execFileSync('/bin/ln', ['-s', open, join(root, 'open-link')]);
-    const check = dirCheck(WF);
-    assert.equal(check(join(root, 'bin')), '', 'a link to a closed directory, like /bin -> usr/bin, passes');
-    assert.equal(check(closed), '');
-    assert.notEqual(check(join(root, 'open-link')), '', 'a link to an open directory fails');
-    assert.notEqual(check(open), '');
-    // The line as it was at #7386 (no -H) flags the closed link: no builder would ever start.
-    const old = dirCheck(WF.replace('/usr/bin/find -H "$up" -maxdepth 0', '/usr/bin/find "$up" -maxdepth 0'));
-    assert.notEqual(old(join(root, 'bin')), '', 'the old line judged the link itself (mode 0777)');
+    const { base, dir } = closedTree();
+    try {
+      const check = checkOf(WF);
+      const bin = dir('usr-bin');
+      const open = dir('open');
+      chmodSync(open, 0o777);
+      const closedLib = dir('lib');
+      // A linked directory: judged by what it names (/bin -> usr/bin on Ubuntu 24.04).
+      execFileSync('/bin/ln', ['-s', bin, join(base, 'bin')]);
+      execFileSync('/bin/ln', ['-s', open, join(base, 'open-dir-link')]);
+      assert.equal(check([join(base, 'bin')]), '', 'a link to a closed directory passes');
+      assert.notEqual(check([join(base, 'open-dir-link')]), '', 'a link to an open directory fails');
+      // Broken links in a PATH directory, as PowerShell's libssl.so.1.0.0 on ubuntu-24.04.
+      const path1 = dir('path1');
+      execFileSync('/bin/ln', ['-s', join(closedLib, 'libssl.so.1.0.0'), join(path1, 'libssl.so.1.0.0')]);
+      assert.equal(check([path1]), '', 'a broken link into a closed directory passes');
+      const path2 = dir('path2');
+      execFileSync('/bin/ln', ['-s', join(open, 'git'), join(path2, 'git')]);
+      assert.match(check([path2]), /path2\/git/, "a broken link into an open directory fails, by the link's name");
+      const path3 = dir('path3');
+      execFileSync('/bin/ln', ['-s', join(open, 'not', 'yet', 'git'), join(path3, 'git')]);
+      assert.match(check([path3]), /path3\/git/, 'the nearest existing directory on the target path is the one judged');
+      const path4 = dir('path4');
+      execFileSync('/bin/ln', ['-s', 'missing-relative', join(path4, 'tool')]);
+      assert.equal(check([path4]), '', 'a relative broken link resolves next to itself (a closed directory)');
+      // Programs and directories, as before.
+      const path5 = dir('path5');
+      writeFileSync(join(path5, 'prog'), '');
+      chmodSync(join(path5, 'prog'), 0o777);
+      assert.match(check([path5]), /path5\/prog/, 'a writable program fails');
+      assert.notEqual(check([open]), '', 'an open directory fails');
+      // The check before this change (main at ad52b4d) flags the closed broken link: no builder could start.
+      assert.match(oldCheck(WF)([path1]), /libssl/, 'the old line judged the broken link by its own mode');
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   },
 );
 

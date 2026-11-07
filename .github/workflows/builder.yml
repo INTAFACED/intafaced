@@ -240,19 +240,37 @@ jobs:
             up="$d"
             while [ "$up" != "/" ]; do /usr/bin/sudo /usr/bin/chmod go-w "$up"; up=$(/usr/bin/dirname "$up"); done
           done
+          # --- the check (factory-builder.test.mjs runs this part, as written here, on planted trees) ---
+          closed() { [ -z "$(/usr/bin/find -H "$1" -maxdepth 0 -perm /022)" ]; }
           open=""
           for d in $roots; do
             up="$d"
             while [ "$up" != "/" ]; do
               # -H: a directory that is a link (/bin and /sbin on Ubuntu 24.04) is judged by what it names; a link's
               # own mode is always 0777. (Review round 3 on #7386: without it the check flagged /bin on every runner.)
-              if [ -n "$(/usr/bin/find -H "$up" -maxdepth 0 -perm /022)" ]; then open="$open $up"; fi
+              closed "$up" || open="$open $up"
               up=$(/usr/bin/dirname "$up")
             done
-            # The programs too, following links to what they name.
-            w=$(/usr/bin/find -L "$d" -maxdepth 1 -perm /022 2>/dev/null | /usr/bin/head -5)
+            # The programs, following links to what they name. Under -L only a broken link is still a link; it has
+            # nothing to follow, so it is judged below instead of by its own mode (always 0777).
+            w=$(/usr/bin/find -L "$d" -maxdepth 1 ! -type l -perm /022 2>/dev/null | /usr/bin/head -5)
             if [ -n "$w" ]; then open="$open $w"; fi
+            # A broken link is safe only while nobody else can create what it names: the nearest existing directory on
+            # its target path, and every directory above it, must be closed, or the link is named as open. (Probe run
+            # 42370689632 on ubuntu-24.04: PowerShell's libssl.so.1.0.0 link names a library the image doesn't have.)
+            for l in $(/usr/bin/find -L "$d" -maxdepth 1 -type l 2>/dev/null); do
+              t=$(/usr/bin/readlink -m "$l") || t=""
+              if [ -z "$t" ]; then open="$open $l"; continue; fi
+              up=$(/usr/bin/dirname "$t")
+              while [ ! -e "$up" ]; do up=$(/usr/bin/dirname "$up"); done
+              while :; do
+                if ! closed "$up"; then open="$open $l"; break; fi
+                [ "$up" = "/" ] && break
+                up=$(/usr/bin/dirname "$up")
+              done
+            done
           done
+          # --- end of the check ---
           if [ -n "$open" ]; then echo "::error title=PATH writable::still writable by group or others:$open"; exit 1; fi
           echo "every directory on PATH, the directories its links name, every directory above them and their programs are closed to group and others"
 
