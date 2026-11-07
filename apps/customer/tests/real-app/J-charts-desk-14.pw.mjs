@@ -14,6 +14,9 @@ import { awayBid, chosePro, deskPath, fundedTrader, held, openOrders, placements
 const J = 'J-charts-desk-14';
 const SYMBOL = 'BTC/USDT';
 const OTHER = 'ETH/USDT';
+// Client order ids are business keys, unique per account and market, at most 64 characters: the step's tag and this run's
+// mark keep them short and different on every run on the same stack.
+const RUN = Date.now().toString(36);
 const SMALL = '0.001'; // about 65 TEST USDT at the TEST market maker's price
 const LARGE = '0.005';
 const BETWEEN = '0.003';
@@ -34,7 +37,7 @@ test.beforeAll(async ({ browser }) => {
     type: 'market',
     side: 'buy',
     amount: '0.001',
-    clientOrderId: `${J}-setup-buy-${who.email}`,
+    clientOrderId: `jcd14-setup-${RUN}`,
   });
   expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBeLessThan(300);
 });
@@ -174,7 +177,7 @@ test(`${J} #2 reads time and sales and the depth chart: the tape with filters an
       type: 'market',
       side: 'buy',
       amount,
-      clientOrderId: `${J}-print-${n}-${who.email}`,
+      clientOrderId: `jcd14-print-${n}-${RUN}`,
     });
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
   }
@@ -267,7 +270,7 @@ test(`${J} #3 sets the ladder to double columns with a price step of 2 ticks; pr
     price,
     amount: SMALL,
     timeInForce: 'GTC',
-    clientOrderId: `${J}-rest-3-${who.email}`,
+    clientOrderId: `jcd14-rest-3-${RUN}`,
   });
   expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
 
@@ -347,13 +350,13 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   expect((await preview).status()).toBe(200);
   expect(same(await reviewValue('Price').innerText(), askPrice), `review price vs ${askPrice}`).toBe(true);
   await expect(reviewValue('Amount')).toContainText(SMALL);
-  // The ticket holds the clicked price and the amount.
-  expect(same(await buyForm().getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
-  expect(same(await buyForm().getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
   // Nothing went to the market.
   expect(sent).toEqual([]);
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
+  // The ticket holds the clicked price and the amount (read once the review is closed: a open review hides the page).
+  expect(same(await buyForm().getByRole('textbox', { name: 'Price' }).inputValue(), askPrice)).toBe(true);
+  expect(same(await buyForm().getByRole('textbox', { name: 'Amount' }).inputValue(), SMALL)).toBe(true);
   await page.waitForTimeout(1_000);
   expect(sent).toEqual([]);
 
@@ -381,7 +384,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
     amount: SMALL,
     timeInForce: 'GTC',
     postOnly: false,
-    clientOrderId: `${J}-typed-${who.email}`,
+    clientOrderId: `jcd14-typed-${RUN}`,
   });
   expect(typed.status, JSON.stringify(typed.body).slice(0, 300)).toBe(200);
   expect(same(typed.body.holdAmount, hold), `desk hold ${typed.body.holdAmount} vs ladder hold ${hold}`).toBe(true);
@@ -397,6 +400,17 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
 });
 
 test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread, and a type the market does not list refuses`, async () => {
+  // BTC to sell: a market buy on the real book (the setup's buy leaves a little under its amount once its fee is taken).
+  const bought = await (
+    await api(who)
+  ).post('/api/v1/orders', {
+    symbol: SYMBOL,
+    type: 'market',
+    side: 'buy',
+    amount: '0.002',
+    clientOrderId: `jcd14-buy-5-${RUN}`,
+  });
+  expect(bought.status, JSON.stringify(bought.body).slice(0, 300)).toBeLessThan(300);
   await openDesk();
   const group = chartTrade();
   const buy = group.getByTestId('of-chart-buy');
@@ -444,9 +458,9 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
   await sell.click();
   await expect(review).toContainText('Review your sell');
   expect(same(await reviewValue('Price').innerText(), bidShown)).toBe(true);
-  expect(same(await sellForm().getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
   await review.getByRole('button', { name: 'Cancel' }).click();
   await expect(review).toHaveCount(0);
+  expect(same(await sellForm().getByRole('textbox', { name: 'Price' }).inputValue(), bidShown)).toBe(true);
 
   // A type the market does not take: the desk's existing reason, and no review, no draft.
   await group.getByLabel('Order kind').selectOption({ label: 'Trailing stop' });
@@ -524,7 +538,7 @@ async function restingBuy(percent, tag) {
     price,
     amount: SMALL,
     timeInForce: 'GTC',
-    clientOrderId: `${J}-${tag}-${who.email}`,
+    clientOrderId: `jcd14-${tag}-${RUN}`,
   });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
   return res.body;
@@ -601,7 +615,7 @@ test(`${J} #6 turns instant placement on; a click sends after the settings summa
     amount: SMALL,
     timeInForce: 'GTC',
     postOnly: false,
-    clientOrderId: `${J}-check-6-${who.email}`,
+    clientOrderId: `jcd14-check-6-${RUN}`,
   });
   expect(check.status, JSON.stringify(check.body).slice(0, 300)).toBe(200);
   const heldBefore = await usdtHeld();
