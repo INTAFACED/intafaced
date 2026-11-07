@@ -12,6 +12,7 @@ import {
   priorSetAside,
   readReport,
   regressionState,
+  setAsideGuard,
   setAsideSteps,
 } from './journey-verdict.mjs';
 
@@ -366,4 +367,71 @@ test('fail closed: a set-aside step excuses a failure only when the run just bef
   const prior = rows(aside({ 'J-a-01#1': 'flaky' }, 2), { 'J-a-01#1': 'missing' });
   const setAside = setAsideSteps({ prior, money: moneyToo, owners, run: { number: 103, at: at(3) } });
   assert.match(run(report(bad('J-a-01 #1'), bad('J-a-01 #2')), { setAside }).red[0].why, /failing, not in the baseline/);
+});
+
+// The fresh Opus review of 7f61f4d (#7363): a money check must never be set aside, even where the baseline's money rule
+// says non-money (a slice that touches nothing, no slices, a wallet, bank or pay journey).
+test('the set-aside guard: money by the rule, a wallet, bank or pay journey, J-ops-console-27, no slices, or a slice that touches nothing', () => {
+  const journeys = [
+    { id: 'J-wallet-01', steps: [{ n: 1, slices: ['UI'] }] },
+    { id: 'J-pay-01', steps: [{ n: 1, slices: ['UI'] }] },
+    { id: 'J-bank-02', steps: [{ n: 1, slices: ['UI'] }] },
+    { id: 'J-ops-console-27', steps: [{ n: 1, slices: ['UI'] }] },
+    {
+      id: 'J-a-07',
+      steps: [
+        { n: 1, slices: [] },
+        { n: 2, slices: ['EMPTY'] },
+        { n: 3, slices: ['UI'] },
+        { n: 4, slices: ['UI', 'EMPTY'] },
+        { n: 5, slices: ['UI'] },
+      ],
+    },
+  ];
+  const slices = [
+    { id: 'UI', touches: ['customer: charts'] },
+    { id: 'EMPTY', touches: [] },
+  ];
+  const rule = Object.fromEntries(journeys.flatMap((j) => j.steps.map((st) => [`${j.id}#${st.n}`, false])));
+  rule['J-a-07#5'] = true;
+  assert.deepEqual(setAsideGuard({ journeys, slices, money: rule }), {
+    'J-wallet-01#1': true,
+    'J-pay-01#1': true,
+    'J-bank-02#1': true,
+    'J-ops-console-27#1': true,
+    'J-a-07#1': true,
+    'J-a-07#2': true,
+    'J-a-07#3': false,
+    'J-a-07#4': true,
+    'J-a-07#5': true,
+  });
+});
+
+test('never set aside: a wallet step the baseline rule calls non-money is red when flaky, and gets no set-aside', () => {
+  const guard = { ...money, 'J-wallet-01#1': true };
+  const states = readReport(report(flaky('J-wallet-01 #1'))).states;
+  assert.deepEqual(setAsideSteps({ states, money: guard, run: { number: 103, at: at(3) } }), {});
+  const v = judge({
+    newest: readReport(report(ok('J-a-01 #1'), flaky('J-wallet-01 #1'))),
+    named,
+    baseline,
+    money: { ...money, 'J-wallet-01#1': false },
+    guard,
+    setAside: { 'J-wallet-01#1': { active: true, before: 'passed', until: at(30) } },
+  });
+  assert.deepEqual(
+    v.red.map((r) => r.step),
+    ['J-wallet-01#1'],
+  );
+  assert.match(v.red[0].why, /money step is never set aside/);
+});
+
+test("a carried list's end date is re-derived from its start, never taken as written", () => {
+  const forged = [{ step: 'J-a-01#1', since: 102, sinceAt: at(2), until: at(28), state: 'passed' }];
+  const list = aside({}, 2 + SET_ASIDE_DAYS, forged);
+  assert.equal(list['J-a-01#1'].until, new Date(Date.parse(at(2)) + SET_ASIDE_DAYS * 864e5).toISOString());
+  assert.equal(list['J-a-01#1'].active, false);
+  // A start in the future, or none, carries nothing.
+  assert.deepEqual(aside({}, 3, [{ step: 'J-a-01#1', since: 1, sinceAt: at(20), until: at(27), state: 'passed' }]), {});
+  assert.deepEqual(aside({}, 3, [{ step: 'J-a-01#1', since: 1, until: at(9), state: 'passed' }]), {});
 });

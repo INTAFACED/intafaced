@@ -30,12 +30,13 @@
  *   - a non-money step that is flaky in a run on main is set aside from that run for SET_ASIDE_DAYS; its owner is its
  *     journey's module area (docs/roadmap/journeys.json). Once that ends it is not set aside again for another
  *     SET_ASIDE_DAYS, so the time stays limited;
- *   - a money step (by the money rule above, at this run's commit) is never set aside, and neither is a step whose
- *     set-aside ended: a pass only on the retry then counts as a failure, judged by the rules above;
+ *   - a money step is never set aside (setAsideGuard: the money rule above, a wallet, bank or pay journey,
+ *     J-ops-console-27, or a step with no slices or a slice that touches nothing), and neither is a step whose set-aside
+ *     ended: a pass only on the retry then counts as a failure, judged by the rules above;
  *   - a set-aside step still runs, and the summary shows its result; while it is set aside, a failure leaves the verdict
- *     green, unless it also failed outright in the run before (two in a row is broken, not flaky). Skipped or missing
- *     is never excused;
- *   - its `notProven` names every set-aside step and every step that passed only on its retry, so a count of proven
+ *     green only when the run just before this one on main showed it passing (two failures in a row is broken, not
+ *     flaky; a missing or incomplete record of that run excuses nothing). Skipped or missing is never excused;
+ *   - its `notProven` names every set-aside step and every step with a test Playwright called flaky, so a count of proven
  *     steps leaves them out, and Main trust opens one issue per set-aside naming its owner and end date
  *     (post-merge-trust.mjs).
  *
@@ -146,6 +147,29 @@ export function moneyRule({ journeys, slices, manifests }) {
   return steps;
 }
 
+/**
+ * The set-aside's own money guard, wider than the money rule (which stays the baseline's): a step is never set aside
+ * when the money rule calls it money, its journey is a wallet, bank or pay journey or J-ops-console-27 (the money
+ * journeys of project-state's proof definition), it has no slices, or any of its slices touches nothing or is unknown.
+ * Unknown means money, as a step missing from journeys.json already does. Returns { step: true when guarded }.
+ */
+export function setAsideGuard({ journeys, slices, money }) {
+  const touches = new Map(slices.map((x) => [x.id, x.touches ?? []]));
+  const out = {};
+  for (const j of journeys)
+    for (const st of j.steps ?? []) {
+      const key = `${j.id}#${st.n}`;
+      const ids = st.slices ?? [];
+      out[key] =
+        (money[key] ?? true) ||
+        /^J-(wallet|bank|pay)-/.test(j.id) ||
+        j.id === 'J-ops-console-27' ||
+        ids.length === 0 ||
+        ids.some((id) => !(touches.get(id)?.length > 0));
+    }
+  return out;
+}
+
 /** A body's lines outside fenced or indented code (as ready.mjs outsideCode reads them). */
 export function outsideCode(body) {
   const out = [];
@@ -197,7 +221,8 @@ const PASSED_BEFORE = new Set(['passed', 'flaky']);
 /**
  * The set-aside list after this run: { step: { since, sinceAt, until, active, owner, before } }. `prior` is the rows of
  * the last run on main's set-aside.json ([{ step, since, sinceAt, until, state }]); `states` is this run's readReport()
- * states (only on main: a branch run never retries); `run` is { number, at } for this run; `owners` maps a journey id to
+ * states (only on main: a branch run never retries); `run` is { number, at } for this run; `money` is the set-aside's
+ * guard (setAsideGuard: true means never set aside); `owners` maps a journey id to
  * its module area. A prior entry stays until SET_ASIDE_DAYS after its end (`active` while before the end), so a step
  * gets one set-aside at a time; a non-money step flaky in this run with no entry gets a new one. A money step never.
  * `before` is the step's state in the run just before this one, or null when `prior` is not that run's complete list
@@ -208,12 +233,16 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
   const owner = (step) => (owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : 'unknown');
   const out = {};
   for (const e of prior) {
-    if (typeof e?.step !== 'string' || (money[e.step] ?? true) || !(now < Date.parse(e.until) + days * DAY_MS)) continue;
+    // The end date is re-derived from the start, never taken as written; a start that is missing or after now carries nothing.
+    const start = Date.parse(e?.sinceAt);
+    if (typeof e?.step !== 'string' || (money[e.step] ?? true) || !(start <= now)) continue;
+    const until = new Date(start + days * DAY_MS).toISOString();
+    if (!(now < Date.parse(until) + days * DAY_MS)) continue;
     out[e.step] = {
       since: e.since,
       sinceAt: e.sinceAt,
-      until: e.until,
-      active: now < Date.parse(e.until),
+      until,
+      active: now < Date.parse(until),
       owner: owner(e.step),
       before: priorIsPrevious ? (e.state ?? null) : null,
     };
@@ -233,13 +262,14 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
 /**
  * The verdict. `newest` and `named` are readReport() results for this run and the baseline's named run; `passedSince`
  * maps a step to the newest run on main after the named run that passed it; `issues` maps an issue number to its read;
- * `target` is the set of journey file names a targeted run ran, or null for a full run; `setAside` is setAsideSteps().
+ * `target` is the set of journey file names a targeted run ran, or null for a full run; `setAside` is setAsideSteps();
+ * `guard` is setAsideGuard() (the money rule when not given): a guarded step is never set aside.
  * Returns { failing, red, setAside } (setAside: the steps a set-aside kept out of the red, with their state this run).
  */
-export function judge({ newest, named, baseline, money, passedSince = {}, issues = {}, target = null, setAside = {} }) {
+export function judge({ newest, named, baseline, money, guard = money, passedSince = {}, issues = {}, target = null, setAside = {} }) {
   const inScope = (step, files) => !target || target.has(files[step]);
   // A pass only on the retry counts as a failure unless the step is set aside (a money step never is).
-  const asideNow = (step) => setAside[step]?.active && !(money[step] ?? true);
+  const asideNow = (step) => setAside[step]?.active && !(guard[step] ?? true);
   const failing = new Set(
     Object.entries(newest.states)
       .filter(([k, s]) => s === 'failed' || (s === 'flaky' && !asideNow(k)))
@@ -262,7 +292,7 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
       red.push({
         step,
         why: flaky
-          ? `failed, then passed on its retry, and ${isMoney ? 'a money step is never set aside' : 'it is not set aside now'}: ${why}`
+          ? `failed, then passed on its retry, and ${(guard[step] ?? true) ? 'a money step is never set aside' : 'it is not set aside now'}: ${why}`
           : why,
         money: isMoney,
       });
@@ -303,19 +333,29 @@ export function judge({ newest, named, baseline, money, passedSince = {}, issues
   return { failing: failing.size, red, setAside: kept };
 }
 
+/** Whether `sha` is this checkout's HEAD or an ancestor of it (the journeys job checks out with full history). */
+const isAncestor = (sha) => {
+  try {
+    execFileSync('git', ['merge-base', '--is-ancestor', String(sha), 'HEAD'], { stdio: 'ignore' });
+    return /^[0-9a-f]{40}$/i.test(String(sha));
+  } catch {
+    return false;
+  }
+};
+
 /** How many of main's newest finished runs to look through for the last complete set-aside list. */
 export const PRIOR_LOOKBACK = 5;
 
 /**
  * The last complete set-aside list on main: `runs` is historyRuns() (oldest first), `read(id)` a run's set-aside.json or
- * null. The newest run whose list is there and complete wins, so the end dates carry on; a run before the set-aside
+ * null (read(id, run) also gets the run). The newest run whose list is there and complete wins, so the end dates carry on; a run before the set-aside
  * existed has none. `previous` is true only when that list is the run just before this one's: otherwise the step's
  * previous result is unknown and no failure is excused (setAsideSteps priorIsPrevious). Returns { steps, from, previous }.
  */
 export function priorSetAside(runs, read) {
   const newest = runs.at(-1);
   for (const r of [...runs].reverse().slice(0, PRIOR_LOOKBACK)) {
-    const list = read(r.id);
+    const list = read(r.id, r);
     if (list && !list.incomplete && Array.isArray(list.steps)) return { steps: list.steps, from: r.run_number, previous: r === newest };
   }
   return { steps: [], from: null, previous: false };
@@ -359,13 +399,19 @@ const ghPages = (path, key) => {
   }
   throw new Error(`${path}: more than 20 pages`);
 };
-/** A JSON file from a run's journeys artifact (report.json by default); `null` when `optional` and the file is absent. */
+/** A JSON file from a run's journeys artifact (report.json by default). When `optional`, a run with no such artifact, or an
+ *  artifact without the file, gives null (a malformed file still throws). */
 function downloadReport(repo, runId, file = 'report.json', optional = file !== 'report.json') {
   const dir = mkdtempSync(join(tmpdir(), 'verdict-'));
   try {
-    execFileSync('gh', ['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
+    try {
+      execFileSync('gh', ['run', 'download', String(runId), '--repo', repo, '--name', JOURNEYS_ARTIFACT, '--dir', dir], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+    } catch (e) {
+      if (optional) return null;
+      throw e;
+    }
     const f = join(dir, file);
     if (!existsSync(f)) {
       if (optional) return null;
@@ -398,6 +444,7 @@ function main() {
   const journeys = json(join(root, 'docs/roadmap/journeys.json'));
   const money = moneyRule({ journeys, slices: json(join(root, 'docs/roadmap/slices.json')), manifests: manifestsAt(root) });
   const owners = Object.fromEntries(journeys.map((j) => [j.id, j.module]));
+  const guard = setAsideGuard({ journeys, slices: json(join(root, 'docs/roadmap/slices.json')), money });
   const targetText = arg('--target') ?? process.env.JOURNEYS_TARGET ?? '';
   const target = targetText.trim()
     ? new Set(
@@ -493,7 +540,8 @@ function main() {
       const recent = ghApi(`/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=30`).workflow_runs;
       const found = priorSetAside(
         historyRuns(recent, { repo, namedCreated: '', thisCreated: current.created_at, thisId: current.id }),
-        (id) => downloadReport(repo, id, 'set-aside.json'),
+        // Only a run whose commit is in this run's history: a run on anything else named main never feeds the list.
+        (id, r) => (isAncestor(r.head_sha) ? downloadReport(repo, id, 'set-aside.json') : null),
       );
       prior = found.steps;
       priorIsPrevious = found.previous;
@@ -509,11 +557,11 @@ function main() {
   }
   const onMain = !target && (!fetch || process.env.GITHUB_REF === 'refs/heads/main');
   const setAside = newest
-    ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money, owners, run: thisRun })
+    ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
   const verdict =
     newest && named
-      ? judge({ newest, named, baseline, money, passedSince, issues, target, setAside })
+      ? judge({ newest, named, baseline, money, guard, passedSince, issues, target, setAside })
       : { failing: 0, red: [], setAside: [] };
   verdict.red.unshift(...red);
   const asideRows = Object.entries(setAside)
