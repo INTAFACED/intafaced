@@ -11,6 +11,11 @@ import {
   type ProtocolAddressReportInput,
 } from '@intafaced/contracts/protocol-address-risk';
 import {
+  protocolAddressReportReceiptSchema,
+  protocolAddressRiskSchema,
+  type ProtocolAddressReportInput,
+} from '@intafaced/contracts/protocol-address-risk';
+import {
   dexHealthSchema,
   indexerStatusSchema,
   protocolAuditProductsSchema,

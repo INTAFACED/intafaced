@@ -63,6 +63,7 @@ import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
 import { createSessionFamiliesRouter } from './session-families-router.js';
+import { createSessionSettingsRouter, parseSessionLimits } from './auth/session-limits.js';
 import { createGrantsRouter } from './grants-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
 import { createSessionRevokeRouter } from './session-revoke-router.js';
@@ -78,6 +79,7 @@ import { AccountLimitsDesk, parseLimitPolicy } from './controls/account-limits.j
 import { parseAccountTiers } from './controls/account-tiers.js';
 import { parseDormancyDays } from './controls/account-archive.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { createLearnerCardRouter } from './ops/learner-card.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { createMembershipRouter } from './membership/membership-router.js';
@@ -360,6 +362,9 @@ const auth = new AuthService(
   env.REFRESH_RECOVERY_SECONDS,
   env.IDENTITY_SUB_ACCOUNT_KINDS,
 );
+// The owner's idle sign-out and device limit (I-signin-sessions-06); a value that is not a whole number stops the start.
+const sessionLimits = parseSessionLimits(env, { accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS });
+auth.setSessionLimits(sessionLimits);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
 /** The same keys on the inbound doors: a key-signed caller is named by its own key. */
@@ -753,6 +758,10 @@ export const appRouter = mergeRouters(
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
   createSessionFamiliesRouter(sql),
+  createSessionSettingsRouter(sql, sessionLimits, {
+    accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+    refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
+  }),
   createListSessionsRouter(sql),
   createPanicRevokeRouter(sql),
   createApiKeyProductRouter(sql, auth, auth),
@@ -760,6 +769,7 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls, customerDetails, accountLimits),
   createOperatorOpsRouter(sql),
+  createLearnerCardRouter(sql),
   createPreferencesRouter(sql, {
     displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES,
     watchlists: {
