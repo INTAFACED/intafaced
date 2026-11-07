@@ -106,7 +106,7 @@ export function journeyState(id) {
 
 /** How long a stack tool may run. A restart and the health check after it share it (#7463). */
 const TOOL_CAP_MS = 120_000;
-/** How much of a tool's own output its error keeps, from the end, so a timed-out restart says where it stood. */
+/** How much of a tool's shown output its error keeps, from the end, so a timed-out restart says where it stood. */
 const OUTPUT_TAIL = 4_000;
 /**
  * Set when a restart leaves a service unhealthy: the services, when, and why. Every later journey file on this stack
@@ -121,17 +121,81 @@ const STACK_DOWN = path.join(STATE, 'run', 'journey-stack-down.json');
  */
 const STACK_SCRIPT = 'local-test-stack.mjs';
 
-const tail = (text) => {
-  const t = String(text ?? '').trimEnd();
-  return t.length > OUTPUT_TAIL ? `...${t.slice(-OUTPUT_TAIL)}` : t;
+/**
+ * The only lines of a tool's output that a failure shows, by shape (an allow-list: anything else is withheld and only
+ * counted, so an output nobody foresaw shows nothing). A failure's text reaches the public job log and report.
+ *   - a status line, `  matching: stopped`, `test market: ok`, `  host dispatch (TEST): app … served`;
+ *   - a row of the stack's health table;
+ *   - a typed refusal, `refusing [code]: …`;
+ *   - the header of a service that exited during start or never became healthy. The log tail that the stack prints
+ *     under an "exited during start" header is never shown: every line after it is withheld.
+ * A line that names a credential (NAMES_CREDENTIAL) is withheld whatever its shape.
+ */
+const SHOWN = [
+  /^ {0,4}[a-z][A-Za-z0-9 ,()/'._-]{0,48}: \S/,
+  /^ {2}(SERVICE|svc-[a-z0-9-]+|postgres|nats|chain \(TEST\)|video-store|rail-statements|customer|invitation|apex|admin|team-tls) +\S/,
+  /^ *refusing \[[a-z0-9._-]+\]/,
+  /^ *[a-z][a-z0-9-]* did not become healthy at \S+ within \d+s\b/,
+  /^INTAFACED local test stack$/,
+  /^LOCAL TEST GATES — /,
+];
+const TAIL_HEADER = /^ *[a-z][a-z0-9-]* exited during start\b/;
+/** A line naming a credential is withheld whatever its shape: a short value beside it would not be masked as opaque. */
+const NAMES_CREDENTIAL = /password|passphrase|secret|cookie|bearer|authori[sz]ation|private[ _-]?key|api[ _-]?key|totp/i;
+/** A run of 24 or more base64, base64url or hex characters (a generated key, a token, a hash) inside a shown line. */
+const OPAQUE = /[A-Za-z0-9+/_=-]{24,}/g;
+const SHOWN_WIDTH = 160;
+
+/** One line as shown: opaque runs masked, then cut to SHOWN_WIDTH characters. */
+const shownLine = (line) => {
+  const masked = line.replace(OPAQUE, '[withheld]');
+  return masked.length > SHOWN_WIDTH ? `${masked.slice(0, SHOWN_WIDTH)}…` : masked;
 };
 
-/** The error a tool threw, with the command and the end of its own stdout and stderr in the message (a timeout too). */
-function withOutput(error, script, args) {
-  const out = tail(error.stdout);
-  const err = tail(error.stderr);
-  error.message = `${error.message}\n  tool: ${script} ${args.join(' ')}\n  its stdout:${out ? `\n${out}` : ' (none)'}\n  its stderr:${err ? `\n${err}` : ' (none)'}`;
-  return error;
+/** What of one output stream a failure may show: the allow-listed lines (masked and cut) and how many were withheld. */
+export function shownOutput(text) {
+  const shown = [];
+  let withheld = 0;
+  let inTail = false;
+  for (const line of String(text ?? '').split('\n')) {
+    if (line.trim() === '') continue;
+    if (inTail) {
+      withheld += 1;
+      continue;
+    }
+    if (TAIL_HEADER.test(line)) {
+      // The header only, as far as "exited during start": what follows on the line is the log's path, then its tail.
+      shown.push(shownLine(line.replace(/(exited during start)\b.*$/, '$1')));
+      inTail = true;
+    } else if (!NAMES_CREDENTIAL.test(line) && SHOWN.some((re) => re.test(line))) shown.push(shownLine(line));
+    else withheld += 1;
+  }
+  let kept = shown;
+  while (kept.length > 1 && kept.join('\n').length > OUTPUT_TAIL) kept = kept.slice(1);
+  return { text: kept.join('\n'), lines: kept.length, withheld: withheld + (shown.length - kept.length) };
+}
+
+/**
+ * The only error `tool` throws: a new Error, never Node's, whose message, `stdout` and `stderr` hold only the shown
+ * output (`shownOutput`). Node's own message appends a failed command's raw stderr, and its error keeps the raw output,
+ * so neither is ever thrown or kept as a cause. `status`, `signal` and `code` are Node's.
+ */
+export function toolError(raw, script, args) {
+  const out = shownOutput(raw?.stdout);
+  const err = shownOutput(raw?.stderr);
+  const status = typeof raw?.status === 'number' ? raw.status : null;
+  const code = raw?.code ?? raw?.error?.code ?? null;
+  // A timeout reads as Node said it ("spawnSync <node> ETIMEDOUT"), which is how a runner error is told apart.
+  const why =
+    code === 'ETIMEDOUT'
+      ? `timed out after ${TOOL_CAP_MS / 1000} s (spawnSync ${process.execPath} ETIMEDOUT)`
+      : status !== null
+        ? `exit ${status}`
+        : `failed (${code ?? raw?.signal ?? 'no exit status'})`;
+  const block = (name, s) =>
+    `  its ${name} (${s.lines} line(s) shown, ${s.withheld} withheld):${s.text ? `\n${s.text.replace(/^/gm, '    ')}` : ''}`;
+  const error = new Error(`tool ${shownLine([script, ...args].join(' '))} ${why}\n${block('stdout', out)}\n${block('stderr', err)}`);
+  return Object.assign(error, { status, signal: raw?.signal ?? null, code, stdout: out.text, stderr: err.text });
 }
 
 const run = (script, args, timeout) =>
@@ -172,7 +236,7 @@ export function tool(script, ...args) {
     try {
       return run(script, args, TOOL_CAP_MS);
     } catch (error) {
-      throw withOutput(error, script, args);
+      throw toolError(error, script, args);
     }
   }
   let out;
@@ -180,7 +244,7 @@ export function tool(script, ...args) {
   try {
     out = run(script, args, TOOL_CAP_MS);
   } catch (error) {
-    failed = withOutput(error, script, args);
+    failed = toolError(error, script, args);
   }
   const names = args.slice(1).filter((a) => !a.startsWith('-'));
   let down = unhealthy(names);
