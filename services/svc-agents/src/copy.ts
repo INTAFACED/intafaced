@@ -89,6 +89,9 @@ export const COPY_KEYS = [
   'agents.support.tier_closed',
   'agents.support.escalated',
   'agents.refused.cursor_invalid',
+  'agents.refused.analytics_from_unset',
+  'agents.refused.analytics_to_unset',
+  'agents.refused.analytics_range_invalid',
   'agents.refused.fee_asset_unset',
 ] as const;
 
@@ -149,6 +152,9 @@ export const EN: Readonly<Record<CopyKey, string>> = {
     'Refused: placing an order needs a stable intent key so a repeated message cannot duplicate it.',
   'agents.refused.place_key_conflict': 'Refused: this intent key is already in use for a place on this session, so {tool} was not run.',
   'agents.refused.log_mine_limit_unset': 'Refused: a page size is required for your activity log — none was given.',
+  'agents.refused.analytics_from_unset': 'Refused: the dashboard range has no From day — choose one.',
+  'agents.refused.analytics_to_unset': 'Refused: the dashboard range has no To day — choose one.',
+  'agents.refused.analytics_range_invalid': 'Refused: the dashboard range is not a range of days — check From and To.',
   'agents.refused.cursor_invalid': 'Refused: that page cursor is not valid — ask for the list again from the start.',
   'agents.refused.fee_asset_unset': 'Refused: the fee asset for settled usage is unset, so spend cannot be labelled.',
   'agents.refused.kb_search_limit_unset': 'Refused: a page size is required to search support knowledge — none was given.',

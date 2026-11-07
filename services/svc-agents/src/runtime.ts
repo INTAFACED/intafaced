@@ -3,7 +3,7 @@ import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError, MeteredReplayError } from './errors.js';
-import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
+import { AuditLog, type ActionKind, type ActionStatus, type AuditedAction } from './fleet/audit.js';
 import {
   evaluateCompletion,
   evaluateToolCall,
@@ -1250,8 +1250,8 @@ export class AgentRuntime {
 
   // ── The user-visible log (§8.2) ────────────────────────────────────────────
 
-  async userLog(userId: string, limit: number): Promise<AuditedAction[]> {
-    return this.audit.forUser(userId, limit);
+  async userLog(userId: string, limit: number, status: ActionStatus | null = null): Promise<AuditedAction[]> {
+    return this.audit.forUser(userId, limit, status);
   }
 
   async sessionLog(sessionId: string, limit: number): Promise<AuditedAction[]> {

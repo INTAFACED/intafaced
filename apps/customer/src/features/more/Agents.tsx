@@ -15,6 +15,8 @@ import { AgentsCatalogue, refusalKeyWords, refusalWords } from './AgentsCatalogu
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
 import { costRange, runCosts, SESSION_AGENT_IDS } from './agents-catalogue';
 import { preservePaperHref } from './trade-context';
+import { AgentsActivity, AgentsDashboard, AgentsUsage, RunTraces } from './AgentsReview';
+import { agentsReviewCopy } from './agents-review-copy';
 const uuid = z.string().guid();
 const routeSchema = z.object({
   task: z.string(),
@@ -60,6 +62,8 @@ const sessionDetailSchema = z
         chargeKey: z.string().nullable(),
       }),
     ),
+    /** Each run of the session by its request id, oldest first; a trace opens from here. */
+    runs: z.array(z.object({ requestId: z.string().min(1), startedAt: z.string(), state: z.enum(['running', 'completed']) })).optional(),
   })
   .nullable();
 type SessionDetail = NonNullable<z.infer<typeof sessionDetailSchema>>;
@@ -350,11 +354,13 @@ export function Agents({ paper = false }: { paper?: boolean }) {
   return (
     <div className="more-grid agents-room">
       <Tabs
-        items={['Catalogue', 'Sessions', 'Activity', 'Coach', 'Product boundaries', 'Campaigns']}
+        items={['Catalogue', 'Sessions', 'Activity', 'Dashboard', 'Usage', 'Coach', 'Product boundaries', 'Campaigns']}
         labels={{
           Catalogue: agentsCatalogueCopy.t('tabCatalogue'),
           Sessions: copyText('agents.sessions'),
           Activity: copyText('agents.activity'),
+          Dashboard: agentsReviewCopy.t('tabDashboard'),
+          Usage: agentsReviewCopy.t('tabUsage'),
           Coach: copyText('agents.coach'),
           'Product boundaries': copyText('agents.product.boundaries'),
           Campaigns: copyText('agents.campaigns'),
@@ -494,25 +500,28 @@ export function Agents({ paper = false }: { paper?: boolean }) {
                   <Read resource={steadyDetail} retry={selectedDetail.reload}>
                     {(detail) =>
                       detail ? (
-                        <SessionWindows
-                          detail={detail}
-                          closing={closing}
-                          closed={closedNote === detail.session.id}
-                          onClose={async () => {
-                            setClosing(true);
-                            setCloseFailure(null);
-                            const res = await api.mutate('agents', 'session.close', { sessionId: detail.session.id }, sessionSchema);
-                            setClosing(false);
-                            if (res.ok) {
-                              setClosedNote(detail.session.id);
+                        <>
+                          <SessionWindows
+                            detail={detail}
+                            closing={closing}
+                            closed={closedNote === detail.session.id}
+                            onClose={async () => {
+                              setClosing(true);
                               setCloseFailure(null);
-                            } else setCloseFailure(res);
-                            selectedDetail.reload();
-                            selectedUsage.reload();
-                            selectedHistory.reload();
-                            log.reload();
-                          }}
-                        />
+                              const res = await api.mutate('agents', 'session.close', { sessionId: detail.session.id }, sessionSchema);
+                              setClosing(false);
+                              if (res.ok) {
+                                setClosedNote(detail.session.id);
+                                setCloseFailure(null);
+                              } else setCloseFailure(res);
+                              selectedDetail.reload();
+                              selectedUsage.reload();
+                              selectedHistory.reload();
+                              log.reload();
+                            }}
+                          />
+                          <RunTraces sessionId={detail.session.id} runs={detail.runs ?? []} />
+                        </>
                       ) : null
                     }
                   </Read>
@@ -987,19 +996,15 @@ export function Agents({ paper = false }: { paper?: boolean }) {
           </div>
         </>
       ) : tab === 'Activity' ? (
-        <Panel title={copyText('agents.your.agent.action.log')}>
-          <Read resource={log.resource} retry={log.reload} empty={copyText('agents.no.agent.actions.have.been.recorded')}>
-            {(rows) => (
-              <>
-                <Activity rows={rows} />
-                <Limit count={rows.length} limit={limit} cap={500} onChange={setLimit} />
-              </>
-            )}
-          </Read>
-          <p className="muted">
-            <Text k="agents.the.log.reports.exact.costs.but.does" />
-          </p>
-        </Panel>
+        <AgentsActivity
+          title={copyText('agents.your.agent.action.log')}
+          note={<Text k="agents.the.log.reports.exact.costs.but.does" />}
+          empty={copyText('agents.no.agent.actions.have.been.recorded')}
+        />
+      ) : tab === 'Dashboard' ? (
+        <AgentsDashboard />
+      ) : tab === 'Usage' ? (
+        <AgentsUsage />
       ) : tab === 'Coach' ? (
         <Panel title={copyText('agents.curriculum.coach')}>
           <form
