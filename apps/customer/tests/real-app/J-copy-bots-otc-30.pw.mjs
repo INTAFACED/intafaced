@@ -10,7 +10,7 @@ import { followOnScreen, leadFill, listLeader, takeBest } from './copy.mjs';
 // leader the stack's TEST founder lists) and one algo order (a TWAP), all on the TEST book. Every row is checked against
 // the books, read through the service as the trader.
 // Steps that are written but not built yet fail at their first missing part, quickly (UNBUILT):
-// - #5: there is no unified order tree (care, synthetic, algo, RFQ and routed orders) in the terminal.
+// - none: every step is built.
 const J = 'J-copy-bots-otc-30';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
@@ -72,8 +72,9 @@ test(`${J} #1 opens positions and history: orders and fills listed with statuses
     symbol: 'BTC/USDT',
     side: 'buy',
     totalQty: '0.002',
-    durationMs: 600_000,
-    sliceIntervalMs: 60_000,
+    // Ten slices over 20 minutes: the schedule is still open when #5 reads the tree.
+    durationMs: 1_200_000,
+    sliceIntervalMs: 120_000,
     // A buy limit must sit at or over the ask (the slice price band); a whole number 1% over it.
     limitPrice: String((toUnits(ask) * 101n) / 100n / ONE + 1n),
     clientAlgoId: `${J}-algo-${tag}`,
@@ -206,10 +207,29 @@ test(`${J} #4 opens the DOM tab: the preview card names the engine; the sample l
 test(`${J} #5 sees one tree of care, synthetic, algo, RFQ and routed orders with parent and children, ownership and exposure`, async ({
   page,
 }) => {
+  const trader = state('trader');
+  const algoId = state('algoId');
+  const service = await read(trader, 'algo.get', { algoId });
   await terminal(page, 'Order tree');
   const tree = page.getByRole('tree', { name: 'Orders' });
-  const parent = tree.getByRole('treeitem', { name: new RegExp(state('algoId')) });
-  await expect(parent).toHaveAttribute('aria-expanded', /true|false/);
-  await expect(parent).toContainText(/Owner/);
-  await expect(parent).toContainText(/Exposure/);
+  // One branch for each kind of order, in one tree; a kind with nothing open says why, never a blank.
+  for (const kind of ['Care orders', 'Synthetic orders', 'Algo orders', 'RFQ orders', 'Routed orders'])
+    await expect(tree.getByRole('treeitem', { name: new RegExp(`^${kind}`) })).toBeVisible();
+  await expect(tree.getByRole('treeitem', { name: /^Care orders/ })).toContainText('that desk does not take orders yet');
+  await expect(tree.getByRole('treeitem', { name: /^Routed orders/ })).toContainText('outside venues are not connected');
+  // The algo order is a parent with its owner and its open exposure, and its children hang under it.
+  const parent = tree.getByRole('treeitem', { name: new RegExp(algoId) });
+  // The schedule runs 20 minutes, so it is still open here; an ended one would not be in a tree of open orders.
+  expect(['active', 'paused', 'halted'], `the TWAP ${algoId} ended before the tree was read`).toContain(service.status);
+  await expect(parent).toHaveAttribute('aria-expanded', 'true');
+  await expect(parent).toContainText('Owner: you');
+  await expect(parent).toContainText(/Exposure: [\d.,]+ USDT/);
+  const children = parent.getByRole('group').getByRole('treeitem');
+  // A slice can land while the tree is read, so the two are compared until they agree.
+  await expect
+    .poll(async () => (await children.count()) === (await read(trader, 'algo.get', { algoId })).children.length, { timeout: 30_000 })
+    .toBe(true);
+  expect(await children.count(), 'the algo parent lists no child').toBeGreaterThan(0);
+  await parent.getByRole('button', { name: /Collapse/ }).click();
+  await expect(parent).toHaveAttribute('aria-expanded', 'false');
 });

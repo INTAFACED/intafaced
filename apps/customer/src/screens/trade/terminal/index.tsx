@@ -26,9 +26,13 @@ import { useWriteGuard } from '../copybots/guard';
 import { useLive } from '../copybots/live';
 import { RefusalNote } from '../copybots/parts';
 import { terminalCopy } from './copy';
+import { OrderTree } from './OrderTree';
+import { buildTree } from './tree';
+import { useRfqBoard } from '../otc/data';
+import type { Loadable } from '../rooms/ui';
 
-type TabId = 'orders' | 'history' | 'positions' | 'algo' | 'dom';
-const TABS: readonly TabId[] = ['orders', 'history', 'positions', 'algo', 'dom'];
+type TabId = 'orders' | 'history' | 'positions' | 'algo' | 'dom' | 'tree';
+const TABS: readonly TabId[] = ['orders', 'history', 'positions', 'algo', 'dom', 'tree'];
 
 function OrdersTab({ parents }: { parents: readonly ParentRead[] }) {
   const { t } = terminalCopy.useCopy();
@@ -245,6 +249,32 @@ function DomTab() {
   );
 }
 
+/** One tree of every kind of order the person has (tree.ts), read from the book, the schedules and the RFQ board. */
+function TreeTab({ parents }: { parents: ReturnType<typeof useParents> }) {
+  const open = useOpenOrders();
+  const closed = useClosedOrders(true);
+  const rfq = useRfqBoard(useRoomApi());
+  const rows = parents.status === 'ready' ? parents.data : [];
+  const tree = useMemo(
+    () =>
+      buildTree({
+        open: open.status === 'ready' ? open.data : [],
+        closed: closed.status === 'ready' ? closed.data : [],
+        parents: rows,
+        rfq: rfq.status === 'ready' ? rfq.data : null,
+      }),
+    [open, closed, rows, rfq],
+  );
+  // The tree waits for the book and the schedules; the RFQ branch says when the board could not be read.
+  const load: Loadable<null> =
+    open.status !== 'ready'
+      ? (open as Loadable<null>)
+      : parents.status !== 'ready' && parents.status !== 'empty'
+        ? (parents as Loadable<null>)
+        : { status: 'ready', data: null, asOf: open.asOf };
+  return <Gate load={load}>{() => <OrderTree branches={tree} rfqUnread={rfq.status === 'refused' || rfq.status === 'error'} />}</Gate>;
+}
+
 export default function Screen({ search }: ScreenProps) {
   const { t } = terminalCopy.useCopy();
   const { userId } = useSession();
@@ -271,6 +301,7 @@ export default function Screen({ search }: ScreenProps) {
             <TabsTab value="positions">{t('Positions')}</TabsTab>
             <TabsTab value="algo">{t('Algo orders')}</TabsTab>
             <TabsTab value="dom">{t('DOM')}</TabsTab>
+            <TabsTab value="tree">{t('Order tree')}</TabsTab>
           </TabsList>
           <div className="pt-4">
             <TabsPanel value="orders">
@@ -287,6 +318,9 @@ export default function Screen({ search }: ScreenProps) {
             </TabsPanel>
             <TabsPanel value="dom">
               <DomTab />
+            </TabsPanel>
+            <TabsPanel value="tree">
+              <TreeTab parents={parents} />
             </TabsPanel>
           </div>
         </Tabs>
