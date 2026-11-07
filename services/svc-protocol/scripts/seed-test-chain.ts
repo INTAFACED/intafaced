@@ -29,6 +29,9 @@ import {
 } from 'viem';
 import { mnemonicToAccount } from 'viem/accounts';
 
+/** A 1e18-scaled price unit, from viem's own unit parser. */
+const WAD = parseUnits('1', 18);
+
 /** PUBLIC, WELL-KNOWN, WORTHLESS: anvil's own default mnemonic (account #0 is the TEST deployer). */
 const PUBLIC_ANVIL_DEV_MNEMONIC = 'test test test test test test test test test test test junk';
 
@@ -454,11 +457,11 @@ async function setOrderMarket(
 ) {
   const { A, B } = TEST_TOKENS;
   await reportMark(all, oracle, B.address, TEST_ORDER_QUOTE_MARK);
-  await reportMark(all, oracle, A.address, (TEST_ORDER_QUOTE_MARK * priceWad) / 10n ** 18n);
+  await reportMark(all, oracle, A.address, (TEST_ORDER_QUOTE_MARK * priceWad) / WAD);
   const baseReserve = (partial ? TEST_ORDER_THIN_DEPTH : TEST_ORDER_POOL_DEPTH) * 10n ** BigInt(A.decimals);
   const quoteReserve = partial
     ? quoteReserveForTake(partial.take, partial.minOut, partial.amountIn, baseReserve)
-    : (baseReserve * priceWad * 10n ** BigInt(B.decimals)) / (10n ** 18n * 10n ** BigInt(A.decimals));
+    : (baseReserve * priceWad * 10n ** BigInt(B.decimals)) / (WAD * 10n ** BigInt(A.decimals));
   const poolAbi = artifact('ConstantProductPool').abi;
   const token0 = getAddress((await all.publicClient.readContract({ address: pool, abi: poolAbi, functionName: 'token0' })) as Address);
   const [r0, r1] = token0 === getAddress(A.address) ? [baseReserve, quoteReserve] : [quoteReserve, baseReserve];
@@ -483,7 +486,7 @@ async function seedOrderParts(all: Clients, oracle: Address) {
   };
   const orderPool = await deployed('ConstantProductPool', [TEST_TOKENS.A.address, TEST_TOKENS.B.address, TEST_ORDER_POOL_FEE_BPS]);
   const orderVault = await deployed('OrderVault', [oracle, TEST_ORDER_KEEPER]);
-  await setOrderMarket(all, oracle, orderPool, 10n ** 18n, null);
+  await setOrderMarket(all, oracle, orderPool, WAD, null);
   return { orderVault, orderPool, orderKeeper: TEST_ORDER_KEEPER, orderPoolFeeBps: TEST_ORDER_POOL_FEE_BPS };
 }
 

@@ -44,10 +44,25 @@ export function poolOut(x: bigint, reserveIn: bigint, reserveOut: bigint, feeBps
 /** The largest input up to `limit` the pool pays at least the order's pro-rata floor for; zero when none. */
 export function largestTake(order: ChainOrder, limit: bigint, reserveIn: bigint, reserveOut: bigint, feeBps: bigint): bigint {
   const ok = (x: bigint) => poolOut(x, reserveIn, reserveOut, feeBps) >= floorFor(order, x);
-  if (limit <= 0n || !ok(1n)) return 0n;
+  if (limit <= 0n) return 0n;
   if (ok(limit)) return limit;
+  // The pool's output is concave in the input and the floor is linear, so the takes that pass form one interval. Its
+  // low end need not be 1: a wei of an 18-decimal token buys nothing of a 6-decimal one. So first find where the pool
+  // beats the floor by the most, then search above it for the largest take that still passes.
+  const surplus = (x: bigint) => poolOut(x, reserveIn, reserveOut, feeBps) * order.amountIn - order.minOut * x;
   let lo = 1n;
   let hi = limit;
+  while (hi - lo > 2n) {
+    const m1 = lo + (hi - lo) / 3n;
+    const m2 = hi - (hi - lo) / 3n;
+    if (surplus(m1) < surplus(m2)) lo = m1 + 1n;
+    else hi = m2;
+  }
+  let peak = lo;
+  for (let x = lo + 1n; x <= hi; x += 1n) if (surplus(x) > surplus(peak)) peak = x;
+  if (!ok(peak)) return 0n;
+  lo = peak;
+  hi = limit;
   while (hi - lo > 1n) {
     const mid = (lo + hi) / 2n;
     if (ok(mid)) lo = mid;

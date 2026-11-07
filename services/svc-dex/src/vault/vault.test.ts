@@ -197,6 +197,16 @@ describe('pool sizing', () => {
     expect(largestTake(order, a('100'), rIn, hi, 30n)).toBe(a('40'));
     expect(largestTake(order, a('100'), rIn, 1n, 30n)).toBe(0n);
   });
+  it('a buy from an 18-decimal token into a 6-decimal one still finds its take, though one wei buys nothing', () => {
+    // Floor 0.8 TEST A per TEST B; the pool pays that only up to about 24.7 TEST B in.
+    const order = { amountIn: b('50'), minOut: a('40') } as ChainOrder;
+    const [rIn, rOut] = [b('100'), a('100')];
+    expect(poolOut(1n, rIn, rOut, 30n)).toBe(0n);
+    const take = largestTake(order, b('50'), rIn, rOut, 30n);
+    expect(take).toBeGreaterThan(b('24'));
+    expect(poolOut(take, rIn, rOut, 30n)).toBeGreaterThanOrEqual(floorFor(order, take));
+    expect(poolOut(take + 1n, rIn, rOut, 30n)).toBeLessThan(floorFor(order, take + 1n));
+  });
   it('prints prices with two to six decimals', () => {
     expect(priceText(13n * 10n ** 17n)).toBe('1.30');
     expect(priceText(8075n * 10n ** 14n)).toBe('0.8075');

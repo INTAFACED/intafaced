@@ -8,6 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { SCALE } from '@intafaced/ledger-client/money';
 import {
   encodeFunctionData,
   formatUnits,
@@ -32,7 +33,7 @@ export const RESTING_COPY =
 export const RATE_COPY = 'Output is not a guaranteed fixed rate: each fill pays at least its share of the minimum output.';
 export const CANCEL_COPY = 'Cancelled orders stop filling at once. Your funds return when you sign the withdrawal.';
 
-const WAD = 10n ** 18n;
+const WAD = SCALE;
 const BPS = 10_000n;
 const DRAFT_TTL_MS = 10 * 60 * 1000;
 export const PAGE_SIZE = 100;
@@ -84,11 +85,15 @@ export const amountText = (units: bigint, decimals: number) => {
   return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 };
 /** A 1e18-scaled price, at least two and at most six decimals ("1.30", "0.8075"). */
+const PRICE_FORMAT = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+  roundingMode: 'trunc',
+  useGrouping: false,
+});
 export function priceText(wad: bigint): string {
-  const truncated = (wad / 10n ** 12n) * 10n ** 12n;
-  const [whole, frac = ''] = formatUnits(truncated, 18).split('.');
-  const trimmed = frac.replace(/0+$/, '').slice(0, 6);
-  return `${whole}.${trimmed.padEnd(2, '0')}`;
+  // A decimal string keeps every digit: Intl formats it exactly, cutting (never rounding) past six decimals.
+  return PRICE_FORMAT.format(formatUnits(wad, 18) as `${number}`);
 }
 const parseDecimal = (raw: string | undefined, decimals: number, code: (typeof vaultCodes)[keyof typeof vaultCodes], what: string) => {
   const text = (raw ?? '').trim();
