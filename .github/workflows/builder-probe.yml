@@ -1,5 +1,5 @@
-# Throwaway probe for #7386 (no secrets, push to this branch only): what an unprivileged agent user can reach on a
-# hosted runner. Not for merge.
+# Throwaway probe for #7386 (no secrets, push to this branch only): the builder's `run` step as the agent user on a
+# hosted runner, with a fake CLI that leaves a setsid'd child ignoring SIGTERM. Not for merge.
 name: Builder probe
 on:
   push:
@@ -9,27 +9,53 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      AGENT_USER: factory-agent
+      WORK: /home/factory-agent/work
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
-      - name: Probe
+      - name: Agent user, fake CLI
         run: |
-          set -x
-          id; ls -ld /home/runner /home/runner/work "$RUNNER_TEMP" /opt/hostedtoolcache "$(dirname "$(command -v node)")"
-          command -v node; node --version; ls -l /usr/local/bin/node /usr/bin/node || true; /usr/local/bin/node --version || true
-          sudo useradd --create-home --shell /bin/bash factory-agent
-          sudo -u factory-agent -H "$(command -v node)" --version || echo "agent cannot run toolcache node"
-          sudo -u factory-agent -H /usr/local/bin/node --version || true
-          sudo -u factory-agent -H ls "$RUNNER_TEMP" || echo "agent cannot list RUNNER_TEMP"
-          sudo -u factory-agent -H touch "$GITHUB_WORKSPACE/x" || echo "agent cannot write the workspace"
-          sudo -u factory-agent -H touch "$(dirname "$(command -v node)")/x" || echo "agent cannot write the toolcache"
-          sudo -u factory-agent -H cat /proc/$$/environ >/dev/null || echo "agent cannot read runner environ"
-          sudo -u factory-agent -H docker ps || echo "agent has no docker"
-          SECRETISH=probe sudo -u factory-agent -H --preserve-env=SECRETISH -- /usr/bin/env PATH=/usr/bin:/bin sh -c 'echo "preserved=${SECRETISH:-none}"'
-          sudo -u factory-agent -H setsid sh -c 'trap "" TERM; sleep 300' &
-          sleep 1; pgrep -u factory-agent -a; sudo pkill -TERM -u factory-agent; sleep 1; pgrep -u factory-agent -a || echo "TERM cleared"
-          sudo pkill -KILL -u factory-agent; sleep 1; pgrep -u factory-agent -a || echo "KILL cleared"
-          sudo -u factory-agent -H git clone -q --depth 1 https://github.com/INTAFACED/intafaced.git /home/factory-agent/w && echo "agent clone ok"
-          sudo -u factory-agent -H "$(command -v npm)" --version || true
+          echo "NODE_BIN=$(command -v node)" >> "$GITHUB_ENV"
+          echo "BUILDER_DIR=$RUNNER_TEMP/builder" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/builder"
+          echo "the prompt" > "$RUNNER_TEMP/builder/prompt.txt"
+          sudo useradd --create-home --shell /bin/bash "$AGENT_USER"
+          AGENT_PATH="$(dirname "$(command -v node)"):/usr/sbin:/usr/bin:/sbin:/bin"
+          echo "AGENT_PATH=$AGENT_PATH" >> "$GITHUB_ENV"
+          sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "/home/$AGENT_USER" PATH="$AGENT_PATH" mkdir -p "$WORK"
+          sudo mkdir -p /opt/fake
+          sudo tee /opt/fake/cli > /dev/null <<'CLI'
+          #!/bin/sh
+          { id -un; pwd; env | grep -c -E 'GH_TOKEN|GITHUB_TOKEN|FACTORY_GH_TOKEN' ; } > /home/factory-agent/seen
+          setsid sh -c 'trap "" TERM; exec sleep 600' &
+          echo "PRINTED-BY-THE-CLI"
+          exec sleep 600
+          CLI
+          sudo sed -i 's/^          //' /opt/fake/cli
+          sudo chmod 755 /opt/fake/cli
+      - name: Run as the agent, stopped at the hard stop
+        env:
+          REPO: ${{ github.repository }}
+          CLAUDE_CODE_OAUTH_TOKEN: fake
+          GH_TOKEN: must-not-reach
+          CLAUDE_BIN: /opt/fake/cli
+          POLL_MS: '5000'
+          KILL_GRACE_MS: '3000'
+        run: |
+          echo "STARTED_AT=$(( $(date -u +%s) - 320*60 + 20 ))" >> "$GITHUB_ENV"
+          export STARTED_AT=$(( $(date -u +%s) - 320*60 + 20 ))
+          "$NODE_BIN" tooling/ci/factory-builder.mjs run
+      - name: What the agent saw, and what is left
+        if: always()
+        run: |
+          sudo cat /home/factory-agent/seen
+          grep -c PRINTED-BY-THE-CLI "$BUILDER_DIR/out.jsonl"
+          cat "$BUILDER_DIR/end.json"; echo
+          if pgrep -u "$AGENT_USER" -a; then echo "LEFT OVER"; exit 1; else echo "no process of the agent left"; fi
