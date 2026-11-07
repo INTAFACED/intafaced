@@ -927,6 +927,22 @@ export function createNotifyRouter(
           }
         }),
 
+      /**
+       * Alert engine and delivery health (C-ops-01; J-charts-desk-18 #3 #4), `admin:read` only: the sweep's last pass and
+       * its lag, firings today by kind, alert deliveries today by channel and status, and the open alert count. Read only.
+       */
+      opsAlertEngineHealth: scopedProcedure('admin:read', { module: 'notify' }).query(async () => {
+        if (!alerts) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'notify.alert_ops_unwired' });
+        try {
+          return await alerts.opsHealth();
+        } catch (err) {
+          throw new TRPCError({
+            code: 'PRECONDITION_FAILED',
+            message: err instanceof Error ? err.message : 'notify.alert_ops_unwired',
+          });
+        }
+      }),
+
       operatorProviderHealth: scopedProcedure('admin:read', { module: 'notify' })
         .output(
           z.object({
