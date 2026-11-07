@@ -200,7 +200,7 @@ test(`${J} #1 a support agent finds the stuck learner and opens their page: prof
   const notes = desk.getByTestId('learner-notes');
   await expect(notes.getByText('Staff only: the learner never sees these.')).toBeVisible();
   const note = `TEST ${J} internal: learner says lessons stopped opening ${learnerId.slice(0, 8)}`;
-  await notes.getByLabel('Internal note').fill(note);
+  await notes.getByLabel('Internal note', { exact: true }).fill(note);
   await notes.getByRole('button', { name: 'Save note' }).click();
   await expect(outcome(page)).toContainText('Done: internal note saved');
   await expect(notes.locator('[data-note="1"]')).toContainText(note);
