@@ -30,6 +30,8 @@ export * from './bank-send-destination.js';
 export * from './bank-send-destination-client.js';
 export * from './bank-own-spaces.js';
 export * from './bank-own-spaces-client.js';
+export * from './identity-watchlists.js';
+export * from './identity-watchlists-client.js';
 export * from './pay-custody-deposit.js';
 export * from './pay-custody-deposit-client.js';
 export * from './ops-analytics.js';
