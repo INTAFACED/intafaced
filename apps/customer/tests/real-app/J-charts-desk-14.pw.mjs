@@ -360,8 +360,7 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   // Money line: a ladder order holds exactly as a desk order. A buy from the ask column at a price under the touch rests;
   // once confirmed, the USDT held grows by exactly what the review said, and the same order typed on the desk's ticket
   // is checked to the same hold.
-  const before = await (await api(who)).get('/api/v1/balance');
-  expect(before.status).toBe(200);
+  const before = await (await api(who)).balances();
   // The ladder's lowest bid row, clicked in the ask column: a buy limit under the touch, so it rests on the book.
   const lowest = rows().last();
   const restPrice = await lowest.getAttribute('data-price');
@@ -391,8 +390,8 @@ test(`${J} #4 clicks a ladder ask; the ticket fills with the price and the revie
   await expect
     .poll(async () => (await openOrders(who)).some((o) => same(o.price, reviewedPrice) && same(o.amount, SMALL) && o.side === 'buy'))
     .toBe(true);
-  const after = await (await api(who)).get('/api/v1/balance');
-  expect(held(after.body, 'USDT') - held(before.body, 'USDT')).toBe(toUnits(hold));
+  const after = await (await api(who)).balances();
+  expect(held(after, 'USDT') - held(before, 'USDT')).toBe(toUnits(hold));
   // One order went, with the review's own number.
   expect(sent).toHaveLength(1);
 });
@@ -532,9 +531,7 @@ async function restingBuy(percent, tag) {
 }
 
 async function usdtHeld() {
-  const res = await (await api(who)).get('/api/v1/balance');
-  expect(res.status).toBe(200);
-  return held(res.body, 'USDT');
+  return held(await (await api(who)).balances(), 'USDT');
 }
 
 test(`${J} #6 turns instant placement on; a click sends after the settings summary, and off it always reviews`, async () => {
@@ -704,8 +701,8 @@ test(`${J} #7 uses one-click close, cancel and size presets; each acts once with
   // confirmed it sends once, and the free BTC goes under one lot.
   const { precision } = await market();
   const lot = toUnits(precision.amount);
-  const balance = await (await api(who)).get('/api/v1/balance');
-  const freeBtc = toUnits(balance.body.BTC?.free ?? '0');
+  const balance = await (await api(who)).balances();
+  const freeBtc = toUnits(balance.BTC?.free ?? '0');
   expect(freeBtc).toBeGreaterThanOrEqual(lot);
   const close = chartTrade().getByTestId('of-chart-close');
   await expect(close).toBeEnabled();
@@ -719,9 +716,7 @@ test(`${J} #7 uses one-click close, cancel and size presets; each acts once with
   await expect(reviewSheet(page)).toHaveCount(0, { timeout: 15_000 });
   await expect.poll(() => sent.length).toBe(2);
   expect(sent[1]).toMatchObject({ side: 'sell', type: 'market' });
-  await expect
-    .poll(async () => toUnits((await (await api(who)).get('/api/v1/balance')).body.BTC?.free ?? '0'), { timeout: 15_000 })
-    .toBeLessThan(lot);
+  await expect.poll(async () => toUnits((await (await api(who)).balances()).BTC?.free ?? '0'), { timeout: 15_000 }).toBeLessThan(lot);
   await page.waitForTimeout(1_000);
   expect(sent).toHaveLength(2);
   expect(deletes).toHaveLength(2);
