@@ -85,7 +85,8 @@ async function person() {
 const reject = (recordId: string, reviewerId: string, reasonCode = 'document_unreadable', extra = {}) =>
   auth.rejectKycRecord({ recordId, reviewerId, reasonCode, approvalParties: [], ...extra });
 const history = async (userId: string) => kycHistoryOutputSchema.parse({ cases: await auth.listKycCases(userId, 50, REASONS) }).cases;
-const desk = (pageSize: number | null = 2) => new KycReviewDesk(db.sql, { pageSize, reasons: REASONS });
+const desk = (pageSize: number | null = 2, appealWindowSeconds: number | null = 60) =>
+  new KycReviewDesk(db.sql, { pageSize, reasons: REASONS, appealWindowSeconds, rfiDays: 7 });
 const code = async (p: Promise<unknown>) => {
   try {
     await p;
@@ -173,76 +174,77 @@ describe('KYC review queue', () => {
     expect(read.notes.map((n) => n.body)).toEqual(['TEST: internal note one', 'TEST: internal note two']);
     const customerSees = JSON.stringify(await history(userId));
     expect(customerSees).not.toContain('internal note');
-    it('an appeal: once per rejection inside the window; a different reviewer decides; upheld is final and refuses kyc.case_final', async () => {
-      expect(parseKycAppealWindowSeconds(undefined)).toBeNull();
-      expect(parseKycAppealWindowSeconds('90')).toBe(90);
-      expect(() => parseKycAppealWindowSeconds('-1')).toThrow();
-      const userId = await person();
-      const first = await person();
-      const second = await person();
-      const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
-      await reject(record.id, first);
-      const [{ id: caseId }] = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE record_id = ${record.id}`;
-      // Nobody appeals another person's case; with no window set, appeals are closed.
-      expect(await code(desk().submitAppeal(first, caseId!, 'TEST: please look again'))).toBe('kyc.case_unknown');
-      expect(await code(desk(2, null).submitAppeal(userId, caseId!, 'TEST: please look again'))).toBe('kyc.appeal_closed');
-      const appeal = await desk().submitAppeal(userId, caseId!, 'TEST: please look again');
-      expect((await desk().submitAppeal(userId, caseId!, 'TEST: please look again')).id).toBe(appeal.id);
-      expect(await code(desk().submitAppeal(userId, caseId!, 'TEST: another appeal'))).toBe('kyc.appeal_open');
-      // The reviewer who rejected may not decide it.
-      expect(await code(desk().decideAppeal(caseId!, first, 'upheld'))).toBe('kyc.same_reviewer');
-      const decided = await desk().decideAppeal(caseId!, second, 'upheld');
-      expect(decided.decision).toBe('upheld');
-      const read = await desk().read(caseId!);
-      expect(read.final).toBe(true);
-      expect(read.appeals.map((a) => a.decision)).toEqual(['upheld']);
-      // A final rejection takes no more appeals, and its appeal cannot be decided again.
-      expect(await code(desk().submitAppeal(userId, caseId!, 'TEST: once more'))).toBe('kyc.case_final');
-      expect(await code(desk().decideAppeal(caseId!, second, 'overturned'))).toBe('kyc.case_final');
-    });
+  });
 
-    it('an appeal outside the window is refused kyc.appeal_closed; an overturned appeal sends the request back to the queue', async () => {
-      const userId = await person();
-      const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
-      await reject(record.id, await person());
-      const [{ id: caseId }] = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE record_id = ${record.id}`;
-      const late = new Date(Date.now() + 61_000);
-      expect(await code(desk().submitAppeal(userId, caseId!, 'TEST: late', late))).toBe('kyc.appeal_closed');
-      await desk().submitAppeal(userId, caseId!, 'TEST: in time');
-      await desk().decideAppeal(caseId!, await person(), 'overturned');
-      const read = await desk().read(caseId!);
-      expect(read.recordStatus).toBe('pending');
-      expect(read.case.state).toBe('submitted');
-      expect(read.case.history.map((h) => h.state)).toEqual(['submitted', 'rejected', 'submitted']);
-      expect(read.final).toBe(false);
-    });
-    it('a request for information moves the case to info_requested with one task per item, due by the owner deadline', async () => {
-      expect(parseKycRfiDays(undefined)).toBeNull();
-      expect(parseKycRfiDays('7')).toBe(7);
-      expect(() => parseKycRfiDays('0')).toThrow();
-      const userId = await person();
-      const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
-      const [{ id: caseId }] = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE record_id = ${record.id}`;
-      const at = new Date();
-      const items = [
-        { key: 'proof_of_address', hint: 'TEST: a recent bill' },
-        { key: 'source_of_funds', hint: 'TEST: a payslip' },
-      ];
-      const tasks = await desk().requestInfo(caseId!, await person(), items, at);
-      expect(tasks.map((t) => [t.key, t.state])).toEqual([
-        ['proof_of_address', 'requested'],
-        ['source_of_funds', 'requested'],
-      ]);
-      expect(tasks[0]!.dueAt).toBe(new Date(at.getTime() + 7 * 86_400_000).toISOString());
-      // The same request again returns the stored tasks; a different one refuses.
-      expect(await desk().requestInfo(caseId!, await person(), items)).toEqual(tasks);
-      expect(await code(desk().requestInfo(caseId!, await person(), [{ key: 'other', hint: 'TEST' }]))).toBe('kyc.case_state');
-      const [seen] = await history(userId);
-      expect(seen).toMatchObject({ id: caseId, state: 'info_requested', version: 2 });
-      expect(seen!.tasks.map((t) => t.key)).toEqual(['proof_of_address', 'source_of_funds']);
-      // It waits on the customer, so it is not on the open queue.
-      const page = await desk(200).list(null);
-      expect(page.cases.map((c) => c.caseId)).not.toContain(caseId);
-    });
+  it('an appeal: once per rejection inside the window; a different reviewer decides; upheld is final and refuses kyc.case_final', async () => {
+    expect(parseKycAppealWindowSeconds(undefined)).toBeNull();
+    expect(parseKycAppealWindowSeconds('90')).toBe(90);
+    expect(() => parseKycAppealWindowSeconds('-1')).toThrow();
+    const userId = await person();
+    const first = await person();
+    const second = await person();
+    const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+    await reject(record.id, first);
+    const [{ id: caseId }] = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE record_id = ${record.id}`;
+    // Nobody appeals another person's case; with no window set, appeals are closed.
+    expect(await code(desk().submitAppeal(first, caseId!, 'TEST: please look again'))).toBe('kyc.case_unknown');
+    expect(await code(desk(2, null).submitAppeal(userId, caseId!, 'TEST: please look again'))).toBe('kyc.appeal_closed');
+    const appeal = await desk().submitAppeal(userId, caseId!, 'TEST: please look again');
+    expect((await desk().submitAppeal(userId, caseId!, 'TEST: please look again')).id).toBe(appeal.id);
+    expect(await code(desk().submitAppeal(userId, caseId!, 'TEST: another appeal'))).toBe('kyc.appeal_open');
+    // The reviewer who rejected may not decide it.
+    expect(await code(desk().decideAppeal(caseId!, first, 'upheld'))).toBe('kyc.same_reviewer');
+    const decided = await desk().decideAppeal(caseId!, second, 'upheld');
+    expect(decided.decision).toBe('upheld');
+    const read = await desk().read(caseId!);
+    expect(read.final).toBe(true);
+    expect(read.appeals.map((a) => a.decision)).toEqual(['upheld']);
+    // A final rejection takes no more appeals, and its appeal cannot be decided again.
+    expect(await code(desk().submitAppeal(userId, caseId!, 'TEST: once more'))).toBe('kyc.case_final');
+    expect(await code(desk().decideAppeal(caseId!, second, 'overturned'))).toBe('kyc.case_final');
+  });
+
+  it('an appeal outside the window is refused kyc.appeal_closed; an overturned appeal sends the request back to the queue', async () => {
+    const userId = await person();
+    const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+    await reject(record.id, await person());
+    const [{ id: caseId }] = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE record_id = ${record.id}`;
+    const late = new Date(Date.now() + 61_000);
+    expect(await code(desk().submitAppeal(userId, caseId!, 'TEST: late', late))).toBe('kyc.appeal_closed');
+    await desk().submitAppeal(userId, caseId!, 'TEST: in time');
+    await desk().decideAppeal(caseId!, await person(), 'overturned');
+    const read = await desk().read(caseId!);
+    expect(read.recordStatus).toBe('pending');
+    expect(read.case.state).toBe('submitted');
+    expect(read.case.history.map((h) => h.state)).toEqual(['submitted', 'rejected', 'submitted']);
+    expect(read.final).toBe(false);
+  });
+  it('a request for information moves the case to info_requested with one task per item, due by the owner deadline', async () => {
+    expect(parseKycRfiDays(undefined)).toBeNull();
+    expect(parseKycRfiDays('7')).toBe(7);
+    expect(() => parseKycRfiDays('0')).toThrow();
+    const userId = await person();
+    const record = await auth.submitKyc({ userId, tier: 'basic', jurisdiction: 'DE' });
+    const [{ id: caseId }] = await db.sql<Array<{ id: string }>>`SELECT id FROM kyc_cases WHERE record_id = ${record.id}`;
+    const at = new Date();
+    const items = [
+      { key: 'proof_of_address', hint: 'TEST: a recent bill' },
+      { key: 'source_of_funds', hint: 'TEST: a payslip' },
+    ];
+    const tasks = await desk().requestInfo(caseId!, await person(), items, at);
+    expect(tasks.map((t) => [t.key, t.state])).toEqual([
+      ['proof_of_address', 'requested'],
+      ['source_of_funds', 'requested'],
+    ]);
+    expect(tasks[0]!.dueAt).toBe(new Date(at.getTime() + 7 * 86_400_000).toISOString());
+    // The same request again returns the stored tasks; a different one refuses.
+    expect(await desk().requestInfo(caseId!, await person(), items)).toEqual(tasks);
+    expect(await code(desk().requestInfo(caseId!, await person(), [{ key: 'other', hint: 'TEST' }]))).toBe('kyc.case_state');
+    const [seen] = await history(userId);
+    expect(seen).toMatchObject({ id: caseId, state: 'info_requested', version: 2 });
+    expect(seen!.tasks.map((t) => t.key)).toEqual(['proof_of_address', 'source_of_funds']);
+    // It waits on the customer, so it is not on the open queue.
+    const page = await desk(200).list(null);
+    expect(page.cases.map((c) => c.caseId)).not.toContain(caseId);
   });
 });
