@@ -304,7 +304,9 @@ test(`${J} #4 drags the order line to a new price: a review of the replacement, 
   // Dragged again and confirmed: one replace, the old order cancelled, the new one resting at the dragged price.
   await drag(orderLines().first(), target);
   await expect(reviewMove()).toBeVisible();
-  const replaceSent = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/v1\/orders\/[^/]+\/replace$/.test(new URL(r.url()).pathname));
+  const replaceSent = page.waitForRequest(
+    (r) => r.method() === 'POST' && /\/api\/v1\/orders\/[^/]+\/replace$/.test(new URL(r.url()).pathname),
+  );
   const replaceAnswered = page.waitForResponse((r) => /\/api\/v1\/orders\/[^/]+\/replace$/.test(new URL(r.url()).pathname));
   await reviewMove().getByRole('button', { name: 'Confirm' }).click();
   const request = await replaceSent;
