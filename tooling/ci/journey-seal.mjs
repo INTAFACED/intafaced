@@ -33,6 +33,15 @@
  * body that names steps is edited. On a merge queue's commit every queued pull request is judged on its own head the
  * same way, without waiting.
  *
+ * A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP) also needs a clean full run: the
+ * newest finished full Real-app journeys run on its exact head, judged here by journeys verdict's own rules
+ * (journey-verdict.mjs judge) with the default branch's baseline and money rule, has 0 steps outside the list or against
+ * its rules (judgeFullRun). Any title, naming steps or not. (Failure it prevents: on 7 Nov 2026 a pull request that
+ * changed shared stack setup merged on its own named steps and turned main's journeys red for about 2.5 hours; the
+ * pilot lead then asked builders by message not to arm such pull requests until a full run was clean. Rule 3 of
+ * project-state AGENTS.md: a red main means a regression.) A run is full when its report holds a step from every journey
+ * file the baseline's named run reported; a targeted run is passed over, never read as a full one.
+ *
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
@@ -42,8 +51,8 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { JOURNEYS_ARTIFACT, readReport } from './journey-verdict.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { JOURNEYS_ARTIFACT, fetchInputs, judge, readReport, rootInputs } from './journey-verdict.mjs';
 import { groupPulls } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -254,6 +263,114 @@ export async function judgeSteps({ sha, repo, title, body, runs, reportOf, waitO
   return { ok, state: ok ? 'pass' : 'fail', lines };
 }
 
+/**
+ * The journey stack's shared setup: a change here can break any journey, not only the ones a pull request names, so it
+ * proves with a clean full journeys run on its exact head. The list is project-state BUILDER.md's ("A change to the
+ * stack's shared setup (`tooling/scripts/local-stack-services/`, `local-test-world*`, `apps/customer/tests/real-app/lib/`,
+ * merchant or pricing setup) proves with the full run"), moved here so CI applies it. Its `lib/` folder is the shared
+ * journey helpers, which sit beside the journey files: every file under apps/customer/tests/real-app that is not a
+ * test file (`*.pw.mjs`), the Playwright config among them. Edit this list, never a second one.
+ */
+export const SHARED_SETUP = [
+  { prefix: 'tooling/scripts/local-stack-services/' },
+  { prefix: 'tooling/scripts/local-test-world' },
+  { prefix: 'tooling/scripts/local-test-merchant-' },
+  { prefix: 'apps/customer/tests/real-app/', unless: /\.pw\.mjs$/ },
+];
+export const isSharedSetup = (file) =>
+  SHARED_SETUP.some(({ prefix, unless }) => String(file).startsWith(prefix) && !(unless && unless.test(String(file))));
+
+/** The changed files of a pull request (GET /pulls/n/files, whole or thrown). A rename counts by both its names. */
+export const pullFilePaths = (files) => (files ?? []).flatMap((f) => [f?.filename, f?.previous_filename].filter(Boolean));
+
+/** Runs of JOURNEYS_WORKFLOW from this repository on exactly this head. */
+const onHead = (runs, sha, repo) =>
+  (runs ?? []).filter(
+    (r) =>
+      r?.head_sha === sha && r?.path === JOURNEYS_WORKFLOW && r?.head_repository?.full_name === repo && r?.repository?.full_name === repo,
+  );
+const newestFirst = (a, b) => Date.parse(b.run_started_at ?? b.created_at) - Date.parse(a.run_started_at ?? a.created_at) || b.id - a.id;
+
+/**
+ * The full-run verdict for a head whose pull request touches shared setup (`shared`: those files). `reportOf(run)` is
+ * { states, files } of the run's current-attempt report, or { error }; `verdictOf(report, run)` is
+ * { red: [{ step, why }], failing, missing: [journey files the full suite has and this report lacks] }, judged with the
+ * default branch's baseline (makeIo). The newest finished full run decides: 0 red passes, anything else fails. A run
+ * still going holds it (as judgeSteps), a cancelled or skipped run says nothing, a report that can't be read fails
+ * closed, and a run whose report lacks journey files is targeted (or lost a shard) and is passed over.
+ */
+export async function judgeFullRun({ sha, repo, shared, runs, reportOf, verdictOf, waitOnRunning = true }) {
+  const why = `it changes the journey stack's shared setup (${shared.slice(0, 5).join(', ')}${shared.length > 5 ? `, ${shared.length - 5} more` : ''})`;
+  const how = 'dispatch real-app-journeys.yml on the branch with no journeys input (the full suite); the seal re-runs when it finishes';
+  const mine = onHead(runs, sha, repo);
+  const running = mine.filter((r) => r.status !== 'completed');
+  if (running.length && waitOnRunning) {
+    const ids = running.map((r) => `${r.id} (attempt ${r.run_attempt ?? 1}, ${r.status})`).join(', ');
+    return {
+      ok: false,
+      state: 'wait',
+      lines: [`full run: ${why}; Real-app journeys run ${ids} on this head has not finished; the seal reads it once it does`],
+    };
+  }
+  const finished = mine.filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion)).sort(newestFirst);
+  const passed = [];
+  for (const r of finished) {
+    const where = `run ${r.id} (attempt ${r.run_attempt ?? 1})`;
+    let rep;
+    try {
+      rep = (await reportOf(r)) ?? { error: 'no report' };
+    } catch (e) {
+      rep = { error: e.message };
+    }
+    if (rep.error)
+      return {
+        ok: false,
+        state: 'fail',
+        lines: [`full run: ${why}; ${where}'s report couldn't be read (${rep.error}), so the seal fails closed`],
+      };
+    let v;
+    try {
+      v = await verdictOf(rep, r);
+    } catch (e) {
+      return {
+        ok: false,
+        state: 'fail',
+        lines: [`full run: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
+      };
+    }
+    if (v.missing?.length) {
+      passed.push(
+        `${where} is not a full run (no step from ${v.missing.length} journey file(s), e.g. ${v.missing.slice(0, 3).join(', ')})`,
+      );
+      continue;
+    }
+    if (v.red.length === 0)
+      return {
+        ok: true,
+        state: 'pass',
+        lines: [`full run: ${why}; ${where} is clean: ${v.failing} failing or missing step(s), 0 outside the list or against its rules`],
+      };
+    return {
+      ok: false,
+      state: 'fail',
+      lines: [
+        `full run: ${why}; ${where} has ${v.red.length} step(s) outside the list or against its rules: ${v.red
+          .slice(0, 10)
+          .map((x) => `${x.step}: ${x.why}`)
+          .join('; ')}${v.red.length > 10 ? `; ${v.red.length - 10} more` : ''}`,
+      ],
+    };
+  }
+  return {
+    ok: false,
+    state: 'fail',
+    lines: [
+      `full run: ${why}, so it needs a clean full Real-app journeys run on this exact head, and none has finished; ${how}`,
+      ...passed.map((l) => `full run: ${l}`),
+    ],
+  };
+}
+
 /** The artifact that holds a run's current-attempt report: named JOURNEYS_ARTIFACT, not expired, made at or after the
  *  attempt started; the newest if more than one. Null when there is none. */
 export function currentReportArtifact(run, artifacts) {
@@ -310,13 +427,46 @@ export function makeIo(repo, token) {
         const zip = join(dir, 'a.zip');
         writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
         const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
-        return { states: readReport(JSON.parse(text)).states, artifact: art.id };
+        const { states, files } = readReport(JSON.parse(text));
+        return { states, files, artifact: art.id };
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
+    files: (n) => pullFiles((path) => api(path, token), repo, n),
+    verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
   };
+}
+
+/** The default branch's checkout this script runs from (ci.yml runs the base's copy): its baseline and money rule. */
+const BASE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
+let base = null;
+const baseInputs = () => (base ??= { ...rootInputs(BASE_ROOT), reports: new Map() });
+
+/** One run's verdict, as journey-verdict.mjs would print it with the default branch's baseline, and the journey files
+ *  of the full suite (the baseline's named run) its report lacks. GET only, through gh (GH_TOKEN). */
+export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
+  const { baseline, money, reports } = inputs;
+  const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
+  const red = got.problems.map((why) => ({ step: '(input)', why }));
+  if (!got.named) return { red, failing: 0, missing: [] };
+  const have = new Set(Object.values(report.files ?? {}));
+  const missing = [...new Set(Object.values(got.named.files))].filter((f) => !have.has(f)).sort();
+  const v = judge({ newest: report, named: got.named, baseline, money, passedSince: got.passedSince, issues: got.issues, target: null });
+  return { red: [...red, ...v.red], failing: v.failing, missing };
+}
+
+/** A pull request's changed paths, whole: GitHub lists at most 3,000, so a longer list fails closed. */
+export async function pullFiles(get, repo, n) {
+  const all = [];
+  for (let page = 1; page <= 30; page++) {
+    const r = await get(`/repos/${repo}/pulls/${n}/files?per_page=100&page=${page}`);
+    if (!Array.isArray(r)) throw new Error(`#${n}'s files: not a list`);
+    all.push(...r);
+    if (r.length < 100) return pullFilePaths(all);
+  }
+  throw new Error(`#${n} changes 3,000 files or more, which GitHub can't list whole`);
 }
 
 /** One pull request's head, judged. */
@@ -327,15 +477,18 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
-  const v = await judgeSteps({
-    sha: head,
-    repo,
-    title: pull.title,
-    body: pull.body,
-    runs: titleSteps(pull.title).length ? await io.runs(head) : [],
-    reportOf: (r) => io.reportOf(r),
-    waitOnRunning,
-  });
+  const shared = (await io.files(number)).filter(isSharedSetup);
+  const runs = titleSteps(pull.title).length || shared.length ? await io.runs(head) : [];
+  const reports = new Map();
+  const reportOf = (r) => {
+    if (!reports.has(r.id)) reports.set(r.id, io.reportOf(r));
+    return reports.get(r.id);
+  };
+  const steps = await judgeSteps({ sha: head, repo, title: pull.title, body: pull.body, runs, reportOf, waitOnRunning });
+  const full = shared.length
+    ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf: (rep, r) => io.verdictOf(rep, r), waitOnRunning })
+    : { ok: true, state: 'none', lines: [] };
+  const v = { ok: steps.ok && full.ok, stepsOk: steps.ok, fullOk: full.ok, lines: [...steps.lines, ...full.lines] };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }
 
@@ -410,10 +563,20 @@ export const namesSteps = (title) => titleSteps(title).length > 0 || titleProble
  * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`).
  * A title edited from "fix J-bank-13" to "J-bank-13 #1-#100" is judged, so its green seal turns red.
  */
-export const recheckPulls = ({ pulls, sha, repo, oldTitle = '' }) =>
+export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', shared = new Set() }) =>
   (pulls ?? [])
     .filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo)
-    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle));
+    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle) || shared.has(p.number));
+
+/** The open pull requests on `sha` that `recheckPulls` would not take by their title: their numbers that touch shared
+ *  setup (`filesOf(n)`: the changed paths). */
+export async function sharedPulls({ pulls, sha, repo, filesOf }) {
+  const out = new Set();
+  for (const p of pulls ?? [])
+    if (p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo && !namesSteps(p.title))
+      if ((await filesOf(p.number)).some(isSharedSetup)) out.add(p.number);
+  return out;
+}
 
 /**
  * journey-seal-recheck.yml: the open pull requests whose head is `sha` and whose title names steps now (or named them
@@ -438,19 +601,32 @@ async function recheck({ repo, token }) {
   const pulls = PR_NUMBER
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
-  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE });
-  if (!named.length) return console.log(`no open pull request on ${SHA} names journey steps; the seal is left as it is`);
+  const shared = await sharedPulls({ pulls, sha: SHA, repo, filesOf: (n) => pullFiles(get, repo, n) });
+  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, shared });
+  if (!named.length)
+    return console.log(`no open pull request on ${SHA} names journey steps or touches shared setup; the seal is left as it is`);
   console.log(
-    `#${named.map((p) => p.number).join(', #')} on ${SHA} name journey steps: ${await rerunSealJob({ repo, sha: SHA, get, post })}`,
+    `#${named.map((p) => p.number).join(', #')} on ${SHA} name journey steps or touch shared setup: ${await rerunSealJob({ repo, sha: SHA, get, post })}`,
   );
 }
 
-function report({ ok, lines }, how) {
+function report({ ok, lines, stepsOk = ok, fullOk = true }, how) {
   for (const l of lines) console.log(l);
   if (ok) return console.log(`journey steps: ${how}`);
+  if (!fullOk)
+    console.error(
+      `::error title=Shared journey setup needs a clean full run on this head::${lines
+        .filter((l) => /: full run: /.test(l))
+        .join('; ')
+        .slice(
+          0,
+          3000,
+        )}. A pull request that changes the journey stack's shared setup (SHARED_SETUP in tooling/ci/journey-seal.mjs) needs the newest finished full Real-app journeys run on its exact head clean by the journeys verdict, read with the default branch's baseline: dispatch real-app-journeys.yml on the branch with no journeys input; the seal re-runs when it finishes.`,
+    );
+  if (stepsOk) process.exit(1);
   console.error(
     `::error title=Named journey steps not green on this head::${lines
-      .filter((l) => !/on a Left-or-replaced line$/.test(l) && !/add this line to the body/.test(l))
+      .filter((l) => !/on a Left-or-replaced line$/.test(l) && !/add this line to the body/.test(l) && !/: full run: /.test(l))
       .join('; ')
       .slice(
         0,
@@ -495,10 +671,12 @@ async function main() {
     const commits = (await io.compare(base, head))?.commits;
     const numbers = groupPulls(commits, headRef);
     if (!numbers) return report({ ok: false, lines: [`the merge group ${headRef} could not be read whole`] }, '');
-    const all = { ok: true, lines: [] };
+    const all = { ok: true, stepsOk: true, fullOk: true, lines: [] };
     for (const n of numbers) {
       const v = await sealPull({ repo: REPO, number: n, io, waitOnRunning: false });
       all.ok &&= v.ok;
+      all.stepsOk &&= v.stepsOk ?? v.ok;
+      all.fullOk &&= v.fullOk ?? true;
       all.lines.push(...v.lines);
     }
     return report(all, 'every queued pull request that names steps has them green or left on its own head');
