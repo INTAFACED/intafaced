@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import './notifications.css';
 import { useSession } from '../../features/session/session';
 import { usePreferences } from '../../shared/preferences';
@@ -28,12 +28,15 @@ import { AlertEditPanel } from './AlertEditPanel';
 import { TriggerLog } from './TriggerLog';
 import { WatchlistAlert, type BlockedReason } from './WatchlistAlert';
 import { FollowListAlert } from './FollowListAlert';
+import { AlertChannelsField, WebhookAttempts, useAlertDelivery } from './AlertDelivery';
 import { useAlertQuota } from './use-quota';
 import { useTriggers } from './use-triggers';
 import { Button, StateBlock } from './deps';
 import {
+  ALERT_CHANNELS,
   ALERT_CONDITIONS,
   ALERT_SOURCES,
+  type AlertChannel,
   type AlertSource,
   directionOfCondition,
   isCrossing,
@@ -83,6 +86,8 @@ const REFUSAL = {
   quotaReached: 'refusedQuotaReached',
   notFound: 'refusedNotFound',
   logOff: 'refusedLogOff',
+  webhookOff: 'refusedWebhookOff',
+  webhookRejected: 'refusedWebhookRejected',
   other: 'refusedOther',
 } as const satisfies Record<Refusal, string>;
 const CANCEL = {
@@ -118,6 +123,14 @@ const CONDITION_KEY = {
   crossing_down: 'crossingDown',
   crossing: 'crossing',
 } as const satisfies Record<AlertCondition, string>;
+const CHANNEL_LABEL = {
+  inapp: 'channelInapp',
+  popup: 'channelPopup',
+  sound: 'channelSound',
+  email: 'channelEmail',
+  push: 'channelPush',
+  webhook: 'channelWebhook',
+} as const satisfies Record<AlertChannel, string>;
 const KIND = { funding: 'kindFunding', liquidation_proximity: 'kindLiquidation', whale: 'kindWhale' } as const;
 /** Refusals that mean the typed values need changing, so the person goes back to the form. */
 const BACK_TO_FORM: ReadonlySet<Refusal> = new Set([
@@ -128,6 +141,7 @@ const BACK_TO_FORM: ReadonlySet<Refusal> = new Set([
   'tooManyConditions',
   'repeatOff',
   'repeatRejected',
+  'webhookRejected',
 ]);
 
 /**
@@ -149,6 +163,10 @@ export default function AlertsPage() {
   const [expires, setExpires] = useState('');
   const [repeat, setRepeat] = useState(false);
   const [source, setSource] = useState<AlertSource>('mark');
+  // How the alert reaches the person: the in-app inbox always, and any channel chosen (J-charts-desk-10).
+  const [chosen, setChosen] = useState<ReadonlySet<AlertChannel>>(new Set<AlertChannel>(['inapp']));
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const delivery = useAlertDelivery();
   // What the alert is on. Only a price alert can be saved; an indicator alert is listed and refused until it is built.
   const [alertKind, setAlertKind] = useState<'price' | 'indicator'>('price');
   const [extras, setExtras] = useState<{ condition: AlertExtra['condition']; price: string }[]>([]);
@@ -169,6 +187,11 @@ export default function AlertsPage() {
   const gate = useRef(createGate());
 
   const list = state.status === 'ready' ? state : null;
+  // The webhook log is read again whenever the list is, so a row and its deliveries agree.
+  const reloadDelivery = delivery.reload;
+  useEffect(() => {
+    if (state.status === 'ready') reloadDelivery();
+  }, [state, reloadDelivery]);
   // The most conditions an alert may hold (the main one included), when the owner has set it: the form stops at it.
   const maxConditions = quota.state.status === 'ready' ? (quota.state.quota.maxConditions ?? null) : null;
   // Until the cap is read, nothing past the main condition can be added: the form never lets through what it cannot check.
@@ -246,6 +269,7 @@ export default function AlertsPage() {
       priceProblem(price) !== null ||
       expiryProblem(expires) !== null ||
       extras.some((extra) => priceProblem(extra.price) !== null) ||
+      (chosen.has('webhook') && webhookUrl.trim() === '') ||
       !list
     )
       return;
@@ -261,6 +285,8 @@ export default function AlertsPage() {
       ...(extras.length > 0 ? { extras: extras.map((extra) => ({ condition: extra.condition, targetPrice: extra.price.trim() })) } : {}),
       ...(repeat && isCrossing(condition) ? { frequency: 'every_crossing' as const } : {}),
       ...(source !== 'mark' ? { source } : {}),
+      ...(chosen.size > 1 ? { channels: ALERT_CHANNELS.filter((channel) => chosen.has(channel)) } : {}),
+      ...(chosen.has('webhook') ? { webhookUrl: webhookUrl.trim() } : {}),
     };
     setAck(false);
     setReview({ intent, duplicate: findDuplicate(list.items, intent) !== null });
@@ -298,6 +324,8 @@ export default function AlertsPage() {
         setExtras([]);
         setRepeat(false);
         setSource('mark');
+        setChosen(new Set<AlertChannel>(['inapp']));
+        setWebhookUrl('');
         setAlertKind('price');
         setTouched(false);
         reload();
@@ -534,6 +562,13 @@ export default function AlertsPage() {
               <dd>{copy.t(SOURCE_KEY[review.intent.source ?? 'mark'])}</dd>
             </div>
             <div>
+              <dt>{copy.t('reviewChannels')}</dt>
+              <dd>
+                {(review.intent.channels ?? ['inapp']).map((channel) => copy.t(CHANNEL_LABEL[channel])).join(', ')}
+                {review.intent.webhookUrl ? ` · ${review.intent.webhookUrl}` : ''}
+              </dd>
+            </div>
+            <div>
               <dt>{copy.t('reviewRepeat')}</dt>
               <dd>{copy.t(review.intent.frequency === 'every_crossing' ? 'repeatEvery' : 'repeatOnce')}</dd>
             </div>
@@ -766,6 +801,16 @@ export default function AlertsPage() {
               {expiryProblem(expires) ? copy.t('expiresInvalid') : copy.t('expiresHint')}
             </small>
           </label>
+          <AlertChannelsField
+            chosen={chosen}
+            onChange={setChosen}
+            webhookUrl={webhookUrl}
+            onWebhookUrl={setWebhookUrl}
+            webhookProblem={touched && chosen.has('webhook') && webhookUrl.trim() === ''}
+            statuses={delivery.statuses}
+            policy={delivery.policy}
+            disabled={priceFormLocked}
+          />
           <div className="nf-address__actions">
             <Button type="submit" size={32} disabled={blockedReason !== null || alertKind !== 'price'}>
               {copy.t('review')}
@@ -911,6 +956,10 @@ export default function AlertsPage() {
                             {copy.t(alert.kind === 'price' ? 'stoppedBurst' : 'stoppedBurstNoResume')}
                           </span>
                         ) : null}
+                        <WebhookAttempts
+                          attempts={delivery.attempts.filter((attempt) => attempt.alertId === alert.id)}
+                          stamp={(iso) => stamp(iso, timeZone)}
+                        />
                         <span className="nf-muted">
                           {copy.t('created', { when: stamp(alert.createdAt, timeZone) }) +
                             // An open alert's last change (an edit, a stop or a resume); a finished one's is its end, already named.

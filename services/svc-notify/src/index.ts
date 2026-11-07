@@ -54,6 +54,15 @@ import { ALERT_SWEEP_INTERVAL_MS, AlertService, type AlertSweepReport } from './
 import { runAlertSweepPass } from './alerts/sweep-driver.js';
 import { PostgresAlertStore } from './alerts/store.js';
 import { PostgresWatchRuleStore, WatchRuleService } from './alerts/watch-rules.js';
+import {
+  AlertWebhookDelivery,
+  IN_APP_ONLY,
+  PostgresAlertDeliveryStore,
+  parseBackoff,
+  webhookBody,
+  webhookPolicy,
+  webhookTargetCheck,
+} from './alerts/webhooks.js';
 import { PostgresAlertTriggerLog } from './alerts/trigger-log.js';
 import { createTradeHttpMarkSource } from './alerts/trade-http-mark.js';
 import { createDarkWhaleMarkSource, createTradeHttpWhaleMarkSource, parseWhaleFlowAllowlist } from './alerts/whale-mark.js';
@@ -340,6 +349,34 @@ const whaleMarks: MarkSource =
         marketsLimit: env.NOTIFY_MARKETS_LIST_LIMIT,
       })
     : createDarkWhaleMarkSource();
+/**
+ * How an alert reaches the person (J-charts-desk-10): its channels and the webhook adapter, with the owner's published retry
+ * policy. A local TEST receiver is let through only under NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER=on, which env.ts refuses
+ * outside APP_ENV dev and test.
+ */
+const alertDelivery = new PostgresAlertDeliveryStore(sql);
+const alertWebhookPolicy = webhookPolicy(env.NOTIFY_ALERT_WEBHOOK_MAX_ATTEMPTS, parseBackoff(env.NOTIFY_ALERT_WEBHOOK_BACKOFF_MS));
+const allowLocalTestReceiver = env.NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER === 'on';
+const alertWebhookCheck = webhookTargetCheck({ allowLocalTestReceiver });
+const alertWebhooks = new AlertWebhookDelivery(alertDelivery, alertWebhookPolicy, {
+  allowLocalTestReceiver,
+  timeoutMs: env.NOTIFY_GATEWAY_TIMEOUT_MS,
+});
+/** The market's symbol for the webhook body, from the same market list the marks read; its id when the list is unread. */
+async function symbolOf(marketId: string): Promise<string> {
+  const bySymbol = alertMarks.marketIdsBySymbol ? await alertMarks.marketIdsBySymbol() : null;
+  for (const [symbol, id] of bySymbol ?? []) if (id === marketId) return symbol;
+  return marketId;
+}
+const queueAlertWebhook = async (
+  alert: Parameters<typeof webhookBody>[0],
+  trigger: { seq: number; markPrice: string; at: Date; message: string | null },
+) => {
+  const choice = (await alertDelivery.choices([alert.id])).get(alert.id) ?? IN_APP_ONLY;
+  if (!choice.channels.includes('webhook')) return;
+  const body = webhookBody(alert, { ...trigger, market: await symbolOf(alert.marketId) });
+  await alertWebhooks.queue(alert, choice, trigger.seq, body, trigger.at);
+};
 const alerts = new AlertService(
   new PostgresAlertStore(sql),
   alertMarks,
@@ -356,6 +393,7 @@ const alerts = new AlertService(
     burstMaxTriggers: env.NOTIFY_ALERT_BURST_MAX_TRIGGERS ?? null,
   },
   new PostgresAlertTriggerLog(sql),
+  queueAlertWebhook,
 );
 /**
  * Watchlist alerts (J-charts-desk-09 #7): the person's lists come from identity (`preferences.watchlistsFor`, svc-notify only),
@@ -421,6 +459,7 @@ export const appRouter = createNotifyRouter(
     },
   ),
   watchRules,
+  { store: alertDelivery, policy: alertWebhookPolicy, check: alertWebhookCheck },
 );
 export type AppRouter = typeof appRouter;
 
@@ -604,6 +643,23 @@ const alertSweep = setInterval(() => {
 alertSweep.unref();
 
 /**
+ * THE ALERT WEBHOOK PASS (J-charts-desk-10 #3, #4): every two seconds, each due attempt is POSTed once and logged; a failure
+ * queues the next attempt after the published wait, until the last. Fail-safe: a pass that cannot run logs and waits.
+ */
+let webhookPassRunning = false;
+const alertWebhookPass = setInterval(() => {
+  if (webhookPassRunning) return;
+  webhookPassRunning = true;
+  void alertWebhooks
+    .tick()
+    .catch((err) => app.log.error({ err }, 'svc-notify alert webhook pass failed — due attempts wait for the next pass'))
+    .finally(() => {
+      webhookPassRunning = false;
+    });
+}, 2_000);
+alertWebhookPass.unref();
+
+/**
  * THE MAINTENANCE REMINDER SWEEP (SP-status-03): makes each published window's reminder rows and sends the due ones.
  * Fail-safe like the sweeps above: a tick that cannot run logs and waits for the next; a reminder it took and did not
  * settle is taken again when its lease runs out, and its delivery rows keep anyone from getting it twice.
@@ -668,6 +724,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     void (async () => {
       clearInterval(reaper);
       clearInterval(alertSweep);
+      clearInterval(alertWebhookPass);
       for (const sub of subscriptions) await sub.unsubscribe().catch(() => undefined);
       await app.close();
       await bus.close();

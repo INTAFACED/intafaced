@@ -227,6 +227,9 @@ export const priceAlertSchema = z.object({
   stopReason: z.enum(['burst']).nullable().optional(),
   // The price it watches. A service that does not send it watches the mark.
   source: z.enum(ALERT_SOURCES).optional(),
+  // How it reaches the person (J-charts-desk-10). A service that does not send them names no channel beyond the inbox.
+  channels: z.array(z.enum(['inapp', 'popup', 'sound', 'email', 'push', 'webhook'])).optional(),
+  webhookUrl: z.string().nullable().optional(),
 });
 export type PriceAlert = z.infer<typeof priceAlertSchema>;
 export type AlertFrequency = 'once' | 'every_crossing';
@@ -263,7 +266,15 @@ export interface AlertIntent {
   frequency?: AlertFrequency;
   /** Left out, the alert watches the mark. */
   source?: AlertSource;
+  /** Channels beyond the in-app inbox (which every alert writes). Left out, the inbox alone. */
+  channels?: AlertChannel[];
+  /** The webhook's URL, with the webhook channel. */
+  webhookUrl?: string;
 }
+
+/** How an alert reaches the person: the inbox always, and any of these. */
+export const ALERT_CHANNELS = ['inapp', 'popup', 'sound', 'email', 'push', 'webhook'] as const;
+export type AlertChannel = (typeof ALERT_CHANNELS)[number];
 
 export type AlertExtra = NonNullable<PriceAlert['extras']>[number];
 
@@ -337,6 +348,8 @@ export function createPriceAlert(
       ...(intent.extras && intent.extras.length > 0 ? { extras: intent.extras } : {}),
       ...(intent.frequency && intent.frequency !== 'once' ? { frequency: intent.frequency } : {}),
       ...(intent.source && intent.source !== 'mark' ? { source: intent.source } : {}),
+      ...(intent.channels && intent.channels.some((c) => c !== 'inapp') ? { channels: intent.channels } : {}),
+      ...(intent.webhookUrl && intent.channels?.includes('webhook') ? { webhookUrl: intent.webhookUrl } : {}),
     },
     z.object({
       alert: priceAlertSchema.refine(
@@ -609,3 +622,32 @@ export const stopWatchRule = (api: ApiClient, id: string): Promise<ApiResult<{ r
       .object({ rule: watchRuleSchema.nullable() })
       .refine(({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'), 'Returned rule does not match'),
   );
+
+// ── How an alert reaches the person (J-charts-desk-10, C-alerts-scan-04) ────────────────────────────────────────
+// `notify.alertWebhookPolicy` and `notify.alertWebhookAttempts` (notify:read).
+
+const webhookPolicySchema = z.object({
+  policy: z
+    .object({ maxAttempts: z.number().int().min(1), backoffMs: z.array(z.number().int().positive()) })
+    .refine((p) => p.backoffMs.length === p.maxAttempts - 1, 'one wait for each retry')
+    .nullable(),
+});
+export type WebhookPolicy = NonNullable<z.infer<typeof webhookPolicySchema>['policy']>;
+/** The webhook retry policy the service publishes; `policy: null` while the owner has not set it. */
+export const readWebhookPolicy = (api: ApiClient, signal?: AbortSignal) =>
+  api.query('notify', 'notify.alertWebhookPolicy', undefined, webhookPolicySchema, { signal });
+
+export const webhookAttemptSchema = z.object({
+  alertId: z.string(),
+  trigger: z.number().int(),
+  attempt: z.number().int(),
+  status: z.enum(['pending', 'delivered', 'failed']),
+  httpStatus: z.number().int().nullable(),
+  error: z.string().nullable(),
+  dueAt: date,
+  attemptedAt: date.nullable(),
+});
+export type WebhookAttempt = z.infer<typeof webhookAttemptSchema>;
+/** Every webhook attempt of the person's alerts: the delivery log and its error diagnostics. */
+export const listWebhookAttempts = (api: ApiClient, signal?: AbortSignal) =>
+  api.query('notify', 'notify.alertWebhookAttempts', undefined, z.object({ items: z.array(webhookAttemptSchema).max(500) }), { signal });

@@ -392,6 +392,14 @@ export class AlertService {
     private readonly whaleMarks: MarkSource = createDarkWhaleMarkSource(),
     private readonly limits: AlertLimits = NO_ALERT_LIMITS,
     private readonly triggerLog: AlertTriggerLog = new MemoryAlertTriggerLog(),
+    /**
+     * Called once a trigger has reached the inbox, before the alert is counted or marked fired, so a crash between the two
+     * calls it again on the retried sweep: it must be idempotent per (alert, trigger number). The webhook queue is one.
+     */
+    private readonly onFired?: (
+      alert: PriceAlert,
+      trigger: { seq: number; markPrice: string; at: Date; message: string | null },
+    ) => Promise<void>,
   ) {}
 
   /** The person's trigger log, newest first. Refuses while the owner has not set how long it is kept. */
@@ -885,6 +893,10 @@ export class AlertService {
         // the (alert id, number) key makes the second record a no-op. A blank retention writes no log; the alert fires regardless.
         if (this.limits.triggerLogDays !== null) {
           await this.triggerLog.record(triggerOf(alert, outcome.markPrice, at, notificationId, seq));
+        }
+        if (this.onFired) {
+          const message = alert.message ? renderAlertMessage(alert.message, alert, outcome.markPrice, at) : null;
+          await this.onFired(alert, { seq, markPrice: outcome.markPrice, at, message });
         }
         // Known limit: a crash between the inbox write above and this count leaves the count and the remembered side as they
         // were. The retry sends nothing new (same key). If the mark has fallen back across the level before that retry, the

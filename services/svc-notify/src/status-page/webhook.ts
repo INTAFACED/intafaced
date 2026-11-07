@@ -78,7 +78,12 @@ export function privateAddress(ip: string): boolean {
  * connection goes to a checked address. A name that resolves to a private address at send time is refused, so a
  * second lookup cannot slip in another answer. Redirects are not followed.
  */
-export type WebhookPost = (url: string, body: string, headers: Record<string, string>, timeoutMs: number) => Promise<{ ok: boolean }>;
+export type WebhookPost = (
+  url: string,
+  body: string,
+  headers: Record<string, string>,
+  timeoutMs: number,
+) => Promise<{ ok: boolean; status?: number }>;
 
 export function pinnedPost(resolve: Resolver = systemResolver): WebhookPost {
   return (raw, body, headers, timeoutMs) =>
@@ -111,7 +116,7 @@ export function pinnedPost(resolve: Resolver = systemResolver): WebhookPost {
         },
         (res) => {
           res.resume();
-          res.on('end', () => settle({ ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300 }));
+          res.on('end', () => settle({ ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300, status: res.statusCode ?? 0 }));
         },
       );
       req.on('timeout', () => req.destroy(new Error('webhook timeout')));

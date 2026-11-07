@@ -29,6 +29,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     NOTIFY_ALERT_FREQUENCIES: 'every_crossing',
     NOTIFY_ALERT_BURST_WINDOW_MINUTES: '10',
     NOTIFY_ALERT_BURST_MAX_TRIGGERS: '5',
+    // LOCAL TEST only: the alert webhook's published retry policy (the labelled values in test-owner-values/notify.json), and
+    // the switch that lets an alert webhook POST to a TEST receiver on this machine's loopback (J-charts-desk-10 #3, #4).
+    // svc-notify refuses the switch at boot unless APP_ENV is exactly dev or test; production keeps every address check.
+    NOTIFY_ALERT_WEBHOOK_MAX_ATTEMPTS: '3',
+    NOTIFY_ALERT_WEBHOOK_BACKOFF_MS: '5000,10000',
+    NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER: 'on',
     // LOCAL TEST only: the page of svc-trade's market list the alert marks read (trade's own cap). Unset, every live
     // quote refuses notify.markets_list_limit_unset and no alert can fire on the stack.
     NOTIFY_MARKETS_LIST_LIMIT: '500',

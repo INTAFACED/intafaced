@@ -827,6 +827,19 @@ a row. A redelivery reuses the same key and cannot double-send.
   (`alert.quota_reached`, with how many are open and how many were asked for), a market named twice is made once, and a blank cap
   or price refuses as a single create does. This batch holds no watchlist: the caller sends the markets, so a later addition
   is not picked up. Following a list (below) does pick additions up.
+- How an alert reaches the person (J-charts-desk-10, C-alerts-scan-04): `notify.createAlert` takes `channels` (any of `popup`,
+  `sound`, `email`, `push`, `webhook`; the in-app inbox is always on) and a `webhookUrl`, stored in `notify.alert_channels`
+  (migration `20261107092357`); `notify.alerts` returns each alert's channels. Email and push go through the fan-out's own
+  channels, which refuse by name while their gateway is not configured, so nothing reports an alert as emailed or pushed.
+  Popup and sound are played by the customer app while it is open. The webhook is our own adapter: when an alert fires, one
+  attempt per trigger is queued (`notify.alert_webhook_attempts`, keyed alert, trigger and attempt), and a pass every two
+  seconds POSTs each due attempt once with the alert's JSON body. A failure queues the next attempt after the published wait,
+  until the last: `NOTIFY_ALERT_WEBHOOK_MAX_ATTEMPTS` (every POST, the first included) and `NOTIFY_ALERT_WEBHOOK_BACKOFF_MS`
+  (comma-separated waits, one per retry), both blank by default, which refuses the webhook channel
+  (`notify.alert_webhook_policy_unset`). `notify.alertWebhookPolicy` publishes the policy; `notify.alertWebhookAttempts` is the
+  person's delivery log with each HTTP status or error. A webhook URL must be https to a public address, checked on save and
+  pinned on send. `NOTIFY_ALERT_WEBHOOK_LOCAL_TEST_RECEIVER=on` lets a TEST receiver on this machine's loopback through, and
+  boot refuses it unless APP_ENV is exactly dev or test.
 - Following a watchlist (J-charts-desk-09 #7, C-alerts-scan-03d): `notify.createWatchlistAlert({listId, condition, targetPrice})`
   reads the person's account lists from identity (`preferences.watchlistsFor`, a service-only door svc-notify alone may call,
   signed with its own key once S2S is on, else `INTERNAL_SERVICE_SECRET`; `IDENTITY_URL`), maps each symbol to its market id

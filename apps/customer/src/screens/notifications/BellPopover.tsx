@@ -6,6 +6,7 @@ import { notifyCopy } from './copy';
 import { announceChange } from './notify-api';
 import { InboxFailure, NotificationRow } from './NotificationRow';
 import { useInboxView, useUnreadCount } from './use-notifications';
+import { AlertCues } from './AlertCues';
 
 /** How many notifications the popover lists; the rest are one click away under "See all". */
 export const POPOVER_ITEMS = 8;
@@ -33,31 +34,34 @@ export function BellPopover({ path }: { path?: string }) {
   }, [path]);
   const shown = unread && unread > 99 ? '99+' : unread;
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={<button type="button" />}
-        data-testid="tb-bell"
-        className="tb-icon-button tb-bell"
-        aria-label={unread ? copy.t('Notifications, {count} unread', { count: shown ?? 0 }) : copy.t('Notifications')}
-      >
-        <Bell size={18} aria-hidden="true" />
-        {unread ? (
-          <span data-testid="tb-badge" className="tb-badge">
-            {shown}
-          </span>
-        ) : null}
-      </PopoverTrigger>
-      <PopoverContent
-        side="bottom"
-        align="end"
-        sideOffset={8}
-        data-testid="nf-pop"
-        className="nf-pop w-[400px] max-w-[calc(100vw-16px)] p-0"
-        initialFocus={inner}
-      >
-        <BellContent unread={unread ?? 0} onClose={() => setOpen(false)} innerRef={inner} />
-      </PopoverContent>
-    </Popover>
+    <>
+      <AlertCues unread={unread} />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={<button type="button" />}
+          data-testid="tb-bell"
+          className="tb-icon-button tb-bell"
+          aria-label={unread ? copy.t('Notifications, {count} unread', { count: shown ?? 0 }) : copy.t('Notifications')}
+        >
+          <Bell size={18} aria-hidden="true" />
+          {unread ? (
+            <span data-testid="tb-badge" className="tb-badge">
+              {shown}
+            </span>
+          ) : null}
+        </PopoverTrigger>
+        <PopoverContent
+          side="bottom"
+          align="end"
+          sideOffset={8}
+          data-testid="nf-pop"
+          className="nf-pop w-[400px] max-w-[calc(100vw-16px)] p-0"
+          initialFocus={inner}
+        >
+          <BellContent unread={unread ?? 0} onClose={() => setOpen(false)} innerRef={inner} />
+        </PopoverContent>
+      </Popover>
+    </>
   );
 }
 

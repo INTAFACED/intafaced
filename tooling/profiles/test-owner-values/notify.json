@@ -55,6 +55,16 @@
       "service": "notify",
       "value": "99",
       "note": "Bell badge ceiling (J-home-ia-05)."
+    },
+    "NOTIFY_ALERT_WEBHOOK_MAX_ATTEMPTS": {
+      "service": "notify",
+      "value": "3",
+      "note": "Alert webhook retry policy: every POST of one trigger, the first included (J-charts-desk-10 #4)."
+    },
+    "NOTIFY_ALERT_WEBHOOK_BACKOFF_MS": {
+      "service": "notify",
+      "value": "5000,10000",
+      "note": "Alert webhook retry policy: the wait before each retry, in milliseconds (J-charts-desk-10 #4)."
     }
   }
 }
