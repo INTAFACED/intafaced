@@ -267,7 +267,13 @@ export function SupportChatRoom() {
         ) : (
           <>
             <form className="support-chat__compose" onSubmit={(e) => void send(e)}>
-              <Field label={t('composeLabel')} name="chat-message" value={draft} maxLength={2000} onChange={(e) => setDraft(e.target.value)} />
+              <Field
+                label={t('composeLabel')}
+                name="chat-message"
+                value={draft}
+                maxLength={2000}
+                onChange={(e) => setDraft(e.target.value)}
+              />
               <Button type="submit" disabled={busy !== null || !draft.trim()}>
                 {busy === 'send' ? t('sending') : t('send')}
               </Button>
@@ -323,7 +329,14 @@ export function SupportChatRoom() {
           )}
           <Hours hours={availability.hours} t={t} />
           {!signedIn && availability.prechatFields.includes('name') && (
-            <Field label={t('nameLabel')} name="chat-name" required maxLength={120} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Field
+              label={t('nameLabel')}
+              name="chat-name"
+              required
+              maxLength={120}
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
           )}
           {!signedIn && availability.prechatFields.includes('email') && (
             <Field

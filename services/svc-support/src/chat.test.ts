@@ -24,7 +24,15 @@ const BOB = '22222222-2222-4222-8222-222222222222';
 const AGENT = '33333333-3333-4333-8333-333333333333';
 
 function staff(availability: StaffMember['availability'], userId = AGENT): StaffMember {
-  return { userId, role: 'agent', appointedBy: AGENT, appointedAt: '2026-11-01T00:00:00.000Z', availability, availabilitySetAt: null, lastHeartbeatAt: null };
+  return {
+    userId,
+    role: 'agent',
+    appointedBy: AGENT,
+    appointedAt: '2026-11-01T00:00:00.000Z',
+    availability,
+    availabilitySetAt: null,
+    lastHeartbeatAt: null,
+  };
 }
 
 function world(overrides: Partial<ChatSettings> = {}, profiles: Record<string, 'individual' | 'business'> = {}) {
@@ -37,7 +45,13 @@ function world(overrides: Partial<ChatSettings> = {}, profiles: Record<string, '
     async createTicket(input: Parameters<ChatTicketDesk['createTicket']>[0]) {
       const prior = tickets.find((t) => (t as SupportTicket & { key: string }).key === input.clientRequestId);
       if (prior) return prior;
-      const t = { id: randomUUID(), userId: input.userId, subject: input.subject, body: input.body, key: input.clientRequestId } as unknown as SupportTicket;
+      const t = {
+        id: randomUUID(),
+        userId: input.userId,
+        subject: input.subject,
+        body: input.body,
+        key: input.clientRequestId,
+      } as unknown as SupportTicket;
       tickets.push(t);
       return t;
     },
@@ -55,7 +69,14 @@ function world(overrides: Partial<ChatSettings> = {}, profiles: Record<string, '
     ...overrides,
   };
   const book = new MemoryChatBook();
-  const chat = new SupportChat(book, desk, source, settings, async () => null, () => now);
+  const chat = new SupportChat(
+    book,
+    desk,
+    source,
+    settings,
+    async () => null,
+    () => now,
+  );
   return { chat, book, desk, tickets, tick: (ms: number) => (now = new Date(now.getTime() + ms)) };
 }
 
@@ -79,7 +100,9 @@ describe('identity claims', () => {
     const claim = signIdentityClaim(SECRET, ALICE, new Date(now.getTime() + 60_000));
     expect(verifyIdentityClaim('c'.repeat(64), claim, now)).toBeNull();
     const [payload, sig] = claim.split('.');
-    const edited = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(payload!, 'base64url').toString()), u: BOB })).toString('base64url');
+    const edited = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(payload!, 'base64url').toString()), u: BOB })).toString(
+      'base64url',
+    );
     expect(verifyIdentityClaim(SECRET, `${edited}.${sig}`, now)).toBeNull();
     expect(verifyIdentityClaim(SECRET, BOB, now)).toBeNull();
   });
@@ -98,7 +121,9 @@ describe('opening a chat', () => {
     const { chat, desk } = world();
     desk.members = [staff('offline')];
     expect((await chat.availability()).agents).toBe('offline');
-    await expect(chat.open(ALICE, { clientKey: key(), message: 'hello' })).rejects.toMatchObject({ code: 'support.chat_agent_unavailable' });
+    await expect(chat.open(ALICE, { clientKey: key(), message: 'hello' })).rejects.toMatchObject({
+      code: 'support.chat_agent_unavailable',
+    });
   });
 
   it('a guest fills in the pre-chat form: one enquiry with source chat, the address sealed and never answered', async () => {
@@ -149,9 +174,15 @@ describe('opening a chat', () => {
   it('reads the profile type from identity; unread when identity cannot answer, and none for a guest', async () => {
     const { chat } = world({}, { [ALICE]: 'business' });
     const business = await chat.open(ALICE, { clientKey: key(), message: 'hi' });
-    expect((await chat.deskPoll({ sessionId: business.session.id, after: 0 })).session).toMatchObject({ profileType: 'business', profileRead: 'read' });
+    expect((await chat.deskPoll({ sessionId: business.session.id, after: 0 })).session).toMatchObject({
+      profileType: 'business',
+      profileRead: 'read',
+    });
     const unread = await chat.open(BOB, { clientKey: key(), message: 'hi' });
-    expect((await chat.deskPoll({ sessionId: unread.session.id, after: 0 })).session).toMatchObject({ profileType: null, profileRead: 'unread' });
+    expect((await chat.deskPoll({ sessionId: unread.session.id, after: 0 })).session).toMatchObject({
+      profileType: null,
+      profileRead: 'unread',
+    });
   });
 
   it('a card number in a chat message is refused before anything is stored', async () => {
@@ -195,9 +226,11 @@ describe('messages', () => {
     const { chat, tick } = world({ rateLimit: 2 });
     const { session } = await chat.open(ALICE, { clientKey: key(), message: 'one' });
     await chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000002', body: 'two' });
-    await expect(chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000003', body: 'three' })).rejects.toMatchObject({
-      code: 'support.chat_rate_limited',
-    });
+    await expect(chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000003', body: 'three' })).rejects.toMatchObject(
+      {
+        code: 'support.chat_rate_limited',
+      },
+    );
     tick(60_000);
     await expect(chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000003', body: 'three' })).resolves.toBeTruthy();
   });
@@ -205,11 +238,15 @@ describe('messages', () => {
   it('someone else, or a wrong token, reads the chat as not there', async () => {
     const { chat } = world();
     const opened = await chat.open(null, { clientKey: key(), prechat: { name: 'A', email: 'a@b.invalid' }, message: 'hello' });
-    await expect(chat.poll({ userId: BOB }, { sessionId: opened.session.id, after: 0 })).rejects.toMatchObject({ code: 'support.chat_not_found' });
+    await expect(chat.poll({ userId: BOB }, { sessionId: opened.session.id, after: 0 })).rejects.toMatchObject({
+      code: 'support.chat_not_found',
+    });
     await expect(chat.poll({ userId: null, accessToken: key() }, { sessionId: opened.session.id, after: 0 })).rejects.toMatchObject({
       code: 'support.chat_not_found',
     });
-    await expect(chat.poll({ userId: null, accessToken: opened.accessToken }, { sessionId: opened.session.id, after: 0 })).resolves.toBeTruthy();
+    await expect(
+      chat.poll({ userId: null, accessToken: opened.accessToken }, { sessionId: opened.session.id, after: 0 }),
+    ).resolves.toBeTruthy();
   });
 });
 
@@ -277,13 +314,17 @@ describe('continue by email', () => {
     const { chat } = world();
     const { session } = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
     expect(await chat.continueByEmail({ userId: ALICE }, session.id)).toMatchObject({ status: 'not_connected', code: 'vendor.email' });
-    await expect(chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000002', body: 'still here' })).resolves.toBeTruthy();
+    await expect(
+      chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000002', body: 'still here' }),
+    ).resolves.toBeTruthy();
   });
 });
 
 describe('identity token', () => {
   it('is refused while the owner has not set its lifetime', () => {
-    expect(() => world({ identityTtlSeconds: null }).chat.identityToken(ALICE)).toThrow(expect.objectContaining({ code: 'support.chat_identity_ttl_unset' }));
+    expect(() => world({ identityTtlSeconds: null }).chat.identityToken(ALICE)).toThrow(
+      expect.objectContaining({ code: 'support.chat_identity_ttl_unset' }),
+    );
   });
   it('opens a chat as that account from a page with no session of ours', async () => {
     const { chat } = world();

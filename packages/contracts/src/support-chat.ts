@@ -84,9 +84,7 @@ const accessToken = z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/, 'E
 const sessionId = z.string().guid();
 
 /** A claim svc-support signed for a signed-in session, for a page that embeds the chat. Short-lived, one account. */
-export const supportChatIdentityTokenSchema = z
-  .object({ token: z.string().min(16).max(600), expiresAt: z.string() })
-  .strict();
+export const supportChatIdentityTokenSchema = z.object({ token: z.string().min(16).max(600), expiresAt: z.string() }).strict();
 export type SupportChatIdentityToken = z.infer<typeof supportChatIdentityTokenSchema>;
 
 /**
@@ -171,9 +169,7 @@ export const supportChatSendInputSchema = z
   .strict();
 export type SupportChatSendInput = z.infer<typeof supportChatSendInputSchema>;
 
-export const supportChatPollInputSchema = z
-  .object({ ...sessionRef, after: z.number().int().min(0) })
-  .strict();
+export const supportChatPollInputSchema = z.object({ ...sessionRef, after: z.number().int().min(0) }).strict();
 export type SupportChatPollInput = z.infer<typeof supportChatPollInputSchema>;
 
 export const supportChatPollSchema = z

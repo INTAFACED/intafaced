@@ -86,7 +86,11 @@ test(`${J} #1 with no agent online, the chat panel shows the request form and th
   await offline.getByRole('link', { name: 'Send a request instead' }).click();
   await expect(page).toHaveURL(/\/support\/new$/);
   // Nothing can be opened while nobody is on the desk.
-  const res = await anonymous('chatOpen', { clientKey: key(), prechat: { name: 'TEST', email: `j05-${RUN}@local-test.invalid` }, message: 'TEST hi' });
+  const res = await anonymous('chatOpen', {
+    clientKey: key(),
+    prechat: { name: 'TEST', email: `j05-${RUN}@local-test.invalid` },
+    message: 'TEST hi',
+  });
   expect(JSON.stringify(res.body)).toContain('support.chat_agent_unavailable');
   await page.context().close();
 });
@@ -132,7 +136,11 @@ test(`${J} #3 signed in, a page that names a different identity: their own signe
   expect(claim, 'the other account can get a claim for itself').toBeTruthy();
 
   // Signed in as me, the page names the other account: my own signed identity is used and the claim fails.
-  const signedIn = await mine.post('/api/support/trpc/chatOpen', { clientKey: key(), identity: claim, message: `TEST ${J} ${RUN} #3 signed in` });
+  const signedIn = await mine.post('/api/support/trpc/chatOpen', {
+    clientKey: key(),
+    identity: claim,
+    message: `TEST ${J} ${RUN} #3 signed in`,
+  });
   expect(signedIn.status, JSON.stringify(signedIn.body).slice(0, 300)).toBe(200);
   const opened = signedIn.body.result.data.session;
   expect(opened).toMatchObject({ identity: 'account', claim: 'refused', claimRefusal: 'support.chat_identity_invalid' });
@@ -144,7 +152,12 @@ test(`${J} #3 signed in, a page that names a different identity: their own signe
     'base64url',
   );
   for (const forged of [`${renamed}.${signature}`, `not-a-claim-${RUN}`]) {
-    const res = await anonymous('chatOpen', { clientKey: key(), identity: forged, prechat: { name: 'TEST', email: `j05-${RUN}@local-test.invalid` }, message: 'TEST #3' });
+    const res = await anonymous('chatOpen', {
+      clientKey: key(),
+      identity: forged,
+      prechat: { name: 'TEST', email: `j05-${RUN}@local-test.invalid` },
+      message: 'TEST #3',
+    });
     expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
     const guest = res.body.result.data.session;
     expect(guest).toMatchObject({ identity: 'guest', claim: 'refused', claimRefusal: 'support.chat_identity_invalid' });
@@ -158,7 +171,11 @@ test(`${J} #3 signed in, a page that names a different identity: their own signe
   await expect(room.getByLabel('Your name')).toHaveCount(0);
   await room.getByRole('button', { name: 'Start chat' }).click();
   await expect(room).toHaveAttribute('data-chat-status', /waiting|active/);
-  expect((await deskChat((await keptChat(page)).sessionId)).session).toMatchObject({ identity: 'account', userId: mine.userId, claim: 'none' });
+  expect((await deskChat((await keptChat(page)).sessionId)).session).toMatchObject({
+    identity: 'account',
+    userId: mine.userId,
+    claim: 'none',
+  });
   await page.context().close();
 });
 
@@ -272,13 +289,17 @@ test(`${J} #6 a business customer's chat becomes a request carrying the business
   expect((await deskChat(theirs.body.result.data.session.id)).session.profileType).toBe('individual');
 });
 
-test(`${J} #7 asking to continue by email: without a mailbox the notice names vendor.email and the chat stays open`, async ({ browser }) => {
+test(`${J} #7 asking to continue by email: without a mailbox the notice names vendor.email and the chat stays open`, async ({
+  browser,
+}) => {
   await availability({ lead: 'offline', agent: 'online' });
   const { page, room, kept } = await customerInChat(browser, 'j05em', `TEST ${J} ${RUN} #7 email me`);
   await room.getByRole('button', { name: 'Continue by email' }).click();
   const notice = room.getByTestId('support-chat-email-notice');
   await expect(notice).toBeVisible();
-  await expect(notice.locator('[data-not-connected="vendor.email"]')).toContainText('Continuing this chat by email needs an email delivery provider.');
+  await expect(notice.locator('[data-not-connected="vendor.email"]')).toContainText(
+    'Continuing this chat by email needs an email delivery provider.',
+  );
   await expect(notice).toContainText('vendor.email');
   // Nothing was lost: the chat is still open and takes a message.
   await expect(room).not.toHaveAttribute('data-chat-status', 'closed');
@@ -319,9 +340,17 @@ test(`${J} #8 closing the chat leaves one request holding the transcript, and th
   expect(ticket.body).toContain(opening);
   expect(ticket.body).toContain(reply);
   // The closed chat cannot be written to, by the customer or the agent.
-  const write = await customer.post('/api/support/trpc/chatSend', { sessionId: kept.sessionId, clientMessageId: `j05:${RUN}:late`, body: 'TEST late' });
+  const write = await customer.post('/api/support/trpc/chatSend', {
+    sessionId: kept.sessionId,
+    clientMessageId: `j05:${RUN}:late`,
+    body: 'TEST late',
+  });
   expect(JSON.stringify(write.body)).toContain('support.chat_closed');
-  const late = await asDesk('agent', 'mutation', 'chatReply', { sessionId: kept.sessionId, clientMessageId: `j05:${RUN}:late-r`, body: 'TEST late' });
+  const late = await asDesk('agent', 'mutation', 'chatReply', {
+    sessionId: kept.sessionId,
+    clientMessageId: `j05:${RUN}:late-r`,
+    body: 'TEST late',
+  });
   expect(late.text).toContain('support.chat_closed');
   // And the page links the request.
   await closed.getByRole('link', { name: 'Open the request' }).click();

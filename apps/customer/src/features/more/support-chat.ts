@@ -15,10 +15,16 @@ import { contractProcedure } from '../../shared/contract-call';
 
 /** Live chat (SP-chat-01): public calls, so a guest can chat. Keys and tokens go in the POST body, never in an address. */
 export const chatAvailability = contractProcedure('support', 'chatAvailability', { output: supportChatAvailabilitySchema });
-export const chatOpen = contractProcedure('support', 'chatOpen', { input: supportChatOpenInputSchema, output: supportChatOpenResultSchema });
+export const chatOpen = contractProcedure('support', 'chatOpen', {
+  input: supportChatOpenInputSchema,
+  output: supportChatOpenResultSchema,
+});
 export const chatSend = contractProcedure('support', 'chatSend', { input: supportChatSendInputSchema, output: supportChatMessageSchema });
 export const chatPoll = contractProcedure('support', 'chatPoll', { input: supportChatPollInputSchema, output: supportChatPollSchema });
-export const chatClose = contractProcedure('support', 'chatClose', { input: supportChatSessionInputSchema, output: supportChatSessionSchema });
+export const chatClose = contractProcedure('support', 'chatClose', {
+  input: supportChatSessionInputSchema,
+  output: supportChatSessionSchema,
+});
 export const chatContinueByEmail = contractProcedure('support', 'chatContinueByEmail', {
   input: supportChatSessionInputSchema,
   output: supportChatEmailResultSchema,

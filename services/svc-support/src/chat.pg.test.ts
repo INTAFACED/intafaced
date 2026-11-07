@@ -65,7 +65,15 @@ if (!url) {
     claimSecret: 'a'.repeat(64),
   };
   const staff: StaffMember[] = [
-    { userId: AGENT, role: 'agent', appointedBy: AGENT, appointedAt: '2026-11-01T00:00:00.000Z', availability: 'online', availabilitySetAt: null, lastHeartbeatAt: null },
+    {
+      userId: AGENT,
+      role: 'agent',
+      appointedBy: AGENT,
+      appointedAt: '2026-11-01T00:00:00.000Z',
+      availability: 'online',
+      availabilitySetAt: null,
+      lastHeartbeatAt: null,
+    },
   ];
   // The request a chat becomes, written as the support store writes one, keyed like `createTicketOnce`.
   const made = new Map<string, Promise<SupportTicket>>();
@@ -88,7 +96,10 @@ if (!url) {
     it('the same key opened twice at once is one chat with one first message', async () => {
       const chat = chatOf();
       const k = key();
-      const [a, b] = await Promise.all([chat.open(ALICE, { clientKey: k, message: 'hello' }), chat.open(ALICE, { clientKey: k, message: 'hello' })]);
+      const [a, b] = await Promise.all([
+        chat.open(ALICE, { clientKey: k, message: 'hello' }),
+        chat.open(ALICE, { clientKey: k, message: 'hello' }),
+      ]);
       expect(a.session.id).toBe(b.session.id);
       expect(a.accessToken).toBe(b.accessToken);
       expect(await db.sql`SELECT 1 FROM support.chat_sessions`).toHaveLength(1);
@@ -112,7 +123,9 @@ if (!url) {
       const { session } = await chat.open(ALICE, { clientKey: key(), message: 'one' });
       await chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000002', body: 'two' });
       await chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000003', body: 'three' });
-      await expect(chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000004', body: 'four' })).rejects.toMatchObject({
+      await expect(
+        chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000004', body: 'four' }),
+      ).rejects.toMatchObject({
         code: 'support.chat_rate_limited',
       });
       expect(await db.sql`SELECT 1 FROM support.chat_messages WHERE session_id = ${session.id}`).toHaveLength(3);
@@ -120,8 +133,14 @@ if (!url) {
 
     it('a guest enquiry keeps the address sealed, and the erase sweep removes it after the retention', async () => {
       const chat = chatOf();
-      const opened = await chat.open(null, { clientKey: key(), prechat: { name: 'TEST', email: 'guest@local-test.invalid' }, message: 'hi' });
-      const rows = await db.sql<{ address_sealed: string | null; source: string }[]>`SELECT address_sealed, source FROM support.chat_enquiries`;
+      const opened = await chat.open(null, {
+        clientKey: key(),
+        prechat: { name: 'TEST', email: 'guest@local-test.invalid' },
+        message: 'hi',
+      });
+      const rows = await db.sql<
+        { address_sealed: string | null; source: string }[]
+      >`SELECT address_sealed, source FROM support.chat_enquiries`;
       expect(rows).toHaveLength(1);
       expect(rows[0]!.source).toBe('chat');
       expect(rows[0]!.address_sealed).not.toContain('guest@');
@@ -143,7 +162,9 @@ if (!url) {
       const source = await chat.requestSource(a.ticketId!);
       expect(source).toMatchObject({ source: 'chat', sessionId: session.id, profileType: 'business', profileRead: 'read' });
       expect(source!.transcript.map((m) => m.body)).toEqual(['hello', 'hi there']);
-      await expect(chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000009', body: 'late' })).rejects.toMatchObject({
+      await expect(
+        chat.send({ userId: ALICE }, { sessionId: session.id, clientMessageId: 'm-000009', body: 'late' }),
+      ).rejects.toMatchObject({
         code: 'support.chat_closed',
       });
       await expect(db.sql`UPDATE support.chat_sessions SET ticket_id = NULL, status = 'active' WHERE id = ${session.id}`).rejects.toThrow();

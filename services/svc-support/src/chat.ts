@@ -71,7 +71,13 @@ import type { StaffMember } from './desk-staff.js';
 /** The part of the support service a chat uses: the desk's members as they read now, and the request a chat becomes. */
 export interface ChatTicketDesk {
   listStaff(): Promise<StaffMember[]>;
-  createTicket(input: { userId: string; category: 'other'; subject: string; body: string; clientRequestId: string }): Promise<SupportTicket>;
+  createTicket(input: {
+    userId: string;
+    category: 'other';
+    subject: string;
+    body: string;
+    clientRequestId: string;
+  }): Promise<SupportTicket>;
 }
 
 /** The profile type of an account, read from svc-identity per chat; null when identity could not answer. */
@@ -100,7 +106,10 @@ export function createChatProfileClient(
         const target = `${url}/internal/campaign-participant/${encodeURIComponent(userId)}`;
         const response = await fetch(target, {
           method: 'GET',
-          headers: { 'content-type': 'application/json', ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }) },
+          headers: {
+            'content-type': 'application/json',
+            ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
+          },
         });
         if (!response.ok) return null;
         const parsed = campaignParticipantSchema.safeParse(await response.json());
@@ -264,7 +273,16 @@ export class MemoryChatBook implements ChatBook {
   async open(session: Parameters<ChatBook['open']>[0], first: NewMessage, enquiry: EnquiryRow | null, rate: Rate) {
     const prior = [...this.sessions.values()].find((s) => s.clientKey === session.clientKey);
     if (prior) return { session: prior, first: this.messages.get(prior.id)![0]!, created: false };
-    const row: SessionRow = { ...session, id: randomUUID(), status: 'waiting', agentId: null, acceptedAt: null, ticketId: null, lastSeq: 1, closedAt: null };
+    const row: SessionRow = {
+      ...session,
+      id: randomUUID(),
+      status: 'waiting',
+      agentId: null,
+      acceptedAt: null,
+      ticketId: null,
+      lastSeq: 1,
+      closedAt: null,
+    };
     const message: SupportChatMessage = {
       id: randomUUID(),
       sessionId: row.id,
@@ -292,7 +310,8 @@ export class MemoryChatBook implements ChatBook {
     const list = this.messages.get(sessionId)!;
     const replay = list.find((x) => x.clientMessageId === m.clientMessageId);
     if (replay) {
-      if (replay.body !== m.body || replay.author !== m.author) throw new SupportError('that message key holds another message', SUPPORT_CHAT_MESSAGE_CONFLICT);
+      if (replay.body !== m.body || replay.author !== m.author)
+        throw new SupportError('that message key holds another message', SUPPORT_CHAT_MESSAGE_CONFLICT);
       return replay;
     }
     if (session.status === 'closed') throw new SupportError('this chat is closed', SUPPORT_CHAT_CLOSED);
@@ -350,7 +369,14 @@ export class MemoryChatBook implements ChatBook {
     return [...this.enquiryRows.entries()]
       .filter(([sid]) => sessionId === undefined || sid === sessionId)
       .slice(0, limit)
-      .map(([sid, e]) => ({ id: e.id, source: 'chat' as const, sessionId: sid, name: e.name, hasEmail: e.addressSealed !== null, createdAt: e.createdAt }));
+      .map(([sid, e]) => ({
+        id: e.id,
+        source: 'chat' as const,
+        sessionId: sid,
+        name: e.name,
+        hasEmail: e.addressSealed !== null,
+        createdAt: e.createdAt,
+      }));
   }
   async sourceOf(ticketId: string) {
     const sid = this.sources.get(ticketId);
@@ -385,7 +411,15 @@ type SessionDb = {
   closed_at: Date | null;
   fingerprint: string;
 };
-type MessageDb = { id: string; session_id: string; seq: number; author_role: 'customer' | 'agent'; client_message_id: string; body: string; created_at: Date };
+type MessageDb = {
+  id: string;
+  session_id: string;
+  seq: number;
+  author_role: 'customer' | 'agent';
+  client_message_id: string;
+  body: string;
+  created_at: Date;
+};
 
 const iso = (d: Date | string | null) => (d === null ? null : new Date(d).toISOString());
 const fromSession = (r: SessionDb): SessionRow => ({
@@ -478,7 +512,9 @@ export class SqlChatBook implements ChatBook {
       const locked = await tx<SessionDb[]>`SELECT * FROM support.chat_sessions WHERE id = ${sessionId} FOR UPDATE`;
       const session = locked[0];
       if (!session) throw new SupportError('no such chat', SUPPORT_CHAT_NOT_FOUND);
-      const replay = await tx<MessageDb[]>`SELECT * FROM support.chat_messages WHERE session_id = ${sessionId} AND client_message_id = ${m.clientMessageId}`;
+      const replay = await tx<
+        MessageDb[]
+      >`SELECT * FROM support.chat_messages WHERE session_id = ${sessionId} AND client_message_id = ${m.clientMessageId}`;
       if (replay[0]) {
         if (replay[0].body !== m.body || replay[0].author_role !== m.author)
           throw new SupportError('that message key holds another message', SUPPORT_CHAT_MESSAGE_CONFLICT);
@@ -559,7 +595,14 @@ export class SqlChatBook implements ChatBook {
       SELECT id, session_id, name, address_sealed IS NOT NULL AS has_email, created_at FROM support.chat_enquiries
       WHERE (${sessionId ?? null}::uuid IS NULL OR session_id = ${sessionId ?? null}::uuid)
       ORDER BY created_at DESC, id DESC LIMIT ${limit}`;
-    return rows.map((r) => ({ id: r.id, source: 'chat' as const, sessionId: r.session_id, name: r.name, hasEmail: r.has_email, createdAt: iso(r.created_at)! }));
+    return rows.map((r) => ({
+      id: r.id,
+      source: 'chat' as const,
+      sessionId: r.session_id,
+      name: r.name,
+      hasEmail: r.has_email,
+      createdAt: iso(r.created_at)!,
+    }));
   }
 
   async sourceOf(ticketId: string) {
@@ -622,7 +665,9 @@ export class SupportChat {
     const asked = new Set(this.settings.prechatFields);
     for (const field of Object.keys(prechat) as SupportChatPrechatField[])
       if (!guest || !asked.has(field)) throw new SupportError(`the pre-chat form does not ask for ${field}`, SUPPORT_CHAT_PRECHAT_INVALID);
-    if (guest) for (const field of asked) if (!prechat[field]) throw new SupportError(`the pre-chat form needs ${field}`, SUPPORT_CHAT_PRECHAT_INVALID);
+    if (guest)
+      for (const field of asked)
+        if (!prechat[field]) throw new SupportError(`the pre-chat form needs ${field}`, SUPPORT_CHAT_PRECHAT_INVALID);
     const fingerprint = sha256(JSON.stringify([owner.userId, owner.claim, prechat.name ?? null, prechat.email ?? null, input.message]));
     const known = await this.knownOpen(input.clientKey, fingerprint);
     if (known) return known;
@@ -696,7 +741,13 @@ export class SupportChat {
     refuseCommentSecret(input.body);
     return this.book.add(
       session.id,
-      { author: 'customer', authorId: session.userId, clientMessageId: input.clientMessageId, body: input.body, at: this.now().toISOString() },
+      {
+        author: 'customer',
+        authorId: session.userId,
+        clientMessageId: input.clientMessageId,
+        body: input.body,
+        at: this.now().toISOString(),
+      },
       this.rate(),
     );
   }
@@ -747,7 +798,11 @@ export class SupportChat {
   async deskPoll(input: { sessionId: string; after: number }) {
     const s = await this.book.get(input.sessionId);
     if (!s) throw new SupportError('no such chat', SUPPORT_CHAT_NOT_FOUND);
-    return { session: this.deskView(s), messages: await this.book.after(s.id, input.after, SUPPORT_CHAT_PAGE_MAX), pollMs: SUPPORT_CHAT_POLL_MS };
+    return {
+      session: this.deskView(s),
+      messages: await this.book.after(s.id, input.after, SUPPORT_CHAT_PAGE_MAX),
+      pollMs: SUPPORT_CHAT_POLL_MS,
+    };
   }
 
   async deskClose(agentId: string, sessionId: string): Promise<SupportChatDeskSession> {
