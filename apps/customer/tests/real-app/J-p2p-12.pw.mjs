@@ -222,7 +222,7 @@ test('J-p2p-12 #2 the completion rate shows 30 days and all time with its defini
   await expect(mine.locator('[data-counterparty-metric="completion-total"]')).toHaveText('50.00%');
   const form = mine.getByRole('form', { name: 'Appeal one order' });
   await expect(form).toContainText('You can appeal one order, once.');
-  await form.getByLabel('Order').selectOption(cancelled.id);
+  await form.getByLabel('Order', { exact: true }).selectOption(cancelled.id);
   await form.getByLabel('Why this order should not count').fill('TEST the seller asked me to cancel');
   await form.getByRole('button', { name: 'Send appeal' }).click();
   await expect(mine.getByTestId('appeal-status')).toContainText('Your appeal is with support');
