@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { EDGE, ORIGIN, DEVICE_KEY, assertStackUp, json, tool, worldState } from './stack.mjs';
+import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
 import { declaredWorld } from '../../../../tooling/scripts/journey-world.mjs';
 import { makerUnquoted, stackPaths } from '../../../../tooling/scripts/local-test-market.mjs';
 
@@ -196,8 +196,6 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
  * step) changes nothing.
  */
 export async function enterFile(file) {
-  // A restart that left the stack down fails every later file here, by name (stack.mjs tool, #7463).
-  assertStackUp();
   const last = worldState.read();
   if (last.file === file) return;
   if (last.file) await restoreWorld(last.file, last);

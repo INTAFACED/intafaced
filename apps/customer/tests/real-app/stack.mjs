@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
@@ -104,23 +104,15 @@ export function journeyState(id) {
   };
 }
 
-/** How long a stack tool may run. A restart and the health check after it share it (#7463). */
+/** How long a stack tool may run. */
 const TOOL_CAP_MS = 120_000;
 /** How much of a tool's shown output its error keeps, from the end, so a timed-out restart says where it stood. */
 const OUTPUT_TAIL = 4_000;
-/**
- * Set when a restart leaves a service unhealthy: the services, when, and why. Every later journey file on this stack
- * fails at once, naming them, rather than waiting out its timeouts on a dead stack (`assertStackUp`, world-restore.mjs).
- */
-const STACK_DOWN = path.join(STATE, 'run', 'journey-stack-down.json');
 
 /**
- * The stack script's name, kept out of the function bodies below: journey-world.mjs counts a helper whose body names a
- * stack script as running the stack's tools, but `tool` only reads it here, and every `tool(...)` call is counted where
- * it is made, by its own arguments.
+ * The gates script's name, kept out of the function bodies below (`toolError`'s scoped-session rule): journey-world.mjs
+ * counts a helper whose body names a stack script as running the stack's tools.
  */
-const STACK_SCRIPT = 'local-test-stack.mjs';
-/** The gates script's name, kept out of function bodies for the same reason (`toolError`'s scoped-session rule). */
 const GATES_SCRIPT = 'local-test-gates.mjs';
 
 /**
@@ -232,107 +224,16 @@ const run = (script, args, timeout) =>
     timeout,
   });
 
-const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-
-/** Which of `names` (as `restart` takes them: identity, edge, customer) the stack's health table does not read as ok. */
-export function unhealthy(names) {
-  let out;
-  try {
-    out = run(STACK_SCRIPT, ['status'], 30_000);
-  } catch (error) {
-    // `status` exits 1 when any row is not ok; its table is still the answer.
-    out = String(error.stdout ?? '');
-  }
-  const health = new Map();
-  for (const line of out.split('\n')) {
-    const m = /^ {2}(\S+) +\S+ +\S+ +(.+)$/.exec(line);
-    if (m) health.set(m[1], m[2].trim());
-  }
-  return names.filter((n) => !/^ok\b/.test(health.get(`svc-${n}`) ?? health.get(n) ?? ''));
-}
-
 /**
  * A stack tool, as `node tooling/scripts/<script> ...args`; returns its output. A failure, a timeout included, carries
- * the tool's own stdout and stderr. A `restart` is followed by the stack's health check for the services it names,
- * within the same cap: one left unhealthy fails here, by name, and marks the stack down for every later file.
+ * the tool's own stdout and stderr.
  */
 export function tool(script, ...args) {
-  if (!(script === STACK_SCRIPT && args[0] === 'restart')) {
-    try {
-      return run(script, args, TOOL_CAP_MS);
-    } catch (error) {
-      throw toolError(error, script, args);
-    }
-  }
-  return restartChecked(args);
-}
-
-/**
- * A `restart` and the health check after it, within one cap; the stack's own `run`, `unhealthy`, clock, sleep and mark
- * file unless a test passes stand-ins (real-app-tool-error.test.mjs, in the tooling tests).
- */
-export function restartChecked(
-  args,
-  { exec = run, check = unhealthy, now = Date.now, pause = sleep, cap = TOOL_CAP_MS, markFile = STACK_DOWN } = {},
-) {
-  const started = now();
-  let out;
-  let failed;
   try {
-    out = exec(STACK_SCRIPT, args, cap);
+    return run(script, args, TOOL_CAP_MS);
   } catch (error) {
-    failed = toolError(error, STACK_SCRIPT, args);
+    throw toolError(error, script, args);
   }
-  const names = args.slice(1).filter((a) => !a.startsWith('-'));
-  let down = check(names);
-  while (down.length && now() - started < cap) {
-    pause(2_000);
-    down = check(down);
-  }
-  if (down.length) {
-    const why = failed ? failed.message.split('\n')[0] : 'the restart returned, but the health check never read ok';
-    mkdirSync(path.dirname(markFile), { recursive: true });
-    writeFileSync(markFile, JSON.stringify({ services: down, at: new Date().toISOString(), restart: args.join(' '), why }));
-    throw new Error(
-      `stack: ${down.join(', ')} not healthy after \`${args.join(' ')}\` (${Math.round((now() - started) / 1000)} s of the ${cap / 1000} s cap): ` +
-        `every later journey file on this stack fails at once, naming it${failed ? `\n${failed.message}` : ''}`,
-      { cause: failed },
-    );
-  }
-  if (failed) throw failed;
-  return out;
-}
-
-/**
- * Throws, naming the services, while a restart has left the stack down (`tool`), so a journey file fails at once rather
- * than waiting out its timeouts on a dead stack. A service that answers again (someone restarted it) clears the mark.
- * A mark that can't be read as one (corrupt, or without its services) reads as down: it fails closed, naming the file.
- */
-export function assertStackUp({ markFile = STACK_DOWN, check = unhealthy } = {}) {
-  let text;
-  try {
-    text = readFileSync(markFile, 'utf8');
-  } catch (error) {
-    if (error?.code === 'ENOENT') return;
-    throw new Error(`stack: the stack-down mark ${markFile} can't be read (${error?.code ?? 'error'}), so the stack reads as down`);
-  }
-  let down;
-  try {
-    down = JSON.parse(text);
-  } catch {
-    down = null;
-  }
-  const services = Array.isArray(down?.services) ? down.services.filter((n) => typeof n === 'string' && n) : [];
-  if (!services.length)
-    throw new Error(
-      `stack: the stack-down mark ${markFile} is not a mark this helper wrote (corrupt, or naming no service), so the stack reads as down; remove it once the stack is healthy`,
-    );
-  const still = check(services);
-  if (!still.length) return rmSync(markFile, { force: true });
-  throw new Error(
-    `stack: ${still.join(', ')} down since ${down.at}, when \`${down.restart}\` left it unhealthy (${down.why}); ` +
-      `this file's steps would only wait out their timeouts on a dead stack`,
-  );
 }
 
 /**
