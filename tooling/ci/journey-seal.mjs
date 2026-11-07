@@ -666,8 +666,42 @@ export function recheckStep(runs, jobsByRun = new Map()) {
   return { act: 'fail', msg: `no CI run on this head has a ${SEAL} job (${prs.map((r) => r.id).join(', ')} finished with none)` };
 }
 
-/** Re-run the seal job on `sha` (recheckStep). `post`/`get` are the API (tests pass their own). */
-export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+/**
+ * Why a re-run of the seal on `sha` must not be posted now, or null. A job re-run is a new attempt of its CI run, and a
+ * new attempt joins ci.yml's concurrency group (`CI-refs/pull/<n>/merge`, cancel-in-progress off main), so it cancels
+ * whatever CI run of that pull request is still in flight. On 7 Nov 2026 a re-check that had waited out the run on
+ * 26f9c60d re-ran its seal at about 14:35 UTC, after the pull request's head had moved to 7ce4bf86f, and the new head's
+ * running CI was cancelled 17 s later. Read just before the re-run, never earlier:
+ * `pulls` are the named pull requests as they are now; `branchRuns` are ci.yml's pull_request runs on their head branches.
+ * Pure, so the table is testable.
+ */
+export function rerunBlocker({ sha, pulls, branchRuns }) {
+  for (const p of pulls ?? []) {
+    if (p?.state !== 'open') return `#${p?.number} is no longer open`;
+    if (p?.head?.sha !== sha) return `#${p.number}'s head moved to ${String(p?.head?.sha).slice(0, 10)}; its own CI seal reads the change`;
+  }
+  const going = (branchRuns ?? []).filter((r) => r?.event === 'pull_request' && r?.status !== 'completed').sort((a, b) => b.id - a.id);
+  if (going.length)
+    return (
+      `CI run ${going.map((r) => `${r.id} (${String(r.head_sha).slice(0, 10)}, ${r.status})`).join(', ')} is still going on this ` +
+      `pull request; a re-run would join its concurrency group and cancel it, and its own seal reads the change`
+    );
+  return null;
+}
+
+/**
+ * Re-run the seal job on `sha` (recheckStep). `post`/`get` are the API (tests pass their own). `blocker` is read just
+ * before the re-run (rerunBlocker); when it names a reason, nothing is posted and that reason is the result.
+ */
+export async function rerunSealJob({
+  repo,
+  sha,
+  get,
+  post,
+  blocker = async () => null,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  log = console.log,
+}) {
   for (let poll = 1; ; poll++) {
     const runs = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&event=pull_request&per_page=100`))
       ?.workflow_runs;
@@ -683,6 +717,8 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {
+      const why = await blocker();
+      if (why) return `not re-run: ${why}`;
       const { status, message = '' } = await post(`/repos/${repo}/actions/jobs/${step.jobId}/rerun`);
       // AGENTS.md "Check, then merge" 6: the one 403 that only means wait. Any other 403 or 429 stops and is reported.
       if (status === 403 && /already running/i.test(message)) return `run ${step.runId} is already re-running (${message})`;
@@ -753,8 +789,24 @@ async function recheck({ repo, token }) {
   const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, oldBody: OLD_BODY, shared });
   if (!named.length)
     return console.log(`no open pull request on ${SHA} names journey steps or touches shared setup; the seal is left as it is`);
+  // Read again just before a re-run: the head may have moved while a running seal was waited out (rerunBlocker).
+  const blocker = async () => {
+    const now = await Promise.all(named.map((p) => get(`/repos/${repo}/pulls/${p.number}`)));
+    const branchRuns = [];
+    for (const branch of new Set(now.map((p) => p?.head?.ref).filter(Boolean))) {
+      const runs = (
+        await get(
+          `/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?branch=${encodeURIComponent(branch)}&event=pull_request&per_page=100`,
+        )
+      )?.workflow_runs;
+      if (!Array.isArray(runs)) throw new Error(`${CI_WORKFLOW} runs on ${branch}: not a list`);
+      branchRuns.push(...runs);
+    }
+    return rerunBlocker({ sha: SHA, pulls: now, branchRuns });
+  };
+  const outcome = await rerunSealJob({ repo, sha: SHA, get, post, blocker });
   console.log(
-    `#${named.map((p) => p.number).join(', #')} on ${SHA} name journey steps or touch shared setup: ${await rerunSealJob({ repo, sha: SHA, get, post })}`,
+    `${outcome.startsWith('not re-run') ? '::notice::' : ''}#${named.map((p) => p.number).join(', #')} on ${SHA} name journey steps or touch shared setup: ${outcome}`,
   );
 }
 

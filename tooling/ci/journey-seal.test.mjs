@@ -25,6 +25,7 @@ import {
   recheckPulls,
   recheckStep,
   rerunSealJob,
+  rerunBlocker,
   sealPull,
   stepsIn,
   titleProblems,
@@ -934,4 +935,70 @@ test('journey-seal-recheck.yml passes the old body to the recheck as an env valu
     /changes\.body/,
     'never in the script text',
   );
+});
+
+// 7 Nov 2026, #7398: a job re-run is a new attempt of its CI run, and it joins ci.yml's concurrency group
+// (CI-refs/pull/<n>/merge, cancel-in-progress off main), so it cancels whatever CI run of that pull request is in flight.
+// The re-check never posts while the head's newest run is queued or in progress, and never while any CI run of the
+// pull request is going: the head moved while a running seal was waited out (26f9c60d -> 7ce4bf86f, ~14:35 UTC).
+test('the recheck never re-runs a seal while a CI run of the pull request is going', async () => {
+  const OLD = 'b'.repeat(40);
+  const NEW = 'c'.repeat(40);
+  const sealJob = (over) => ({ id: 9, name: SEAL, status: 'completed', conclusion: 'success', ...over });
+  const ci = (id, over) => ({ id, event: 'pull_request', status: 'completed', head_sha: OLD, ...over });
+  const pr = (over) => ({ number: 7398, state: 'open', head: { sha: OLD, ref: 'b1' }, ...over });
+  const run = async ({ runs, jobs, blocker, polls = Infinity }) => {
+    const posts = [];
+    let n = 0;
+    const get = async (path) => {
+      if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: runs(n++) };
+      return { jobs: jobs(n) };
+    };
+    const post = async (path) => (posts.push(path), { status: 201 });
+    const out = await rerunSealJob({ repo: 'o/r', sha: OLD, get, post, blocker, sleep: async () => {}, log: () => {} }).catch(
+      (e) => `threw: ${e.message}`,
+    );
+    return { out, posts };
+  };
+  const free = async () => rerunBlocker({ sha: OLD, pulls: [pr()], branchRuns: [ci(77)] });
+
+  // Queued: no seal job yet, so the run's own seal reads the change. Nothing is posted.
+  let r = await run({ runs: () => [ci(77, { status: 'queued' })], jobs: () => [], blocker: free });
+  assert.deepEqual(r.posts, []);
+  assert.match(r.out, /has not started/);
+  // In progress for as long as the re-check looks: nothing is posted, ever.
+  r = await run({ runs: () => [ci(77, { status: 'in_progress' })], jobs: () => [sealJob({ status: 'in_progress' })], blocker: free });
+  assert.deepEqual(r.posts, []);
+  assert.match(r.out, /threw: .*still|threw: .*running/);
+  // Completed, nothing else going, head unchanged: exactly one re-run.
+  r = await run({ runs: () => [ci(77)], jobs: () => [sealJob()], blocker: free });
+  assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
+
+  // The replay: the old head's run is waited out, ends cancelled by the push, and the head has moved with its CI going.
+  const moved = async () =>
+    rerunBlocker({
+      sha: OLD,
+      pulls: [pr({ head: { sha: NEW, ref: 'b1' } })],
+      branchRuns: [ci(78, { status: 'in_progress', head_sha: NEW }), ci(77, { conclusion: 'cancelled' })],
+    });
+  r = await run({
+    runs: (i) => [ci(77, i < 2 ? { status: 'in_progress' } : { conclusion: 'cancelled' })],
+    jobs: (i) => [sealJob(i < 3 ? { status: 'in_progress' } : { conclusion: 'cancelled' })],
+    blocker: moved,
+  });
+  assert.deepEqual(r.posts, [], 'no re-run of the old head, so the new head CI is not cancelled');
+  assert.match(r.out, /^not re-run: #7398's head moved to cccccccccc/);
+
+  // Same head, but another CI run of the pull request is in flight (a reopen, a re-run by hand): nothing is posted.
+  const other = async () => rerunBlocker({ sha: OLD, pulls: [pr()], branchRuns: [ci(79, { status: 'queued' }), ci(77)] });
+  r = await run({ runs: () => [ci(77)], jobs: () => [sealJob()], blocker: other });
+  assert.deepEqual(r.posts, []);
+  assert.match(r.out, /^not re-run: CI run 79 \(bbbbbbbbbb, queued\) is still going/);
+
+  // The table.
+  assert.equal(rerunBlocker({ sha: OLD, pulls: [pr()], branchRuns: [ci(77)] }), null);
+  assert.equal(rerunBlocker({ sha: OLD, pulls: [pr()], branchRuns: [] }), null);
+  assert.match(rerunBlocker({ sha: OLD, pulls: [pr({ state: 'closed' })], branchRuns: [] }), /no longer open/);
+  assert.match(rerunBlocker({ sha: OLD, pulls: [pr()], branchRuns: [ci(80, { status: 'in_progress' })] }), /80/);
+  assert.equal(rerunBlocker({ sha: OLD, pulls: [pr()], branchRuns: [ci(81, { event: 'push', status: 'in_progress' })] }), null);
 });
