@@ -13,7 +13,7 @@ import {
 } from '@/lib/trade-ops/copy-bots-pauses-calls';
 import type { TradeCtx } from '@/lib/trade-ops/edge';
 import { readMatchingApproval } from '@/lib/trade-ops/matching-edge';
-import { refused, type Outcome } from '@/lib/trade-ops/outcome';
+import { ok, refused, type Outcome } from '@/lib/trade-ops/outcome';
 
 /**
  * The kill switch's Copy and bots tab (CB-ops-03, J-copy-bots-otc-12), through svc-trade `copy.ops.pauses.*` and
@@ -48,6 +48,15 @@ async function handler(ctx: TradeCtx, body: Record<string, unknown>): Promise<Ou
     const active = desk.data.paused.some((p) => p.scope.kind === checked.scope.kind && p.scope.value === checked.scope.value);
     if (op === 'pause' && active) return refused('trade_ops.copy_bots_scope_already_paused', 'This scope is already paused.', 409);
     if (op === 'resume' && !active) return refused('trade_ops.copy_bots_scope_not_paused', 'This scope is not paused.', 409);
+    // A retried ask answers the request this founder already filed for this change, so no second approval is filed.
+    const mine = desk.data.waiting.find(
+      (w) =>
+        w.op === op &&
+        w.scope.kind === checked.scope.kind &&
+        w.scope.value === checked.scope.value &&
+        w.proposedBy.toLowerCase() === ctx.session.userId.toLowerCase(),
+    );
+    if (mine) return ok(mine, desk.asOf);
     const requestId = randomUUID();
     const filed = await filePauseApproval(ctx, { requestId, op, scope: checked.scope });
     if (filed.kind !== 'ok') return filed;

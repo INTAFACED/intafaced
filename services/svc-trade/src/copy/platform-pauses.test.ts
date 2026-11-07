@@ -15,6 +15,7 @@ const snapshot = (over: Partial<Record<keyof PauseSnapshot, string[]>>): PauseSn
   botTypes: new Set(over.botTypes ?? []),
   symbols: new Set(over.symbols ?? []),
   marketIds: new Set(over.marketIds ?? []),
+  symbolOfMarket: new Map((over.marketIds ?? []).map((id, i) => [id, over.symbols?.[i] ?? id])),
 });
 
 describe('canonicalScope (CB-ops-03)', () => {
@@ -40,8 +41,8 @@ describe('the gates read the active pauses', () => {
       'Copying this lead is paused by the platform',
     );
     expect(mirrorPausedReason(snapshot({ leaderUserIds: ['leader-1'] }), 'leader-2', 'm-btc')).toBeNull();
-    expect(mirrorPausedReason(snapshot({ symbols: ['ETH/USDT'], marketIds: ['m-eth'] }), 'leader-2', 'm-eth')).toMatch(
-      /paused by the platform/,
+    expect(mirrorPausedReason(snapshot({ symbols: ['ETH/USDT'], marketIds: ['m-eth'] }), 'leader-2', 'm-eth')).toBe(
+      'Copying on ETH/USDT is paused by the platform',
     );
     expect(mirrorPausedReason(snapshot({ symbols: ['ETH/USDT'], marketIds: ['m-eth'] }), 'leader-2', 'm-btc')).toBeNull();
   });
@@ -63,7 +64,7 @@ describe('the gates read the active pauses', () => {
 });
 
 describe('pauseApprovalPayload', () => {
-  it('hashes to what the console files the approval with (apps/admin copy-bots-pauses-calls.test.ts pins the same hash)', () => {
+  it('hashes to what the console files the approval with (apps/admin/src/lib/trade-ops/copy-bots-pauses.test.ts pins the same hash)', () => {
     const payload = pauseApprovalPayload({
       requestId: '3f2c1b7a-0d4e-4a5b-9c6d-7e8f9a0b1c2d',
       op: 'pause',

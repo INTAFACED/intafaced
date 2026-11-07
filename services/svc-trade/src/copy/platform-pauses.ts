@@ -79,6 +79,8 @@ export interface PauseSnapshot {
   /** Paused symbols and the market ids they resolved to. */
   readonly symbols: ReadonlySet<string>;
   readonly marketIds: ReadonlySet<string>;
+  /** The symbol each halted market id resolved from, so a refusal names the symbol. */
+  readonly symbolOfMarket: ReadonlyMap<string, string>;
 }
 
 export const NO_PAUSES: PauseSnapshot = {
@@ -86,6 +88,7 @@ export const NO_PAUSES: PauseSnapshot = {
   botTypes: new Set(),
   symbols: new Set(),
   marketIds: new Set(),
+  symbolOfMarket: new Map(),
 };
 
 export interface PlatformPauseDeps {
@@ -239,15 +242,19 @@ export class PlatformPauseDesk {
     const botTypes = new Set<string>();
     const symbols = new Set<string>();
     const marketIds = new Set<string>();
+    const symbolOfMarket = new Map<string, string>();
     for (const row of rows) {
       if (row.scope_kind === 'lead' && row.scope_ref) leaderUserIds.add(row.scope_ref);
       if (row.scope_kind === 'bot_type') botTypes.add(row.scope_value);
       if (row.scope_kind === 'symbol') {
         symbols.add(row.scope_value);
-        if (row.scope_ref) marketIds.add(row.scope_ref);
+        if (row.scope_ref) {
+          marketIds.add(row.scope_ref);
+          symbolOfMarket.set(row.scope_ref, row.scope_value);
+        }
       }
     }
-    return { leaderUserIds, botTypes, symbols, marketIds };
+    return { leaderUserIds, botTypes, symbols, marketIds, symbolOfMarket };
   }
 
   /**
@@ -391,7 +398,7 @@ export class PlatformPauseDesk {
 export function mirrorPausedReason(snapshot: PauseSnapshot, leaderUserId: string, marketId: string, symbol?: string | null): string | null {
   if (snapshot.leaderUserIds.has(leaderUserId)) return 'Copying this lead is paused by the platform';
   if (snapshot.marketIds.has(marketId) || (symbol && snapshot.symbols.has(symbol))) {
-    return `Copying on ${symbol ?? marketId} is paused by the platform`;
+    return `Copying on ${symbol ?? snapshot.symbolOfMarket.get(marketId) ?? marketId} is paused by the platform`;
   }
   return null;
 }

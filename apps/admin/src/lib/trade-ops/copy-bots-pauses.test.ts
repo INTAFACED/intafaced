@@ -16,7 +16,7 @@ const REQUEST = {
 };
 
 describe('the copy and bots kill switch desk (CB-ops-03)', () => {
-  it('files the approval with the hash svc-trade recomputes (services/svc-trade platform-pauses.test.ts pins the same)', () => {
+  it('files the approval with the hash svc-trade recomputes (services/svc-trade/src/copy/platform-pauses.test.ts pins the same)', () => {
     expect(pausePayloadHash({ requestId: REQUEST.id, op: 'pause', scope: { kind: 'symbol', value: 'ETH/USDT' } })).toBe(
       'sha256:e767120e16c80b018b6fabde7b45f1f441fcc0c9ca13c549b63117b8c6349a7c',
     );
