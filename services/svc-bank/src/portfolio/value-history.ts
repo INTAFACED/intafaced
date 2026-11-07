@@ -75,6 +75,7 @@ function legOf(kind: ActivityKind): Leg {
     case 'fee':
       return 'fees';
     case 'trade':
+    case 'convert':
     case 'order_hold':
     case 'order_release':
       return null;

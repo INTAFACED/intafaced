@@ -9,7 +9,7 @@ export type ListingRow = {
   assetId: string;
   price: string;
   periodSeconds: number | null;
-  status: 'active' | 'archived';
+  status: 'active' | 'archived' | 'taken_down';
   createdAt: string;
 };
 export type ListingFilter = {

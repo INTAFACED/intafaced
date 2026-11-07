@@ -44,16 +44,27 @@ function ReadPanel({ title, action, orderId, what }: { title: string; action: 'f
   );
 }
 
-export function OrderDetailPanels({ orderId, cancellable }: { orderId: string; cancellable: boolean }) {
+export function OrderDetailPanels({
+  orderId,
+  cancellable,
+  reads = true,
+}: {
+  orderId: string;
+  cancellable: boolean;
+  /** false when the page already shows this order's fills from the service's order read. */
+  reads?: boolean;
+}) {
   const [result, setResult] = useState<Outcome<unknown> | null>(null);
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <ReadPanel
-        title="Fills"
-        action="fills"
-        orderId={orderId}
-        what="Each execution against this order: time, price, quantity, fee, counterparty side."
-      />
+      {reads ? (
+        <ReadPanel
+          title="Fills"
+          action="fills"
+          orderId={orderId}
+          what="Each execution against this order: time, price, quantity, fee, counterparty side."
+        />
+      ) : null}
       <ReadPanel
         title="History"
         action="history"
