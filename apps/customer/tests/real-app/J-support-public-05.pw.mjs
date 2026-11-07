@@ -132,8 +132,9 @@ test(`${J} #3 signed in, a page that names a different identity: their own signe
   const mine = await api(me);
   const theirs = await api(other);
   // A real claim, but svc-support signed it for the other account.
-  const claim = (await theirs.post('/api/support/trpc/chatIdentityToken')).body?.result?.data?.token;
-  expect(claim, 'the other account can get a claim for itself').toBeTruthy();
+  const minted = await theirs.post('/api/support/trpc/chatIdentityToken', {});
+  const claim = minted.body?.result?.data?.token;
+  expect(claim, `the other account can get a claim for itself: ${minted.status} ${JSON.stringify(minted.body).slice(0, 300)}`).toBeTruthy();
 
   // Signed in as me, the page names the other account: my own signed identity is used and the claim fails.
   const signedIn = await mine.post('/api/support/trpc/chatOpen', {
