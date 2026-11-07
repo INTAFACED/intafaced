@@ -405,11 +405,18 @@ describe('every read names a QUERY that exists in the owning router (drift guard
     const service = ROUTER[read.module];
     expect(service, `${read.module} has a router mapping`).not.toBeNull();
     // svc-bank mounts the bill and global send routers from personal-pay/router.ts (`bills.ops.*`, `global.ops.*`).
-    const nested = read.procedure.split('.').length === 3;
-    const text = nested ? personalPayRouter() : source(service!);
+    // Any other three-part name is two nested groups in the service's own router (svc-market `ops.listingReview.list`).
     const parts = read.procedure.split('.');
+    const nested = parts.length === 3 && (parts[0] === 'bills' || parts[0] === 'global');
+    const text = nested ? personalPayRouter() : source(service!);
     let from = 0;
-    if (nested) {
+    if (parts.length === 3 && !nested) {
+      const outer = new RegExp(`\\b${parts[0]}: router\\(`).exec(text);
+      expect(outer, `${service} has a ${parts[0]} group`).not.toBeNull();
+      const inner = new RegExp(`\\b${parts[1]}: router\\(`).exec(text.slice(outer!.index));
+      expect(inner, `${service} has a ${parts[0]}.${parts[1]} group`).not.toBeNull();
+      from = outer!.index + inner!.index;
+    } else if (nested) {
       const factory = parts[0] === 'bills' ? 'createBillsRouter' : 'createGlobalRouter';
       const start = text.indexOf(`export function ${factory}(`);
       expect(start, `personal-pay router has ${factory}`).toBeGreaterThanOrEqual(0);

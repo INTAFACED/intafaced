@@ -1,3 +1,4 @@
+import { reviewListing } from './listing-review-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createTestDatabase, type TestDatabase } from '@intafaced/db';
@@ -14,7 +15,8 @@ const baseline = readdirSync(directory)
   .map(read);
 const recovered = ['0005_market_purchase_status_lock.sql', '0006_market_purchase_snapshot.sql', '0007_market_purchase_access_window.sql'];
 // The purchase path runs on today's purchase schema: the safeguards above plus the held purchase (MC-market-02).
-const current = [...recovered, '20261029213109_market_purchase_hold.sql'];
+// ... and the listing review (MC-market-03): a listing is sold only once two founders approved it.
+const current = [...recovered, '20261029213109_market_purchase_hold.sql', '20261106090000_market_listing_review.sql'];
 const url = process.env.TEST_DATABASE_URL?.trim();
 if (!url) throw new Error('Purchase upgrade tests require an isolated TEST_DATABASE_URL');
 
@@ -54,6 +56,7 @@ async function commerceFixture() {
     await ledger.post(recipes.deposit({ userId: buyer, assetId: 'USDT', amount: parseAmount('100'), rail: 'test', railRef: randomUUID() }));
     const vendors = new VendorService(db.sql, { entitlementOf: async () => ({ tierName: 'fixture', vendorSlots: 1 }) });
     const commerce = new CommerceService(db.sql, vendors, ledger, { commissionBps: 500, now: () => new Date('2026-10-11T00:00:00Z') });
+    await reviewListing(db.sql, vendors, listing!.id);
     return { db, listingId: listing!.id, buyer, ledger, commerce };
   } catch (err) {
     await db.drop();

@@ -187,6 +187,7 @@ describe('one-time category is optional; a given slug must be the enum', () => {
       period_seconds: null,
       category: 'bots',
       status: 'active' as const,
+      review_state: 'applied',
       ...rowAt,
     };
     const sql = vi.fn(async (_strings: TemplateStringsArray, ...bound: unknown[]) => {
@@ -219,6 +220,7 @@ describe('one-time category is optional; a given slug must be the enum', () => {
       period_seconds: null,
       category: null,
       status: 'active' as const,
+      review_state: 'applied',
       ...rowAt,
     };
     const sql = vi.fn(async (_strings: TemplateStringsArray, ...bound: unknown[]) => {
@@ -260,6 +262,7 @@ describe('one-time category is optional; a given slug must be the enum', () => {
       period_seconds: null,
       category: 'data',
       status: 'active' as const,
+      review_state: 'applied',
       ...rowAt,
     };
     const sql = vi.fn(async (_strings: TemplateStringsArray, ...bound: unknown[]) => {
@@ -300,6 +303,7 @@ describe('one-time category is optional; a given slug must be the enum', () => {
       period_seconds: 86400,
       category: null,
       status: 'active' as const,
+      review_state: 'applied',
       ...rowAt,
     };
     const sql = vi.fn(async (_strings: TemplateStringsArray, ...bound: unknown[]) => {
@@ -355,6 +359,7 @@ describe('one-time category is optional; a given slug must be the enum', () => {
       period_seconds: null,
       category: 'data',
       status: 'active' as const,
+      review_state: 'applied',
       ...rowAt,
     };
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -419,6 +424,7 @@ describe('category doors on the market router', () => {
     price: '10',
     periodSeconds: null,
     status: 'active' as const,
+    reviewState: 'applied' as const,
     createdAt: '2026-10-23T00:00:00.000Z',
     updatedAt: '2026-10-23T00:00:00.000Z',
     category: 'bots',

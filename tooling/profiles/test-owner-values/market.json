@@ -25,6 +25,16 @@
       "service": "market",
       "value": "seller_full",
       "note": "TEST refund policy: the seller may refund a held purchase in full, so a journey can see a refund move money once. The owner has not decided; blank, every refund request and refund refuses owner.decision and the purchase stays held."
+    },
+    "MARKET_LISTING_REVIEW_CRITERIA": {
+      "service": "market",
+      "value": "TEST criteria: the listing says what it sells | TEST criteria: its price and period are stated",
+      "note": "TEST listing review criteria (MC-market-03), so two founders can approve or reject a listing on the local stack. No return, win-rate or drawdown threshold. Blank in production: every new listing waits in applied and a decision refuses market.review_criteria_unset."
+    },
+    "MARKET_LISTING_REVIEW_WINDOW_SECONDS": {
+      "service": "market",
+      "value": "86400",
+      "note": "TEST review window of one day (MC-market-03). Blank: a decision refuses market.review_window_unset and the queue waits."
     }
   }
 }

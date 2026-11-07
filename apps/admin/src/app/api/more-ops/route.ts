@@ -10,4 +10,4 @@ export const dynamic = 'force-dynamic';
 
 export const GET = (request: Request) => deskGet(request, 'more');
 export const POST = (request: Request) =>
-  deskPost(request, 'more', ['market.vendor.vet', 'market.listing.takedown', 'ops.venue_cost.record']);
+  deskPost(request, 'more', ['market.vendor.vet', 'market.listing.takedown', 'market.listing.review', 'ops.venue_cost.record']);

@@ -40,7 +40,8 @@ export const KYC_SELFIE_DECIDE = 'kyc.selfie.decide';
  *   - svc-market `marketActionPayloadHash('market.vendor.vet', { vendorId, decision, reason })`
  *   - svc-academy `academyActionPayloadHash('academy.ambassador.freeze', { userId, reason })` / `.unfreeze` / `.appoint` `{ userId }`,
  *     and `('academy.residency.decide', { id, decision })`
- *   - svc-market takedown `marketActionPayloadHash('market.takedown', { listingId, reason })`
+ *   - svc-market takedown `marketActionPayloadHash('market.takedown', { listingId, reason })`, and listing review
+ *     `marketActionPayloadHash('market.listing.review', { listingId, decision, reason })`
  *   - svc-identity key rotation `identityActionPayloadHash('identity.auth_key_rotate', { keyId })` / `('identity.auth_key_remove_old', { keyIds })`;
  *     waitlist wave release `identityActionPayloadHash('waitlist.wave.release', { wave, size })`;
  *     account unfreeze `identityUnfreezePayloadHash` = `identityActionPayloadHash(userId, { reason })`
@@ -172,6 +173,8 @@ export function payloadHashFor(request: DeskRequest): string {
       return shaBank('bank.ops.setCardStatus', { cardId: request.cardId, status: request.status });
     case 'market.listing.takedown':
       return sha('market.takedown', { listingId: request.listingId, reason: request.reason });
+    case 'market.listing.review':
+      return sha('market.listing.review', { listingId: request.listingId, decision: request.decision, reason: request.reason });
     case 'identity.auth_key.rotate':
       return shaIdentity('identity.auth_key_rotate', { keyId: request.keyId });
     case 'identity.auth_key.remove_old':
@@ -329,6 +332,16 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         actionType: 'bank.ops.setCardStatus',
         targetService: 'svc-bank',
         targetId: 'bank.ops.setCardStatus',
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // svc-market's listing review is bound to the listing itself, like the takedown below.
+    case 'market.listing.review':
+      return {
+        actionType: 'market.listing.review',
+        targetService: 'svc-market',
+        targetId: request.listingId,
         expectedVersion: '1',
         payloadHash,
         policyVersion: 'v1',

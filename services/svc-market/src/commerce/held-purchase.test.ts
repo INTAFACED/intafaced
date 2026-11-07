@@ -1,3 +1,4 @@
+import { approvingCommerce } from './listing-review-fixture.js';
 import { randomUUID } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -63,7 +64,7 @@ describe('market held purchase (MC-market-02)', () => {
   let sweepErrors: Array<{ purchaseId: string; err: unknown }>;
 
   const service = (hold: PurchaseHoldConfig | undefined, clock: () => Date = () => now) =>
-    new CommerceService(sql, vendors, ledger, {
+    approvingCommerce(sql, vendors, ledger, {
       commissionBps: 500,
       hold,
       now: clock,

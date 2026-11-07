@@ -58,17 +58,20 @@ const subscriptionHasPeriod = (row: { offerType: string; periodSeconds: number |
 };
 export const listingSchema = listingBase.superRefine(subscriptionHasPeriod);
 /**
- * Where a listing stands in svc-market's review (`listingReviewState`), the same for every kind of listing: its seller's
- * operator review, or taken down by an operator. A catalogue row and a seller's own row always carry one.
+ * Where a listing stands in svc-market's review (`listingReviewState`), the same for every kind of listing: waiting for
+ * the founders, approved or rejected by them, its seller suspended, or taken down by an operator. A catalogue row and a
+ * seller's own row always carry one.
  */
-export const LISTING_REVIEW_STATES = ['in_review', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
+export const LISTING_REVIEW_STATES = ['applied', 'approved', 'rejected', 'suspended', 'taken_down'] as const;
 // Read as a string: a state svc-market adds later, or a row with none, shows as not reported instead of failing the room.
-const reviewedListingSchema = listingBase.extend({ reviewState: z.string().optional() }).superRefine(subscriptionHasPeriod);
+const reviewedListingSchema = listingBase
+  .extend({ reviewState: z.string().optional(), reviewReason: z.string().nullable().optional() })
+  .superRefine(subscriptionHasPeriod);
 type ListingReviewState = (typeof LISTING_REVIEW_STATES)[number];
 const isReviewState = (value: string | undefined): value is ListingReviewState =>
   (LISTING_REVIEW_STATES as readonly string[]).includes(value ?? '');
 const REVIEW_COPY = {
-  in_review: 'market.review.state.in.review',
+  applied: 'market.review.state.waiting',
   approved: 'market.review.state.approved',
   rejected: 'market.review.state.rejected',
   suspended: 'market.review.state.suspended',
@@ -566,6 +569,16 @@ export function Market({ mine = false, strategy = false }: { mine?: boolean; str
                               </dd>
                             )}
                           </div>
+                          {(mine || strategy) && row.reviewReason ? (
+                            <div>
+                              <dt>
+                                <Text k="market.review.reason" />
+                              </dt>
+                              <dd data-testid="review-reason" lang="und">
+                                {row.reviewReason}
+                              </dd>
+                            </div>
+                          ) : null}
                         </dl>
                       </div>
                       <div className="market-catalogue-decision">
