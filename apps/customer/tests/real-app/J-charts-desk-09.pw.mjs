@@ -469,6 +469,79 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   await expect(form().getByTestId('alerts-kind-refused')).toHaveCount(0);
 });
 
+const watchlists = () => page.getByRole('region', { name: 'Watchlists' });
+/** Opens the chart with the person's account watchlists read, and adds a market to the selected list by search. */
+async function addToWatchlist(symbol) {
+  await page.goto(CHART);
+  await expect(watchlists()).toHaveAttribute('data-status', /^(ready|error)$/);
+  expect(await watchlists().getAttribute('data-status'), "the person's saved lists were read").toBe('ready');
+  const saved = page.waitForResponse((res) => /preferences/.test(res.url()) && res.request().method() !== 'GET' && res.ok());
+  await watchlists().getByRole('searchbox', { name: 'Add a market' }).fill(symbol.split('/')[0].toLowerCase());
+  await watchlists()
+    .getByRole('button', { name: `Add ${symbol}` })
+    .click();
+  await saved;
+  await expect(watchlists().locator(`tr[data-symbol="${symbol}"]`)).toBeVisible();
+}
+
+test(`${J} #7 creates one alert for every market in a watchlist; a market added later is picked up on the next sweep`, async () => {
+  test.setTimeout(5 * SWEEP_MS);
+  // A watchlist on the account, kept beside the chart: ETH/USDT, then BTC/USDT.
+  await addToWatchlist('ETH/USDT');
+  await addToWatchlist('BTC/USDT');
+  // Far above both markets, so no alert of this rule fires and leaves the list during the step.
+  const level = testPrice(300, await lastText());
+  const follow = page.getByTestId('alerts-follow');
+  await page.goto(ALERTS);
+  await expect(marketSelect()).toBeEnabled();
+  await follow.getByRole('combobox', { name: 'Watchlist' }).selectOption({ label: 'Watchlist' });
+  await expect(follow.getByTestId('alerts-follow-markets')).toHaveText('Markets on the list now: ETH/USDT, BTC/USDT');
+  await follow.getByRole('combobox', { name: 'Notify me when the price is' }).selectOption({ label: 'At or above' });
+  await follow.getByLabel('Price, the same for every market').fill(level);
+  await follow.getByRole('button', { name: 'Review list alert' }).click();
+  const review = follow.getByTestId('alerts-follow-review');
+  await expect(review).toContainText('ETH/USDT, BTC/USDT');
+  await expect(review).toContainText(`At or above ${level}`);
+  await review.getByRole('button', { name: 'Follow this list' }).click();
+  await expect(follow.getByTestId('alerts-follow-notice').getByRole('status')).toHaveText(
+    'You now follow Watchlist. Each of its markets has its own alert in your list.',
+  );
+  // One alert per market, each active with the rule, after a reload (the service holds them).
+  await page.reload();
+  const ruleRows = () => rows().filter({ hasText: `At or above ${level} USDT` });
+  const marketsOfRule = async () => (await ruleRows().getByTestId('nf-title').allTextContents()).sort();
+  await expect(ruleRows()).toHaveCount(2);
+  expect(await marketsOfRule()).toEqual(['BTC/USDT', 'ETH/USDT']);
+  for (const status of await ruleRows().evaluateAll((els) => els.map((el) => el.getAttribute('data-status'))))
+    expect(status).toBe('active');
+  const rule = follow.getByTestId('follow-rule').filter({ hasText: 'Watchlist' });
+  await expect(rule).toHaveCount(1);
+  await expect(rule).toHaveAttribute('data-status', 'active');
+  await expect(rule).toContainText(`At or above ${level} · ETH/USDT, BTC/USDT`);
+
+  // A market added to the list later: the next sweep gives it the same alert, once.
+  await addToWatchlist('IFC/USDT');
+  const addedAt = Date.now();
+  await page.goto(ALERTS);
+  await expect(async () => {
+    await page.reload();
+    await expect(ruleRows()).toHaveCount(3, { timeout: 2_000 });
+  }).toPass({ timeout: 2 * SWEEP_MS + 30_000, intervals: [5_000] });
+  expect(Date.now() - addedAt, 'picked up within one sweep interval and the page reload after it').toBeLessThan(2 * SWEEP_MS + 30_000);
+  expect(await marketsOfRule()).toEqual(['BTC/USDT', 'ETH/USDT', 'IFC/USDT']);
+  await expect(ruleRows().filter({ has: page.getByTestId('nf-title').getByText('IFC/USDT', { exact: true }) })).toHaveAttribute(
+    'data-status',
+    'active',
+  );
+  await expect(rule).toContainText(`At or above ${level} · ETH/USDT, BTC/USDT, IFC/USDT`);
+  await expect(rule.getByTestId('follow-rule-reason')).toHaveCount(0);
+  // The sweep after adds nothing more.
+  const sweptBefore = await lastSweepAt();
+  await expect.poll(lastSweepAt, { timeout: SWEEP_MS + 15_000, intervals: [2_000] }).not.toBe(sweptBefore);
+  await page.reload();
+  await expect(ruleRows()).toHaveCount(3);
+});
+
 /** A shift in basis points as the TEST market tool takes it: `+0.60%`, `-1.25%`. */
 const shiftText = (bps) => {
   const abs = bps < 0n ? -bps : bps;
