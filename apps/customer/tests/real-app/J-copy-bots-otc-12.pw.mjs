@@ -149,6 +149,21 @@ async function gridGet(who, botId) {
   return res.body.result.data;
 }
 
+/** Stops a grid and waits until it reads stopped with no level order still open. */
+async function stopGrid(who, botId) {
+  const stopped = await (await api(who)).post('/api/trade/trpc/bots.grid.stop', { botId });
+  expect(stopped.status, JSON.stringify(stopped.body).slice(0, 300)).toBe(200);
+  await expect
+    .poll(
+      async () => {
+        const bot = await gridGet(who, botId);
+        return bot.status === 'stopped' && bot.orders.every((o) => o.status !== 'open');
+      },
+      { timeout: 60_000, message: `grid ${botId} still has open level orders after its stop` },
+    )
+    .toBe(true);
+}
+
 async function gridList(who) {
   const res = await (await api(who)).get('/api/trade/trpc/bots.grid.list');
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
@@ -257,6 +272,12 @@ test(`${J} #2 pauses a bot type such as grid: a new grid is refused and running 
   await signIn(page, owner);
   await page.goto('/trade/bots');
   await expect(tableIn(page, 'Bot catalogue').getByRole('row', { name: /Grid/ }).first()).toContainText('Paused by the platform');
+
+  // Shown running, the grid stops here, its level orders cancelled. Its buys rest at fixed prices, one near the mid, and
+  // the TEST maker quotes post-only: once the walk drifts under them, every ask the maker would place crosses them and is
+  // refused, so the BTC/USDT ask side empties for #5's lead fill (main run 42405427040: "the best ask on BTC/USDT never
+  // held 0.001"; the same mechanism J-copy-bots-otc-14 names in its own header). afterAll stops it too, if this fails first.
+  await stopGrid(owner, gridId);
 });
 
 test(`${J} #3 halts a symbol: copy mirrors and bot slices on it stop`, async ({ page, browser }) => {
