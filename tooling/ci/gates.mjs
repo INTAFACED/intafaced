@@ -321,6 +321,10 @@ export const GATES = [
  * unrun for weeks.
  */
 export const NOT_GATES = {
+  'redact-stack-logs.mjs':
+    "not a gate: it copies a journey shard's stack logs for its artifact with the sanctions lines dropped and every secret value masked, leaving out a file that still holds one (#7463). Run by the shard job of real-app-journeys.yml, which never turns red over it. Its tests are redact-stack-logs.test.mjs.",
+  'redact-stack-logs.test.mjs':
+    'the node:test file of redact-stack-logs.mjs, with a planted fault (masking that misses a value) the leak check must catch. tooling-tests.mjs runs it with every other tooling test.',
   'workflow-concurrency.test.mjs':
     "not a gate: the node:test file of the workflows' concurrency shape (one run per pull request; a main journeys run never cancelled and in one group, OWNER 206; a superseded branch journeys run cancelled; one waiting Journey seal re-check per head), with planted faults for each. tooling-tests.mjs runs it with every other tooling test.",
   'journey-verdict.mjs':

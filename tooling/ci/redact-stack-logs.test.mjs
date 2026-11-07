@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { DROPPED, leaks, redact, redactDir, secretValues } from './redact-stack-logs.mjs';
 
 const env = { INTAFACED_SANCTIONS_REGIONS: 'XX,YY', INTAFACED_SANCTIONS_LIST_SOURCE: 'planted "source" value' };
-const secretsJson = { jwt: { key: 'generated-signing-key-123' }, founders: [{ password: 'founder-pass-456' }], short: 'abc' };
+const secretsJson = { one: { value: 'planted-generated-value-1' }, founders: [{ value: 'planted-generated-value-2' }], short: 'abc' };
 
 test('a sanctions line is dropped, whatever it holds', () => {
   const text = 'boot\n{"msg":"sanctions screening: TEST","declaration":"unplanted"}\nready';
@@ -17,7 +17,7 @@ test('a sanctions line is dropped, whatever it holds', () => {
 test('a secret value elsewhere is masked, as written and JSON-escaped; short secrets.json strings are not values', () => {
   const values = secretValues({ env, secretsJson });
   assert.ok(values.includes('XX,YY') && values.includes('planted \\"source\\" value') && !values.includes('abc'));
-  const text = 'a XX,YY b\n{"v":"planted \\"source\\" value"}\nkey generated-signing-key-123 and founder-pass-456 abc';
+  const text = 'a XX,YY b\n{"v":"planted \\"source\\" value"}\nkey planted-generated-value-1 and planted-generated-value-2 abc';
   const out = redact(text, values);
   assert.equal(out, 'a *** b\n{"v":"***"}\nkey *** and *** abc');
   assert.equal(leaks(out, values), false);
@@ -54,7 +54,7 @@ test('a file in which a value can still be found is left out (fails closed)', ()
 test('the command line reads the environment and secrets.json, and a missing logs dir keeps nothing', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'redact-cli-'));
   fs.mkdirSync(path.join(dir, 'logs'));
-  fs.writeFileSync(path.join(dir, 'logs', 'bank.log'), 'pass founder-pass-456, list XX,YY\n');
+  fs.writeFileSync(path.join(dir, 'logs', 'bank.log'), 'pass planted-generated-value-2, list XX,YY\n');
   fs.writeFileSync(path.join(dir, 'secrets.json'), JSON.stringify(secretsJson));
   const script = path.join(import.meta.dirname, 'redact-stack-logs.mjs');
   const out = execFileSync(
