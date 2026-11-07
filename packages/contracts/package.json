@@ -70,6 +70,14 @@
       "types": "./dist/protocol-address-risk.d.ts",
       "default": "./dist/protocol-address-risk.js"
     },
+    "./protocol-sessions": {
+      "types": "./dist/protocol-sessions.d.ts",
+      "default": "./dist/protocol-sessions.js"
+    },
+    "./protocol-embedded": {
+      "types": "./dist/protocol-embedded.d.ts",
+      "default": "./dist/protocol-embedded.js"
+    },
     "./protocol-wallet-tx": {
       "types": "./dist/protocol-wallet-tx.d.ts",
       "default": "./dist/protocol-wallet-tx.js"

@@ -103,6 +103,9 @@ import { loadAuditRegistry } from './audit/registry.js';
 import { loadProductAudits } from './audit/products.js';
 import { createAddressReportsRouter, createAddressRiskRouter, type AddressRiskDeps } from './address-risk/router.js';
 import type { AddressRiskStore } from './address-risk/risk.js';
+import { listSessions } from './session/list.js';
+import { createEmbeddedRouter, type EmbeddedDeps } from './embedded/router.js';
+import { protocolSessionsListInputSchema, protocolSessionsListSchema } from '@intafaced/contracts/protocol-sessions';
 import { protocolAuditProductsSchema, protocolPredictedAccountSchema } from '@intafaced/contracts/protocol-blockers';
 import { protocolHealthHonesty, protocolHealthHonestySchema } from './health-honesty.js';
 import { noPeers, type Peers } from './blockers/peers.js';
@@ -521,6 +524,8 @@ export interface ProtocolRouterDeps {
   addressBook?: Omit<AddressBookDeps, 'chainId'>;
   /** The address risk card's label store and the scam report queue (D-developer-compliance-01). Absent = not wired. */
   addressRisk?: Omit<AddressRiskDeps, 'chainId'>;
+  /** The embedded login's export fact (RC-dex-protocol-05). Absent = not wired. */
+  embedded?: Omit<EmbeddedDeps, 'chainId'>;
   /**
    * Founding badge (RC-more-catalogue-04). `index.ts` always wires it; the minter's `signerFor` returns null until a signer lands, so claims refuse `rail.crypto` from `claimBadge`.
    * `window()` is the founder-published Drop phase I window; null = blank (`badge.window_unset`).
@@ -1283,6 +1288,31 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
     addressBook: createAddressBookRouter(addressBookDeps),
     addressRisk: createAddressRiskRouter(addressRiskDeps),
     addressReports: createAddressReportsRouter(addressRiskDeps),
+
+    // ── The embedded login's key export, once (RC-dex-protocol-05): src/embedded/ ──
+    embedded: createEmbeddedRouter({
+      chainId: () => chain.config.chainId,
+      store: deps.embedded?.store ?? {
+        find: () => Promise.reject(new Error('embedded export store is not wired')),
+        put: () => Promise.reject(new Error('embedded export store is not wired')),
+      },
+    }),
+
+    // ── Session keys list (D-portfolio-wallet-02): src/session/list.ts ──
+    sessions: router({
+      /** Every key the account granted, from its own logs, with the on-chain status at one block. Public, like the chain. */
+      list: publicJurisdictionProcedure('protocol', 'protocol')
+        .input(protocolSessionsListInputSchema)
+        .output(protocolSessionsListSchema)
+        .query(async ({ input }) => {
+          try {
+            return await listSessions(chain.client, { account: input.account, chainId: chain.config.chainId });
+          } catch (err) {
+            // A chain failure is named as the chain's; anything else (a shape bug) is an internal error, never "unreachable".
+            throw toTrpcError(err instanceof z.ZodError ? err : classifyChainError(err, 'sessions.list', chain.config.rpcUrl));
+          }
+        }),
+    }),
 
     // ── Claim links (D-swap-12) and speed up / cancel (RC-dex-protocol-01): src/wallet-tx/ ──
     ...createWalletTxRouters({
