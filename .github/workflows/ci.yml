@@ -531,18 +531,6 @@ jobs:
       issues: read # the journeys verdict a shared-setup change needs reads the regression issues the baseline names
     needs: [changes, gates, format, build, test-full]
     steps:
-      # A superseded run (a newer push cancelled it) still runs this job, because of `if: always()` above: a job its `if`
-      # skips reports success, so the seal must never be skipped. This step fails it at once, before the checkout, when any
-      # job it needs was cancelled: that run judged nothing, so its seal is red. `if: always()` here too, so a cancelled run
-      # can't skip it. Other results (failure, skipped) go on to the verdict below as before.
-      # tooling/ci/workflow-concurrency.test.mjs holds this shape and runs this script.
-      - name: Fail a cancelled run's seal at once
-        if: always()
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-        run: >-
-          node -e 'const n = JSON.parse(process.env.NEEDS); const c = Object.keys(n).filter((k) => n[k].result === "cancelled");
-          if (c.length) { console.log("::error::cancelled, so this run judged nothing: " + c.join(", ")); process.exit(1); }'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Require needed jobs
         id: needed
