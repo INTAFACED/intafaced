@@ -304,6 +304,8 @@ test(`${J} #3 the eye hides amounts on every tile and on Assets, and the choice 
   const setup = await browser.newPage();
   // A verified person with TEST money, so Home and Assets have figures to hide.
   const person = await fundedTrader(setup, 'hme', '250');
+  // Verifying signs this browser out; sign in again to choose Pro on the account.
+  await signIn(setup, person);
   await setup.goto('/view');
   const pro = setup.getByRole('group', { name: 'Default view' }).getByRole('button', { name: 'Pro', exact: true });
   const proWritten = setup.waitForResponse((res) => isViewWrite(res.request()));
