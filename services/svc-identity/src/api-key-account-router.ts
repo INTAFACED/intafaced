@@ -1,3 +1,4 @@
+import { keyRateLimitSchema, type KeyRateLimit } from '@intafaced/contracts/api-rate-limits';
 import { z } from 'zod';
 import { publicProcedure, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import type { Sql } from 'postgres';
@@ -24,6 +25,7 @@ type AccountExchanger = ApiKeyMinter & {
     requireSignature?: boolean;
     requireNonEmptyIpAllowlist?: boolean;
     ipAllowlist?: string[];
+    rateLimit?: KeyRateLimit | null;
   }>;
 };
 
@@ -159,6 +161,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
           requireSignature: z.boolean().optional(),
           requireNonEmptyIpAllowlist: z.boolean().optional(),
           ipAllowlist: z.array(z.string()).optional(),
+          rateLimit: keyRateLimitSchema.nullable().optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
@@ -179,6 +182,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
             ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
             ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
             ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
+            ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
           };
         } catch (err) {
           toAccountTrpc(err);

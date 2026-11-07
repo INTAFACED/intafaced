@@ -187,7 +187,9 @@ const schema = baseEnvSchema
         .transform((v) => (typeof v === 'boolean' ? v : !['0', 'false', 'off', 'no'].includes(v.toLowerCase()))),
 
       /**
-       * Requests per window per key, per replica. Pair with WINDOW_MS.
+       * Requests per window per client address, per replica (the address throttle in `hardening.ts`). Pair with
+       * WINDOW_MS. An API key's own calls are metered by its token bucket instead (`EDGE_RATE_ROUTE_COSTS` and the
+       * key's tier from identity, `rate-bucket.ts`).
        *
        * No git default: blank refuses boot (never invent 300). Owner may set
        * 300 explicitly. Counters are in-process, so the fleet's true allowance
@@ -201,6 +203,15 @@ const schema = baseEnvSchema
        * Bounds are 1s–1h; they are not a default.
        */
       EDGE_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).max(3_600_000),
+
+      /**
+       * Owner value: what one API-key call costs from the key's token bucket, per route (DV-limits-01, J-developer-06).
+       * JSON list of `{"route":"METHOD /path","cost":n}`; `*` stands for one path segment, a trailing `**` for the
+       * rest, `*` as the method for any; the first row that matches wins. Published at `/api/edge/rate-limits/costs`.
+       * NO DEFAULT. Blank: every key call at the trade and pay doors is refused `edge.cost_unset`; a call no row matches
+       * is refused the same way. A value that does not parse stops the service (`parseRouteCosts`).
+       */
+      EDGE_RATE_ROUTE_COSTS: z.string().optional(),
 
       /**
        * Host header values (comma list, e.g. `sandbox.example:443`) that address the sandbox environment. A key's
