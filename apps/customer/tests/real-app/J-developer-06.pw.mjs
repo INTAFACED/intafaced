@@ -270,7 +270,7 @@ test(`${J} #5 submits a request for a higher limit and a spike notice: the reque
   await withTiersBlank(async () => {
     await page.goto('/developers/rate-limits');
     await expect(requestForm().getByRole('status')).toHaveText(
-      'Limits not set: rate-limit tiers are not set yet, so no higher limit can be asked for.',
+      'Limits not set: the owner has set no rate-limit tiers, so no higher limit can be asked for.',
     );
     await expect(requestForm().getByRole('button', { name: 'Send request' })).toBeDisabled();
     const session = await api(who);

@@ -20,7 +20,7 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   tier_base: 'Base: every live key',
   tier_sandbox: 'Sandbox: every sandbox key',
   ceiling: 'The most one key may be granted: {count} calls a minute.',
-  ceilingUnset: 'The most one key may be granted is not set, so no higher limit can be granted yet.',
+  ceilingUnset: 'The most one key may be granted is not set, so no higher limit can be granted.',
   costsTitle: 'Cost per route',
   costsLead:
     'The first row that matches a call sets its cost. * stands for one part of the path, ** for the rest, and * as the method for any method.',
@@ -41,7 +41,7 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   formLead:
     'Ask for a higher refill for one of your live keys, and tell us when a spike in traffic is coming. A reviewer answers every request.',
   formSignIn: 'Sign in to ask for a higher limit.',
-  formUnset: 'Limits not set: rate-limit tiers are not set yet, so no higher limit can be asked for.',
+  formUnset: 'Limits not set: the owner has set no rate-limit tiers, so no higher limit can be asked for.',
   formNoKeys: 'You have no live API keys to ask for.',
   fieldKey: 'Key',
   fieldAsked: 'Limit asked for (calls a minute)',
@@ -53,7 +53,7 @@ export const rateLimitsCopy = defineCopy('developers-rate-limits', {
   send: 'Send request',
   sending: 'Sending…',
   sent: 'Your request is recorded. A reviewer will answer it here.',
-  'refused.identity.rate_limits_unset': 'Limits not set: rate-limit tiers are not set yet. Nothing was sent.',
+  'refused.identity.rate_limits_unset': 'Limits not set: the owner has set no rate-limit tiers. Nothing was sent.',
   'refused.identity.key_not_found': 'That key is not one of yours. Nothing was sent.',
   'refused.identity.key_not_live': 'That key is revoked or past its end date. Nothing was sent.',
   'refused.identity.limit_not_higher': 'Ask for more calls a minute than the key has now. Nothing was sent.',
