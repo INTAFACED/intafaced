@@ -13,6 +13,12 @@ import { dexHealthHonesty, dexReadyHonesty } from './quote/door-honesty.js';
 import { venuesFor as venuesForEnv } from './quote/venue-set.js';
 import { clobCostsFromOptional } from './quote/clob-costs.js';
 import { createHideListReader } from './quote/hide-list.js';
+import { OrderSessions, checkOrderSessionSetting } from './auth/order-session.js';
+import { FileSessionStore } from './auth/session-store.js';
+import { viemVaultChain } from './vault/chain.js';
+import { WalletOrders } from './vault/orders.js';
+import { WalletOrderStore } from './vault/store.js';
+import { OrderKeeper, startOrderKeeper } from './vault/keeper.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -75,7 +81,40 @@ const triggerSettings = {
   orderDomain: env.DEX_ORDER_DOMAIN,
 };
 
+// The order session (D-limit-dca-01): its spent nonces and sign-outs live next to the orders. Blank settings refuse by name.
+const orderSessions = new OrderSessions(
+  checkOrderSessionSetting(
+    {
+      secret: env.DEX_AUTH_SECRET,
+      accessTtlSeconds: env.DEX_AUTH_ACCESS_TTL_SECONDS,
+      refreshTtlSeconds: env.DEX_AUTH_REFRESH_TTL_SECONDS,
+      cap: env.DEX_ORDER_CAP_SCHEDULE,
+    },
+    process.env.APP_ENV,
+  ),
+  new FileSessionStore(triggerStoreDir),
+);
+
+// The person's own vault orders and their keeper (D-limit-dca-01 to -04). Blank node, vault or keeper: unwired.
+const vaultChain = viemVaultChain({
+  rpcUrl: env.DEX_ORDER_RPC_URL,
+  chainId: env.DEX_ORDER_CHAIN_ID,
+  vault: env.DEX_ORDER_VAULT_ADDRESS,
+  keeper: env.DEX_ORDER_KEEPER_ADDRESS,
+});
+const walletOrderStore = new WalletOrderStore(triggerStoreDir);
+const walletOrders = new WalletOrders(walletOrderStore, vaultChain, {
+  pairs: env.DEX_ORDER_PAIRS,
+  minSize: env.DEX_ORDER_MIN_SIZE,
+  slippageBps: env.DEX_ORDER_SLIPPAGE_BPS,
+  restrictedTokens: env.DEX_ORDER_RESTRICTED_TOKENS,
+  trailBounds: env.DEX_ORDER_TRAIL_BOUNDS_BPS,
+});
+const orderKeeper = new OrderKeeper({ store: walletOrderStore, chain: vaultChain, pairs: env.DEX_ORDER_PAIRS, now: () => new Date() });
+
 export const appRouter = createDexRouter({
+  orderSessions,
+  walletOrders,
   venues: venuesFor,
   maxAgeMs: env.QUOTE_MAX_AGE_MS,
   depth: env.DEX_QUOTE_DEPTH,
@@ -99,6 +138,10 @@ const stopKeeper = startTriggerKeeper({
   intervalMs: env.DEX_ORDER_KEEPER_INTERVAL_MS,
   onError: (err) => app.log.error({ err }, 'trigger keeper tick failed'),
 });
+// The wallet orders' keeper, on the same owner interval. Blank does not start it.
+const stopOrderKeeper = startOrderKeeper(orderKeeper, env.DEX_ORDER_KEEPER_INTERVAL_MS, (err) =>
+  app.log.error({ err }, 'order keeper tick failed'),
+);
 
 // Built before the listener opens. The edge secret is required: quote may
 // ignore a principal, but limitOrder requires one, and a signed principal
@@ -143,6 +186,7 @@ app.log.info(
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     stopKeeper();
+    stopOrderKeeper();
     void (async () => {
       await app.close();
       process.exit(0);

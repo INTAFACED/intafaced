@@ -300,6 +300,16 @@ export const SUITES = [
     sources: ['paymaster/ScopedPaymaster.sol', 'interfaces/IPaymaster.sol', 'interfaces/IAccount.sol'],
   },
   {
+    name: 'order-vault',
+    expect: 'compiles',
+    /**
+     * D-limit-dca-01 to -04 — a person's own price, take-profit, stop, bracket and trailing orders, filled from their own
+     * deposit credit through a pool, the trigger checked against the fail-closed oracle. Own suite so no other suite's
+     * change stales this bytecode (it only reads the oracle's and the pool's interfaces).
+     */
+    sources: ['orders/OrderVault.sol', 'amm/IERC20Minimal.sol', 'oracle/IPriceOracle.sol'],
+  },
+  {
     name: 'fee-relay',
     expect: 'compiles',
     /**

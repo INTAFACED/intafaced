@@ -307,6 +307,14 @@ describe('every function with an address input in the compiled contracts is clas
     'ClaimLinkEscrow.clawback(address)':
       "pays only the link's recorded sender, and only when the caller is that sender; the id picks which link",
     'FailClosedOracle.report(address,uint256)': 'reporter-gated price feed; moves no funds',
+    'OrderVault.deposit(address,uint256)':
+      "pulls the caller's own tokens into the caller's own vault credit; nothing leaves the caller's control",
+    'OrderVault.withdraw(address,uint256)': "pays only the caller, from the caller's own vault credit",
+    'OrderVault.sweepUncredited(address,address,uint256)': 'sweeper-only; moves only tokens no maker is credited for',
+    'OrderVault.fill((address,address,address,bool,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,bytes32,bytes32,bool),bytes,uint256,address)':
+      "spends only the order maker's credit under the maker's own EIP-712 signature; the output goes to the maker and the pool must be the order's pair; the caller's own assets never move",
+    'OrderVault.poke((address,address,address,bool,bool,uint256,uint256,uint256,uint256,uint256,uint256,uint256,bytes32,bytes32,bool))':
+      "moves a trailing order's watermark from the oracle price, only in the maker's favour; moves no funds",
     'FeeTokenRelay.setFeeToken(address,bool)': 'operator-gated fee token allowlist; moves no funds',
     'FeeTokenRelay.swap((address,address,address,uint256,uint256,address,uint256,uint256,uint256,uint256),bytes,(address,uint256,uint256,uint8,bytes32,bytes32)[])':
       "moves only the order owner's tokens under that owner's own EIP-712 signature and permits: the output goes to the signed owner and the fee to the caller who paid the gas; the caller's own assets never move",

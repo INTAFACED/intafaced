@@ -35,6 +35,26 @@
       "service": "dex",
       "value": "{\"name\":\"INTAFACED TEST Order\",\"version\":\"1\",\"chainId\":84532,\"verifyingContract\":\"0x0000000000000000000000000000000000000001\"}",
       "note": "TEST EIP-712 domain so a signed trigger order can be recovered. Not a deployed vault."
+    },
+    "DEX_AUTH_ACCESS_TTL_SECONDS": {
+      "service": "dex",
+      "value": "3600",
+      "note": "TEST order session lifetime (one hour) so a journey's steps share one session. Blank in production refuses dex.auth.lifetime_unset."
+    },
+    "DEX_AUTH_REFRESH_TTL_SECONDS": {
+      "service": "dex",
+      "value": "86400",
+      "note": "TEST refresh token lifetime (one day). Blank in production refuses dex.auth.lifetime_unset."
+    },
+    "DEX_ORDER_CAP_SCHEDULE": {
+      "service": "dex",
+      "value": "[{\"token\":\"0x00000000000000000000000000000000000a11ce\",\"symbol\":\"TEST A\",\"max\":\"10000\"},{\"token\":\"0x00000000000000000000000000000000000b0b00\",\"symbol\":\"TEST B\",\"max\":\"10000\"}]",
+      "note": "TEST order cap schedule: at most 10,000 TEST Token A and 10,000 TEST Token B open in orders per session. Not a product limit. Blank in production refuses dex.order.cap_unset."
+    },
+    "DEX_ORDER_TRAIL_BOUNDS_BPS": {
+      "service": "dex",
+      "value": "100,2000",
+      "note": "TEST trailing distance bounds, 1% to 20%. Not a product bound. Blank in production refuses dex.order.trail_bounds_unset."
     }
   }
 }
