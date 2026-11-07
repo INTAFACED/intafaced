@@ -48,7 +48,7 @@ export const TickerStrip = memo(function TickerStrip({ market, ticker, favorite,
     mode.kind === 'open'
       ? t('Trading mode value', { state: t('Mode OPEN') })
       : mode.kind === 'named'
-        ? t('Trading mode no orders', { state: t(`Mode ${mode.mode}`) })
+        ? t(mode.newOrders ? 'Trading mode value' : 'Trading mode no orders', { state: t(`Mode ${mode.mode}`) })
         : t('Trading mode value', { state: mode.kind === 'unlisted' ? t('Mode unlisted') : t('Mode other') });
   return (
     <header data-testid="dk-ticker" className="dk-ticker" aria-label={t('Spot desk')}>

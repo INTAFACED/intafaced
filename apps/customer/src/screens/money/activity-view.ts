@@ -158,7 +158,8 @@ function netMoney(lines: ActivityItem[]): Money[] {
 
 /** The groups of one order's lines. Anything the order's lines do not account for cleanly stays a row of its own. */
 function orderGroups(orderId: string, lines: ActivityItem[]): ActivityGroup[] {
-  const fills = lines.filter((line) => line.kind === 'trade');
+  // A Convert's fill is a fill of its order like a desk trade's; the row keeps the fill's own kind for its title.
+  const fills = lines.filter((line) => line.kind === 'trade' || line.kind === 'convert');
   const holds = lines.filter((line) => line.kind === 'order_hold');
   const releases = lines.filter((line) => line.kind === 'order_release');
   const fees = lines.filter((line) => line.kind === 'fee');
@@ -270,6 +271,7 @@ export function titleOf(
       | 'Received'
       | 'Sent'
       | 'Trade'
+      | 'Convert'
       | 'Fee'
       | 'Payment received'
       | 'Payment sent'
@@ -298,6 +300,8 @@ export function titleOf(
       return handle ? withHandle('Sent to {handle}', handle) : t('Sent');
     case 'trade':
       return t('Trade');
+    case 'convert':
+      return t('Convert');
     case 'fee':
       return t('Fee');
     case 'payment':

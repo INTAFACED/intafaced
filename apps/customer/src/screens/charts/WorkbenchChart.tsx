@@ -216,12 +216,12 @@ export function WorkbenchChart({
     const colors = readColors(scheme).series;
     if (main.current) api.removeSeries(main.current);
     shown.current = null;
-    const format = percent ? PERCENT_PRICE_FORMAT : priceFormat(tickSize);
+    const format = percent ? PERCENT_PRICE_FORMAT : priceFormat(tickSize, language);
     const series = api.addSeries(lib[SERIES_KIND[style]], { ...seriesOptions(style, colors), priceFormat: format }, 0);
     main.current = series;
     setHost({ lib, chart: api, main: series, element: element.current, tickSize, symbol });
     // `upColor` ("red for up") changes the token values, so the series is drawn again with them.
-  }, [mounted, style, scheme, tickSize, symbol, upColor, percent]);
+  }, [mounted, style, scheme, tickSize, symbol, upColor, percent, language]);
 
   // Scales and canvas: applied to the chart in place, so a change never rebuilds the series or moves the view. Log scale
   // is not drawn with percent mode, which has its own scale.
@@ -339,7 +339,7 @@ export function WorkbenchChart({
   );
   const byTime = useMemo(() => new Map(candles.map((c) => [Math.floor(c.t / 1000), c])), [candles]);
   const focusBar = (hover !== null ? byTime.get(hover) : undefined) ?? candles[candles.length - 1];
-  const legend = focusBar ? legendValues(focusBar, tickSize) : null;
+  const legend = focusBar ? legendValues(focusBar, tickSize, language) : null;
 
   return (
     <div className="wc-root">

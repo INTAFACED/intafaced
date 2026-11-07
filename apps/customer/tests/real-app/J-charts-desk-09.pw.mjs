@@ -317,10 +317,10 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   expect(cents(onAsk.price) - cents(onBid.price), 'the book had a spread in that sweep').toBeGreaterThan(1n);
   expect(mid.price, `mid of bid ${onBid.price} and ask ${onAsk.price}`).toBe(midOf(onBid.price, onAsk.price));
   expect(cents(onAsk.price) > cents(mid.price) && cents(mid.price) > cents(onBid.price), 'bid < mid < ask').toBe(true);
-  // The last-trade alert fired at the price of the TEST tape's latest trade at that sweep, read from the public tape.
-  const tape = await (
-    await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=500&since=${onLast.at - 2 * SWEEP_MS}`)
-  ).json();
+  // The last-trade alert fired at the price of the TEST tape's latest trade at that sweep, read from the public tape. The
+  // latest print can be older than the sweep by any amount (on a quiet shard nothing traded BTC/USDT for minutes: main run
+  // 42187412745), so the tape is read newest first with no time cut, never only the last two sweeps.
+  const tape = await (await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=500`)).json();
   expect(Array.isArray(tape) && tape.length > 0, 'the TEST tape has trades').toBe(true);
   const upTo = tape.filter((t) => t.timestamp <= onLast.at + 5_000).sort((a, b) => b.timestamp - a.timestamp);
   // The latest print at the sweep, and any print in the few seconds around it (the read is a moment after the sweep's time).

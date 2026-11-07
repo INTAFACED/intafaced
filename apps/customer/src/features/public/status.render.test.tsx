@@ -33,11 +33,12 @@ describe('/status', () => {
       status: 'ready',
       asOf: 1,
       data: [
-        { symbol: 'BTC/USDT', state: 'CANCEL_ONLY', reasonCode: null },
-        { symbol: 'ETH/USDT', state: null, reasonCode: null },
+        { symbol: 'BTC/USDT', state: 'CANCEL_ONLY', reasonCode: null, observedAt: '2026-11-06T07:30:12.000Z' },
+        { symbol: 'ETH/USDT', state: null, reasonCode: null, observedAt: null },
       ],
     };
     const html = renderToString(<StatusPage />);
+    expect(html).toContain('As of 2026-11-06 07:30 UTC');
     expect(html).toContain('Cancel-only');
     expect(html).toContain('New orders are refused');
     expect(html).toContain('Not reported');
