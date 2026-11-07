@@ -147,6 +147,9 @@ export const en = {
   'notify.trade.order.terminal.body': '{side} {qty} on {marketId} is {status}.',
   'notify.trade.market_halted.title': 'Market halted',
   'notify.trade.market_halted.body': 'New submits on {marketId} are refused. Cancels remain available.',
+  // A TEST promotion the local test stack files (svc-notify local-test-promotion.ts). Never sent outside a test stack.
+  'notify.promo.test.title': 'TEST promotion',
+  'notify.promo.test.body': 'A TEST promotion from the local test stack. It offers nothing.',
   // Posting freeze notices are platform-wide and say nothing about why: the internal reason and actor never reach a customer.
   'notify.ledger.freeze.set.title': 'Postings paused',
   'notify.ledger.freeze.set.body':

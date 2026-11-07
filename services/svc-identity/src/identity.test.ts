@@ -3,7 +3,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, beforeEach, afterAll } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
-import { campaignParticipantSchema, emailProofSchema } from '@intafaced/contracts';
+import { campaignParticipantSchema, emailProofSchema, provedEmailSchema } from '@intafaced/contracts';
 import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { verifyAccessToken, hasScope, SESSION_SCOPES } from '@intafaced/auth';
 import { checkAccess, screeningFailClosedFromEnv, UNSET_SCREENING_LIST } from '@intafaced/config';
@@ -1735,6 +1735,25 @@ if (!available) {
         expect(emailProofSchema.parse(missing)).toEqual(missing);
         await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${session.userId}`;
         expect(await auth.emailProof(session.userId)).toEqual({ userId: session.userId, emailProof: 'accepted' });
+      });
+    });
+
+    describe('proved email for the notify email channel', () => {
+      it('an unknown or malformed user is null, never an address', async () => {
+        expect(await auth.provedEmail('00000000-0000-4000-8000-000000000000')).toBeNull();
+        expect(await auth.provedEmail('not-a-uuid')).toBeNull();
+      });
+
+      it('carries no address until the current email is confirmed, then the address', async () => {
+        const session = await register();
+        const unproved = await auth.provedEmail(session.userId);
+        expect(unproved).toEqual({ userId: session.userId, email: null });
+        expect(provedEmailSchema.parse(unproved)).toEqual(unproved);
+        await db.sql`UPDATE users SET email_verified_at = now() WHERE id = ${session.userId}`;
+        const [row] = await db.sql<Array<{ email: string }>>`SELECT email FROM users WHERE id = ${session.userId}`;
+        const proved = await auth.provedEmail(session.userId);
+        expect(proved).toEqual({ userId: session.userId, email: row!.email });
+        expect(provedEmailSchema.parse(proved)).toEqual(proved);
       });
     });
 

@@ -1137,6 +1137,22 @@ app.get<{ Params: { userId: string } }>('/internal/email-proof/:userId', async (
 });
 
 /**
+ * The account's current email, only once proved, `provedEmailSchema`. svc-notify reads it per send for the email channel
+ * when the person registered no confirmed address of their own there. Service credentials only. Unknown user → 404,
+ * which the caller treats as no address.
+ */
+app.get<{ Params: { userId: string } }>('/internal/proved-email/:userId', async (req, reply) => {
+  if (serviceOfRequest(req, env.INTERNAL_SERVICE_SECRET, env.INTERNAL_SERVICE_BODY_BIND, doorS2s).service === null) {
+    return reply.code(401).send({ error: 'service credentials required', code: 'identity.unauthenticated' });
+  }
+  const proved = await auth.provedEmail(req.params.userId);
+  if (!proved) {
+    return reply.code(404).send({ error: 'account not found', code: 'identity.account_not_found' });
+  }
+  return proved;
+});
+
+/**
  * The customer security lock (W-withdraw-09), `securityLockSchema`. A service that moves money out or changes a
  * withdrawal address reads it per request and refuses while `locked` is true; it keeps no copy. Service credentials only.
  * Unknown user → 404, which the caller refuses on. A read error is a 500, which the caller also refuses on.

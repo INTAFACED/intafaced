@@ -9,6 +9,7 @@ import {
 import { InAppChannel, UnconfiguredChannel } from './gateway.js';
 import { EmailChannel, PushChannel, SmsChannel } from './adapters.js';
 import { TestMerchantEmlChannel } from '../merchant-email/merchant-email.js';
+import { openLocalOutboxEmail } from './local-outbox-email.js';
 import { socketIdForChannel, type NotifyChannelSocketId } from './mountain-vs-sockets.js';
 
 /**
@@ -67,6 +68,12 @@ export interface ChannelEnv {
    */
   readonly NOTIFY_MERCHANT_EMAIL_TEST?: string | undefined;
   readonly NOTIFY_MERCHANT_EMAIL_TEST_DIR?: string | undefined;
+  /**
+   * LOCAL TEST email transport (`local-outbox`): one line per email in NOTIFY_EMAIL_OUTBOX. Refused at boot unless the
+   * raw APP_ENV is exactly dev or test and no email gateway is set. Unset: email follows the gateway pair as before.
+   */
+  readonly NOTIFY_EMAIL_TRANSPORT?: string | undefined;
+  readonly NOTIFY_EMAIL_OUTBOX?: string | undefined;
 }
 
 /** Env var names per channel. Reported to operators verbatim, so they are data. */
@@ -260,7 +267,11 @@ export class ChannelRegistry {
  * reach it. `env.ts` refuses to load in that state, and this function treats the
  * pair as all-or-nothing for the same reason.
  */
-export function channelsFromEnv(env: ChannelEnv, fetchImpl: typeof fetch = fetch): ChannelRegistry {
+export function channelsFromEnv(
+  env: ChannelEnv,
+  fetchImpl: typeof fetch = fetch,
+  rawAppEnv: string | undefined = process.env.APP_ENV,
+): ChannelRegistry {
   const channels: NotificationChannel[] = [new InAppChannel()];
   const timeoutMs = env.NOTIFY_GATEWAY_TIMEOUT_MS;
 
@@ -268,6 +279,19 @@ export function channelsFromEnv(env: ChannelEnv, fetchImpl: typeof fetch = fetch
     const names = GATEWAY_ENV[id];
     const url = env[names.url as keyof ChannelEnv] as string | undefined;
     const token = env[names.token as keyof ChannelEnv] as string | undefined;
+
+    if (id === 'email') {
+      const outbox = openLocalOutboxEmail({
+        appEnv: rawAppEnv,
+        transport: env.NOTIFY_EMAIL_TRANSPORT,
+        outboxPath: env.NOTIFY_EMAIL_OUTBOX,
+        gatewayConfigured: Boolean(url || token),
+      });
+      if (outbox) {
+        channels.push(outbox);
+        continue;
+      }
+    }
 
     if (id === 'email' && !url && !token && env.NOTIFY_MERCHANT_EMAIL_TEST === '1') {
       const dir = env.NOTIFY_MERCHANT_EMAIL_TEST_DIR?.trim();
