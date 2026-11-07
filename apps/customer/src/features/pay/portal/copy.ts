@@ -69,8 +69,6 @@ const en = {
   err_volume: 'Keep this under 200 characters.',
   accept: 'Accept',
   decline: 'Decline',
-  remove: 'Remove',
-  removeBody: 'This person loses access right away. They can be invited again later.',
   role_owner: 'Owner',
   role_admin: 'Admin',
   role_finance: 'Finance',

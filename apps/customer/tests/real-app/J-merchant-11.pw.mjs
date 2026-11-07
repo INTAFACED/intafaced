@@ -1,4 +1,4 @@
-// World: stack
+// World: restart, stack
 import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { forgetSession } from './identity-factors.mjs';
@@ -96,7 +96,7 @@ test(`${J} #1 invites someone by email: a pending row with the expiry; the addre
   await expect(row).toHaveCount(1);
   await expect(row).toContainText('Invited');
   await expect(row).toContainText('Finance');
-  await expect(row).not.toContainText('No expiry');
+  await expect(row).not.toContainText('Does not expire');
   await expect(members(page)).not.toContainText(sent);
 
   // The mail went to that address, and the expiry the service stored is the one in it: 7 days, the stack's TEST lifetime.

@@ -12,6 +12,7 @@ import { createFounderAuthority } from '../founder-authority.js';
 import { createMerchantOpsRouter, type MerchantOpsDeps } from './router.js';
 import { claimEmailTeamInvites } from './team-email-claim.js';
 import { MerchantOpsError } from './errors.js';
+import type { TeamInviteMail } from './team-invite-mail.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const drizzleDir = join(here, '..', '..', 'drizzle');
@@ -66,7 +67,12 @@ describe('merchant email team invites', () => {
 
   const founderFetcher = vi.fn<typeof fetch>(async () => new Response('{}', { status: 200 }));
   const founderAuthority = createFounderAuthority({ ...identity, fetcher: founderFetcher });
-  const deps = (): MerchantOpsDeps => ({ sql, founderAuthority, teamEmailInvite: LIMIT });
+  /** Every invitation mail the service wrote, as the LOCAL-TEST outbox would hold it. */
+  const sent: Array<Parameters<TeamInviteMail['send']>[0]> = [];
+  const teamInviteMail: TeamInviteMail = { send: async (message) => void sent.push(message) };
+  const deps = (): MerchantOpsDeps => ({ sql, founderAuthority, teamEmailInvite: LIMIT, teamInviteMail });
+  const roomy = (): MerchantOpsDeps => ({ ...deps(), teamEmailInvite: { ...LIMIT, maxPerWindow: 10 } });
+  const lastCode = (memberId: string) => sent.filter((m) => m.memberId === memberId).at(-1)!.code;
   const as = (userId: string, over: Partial<Principal> = {}, routerDeps: MerchantOpsDeps = deps()) =>
     createMerchantOpsRouter(routerDeps).createCaller(ctxOf(principalOf(userId, over)));
 
@@ -84,14 +90,14 @@ describe('merchant email team invites', () => {
   });
 
   it('returns the same shape for any mailbox and does not store an account id', async () => {
-    const first = await as(owner).merchantOps.team.invite({ email: '  Ada@Example.COM ', role: 'viewer', label: 'Ada' });
-    const second = await as(owner).merchantOps.team.invite({ email: 'nobody-not-a-user@example.com', role: 'finance' });
+    const first = await as(owner, {}, roomy()).merchantOps.team.invite({ email: '  Ada@Example.COM ', role: 'viewer', label: 'Ada' });
+    const second = await as(owner, {}, roomy()).merchantOps.team.invite({ email: 'nobody-not-a-user@example.com', role: 'finance' });
     expect(Object.keys(first).sort()).toEqual(Object.keys(second).sort());
     expect(first).toMatchObject({ status: 'invited', role: 'viewer', userId: 'email:ada@example.com', label: 'Ada' });
     expect(second).toMatchObject({ status: 'invited', role: 'finance', userId: 'email:nobody-not-a-user@example.com' });
     expect(first.userId).not.toMatch(/^[0-9a-f]{8}-/);
     expect(second.userId).not.toMatch(/^[0-9a-f]{8}-/);
-    const again = await as(owner).merchantOps.team.invite({ email: 'ada@example.com', role: 'developer' });
+    const again = await as(owner, {}, roomy()).merchantOps.team.invite({ email: 'ada@example.com', role: 'developer' });
     expect(again).toMatchObject({ memberId: first.memberId, userId: 'email:ada@example.com', role: 'developer', status: 'invited' });
     const rows = await sql<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM pay.merchant_team_members WHERE merchant_id = ${merchant} AND user_id LIKE 'email:%'`;
@@ -103,6 +109,16 @@ describe('merchant email team invites', () => {
       as(owner, {}, { sql, founderAuthority }).merchantOps.team.invite({ email: 'ada@example.com', role: 'viewer' }),
     );
     expect(off).toBe('pay.team_email_invite_unconfigured');
+    // Email off: the window is published but no transport is set. Refused, and nothing is stored.
+    const noMail = await refusal(() =>
+      as(owner, {}, { sql, founderAuthority, teamEmailInvite: LIMIT }).merchantOps.team.invite({
+        email: 'mail-off@example.com',
+        role: 'viewer',
+      }),
+    );
+    expect(noMail).toBe('pay.team_email_invite_unconfigured');
+    const kept = await sql`SELECT 1 FROM pay.merchant_team_members WHERE user_id = 'email:mail-off@example.com'`;
+    expect(kept).toHaveLength(0);
     expect(await refusal(() => as(owner).merchantOps.team.invite({ userId: 'email:ada@example.com', role: 'viewer' }))).toBe(
       'pay.team_user_id_reserved',
     );
@@ -310,4 +326,100 @@ describe('merchant email team invites', () => {
     expect(shown.items.find((member) => member.memberId === fresh.memberId)?.userId).toBe('email:later@example.com');
     expect(JSON.stringify(shown)).not.toContain(person);
   }, 20_000);
+
+  it('J-merchant-11 #1 #2: mails a link that runs out; a resend replaces it; an expired or unbound link is refused', async () => {
+    const host = id();
+    const hostMerchant = (await sql<Array<{ id: string }>>`INSERT INTO pay.merchants (user_id) VALUES (${host}) RETURNING id`)[0]!.id;
+    const caller = as(host, {}, roomy());
+    const before = Date.now();
+    const invited = await caller.merchantOps.team.invite({ email: ' Link@Example.com ', role: 'finance' });
+    const mail = sent.filter((m) => m.memberId === invited.memberId);
+    expect(mail).toHaveLength(1);
+    expect(mail[0]).toMatchObject({ email: 'link@example.com', role: 'finance', resent: false });
+    expect(invited.expiresAt).toBe(mail[0]!.expiresAt.toISOString());
+    expect(Date.parse(invited.expiresAt!) - before).toBeGreaterThanOrEqual(LIMIT.ttlMs - 1_000);
+    // Only the hash is stored, never the code.
+    const stored = await sql<Array<{ invite_link_hash: string }>>`
+      SELECT invite_link_hash FROM pay.merchant_team_members WHERE id = ${invited.memberId}`;
+    expect(stored[0]!.invite_link_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(stored)).not.toContain(mail[0]!.code);
+    const oldCode = mail[0]!.code;
+
+    const resent = await caller.merchantOps.team.resendInvite({ memberId: invited.memberId! });
+    expect(resent.status).toBe('invited');
+    const newCode = lastCode(invited.memberId!);
+    expect(newCode).not.toBe(oldCode);
+    expect(sent.filter((m) => m.memberId === invited.memberId).at(-1)!.resent).toBe(true);
+    const trail = await caller.merchantOps.team.history({ limit: 20 });
+    expect(trail.items.some((e) => e.action === 'resent' && e.memberUserId === 'email:link@example.com')).toBe(true);
+
+    const person = id();
+    // Not yet bound to the account (the invited address is unconfirmed): the newest link alone is no key.
+    expect(await refusal(() => as(person).merchantOps.team.acceptInvite({ memberId: invited.memberId!, code: newCode }))).toBe(
+      'pay.team_invite_email_unconfirmed',
+    );
+    await claimEmailTeamInvites(sql, { userId: person, email: 'link@example.com' }, LIMIT.ttlMs);
+    expect(await refusal(() => as(person).merchantOps.team.acceptInvite({ memberId: invited.memberId!, code: oldCode }))).toBe(
+      'pay.team_invite_link_invalid',
+    );
+    expect(await refusal(() => as(person).merchantOps.team.acceptInvite({ memberId: invited.memberId!, code: 'guess' }))).toBe(
+      'pay.team_invite_link_invalid',
+    );
+    const joined = await as(person).merchantOps.team.acceptInvite({ memberId: invited.memberId!, code: newCode });
+    expect(joined).toMatchObject({ status: 'active', role: 'finance', expiresAt: null });
+    // Used once: the link no longer works.
+    expect(await refusal(() => as(person).merchantOps.team.acceptInvite({ memberId: invited.memberId!, code: newCode }))).toBe(
+      'pay.team_invite_link_invalid',
+    );
+    // An active member is not an invitation: nothing to resend.
+    expect(await refusal(() => caller.merchantOps.team.resendInvite({ memberId: invited.memberId! }))).toBe(
+      'pay.team_invite_not_resendable',
+    );
+
+    // Expired: the link and the list accept both refuse, and the row stays pending; a claim does not bind it.
+    const late = await caller.merchantOps.team.invite({ email: 'late@example.com', role: 'viewer' });
+    const lateCode = lastCode(late.memberId!);
+    await sql`UPDATE pay.merchant_team_members SET invite_expires_at = now() - interval '1 minute' WHERE id = ${late.memberId}`;
+    const latePerson = id();
+    expect(await claimEmailTeamInvites(sql, { userId: latePerson, email: 'late@example.com' }, LIMIT.ttlMs)).toEqual({
+      claimed: 0,
+      accepted: 0,
+    });
+    expect(await refusal(() => as(latePerson).merchantOps.team.acceptInvite({ memberId: late.memberId!, code: lateCode }))).toBe(
+      'pay.team_invitation_expired',
+    );
+    const lateRow = await sql<Array<{ status: string }>>`SELECT status FROM pay.merchant_team_members WHERE id = ${late.memberId}`;
+    expect(lateRow[0]!.status).toBe('invited');
+    // Bound before it ran out, then expired: the list accept refuses too.
+    const bound = await caller.merchantOps.team.invite({ email: 'bound@example.com', role: 'viewer' });
+    const boundPerson = id();
+    await claimEmailTeamInvites(sql, { userId: boundPerson, email: 'bound@example.com' }, LIMIT.ttlMs);
+    await sql`UPDATE pay.merchant_team_members SET invite_expires_at = now() - interval '1 minute' WHERE id = ${bound.memberId}`;
+    expect(await refusal(() => as(boundPerson).merchantOps.team.acceptInvite({ memberId: bound.memberId! }))).toBe(
+      'pay.team_invitation_expired',
+    );
+
+    // A mail that cannot be written leaves nothing stored.
+    const broken: TeamInviteMail = { send: async () => Promise.reject(new Error('disk full')) };
+    await expect(
+      as(host, {}, { ...roomy(), teamInviteMail: broken }).merchantOps.team.invite({ email: 'lost@example.com', role: 'viewer' }),
+    ).rejects.toThrow();
+    const lost =
+      await sql`SELECT 1 FROM pay.merchant_team_members WHERE merchant_id = ${hostMerchant} AND user_id = 'email:lost@example.com'`;
+    expect(lost).toHaveLength(0);
+  }, 20_000);
+
+  it('counts a re-invite and a resend against the window: each one sends a mail', async () => {
+    const tight = id();
+    await sql`INSERT INTO pay.merchants (user_id) VALUES (${tight})`;
+    const caller = as(tight);
+    const first = await caller.merchantOps.team.invite({ email: 'again@example.com', role: 'viewer' });
+    await caller.merchantOps.team.resendInvite({ memberId: first.memberId! });
+    expect(await refusal(() => caller.merchantOps.team.resendInvite({ memberId: first.memberId! }))).toBe(
+      'pay.team_email_invite_rate_limited',
+    );
+    expect(await refusal(() => caller.merchantOps.team.invite({ email: 'again@example.com', role: 'viewer' }))).toBe(
+      'pay.team_email_invite_rate_limited',
+    );
+  });
 });

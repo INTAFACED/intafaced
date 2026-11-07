@@ -93,7 +93,10 @@ describe('stand-in answers match the shapes the client parses', () => {
   it('refuses an email invite in plain words when the system has it switched off, or the window is full', async () => {
     const off = await clientFor(createPortalMock('active', { emailInvites: 'off' })).invite({ email: 'a@test.invalid', role: 'viewer' });
     expect(off.ok).toBe(false);
-    if (!off.ok) expect(refusalText(off)).toBe('Email invitations are switched off on this system.');
+    if (!off.ok)
+      expect(refusalText(off)).toBe(
+        'Email invitations are switched off on this system, so no email can be sent and nothing was saved. Invite the person by account ID instead.',
+      );
     const limited = await clientFor(createPortalMock('active', { emailInvites: 'limited' })).invite({
       email: 'a@test.invalid',
       role: 'viewer',

@@ -287,6 +287,13 @@ export function createSettingsMock(ctx) {
           row.status = 'removed';
           return ok(route, row);
         }
+        case 'merchantOps.team.resendInvite': {
+          const row = mine.find((m) => m.memberId === input.memberId);
+          if (!row) return refuse(route, 404, 'pay.team_member_not_found');
+          if (row.status !== 'invited' || !String(row.userId).startsWith('email:'))
+            return refuse(route, 412, 'pay.team_invite_not_resendable');
+          return ok(route, row);
+        }
         case 'merchantOps.team.acceptInvite':
           state.invitations = [];
           return ok(route, { ...mine[1], status: 'active' });
