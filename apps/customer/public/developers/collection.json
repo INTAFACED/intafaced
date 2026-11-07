@@ -455,6 +455,19 @@
           }
         },
         {
+          "name": "postSignalAlert",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/signals/webhook/:webhookId",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "signals", "webhook", ":webhookId"],
+              "variable": [{ "key": "webhookId", "value": "" }]
+            }
+          }
+        },
+        {
           "name": "fetchGridBots",
           "request": {
             "method": "GET",

@@ -555,15 +555,20 @@ const signalDesk = new SignalDesk({
     const market = await trade.marketBySymbol(symbol);
     return market && market.kind === 'spot' && !market.paper && market.status === 'active' ? market.id : null;
   },
-  placeOrder: (principal, input) =>
-    trade.placeOrder(principal, {
-      marketId: input.marketId,
-      side: input.side,
-      type: 'market',
-      qty: input.qty,
-      tif: 'IOC',
-      clientOrderId: input.clientOrderId,
-    }),
+  admitStart: (principal, businessId, payload) => trade.admitAccountOperation(principal, 'strategy.start', businessId, payload),
+  placeOrder: (principal, input, webhookId) =>
+    trade.placeSignalOrder(
+      principal,
+      {
+        marketId: input.marketId,
+        side: input.side,
+        type: 'market',
+        qty: input.qty,
+        tif: 'IOC',
+        clientOrderId: input.clientOrderId,
+      },
+      webhookId,
+    ),
   maxAlertAgeSeconds: parseSignalMaxAge(env.TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS),
   webhookDays: parseSignalWebhookDays(env.TRADE_SIGNAL_WEBHOOK_DAYS),
 });

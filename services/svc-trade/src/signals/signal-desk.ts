@@ -7,7 +7,7 @@
  * (TRADE_SIGNAL_WEBHOOK_DAYS; blank refuses every create).
  *
  * An alert POSTed to the intake path is checked in this order, and nothing is written for any refusal before the last:
- * the token (wrong: `trade.signal_auth_failed`, 401); the owner's maximum alert age (TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS;
+ * the token (wrong: `trade.signal_auth_failed`, 403; never 401, as the route is public and a signed-out caller is not asked for a credential); the owner's maximum alert age (TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS;
  * blank: `trade.signal_latency_not_set`; older: `trade.signal_stale`); the alert id and the message's fields, each
  * named when missing. Then one intent row per planned action is written under `signal.alert:<webhookId>:<alertId>`,
  * before the order call, and the order goes through the ordinary place path as the creator. The reply is stored, so the
@@ -64,10 +64,13 @@ export interface SignalPorts {
   readonly now: () => Date;
   /** A market's id by its symbol, or null when none exists or it is not an open spot market. */
   marketIdBySymbol(symbol: string): Promise<string | null>;
-  /** The ordinary place path, as the webhook's creator. */
+  /** The trading admission of the webhook as a `strategy.start` operation, business id `signal:<webhookId>`. */
+  admitStart(principal: Principal, businessId: string, payload: unknown): Promise<unknown>;
+  /** The trade service's place path for one alert's order, a delegated `algo.child` of `signal:<webhookId>`. */
   placeOrder(
     principal: Principal,
     input: { marketId: string; side: 'buy' | 'sell'; qty: Amount; clientOrderId: string },
+    webhookId: string,
   ): Promise<{ id: string }>;
   /** Owner: the oldest alert accepted, in seconds. Null: unset, and intake refuses `trade.signal_latency_not_set`. */
   readonly maxAlertAgeSeconds: number | null;
@@ -168,6 +171,9 @@ const refusal = (err: SignalError): AlertReply => ({
   body: { ok: false, code: err.code, message: err.message, ...(err.field ? { field: err.field } : {}) },
 });
 
+/** The webhook's admitted strategy: its alerts' orders are delegated children of it. */
+export const signalBusinessId = (webhookId: string) => `signal:${webhookId}`;
+
 export class SignalDesk {
   constructor(private readonly ports: SignalPorts) {}
 
@@ -199,10 +205,17 @@ export class SignalDesk {
     const token = randomBytes(TOKEN_BYTES).toString('base64url');
     const now = this.ports.now();
     const expires = new Date(now.getTime() + days * 86_400_000);
+    // The webhook is admitted as a strategy, as a grid bot is: each alert's order is then a delegated child of it.
+    const webhookId = randomUUID();
+    await this.ports.admitStart(principal, signalBusinessId(webhookId), {
+      webhookId,
+      symbol,
+      expiresAt: expires.toISOString(),
+    });
     const [row] = await this.ports.sql<WebhookRow[]>`
       INSERT INTO trade.signal_webhooks
         (id, user_id, client_request_id, symbol, market_id, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
-      VALUES (${randomUUID()}, ${principal.userId}, ${requestId}, ${symbol}, ${marketId}, ${sha256(token)}, ${token.slice(0, 6)},
+      VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${marketId}, ${sha256(token)}, ${token.slice(0, 6)},
         ${this.ports.sql.json(grant as never)}, ${expires.toISOString()}, 'active', ${now.toISOString()}, ${now.toISOString()})
       ON CONFLICT (user_id, client_request_id) DO NOTHING
       RETURNING *`;
@@ -241,7 +254,7 @@ export class SignalDesk {
 
   private async ingestOrRefuse(webhookId: string, raw: unknown): Promise<AlertReply> {
     const body = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-    const authFailed = new SignalError('The webhook token is not valid', 'trade.signal_auth_failed', 401);
+    const authFailed = new SignalError('The webhook token is not valid', 'trade.signal_auth_failed', 403);
     if (!/^[0-9a-f-]{36}$/i.test(webhookId)) throw authFailed;
     const [hook] = await this.ports.sql<WebhookRow[]>`SELECT * FROM trade.signal_webhooks WHERE id = ${webhookId}`;
     const token = typeof body.token === 'string' ? body.token : '';
@@ -298,12 +311,16 @@ export class SignalDesk {
       const grant = parseAlgoPlaceGrant(hook.place_grant);
       if (!grant) throw new SignalError('This webhook holds no place grant', 'trade.signal_grant_unavailable', 422);
       const principal = principalFromAlgoGrant({ userId: hook.user_id, grant, expiresAt: hook.grant_expires_at, now });
-      const order = await this.ports.placeOrder(principal, {
-        marketId: hook.market_id,
-        side,
-        qty,
-        clientOrderId: `sig-${sha256(key).slice(0, 40)}`,
-      });
+      const order = await this.ports.placeOrder(
+        principal,
+        {
+          marketId: hook.market_id,
+          side,
+          qty,
+          clientOrderId: `sig-${sha256(key).slice(0, 40)}`,
+        },
+        hook.id,
+      );
       status = 'placed';
       orderId = order.id;
     } catch (err) {

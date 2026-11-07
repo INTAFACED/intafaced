@@ -738,6 +738,24 @@
         }
       }
     },
+    "/api/v1/signals/webhook/{webhookId}": {
+      "post": {
+        "operationId": "postSignalAlert",
+        "summary": "A chart alert for one of your webhooks; the webhook's own token in the body, never an API key",
+        "tags": ["spot"],
+        "parameters": [{ "name": "webhookId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "security": [{}, { "apiKey": [] }],
+        "x-access": "public",
+        "x-scopes": ["trade:write"],
+        "x-signed-out": null,
+        "x-cost": 1,
+        "responses": {
+          "200": { "description": "Success" },
+          "403": { "description": "An API key without trade:write (PermissionDenied, scope.denied); the body links the permission table" },
+          "429": { "description": "Over the rate limit (edge.rate_limited); retry after retryAfterSeconds" }
+        }
+      }
+    },
     "/api/v1/funding-rate/{symbol}": {
       "get": {
         "operationId": "fetchFundingRate",

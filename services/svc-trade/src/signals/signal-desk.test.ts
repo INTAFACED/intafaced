@@ -32,6 +32,9 @@ describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
       sql,
       now: () => new Date('2026-11-07T10:00:00Z'),
       marketIdBySymbol: async () => 'm-btc',
+      admitStart: async () => {
+        throw new Error('no admission may be asked');
+      },
       placeOrder: async () => {
         throw new Error('no order may be placed');
       },
@@ -45,7 +48,7 @@ describe('chart alert webhooks (CB-bots-api-signal-01)', () => {
       side: 'buy',
       amount: '1',
     });
-    expect(out).toEqual({ status: 401, body: { ok: false, code: 'trade.signal_auth_failed', message: 'The webhook token is not valid' } });
+    expect(out).toEqual({ status: 403, body: { ok: false, code: 'trade.signal_auth_failed', message: 'The webhook token is not valid' } });
     expect(calls.every((c) => c.trimStart().startsWith('SELECT'))).toBe(true);
   });
 });

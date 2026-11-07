@@ -378,6 +378,14 @@ export const REST_REFERENCE: readonly RestRoute[] = [
     summary: 'Preview putting a strategy live; it never launches one',
     signedOut: TRADE_UNAUTHENTICATED,
   },
+  {
+    name: 'postSignalAlert',
+    method: 'POST',
+    path: '/api/v1/signals/webhook/:webhookId',
+    product: 'spot',
+    access: 'public',
+    summary: "A chart alert for one of your webhooks; the webhook's own token in the body, never an API key",
+  },
   // Derivatives
   {
     name: 'fetchFundingRate',

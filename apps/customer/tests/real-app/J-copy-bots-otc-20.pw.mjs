@@ -56,7 +56,7 @@ test(`${J} #1 creates a webhook for BTCUSDT: the URL and token shown once; later
 test(`${J} #2 an alert with a wrong token, then one older than the owner's maximum: refused as auth failed with no intent row; refused as stale`, async () => {
   const url = state('url');
   const wrong = await alert(url, { ...base(), token: 'wrong-token', side: 'buy', amount: '0.0005' });
-  expect([wrong.status, wrong.body?.code]).toEqual([401, 'trade.signal_auth_failed']);
+  expect([wrong.status, wrong.body?.code]).toEqual([403, 'trade.signal_auth_failed']);
   expect(await intents(state('trader'))).toEqual([]);
   // An hour old, far past the stack's TEST maximum alert age.
   const stale = await alert(url, { ...base({ time: new Date(Date.now() - 3_600_000).toISOString() }), side: 'buy', amount: '0.0005' });
