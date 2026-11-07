@@ -79,6 +79,7 @@ import { AccountLimitsDesk, parseLimitPolicy } from './controls/account-limits.j
 import { parseAccountTiers } from './controls/account-tiers.js';
 import { parseDormancyDays } from './controls/account-archive.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { createLearnerCardRouter } from './ops/learner-card.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { createMembershipRouter } from './membership/membership-router.js';
@@ -776,6 +777,7 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls, customerDetails, accountLimits),
   createOperatorOpsRouter(sql),
+  createLearnerCardRouter(sql),
   createPreferencesRouter(sql, {
     displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES,
     watchlists: {

@@ -242,6 +242,9 @@ export function journeysProblems(text) {
   if (branch('A.pw.mjs').group === branch('B.pw.mjs').group) problems.push('two journey selections on one branch share a group');
   if (branch('').group === resolve(text, journeysRun('workflow_dispatch', 'refs/heads/b2', '')).group)
     problems.push('two branches share a group');
+  const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
+  if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
+    problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
   return problems;
 }
 
@@ -374,4 +377,11 @@ test('the evaluator reads the expressions it is used on', () => {
   assert.equal(evaluate("github.ref != 'refs/heads/main'", { github: { ref: 'refs/heads/main' } }), false);
   assert.equal(evaluate('!(a.b)', { a: { b: '' } }), true);
   assert.equal(interpolate('g-${{ a }}-${{ b.c }}', { a: 1, b: { c: 'z' } }), 'g-1-z');
+});
+
+test('planted: branch `x` + `J-a` and branch `x-J` + `a` in one group fail rule 3', () => {
+  const t = read('real-app-journeys.yml');
+  const dash = t.replace("format('real-app-journeys-{0}:{1}'", "format('real-app-journeys-{0}-{1}'");
+  assert.notEqual(dash, t);
+  assert.ok(journeysProblems(dash).some((p) => /share a group: nothing splits/.test(p)));
 });

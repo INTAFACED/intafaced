@@ -8,7 +8,11 @@ import { readFileSync } from 'node:fs';
 import { readReport } from './journey-verdict.mjs';
 import {
   currentReportArtifact,
+  fileSteps,
   fullVerdict,
+  judgeTouched,
+  JOURNEY_TEST,
+  touchedSteps,
   globRe,
   isSharedSetup,
   judgeFullRun,
@@ -21,6 +25,7 @@ import {
   recheckPulls,
   recheckStep,
   rerunSealJob,
+  rerunBlocker,
   sealPull,
   stepsIn,
   titleProblems,
@@ -631,7 +636,7 @@ test('sealPull: a shared-setup pull request needs the clean full run, whatever i
     files: async () => files,
     verdictOf: async () => verdict,
   });
-  const shared = ['tooling/scripts/local-stack-services/identity.mjs', 'apps/customer/tests/real-app/J-ops-console-01.pw.mjs'];
+  const shared = ['tooling/scripts/local-stack-services/identity.mjs'];
   const dirtySeal = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, verdict: dirty }) });
   assert.equal(dirtySeal.ok, false, 'shared setup with a dirty full run fails');
   assert.equal(dirtySeal.stepsOk, true);
@@ -767,4 +772,279 @@ test("SHARED_SETUP and real-app-journeys.yml's push trigger do not drift", () =>
   // GitHub's `*` stays within one folder; only `**` crosses a `/` (review round 2 of #7431: no test failed when `*` crossed).
   assert.equal(globRe('tooling/scripts/local-test-*.mjs').test('tooling/scripts/local-test-x/y.mjs'), false, '`*` does not cross a `/`');
   assert.equal(globRe('tooling/scripts/local-stack-services/**').test('tooling/scripts/local-stack-services/a/b.mjs'), true, '`**` does');
+});
+
+// ---- A pull request that changes a journey test names the steps it touches (judgeTouched) ----
+
+// A journey file's text, kept as data in its own file: a skip line typed into a test file reads as a skipped test.
+const BANK13 = readFileSync(new URL('./fixtures/journey-seal-bank13.txt', import.meta.url), 'utf8');
+
+test('fileSteps: the steps a journey test file holds, by ${J} or written out, never a mention', () => {
+  assert.deepEqual(fileSteps('J-bank-13', BANK13), ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3']);
+  assert.deepEqual(
+    fileSteps('J-bank-1', BANK13),
+    ['J-bank-1#1', 'J-bank-1#2'],
+    "another journey's written-out title is not read as this one's",
+  );
+});
+
+const touchedPull = async ({
+  title,
+  body = '',
+  files = ['apps/customer/tests/real-app/J-bank-13.pw.mjs'],
+  text = { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': BANK13 },
+}) =>
+  sealPull({
+    repo: REPO,
+    number: 8,
+    sha: HEAD,
+    io: {
+      pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
+      runs: async () => [run(1)],
+      reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' } } }),
+      files: async () => files,
+      text: async (f, ref) => (ref === HEAD ? (text[f] ?? null) : null),
+    },
+  });
+
+test('the seal gap (#1249): a journey test change whose title names no step fails, and prints the steps the file holds', async () => {
+  const v = await touchedPull({ title: 'test(journeys): J-bank-13 waits for the card list' });
+  assert.equal(v.ok, false);
+  assert.match(v.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of J-bank-13 #1, J-bank-13 #2, J-bank-13 #3/);
+  assert.match(v.lines.join('\n'), /Left-or-replaced: J-bank-13 #1 #2 #3/);
+});
+
+test('JOURNEY_TEST: whole and split journey files, never the look sweeps', () => {
+  const id = (f) => JOURNEY_TEST.exec(`apps/customer/tests/real-app/${f}`)?.[1] ?? null;
+  assert.equal(id('J-bank-13.pw.mjs'), 'J-bank-13');
+  assert.equal(id('J-ops-console-02-documents.pw.mjs'), 'J-ops-console-02');
+  assert.equal(id('J-wallet-04-security-lock.pw.mjs'), 'J-wallet-04');
+  assert.equal(id('J-copy-bots-otc-30.pw.mjs'), 'J-copy-bots-otc-30');
+  assert.equal(id('look-sweep-390.pw.mjs'), null);
+  assert.equal(id('J-bank-13.mjs'), null);
+  assert.equal(JOURNEY_TEST.test('apps/customer/tests/real-app/sub/J-bank-13.pw.mjs'), false);
+});
+
+test('a journey test change passes when the title names its steps or a strict line leaves them', async () => {
+  assert.equal((await touchedPull({ title: 'test(journeys): J-bank-13 #2 waits for the card list' })).ok, true);
+  assert.equal((await touchedPull({ title: 'test(journeys): waits', body: 'Left-or-replaced: J-bank-13 #3' })).ok, true);
+  assert.equal(
+    (
+      await touchedPull({
+        title: 'customer: copy',
+        files: ['apps/customer/src/x.ts', 'apps/customer/tests/real-app/look-sweep-390.pw.mjs'],
+      })
+    ).ok,
+    true,
+    'no journey test changed: unchanged',
+  );
+});
+
+test('planted: a title naming another journey, a malformed line, an unreadable file', async () => {
+  const wrong = await touchedPull({ title: 'test(journeys): J-bank-14 #2 waits for the card list' });
+  assert.equal(wrong.ok, false, "another journey's step does not cover this file");
+  assert.match(wrong.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
+  const bad = await touchedPull({ title: 'test(journeys): waits', body: '- Left-or-replaced: J-bank-13 #3' });
+  assert.equal(bad.ok, false, 'an exemption-like line that is not one');
+  assert.match(bad.lines.join('\n'), /looks like an exemption but isn't one/);
+  assert.equal((await touchedPull({ title: 'x', body: 'Left-or-replaced: J-bank-13 #9' })).ok, false, 'a step the file does not hold');
+  const empty = await touchedPull({ title: 'x (J-bank-13 #1)', text: { 'apps/customer/tests/real-app/J-bank-13.pw.mjs': '// nothing' } });
+  assert.equal(empty.ok, false, 'a journey file with no readable step fails closed');
+  await assert.rejects(
+    touchedSteps({ paths: ['apps/customer/tests/real-app/J-bank-13.pw.mjs'], head: HEAD, base: OLD, text: async () => null }),
+  );
+  assert.deepEqual(
+    await touchedSteps({
+      paths: ['apps/customer/tests/real-app/J-bank-13.pw.mjs'],
+      head: HEAD,
+      base: OLD,
+      text: async (_f, ref) => (ref === OLD ? BANK13 : null),
+    }),
+    [{ file: 'apps/customer/tests/real-app/J-bank-13.pw.mjs', journey: 'J-bank-13', steps: ['J-bank-13#1', 'J-bank-13#2', 'J-bank-13#3'] }],
+    'a file the head removed is read at the base',
+  );
+  assert.deepEqual(judgeTouched({ title: 'x', body: '', touched: [] }), { ok: true, lines: [] });
+});
+
+test('the recheck takes a pull request whose body gained an exemption line, so leaving steps there re-runs the seal', () => {
+  const p = {
+    number: 9,
+    title: 'test(journeys): waits',
+    body: 'Left-or-replaced: J-bank-13 #3',
+    state: 'open',
+    head: { sha: HEAD },
+    base: { repo: { full_name: REPO } },
+  };
+  assert.deepEqual(
+    recheckPulls({ pulls: [p], sha: HEAD, repo: REPO }).map((x) => x.number),
+    [9],
+  );
+});
+
+test("a GitHub revert of a journey-test PR passes; a fake Revert title without GitHub's body line does not", async () => {
+  const revert = await touchedPull({
+    title: 'Revert "test(journeys): J-bank-13 waits for the card list"',
+    body: 'Reverts INTAFACED/intafaced#7434',
+  });
+  assert.equal(revert.ok, true, "GitHub's Revert form is never slowed by a body line (OWNER 180)");
+  assert.match(revert.lines.join('\n'), /a revert of #7434/);
+  const fake = await touchedPull({ title: 'Revert "test(journeys): J-bank-13 waits for the card list"', body: 'undoes the flaky wait' });
+  assert.equal(fake.ok, false, 'a Revert title alone is not a revert');
+  assert.match(fake.lines.join('\n'), /J-bank-13\.pw\.mjs changes the tests of/);
+  assert.equal(
+    (await touchedPull({ title: 'Revert "x"', body: 'Reverts someone/else#7434' })).ok,
+    false,
+    "another repository's PR is not this one's revert",
+  );
+  assert.equal(
+    (await touchedPull({ title: 'Revert "x" and more', body: 'Reverts INTAFACED/intafaced#7434' })).ok,
+    false,
+    'more after the quote',
+  );
+  assert.equal(
+    (await touchedPull({ title: 'Revert "x"', body: '  Reverts INTAFACED/intafaced#7434' })).ok,
+    false,
+    'the line at column 0 only',
+  );
+});
+
+test('the recheck takes a pull request whose body lost its exemption line (OLD_BODY), so removing it re-runs the seal', () => {
+  const p = {
+    number: 10,
+    title: 'test(journeys): waits',
+    body: 'nothing left here',
+    state: 'open',
+    head: { sha: HEAD },
+    base: { repo: { full_name: REPO } },
+  };
+  assert.deepEqual(recheckPulls({ pulls: [p], sha: HEAD, repo: REPO }), [], 'no line now and no old body: left alone');
+  assert.deepEqual(
+    recheckPulls({ pulls: [p], sha: HEAD, repo: REPO, oldBody: 'Left-or-replaced: J-bank-13 #3' }).map((x) => x.number),
+    [10],
+  );
+});
+
+test('journey-seal-recheck.yml passes the old body to the recheck as an env value', () => {
+  const yml = readFileSync(new URL('../../.github/workflows/journey-seal-recheck.yml', import.meta.url), 'utf8');
+  assert.match(yml, /\n {10}OLD_BODY: \$\{\{ github\.event\.changes\.body\.from \}\}/);
+  assert.doesNotMatch(
+    yml
+      .split('\n')
+      .filter((l) => /^\s+run:/.test(l))
+      .join('\n'),
+    /changes\.body/,
+    'never in the script text',
+  );
+});
+
+// 7 Nov 2026, #7398: a job re-run is a new attempt of its CI run, and it joins ci.yml's concurrency group
+// (CI-refs/pull/<n>/merge, cancel-in-progress off main), so it cancels whatever CI run of that pull request is in flight.
+// The re-check acts only when the run's head is the pull request's current head and no CI run on that head is going;
+// each skip has its own test, and each test fails on its own planted fault.
+const STALE_OLD = 'b'.repeat(40);
+const STALE_NEW = 'c'.repeat(40);
+const recheckSeal = (over) => ({ id: 9, name: SEAL, status: 'completed', conclusion: 'success', ...over });
+const ciRun = (id, over) => ({ id, event: 'pull_request', status: 'completed', head_sha: STALE_OLD, ...over });
+const pr7398 = (over) => ({ number: 7398, state: 'open', head: { sha: STALE_OLD, ref: 'b1' }, ...over });
+// `runs(i)` and `jobs(i)` answer the i-th read of the head's runs; `blocker(i)` is read with the same counter, so a
+// stand-in can answer differently before and after the wait.
+const recheckWith = async ({ runs, jobs, blocker }) => {
+  const posts = [];
+  let n = 0;
+  const get = async (path) => (path.includes('/workflows/ci.yml/runs') ? { workflow_runs: runs(n++) } : { jobs: jobs(n) });
+  const post = async (path) => (posts.push(path), { status: 201 });
+  const out = await rerunSealJob({
+    repo: 'o/r',
+    sha: STALE_OLD,
+    get,
+    post,
+    blocker: async () => blocker(n),
+    sleep: async () => {},
+    log: () => {},
+  }).catch((e) => `threw: ${e.message}`);
+  return { out, posts };
+};
+const headFree = () => rerunBlocker({ sha: STALE_OLD, pulls: [pr7398()], headRuns: [ciRun(77)] });
+const movedHead = () =>
+  rerunBlocker({
+    sha: STALE_OLD,
+    pulls: [pr7398({ head: { sha: STALE_NEW, ref: 'b1' } })],
+    headRuns: [ciRun(77, { conclusion: 'cancelled' })],
+  });
+
+test('skip 1, stale head: a run whose head is not the pull request current head is never re-run', async () => {
+  // The head moved and every CI run on the old head has finished, so nothing else would stop the re-run.
+  const r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: movedHead });
+  assert.deepEqual(r.posts, [], 'a stale head is never re-run');
+  assert.match(r.out, /^not re-run: #7398's head moved to cccccccccc/);
+  assert.equal(rerunBlocker({ sha: STALE_OLD, pulls: [pr7398({ state: 'closed' })], headRuns: [] }).act, 'skip');
+});
+
+test('the late read: a head that moves during the wait is read just before the re-run, not before the wait', async () => {
+  // Clear when the re-check starts (reads 0 and 1, the run still going), moved once the run has been waited out.
+  const r = await recheckWith({
+    runs: (i) => [ciRun(77, i < 2 ? { status: 'in_progress' } : { conclusion: 'cancelled' })],
+    jobs: (i) => [recheckSeal(i < 3 ? { status: 'in_progress' } : { conclusion: 'cancelled' })],
+    blocker: (i) => (i <= 1 ? headFree() : movedHead()),
+  });
+  assert.deepEqual(r.posts, [], 'the head moved during the wait: no re-run of the old head');
+  assert.match(r.out, /^not re-run: #7398's head moved to cccccccccc/);
+});
+
+test("skip 2, CI in progress: the head's newest ci.yml run queued or in progress is never re-run", async () => {
+  // In progress for as long as the re-check looks, the seal running: nothing is posted, ever, and it goes red.
+  let r = await recheckWith({
+    runs: () => [ciRun(77, { status: 'in_progress' })],
+    jobs: () => [recheckSeal({ status: 'in_progress' })],
+    blocker: headFree,
+  });
+  assert.deepEqual(r.posts, [], 'a seal in a run still in progress is never re-run');
+  assert.match(r.out, /^threw: /);
+  // In progress with its seal already finished (the run's last seconds): nothing is posted.
+  r = await recheckWith({ runs: () => [ciRun(77, { status: 'in_progress' })], jobs: () => [recheckSeal()], blocker: headFree });
+  assert.deepEqual(r.posts, [], 'a run still finishing is never re-run');
+  // Queued, no seal job yet: its own seal reads the change, so the re-check exits 0 with no call.
+  r = await recheckWith({ runs: () => [ciRun(77, { status: 'queued' })], jobs: () => [], blocker: headFree });
+  assert.deepEqual(r.posts, [], 'a queued run is never re-run');
+  assert.match(r.out, /has not started/);
+});
+
+test('skip 2, CI in progress: another CI run on the same head in flight is waited out, then re-run; never skipped green', async () => {
+  // Same head, the newest run with a seal finished, but another run on this head is queued (a reopen, a re-run by
+  // hand): a re-run attempt would join the group and cancel it, so the re-check waits; at the bound it goes red.
+  const going = () => rerunBlocker({ sha: STALE_OLD, pulls: [pr7398()], headRuns: [ciRun(79, { status: 'queued' }), ciRun(77)] });
+  let r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: going });
+  assert.deepEqual(r.posts, [], 'a run in flight on this head is never cancelled by a re-run');
+  assert.match(r.out, /^threw: CI run 79 \(queued\) on this head is still going.* after 25 min/);
+  // Once it finishes, exactly one re-run.
+  r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: (i) => (i < 4 ? going() : headFree()) });
+  assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
+});
+
+test("the round 1 cases: a run on another commit of the branch, or a fork's same-named branch, causes no skip", async () => {
+  // An older head's run with a new attempt in flight: cancelling it cancels no check this head is judged by.
+  const olderCommit = () =>
+    rerunBlocker({
+      sha: STALE_OLD,
+      pulls: [pr7398()],
+      headRuns: [ciRun(70, { status: 'in_progress', head_sha: 'd'.repeat(40) }), ciRun(77)],
+    });
+  let r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: olderCommit });
+  assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun'], 'a run on another commit of the branch: re-run');
+  // A fork pull request whose branch has the same name: its runs are on its own SHA.
+  const fork = () =>
+    rerunBlocker({
+      sha: STALE_OLD,
+      pulls: [pr7398()],
+      headRuns: [ciRun(71, { status: 'in_progress', head_sha: 'e'.repeat(40), head_repository: { full_name: 'f/r' } }), ciRun(77)],
+    });
+  r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: fork });
+  assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun'], "a fork's same-named branch: re-run");
+  assert.equal(rerunBlocker({ sha: STALE_OLD, pulls: [pr7398()], headRuns: [ciRun(81, { event: 'push', status: 'in_progress' })] }), null);
+});
+
+test('a completed newest run on the current head, nothing else going: exactly one re-run', async () => {
+  const r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: headFree });
+  assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
+  assert.equal(rerunBlocker({ sha: STALE_OLD, pulls: [pr7398()], headRuns: [] }), null);
 });
