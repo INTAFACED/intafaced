@@ -8,10 +8,11 @@
   },
   "runsRead": {
     "from": 58,
-    "to": 1719,
-    "read": 252,
+    "to": 1154,
+    "read": 165,
     "noReport": [231, 235, 236, 238],
-    "note": "every completed Real-app journeys run on main from 58 to 1154 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report; runs 1155 to 1718 (86 runs) were read by run 1719's own verdict, which was green, so no unbuilt step still listed passed in them, and every step still listed failed in run 1719"
+    "note": "every completed Real-app journeys run on main from 58 to 1154 that was not cancelled (a cancelled run was replaced by a later push and has no results); a run in noReport had no stored report",
+    "since": "this rewrite read run 1719 via its report only (docs/runbooks/baseline-refresh-1719.json gives every test of each step it took off). Runs 1155 to 1718 were not read one by one for it; they are the runs after the named run that the verdict reads itself (regression-issue-state.md: \"after it, the verdict reads every finished run on main itself, and a pass there ends the entry\"), and run 1719's verdict read those 86 runs with 0 steps outside the list or against its rules"
   },
   "moneyRuleAt": "000d254809a8bd78112d4ba44fe0aae904f314b1",
   "moneyPackages": [
