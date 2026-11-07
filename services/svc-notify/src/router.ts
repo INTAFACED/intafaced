@@ -1907,7 +1907,11 @@ export function createNotifyRouter(
             return { rule: watchRuleToWire(made.rule), alerts: made.alerts.map(priceAlertToWire) };
           } catch (err) {
             if (err instanceof WatchRuleError) {
-              throw new TRPCError({ code: err.code === 'alert.watchlist_not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED', message: err.code, cause: err });
+              throw new TRPCError({
+                code: err.code === 'alert.watchlist_not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED',
+                message: err.code,
+                cause: err,
+              });
             }
             if (err instanceof AlertValidationError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
             throw alertManagerError(err);

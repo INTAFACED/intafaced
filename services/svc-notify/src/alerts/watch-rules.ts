@@ -54,7 +54,12 @@ export class WatchRuleError extends Error {
 
 export interface WatchRuleStore {
   /** Store the rule and its first alerts together. Refuses with `AlertQuotaReachedError` when they would pass `maxOpen`. */
-  create(rule: NewWatchRule, alerts: readonly CreatePriceAlertInput[], maxOpen: number, at: Date): Promise<{ rule: WatchRule; alerts: readonly PriceAlert[] }>;
+  create(
+    rule: NewWatchRule,
+    alerts: readonly CreatePriceAlertInput[],
+    maxOpen: number,
+    at: Date,
+  ): Promise<{ rule: WatchRule; alerts: readonly PriceAlert[] }>;
   /**
    * Add alerts for markets the rule does not cover yet and count them as covered, together. Applies only while the rule is
    * still active and covers exactly `rule.markets` (a sweep racing another adds once); `null` when it did not apply.
@@ -202,7 +207,15 @@ export class MemoryWatchRuleStore implements WatchRuleStore {
 
   async create(rule: NewWatchRule, inputs: readonly CreatePriceAlertInput[], maxOpen: number, at: Date) {
     const alerts = await this.alerts.createMany(inputs, maxOpen);
-    const row: WatchRule = { ...rule, id: randomUUID(), status: 'active', createdAt: at, updatedAt: at, lastSyncAt: at, lastSyncCode: null };
+    const row: WatchRule = {
+      ...rule,
+      id: randomUUID(),
+      status: 'active',
+      createdAt: at,
+      updatedAt: at,
+      lastSyncAt: at,
+      lastSyncCode: null,
+    };
     this.byId.set(row.id, row);
     return { rule: row, alerts };
   }
@@ -260,7 +273,8 @@ type RuleRow = {
   last_sync_code: WatchRuleSyncCode | null;
 };
 
-const COLUMNS = 'id, user_id, list_id, list_name, condition, direction, target_price, status, markets, created_at, updated_at, last_sync_at, last_sync_code';
+const COLUMNS =
+  'id, user_id, list_id, list_name, condition, direction, target_price, status, markets, created_at, updated_at, last_sync_at, last_sync_code';
 
 function ruleOf(row: RuleRow): WatchRule {
   return {

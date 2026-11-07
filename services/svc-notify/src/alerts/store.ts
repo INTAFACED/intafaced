@@ -594,7 +594,11 @@ function storedSource(r: AlertRow): AlertPriceSource {
  * lock a single create takes, counts the open price alerts and refuses with `AlertQuotaReachedError` when these would pass
  * `maxOpen`. Shared by `createMany` and the watchlist rules, which write their own row in the same transaction.
  */
-export async function insertPriceAlerts(tx: Sql, inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]> {
+export async function insertPriceAlerts(
+  tx: Sql,
+  inputs: readonly CreatePriceAlertInput[],
+  maxOpen: number,
+): Promise<readonly PriceAlert[]> {
   const first = inputs[0];
   if (!first) return [];
   const sources = inputs.map((input) => assertCreate(input).source);
