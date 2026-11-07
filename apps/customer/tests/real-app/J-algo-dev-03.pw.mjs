@@ -420,7 +420,8 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   // The usage view names the plan that applies and counts each resource against that plan's stored limit.
   const usage = page.getByTestId('quant-usage');
   await expect(usage).toBeVisible();
-  await expect(usage).toContainText('Usage and plan limits');
+  await expect(usage).toHaveAttribute('aria-label', 'Usage and plan limits');
+  await expect(page.getByRole('heading', { name: 'Usage and plan limits' })).toBeVisible();
   const plan = usage.getByTestId('quant-usage-plan');
   const profile = await plan.getAttribute('data-profile');
   expect(profile, 'a plan applies to this account').toBeTruthy();
