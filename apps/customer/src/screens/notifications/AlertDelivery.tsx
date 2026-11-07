@@ -23,7 +23,7 @@ import {
   type WebhookPolicy,
 } from './notify-api';
 
-export type PolicyState = { status: 'loading' | 'failed' } | { status: 'ready'; policy: WebhookPolicy | null };
+export type PolicyState = { status: 'loading' } | { status: 'failed' } | { status: 'ready'; policy: WebhookPolicy | null };
 
 /** The channel statuses, the webhook policy and the webhook log of the person's alerts. `reload` reads the log again. */
 export function useAlertDelivery() {
