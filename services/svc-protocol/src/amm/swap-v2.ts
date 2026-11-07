@@ -588,9 +588,13 @@ export async function buildSwapV2(deps: SwapV2Deps, input: ProtocolBuildSwapV2In
   const data =
     calls.length > 0 ? encodeFunctionData({ abi: ROUTER_V2_ABI, functionName: 'multicall', args: [[...calls, swapData]] }) : swapData;
   const value = native ? (input.kind === 'exact_in' ? amount : limit) : 0n;
+  let gas: bigint | null = null;
   if (input.simulate) {
     try {
       await client.call({ account: getAddress(input.owner), to: setting.router, data, value });
+      // The gas limit the wallet sends with: what the call used now plus a fifth, so a price that moves before it is
+      // mined makes the swap revert on chain (nothing moves) instead of the wallet refusing to send it.
+      gas = ((await client.estimateGas({ account: getAddress(input.owner), to: setting.router, data, value })) * 6n) / 5n;
     } catch (err) {
       const named = simulationRefusal(err);
       if (named) throw named;
@@ -614,6 +618,7 @@ export async function buildSwapV2(deps: SwapV2Deps, input: ProtocolBuildSwapV2In
     quoted: quoted.map(String),
     deadline: deadline.toString(),
     blockNumber: blockNumber.toString(),
+    gas: gas === null ? null : gas.toString(),
   };
 }
 
