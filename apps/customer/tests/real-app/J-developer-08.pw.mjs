@@ -173,7 +173,12 @@ test(`${J} #4 opens the log of someone else's key: refused`, async ({ browser })
     await expect(other.page.getByRole('table', { name: 'Call log' })).toHaveCount(0);
     for (const call of calls) expect(await other.page.content()).not.toContain(call.requestId);
 
-    // And from identity itself: the log of a key that is not theirs is refused.
+    // And from identity itself: the owner reads the log (so a refusal below is about whose key it is, not a missing
+    // door), and the log of a key that is not theirs is refused.
+    const own = await (
+      await api(run.read().who)
+    ).get(`/api/identity/trpc/developerKeys.calls?input=${encodeURIComponent(JSON.stringify({ keyId, limit: 50 }))}`);
+    expect(own.status, `the owner reads their own key's log: ${JSON.stringify(own.body).slice(0, 300)}`).toBe(200);
     const reply = await (
       await api(other.who)
     ).get(`/api/identity/trpc/developerKeys.calls?input=${encodeURIComponent(JSON.stringify({ keyId, limit: 50 }))}`);
