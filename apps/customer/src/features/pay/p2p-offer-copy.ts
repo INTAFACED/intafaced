@@ -24,7 +24,7 @@ const en = {
   pendingTitle: 'Waiting for review',
   pendingNone: 'You have no ads waiting for review.',
   pendingWaiting:
-    'Waiting for review. Reviewing ads is not built yet, so nothing can approve it: it stays off the board and nobody can see or take it. You can close it.',
+    'Waiting for review. No reviewer approves ads here, so nothing can approve it: it stays off the board and nobody can see or take it. You can close it.',
   pausedTitle: 'Paused offers',
   pausedNone: 'You have no paused offers.',
   pausedByYou: 'Paused by you. Resume it to put it back on the board.',
@@ -79,7 +79,7 @@ const es = {
   pendingTitle: 'En revisión',
   pendingNone: 'No tienes anuncios en revisión.',
   pendingWaiting:
-    'En revisión. La revisión de anuncios aún no existe, así que nada puede aprobarlo: sigue fuera del tablón y nadie puede verlo ni tomarlo. Puedes cerrarlo.',
+    'En revisión. Aquí ningún revisor aprueba anuncios, así que nada puede aprobarlo: sigue fuera del tablón y nadie puede verlo ni tomarlo. Puedes cerrarlo.',
   pausedTitle: 'Ofertas en pausa',
   pausedNone: 'No tienes ofertas en pausa.',
   pausedByYou: 'La pausaste tú. Reanúdala para volver a mostrarla en el tablón.',
@@ -136,7 +136,7 @@ const fr = {
   pendingTitle: 'En attente de vérification',
   pendingNone: 'Vous n’avez aucune annonce en attente de vérification.',
   pendingWaiting:
-    'En attente de vérification. La vérification des annonces n’existe pas encore, donc rien ne peut l’approuver : elle reste hors du tableau et personne ne peut la voir ni la prendre. Vous pouvez la fermer.',
+    'En attente de vérification. Ici, aucun vérificateur n’approuve les annonces, donc rien ne peut l’approuver : elle reste hors du tableau et personne ne peut la voir ni la prendre. Vous pouvez la fermer.',
   pausedTitle: 'Offres en pause',
   pausedNone: 'Vous n’avez aucune offre en pause.',
   pausedByYou: 'Mise en pause par vous. Reprenez-la pour la remettre sur le tableau.',
