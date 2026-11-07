@@ -14,7 +14,9 @@ import { assertStackUp, restartChecked, shownOutput, toolError } from '../../app
 const LONG = 'f'.repeat(16) + '0123456789abcdef'.repeat(3);
 const SHORT = 'plantedShort9';
 const LOGGED = 'PLANTED-LOG-VALUE';
-const FAKES = [LONG, SHORT, LOGGED, LONG.slice(0, 24), LONG.slice(-24)];
+// A fake 19-character value, short enough that no opaque-run mask catches it (review round 2's stand-in length).
+const PLANT19 = 'plantedNineteen19ch';
+const FAKES = [LONG, SHORT, LOGGED, PLANT19, LONG.slice(0, 24), LONG.slice(-24)];
 
 /** Every text an error carries: its own properties (hidden ones too), its stack, its causes, and how it prints. */
 function everything(error) {
@@ -62,11 +64,14 @@ test('a status line keeps its shape with opaque runs masked, a credential line i
 });
 
 test('planted fault: a failing restart whose service log tail holds a value shows the header only, and its status lines', () => {
-  const raw = Object.assign(new Error(`Command failed: node local-test-stack.mjs restart identity\nedge exited during start`), {
+  // The real header: local-test-stack.mjs `fail()` writes `\nlocal-test-stack: <message>\n` (round 2 found the test used
+  // a header without the prefix, which passed while the real shape leaked).
+  const raw = Object.assign(new Error(`Command failed: node local-test-stack.mjs restart identity`), {
     status: 1,
     stdout: '  identity: stopped\n  postgres, nats: already running\n',
     stderr: [
-      'edge exited during start. Log /state/logs/edge.log:',
+      '',
+      'local-test-stack: edge exited during start. Log /state/logs/edge.log:',
       `{"level":30,"msg":"configured","source":"${LOGGED}"}`,
       `  value: ${SHORT}`,
       `${LONG}`,
@@ -76,7 +81,7 @@ test('planted fault: a failing restart whose service log tail holds a value show
   assert.match(error.message, /^tool local-test-stack\.mjs restart identity exit 1$/m);
   assert.match(error.message, /identity: stopped/);
   assert.match(error.message, /postgres, nats: already running/);
-  assert.match(error.message, /^ {4}edge exited during start$/m);
+  assert.match(error.message, /^ {4}local-test-stack: edge exited during start$/m);
   assert.match(error.message, /its stderr \(1 line\(s\) shown, 3 withheld\)/);
   assert.deepEqual(carriesNone(everything(error)), []);
 });
@@ -104,7 +109,7 @@ test('the error tool() throws for a real failed command carries none of a secret
     raw = e;
   }
   // Node's own error carries every fake value: in its message (stderr appended) and in its stderr and output.
-  assert.ok(raw && carriesNone(everything(raw)).length === FAKES.length, 'the planted command must leak through Node');
+  assert.ok(raw && carriesNone(everything(raw)).length === FAKES.length - 1, 'the planted command must leak through Node');
   const error = toolError(raw, 'planted-tool.mjs', []);
   assert.equal(error.status, 3);
   assert.equal(error.cause, undefined);
@@ -188,4 +193,60 @@ test("scoped-session's stdout (a TEST session's cookies) is never shown, even wh
   assert.match(error.message, /its stdout \(0 line\(s\) shown, 2 withheld\)/);
   assert.match(error.stderr, /^refusing \[gates\.scope_unknown\]/);
   assert.deepEqual(carriesNone(everything(error)), []);
+});
+
+/** Runs a real child that writes `text` to stderr and exits 1, as a stack script's `fail()` does; Node's error. */
+function failingChild(stdout, stderr) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-fail-'));
+  const script = path.join(dir, 'planted-fail.mjs');
+  fs.writeFileSync(
+    script,
+    `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(1);`,
+  );
+  try {
+    execFileSync(process.execPath, [script], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    return e;
+  }
+  throw new Error('the planted child must fail');
+}
+
+test('review round 2: the log tail under the real `local-test-stack: … exited during start` header never reaches the error', () => {
+  // Exactly what local-test-stack.mjs `waitHealthy` makes `fail()` write: the prefixed header, then the log's tail. The
+  // tail holds status-shaped lines whose fake value is too short, or too broken up, for the opaque mask.
+  const tail = [
+    '{"level":50,"msg":"connect failed"}',
+    "  code: 'ECONNREFUSED',",
+    `  input: '${PLANT19}'`,
+    `  edge url: http://u:${PLANT19}@127.0.0.1:1`,
+    `  edge: ${PLANT19}`,
+  ].join('\n');
+  const raw = failingChild('  edge: stopped\n', `\nlocal-test-stack: edge exited during start. Log /state/logs/edge.log:\n${tail}\n`);
+  assert.ok(everything(raw).includes(PLANT19), 'Node carries the planted value');
+  const error = toolError(raw, 'local-test-stack.mjs', ['restart', 'edge']);
+  assert.match(error.message, /^ {4}local-test-stack: edge exited during start$/m);
+  assert.match(error.message, /its stderr \(1 line\(s\) shown, 5 withheld\)/);
+  assert.match(error.message, /^ {6}edge: stopped$/m);
+  assert.deepEqual(carriesNone(everything(error)), []);
+});
+
+test('every log-tail header a tool prints is held to the header, with or without its script prefix', () => {
+  const cases = [
+    ['local-test-stack: team-tls exited during start. Log /state/logs/team-tls.log', 'local-test-stack: team-tls exited during start'],
+    ['edge exited during start. Log /state/logs/edge.log:', 'edge exited during start'],
+    ['local-test-stack: build failed (exit 1). Log: /state/logs/build.log', 'local-test-stack: build failed (exit 1). Log'],
+    [
+      'local-test-stack: migrate ledger failed (exit null). Log: /state/logs/migrate-ledger.log',
+      'local-test-stack: migrate ledger failed (exit null). Log',
+    ],
+    ['test market starting (pid 4242). Watch: tail -f /state/logs/market.log', 'test market starting (pid 4242)'],
+  ];
+  for (const [header, shown] of cases) {
+    const out = shownOutput(`  matching: stopped\n${header}\n  edge: ${PLANT19}\n  value: ${SHORT}\n{"v":"${LOGGED}"}`);
+    assert.equal(out.text, `  matching: stopped\n${shown}`, header);
+    assert.equal(out.withheld, 3, header);
+  }
+  // "did not become healthy" carries no tail; with its prefix it is shown, as far as its own words go.
+  const healthy = shownOutput('local-test-stack: identity did not become healthy at http://127.0.0.1:14502/health within 90s (see /x)');
+  assert.equal(healthy.lines, 1);
 });
