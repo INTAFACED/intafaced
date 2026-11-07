@@ -43,7 +43,7 @@ export const chatCopy = defineCopy('support-chat', {
   claimRefused: 'This page tried to sign you in as someone else. That was refused.',
   failed: 'That did not go through.',
   rateLimited: 'You are sending messages too quickly. Wait a moment and send again.',
-  unset: 'Chat is not set up yet: {setting} is not set.',
+  unset: 'Chat is switched off: {setting} is not set.',
   closed: 'This chat has ended, so nothing more can be written here.',
   notFound: 'We could not find this chat. Start a new one.',
   conflict: 'That message was already sent with different words. Start the message again.',

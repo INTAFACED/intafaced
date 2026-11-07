@@ -105,6 +105,19 @@ const READS_A_REQUEST = [
  * `listComments`, and `guest-requests.pg.test.ts` proves a staff note is not in it.
  */
 const READS_BY_GUEST_LINK = ['guestThread', 'guestReply'] as const;
+/**
+ * Live chat (SP-chat-01): these read a chat session (its own messages), never a request or a comment, so a staff note is
+ * in none of them. The request a closed chat becomes is read through `get` and `listComments` above.
+ */
+const READS_A_CHAT = [
+  'chatAvailability',
+  'chatIdentityToken',
+  'chatOpen',
+  'chatSend',
+  'chatPoll',
+  'chatClose',
+  'chatContinueByEmail',
+] as const;
 /** These read no request and no comment: help centre, knowledge base, forms, desk settings and a guest's submission. */
 const READS_NO_REQUEST = [
   'guestCreate',
@@ -143,7 +156,7 @@ describe('internal notes', () => {
       );
       if (refused !== 'FORBIDDEN') reachable.push(path);
     }
-    expect(reachable.sort()).toEqual([...READS_A_REQUEST, ...READS_BY_GUEST_LINK, ...READS_NO_REQUEST].sort());
+    expect(reachable.sort()).toEqual([...READS_A_REQUEST, ...READS_BY_GUEST_LINK, ...READS_A_CHAT, ...READS_NO_REQUEST].sort());
   });
 
   it('a note is in no answer a customer procedure gives, and moves nothing the customer reads', async () => {
