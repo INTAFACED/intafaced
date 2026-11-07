@@ -63,6 +63,7 @@ import type {
 } from '@intafaced/contracts';
 import { DarkAccountState, type AccountStateSource } from './account-state.js';
 import {
+  type AvailabilityLogEntry,
   MemoryStaffBook,
   STAFF_AVAILABILITIES,
   type StaffAvailability,
@@ -150,7 +151,7 @@ import {
 import { MemoryLifecycleBook, type LifecycleBook } from './ticket-lifecycle.js';
 import { MemoryRatingRequestBook, RatingRequestOutbox } from './rating-request.js';
 import { MemoryPropertiesBook, normaliseLabels, type PropertiesBook } from './desk-properties.js';
-import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook } from './desk-groups.js';
+import { MemoryGroupBook, deskCanSee, type DeskGroup, type DeskViewer, type GroupBook, type GroupLogEntry } from './desk-groups.js';
 import { withSupportSpan } from './tracing.js';
 import { findCommentSecret, SUPPORT_COMMENT_SECRET_REFUSED } from './comment-secrets.js';
 
@@ -1817,6 +1818,19 @@ export class SupportService implements SupportContract {
     });
     if (!stored) throw new SupportError('that person is not on the desk staff', 'support.not_staff');
     return this.withEffectiveAvailability(stored);
+  }
+
+  /** The availability log, oldest first: who changed whose availability, when and why. Staff only. */
+  async staffAvailabilityHistory(input: { actorId: string; userId?: string }): Promise<AvailabilityLogEntry[]> {
+    if (!(await this.staff.get(input.actorId))) throw new SupportError('only staff can read the availability log', 'support.not_staff');
+    return this.staff.availabilityHistory(input.userId);
+  }
+
+  /** One group's log, oldest first: every change to it, its members and its requests, with who made it. Staff only. */
+  async groupHistory(input: { actorId: string; groupId: string }): Promise<GroupLogEntry[]> {
+    if (!(await this.staff.get(input.actorId))) throw new SupportError('only staff can read a group log', 'support.not_staff');
+    if (!(await this.groups.get(input.groupId))) throw new SupportError('that group does not exist', 'support.group_unknown');
+    return this.groups.history(input.groupId);
   }
 
   /** Own heartbeat. Refuses while the owner has not set the window. */
