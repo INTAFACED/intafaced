@@ -114,8 +114,8 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
   const orders = useResource(
     async (signal): Promise<ApiResult<Trade[]>> => {
       const [cancelled, disputed] = await Promise.all([
-        pay.orderPage({ tab: 'cancelled', limit: 50 }, signal),
-        pay.orderPage({ tab: 'in_dispute', limit: 50 }, signal),
+        pay.orderPage({ tab: 'cancelled', limit: 200 }, signal),
+        pay.orderPage({ tab: 'in_dispute', limit: 200 }, signal),
       ]);
       if (!cancelled.ok) return cancelled;
       if (!disputed.ok) return disputed;

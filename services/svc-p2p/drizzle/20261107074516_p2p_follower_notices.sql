@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS "p2p"."follower_notices" (
   "trader_id" text NOT NULL,
   "posted_at" timestamptz NOT NULL,
   "handed_at" timestamptz,
+  -- Set instead of handing over when, by hand-over time, the pair has blocked each other or the ad is no longer up.
+  "dropped_at" timestamptz,
   CONSTRAINT "follower_notices_pk" PRIMARY KEY ("offer_id", "follower_id"),
   CONSTRAINT "follower_notices_self_ck" CHECK ("follower_id" <> "trader_id"),
   CONSTRAINT "follower_notices_order_ck" CHECK ("handed_at" IS NULL OR "handed_at" >= "posted_at")
@@ -18,7 +20,7 @@ CREATE TABLE IF NOT EXISTS "p2p"."follower_notices" (
 
 CREATE INDEX IF NOT EXISTS "follower_notices_owed_idx"
   ON "p2p"."follower_notices" ("posted_at")
-  WHERE "handed_at" IS NULL;
+  WHERE "handed_at" IS NULL AND "dropped_at" IS NULL;
 
 CREATE INDEX IF NOT EXISTS "follower_notices_trader_idx"
   ON "p2p"."follower_notices" ("trader_id", "posted_at");

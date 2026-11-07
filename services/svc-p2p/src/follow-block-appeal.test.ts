@@ -219,6 +219,34 @@ describe('svc-p2p follow, block and appeal decisions (J-p2p-12)', () => {
       expect(posted).toHaveLength(1);
       expect(await p2p.sweepFollowerNotices(100)).toEqual({ sent: 0, failures: [] });
     });
+    it('drops, never sends, a notice whose pair blocked each other or whose ad came down before it was handed over', async () => {
+      await contact(TAKER, MAKER, 'follow');
+      await contact(OTHER, MAKER, 'follow');
+      const publish = bus.publish;
+      bus.publish = (async (name: string, ...rest: unknown[]) => {
+        if (name === 'p2pTraderPosted') throw new Error('bus down');
+        return (publish as (...args: unknown[]) => Promise<unknown>)(name, ...rest);
+      }) as typeof bus.publish;
+      const first = await sell();
+      bus.publish = publish;
+      await contact(MAKER, TAKER, 'block');
+      expect(await p2p.sweepFollowerNotices(100)).toEqual({ sent: 1, failures: [] });
+      expect(posted.map((p) => p.payload.followerId)).toEqual([OTHER]);
+      const rows = await sql<Array<{ follower_id: string; handed_at: Date | null; dropped_at: Date | null }>>`
+        SELECT follower_id, handed_at, dropped_at FROM p2p.follower_notices WHERE offer_id = ${first.id}
+      `;
+      expect(rows.find((r) => r.follower_id === TAKER)).toMatchObject({ handed_at: null, dropped_at: expect.any(Date) });
+
+      bus.publish = (async (name: string, ...rest: unknown[]) => {
+        if (name === 'p2pTraderPosted') throw new Error('bus down');
+        return (publish as (...args: unknown[]) => Promise<unknown>)(name, ...rest);
+      }) as typeof bus.publish;
+      const second = await sell();
+      bus.publish = publish;
+      await p2p.closeOffer(second.id, MAKER);
+      expect(await p2p.sweepFollowerNotices(100)).toEqual({ sent: 0, failures: [] });
+      expect(posted).toHaveLength(1);
+    });
   });
 
   describe('a blocked pair (P-ads-merchant-22)', () => {
@@ -248,6 +276,30 @@ describe('svc-p2p follow, block and appeal decisions (J-p2p-12)', () => {
       expect(read.messages.map((m) => m.text)).toEqual(['before']);
       await contact(TAKER, MAKER, 'block', false);
       await say(MAKER, 'after');
+    });
+
+    it('an order still open from a block made before the open-order rule keeps its chat until it ends', async () => {
+      const offer = await sell();
+      const open = await p2p.takeOffer({
+        offerId: offer.id,
+        takerId: TAKER,
+        amount: parseAmount('10'),
+        method: 'sepa',
+        tradeId: crypto.randomUUID(),
+      });
+      await sql`INSERT INTO p2p.contacts (owner_id, peer_id, kind) VALUES (${TAKER}, ${MAKER}, 'block')`;
+      const sent = await p2p.sendChatMessage({
+        tradeId: open.id,
+        senderId: TAKER,
+        clientId: crypto.randomUUID(),
+        text: 'paying now',
+        asModerator: false,
+      });
+      expect(sent.created).toBe(true);
+      await p2p.cancelTrade(open.id, TAKER);
+      await expect(
+        p2p.sendChatMessage({ tradeId: open.id, senderId: MAKER, clientId: crypto.randomUUID(), text: 'after', asModerator: false }),
+      ).rejects.toMatchObject({ code: 'p2p.blocked' });
     });
 
     it('cannot be made while an order between them is open, and refuses the take after it is', async () => {

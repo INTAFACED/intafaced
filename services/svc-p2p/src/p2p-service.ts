@@ -28,6 +28,7 @@ import {
   claimWriteKey,
   disputeOpenForTrade,
   eitherBlocked,
+  lockContactPair,
   encodeOfferCursor,
   type BoardSort,
   finishWriteKey,
@@ -1050,7 +1051,10 @@ export const REMARK_MAX = 280;
 /** P-trade-orders-15: an ad's own release window is at least this long, the published release clock's own floor. */
 export const RELEASE_WINDOW_MIN_SECONDS = 60;
 
-/** One removal notice the sweep could not hand to the bus. */
+/** P-ads-merchant-22: how many follower notices a post hands over itself; the sweep takes any more. */
+const FOLLOWER_FAST_PATH = 100;
+
+/** One followed-trader notice the sweep could not hand to the bus. */
 export interface FollowerNoticeSweepFailure {
   readonly offerId: string;
   readonly followerId: string;
@@ -1058,6 +1062,7 @@ export interface FollowerNoticeSweepFailure {
   readonly error: string;
 }
 
+/** One removal notice the sweep could not hand to the bus. */
 export interface OfferPauseSweepFailure {
   readonly instrumentId: string;
   readonly code: string | null;
@@ -2393,6 +2398,8 @@ export class P2pService {
     const perDay = this.followerNoticesPerDay;
     if (perDay === undefined || !Number.isInteger(perDay) || perDay < 1) return 0;
     if ((row.visibility ?? 'public') !== 'public') return 0;
+    // One trader's posts count against the daily figure one at a time, so posts at the same moment cannot pass it together.
+    await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`p2p.follower_notices:${row.maker_id}`}, 0))`;
     const today = await tx<Array<{ n: number }>>`
       SELECT count(DISTINCT offer_id)::int AS n
         FROM p2p.follower_notices
@@ -2417,26 +2424,38 @@ export class P2pService {
     return written.length;
   }
 
-  /** Hands every notice still owed for one ad to the bus, then stamps it. The bus and svc-notify dedupe on the pair. */
+  /**
+   * The fast path after a post: hands over at most FOLLOWER_FAST_PATH notices for one ad, so posting stays quick however
+   * many people follow the trader; the sweep hands over the rest. The bus and svc-notify dedupe on the pair.
+   */
   private async handOverFollowerNotices(offerId: string): Promise<number> {
-    const owed = await this.sql<Array<{ follower_id: string }>>`
-      SELECT follower_id FROM p2p.follower_notices WHERE offer_id = ${offerId} AND handed_at IS NULL
+    const owed = await this.sql<Array<{ follower_id: string; posted_at: Date }>>`
+      SELECT follower_id, posted_at FROM p2p.follower_notices
+       WHERE offer_id = ${offerId} AND handed_at IS NULL AND dropped_at IS NULL
+       ORDER BY posted_at ASC, follower_id ASC
+       LIMIT ${FOLLOWER_FAST_PATH}
     `;
     if (owed.length === 0) return 0;
     const offer = await this.loadOfferRaw(offerId);
     let sent = 0;
-    for (const { follower_id: followerId } of owed) {
-      await this.handOverFollowerNotice(offer, followerId);
-      sent++;
-    }
+    for (const row of owed) if (await this.handOverFollowerNotice(offer, row.follower_id, row.posted_at)) sent++;
     return sent;
   }
 
-  private async handOverFollowerNotice(offer: OfferRecord, followerId: string): Promise<void> {
-    const rows = await this.sql<Array<{ posted_at: Date }>>`
-      SELECT posted_at FROM p2p.follower_notices WHERE offer_id = ${offer.id} AND follower_id = ${followerId}
-    `;
-    if (!rows[0]) return;
+  /**
+   * One notice, checked again at hand-over: if the pair has blocked each other since, or the ad is no longer up and
+   * public, it is dropped (stamped, never sent). Otherwise it goes to the bus, then is stamped as handed. Answers whether
+   * it was sent.
+   */
+  private async handOverFollowerNotice(offer: OfferRecord, followerId: string, postedAt: Date): Promise<boolean> {
+    const stale = offer.status !== 'active' || offer.visibility !== 'public' || (await eitherBlocked(this.sql, offer.makerId, followerId));
+    if (stale) {
+      await this.sql`
+        UPDATE p2p.follower_notices SET dropped_at = now()
+         WHERE offer_id = ${offer.id} AND follower_id = ${followerId} AND handed_at IS NULL AND dropped_at IS NULL
+      `;
+      return false;
+    }
     await this.bus.publish(
       'p2pTraderPosted',
       {
@@ -2446,31 +2465,37 @@ export class P2pService {
         side: offer.side,
         asset: offer.asset,
         fiatCurrency: offer.fiatCurrency,
-        postedAt: rows[0].posted_at.toISOString(),
+        postedAt: postedAt.toISOString(),
       },
       { idempotencyKey: `p2p.trader.posted:${offer.id}:${followerId}` },
     );
     await this.sql`
       UPDATE p2p.follower_notices SET handed_at = now()
-       WHERE offer_id = ${offer.id} AND follower_id = ${followerId} AND handed_at IS NULL
+       WHERE offer_id = ${offer.id} AND follower_id = ${followerId} AND handed_at IS NULL AND dropped_at IS NULL
     `;
+    return true;
   }
 
-  /** Hand over every followed-trader notice still owed, oldest first. */
+  /** Hand over every followed-trader notice still owed, oldest first; each ad is read once per sweep. */
   async sweepFollowerNotices(limit?: number): Promise<{ sent: number; failures: FollowerNoticeSweepFailure[] }> {
     const lim = assertSweepSettlementsLimit(limit);
-    const owed = await this.sql<Array<{ offer_id: string; follower_id: string }>>`
-      SELECT offer_id, follower_id FROM p2p.follower_notices
-       WHERE handed_at IS NULL
+    const owed = await this.sql<Array<{ offer_id: string; follower_id: string; posted_at: Date }>>`
+      SELECT offer_id, follower_id, posted_at FROM p2p.follower_notices
+       WHERE handed_at IS NULL AND dropped_at IS NULL
        ORDER BY posted_at ASC
        LIMIT ${lim}
     `;
     let sent = 0;
     const failures: FollowerNoticeSweepFailure[] = [];
+    const offers = new Map<string, Promise<OfferRecord>>();
     for (const row of owed) {
       try {
-        await this.handOverFollowerNotice(await this.loadOfferRaw(row.offer_id), row.follower_id);
-        sent++;
+        let offer = offers.get(row.offer_id);
+        if (!offer) {
+          offer = this.loadOfferRaw(row.offer_id);
+          offers.set(row.offer_id, offer);
+        }
+        if (await this.handOverFollowerNotice(await offer, row.follower_id, row.posted_at)) sent++;
       } catch (err) {
         const code = (err as { code?: unknown })?.code;
         failures.push({
@@ -3303,6 +3328,8 @@ export class P2pService {
               // record raises limits platform-wide (§6.2 → §4.1).
               throw new P2pError('A maker cannot take their own offer', 'p2p.self_trade');
             }
+            // Under the pair lock a block takes too, so the two can never both commit (P-ads-merchant-22).
+            await lockContactPair(tx, offer.makerId, input.takerId);
             if (await eitherBlocked(tx, offer.makerId, input.takerId)) {
               throw new P2pError('p2p.blocked', 'p2p.blocked');
             }
@@ -6155,8 +6182,11 @@ export class P2pService {
     }
     const trade = await this.assertChatParticipant(input.tradeId, input.senderId, input.asModerator);
     // P-ads-merchant-22: a blocked pair cannot chat. Staff on an open dispute still can; the history stays readable.
+    // A block cannot be made while an order between the pair is open (`contacts.block`), so an open order between a
+    // blocked pair is one blocked before that rule; its parties keep talking until it ends, as the order needs them to.
     const party = trade.buyerId === input.senderId || trade.sellerId === input.senderId;
-    if (party && (await eitherBlocked(this.sql, trade.buyerId, trade.sellerId))) throw new P2pError('p2p.blocked', 'p2p.blocked');
+    if (party && isTerminal(trade.status) && (await eitherBlocked(this.sql, trade.buyerId, trade.sellerId)))
+      throw new P2pError('p2p.blocked', 'p2p.blocked');
     try {
       return await insertChatMessage(this.sql, input);
     } catch (err) {
