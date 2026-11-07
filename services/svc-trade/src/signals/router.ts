@@ -3,7 +3,8 @@
  * itself is the public REST route in signals/intake-rest.ts, authenticated by the webhook's own token.
  */
 import { z } from 'zod';
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { AuthError } from '@intafaced/auth';
+import { JurisdictionError, router, scopedProcedure, TRPCError } from '@intafaced/contracts';
 import { TradeError } from '../spot/types.js';
 import { SignalError, type SignalDesk } from './signal-desk.js';
 
@@ -20,6 +21,9 @@ function signalTrpcError(error: unknown): unknown {
             : 'BAD_REQUEST';
     return new TRPCError({ code, message: error.message, cause: error });
   }
+  // Who may place at all (spot/place-eligibility.ts): refused as a signed-in order is, by its own code.
+  if (error instanceof AuthError || error instanceof JurisdictionError)
+    return new TRPCError({ code: 'FORBIDDEN', message: error.message, cause: error });
   if (error instanceof TradeError) return new TRPCError({ code: 'BAD_REQUEST', message: error.message, cause: error });
   return error;
 }
@@ -37,7 +41,7 @@ export function signalsRouter(desk?: SignalDesk) {
     webhooks: router({
       create: scopedProcedure('trade:write', { module: 'trade' })
         .input(z.object({ symbol: z.string().min(1).max(32), clientRequestId: z.string().min(1).max(120) }).strict())
-        .mutation(({ ctx, input }) => call((d) => d.create(ctx.principal, input))),
+        .mutation(({ ctx, input }) => call((d) => d.create(ctx.principal, input, ctx.region))),
       list: scopedProcedure('trade:read', { module: 'trade' }).query(({ ctx }) => call((d) => d.list(ctx.principal))),
     }),
     intents: scopedProcedure('trade:read', { module: 'trade' })

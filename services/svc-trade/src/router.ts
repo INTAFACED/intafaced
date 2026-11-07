@@ -12,13 +12,13 @@ import {
   type Context,
   StepUpCheckError,
 } from '@intafaced/contracts';
-import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
-import { checkAccess } from '@intafaced/config';
+import { AuthError, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
+import { assertPlaceEligible } from './spot/place-eligibility.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
 import { fxNamedDegrade } from './spot/fx-product.js';
 import {
@@ -789,16 +789,6 @@ interface CustodialPlaceInput {
   readonly subAccountId?: string;
 }
 
-function refuseCustodialTradeJurisdiction(ctx: Context & { principal: Principal }): void {
-  const decision = checkAccess({
-    module: 'trade',
-    plane: 'fiat',
-    region: ctx.region,
-    kycTier: ctx.principal.tier,
-  });
-  if (!decision.allowed) throw new JurisdictionError(decision);
-}
-
 /**
  * Record the place, then hold. Tier below `basic` is `tier.insufficient` and
  * never calls `placeOrder`. A jurisdiction refusal is recorded and thrown the
@@ -820,18 +810,9 @@ async function placeAttributedOrder(
     orderId: null as string | null,
   };
 
-  if (TIER_ORDER[principal.tier] < TIER_ORDER.basic) {
-    book.record({
-      ...base,
-      outcome: 'refused',
-      reason: 'tier.insufficient',
-    });
-    requireTier(principal, 'basic');
-    throw new AuthError('Verification tier "basic" is required', 'tier.insufficient');
-  }
-
+  // The tier and the jurisdiction, in that order: the one check every door that places for a person shares.
   try {
-    refuseCustodialTradeJurisdiction(ctx);
+    assertPlaceEligible({ tier: principal.tier, region: ctx.region });
   } catch (err) {
     book.record({
       ...base,

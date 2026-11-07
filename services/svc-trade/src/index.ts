@@ -44,6 +44,7 @@ import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
 import { SignalDesk, parseSignalMaxAge, parseSignalWebhookDays } from './signals/signal-desk.js';
 import { registerSignalIntake } from './signals/intake-rest.js';
+import { createLiveTierClient } from './signals/live-tier.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { operatorSeedTargets } from './admin/seed-config.js';
@@ -548,6 +549,7 @@ const grid = new GridService({
 });
 // Chart alert webhooks (CB-bots-api-signal-01): an alert's order goes through the ordinary place path as the webhook's
 // creator, a market order of the alert's quantity under a key derived from the alert.
+const signalLiveTier = createLiveTierClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 const signalDesk = new SignalDesk({
   sql,
   now: () => new Date(),
@@ -555,6 +557,7 @@ const signalDesk = new SignalDesk({
     const market = await trade.marketBySymbol(symbol);
     return market && market.kind === 'spot' && !market.paper && market.status === 'active' ? market.id : null;
   },
+  liveTier: (userId) => signalLiveTier.tierOf(userId),
   admitStart: (principal, businessId, payload) => trade.admitAccountOperation(principal, 'strategy.start', businessId, payload),
   placeOrder: (principal, input, webhookId) =>
     trade.placeSignalOrder(

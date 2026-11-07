@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS trade.signal_webhooks (
   client_request_id text NOT NULL,
   symbol text NOT NULL,
   market_id text NOT NULL,
+  -- The creator's region as the edge resolved it at create; each alert's jurisdiction check reads it (OWNER 88).
+  region text NOT NULL,
   token_hash text NOT NULL CONSTRAINT signal_webhooks_hash_ck CHECK (token_hash ~ '^[0-9a-f]{64}$'),
   token_prefix text NOT NULL CONSTRAINT signal_webhooks_prefix_ck CHECK (length(token_prefix) = 6),
   place_grant jsonb NOT NULL,

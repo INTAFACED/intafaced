@@ -20,6 +20,7 @@ import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import type { Principal } from '@intafaced/auth';
 import { captureAlgoPlaceGrant, parseAlgoPlaceGrant, principalFromAlgoGrant } from '../algo/durable-principal.js';
+import { assertPlaceEligible } from '../spot/place-eligibility.js';
 
 export const SIGNAL_INTAKE_PATH = '/api/v1/signals/webhook';
 const TOKEN_BYTES = 24;
@@ -64,6 +65,8 @@ export interface SignalPorts {
   readonly now: () => Date;
   /** A market's id by its symbol, or null when none exists or it is not an open spot market. */
   marketIdBySymbol(symbol: string): Promise<string | null>;
+  /** The creator's live verification tier from identity, read on every alert. Throws when it cannot be read. */
+  liveTier(userId: string): Promise<Principal['tier']>;
   /** The trading admission of the webhook as a `strategy.start` operation, business id `signal:<webhookId>`. */
   admitStart(principal: Principal, businessId: string, payload: unknown): Promise<unknown>;
   /** The trade service's place path for one alert's order, a delegated `algo.child` of `signal:<webhookId>`. */
@@ -121,6 +124,7 @@ interface WebhookRow {
   user_id: string;
   symbol: string;
   market_id: string;
+  region: string;
   token_hash: string;
   token_prefix: string;
   place_grant: unknown;
@@ -181,10 +185,14 @@ export class SignalDesk {
   async create(
     principal: Principal,
     input: { symbol: string; clientRequestId: string },
+    /** The request's region as the edge resolved it; kept on the webhook for the jurisdiction check on each alert. */
+    region: string,
   ): Promise<SignalWebhookView & { readonly token: string | null }> {
     const days = this.ports.webhookDays;
     if (days === null)
       throw new SignalError('The platform has not set how long a webhook may place orders', 'trade.signal_webhook_life_not_set', 412);
+    // Who may place a trade order at all (OWNER 88): the same check as a signed-in order, before anything is read or written.
+    assertPlaceEligible({ tier: principal.tier, region });
     const symbol = canonicalSymbol(input.symbol);
     if (!symbol) throw new SignalError('Market is not a symbol such as BTC/USDT', 'trade.signal_symbol_invalid', 400, 'symbol');
     const marketId = await this.ports.marketIdBySymbol(symbol);
@@ -214,8 +222,8 @@ export class SignalDesk {
     });
     const [row] = await this.ports.sql<WebhookRow[]>`
       INSERT INTO trade.signal_webhooks
-        (id, user_id, client_request_id, symbol, market_id, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
-      VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${marketId}, ${sha256(token)}, ${token.slice(0, 6)},
+        (id, user_id, client_request_id, symbol, market_id, region, token_hash, token_prefix, place_grant, grant_expires_at, state, created_at, updated_at)
+      VALUES (${webhookId}, ${principal.userId}, ${requestId}, ${symbol}, ${marketId}, ${region}, ${sha256(token)}, ${token.slice(0, 6)},
         ${this.ports.sql.json(grant as never)}, ${expires.toISOString()}, 'active', ${now.toISOString()}, ${now.toISOString()})
       ON CONFLICT (user_id, client_request_id) DO NOTHING
       RETURNING *`;
@@ -311,6 +319,9 @@ export class SignalDesk {
       const grant = parseAlgoPlaceGrant(hook.place_grant);
       if (!grant) throw new SignalError('This webhook holds no place grant', 'trade.signal_grant_unavailable', 422);
       const principal = principalFromAlgoGrant({ userId: hook.user_id, grant, expiresAt: hook.grant_expires_at, now });
+      // The same check as a signed-in order (OWNER 88), on the creator's tier as identity holds it now, never the tier
+      // the stored grant carries from the create, and the region recorded at create. A refusal places nothing.
+      assertPlaceEligible({ tier: await this.ports.liveTier(hook.user_id), region: hook.region });
       const order = await this.ports.placeOrder(
         principal,
         {
