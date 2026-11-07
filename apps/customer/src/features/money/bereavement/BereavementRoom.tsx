@@ -12,7 +12,7 @@ import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledge
  * acknowledges it once with a reference. The acknowledgement is the same whether or not the named person had an account.
  */
 
-const RELATIONS: readonly [SupportBereavementRelation, SafetyCopyKey][] = [
+const RELATIONS: readonly [SupportBereavementRelation, Extract<SafetyCopyKey, `relation${string}`>][] = [
   ['spouse_or_partner', 'relationSpouse'],
   ['child', 'relationChild'],
   ['parent', 'relationParent'],

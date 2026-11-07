@@ -12,7 +12,7 @@ import { Acknowledgement, EarlierAcknowledgements, safetyState, useMyAcknowledge
  * or "not set" while the owner has published none. The same form sent again shows the same acknowledgement.
  */
 
-const TOPICS: readonly [SupportComplaintTopic, SafetyCopyKey][] = [
+const TOPICS: readonly [SupportComplaintTopic, Extract<SafetyCopyKey, `topic${string}`>][] = [
   ['account', 'topicAccount'],
   ['cards', 'topicCards'],
   ['payments', 'topicPayments'],

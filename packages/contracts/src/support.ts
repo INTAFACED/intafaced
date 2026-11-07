@@ -20,6 +20,8 @@ export {
   SUPPORT_FRAUD_REPORT_KEY_REQUIRED,
   SUPPORT_FRAUD_ROUTE_MISSING,
   SUPPORT_FRAUD_ROUTE_UNSET,
+  SUPPORT_CATEGORY_GUIDED,
+  SUPPORT_GUIDED_CATEGORIES,
   supportCategoriesSchema,
   supportTicketCategorySchema,
   type SupportCategories,
