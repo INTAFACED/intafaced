@@ -13,12 +13,15 @@
  *      and never a run of another branch or another selection.
  *   4. Journey seal re-check queues one re-check per pull request head for finished journeys runs, never cancels a
  *      running one, and an event whose job is skipped, or a title or body edit, never displaces a waiting re-check.
+ *   5. A CI run's `CI merge seal` keeps `if: always()` and starts, before the checkout, with an `if: always()` step that
+ *      fails at once when a job it needs was cancelled (a superseded run), and passes every other result on to the verdict.
  * Planted faults at the bottom prove each rule fails on the shape it forbids. Run by tooling/scripts/tooling-tests.mjs.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -242,6 +245,9 @@ export function journeysProblems(text) {
   if (branch('A.pw.mjs').group === branch('B.pw.mjs').group) problems.push('two journey selections on one branch share a group');
   if (branch('').group === resolve(text, journeysRun('workflow_dispatch', 'refs/heads/b2', '')).group)
     problems.push('two branches share a group');
+  const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
+  if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
+    problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
   return problems;
 }
 
@@ -288,6 +294,95 @@ export function recheckProblems(text) {
   return problems;
 }
 
+// ---- rule 5: a cancelled CI run's merge seal fails at once, and is never skipped -----------------------------------
+
+/** The lines of one job under `jobs:` (4-space body), or null. */
+function job(text, name) {
+  const lines = text.split('\n');
+  const start = lines.indexOf(`  ${name}:`);
+  if (start < 0) return null;
+  const out = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^ {0,2}\S/.test(line) && !/^\s*#/.test(line)) break;
+    out.push(line);
+  }
+  return out;
+}
+
+/** The job's steps, each as its lines (comments dropped). */
+function steps(lines) {
+  const at = lines.indexOf('    steps:');
+  const out = [];
+  for (const line of lines.slice(at + 1)) {
+    if (/^\s*#/.test(line) || !line.trim()) continue;
+    if (line.startsWith('      - ')) out.push([line]);
+    else if (line.startsWith('        ') && out.length) out.at(-1).push(line);
+    else break;
+  }
+  return out;
+}
+
+/** The value of `key:` among a step's lines (`- key:` or `  key:`), joining a `>-` block. */
+function stepValue(step, key) {
+  const i = step.findIndex((l) => l.replace(/^ {6}- /, '        ').startsWith(`        ${key}:`));
+  if (i < 0) return undefined;
+  const v = step[i]
+    .replace(/^ {6}- /, '        ')
+    .slice(`        ${key}:`.length)
+    .trim();
+  if (v !== '>-' && v !== '|') return v;
+  const body = step
+    .slice(i + 1)
+    .filter((l) => l.startsWith('          '))
+    .map((l) => l.trim());
+  return v === '>-' ? body.join(' ') : body.join('\n');
+}
+
+/** Exit code of the step's script with this NEEDS context. */
+function runStep(step, needs) {
+  const r = spawnSync('bash', ['-c', stepValue(step, 'run')], { env: { ...process.env, NEEDS: JSON.stringify(needs) }, encoding: 'utf8' });
+  return r.status;
+}
+
+/** Problems with rule 5 in ci.yml's text, or []. */
+export function sealProblems(text) {
+  const lines = job(text, 'merge-seal');
+  if (!lines) return ['ci.yml has no merge-seal job'];
+  const problems = [];
+  const jobIf = lines
+    .find((l) => l.startsWith('    if:'))
+    ?.slice('    if:'.length)
+    .trim();
+  if (jobIf !== 'always()' && jobIf !== '${{ always() }}')
+    problems.push(
+      `the CI merge seal job's if is \`${jobIf}\`, not always(): a job its if skips reports success, so a required seal must never be skipped`,
+    );
+  const needs = (lines.find((l) => l.startsWith('    needs:')) ?? '')
+    .replace(/.*\[|\].*/g, '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (!needs.length) problems.push('the CI merge seal needs no jobs');
+  const all = steps(lines);
+  const first = all[0];
+  const checkout = all.findIndex((st) => (stepValue(st, 'uses') ?? '').startsWith('actions/checkout'));
+  if (!first || stepValue(first, 'uses') !== undefined || !stepValue(first, 'run'))
+    return [...problems, 'the CI merge seal does not start with a run step that fails a cancelled run'];
+  if (checkout >= 0 && checkout < 1) problems.push('the fail-fast step is not before the checkout');
+  const stepIf = stepValue(first, 'if');
+  if (stepIf !== 'always()' && stepIf !== '${{ always() }}')
+    problems.push(`the fail-fast step's if is \`${stepIf ?? '(none: success())'}\`, so a cancelled run could skip it`);
+  if (!first.some((l) => /^ {10}NEEDS: \$\{\{ toJSON\(needs\) \}\}$/.test(l)))
+    problems.push('the fail-fast step does not read NEEDS from toJSON(needs)');
+  const ok = Object.fromEntries(needs.map((n) => [n, { result: 'success' }]));
+  if (runStep(first, ok) !== 0) problems.push('the fail-fast step fails a run whose needed jobs all succeeded');
+  for (const n of needs)
+    if (runStep(first, { ...ok, [n]: { result: 'cancelled' } }) === 0) problems.push(`the fail-fast step passes when ${n} was cancelled`);
+  if (needs.length && runStep(first, { ...ok, [needs.at(-1)]: { result: 'failure' }, [needs[0]]: { result: 'skipped' } }) !== 0)
+    problems.push("the fail-fast step fails a failed or skipped job, which is the verdict's to judge");
+  return problems;
+}
+
 // ---- the workflows on this tree ------------------------------------------------------------------------------------
 
 test('every workflow a pull request triggers keeps only the newest run per pull request (or is a named exception)', () => {
@@ -313,6 +408,10 @@ test('CI: a run on main is never cancelled', () => {
 
 test('Journey seal re-check: one waiting re-check per head, never a running one cancelled', () => {
   assert.deepEqual(recheckProblems(read('journey-seal-recheck.yml')), []);
+});
+
+test("CI: a cancelled run's merge seal fails at once and is never skipped", () => {
+  assert.deepEqual(sealProblems(read('ci.yml')), []);
 });
 
 // ---- planted faults ------------------------------------------------------------------------------------------------
@@ -374,4 +473,30 @@ test('the evaluator reads the expressions it is used on', () => {
   assert.equal(evaluate("github.ref != 'refs/heads/main'", { github: { ref: 'refs/heads/main' } }), false);
   assert.equal(evaluate('!(a.b)', { a: { b: '' } }), true);
   assert.equal(interpolate('g-${{ a }}-${{ b.c }}', { a: 1, b: { c: 'z' } }), 'g-1-z');
+});
+
+test('planted: branch `x` + `J-a` and branch `x-J` + `a` in one group fail rule 3', () => {
+  const t = read('real-app-journeys.yml');
+  const dash = t.replace("format('real-app-journeys-{0}:{1}'", "format('real-app-journeys-{0}-{1}'");
+  assert.notEqual(dash, t);
+  assert.ok(journeysProblems(dash).some((p) => /share a group: nothing splits/.test(p)));
+});
+
+test("planted: today's seal (no fail-fast step), a seal that skips on cancel, and a skippable step fail rule 5", () => {
+  const t = read('ci.yml');
+  const name = "      - name: Fail a cancelled run's seal at once\n";
+  const start = t.indexOf(name);
+  assert.ok(start > 0, 'ci.yml has the fail-fast step');
+  const end = t.indexOf('      - uses: actions/checkout', start);
+  const today = t.slice(0, start) + t.slice(end);
+  assert.ok(sealProblems(today).some((p) => /does not start with a run step/.test(p)));
+  const seal = t.indexOf('  merge-seal:');
+  const at = (from, to) => t.slice(0, seal) + t.slice(seal).replace(from, to);
+  assert.ok(sealProblems(at('    if: always()\n', '    if: ${{ !cancelled() }}\n')).some((p) => /never be skipped/.test(p)));
+  assert.ok(
+    sealProblems(at('        if: always()\n        env:\n          NEEDS', '        env:\n          NEEDS')).some((p) =>
+      /could skip it/.test(p),
+    ),
+  );
+  assert.ok(sealProblems(at('=== "cancelled"', '=== "never"')).some((p) => /passes when/.test(p)));
 });
