@@ -17,6 +17,9 @@ describe('embedded login key export, once (RC-dex-protocol-05)', () => {
     const again = await markExported(store, { chainId: CHAIN, account: key.address.toLowerCase(), signature });
     expect(again.exportedAt).toBe(first.exportedAt);
     expect(await embeddedStatus(store, CHAIN, key.address.toLowerCase())).toMatchObject({ exported: true, exportedAt: first.exportedAt });
+    // A mixed-case address with a wrong checksum is the same account, not a server error.
+    const miscased = `0x${key.address.slice(2).toUpperCase()}`;
+    expect(await embeddedStatus(store, CHAIN, miscased)).toMatchObject({ exported: true });
   });
 
   it('refuses a mark that another key signed, or for another chain', async () => {

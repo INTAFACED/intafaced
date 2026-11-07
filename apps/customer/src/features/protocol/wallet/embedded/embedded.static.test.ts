@@ -37,5 +37,14 @@ describe('the embedded module never sends its key (RC-dex-protocol-05)', () => {
       .filter(Boolean);
     expect(fields).toEqual(['address', 'credentialId', 'salt', 'iv', 'wrapped', 'spent', 'createdAt']);
     expect(written).toContain('wrapped: b64(wrapped)');
+    // Every other write starts from a kept record and adds only the export's flag and its signed message.
+    const writes = [...vault.matchAll(/writeVault\(([^)]*)\)/g)].map((m) => m[1]!.trim());
+    expect(writes.sort()).toEqual(['next', 'record', 'rest']);
+    const next = /const next: VaultRecord = \{([\s\S]*?)\};/.exec(vault)?.[1] ?? '';
+    expect(next.replace(/\s/g, '')).toBe(
+      '...record,spent:true,...(exported?{exportSignature:exported.signature,exportChainId:exported.chainId}:{}),',
+    );
+    // The unwrapped key lives in one local variable, is never written, and the vault clears its own copy after wrapping.
+    expect(vault).toMatch(/key = null;/);
   });
 });

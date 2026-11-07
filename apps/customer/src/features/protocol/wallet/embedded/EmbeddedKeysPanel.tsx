@@ -6,24 +6,33 @@ import { Button, Dialog, Field, Panel } from '../../../../shared/ui';
 import { usePreferences } from '../../../../shared/preferences';
 import { useApi } from '../../../session/session';
 import { createProtocolApi } from '../../api';
-import { APP_CHAIN_ID } from '../eip1193';
 import { embeddedCopy } from './embedded-copy';
-import { createVault, markSpent, readVault, unwrapOnce, VaultRefusedError, type VaultRecord } from './vault';
+import { createVault, markRecorded, markSpent, readVault, unwrapOnce, VaultRefusedError, type VaultRecord } from './vault';
 
 /** How long a shown key stays on screen. */
 const SHOW_MS = 60_000;
-type Problem = 'storageBlocked' | 'prfUnsupported' | 'passkeyCancelled' | 'spent' | 'statusFailed' | 'recordFailed' | 'phraseWrong';
+type Problem =
+  | 'storageBlocked'
+  | 'prfUnsupported'
+  | 'passkeyCancelled'
+  | 'spent'
+  | 'statusFailed'
+  | 'recordFailed'
+  | 'phraseWrong'
+  | 'vaultExists'
+  | 'unwrapFailed'
+  | 'exportFailed';
 
-const problemOf = (err: unknown): Problem =>
-  err instanceof VaultRefusedError
-    ? err.code === 'wallet.storage_blocked'
-      ? 'storageBlocked'
-      : err.code === 'wallet.passkey_prf_unsupported'
-        ? 'prfUnsupported'
-        : err.code === 'wallet.export_spent'
-          ? 'spent'
-          : 'passkeyCancelled'
-    : 'passkeyCancelled';
+const VAULT_PROBLEMS: Record<VaultRefusedError['code'], Problem> = {
+  'wallet.storage_blocked': 'storageBlocked',
+  'wallet.passkey_prf_unsupported': 'prfUnsupported',
+  'wallet.passkey_cancelled': 'passkeyCancelled',
+  'wallet.export_spent': 'spent',
+  'wallet.vault_exists': 'vaultExists',
+  'wallet.unwrap_failed': 'unwrapFailed',
+};
+/** A refusal the vault named keeps its own words; anything else says the export did not finish, never "cancelled". */
+const problemOf = (err: unknown): Problem => (err instanceof VaultRefusedError ? VAULT_PROBLEMS[err.code] : 'exportFailed');
 
 /**
  * /wallet/embedded (RC-dex-protocol-05): the embedded login made and kept on this device, and its key shown once. Export
@@ -61,9 +70,13 @@ export function EmbeddedKeysPanel() {
       .then(async (found) => {
         if (!live) return;
         setRecord(found);
-        // A record of the export that did not reach the service is sent again with the same signature.
-        if (found?.spent && found.exportSignature)
-          await api.embeddedMarkExported({ account: found.address, signature: found.exportSignature });
+        // A record of the export that did not reach the service is sent again with the same signature, and forgotten once
+        // the service has it.
+        if (!found?.spent || !found.exportSignature) return;
+        const marked = await api.embeddedMarkExported({ account: found.address, signature: found.exportSignature });
+        if (!live) return;
+        if (marked.ok) setRecord(await markRecorded(found));
+        else setProblem('recordFailed');
       })
       .catch((err) => {
         if (!live) return;
@@ -86,6 +99,7 @@ export function EmbeddedKeysPanel() {
   }, [hide]);
 
   async function create() {
+    if (busy) return;
     setProblem(null);
     setBusy(true);
     try {
@@ -117,16 +131,20 @@ export function EmbeddedKeysPanel() {
         setConfirming(false);
         return setProblem('spent');
       }
+      const chainId = status.data.chainId;
       const shown = await unwrapOnce(record);
-      const signature = await privateKeyToAccount(shown).signMessage({ message: embeddedExportMessage(record.address, APP_CHAIN_ID) });
-      const spent = await markSpent(record, signature);
+      // The message names the service's own chain, so its check and this signature always agree.
+      const signature = await privateKeyToAccount(shown).signMessage({ message: embeddedExportMessage(record.address, chainId) });
+      const spent = await markSpent(record, { signature, chainId });
       setRecord(spent);
       setConfirming(false);
       setHidden(false);
       setKey(shown);
       timer.current = setTimeout(hide, SHOW_MS);
-      const marked = await api.embeddedMarkExported({ account: record.address, signature });
-      if (!marked.ok) setProblem('recordFailed');
+      // From here the key is on screen: a failure to record it is named as that, never as "nothing was shown".
+      const marked = await api.embeddedMarkExported({ account: record.address, signature }).catch(() => null);
+      if (marked?.ok) setRecord(await markRecorded(spent));
+      else setProblem('recordFailed');
     } catch (err) {
       setProblem(problemOf(err));
     } finally {
@@ -195,6 +213,8 @@ export function EmbeddedKeysPanel() {
           busy={busy}
           problem={problem}
           onClose={() => {
+            // Once the passkey check has started, the export finishes or fails on its own; it is not closed under it.
+            if (busy) return;
             setConfirming(false);
             setProblem(null);
           }}
@@ -236,7 +256,7 @@ function ConfirmDialog({
           <Button type="submit" disabled={busy}>
             {t('show')}
           </Button>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
             {t('cancel')}
           </Button>
         </div>

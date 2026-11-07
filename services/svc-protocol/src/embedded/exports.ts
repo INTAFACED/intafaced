@@ -23,7 +23,8 @@ export interface EmbeddedExportStore {
 }
 
 export async function embeddedStatus(store: EmbeddedExportStore, chainId: number, account: string): Promise<ProtocolEmbeddedStatus> {
-  const address = getAddress(account);
+  // Normalised from lower case, so a mistyped checksum reads as the same account rather than a server error.
+  const address = getAddress(account.toLowerCase());
   const row = await store.find(chainId, address);
   return { account: address, chainId, exported: row !== null, exportedAt: row?.exportedAt.toISOString() ?? null };
 }
@@ -32,7 +33,7 @@ export async function markExported(
   store: EmbeddedExportStore,
   input: { chainId: number; account: string; signature: Hex },
 ): Promise<ProtocolEmbeddedStatus> {
-  const account = getAddress(input.account);
+  const account = getAddress(input.account.toLowerCase());
   const signed = await verifyMessage({
     address: account,
     message: embeddedExportMessage(account, input.chainId),

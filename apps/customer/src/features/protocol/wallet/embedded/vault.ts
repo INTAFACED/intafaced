@@ -17,14 +17,22 @@ export type VaultRecord = {
   wrapped: string;
   /** Set once the key was shown on this device. */
   spent: boolean;
-  /** The key's signature over the export message, kept so the record of the export can be sent again. Not key material. */
+  /** The key's signature over the export message, kept until the service has the record, then cleared. Not key material. */
   exportSignature?: string;
+  /** The chain the export message names (the service's, read from its status). */
+  exportChainId?: number;
   createdAt: string;
 };
 
 export class VaultRefusedError extends Error {
   constructor(
-    readonly code: 'wallet.storage_blocked' | 'wallet.passkey_prf_unsupported' | 'wallet.passkey_cancelled' | 'wallet.export_spent',
+    readonly code:
+      | 'wallet.storage_blocked'
+      | 'wallet.passkey_prf_unsupported'
+      | 'wallet.passkey_cancelled'
+      | 'wallet.export_spent'
+      | 'wallet.vault_exists'
+      | 'wallet.unwrap_failed',
     message: string,
   ) {
     super(message);
@@ -54,6 +62,8 @@ function openDb(): Promise<IDBDatabase> {
       return reject(new VaultRefusedError('wallet.storage_blocked', 'This browser does not let the page keep a key.'));
     }
     request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+    request.onblocked = () =>
+      reject(new VaultRefusedError('wallet.storage_blocked', 'Another tab holds this page’s storage. Close it and try again.'));
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(new VaultRefusedError('wallet.storage_blocked', 'This browser does not let the page keep a key.'));
   });
@@ -61,10 +71,19 @@ function openDb(): Promise<IDBDatabase> {
 
 async function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const request = run(db.transaction(STORE, mode).objectStore(STORE));
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(new VaultRefusedError('wallet.storage_blocked', 'This browser does not let the page keep a key.'));
+  const refused = () => new VaultRefusedError('wallet.storage_blocked', 'This browser does not let the page keep a key.');
+  return new Promise<T>((resolve, reject) => {
+    const transaction = db.transaction(STORE, mode);
+    const request = run(transaction.objectStore(STORE));
+    // Settled only when the transaction is durable (or failed), never on the request alone; the connection then closes.
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(request.result);
+    };
+    transaction.onabort = transaction.onerror = () => {
+      db.close();
+      reject(refused());
+    };
   });
 }
 
@@ -108,8 +127,9 @@ async function wrappingKey(secret: ArrayBuffer, salt: Uint8Array): Promise<Crypt
 export async function createVault(rpName: string): Promise<VaultRecord> {
   if (typeof indexedDB === 'undefined')
     throw new VaultRefusedError('wallet.storage_blocked', 'This browser does not let the page keep a key.');
-  // Fails early, before any key exists, when storage is blocked.
-  await readVault();
+  // Fails early, before any key exists, when storage is blocked; and never replaces a key this device already keeps.
+  if (await readVault()) throw new VaultRefusedError('wallet.vault_exists', 'This device already keeps an embedded login.');
+  const salt = crypto.getRandomValues(new Uint8Array(32));
   let created: PublicKeyCredential | null;
   try {
     created = (await navigator.credentials.create({
@@ -122,7 +142,7 @@ export async function createVault(rpName: string): Promise<VaultRecord> {
           { type: 'public-key', alg: -257 },
         ],
         authenticatorSelection: { residentKey: 'required', userVerification: 'required' },
-        extensions: { prf: {} } as AuthenticationExtensionsClientInputs,
+        extensions: { prf: { eval: { first: bytes(salt) } } } as AuthenticationExtensionsClientInputs,
       },
     })) as PublicKeyCredential | null;
   } catch {
@@ -130,8 +150,12 @@ export async function createVault(rpName: string): Promise<VaultRecord> {
   }
   if (!created) throw new VaultRefusedError('wallet.passkey_cancelled', 'The passkey was not made.');
   const credentialId = b64(new Uint8Array(created.rawId));
-  const salt = crypto.getRandomValues(new Uint8Array(32));
-  const aes = await wrappingKey(await prfSecret(credentialId, salt), salt);
+  // A passkey that says it has no PRF is refused before any key exists. One that gives the secret at creation saves a
+  // second prompt; one that does not is asked once more.
+  const prf = (created.getClientExtensionResults() as { prf?: { enabled?: boolean; results?: { first?: ArrayBuffer } } }).prf;
+  if (prf?.enabled === false)
+    throw new VaultRefusedError('wallet.passkey_prf_unsupported', 'This passkey cannot protect a key on this device.');
+  const aes = await wrappingKey(prf?.results?.first ?? (await prfSecret(credentialId, salt)), salt);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   let key: Hex | null = generatePrivateKey();
   const address = privateKeyToAccount(key).address;
@@ -155,12 +179,29 @@ export async function unwrapOnce(record: VaultRecord): Promise<Hex> {
   if (record.spent) throw new VaultRefusedError('wallet.export_spent', 'This key was already exported.');
   const salt = unb64(record.salt);
   const aes = await wrappingKey(await prfSecret(record.credentialId, salt), salt);
-  const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(record.iv) }, aes, unb64(record.wrapped)));
+  let plain: Uint8Array;
+  try {
+    plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(record.iv) }, aes, unb64(record.wrapped)));
+  } catch {
+    throw new VaultRefusedError('wallet.unwrap_failed', 'This passkey does not unlock the key kept on this device.');
+  }
   return bytesToHex(plain);
 }
 
-export async function markSpent(record: VaultRecord, exportSignature?: string): Promise<VaultRecord> {
-  const next = { ...record, spent: true, ...(exportSignature ? { exportSignature } : {}) };
+/** Marks the key shown on this device, keeping the signed export message until the service has it. */
+export async function markSpent(record: VaultRecord, exported?: { signature: string; chainId: number }): Promise<VaultRecord> {
+  const next: VaultRecord = {
+    ...record,
+    spent: true,
+    ...(exported ? { exportSignature: exported.signature, exportChainId: exported.chainId } : {}),
+  };
   await writeVault(next);
   return next;
+}
+
+/** Forgets the signed export message once the service has recorded the export. */
+export async function markRecorded(record: VaultRecord): Promise<VaultRecord> {
+  const { exportSignature: _signature, exportChainId: _chain, ...rest } = record;
+  await writeVault(rest);
+  return rest;
 }
