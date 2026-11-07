@@ -388,6 +388,10 @@ function indexLaw(text, yamlSections) {
 }
 
 const lawArg = process.argv.indexOf('--law');
+if (lawArg === -1 && process.argv.includes('--write-index')) {
+  console.error('\n✖ coverage-check: --write-index needs --law <path>: the index is written only from the private law.\n');
+  process.exit(1);
+}
 let lawIndex;
 if (lawArg !== -1) {
   const lawFile = process.argv[lawArg + 1];
@@ -422,9 +426,28 @@ if (lawArg !== -1) {
   }
 }
 
-const lawLength = Number(lawIndex.lines) || 0;
-const blankLines = new Set(Array.isArray(lawIndex.blankLines) ? lawIndex.blankLines : []);
-const chapters = (Array.isArray(lawIndex.chapters) ? lawIndex.chapters : []).map((c) => ({ ...c }));
+// The index decides chapter spans and blank-line refusals, so a field that is missing or of the wrong shape is a
+// broken input and refuses by name: read as empty, it would silently pass cites the law would fail.
+{
+  const isLine = (n) => Number.isInteger(n) && n >= 1;
+  const bad = [];
+  if (!isLine(lawIndex?.lines)) bad.push('lines: a whole number of at least 1');
+  if (!Array.isArray(lawIndex?.blankLines) || !lawIndex.blankLines.every(isLine)) bad.push('blankLines: an array of line numbers');
+  if (
+    !Array.isArray(lawIndex?.chapters) ||
+    !lawIndex.chapters.every((c) => Number.isInteger(c?.id) && isLine(c?.line) && typeof c?.title === 'string')
+  ) {
+    bad.push('chapters: an array of { id, title, line }');
+  }
+  if (bad.length) {
+    console.error(`\n✖ coverage-check: ${INDEX_PATH} is malformed. It needs ${bad.join('; ')}.\n`);
+    console.error('  Regenerate it with --law <path> --write-index.\n');
+    process.exit(1);
+  }
+}
+const lawLength = lawIndex.lines;
+const blankLines = new Set(lawIndex.blankLines);
+const chapters = lawIndex.chapters.map((c) => ({ ...c }));
 for (let i = 0; i < chapters.length; i++) {
   chapters[i].endLine = i + 1 < chapters.length ? chapters[i + 1].line - 1 : lawLength;
 }

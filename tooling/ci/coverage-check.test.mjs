@@ -79,9 +79,27 @@ test('fails: the index is missing', () => {
 });
 
 test('fails: an empty index opens nothing', () => {
-  const r = run(scratch({ [INDEX]: () => '{"lines":0,"chapters":[],"blankLines":[]}\n' }));
+  const r = run(scratch({ [INDEX]: () => '{"lines":1,"chapters":[],"blankLines":[]}\n' }));
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /OPENED NOTHING/);
+});
+
+test('fails (planted): blankLines missing from the index, which would pass a cite on a blank line', () => {
+  const r = run(scratch(editIndex((j) => delete j.blankLines)));
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /malformed/);
+});
+
+test('fails (planted): a chapter with no line number', () => {
+  const r = run(scratch(editIndex((j) => delete j.chapters[3].line)));
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /malformed/);
+});
+
+test('fails: --write-index without --law', () => {
+  const r = run(scratch(), ['--write-index']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /--write-index needs --law/);
 });
 
 test('fails: --law with a law the index was not written from', () => {
