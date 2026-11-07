@@ -185,6 +185,14 @@ async function signedIn(browser, person) {
 const isViewWrite = (req) => req.url().includes('preferences.set') && req.method() === 'POST' && (req.postData() ?? '').includes('ui.view');
 /** The top bar's Simple or Pro switch. */
 const modeSwitch = (page) => page.getByRole('group', { name: 'Simple or Pro layout' }).first();
+/** A typed URL opens whatever the mode: an advanced desk, then Home in the mode `home` names. */
+async function typedUrls(page, home) {
+  await page.goto('/trade/futures');
+  await expect(page).toHaveURL(/\/trade\/futures$/);
+  await expect(page.getByRole('main')).toBeVisible();
+  await page.goto('/home');
+  await expect(page.getByTestId(home)).toBeVisible();
+}
 /** The Trade door's menu, opened from the top bar: Simple lists the advanced desks under their own heading, Pro in one list. */
 async function tradeMenu(page) {
   const nav = page.getByRole('navigation', { name: 'Main navigation' });
@@ -207,6 +215,8 @@ test(`${J} #2 Simple to Pro changes Home and the Trade list at once, follows the
   let menu = await tradeMenu(a.page);
   await expect(menu.getByRole('list', { name: 'Advanced' })).toBeVisible();
   await expect(menu.getByRole('link', { name: /Futures/ })).toBeVisible();
+  // A typed URL opens in Simple: an advanced desk the Simple list keeps under "Advanced", then Simple Home.
+  await typedUrls(a.page, 'if-home');
 
   // Switch to Pro: Home and the Trade list change at once, with no reload, and the choice is written to the account.
   const written = a.page.waitForResponse((res) => isViewWrite(res.request()));
@@ -222,6 +232,8 @@ test(`${J} #2 Simple to Pro changes Home and the Trade list at once, follows the
   const b = await signedIn(browser, person);
   await expect(b.page.getByTestId('if-home-pro')).toBeVisible();
   await expect(modeSwitch(b.page).getByRole('button', { name: 'Pro', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  // A typed URL opens in Pro too.
+  await typedUrls(b.page, 'if-home-pro');
 
   // A refused write: device A goes back to Simple while the account refuses the write. A keeps Simple and says the choice
   // was not saved to the account; the account still holds Pro, so device B stays Pro after a reload.
@@ -240,17 +252,6 @@ test(`${J} #2 Simple to Pro changes Home and the Trade list at once, follows the
   await expect(b.page.getByTestId('if-home-pro')).toBeVisible();
   await a.page.unroute('**/preferences.set**');
 
-  // A typed URL opens whatever the mode: an advanced desk in Simple (A) and in Pro (B), and Home in each.
-  for (const { page, home } of [
-    { page: a.page, home: 'if-home' },
-    { page: b.page, home: 'if-home-pro' },
-  ]) {
-    await page.goto('/trade/futures');
-    await expect(page).toHaveURL(/\/trade\/futures$/);
-    await expect(page.getByRole('main')).toBeVisible();
-    await page.goto('/home');
-    await expect(page.getByTestId(home)).toBeVisible();
-  }
   await a.context.close();
   await b.context.close();
 });
