@@ -31,7 +31,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 meta:
-  law: project-state product/INTAFACED_DEFINITIVE_BUILD.md
+  law: INTAFACED/project-state:product/INTAFACED_DEFINITIVE_BUILD.md
   law_version: '2.2 FINAL'
   tracker: tooling/tracker/features.mjs
   built_from: docs/audit/BUILD-COVERAGE-AUDIT-2026-08-03.md

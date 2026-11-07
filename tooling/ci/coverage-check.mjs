@@ -118,7 +118,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const ROOT = process.cwd();
-const LAW_PATH = 'project-state product/INTAFACED_DEFINITIVE_BUILD.md';
+const LAW_PATH = 'INTAFACED/project-state:product/INTAFACED_DEFINITIVE_BUILD.md';
 const INDEX_PATH = 'tooling/coverage-law-index.json';
 const YAML_PATH = 'tooling/coverage.yaml';
 const TRACKER_PATH = 'tooling/tracker/features.mjs';
@@ -391,7 +391,7 @@ const lawArg = process.argv.indexOf('--law');
 let lawIndex;
 if (lawArg !== -1) {
   const lawFile = process.argv[lawArg + 1];
-  if (!lawFile || !existsSync(lawFile)) {
+  if (!lawFile || lawFile.startsWith('--') || !existsSync(lawFile)) {
     console.error(`\n✖ coverage-check: --law needs the path of the private copy of the law (${LAW_PATH}).\n`);
     process.exit(1);
   }
@@ -506,8 +506,9 @@ const MIN_NOTE = 20;
     if (s.title && !ch.title.startsWith(String(s.title))) {
       fail(
         'sections',
-        `§${s.id} title drifted. coverage.yaml: "${s.title}" · law index ${INDEX_PATH}, ${LAW_PATH}:${ch.line}: "${ch.title}"`,
-        'If the private law really says this, regenerate the index: --law <path> --write-index.',
+        `§${s.id} title drifted. coverage.yaml: "${s.title}" is not a prefix of the title the law index holds for ` +
+          `${LAW_PATH}:${ch.line}: "${ch.title}" (the part coverage.yaml spelled when the index was written; "" if that was wrong).`,
+        'Check the heading in the private law. If it really starts with this, regenerate the index: --law <path> --write-index.',
       );
     }
     if (s.disposition !== 'mapped' && s.disposition !== 'exempt') {
