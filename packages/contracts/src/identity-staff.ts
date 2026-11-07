@@ -133,7 +133,7 @@ const isBuiltinName = (name: string): boolean => (BUILTIN_STAFF_ROLE_NAMES as re
  * A four-eyes approval reference. `payloadHash` is the hash the approval was proposed and approved against; identity
  * recomputes it from this request and refuses a mismatch before anything is spent.
  */
-export const staffApprovalRefSchema = z.object({ approvalId: opaqueId, payloadHash }).strict();
+export const staffApprovalRefSchema = z.object({ approvalId: opaqueId, operationId: opaqueId, payloadHash }).strict();
 export type StaffApprovalRef = z.infer<typeof staffApprovalRefSchema>;
 
 // ── Staff roster ────────────────────────────────────────────────────────────
@@ -146,8 +146,8 @@ export type StaffStatus = z.infer<typeof staffStatusSchema>;
 export const staffEntrySchema = z
   .object({
     staffId: opaqueId,
-    /** The identity account this staff record belongs to. */
-    userId: opaqueId,
+    /** The identity account this staff record belongs to. Null while invited: they make it at first connection. */
+    userId: opaqueId.nullable(),
     displayName,
     email,
     status: staffStatusSchema,
@@ -458,6 +458,39 @@ export const staffChangeResultSchema = z.discriminatedUnion('outcome', [
     .strict(),
 ]);
 export type StaffChangeResult = z.infer<typeof staffChangeResultSchema>;
+
+/**
+ * The payload hash a privileged staff change is approved under: SHA-256 over this text. Identity and the console both
+ * hash exactly this, so what the second person approved is what identity applies.
+ */
+export function staffChangePayloadText(subject: StaffChangeApprovalSubject): string {
+  return JSON.stringify({ actionType: subject.actionType, targetId: subject.targetId, fields: subject.fields });
+}
+
+// ── First connection (J-ops-console-09 #2) ──────────────────────────────────
+
+/** The one-time token from the invite mail. Only its SHA-256 is stored. */
+const inviteToken = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/);
+
+/** The invite expiry is an owner value; while it is blank identity refuses to invite. */
+export const IDENTITY_STAFF_INVITE_TTL_UNSET = 'identity.staff_invite_ttl_unset' as const;
+/** A first-connection token that is unknown, already used or past its expiry. One answer for all three. */
+export const IDENTITY_STAFF_INVITE_INVALID = 'identity.staff_invite_invalid' as const;
+
+export const staffInvitationInputSchema = z.object({ token: inviteToken }).strict();
+/** What the first-connection page shows before the person sets their password: who the invite is for. */
+export const staffInvitationSchema = z
+  .object({ email, displayName, expiresAt: iso, state: z.literal('open') })
+  .strict()
+  .or(z.object({ state: z.literal('invalid'), code: z.literal(IDENTITY_STAFF_INVITE_INVALID) }).strict());
+export type StaffInvitation = z.infer<typeof staffInvitationSchema>;
+
+/** `deviceKey`: the browser's own device key, trusted as at sign-up so their first sign-in there is not asked to approve itself. */
+export const staffAcceptInputSchema = z
+  .object({ token: inviteToken, password: z.string().min(1).max(256), deviceKey: z.string().min(16).max(128).optional() })
+  .strict();
+export const staffAcceptResultSchema = z.object({ staff: staffEntrySchema }).strict();
+export type StaffAcceptResult = z.infer<typeof staffAcceptResultSchema>;
 
 // ── Access overview ─────────────────────────────────────────────────────────
 
