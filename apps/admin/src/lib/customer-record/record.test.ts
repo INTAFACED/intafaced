@@ -149,3 +149,13 @@ describe('documents tab', () => {
     expect(tabPlan('documents', USER).unwired[0]!.reason).toContain('verification it is attached to');
   });
 });
+
+describe('a tab whose staff area the person may not read is denied (J-ops-console-02 #3)', () => {
+  it('a founder reads every tab; TEST support staff are denied the cards tab only', async () => {
+    const { CUSTOMER_TABS, mayReadTab } = await import('./tabs');
+    for (const tab of CUSTOMER_TABS) expect(mayReadTab({ kind: 'founder' }, tab)).toBe(true);
+    const support = { kind: 'staff', readAreas: ['accounts', 'payments', 'trading', 'documents'] } as const;
+    expect(CUSTOMER_TABS.filter((tab) => !mayReadTab(support, tab))).toEqual(['cards']);
+    expect(CUSTOMER_TABS.filter((tab) => mayReadTab({ kind: 'staff', readAreas: [] }, tab))).toEqual([]);
+  });
+});

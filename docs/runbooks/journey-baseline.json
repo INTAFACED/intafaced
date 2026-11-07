@@ -3608,14 +3608,6 @@
       "why": "service page panel shows its content: who is on call: no on-call source exists (the on-call desk, its rota and who holds the pager, is not built), so the panel cannot show anyone, and with no source t"
     },
     {
-      "step": "J-ops-console-02#3",
-      "file": "apps/customer/tests/real-app/J-ops-console-02-customer-record.pw.mjs",
-      "state": "regression",
-      "money": false,
-      "issue": 6975,
-      "why": "no staff member without the cards scope can sign in to the console: it signs in founders only until staff access (OPS-admin-access-03) is built"
-    },
-    {
       "step": "J-ops-console-02#5",
       "file": "apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs",
       "state": "unbuilt",
