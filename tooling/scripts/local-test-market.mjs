@@ -977,8 +977,7 @@ async function runLoop(opts, home) {
             if (r.json.status === 'open') {
               resting.push(quote);
               placed.push({ id: r.json.id, side: quote.side, price: quote.price });
-            }
-            else if (r.json.status !== 'closed')
+            } else if (r.json.status !== 'closed')
               refused = `${r.status} ${r.json.status} ${(r.json.rejectCode ?? '').toString().slice(0, 120)}`.trim();
           } else if (m.swap && r.status === 200 && r.json?.orderId && LIVE_FUTURES.has(r.json.status)) {
             ids.push(r.json.orderId);
