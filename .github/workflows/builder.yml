@@ -1,0 +1,235 @@
+# The headless builder: one journey per run, Claude Code headless (`claude -p`) on a fresh runner of its own, its pushes
+# made with the factory token so CI runs on them, its proof the Real-app journeys branch run, its merge the squash
+# auto-merge behind the CI merge seal. Started by hand or by tooling/factory/dispatch.mjs, from main only; a successor
+# is a new run for the same journey, which resumes the journey's open PR from its handover lines.
+# (Failure it prevents: the cloud sessions acted as the owner's own login, couldn't arm auto-merge, couldn't be stopped
+# by a script and waited on his clicks; the Mac's builders hit its memory ceiling. Round 3 B's recommendation, adopted
+# by the system design's section 4.)
+#
+# The steps' logic is tooling/ci/factory-builder.mjs, with its planted cases in factory-builder.test.mjs. In order:
+#   gate:  main only; both factory secrets set, else it fails at once; the journey is real and not parked; the factory
+#          switch (FACTORY on branch factory-switch, tooling/ci/factory-switch.mjs) says `run`, else no builder starts.
+#   build: the same stack CI's Tests job sets up, the pinned CLI, the branch (the journey's open PR, or a new one from
+#          main), the prompt (project-state BUILDER.md and the journey's step words, read with the factory token, plus
+#          .github/workflows/builder/ACTIONS.md), then the CLI, watched: every 2 minutes it reads the switch, and a
+#          pause, three unreadable reads or the hard stop at 320 minutes ends it (the job's limit is 340, GitHub's 360).
+#          Then one Handover-run line on the PR, and the run's usage as numbers.
+#
+# Public-repo hygiene: anyone can read this repository's logs. The CLI's output goes to files inside the job and
+# nowhere else: no step prints it, and nothing is uploaded (no artifact, no transcript). No step prints text read from
+# project-state. Secrets reach only the steps that use them, through `secrets.*`, which GitHub masks in the log.
+#
+# Tokens: every GitHub call and every push uses the repository secret FACTORY_GH_TOKEN, never GITHUB_TOKEN, because
+# GitHub runs no workflow on a push made with GITHUB_TOKEN, so CI would never see the builder's work. The CLI signs in
+# with the repository secret CLAUDE_FACTORY_TOKEN (a `claude setup-token` token of a factory account), given to it as
+# CLAUDE_CODE_OAUTH_TOKEN. This workflow's own GITHUB_TOKEN can only read contents.
+#
+# What this file can't enforce: `main only` is checked by this file, and a dispatch on another branch runs that
+# branch's copy; moving the two secrets into an environment whose deployment rule allows main alone would make GitHub
+# enforce it. Only people with write access can dispatch a workflow.
+name: Builder
+
+on:
+  workflow_dispatch:
+    inputs:
+      journey:
+        description: 'The journey to build, e.g. J-identity-13 (docs/roadmap/journeys.json)'
+        required: true
+        type: string
+      area:
+        description: 'The area the builder works in, e.g. identity; it takes the next journey there when this one is done'
+        required: true
+        type: string
+
+permissions: {}
+
+# One run per journey at a time: a second dispatch waits for the running one (GitHub keeps one waiting and replaces an
+# older waiting one), and a running builder is never cancelled by a newer dispatch.
+concurrency:
+  group: builder-${{ inputs.journey }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # healthy run: under a minute
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.switch.outputs.run }}
+      module: ${{ steps.check.outputs.module }}
+    steps:
+      - name: Only from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error title=Not main::builder.yml runs only from main; dispatch it with --ref main"
+            exit 1
+          fi
+
+      - name: The factory secrets are set
+        env:
+          FACTORY_GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+          CLAUDE_FACTORY_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+        run: |
+          missing=""
+          [ -n "$FACTORY_GH_TOKEN" ] || missing="$missing FACTORY_GH_TOKEN"
+          [ -n "$CLAUDE_FACTORY_TOKEN" ] || missing="$missing CLAUDE_FACTORY_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error title=Factory secret missing::the repository secret(s)$missing are not set (Settings, Secrets and variables, Actions), so no builder starts. FACTORY_GH_TOKEN pushes so CI runs; GITHUB_TOKEN can't stand in for it."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: |
+            tooling/ci
+            docs/roadmap
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      - name: Check the journey
+        id: check
+        env:
+          JOURNEY: ${{ inputs.journey }}
+          AREA: ${{ inputs.area }}
+        run: node tooling/ci/factory-builder.mjs check
+
+      - name: Read the factory switch
+        id: switch
+        env:
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+        run: node tooling/ci/factory-builder.mjs switch
+
+  build:
+    name: Build ${{ inputs.journey }}
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360
+    permissions:
+      contents: read
+
+    # The same databases CI's Tests job declares (ci.yml), for .github/actions/test-infra below.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: intafaced
+          POSTGRES_PASSWORD: intafaced
+          POSTGRES_DB: intafaced
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U intafaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      REPO: ${{ github.repository }}
+      JOURNEY: ${{ inputs.journey }}
+      AREA: ${{ inputs.area }}
+      MODULE: ${{ needs.gate.outputs.module }}
+      RUN_ID: ${{ github.run_id }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TURBO_TELEMETRY_DISABLED: 1
+
+    steps:
+      # The deadlines count from here, the build job's start. The CLI's files live in BUILDER_DIR, outside the checkout.
+      - name: Start the clock
+        run: |
+          echo "STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
+          echo "BUILDER_DIR=$RUNNER_TEMP/builder" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/builder"
+
+      # The factory token is the checkout's credential, so the builder's `git push` triggers CI.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.FACTORY_GH_TOKEN }}
+
+      # The stack setup CI's Tests job uses (ci.yml): pnpm, node 20, the frozen install, then the test infrastructure.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/test-infra
+
+      # The CLI at the version and tarball hashes the CI review pins (.github/workflows/ci-review/package-lock.json; npm
+      # ci refuses any other bytes), installed outside the checkout so the repository's .npmrc and workspace play no part.
+      - name: Install the pinned Claude Code CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/cli"
+          cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/cli/"
+          npm ci --prefix "$RUNNER_TEMP/cli" --no-audit --no-fund
+          echo "CLAUDE_BIN=$RUNNER_TEMP/cli/node_modules/.bin/claude" >> "$GITHUB_ENV"
+
+      - name: Pick the branch
+        id: branch
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: node tooling/ci/factory-builder.mjs branch
+
+      - name: Check out the branch
+        env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          RESUME: ${{ steps.branch.outputs.resume }}
+        run: |
+          git config user.name "intafaced-factory"
+          git config user.email "intafaced-factory@users.noreply.github.com"
+          if [ "$RESUME" = "true" ]; then
+            git fetch --no-tags origin "refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
+            git switch -c "$BRANCH" --track "origin/$BRANCH"
+          else
+            git switch -c "$BRANCH" origin/main
+          fi
+          git rev-parse --short HEAD
+
+      - name: Write the prompt
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          RESUME: ${{ steps.branch.outputs.resume }}
+          PR: ${{ steps.branch.outputs.pr }}
+        run: node tooling/ci/factory-builder.mjs prompt "$BUILDER_DIR"
+
+      # The CLI's stdout and stderr go to files in $BUILDER_DIR, which no step prints or uploads. Opus at effort medium
+      # (every agent runs at medium, owner decision 2026-11-07), both pinned, so a builder can't change with the
+      # account's default. Headless, so no permission prompt waits for a person: the fences are the token's scope,
+      # main's ruleset and a runner thrown away after the job.
+      - name: Build
+        id: build
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+          CLAUDE_ARGS: '["-p","--model","claude-opus-5-5","--effort","medium","--dangerously-skip-permissions","--setting-sources","project","--output-format","stream-json","--verbose"]'
+        run: node tooling/ci/factory-builder.mjs run "$BUILDER_DIR"
+
+      - name: Handover line on the PR
+        if: always() && steps.branch.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+        run: node tooling/ci/factory-builder.mjs handover "$BUILDER_DIR"
+
+      - name: Usage (numbers only)
+        if: always() && steps.build.outcome != 'skipped'
+        run: node tooling/ci/factory-builder.mjs stats "$BUILDER_DIR"
