@@ -215,7 +215,7 @@ test(`${J} #5 sees one tree of care, synthetic, algo, RFQ and routed orders with
   // One branch for each kind of order, in one tree; a kind with nothing open says why, never a blank.
   for (const kind of ['Care orders', 'Synthetic orders', 'Algo orders', 'RFQ orders', 'Routed orders'])
     await expect(tree.getByRole('treeitem', { name: new RegExp(`^${kind}`) })).toBeVisible();
-  await expect(tree.getByRole('treeitem', { name: /^Care orders/ })).toContainText('that desk does not take orders yet');
+  await expect(tree.getByRole('treeitem', { name: /^Care orders/ })).toContainText('that desk does not take orders');
   await expect(tree.getByRole('treeitem', { name: /^Routed orders/ })).toContainText('outside venues are not connected');
   // The algo order is a parent with its owner and its open exposure, and its children hang under it.
   const parent = tree.getByRole('treeitem', { name: new RegExp(algoId) });

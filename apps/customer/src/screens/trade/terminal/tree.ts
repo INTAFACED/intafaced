@@ -2,7 +2,7 @@
  * The Terminal's one order tree as data (TRD-0668): every kind of order the person has, each kind a branch, each parent
  * order with its children, ownership and open exposure. Built only from what the services answered: the order book's
  * open and closed orders, the algo schedules each re-read from `algo.get`, and the RFQ board. A kind the platform does not
- * run yet (care orders, routed orders) is a branch with no orders and the reason, never a sample. Pure and React-free.
+ * run (care orders, routed orders) is a branch with no orders and the reason, never a sample. Pure and React-free.
  */
 import type { Order } from '../../../features/trade/trade-api';
 import { dec, str, sub, times, ZERO } from '../../../data/decimal';
