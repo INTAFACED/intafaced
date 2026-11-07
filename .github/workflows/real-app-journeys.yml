@@ -64,11 +64,15 @@ on:
 # 2026-11-01, OWNER 154 point 8), under which every merge batch's journeys reported; now a batch whose waiting run is
 # replaced reports through the newer run, which holds its commits too. (Failure the old cancel rule caused, and this keeps
 # prevented: with cancel-in-progress, every run from 22 Oct 23:35 to 23 Oct 01:06 UTC was cancelled before it reached the
-# journeys. Nothing here stops a run that started.) Elsewhere (a manual run on a branch), unchanged: one group per branch, a
-# run that started finishes and a newer one waits.
+# journeys. Nothing here stops a run that started.)
+# Elsewhere (a manual run on a branch, 2026-11-07): one group per branch and journey selection, and a newer run cancels
+# the older one, so a branch's superseded head stops holding 36 shards' runners. The seal reads only a run on the pull
+# request's exact head (tooling/ci/journey-seal.mjs), so an older head's run decides nothing; a run with another
+# selection on the same branch is in another group and finishes. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
+# a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || format('real-app-journeys-{0}', github.ref) }}
-  cancel-in-progress: false
+  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || format('real-app-journeys-{0}-{1}', github.ref, inputs.journeys) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
