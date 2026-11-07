@@ -79,5 +79,12 @@ describe('affiliate accrual rate law — refuse-closed (no invent)', () => {
     const law = parseAccrualTierLawJson(line!.slice('IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON='.length));
     expect(law.published).toBe(false);
     expect(() => resolveAccrualTiers({ law })).toThrow(AccrualRateRefuseError);
+    let code: unknown = 'no refusal';
+    try {
+      resolveAccrualTiers({ law });
+    } catch (err) {
+      code = (err as AccrualRateRefuseError).code;
+    }
+    expect(code).toBe('affiliate.accrual.rates_unset');
   });
 });
