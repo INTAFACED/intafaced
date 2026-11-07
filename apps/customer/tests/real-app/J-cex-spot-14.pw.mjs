@@ -252,6 +252,7 @@ test(`${J} #5 a market with scheduled maintenance an hour away says "Maintenance
     await openDesk(page, who, LIMITED);
     const ticket = page.getByTestId('dk-maintenance');
     await expect(ticket).toContainText('Maintenance in 1 hour');
+    await expect(page.getByTestId('dk-ticker')).toContainText('Maintenance in 1 hour');
     await expect(ticket).toContainText('End time not set');
     // The markets list flags it on that market's row.
     await page.goto('/trade');
@@ -356,6 +357,10 @@ test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label rea
   // The equity class is not listed without a licence: the markets page names it, with its blocker, and lists no row.
   expect(markets.filter((m) => m.assetClass === 'equity')).toHaveLength(0);
   await page.goto('/trade');
+  // The markets list labels that pair's quote USD too.
+  const list = page.getByRole('table').first();
+  const usdRows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
+  await expect(usdRows.first()).toBeVisible();
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Tokenized equities');
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Not available: licence not named');
 });

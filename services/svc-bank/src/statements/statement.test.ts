@@ -138,9 +138,20 @@ describe('bank.statements.export', () => {
     ).rejects.toMatchObject({ code: 'bank.statement_unavailable' });
   });
 
-  it('a trades file holds only trade lines and order fees, names its report in its proof, and says it is not a tax form', async () => {
+  it('a trades file holds only trade lines, conversions and order fees, names its report in its proof, and says it is not a tax form', async () => {
     const at = new Date('2026-10-04T00:00:00.000Z');
     const rows: LedgerPageEntry[] = [
+      {
+        txId: 'tx-convert',
+        module: 'trade',
+        reason: 'trade.fill.mm_maker',
+        direction: 'debit',
+        amount: '0.001',
+        postedAt: at,
+        assetId: 'BTC',
+        entryId: '5',
+        product: 'convert',
+      },
       {
         txId: 'tx-fill',
         module: 'trade',
@@ -199,7 +210,8 @@ describe('bank.statements.export', () => {
     const range = { from: '2026-10-01T00:00:00.000Z', to: '2026-10-31T23:59:59.999Z', now: new Date('2026-11-02T00:00:00.000Z') };
     const trades = await statements.export(ALICE, { ...range, format: 'csv', report: 'trades' });
     const csv = Buffer.from(trades.bodyBase64, 'base64').toString('utf8');
-    expect(trades.rowCount).toBe(2);
+    expect(trades.rowCount).toBe(3);
+    expect(csv).toContain('tx-convert');
     expect(csv).toContain('tx-fill');
     expect(csv).toContain('tx-fee');
     expect(csv).not.toContain('tx-send');
@@ -215,7 +227,7 @@ describe('bank.statements.export', () => {
     // The ledger and the account statement hold every line.
     for (const report of ['ledger', 'statement'] as const) {
       const file = await statements.export(ALICE, { ...range, format: 'csv', report });
-      expect(file.rowCount).toBe(4);
+      expect(file.rowCount).toBe(5);
       expect(file.proof.report).toBe(report);
     }
     // The same request signs the same file.

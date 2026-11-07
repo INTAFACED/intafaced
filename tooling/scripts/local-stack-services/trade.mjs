@@ -67,16 +67,28 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, TEST_FUTURES_LADDER_POLICY })
     TRADE_MAX_LOSS: '100000',
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): realistic retail-exchange commercial values.
     // Market buys are funded at bestAsk x (1 + cap) and refuse trade.slippage_cap_unset without it
-    // (services/svc-trade/src/env.ts TRADE_MARKET_SLIPPAGE_CAP_BPS): 50 bps.
-    TRADE_MARKET_SLIPPAGE_CAP_BPS: '50',
+    // (services/svc-trade/src/env.ts TRADE_MARKET_SLIPPAGE_CAP_BPS): 50 bps. `LOCAL_STACK_TRADE_SLIPPAGE_CAP=off` on a restart
+    // leaves it blank, so J-derivatives-02 #5 sees a market open refused by name (trade.slippage_cap_unset).
+    TRADE_MARKET_SLIPPAGE_CAP_BPS: process.env.LOCAL_STACK_TRADE_SLIPPAGE_CAP === 'off' ? '' : '50',
     // The operator's Convert kill-switch, on as in production. `LOCAL_STACK_TRADE_CONVERT=off` on a restart turns it off,
     // so J-cex-spot-11 #7 sees Convert paused: every quote refuses trade.convert_disabled and the room says Use Spot.
     TRADE_CONVERT_ENABLED: process.env.LOCAL_STACK_TRADE_CONVERT === 'off' ? 'false' : 'true',
     // House edge on Convert quotes; convert.quote refuses trade.convert_spread_unset without it: 20 bps.
     TRADE_CONVERT_SPREAD_BPS: '20',
+    // LOCAL TEST, not owner decisions: the operator reconcile sweep (J-cex-spot-18 #3) is switched on here, with a size and
+    // an age floor. Off or blank, the sweep refuses (reconcile_sweep_disabled, reconcile_sweep_unconfigured). 15 s is the
+    // stack's own guess at how long a fill takes to reach trade.fills; a hold is released only on a second sighting of
+    // its order's engine miss at least that long after the first.
+    TRADE_OPERATOR_SWEEP_ENABLED: 'true',
+    TRADE_OPERATOR_SWEEP_LIMIT: '500',
+    TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS: '15',
     // LOCAL TEST, not an owner decision: how often the limit-convert sweep prices each waiting limit convert. Without it
     // no sweep runs and placing one refuses trade.convert_limit_unset; every 2 s so J-cex-spot-11 #8 sees its fill soon.
     TRADE_CONVERT_LIMIT_SWEEP_INTERVAL_MS: '2000',
+    // LOCAL TEST, not an owner decision: how often the seed job looks at the operator-written seeding configuration
+    // (J-cex-spot-20 #5). Seeding itself stays off: TRADE_MM_SEED_ENABLED is unset and no market has an approved row
+    // until a journey writes one. Every 5 s (the env's floor) so J-cex-spot-20 #4 sees the seed soon.
+    TRADE_MM_SEED_INTERVAL_MS: '5000',
     // How long a firm Convert quote binds; refuses trade.convert_quote_ttl_unset without it: 15 s.
     TRADE_CONVERT_QUOTE_TTL_MS: '15000',
     // LOCAL TEST, not an owner decision (option B, 2026-10-13): the dead-man switch (cancel-all-after) timeouts, in

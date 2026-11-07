@@ -20,6 +20,7 @@ import { assertNoLocalTestFixtures, edgeTrustFromEnv } from '@intafaced/config';
 import { env } from './env.js';
 import { MARKETS_LIMIT_MAX, TradeService } from './spot/trade-service.js';
 import { bookHaltFromBoard, createMatchingClient } from './spot/matching-client.js';
+import { createMatchingRulebookReader } from './spot/matching-rulebook.js';
 import { bindMatchingCloseS2s } from './spot/matching-close.js';
 import { readOcoIntents } from './spot/oco-intent.js';
 import { readOrderLinks } from './spot/order-links.js';
@@ -44,8 +45,10 @@ import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
+import { operatorSeedTargets } from './admin/seed-config.js';
 import { wireTradeOpsAdmin } from './admin/wire.js';
 import { parseMetricsWindowSeconds } from './admin/copy-bots-otc.js';
+import { parseSweepEnabled, parseSweepLimit, parseSweepMinAgeSeconds } from './admin/bust.js';
 import { chartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { InsuranceTopupAdmin } from './admin/insurance-topup.js';
 import { SupportTradeSummaryReader } from './support/trade-summary.js';
@@ -143,7 +146,7 @@ import { registerCopyLeaderFixturesRoutes } from './agents/copy-leader-fixtures-
 import { resolveFundingMaxAbsRateForBoot } from './futures/funding-rate-bound.js';
 import { parseMmSeedTargets, startMmSeedJobs } from './mm/seed-jobs.js';
 import { presentMmSeedHealth } from './mm/seed-health.js';
-import { createMmMidSourceFromConfig } from './mm/mid-source.js';
+import { createMmMidSourceFromConfig, createVenueMmMidSource } from './mm/mid-source.js';
 import { HOUSE_MM_API_KEY_ID } from './spot/auth-attribution.js';
 import { HOUSE_MM_USER_UUID } from './spot/ids.js';
 import { parseCandleMarketIds, parseCandleTimeframes } from './spot/candles.js';
@@ -173,7 +176,7 @@ import { createOtcMidSourceFromConfig } from './otc/venue-mid-source.js';
 import { describeOtcMidFeedWiring } from './otc/mid-feed.js';
 import { OtcDeskService } from './otc/otc-service.js';
 import { loadOtcMakerDirectory } from './otc/maker-directory.js';
-import { parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
+import { NO_OTC_CONVERT_BOUNDS, parseOtcConvertBoundsJson } from './otc/otc-convert-bounds.js';
 import { SqlOtcQuoteStore } from './otc/quote-store.js';
 import { createOtcStakeSource } from './otc/stake-source.js';
 import { createIfcDiscountSource } from './spot/fee-ifc.js';
@@ -362,6 +365,15 @@ const otcMidFeedWiring = describeOtcMidFeedWiring({
   venueSymbolsConfigured: env.TRADE_OTC_VENUE_SYMBOLS.trim().length > 0,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
 });
+const otcConvertBounds = (() => {
+  try {
+    return parseOtcConvertBoundsJson(env.TRADE_OTC_CONVERT_BOUNDS);
+  } catch (err) {
+    // A malformed setting must not stop all trading: log it and leave both flows refusing.
+    process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.convert_bounds_invalid', message: String(err) })}\n`);
+    return undefined;
+  }
+})();
 const otc = new OtcDeskService(ledger, otcStakes, {
   accountAdmission: tradingControls,
   emailProof,
@@ -369,15 +381,7 @@ const otc = new OtcDeskService(ledger, otcStakes, {
   midSource: otcMidBuilt.source,
   liveObservationFeed: otcMidBuilt.liveObservationFeed,
   midFeedWiring: otcMidFeedWiring,
-  convertBounds: (() => {
-    try {
-      return parseOtcConvertBoundsJson(env.TRADE_OTC_CONVERT_BOUNDS);
-    } catch (err) {
-      // A malformed setting must not stop all trading: log it and leave both flows refusing.
-      process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.convert_bounds_invalid', message: String(err) })}\n`);
-      return undefined;
-    }
-  })(),
+  convertBounds: otcConvertBounds,
   store: new SqlOtcQuoteStore(sql),
   makerDirectory: loadOtcMakerDirectory(env.TRADE_OTC_MAKER_DIRECTORY, (message) =>
     process.stderr.write(`${JSON.stringify({ level: 'error', msg: 'trade.otc.maker_directory_invalid', message })}\n`),
@@ -556,6 +560,15 @@ export const appRouter = createTradeRouter(
     vipProofKey: parseVipProofKey(env.TRADE_VIP_PROOF_KEY),
     otcLaw: otcDeskLaw,
     metricsWindowSeconds: parseMetricsWindowSeconds(env.TRADE_OPS_METRICS_WINDOW_SECONDS),
+    sweepLimit: parseSweepLimit(env.TRADE_OPERATOR_SWEEP_LIMIT),
+    sweepMinAgeSeconds: parseSweepMinAgeSeconds(env.TRADE_OPERATOR_SWEEP_MIN_AGE_SECONDS),
+    sweepEnabled: parseSweepEnabled(env.TRADE_OPERATOR_SWEEP_ENABLED),
+    convert: {
+      spreadBps: env.TRADE_CONVERT_SPREAD_BPS,
+      quoteTtlMs: env.TRADE_CONVERT_QUOTE_TTL_MS,
+      // A malformed setting refuses both flows above, so the read shows both as not set.
+      deskBounds: otcConvertBounds ?? NO_OTC_CONVERT_BOUNDS,
+    },
   }),
   new InsuranceTopupAdmin({ sql, ledger, approvals: tradeOpsApprovals }),
   new SupportTradeSummaryReader({ sql }),
@@ -879,6 +892,15 @@ const mmMidSource = createMmMidSourceFromConfig({
   resolveVenueSymbol: (marketId) => venueMarkSymbols.get(marketId) ?? null,
   ...(venueBookPort ? { bookForSymbol: venueBookPort } : {}),
 });
+// An operator row whose mid source is `venue` reads the outside venue's mid alone, never TRADE_MM_SEED_MIDS; with no
+// venue adapter wired there is none, and such a row places nothing (J-cex-spot-20 #5).
+const mmVenueOnlyMid = venuePublicAdapter
+  ? createVenueMmMidSource({
+      adapter: venuePublicAdapter,
+      resolveSymbol: (marketId) => venueMarkSymbols.get(marketId) ?? null,
+      ...(venueBookPort ? { bookForSymbol: venueBookPort } : {}),
+    })
+  : null;
 const mmSeedTargets = parseMmSeedTargets(env.TRADE_MM_SEED_MARKETS);
 const mmSeedJobs = startMmSeedJobs({
   ledger,
@@ -903,6 +925,9 @@ const mmSeedJobs = startMmSeedJobs({
   },
   statePath: env.TRADE_MM_SEED_STATE_PATH,
   operatorSeedAllows: (marketId) => readOperatorSeedAllows(sql, marketId),
+  // J-cex-spot-20 #5: the approved seeding rows; once any exists they replace the TRADE_MM_SEED_* bootstrap.
+  operatorConfigs: () => operatorSeedTargets(sql),
+  venueMidSource: mmVenueOnlyMid,
   recordSeededOrder: async (row) => {
     await sql`INSERT INTO trade.orders (id, user_id, market_id, side, type, price, qty, status, tif, hold_asset, hold_amount, fee_discount_bps, seeded, lifecycle_proof, session_id, api_key_id) VALUES (${row.orderId}, ${HOUSE_MM_USER_UUID}, ${row.marketId}, ${row.side}, ${'limit'}, ${row.price}::numeric, ${row.qty}::numeric, ${'open'}, ${'PO'}, ${row.holdAsset}, ${row.holdAmount}::numeric, ${0}, ${true}, ${JSON.stringify(row.lifecycleProof)}::text::jsonb, ${null}, ${HOUSE_MM_API_KEY_ID}) ON CONFLICT (id) DO NOTHING`;
   },
@@ -1011,7 +1036,11 @@ app.get('/health', async () => ({
   ok: true,
   service: env.SERVICE_NAME,
   venueLatency: presentVenueLatencyHealth(venuePublicAdapter, new Date(), { streamEnabled: env.TRADE_VENUE_MARK_STREAM }),
-  mmSeed: presentMmSeedHealth({ enabled: env.TRADE_MM_SEED_ENABLED, targetCount: mmSeedTargets.length }),
+  mmSeed: presentMmSeedHealth({
+    enabled: env.TRADE_MM_SEED_ENABLED,
+    targetCount: mmSeedTargets.length,
+    operatorTick: env.TRADE_MM_SEED_INTERVAL_MS != null,
+  }),
   futuresJobs: presentFuturesJobsHealth({
     enabled: env.TRADE_FUTURES_JOBS_ENABLED,
     fundingMarketCount: fundingMarketIds.length,
@@ -1056,6 +1085,7 @@ registerPublicRest(app, {
   tickerStats: createTickerStatsReader(sql, { ttlMs: 3000 }),
   lifecycleForMarket: (market) => trade.marketLifecycleSnapshot(market),
   maintenanceBoard: createMarketMaintenanceReader({ notifyUrl: env.NOTIFY_URL }),
+  rulebook: createMatchingRulebookReader(env.MATCHING_URL),
   bookHalt: async (market) => {
     const board = await matching.listMarkets();
     return bookHaltFromBoard(board, market.id);

@@ -414,8 +414,48 @@ test(`${J} #5 previews past the order cap and the price band: a split offered an
   // Cancelled, every hold comes back: nothing was ever filled.
   for (const child of children) expect((await me.delete(`/api/v1/futures/orders/${child.orderId}`)).status).toBe(200);
   expect((await me.balances()).USDT.free).toBe(before.USDT.free);
-  // A blank slippage cap refusing every market open (`trade.slippage_cap_unset`) is proved by the service tests
-  // (matched-orders.money.test.ts, position-preview-rest.test.ts), since the stack publishes a TEST cap.
+
+  // With no slippage cap published: the trade lane restarted with the cap blank, then put back as it was, whatever
+  // happens. The review names the cap, Open long stays off, and a market open sent anyway is refused by that code with
+  // nothing held or placed.
+  const unsetBefore = await me.balances();
+  try {
+    restartWith('trade', 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', false);
+    let refusedPreview = null;
+    await expect
+      .poll(
+        async () => {
+          const res = await me.post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
+          refusedPreview = res.body;
+          return res.status === 200 && res.body?.markPrice != null;
+        },
+        { timeout: 60_000, message: 'the preview answers with a mark once trade is back' },
+      )
+      .toBe(true);
+    expect(refusedPreview.slippageCapBps).toBeNull();
+    expect(refusedPreview.refusals.map((r) => r.code)).toContain('trade.slippage_cap_unset');
+    await desk(page);
+    await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
+    await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
+    await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+    await expect(ticket.locator('[data-code="trade.slippage_cap_unset"]').first()).toBeVisible();
+    await expect(ticket.getByRole('button', { name: 'Open long' })).toBeDisabled();
+    const open = await me.post('/api/v1/futures/orders', {
+      symbol: SYMBOL,
+      side: 'buy',
+      type: 'market',
+      amount: SIZE,
+      leverage: LEVERAGE,
+      marginMode: 'isolated',
+      clientOrderId: `${J}-slippage-unset-${Date.now()}`,
+    });
+    expect(open.status, JSON.stringify(open.body)).toBeGreaterThanOrEqual(400);
+    expect(open.body.error, JSON.stringify(open.body)).toBe('trade.slippage_cap_unset');
+    expect(await me.balances()).toEqual(unsetBefore);
+    expect((await me.get('/api/v1/positions')).body).toEqual([]);
+  } finally {
+    restartWith('trade', 'LOCAL_STACK_TRADE_SLIPPAGE_CAP', true);
+  }
 });
 
 test(`${J} #6 adds size that crosses a tier threshold: a confirm step names the new tier and its leverage`, async ({ page }) => {
