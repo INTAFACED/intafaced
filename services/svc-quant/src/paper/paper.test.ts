@@ -125,7 +125,7 @@ async function saved(a: ReturnType<typeof setup>['a']) {
     name: 'TEST paper',
     blocks: [],
     modules: RULES,
-    risk: { maxDrawdown: '', maxNotional: '', kill: '' },
+    risk: { maxDrawdown: '500', maxNotional: '10000', kill: '100' },
     cash: '1000',
     environment: 'paper',
     clientStrategyId: 'client-paper',
