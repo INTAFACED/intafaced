@@ -1276,6 +1276,7 @@ export const COPY_SKIP_REASON_IDS = [
   'paused',
   'stopped',
   'lead_stopped',
+  'platform_paused',
   'risk_control',
   'insufficient_funds',
   'max_copy_total',

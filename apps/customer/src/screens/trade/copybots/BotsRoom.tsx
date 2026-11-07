@@ -157,6 +157,7 @@ function BotsHub({ path }: { path: string }) {
   const setTab = (id: string) => go({ tab: id });
 
   const policy = useLive((signal) => api.algoPolicy(signal), 'bots-policy', 60_000);
+  const pauses = useLive((signal) => api.platformPauses(signal), 'bots-platform-pauses', 30_000);
   const markets = useLive((signal) => tradeApi.markets(signal), 'bots-markets', 300_000);
   const studio = useLive((signal) => api.studio(signal), 'bots-studio', 60_000);
   // The grid service answers for this person: below the owner's verification level (or with none set) it refuses.
@@ -263,6 +264,11 @@ function BotsHub({ path }: { path: string }) {
   const catalogueStatus = (
     row: CatalogueRow,
   ): { tone: BadgeTone; word: string; reason: string | null; ready: boolean; worded?: boolean } => {
+    // The platform paused new bots of this type (CB-ops-03): running ones keep running, a new one is refused.
+    if (pauses.data?.botTypes.includes(row.id)) {
+      const words = roomRefusal({ ok: false, reason: 'forbidden', message: '', code: 'trade.bots_paused_by_platform' });
+      return { tone: 'warn', word: words.title, reason: words.body, ready: false, worded: true };
+    }
     if (row.id === 'twap' || row.id === 'vwap' || row.id === 'pov') {
       if (!policy.data && policy.status === 'error')
         return { tone: 'warn', word: 'Unknown', reason: 'The bot service did not answer. Try again in a moment.', ready: false };
