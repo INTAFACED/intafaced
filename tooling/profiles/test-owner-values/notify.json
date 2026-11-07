@@ -26,11 +26,6 @@
       "value": "20",
       "note": "Most price alerts one person may hold open."
     },
-    "NOTIFY_ACCOUNT_PLANS_JSON": {
-      "service": "notify",
-      "value": "{\"defaultPlanId\": \"standard\", \"plans\": [{\"id\": \"standard\", \"name\": \"TEST Standard\", \"tier\": \"standard\", \"price\": \"0\", \"assetId\": \"USDT\", \"period\": \"month\"}, {\"id\": \"plus\", \"name\": \"TEST Plus\", \"tier\": \"plus\", \"price\": \"4.99\", \"assetId\": \"USDT\", \"period\": \"month\"}]}",
-      "note": "TEST account plan table, the same TEST table svc-bank reads as BANK_PLANS_JSON (J-bank-16 #6): TEST Standard, the default everyone is on, and TEST Plus. Alert quotas are set per plan on the charts settings page (J-charts-desk-18 #6). Made up for the local test stack; not an owner decision or a price."
-    },
     "NOTIFY_ALERT_FREQUENCIES": {
       "service": "notify",
       "value": "every_crossing",

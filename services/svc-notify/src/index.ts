@@ -393,7 +393,7 @@ alerts.attachOwnerValues(
       maxActivePrice: env.NOTIFY_ALERT_MAX_ACTIVE_PRICE ?? null,
       triggerLogDays: env.NOTIFY_ALERT_TRIGGER_LOG_DAYS ?? null,
     },
-    parseAccountPlans(env.NOTIFY_ACCOUNT_PLANS_JSON),
+    parseAccountPlans(env.BANK_PLANS_JSON),
   ),
 );
 export const appRouter = createNotifyRouter(

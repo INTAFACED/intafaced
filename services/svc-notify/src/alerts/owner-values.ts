@@ -7,8 +7,8 @@
  *   notify.opsAlertOwnerValues.get   admin:read   every value, where it comes from, who set it and when, and the history
  *   notify.opsAlertOwnerValues.set   admin:write  one value per write, with a reason; a blank value clears it to "not set"
  *
- * A plan is the account plan of the owner's plan table (BK-acct-04, `BANK_PLANS_JSON` in svc-bank; svc-notify reads the
- * same table as NOTIFY_ACCOUNT_PLANS_JSON). It is the product's one plan. Nobody can subscribe yet, so every person is on
+ * A plan is the account plan of the owner's plan table (BK-acct-04, `BANK_PLANS_JSON`: one owner value, read by svc-bank
+ * and here). It is the product's one plan. Nobody can subscribe yet, so every person is on
  * the table's default plan, the bank's own rule. A blank table is "not set": no plan quota applies and the page says so.
  * Each write is one append-only row, so the rows are the audit: who,
  * when, the old and new value, and the reason, all in one insert. A value the page has never written falls back to the
