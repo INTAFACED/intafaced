@@ -78,6 +78,8 @@ import {
 import { priceTokens, type PriceSetting } from './amm/prices.js';
 import { createTokensRouter } from './amm/tokens-router.js';
 import { contractChain, createContractSourceRouter, type ContractChain } from './contract-source/router.js';
+import { createBridgeRouter } from './bridge/router.js';
+import { bridgeRoutesLoader } from './bridge/routes.js';
 import { createWalletTxRouters } from './wallet-tx/router.js';
 import type { ReplacementSetting } from './wallet-tx/replacement.js';
 import { createPoolFeesProcedures, poolFeesChain } from './amm/pool-fees.js';
@@ -1458,6 +1460,9 @@ export function createProtocolRouter(deps: ProtocolRouterDeps) {
      * builds; Read is an eth_call at one block, Write builds the call the person's wallet signs.
      */
     contract: createContractSourceRouter({ chain: () => (contracts ??= contractChain(chain)), toTrpcError }),
+
+    /** The owner-published bridge route table (D-bridge-chain-03); blank refuses `bridge.routes_unset`. */
+    bridge: createBridgeRouter({ loadRoutes: bridgeRoutesLoader() }),
 
     tokens: createTokensRouter({
       chain: tokenLogsChain(

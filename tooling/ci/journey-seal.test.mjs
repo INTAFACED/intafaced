@@ -764,4 +764,7 @@ test("SHARED_SETUP and real-app-journeys.yml's push trigger do not drift", () =>
   for (const e of SHARED_SETUP.filter((x) => x.trigger))
     assert.ok(globRe(e.trigger).test(e.glob.replace(/\*+/g, 'x')), `${e.trigger} covers ${e.glob}`);
   assert.equal(globRe('tooling/scripts/local-test-*.mjs').test('tooling/scripts/local-stack-services/a.mjs'), false, 'why both are listed');
+  // GitHub's `*` stays within one folder; only `**` crosses a `/` (review round 2 of #7431: no test failed when `*` crossed).
+  assert.equal(globRe('tooling/scripts/local-test-*.mjs').test('tooling/scripts/local-test-x/y.mjs'), false, '`*` does not cross a `/`');
+  assert.equal(globRe('tooling/scripts/local-stack-services/**').test('tooling/scripts/local-stack-services/a/b.mjs'), true, '`**` does');
 });
