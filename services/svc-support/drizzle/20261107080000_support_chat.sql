@@ -1,11 +1,12 @@
 -- svc-support · live chat (SP-chat-01, J-support-public-05)
 -- Reversal: 20261107080000_support_chat.down.sql
 --
--- NOT tagged `intafaced:destructive`: it adds five tables and drops nothing.
+-- NOT tagged `intafaced:destructive`: it adds six tables and drops nothing.
 
 -- One row per chat. `user_id` is the signed identity it belongs to, NULL for a guest. Every chat has an access token
--- (only its hash is kept): a guest, or a page embedding the chat with no session of ours, comes back with it. `client_key` (the sha256 of the page's key) makes a lost open answer recoverable: the same key opens the same
--- chat, and `fingerprint` refuses the same key with different content. A closed chat
+-- (only its hash is kept): a guest, or a page embedding the chat with no session of ours, comes back with it.
+-- `client_key` (the sha256 of the page's key) makes a lost open answer recoverable: the same key opens the same chat,
+-- and `fingerprint` refuses the same key with different content. A closed chat
 -- holds the request it became (`ticket_id`) and takes no more messages.
 CREATE TABLE IF NOT EXISTS "support"."chat_sessions" (
   "id"             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -61,14 +62,13 @@ CREATE TABLE IF NOT EXISTS "support"."chat_rate_windows" (
   PRIMARY KEY ("session_id", "window_start")
 );
 
--- A guest's pre-chat form: an enquiry with source chat. The address is kept sealed (the guest address key) and hashed,
--- and erased after the guest retention; it is never answered back.
+-- A guest's pre-chat form: an enquiry with source chat. The address is kept only sealed (the guest address key), erased
+-- after the guest retention, and never answered back.
 CREATE TABLE IF NOT EXISTS "support"."chat_enquiries" (
   "id"              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "session_id"      uuid NOT NULL REFERENCES "support"."chat_sessions" ("id"),
   "source"          text NOT NULL,
   "name"            text,
-  "address_hash"    text,
   "address_sealed"  text,
   "erase_after"     timestamptz,
   "erased_at"       timestamptz,
@@ -76,6 +76,14 @@ CREATE TABLE IF NOT EXISTS "support"."chat_enquiries" (
   CONSTRAINT "chat_enquiries_session_uq" UNIQUE ("session_id"),
   CONSTRAINT "chat_enquiries_source_ck" CHECK ("source" = 'chat'),
   CONSTRAINT "chat_enquiries_address_ck" CHECK (("address_sealed" IS NULL) OR ("erase_after" IS NOT NULL))
+);
+
+-- A guest's chat opens per address per window (the guest request limit). The address is a keyed hash, never the address.
+CREATE TABLE IF NOT EXISTS "support"."chat_guest_rate_windows" (
+  "address_key"   text NOT NULL,
+  "window_start"  bigint NOT NULL,
+  "opened"        integer NOT NULL,
+  PRIMARY KEY ("address_key", "window_start")
 );
 
 -- Where a request came from, beside the ticket and never on it: the chat it was made from and the profile type identity

@@ -65,6 +65,8 @@ function world(overrides: Partial<ChatSettings> = {}, profiles: Record<string, '
     prechatFields: ['name', 'email'],
     addressKey: 'b'.repeat(64),
     retentionDays: 30,
+    guestRateLimit: 3,
+    guestRateWindowSeconds: 3600,
     claimSecret: SECRET,
     ...overrides,
   };
@@ -306,6 +308,54 @@ describe('closing', () => {
     const text = transcriptText(many);
     expect(text.length).toBeLessThanOrEqual(10_000);
     expect(text).toContain('the rest of the 50 messages is in the chat transcript');
+  });
+});
+
+describe('review fixes', () => {
+  it('a guest address opens at most the guest limit of chats in a window', async () => {
+    const { chat } = world({ guestRateLimit: 2 });
+    const open = () => chat.open(null, { clientKey: key(), prechat: { name: 'A', email: 'same@local-test.invalid' }, message: 'hi' });
+    await open();
+    await open();
+    await expect(open()).rejects.toMatchObject({ code: 'support.guest_rate_limited' });
+    await expect(
+      world({ guestRateLimit: null }).chat.open(null, { clientKey: key(), prechat: { name: 'A', email: 'a@b.invalid' }, message: 'hi' }),
+    ).rejects.toMatchObject({
+      code: 'support.guest_rate_limit_unset',
+    });
+  });
+
+  it('a retry with the same key after the claim expired gets the same chat back', async () => {
+    const { chat, tick } = world();
+    const { token } = chat.identityToken(ALICE);
+    const input = { clientKey: key(), identity: token, message: 'hello' };
+    const first = await chat.open(null, input);
+    tick(301_000);
+    const again = await chat.open(null, input);
+    expect(again.session).toMatchObject({ id: first.session.id, identity: 'account', claim: 'verified' });
+  });
+
+  it('only the accepting agent, or a lead, ends a chat from the desk', async () => {
+    const { chat, desk } = world();
+    const OTHER = '44444444-4444-4444-8444-444444444444';
+    const LEAD = '55555555-5555-4555-8555-555555555555';
+    desk.members = [staff('online'), staff('online', OTHER), { ...staff('offline', LEAD), role: 'lead' }];
+    const { session } = await chat.open(ALICE, { clientKey: key(), message: 'hello' });
+    await chat.accept(AGENT, session.id);
+    await expect(chat.deskClose(OTHER, session.id)).rejects.toMatchObject({ code: 'support.chat_not_accepted' });
+    await expect(chat.deskClose('66666666-6666-4666-8666-666666666666', session.id)).rejects.toMatchObject({ code: 'support.not_staff' });
+    expect((await chat.deskClose(LEAD, session.id)).status).toBe('closed');
+  });
+
+  it('a transcript of messages that each pass the phrase check passes it too, so a chat always becomes its request', async () => {
+    const { chat, tickets } = world();
+    // Eleven recovery-phrase words each: one more next to a label would make the twelve the check refuses.
+    const eleven = 'abandon ability able about above absent absorb abstract absurd abuse access';
+    const { session } = await chat.open(ALICE, { clientKey: key(), message: eleven });
+    await chat.accept(AGENT, session.id);
+    await chat.reply(AGENT, { sessionId: session.id, clientMessageId: 'r-000001', body: eleven });
+    await chat.close({ userId: ALICE }, session.id);
+    expect(tickets).toHaveLength(1);
   });
 });
 

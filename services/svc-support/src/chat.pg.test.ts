@@ -62,6 +62,8 @@ if (!url) {
     prechatFields: ['name', 'email'],
     addressKey: 'b'.repeat(64),
     retentionDays: 30,
+    guestRateLimit: 3,
+    guestRateWindowSeconds: 3600,
     claimSecret: 'a'.repeat(64),
   };
   const staff: StaffMember[] = [

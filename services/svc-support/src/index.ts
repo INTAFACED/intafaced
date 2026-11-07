@@ -239,6 +239,8 @@ const chat = new SupportChat(
     prechatFields: env.SUPPORT_CHAT_PRECHAT_FIELDS,
     addressKey: env.SUPPORT_GUEST_ADDRESS_KEY ?? null,
     retentionDays: env.SUPPORT_GUEST_RETENTION_DAYS ?? null,
+    guestRateLimit: env.SUPPORT_GUEST_RATE_LIMIT ?? null,
+    guestRateWindowSeconds: env.SUPPORT_GUEST_RATE_WINDOW_SECONDS ?? null,
     claimSecret: createHmac('sha256', env.INTERNAL_SERVICE_SECRET).update('svc-support.chat.v1').digest('hex'),
   },
   async () => (await contactBook.get()).chatHours,

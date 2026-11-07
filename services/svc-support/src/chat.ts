@@ -42,6 +42,8 @@ import {
   SUPPORT_CHAT_RATE_LIMITED,
   SUPPORT_CHAT_RATE_LIMIT_UNSET,
   SUPPORT_GUEST_ADDRESS_KEY_UNSET,
+  SUPPORT_GUEST_RATE_LIMITED,
+  SUPPORT_GUEST_RATE_LIMIT_UNSET,
   SUPPORT_GUEST_RETENTION_UNSET,
   type ServiceAuthMode,
   type ServiceSigner,
@@ -106,6 +108,7 @@ export function createChatProfileClient(
         const target = `${url}/internal/campaign-participant/${encodeURIComponent(userId)}`;
         const response = await fetch(target, {
           method: 'GET',
+          signal: AbortSignal.timeout(5_000),
           headers: {
             'content-type': 'application/json',
             ...sign('', { method: 'GET', url: new URL(target), contentType: 'application/json' }),
@@ -130,9 +133,11 @@ export interface ChatSettings {
   readonly identityTtlSeconds: number | null;
   /** The pre-chat fields the owner asks a guest for; empty means a free-text first message only. */
   readonly prechatFields: readonly SupportChatPrechatField[];
-  /** The guest address key (32 bytes as hex) and retention, shared with guest requests. */
+  /** The guest address key (32 bytes as hex), retention and per-address rate, shared with guest requests. */
   readonly addressKey: string | null;
   readonly retentionDays: number | null;
+  readonly guestRateLimit: number | null;
+  readonly guestRateWindowSeconds: number | null;
   /** Signs identity claims. Derived from the service's internal secret; never sent anywhere. */
   readonly claimSecret: string;
 }
@@ -195,10 +200,11 @@ export function ownerOf(principalUserId: string | null, claim: string | undefine
 
 /** The transcript as a request body: one line per message, oldest first. Past the body limit it says where the rest is. */
 export function transcriptText(messages: readonly Pick<SupportChatMessage, 'author' | 'body' | 'createdAt'>[], max = 10_000): string {
-  const lines = messages.map((m) => `[${m.createdAt}] ${m.author === 'agent' ? 'Support' : 'Customer'}: ${m.body}`);
-  const full = `Chat transcript (${messages.length} messages)\n\n${lines.join('\n')}`;
+  // The labels are not recovery-phrase words, so a label next to a message can never make a run the message alone did not.
+  const lines = messages.map((m) => `[${m.createdAt}] ${m.author === 'agent' ? 'Operator' : 'Customer'}: ${m.body}`);
+  const full = `Transcript (${messages.length} messages)\n\n${lines.join('\n')}`;
   if (full.length <= max) return full;
-  const tail = `\n… the rest of the ${messages.length} messages is in the chat transcript on this request.`;
+  const tail = `\n… the rest of the ${messages.length} messages is in the transcript linked to this request.`;
   return full.slice(0, max - tail.length) + tail;
 }
 
@@ -225,7 +231,7 @@ export type SessionRow = {
   fingerprint: string;
 };
 
-export type EnquiryRow = { name: string | null; addressHash: string | null; addressSealed: string | null; eraseAfter: string | null };
+export type EnquiryRow = { name: string | null; addressSealed: string | null; eraseAfter: string | null };
 
 export type NewMessage = { author: 'customer' | 'agent'; authorId: string | null; clientMessageId: string; body: string; at: string };
 
@@ -259,6 +265,8 @@ export interface ChatBook {
   enquiries(sessionId: string | undefined, limit: number): Promise<SupportChatEnquiry[]>;
   sourceOf(ticketId: string): Promise<SessionRow | null>;
   eraseDue(now: string, batch: number): Promise<number>;
+  /** Counts one guest open for a (keyed) address in a window; answers the count including this one. */
+  countGuestOpen(addressKey: string, window: number): Promise<number>;
 }
 
 const windowOf = (at: string, seconds: number) => Math.floor(Date.parse(at) / 1000 / seconds);
@@ -363,11 +371,17 @@ export class MemoryChatBook implements ChatBook {
     return s;
   }
   async openSessions(limit: number) {
-    return [...this.sessions.values()].filter((s) => s.status !== 'closed').slice(0, limit);
+    // Oldest first, as the Postgres book orders them.
+    return [...this.sessions.values()]
+      .filter((s) => s.status !== 'closed')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+      .slice(0, limit);
   }
   async enquiries(sessionId: string | undefined, limit: number) {
+    // Newest first, as the Postgres book orders them.
     return [...this.enquiryRows.entries()]
       .filter(([sid]) => sessionId === undefined || sid === sessionId)
+      .sort(([, a], [, b]) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
       .slice(0, limit)
       .map(([sid, e]) => ({
         id: e.id,
@@ -381,6 +395,13 @@ export class MemoryChatBook implements ChatBook {
   async sourceOf(ticketId: string) {
     const sid = this.sources.get(ticketId);
     return sid ? (this.sessions.get(sid) ?? null) : null;
+  }
+  private readonly guestOpens = new Map<string, number>();
+  async countGuestOpen(addressKey: string, window: number) {
+    const k = `${addressKey}:${window}`;
+    const n = (this.guestOpens.get(k) ?? 0) + 1;
+    this.guestOpens.set(k, n);
+    return n;
   }
   async eraseDue(now: string) {
     let n = 0;
@@ -490,8 +511,8 @@ export class SqlChatBook implements ChatBook {
         VALUES (${row.id}, 1, ${first.author}, ${first.authorId}, ${first.clientMessageId}, ${first.body}, ${first.at})
         RETURNING *`;
       if (enquiry)
-        await tx`INSERT INTO support.chat_enquiries (session_id, source, name, address_hash, address_sealed, erase_after, created_at)
-          VALUES (${row.id}, 'chat', ${enquiry.name}, ${enquiry.addressHash}, ${enquiry.addressSealed}, ${enquiry.eraseAfter}, ${first.at})`;
+        await tx`INSERT INTO support.chat_enquiries (session_id, source, name, address_sealed, erase_after, created_at)
+          VALUES (${row.id}, 'chat', ${enquiry.name}, ${enquiry.addressSealed}, ${enquiry.eraseAfter}, ${first.at})`;
       await tx`INSERT INTO support.chat_rate_windows (session_id, window_start, sent) VALUES (${row.id}, ${windowOf(first.at, rate.windowSeconds)}, 1)`;
       return { session: fromSession(row), first: fromMessage(message[0]!), created: true };
     });
@@ -611,6 +632,14 @@ export class SqlChatBook implements ChatBook {
     return rows[0] ? fromSession(rows[0]) : null;
   }
 
+  async countGuestOpen(addressKey: string, window: number) {
+    const rows = await this.sql<{ opened: number }[]>`
+      INSERT INTO support.chat_guest_rate_windows (address_key, window_start, opened) VALUES (${addressKey}, ${window}, 1)
+      ON CONFLICT (address_key, window_start) DO UPDATE SET opened = support.chat_guest_rate_windows.opened + 1
+      RETURNING opened`;
+    return rows[0]!.opened;
+  }
+
   async eraseDue(now: string, batch: number) {
     const done = await this.sql`
       UPDATE support.chat_enquiries SET address_sealed = NULL, erased_at = ${now}
@@ -658,31 +687,34 @@ export class SupportChat {
   async open(principalUserId: string | null, input: SupportChatOpenInput): Promise<SupportChatOpenResult> {
     const rate = this.rate();
     refuseCommentSecret(input.message);
+    const prechat = input.prechat ?? {};
+    // What the page sent, not what it was decided to be: a retry after a claim expired or a sign-in lapsed still finds its
+    // chat. The key is the capability, so whoever holds it gets the chat back as it was opened.
+    const fingerprint = sha256(JSON.stringify([input.identity ?? null, prechat.name ?? null, prechat.email ?? null, input.message]));
+    const known = await this.knownOpen(input.clientKey, fingerprint);
+    if (known) return known;
+
     const owner = ownerOf(principalUserId, input.identity, (claim) => verifyIdentityClaim(this.settings.claimSecret, claim, this.now()));
     const guest = owner.userId === null;
     // A guest answers the owner's pre-chat fields, and nothing else; an account's identity is its own, so it sends none.
-    const prechat = input.prechat ?? {};
     const asked = new Set(this.settings.prechatFields);
     for (const field of Object.keys(prechat) as SupportChatPrechatField[])
       if (!guest || !asked.has(field)) throw new SupportError(`the pre-chat form does not ask for ${field}`, SUPPORT_CHAT_PRECHAT_INVALID);
     if (guest)
       for (const field of asked)
         if (!prechat[field]) throw new SupportError(`the pre-chat form needs ${field}`, SUPPORT_CHAT_PRECHAT_INVALID);
-    const fingerprint = sha256(JSON.stringify([owner.userId, owner.claim, prechat.name ?? null, prechat.email ?? null, input.message]));
-    const known = await this.knownOpen(input.clientKey, fingerprint);
-    if (known) return known;
 
     if (agentsNow(await this.desk.listStaff()) === 'offline')
       throw new SupportError('no one is on the desk to chat now', SUPPORT_CHAT_AGENT_UNAVAILABLE);
     let enquiry: EnquiryRow | null = null;
     if (guest) {
-      enquiry = { name: prechat.name ?? null, addressHash: null, addressSealed: null, eraseAfter: null };
+      enquiry = { name: prechat.name ?? null, addressSealed: null, eraseAfter: null };
       if (prechat.email) {
         if (this.settings.addressKey === null) throw new SupportError('the guest address key is not set', SUPPORT_GUEST_ADDRESS_KEY_UNSET);
         if (this.settings.retentionDays === null) throw new SupportError('the guest retention is not set', SUPPORT_GUEST_RETENTION_UNSET);
+        await this.countGuestOpen(prechat.email);
         enquiry = {
           ...enquiry,
-          addressHash: sha256(prechat.email),
           addressSealed: seal(Buffer.from(this.settings.addressKey, 'hex'), prechat.email),
           eraseAfter: new Date(this.now().getTime() + this.settings.retentionDays * 86_400_000).toISOString(),
         };
@@ -716,6 +748,19 @@ export class SupportChat {
 
   private accessTokenOf(clientKey: string): string {
     return createHmac('sha256', this.settings.claimSecret).update(`support.chat.access.v1:${clientKey}`).digest('base64url');
+  }
+
+  /**
+   * A guest's opens per address per window, under the guest request limit (`SUPPORT_GUEST_RATE_LIMIT` per
+   * `SUPPORT_GUEST_RATE_WINDOW_SECONDS`). The address is counted under a keyed hash, so the count names no one without the
+   * service's key. Opens with no address are bounded by Edge's per-caller rate limit.
+   */
+  private async countGuestOpen(email: string): Promise<void> {
+    const { guestRateLimit: limit, guestRateWindowSeconds: seconds } = this.settings;
+    if (limit === null || seconds === null) throw new SupportError('the guest rate limit is not set', SUPPORT_GUEST_RATE_LIMIT_UNSET);
+    const addressKey = createHmac('sha256', this.settings.claimSecret).update(`support.chat.guest-rate.v1:${email}`).digest('hex');
+    const opened = await this.book.countGuestOpen(addressKey, windowOf(this.now().toISOString(), seconds));
+    if (opened > limit) throw new SupportError('too many chats from this address for now', SUPPORT_GUEST_RATE_LIMITED);
   }
 
   /** A key that already opened a chat answers that chat (the same content) or is refused (different content). */
@@ -805,9 +850,13 @@ export class SupportChat {
     };
   }
 
+  /** The accepting agent ends their chat; a lead may end any chat (one nobody took, or for someone who left). */
   async deskClose(agentId: string, sessionId: string): Promise<SupportChatDeskSession> {
+    const me = (await this.desk.listStaff()).find((m) => m.userId === agentId);
+    if (!me) throw new SupportError('only desk staff can end a chat', 'support.not_staff');
     const s = await this.book.get(sessionId);
     if (!s) throw new SupportError('no such chat', SUPPORT_CHAT_NOT_FOUND);
+    if (me.role !== 'lead' && s.agentId !== agentId) throw new SupportError('take the chat before ending it', SUPPORT_CHAT_NOT_ACCEPTED);
     return this.deskView(await this.finish(s.id, agentId));
   }
 
@@ -841,7 +890,7 @@ export class SupportChat {
     const ticket = await this.desk.createTicket({
       userId: closed.userId ?? closed.id,
       category: 'other',
-      subject: `Chat: ${first.length > 180 ? `${first.slice(0, 179)}…` : first}`,
+      subject: `Conversation: ${first.length > 180 ? `${first.slice(0, 179)}…` : first}`,
       body: transcriptText(transcript),
       clientRequestId: `chat:${sessionId}`,
     });

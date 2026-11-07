@@ -87,7 +87,13 @@ export function SupportChatRoom() {
   const [draft, setDraft] = useState('');
   // A message keeps its key until it is stored, so sending again after a lost answer never stores it twice.
   const pending = useRef<{ body: string; key: string } | null>(null);
-  const lastSeq = messages.at(-1)?.seq ?? 0;
+  // The same holds for opening: one key per form content, kept until the chat is open.
+  const opening = useRef<{ content: string; key: string } | null>(null);
+  // The cursor is read by the timer without restarting it.
+  const lastSeq = useRef(0);
+  useEffect(() => {
+    lastSeq.current = messages.at(-1)?.seq ?? 0;
+  }, [messages]);
 
   const loadAvailability = useCallback(
     (signal?: AbortSignal) =>
@@ -112,7 +118,11 @@ export function SupportChatRoom() {
     if (!kept || pollMs === null || chat?.status === 'closed') return;
     let stopped = false;
     const read = async () => {
-      const answer = await writeContract(api, chatPoll, { sessionId: kept.sessionId, accessToken: kept.accessToken, after: lastSeq });
+      const answer = await writeContract(api, chatPoll, {
+        sessionId: kept.sessionId,
+        accessToken: kept.accessToken,
+        after: lastSeq.current,
+      });
       if (stopped) return;
       if (answer.ok) {
         setChat(answer.data.session);
@@ -128,18 +138,20 @@ export function SupportChatRoom() {
       stopped = true;
       clearInterval(timer);
     };
-  }, [api, kept, pollMs, lastSeq, chat?.status]);
+  }, [api, kept, pollMs, chat?.status]);
 
   const start = async (event: FormEvent) => {
     event.preventDefault();
     if (availability === 'loading' || availability === 'unread') return;
     setBusy('start');
     setRefusal(null);
-    const clientKey = newChatKey();
     const guestFields = signedIn ? {} : { name: form.name.trim() || undefined, email: form.email.trim() || undefined };
     const prechat = Object.fromEntries(
       Object.entries(guestFields).filter(([field, value]) => value && availability.prechatFields.includes(field as 'name' | 'email')),
     );
+    const content = JSON.stringify([form.message.trim(), prechat]);
+    if (!opening.current || opening.current.content !== content) opening.current = { content, key: newChatKey() };
+    const clientKey = opening.current.key;
     const answer = await writeContract(api, chatOpen, {
       clientKey,
       message: form.message.trim(),
@@ -151,6 +163,7 @@ export function SupportChatRoom() {
       if (chatRefusalCode(answer.message, answer.code) === 'support.chat_agent_unavailable') void loadAvailability();
       return;
     }
+    opening.current = null;
     const next = { clientKey, sessionId: answer.data.session.id, accessToken: answer.data.accessToken };
     keepChat(next);
     setKept(next);
