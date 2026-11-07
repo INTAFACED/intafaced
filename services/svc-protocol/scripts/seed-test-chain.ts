@@ -29,6 +29,9 @@ import {
 } from 'viem';
 import { mnemonicToAccount } from 'viem/accounts';
 
+/** A 1e18-scaled price unit, from viem's own unit parser. */
+const WAD = parseUnits('1', 18);
+
 /** PUBLIC, WELL-KNOWN, WORTHLESS: anvil's own default mnemonic (account #0 is the TEST deployer). */
 const PUBLIC_ANVIL_DEV_MNEMONIC = 'test test test test test test test test test test test junk';
 
@@ -75,6 +78,21 @@ export const TEST_FEE_MARKUP_BPS = 500;
  * minute and at most 30 days. Immutable in the deployed escrow. TEST values: one minute keeps a journey's wait short.
  */
 export const TEST_CLAIM_EXPIRY_BOUNDS = { min: 60, max: 30 * 86_400 } as const;
+/**
+ * The order vault's TEST parts (D-limit-dca-01 to -04, J-dex-protocol-10): the keeper is an address with no key,
+ * impersonated on this anvil only, which svc-dex asks the node to send `fill`, `poke` and `sweepUncredited` from. The
+ * order pool is a TEST A/B pool made outside the factory, so the swap rooms, the pools list and the explorer never see
+ * it, and the TEST world sets its depth directly (`orders-market`). The marks are the TEST oracle's, native wei per whole
+ * token: TEST B at 0.0004 TEST ETH, TEST A at TEST B times the TEST price.
+ */
+export const TEST_ORDER_KEEPER: Address = '0x00000000000000000000000000000000000bee75';
+const TEST_ORDER_QUOTE_MARK = 400_000_000_000_000n;
+const TEST_ORDER_POOL_FEE_BPS = 30;
+/** The order pool's default depth, in whole TEST A: deep enough that an order of a few hundred fills whole. */
+const TEST_ORDER_POOL_DEPTH = 1_000_000n;
+/** The order pool's depth when the world gives an order room for one exact partial fill. */
+const TEST_ORDER_THIN_DEPTH = 1_000n;
+
 /** What `fund <address> spam` sends: an amount of TEST Airdrop nobody asked for. */
 const SPAM_FUNDING = '1000';
 /** What `fund <address> stable` gives: TEST USD only, and no TEST ETH. */
@@ -201,6 +219,22 @@ async function seed(out: string) {
       if (!escrowCode || escrowCode === '0x') {
         const claimEscrow = await seedClaimLinkParts(clients());
         writeFileSync(out, `${JSON.stringify({ ...record, tokens: TEST_TOKENS, claimEscrow }, null, 2)}\n`);
+      }
+      // A chain seeded before the order vault existed gets it now; one that has it gets fresh order marks.
+      const current = JSON.parse(readFileSync(out, 'utf8')) as { orderVault?: Address; orderPool?: Address; recurringVault?: Address };
+      const vaultCode = current.orderVault ? await publicClient.getCode({ address: current.orderVault }) : undefined;
+      if (!vaultCode || vaultCode === '0x') {
+        const orders = await seedOrderParts(clients(), record.oracle!);
+        writeFileSync(out, `${JSON.stringify({ ...current, ...orders }, null, 2)}\n`);
+      } else {
+        await impersonate(clients(), [...TEST_ORDER_REPORTERS_AND_KEEPER()]);
+        await setOrderMarket(clients(), record.oracle!, current.orderPool!, 1_000_000_000_000_000_000n, null);
+        // A chain seeded before the recurring buy vault existed gets it now.
+        const recurringCode = current.recurringVault ? await publicClient.getCode({ address: current.recurringVault }) : undefined;
+        if (!recurringCode || recurringCode === '0x') {
+          const recurringVault = await seedRecurringPart(clients(), record.oracle!);
+          writeFileSync(out, `${JSON.stringify({ ...current, recurringVault }, null, 2)}\n`);
+        }
       }
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
@@ -330,6 +364,7 @@ async function seed(out: string) {
     );
 
   const claimEscrow = await seedClaimLinkParts(all);
+  const orders = await seedOrderParts(all, oracle);
 
   const record = {
     node: version,
@@ -346,6 +381,7 @@ async function seed(out: string) {
     feeMarkupBps: TEST_FEE_MARKUP_BPS,
     claimEscrow,
     claimExpiryBounds: TEST_CLAIM_EXPIRY_BOUNDS,
+    ...orders,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
@@ -375,6 +411,120 @@ async function seedClaimLinkParts({ publicClient, walletClient }: Clients): Prom
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`claim-link escrow deploy failed: ${hash}`);
   return receipt.contractAddress;
+}
+
+const TEST_ORDER_REPORTERS_AND_KEEPER = () => [TEST_FEE_RELAYER, ...TEST_ORACLE_REPORTERS, TEST_ORDER_KEEPER];
+
+/** Writes one storage word on this anvil. */
+async function setWord({ publicClient }: Clients, address: Address, slot: bigint, value: bigint) {
+  await publicClient.request({
+    method: 'anvil_setStorageAt',
+    params: [address, toHex(slot, { size: 32 }), toHex(value, { size: 32 })],
+  } as never);
+}
+/** TestToken keeps balanceOf in slot 1 (name, symbol and decimals are immutables). */
+const tokenBalanceSlot = (holder: Address) =>
+  BigInt(keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'uint256' }], [holder, 1n])));
+
+/** The pool's integer formula (ConstantProductPool._getAmountOut). */
+function poolOut(x: bigint, rIn: bigint, rOut: bigint): bigint {
+  const withFee = x * BigInt(10_000 - TEST_ORDER_POOL_FEE_BPS);
+  return (withFee * rOut) / (rIn * 10_000n + withFee);
+}
+
+/**
+ * The quote reserve at which the pool pays an order's floor (ceil(minOut * x / amountIn)) for exactly `take` of base and
+ * not for one unit more, with `baseReserve` of base: the depth for one exact partial fill.
+ */
+export function quoteReserveForTake(take: bigint, minOut: bigint, amountIn: bigint, baseReserve: bigint): bigint {
+  const floor = (x: bigint) => (minOut * x + amountIn - 1n) / amountIn;
+  let lo = 1n;
+  let hi = 10n ** 40n;
+  while (hi - lo > 1n) {
+    const mid = (lo + hi) / 2n;
+    if (poolOut(take, baseReserve, mid) >= floor(take)) hi = mid;
+    else lo = mid;
+  }
+  if (poolOut(take + 1n, baseReserve, hi) >= floor(take + 1n)) throw new Error('no reserve gives exactly that partial fill');
+  return hi;
+}
+
+/**
+ * Sets the TEST order market: both TEST reporters mark TEST A at `priceWad` TEST B, and the order pool's reserves (and its
+ * token balances, so a swap's own sync keeps them) are written directly on this anvil. `partial` asks for a thin pool that
+ * pays one order's floor for exactly `take` of TEST A; without it the pool is deep, at the same price.
+ */
+async function setOrderMarket(
+  all: Clients,
+  oracle: Address,
+  pool: Address,
+  priceWad: bigint,
+  partial: { take: bigint; minOut: bigint; amountIn: bigint } | null,
+) {
+  const { A, B } = TEST_TOKENS;
+  await reportMark(all, oracle, B.address, TEST_ORDER_QUOTE_MARK);
+  await reportMark(all, oracle, A.address, (TEST_ORDER_QUOTE_MARK * priceWad) / WAD);
+  const baseReserve = (partial ? TEST_ORDER_THIN_DEPTH : TEST_ORDER_POOL_DEPTH) * 10n ** BigInt(A.decimals);
+  const quoteReserve = partial
+    ? quoteReserveForTake(partial.take, partial.minOut, partial.amountIn, baseReserve)
+    : (baseReserve * priceWad * 10n ** BigInt(B.decimals)) / (WAD * 10n ** BigInt(A.decimals));
+  const poolAbi = artifact('ConstantProductPool').abi;
+  const token0 = getAddress((await all.publicClient.readContract({ address: pool, abi: poolAbi, functionName: 'token0' })) as Address);
+  const [r0, r1] = token0 === getAddress(A.address) ? [baseReserve, quoteReserve] : [quoteReserve, baseReserve];
+  if (r0 >= 1n << 112n || r1 >= 1n << 112n) throw new Error('order pool reserves overflow uint112');
+  const block = await all.publicClient.getBlock();
+  // ConstantProductPool slot 0 packs reserve0 (112 bits), reserve1 (112 bits) and blockTimestampLast (32 bits).
+  await setWord(all, pool, 0n, r0 | (r1 << 112n) | ((block.timestamp & 0xffffffffn) << 224n));
+  await setWord(all, A.address, tokenBalanceSlot(pool), baseReserve);
+  await setWord(all, B.address, tokenBalanceSlot(pool), quoteReserve);
+}
+
+/** The order vault, its TEST keeper and the TEST order pool, with fresh TEST marks at 1.00. Runs on automine. */
+async function seedOrderParts(all: Clients, oracle: Address) {
+  const { publicClient, walletClient } = all;
+  await impersonate(all, [TEST_ORDER_KEEPER, ...TEST_ORACLE_REPORTERS]);
+  const deployed = async (name: string, args: unknown[]) => {
+    const a = artifact(name);
+    const hash = await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`${name} deploy failed: ${hash}`);
+    return receipt.contractAddress;
+  };
+  const orderPool = await deployed('ConstantProductPool', [TEST_TOKENS.A.address, TEST_TOKENS.B.address, TEST_ORDER_POOL_FEE_BPS]);
+  const orderVault = await deployed('OrderVault', [oracle, TEST_ORDER_KEEPER]);
+  const recurringVault = await seedRecurringPart(all, oracle);
+  await setOrderMarket(all, oracle, orderPool, WAD, null);
+  return { orderVault, orderPool, orderKeeper: TEST_ORDER_KEEPER, orderPoolFeeBps: TEST_ORDER_POOL_FEE_BPS, recurringVault };
+}
+
+/** The recurring buy vault (J-dex-protocol-11): keyless, reading the same oracle; its rounds swap through the order pool. */
+async function seedRecurringPart(all: Clients, oracle: Address): Promise<Address> {
+  const { publicClient, walletClient } = all;
+  const a = artifact('RecurringBuyVault');
+  const hash = await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args: [oracle] });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`RecurringBuyVault deploy failed: ${hash}`);
+  return receipt.contractAddress;
+}
+
+/** `orders-market <price> [<take> <minOut> <amountIn>]`, in decimal TEST B per TEST A and smallest units. */
+async function ordersMarket(record: string, price: string, partial: string[]) {
+  const all = clients();
+  await assertStandIn(all.publicClient);
+  const r = JSON.parse(readFileSync(record, 'utf8')) as { oracle: Address; orderPool: Address };
+  await impersonate(all, [...TEST_ORACLE_REPORTERS]);
+  const [take, minOut, amountIn] = partial.map((x) => BigInt(x));
+  await setOrderMarket(all, r.oracle, r.orderPool, parseUnits(price, 18), take ? { take, minOut: minOut!, amountIn: amountIn! } : null);
+  console.log(`TEST order market: TEST A at ${price} TEST B${take ? `, depth for ${take} units` : ', deep'}`);
+}
+
+/** `orders-stale`: TEST A's two reports age past the staleness bound, so the vault's price read reverts Stale. */
+async function ordersStale(record: string) {
+  const all = clients();
+  await assertStandIn(all.publicClient);
+  const r = JSON.parse(readFileSync(record, 'utf8')) as { oracle: Address };
+  await makeMarkStale(all, r.oracle, TEST_TOKENS.A.address);
+  console.log('TEST order market: the TEST A mark is stale');
 }
 
 /**
@@ -430,9 +580,14 @@ async function fundStable(address: Address) {
   console.log(`funded ${address}: ${STABLE_ONLY_FUNDING} ${TEST_TOKENS.USD.name} only, no TEST ETH`);
 }
 
-const [command, arg, kind] = process.argv.slice(2);
+const [command, arg, kind, ...rest] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
+else if (command === 'orders-market' && arg && kind) await ordersMarket(arg, kind, rest);
+else if (command === 'orders-stale' && arg) await ordersStale(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam]');
+else
+  throw new Error(
+    'usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam] | orders-market <record.json> <price> [<take> <minOut> <amountIn>] | orders-stale <record.json>',
+  );

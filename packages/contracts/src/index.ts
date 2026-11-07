@@ -93,6 +93,7 @@ export * from './protocol-representation.js';
 export * from './protocol-fees.js';
 export * from './protocol-swap.js';
 export * from './protocol-address-book.js';
+export * from './protocol-dex-orders.js';
 export * from './protocol-wallet-tx.js';
 export * from './outcome-markets.js';
 export * from './protocol-tokens.js';

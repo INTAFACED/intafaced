@@ -21,6 +21,20 @@ import { triggerDepsFrom, triggerOrderRouter } from './order/trigger-order.js';
 import type { TriggerSettings } from './order/trigger-settings.js';
 import type { FillPort, PricePort } from './order/trigger-ports.js';
 import type { OrderBook } from './order/order-book.js';
+import { OrderSessions } from './auth/order-session.js';
+import { orderSessionRouter } from './auth/router.js';
+import { walletOrdersRouter } from './orders/router.js';
+import { unwiredRecurringChain } from './recurring/chain.js';
+import { RecurringBuys } from './recurring/plans.js';
+import { recurringRouter } from './recurring/router.js';
+import { RecurringStore } from './recurring/store.js';
+import { WalletOrders } from './vault/orders.js';
+import { WalletOrderStore } from './vault/store.js';
+import { unwiredVaultChain } from './vault/chain.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { SessionStore } from './auth/session-store.js';
 
 /**
  * svc-dex — the Protocol Plane's front door (§17.5).
@@ -199,7 +213,22 @@ export interface DexRouterDeps {
     readonly fill?: FillPort;
     readonly book?: OrderBook;
   };
+  /**
+   * The wallet-signed order session (D-limit-dca-01). Omitted, every `auth.*` call refuses `dex.auth.session_unset`:
+   * nothing is written without the owner's secret, lifetimes and cap schedule.
+   */
+  readonly orderSessions?: OrderSessions;
+  /** The person's own vault orders. Omitted, the vault is unwired and every order call refuses by name. */
+  readonly walletOrders?: WalletOrders;
+  readonly recurringBuys?: RecurringBuys;
 }
+
+const UNSET_SESSIONS = new OrderSessions({ secret: undefined, accessTtlSeconds: undefined, refreshTtlSeconds: undefined, cap: undefined }, {
+  spendNonce: () => false,
+  revokeSession: () => undefined,
+  revokeWalletBefore: () => undefined,
+  revoked: () => true,
+} satisfies SessionStore);
 
 /**
  * Map a refusal onto the wire.
@@ -217,6 +246,26 @@ function toTrpcError(err: QuoteRefusedError): TRPCError {
         ? 'PRECONDITION_FAILED'
         : 'SERVICE_UNAVAILABLE';
   return new TRPCError({ code, message: `${err.code} — ${err.message}`, cause: err });
+}
+
+/** Recurring buys with no vault wired: every action refuses `dex.recurring.unwired`. */
+function unsetRecurringBuys(): RecurringBuys {
+  return new RecurringBuys(new RecurringStore(mkdtempSync(join(tmpdir(), 'dex-recurring-unset-'))), unwiredRecurringChain(), {
+    pair: undefined,
+    retryWindowSeconds: undefined,
+    slippageBps: undefined,
+    faultDir: undefined,
+  });
+}
+
+function unsetWalletOrders(): WalletOrders {
+  return new WalletOrders(new WalletOrderStore(mkdtempSync(join(tmpdir(), 'dex-wallet-orders-'))), unwiredVaultChain(), {
+    pairs: undefined,
+    minSize: undefined,
+    slippageBps: undefined,
+    restrictedTokens: undefined,
+    trailBounds: undefined,
+  });
 }
 
 export function createDexRouter(deps: DexRouterDeps) {
@@ -350,6 +399,15 @@ export function createDexRouter(deps: DexRouterDeps) {
      * See `order/trigger-order.ts`.
      */
     order: triggerOrderRouter(trigger),
+
+    /** The wallet-signed order session. See `auth/order-session.ts`. */
+    auth: orderSessionRouter(deps.orderSessions ?? UNSET_SESSIONS),
+
+    /** The person's own wallet orders, read with the order session. See `orders/router.ts`. */
+    orders: walletOrdersRouter(deps.walletOrders ?? unsetWalletOrders(), deps.orderSessions ?? UNSET_SESSIONS),
+
+    /** The person's recurring buys, read with the order session. See `recurring/plans.ts`. */
+    recurring: recurringRouter(deps.recurringBuys ?? unsetRecurringBuys(), deps.orderSessions ?? UNSET_SESSIONS),
   });
 }
 
