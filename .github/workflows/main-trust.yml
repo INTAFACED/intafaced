@@ -14,7 +14,10 @@ name: Main trust
 # After a post-merge check on main finishes (Order-path CX-8, Customer Money browser checks, Real-app journeys, and
 # PR checks, whose Dependency audit holds main to the full advisory ratchet), it
 # opens one issue naming the breaking commit when a check that passed before is broken, and closes it when the check
-# passes again. It only reads runs and writes issues: no schedule, nothing blocks a merge. See
+# passes again. It only reads runs and writes issues: no schedule, nothing blocks a merge. On a Real-app journeys run, a
+# new red step outside docs/runbooks/journey-baseline.json starts main-bisect.yml's journeys mode, which re-runs the
+# step before it pins anything and opens the revert of the pull request it pins (owner decisions OWNER 180 and 211 in
+# project-state); an auto-revert pull request whose steps pass again on two runs in a row is closed. See
 # tooling/ci/post-merge-trust.mjs.
 #
 # Ends: with each run of the workflows it follows (workflow_run): one run per finished run of theirs on main, so it
@@ -65,9 +68,10 @@ jobs:
     timeout-minutes: 5 # healthy run: under a minute (three journey reports at most)
     permissions:
       contents: read # compare commits
-      actions: write # re-run failed jobs once, read runs and their journey reports
+      actions: write # re-run failed jobs once, read runs and their journey reports, start a journeys bisect
       checks: read # a job's annotations: a cancel by the job time limit counts as red
       issues: write # open, comment on and close the break issues
+      pull-requests: write # close an auto-revert pull request once its steps pass again
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

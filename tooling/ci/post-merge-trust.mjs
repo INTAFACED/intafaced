@@ -20,6 +20,14 @@
  *   one "Journey broken on main: <J-id>" issue per journey, naming the commits between the last run it passed and the
  *   first run it failed. A journey's issue closes when every step it names passes again.
  *   The run summary lists the steps newly passing and newly failing against the run before.
+ *   Auto-revert (owner decision 2026-11-06, project-state OWNER 180 and 211: a breaking commit is fixed or reverted within
+ *   2 hours, with no merge queue): a new red step outside docs/runbooks/journey-baseline.json starts main-bisect.yml in
+ *   its journeys mode, over the commits between the last run it passed (or, for a step a commit added, the last run
+ *   before it existed) and the first run it failed. Once on the run that first fails it (it passed in the run before,
+ *   or its journey file changed since), and once more on the confirmed break above if no bisect of that range ran yet.
+ *   The bisect re-runs the step before it pins anything, so a flaky step (one that passes on a re-run) reverts nothing;
+ *   when it pins one merged pull request, it opens and arms the revert (tooling/ci/bisect-main.mjs). An open
+ *   auto-revert pull request whose steps pass on two runs in a row is closed: the break was fixed forward.
  *   A shard that hit its time limit (the job's, or the limit the shard puts on its own journeys so it still reports):
  *   open (or comment on) one "Broken on main: Real-app journeys (time limit)" issue naming the jobs; it closes on the
  *   next run where no job hit its limit.
@@ -33,9 +41,10 @@
  *        node tooling/ci/post-merge-trust.mjs
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { BASELINE_PATH, readReport } from './journey-verdict.mjs';
 
 export const JOURNEYS_WORKFLOW = 'Real-app journeys';
 export const JOURNEYS_ARTIFACT = 'real-app-journeys';
@@ -95,6 +104,63 @@ export function confirmedBreaks(older, previous, now) {
     byJourney.set(journey, sortKeys([...(byJourney.get(journey) ?? []), key]));
   }
   return new Map([...byJourney].sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true })));
+}
+
+export const AUTO_REVERT_LABEL = 'auto-revert';
+export const BISECT_WORKFLOW = 'main-bisect.yml';
+export const JOURNEY_DIR = 'apps/customer/tests/real-app/';
+/** The compare API lists at most 300 files; a list that long may be cut, so it can't show a journey file did not change. */
+const COMPARE_FILES_MAX = 300;
+/** More commits than this between the two runs: no journeys bisect (each round is one journeys run of about 12 minutes). */
+export const MAX_JOURNEY_BISECT_COMMITS = 40;
+/** The run name main-bisect.yml gives a journeys bisect: one bisect per range, read back to start none twice. */
+export const journeyBisectName = (good, bad) => `Main bisect ${good}..${bad} (journeys)`;
+const REVERT_STEPS_MARK = /<!-- auto-revert-steps: ([^>]*) -->/;
+
+/**
+ * The new red steps the auto-revert acts on: failing in `now`, not listed in the baseline (`baselineSteps`, a Set), and
+ * either passing in `before`, or absent from `before` while their journey file changed between the two runs (a step a
+ * merged commit added). A step absent for any other reason (a shard that sent no report), or skipped, is left out, and
+ * so is every step when `changedFiles` is null (the file list could not be read whole) unless it passed before.
+ * `before` and `now` are readReport() results; `changedFiles` is a Set of journey file names.
+ */
+export function newRedSteps({ before, now, baselineSteps, changedFiles }) {
+  const out = [];
+  for (const [key, state] of Object.entries(now.states)) {
+    if (state !== 'failed' || baselineSteps.has(key)) continue;
+    const was = before.states[key];
+    if (was === 'passed' || (was === undefined && changedFiles?.has(now.files[key]))) out.push(key);
+  }
+  return sortKeys(out);
+}
+
+/** The journey file names a compare changed, or null when its file list may be cut. */
+export function changedJourneyFiles(files) {
+  if (!Array.isArray(files) || files.length >= COMPARE_FILES_MAX) return null;
+  const out = new Set();
+  for (const f of files)
+    for (const name of [f.filename, f.previous_filename]) if (name?.startsWith(JOURNEY_DIR)) out.add(name.slice(JOURNEY_DIR.length));
+  return out;
+}
+
+/** The `steps` input of a journeys bisect: one `<step> <journey file>` per line. */
+export const bisectStepsInput = (steps, files) => steps.map((s) => `${s} ${files[s]}`).join('\n');
+
+/** The steps an auto-revert pull request names (its body's marker), or []. */
+export const revertSteps = (body) =>
+  (REVERT_STEPS_MARK.exec(body ?? '')?.[1] ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+/** Steps listed in the baseline, or null when it can't be read (then nothing is bisected: fail closed). */
+function baselineSteps() {
+  try {
+    return new Set(JSON.parse(readFileSync(BASELINE_PATH, 'utf8')).steps.map((e) => e.step));
+  } catch (e) {
+    console.log(`baseline unreadable (${e.message}): no journeys bisect`);
+    return null;
+  }
 }
 
 /** What to do with a finished whole-run check. `previous` is the conclusion of the finished run before it. */
@@ -266,11 +332,15 @@ async function closeIssue(repo, issue, body) {
 
 async function between(repo, from, to) {
   const { json } = await gh('GET', `/repos/${repo}/compare/${from}...${to}`);
-  return { commits: json?.commits ?? [], url: `https://github.com/${repo}/compare/${from.slice(0, 10)}...${to.slice(0, 10)}` };
+  return {
+    commits: json?.commits ?? [],
+    files: json?.files ?? null,
+    url: `https://github.com/${repo}/compare/${from.slice(0, 10)}...${to.slice(0, 10)}`,
+  };
 }
 
 /** The journeys report of a run, or null when the run kept none (the stack or browser did not start). */
-async function journeyReport(repo, runId) {
+export async function journeyReport(repo, runId) {
   const { json } = await gh('GET', `/repos/${repo}/actions/runs/${runId}/artifacts?name=${JOURNEYS_ARTIFACT}&per_page=5`);
   const artifact = (json?.artifacts ?? []).find((a) => a.name === JOURNEYS_ARTIFACT && !a.expired);
   if (!artifact) return null;
@@ -391,6 +461,42 @@ async function timeLimitCheck({ repo, name, runId, sha, runUrl, timedOut }) {
   return `- Closed #${issue.number} (no job hit its time limit)`;
 }
 
+/**
+ * Starts one journeys bisect of `steps` between two main commits, unless one of that range ran already (its run name).
+ * Returns a summary line.
+ */
+async function startJourneyBisect(repo, { good, bad, steps, files, commits }) {
+  const what = `${steps.join(', ')} between \`${good.slice(0, 10)}\` and \`${bad.slice(0, 10)}\``;
+  if (!commits.length) return `- Auto-revert: ${what}: no commit between the runs, so a flake, not a commit: no bisect`;
+  if (commits.length > MAX_JOURNEY_BISECT_COMMITS)
+    return `- Auto-revert: ${what}: ${commits.length} commits, more than ${MAX_JOURNEY_BISECT_COMMITS}: no bisect, the issue names them`;
+  const name = journeyBisectName(good, bad);
+  const { json } = await gh('GET', `/repos/${repo}/actions/workflows/${BISECT_WORKFLOW}/runs?per_page=100`);
+  const had = (json?.workflow_runs ?? []).find((r) => r.display_title === name);
+  if (had) return `- Auto-revert: ${what}: bisect already started ([run ${had.id}](${had.html_url}))`;
+  const r = await gh('POST', `/repos/${repo}/actions/workflows/${BISECT_WORKFLOW}/dispatches`, {
+    ref: 'main',
+    inputs: { good, bad, steps: bisectStepsInput(steps, files) },
+  });
+  return `- Auto-revert: ${what}: ${r.status === 204 || r.status === 0 ? 'bisect started' : `bisect not started (HTTP ${r.status})`}`;
+}
+
+/** Closes open auto-revert pull requests whose steps pass in both `prevStates` and `nowStates` (fixed forward). */
+async function closeFixedReverts(repo, { prevStates, nowStates, sha, runId, runUrl }) {
+  const lines = [];
+  const { json } = await gh('GET', `/repos/${repo}/issues?labels=${AUTO_REVERT_LABEL}&state=open&per_page=50`);
+  for (const pr of (json ?? []).filter((i) => i.pull_request)) {
+    const steps = revertSteps(pr.body);
+    if (!steps.length || !steps.every((s) => nowStates.get(s) === 'passed' && prevStates.get(s) === 'passed')) continue;
+    await gh('POST', `/repos/${repo}/issues/${pr.number}/comments`, {
+      body: `${steps.join(', ')} pass on main again, in two runs in a row up to \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})): the break was fixed forward, so this revert is no longer needed. Closing.\n\n_Closed by tooling/ci/post-merge-trust.mjs._`,
+    });
+    await gh('PATCH', `/repos/${repo}/pulls/${pr.number}`, { state: 'closed' });
+    lines.push(`- Closed auto-revert #${pr.number} (fixed forward)`);
+  }
+  return lines;
+}
+
 async function journeysCheck(ctx) {
   const timeLine = await timeLimitCheck(ctx);
   if (timeLine) summary(['### Journeys time limit', '', timeLine]);
@@ -414,6 +520,24 @@ async function journeysCheck(ctx) {
     `- Newly broken (${newlyFailing.length}): ${newlyFailing.join(', ') || 'none'}${newlyFailing.length ? ' (an issue opens if the next run fails them too)' : ''}`,
   );
 
+  const baseline = baselineSteps();
+  const autoRevert = [];
+  if (baseline) {
+    const range = await between(repo, prevRun.head_sha, sha);
+    const nowRead = readReport(now);
+    const steps = newRedSteps({
+      before: readReport(prev),
+      now: nowRead,
+      baselineSteps: baseline,
+      changedFiles: changedJourneyFiles(range.files),
+    });
+    if (steps.length)
+      autoRevert.push(
+        await startJourneyBisect(repo, { good: prevRun.head_sha, bad: sha, steps, files: nowRead.files, commits: range.commits }),
+      );
+    autoRevert.push(...(await closeFixedReverts(repo, { prevStates, nowStates, sha, runId, runUrl })));
+  }
+
   // Close journey issues whose named steps all pass now. One search for all of them (search allows 30 calls a minute).
   for (const issue of await openIssuesTitled(repo, journeyIssueTitle(''))) {
     const journey = issue.title.slice(journeyIssueTitle('').length);
@@ -429,12 +553,24 @@ async function journeysCheck(ctx) {
 
   const older = olderRun ? await journeyReport(repo, olderRun.id) : null;
   if (!older) {
-    lines.push('', 'No third finished run kept a report, so no break can be confirmed yet.');
+    lines.push('', 'No third finished run kept a report, so no break can be confirmed yet.', ...autoRevert);
     return summary(lines);
   }
   const breaks = confirmedBreaks(stepStates(older), prevStates, nowStates);
   if (breaks.size) {
     const { commits, url } = await between(repo, olderRun.head_sha, prevRun.head_sha);
+    // The confirmed break's range gets its bisect too, when the run before started none (a step outside the baseline).
+    const confirmed = baseline ? [...breaks.values()].flat().filter((s) => !baseline.has(s)) : [];
+    if (confirmed.length)
+      autoRevert.push(
+        await startJourneyBisect(repo, {
+          good: olderRun.head_sha,
+          bad: prevRun.head_sha,
+          steps: confirmed,
+          files: readReport(prev).files,
+          commits,
+        }),
+      );
     for (const [journey, steps] of breaks) {
       const body = [
         `${steps.join(', ')} passed on \`${olderRun.head_sha.slice(0, 10)}\` ([run ${olderRun.id}](${olderRun.html_url})), then failed on \`${prevRun.head_sha.slice(0, 10)}\` ([run ${prevRun.id}](${prevRun.html_url})) and again on \`${sha.slice(0, 10)}\` ([run ${runId}](${runUrl})).`,
@@ -447,6 +583,7 @@ async function journeysCheck(ctx) {
       lines.push(`- Confirmed broken: ${steps.join(', ')}: ${await upsertIssue(repo, journeyIssueTitle(journey), body)}`);
     }
   }
+  if (autoRevert.length) lines.push('', '### Auto-revert', '', ...autoRevert);
   summary(lines);
 }
 
@@ -592,7 +729,68 @@ function selfTest() {
   );
   eq(breakingCommitLines([], 'u')[0].startsWith('No commit changed between these runs'), true, 'same commit: no breaking commit named');
   eq(breakingCommitLines([c('a'.repeat(40), 'x')], 'u'), ['The breaking commit:', '- `aaaaaaaaaa` x'], 'one breaking commit');
-  console.log('✓ post-merge-trust --self-test OK (28 fixtures)');
+  // Auto-revert: which red steps start a journeys bisect.
+  const rr = (states, files = {}) => ({ states, files });
+  const nowR = rr(
+    { 'J-a-01#1': 'failed', 'J-a-01#2': 'failed', 'J-b-01#1': 'failed', 'J-c-01#1': 'failed', 'J-d-01#1': 'failed', 'J-e-01#1': 'skipped' },
+    {
+      'J-a-01#1': 'J-a-01.pw.mjs',
+      'J-a-01#2': 'J-a-01.pw.mjs',
+      'J-b-01#1': 'J-b-01.pw.mjs',
+      'J-c-01#1': 'J-c-01.pw.mjs',
+      'J-d-01#1': 'J-d-01-x.pw.mjs',
+    },
+  );
+  const beforeR = rr({ 'J-a-01#1': 'passed', 'J-b-01#1': 'failed', 'J-c-01#1': 'passed', 'J-e-01#1': 'passed' });
+  const changed = new Set(['J-a-01.pw.mjs']);
+  eq(
+    newRedSteps({ before: beforeR, now: nowR, baselineSteps: new Set(['J-c-01#1']), changedFiles: changed }),
+    ['J-a-01#1', 'J-a-01#2'],
+    'planted fault: a step that passed, and a new step in a changed file, start a bisect; red before, baselined, absent in an unchanged file and skipped do not',
+  );
+  eq(
+    newRedSteps({ before: beforeR, now: nowR, baselineSteps: new Set(), changedFiles: null }),
+    ['J-a-01#1', 'J-c-01#1'],
+    'a cut file list: only steps that passed before count',
+  );
+  eq(
+    newRedSteps({
+      before: rr({ 'J-a-01#1': 'passed', 'J-a-01#2': 'passed' }),
+      now: rr({ 'J-a-01#1': 'passed', 'J-a-01#2': 'passed', 'J-a-01#3': 'passed' }, { 'J-a-01#3': 'J-a-01.pw.mjs' }),
+      baselineSteps: new Set(),
+      changedFiles: changed,
+    }),
+    [],
+    'known-good: a green run starts nothing',
+  );
+  eq(
+    newRedSteps({
+      before: rr({ 'J-a-01#1': 'failed' }),
+      now: rr({ 'J-a-01#1': 'failed' }),
+      baselineSteps: new Set(),
+      changedFiles: changed,
+    }),
+    [],
+    'a step red in both runs is not new (the confirmed break starts its own bisect)',
+  );
+  eq(
+    [
+      ...changedJourneyFiles([
+        { filename: 'apps/customer/tests/real-app/J-a-01.pw.mjs' },
+        { filename: 'services/x.ts', previous_filename: 'apps/customer/tests/real-app/J-old-01.pw.mjs' },
+        { filename: 'apps/customer/src/a.ts' },
+      ]),
+    ],
+    ['J-a-01.pw.mjs', 'J-old-01.pw.mjs'],
+    'changed journey files, renames included',
+  );
+  eq(changedJourneyFiles(Array.from({ length: 300 }, () => ({ filename: 'a' }))), null, 'a full 300-file list may be cut');
+  eq(changedJourneyFiles(null), null, 'no file list');
+  eq(bisectStepsInput(['J-a-01#1', 'J-d-01#1'], nowR.files), 'J-a-01#1 J-a-01.pw.mjs\nJ-d-01#1 J-d-01-x.pw.mjs', 'bisect steps input');
+  eq(revertSteps('x\n<!-- auto-revert-steps: J-a-01#1, J-a-01#2 -->\n'), ['J-a-01#1', 'J-a-01#2'], 'revert pull request steps');
+  eq(revertSteps(null), [], 'no marker');
+  eq(journeyBisectName('a', 'b'), 'Main bisect a..b (journeys)', 'bisect run name');
+  console.log('✓ post-merge-trust --self-test OK (39 fixtures)');
 }
 
 async function main() {

@@ -1,9 +1,21 @@
 name: Main bisect
+run-name: ${{ inputs.steps != '' && format('Main bisect {0}..{1} (journeys)', inputs.good, inputs.bad) || format('Main bisect {0}..{1}', inputs.good, inputs.bad) }}
 
 # Started by Main trust when a main run has failed twice. Walks the commits between the last green and the red one with
 # a binary search, running only the failing test files at each probe, and comments the first commit where they fail on
 # its pull request and on the "Main is red" issue. It reverts nothing and changes no test.
-# See tooling/ci/bisect-main.mjs. workflow_dispatch can only be started by a person with write access or by Main trust.
+#
+# Journeys mode (the `steps` input; started by Main trust's post-merge job when a main Real-app journeys run shows a new
+# red step outside docs/runbooks/journey-baseline.json): each probe is a targeted Real-app journeys run of those steps'
+# files at one commit, on a `journey-probe/<sha>` tag. When it pins the break to one commit, after the steps failed there
+# twice and passed at its parent, it opens the revert of that commit's merged pull request, labelled `auto-revert` and
+# linked to it, and turns on auto-merge, so the normal merge seal decides it (owner decisions OWNER 180 and 211 in
+# project-state: a breaking commit is fixed or reverted within 2 hours, with no merge queue). A flaky step (one that
+# passes on a re-run) pins nothing and reverts nothing. See tooling/ci/bisect-main.mjs.
+# workflow_dispatch can only be started by a person with write access or by Main trust.
+#
+# Ends: with each dispatch: a run ends when its search does (journeys: within its 150-minute limit). A stop disables it
+# until the lift (project-state handover/STOP.md).
 on:
   workflow_dispatch:
     inputs:
@@ -14,18 +26,31 @@ on:
         description: Red commit (full sha)
         required: true
       tests:
-        description: Failing test files, one repo-relative path per line
-        required: true
+        description: Failing test files, one repo-relative path per line (test-file mode)
+        required: false
+        default: ''
+      steps:
+        description: 'Journeys mode: the red steps, one "<step> <journey file>" per line (e.g. "J-bank-13#1 J-bank-13.pw.mjs")'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Journeys mode: run the probes for real, but only print the revert (branch, pull request, comments)'
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
+# Test-file bisects share one queue, as before. Each journeys bisect has its own (one per red commit), so a test-file
+# bisect never replaces a waiting journeys one, and two reds on main are bisected side by side.
 concurrency:
-  group: main-bisect
+  group: ${{ inputs.steps != '' && format('main-bisect-journeys-{0}', inputs.bad) || 'main-bisect' }}
   cancel-in-progress: false
 
 jobs:
   bisect:
     name: Bisect main
+    if: inputs.steps == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -75,3 +100,52 @@ jobs:
           TESTS: ${{ inputs.tests }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node "$RUNNER_TEMP/bisect-main.mjs"
+
+  # Runs no code from the commits it probes: the probes are Real-app journeys runs of their own, and this job runs the
+  # scripts of the commit it was started on (main, when Main trust starts it).
+  journeys:
+    name: Bisect main's journeys
+    if: inputs.steps != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 150 # healthy run: 2 to 4 rounds of about 12 minutes, then a minute for the revert
+    permissions:
+      contents: write # the journey-probe/<sha> tags, and the revert branch when no revert app is set up
+      actions: write # dispatch the probe runs, read them and their reports
+      issues: write # comment on the culprit pull request
+      pull-requests: read # the pull request of the pinned commit
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: Bisect the red steps
+        id: search
+        env:
+          GOOD: ${{ inputs.good }}
+          BAD: ${{ inputs.bad }}
+          STEPS: ${{ inputs.steps }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node tooling/ci/bisect-main.mjs --journeys
+      # Pull requests opened with the GITHUB_TOKEN start no workflows, so the seal would never run on them, and this
+      # repository lets no workflow open one. The revert app's token opens and arms the revert; without the app, the
+      # revert branch is pushed and the culprit pull request gets the link to open it.
+      - name: The revert app's token
+        id: app
+        if: steps.search.outputs.culprit != '' && vars.AUTO_REVERT_APP_ID != ''
+        env:
+          APP_ID: ${{ vars.AUTO_REVERT_APP_ID }}
+          APP_KEY: ${{ secrets.AUTO_REVERT_APP_KEY }}
+        run: node tooling/ci/bisect-main.mjs --app-token
+      - name: Open and arm the revert
+        if: steps.search.outputs.culprit != ''
+        env:
+          CULPRIT: ${{ steps.search.outputs.culprit }}
+          STEPS: ${{ inputs.steps }}
+          REPORT: ${{ runner.temp }}/journeys-bisect.md
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REVERT_TOKEN: ${{ steps.app.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: node tooling/ci/bisect-main.mjs --revert
