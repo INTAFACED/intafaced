@@ -9,7 +9,7 @@
  * closed form and the swap paid fees; swap-and-add swaps about half, and a failed add leaves nothing half done; collecting
  * fees refuses as compounding; removing every share pays both tokens pro rata and the position goes.
  *
- * Skips when no anvil unless REQUIRE_EVM_CHAIN=1 (CI). TEST tokens only.
+ * Needs a disposable anvil at PROTOCOL_RPC_URL (CI provides one); it fails without one, never skips. TEST tokens only.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { encodeFunctionData, getAddress, maxUint256, type Address, type Hex } from 'viem';
@@ -22,23 +22,15 @@ import type { DevChainClients } from '../../scripts/dev-chain.js';
 import { createLiquidityProcedures } from './procedures.js';
 import { sqrt } from './maths.js';
 
-const devChainMod = await (async () => {
-  try {
-    return await import('../../scripts/dev-chain.js');
-  } catch {
-    return null;
-  }
-})();
-const chainUp = devChainMod ? await devChainMod.devChainReachable() : false;
-const describeOnChain = !devChainMod || (!chainUp && !devChainMod.devChainRequired()) ? describe.skip : describe;
+// Runs unconditionally: CI provides the disposable chain (PROTOCOL_RPC_URL); without one it fails, never skips.
+const devChainMod = await import('../../scripts/dev-chain.js');
 
 const edge = createEdgeContext({ secret: 'a-protocol-liquidity-onchain-test-secret', serviceName: 'svc-protocol' });
 const anonymous = () => edge({ headers: { 'x-intafaced-region': 'DE' }, id: 'req-liquidity-onchain' });
 const E = 10n ** 18n;
 const ZERO: Address = '0x0000000000000000000000000000000000000000';
 
-describeOnChain('liquidity procedures on chain (J-dex-protocol-12)', () => {
-  if (!devChainMod) return;
+describe('liquidity procedures on chain (J-dex-protocol-12)', () => {
   let clients: DevChainClients;
   let factory: Address;
   let liquidityRouter: Address;
@@ -239,7 +231,7 @@ describeOnChain('liquidity procedures on chain (J-dex-protocol-12)', () => {
     const held = await ordered(pool, BigInt(il.held0), BigInt(il.held1));
     expect(Number(held[0]! / 10n ** 15n) / 1000).toBeCloseTo(900, 0);
     expect(Number(held[1]! / 10n ** 15n) / 1000).toBeCloseTo(1800, 0);
-    expect(il.closedFormBps).toBe(-571);
+    expect(Math.abs(il.closedFormBps + 572)).toBeLessThanOrEqual(1);
     expect(Math.abs(il.diffBps - il.closedFormBps)).toBeLessThanOrEqual(3);
     expect(BigInt(mine.feesEarned!.amount0) + BigInt(mine.feesEarned!.amount1)).toBeGreaterThan(0n);
   });

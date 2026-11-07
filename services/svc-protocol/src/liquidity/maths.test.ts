@@ -86,8 +86,8 @@ describe('positionFigures (D-liquidity-04 impermanent loss)', () => {
     expect(il.now1 / B).toBe(1414n);
     expect(il.diff0).toBe(il.now0 - il.held0);
     expect(il.diff1 < 0n).toBe(true);
-    // the closed form 2√r/(1+r) − 1 for r = 1/2 is −5.72%; the measured difference matches it (no fees here)
-    expect(il.closedFormBps).toBe(-571);
+    // the closed form 2√r/(1+r) − 1 for r = 1/2 is −5.719%, −572 bps rounded down; the measured difference matches it (no fees here)
+    expect(il.closedFormBps).toBe(-572);
     expect(Math.abs(il.diffBps - il.closedFormBps)).toBeLessThanOrEqual(1);
     expect(f.feesEarned!.amount0).toBe(0n);
   });

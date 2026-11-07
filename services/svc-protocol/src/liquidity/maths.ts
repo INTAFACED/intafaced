@@ -6,8 +6,6 @@
 
 const FEE_DENOM = 10_000n;
 const MINIMUM_LIQUIDITY = 1_000n;
-/** Fixed-point scale for ratios (growth per share, price ratios). */
-const ONE = 10n ** 18n;
 
 /** Integer square root (floor), as the contracts' `_sqrt`. */
 export function sqrt(y: bigint): bigint {
@@ -147,20 +145,22 @@ export function positionFigures(
   if (!entry || supply === 0n || r0 === 0n || entry.amount0 === 0n || entry.amount1 === 0n)
     return { ...base, feesEarned: null, impermanentLoss: null };
 
-  // Growth of √k per share: now against the deposits'. Below 1 (rounding at the first deposit's locked shares) is none.
-  const perShareNow = (sqrt(r0 * r1) * ONE) / supply;
-  const perShareEntry = (entry.rootK * ONE) / entry.shares;
-  const growth = perShareNow > perShareEntry ? perShareNow - perShareEntry : 0n;
-  const feesEarned = { amount0: (amount0 * growth) / perShareNow, amount1: (amount1 * growth) / perShareNow };
+  // Growth of √k per share, now (√k / supply) against the deposits' (Σ√(a0·a1) / shares), as one exact fraction:
+  // fees = worth now × (now − entry) / now. None when it did not grow (rounding at the first deposit's locked shares).
+  const nowNumerator = sqrt(r0 * r1) * entry.shares;
+  const entryNumerator = entry.rootK * supply;
+  const grown = nowNumerator > entryNumerator ? nowNumerator - entryNumerator : 0n;
+  const feesEarned = { amount0: (amount0 * grown) / nowNumerator, amount1: (amount1 * grown) / nowNumerator };
 
   const held0 = (entry.amount0 * shares) / entry.shares;
   const held1 = (entry.amount1 * shares) / entry.shares;
   const valueHeld1 = (held0 * r1) / r0 + held1;
   const valueNow1 = (amount0 * r1) / r0 + amount1;
   const diffBps = valueHeld1 === 0n ? 0 : Number(((valueNow1 - valueHeld1) * FEE_DENOM) / valueHeld1);
-  // r = price now / price at entry, token0 in token1; the loss 2√r / (1 + r) − 1.
-  const ratio = (r1 * entry.amount0 * ONE) / (r0 * entry.amount1);
-  const closed = (2n * sqrt(ratio * ONE) * ONE) / (ONE + ratio) - ONE;
+  // r = price now / price at entry = N / D, token0 in token1; the loss 2√r / (1 + r) − 1 = 2√(N·D) / (N + D) − 1.
+  const n = r1 * entry.amount0;
+  const d = r0 * entry.amount1;
+  const closedFormBps = Number((2n * sqrt(n * d) * FEE_DENOM) / (n + d)) - Number(FEE_DENOM);
   return {
     ...base,
     feesEarned,
@@ -174,7 +174,7 @@ export function positionFigures(
       valueHeld1,
       valueNow1,
       diffBps,
-      closedFormBps: Number((closed * FEE_DENOM) / ONE),
+      closedFormBps,
     },
   };
 }
