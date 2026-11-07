@@ -14,15 +14,7 @@ import {
   type SortState,
   type TableColumn,
 } from '@intafaced/ui';
-import {
-  clockUtc,
-  filterMarkets,
-  lifecycleOf,
-  NO_FILTER,
-  seededPercent,
-  type MarketFilter,
-  type MarketRowView,
-} from '@/lib/trade-ops/markets-model';
+import { clockUtc, filterMarkets, lifecycleOf, NO_FILTER, type MarketFilter, type MarketRowView } from '@/lib/trade-ops/markets-model';
 import { feeCellSortValue, feeCellText } from '@/lib/trade-ops/fees-model';
 import { LifecycleBadge, RecordStatusBadge } from './markets-lifecycle-badge';
 
@@ -91,18 +83,18 @@ const columns: readonly TableColumn<MarketRowView>[] = [
   },
   {
     id: 'seeded',
-    header: 'Seeded',
+    header: 'Seeded share',
     numeric: true,
     sortable: true,
-    value: (r) => {
-      const p = seededPercent(r.orders);
-      return p === null ? null : String(p);
-    },
-    cell: (r) => {
-      const p = seededPercent(r.orders);
-      return p === null ? '—' : `${p}%`;
-    },
-    width: 90,
+    value: (r) => (r.seededShare == null ? null : String(r.seededShare)),
+    // Seeded remaining quantity over all remaining quantity (J-cex-spot-20 #4). Nothing open, or a capped or unread
+    // order list, is "unknown", never 0%.
+    cell: (r) => (
+      <span data-col="seeded" data-market-symbol={r.market.symbol} data-open-orders={r.orders ? r.orders.open : undefined}>
+        {r.seededShare == null ? 'unknown' : `${r.seededShare}%`}
+      </span>
+    ),
+    width: 120,
   },
   {
     id: 'asOf',

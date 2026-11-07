@@ -343,3 +343,44 @@ export function protocolBlockersRead(snapshot: ProtocolSnapshot, asOf: string, p
   ) as ProtocolBlockersOutput['actions'];
   return { asOf, p1Go, sources, actions };
 }
+
+/**
+ * The audit room's per-product rows (D-developer-compliance-02): one row per Protocol product, each with the external
+ * audit the owner recorded for it, or `external: null` ("External audit: not done"). A row is never inferred from tests or
+ * from compile hashes: only an owner-committed external claim that names the product and whose package hash matches fills it.
+ */
+export const PROTOCOL_AUDIT_PRODUCTS = ['swap', 'pools', 'lending', 'orders', 'launch', 'bridge'] as const;
+export type ProtocolAuditProduct = (typeof PROTOCOL_AUDIT_PRODUCTS)[number];
+export const protocolAuditProductsSchema = z.object({
+  products: z.array(
+    z.object({
+      product: z.enum(PROTOCOL_AUDIT_PRODUCTS),
+      external: z
+        .object({
+          /** The report the owner committed: its id, the repo path it lives at, who signed it and when. */
+          id: z.string(),
+          packagePath: z.string(),
+          signedBy: z.string(),
+          signedAt: z.string(),
+          /** The report's scope in its own words; null when the claim gives none. */
+          scope: z.string().nullable(),
+          /** Where the report can be read; null when the claim gives no link. */
+          reportUrl: z.string().nullable(),
+        })
+        .nullable(),
+    }),
+  ),
+  /** The internal checks, shown as internal: our own tests, never an audit. */
+  internal: z.array(z.object({ id: z.string(), packagePath: z.string() })),
+});
+export type ProtocolAuditProducts = z.infer<typeof protocolAuditProductsSchema>;
+
+/** svc-protocol `predictAddress`: the smart account a wallet owns on the configured chain (CREATE2) and whether it has code. */
+export const protocolPredictedAccountSchema = z.object({
+  address: z.string(),
+  chainId: z.number(),
+  factory: z.string(),
+  implementation: z.string(),
+  deployed: z.boolean(),
+});
+export type ProtocolPredictedAccount = z.infer<typeof protocolPredictedAccountSchema>;

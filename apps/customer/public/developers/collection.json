@@ -123,6 +123,22 @@
           }
         },
         {
+          "name": "fetchRulebook",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/rulebook", "host": ["{{baseUrl}}"], "path": ["api", "v1", "rulebook"] }
+          }
+        },
+        {
+          "name": "fetchRulebookVersions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/rulebook/versions", "host": ["{{baseUrl}}"], "path": ["api", "v1", "rulebook", "versions"] }
+          }
+        },
+        {
           "name": "fetchMarketLifecycle",
           "request": {
             "method": "GET",
