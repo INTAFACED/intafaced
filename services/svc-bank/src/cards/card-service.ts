@@ -636,7 +636,14 @@ export class CardService {
   }
 
   async cardsOf(userId: string, limit?: number): Promise<CardRecord[]> {
-    const page = assertCardsListLimit(limit);
+    return this.cardsPage(userId, assertCardsListLimit(limit));
+  }
+
+  /**
+   * One page of a person's cards, newest first. `page` is a size `assertCardsListLimit` already returned (1 to 200); the
+   * caller checks it once, before anything else it does (the console's read checks it before its audit line).
+   */
+  async cardsPage(userId: string, page: number): Promise<CardRecord[]> {
     const rows = await this.sql<CardRow[]>`
       SELECT id, user_id, asset_id, settlement_asset_id, issuer, simulated, issuer_ref, pan_tail, status, cashback_bps, per_authorization_limit::text AS per_authorization_limit, daily_limit::text AS daily_limit, monthly_limit::text AS monthly_limit, cash_limit::text AS cash_limit, channel_online, channel_contactless, channel_atm, channel_abroad, card_type, shipping_address, replaces_card_id, replaced_by_card_id, replace_reason, frozen_by, activated_at, uses_allowed, design_id, delivery_speed, residence_country FROM bank.cards WHERE user_id = ${userId} ORDER BY created_at DESC
        LIMIT ${page}

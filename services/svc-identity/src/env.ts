@@ -129,7 +129,7 @@ const schema = serviceEnvSchema
       /**
        * Owner-published affiliate commission accrual tiers (DIRECTION §8).
        * Blank / unset → unpublished; accrue refuses unless the request supplies
-       * tiers. JSON shape: { "published": true, "tiers": [{ "hop": 0, "rate": "0.10" }] }.
+       * tiers. JSON shape: { "published": true, "tiers": [{ "hop": 0, "rate": "<decimal 0..1>" }] }.
        * Malformed → fail boot (parseAccrualTierLawJson throws). Never invent rates.
        */
       IDENTITY_AFFILIATE_ACCRUAL_TIERS_JSON: z.string().optional().default(''),
