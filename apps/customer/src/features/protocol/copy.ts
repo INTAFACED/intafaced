@@ -252,7 +252,6 @@ const en = {
   shellHome: 'Go to Home',
   nav_swap: 'Swap',
   nav_pools: 'Pools',
-  nav_orders: 'Orders',
   nav_positions: 'Positions',
   nav_wallet: 'Wallet',
   nav_explorer: 'Explorer',
