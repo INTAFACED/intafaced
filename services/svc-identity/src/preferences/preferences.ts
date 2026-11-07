@@ -41,6 +41,7 @@ import {
   type DeskLayoutLimits,
   type DeskLayoutsValue,
 } from './desk-layouts.js';
+import { CHART_TEMPLATES_NAMESPACE, parseChartTemplates, type ChartTemplatesValue } from './chart-templates.js';
 import {
   PREFERENCES_CLIENT_ID_UNSET,
   PREFERENCES_IDEMPOTENCY_CONFLICT,
@@ -66,7 +67,8 @@ export type PreferenceNamespace =
   | typeof SAVED_SCREENS_NAMESPACE
   | typeof TOKEN_WATCHLIST_NAMESPACE
   | typeof ADDRESS_WATCHES_NAMESPACE
-  | typeof DESK_LAYOUTS_NAMESPACE;
+  | typeof DESK_LAYOUTS_NAMESPACE
+  | typeof CHART_TEMPLATES_NAMESPACE;
 export type PreferenceValue =
   | TradeViewsValue
   | AccountDisplayValue
@@ -76,7 +78,8 @@ export type PreferenceValue =
   | SavedScreensValue
   | TokenWatchlistValue
   | AddressWatchesValue
-  | DeskLayoutsValue;
+  | DeskLayoutsValue
+  | ChartTemplatesValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
 export type PreferenceSettings = {
@@ -109,7 +112,8 @@ export type PreferenceView =
   | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null }
   | { readonly namespace: typeof TOKEN_WATCHLIST_NAMESPACE; readonly version: number; readonly value: TokenWatchlistValue | null }
   | { readonly namespace: typeof ADDRESS_WATCHES_NAMESPACE; readonly version: number; readonly value: AddressWatchesValue | null }
-  | { readonly namespace: typeof DESK_LAYOUTS_NAMESPACE; readonly version: number; readonly value: DeskLayoutsValue | null };
+  | { readonly namespace: typeof DESK_LAYOUTS_NAMESPACE; readonly version: number; readonly value: DeskLayoutsValue | null }
+  | { readonly namespace: typeof CHART_TEMPLATES_NAMESPACE; readonly version: number; readonly value: ChartTemplatesValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -160,6 +164,7 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, Namespace>> = {
     growth: (next, stored, settings) =>
       checkDeskLayoutGrowth(next as DeskLayoutsValue, stored as DeskLayoutsValue | null, settings.deskLayouts ?? NO_DESK_LAYOUT_LIMITS),
   },
+  [CHART_TEMPLATES_NAMESPACE]: { shape: (value) => parseChartTemplates(value) },
 };
 
 function requireNamespace(namespace: string): PreferenceNamespace {

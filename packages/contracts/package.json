@@ -282,6 +282,10 @@
       "types": "./dist/desk-layouts-preferences.d.ts",
       "default": "./dist/desk-layouts-preferences.js"
     },
+    "./chart-templates-preferences": {
+      "types": "./dist/chart-templates-preferences.d.ts",
+      "default": "./dist/chart-templates-preferences.js"
+    },
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"

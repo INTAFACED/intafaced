@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ScreenProps } from '../../app/screen-types';
 import { useDeviceSetting } from '../../features/trade/hooks';
 import { useSession } from '../../features/session/session';
@@ -32,6 +32,20 @@ import {
 import { isChartStyle, type ColourScheme } from './chart-style';
 import { WatchlistPanel } from '../../features/watchlists/WatchlistPanel';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/links';
+import { TemplatesMenu } from './Templates';
+import { styleFrom, studiesFrom, type ChartTemplate } from './templates';
+import { templatesCopy } from './templates-copy';
+import { FRESH_STORE, isStudyStore, storeKey, type StudyStore } from './studies/model';
+
+/** The workbench's main-chart studies as kept on this device (the studies bar writes them on every change). */
+function readStudies(key: string): StudyStore {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+    return isStudyStore(stored) ? stored : FRESH_STORE;
+  } catch {
+    return FRESH_STORE;
+  }
+}
 
 function MarketSelect({
   label,
@@ -132,6 +146,31 @@ function Page({
   const owner = useChartOwnerValues(market.symbol);
   const drawingCap = ownerValue(owner, 'drawingCap');
   const brushCap = ownerValue(owner, 'brushPointCap');
+  // Chart templates (C-embed-feed-ops-03): applying one replaces this workbench's study set and style, then draws the grid
+  // again so every chart reads them; the interval, the symbol and the drawings stay.
+  const { t: tt } = templatesCopy.useCopy();
+  const [applied, setApplied] = useState<{ name: string; count: number; nonce: number } | { refused: true; nonce: number } | null>(null);
+  const studiesKey = storeKey(userId, id);
+  const currentChart = useCallback(
+    () => ({ studies: readStudies(studiesKey), style: setting.mode, scheme: setting.scheme ?? 'standard' }),
+    [studiesKey, setting.mode, setting.scheme],
+  );
+  const applyTemplate = useCallback(
+    (template: ChartTemplate) => {
+      const studies = studiesFrom(template, readStudies(studiesKey));
+      const style = styleFrom(template);
+      const nonce = (applied?.nonce ?? 0) + 1;
+      if (!studies || !style) return setApplied({ refused: true, nonce });
+      try {
+        localStorage.setItem(studiesKey, JSON.stringify(studies));
+      } catch {
+        return setApplied({ refused: true, nonce });
+      }
+      setSetting((now) => ({ ...now, mode: style.mode, scheme: style.scheme }));
+      setApplied({ name: template.name, count: studies.studies.length, nonce });
+    },
+    [studiesKey, setSetting, applied?.nonce],
+  );
   const limits: DrawingLimits = {
     drawingCap: drawingCap.ok ? drawingCap.value : null,
     drawingWhy: drawingCap.ok ? undefined : drawingCap.why,
@@ -148,8 +187,18 @@ function Page({
         <div className="cw-head-actions">
           <MarketSelect label={t('Choose a market')} value={market.symbol} markets={markets} onChoose={chooseMarket} />
           <TradeLink symbol={market.symbol} />
+          <TemplatesMenu current={currentChart} onApply={applyTemplate} />
         </div>
       </header>
+      {applied && 'refused' in applied ? (
+        <p role="status" className="cw-note">
+          {tt('Not drawable')}
+        </p>
+      ) : applied ? (
+        <p role="status" className="cw-note" data-testid="cw-template" data-template={applied.name}>
+          {tt('Applied', { name: applied.name, count: applied.count })}
+        </p>
+      ) : null}
       {unoffered && (
         <div role="status" className="cw-note" data-code="trade.datafeed.interval_unsupported">
           <b>{t('Interval not offered title', { interval: unoffered })}</b>{' '}
@@ -172,6 +221,7 @@ function Page({
           }}
         >
           <ChartGrid
+            key={applied && !('refused' in applied) ? `template-${applied.nonce}` : 'grid'}
             market={market}
             markets={markets}
             workbench={id}

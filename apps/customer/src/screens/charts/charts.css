@@ -179,6 +179,100 @@
     border: 1px solid var(--if-line);
     border-radius: var(--if-r-sm);
   }
+  /* Chart templates (C-embed-feed-ops-03). */
+  .cw-templates-btn,
+  .cw-templates-actions button {
+    min-block-size: 2rem;
+    padding-inline: var(--if-space-3);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-sm);
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: 500 var(--if-text-sm)/var(--if-leading-sm) var(--if-font-ui);
+    cursor: pointer;
+  }
+  .cw-templates-btn[aria-expanded='true'] {
+    border-color: var(--if-accent);
+  }
+  .cw-templates {
+    display: grid;
+    gap: var(--if-space-3);
+    inline-size: min(20rem, calc(100vw - 2rem));
+    color: var(--if-fg);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+  }
+  .cw-templates-list {
+    display: grid;
+    gap: var(--if-space-1);
+    max-block-size: 16rem;
+    overflow-y: auto;
+  }
+  .cw-templates-item {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--if-space-2);
+    padding: var(--if-space-2);
+    border: 0;
+    border-radius: var(--if-r-xs);
+    background: var(--if-panel);
+    color: var(--if-fg);
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+  .cw-templates-item:hover,
+  .cw-templates-item:focus-visible {
+    background: var(--if-hover);
+  }
+  .cw-templates-name {
+    font-weight: 500;
+  }
+  .cw-templates-facts,
+  .cw-templates-note {
+    margin: 0;
+    color: var(--if-fg-2);
+  }
+  .cw-templates-form {
+    display: grid;
+    gap: var(--if-space-2);
+  }
+  .cw-templates-form p {
+    margin: 0;
+  }
+  .cw-templates-field {
+    display: grid;
+    gap: var(--if-space-1);
+    color: var(--if-fg-2);
+  }
+  .cw-templates-field input {
+    padding: var(--if-space-1-5) var(--if-space-2);
+    border: 1px solid var(--if-line);
+    border-radius: var(--if-r-xs);
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: inherit;
+  }
+  .cw-templates-field input:focus-visible {
+    outline: 2px solid var(--if-focus);
+    outline-offset: 1px;
+  }
+  .cw-templates-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--if-space-2);
+  }
+  .cw-templates-link {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--if-accent-text);
+    font: inherit;
+    cursor: pointer;
+  }
+  .cw-templates-problem {
+    margin: 0;
+    color: var(--if-down-text);
+  }
   .wc-root {
     position: relative;
     display: flex;
