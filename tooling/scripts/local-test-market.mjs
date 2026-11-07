@@ -1445,6 +1445,45 @@ function runningPid(p) {
 }
 
 /**
+ * Which markets the newest maker run in `logText` has announced but not yet quoted: each market it named before its
+ * first cycle ("<symbol>: TEST PRICE reference ..." or "<symbol>: quoted around ...") until a "<symbol> TEST PRICE mid
+ * ...: <n>/<m> quotes resting" line with n above zero. `announced` is empty until that run has named its markets.
+ *
+ * `start` returns a few seconds after it spawns the maker, before the first cycle has quoted every book (it funds the
+ * maker and quotes the perpetual last). So a journey that runs straight after a maker restart can meet an empty book.
+ * Failure it prevents: J-copy-bots-otc-14 #7 stopped and started the maker, and J-derivatives-03 #1, next in the same
+ * shard, found no TEST perpetual quotes for its market long (main run 42373885351, #1 to #6 red).
+ */
+export function unquotedMarkets(logText) {
+  const lines = String(logText ?? '').split('\n');
+  let from = -1;
+  for (let i = lines.length - 1; i >= 0; i -= 1)
+    if (/\[TEST MARKET\] .*\. seed=\S+, requote every /.test(lines[i])) {
+      from = i;
+      break;
+    }
+  const run = from === -1 ? [] : lines.slice(from + 1);
+  const announced = [];
+  const quoted = new Set();
+  for (const line of run) {
+    const named = /\[TEST MARKET\] (\S+): (?:TEST PRICE reference |quoted around )/.exec(line);
+    if (named && !announced.includes(named[1])) announced.push(named[1]);
+    const rested = /\[TEST MARKET\] (\S+) TEST PRICE mid \S+ \S+: (\d+)\/\d+ quotes resting/.exec(line);
+    if (rested && Number(rested[2]) > 0) quoted.add(rested[1]);
+  }
+  return { announced, waiting: announced.filter((s) => !quoted.has(s)) };
+}
+
+/** `unquotedMarkets` of the running maker's own log; `announced` is empty when there is no log to read. */
+export function makerUnquoted({ home = os.homedir() } = {}) {
+  try {
+    return unquotedMarkets(fs.readFileSync(stackPaths(home).log, 'utf8'));
+  } catch {
+    return { announced: [], waiting: [] };
+  }
+}
+
+/**
  * What `status` and `local:stack status` show. The pid file is the record of "it should be running": start writes
  * it, only an explicit `stop` removes it. So a record whose process is gone means it died on its own.
  *   state: 'ok' | 'stale' (alive, but no log line for 2+ minutes) | 'down' (should run, does not) | 'off' (never started or stopped)
