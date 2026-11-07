@@ -1,4 +1,12 @@
 import {
+  INCIDENT_ALREADY_RESOLVED,
+  INCIDENT_ASSIGNEE_NOT_PARTICIPANT,
+  INCIDENT_NOT_FOUND,
+  INCIDENT_REQUEST_KEY_REUSED,
+  INCIDENT_SEVERITY_UNKNOWN,
+  INCIDENT_STORAGE_UNCONFIGURED,
+} from '@intafaced/contracts';
+import {
   OPS_ALERT_NOT_FOUND,
   OPS_ALERT_NOTE_REQUIRED,
   OPS_ALERT_REPEAT_UNSET,
@@ -386,6 +394,12 @@ export type OpsRefuseCode =
   | typeof STAFF_HOLD_EXPIRY_TOO_LONG
   | typeof STAFF_HOLD_CONFIRM_ACCOUNT_UNSET
   | typeof STAFF_HOLD_NOT_FOUND
+  | typeof INCIDENT_NOT_FOUND
+  | typeof INCIDENT_ASSIGNEE_NOT_PARTICIPANT
+  | typeof INCIDENT_SEVERITY_UNKNOWN
+  | typeof INCIDENT_ALREADY_RESOLVED
+  | typeof INCIDENT_STORAGE_UNCONFIGURED
+  | typeof INCIDENT_REQUEST_KEY_REUSED
   /** A ledger refusal passed through as the ledger typed it (a staff hold post refused for funds or the posting freeze). */
   | `ledger.${string}`;
 

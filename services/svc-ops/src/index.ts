@@ -14,6 +14,7 @@ import { SqlStaffHoldStore } from './staff-holds/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
+import { SqlIncidentStore } from './incidents/store.js';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
@@ -213,6 +214,7 @@ const appRouter = createOpsRouter(
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
+    incidents: crmSql ? new SqlIncidentStore(crmSql) : undefined,
     staffHolds,
     homeConfig: homeConfigFromEnv(env),
     reconciliationAlerts: reconciliationAlerts ?? undefined,

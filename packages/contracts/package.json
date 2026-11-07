@@ -138,6 +138,10 @@
       "types": "./dist/ops-console-services.d.ts",
       "default": "./dist/ops-console-services.js"
     },
+    "./ops-incidents": {
+      "types": "./dist/ops-incidents.d.ts",
+      "default": "./dist/ops-incidents.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
