@@ -42,11 +42,9 @@ const ALICE = '11111111-1111-4111-8111-111111111111';
 const AGENT = '33333333-3333-4333-8333-333333333333';
 const key = () => randomBytes(32).toString('base64url');
 
-if (!url) {
-  describe.skip('support chat book (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+// Runs unconditionally: CI provides the database, and without one this fails rather than passing unseen.
+if (!url) throw new Error('chat.pg.test.ts needs TEST_DATABASE_URL pointing at a reachable Postgres');
+{
   const db: TestDatabase = await createTestDatabase({ service: 'support', url, migrations });
   afterAll(async () => {
     await db.drop();
