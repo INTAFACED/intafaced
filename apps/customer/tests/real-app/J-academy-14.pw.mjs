@@ -3,6 +3,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, journeyState } from './stack.mjs';
 import { signIn, signUp } from './desk.mjs';
+import { staffSignIn } from './staff.mjs';
 
 // J-academy-14 "Help a learner who is stuck", in the running app and the founder console (docs/roadmap/journeys.json).
 // One test per step, titled "J-academy-14 #<n>", run in order. The support agent is founder B in the console (the stack's
@@ -11,6 +12,7 @@ import { signIn, signUp } from './desk.mjs';
 // item, failed its second item's quiz (one attempt allowed), and whose time-limited TEST staff access to the course has
 // ended, so the course's lessons no longer open: the starting point the journey names. A second TEST learner is enrolled
 // beside them, so the extension (#5) and the tag report (#7) can be seen to leave others alone.
+// #8 signs in the stack's TEST support staff member (identity's TEST roster: admin:read, no admin:write; staff.mjs).
 //
 // The quiz on the second item and the due date on the third are staff settings on shared course items, so they are set
 // here and taken off again after the last step (the journeys run one at a time on a stack, workers: 1).
@@ -419,4 +421,70 @@ test(`${J} #7 a tag added to the learner appears, and the learners report filter
   await expect(report.locator(`[data-learner="${otherId}"]`)).toHaveCount(0);
   expect((await staff('query', 'admin.learners', { tag })).rows.map((row) => row.userId)).toEqual([learnerId]);
   expect((await staff('query', 'admin.learner', { userId: otherId })).enrolments.map((row) => row.pathSlug)).toContain(PATH);
+});
+
+test(`${J} #8 a read-only support agent reads the page with no unenrol or override control, and a direct change is refused as not permitted`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(180_000);
+  const { learnerId, items } = run.read();
+  if (!learnerId) throw new Error(`${J} #1 left no learner`);
+  await staffSignIn(page, browser, 'support');
+  await openLearner(page, learnerId);
+  const desk = learnerPage(page);
+  // Readable: the same page, every part of it.
+  await expect(desk.getByTestId('learner-read-only')).toHaveText('Read only: your role can read this learner but not change anything.');
+  await expect(desk.getByTestId('learner-profile')).toContainText(`id ${learnerId}`);
+  await expect(desk.getByTestId('learner-login-stats')).toContainText(' in all, ');
+  await expect(desk.locator(`[data-grant="${PATH}"]`)).toHaveAttribute('data-grant-state', 'granted');
+  await expect(desk.getByTestId('learner-notes').locator('[data-note="1"]')).toBeVisible();
+  await expect(desk.getByTestId('learner-progress').locator(`[data-course="${PATH}"] [data-item]`)).toHaveCount(items.all.length);
+  await expect(itemRow(page, items.quiz).locator('[data-attempt]')).toHaveCount(2);
+  await expect(desk.getByTestId('learner-audit').locator('[data-audit]').first()).toBeVisible();
+  // No unenrol and no override: not a single change control on the page.
+  for (const name of [
+    /unenrol/i,
+    'Mark complete',
+    'Reset this attempt',
+    'Grant extension',
+    'Reinstate access',
+    'Grant access',
+    'Save note',
+    'Add tag',
+    'Remove tag',
+  ])
+    await expect(desk.getByRole('button', { name })).toHaveCount(0);
+  await expect(desk.locator('form')).toHaveCount(0);
+
+  // A direct call from this session, past the page, is refused as not permitted, and nothing changes.
+  const attemptId = (await staff('query', 'admin.learnerProgress', { userId: learnerId })).courses
+    .find((c) => c.pathSlug === PATH)
+    .items.find((i) => i.slug === items.quiz)
+    .quiz.attempts.find((a) => a.voided === null).attemptId;
+  const direct = await page.evaluate(
+    async ({ userId, itemSlug, attemptId }) => {
+      const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
+      const send = async (body) => {
+        const res = await fetch('/api/academy-learners', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-intafaced-csrf': session.csrf },
+          body: JSON.stringify({ userId, ...body }),
+        });
+        return { status: res.status, body: await res.json().catch(() => null) };
+      };
+      return [
+        await send({ op: 'markComplete', itemSlug, reason: 'TEST read-only override', key: `override:${userId}:${itemSlug}:ro` }),
+        await send({ op: 'voidAttempt', attemptId, reason: 'TEST read-only reset' }),
+      ];
+    },
+    { userId: learnerId, itemSlug: items.undone, attemptId },
+  );
+  for (const answer of direct) {
+    expect(answer.status, JSON.stringify(answer.body)).toBe(403);
+    expect(answer.body).toMatchObject({ ok: false, code: 'academy.permission_denied', title: 'Not permitted: this session may only read' });
+  }
+  const after = (await staff('query', 'admin.learnerProgress', { userId: learnerId })).courses.find((c) => c.pathSlug === PATH);
+  expect(after.items.find((i) => i.slug === items.undone).status).toBe('undone');
+  expect(after.items.find((i) => i.slug === items.quiz).quiz.attempts.find((a) => a.attemptId === attemptId).voided).toBeNull();
 });
