@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { marketHouseCommissionBpsSchema } from '../house-commission-bps.js';
+import { CommerceService } from './commerce-service.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
@@ -17,12 +19,33 @@ function marketComposeBlock(compose: string): string {
   return next === -1 ? rest : rest.slice(0, next + 1);
 }
 
-describe('market.commerce — owner published house commission 0', () => {
-  it('.env.example is explicit 0, not silence', () => {
+describe('market.commerce — the owner sets the house commission on the host only', () => {
+  it('.env.example leaves it blank (public repo; the value is in the private records), so a copied example refuses', () => {
     const line = read('.env.example')
       .split(/\r?\n/)
       .find((l) => l.startsWith('MARKET_HOUSE_COMMISSION_BPS='));
-    expect(line).toBe('MARKET_HOUSE_COMMISSION_BPS=0');
+    expect(line).toBe('MARKET_HOUSE_COMMISSION_BPS=');
+  });
+
+  it('the shipped blank value is unset, and commerce refuses market.commission_not_configured before any read', async () => {
+    const raw = read('.env.example')
+      .split(/\r?\n/)
+      .find((l) => l.startsWith('MARKET_HOUSE_COMMISSION_BPS='))!
+      .slice('MARKET_HOUSE_COMMISSION_BPS='.length);
+    const bps = marketHouseCommissionBpsSchema.parse(raw);
+    expect(bps).toBeUndefined();
+    // index.ts maps unset to null. The refusal runs before the database, vendors or ledger are touched.
+    const commerce = new CommerceService({} as never, {} as never, {} as never, { commissionBps: bps ?? null });
+    await expect(
+      commerce.createListing({
+        userId: 'vendor-1',
+        title: 'Listing',
+        description: 'Listing',
+        offerType: 'one_time',
+        assetId: 'USDT',
+        price: '1',
+      }),
+    ).rejects.toMatchObject({ code: 'market.commission_not_configured' });
   });
 
   it('compose is pass-through with no seeded default', () => {

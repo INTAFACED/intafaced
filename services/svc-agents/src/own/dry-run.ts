@@ -6,13 +6,15 @@ import type {
   OwnAgentHolds,
   OwnAgentLiveEngine,
   OwnAgentTestLogRow,
+  OwnAgentTestGuard,
   OwnAgentTestRun,
+  OwnAgentValuePayload,
 } from '@intafaced/contracts/agents-own';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { OWN_TOOL_DOORS, OWN_TOOLS, OwnAgentRefusal } from './catalog.js';
 import { OwnConsentStore, OwnRuleStore, stricter, type PolicyBaseline, type RuleChoice } from './guardrails.js';
 import { readOwnCaps } from './limits.js';
-import { testEngineReply } from './evaluations.js';
+import { decideApproval, guardedEngineRun } from './content-guard.js';
 
 /**
  * DRY RUNS OF A PERSON'S OWN AGENT (AG-spend-04; J-agents-04 #3).
@@ -86,9 +88,17 @@ interface TestRunRow {
   reply: string | null;
   live_engine: OwnAgentLiveEngine | null;
   log_json: OwnAgentTestLogRow[] | null;
+  content: string | null;
+  output_schema: string | null;
+  guard_json: OwnAgentTestGuard | null;
+  draft_json: OwnAgentValuePayload | null;
   created_at: Date;
 }
-const TEST_RUN_COLUMNS = 'id, request_id, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, created_at';
+const TEST_RUN_COLUMNS =
+  'id, request_id, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, content, output_schema, guard_json, draft_json, created_at';
+
+/** An engine run kept before the guards existed read no outside content and met no schema: it answered. */
+const UNGUARDED: OwnAgentTestGuard = { content: null, outcome: 'answered', code: null, approval: null };
 
 const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
   const base = {
@@ -109,6 +119,9 @@ const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
       engine: 'test',
       liveEngine: row.live_engine!,
       log: row.log_json!,
+      content: row.content,
+      outputSchema: row.output_schema,
+      guard: row.guard_json ?? UNGUARDED,
     };
   }
   return { ...base, kind: row.kind, tool: row.tool!, input: row.input_json!, checks: row.checks_json!, effect: row.effect_json! };
@@ -118,18 +131,30 @@ const testRunView = (row: TestRunRow, assetId: string): OwnAgentTestRun => {
 const sortedInput = (args: Readonly<Record<string, string>>) => JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
 
 /** What a request is, to tell the same request again from a request id reused for another. */
-type Call = { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>> } | { kind: 'engine_run'; ask: string };
+type Call =
+  | { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>> }
+  | { kind: 'engine_run'; ask: string; content: string | null; outputSchema: string | null };
 
 const sameCall = (row: TestRunRow, call: Call): boolean =>
   row.kind === call.kind &&
   (call.kind === 'engine_run'
-    ? row.ask === call.ask
+    ? row.ask === call.ask && row.content === call.content && row.output_schema === call.outputSchema
     : row.tool === call.tool && sortedInput(row.input_json ?? {}) === sortedInput(call.input));
 
 /** What a test run stores, beside its key: a dry run or tool test's call and outcome, or an engine run's exchange. */
 type Stored =
   | { kind: 'dry_run' | 'tool_test'; tool: string; input: Readonly<Record<string, string>>; outcome: DryRunOutcome }
-  | { kind: 'engine_run'; ask: string; reply: string; liveEngine: OwnAgentLiveEngine; log: OwnAgentTestLogRow[] };
+  | {
+      kind: 'engine_run';
+      ask: string;
+      reply: string;
+      liveEngine: OwnAgentLiveEngine;
+      log: OwnAgentTestLogRow[];
+      content: string | null;
+      outputSchema: string | null;
+      guard: OwnAgentTestGuard;
+      drafted: OwnAgentValuePayload | null;
+    };
 
 /**
  * A tool that moves value, tested (AG-testing-01; J-agents-04 #2): what a call of it would do, and the check a real call
@@ -147,26 +172,44 @@ export function testValueTool(tool: string): DryRunOutcome {
   };
 }
 
+/** What one test engine run reads beside the question: outside content and an output schema, each optional. */
+export type EngineRunExtras = { readonly content?: string | null; readonly outputSchema?: string | null };
+
+/** Optional text as stored: absent or blank is none. */
+const optionalText = (text: string | null | undefined): string | null =>
+  text === undefined || text === null || !text.trim() ? null : text;
+
 /**
- * One question asked of the agent on the test engine (AG-testing-01; J-agents-04 #1). The test engine answers from the
- * input alone, whatever engine the deployment runs live runs on (`liveEngine`, kept beside the run): it calls no
- * provider, opens no session, holds no reservation, writes no usage row and calls no ledger. The reply and every log row
- * are labelled TEST, and the run costs 0.
+ * One question asked of the agent on the test engine (AG-testing-01; J-agents-04 #1), under the hostile content and
+ * output guards (AG-guardrails-03; J-agents-10 #1-#3). The test engine answers from the input alone, whatever engine the
+ * deployment runs live runs on (`liveEngine`, kept beside the run): it calls no provider, opens no session, holds no
+ * reservation, writes no usage row and calls no ledger. The reply and every log row are labelled TEST, and the run costs
+ * 0, blocked or not.
  */
-export function testEngineRun(ask: string, liveEngine: OwnAgentLiveEngine, assetId: string): Extract<Stored, { kind: 'engine_run' }> {
-  if (/\u0000/.test(ask)) throw new OwnAgentRefusal('agents.own.text_invalid');
+export function testEngineRun(
+  ask: string,
+  liveEngine: OwnAgentLiveEngine,
+  assetId: string,
+  extras: EngineRunExtras = {},
+): Extract<Stored, { kind: 'engine_run' }> {
+  const content = optionalText(extras.content);
+  const outputSchema = optionalText(extras.outputSchema);
+  for (const text of [ask, content ?? '', outputSchema ?? ''])
+    if (/\u0000/.test(text)) throw new OwnAgentRefusal('agents.own.text_invalid');
   if (!ask.trim()) throw new OwnAgentRefusal('agents.test.ask_blank');
-  const reply = testEngineReply(ask);
+  const { guard, reply, drafted } = guardedEngineRun({ ask, content, outputSchema });
+  const middle: OwnAgentTestLogRow =
+    guard.outcome === 'blocked' ? { step: 'blocked', text: guard.code!, label: 'TEST' } : { step: 'answered', text: reply, label: 'TEST' };
   return {
     kind: 'engine_run',
     ask,
     reply,
     liveEngine,
-    log: [
-      { step: 'asked', text: ask, label: 'TEST' },
-      { step: 'answered', text: reply, label: 'TEST' },
-      { step: 'billed', text: `0 ${assetId}`, label: 'TEST' },
-    ],
+    content,
+    outputSchema,
+    guard,
+    drafted,
+    log: [{ step: 'asked', text: ask, label: 'TEST' }, middle, { step: 'billed', text: `0 ${assetId}`, label: 'TEST' }],
   };
 }
 
@@ -212,8 +255,42 @@ export class OwnTestRunStore {
     requestId: string,
     ask: string,
     liveEngine: OwnAgentLiveEngine,
+    extras: EngineRunExtras = {},
   ): Promise<OwnAgentTestRun> {
-    return this.once(ownerId, agentId, requestId, { kind: 'engine_run', ask }, async () => testEngineRun(ask, liveEngine, this.assetId));
+    const call: Call = { kind: 'engine_run', ask, content: optionalText(extras.content), outputSchema: optionalText(extras.outputSchema) };
+    return this.once(ownerId, agentId, requestId, call, async () => testEngineRun(ask, liveEngine, this.assetId, extras));
+  }
+
+  /**
+   * The person's decision on an engine run's approval request (AG-guardrails-03; J-agents-10 #2): only `approved` counts,
+   * and the drafted step must match it or the run is refused `agents.payload.mismatch`. The decision is kept on the run
+   * once, under a row lock: approving a decided run again returns the decision it has, and nothing is ever sent.
+   */
+  async approve(ownerId: string, agentId: string, runId: string, approved: OwnAgentValuePayload): Promise<OwnAgentTestRun> {
+    return this.sql.begin(async (tx) => {
+      const rows = await tx<TestRunRow[]>`
+        SELECT ${tx.unsafe(TEST_RUN_COLUMNS)} FROM agents.own_agent_test_runs
+         WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND id = ${runId} AND kind = 'engine_run'
+         FOR UPDATE
+      `;
+      const row = rows[0];
+      if (!row) throw new OwnAgentRefusal('agents.test.run_not_found');
+      const guard = row.guard_json ?? UNGUARDED;
+      if (guard.outcome === 'approved' || guard.outcome === 'payload_refused') return testRunView(row, this.assetId);
+      const decided = decideApproval(guard, row.draft_json, approved);
+      const log: OwnAgentTestLogRow[] = [
+        ...(row.log_json ?? []).filter((entry) => entry.step !== 'billed'),
+        { step: 'decided', text: decided.code ?? 'approved', label: 'TEST' },
+        { step: 'billed', text: `0 ${this.assetId}`, label: 'TEST' },
+      ];
+      const updated = await tx<TestRunRow[]>`
+        UPDATE agents.own_agent_test_runs
+           SET guard_json = ${tx.json(decided as never)}, log_json = ${tx.json(log as never)}
+         WHERE id = ${row.id}
+        RETURNING ${tx.unsafe(TEST_RUN_COLUMNS)}
+      `;
+      return testRunView(updated[0]!, this.assetId);
+    }) as Promise<OwnAgentTestRun>;
   }
 
   private async once(
@@ -239,6 +316,10 @@ export class OwnTestRunStore {
             reply: made.reply,
             liveEngine: made.liveEngine,
             log: made.log,
+            content: made.content,
+            outputSchema: made.outputSchema,
+            guard: made.guard,
+            drafted: made.drafted,
           }
         : {
             tool: made.tool,
@@ -249,13 +330,18 @@ export class OwnTestRunStore {
             reply: null,
             liveEngine: null,
             log: null,
+            content: null,
+            outputSchema: null,
+            guard: null,
+            drafted: null,
           };
     const inserted = await this.sql<TestRunRow[]>`
       INSERT INTO agents.own_agent_test_runs
-        (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json, created_at)
+        (agent_id, owner_id, request_id, request_key, kind, tool, input_json, checks_json, effect_json, ask, reply, live_engine, log_json,
+         content, output_schema, guard_json, draft_json, created_at)
       VALUES (${agentId}, ${ownerId}, ${requestId}, ${key}, ${made.kind}, ${run.tool}, ${json(run.input)}, ${json(run.checks)},
               ${json(run.effect)}, ${run.ask}, ${run.reply}, ${run.liveEngine}, ${json(run.log ? run.log.map((row) => ({ ...row })) : null)},
-              clock_timestamp())
+              ${run.content}, ${run.outputSchema}, ${json(run.guard)}, ${json(run.drafted)}, clock_timestamp())
       ON CONFLICT (owner_id, request_key) DO NOTHING
       RETURNING ${this.sql.unsafe(TEST_RUN_COLUMNS)}
     `;

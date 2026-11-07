@@ -135,7 +135,7 @@ export class AssessmentRepository {
       SELECT a.slug, a.score, a.max_score, a.passed, a.submitted_at, ${HIDDEN_UNTIL(this.sql, now)} AS hidden_until
         FROM academy.assessment_attempts a
         LEFT JOIN academy.quizzes q ON q.slug = a.slug
-       WHERE a.user_id = ${userId} AND a.slug = ${slug}
+       WHERE a.user_id = ${userId} AND a.slug = ${slug} AND a.voided_at IS NULL
        ORDER BY a.submitted_at DESC, a.client_attempt_id DESC
     `;
     return rows.map((row) =>
@@ -157,7 +157,7 @@ export class AssessmentRepository {
         SELECT a.slug, a.score, a.max_score, a.passed, a.submitted_at, ${HIDDEN_UNTIL(this.sql, now)} AS hidden_until
           FROM academy.assessment_attempts a
           LEFT JOIN academy.quizzes q ON q.slug = a.slug
-         WHERE a.user_id = ${userId}
+         WHERE a.user_id = ${userId} AND a.voided_at IS NULL
       )
       SELECT DISTINCT ON (slug) slug, score, max_score, passed, submitted_at,
              COUNT(*) OVER (PARTITION BY slug)::int AS attempts,
@@ -236,7 +236,7 @@ export class AssessmentRepository {
     const rows = await this.sql<Array<{ slug: string }>>`
       SELECT DISTINCT a.slug FROM academy.assessment_attempts a
         LEFT JOIN academy.quizzes q ON q.slug = a.slug
-       WHERE a.user_id = ${userId} AND a.passed = true AND ${HIDDEN_UNTIL(this.sql, now)} IS NULL
+       WHERE a.user_id = ${userId} AND a.passed = true AND a.voided_at IS NULL AND ${HIDDEN_UNTIL(this.sql, now)} IS NULL
     `;
     return new Set(rows.map((row) => row.slug));
   }
@@ -256,12 +256,16 @@ export class AssessmentRepository {
       const def = await this.definition(input.slug, tx);
       if (!def) throw new AcademyError(`academy.assessment_unpublished slug=${input.slug}`, 'academy.assessment_unpublished');
       if (def.passMark === null) throw new AcademyError(`academy.pass_mark_unset slug=${def.slug}`, 'academy.pass_mark_unset');
-      const count = await this.assertMayAttempt(tx, def, input.userId, now);
+      await this.assertMayAttempt(tx, def, input.userId, now);
+      // Numbered after every attempt ever started, so an attempt staff voided keeps its number and a retake gets the next.
+      const [numbered] = await tx<Array<{ next: number }>>`
+        SELECT COALESCE(MAX(number), 0)::int + 1 AS next FROM academy.quiz_attempts WHERE user_id = ${input.userId} AND slug = ${def.slug}
+      `;
       const limit = def.timeLimitSeconds ?? null;
       const deadline = limit === null ? null : new Date(now.getTime() + limit * 1000);
       const rows = await tx<AttemptRowSql[]>`
         INSERT INTO academy.quiz_attempts (user_id, slug, number, started_at, deadline_at, quiz)
-        VALUES (${input.userId}, ${def.slug}, ${count + 1}, ${now}, ${deadline}, ${tx.json(def as never)})
+        VALUES (${input.userId}, ${def.slug}, ${numbered!.next}, ${now}, ${deadline}, ${tx.json(def as never)})
         RETURNING ${tx.unsafe(ATTEMPT_COLUMNS)}
       `;
       return attemptView(rows[0]!, now, null);
@@ -396,12 +400,12 @@ export class AssessmentRepository {
 
   /**
    * The attempt limit and the cooldown, for `submit` and Start alike. Counts finished attempts (timed ones write their
-   * score row when they finish) and returns that count.
+   * score row when they finish), leaving out any staff voided (J-academy-14 #4), and returns that count.
    */
   private async assertMayAttempt(tx: Sql, def: AssessmentDefinition, userId: string, now: Date): Promise<number> {
     const rows = await tx<Array<{ n: number; last: Date | null }>>`
       SELECT COUNT(*)::int AS n, MAX(submitted_at) AS last FROM academy.assessment_attempts
-       WHERE user_id = ${userId} AND slug = ${def.slug}
+       WHERE user_id = ${userId} AND slug = ${def.slug} AND voided_at IS NULL
     `;
     const count = rows[0]?.n ?? 0;
     if (def.attemptLimit !== null && count >= def.attemptLimit) {
