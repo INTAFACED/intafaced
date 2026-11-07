@@ -74,16 +74,38 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
   const read = <T>(address: Address, name: Parameters<typeof loadArtifact>[0], functionName: string, args: unknown[] = []) =>
     c.publicClient.readContract({ address, abi: abi(name), functionName, args }) as Promise<T>;
   /** The owner sends; the revert's error name comes back when it reverts in simulation. */
-  const ownerCall = async (address: Address, name: Parameters<typeof loadArtifact>[0], functionName: string, args: unknown[], value = 0n) => {
+  const ownerCall = async (
+    address: Address,
+    name: Parameters<typeof loadArtifact>[0],
+    functionName: string,
+    args: unknown[],
+    value = 0n,
+  ) => {
     const { request } = await c.publicClient.simulateContract({ address, abi: abi(name), functionName, args, value, account: owner });
     return send(await ownerWallet.writeContract({ ...request, account: owner, chain: c.walletClient.chain } as never));
   };
-  const revertOf = async (address: Address, name: Parameters<typeof loadArtifact>[0], functionName: string, args: unknown[], value = 0n, from: Address = owner.address) =>
+  const revertOf = async (
+    address: Address,
+    name: Parameters<typeof loadArtifact>[0],
+    functionName: string,
+    args: unknown[],
+    value = 0n,
+    from: Address = owner.address,
+  ) =>
     // The router passes SovereignPermit's own errors through, so both ABIs decode a revert.
-    c.publicClient.simulateContract({ address, abi: [...abi(name), ...abi('SovereignPermit').filter((item) => item.type === 'error')], functionName, args, value, account: from }).then(
-      () => 'no revert',
-      (err: Error & { cause?: { data?: { errorName?: string } } }) => err.cause?.data?.errorName ?? err.message,
-    );
+    c.publicClient
+      .simulateContract({
+        address,
+        abi: [...abi(name), ...abi('SovereignPermit').filter((item) => item.type === 'error')],
+        functionName,
+        args,
+        value,
+        account: from,
+      })
+      .then(
+        () => 'no revert',
+        (err: Error & { cause?: { data?: { errorName?: string } } }) => err.cause?.data?.errorName ?? err.message,
+      );
   const now = async () => (await c.publicClient.getBlock()).timestamp;
   const balance = (token: Address, who: Address) => read<bigint>(token, 'TestToken', 'balanceOf', [who]);
   const reservesOf = (pool: Address) => read<readonly [bigint, bigint, number]>(pool, 'ConstantProductPool', 'getReserves');
@@ -110,7 +132,12 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
       primaryType: 'Permit',
       message: { owner: owner.address, spender, value, nonce, deadline },
     });
-    return { signature, r: signature.slice(0, 66) as Hex, s: `0x${signature.slice(66, 130)}` as Hex, v: Number(`0x${signature.slice(130, 132)}`) };
+    return {
+      signature,
+      r: signature.slice(0, 66) as Hex,
+      s: `0x${signature.slice(66, 130)}` as Hex,
+      v: Number(`0x${signature.slice(130, 132)}`),
+    };
   }
   const permitDomain = async () => ({ name: 'SovereignPermit', chainId: await c.publicClient.getChainId(), verifyingContract: permit });
 
@@ -128,9 +155,19 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     const seedPool = async (key: string, a: Address, b: Address, amountA: bigint, amountB: bigint) => {
       await write(factory, 'PoolFactory', 'createPool', [a, b, 30]);
       const pool = await read<Address>(factory, 'PoolFactory', 'getPool', [a, b, 30]);
-      for (const [t, amount] of [[a, amountA], [b, amountB]] as const) {
+      for (const [t, amount] of [
+        [a, amountA],
+        [b, amountB],
+      ] as const) {
         if (t === weth) {
-          await send(await c.walletClient.sendTransaction({ to: weth, value: amount, account: c.walletClient.account!, chain: c.walletClient.chain }));
+          await send(
+            await c.walletClient.sendTransaction({
+              to: weth,
+              value: amount,
+              account: c.walletClient.account!,
+              chain: c.walletClient.chain,
+            }),
+          );
         } else await write(t, 'TestToken', 'mint', [c.deployer, amount]);
         await write(t, 'TestToken', 'approve', [pool, amount]);
       }
@@ -142,7 +179,8 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     await seedPool('AB', tokenA, tokenB, parseUnits('100000', 6), parseUnits('100000', 18));
     await seedPool('BC', tokenB, tokenC, parseUnits('100000', 18), parseUnits('100000', 18));
     await seedPool('WB', weth, tokenB, parseUnits('100', 18), parseUnits('100000', 18));
-    for (const t of [tokenA, tokenB, tokenC]) await write(t, 'TestToken', 'mint', [owner.address, parseUnits('1000', t === tokenA ? 6 : 18)]);
+    for (const t of [tokenA, tokenB, tokenC])
+      await write(t, 'TestToken', 'mint', [owner.address, parseUnits('1000', t === tokenA ? 6 : 18)]);
   }, 180_000);
 
   it('a one-time EIP-2612 permit for the exact amount pays the swap with no approve transaction, and cannot be used again', async () => {
@@ -196,8 +234,19 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
         }),
       );
     const sig = await sign(7n, deadline);
-    const args = (requested: bigint, signature: Hex, nonce = 7n, dl = deadline) => [tokenB, amount, nonce, dl, owner.address, c.deployer, requested, signature];
-    expect(await revertOf(permit, 'SovereignPermit', 'permitTransferFrom', args(amount + 1n, sig), 0n, c.deployer)).toBe('AmountOverPermit');
+    const args = (requested: bigint, signature: Hex, nonce = 7n, dl = deadline) => [
+      tokenB,
+      amount,
+      nonce,
+      dl,
+      owner.address,
+      c.deployer,
+      requested,
+      signature,
+    ];
+    expect(await revertOf(permit, 'SovereignPermit', 'permitTransferFrom', args(amount + 1n, sig), 0n, c.deployer)).toBe(
+      'AmountOverPermit',
+    );
     const before = await balance(tokenB, c.deployer);
     await write(permit, 'SovereignPermit', 'permitTransferFrom', args(amount, sig));
     expect((await balance(tokenB, c.deployer)) - before).toBe(amount);
@@ -205,7 +254,9 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     expect(await revertOf(permit, 'SovereignPermit', 'permitTransferFrom', args(amount, sig), 0n, c.deployer)).toBe('NonceUsed');
     const late = (await now()) - 1n;
     const lateSig = await sign(8n, late);
-    expect(await revertOf(permit, 'SovereignPermit', 'permitTransferFrom', args(amount, lateSig, 8n, late), 0n, c.deployer)).toBe('SignatureExpired');
+    expect(await revertOf(permit, 'SovereignPermit', 'permitTransferFrom', args(amount, lateSig, 8n, late), 0n, c.deployer)).toBe(
+      'SignatureExpired',
+    );
   });
 
   it('a standing allowance with an expiry pays a swap until the expiry and refuses a pull after it', async () => {
@@ -229,7 +280,11 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
       message: { token: tokenB, spender: router, amount: amount * 2n, expiration: Number(expiration), nonce: 0, sigDeadline },
     });
     await ownerCall(router, 'SovereignRouterV2', 'standingPermit', [tokenB, amount * 2n, Number(expiration), 0, sigDeadline, signature]);
-    const [left, exp] = await read<readonly [bigint, number, number]>(permit, 'SovereignPermit', 'allowance', [owner.address, tokenB, router]);
+    const [left, exp] = await read<readonly [bigint, number, number]>(permit, 'SovereignPermit', 'allowance', [
+      owner.address,
+      tokenB,
+      router,
+    ]);
     expect(left).toBe(amount * 2n);
     expect(BigInt(exp)).toBe(expiration);
     const swap = (deadline: bigint) => ({
@@ -248,14 +303,20 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     await c.publicClient.request({ method: 'evm_increaseTime', params: [5] } as never);
     await c.publicClient.request({ method: 'evm_mine', params: [] } as never);
     expect(await revertOf(router, 'SovereignRouterV2', 'exactIn', [swap((await now()) + 300n)])).toBe('AllowanceExpired');
-    expect(await revertOf(permit, 'SovereignPermit', 'transferFrom', [owner.address, router, amount, tokenB], 0n, router)).toBe('AllowanceExpired');
+    expect(await revertOf(permit, 'SovereignPermit', 'transferFrom', [owner.address, router, amount, tokenB], 0n, router)).toBe(
+      'AllowanceExpired',
+    );
     await routerHoldsNothing();
   });
 
   it('a two-hop swap checks each hop: a hop under its minimum reverts the whole swap and nothing moves', async () => {
     const amount = parseUnits('10', 6);
     await ownerCall(tokenA, 'TestToken', 'approve', [router, amount]);
-    const outs = await read<readonly bigint[]>(router, 'SovereignRouterV2', 'quoteExactIn', [[tokenA, tokenB, tokenC], [pools.AB, pools.BC], amount]);
+    const outs = await read<readonly bigint[]>(router, 'SovereignRouterV2', 'quoteExactIn', [
+      [tokenA, tokenB, tokenC],
+      [pools.AB, pools.BC],
+      amount,
+    ]);
     const swap = (minOutPerHop: bigint[], limit: bigint) => ({
       path: [tokenA, tokenB, tokenC],
       pools: [pools.AB, pools.BC],
@@ -268,10 +329,21 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
       unwrapOut: false,
     });
     const deadline = (await now()) + 300n;
-    const before = await Promise.all([balance(tokenA, owner.address), balance(tokenC, owner.address), reservesOf(pools.AB), reservesOf(pools.BC)]);
-    expect(await revertOf(router, 'SovereignRouterV2', 'exactIn', [{ ...swap([outs[0]! + 1n, outs[1]!], outs[1]!), deadline }])).toBe('HopBelowMin');
-    expect(await revertOf(router, 'SovereignRouterV2', 'exactIn', [{ ...swap([outs[0]!, outs[1]! + 1n], outs[1]!), deadline }])).toBe('HopBelowMin');
-    expect(await revertOf(router, 'SovereignRouterV2', 'exactIn', [{ ...swap([outs[0]!, outs[1]!], outs[1]! + 1n), deadline }])).toBe('InsufficientOut');
+    const before = await Promise.all([
+      balance(tokenA, owner.address),
+      balance(tokenC, owner.address),
+      reservesOf(pools.AB),
+      reservesOf(pools.BC),
+    ]);
+    expect(await revertOf(router, 'SovereignRouterV2', 'exactIn', [{ ...swap([outs[0]! + 1n, outs[1]!], outs[1]!), deadline }])).toBe(
+      'HopBelowMin',
+    );
+    expect(await revertOf(router, 'SovereignRouterV2', 'exactIn', [{ ...swap([outs[0]!, outs[1]! + 1n], outs[1]!), deadline }])).toBe(
+      'HopBelowMin',
+    );
+    expect(await revertOf(router, 'SovereignRouterV2', 'exactIn', [{ ...swap([outs[0]!, outs[1]!], outs[1]! + 1n), deadline }])).toBe(
+      'InsufficientOut',
+    );
     // A mined revert: the transaction is sent anyway (no simulation), and the pools and balances are as they were.
     const hash = await ownerWallet.writeContract({
       address: router,
@@ -283,7 +355,9 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
       gas: 500_000n,
     });
     expect((await c.publicClient.waitForTransactionReceipt({ hash })).status).toBe('reverted');
-    expect(await Promise.all([balance(tokenA, owner.address), balance(tokenC, owner.address), reservesOf(pools.AB), reservesOf(pools.BC)])).toEqual(before);
+    expect(
+      await Promise.all([balance(tokenA, owner.address), balance(tokenC, owner.address), reservesOf(pools.AB), reservesOf(pools.BC)]),
+    ).toEqual(before);
     await ownerCall(router, 'SovereignRouterV2', 'exactIn', [{ ...swap([outs[0]!, outs[1]!], outs[1]!), deadline }]);
     expect((await balance(tokenC, owner.address)) - before[1]).toBe(outs[1]);
     await routerHoldsNothing();
@@ -314,7 +388,9 @@ describeOnChain('router v2 and SovereignPermit onchain', () => {
     const [s0, s1] = await reservesOf(pools.WB);
     expect(s0 * s1).toBeGreaterThanOrEqual(r0 * r1);
     // Asking for more than the maximum allows reverts.
-    expect(await revertOf(router, 'SovereignRouterV2', 'exactOut', [{ ...swap, limit: ins[0]! - 1n }], ins[0]! - 1n)).toBe('ExcessiveInput');
+    expect(await revertOf(router, 'SovereignRouterV2', 'exactOut', [{ ...swap, limit: ins[0]! - 1n }], ins[0]! - 1n)).toBe(
+      'ExcessiveInput',
+    );
     await routerHoldsNothing();
   });
 
