@@ -244,7 +244,9 @@ jobs:
           for d in $roots; do
             up="$d"
             while [ "$up" != "/" ]; do
-              if [ -n "$(/usr/bin/find "$up" -maxdepth 0 -perm /022)" ]; then open="$open $up"; fi
+              # -H: a directory that is a link (/bin and /sbin on Ubuntu 24.04) is judged by what it names; a link's
+              # own mode is always 0777. (Review round 3 on #7386: without it the check flagged /bin on every runner.)
+              if [ -n "$(/usr/bin/find -H "$up" -maxdepth 0 -perm /022)" ]; then open="$open $up"; fi
               up=$(/usr/bin/dirname "$up")
             done
             # The programs too, following links to what they name.

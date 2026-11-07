@@ -516,6 +516,7 @@ export function workflowProblems(wf) {
     ) ||
     !/\/usr\/bin\/sudo \/usr\/bin\/chmod -R go-w "\$d"/.test(close) ||
     !/-perm \/022/.test(close) ||
+    !/\/usr\/bin\/find -H "\$up" -maxdepth 0 -perm \/022/.test(close) ||
     !/::error title=PATH writable::[\s\S]*exit 1/.test(close)
   )
     p.push('every directory on PATH is closed, and checked, before the agent user exists');
@@ -594,6 +595,7 @@ test('each planted fault in the workflow is caught', () => {
     'two runs of one journey': plant('  group: builder-${{ inputs.journey }}\n', '  group: builder-${{ github.run_id }}\n'),
     'the switch ignored': plant("    if: needs.gate.outputs.run == 'true'\n", ''),
     'a self-hosted runner': WF.replace('runs-on: ubuntu-latest', 'runs-on: self-hosted'),
+    'a linked directory judged by the link': plant('/usr/bin/find -H "$up" -maxdepth 0', '/usr/bin/find "$up" -maxdepth 0'),
     'PATH left open': plant('            /usr/bin/sudo /usr/bin/chmod -R go-w "$d"\n', '            true\n'),
     'a bare sudo after the agent': plant('/usr/bin/sudo -n -u "$AGENT_USER" /usr/bin/cat', 'sudo -n -u "$AGENT_USER" /usr/bin/cat'),
     'a bare pgrep after the agent': plant(
@@ -621,6 +623,45 @@ test('each planted fault in the workflow is caught', () => {
     assert.ok(workflowProblems(wf).length > 0, `${name} is caught`);
   }
 });
+
+// The PATH check's directory test, run as written in the workflow: a directory that is a link (/bin on Ubuntu 24.04,
+// whose own mode is 0777) is judged by what it names. It needs GNU find (CI's Ubuntu runners); elsewhere it says so.
+const gnuFind = (() => {
+  try {
+    return /GNU findutils/.test(execFileSync('/usr/bin/find', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+  } catch {
+    return false;
+  }
+})();
+
+export function dirCheck(wf) {
+  const m = /if \[ -n "\$\((\/usr\/bin\/find [^)]*"\$up" -maxdepth 0 -perm \/022)\)" \]/.exec(stepOf(wf, 'Close every directory on PATH'));
+  if (!m) throw new Error('the PATH step has no directory check');
+  return (up) => execFileSync('/bin/bash', ['-c', `up="$1"; ${m[1]}`, 'check', up], { encoding: 'utf8' }).trim();
+}
+
+test(
+  'the PATH check judges a linked directory by what it names, not by the link',
+  { skip: gnuFind ? false : 'needs GNU find (runs on CI)' },
+  () => {
+    const root = mkdtempSync(join(tmpdir(), 'path-'));
+    const closed = join(root, 'usr-bin');
+    const open = join(root, 'open');
+    mkdirSync(closed, { mode: 0o755 });
+    mkdirSync(open);
+    chmodSync(open, 0o777);
+    execFileSync('/bin/ln', ['-s', closed, join(root, 'bin')]);
+    execFileSync('/bin/ln', ['-s', open, join(root, 'open-link')]);
+    const check = dirCheck(WF);
+    assert.equal(check(join(root, 'bin')), '', 'a link to a closed directory, like /bin -> usr/bin, passes');
+    assert.equal(check(closed), '');
+    assert.notEqual(check(join(root, 'open-link')), '', 'a link to an open directory fails');
+    assert.notEqual(check(open), '');
+    // The line as it was at #7386 (no -H) flags the closed link: no builder would ever start.
+    const old = dirCheck(WF.replace('/usr/bin/find -H "$up" -maxdepth 0', '/usr/bin/find "$up" -maxdepth 0'));
+    assert.notEqual(old(join(root, 'bin')), '', 'the old line judged the link itself (mode 0777)');
+  },
+);
 
 test('the brief addendum and the CLI settings the job reads are in the repo, next to the workflow', () => {
   const addendum = readFileSync(new URL('../../.github/workflows/builder/ACTIONS.md', import.meta.url), 'utf8');
@@ -795,7 +836,8 @@ test('run: a pause, the hard stop or a CLI that ends early leaves no process beh
       assert.equal(JSON.parse(readFileSync(join(dir, 'end.json'), 'utf8')).reason, why);
       const stubborn = Number(readFileSync(join(dir, 'seen.json.pid'), 'utf8'));
       assert.equal(alive(stubborn), false, `${why}: the child that ignores SIGTERM is gone when the step ends`);
-      assert.equal(state.auth, false, 'the switch is read with no token');
+      // No read of the switch carried a token (a CLI that ends before the first poll makes none).
+      assert.notEqual(state.auth, true, 'the switch is read with no token');
     } finally {
       server.close();
     }
