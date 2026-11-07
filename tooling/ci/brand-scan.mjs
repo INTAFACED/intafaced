@@ -187,7 +187,6 @@ function isSeparateCheckout(dir) {
  * deliberate, reviewable decision — not a way around the rule.
  */
 const ALLOWLIST = [
-  { path: 'INTAFACED_DEFINITIVE_BUILD.md', reason: 'the build doctrine itself — internal, never shipped to users' },
   { path: join('tooling', 'ci', 'brand-scan.mjs'), reason: 'this file declares the forbidden names' },
   { path: join('tooling', 'agent-protocol'), reason: 'internal agent rules — not user-facing' },
   { path: 'README.md', reason: 'internal repo README' },
