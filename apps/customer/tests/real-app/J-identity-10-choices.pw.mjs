@@ -1,7 +1,7 @@
-// World: gates
+// World: restart, gates
 import { randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, mailedLines, signUpInBrowser, tool } from './stack.mjs';
+import { api, mailedLines, restartWith, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-10, in the running app (docs/roadmap/journeys.json): I set my language, display and notification choices.
 // Starts signed in on device A, and signed in again on device B later. Ends with the same language, display currency and
@@ -160,86 +160,92 @@ test(`${J} #3 turns promotions email off in notification settings: a category by
   page,
 }) => {
   test.setTimeout(240_000);
-  const who = person('pfn');
-  await signUpInBrowser(page, who);
-  const client = await api(who);
+  // The TEST stack keeps svc-notify's email off by default; this step needs it on, and puts it back after.
+  restartWith('notify', 'LOCAL_STACK_NOTIFY_MAIL', true);
+  try {
+    const who = person('pfn');
+    await signUpInBrowser(page, who);
+    const client = await api(who);
 
-  // The grid: every category by every channel, as the person's own rows.
-  await page.goto('/notifications?view=settings');
-  const grid = page.locator('[role="region"][aria-label="What reaches you, by category"]');
-  await expect(grid).toBeVisible();
-  for (const channel of ['Inbox in the app', 'Email', 'Phone notifications', 'Text message'])
-    await expect(grid.getByRole('columnheader', { name: channel, exact: true })).toBeVisible();
-  for (const category of ['Security', 'Orders', 'Promotions'])
-    await expect(grid.getByRole('rowheader', { name: new RegExp(`^${category}`) })).toBeVisible();
-  const rows = await notifyRead(client, 'notify.categoryPrefs');
-  expect(new Set(rows.map((r) => r.category)).size * new Set(rows.map((r) => r.channel)).size).toBe(rows.length);
-  await expect(grid.getByRole('switch')).toHaveCount(rows.length);
+    // The grid: every category by every channel, as the person's own rows.
+    await page.goto('/notifications?view=settings');
+    const grid = page.locator('[role="region"][aria-label="What reaches you, by category"]');
+    await expect(grid).toBeVisible();
+    for (const channel of ['Inbox in the app', 'Email', 'Phone notifications', 'Text message'])
+      await expect(grid.getByRole('columnheader', { name: channel, exact: true })).toBeVisible();
+    for (const category of ['Security', 'Orders', 'Promotions'])
+      await expect(grid.getByRole('rowheader', { name: new RegExp(`^${category}`) })).toBeVisible();
+    const rows = await notifyRead(client, 'notify.categoryPrefs');
+    expect(new Set(rows.map((r) => r.category)).size * new Set(rows.map((r) => r.channel)).size).toBe(rows.length);
+    await expect(grid.getByRole('switch')).toHaveCount(rows.length);
 
-  // A channel the platform has switched off says so in every cell, in plain words; text messages are off on this stack.
-  const off = rows.filter((r) => r.notConnected);
-  expect(
-    off.map((r) => r.channel),
-    'text messages are a switched-off channel here',
-  ).toContain('sms');
-  for (const row of off) {
-    const cell = cellOf(grid, row);
-    await expect(cell).toContainText('Not connected on this platform, so nothing can be sent here.');
+    // A channel the platform has switched off says so in every cell, in plain words; text messages are off on this stack.
+    const off = rows.filter((r) => r.notConnected);
+    expect(
+      off.map((r) => r.channel),
+      'text messages are a switched-off channel here',
+    ).toContain('sms');
+    for (const row of off) {
+      const cell = cellOf(grid, row);
+      await expect(cell).toContainText('Not connected on this platform, so nothing can be sent here.');
+    }
+    // Email is connected, so promotions by email is the person's own switch.
+    expect(rows.find((r) => r.category === 'promotions' && r.channel === 'email')).toMatchObject({ notConnected: null, locked: false });
+
+    // Security is locked on: every security cell is on and cannot be changed, and the account refuses a write to it.
+    for (const row of rows.filter((r) => r.category === 'security')) {
+      const cell = grid.getByRole('switch', { name: cellName(row), exact: true });
+      await expect(cell).toBeChecked();
+      await expect(cell).toBeDisabled();
+      if (!row.notConnected) await expect(cellOf(grid, row)).toContainText('Always on. We keep this one on for your protection.');
+    }
+    const locked = await client.post('/api/notify/trpc/notify.setCategoryPref', {
+      category: 'security',
+      channel: 'email',
+      enabled: false,
+      clientRequestId: `${J}-security-${randomUUID()}`,
+    });
+    expect(locked.status, JSON.stringify(locked.body).slice(0, 300)).toBe(200);
+    expect(locked.body.result.data.locked).toBe(true);
+    expect((await notifyRead(client, 'notify.categoryPrefs')).find((r) => r.category === 'security' && r.channel === 'email').enabled).toBe(
+      true,
+    );
+    // Before: a TEST promotion reaches this person by email (the channel works, so its stopping means something).
+    expect(tool('local-test-gates.mjs', 'notify-promotion', who.handle)).toMatch(/OK .* promotion sent/);
+    await expect.poll(() => mailedLines(who.email, 'promotion').length, { timeout: 30_000 }).toBe(1);
+
+    // Turn promotions email off: it reads back off, here, on the account and after a reload.
+    const promoEmail = grid.getByRole('switch', { name: 'Promotions, Email', exact: true });
+    await expect(promoEmail).toBeEnabled();
+    await expect(promoEmail).toBeChecked();
+    await promoEmail.click();
+    await expect(
+      page
+        .getByRole('status')
+        .filter({ hasText: /^Saved$/ })
+        .first(),
+    ).toBeVisible();
+    await expect(promoEmail).not.toBeChecked();
+    expect(
+      (await notifyRead(client, 'notify.categoryPrefs')).find((r) => r.category === 'promotions' && r.channel === 'email').enabled,
+    ).toBe(false);
+    await page.reload();
+    await expect(page.getByRole('switch', { name: 'Promotions, Email', exact: true })).not.toBeChecked();
+
+    // The promotion mail stops: the next TEST promotion reaches the inbox but sends no email.
+    expect(tool('local-test-gates.mjs', 'notify-promotion', who.handle)).toMatch(/OK .* promotion sent/);
+    await expect
+      .poll(async () => (await notifyRead(client, 'notify.list', { limit: 100 })).items.filter((n) => /^promo\./.test(n.kind)).length, {
+        timeout: 30_000,
+      })
+      .toBe(2);
+    await page.waitForTimeout(5_000);
+    expect(mailedLines(who.email, 'promotion'), 'no promotion mail after promotions email is off').toHaveLength(1);
+
+    expect(await page.locator('[role="region"][aria-label="What reaches you, by category"]').innerText()).not.toMatch(INTERNAL);
+  } finally {
+    restartWith('notify', 'LOCAL_STACK_NOTIFY_MAIL', false);
   }
-  // Email is connected, so promotions by email is the person's own switch.
-  expect(rows.find((r) => r.category === 'promotions' && r.channel === 'email')).toMatchObject({ notConnected: null, locked: false });
-
-  // Security is locked on: every security cell is on and cannot be changed, and the account refuses a write to it.
-  for (const row of rows.filter((r) => r.category === 'security')) {
-    const cell = grid.getByRole('switch', { name: cellName(row), exact: true });
-    await expect(cell).toBeChecked();
-    await expect(cell).toBeDisabled();
-    if (!row.notConnected) await expect(cellOf(grid, row)).toContainText('Always on. We keep this one on for your protection.');
-  }
-  const locked = await client.post('/api/notify/trpc/notify.setCategoryPref', {
-    category: 'security',
-    channel: 'email',
-    enabled: false,
-    clientRequestId: `${J}-security-${randomUUID()}`,
-  });
-  expect(locked.status, JSON.stringify(locked.body).slice(0, 300)).toBe(200);
-  expect(locked.body.result.data.locked).toBe(true);
-  expect((await notifyRead(client, 'notify.categoryPrefs')).find((r) => r.category === 'security' && r.channel === 'email').enabled).toBe(
-    true,
-  );
-  // Before: a TEST promotion reaches this person by email (the channel works, so its stopping means something).
-  expect(tool('local-test-gates.mjs', 'notify-promotion', who.handle)).toMatch(/OK .* promotion sent/);
-  await expect.poll(() => mailedLines(who.email, 'promotion').length, { timeout: 30_000 }).toBe(1);
-
-  // Turn promotions email off: it reads back off, here, on the account and after a reload.
-  const promoEmail = grid.getByRole('switch', { name: 'Promotions, Email', exact: true });
-  await expect(promoEmail).toBeEnabled();
-  await expect(promoEmail).toBeChecked();
-  await promoEmail.click();
-  await expect(
-    page
-      .getByRole('status')
-      .filter({ hasText: /^Saved$/ })
-      .first(),
-  ).toBeVisible();
-  await expect(promoEmail).not.toBeChecked();
-  expect((await notifyRead(client, 'notify.categoryPrefs')).find((r) => r.category === 'promotions' && r.channel === 'email').enabled).toBe(
-    false,
-  );
-  await page.reload();
-  await expect(page.getByRole('switch', { name: 'Promotions, Email', exact: true })).not.toBeChecked();
-
-  // The promotion mail stops: the next TEST promotion reaches the inbox but sends no email.
-  expect(tool('local-test-gates.mjs', 'notify-promotion', who.handle)).toMatch(/OK .* promotion sent/);
-  await expect
-    .poll(async () => (await notifyRead(client, 'notify.list', { limit: 100 })).items.filter((n) => /^promo\./.test(n.kind)).length, {
-      timeout: 30_000,
-    })
-    .toBe(2);
-  await page.waitForTimeout(5_000);
-  expect(mailedLines(who.email, 'promotion'), 'no promotion mail after promotions email is off').toHaveLength(1);
-
-  expect(await page.locator('[role="region"][aria-label="What reaches you, by category"]').innerText()).not.toMatch(INTERNAL);
 });
 
 const CATEGORY_WORDS = {
