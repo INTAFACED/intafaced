@@ -14,6 +14,8 @@ type PlainKey =
   | 'Trades, orders and transfers'
   | 'Profit and loss'
   | 'What your trades have made or lost'
+  | 'Algo editor'
+  | 'The strategy code editor, on sample data'
   | 'Markets'
   | 'Prices for every market'
   | 'Spot'
@@ -125,7 +127,14 @@ export function tabSpecs(layoutMode: 'simple' | 'pro', signedIn = true): TabSpec
         { id: 'otc', href: '/otc', icon: 'merchant', group: 'Advanced' },
         { id: 'execution', href: '/execution', icon: 'markets', group: 'Advanced' },
         { id: 'algo', href: '/quant', icon: 'activity', group: 'Advanced' },
-        { id: 'algo-editor', href: '/quant/editor', icon: 'activity', group: 'Advanced' },
+        {
+          id: 'algo-editor',
+          href: '/quant/editor',
+          icon: 'activity',
+          title: 'Algo editor',
+          description: 'The strategy code editor, on sample data',
+          group: 'Advanced',
+        },
         {
           id: 'orders',
           href: '/money/activity?tab=orders',

@@ -926,7 +926,7 @@ export const rooms: readonly Room[] = [
       ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
-      ['quant/editor', 'Algo editor', 'Preview · sample data: the strategy code editor'],
+      ['quant/editor', 'Code editor', 'Preview · sample data: the strategy code editor'],
       ['quant/tester', 'Strategy tester', 'Preview · sample data: replay a strategy tick by tick'],
       ['quant/optimise', 'Optimiser', 'Preview · sample data: parameter passes and walk-forward'],
       ['launch', 'Launch', 'Issue and list an asset'],

@@ -498,7 +498,7 @@ const messages = {
   'Quant sandbox': 'Quant sandbox',
   'Run strategy code on the paper book': 'Run strategy code on the paper book',
   'Quant Studio': 'Quant Studio',
-  'Algo editor': 'Algo editor',
+  'Code editor': 'Code editor',
   'Preview · sample data: the strategy code editor': 'Preview · sample data: the strategy code editor',
   'Strategy tester': 'Strategy tester',
   'Preview · sample data: replay a strategy tick by tick': 'Preview · sample data: replay a strategy tick by tick',
