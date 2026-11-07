@@ -141,7 +141,7 @@ test('J-ops-console-04 #7 close with a second approver, reopen a customer-closed
   ).toContainText('still open: 1 × card not closed');
 
   // Closed with its cards closed: the closed account's record on the console lists its card as closed, read as founder A
-  // through svc-bank's operator read of one customer's cards (ops.customerCards, admin:treasury). Soft, so a miss is named
+  // through svc-bank's operator read of one customer's cards (ops.customerCards, admin:read). Soft, so a miss is named
   // and the rest of the step still runs.
   await a.goto(`${ADMIN}/accounts/${userId}?tab=cards`, { waitUntil: 'load' });
   await expect(a.getByTestId('customer-panel-cards')).toBeVisible({ timeout: 60_000 });
