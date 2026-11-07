@@ -76,6 +76,7 @@ export type ArtifactName =
   | 'TestWrappedNative'
   | 'SovereignPermit'
   | 'SovereignRouterV2'
+  | 'SovereignReactor'
   | 'RwaRegistry'
   | 'CardPull';
 

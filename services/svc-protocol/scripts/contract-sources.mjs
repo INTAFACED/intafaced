@@ -202,6 +202,12 @@ export const SUITES = [
     sources: ['router/SovereignRouterV2.sol', 'permit/SovereignPermit.sol', 'amm/IERC20Minimal.sol'],
   },
   {
+    name: 'intent',
+    expect: 'compiles',
+    /** D-swap-09: signed intent orders with a Dutch-auction decay. Own suite so it stales nothing else. */
+    sources: ['intent/SovereignReactor.sol'],
+  },
+  {
     name: 'vaults',
     expect: 'compiles',
     /** S-L1 crew + S-L2 legacy + S-L4 lock/vest/reputation + S-L5 treasury yield. */
