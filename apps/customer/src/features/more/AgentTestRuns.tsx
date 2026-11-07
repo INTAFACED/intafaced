@@ -9,6 +9,7 @@ import { Read, Select } from './common';
 import { toolWords } from './AgentGuardrails';
 import { agentGuardrailsCopy } from './agent-guardrails-copy';
 import { agentTestRunsCopy, hasTestRunsWords } from './agent-test-runs-copy';
+import './agents-session.css';
 import {
   ownAgentAnalyticsSchema,
   ownAgentCatalogueSchema,
@@ -172,7 +173,8 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
       <h3>{t('runTitle')}</h3>
       <p className="muted">{t('runIntro')}</p>
       <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
-      <label>
+      {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
+      <label className="agent-surface-choice">
         <input type="checkbox" checked={background} onChange={(event) => setBackground(event.target.checked)} /> {t('runInBackground')}
       </label>
       <Button disabled={busy} onClick={() => void runTest()}>

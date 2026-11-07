@@ -523,7 +523,8 @@ export function fleetRouter(sql: Sql | undefined, settings: FleetSettings) {
   return router({
     /** One page of the registry under a filter, with the counts over the whole fleet and how many rows the filter matches. */
     registry: operator('admin:read')
-      .input(z.object(filterInput))
+      // No filter is no input at all on a GET: the whole fleet.
+      .input(z.object(filterInput).optional())
       .output(
         z.object({
           counts: z.object({
@@ -543,7 +544,7 @@ export function fleetRouter(sql: Sql | undefined, settings: FleetSettings) {
         guard(async () => {
           if (settings.registryLimit === null) throw new FleetRefusal('agents.registry_list_limit_unset');
           const all = await readFleet(sqlOf(sql));
-          const matched = filterFleet(all, input);
+          const matched = filterFleet(all, input ?? {});
           return {
             counts: fleetCounts(all),
             rows: matched.slice(0, settings.registryLimit),
