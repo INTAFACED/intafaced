@@ -284,6 +284,7 @@ test(`${J} #3 files an appeal: one open appeal at a time, a second is refused, a
 
   // Identity holds exactly that one appeal, open, for this restriction.
   const first = await readBack(client);
+  expect(first.mine.windowDays).toBe(Number(WINDOW_DAYS));
   expect(first.mine.appeals).toHaveLength(1);
   expect(first.mine.appeals[0]).toMatchObject({
     restriction: 'trading_restricted',
@@ -344,9 +345,11 @@ test(`${J} #4 gets a decision, upheld: the restriction stays with a reason and a
   expect(upheld.mine.appeals).toHaveLength(1);
   expect(upheld.mine.appeals[0]).toMatchObject({ status: 'upheld', decision: { outcome: 'upheld', reason: UPHOLD_REASON } });
   expect(upheld.status.state).toBe('restricted');
+  expect(upheld.status.restrictions.filter((r) => r.kind === 'trading_restricted').map((r) => r.owner)).toEqual([TRADING_REASON]);
   await page.goto('/uc/account');
   const keptRow = page.getByTestId('account-appeals').getByTestId('account-appeals__appeal');
   await expect(keptRow).toHaveAttribute('data-status', 'upheld');
+  await expect(keptRow).toHaveAttribute('data-reason', UPHOLD_REASON.code);
   await expect(keptRow).toContainText('Upheld: the restriction stays');
   await expect(keptRow).toContainText(UPHOLD_REASON.text);
   await expect(keptRow).toContainText(`Next: ${UPHOLD_REASON.guidance}`);
@@ -356,12 +359,11 @@ test(`${J} #4 gets a decision, upheld: the restriction stays with a reason and a
   expect(mailedLines(kept.email, 'appeal-decided')[0]).toMatch(/notice=appeal-decided outcome=upheld/);
 });
 
-test(`${J} #4 gets a decision, lifted: the restriction is released with a reason and a notice, by someone who did not restrict`, async ({
-  page,
-}) => {
+test(`${J} #4 gets a decision, lifted: the restriction is released through four eyes with a reason and a notice`, async ({ page }) => {
   test.setTimeout(180_000);
   const freed = await restricted(page, 'apl');
   const freedClient = await api(freed);
+  // The lift runs through the restore's four-eyes approval with the appeal as its reason, by someone who did not restrict.
   await fileAppeal(page, 'TEST: the review should clear me.');
   expect(tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'lift', LIFT_REASON.code, '--as-restrictor')).toMatch(
     /REFUSED .* appeal lift: .*identity\.appeal_decider_restricted/,
@@ -381,4 +383,6 @@ test(`${J} #4 gets a decision, lifted: the restriction is released with a reason
   await expect(freedRow).toContainText(`Next: ${LIFT_REASON.guidance}`);
   await expect.poll(() => mailedLines(freed.email, 'appeal-decided'), { timeout: 30_000 }).toHaveLength(1);
   expect(mailedLines(freed.email, 'appeal-decided')[0]).toMatch(/notice=appeal-decided outcome=lifted/);
+  // A decided appeal is no longer open: there is nothing left to decide.
+  expect(() => tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'uphold', UPHOLD_REASON.code)).toThrow(/has no open appeal/);
 });
