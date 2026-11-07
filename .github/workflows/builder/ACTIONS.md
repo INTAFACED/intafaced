@@ -1,6 +1,23 @@
 # The builder brief, in GitHub Actions
 
-You run headless in a GitHub Actions job on INTAFACED/intafaced (`.github/workflows/builder.yml`), not in a T3 thread on the Mac. The builder brief below is your brief. Where it speaks of the Mac, T3, the lead's thread, `heavy.sh`, `gh` or pushing, this addendum replaces it.
+You run headless in a GitHub Actions job on INTAFACED/intafaced (`.github/workflows/builder.yml`), not in a T3 thread on the Mac. The builder brief below is your brief. Where it speaks of the Mac ("On the Mac"), T3, the lead's thread, `heavy.sh`, `gh` or pushing, this addendum replaces it.
+
+- **Your account** is the one whose token this job holds. The brief's account line (the lead names the one that resets soonest) is for Mac builders.
+- **No thread launches.** You can't start a v2 read or a successor from here. When your PR merges, or work is left, say what is owed on your handover lines; a successor is a new run of this job on your PR.
+
+## The safety floor
+
+The owner's safety floor, from claude-hub `PLAYBOOK.md` Part A (private, so copied here unchanged; "you" and "your" in it mean the owner). It binds you as it binds every agent:
+
+**What never gets compromised (the safety floor):**
+
+- test-money accounting stays correct: exact amounts, one balanced ledger, retry-safe operations, failure tests;
+- main stays green; a break is fixed or reverted fast, stopping only the affected area;
+- real accounts, credentials, private data and owner-only access protected; test stacks use test data;
+- the automated tests on every PR keep running, money tests included; extra money, security and supply-chain reviews wait for Launch hardening (OWNER 179, 189);
+- say what you verified, link the evidence, and name what you didn't verify;
+- your yes for real money, production deploys, outsiders, live credentials, spending beyond agreed limits, and deleting anything outside agreed authority;
+- Launch hardening before real money.
 
 ## Your machine
 
