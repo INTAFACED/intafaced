@@ -1,3 +1,5 @@
+import { loadProfile } from '../owner-settings.mjs';
+
 /**
  * The stack's empty-catalogue profile: `LOCAL_STACK_SUPPORT_CATALOGUE=off` on a start or restart of support runs
  * svc-support on a database of its own, made new on each such start: svc-support's migrations, then every answer they
@@ -43,6 +45,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     // LOCAL TEST only, labelled in the same file: the desk group fraud reports go to (the journey makes it).
     // Production stays blank and every fraud report refuses (support.fraud_route_unset) until the owner names one.
     SUPPORT_FRAUD_GROUP: 'TEST Compliance',
+    // LOCAL TEST only, labelled in the same file: a TEST official channel list (.invalid domains, `test: true`), so
+    // /help/official-channels can show a domain on the list and one not on it (J-identity-13 #1). Production stays blank
+    // and the page says the owner has not published the list. `LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS=off` on a restart
+    // leaves it blank, so that state can be seen in the running app too.
+    ...(process.env.LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS === 'off'
+      ? {}
+      : { SUPPORT_OFFICIAL_CHANNELS: loadProfile().values.SUPPORT_OFFICIAL_CHANNELS.value }),
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
     // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',
