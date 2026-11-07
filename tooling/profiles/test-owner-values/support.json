@@ -90,6 +90,26 @@
       "service": "support",
       "value": "30",
       "note": "How long a guest's address and access link are kept, so the guest path can store one. Not an owner decision."
+    },
+    "SUPPORT_CHAT_RATE_LIMIT": {
+      "service": "support",
+      "value": "30",
+      "note": "Customer messages one live chat may send per window, so J-support-public-05 can chat. Not an owner decision."
+    },
+    "SUPPORT_CHAT_RATE_WINDOW_SECONDS": {
+      "service": "support",
+      "value": "60",
+      "note": "The window for the chat message limit above. Not an owner decision."
+    },
+    "SUPPORT_CHAT_IDENTITY_TTL_SECONDS": {
+      "service": "support",
+      "value": "300",
+      "note": "How long a signed identity claim for a page embedding the chat works, so J-support-public-05 #3 can use one. Not an owner decision."
+    },
+    "SUPPORT_CHAT_PRECHAT_FIELDS": {
+      "service": "support",
+      "value": "name,email",
+      "note": "The pre-chat fields a guest is asked for, so J-support-public-05 #2 can fill in the form. Not an owner decision."
     }
   }
 }
