@@ -1,6 +1,11 @@
 import {
+  dexRecurringCancelOutputSchema,
+  dexRecurringListOutputSchema,
+  dexRecurringOptionsOutputSchema,
+  dexRecurringPrepareOutputSchema,
   DEX_AUTH_REFUSALS,
   DEX_ORDER_REFUSALS,
+  DEX_RECURRING_REFUSALS,
   dexAuthChallengeOutputSchema,
   dexAuthLogoutOutputSchema,
   dexAuthSessionOutputSchema,
@@ -31,7 +36,7 @@ export type OrderSession = DexAuthSession;
  * in a URL. An order-session or order refusal is this call's own answer, never proof that the exchange sign-in ended, so
  * none of them signs the person out of their account.
  */
-const keepSessionFor = [...DEX_AUTH_REFUSALS, ...DEX_ORDER_REFUSALS];
+const keepSessionFor = [...DEX_AUTH_REFUSALS, ...DEX_ORDER_REFUSALS, ...DEX_RECURRING_REFUSALS];
 
 export interface PlaceInput {
   kind: 'sell_above' | 'sell_below' | 'buy_above' | 'buy_below' | 'take_profit_and_stop' | 'bracket' | 'trailing_stop';
@@ -70,9 +75,30 @@ export function createOrdersApi(api: ApiClient) {
     update: (accessToken: string, draftId: string, signature: string) =>
       call('orders.update', { accessToken, draftId, signature }, dexOrderViewSchema),
     cancel: (accessToken: string, id: string) => call('orders.cancel', { accessToken, id }, dexOrderCancelOutputSchema),
+    recurring: {
+      options: (wallet: string) => call('recurring.options', { wallet }, dexRecurringOptionsOutputSchema),
+      prepare: (accessToken: string, input: RecurringInput) =>
+        call('recurring.prepare', { accessToken, ...input }, dexRecurringPrepareOutputSchema),
+      list: (wallet: string, fresh: boolean) => call('recurring.list', { wallet, fresh }, dexRecurringListOutputSchema),
+      // Edit and pause always refuse (a plan's terms are fixed on chain): their answer is the refusal, never a parsed body.
+      edit: (wallet: string, id: string) => call('recurring.edit', { wallet, id }, dexRecurringCancelOutputSchema),
+      pause: (wallet: string, id: string) => call('recurring.pause', { wallet, id }, dexRecurringCancelOutputSchema),
+      cancel: (wallet: string, id: string) => call('recurring.cancel', { wallet, id }, dexRecurringCancelOutputSchema),
+    },
   };
 }
 export type OrdersApi = ReturnType<typeof createOrdersApi>;
+
+/** What starting a recurring buy asks for (D-limit-dca-05). */
+export interface RecurringInput {
+  readonly spend: string;
+  readonly buy: string;
+  readonly amountEachRound: string;
+  readonly rounds: number;
+  readonly every: 'hour' | 'day' | 'week';
+  readonly lowestPrice?: string;
+  readonly highestPrice?: string;
+}
 
 /**
  * The order session, one per wallet, kept for this browser tab only (sessionStorage), so moving between steps and

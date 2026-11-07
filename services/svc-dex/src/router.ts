@@ -24,6 +24,10 @@ import type { OrderBook } from './order/order-book.js';
 import { OrderSessions } from './auth/order-session.js';
 import { orderSessionRouter } from './auth/router.js';
 import { walletOrdersRouter } from './orders/router.js';
+import { unwiredRecurringChain } from './recurring/chain.js';
+import { RecurringBuys } from './recurring/plans.js';
+import { recurringRouter } from './recurring/router.js';
+import { RecurringStore } from './recurring/store.js';
 import { WalletOrders } from './vault/orders.js';
 import { WalletOrderStore } from './vault/store.js';
 import { unwiredVaultChain } from './vault/chain.js';
@@ -216,6 +220,7 @@ export interface DexRouterDeps {
   readonly orderSessions?: OrderSessions;
   /** The person's own vault orders. Omitted, the vault is unwired and every order call refuses by name. */
   readonly walletOrders?: WalletOrders;
+  readonly recurringBuys?: RecurringBuys;
 }
 
 const UNSET_SESSIONS = new OrderSessions({ secret: undefined, accessTtlSeconds: undefined, refreshTtlSeconds: undefined, cap: undefined }, {
@@ -241,6 +246,16 @@ function toTrpcError(err: QuoteRefusedError): TRPCError {
         ? 'PRECONDITION_FAILED'
         : 'SERVICE_UNAVAILABLE';
   return new TRPCError({ code, message: `${err.code} — ${err.message}`, cause: err });
+}
+
+/** Recurring buys with no vault wired: every action refuses `dex.recurring.unwired`. */
+function unsetRecurringBuys(): RecurringBuys {
+  return new RecurringBuys(new RecurringStore(mkdtempSync(join(tmpdir(), 'dex-recurring-unset-'))), unwiredRecurringChain(), {
+    pair: undefined,
+    retryWindowSeconds: undefined,
+    slippageBps: undefined,
+    faultDir: undefined,
+  });
 }
 
 function unsetWalletOrders(): WalletOrders {
@@ -390,6 +405,9 @@ export function createDexRouter(deps: DexRouterDeps) {
 
     /** The person's own wallet orders, read with the order session. See `orders/router.ts`. */
     orders: walletOrdersRouter(deps.walletOrders ?? unsetWalletOrders(), deps.orderSessions ?? UNSET_SESSIONS),
+
+    /** The person's recurring buys, read with the order session. See `recurring/plans.ts`. */
+    recurring: recurringRouter(deps.recurringBuys ?? unsetRecurringBuys(), deps.orderSessions ?? UNSET_SESSIONS),
   });
 }
 

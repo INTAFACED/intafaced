@@ -72,6 +72,7 @@ export type ArtifactName =
   | 'FeeTokenRelay'
   | 'ClaimLinkEscrow'
   | 'OrderVault'
+  | 'RecurringBuyVault'
   | 'TestToken'
   | 'RwaRegistry'
   | 'CardPull';

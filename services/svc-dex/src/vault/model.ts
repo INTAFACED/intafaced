@@ -50,6 +50,8 @@ export interface PairToken {
   readonly address: Address;
   readonly symbol: string;
   readonly decimals: number;
+  /** The full name where a page names the token whole; the symbol otherwise. */
+  readonly name?: string;
 }
 
 export interface OrderPair {

@@ -307,6 +307,8 @@ describe('every function with an address input in the compiled contracts is clas
     'ClaimLinkEscrow.clawback(address)':
       "pays only the link's recorded sender, and only when the caller is that sender; the id picks which link",
     'FailClosedOracle.report(address,uint256)': 'reporter-gated price feed; moves no funds',
+    'RecurringBuyVault.create((address,address,address,uint256,uint32,uint64,uint256,uint256,uint64,uint16))':
+      "pulls the caller's own tokens into the caller's own plan; each round pays only the plan's maker, and only the maker can cancel and be refunded",
     'OrderVault.deposit(address,uint256)':
       "pulls the caller's own tokens into the caller's own vault credit; nothing leaves the caller's control",
     'OrderVault.withdraw(address,uint256)': "pays only the caller, from the caller's own vault credit",

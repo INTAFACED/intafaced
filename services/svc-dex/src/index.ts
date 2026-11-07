@@ -19,6 +19,9 @@ import { viemVaultChain } from './vault/chain.js';
 import { WalletOrders } from './vault/orders.js';
 import { WalletOrderStore } from './vault/store.js';
 import { OrderKeeper, startOrderKeeper } from './vault/keeper.js';
+import { viemRecurringChain } from './recurring/chain.js';
+import { RecurringBuys, startRecurringKeeper } from './recurring/plans.js';
+import { RecurringStore } from './recurring/store.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
 // §9 — register the TracerProvider before the first span is created.
@@ -112,9 +115,28 @@ const walletOrders = new WalletOrders(walletOrderStore, vaultChain, {
 });
 const orderKeeper = new OrderKeeper({ store: walletOrderStore, chain: vaultChain, pairs: env.DEX_ORDER_PAIRS, now: () => new Date() });
 
+// Recurring buys (D-limit-dca-05): the plan's money and schedule are on chain; the keeper sends from the same keeper
+// address. The LOCAL TEST fault `dca-drop-record` is looked for only in dev and test.
+const recurringBuys = new RecurringBuys(
+  new RecurringStore(triggerStoreDir),
+  viemRecurringChain({
+    rpcUrl: env.DEX_ORDER_RPC_URL,
+    chainId: env.DEX_ORDER_CHAIN_ID,
+    vault: env.DEX_RECURRING_ADDRESS,
+    keeper: env.DEX_ORDER_KEEPER_ADDRESS,
+  }),
+  {
+    pair: env.DEX_ORDER_PAIRS?.[0],
+    retryWindowSeconds: env.DEX_RECURRING_RETRY_WINDOW_SECONDS,
+    slippageBps: env.DEX_ORDER_SLIPPAGE_BPS,
+    faultDir: ['dev', 'test'].includes(process.env.APP_ENV ?? '') ? triggerStoreDir : undefined,
+  },
+);
+
 export const appRouter = createDexRouter({
   orderSessions,
   walletOrders,
+  recurringBuys,
   venues: venuesFor,
   maxAgeMs: env.QUOTE_MAX_AGE_MS,
   depth: env.DEX_QUOTE_DEPTH,
@@ -141,6 +163,9 @@ const stopKeeper = startTriggerKeeper({
 // The wallet orders' keeper, on the same owner interval. Blank does not start it.
 const stopOrderKeeper = startOrderKeeper(orderKeeper, env.DEX_ORDER_KEEPER_INTERVAL_MS, (err) =>
   app.log.error({ err }, 'order keeper tick failed'),
+);
+const stopRecurringKeeper = startRecurringKeeper(recurringBuys, env.DEX_ORDER_KEEPER_INTERVAL_MS, (err) =>
+  app.log.error({ err }, 'recurring keeper tick failed'),
 );
 
 // Built before the listener opens. The edge secret is required: quote may
@@ -187,6 +212,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
     stopKeeper();
     stopOrderKeeper();
+    stopRecurringKeeper();
     void (async () => {
       await app.close();
       process.exit(0);

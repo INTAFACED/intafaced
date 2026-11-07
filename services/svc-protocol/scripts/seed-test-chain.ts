@@ -221,7 +221,7 @@ async function seed(out: string) {
         writeFileSync(out, `${JSON.stringify({ ...record, tokens: TEST_TOKENS, claimEscrow }, null, 2)}\n`);
       }
       // A chain seeded before the order vault existed gets it now; one that has it gets fresh order marks.
-      const current = JSON.parse(readFileSync(out, 'utf8')) as { orderVault?: Address; orderPool?: Address };
+      const current = JSON.parse(readFileSync(out, 'utf8')) as { orderVault?: Address; orderPool?: Address; recurringVault?: Address };
       const vaultCode = current.orderVault ? await publicClient.getCode({ address: current.orderVault }) : undefined;
       if (!vaultCode || vaultCode === '0x') {
         const orders = await seedOrderParts(clients(), record.oracle!);
@@ -229,6 +229,12 @@ async function seed(out: string) {
       } else {
         await impersonate(clients(), [...TEST_ORDER_REPORTERS_AND_KEEPER()]);
         await setOrderMarket(clients(), record.oracle!, current.orderPool!, 1_000_000_000_000_000_000n, null);
+        // A chain seeded before the recurring buy vault existed gets it now.
+        const recurringCode = current.recurringVault ? await publicClient.getCode({ address: current.recurringVault }) : undefined;
+        if (!recurringCode || recurringCode === '0x') {
+          const recurringVault = await seedRecurringPart(clients(), record.oracle!);
+          writeFileSync(out, `${JSON.stringify({ ...current, recurringVault }, null, 2)}\n`);
+        }
       }
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
@@ -486,8 +492,19 @@ async function seedOrderParts(all: Clients, oracle: Address) {
   };
   const orderPool = await deployed('ConstantProductPool', [TEST_TOKENS.A.address, TEST_TOKENS.B.address, TEST_ORDER_POOL_FEE_BPS]);
   const orderVault = await deployed('OrderVault', [oracle, TEST_ORDER_KEEPER]);
+  const recurringVault = await seedRecurringPart(all, oracle);
   await setOrderMarket(all, oracle, orderPool, WAD, null);
-  return { orderVault, orderPool, orderKeeper: TEST_ORDER_KEEPER, orderPoolFeeBps: TEST_ORDER_POOL_FEE_BPS };
+  return { orderVault, orderPool, orderKeeper: TEST_ORDER_KEEPER, orderPoolFeeBps: TEST_ORDER_POOL_FEE_BPS, recurringVault };
+}
+
+/** The recurring buy vault (J-dex-protocol-11): keyless, reading the same oracle; its rounds swap through the order pool. */
+async function seedRecurringPart(all: Clients, oracle: Address): Promise<Address> {
+  const { publicClient, walletClient } = all;
+  const a = artifact('RecurringBuyVault');
+  const hash = await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args: [oracle] });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`RecurringBuyVault deploy failed: ${hash}`);
+  return receipt.contractAddress;
 }
 
 /** `orders-market <price> [<take> <minOut> <amountIn>]`, in decimal TEST B per TEST A and smallest units. */

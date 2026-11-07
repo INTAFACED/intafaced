@@ -689,3 +689,24 @@ describe('committed order vault artefacts match the Solidity in this tree (D-lim
       expect(names).toContain(required);
   });
 });
+
+describe('RecurringBuyVault (D-limit-dca-05)', () => {
+  const suite = (SUITES as Suite[]).find((s) => s.name === 'recurring-buy');
+  it('compiles in its own suite, with a sourceHash that matches the .sol files on disk', () => {
+    expect(suite?.expect).toBe('compiles');
+    const artefact = loadArtifact('RecurringBuyVault');
+    expect(artefact.contractName).toBe('RecurringBuyVault');
+    expect(artefact.suite).toBe('recurring-buy');
+    expect(artefact.sourceHash).toBe(computeSourceHash(suiteSources(suite, collectSources())));
+  });
+
+  it('is keyless: no owner, admin, pause or upgrade; only the maker cancels', () => {
+    const names = loadArtifact('RecurringBuyVault')
+      .abi.filter((entry) => entry.type === 'function')
+      .map((entry) => ('name' in entry ? entry.name : ''));
+    for (const forbidden of ['owner', 'pause', 'unpause', 'upgradeTo', 'transferOwnership', 'setOracle', 'withdraw', 'sweep'])
+      expect(names, `RecurringBuyVault must not expose ${forbidden}()`).not.toContain(forbidden);
+    for (const required of ['create', 'fillRound', 'skip', 'cancel', 'remaining', 'inBand', 'price', 'planOf'])
+      expect(names).toContain(required);
+  });
+});

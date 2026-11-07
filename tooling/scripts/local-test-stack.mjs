@@ -1499,6 +1499,7 @@ function testChain() {
     orderVault: record.orderVault ?? null,
     orderPool: record.orderPool ?? null,
     orderKeeper: record.orderKeeper ?? null,
+    recurringVault: record.recurringVault ?? null,
   };
 }
 

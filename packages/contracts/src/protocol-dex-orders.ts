@@ -274,3 +274,85 @@ export const dexOrderEditPreparedSchema = z.object({
 });
 export const dexOrderUpdateInputSchema = z.object({ accessToken: session, draftId: z.string().max(64), signature: hex });
 export const dexOrderCancelOutputSchema = z.object({ order: dexOrderViewSchema, copy: z.string(), calls: z.array(dexUnsignedCallSchema) });
+
+// ── Recurring buys (D-limit-dca-05, J-dex-protocol-11) ─────────────────────────────────────────────────────────────────
+
+/** Codes a recurring buy refuses with, so a person can quote one. */
+export const DEX_RECURRING_REFUSALS = [
+  'dex.recurring.unwired',
+  'dex.recurring.retry_window_unset',
+  'dex.recurring.bad_request',
+  'dex.recurring.not_found',
+  'dex.recurring.not_editable',
+  'dex.recurring.closed',
+  'dex.recurring.insufficient_balance',
+] as const;
+
+export const dexRecurringIntervalSchema = z.enum(['hour', 'day', 'week']);
+export type DexRecurringInterval = z.infer<typeof dexRecurringIntervalSchema>;
+
+/** The form's choices: the tokens a plan can spend and buy, the intervals, the retry window and the pair's price. */
+export const dexRecurringOptionsInputSchema = z.object({ wallet: address });
+export const dexRecurringOptionsOutputSchema = z.object({
+  tokens: z.array(token),
+  intervals: z.array(dexRecurringIntervalSchema),
+  retryWindowSeconds: z.number().int(),
+  /** One whole buy token in the spend token ("TEST Token A per TEST Token B"), from the oracle; null when unread. */
+  price: decimal.nullable(),
+  priceUnit: z.string(),
+  /** Idle-deposit yield: off until its owner decision and lending contract exist; the reason names both. */
+  idleYield: z.object({ available: z.boolean(), reason: z.string() }),
+});
+
+export const dexRecurringPrepareInputSchema = z.object({
+  accessToken: session,
+  spend: address,
+  buy: address,
+  amountEachRound: decimal,
+  rounds: z.number().int().min(1).max(1000),
+  every: dexRecurringIntervalSchema,
+  lowestPrice: decimal.optional(),
+  highestPrice: decimal.optional(),
+});
+export const dexRecurringPrepareOutputSchema = z.object({
+  total: decimal,
+  symbol: z.string(),
+  calls: z.array(dexUnsignedCallSchema),
+});
+
+export const dexRecurringRoundSchema = z.object({
+  n: z.number().int(),
+  due: z.string(),
+  state: z.enum(['filled', 'scheduled', 'waiting', 'due', 'cancelled']),
+  txHash: hex.nullable(),
+  amountOut: decimal.nullable(),
+});
+export const dexRecurringPlanSchema = z.object({
+  id: orderIdShape,
+  spend: token,
+  buy: token,
+  amountEachRound: decimal,
+  rounds: z.number().int(),
+  filled: z.number().int(),
+  every: dexRecurringIntervalSchema,
+  lowestPrice: decimal.nullable(),
+  highestPrice: decimal.nullable(),
+  retryWindowSeconds: z.number().int(),
+  nextFill: z.string().nullable(),
+  state: z.enum(['open', 'done', 'cancelled']),
+  refund: decimal.nullable(),
+  roundsList: z.array(dexRecurringRoundSchema),
+  log: z.array(z.object({ at: z.string(), text: z.string() })),
+});
+export type DexRecurringPlan = z.infer<typeof dexRecurringPlanSchema>;
+
+/** A plan is public on chain, so its record is read by the wallet's address; only starting one needs the session. */
+export const dexRecurringListInputSchema = z.object({
+  wallet: address,
+  /** True when the page opens: the service first reads the chain by each plan's stored hash and records what it finds. */
+  fresh: z.boolean().optional(),
+});
+export const dexRecurringListOutputSchema = z.object({ plans: z.array(dexRecurringPlanSchema) });
+
+export const dexRecurringRefInputSchema = z.object({ wallet: address, id: orderIdShape });
+export const dexRecurringCancelOutputSchema = z.object({ refund: decimal, symbol: z.string(), calls: z.array(dexUnsignedCallSchema) });

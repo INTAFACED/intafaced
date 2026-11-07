@@ -9,7 +9,13 @@ import type { OrderPair } from './model.js';
  * `dex.order.trail_bounds_unset`. Nothing here invents a pool, an address or a distance.
  */
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
-const tokenSchema = z.object({ address, symbol: z.string().min(1).max(32), decimals: z.number().int().min(0).max(36) });
+const tokenSchema = z.object({
+  address,
+  symbol: z.string().min(1).max(32),
+  decimals: z.number().int().min(0).max(36),
+  /** The token's full name, where a page names it whole ("TEST Token A"); the symbol otherwise. */
+  name: z.string().min(1).max(64).optional(),
+});
 const pairSchema = z.object({ base: tokenSchema, quote: tokenSchema, pool: address });
 
 export function parsePairs(raw: string): OrderPair[] {
@@ -54,6 +60,14 @@ export const dexOrderPairsField = envTransform('DEX_ORDER_PAIRS', parsePairs);
 export const dexOrderTrailBoundsField = envTransform('DEX_ORDER_TRAIL_BOUNDS_BPS', parseTrailBounds);
 export const dexOrderVaultField = addressField('DEX_ORDER_VAULT_ADDRESS');
 export const dexOrderKeeperField = addressField('DEX_ORDER_KEEPER_ADDRESS');
+/** The recurring buy vault (D-limit-dca-05). Blank: recurring buys are unwired and refuse `dex.recurring.unwired`. */
+export const dexRecurringVaultField = addressField('DEX_RECURRING_ADDRESS');
+/** Seconds a round outside its price band is retried before it moves to the next interval. NO DEFAULT. */
+export const dexRecurringRetryWindowField = envTransform('DEX_RECURRING_RETRY_WINDOW_SECONDS', (raw) => {
+  const n = Number(raw.trim());
+  if (!Number.isSafeInteger(n) || n <= 0) throw new Error('DEX_RECURRING_RETRY_WINDOW_SECONDS must be a positive whole number of seconds');
+  return n;
+});
 export const dexOrderRpcField = envTransform('DEX_ORDER_RPC_URL', (raw) => new URL(raw.trim()).toString().replace(/\/$/, ''));
 export const dexOrderChainIdField = envTransform('DEX_ORDER_CHAIN_ID', (raw) => {
   const n = Number(raw.trim());

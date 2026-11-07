@@ -55,6 +55,11 @@
       "service": "dex",
       "value": "100,2000",
       "note": "TEST trailing distance bounds, 1% to 20%. Not a product bound. Blank in production refuses dex.order.trail_bounds_unset."
+    },
+    "DEX_RECURRING_RETRY_WINDOW_SECONDS": {
+      "service": "dex",
+      "value": "1200",
+      "note": "TEST retry window for a recurring buy's round outside its price band (20 minutes), then it moves to the next interval. Not a product value. Blank in production refuses dex.recurring.retry_window_unset."
     }
   }
 }

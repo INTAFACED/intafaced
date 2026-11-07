@@ -17,6 +17,8 @@ import {
   dexOrderPairsField,
   dexOrderRpcField,
   dexOrderTrailBoundsField,
+  dexRecurringRetryWindowField,
+  dexRecurringVaultField,
   dexOrderVaultField,
 } from './vault/settings.js';
 
@@ -262,6 +264,10 @@ const schema = baseEnvSchema
       DEX_ORDER_PAIRS: dexOrderPairsField.optional(),
       /** Trailing distance bounds, "min,max" basis points. NO DEFAULT. Blank refuses `dex.order.trail_bounds_unset`. */
       DEX_ORDER_TRAIL_BOUNDS_BPS: dexOrderTrailBoundsField.optional(),
+      /** The recurring buy vault (D-limit-dca-05). NO DEFAULT: blank leaves recurring buys unwired. */
+      DEX_RECURRING_ADDRESS: dexRecurringVaultField.optional(),
+      /** A round outside its band is retried this long, then moves on. NO DEFAULT: blank refuses `dex.recurring.retry_window_unset`. */
+      DEX_RECURRING_RETRY_WINDOW_SECONDS: dexRecurringRetryWindowField.optional(),
       DEX_ORDER_STORE_DIR: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().min(1).optional()),
     }),
   )

@@ -14,8 +14,8 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { profileEnvFor } from '../owner-settings.mjs';
 
-const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', symbol: 'TEST A', decimals: 6 };
-const TOKEN_B = { address: '0x00000000000000000000000000000000000b0b00', symbol: 'TEST B', decimals: 18 };
+const TOKEN_A = { address: '0x00000000000000000000000000000000000a11ce', symbol: 'TEST A', decimals: 6, name: 'TEST Token A' };
+const TOKEN_B = { address: '0x00000000000000000000000000000000000b0b00', symbol: 'TEST B', decimals: 18, name: 'TEST Token B' };
 
 export default ({ c, secrets, PORTS, P, testChain }) => ({
   name: 'dex',
@@ -36,6 +36,7 @@ export default ({ c, secrets, PORTS, P, testChain }) => ({
             DEX_ORDER_VAULT_ADDRESS: vault.orderVault,
             DEX_ORDER_KEEPER_ADDRESS: vault.orderKeeper,
             DEX_ORDER_PAIRS: JSON.stringify([{ base: TOKEN_A, quote: TOKEN_B, pool: vault.orderPool }]),
+            ...(vault.recurringVault ? { DEX_RECURRING_ADDRESS: vault.recurringVault } : {}),
           }
         : {}),
     };

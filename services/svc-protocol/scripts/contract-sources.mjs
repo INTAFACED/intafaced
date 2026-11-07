@@ -310,6 +310,16 @@ export const SUITES = [
     sources: ['orders/OrderVault.sol', 'amm/IERC20Minimal.sol', 'oracle/IPriceOracle.sol'],
   },
   {
+    name: 'recurring-buy',
+    expect: 'compiles',
+    /**
+     * D-limit-dca-05 — a person's recurring buy: every round's input held from the start, the schedule kept by the chain's
+     * block time, each round swapped through the plan's pool straight to the maker. Own suite, reading only the oracle's
+     * and the pool's interfaces.
+     */
+    sources: ['orders/RecurringBuyVault.sol', 'amm/IERC20Minimal.sol', 'oracle/IPriceOracle.sol'],
+  },
+  {
     name: 'fee-relay',
     expect: 'compiles',
     /**
