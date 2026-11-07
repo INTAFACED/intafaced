@@ -93,3 +93,23 @@ export type SupportSafetyAcknowledgements = z.infer<typeof supportSafetyAcknowle
 export const SUPPORT_SAFETY_KEY_REUSED = 'support.safety_key_reused';
 /** A date of death in the future. */
 export const SUPPORT_BEREAVEMENT_DATE_INVALID = 'support.bereavement_date_invalid';
+
+/**
+ * The scam warning on a first-time payee (BK-safe-02, J-bank-18 #2). Shown once per (person, payee): once the person has
+ * read it for a payee (`safety.payeeWarningSeen`), reviewing that payee again shows it no more. It never blocks a payment
+ * by itself. The guide it links is the published scam-tactics answer in the help centre.
+ */
+export const SUPPORT_SCAM_GUIDE_HREF = '/helpdetail?id=kb-security-scam-tactics';
+export const supportPayeeWarningInputSchema = z.object({ payeeId: z.string().guid() });
+export type SupportPayeeWarningInput = z.infer<typeof supportPayeeWarningInputSchema>;
+export const supportPayeeWarningSchema = z.object({
+  payeeId: z.string().guid(),
+  /** True until the person has read the warning for this payee. */
+  show: z.boolean(),
+  /** When the person read it; null while it still shows. */
+  seenAt: z.string().datetime().nullable(),
+  guideHref: z.literal(SUPPORT_SCAM_GUIDE_HREF),
+});
+export type SupportPayeeWarning = z.infer<typeof supportPayeeWarningSchema>;
+/** A person cannot be their own payee. */
+export const SUPPORT_PAYEE_SELF = 'support.payee_self';

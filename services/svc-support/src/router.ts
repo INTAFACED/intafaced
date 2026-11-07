@@ -2,6 +2,7 @@ import { TRPCError } from '@trpc/server';
 import { guestProcedures } from './guest-router.js';
 import { safetyRouter } from './safety-router.js';
 import { MemorySafetyBook, SafetyCases } from './safety-cases.js';
+import { MemoryPayeeWarningBook, PayeeWarnings } from './payee-warnings.js';
 import type { GuestRequests } from './guest-requests.js';
 import { z } from 'zod';
 import {
@@ -249,6 +250,8 @@ export function createSupportRouter(
   checks: VerificationChecks = new VerificationChecks(new MemoryCheckBook(), support, null),
   /** Complaints and bereavement reports, each acknowledged once (BK-safe-03, J-bank-18 #5 #6). */
   safety: SafetyCases = new SafetyCases(new MemorySafetyBook(), support, null),
+  /** The scam warning on a first-time payee, read once per payee (BK-safe-02, J-bank-18 #2). */
+  payeeWarnings: PayeeWarnings = new PayeeWarnings(new MemoryPayeeWarningBook()),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
@@ -264,7 +267,7 @@ export function createSupportRouter(
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
     ...verificationCheckProcedures(checks),
-    safety: safetyRouter(safety),
+    safety: safetyRouter(safety, payeeWarnings),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 

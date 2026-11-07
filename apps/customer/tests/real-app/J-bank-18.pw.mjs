@@ -1,11 +1,14 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
-import { api, ORIGIN } from './stack.mjs';
+import { api, fund, ORIGIN } from './stack.mjs';
 
 // J-bank-18, in the running app (docs/roadmap/journeys.json): I stay safe, report a scam and make a complaint. Tests
-// titled "J-bank-18 #<n>" prove a step. Steps #1 to #4 (BK-safe-01, BK-safe-02) land with their own slices; this file
+// titled "J-bank-18 #<n>" prove a step. Steps #1, #3 and #4 (BK-safe-01, BK-safe-02) land with their own slices; this file
 // holds the steps built so far, so no step here is written ahead of its code.
+//
+// #2 (BK-safe-02): the scam warning on a first-time payee, once per payee, with the link to the scam guide. The person is
+// funded with TEST USDT only so the bank opens their space; nothing is sent.
 //
 // #5 and #6 (BK-safe-03): a complaint and a bereavement report, each a request on the support desk with one
 // acknowledgement. The stack publishes a TEST final-response limit of 14 calendar days (SUPPORT_COMPLAINT_RESPONSE_DAYS
@@ -39,6 +42,56 @@ async function support(who) {
     post: (procedure, body) => client.post(`/api/support/trpc/${procedure}`, body),
   };
 }
+
+/** Pick another person as the payee on /bank/transfers by handle. */
+async function pickPayee(page, handle) {
+  await page.getByLabel('Destination').selectOption({ label: 'Another person' });
+  await page.getByPlaceholder('@handle').fill(handle);
+  await page.getByRole('button', { name: 'Find' }).click();
+  await expect(page.getByText(`Paying @${handle}`)).toBeVisible();
+}
+
+test(`${J} #2 reviews a first-time payee: the warning once per payee with a link to the scam guide`, async ({ browser }) => {
+  // Two other people to pay, each signed up on a device of their own.
+  const payees = [];
+  for (const prefix of ['jb18p', 'jb18q']) {
+    const other = await visitor(browser);
+    payees.push(await signUp(other, prefix));
+    await other.context().close();
+  }
+  const page = await visitor(browser);
+  const who = await signUp(page, 'jb18w');
+  expect(fund(who.email, 'USDT', '5').tx).toBeTruthy();
+  await page.goto('/bank/transfers');
+  const main = page.locator('main');
+
+  // First review of the first payee: the warning, with a link that opens the scam guide.
+  await pickPayee(page, payees[0].handle);
+  const warning = main.getByTestId('payee-warning');
+  await expect(warning).toBeVisible();
+  await expect(warning).toContainText('First payment to this person: check it is not a scam');
+  const guide = warning.getByRole('link', { name: 'Read the scam guide' });
+  await expect(guide).toHaveAttribute('href', '/helpdetail?id=kb-security-scam-tactics');
+  await warning.getByRole('button', { name: 'I understand' }).click();
+  await expect(warning).toHaveCount(0);
+
+  // Once per payee: reviewing the same payee again, after a reload, shows no warning.
+  await page.reload();
+  await pickPayee(page, payees[0].handle);
+  await expect(main.getByText(`Paying @${payees[0].handle}`)).toBeVisible();
+  await expect(main.getByTestId('payee-warning')).toHaveCount(0);
+
+  // A different first-time payee gets the warning again.
+  await pickPayee(page, payees[1].handle);
+  await expect(main.getByTestId('payee-warning')).toBeVisible();
+
+  // The guide it links is a published answer.
+  await main.getByTestId('payee-warning').getByRole('link', { name: 'Read the scam guide' }).click();
+  await expect(page).toHaveURL(/\/helpdetail\?id=kb-security-scam-tactics/);
+  await expect(page.locator('main').getByRole('heading').first()).toBeVisible();
+  await expect(page.locator('main')).not.toContainText('not found', { ignoreCase: true });
+  await page.context().close();
+});
 
 test(`${J} #5 files a complaint: an acknowledgement once with the deadline from the owner's limit`, async ({ browser }) => {
   const page = await visitor(browser);

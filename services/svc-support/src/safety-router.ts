@@ -3,6 +3,9 @@ import {
   router,
   scopedProcedure,
   SUPPORT_BEREAVEMENT_DATE_INVALID,
+  SUPPORT_PAYEE_SELF,
+  supportPayeeWarningInputSchema,
+  supportPayeeWarningSchema,
   SUPPORT_SAFETY_KEY_REUSED,
   supportBereavementInputSchema,
   supportComplaintInputSchema,
@@ -10,6 +13,7 @@ import {
   supportSafetyAcknowledgementsSchema,
 } from '@intafaced/contracts';
 import type { SafetyCases } from './safety-cases.js';
+import { MemoryPayeeWarningBook, PayeeWarnings } from './payee-warnings.js';
 import { SupportError } from './support-service.js';
 import { mapError } from './router.js';
 import { userCopy } from './user-copy.js';
@@ -19,8 +23,31 @@ import { userCopy } from './user-copy.js';
  * request key, and the caller's own acknowledgements. Every door is the signed-in person's own; the case comes off the
  * caller, never from the input.
  */
-export function safetyRouter(safety: SafetyCases) {
+export function safetyRouter(safety: SafetyCases, warnings: PayeeWarnings = new PayeeWarnings(new MemoryPayeeWarningBook())) {
   return router({
+    /** The scam warning for one payee: shown until the person has read it for that payee (BK-safe-02, J-bank-18 #2). */
+    payeeWarning: scopedProcedure('support:read')
+      .input(supportPayeeWarningInputSchema)
+      .output(supportPayeeWarningSchema)
+      .query(async ({ ctx, input }) => {
+        try {
+          return await warnings.warning(ctx.principal!.userId, input.payeeId);
+        } catch (err) {
+          mapSafety(err);
+        }
+      }),
+
+    payeeWarningSeen: scopedProcedure('support:write')
+      .input(supportPayeeWarningInputSchema)
+      .output(supportPayeeWarningSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await warnings.seen(ctx.principal!.userId, input.payeeId);
+        } catch (err) {
+          mapSafety(err);
+        }
+      }),
+
     complain: scopedProcedure('support:write')
       .input(supportComplaintInputSchema)
       .output(supportSafetyAcknowledgementSchema)
@@ -58,6 +85,7 @@ export function safetyRouter(safety: SafetyCases) {
 const HTTP: Record<string, TRPCError['code']> = {
   [SUPPORT_SAFETY_KEY_REUSED]: 'CONFLICT',
   [SUPPORT_BEREAVEMENT_DATE_INVALID]: 'BAD_REQUEST',
+  [SUPPORT_PAYEE_SELF]: 'BAD_REQUEST',
 };
 
 /** A safety refusal keeps its code as the cause, so the page reads the code, not a sentence. */

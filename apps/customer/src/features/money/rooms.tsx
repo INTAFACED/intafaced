@@ -1,6 +1,7 @@
 import { t as copyText, Text } from './copy';
 import { ComplaintRoom } from './complaint/ComplaintRoom';
 import { BereavementRoom } from './bereavement/BereavementRoom';
+import { PayeeWarning } from './PayeeWarning';
 import { CardOrderRoom } from './CardOrder';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -697,6 +698,7 @@ function Transfers({ open, search }: { open: (spec: ActionSpec) => void; search:
                   {destination === 'user' && (
                     <>
                       <RecipientPicker value={recipient} onChange={setRecipient} />
+                      {recipient ? <PayeeWarning payeeId={recipient.userId} /> : null}
                       <p className="money-caption">{depth.t('personNote')}</p>
                     </>
                   )}

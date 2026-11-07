@@ -59,6 +59,12 @@ const en = {
   yourReports: 'Your reports',
   noReports: 'You have sent no reports.',
 
+  payeeWarningTitle: 'First payment to this person: check it is not a scam',
+  payeeWarningBody:
+    'Scammers pose as banks, officials, sellers or friends and ask you to move money urgently, to a "safe account" or for a deal that seems too good. We never ask you to move money. If you have not met this person or checked who they are, stop.',
+  payeeWarningGuide: 'Read the scam guide',
+  payeeWarningSeen: 'I understand',
+  payeeWarningFailed: 'The scam warning could not be read. Check who you are paying before you send.',
   reference: 'Reference',
   acknowledgedAt: 'Acknowledged',
   openRequest: 'Open the request',
