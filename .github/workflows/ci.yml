@@ -21,8 +21,8 @@ on:
   # INTAFACED/project-state repo (product/INTAFACED_DEFINITIVE_BUILD.md); the
   # gate reads its structure from tooling/coverage-law-index.json, which `**` covers.
   # Agent-rule markdown stays listed so a rules-only change cannot be treated
-  # as docs-only. tooling/scripts/merge-gate.mjs mirrors this list and its
-  # test fails on drift. The last matching pattern wins.
+  # as docs-only. No script mirrors this list (tooling/scripts/merge-gate.mjs,
+  # which once did, is gone). The last matching pattern wins.
   push:
     branches: [main]
   pull_request:
