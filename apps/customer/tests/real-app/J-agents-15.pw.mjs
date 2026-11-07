@@ -1,11 +1,9 @@
-// World: stack
-import { execFile } from 'node:child_process';
+// World: restart, gates
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { test, expect } from './journey.mjs';
 import { agentsRun, openFounderDesk, openNavigatorSession, tableIn } from './agents.mjs';
-import { api, ROOT } from './stack.mjs';
+import { api, ROOT, withOwnerSwitch } from './stack.mjs';
 
 // J-agents-15, in the founder console (docs/roadmap/journeys.json): find out why an agent action failed for a customer.
 // One test per step, titled "J-agents-15 #<n>", run in order. The customer is a TEST account who, in their own signed-in
@@ -45,21 +43,6 @@ async function search(page, reason) {
   await desk(page).getByRole('button', { name: 'Search' }).click();
 }
 
-/**
- * Restarts svc-agents with one owner value blank (`off`) or back on its LOCAL TEST value. The restart runs without
- * blocking this process, so the console's kept-alive connections close while it runs and the next request opens a new one.
- */
-async function ownerValue(variable, on) {
-  const env = { ...process.env };
-  if (on) delete env[variable];
-  else env[variable] = 'off';
-  await promisify(execFile)(process.execPath, [path.join(ROOT, 'tooling/scripts/local-test-stack.mjs'), 'restart', 'agents'], {
-    cwd: ROOT,
-    env,
-    timeout: 120_000,
-  });
-}
-
 /** One engine call in the customer's own session, through their own signed-in API door. */
 async function ownRun(sessionId, requestId, task) {
   const door = await api(agents.account());
@@ -68,8 +51,8 @@ async function ownRun(sessionId, requestId, task) {
 
 test(`${J} starts: a TEST customer who tried to open a Navigator session, and the founder console`, async ({ page }) => {
   test.setTimeout(240_000);
-  // svc-agents starts on every LOCAL TEST owner value (reasons and retention), whatever an earlier run left blank.
-  await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', true);
+  // svc-agents starts on every LOCAL TEST owner value (reasons and retention): journey.mjs's owner-switch guard clears any
+  // switch an earlier test left before this one runs.
   await agents.start(page, 'ag15', '10');
   // The customer opens a Navigator session and runs it once, in their own session, confirming the spend ceiling.
   const sessionId = await openNavigatorSession(page, agents);
@@ -109,16 +92,19 @@ test(`${J} #2 enters a reason and searches: rows with refusal code and tool, no 
 }) => {
   test.setTimeout(180_000);
   // With the owner's reason list blank there is no reason to enter: the search refuses by its code and shows no rows.
-  try {
-    await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', false);
-    await search(page, false);
-    await expect(desk(page).getByRole('combobox', { name: 'Reason' }).getByRole('option')).toHaveCount(1);
-    await expect(desk(page).getByRole('alert')).toContainText('(agents.log_read_reason_unset)');
-    await expect(rows(page)).toHaveCount(0);
-    await expect(main(page).getByTestId('log-read-total')).toHaveCount(0);
-  } finally {
-    await ownerValue('LOCAL_STACK_AGENTS_LOG_READ_REASONS', true);
-  }
+  // The stack's owner switch blanks it for this block only and puts the TEST list back afterwards, passed or failed.
+  await withOwnerSwitch(
+    'agents',
+    { AGENTS_LOG_READ_REASONS: 'blank' },
+    async () => {
+      await search(page, false);
+      await expect(desk(page).getByRole('combobox', { name: 'Reason' }).getByRole('option')).toHaveCount(1);
+      await expect(desk(page).getByRole('alert')).toContainText('(agents.log_read_reason_unset)');
+      await expect(rows(page)).toHaveCount(0);
+      await expect(main(page).getByTestId('log-read-total')).toHaveCount(0);
+    },
+    { by: `${J} #2` },
+  );
 
   await search(page, true);
   await expect(main(page).getByTestId('log-read-audit')).toHaveText('1 audit row written for this read');
@@ -197,20 +183,22 @@ test(`${J} #3 filters by outcome and tool: matching rows; the export applies the
 test(`${J} #4 opens a transcript with retention unset: the typed refusal and no text row`, async ({ page }) => {
   test.setTimeout(240_000);
   const { sessionId, ranActionId, task } = agents.run.read();
-  let unkept;
-  try {
-    await ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', false);
-    await search(page, true);
-    await actionRow(page, ranActionId).getByRole('button', { name: 'Open transcript' }).click();
-    await expect(transcriptProblem(page)).toContainText('(agents.transcript_retention_unset)');
-    await expect(main(page).getByRole('region', { name: 'Transcript' })).toHaveCount(0);
-    // An engine call that runs while retention is unset keeps no text row.
-    const again = await ownRun(sessionId, `${sessionId}:retention-unset`, task);
-    expect(again.status).toBe(200);
-    unkept = again.body.result.data.action.id;
-  } finally {
-    await ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', true);
-  }
+  // The stack's owner switch blanks retention for this block only and puts the TEST value back afterwards, passed or failed.
+  const unkept = await withOwnerSwitch(
+    'agents',
+    { AGENTS_TRANSCRIPT_RETENTION_DAYS: 'blank' },
+    async () => {
+      await search(page, true);
+      await actionRow(page, ranActionId).getByRole('button', { name: 'Open transcript' }).click();
+      await expect(transcriptProblem(page)).toContainText('(agents.transcript_retention_unset)');
+      await expect(main(page).getByRole('region', { name: 'Transcript' })).toHaveCount(0);
+      // An engine call that runs while retention is unset keeps no text row.
+      const again = await ownRun(sessionId, `${sessionId}:retention-unset`, task);
+      expect(again.status).toBe(200);
+      return again.body.result.data.action.id;
+    },
+    { by: `${J} #4` },
+  );
   // With retention back on, that call still has no text: refused as not kept. The blank value deleted nothing, so the
   // text kept before it was unset reads again.
   await search(page, true);
@@ -225,8 +213,8 @@ test(`${J} #5 opens a transcript after the owner sets retention: text whose dige
   page,
 }) => {
   test.setTimeout(180_000);
-  // The owner sets retention (the LOCAL TEST value); the customer then runs their agent again, in their own session.
-  await ownerValue('LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION', true);
+  // Retention is set (the LOCAL TEST value, back since #4's switch ended); the customer runs their agent again, in their
+  // own session.
   const { sessionId, task } = agents.run.read();
   const ran = await ownRun(sessionId, `${sessionId}:retention-set`, task);
   expect(ran.status).toBe(200);

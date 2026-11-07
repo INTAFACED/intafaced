@@ -75,6 +75,12 @@ export function directWorld(src) {
   if (BOOK.some((re) => re.test(src))) found.add('book');
   if (FREEZE.some((re) => re.test(src))) found.add('freeze');
   if (/\brestartWith\(/.test(src)) found.add('restart');
+  // An owner switch (stack.mjs withOwnerSwitch, local-test-owner-switch.mjs) sets an owner setting blank or TEST for
+  // the whole platform and restarts the named service to read it, both for the length of one step.
+  if (/\bwithOwnerSwitch\(/.test(src)) {
+    found.add('restart');
+    found.add('gates');
+  }
   const viaTool = new Set();
   // Any quote: 'x', "x" or `x` (a template with no ${…} in it is as literal as the others).
   for (const m of src.matchAll(/\btool\(\s*(['"`])([a-z-]+\.mjs)\1\s*(?:,\s*((['"`])([a-z-]+)\4|[^,)]+))?/g)) {

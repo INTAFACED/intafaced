@@ -4,6 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
+import { guardOwnerSwitches } from '../../../../tooling/scripts/local-test-owner-switch.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 
@@ -103,6 +104,14 @@ const extended = base.extend({
     },
     // Its own time, apart from the test's: a test that timed out inside its freeze is exactly the one to lift.
     { auto: true, timeout: 150_000 },
+  ],
+  // No owner switch (withOwnerSwitch, local-test-owner-switch.mjs) outlives its test, even one that timed out mid-switch.
+  ownerSwitchGuard: [
+    async ({}, use, testInfo) => {
+      await guardOwnerSwitches({ title: testInfo.titlePath.slice(1).join(' › '), body: () => use() });
+    },
+    // Its own time: clearing restarts the switched service.
+    { auto: true, timeout: 200_000 },
   ],
   // A test that fails fast ends after FAIL_FAST.testMs, unless it has a limit other than the project's: one set before this
   // runs (describe.configure, test.use, test.slow) is kept, and one set inside the test (test.setTimeout) comes after it.

@@ -80,19 +80,16 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // LOCAL TEST tier law of the scanner, navigator and support doors (owner decision); production leaves it blank and each
     // door refuses tier_law_blank. The tier itself is always the signed principal's.
     AGENTS_TIER_LAWS: testValue('AGENTS_TIER_LAWS'),
-    // LOCAL TEST operator log values (J-agents-15). `LOCAL_STACK_AGENTS_LOG_READ_REASONS=off` or
-    // `LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION=off` on a start or restart leaves that value blank, so a journey proves
-    // its refusal (agents.log_read_reason_unset, agents.transcript_retention_unset) and its restore.
+    // LOCAL TEST operator log values (J-agents-15). A journey blanks one with withOwnerSwitch (local-test-owner-switch.mjs)
+    // to prove its refusal (agents.log_read_reason_unset, agents.transcript_retention_unset) and its restore.
     // `LOCAL_STACK_AGENTS_TEMPLATES=off` offers only "Start blank" (J-agents-03 #1); otherwise every built-in template.
     ...(process.env.LOCAL_STACK_AGENTS_TEMPLATES === 'off' ? { AGENTS_OWN_TEMPLATES: 'blank' } : {}),
-    ...(process.env.LOCAL_STACK_AGENTS_LOG_READ_REASONS === 'off' ? {} : { AGENTS_LOG_READ_REASONS: testValue('AGENTS_LOG_READ_REASONS') }),
+    AGENTS_LOG_READ_REASONS: testValue('AGENTS_LOG_READ_REASONS'),
     AGENTS_OPS_ACTIONS_LIMIT: testValue('AGENTS_OPS_ACTIONS_LIMIT'),
     // LOCAL TEST managed baseline for own agents' tools (J-agents-05 #1). `LOCAL_STACK_AGENTS_POLICY_BASELINE=off` leaves
     // it blank, so every own-agent tool call refuses agents.baseline_value_unset.
     ...(process.env.LOCAL_STACK_AGENTS_POLICY_BASELINE === 'off' ? {} : { AGENTS_POLICY_BASELINE: testValue('AGENTS_POLICY_BASELINE') }),
-    ...(process.env.LOCAL_STACK_AGENTS_TRANSCRIPT_RETENTION === 'off'
-      ? {}
-      : { AGENTS_TRANSCRIPT_RETENTION_DAYS: testValue('AGENTS_TRANSCRIPT_RETENTION_DAYS') }),
+    AGENTS_TRANSCRIPT_RETENTION_DAYS: testValue('AGENTS_TRANSCRIPT_RETENTION_DAYS'),
     // LOCAL TEST own-agent token lifetime (J-agents-03 #5) and drafting assistant on the TEST engine (J-agents-03 #6).
     // `LOCAL_STACK_AGENTS_TOKEN_LIFETIME=off` or `LOCAL_STACK_AGENTS_ASSISTANT_MODEL=off` on a start or restart leaves that
     // value blank, so a journey sees agents.identity.lifetime_unset or the owner.decision notice, and its restore.

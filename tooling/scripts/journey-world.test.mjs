@@ -70,6 +70,7 @@ test('each shared part is found directly, through a computed subcommand, and thr
   assert.deepEqual([...directWorld("tool('local-test-market.mjs', 'move', 'BTC/USDT', '+1%')")], ['market']);
   assert.deepEqual([...directWorld("tool('local-test-market.mjs', cmd)")], ['market']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'restart', 'trade')")], ['restart']);
+  assert.deepEqual([...directWorld("await withOwnerSwitch('agents', { AGENTS_X: 'blank' }, body)")].sort(), ['gates', 'restart']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', what, 'trade')")].sort(), ['restart', 'stack']);
   assert.deepEqual([...directWorld("tool('local-test-stack.mjs', 'age-addresses')")], ['stack']);
   assert.deepEqual([...directWorld("tool('local-test-gates.mjs', 'risk', 'BTC/USDT')")], ['gates']);
