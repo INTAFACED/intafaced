@@ -2,7 +2,7 @@
   "name": "intafaced",
   "private": true,
   "version": "0.0.0",
-  "description": "INTAFACED Sovereign OS \u2014 monorepo root. Law: INTAFACED_DEFINITIVE_BUILD.md",
+  "description": "INTAFACED Sovereign OS \u2014 monorepo root. Law: INTAFACED_DEFINITIVE_BUILD.md (private, INTAFACED/project-state product/)",
   "packageManager": "pnpm@10.25.0",
   "engines": {
     "node": ">=20.0.0"
