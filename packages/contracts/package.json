@@ -38,6 +38,10 @@
       "types": "./dist/protocol-blockers.d.ts",
       "default": "./dist/protocol-blockers.js"
     },
+    "./protocol-bridge": {
+      "types": "./dist/protocol-bridge.d.ts",
+      "default": "./dist/protocol-bridge.js"
+    },
     "./protocol-networks": {
       "types": "./dist/protocol-networks.d.ts",
       "default": "./dist/protocol-networks.js"
@@ -349,6 +353,14 @@
     "./academy-course-release": {
       "types": "./dist/academy-course-release.d.ts",
       "default": "./dist/academy-course-release.js"
+    },
+    "./academy-learner-desk": {
+      "types": "./dist/academy-learner-desk.d.ts",
+      "default": "./dist/academy-learner-desk.js"
+    },
+    "./identity-learner-card": {
+      "types": "./dist/identity-learner-card.d.ts",
+      "default": "./dist/identity-learner-card.js"
     },
     "./academy-course-item-rules": {
       "types": "./dist/academy-course-item-rules.d.ts",
