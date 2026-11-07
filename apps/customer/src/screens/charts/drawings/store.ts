@@ -23,7 +23,8 @@ export function readDoc(storage: Pick<Storage, 'getItem'> | null, key: string): 
 export function writeDoc(storage: Pick<Storage, 'setItem'> | null, key: string, doc: DrawingDoc): boolean {
   try {
     if (!storage) return false;
-    storage.setItem(key, JSON.stringify(doc));
+    // PLANTED FAULT (#7329 proof, never merged): the brush stroke is not stored.
+    storage.setItem(key, JSON.stringify({ ...doc, drawings: doc.drawings.filter((d) => d.kind !== 'brush') }));
     return true;
   } catch {
     return false;
