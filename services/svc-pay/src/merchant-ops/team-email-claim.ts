@@ -53,7 +53,8 @@ export async function claimEmailTeamInvites(
     const preview = await tx<Array<{ merchant_id: string }>>`
       SELECT merchant_id FROM pay.merchant_team_members
        WHERE user_id = ${token} AND status = 'invited'
-         AND updated_at >= now() - (${ttl} * interval '1 millisecond')`;
+         AND updated_at >= now() - (${ttl} * interval '1 millisecond')
+         AND (invite_expires_at IS NULL OR invite_expires_at > now())`;
     const merchantIds = [...new Set(preview.map((row) => row.merchant_id))].sort();
     for (const merchantId of merchantIds) {
       await tx`SELECT id FROM pay.merchants WHERE id = ${merchantId} FOR UPDATE`;
@@ -63,6 +64,7 @@ export async function claimEmailTeamInvites(
         FROM pay.merchant_team_members
        WHERE user_id = ${token} AND status = 'invited'
          AND updated_at >= now() - (${ttl} * interval '1 millisecond')
+         AND (invite_expires_at IS NULL OR invite_expires_at > now())
        ORDER BY id
        FOR UPDATE`;
     let claimed = 0;

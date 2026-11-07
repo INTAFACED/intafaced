@@ -147,6 +147,7 @@ import { setOverCapNoticeLogger } from './control/guards.js';
 import { registerCaptureReconcileRoutes } from './capture-reconcile-routes.js';
 import { setCaptureReconcileLogger } from './capture-reconcile.js';
 import { loadTeamEmailInviteLimit } from './merchant-ops/team-email.js';
+import { openTeamInviteMail } from './merchant-ops/team-invite-mail.js';
 import { loadWebhookRetryLimit } from './merchant-ops/webhooks.js';
 import { readProductImageRule } from './catalog/image-rules.js';
 import { readCheckoutLogoRule } from './checkout-branding/logo-rules.js';
@@ -692,6 +693,12 @@ const settlementAssets = parseSettlementAssets(env.PAY_SETTLEMENT_ASSETS);
 const metrics = createMetricsRuntime({ sql, pay, trees: subMerchants, rails }, { settlementAssets });
 /** Blank, zero, or a partial triple leaves email invites unconfigured. */
 const teamEmailInvite = loadTeamEmailInviteLimit(process.env);
+/** How an email invitation is delivered. Unset: email invitations are off. Only a LOCAL-TEST outbox exists (dev or test). */
+const teamInviteMail = openTeamInviteMail({
+  appEnv: process.env.APP_ENV,
+  transport: process.env.PAY_TEAM_INVITE_MAIL_TRANSPORT,
+  outboxPath: process.env.PAY_TEAM_INVITE_MAIL_OUTBOX,
+});
 
 /** W-custody-ops-12: the custody desk reverses a dropped, held withdrawal through the withdrawal service's own posting. */
 const custodyDroppedReverser = {
@@ -787,6 +794,7 @@ export const appRouter = mergeRouters(
     webhooksAllowLocalHttp: isExplicitDevOrTestEnv(process.env),
     webhookRetry: loadWebhookRetryLimit(process.env),
     teamEmailInvite,
+    teamInviteMail,
     disputes: disputeCases,
     pay,
     evidence: {

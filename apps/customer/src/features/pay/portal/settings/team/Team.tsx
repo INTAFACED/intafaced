@@ -27,9 +27,16 @@ import { memberKey, memberName, pinOwner } from '../account/model';
 import { extensionCopy, portalCopy } from '../copy';
 import { grantableRoles, memberActions } from '../model';
 import { inviteEmailOf, maskEmail, normaliseInviteEmail } from './email';
-import { RolesCatalogue } from './Roles';
+import { permissionName, RolesCatalogue } from './Roles';
 
 type TeamMe = { merchantId: string; userId: string; role: MemberRole };
+
+/** A pending invitation past its expiry reads Expired; a member who was active and is now off reads Deactivated. */
+export function memberStatus(m: Member, now = Date.now()): string {
+  if (m.status === 'invited' && m.expiresAt && Date.parse(m.expiresAt) <= now) return 'expired';
+  if (m.status === 'removed' && m.activatedAt) return 'deactivated';
+  return m.status;
+}
 type Filters = { search: string; role: string; status: string };
 
 /** `/pay/team`: who is on the account, what each may do, and every change to it. */
@@ -123,6 +130,8 @@ export function TeamView(props: {
         <strong>{t('mfaTitle')}</strong> {t('mfaBody')}
       </p>
 
+      <JoinByLink portal={portal} refresh={refresh} />
+
       <Invitations portal={portal} invitations={props.invitations} refresh={refresh} />
 
       <PaySection title={t('membersTitle')} description={t('membersBody')}>
@@ -192,13 +201,17 @@ export function TeamView(props: {
                     ),
                   },
                   { header: t('colRole'), cell: (m) => roleName(m.role) },
-                  { header: t('colStatus'), cell: (m) => <Chip kind="member" value={m.status} /> },
+                  { header: t('colStatus'), cell: (m) => <Chip kind="member" value={memberStatus(m)} /> },
                   { header: t('colSince'), cell: (m) => <DateTime value={m.activatedAt ?? m.createdAt} /> },
+                  {
+                    header: t('colExpires'),
+                    cell: (m) => (m.status === 'invited' && m.expiresAt ? <DateTime value={m.expiresAt} /> : t('noExpiry')),
+                  },
                 ]}
                 card={(m) => ({
                   title: `${nameOf(m)} · ${roleName(m.role)}`,
-                  time: <DateTime value={m.activatedAt ?? m.createdAt} />,
-                  status: <Chip kind="member" value={m.status} />,
+                  time: <DateTime value={m.status === 'invited' && m.expiresAt ? m.expiresAt : (m.activatedAt ?? m.createdAt)} />,
+                  status: <Chip kind="member" value={memberStatus(m)} />,
                 })}
               />
               {props.members.status === 'ready' && <MoreFooter state={props.members} onMore={props.loadMoreMembers} />}
@@ -213,6 +226,7 @@ export function TeamView(props: {
           name={nameOf(chosen)}
           me={role}
           portal={portal}
+          catalogue={props.catalogue}
           inviter={chosen.invitedBy ? actorName(chosen.invitedBy, props.myUserId, props.names) : null}
           refresh={() => {
             props.select('');
@@ -244,6 +258,43 @@ export function TeamView(props: {
         </ListShell>
       </PaySection>
     </div>
+  );
+}
+
+/**
+ * J-merchant-11 #2: the emailed link opens `/pay/team?invite=<id>&code=<code>`. Accepting sends the code, so only the
+ * newest link sent works; the service refuses an older, expired or unconfirmed one in words this page shows as they are.
+ */
+function JoinByLink({ portal, refresh }: { portal: PortalApi; refresh: () => void }) {
+  const { t } = portalCopy.useCopy();
+  const [invite, setInvite] = useUrlParam('invite');
+  const [code, setCode] = useUrlParam('code');
+  const [joined, setJoined] = useState(false);
+  if (joined) {
+    return (
+      <p className="pay-confirmed" role="status">
+        {t('joinDone')}
+      </p>
+    );
+  }
+  if (!invite || !code) return null;
+  return (
+    <PaySection title={t('joinTitle')} description={t('joinBody')}>
+      <div className="pp-actions">
+        <PortalReview
+          title={t('joinAccept')}
+          variant="primary"
+          description={t('joinAcceptBody')}
+          perform={() => portal.acceptInvite(invite, code)}
+          onConfirmed={() => {
+            setInvite('');
+            setCode('');
+            setJoined(true);
+            refresh();
+          }}
+        />
+      </div>
+    </PaySection>
   );
 }
 
@@ -294,8 +345,14 @@ export function InvitationsOnly({ portal }: { portal: PortalApi }) {
   const invitations = useResource((s) => portal.myInvitations(s), 'portal:team-invites');
   // A person who holds no business permission at all has no invitations to answer: the service refuses the read, and the
   // page already says "No business account yet", so a second refusal beside it would only repeat itself.
-  if (invitations.resource.status === 'failed' && invitations.resource.failure.reason === 'forbidden') return null;
-  return <Invitations portal={portal} invitations={invitations.resource} refresh={invitations.reload} />;
+  const join = <JoinByLink portal={portal} refresh={invitations.reload} />;
+  if (invitations.resource.status === 'failed' && invitations.resource.failure.reason === 'forbidden') return join;
+  return (
+    <>
+      {join}
+      <Invitations portal={portal} invitations={invitations.resource} refresh={invitations.reload} />
+    </>
+  );
 }
 
 type T = ReturnType<typeof portalCopy.useCopy>['t'];
@@ -329,6 +386,7 @@ function MemberPanel({
   name,
   me,
   portal,
+  catalogue,
   inviter,
   refresh,
   close,
@@ -337,6 +395,7 @@ function MemberPanel({
   name: string;
   me: MemberRole | null;
   portal: PortalApi;
+  catalogue: Resource<PermissionCatalogue>;
   inviter: string | null;
   refresh: () => void;
   close: () => void;
@@ -387,7 +446,12 @@ function MemberPanel({
         )}
       </dl>
       <p className="muted">{t(`roleCan_${member.role}` as 'roleCan_owner')}</p>
-      {inviteEmailOf(member.userId) && member.status === 'invited' && <p className="muted">{t('pendingEmailBody')}</p>}
+      <RolePermissions role={member.role} catalogue={catalogue} />
+      {memberStatus(member) === 'expired' ? (
+        <p className="muted">{t('expiredBody')}</p>
+      ) : (
+        inviteEmailOf(member.userId) && member.status === 'invited' && <p className="muted">{t('pendingEmailBody')}</p>
+      )}
       {actions.canChange && member.memberId ? (
         <div className="pp-row-actions">
           <SelectField
@@ -412,14 +476,41 @@ function MemberPanel({
             onConfirmed={refresh}
             disabled={!target}
           />
-          <PortalReview
-            title={t('remove')}
-            variant="sell"
-            description={t('removeBody')}
-            review={<p>{t('removeReview', { who: name })}</p>}
-            perform={() => portal.removeMember(member.memberId!)}
-            onConfirmed={refresh}
-          />
+          {member.status === 'invited' && inviteEmailOf(member.userId) && (
+            <PortalReview
+              title={t('resendInvite')}
+              description={t('resendInviteBody')}
+              review={
+                <p>
+                  {t('resendInviteReview', {
+                    email: maskEmail(inviteEmailOf(member.userId)!),
+                    role: t(`role_${member.role}` as 'role_owner'),
+                  })}
+                </p>
+              }
+              perform={() => portal.resendInvite(member.memberId!)}
+              onConfirmed={refresh}
+            />
+          )}
+          {member.status === 'invited' ? (
+            <PortalReview
+              title={t('cancelInvite')}
+              variant="sell"
+              description={t('cancelInviteBody')}
+              review={<p>{t('cancelInviteReview', { who: name })}</p>}
+              perform={() => portal.removeMember(member.memberId!)}
+              onConfirmed={refresh}
+            />
+          ) : (
+            <PortalReview
+              title={t('deactivate')}
+              variant="sell"
+              description={t('deactivateBody')}
+              review={<p>{t('deactivateReview', { who: name })}</p>}
+              perform={() => portal.removeMember(member.memberId!)}
+              onConfirmed={refresh}
+            />
+          )}
         </div>
       ) : (
         <p className="muted">
@@ -433,6 +524,26 @@ function MemberPanel({
         </p>
       )}
     </PaySection>
+  );
+}
+
+/** M-plat-org-03 on one person: the permissions their role holds, as the service's role table sends them. */
+function RolePermissions({ role, catalogue }: { role: MemberRole; catalogue: Resource<PermissionCatalogue> }) {
+  const { t } = portalCopy.useCopy();
+  if (catalogue.status !== 'ready') return null;
+  const held = catalogue.data.areas.flatMap((a) => a.permissions).filter((p) => p.heldBy.includes(role));
+  return (
+    <section aria-label={t('rolePermsTitle', { role: t(`role_${role}` as 'role_owner') })} data-testid="role-permissions">
+      <h3>{t('rolePermsTitle', { role: t(`role_${role}` as 'role_owner') })}</h3>
+      <p className="muted">{t('rolePermsBody')}</p>
+      <ul>
+        {held.map((p) => (
+          <li key={p.key} data-permission={p.key}>
+            {permissionName(p.key, t)}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

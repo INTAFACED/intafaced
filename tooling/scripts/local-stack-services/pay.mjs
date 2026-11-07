@@ -52,6 +52,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // `LOCAL_STACK_PAY_SCREENER=off` on a start or restart leaves it blank, so the blank-list refusal can be seen too
     // (J-wallet-05 #2).
     ...(process.env.LOCAL_STACK_PAY_SCREENER === 'off' ? {} : { PAY_SCREENING_SCREENER: 'local-test' }),
+    // LOCAL-TEST values (tooling/profiles/test-owner-values/pay.json), not owner decisions: email team invitations
+    // (J-merchant-11 #1 #2) run 7 days, at most 20 sends an hour per business, and are mailed to a LOCAL-TEST outbox file
+    // in this stack's state folder (svc-pay refuses that transport outside APP_ENV dev or test). No email provider is
+    // connected. `LOCAL_STACK_PAY_TEAM_MAIL=off` on a start or restart leaves the transport out, so the plain "email is
+    // switched off" refusal can be seen too.
+    PAY_TEAM_EMAIL_INVITE_MAX: '20',
+    PAY_TEAM_EMAIL_INVITE_WINDOW_MS: '3600000',
+    PAY_TEAM_EMAIL_INVITE_TTL_MS: '604800000',
+    ...(process.env.LOCAL_STACK_PAY_TEAM_MAIL === 'off'
+      ? {}
+      : { PAY_TEAM_INVITE_MAIL_TRANSPORT: 'local-outbox', PAY_TEAM_INVITE_MAIL_OUTBOX: path.join(STATE, 'team-invite-outbox.log') }),
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest product image, 500 KB.
     PAY_PRODUCT_IMAGE_MAX_BYTES: '500000',
     // LOCAL-TEST value (tooling/profiles/test-owner-values/pay.json): the largest hosted checkout logo, 100 KB.

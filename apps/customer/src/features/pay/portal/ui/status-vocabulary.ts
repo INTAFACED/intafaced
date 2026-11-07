@@ -27,6 +27,8 @@ export const chips = {
     active: ['chipMember_active', 'tipMember_active', 'good'],
     invited: ['chipMember_invited', 'tipMember_invited', 'attention'],
     removed: ['chipMember_removed', 'tipMember_removed', 'neutral'],
+    expired: ['chipMember_expired', 'tipMember_expired', 'neutral'],
+    deactivated: ['chipMember_deactivated', 'tipMember_deactivated', 'neutral'],
   },
   payment: {
     created: ['chipPayment_created', 'tipPayment_created', 'neutral'],

@@ -1,3 +1,4 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Sql, TransactionSql } from 'postgres';
 import { SHUT } from '../owner-pay-grant-recheck.js';
 import { MerchantOpsError } from './errors.js';
@@ -14,6 +15,7 @@ import {
   teamEventMemberUserId,
   type TeamEmailInviteLimit,
 } from './team-email.js';
+import type { TeamInviteMail } from './team-invite-mail.js';
 
 /**
  * Merchant team: members, roles, invitations, and the append-only trail of who
@@ -49,6 +51,8 @@ export interface TeamMemberView {
   readonly createdAt: string;
   readonly activatedAt: string | null;
   readonly removedAt: string | null;
+  /** When an email invitation and its link stop working; null for an account-ID invitation or a member. */
+  readonly expiresAt: string | null;
   readonly cursor: string | null;
 }
 
@@ -62,6 +66,7 @@ interface MemberRow {
   created_at: Date;
   activated_at: Date | null;
   removed_at: Date | null;
+  invite_expires_at: Date | null;
   cursor_ts: string;
 }
 
@@ -77,12 +82,13 @@ const view = (r: MemberRow): TeamMemberView => {
     createdAt: r.created_at.toISOString(),
     activatedAt: r.activated_at?.toISOString() ?? null,
     removedAt: r.removed_at?.toISOString() ?? null,
+    expiresAt: r.status === 'invited' ? (r.invite_expires_at?.toISOString() ?? null) : null,
     cursor: encodeCursor(r.cursor_ts, r.id),
   };
 };
 
 const MEMBER_FIELDS = (sql: Sql | TransactionSql) => sql`
-  m.id, m.user_id, m.role, m.status, m.label, m.invited_by, m.created_at, m.activated_at, m.removed_at,
+  m.id, m.user_id, m.role, m.status, m.label, m.invited_by, m.created_at, m.activated_at, m.removed_at, m.invite_expires_at,
   to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_ts`;
 
 export interface TeamEventView {
@@ -99,6 +105,8 @@ export class TeamService {
   constructor(
     private readonly sql: Sql,
     private readonly emailInviteLimit?: TeamEmailInviteLimit,
+    /** How an invitation reaches the mailbox. None: email invitations are off and refuse. */
+    private readonly mail?: TeamInviteMail,
   ) {}
 
   async list(
@@ -161,6 +169,7 @@ export class TeamService {
         createdAt: owner[0]!.created_at.toISOString(),
         activatedAt: owner[0]!.created_at.toISOString(),
         removedAt: null,
+        expiresAt: null,
         cursor: null,
       });
     }
@@ -206,10 +215,18 @@ export class TeamService {
 
   /** Pending invitations addressed to the calling account. Reveals the merchant id only. */
   async myInvitations(userId: string) {
-    const rows = await this.sql<Array<{ id: string; merchant_id: string; role: TeamRole; created_at: Date }>>`
-      SELECT id, merchant_id, role, created_at FROM pay.merchant_team_members
+    const rows = await this.sql<
+      Array<{ id: string; merchant_id: string; role: TeamRole; created_at: Date; invite_expires_at: Date | null }>
+    >`
+      SELECT id, merchant_id, role, created_at, invite_expires_at FROM pay.merchant_team_members
        WHERE user_id = ${userId} AND status = 'invited' ORDER BY created_at DESC, id DESC`;
-    return rows.map((r) => ({ memberId: r.id, merchantId: r.merchant_id, role: r.role, invitedAt: r.created_at.toISOString() }));
+    return rows.map((r) => ({
+      memberId: r.id,
+      merchantId: r.merchant_id,
+      role: r.role,
+      invitedAt: r.created_at.toISOString(),
+      expiresAt: r.invite_expires_at?.toISOString() ?? null,
+    }));
   }
 
   async invite(
@@ -258,7 +275,10 @@ export class TeamService {
   /**
    * Invite by mailbox. Never reads an account table, so two addresses — one
    * registered, one not — take the same path and return the same shape.
-   * The rate window is counted on new invite events only.
+   * The rate window is counted on invite and resend events of email invites.
+   * Every send writes a new link code (only its hash is kept) and a new expiry,
+   * and mails the link inside the transaction: a mail that cannot be written
+   * leaves nothing stored. Inviting an address already pending re-sends to it.
    */
   private async inviteByEmail(caller: MerchantCaller, rawEmail: string, role: TeamRole, label?: string): Promise<TeamMemberView> {
     const email = normaliseTeamInviteEmail(rawEmail);
@@ -281,22 +301,18 @@ export class TeamService {
          FOR UPDATE`;
       const tokenRow = existing.find((row) => row.user_id === token);
       const bound = existing.find((row) => row.user_id !== token && row.status === 'invited');
-      if (tokenRow?.status === 'invited') {
-        await tx`
-          UPDATE pay.merchant_team_members
-             SET role = ${role}, label = ${visibleLabel}, invited_by = ${caller.userId}, updated_at = now()
-           WHERE id = ${tokenRow.id}`;
-        return this.memberView(tx, caller.merchantId, tokenRow.id);
-      }
-      // Already bound and still invited: refresh the role, keep the account id internal.
-      if (bound) {
-        await tx`
-          UPDATE pay.merchant_team_members
-             SET role = ${role}, label = ${stashInviteEmail(visibleLabel, token)}, invited_by = ${caller.userId}, updated_at = now()
-           WHERE id = ${bound.id}`;
-        return this.memberView(tx, caller.merchantId, bound.id);
-      }
       await this.assertEmailInviteBudget(tx, caller.merchantId);
+      if (tokenRow?.status === 'invited' || bound) {
+        const id = (tokenRow?.status === 'invited' ? tokenRow : bound)!.id;
+        // Already bound and still invited: the account id stays internal, the email token stays on the label.
+        const nextLabel = tokenRow?.status === 'invited' ? visibleLabel : stashInviteEmail(visibleLabel, token);
+        await tx`
+          UPDATE pay.merchant_team_members
+             SET role = ${role}, label = ${nextLabel}, invited_by = ${caller.userId}, updated_at = now()
+           WHERE id = ${id}`;
+        await this.sendLink(tx, caller, { id, email, role, token, resent: true });
+        return this.memberView(tx, caller.merchantId, id);
+      }
       let id: string;
       if (tokenRow) {
         id = tokenRow.id;
@@ -312,16 +328,56 @@ export class TeamService {
           RETURNING id`;
         id = inserted[0]!.id;
       }
-      await tx`
-        INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, to_role, actor_id)
-        VALUES (${caller.merchantId}, ${token}, 'invited', ${role}, ${caller.userId})`;
+      await this.sendLink(tx, caller, { id, email, role, token, resent: false });
       return this.memberView(tx, caller.merchantId, id);
     });
+  }
+
+  /**
+   * Send a pending email invitation again (J-merchant-11 #2). The new link replaces the old one, which is refused from
+   * then on, and the invitation runs for a full lifetime again. Only an email invitation still waiting can be resent.
+   */
+  async resendInvite(caller: MerchantCaller, input: { memberId: string }): Promise<TeamMemberView> {
+    if (!caller.interactive) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
+    assertPermission(caller, 'team.manage');
+    this.assertEmailInviteConfigured();
+    return this.sql.begin(async (tx) => {
+      await tx`SELECT id FROM pay.merchants WHERE id = ${caller.merchantId} FOR UPDATE`;
+      const target = await this.lockMember(tx, caller.merchantId, input.memberId);
+      const token = target.user_id.startsWith('email:') ? target.user_id : readStashedInviteEmail(target.label)?.token;
+      if (target.status !== 'invited' || !token) throw new MerchantOpsError('pay.team_invite_not_resendable', 'precondition');
+      if (target.role === 'admin' && caller.role !== 'owner') throw new MerchantOpsError('pay.team_role_forbidden', 'forbidden');
+      await this.assertEmailInviteBudget(tx, caller.merchantId);
+      await tx`UPDATE pay.merchant_team_members SET updated_at = now() WHERE id = ${target.id}`;
+      const email = token.slice('email:'.length);
+      await this.sendLink(tx, caller, { id: target.id, email, role: target.role, token, resent: true });
+      return this.memberView(tx, caller.merchantId, target.id);
+    });
+  }
+
+  /** A new link code and expiry on the row, the trail line, and the mail, all in the caller's transaction. */
+  private async sendLink(
+    tx: TransactionSql,
+    caller: MerchantCaller,
+    input: { id: string; email: string; role: TeamRole; token: string; resent: boolean },
+  ): Promise<void> {
+    const ttlMs = this.emailInviteLimit!.ttlMs;
+    const code = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + ttlMs);
+    await tx`
+      UPDATE pay.merchant_team_members
+         SET invite_link_hash = ${hashInviteCode(code)}, invite_expires_at = ${expiresAt}
+       WHERE id = ${input.id}`;
+    await tx`
+      INSERT INTO pay.merchant_team_events (merchant_id, member_user_id, action, to_role, actor_id)
+      VALUES (${caller.merchantId}, ${input.token}, ${input.resent ? 'resent' : 'invited'}, ${input.role}, ${caller.userId})`;
+    await this.mail!.send({ email: input.email, memberId: input.id, code, role: input.role, expiresAt, resent: input.resent });
   }
 
   private assertEmailInviteConfigured(): void {
     const limit = this.emailInviteLimit;
     if (
+      !this.mail ||
       !limit ||
       !Number.isInteger(limit.maxPerWindow) ||
       limit.maxPerWindow < 1 ||
@@ -340,7 +396,7 @@ export class TeamService {
     const windowStart = new Date(Date.now() - limit.windowMs);
     const counted = await tx<Array<{ n: number }>>`
       SELECT count(*)::int AS n FROM pay.merchant_team_events
-       WHERE merchant_id = ${merchantId} AND action = 'invited'
+       WHERE merchant_id = ${merchantId} AND action IN ('invited', 'resent')
          AND member_user_id LIKE 'email:%' AND created_at >= ${windowStart}`;
     if ((counted[0]?.n ?? 0) >= limit.maxPerWindow) {
       throw new MerchantOpsError('pay.team_email_invite_rate_limited', 'precondition');
@@ -395,15 +451,47 @@ export class TeamService {
     return { left: true };
   }
 
-  /** The invited account accepts. This is the only way an invitation becomes access. */
-  async acceptInvite(userId: string, memberId: string): Promise<TeamMemberView> {
+  /**
+   * The invited account accepts. This is the only way an invitation becomes access.
+   *
+   * From the Invitations list it needs no code: the invitation is already bound to this account, which only happens
+   * once the person confirmed the invited mailbox. From the emailed link (`code`), the link must be the newest one sent
+   * (a resend replaces it), and the invitation must already be bound to this account, so a forwarded link is no key on
+   * its own. Either way an invitation past its expiry is refused, and stays pending, showing Expired.
+   */
+  async acceptInvite(userId: string, memberId: string, code?: string): Promise<TeamMemberView> {
     return this.sql.begin(async (tx) => {
+      if (code !== undefined) {
+        const linked = await tx<Array<{ user_id: string; status: string; invite_link_hash: string | null; expired: boolean }>>`
+          SELECT user_id, status, invite_link_hash, coalesce(invite_expires_at <= now(), false) AS expired
+            FROM pay.merchant_team_members WHERE id = ${memberId}::uuid FOR UPDATE`;
+        const row = linked[0];
+        if (!row || row.status !== 'invited' || !inviteCodeMatches(row.invite_link_hash, code)) {
+          throw new MerchantOpsError('pay.team_invite_link_invalid', 'not_found');
+        }
+        // The newest link, but too late: say so before anything about who opened it.
+        if (row.expired) throw new MerchantOpsError('pay.team_invitation_expired', 'precondition');
+        if (row.user_id !== userId) {
+          // Still the email token: this account has not confirmed the invited address (or a different account opened it).
+          throw new MerchantOpsError('pay.team_invite_email_unconfirmed', 'precondition');
+        }
+      }
       const rows = await tx<
-        Array<{ id: string; merchant_id: string; user_id: string; role: TeamRole; status: string; label: string | null }>
+        Array<{
+          id: string;
+          merchant_id: string;
+          user_id: string;
+          role: TeamRole;
+          status: string;
+          label: string | null;
+          expired: boolean;
+        }>
       >`
-        SELECT id, merchant_id, user_id, role, status, label FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND user_id = ${userId} FOR UPDATE`;
+        SELECT id, merchant_id, user_id, role, status, label, coalesce(invite_expires_at <= now(), false) AS expired
+          FROM pay.merchant_team_members WHERE id = ${memberId}::uuid AND user_id = ${userId} FOR UPDATE`;
       const row = rows[0];
       if (!row || row.status !== 'invited') throw new MerchantOpsError('pay.team_invitation_not_found', 'not_found');
+      if (row.expired) throw new MerchantOpsError('pay.team_invitation_expired', 'precondition');
       const owns = await tx`SELECT 1 FROM pay.merchants WHERE user_id = ${userId} LIMIT 1`;
       const busy = await tx`SELECT 1 FROM pay.merchant_team_members WHERE user_id = ${userId} AND status = 'active' LIMIT 1`;
       if (owns[0] || busy[0]) throw new MerchantOpsError('pay.team_member_unavailable', 'conflict');
@@ -419,7 +507,7 @@ export class TeamService {
       try {
         await tx`
           UPDATE pay.merchant_team_members
-             SET status = 'active', activated_at = now(), label = ${label}, updated_at = now()
+             SET status = 'active', activated_at = now(), label = ${label}, invite_link_hash = NULL, updated_at = now()
            WHERE id = ${row.id}`;
       } catch (error) {
         // Two invitations accepted at once: the one-active-team index decides, and the loser gets the same answer as above.
@@ -484,4 +572,16 @@ export class TeamService {
       SELECT ${MEMBER_FIELDS(sql)} FROM pay.merchant_team_members m WHERE m.id = ${id} AND m.merchant_id = ${merchantId}`;
     return view(rows[0]!);
   }
+}
+
+/** Only the SHA-256 of a link code is stored. */
+export function hashInviteCode(code: string): string {
+  return createHash('sha256').update(code, 'utf8').digest('hex');
+}
+
+function inviteCodeMatches(storedHash: string | null, code: string): boolean {
+  if (!storedHash || code.length === 0 || code.length > 128) return false;
+  const a = Buffer.from(storedHash, 'hex');
+  const b = Buffer.from(hashInviteCode(code), 'hex');
+  return a.length === b.length && timingSafeEqual(a, b);
 }

@@ -35,6 +35,7 @@ import { MerchantSecurity } from './security.js';
 import { permissionCatalogue, refuseBuiltInRoleEdit } from './merchant-plat-org-permission-catalogue.js';
 import { TeamService } from './team.js';
 import { type TeamEmailInviteLimit } from './team-email.js';
+import type { TeamInviteMail } from './team-invite-mail.js';
 import { WebhookOps, type WebhookRetryLimit } from './webhooks.js';
 import { ownMerchantRead } from '../own-merchant-read.js';
 import { invitationAccept, membershipExit, teamMemberWrite } from '../team-member-write.js';
@@ -71,6 +72,8 @@ export interface MerchantOpsDeps {
   readonly disputeFundsLedger?: DisputeFundsLedger;
   /** Email-invite window. Unset: email invite refuses. Account-id invite is unchanged. */
   readonly teamEmailInvite?: TeamEmailInviteLimit;
+  /** How an email invitation reaches the mailbox. Unset: email invite refuses. */
+  readonly teamInviteMail?: TeamInviteMail;
   /**
    * How a freshly queued export gets generated. Default: run it in this process
    * on the next tick. Tests pass a no-op and drive `processQueued` themselves.
@@ -93,7 +96,7 @@ function makeParts(deps: MerchantOpsDeps) {
   const parts = sql
     ? {
         sql,
-        team: new TeamService(sql, deps.teamEmailInvite),
+        team: new TeamService(sql, deps.teamEmailInvite, deps.teamInviteMail),
         security: new MerchantSecurity(sql),
         disputeStore: deps.disputes ?? defaultDisputeCaseStore,
         disputes: new DisputeOpsService(sql, deps.disputes ?? defaultDisputeCaseStore, deps.evidence ?? EVIDENCE_UPLOAD_OFF),
@@ -352,6 +355,10 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
             }),
           )
           .mutation(({ ctx, input }) => wrapOps(async () => need().team.invite(await callerOf(ctx), input))),
+        /** J-merchant-11 #2: a pending email invitation sent again; the old link stops working. */
+        resendInvite: memberWrite
+          .input(z.object({ memberId: id }))
+          .mutation(({ ctx, input }) => wrapOps(async () => need().team.resendInvite(await callerOf(ctx), input))),
         changeRole: memberWrite
           .input(z.object({ memberId: id, role: z.enum(TEAM_ROLES) }))
           .mutation(({ ctx, input }) => wrapOps(async () => need().team.changeRole(await callerOf(ctx), input))),
@@ -362,10 +369,11 @@ export function createMerchantOpsRouter(deps: MerchantOpsDeps) {
         myInvitations: read
           .input(z.object({}).strict())
           .query(({ ctx }) => wrapOps(async () => need().team.myInvitations(ctx.principal.userId))),
-        acceptInvite: accept.input(z.object({ memberId: id })).mutation(({ ctx, input }) =>
+        /** From the Invitations list, or from the emailed link with its `code`. */
+        acceptInvite: accept.input(z.object({ memberId: id, code: z.string().min(1).max(128).optional() })).mutation(({ ctx, input }) =>
           wrapOps(async () => {
             if (!isInteractivePrincipal(ctx.principal)) throw new MerchantOpsError('pay.team_interactive_only', 'forbidden');
-            return need().team.acceptInvite(ctx.principal.userId, input.memberId);
+            return need().team.acceptInvite(ctx.principal.userId, input.memberId, input.code);
           }),
         ),
         declineInvite: exit.input(z.object({ memberId: id })).mutation(({ ctx, input }) =>
