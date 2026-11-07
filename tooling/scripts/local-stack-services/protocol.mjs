@@ -16,7 +16,19 @@
 // local-test-chain.mjs serves, and the gas a relayed swap is priced for. With no chain all three stay blank and paying
 // the fee in a token refuses protocol.fee_relay_unset.
 import { createHash } from 'node:crypto';
-import { RELAY_URL } from '../local-test-chain.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+import { chainRecordPath, RELAY_URL } from '../local-test-chain.mjs';
+
+/**
+ * Router v2's TEST parts from the chain's own record (J-dex-protocol-03): the router, SovereignPermit and TEST Wrapped
+ * ETH the seed deployed. Read here so the stack's shared chain summary stays as it is; null with no record.
+ */
+function routerV2Parts() {
+  const file = chainRecordPath();
+  if (!existsSync(file)) return null;
+  const record = JSON.parse(readFileSync(file, 'utf8'));
+  return record.routerV2 && record.sovereignPermit && record.wrappedNative ? record : null;
+}
 
 export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN }) => ({
   name: 'protocol',
@@ -74,6 +86,20 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // Production stays blank and they refuse protocol.claim_escrow_unset, protocol.fee_bump_unset and
       // protocol.fee_ceiling_unset.
       ...(chain?.claimEscrow ? { PROTOCOL_CLAIM_ESCROW_ADDRESS: chain.claimEscrow } : {}),
+      // LOCAL TEST only, labelled in the same file: router v2, SovereignPermit and TEST Wrapped ETH as the seed deployed
+      // them (D-swap-03, D-swap-intents-01, -02), and the TEST cap on how long a permit or standing allowance may last.
+      // Production stays blank and the v2 swap refuses protocol.router_v2_unset and protocol.permit.lifetime_unset.
+      ...(() => {
+        const v2 = chain ? routerV2Parts() : null;
+        return v2
+          ? {
+              PROTOCOL_ROUTER_V2_ADDRESS: v2.routerV2,
+              PROTOCOL_SOVEREIGN_PERMIT_ADDRESS: v2.sovereignPermit,
+              PROTOCOL_WRAPPED_NATIVE_ADDRESS: v2.wrappedNative,
+            }
+          : {};
+      })(),
+      PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS: '2592000',
       PROTOCOL_TX_FEE_BUMP_BPS: '2000',
       PROTOCOL_TX_FEE_CEILING_WEI: '100000000000',
     };

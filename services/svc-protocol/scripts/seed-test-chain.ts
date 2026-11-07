@@ -49,6 +49,14 @@ export const TEST_TOKENS = {
    * unasked, from the TEST deployer, so the wallet's Activity has a spam row to hide and show.
    */
   DROP: { address: '0x00000000000000000000000000000000000d7090', name: 'TEST Airdrop', symbol: 'TESTDROP', decimals: 18 },
+  /**
+   * A TEST token with no permit (J-dex-protocol-03 #2, #8): TestPlainToken, which has no EIP-2612 `permit` and no EIP-5267
+   * domain, so it needs an approve transaction. It trades against TEST Token A and TEST USD, which gives the journey a
+   * three-hop route from TEST Token A to TEST Token B (A, C, USD, B).
+   */
+  C: { address: '0x00000000000000000000000000000000000c0c00', name: 'TEST Token C', symbol: 'TESTC', decimals: 18 },
+  /** TEST wrapped native currency (D-swap-03): router v2 wraps TEST ETH into it around a swap. */
+  WETH: { address: '0x0000000000000000000000000000000000e7e700', name: 'TEST Wrapped ETH', symbol: 'TESTWETH', decimals: 18 },
 } as const;
 /**
  * The TEST network-fee relay's parts (RC-dex-protocol-02, J-dex-protocol-02 #11). The relayer submits a person's signed
@@ -202,6 +210,13 @@ async function seed(out: string) {
         const claimEscrow = await seedClaimLinkParts(clients());
         writeFileSync(out, `${JSON.stringify({ ...record, tokens: TEST_TOKENS, claimEscrow }, null, 2)}\n`);
       }
+      // A chain seeded before router v2 existed gets it (TEST Token C, TEST Wrapped ETH, their pools) now.
+      const current = JSON.parse(readFileSync(out, 'utf8')) as { routerV2?: Address };
+      const v2Code = current.routerV2 ? await publicClient.getCode({ address: current.routerV2 }) : undefined;
+      if (!v2Code || v2Code === '0x') {
+        const v2 = await seedRouterV2Parts(clients(), record.factory);
+        writeFileSync(out, `${JSON.stringify({ ...current, tokens: TEST_TOKENS, ...v2 }, null, 2)}\n`);
+      }
       await mineOnInterval(publicClient);
       console.log(`already seeded: factory ${record.factory}`);
       return;
@@ -223,7 +238,7 @@ async function seed(out: string) {
   // the whole token: nothing in storage to copy, and the copy answers exactly as the deployment does.
   const token = artifact('TestToken');
   // TEST Airdrop is deployed last (seedClaimLinkParts), so every address seeded before it stays where it was.
-  for (const t of Object.values(TEST_TOKENS).filter((entry) => entry.symbol !== TEST_TOKENS.DROP.symbol)) {
+  for (const t of Object.values(TEST_TOKENS).filter((entry) => !['TESTDROP', 'TESTC', 'TESTWETH'].includes(entry.symbol))) {
     const deployed = await deploy('TestToken', [t.name, t.symbol, t.decimals]);
     const code = await publicClient.getCode({ address: deployed });
     await publicClient.request({ method: 'anvil_setCode', params: [t.address, code] } as never);
@@ -330,6 +345,7 @@ async function seed(out: string) {
     );
 
   const claimEscrow = await seedClaimLinkParts(all);
+  const v2 = await seedRouterV2Parts(all, factory);
 
   const record = {
     node: version,
@@ -346,6 +362,7 @@ async function seed(out: string) {
     feeMarkupBps: TEST_FEE_MARKUP_BPS,
     claimEscrow,
     claimExpiryBounds: TEST_CLAIM_EXPIRY_BOUNDS,
+    ...v2,
     test: true,
   };
   writeFileSync(out, `${JSON.stringify(record, null, 2)}\n`);
@@ -375,6 +392,109 @@ async function seedClaimLinkParts({ publicClient, walletClient }: Clients): Prom
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   if (receipt.status !== 'success' || !receipt.contractAddress) throw new Error(`claim-link escrow deploy failed: ${hash}`);
   return receipt.contractAddress;
+}
+
+/** TEST reserves of router v2's pools (J-dex-protocol-03): 1 TEST Wrapped ETH trades at about 1,000 TEST Token B. */
+const V2_POOLS = [
+  { label: 'TEST A/C 0.30%', a: 'A', b: 'C', amountA: '100000', amountB: '100000' },
+  { label: 'TEST C/USD 0.30%', a: 'C', b: 'USD', amountA: '100000', amountB: '100000' },
+  { label: 'TEST WETH/B 0.30%', a: 'WETH', b: 'B', amountA: '100', amountB: '100000' },
+] as const;
+
+/**
+ * Router v2's TEST parts (D-swap-03, D-swap-intents-01, -02): TEST Token C (no permit) and TEST Wrapped ETH at their
+ * fixed addresses, SovereignPermit, SovereignRouterV2 and three TEST pools. Runs on automine, inside the seed. Returns
+ * what the record names.
+ */
+async function seedRouterV2Parts({ publicClient, walletClient }: Clients, factory: Address) {
+  const send = async (hash: Hex) => {
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error(`transaction failed: ${hash}`);
+    return receipt;
+  };
+  const deploy = async (name: string, args: unknown[] = []) => {
+    const a = artifact(name);
+    const receipt = await send(await walletClient.deployContract({ abi: a.abi, bytecode: a.bytecode, args }));
+    return receipt.contractAddress as Address;
+  };
+  const place = async (name: string, at: Address, args: unknown[]) => {
+    const deployed = await deploy(name, args);
+    const code = await publicClient.getCode({ address: deployed });
+    await publicClient.request({ method: 'anvil_setCode', params: [at, code] } as never);
+  };
+  const { C, WETH } = TEST_TOKENS;
+  await place('TestPlainToken', C.address, [C.name, C.symbol, C.decimals]);
+  // TestWrappedNative keeps nothing but balances in storage, so its runtime code alone is the whole token.
+  await place('TestWrappedNative', WETH.address, []);
+  const sovereignPermit = await deploy('SovereignPermit');
+  const routerV2 = await deploy('SovereignRouterV2', [WETH.address, sovereignPermit]);
+  const account = walletClient.account!;
+  const factoryAbi = artifact('PoolFactory').abi;
+  const poolAbi = artifact('ConstantProductPool').abi;
+  const tokenAbi = artifact('TestToken').abi;
+  const pools = [];
+  for (const p of V2_POOLS) {
+    const a = TEST_TOKENS[p.a];
+    const b = TEST_TOKENS[p.b];
+    await send(
+      await walletClient.writeContract({ address: factory, abi: factoryAbi, functionName: 'createPool', args: [a.address, b.address, 30] }),
+    );
+    const pool = (await publicClient.readContract({
+      address: factory,
+      abi: factoryAbi,
+      functionName: 'getPool',
+      args: [a.address, b.address, 30],
+    })) as Address;
+    const units = {
+      [getAddress(a.address)]: parseUnits(p.amountA, a.decimals),
+      [getAddress(b.address)]: parseUnits(p.amountB, b.decimals),
+    };
+    for (const [address, amount] of Object.entries(units)) {
+      if (getAddress(address) === getAddress(WETH.address))
+        await send(await walletClient.sendTransaction({ to: WETH.address, value: amount }));
+      else
+        await send(
+          await walletClient.writeContract({
+            address: address as Address,
+            abi: tokenAbi,
+            functionName: 'mint',
+            args: [account.address, amount],
+          }),
+        );
+      await send(
+        await walletClient.writeContract({ address: address as Address, abi: tokenAbi, functionName: 'approve', args: [pool, amount] }),
+      );
+    }
+    const token0 = getAddress((await publicClient.readContract({ address: pool, abi: poolAbi, functionName: 'token0' })) as Address);
+    const token1 = token0 === getAddress(a.address) ? getAddress(b.address) : getAddress(a.address);
+    await send(
+      await walletClient.writeContract({
+        address: pool,
+        abi: poolAbi,
+        functionName: 'mint',
+        args: [account.address, units[token0], units[token1]],
+      }),
+    );
+    pools.push({ label: p.label, pool, feeBps: 30, token0, token1 });
+  }
+  return { routerV2, sovereignPermit, wrappedNative: WETH.address, v2Pools: pools };
+}
+
+/** What `fund <address> plain` gives: TEST Token C, the token with no permit (J-dex-protocol-03). */
+const PLAIN_FUNDING = '10000';
+
+/** TEST Token C for one TEST wallet (J-dex-protocol-03 #2, #8, and the TEST price mover of #4). */
+async function fundPlain(address: Address) {
+  const { publicClient, walletClient } = clients();
+  await assertStandIn(publicClient);
+  const hash = await walletClient.writeContract({
+    address: TEST_TOKENS.C.address,
+    abi: artifact('TestPlainToken').abi,
+    functionName: 'mint',
+    args: [address, parseUnits(PLAIN_FUNDING, TEST_TOKENS.C.decimals)],
+  });
+  await publicClient.waitForTransactionReceipt({ hash });
+  console.log(`funded ${address}: ${PLAIN_FUNDING} ${TEST_TOKENS.C.name}`);
 }
 
 /**
@@ -434,5 +554,6 @@ const [command, arg, kind] = process.argv.slice(2);
 if (command === 'seed' && arg) await seed(arg);
 else if (command === 'fund' && arg && kind === 'stable') await fundStable(getAddress(arg));
 else if (command === 'fund' && arg && kind === 'spam') await fundSpam(getAddress(arg));
+else if (command === 'fund' && arg && kind === 'plain') await fundPlain(getAddress(arg));
 else if (command === 'fund' && arg && kind === undefined) await fund(getAddress(arg));
-else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam]');
+else throw new Error('usage: seed-test-chain.ts seed <record.json> | fund <address> [stable|spam|plain]');

@@ -193,6 +193,15 @@ export const SUITES = [
     sources: ['router/SovereignRouter.sol', 'amm/IERC20Minimal.sol'],
   },
   {
+    name: 'router-v2',
+    expect: 'compiles',
+    /**
+     * D-swap-03, D-swap-intents-01, -02: router v2 (deadline, exact-output, native wrap, per-hop minimums) and the
+     * SovereignPermit signature approvals it pulls through. Own suite so the v1 router's artefact stays as it is.
+     */
+    sources: ['router/SovereignRouterV2.sol', 'permit/SovereignPermit.sol', 'amm/IERC20Minimal.sol'],
+  },
+  {
     name: 'vaults',
     expect: 'compiles',
     /** S-L1 crew + S-L2 legacy + S-L4 lock/vest/reputation + S-L5 treasury yield. */
@@ -214,7 +223,7 @@ export const SUITES = [
      * The local stack's TEST tokens (tooling/scripts/local-test-chain.mjs): name, symbol and decimals as immutables,
      * EIP-2612 + EIP-5267. Own suite so it stales nothing else. Not a product token: anyone may mint.
      */
-    sources: ['test/TestToken.sol'],
+    sources: ['test/TestToken.sol', 'test/TestPlainToken.sol', 'test/TestWrappedNative.sol'],
   },
   {
     name: 'privacy',

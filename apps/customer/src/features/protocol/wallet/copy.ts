@@ -99,6 +99,8 @@ const en = {
   sheetContinue: 'Continue in wallet',
   seqSends:
     'Your wallet will ask you to send these {count} transactions, one after another. Each waits for the one before it to be mined. Once sent, they cannot be undone from here.',
+  seqSignsAndSends:
+    'Your wallet will ask you to sign {signs} message(s) that move nothing on their own, then send {count} transaction(s), in this order. Each transaction waits for the one before it to be mined. Once sent, they cannot be undone from here.',
   seqReverted: 'A step failed on the network, so the steps after it were not sent.',
   seqNotMined: 'A step was not mined in time, so the steps after it were not sent. Your wallet may still send it.',
   sheetCancel: 'Cancel',
