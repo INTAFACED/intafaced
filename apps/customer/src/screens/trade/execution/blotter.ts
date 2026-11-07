@@ -31,6 +31,8 @@ export interface BlotterRow {
   avg: string | null;
   state: RowState;
   clientOrderId: string | null;
+  /** The order's id; for a fill, the id of the order it filled (null when the fill names none). */
+  orderId: string | null;
   /** The schedule whose children, as the service lists them, include this row's order; null for any other row. */
   parentId: string | null;
   source: Source;
@@ -109,6 +111,7 @@ export function buildBlotter(
       avg: order.average,
       state: stateOf(order),
       clientOrderId: order.clientOrderId,
+      orderId: order.id,
       parentId,
       ...sourceOf(order.clientOrderId, parentId, order.symbol, order.side, order.timestamp),
       order: isLive(order) ? order : null,
@@ -132,6 +135,7 @@ export function buildBlotter(
       avg: fill.price,
       state: 'fill',
       clientOrderId: parent?.clientOrderId ?? null,
+      orderId: fill.order ?? null,
       parentId,
       ...(parent ? { source: parent.source, byTime: parent.byTime } : sourceOf(null, parentId, fill.symbol, fill.side, fill.timestamp)),
       order: null,

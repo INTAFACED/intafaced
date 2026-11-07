@@ -38,6 +38,8 @@ const messages = {
   'Not signed out yet. Reloading would sign you back in.': 'Not signed out yet. Reloading would sign you back in.',
   Retry: 'Retry',
   'You were signed out because your sign-in was used elsewhere.': 'You were signed out because your sign-in was used elsewhere.',
+  'You were signed out because this device was not used for longer than its idle sign-out.':
+    'You were signed out because this device was not used for longer than its idle sign-out.',
   'This account is frozen, so you were signed out. Contact support to find out why.':
     'This account is frozen, so you were signed out. Contact support to find out why.',
   'Sign out': 'Sign out',
@@ -154,6 +156,8 @@ export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineC
     'Not signed out yet. Reloading would sign you back in.': 'Aún no se cerró la sesión. Si recargas, volverás a entrar.',
     Retry: 'Reintentar',
     'You were signed out because your sign-in was used elsewhere.': 'Se cerró tu sesión porque tu inicio de sesión se usó en otro lugar.',
+    'You were signed out because this device was not used for longer than its idle sign-out.':
+      'Se cerró tu sesión porque este dispositivo no se usó durante más tiempo que su cierre por inactividad.',
     'This account is frozen, so you were signed out. Contact support to find out why.':
       'Esta cuenta está congelada, por eso se cerró tu sesión. Contacta con soporte para saber el motivo.',
     'Sign out': 'Cerrar sesión',
@@ -206,6 +210,8 @@ export const shellCopy: ReturnType<typeof defineCopy<typeof messages>> = defineC
     Retry: 'Réessayer',
     'You were signed out because your sign-in was used elsewhere.':
       'Vous avez été déconnecté parce que votre connexion a été utilisée ailleurs.',
+    'You were signed out because this device was not used for longer than its idle sign-out.':
+      'Vous avez été déconnecté parce que cet appareil n’a pas été utilisé pendant plus longtemps que sa déconnexion pour inactivité.',
     'This account is frozen, so you were signed out. Contact support to find out why.':
       'Ce compte est gelé, vous avez donc été déconnecté. Contactez le support pour en connaître la raison.',
     'Sign out': 'Se déconnecter',

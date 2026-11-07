@@ -319,7 +319,11 @@ export type OwnRefusalCode =
   | 'agents.eval.threshold_unset'
   | 'agents.eval.threshold_invalid'
   | 'agents.test.ask_blank'
-  | 'agents.test.tool_moves_no_value';
+  | 'agents.test.tool_moves_no_value'
+  | 'agents.test.run_not_found'
+  | 'agents.test.no_approval_waiting'
+  | 'agents.output.schema_invalid'
+  | 'agents.output.schema_unsupported';
 
 export class OwnAgentRefusal extends Error {
   constructor(
