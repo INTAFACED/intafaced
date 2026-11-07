@@ -134,7 +134,7 @@ test('J-ops-console-01 #6 scope: pages the person lacks scope for are not listed
   await expect(palette).toBeVisible();
   // A page this person has scope for is listed, so an empty list cannot pass for a filtered one.
   await page.keyboard.type('account controls');
-  await expect(palette.getByRole('option', { name: /Account controls/ })).toBeVisible();
+  await expect(palette.getByRole('option', { name: /^Account controls/ })).toBeVisible();
   await palette.getByRole('combobox').fill('ledger');
   await expect(palette.getByRole('option', { name: /Ledger ops/ })).toHaveCount(0);
   await expect(palette.getByRole('option', { name: /Freeze or unfreeze ledger posting/ })).toHaveCount(0);
