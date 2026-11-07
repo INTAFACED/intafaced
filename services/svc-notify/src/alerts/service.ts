@@ -11,6 +11,7 @@
  * were re-activated (MVP: one-shot fire).
  */
 
+import type { AlertEngineHealth, AlertOpsReader, AlertSweepFailure, AlertSweepRecord } from './ops-health.js';
 import type { CreateResult, NotifyService } from '../notify-service.js';
 import { acceptAlertMark, outOfAppRequiredRefusal } from './accepted-mark.js';
 import { canonicalDecimalString, isValidPositivePrice } from './decimal.js';
@@ -317,6 +318,9 @@ const FIRE_COPY: Record<
  * write rather than the read.
  */
 export const ALERT_SWEEP_INTERVAL_MS = 60_000;
+
+/** The founder console's alert engine read is not wired in this process. */
+export const NOTIFY_ALERT_OPS_UNWIRED = 'notify.alert_ops_unwired' as const;
 
 /**
  * What the deployment is able to say about whether a watch can fire.
@@ -689,6 +693,35 @@ export class AlertService {
    * proven rather than waiting to be discovered missing.
    */
   async evaluateDueAlerts(at: Date = new Date()): Promise<AlertSweepReport> {
+    // The pass records itself (J-charts-desk-18 #4): the founder's alert engine page reads its start, end and counts.
+    const startedAt = new Date();
+    try {
+      const report = await this.evaluateDuePass(at);
+      this.lastSweep = { startedAt, finishedAt: new Date(), report };
+      return report;
+    } catch (err) {
+      this.lastSweepFailure = { at: new Date(), message: err instanceof Error ? err.message : String(err) };
+      throw err;
+    }
+  }
+
+  /** The sweep's record of its last completed pass in this process, and its last failure. */
+  private lastSweep: AlertSweepRecord | null = null;
+  private lastSweepFailure: AlertSweepFailure | null = null;
+  private opsReader: AlertOpsReader | null = null;
+
+  /** Wires the founder console's read (index.ts). Unwired, `opsHealth` refuses `notify.alert_ops_unwired`. */
+  attachOpsReader(reader: AlertOpsReader): void {
+    this.opsReader = reader;
+  }
+
+  /** Alert engine and delivery health for the founder console (C-ops-01; J-charts-desk-18 #3 #4). */
+  async opsHealth(now: Date = new Date()): Promise<AlertEngineHealth> {
+    if (!this.opsReader) throw new Error(NOTIFY_ALERT_OPS_UNWIRED);
+    return this.opsReader.health({ record: this.lastSweep, failure: this.lastSweepFailure, intervalMs: ALERT_SWEEP_INTERVAL_MS }, now);
+  }
+
+  private async evaluateDuePass(at: Date): Promise<AlertSweepReport> {
     await this.store.expireDue(at);
     if (this.limits.triggerLogDays !== null) {
       await this.triggerLog.prune(new Date(at.getTime() - this.limits.triggerLogDays * 86_400_000));
