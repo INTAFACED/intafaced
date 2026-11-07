@@ -242,8 +242,22 @@ export class SqlRoutingBook implements RoutingBook {
 
   async ticketRouting(ticketIds: readonly string[]): Promise<TicketRouting[]> {
     if (ticketIds.length === 0) return [];
+    // The stored state is read against the ticket as it is now: 'assigned' holds only while it still has an assignee, and
+    // 'no_agent' only while it is still unassigned and queueable. Anything else reads as no state, never a stale one.
     const rows = await this.sql<TicketRoutingRow[]>`
-      SELECT ticket_id, required_skill, state, state_at FROM support.ticket_routing WHERE ticket_id IN ${this.sql([...ticketIds])}
+      SELECT r.ticket_id, r.required_skill,
+        CASE
+          WHEN r.state = 'assigned' AND t.assignee_id IS NOT NULL THEN r.state
+          WHEN r.state = 'no_agent' AND t.assignee_id IS NULL AND t.status IN ('open', 'pending') THEN r.state
+          ELSE NULL
+        END AS state,
+        CASE
+          WHEN (r.state = 'assigned' AND t.assignee_id IS NOT NULL)
+            OR (r.state = 'no_agent' AND t.assignee_id IS NULL AND t.status IN ('open', 'pending')) THEN r.state_at
+          ELSE NULL
+        END AS state_at
+      FROM support.ticket_routing r JOIN support.tickets t ON t.id = r.ticket_id
+      WHERE r.ticket_id IN ${this.sql([...ticketIds])}
     `;
     return rows.map(fromTicketRow);
   }
@@ -300,6 +314,12 @@ export class SqlRoutingBook implements RoutingBook {
         { required_skill: string | null }[]
       >`SELECT required_skill FROM support.ticket_routing WHERE ticket_id = ${ticketId}`;
       const requiredSkill = need[0]?.required_skill ?? null;
+      // The group's staff rows are locked (in one order) before their loads are counted, so two passes in different groups
+      // that share an agent cannot both see the same free place: the second waits and counts the first's assignment.
+      await tx`
+        SELECT s.user_id FROM support.staff s JOIN support.group_members m ON m.user_id = s.user_id
+        WHERE m.group_id = ${groupId} ORDER BY s.user_id FOR UPDATE OF s
+      `;
       const candidates = await tx<
         {
           user_id: string;
@@ -331,7 +351,9 @@ export class SqlRoutingBook implements RoutingBook {
       if (!chosen) {
         await tx`
           INSERT INTO support.ticket_routing (ticket_id, state, state_at) VALUES (${ticketId}, 'no_agent', ${at})
-          ON CONFLICT (ticket_id) DO UPDATE SET state = 'no_agent', state_at = EXCLUDED.state_at
+          ON CONFLICT (ticket_id) DO UPDATE SET state = 'no_agent',
+            state_at = CASE WHEN support.ticket_routing.state = 'no_agent' AND support.ticket_routing.state_at IS NOT NULL
+                            THEN support.ticket_routing.state_at ELSE EXCLUDED.state_at END
         `;
         return { status: 'queued', ticketId, groupId, code: NO_AGENT_AVAILABLE };
       }
@@ -479,7 +501,13 @@ export class DeskRouting {
       throw new SupportError('a skill is a short tag of letters, digits, - or _', 'support.skill_invalid');
     await this.book.setRequiredSkill({ ticketId: input.ticketId, skill, by: actorId, at: this.now().toISOString() });
     const outcome = await this.route(input.ticketId);
-    return { routing: (await this.book.ticketRouting([input.ticketId]))[0]!, outcome };
+    const routing = (await this.book.ticketRouting([input.ticketId]))[0] ?? {
+      ticketId: input.ticketId,
+      requiredSkill: skill,
+      state: null,
+      stateAt: null,
+    };
+    return { routing, outcome };
   }
 
   /** One request's routing state, as the desk sees it. */

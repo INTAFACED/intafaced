@@ -1440,7 +1440,12 @@ export function createSupportRouter(
           requireSupportOps(ctx.principal!);
           const placed = await support.setTicketGroup({ actorId: ctx.principal!.userId, ...input });
           // A request placed in a routed group goes to its next agent now (SP-routing-01); routing off or unset does nothing.
-          if (routing && placed.groupId !== null) await routing.route(placed.ticketId);
+          // The group change has committed; a routing pass that fails after it is logged and left to the next pass or
+          // sweep, never reported as a failed group change.
+          if (routing && placed.groupId !== null)
+            await routing
+              .route(placed.ticketId)
+              .catch((err: unknown) => console.error('svc-support: routing after a group change failed', err));
           return placed;
         } catch (err) {
           mapError(err);

@@ -46,11 +46,9 @@ async function harnessUrl(): Promise<string | null> {
 
 const url = await harnessUrl();
 
-if (!url) {
-  describe.skip('support routing (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+// Runs unconditionally: CI provides the database, and without one this fails rather than passing unseen.
+if (!url) throw new Error('desk-routing.pg.test.ts needs TEST_DATABASE_URL pointing at a reachable Postgres');
+{
   const db: TestDatabase = await createTestDatabase({ service: 'support', url, migrations });
   afterAll(async () => {
     await db.drop();

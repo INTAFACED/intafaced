@@ -112,6 +112,9 @@ export function TicketRouting({ ticket, onDone }: { ticket: Pick<SupportTicket, 
   const [outcome, setOutcome] = useState<ActionReply | null>(null);
   const [tick, setTick] = useState(0);
   const lock = useRef(false);
+  // The stored skill last put in the box: a re-read writes the box only when the stored value changed, so a refresh caused
+  // by another panel never wipes what the lead is typing.
+  const stored = useRef<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -120,7 +123,11 @@ export function TicketRouting({ ticket, onDone }: { ticket: Pick<SupportTicket, 
       if (controller.signal.aborted) return;
       setView(next);
       setLoading(false);
-      if (next?.routing.kind === 'ok') setSkill(next.routing.data.requiredSkill ?? '');
+      if (next?.routing.kind === 'ok') {
+        const value = next.routing.data.requiredSkill ?? '';
+        if (stored.current !== value) setSkill(value);
+        stored.current = value;
+      }
     });
     return () => controller.abort();
   }, [ticket.id, ticket.status, ticket.updatedAt, tick]);

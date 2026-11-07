@@ -287,8 +287,17 @@ guestTimer.unref();
 sweepTimer.unref();
 // The routing worker's sweep re-selects waiting requests by state, at the owner's interval; blank runs none.
 if (env.SUPPORT_ROUTING_SWEEP_SECONDS) {
+  // One sweep at a time: a pass still running when the next tick comes is not joined by a second one.
+  let sweeping = false;
   const routingTimer = setInterval(() => {
-    routing.routeGroup().catch((err: unknown) => app.log.error({ err }, 'routing sweep failed'));
+    if (sweeping) return;
+    sweeping = true;
+    routing
+      .routeGroup()
+      .catch((err: unknown) => app.log.error({ err }, 'routing sweep failed'))
+      .finally(() => {
+        sweeping = false;
+      });
   }, env.SUPPORT_ROUTING_SWEEP_SECONDS * 1000);
   routingTimer.unref();
 }
