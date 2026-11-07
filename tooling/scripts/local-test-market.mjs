@@ -921,6 +921,8 @@ async function runLoop(opts, home) {
           }
           previous = left;
         }
+        /** A shift this cycle quotes for the first time, logged once its quotes are up (`shiftQuoted`). */
+        const newShift = shift !== undefined && quotedShift.get(m.symbol) !== shift;
         if (shift !== undefined) quotedShift.set(m.symbol, shift);
         const ids = [];
         /** The quotes that rest, at the price each went in at (a band-refused one at the band's edge). */
@@ -966,6 +968,7 @@ async function runLoop(opts, home) {
         log(
           `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
         );
+        if (newShift) log(`${m.symbol} TEST PRICE shift ${shift} bps quoted`);
         if (cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
           // Alternate per market (failure it prevents: every symbol here has the same name length, so a
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
@@ -1472,6 +1475,34 @@ export function unquotedMarkets(logText) {
     if (rested && Number(rested[2]) > 0) quoted.add(rested[1]);
   }
   return { announced, waiting: announced.filter((s) => !quoted.has(s)) };
+}
+
+/**
+ * Whether the maker's log (`logText`) says `symbol`'s TEST PRICE shift of `bps` basis points was quoted at or after
+ * `since` (a Date): the line "<symbol> TEST PRICE shift <bps> bps quoted", which the loop writes once that cycle's
+ * quotes are up (exported for tests). A `move` takes effect only from the maker's next cycle, and it shifts the maker's
+ * own walk, not the book a journey last read. So a journey that reads the book straight after a `move` can read the
+ * shift before it, and aim its next move from the wrong price (failure it prevents: J-derivatives-04 #2 read the book
+ * while #2's stop half's -0.30% was still quoted, aimed 30 bps past the liquidation price from it, landed about 21 bps
+ * short of that price and no liquidation could start; local TEST stack, 7 Nov 22:12 UTC, and main run 42419522734).
+ */
+export function shiftQuoted(logText, symbol, bps, since) {
+  const want = `[TEST MARKET] ${symbol} TEST PRICE shift ${BigInt(bps)} bps quoted`;
+  for (const line of String(logText ?? '').split('\n')) {
+    if (!line.endsWith(want)) continue;
+    const at = Date.parse(line.slice(0, line.indexOf(' ')));
+    if (Number.isFinite(at) && at >= since.getTime()) return true;
+  }
+  return false;
+}
+
+/** `shiftQuoted` on the running maker's own log; false when there is no log to read. */
+export function makerShiftQuoted(symbol, bps, since, { home = os.homedir() } = {}) {
+  try {
+    return shiftQuoted(fs.readFileSync(stackPaths(home).log, 'utf8'), symbol, bps, since);
+  } catch {
+    return false;
+  }
 }
 
 /** `unquotedMarkets` of the running maker's own log; `announced` is empty when there is no log to read. */

@@ -23,6 +23,7 @@ import {
   parseShift,
   shiftedMid,
   quoteOrder,
+  shiftQuoted,
   crossesOn,
   quotesInTheWay,
   stackNotActive,
@@ -230,6 +231,24 @@ assert.equal(b.next(), a.next());
     ['L1', null],
     ['L2', 'L1'],
   ]);
+  // A `move` counts as on the book only once the maker has logged quoting it, at or after the move was asked. A line
+  // from before the move, another market's or another shift's, is not it (J-derivatives-04 #2 aimed from a book that
+  // still carried the stop half's -0.30%, main run 42419522734).
+  {
+    const log = [
+      '2026-11-07T22:12:43.900Z [TEST MARKET] BTC/USDT TEST PRICE mid 64800.97 USDT: 6/6 quotes resting',
+      '2026-11-07T22:12:43.901Z [TEST MARKET] BTC/USDT TEST PRICE shift -30 bps quoted',
+      '2026-11-07T22:12:56.100Z [TEST MARKET] BTC/USDC TEST PRICE shift 0 bps quoted',
+      '2026-11-07T22:12:56.500Z [TEST MARKET] BTC/USDT TEST PRICE shift 0 bps quoted',
+    ].join('\n');
+    const asked = new Date('2026-11-07T22:12:44.600Z');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', 0n, asked), true);
+    assert.equal(shiftQuoted(log, 'BTC/USDT', -30n, asked), false, 'quoted before the move was asked');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', 0n, new Date('2026-11-07T22:12:57Z')), false, 'not yet quoted');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', -1000n, asked), false, 'another shift');
+    assert.equal(shiftQuoted(log.split('\n').slice(0, 3).join('\n'), 'BTC/USDT', 0n, asked), false, 'only another market');
+    assert.equal(shiftQuoted('', 'BTC/USDT', 0n, asked), false);
+  }
   // The leader's book mid, from the best bid and ask; an empty or unreadable side is no mid.
   assert.equal(bookMid({ bids: [['65000', '1']], asks: [['65001', '1']] }), toScaled('65000.5'));
   assert.equal(bookMid({ bids: [], asks: [['65001', '1']] }), null);
