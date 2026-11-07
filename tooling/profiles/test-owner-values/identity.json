@@ -201,6 +201,21 @@
       "value": "10",
       "note": "TEST: saved screens per account. Not an owner limit."
     },
+    "IDENTITY_DESK_LAYOUT_CAP": {
+      "service": "identity",
+      "value": "10",
+      "note": "TEST: saved desk layouts per account. Not an owner limit."
+    },
+    "IDENTITY_DESK_LAYOUT_RESTORE_CAP": {
+      "service": "identity",
+      "value": "20",
+      "note": "TEST: deleted desk layouts kept for restoring. Not an owner limit."
+    },
+    "IDENTITY_DESK_LAYOUT_RESTORE_DAYS": {
+      "service": "identity",
+      "value": "7",
+      "note": "TEST: days a deleted desk layout can be restored in. Not an owner limit."
+    },
     "IDENTITY_LOGIN_CODE_TTL_SECONDS": {
       "service": "identity",
       "value": "600",

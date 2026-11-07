@@ -35,6 +35,14 @@ import {
   type WatchlistCaps,
 } from './watchlists.js';
 import {
+  DESK_LAYOUTS_NAMESPACE,
+  NO_DESK_LAYOUT_LIMITS,
+  checkDeskLayoutGrowth,
+  parseDeskLayoutsShape,
+  type DeskLayoutLimits,
+  type DeskLayoutsValue,
+} from './desk-layouts.js';
+import {
   PREFERENCES_CLIENT_ID_UNSET,
   PREFERENCES_IDEMPOTENCY_CONFLICT,
   PREFERENCES_NAMESPACE_UNKNOWN,
@@ -59,7 +67,8 @@ export type PreferenceNamespace =
   | typeof WATCHLISTS_NAMESPACE
   | typeof SAVED_SCREENS_NAMESPACE
   | typeof TOKEN_WATCHLIST_NAMESPACE
-  | typeof ADDRESS_WATCHES_NAMESPACE;
+  | typeof ADDRESS_WATCHES_NAMESPACE
+  | typeof DESK_LAYOUTS_NAMESPACE;
 export type PreferenceValue =
   | TradeViewsValue
   | AccountDisplayValue
@@ -69,15 +78,18 @@ export type PreferenceValue =
   | WatchlistsValue
   | SavedScreensValue
   | TokenWatchlistValue
-  | AddressWatchesValue;
+  | AddressWatchesValue
+  | DeskLayoutsValue;
 
 /** Owner-published settings a value is checked against. Blank means nothing is listed. */
 export type PreferenceSettings = {
   readonly displayCurrencies: readonly string[];
   /** The watchlist and saved-screen caps. Absent or blank: a write that grows a count past its cap is refused. */
   readonly watchlists?: WatchlistCaps;
+  /** The saved desk layout limits. Absent or blank: a write that needs one is refused. */
+  readonly deskLayouts?: DeskLayoutLimits;
 };
-const NO_SETTINGS: PreferenceSettings = { displayCurrencies: [], watchlists: NO_WATCHLIST_CAPS };
+const NO_SETTINGS: PreferenceSettings = { displayCurrencies: [], watchlists: NO_WATCHLIST_CAPS, deskLayouts: NO_DESK_LAYOUT_LIMITS };
 
 export class PreferencesError extends Error {
   constructor(
@@ -100,7 +112,8 @@ export type PreferenceView =
   | { readonly namespace: typeof WATCHLISTS_NAMESPACE; readonly version: number; readonly value: WatchlistsValue | null }
   | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null }
   | { readonly namespace: typeof TOKEN_WATCHLIST_NAMESPACE; readonly version: number; readonly value: TokenWatchlistValue | null }
-  | { readonly namespace: typeof ADDRESS_WATCHES_NAMESPACE; readonly version: number; readonly value: AddressWatchesValue | null };
+  | { readonly namespace: typeof ADDRESS_WATCHES_NAMESPACE; readonly version: number; readonly value: AddressWatchesValue | null }
+  | { readonly namespace: typeof DESK_LAYOUTS_NAMESPACE; readonly version: number; readonly value: DeskLayoutsValue | null };
 
 type StoredResult = {
   outcome: 'stored' | 'conflict';
@@ -147,6 +160,11 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, Namespace>> = {
   },
   [TOKEN_WATCHLIST_NAMESPACE]: { shape: (value) => parseTokenWatchlist(value) },
   [ADDRESS_WATCHES_NAMESPACE]: { shape: (value) => parseAddressWatches(value) },
+  [DESK_LAYOUTS_NAMESPACE]: {
+    shape: (value) => parseDeskLayoutsShape(value),
+    growth: (next, stored, settings) =>
+      checkDeskLayoutGrowth(next as DeskLayoutsValue, stored as DeskLayoutsValue | null, settings.deskLayouts ?? NO_DESK_LAYOUT_LIMITS),
+  },
 };
 
 /** Every namespace the door stores. The database's `user_preferences_namespace_check` must allow exactly these. */
