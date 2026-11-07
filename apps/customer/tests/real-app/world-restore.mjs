@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
 import { declaredWorld } from '../../../../tooling/scripts/journey-world.mjs';
-import { stackPaths } from '../../../../tooling/scripts/local-test-market.mjs';
+import { makerUnquoted, stackPaths } from '../../../../tooling/scripts/local-test-market.mjs';
 
 /**
  * Putting the shared world back between journey files (tooling/scripts/journey-world.mjs). Each file declares, in its
@@ -123,6 +123,25 @@ export async function clearAccountBooks(who) {
   return left;
 }
 
+/** How long the next file waits for a restarted maker to quote every book: its start funds it, then one cycle. */
+export const MAKER_QUOTING_MS = 90_000;
+
+/**
+ * Waits until the running maker's newest run has quoted every market it named (local-test-market.mjs,
+ * `unquotedMarkets`), or `ms` passes. Returns the markets still unquoted then (empty when all are quoted). Failure it
+ * prevents: J-copy-bots-otc-14 #7 restarted the maker, and J-derivatives-03 #1, the next file in the shard, found no
+ * TEST perpetual quotes for its market long (main run 42373885351, #1 to #6 red).
+ */
+export async function makerQuoting({ ms = MAKER_QUOTING_MS, read = makerUnquoted, pause = 1_000 } = {}) {
+  const until = Date.now() + ms;
+  for (;;) {
+    const { announced, waiting } = read();
+    if (announced.length > 0 && waiting.length === 0) return [];
+    if (Date.now() >= until) return announced.length ? waiting : ['any market (no market named in its log yet)'];
+    await new Promise((resolve) => setTimeout(resolve, pause));
+  }
+}
+
 /**
  * Put back what the journey file `file` declared it changes. `makerArgs` are the options the market maker was running
  * with when that file began (null if it was not running), and `accounts` the TEST accounts it signed up or acted as.
@@ -162,6 +181,10 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
             .slice(0, 200)}`,
         );
       }
+    // A maker this file (or the lines above) started again is quoting only once its first cycle has reached every book;
+    // `start` returns before that, and the perpetual is quoted last. The next file waits for it, never an empty book.
+    const waiting = marketRunning() ? await makerQuoting() : [];
+    if (waiting.length) said.push(`market maker not yet quoting ${waiting.join(', ')} after ${MAKER_QUOTING_MS / 1000}s`);
   }
   for (const line of said) console.log(`WORLD RESTORE after ${file.split('/').at(-1)}: ${line}`);
   return said;
