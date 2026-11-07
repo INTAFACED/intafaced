@@ -120,6 +120,8 @@ const kindName: Record<OrderKind, string> = {
 
 export class WalletOrders {
   private readonly drafts = new Map<string, Draft>();
+  /** Per token: a stray return being read or on its way (its hash), so two never overlap. */
+  private readonly sweeping = new Map<string, Hex | 'reading'>();
 
   constructor(
     private readonly store: WalletOrderStore,
@@ -239,17 +241,39 @@ export class WalletOrders {
   async sweep(wallet: string, tokenAddress?: string) {
     this.wired();
     const token = this.token(tokenAddress);
-    const strays = await this.chain.strays(wallet, token.address);
-    if (strays === 0n) return refuse(vaultCodes.nothingToSweep, 'No tokens from this wallet are waiting in the vault uncredited.');
-    const to = getAddress(wallet);
-    const txHash = await this.chain.sendSweep(token.address, to, strays);
-    for (let i = 0; i < 30; i += 1) {
-      const r = await this.chain.receipt(txHash);
-      if (r.status === 'success') return { returned: amountText(strays, token.decimals), symbol: token.symbol, to, txHash };
-      if (r.status === 'reverted') return refuse(vaultCodes.internal, 'The return of stray tokens reverted. Nothing moved.');
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    // One return per token at a time: what is owed is read from mined events, so a second return sent before the first
+    // mines would pay the same tokens twice, out of other senders' strays.
+    const key = token.address.toLowerCase();
+    const inFlight = this.sweeping.get(key);
+    if (inFlight !== undefined) {
+      const r = inFlight === 'reading' ? { status: 'pending' as const } : await this.chain.receipt(inFlight);
+      if (r.status === 'pending')
+        return refuse(vaultCodes.conflict, 'A return of stray tokens is already on its way. Try again once it is done.');
+      this.sweeping.delete(key);
     }
-    return { returned: amountText(strays, token.decimals), symbol: token.symbol, to, txHash, pending: true };
+    this.sweeping.set(key, 'reading');
+    let txHash: Hex | null = null;
+    try {
+      const strays = await this.chain.strays(wallet, token.address);
+      if (strays === 0n) return refuse(vaultCodes.nothingToSweep, 'No tokens from this wallet are waiting in the vault uncredited.');
+      const to = getAddress(wallet);
+      txHash = await this.chain.sendSweep(token.address, to, strays);
+      this.sweeping.set(key, txHash);
+      for (let i = 0; i < 30; i += 1) {
+        const r = await this.chain.receipt(txHash);
+        if (r.status === 'success') return { returned: amountText(strays, token.decimals), symbol: token.symbol, to, txHash };
+        if (r.status === 'reverted') return refuse(vaultCodes.internal, 'The return of stray tokens reverted. Nothing moved.');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      return { returned: amountText(strays, token.decimals), symbol: token.symbol, to, txHash, pending: true };
+    } finally {
+      // A return still pending keeps its hash, so the next call checks it first; anything else frees the token.
+      if (txHash === null || this.sweeping.get(key) !== txHash) this.sweeping.delete(key);
+      else {
+        const r = await this.chain.receipt(txHash).catch(() => ({ status: 'pending' as const }));
+        if (r.status !== 'pending') this.sweeping.delete(key);
+      }
+    }
   }
 
   // ── Placing ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -287,12 +311,20 @@ export class WalletOrders {
   private async capCheck(principal: OrderPrincipal, token: Address, adding: bigint, decimals: number): Promise<void> {
     const cap = principal.cap.find((c) => c.token.toLowerCase() === token.toLowerCase());
     if (!cap) return refuse(vaultCodes.capExceeded, 'Your order session has no cap for this token.');
-    const open = this.store
+    const groups = this.store
       .byMaker(principal.wallet)
       .filter(
         (row) => !FINAL_STATES.has(row.state) && row.order.parent === ZERO32 && tokenIn(row.order).toLowerCase() === token.toLowerCase(),
       )
-      .reduce((sum, row) => sum + (row.order.amountIn - row.filledIn), 0n);
+      // A linked pair shares one remaining amount on chain: it counts once, as its group's largest input less what the
+      // group filled, never once per leg.
+      .reduce((groups, row) => {
+        const key = row.order.link === ZERO32 ? row.id : row.order.link;
+        const g = groups.get(key) ?? { amountIn: 0n, filled: 0n };
+        groups.set(key, { amountIn: row.order.amountIn > g.amountIn ? row.order.amountIn : g.amountIn, filled: g.filled + row.filledIn });
+        return groups;
+      }, new Map<string, { amountIn: bigint; filled: bigint }>());
+    const open = [...groups.values()].reduce((sum, g) => sum + (g.amountIn > g.filled ? g.amountIn - g.filled : 0n), 0n);
     if (open + adding > parseUnits(cap.max, decimals))
       refuse(
         vaultCodes.capExceeded,
@@ -379,8 +411,14 @@ export class WalletOrders {
         if (isSell && tp <= sl) refuse(vaultCodes.tpNotAboveSl, 'On a sell, the take-profit must be above the stop.');
         if (!isSell && tp >= sl) refuse(vaultCodes.tpNotBelowSl, 'On a buy, the take-profit must be below the stop.');
         const link = keccak256(randomBytes(32)) as Hex;
-        rows.push(isSell ? sell('take_profit', true, tp, { link }) : buy('take_profit', false, tp, { link }));
-        rows.push(isSell ? sell('stop', false, sl, { link }) : buy('stop', true, sl, { link }));
+        if (isSell) {
+          rows.push(sell('take_profit', true, tp, { link }), sell('stop', false, sl, { link }));
+        } else {
+          // Both legs share one remaining amount on chain, so both carry the same input: what the dearer leg (the stop)
+          // spends. The keeper stops a leg once it bought the base asked for; the rest stays as vault credit.
+          const spend = this.buySpend(amount, sl > tp ? sl : tp, pair);
+          rows.push(buy('take_profit', false, tp, { link, amountIn: spend }), buy('stop', true, sl, { link, amountIn: spend }));
+        }
         break;
       }
       case 'bracket': {
@@ -429,7 +467,8 @@ export class WalletOrders {
     const spends = rows.filter((r) => r.parentId === null);
     const spendToken = tokenIn(spends[0]!.order);
     const spendDecimals = spendToken === pair.base.address ? pair.base.decimals : pair.quote.decimals;
-    const need = spends[0]!.order.amountIn;
+    // Every spending row here is one order or one linked group sharing an input, so the largest input is what it needs.
+    const need = spends.reduce((most, r) => (r.order.amountIn > most ? r.order.amountIn : most), 0n);
     const credit = await this.chain.credit(maker, spendToken);
     if (credit < need)
       refuse(
@@ -531,7 +570,8 @@ export class WalletOrders {
       attempts: [],
     }));
     this.store.insert(rows);
-    return Promise.all(rows.map((row) => this.view(row)));
+    const mark = this.markNow();
+    return Promise.all(rows.map((row) => this.view(row, mark)));
   }
 
   // ── Reading ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -543,7 +583,15 @@ export class WalletOrders {
     return row;
   }
 
-  async view(row: WalletOrder) {
+  /** The pair's mark, read once for a whole page of rows; null when it cannot be read. */
+  private async markNow(): Promise<bigint | null> {
+    if (!this.chain.wired) return null;
+    const pair = this.pair();
+    const price = await this.chain.price(pair.base.address, pair.quote.address).catch(() => null);
+    return price?.status === 'ok' ? price.priceWad : null;
+  }
+
+  async view(row: WalletOrder, markRead?: Promise<bigint | null>) {
     const pair = this.pair();
     const sellsBase = !row.order.isBuy;
     const baseDecimals = pair.base.decimals;
@@ -556,8 +604,7 @@ export class WalletOrders {
     let cover: bigint | null = null;
     try {
       if (this.chain.wired) {
-        const price = await this.chain.price(pair.base.address, pair.quote.address);
-        if (price.status === 'ok') mark = price.priceWad;
+        mark = await (markRead ?? this.markNow());
         if (row.order.trailBps > 0n) {
           const wm = await this.chain.watermark(row.order);
           if (wm > 0n) trigger = row.order.above ? (wm * (BPS + row.order.trailBps)) / BPS : (wm * (BPS - row.order.trailBps)) / BPS;
@@ -613,8 +660,9 @@ export class WalletOrders {
     if (!Number.isSafeInteger(start) || start < 0) return refuse(vaultCodes.badRequest, 'The cursor is not one this list gave.');
     const rows = this.store.byMaker(principal.wallet).filter((row) => !input.state || row.state === input.state);
     const page = rows.slice(start, start + limit);
+    const mark = this.markNow();
     return {
-      orders: await Promise.all(page.map((row) => this.view(row))),
+      orders: await Promise.all(page.map((row) => this.view(row, mark))),
       total: rows.length,
       pageSize: PAGE_SIZE,
       next: start + limit < rows.length ? String(start + limit) : null,

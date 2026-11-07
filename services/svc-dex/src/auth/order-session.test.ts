@@ -99,6 +99,20 @@ describe('the order session (D-limit-dca-01, SIG-1..SIG-3)', () => {
     expect(() => svc.refresh(second.refreshToken)).toThrow(expect.objectContaining({ code: 'dex.auth.unauthenticated' }));
   });
 
+  it('a refresh never carries the session past the end the wallet signed', async () => {
+    const { svc, at } = sessions();
+    const c = svc.challenge({ address: wallet.address, chainId: 84532 });
+    const first = await svc.verify({ challenge: c.challenge, signature: await sign(c.typedData) });
+    const signedEnd = Date.parse(c.sessionExpiresAt);
+    at.now = new Date(signedEnd - 60_000);
+    const again = svc.refresh(first.refreshToken);
+    expect(Date.parse(again.accessExpiresAt)).toBeLessThanOrEqual(signedEnd);
+    expect(Date.parse(again.refreshExpiresAt)).toBeLessThanOrEqual(signedEnd);
+    at.now = new Date(signedEnd + 1);
+    expect(() => svc.refresh(again.refreshToken)).toThrow(expect.objectContaining({ code: 'dex.auth.unauthenticated' }));
+    expect(() => svc.principal(again.accessToken)).toThrow(expect.objectContaining({ code: 'dex.auth.unauthenticated' }));
+  });
+
   it('logoutAll ends every earlier session of the wallet', async () => {
     const { svc, at } = sessions();
     const open = async () => {

@@ -90,6 +90,10 @@ export interface PendingFill {
   readonly round: number;
   readonly take: bigint;
   readonly txHash: Hex | null;
+  /** True once the send was started: a send that threw may still have been broadcast, so it is looked for on chain. */
+  readonly sendStarted?: boolean;
+  /** Passes that looked for an unknown send on chain and found nothing. */
+  readonly looked?: number;
 }
 
 export interface WalletOrder {

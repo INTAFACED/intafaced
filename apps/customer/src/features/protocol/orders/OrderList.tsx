@@ -30,6 +30,8 @@ export function OrderList({ ctx }: { ctx: OrdersContext }) {
   const [cursor, setCursor] = useState<string | undefined>(undefined);
   const [page, setPage] = useState<{ orders: DexOrderView[]; total: number; pageSize: number; next: string | null } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  // What happened to an edit or cancel after its dialog closed for the wallet; kept until the next one.
+  const [outcome, setOutcome] = useState<string | null>(null);
   const [history, setHistory] = useState<DexOrderView | null>(null);
   const [editing, setEditing] = useState<DexOrderView | null>(null);
   const [cancelling, setCancelling] = useState<DexOrderView | null>(null);
@@ -123,8 +125,9 @@ export function OrderList({ ctx }: { ctx: OrdersContext }) {
         </Button>
       </nav>
       {history && session && <HistoryDialog ctx={ctx} order={history} accessToken={session.accessToken} onClose={() => setHistory(null)} />}
-      {editing && <EditDialog ctx={ctx} order={editing} onClose={() => setEditing(null)} />}
-      {cancelling && <CancelDialog ctx={ctx} order={cancelling} onClose={() => setCancelling(null)} />}
+      {outcome && <p role="alert">{outcome}</p>}
+      {editing && <EditDialog ctx={ctx} order={editing} onClose={() => setEditing(null)} onOutcome={setOutcome} />}
+      {cancelling && <CancelDialog ctx={ctx} order={cancelling} onClose={() => setCancelling(null)} onOutcome={setOutcome} />}
     </Panel>
   );
 }
@@ -307,7 +310,15 @@ function HistoryDialog({
   );
 }
 
-function EditDialog({ ctx, order, onClose }: { ctx: OrdersContext; order: DexOrderView; onClose: () => void }) {
+interface DialogProps {
+  ctx: OrdersContext;
+  order: DexOrderView;
+  onClose: () => void;
+  /** Words for what went wrong after the dialog closed, or null when all went through. */
+  onOutcome: (words: string | null) => void;
+}
+
+function EditDialog({ ctx, order, onClose, onOutcome }: DialogProps) {
   const { api, session, t, gated, send, changed } = ctx;
   const wallet = useWallet();
   const sign = useRef(wallet.sign);
@@ -322,9 +333,15 @@ function EditDialog({ ctx, order, onClose }: { ctx: OrdersContext; order: DexOrd
       if (!prepared.ok) return setProblem(refusalWords(t, prepared));
       // The wallet's sheet opens outside this dialog: close it first so nothing under it is inert.
       onClose();
-      await gated(async () => {
+      onOutcome(null);
+      const gate = await gated(async () => {
         const signed = await sign.current({ kind: 'typedData', typedData: prepared.data.typedData as never });
-        if (signed.status !== 'signed') return;
+        if (signed.status === 'rejected') return onOutcome(t('walletRejected'));
+        if (signed.status !== 'signed') return onOutcome(t('walletFailed', { message: signed.status === 'failed' ? signed.message : '' }));
+        // The new version is stored first; only then is the old one retired on chain. A refused update retires nothing,
+        // so the order never ends with no signature that can fill.
+        const updated = await api.update(session.accessToken, prepared.data.draftId, signed.signature);
+        if (!updated.ok) return onOutcome(refusalWords(t, updated));
         if (prepared.data.call) {
           const failed = await send({
             title: t('editReplace'),
@@ -335,13 +352,13 @@ function EditDialog({ ctx, order, onClose }: { ctx: OrdersContext; order: DexOrd
               },
             ],
           });
-          if (failed) return;
+          if (failed) return onOutcome(t('editReplaceFailed', { words: failed }));
         }
-        await api.update(session.accessToken, prepared.data.draftId, signed.signature);
       });
+      if (gate) onOutcome(gate);
       changed();
     },
-    [api, session, order.id, trigger, t, gated, send, changed, onClose],
+    [api, session, order.id, trigger, t, gated, send, changed, onClose, onOutcome],
   );
   return (
     <Dialog title={t('editTitle')} onClose={onClose}>
@@ -359,7 +376,7 @@ function EditDialog({ ctx, order, onClose }: { ctx: OrdersContext; order: DexOrd
   );
 }
 
-function CancelDialog({ ctx, order, onClose }: { ctx: OrdersContext; order: DexOrderView; onClose: () => void }) {
+function CancelDialog({ ctx, order, onClose, onOutcome }: DialogProps) {
   const { api, session, t, gated, send, changed } = ctx;
   const [problem, setProblem] = useState<string | null>(null);
   const confirm = async () => {
@@ -368,13 +385,16 @@ function CancelDialog({ ctx, order, onClose }: { ctx: OrdersContext; order: DexO
     if (!cancelled.ok) return setProblem(refusalWords(t, cancelled));
     // Recorded: the keeper stops at once. The on-chain cancel follows from the wallet, outside this dialog.
     onClose();
+    onOutcome(null);
     changed();
-    await gated(async () => {
-      await send({
+    const gate = await gated(async () => {
+      const failed = await send({
         title: t('cancelSteps'),
         steps: cancelled.data.calls.map((c) => ({ label: c.label, request: { kind: 'transaction', to: c.to, data: c.data } })),
       });
+      if (failed) onOutcome(t('cancelChainFailed', { words: failed }));
     });
+    if (gate) onOutcome(t('cancelChainFailed', { words: gate }));
     changed();
   };
   return (

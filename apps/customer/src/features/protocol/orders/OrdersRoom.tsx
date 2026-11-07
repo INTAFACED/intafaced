@@ -64,6 +64,27 @@ export function OrdersRoom() {
   const protocol = useMemo(() => createProtocolApi(transport), [transport]);
   const [session, setSession] = useState<OrderSession | null>(() => (address ? (rememberedSession(address) ?? null) : null));
   useEffect(() => setSession(address ? (rememberedSession(address) ?? null) : null), [address]);
+  // When the access token ends, the refresh token gets a new pair (never past the end the wallet signed); when that is
+  // refused too, the session is gone and Sign shows again.
+  useEffect(() => {
+    if (!session || !address) return;
+    const wait = Date.parse(session.accessExpiresAt) - Date.now();
+    const timer = setTimeout(
+      () => {
+        void api.refresh(session.refreshToken).then((next) => {
+          if (next.ok) {
+            rememberSession(next.data);
+            setSession(next.data);
+          } else {
+            forgetSession(address);
+            setSession(null);
+          }
+        });
+      },
+      Math.max(0, Math.min(wait, 2_147_000_000)),
+    );
+    return () => clearTimeout(timer);
+  }, [session, address, api]);
   const [revision, setRevision] = useState(0);
   const changed = useCallback(() => setRevision((n) => n + 1), []);
   const [representation, setRepresentation] = useState<{ status: RepresentationStatus; resolve: (ok: boolean) => void } | null>(null);

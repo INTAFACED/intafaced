@@ -30,6 +30,9 @@ import type { ChainOrder } from './model.js';
 const TRANSFER_EVENT = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const DEPOSITED_EVENT = parseAbiItem('event Deposited(address indexed maker, address indexed token, uint256 amount)');
 const SWEPT_EVENT = parseAbiItem('event Swept(address indexed token, address indexed to, uint256 amount)');
+const FILLED_EVENT = parseAbiItem(
+  'event Filled(bytes32 indexed orderId, address indexed maker, uint256 amountIn, uint256 amountOut, uint256 priceWad)',
+);
 
 export type PriceRead =
   | { readonly status: 'ok'; readonly priceWad: bigint }
@@ -70,6 +73,8 @@ export interface VaultChain {
   sendPoke(order: ChainOrder): Promise<Hex>;
   sendSweep(token: string, to: string, amount: bigint): Promise<Hex>;
   receipt(hash: Hex): Promise<Receipt>;
+  /** The transactions that filled this order on chain, oldest first (a fill whose send threw is found here). */
+  fillTxs(order: ChainOrder): Promise<Hex[]>;
   /** The chain's own clock, in seconds: expiry is judged by it, as the contract judges it. */
   now(): Promise<bigint>;
 }
@@ -129,6 +134,7 @@ export function unwiredVaultChain(chainId = 0): VaultChain {
     sendPoke: off,
     sendSweep: off,
     receipt: off,
+    fillTxs: off,
     now: off,
   };
 }
@@ -182,7 +188,8 @@ export function viemVaultChain(setting: VaultChainSetting): VaultChain {
         return { status: 'error', detail: name };
       }
     },
-    watermark: async (order) => read<bigint>('watermark', [await read<Hex>('orderId', [getAddress(order.maker), order.nonce])]),
+    // Keyed by the signed order's hash (a made-up order with the same nonce has its own mark).
+    watermark: async (order) => read<bigint>('watermark', [await read<Hex>('hashOrder', [order])]),
     remaining: (order) => read<bigint>('remaining', [asArgs(order)]),
     boughtOut: (orderId) => read<bigint>('boughtOut', [orderId]),
     async pool(pool, tokenIn) {
@@ -234,6 +241,11 @@ export function viemVaultChain(setting: VaultChainSetting): VaultChain {
         }
       }
       return { status: 'success' };
+    },
+    async fillTxs(order) {
+      const orderId = await read<Hex>('orderId', [getAddress(order.maker), order.nonce]);
+      const logs = await client.getLogs({ address: vault, event: FILLED_EVENT, args: { orderId }, fromBlock: 0n });
+      return logs.map((l) => l.transactionHash).filter((h): h is Hex => h !== null);
     },
     now: async () => (await client.getBlock()).timestamp,
   };

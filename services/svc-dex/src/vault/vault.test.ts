@@ -129,6 +129,11 @@ class FakeChain implements VaultChain {
     }
     if (o.outputToVault) this.bought.set(idOf(o), (this.bought.get(idOf(o)) ?? 0n) + out);
     this.receipts.set(hash, { status: 'success', filled: { amountIn: take, amountOut: out, priceWad: this.priceWad as bigint } });
+    this.fillHashes.set(idOf(o), [...(this.fillHashes.get(idOf(o)) ?? []), hash]);
+    if (this.throwAfterSend) {
+      this.throwAfterSend = false;
+      throw new Error('The request took too long to respond.');
+    }
     return hash;
   }
   async sendPoke(o: ChainOrder): Promise<Hex> {
@@ -143,6 +148,12 @@ class FakeChain implements VaultChain {
   }
   async receipt(hash: Hex) {
     return this.receipts.get(hash) ?? { status: 'pending' as const };
+  }
+  /** When set, the next fill is mined and then the send throws, as a node that times out after taking it. */
+  throwAfterSend = false;
+  fillHashes = new Map<string, Hex[]>();
+  async fillTxs(o: ChainOrder) {
+    return this.fillHashes.get(idOf(o)) ?? [];
   }
   async now() {
     return this.time;
@@ -375,6 +386,23 @@ describe('the keeper (D-limit-dca-02 to -04)', () => {
     expect(Number(parent.filled)).toBeGreaterThan(0);
     expect(parent.cover).toBe(parent.filled);
     expect(list.filter((o) => o.parentId === parent.id).map((o) => o.state)).toEqual(['open', 'open']);
+  });
+
+  it('a send that times out after the node took it: the fill is found on chain and recorded once, never bought twice', async () => {
+    const { orders, chain, keeper } = world();
+    chain.setCredit(B, b('20'));
+    chain.priceWad = 8n * 10n ** 17n;
+    chain.reserves = { a: a('1000000'), b: b('800000') };
+    const [row] = await place(orders, { kind: 'buy_below', side: 'buy', amount: '10', trigger: '0.95', expiryHours: '24' });
+    chain.throwAfterSend = true;
+    await keeper.tick();
+    expect(chain.sent).toHaveLength(1);
+    await keeper.tick();
+    await keeper.tick();
+    const view = (await orders.list(principal, {})).orders.find((o) => o.id === row!.id)!;
+    expect(chain.sent).toHaveLength(1);
+    expect(view.state).toBe('Filled');
+    expect(Number(view.filled)).toBeGreaterThanOrEqual(10);
   });
 
   it('a trailing stop: the watermark follows the price up and never down', async () => {

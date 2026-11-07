@@ -87,8 +87,10 @@ contract OrderVault {
     mapping(bytes32 orderId => uint256) public boughtOut;
     mapping(bytes32 orderId => bool) public cancelled;
     mapping(bytes32 orderId => uint256) public minVersion;
-    /// A trailing order's watermark: the best price seen since it opened, 1e18-scaled.
-    mapping(bytes32 orderId => uint256) public watermark;
+    /// A trailing order's watermark: the best price seen since it opened, 1e18-scaled. Keyed by the signed order's own
+    /// hash, so a caller who passes a made-up order (the same maker and nonce, another direction) moves only that made-up
+    /// order's mark, never the signed one's.
+    mapping(bytes32 orderHash => uint256) public watermark;
 
     uint256 private _locked = 1;
 
@@ -97,7 +99,7 @@ contract OrderVault {
     event Filled(bytes32 indexed orderId, address indexed maker, uint256 amountIn, uint256 amountOut, uint256 priceWad);
     event Cancelled(bytes32 indexed orderId, address indexed maker);
     event VersionRaised(bytes32 indexed orderId, address indexed maker, uint256 version);
-    event Watermark(bytes32 indexed orderId, uint256 priceWad);
+    event Watermark(bytes32 indexed orderHash, uint256 priceWad);
     event Swept(address indexed token, address indexed to, uint256 amount);
 
     error BadConfig();
@@ -212,7 +214,7 @@ contract OrderVault {
     /// The trigger the order fills at now: its own, or a trailing order's watermark less its distance.
     function triggerOf(Order calldata order) public view returns (uint256) {
         if (order.trailBps == 0) return order.triggerWad;
-        uint256 mark = watermark[orderId(order.maker, order.nonce)];
+        uint256 mark = watermark[hashOrder(order)];
         if (mark == 0) return 0;
         return order.above ? (mark * (BPS + order.trailBps)) / BPS : (mark * (BPS - order.trailBps)) / BPS;
     }
@@ -224,13 +226,13 @@ contract OrderVault {
      */
     function poke(Order calldata order) external returns (uint256) {
         if (order.trailBps == 0 || order.trailBps >= BPS) revert NotTrailing();
-        bytes32 id = orderId(order.maker, order.nonce);
+        bytes32 h = hashOrder(order);
         uint256 now_ = price(order.base, order.quote);
-        uint256 mark = watermark[id];
+        uint256 mark = watermark[h];
         bool better = mark == 0 || (order.above ? now_ < mark : now_ > mark);
         if (better) {
-            watermark[id] = now_;
-            emit Watermark(id, now_);
+            watermark[h] = now_;
+            emit Watermark(h, now_);
             return now_;
         }
         return mark;

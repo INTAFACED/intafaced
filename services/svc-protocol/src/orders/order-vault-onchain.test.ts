@@ -297,11 +297,15 @@ describe('OrderVault on chain', () => {
     const t = await sell({ above: false, triggerWad: 0n, trailBps: 500n, amountIn: parseUnits('1', 6), minOut: 1n });
     await setPrice(parseUnits('1.30', 18));
     await write(stranger, vault, vaultAbi(), 'poke', [t]);
-    const id = await read<Hex>('orderId', [maker.address, t.nonce]);
+    const id = await read<Hex>('hashOrder', [t]);
     expect(await read<bigint>('watermark', [id])).toBe(parseUnits('1.30', 18));
     await setPrice(parseUnits('1.20', 18));
     await write(stranger, vault, vaultAbi(), 'poke', [t]);
     expect(await read<bigint>('watermark', [id]), 'trail.never-moves-against-holder').toBe(parseUnits('1.30', 18));
+    // A made-up order with the same maker and nonce, the other direction, moves only its own mark.
+    await write(stranger, vault, vaultAbi(), 'poke', [{ ...t, above: true }]);
+    expect(await read<bigint>('watermark', [id]), 'trail.forged-poke-moves-nothing').toBe(parseUnits('1.30', 18));
+    expect(await read<bigint>('triggerOf', [t])).toBe((parseUnits('1.30', 18) * 9500n) / 10_000n);
     await setPrice(parseUnits('1.40', 18));
     await write(stranger, vault, vaultAbi(), 'poke', [t]);
     expect(await read<bigint>('watermark', [id])).toBe(parseUnits('1.40', 18));

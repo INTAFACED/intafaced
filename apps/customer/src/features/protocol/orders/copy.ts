@@ -175,10 +175,12 @@ const en = {
   editTrigger: 'Trigger price ({quote} per {base})',
   editSave: 'Save',
   editReplace: 'Replace steps',
+  editReplaceFailed: 'The new price is saved, but the old order was not retired on chain: {words} Edit again to retire it.',
   cancelTitle: 'Cancel order',
   cancelCopy: 'Cancelled orders stop filling at once. Your funds return when you sign the withdrawal.',
   cancelConfirm: 'Cancel order',
   cancelSteps: 'Cancel on chain',
+  cancelChainFailed: 'The keeper will not fill this order, but it is not cancelled on chain yet: {words} Cancel again to finish.',
 } as const;
 
 export const ordersCopy = defineCopy('customer.protocol.orders', en);

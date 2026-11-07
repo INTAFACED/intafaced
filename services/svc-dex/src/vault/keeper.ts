@@ -223,7 +223,16 @@ export class OrderKeeper {
       row.events.push({ at: this.deps.now().toISOString(), type: 'cancel_refused_fill', version });
       return;
     }
-    const hash = await chain.sendFill(row.order, row.signature, take, pair.pool);
+    row.pending = { ...row.pending, sendStarted: true };
+    this.deps.store.save();
+    let hash: Hex;
+    try {
+      hash = await chain.sendFill(row.order, row.signature, take, pair.pool);
+    } catch (err) {
+      // The node may have taken the transaction before the error (a timeout): the row stays executing, and the next
+      // passes look for its fill on chain before anything is sent again.
+      return this.attempt(row, 'reverted', { trigger: err instanceof Error ? err.message.slice(0, 80) : undefined });
+    }
     row.pending = { ...row.pending, txHash: hash };
     this.deps.store.save();
     await this.waitMined(hash);
@@ -242,13 +251,27 @@ export class OrderKeeper {
   private async reconcile(row: WalletOrder): Promise<void> {
     const pending = row.pending;
     if (!pending) return;
-    if (!pending.txHash) {
-      // The process stopped between the intent and the send: nothing was broadcast with this key, so it is cleared.
+    let txHash = pending.txHash;
+    if (!txHash && pending.sendStarted) {
+      // A send that threw, or a stop mid-send: a fill not yet recorded may be on chain. It is applied from its receipt;
+      // with none found after three passes, nothing was broadcast and the intent is cleared.
+      const recorded = new Set(row.events.flatMap((e) => (e.type === 'fill' && e.txHash ? [e.txHash.toLowerCase()] : [])));
+      const found = (await this.deps.chain.fillTxs(row.order)).find((h) => !recorded.has(h.toLowerCase()));
+      if (found) {
+        txHash = found;
+        row.pending = { ...pending, txHash: found };
+      } else if ((pending.looked ?? 0) < 2) {
+        row.pending = { ...pending, looked: (pending.looked ?? 0) + 1 };
+        return;
+      }
+    }
+    if (!txHash) {
+      // Nothing was broadcast with this key, so it is cleared.
       row.pending = null;
       row.state = row.cancelRequested ? 'cancelled' : 'open';
       return;
     }
-    const r = await this.deps.chain.receipt(pending.txHash);
+    const r = await this.deps.chain.receipt(txHash);
     if (r.status === 'pending') return;
     row.pending = null;
     if (r.status === 'reverted' || !r.filled) {
@@ -282,7 +305,7 @@ export class OrderKeeper {
       amountOut: amountText(r.filled.amountOut, outDecimals),
       minOut: amountText(floorFor(row.order, r.filled.amountIn), outDecimals),
       price: priceText(r.filled.priceWad),
-      txHash: pending.txHash,
+      txHash,
       version: Number(row.order.version),
     });
     row.state = row.cancelRequested ? 'cancelled' : 'open';
