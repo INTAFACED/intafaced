@@ -78,7 +78,8 @@ function PolicyRowControls({
 
   return (
     <ControlDesk
-      key={`${actionType}:${expectedVersion}`}
+      // Keyed by type only: a run that writes the row bumps its version, and the desk must keep showing the service's answer.
+      key={actionType}
       endpoint="/api/identity-ops/policy"
       userId={userId}
       blockedReason={null}
