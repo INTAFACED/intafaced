@@ -47,37 +47,13 @@ export function noticeFor(code: string | undefined): SessionNotice | null {
 }
 
 /**
- * When this browser was last used and last refreshed its sign-in, shared by its tabs (I-signin-sessions-06). A refresh
- * the timer makes with no use since the one before tells identity so (`idle: true`), and the idle sign-out keeps
- * counting: an open tab nobody touches is a device left unused. Without storage, or with a missing value, a refresh
- * counts as use, as it always did: the idle sign-out then ends only a device that stops refreshing.
+ * When the person last used this browser and when its sign-in was last refreshed (I-signin-sessions-06), held in memory
+ * and shared by its tabs over the session channel, never stored. A refresh the timer makes with no use since the one
+ * before tells identity so (`idle: true`), and the idle sign-out keeps counting: an open tab nobody touches is a device
+ * left unused. Before the first refresh or the first use is known, a refresh counts as use, as it always did.
  */
-const USED_AT = 'intafaced.session.used-at';
-const REFRESHED_AT = 'intafaced.session.refreshed-at';
-function stamp(key: string, at: number) {
-  try {
-    globalThis.localStorage?.setItem(key, String(at));
-  } catch {
-    // No storage: the next refresh counts as use.
-  }
-}
-function stamped(key: string): number | null {
-  try {
-    const raw = globalThis.localStorage?.getItem(key);
-    const at = raw === null || raw === undefined ? NaN : Number(raw);
-    return Number.isFinite(at) ? at : null;
-  } catch {
-    return null;
-  }
-}
-/** True only when this browser saw a refresh and no use after it. */
-export function unusedSinceRefresh(): boolean {
-  const used = stamped(USED_AT);
-  const refreshed = stamped(REFRESHED_AT);
-  return used !== null && refreshed !== null && used <= refreshed;
-}
-/** Marks use (a key, a click or a touch) at most once every few seconds; returns the way to stop listening. */
-export function watchUse(now: () => number = Date.now): () => void {
+/** Calls `onUse` for a key, a click or a touch, at most once every few seconds; returns the way to stop listening. */
+export function watchUse(onUse: (at: number) => void, now: () => number = Date.now): () => void {
   const target = globalThis.window;
   if (!target?.addEventListener) return () => undefined;
   let last = 0;
@@ -85,7 +61,7 @@ export function watchUse(now: () => number = Date.now): () => void {
     const at = now();
     if (at - last < 5_000) return;
     last = at;
-    stamp(USED_AT, at);
+    onUse(at);
   };
   const events = ['pointerdown', 'keydown', 'touchstart'] as const;
   for (const name of events) target.addEventListener(name, used, { capture: true, passive: true });
@@ -154,11 +130,8 @@ export function createSessionRefresher(
   });
   const retryDelayMs = options.retryDelayMs ?? REFRESH_RETRY_MS;
   let flight: Promise<RefreshOutcome> | null = null;
-  const attempt = async (idle: boolean) => {
-    const outcome = mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
-    if (outcome.kind === 'session') stamp(REFRESHED_AT, Date.now());
-    return outcome;
-  };
+  const attempt = async (idle: boolean) =>
+    mapRefreshResult(await api.mutate('identity', 'auth.refresh', idle ? { idle: true } : {}, sessionSchema));
   async function once(idle: boolean): Promise<RefreshOutcome> {
     const first = await attempt(idle);
     if (first.kind !== 'unavailable') return first;
@@ -181,10 +154,10 @@ export function createSessionRefresher(
     }
   }
   return {
-    /** `unused`: the timer's refresh; it tells identity when this browser saw no use since its last refresh. */
-    refresh(options: { unused?: boolean } = {}): Promise<RefreshOutcome> {
+    /** `unused`: says whether this browser saw no use since its last refresh (read when the refresh is sent). */
+    refresh(options: { unused?: () => boolean } = {}): Promise<RefreshOutcome> {
       if (!flight) {
-        const idle = () => options.unused === true && unusedSinceRefresh();
+        const idle = () => options.unused?.() === true;
         const started: Promise<RefreshOutcome> = locked(idle).finally(() => {
           if (flight === started) flight = null;
         });
@@ -254,6 +227,7 @@ export type ChannelLike = {
 const channelMessage = z.discriminatedUnion('type', [
   z.object({ type: z.literal('logout') }),
   z.object({ type: z.literal('session'), session: sessionSchema }),
+  z.object({ type: z.literal('used'), at: z.number().finite() }),
 ]);
 function browserChannel(): ChannelLike | null {
   try {
@@ -339,6 +313,13 @@ export function createSessionController(
   let epoch = 0;
   let active = false;
   let stopWatchingUse: (() => void) | null = null;
+  let usedAt: number | null = null;
+  let refreshedAt: number | null = null;
+  const unused = () => usedAt !== null && refreshedAt !== null && usedAt <= refreshedAt;
+  function used(at: number) {
+    usedAt = Math.max(usedAt ?? 0, at);
+    tell({ type: 'used', at });
+  }
   let failures = 0;
   let boot: Promise<void> | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -381,7 +362,8 @@ export function createSessionController(
   async function silent(forSession: Session) {
     timer = undefined;
     const started = epoch;
-    const outcome = await refresher.refresh({ unused: true });
+    const outcome = await refresher.refresh({ unused });
+    if (outcome.kind === 'session') refreshedAt = now();
     if (epoch !== started || state.session?.accessToken !== forSession.accessToken) return;
     if (outcome.kind === 'session') {
       // Other tabs on the main account take the rotated main token; this tab keeps acting as its sub-account when it was.
@@ -525,6 +507,12 @@ export function createSessionController(
   function heard(data: unknown) {
     const message = channelMessage.safeParse(data);
     if (!message.success) return;
+    if (message.data.type === 'used') {
+      usedAt = Math.max(usedAt ?? 0, Math.min(message.data.at, now()));
+      return;
+    }
+    // Another tab refreshed: this browser's sign-in was refreshed now.
+    if (message.data.type === 'session') refreshedAt = now();
     const current = state.session;
     if (!current) return;
     if (message.data.type === 'logout') {
@@ -547,6 +535,7 @@ export function createSessionController(
     if (state.session) return;
     const started = epoch;
     const outcome = await refresher.refresh();
+    if (outcome.kind === 'session') refreshedAt = now();
     if (epoch !== started || state.session) return;
     if (outcome.kind === 'session') {
       const remembered = memory.read();
@@ -590,7 +579,7 @@ export function createSessionController(
     /** Idempotent: the boot refresh runs once however often this is called (React StrictMode mounts twice). */
     start(): Promise<void> {
       active = true;
-      stopWatchingUse ??= watchUse(now);
+      stopWatchingUse ??= watchUse(used, now);
       if (!channel) {
         channel = openChannel();
         if (channel) channel.onmessage = (event) => heard(event.data);

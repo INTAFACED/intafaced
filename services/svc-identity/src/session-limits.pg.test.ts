@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { MemoryEventBus } from '@intafaced/events';
 import { issueAccessToken, verifyAccessToken } from '@intafaced/auth';
 import type { Context } from '@intafaced/contracts';
-import { postgresAvailable, rewriteSchemaSql, type TestDb } from '@intafaced/db';
+import { rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { createTestDb } from './fixture-truncate.testkit.js';
 import { AuthService } from './auth/auth-service.js';
 import { RankService } from './rank/rank-service.js';
@@ -74,11 +74,8 @@ const tokenConfig = {
 };
 const PASSWORD = 'correct horse battery staple';
 
-if (!(await postgresAvailable(URL))) {
-  describe.skip('session limits (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+// Runs unconditionally: CI provides Postgres; without it locally this suite fails, as it should.
+{
   const db: TestDb = await createTestDb({
     service: 'identity_session_limits',
     url: URL,
@@ -225,6 +222,8 @@ if (!(await postgresAvailable(URL))) {
 
     it('ends the device signed in on longest ago even when it was refreshed most recently', async () => {
       const { handle, userId } = await account();
+      // Registering signs in too: that device is the oldest, and the third sign-in below ends it.
+      await db.sql`UPDATE sessions SET created_at = created_at - interval '3 days' WHERE user_id = ${userId}`;
       const first = await login(handle);
       await db.sql`UPDATE sessions SET created_at = created_at - interval '2 days' WHERE id = ${first.sessionId}`;
       const second = await login(handle);
