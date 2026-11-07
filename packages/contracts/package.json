@@ -278,6 +278,10 @@
       "types": "./dist/protocol-tokens.d.ts",
       "default": "./dist/protocol-tokens.js"
     },
+    "./desk-layouts-preferences": {
+      "types": "./dist/desk-layouts-preferences.d.ts",
+      "default": "./dist/desk-layouts-preferences.js"
+    },
     "./protocol-watch-preferences": {
       "types": "./dist/protocol-watch-preferences.d.ts",
       "default": "./dist/protocol-watch-preferences.js"
