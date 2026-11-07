@@ -105,7 +105,9 @@ test(`${J} #1 invites someone by email: a pending row with the expiry; the addre
   const [mail] = mailsTo(sent, before);
   expect(mail.purpose).toBe('team-invite');
   const api = await ownerApi();
-  const listed = (await api.query('merchantOps.team.list', { status: 'invited' })).items.find((m) => m.userId === `email:${sent}`);
+  const listed = (await api.query('merchantOps.team.list', { status: 'invited', limit: 50 })).items.find(
+    (m) => m.userId === `email:${sent}`,
+  );
   expect(listed.expiresAt).toBe(mail.expires);
   const lifetime = Date.parse(mail.expires) - Date.now();
   expect(lifetime).toBeGreaterThan(7 * 86_400_000 - 600_000);
