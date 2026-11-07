@@ -5,7 +5,7 @@ import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
-import { assertTestDatabase, postgresAvailable } from '@intafaced/db';
+import { assertTestDatabase } from '@intafaced/db';
 import { ownRouter } from '../own/routes.js';
 import { fleetCsv, fleetRouter, ownAgentSwitch, productKindOff, readFleet } from './control.js';
 
@@ -43,13 +43,8 @@ function ctxOf(userId: string, scopes: string[]) {
   });
 }
 
-const available = await postgresAvailable(URL);
-
-if (!available) {
-  describe.skip('svc-agents fleet control (Postgres unavailable)', () => {
-    it('skipped', () => undefined);
-  });
-} else {
+// Runs unconditionally: CI provides the database.
+{
   const sql = postgres(URL, { max: 4, connection: { search_path: 'agents,public' }, onnotice: () => undefined });
   await assertTestDatabase(sql, 'svc-agents');
   let lock: Awaited<ReturnType<typeof sql.reserve>>;
