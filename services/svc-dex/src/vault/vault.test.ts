@@ -401,7 +401,7 @@ describe('the keeper (D-limit-dca-02 to -04)', () => {
     await keeper.tick();
     const view = (await orders.list(principal, {})).orders.find((o) => o.id === row!.id)!;
     expect(chain.sent).toHaveLength(1);
-    expect(view.state).toBe('Filled');
+    expect(view.state).toBe('filled');
     expect(Number(view.filled)).toBeGreaterThanOrEqual(10);
   });
 
