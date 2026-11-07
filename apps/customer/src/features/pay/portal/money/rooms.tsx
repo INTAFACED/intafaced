@@ -15,6 +15,7 @@ import { PayoutDetailPage, Payouts } from './Payouts';
 import { PayoutNew } from './PayoutNew';
 import { Pricing } from './Pricing';
 import { RefundDetail, RefundNew, Refunds } from './Refunds';
+import { RefundRequestDetail } from './RefundRequests';
 import { SettlementDetailPage, Settlements } from './Settlements';
 import { Statement } from './Statement';
 import { TopUp } from './TopUp';
@@ -57,7 +58,9 @@ const refunds: RoomDef = {
       ? { title: t('pageRefunds'), purpose: t('purposeRefunds'), action: go('/pay/refunds/new', t('actIssueRefund'), true) }
       : route.room === 'refund-new'
         ? { title: t('pageRefundNew'), purpose: t('purposeRefundNew'), action: go('/pay/refunds', t('pageRefunds')) }
-        : { title: t('pageRefund'), purpose: t('purposeRefund') },
+        : route.room === 'refund-request'
+          ? { title: t('pageRefundRequest'), purpose: t('purposeRefundRequest') }
+          : { title: t('pageRefund'), purpose: t('purposeRefund') },
   here: '/pay/refunds',
   render: (route, { portal, authority }) => (
     <WithAccount>
@@ -70,6 +73,8 @@ const refunds: RoomDef = {
           <Requires need="payments.read">
             {route.room === 'refund' ? (
               <RefundDetail portal={portal} refundId={route.param!} />
+            ) : route.room === 'refund-request' ? (
+              <RefundRequestDetail portal={portal} requestId={route.param!} />
             ) : (
               <Refunds portal={portal} merchantId={merchantId} />
             )}
@@ -125,6 +130,7 @@ export const moneyRooms: RoomTable = {
   refunds,
   'refund-new': refunds,
   refund: refunds,
+  'refund-request': refunds,
   settlements: {
     header: () => ({ title: t('pageSettlements'), purpose: t('purposeSettlements'), action: go('/pay/payouts/new', t('actPayOut'), true) }),
     render: (_route, { portal }) => (

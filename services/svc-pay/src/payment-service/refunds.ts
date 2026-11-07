@@ -162,6 +162,13 @@ export async function refundInner(
         }
       }
 
+      // J-merchant-06 #1: an open dispute holds the payment. The money may already be on its way back through the
+      // chargeback, so refunding it too would pay the customer twice.
+      if (row.status === 'disputed' && (await paymentDisputeOpen(svc, row.id))) {
+        throw new PayError(`Payment ${row.id} has an open dispute — refund refused until it is closed`, 'pay.refund_open_dispute', {
+          paymentId: row.id,
+        });
+      }
       if (row.status !== 'captured' && row.status !== 'settled') {
         throw new PayError(`Payment ${row.id} has nothing captured (status ${row.status}) — refund refused`, 'pay.nothing_captured', {
           paymentId: row.id,
@@ -536,6 +543,12 @@ export async function chargebackSettledPot(
  * dispute from a closed one. Only an open or contested case (or a disputed payment with no case row
  * yet) can still hand money back.
  */
+/** One payment's dispute is still open (or opened with no case row yet): the same rule as `hasUnresolvedDispute`. */
+export async function paymentDisputeOpen(svc: PayServiceInternal, paymentId: string): Promise<boolean> {
+  const cases = await svc.disputeCases.listForPayment(paymentId);
+  return cases.length === 0 || cases.some((c) => c.status === 'open' || c.status === 'contested');
+}
+
 export async function hasUnresolvedDispute(svc: PayServiceInternal, sql: Sql, merchantId: string, assetId: string): Promise<boolean> {
   const disputed = await sql<Array<{ id: string }>>`
     SELECT id FROM pay.payments

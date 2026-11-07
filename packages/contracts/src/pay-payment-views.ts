@@ -24,7 +24,7 @@ export type PaymentViewColumn = z.infer<typeof paymentViewColumnSchema>;
 /** What the list shows when no view and no column choice is set. */
 export const PAYMENT_VIEW_DEFAULT_COLUMNS: readonly PaymentViewColumn[] = ['payment', 'amount', 'status', 'method', 'created'];
 
-const statusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+const statusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']);
 
 /** The list's own filters, as the address holds them. A custom date range is not saved: a view keeps a rolling window. */
 export const paymentViewFiltersSchema = z

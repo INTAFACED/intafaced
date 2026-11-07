@@ -1,0 +1,52 @@
+import { defineCopy } from '../../../../shared/i18n';
+
+/** J-merchant-06: refunds that wait for a second person, on their own page and in Approvals. */
+const en = {
+  rqStatus_queued: 'Waiting for approval',
+  rqStatus_approved: 'Approved, sending',
+  rqStatus_refunded: 'Refunded',
+  rqStatus_failed: 'Did not go through',
+  rqStatus_rejected: 'Rejected',
+  rqStatus_cancelled: 'Cancelled',
+  rqStatus_voided: 'Replaced by a new request',
+  rqTip_queued: 'A teammate must approve this refund before anything is sent.',
+  rqTip_approved: 'Approved. The refund is being sent.',
+  rqTip_refunded: 'Approved and sent to the customer.',
+  rqTip_failed: 'Approved, but the refund was refused. Nothing left your balance.',
+  rqTip_rejected: 'A teammate turned this refund down. Nothing was sent.',
+  rqTip_cancelled: 'Cancelled before it was approved. Nothing was sent.',
+  rqTip_voided: 'A request for another amount took its place. Nothing was sent for this one.',
+  rqTitle: 'Refund request',
+  rqBack: 'Back to refunds',
+  rqNothingYet: 'Nothing has been refunded yet.',
+  rqFacts: 'Key facts',
+  rqAmount: 'Amount',
+  rqAsked: 'Asked for',
+  rqDecided: 'Decided',
+  rqReference: 'Reference',
+  rqOpenPayment: 'Open the payment',
+  rqCancel: 'Cancel refund',
+  rqCancelTitle: 'Cancel this refund?',
+  rqCancelBody: 'The refund is not sent and nothing changes in your balance. To refund later, start a new refund.',
+  rqKeep: 'Keep it',
+  rqClose: 'Close',
+  rqNotFound: 'This refund request is not one of yours, or the address is wrong.',
+  rqSectionTitle: 'Refunds waiting for approval',
+  rqSectionBody: 'A refund above your approval rule is sent only after someone other than the person who asked approves it.',
+  rqSectionEmpty: 'No refund is waiting for approval.',
+  rqItem: 'Refund',
+  rqAskedBy: 'Asked by {who}',
+  rqApprove: 'Approve',
+  rqReject: 'Reject',
+  rqApproveTitle: 'Approve this refund?',
+  rqApproveBody: 'Approving sends this refund to the customer now, from your balance.',
+  rqRejectTitle: 'Reject this refund?',
+  rqRejectBody: 'Nothing is sent. The person who asked can start a new refund.',
+  rqSelf: 'You asked for this refund, so someone else must approve it.',
+  rqConfirmNeeded: "Confirm it's you with a passkey or authenticator code to decide on a refund.",
+  rqClosed: 'This refund was already decided or cancelled. Its status is shown here.',
+} as const;
+
+export const refundRequestsCopy = defineCopy('pay.portal.money.refundRequests', en);
+/** The wording as written, for the copy lint. */
+export const refundRequestsMessages: Record<string, string> = en;

@@ -584,7 +584,16 @@ describe('svc-pay metrics read model PG-hard', { timeout: 30_000 }, () => {
       expect(sa.averagePayment).toEqual([{ assetCode: 'USDT', amount: '49.25' }]);
       expect(sa.paymentCount).toBe(4);
       expect(sa.statusMix.find((s) => s.status === 'failed')!.count).toBe(1);
-      expect(sa.statusMix.map((s) => s.status)).toEqual(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+      expect(sa.statusMix.map((s) => s.status)).toEqual([
+        'created',
+        'authorized',
+        'captured',
+        'settled',
+        'refunded',
+        'disputed',
+        'failed',
+        'voided',
+      ]);
       expect(sa.settlements).toHaveLength(1);
       const settled = sa.settlements[0]!;
       expect(amt(settled.gross)).toBe(amt(settled.fees) + amt(settled.net));

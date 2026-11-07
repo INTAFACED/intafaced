@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PaymentCell } from '../payments/PaymentCell';
 import { RefundsIssuedValue } from '../payments/RefundsIssued';
 import { Button } from '@intafaced/ui';
@@ -33,7 +33,10 @@ import { mc } from './copy';
 import { MoneyAction, useMoneyReason } from '../access/MoneyAction';
 import { refundableAmount, refundRate } from './model';
 import { refundStatuses, type RefundItem } from './schemas';
-import type { z } from 'zod';
+import { z } from 'zod';
+import { formatMoney } from '../ui/format';
+
+const fundingSchema = z.object({ source: z.enum(['clearing', 'settled']), fundingBalance: z.string(), assetId: z.string() });
 
 type Payment = z.infer<typeof paymentSchema>;
 type Words = ReturnType<typeof mc.useCopy>['t'];
@@ -275,6 +278,14 @@ export function RefundDetail({ portal, refundId }: { portal: PortalApi; refundId
               />
               <TestBanner />
               <Freshness asOf={readAt} />
+              {x.status === 'reversed' ? (
+                <div className="pp-callout" role="note">
+                  <p>{x.failureCode === 'refund.declined' ? t('rfWhy_declined') : t('rfWhy_other')}</p>
+                  <p>{t('rfMoneyBack')}</p>
+                </div>
+              ) : (
+                <p className="muted pp-note">{t('rfNoCancel')}</p>
+              )}
               <PaySection title={t('rfFactsTitle')}>
                 <Facts
                   items={[
@@ -417,6 +428,18 @@ function RefundStep({
   const { api, userId } = useSession();
   const pay = useMemo(() => createBusinessPayApi(api, userId, authority), [api, userId, authority]);
   const payment = useResource((s) => portal.payment(paymentId, s), `money:refund-payment:${paymentId}`);
+  // The balance this refund is taken from, as the service reads it (`payment.refundCheck`), never one the page works out.
+  const [funding, setFunding] = useState<{ source: 'clearing' | 'settled'; fundingBalance: string; assetId: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    void api
+      .query('pay', 'payment.refundCheck', { paymentId }, fundingSchema)
+      .then((r) => live && r.ok && setFunding(r.data))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [api, paymentId]);
   return (
     <>
       <PaySection title={t('rnStep2')} description={t('rnStep2Body')}>
@@ -437,6 +460,16 @@ function RefundStep({
                     [t('rnCaptured'), <MoneyText value={p.capturedAmount} asset={p.assetId} test={test} />],
                     [t('rnAlready'), <MoneyText value={p.refundedAmount} asset={p.assetId} test={test} />],
                     [t('rnRefundable'), <MoneyText value={left} asset={p.assetId} test={test} />],
+                    [
+                      t('rnFunding'),
+                      funding ? (
+                        t(funding.source === 'clearing' ? 'rnFunding_clearing' : 'rnFunding_settled', {
+                          amount: `${formatMoney(funding.fundingBalance, funding.assetId)} ${funding.assetId}`,
+                        })
+                      ) : (
+                        <span className="muted">—</span>
+                      ),
+                    ],
                     [t('rfFrom'), source],
                   ]}
                 />

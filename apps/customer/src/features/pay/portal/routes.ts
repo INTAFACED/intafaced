@@ -27,6 +27,7 @@ export const PORTAL_ROOMS = [
   'refunds',
   'refund-new',
   'refund',
+  'refund-request',
   'dashboard',
   'onboarding',
   'team',
@@ -98,7 +99,12 @@ export function parsePortalRoute(path: string): PortalRoute | null {
   if (segments[0] !== 'pay') return null;
   if (isLegacyTool(path) || portalRedirect(path)) return null;
   const [, a, b, extra] = segments;
-  if (extra !== undefined && !(a === 'developer' && b === 'webhooks' && segments.length === 4)) return null;
+  if (
+    extra !== undefined &&
+    !(a === 'developer' && b === 'webhooks' && segments.length === 4) &&
+    !(a === 'refunds' && b === 'requests' && segments.length === 4)
+  )
+    return null;
   const decode = (v: string) => {
     try {
       return decodeURIComponent(v);
@@ -151,6 +157,7 @@ export function parsePortalRoute(path: string): PortalRoute | null {
           ? { room: 'product-import' }
           : { room: 'product', param: decode(b) };
   if (a === 'links') return b === undefined ? { room: 'links' } : b === 'new' ? { room: 'link-new' } : { room: 'link', param: decode(b) };
+  if (a === 'refunds' && b === 'requests') return extra ? { room: 'refund-request', param: decode(extra) } : null;
   if (a === 'refunds')
     return b === undefined ? { room: 'refunds' } : b === 'new' ? { room: 'refund-new' } : { room: 'refund', param: decode(b) };
   if (a === 'merchant' && b === undefined) return { room: 'dashboard' };

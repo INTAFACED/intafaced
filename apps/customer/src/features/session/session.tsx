@@ -89,6 +89,10 @@ export function useSession() {
   if (!context) throw new Error('SessionProvider is required');
   return context;
 }
+/** The session when a provider is mounted, or null (a view rendered on its own, as in a unit test). */
+export function useSessionIfAny() {
+  return useContext(Context);
+}
 export function useApi() {
   return useSession().api;
 }

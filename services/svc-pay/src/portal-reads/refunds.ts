@@ -13,7 +13,7 @@ import { asUuid, assertPortalPageLimit, pageCursor, portalFilters } from './comm
 
 type Reader = Pick<LedgerClient, 'getTx' | 'getTxByKey' | 'balance'>;
 
-const PAYMENT_STATUSES = new Set(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+const PAYMENT_STATUSES = new Set(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']);
 
 export interface RefundLedgerEffect {
   recorded: boolean;
@@ -32,11 +32,13 @@ export interface RefundItem {
   reason: string | null;
   actor: string | null;
   status: 'posted' | 'settled' | 'reversed';
+  /** Why the rail refused a reversed refund (its failure code), as recorded. Null for any other refund. */
+  failureCode: string | null;
   createdAt: string;
   settledAt: string | null;
   source: 'clearing' | 'settled' | null;
   ledgerEffect: RefundLedgerEffect;
-  payment: { paymentId: string; status: 'created' | 'authorized' | 'captured' | 'settled' | 'refunded' | 'disputed' | 'failed' };
+  payment: { paymentId: string; status: 'created' | 'authorized' | 'captured' | 'settled' | 'refunded' | 'disputed' | 'failed' | 'voided' };
 }
 
 interface RefundRow {
@@ -51,6 +53,7 @@ interface RefundRow {
   created_at_cursor: string;
   settled_at: Date | null;
   reversed_at: Date | null;
+  reversed_code: string | null;
 }
 
 async function refundRows(
@@ -81,7 +84,8 @@ async function refundRows(
            e.payload, e.ts,
            to_char(e.ts AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_cursor,
            done.ts AS settled_at,
-           rev.ts AS reversed_at
+           rev.ts AS reversed_at,
+           rev.failure_code AS reversed_code
       FROM pay.payment_events e
       JOIN pay.payments p ON p.id = e.payment_id
       JOIN pay.merchants m ON m.id = p.merchant_id
@@ -92,7 +96,7 @@ async function refundRows(
          ORDER BY d.seq DESC LIMIT 1
       ) done ON true
       LEFT JOIN LATERAL (
-        SELECT ts FROM pay.payment_events r
+        SELECT ts, payload->>'failureCode' AS failure_code FROM pay.payment_events r
          WHERE r.payment_id = e.payment_id AND r.event = 'refund.reversed'
            AND r.payload->>'refundId' = e.payload->>'refundId'
          ORDER BY r.seq DESC LIMIT 1
@@ -199,6 +203,7 @@ async function toItem(ledger: Reader, row: RefundRow, fail: PayFail): Promise<Re
     reason: optionalReason(row.payload),
     actor: asUuid(row.payload.actor),
     status: statusOf(row),
+    failureCode: row.reversed_at ? (row.reversed_code ?? null) : null,
     createdAt: row.ts.toISOString(),
     settledAt: row.settled_at ? row.settled_at.toISOString() : null,
     source: eventSource(row.payload),

@@ -365,7 +365,7 @@ const paymentItemSchema = z
     method: z.string().min(1).max(64),
     railAdapter: z.string().min(1).max(64),
     railRef: z.string().min(1).max(256).nullable(),
-    status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+    status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']),
     createdAt: payTimestampSchema,
     failureCode: z.string().min(1).max(64).nullable(),
     pricing: feeSnapshotSchema.nullable(),
@@ -383,6 +383,8 @@ const refundItemSchema = z
     reason: z.string().nullable(),
     actor: z.string().guid().nullable(),
     status: z.enum(['posted', 'settled', 'reversed']),
+    /** Why the rail refused a reversed refund, as recorded (J-merchant-06 #4). Null for any other refund. */
+    failureCode: z.string().min(1).max(200).nullable().optional(),
     createdAt: payTimestampSchema,
     settledAt: payTimestampSchema.nullable(),
     source: z.enum(['clearing', 'settled']).nullable(),
@@ -397,7 +399,7 @@ const refundItemSchema = z
     payment: z
       .object({
         paymentId: z.string().guid(),
-        status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']),
+        status: z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']),
       })
       .strict(),
   })

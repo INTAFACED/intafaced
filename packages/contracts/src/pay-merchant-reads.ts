@@ -13,7 +13,7 @@ import { payAmountStringSchema, payAssetCodeSchema, payBpsSchema, payMerchantIdS
 export const payListCursorSchema = z.string().min(1).max(300);
 export const payListSearchSchema = z.string().trim().min(1).max(200);
 
-const paymentStatusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+const paymentStatusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']);
 const settlementStatusSchema = z.enum(['pending', 'posted', 'paid_out', 'failed']);
 
 /** Page size stays optional so an omitted limit still refuses in the service. Blank is not a default page. */

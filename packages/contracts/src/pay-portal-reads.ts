@@ -109,7 +109,7 @@ export const payRefundLedgerEffectSchema = z
   })
   .strict();
 
-const paymentStatusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed']);
+const paymentStatusSchema = z.enum(['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided']);
 
 export const payRefundItemSchema = z
   .object({
@@ -124,6 +124,8 @@ export const payRefundItemSchema = z
     /** Not stored on the refund event. Null until an actor id is recorded. */
     actor: z.string().guid().nullable(),
     status: payRefundStatusSchema,
+    /** Why the rail refused a reversed refund, as recorded (J-merchant-06 #4). Null for any other refund. */
+    failureCode: z.string().min(1).max(200).nullable().optional(),
     createdAt: payTimestampSchema,
     settledAt: payTimestampSchema.nullable(),
     source: z.enum(['clearing', 'settled']).nullable(),

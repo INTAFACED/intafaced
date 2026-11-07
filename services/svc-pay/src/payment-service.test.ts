@@ -1372,7 +1372,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(c?.ledgerWire).toBe('refused');
       expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
       expect((await pay.getPayment(payment.id)).status).toBe('disputed');
-      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+      // A disputed payment with its case still open refuses a refund by name (J-merchant-06 #1); it posts nothing, as before.
+      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.refund_open_dispute' });
       expect(openedTxs()).toHaveLength(0);
       expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -1425,7 +1426,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(c?.ledgerWire).toBe('refused');
       expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
       expect((await pay.getPayment(payment.id)).status).toBe('disputed');
-      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+      // A disputed payment with its case still open refuses a refund by name (J-merchant-06 #1); it posts nothing, as before.
+      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.refund_open_dispute' });
       expect(openedTxs()).toHaveLength(0);
       expect(ledger.journal().some((t) => t.reason.includes('shortfall'))).toBe(false);
       expect(ledger.reconcile()).toEqual({ ok: true });
@@ -2123,7 +2125,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
       expect(c?.ledgerWire).toBe('refused');
       expect(c?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
       expect((await pay.getPayment(payment.id)).status).toBe('disputed');
-      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.nothing_captured' });
+      // A disputed payment with its case still open refuses a refund by name (J-merchant-06 #1); it posts nothing, as before.
+      await expect(pay.refund(payment.id, amt('1'))).rejects.toMatchObject({ code: 'pay.refund_open_dispute' });
       expect(ledger.journal().some((t) => t.reason === 'pay.chargeback.opened' || t.reason.includes('shortfall'))).toBe(false);
       expect(ledger.reconcile()).toEqual({ ok: true });
       expect((await events(payment.id)).filter((event) => event === 'chargeback.opening_planned')).toHaveLength(0);

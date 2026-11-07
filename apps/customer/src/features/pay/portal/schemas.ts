@@ -73,7 +73,7 @@ export type AssetAmount = z.infer<typeof assetAmount>;
 
 export const metricPresets = ['today', 'rolling_7d', 'rolling_30d'] as const;
 export type MetricPreset = (typeof metricPresets)[number];
-export const paymentStatuses = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'] as const;
+export const paymentStatuses = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided'] as const;
 
 export const freshnessSchema = z.object({ asOf: timestamp.nullable(), lagSeconds: z.number().int().min(0).nullable() });
 export type Freshness = z.infer<typeof freshnessSchema>;

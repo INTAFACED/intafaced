@@ -215,6 +215,8 @@ export function createMoneyMock(ctx) {
   });
   const inWindow = (at, input) => (!input.from || at >= input.from) && (!input.to || at < input.to);
   const refunds = world.refunds;
+  /** Refund requests asked in this session (J-merchant-06). TEST only. */
+  const refundRequests = [];
   const destinations = world.destinations;
   // The saved destinations as the owner has left them in this session: one may be marked default, and one may be removed.
   const removedDestinations = new Set();
@@ -526,6 +528,70 @@ export function createMoneyMock(ctx) {
           const r = refunds.find((x) => x.id === input.refundEventId);
           return r ? ok(route, r) : refuse(route, 404, 'pay.refund_not_found');
         }
+        // J-merchant-06: the refund controls, TEST stand-in only. The real service decides every rule; this answers the
+        // shapes the pages parse. A queued request posts nothing, and nothing here is a balance.
+        case 'payment.refundCheck':
+          return ok(route, {
+            paymentId: input.paymentId ?? '',
+            assetId: 'USDC',
+            maxRefundable: '0',
+            source: 'clearing',
+            fundingBalance: '0',
+            blockedBy: 'pay.refund_nothing_left',
+            approvalThreshold: null,
+          });
+        case 'payment.refundRules.get':
+          return ok(route, null);
+        case 'payment.refundRules.set':
+          return input.threshold ? ok(route, { assetId: input.assetId, threshold: input.threshold }) : ok(route, null);
+        case 'payment.refundRequests.list':
+          return ok(route, {
+            items: refundRequests.filter(
+              (r) => (!input.status || r.status === input.status) && (!input.paymentId || r.paymentId === input.paymentId),
+            ),
+          });
+        case 'payment.refundRequests.get': {
+          const r = refundRequests.find((x) => x.id === input.requestId);
+          return r ? ok(route, r) : refuse(route, 404, 'pay.refund_request_not_found');
+        }
+        case 'payment.refundRequests.request': {
+          const r = {
+            id: `rr${String(refundRequests.length + 1).padStart(6, '0')}-0000-4000-8000-000000000000`,
+            merchantId: MERCHANT_ID,
+            paymentId: input.paymentId ?? '',
+            assetId: 'USDC',
+            amount: input.amount ?? '0',
+            refundId: input.refundId ?? '',
+            status: 'queued',
+            makerUserId: USER_ID,
+            checkerUserId: null,
+            checkerReason: null,
+            failureCode: null,
+            voidReason: null,
+            createdAt: iso(Date.now()),
+            decidedAt: null,
+            closedAt: null,
+          };
+          refundRequests.push(r);
+          return ok(route, r);
+        }
+        case 'payment.refundRequests.cancel':
+        case 'payment.refundRequests.decide':
+        case 'payment.refundRequests.retry': {
+          const r = refundRequests.find((x) => x.id === input.requestId);
+          if (!r) return refuse(route, 404, 'pay.refund_request_not_found');
+          if (r.status !== 'queued') return refuse(route, 409, 'pay.refund_request_closed');
+          if (procedure !== 'payment.refundRequests.cancel' && r.makerUserId === USER_ID)
+            return refuse(route, 403, 'pay.refund_approval_self');
+          r.status = procedure === 'payment.refundRequests.cancel' ? 'cancelled' : input.decision === 'reject' ? 'rejected' : 'refunded';
+          r.closedAt = iso(Date.now());
+          return ok(route, r);
+        }
+        case 'payment.void':
+        case 'payment.reverse':
+        case 'payment.bulkRefund':
+          // Money doors: the stand-in never pretends one ran. The real stack proves them (J-merchant-06).
+          return refuse(route, 412, 'pay.void_unsupported');
         case 'merchant.payoutDestinations.list':
           return ok(route, page(destinationRows(), input));
         case 'merchant.payoutDestinations.add': {

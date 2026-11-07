@@ -32,7 +32,7 @@ export function columnsFor(kind: ExportKind, role: string | null): readonly stri
   return kind === 'fees' && (role === 'viewer' || role === 'developer') ? all.filter((c) => !pricingLevelColumns.has(c)) : all;
 }
 
-const paymentStatuses = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'] as const;
+const paymentStatuses = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided'] as const;
 const settlementStatuses = ['pending', 'posted', 'paid_out', 'failed'] as const;
 const disputeStatuses = ['open', 'contested', 'accepted', 'won', 'lost'] as const;
 /** The status filter each kind accepts. Null means the kind has no status filter, so none is offered. */

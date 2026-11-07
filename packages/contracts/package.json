@@ -422,6 +422,10 @@
       "types": "./dist/pay-payment-views.d.ts",
       "default": "./dist/pay-payment-views.js"
     },
+    "./pay-refund-control": {
+      "types": "./dist/pay-refund-control.d.ts",
+      "default": "./dist/pay-refund-control.js"
+    },
     "./merchant-activation": {
       "types": "./dist/merchant-activation.d.ts",
       "default": "./dist/merchant-activation.js"

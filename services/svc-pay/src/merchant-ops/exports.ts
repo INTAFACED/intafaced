@@ -75,7 +75,7 @@ export function resolveExportColumns(kind: ExportKind, role: MerchantRole, reque
   return [...requested];
 }
 
-const PAYMENT_STATUSES = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed'] as const;
+const PAYMENT_STATUSES = ['created', 'authorized', 'captured', 'settled', 'refunded', 'disputed', 'failed', 'voided'] as const;
 const SETTLEMENT_STATUSES = ['pending', 'posted', 'paid_out', 'failed'] as const;
 
 export interface ExportFilters {

@@ -35,6 +35,7 @@ import { railName } from './HomePanels';
 import { portalCopy as c } from './copy';
 import { disputeReason } from './dispute-model';
 import { canRefund, feeSummary, PRESET, totalsPeriod } from './payment-model';
+import { BulkRefund, ReversedNote, ReverseAction, VoidAction, VoidedNote } from './PaymentActions';
 import { countOf, paymentSteps, refundable, successRate } from './model';
 import type { ActivityItem, PaymentRefundRow } from './schemas';
 
@@ -189,6 +190,7 @@ export function PaymentsView({
                 status: <StatusChip entity="payment" value={p.status} />,
               })}
             />
+            {merchantId && <BulkRefund merchantId={merchantId} payments={list.items} onDone={retry} />}
             <div className="pp-actions">
               {list.hasMore && (
                 <Button variant="secondary" onClick={loadMore} disabled={list.more === 'loading'}>
@@ -392,19 +394,28 @@ export function PaymentDetailView({
                 subtitle={[paymentLabel(p), plainCode(p.method.replace(/^TEST-/, '').replace(/-/g, '_'))].join(' · ')}
                 action={
                   canRefund(p) ? (
-                    <MoneyAction kind="refund">
-                      <Button
-                        variant="primary"
-                        nativeButton={false}
-                        role="link"
-                        render={<a href={`/pay/refunds/new?payment=${encodeURIComponent(p.id)}`} />}
-                      >
-                        {t('pay_refund')}
-                      </Button>
-                    </MoneyAction>
+                    <div className="pp-actions">
+                      <MoneyAction kind="refund">
+                        <Button
+                          variant="primary"
+                          nativeButton={false}
+                          role="link"
+                          render={<a href={`/pay/refunds/new?payment=${encodeURIComponent(p.id)}`} />}
+                        >
+                          {t('pay_refund')}
+                        </Button>
+                      </MoneyAction>
+                      {p.status !== 'disputed' && (
+                        <ReverseAction paymentId={p.id} refundable={refundable(p)} assetId={p.assetId} onDone={retry} />
+                      )}
+                    </div>
+                  ) : p.status === 'authorized' ? (
+                    <VoidAction paymentId={p.id} onDone={retry} />
                   ) : undefined
                 }
               />
+              {p.status === 'voided' && <VoidedNote />}
+              <ReversedNote paymentId={p.id} assetId={p.assetId} />
               <PaySection title={t('pay_summary')}>
                 <Facts
                   items={[

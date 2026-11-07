@@ -45,6 +45,8 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
             'payment\\.(list|get|history|refunds\\.(list|get))$',
             // M-adv-payments-core-01: the caller's own saved views and one clear payer detail, on the caller's business.
             'payment\\.(views\\.(list|create|delete)|unmask)$',
+            // J-merchant-06: refund controls on the caller's own business (svc-pay checks owner, team role or pay:refund).
+            'payment\\.(refundCheck|void|reverse|bulkRefund|refundRules\\.(get|set)|refundRequests\\.(request|list|get|cancel|decide|retry))$',
             'settlement\\.(list|get|lines|clearing|lifecycle|payout)$',
             'payHalts\\.status$',
             // Merchant-scoped on main (svc-pay checks a `pay:*` scope, never a founder role): history, tiers, limits, payout request.
@@ -150,6 +152,19 @@ describe('no founder or operator door in the merchant portal (G9)', () => {
         'payment.views.create',
         'payment.views.delete',
         'payment.unmask',
+        // J-merchant-06: refund controls on the caller's own business.
+        'payment.refundCheck',
+        'payment.void',
+        'payment.reverse',
+        'payment.bulkRefund',
+        'payment.refundRules.get',
+        'payment.refundRules.set',
+        'payment.refundRequests.request',
+        'payment.refundRequests.list',
+        'payment.refundRequests.get',
+        'payment.refundRequests.cancel',
+        'payment.refundRequests.decide',
+        'payment.refundRequests.retry',
       ]),
       settlement: new Set([
         'settlement.list',

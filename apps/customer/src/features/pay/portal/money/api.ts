@@ -54,6 +54,15 @@ export const moneyApi = ({ query, mutate }: PortalTools) => ({
   refundPage: (merchantId: string, q: ListQuery & { paymentId?: string }, cursor: string | undefined, signal?: AbortSignal) =>
     query('payment.refunds.list', { merchantId, limit: 25, ...only(q), ...(cursor ? { cursor } : {}) }, p.page(m.refundItemSchema), signal),
   refundGet: (refundEventId: string, signal?: AbortSignal) => query('payment.refunds.get', { refundEventId }, m.refundItemSchema, signal),
+  /** J-merchant-06: refunds that wait for a second person. */
+  refundRequests: (merchantId: string, q: { status?: m.RefundRequest['status']; paymentId?: string }, signal?: AbortSignal) =>
+    query('payment.refundRequests.list', { merchantId, ...only(q) }, m.refundRequestPageSchema, signal),
+  refundRequestGet: (requestId: string, signal?: AbortSignal) =>
+    query('payment.refundRequests.get', { requestId }, m.refundRequestSchema, signal),
+  refundRequestCancel: (requestId: string) => mutate('payment.refundRequests.cancel', { requestId }, m.refundRequestSchema),
+  /** Goes with the checker's own "Confirm it's you" refund token (step-up-store MONEY_CALLS). */
+  refundRequestDecide: (input: { requestId: string; decision: 'approve' | 'reject'; reason?: string }) =>
+    mutate('payment.refundRequests.decide', input, m.refundRequestSchema),
   destinationPage: (merchantId: string, cursor: string | undefined, signal?: AbortSignal) =>
     query(
       'merchant.payoutDestinations.list',

@@ -18,6 +18,7 @@ import { uiCopy } from '../ui/copy';
 import { useServerList } from '../ui/useServerList';
 import { ListBody, payoutName, TestBanner, useListQuery, useTestMode, whoIs } from './common';
 import { mc } from './copy';
+import { RefundApprovals } from './RefundRequests';
 import { useMoneyReason } from '../access/MoneyAction';
 import { usePayoutPicture } from './payout-picture';
 import { describeDestination } from './destination';
@@ -92,6 +93,7 @@ export function Approvals({ portal, merchantId }: { portal: PortalApi; merchantI
       <HaltBanner resource={halts.resource} scopes={['payout']} />
       <TestBanner />
       <Freshness asOf={readAt} />
+      <RefundApprovals portal={portal} merchantId={merchantId} />
       <KpiStrip
         label={t('apvTiles')}
         tiles={[
