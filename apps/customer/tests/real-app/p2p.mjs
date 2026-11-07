@@ -393,6 +393,19 @@ async function operators() {
   return { ctx: operatorCtx, pair: operatorPair };
 }
 
+/**
+ * A svc-p2p staff mutation made by the stack's founder A as a compliance operator (support reviewing a person's case),
+ * one person, no approval pair. Returns the answer, or with `raw` the refusal `{ status, code }` instead of throwing.
+ */
+export async function operatorP2p(proc, input, { raw = false } = {}) {
+  const { ctx, pair } = await operators();
+  const res = await ctx.edge.mutate('p2p', proc, input, await pair.a.complianceToken());
+  const out = res.json?.result?.data;
+  if (raw) return out !== undefined ? { status: res.status, data: out } : { status: res.status, code: refusalCode({ body: res.json }) };
+  if (res.status !== 200 || out === undefined) throw new Error(`p2p ${proc} refused (${res.status}): ${res.text.slice(0, 300)}`);
+  return out;
+}
+
 /** svc-p2p's approval payload hash (p2pActionPayloadHash): the action and its fields, in the router's order. */
 const p2pActionHash = (actionType, fields) =>
   `sha256:${createHash('sha256')

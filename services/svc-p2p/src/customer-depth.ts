@@ -57,6 +57,7 @@ export class DepthError extends Error {
       | 'p2p.chat_text_required'
       | 'p2p.export_range_invalid'
       | 'p2p.contact_self'
+      | 'p2p.block_open_order'
       | 'p2p.trade_not_found',
   ) {
     super(message);
@@ -455,6 +456,17 @@ export async function setContact(
     });
     if (claim.kind === 'replay') return;
     throwWriteClaim(claim);
+    // P-ads-merchant-22: a blocked pair cannot chat, so a block waits until no order between them is still open. Blocking
+    // in the middle of one would cut off the talk the order (and any dispute about it) depends on.
+    if (input.kind === 'block' && input.present) {
+      const open = await tx<Array<{ n: number }>>`
+        SELECT 1 AS n FROM p2p.p2p_trades
+         WHERE status IN ('created', 'escrowed', 'fiat_sent', 'disputed')
+           AND ((buyer_id = ${input.ownerId} AND seller_id = ${input.peerId}) OR (buyer_id = ${input.peerId} AND seller_id = ${input.ownerId}))
+         LIMIT 1
+      `;
+      if (open[0]) throw new DepthError('p2p.block_open_order', 'p2p.block_open_order');
+    }
     if (input.present) {
       await tx`
         INSERT INTO p2p.contacts (owner_id, peer_id, kind)

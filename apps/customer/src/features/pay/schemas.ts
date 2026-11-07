@@ -394,6 +394,21 @@ export const reputationSchema = z
       .object({ status: z.enum(['unwired', 'found', 'absent']) })
       .passthrough()
       .optional(),
+    /** P-trade-orders-21: decimal-string percents ("95.24") over 30 days and all time; null when nothing is counted. */
+    completionRate30d: z
+      .string()
+      .regex(/^\d{1,3}\.\d{2}$/)
+      .nullish(),
+    completionRateTotal: z
+      .string()
+      .regex(/^\d{1,3}\.\d{2}$/)
+      .nullish(),
+    /** What the rates count, as the service words it (data, so the page and the SQL cannot disagree). */
+    completionDefinition: z
+      .object({ numerator: z.string(), denominator: z.string(), window30d: z.string(), noHistory: z.string() })
+      .nullish(),
+    /** Visible good and bad reviews; null when there are none. */
+    rating: z.object({ good: z.number().int().nonnegative(), bad: z.number().int().nonnegative() }).nullish(),
   })
   .refine((record) => record.completed + record.cancelled <= record.tradesTotal && record.disputesLost <= record.disputed);
 /** `trades.stepUpWindow`: until when this session's takes need no new confirmation, or null. */
@@ -767,6 +782,20 @@ export type ChatSent = z.infer<typeof chatSentSchema>;
 export type Contacts = z.infer<typeof contactsSchema>;
 export type TakeQuote = z.infer<typeof takeQuoteSchema>;
 export type Reputation = z.infer<typeof reputationSchema>;
+/** P-trade-orders-21: the person's one completion appeal (`reputation.myAppeal`, `reputation.appeal`). */
+export const completionAppealSchema = z.object({
+  id,
+  userId: z.string(),
+  tradeId: id,
+  reason: z.string(),
+  status: z.enum(['submitted', 'accepted', 'rejected']),
+  submittedAt: z.string(),
+  reviewDueAt: z.string(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  decisionReason: z.string().nullable(),
+});
+export type CompletionAppeal = z.infer<typeof completionAppealSchema>;
 export type Merchant = z.infer<typeof merchantSchema>;
 export type Payment = z.infer<typeof paymentSchema>;
 

@@ -312,6 +312,13 @@ export class P2pErasure {
           const bulk = await tx`DELETE FROM p2p.offer_bulk_runs WHERE maker_id = ${userId} RETURNING idempotency_key`;
           erased.push({ category: 'bulk ad actions', rows: bulk.length });
 
+          // P-ads-merchant-22: notices owed to the person as a follower, or about their ads to their followers. Each names
+          // the person; the ad itself is the trader's, so a notice not yet handed over goes with it.
+          const followed = await tx`
+            DELETE FROM p2p.follower_notices WHERE follower_id = ${userId} OR trader_id = ${userId} RETURNING offer_id
+          `;
+          erased.push({ category: 'followed-trader notices', rows: followed.length });
+
           // Offers with no trades against them never became part of anyone
           // else's record. Ones that were traded are load-bearing: a trade row
           // references its offer, and `writeDecision` puts liquidity back on it.

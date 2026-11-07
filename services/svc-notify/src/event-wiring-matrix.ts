@@ -78,6 +78,12 @@ export const NOTIFY_EVENT_CONSUMERS: readonly NotifyConsumerRow[] = [
     effect: 'Inbox row for the seller when the buyer marks paid',
   },
   {
+    event: 'p2pTraderPosted',
+    durable: 'notify-p2p-trader-posted',
+    subject: 'intafaced.p2p.trader.posted',
+    effect: 'Inbox row for each follower when a trader they follow posts a new public ad',
+  },
+  {
     event: 'p2pOfferPaused',
     durable: 'notify-p2p-offer-paused',
     subject: 'intafaced.p2p.offer.paused',

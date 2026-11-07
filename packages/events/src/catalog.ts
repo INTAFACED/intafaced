@@ -1204,6 +1204,28 @@ export const p2pOfferPaused = defineEvent(
 );
 
 /**
+ * P-ads-merchant-22 / J-p2p-12 #4: a trader posted a new public ad, and this is the notice owed to one person who follows
+ * them. One event per (ad, follower): an ad is posted once and an edit sends nothing, so consumers dedupe on offerId and
+ * followerId. Only what the follower needs to find the ad rides here; the ad itself stays in svc-p2p.
+ */
+export const p2pTraderPosted = defineEvent(
+  'p2p',
+  'trader',
+  'posted',
+  1,
+  z.object({
+    offerId: z.string().guid(),
+    traderId: userIdSchema,
+    followerId: userIdSchema,
+    side: z.enum(['buy', 'sell']),
+    asset: z.string().min(1).max(32),
+    fiatCurrency: z.string().min(3).max(8),
+    postedAt: z.string().datetime({ offset: true }),
+  }),
+  'A trader someone follows posted a new public ad. Sent once per (offerId, followerId); an ad edit sends nothing.',
+);
+
+/**
  * P-ads-merchant-19 / J-p2p-04 #5: a party to an order reported a sensitive remark in its payment note, and a case was
  * opened. One case per (order, reporter): consumers dedupe on caseId. The remark itself never travels on the bus; the
  * reported party is told a case was opened about their order, and staff read the case in svc-p2p.
@@ -2053,6 +2075,7 @@ export const EVENT_CATALOG = {
   p2pTradeFiatSent,
   p2pTradeReminderSent,
   p2pOfferPaused,
+  p2pTraderPosted,
   p2pRemarkCaseOpened,
   p2pChatMessageSent,
   p2pDisputeEscalated,
