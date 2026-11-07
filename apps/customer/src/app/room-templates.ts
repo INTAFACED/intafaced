@@ -115,6 +115,7 @@ export const ROUTE_TEMPLATES: Readonly<Record<string, RoomTemplate | NotARoom>> 
   '/trade/news': { template: 'reading' },
   '/trade/calendar': { template: 'reading' },
   '/trade/convert': { template: 'flow' },
+  '/trade/terminal': { template: 'desk' },
   '/execution': { template: 'desk' },
   '/otc': { template: 'desk' },
   '/otc/:quoteId': { template: 'desk' },

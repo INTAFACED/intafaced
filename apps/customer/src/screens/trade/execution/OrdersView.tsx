@@ -31,8 +31,11 @@ export function BlotterTable({
   onCancel,
   cancelLocked,
   emptyText,
+  showOrderId = false,
 }: {
   rows: readonly BlotterRow[];
+  /** Adds the order id column (the Terminal room, where rows are matched to the book by id). */
+  showOrderId?: boolean;
   label: string;
   status?: 'ready' | 'loading';
   onCancel?: (order: Order) => void;
@@ -45,6 +48,16 @@ export function BlotterTable({
     type === 'limit' || type === 'market' || type === 'fill' ? t(`Type ${type}`) : type.charAt(0).toUpperCase() + type.slice(1);
   const columns: TableColumn<BlotterRow>[] = [
     { id: 'time', header: t('Time'), pin: 'start', value: (r) => when(r.time), sortable: false },
+    ...(showOrderId
+      ? [
+          {
+            id: 'order',
+            header: t('Order'),
+            value: (r: BlotterRow) => r.orderId ?? '',
+            cell: (r: BlotterRow) => <span className="font-mono text-xs">{r.orderId}</span>,
+          } satisfies TableColumn<BlotterRow>,
+        ]
+      : []),
     { id: 'market', header: t('Market'), value: (r) => r.symbol },
     { id: 'side', header: t('Side'), value: (r) => (r.side === 'buy' ? t('Buy') : t('Sell')) },
     { id: 'type', header: t('Type'), value: (r) => typeWord(r.type) },
@@ -88,7 +101,7 @@ export function BlotterTable({
       status={status}
       columns={columns}
       rows={rows}
-      minWidth={onCancel ? 1000 : 900}
+      minWidth={(onCancel ? 1000 : 900) + (showOrderId ? 260 : 0)}
       getRowId={(r) => r.id}
       emptyState={<EmptyState variant="empty" size="inline" title={emptyText} />}
     />

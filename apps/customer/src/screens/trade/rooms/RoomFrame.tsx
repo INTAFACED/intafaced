@@ -16,8 +16,8 @@ const ROOM_IDS: Record<RoomMode, TradeRoom> = {
 };
 
 /** The strip every trade room carries, so a pro trader moves between rooms without going back to the menu. */
-export function ModeStrip({ active }: { active: RoomMode }) {
-  return <TradeSubNav active={ROOM_IDS[active]} />;
+export function ModeStrip({ active }: { active: RoomMode | null }) {
+  return <TradeSubNav active={active ? ROOM_IDS[active] : null} />;
 }
 
 /** Page chrome for a trade room: the mode strip, the title with its status chips, then the room. Dense, full width. */
@@ -29,7 +29,8 @@ export function RoomFrame({
   actions,
   children,
 }: {
-  mode: RoomMode;
+  /** The trading room this page is, or null for a view across rooms (the Terminal): the strip then marks none. */
+  mode: RoomMode | null;
   title: string;
   description?: string;
   /** Freshness and status chips shown under the title. */
