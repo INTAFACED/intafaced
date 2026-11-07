@@ -7,6 +7,8 @@ import { z } from 'zod';
 import {
   dexHealthSchema,
   indexerStatusSchema,
+  protocolAuditProductsSchema,
+  protocolPredictedAccountSchema,
   protocolAuditStatusSchema,
   protocolChainStatusSchema,
   protocolServiceHealthSchema,
@@ -99,6 +101,11 @@ export function createProtocolApi(api: ApiClient) {
   return {
     chainStatus: (signal?: AbortSignal) => api.query('protocol', 'chainStatus', undefined, chainStatusSchema, { signal }),
     auditStatus: (signal?: AbortSignal) => api.query('protocol', 'auditStatus', undefined, auditStatusSchema, { signal }),
+    /** The smart account `owner` controls on this network (its counterfactual address) and whether it is deployed. */
+    predictAccount: (owner: string, signal?: AbortSignal) =>
+      api.query('protocol', 'predictAddress', { owner }, protocolPredictedAccountSchema, { signal }),
+    /** The audit room's per-product rows: an owner-recorded external report per product, or none (D-developer-compliance-02). */
+    auditProducts: (signal?: AbortSignal) => api.query('protocol', 'auditProducts', undefined, protocolAuditProductsSchema, { signal }),
     health: (signal?: AbortSignal) => api.query('protocol', 'health', undefined, protocolHealthSchema, { signal }),
     indexerStatus: (signal?: AbortSignal) => api.query('indexer', 'status', undefined, indexerStatusSchema, { signal }),
     dexHealth: (signal?: AbortSignal) => api.query('dex', 'health', undefined, dexHealthSchema, { signal }),

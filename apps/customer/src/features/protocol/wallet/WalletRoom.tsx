@@ -11,12 +11,14 @@ import { Actions, toSource } from '../ParkedProtocolRoom';
 import '../protocol.css';
 import { walletCopy } from './copy';
 import { APP_CHAIN_ID, shortAddress } from './eip1193';
+import { AccountsPanel } from './AccountsPanel';
 import { ActivityPanel } from './ActivityPanel';
 import { AddressBookPanel } from './AddressBookPanel';
 import { ClaimLinksPanel } from './ClaimLinksPanel';
 import { ApprovalsPanel } from './ApprovalsPanel';
 import { PermitForm } from './PermitForm';
 import { ReceivePanel } from './ReceivePanel';
+import { SafetyPanel } from './SafetyPanel';
 import { ScanPanel } from './ScanPanel';
 import { SendPanel } from './SendPanel';
 import { WalletGroupPanel } from './WalletGroupPanel';
@@ -28,8 +30,6 @@ type Section = WalletSection;
 /** The sections that show a table of what the wallet holds or did; the others are their own panels. */
 const HEADERS: Partial<Record<Section, readonly string[]>> = {
   sessionKeys: ['hdr_name', 'hdr_address', 'hdr_status'],
-  accounts: ['hdr_name', 'hdr_address', 'hdr_status'],
-  safety: ['hdr_event', 'hdr_status'],
 };
 
 /** The remote-connect relay project id is an owner setting. Blank hides the QR path and shows owner.decision. */
@@ -164,6 +164,10 @@ export function WalletRoom({
       <ClaimLinksPanel />
     ) : section === 'activity' ? (
       <ActivityPanel />
+    ) : section === 'accounts' ? (
+      <AccountsPanel />
+    ) : section === 'safety' ? (
+      <SafetyPanel />
     ) : section === 'addressBook' ? (
       groupId === undefined ? (
         <AddressBookPanel />
