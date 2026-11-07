@@ -11,7 +11,14 @@ const HASH_B = `0x${'bb'.repeat(32)}` as const;
 const NOW = 1_800_000_000;
 
 type Sess = { specHash: `0x${string}`; validAfter: number; validUntil: number; spentWei: bigint; epoch: bigint; revoked: boolean };
-function fakeChain(opts: { code?: string; head?: bigint; epoch?: bigint; sessions: Record<string, Sess>; grants: unknown[]; uses?: unknown[] }) {
+function fakeChain(opts: {
+  code?: string;
+  head?: bigint;
+  epoch?: bigint;
+  sessions: Record<string, Sess>;
+  grants: unknown[];
+  uses?: unknown[];
+}) {
   const calls: { fromBlock?: bigint }[] = [];
   const client = {
     getBlock: async (args: { blockNumber?: bigint }) => ({
@@ -29,7 +36,15 @@ function fakeChain(opts: { code?: string; head?: bigint; epoch?: bigint; session
   return { client, calls };
 }
 const grant = (key: Address, specHash: `0x${string}`, validUntil: number, blockNumber = 10n) => ({
-  args: { sessionKey: key, specHash, validAfter: 0, validUntil, spendLimitWei: 5n * 10n ** 16n, targets: [ROUTER], selectors: ['0x38ed1739'] },
+  args: {
+    sessionKey: key,
+    specHash,
+    validAfter: 0,
+    validUntil,
+    spendLimitWei: 5n * 10n ** 16n,
+    targets: [ROUTER],
+    selectors: ['0x38ed1739'],
+  },
   blockNumber,
 });
 const record = (specHash: `0x${string}`, over: Partial<Sess> = {}): Sess => ({

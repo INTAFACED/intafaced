@@ -1,4 +1,9 @@
-import { protocolSessionsListSchema, type ProtocolSessionKey, type ProtocolSessionsList, type SessionKeyStatus } from '@intafaced/contracts/protocol-sessions';
+import {
+  protocolSessionsListSchema,
+  type ProtocolSessionKey,
+  type ProtocolSessionsList,
+  type SessionKeyStatus,
+} from '@intafaced/contracts/protocol-sessions';
 import { getAddress, parseAbi, parseAbiItem, type Address, type PublicClient } from 'viem';
 
 /**
@@ -36,7 +41,12 @@ type Grant = {
 type Record = { specHash: `0x${string}`; spentWei: bigint; epoch: bigint; revoked: boolean };
 
 /** Pure: a key's status from its on-chain record, the account's epoch and the block's clock. */
-export function sessionStatus(grant: Pick<Grant, 'validAfter' | 'validUntil'>, record: Record, epoch: bigint, now: number): SessionKeyStatus {
+export function sessionStatus(
+  grant: Pick<Grant, 'validAfter' | 'validUntil'>,
+  record: Record,
+  epoch: bigint,
+  now: number,
+): SessionKeyStatus {
   if (record.revoked || record.epoch !== epoch) return 'revoked';
   if (now >= grant.validUntil) return 'expired';
   if (now < grant.validAfter) return 'not_yet_valid';
@@ -80,7 +90,8 @@ export async function listSessions(client: SessionListClient, input: { account: 
     });
   }
   const lastUse = new Map<string, bigint>();
-  for (const log of uses) if (log.args.sessionKey && log.blockNumber !== null) lastUse.set(log.args.sessionKey.toLowerCase(), log.blockNumber);
+  for (const log of uses)
+    if (log.args.sessionKey && log.blockNumber !== null) lastUse.set(log.args.sessionKey.toLowerCase(), log.blockNumber);
   const times = new Map<bigint, string>();
   for (const used of new Set(lastUse.values()))
     times.set(used, new Date(Number((await client.getBlock({ blockNumber: used })).timestamp) * 1000).toISOString());
@@ -88,7 +99,13 @@ export async function listSessions(client: SessionListClient, input: { account: 
   const now = Number(block.timestamp);
   const keys: ProtocolSessionKey[] = [];
   for (const grant of latest.values()) {
-    const record = await client.readContract({ address: account, abi: accountAbi, functionName: 'getSession', args: [grant.key], blockNumber });
+    const record = await client.readContract({
+      address: account,
+      abi: accountAbi,
+      functionName: 'getSession',
+      args: [grant.key],
+      blockNumber,
+    });
     // A log whose commitment is not the record's is not the key's current grant; the record wins and the row is not shown.
     if (record.specHash !== grant.specHash) continue;
     const used = lastUse.get(grant.key.toLowerCase());
