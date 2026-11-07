@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase } from '@intafaced/db';
@@ -65,6 +65,8 @@ function ctxOf(userId: string, scopes: string[]) {
   }, 120_000);
 
   beforeEach(async () => {
+    // The same lock every svc-agents database suite holds for one test at a time: they share the test database.
+    await lock`select pg_advisory_lock(842671)`;
     await sql`
       TRUNCATE agents.agent_switches, agents.agent_kind_switches, agents.agent_owner_assignments, agents.agent_sessions,
                agents.agent_definitions, agents.own_agents, agents.own_agent_background_runs RESTART IDENTITY CASCADE
@@ -86,6 +88,10 @@ function ctxOf(userId: string, scopes: string[]) {
       INSERT INTO agents.own_agents (id, owner_id, template, name, create_key, per_session_cap)
       VALUES (${OWN}, ${CUSTOMER}, 'service-starter', 'TEST helper', 'k1', 1)
     `;
+  });
+
+  afterEach(async () => {
+    await lock`select pg_advisory_unlock(842671)`;
   });
 
   afterAll(async () => {
