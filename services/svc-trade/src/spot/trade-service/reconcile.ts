@@ -32,7 +32,15 @@ import { fillsProveNoFill } from './internal.js';
  * Fail closed means: never mint a hold from this path; never mark filled without fills;
  * never auto-release on funded engine-miss when `trade.fills` cannot prove no fill.
  */
-export async function reconcileOrder(svc: TradeServiceInternal, orderId: string): Promise<ReconcileResult> {
+export interface ReconcileOptions {
+  /**
+   * The operator sweep's mode: an order the engine lists as live is left exactly as it is (no cancel, no release).
+   * Only an order the book no longer has is repaired, and then only when `trade.fills` prove it never filled.
+   */
+  readonly leaveLive?: boolean;
+}
+
+export async function reconcileOrder(svc: TradeServiceInternal, orderId: string, opts: ReconcileOptions = {}): Promise<ReconcileResult> {
   return withMoneySpan('trade.reconcileOrder', { operation: 'reconcile_order', orderId }, async () => {
     const order = await svc.findOrder(orderId);
     if (!order) {
@@ -108,6 +116,16 @@ export async function reconcileOrder(svc: TradeServiceInternal, orderId: string)
     // Non-destructive liveness: list before any cancel.
     const listed = await svc.matching.listOrders(order.marketId, orderId);
     const engineLive = listed.orders.some((o) => settlementOrderId(o.orderId) === orderId);
+    if (opts.leaveLive && engineLive) {
+      return {
+        orderId,
+        case: 'open_engine_live_left',
+        action: 'none',
+        holdBefore,
+        engineLive: true,
+        detail: 'live on the book; a sweep leaves a live order and its hold as they are',
+      };
+    }
 
     // Recovery is a lookup, not a blind resubmit. A live engine order stays
     // unresolved and encumbered. List miss still consults trade.fills before

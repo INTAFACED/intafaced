@@ -19,6 +19,8 @@ export const ACTIVITY_KINDS = [
   'transfer_in',
   'transfer_out',
   'trade',
+  // A Convert's fill (svc-bank `convert`). An older server files it under `trade`.
+  'convert',
   'fee',
   'payment',
   'withdrawal',

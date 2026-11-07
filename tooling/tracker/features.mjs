@@ -1,7 +1,8 @@
 /**
  * THE FEATURE REGISTRY.
  *
- * Every feature in INTAFACED_DEFINITIVE_BUILD.md §25 (the full coverage
+ * Every feature in INTAFACED_DEFINITIVE_BUILD.md (private: INTAFACED/project-state
+ * product/) §25 (the full coverage
  * matrix), plus the Core and infrastructure work §25 does not list because it
  * predates the surfaces.
  *

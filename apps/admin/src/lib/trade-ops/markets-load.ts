@@ -1,7 +1,7 @@
 import 'server-only';
 import type { TradeCtx } from './edge';
 import { feeCellFor, type EffectiveFees } from './fees-model';
-import { tallyOrders, type MarketRowView } from './markets-model';
+import { seededQtyShares, tallyOrders, type MarketRowView } from './markets-model';
 import type { Outcome } from './outcome';
 import {
   readEffectiveFees,
@@ -54,11 +54,14 @@ export async function loadMarkets(ctx: TradeCtx): Promise<MarketsBundle> {
   const toRead = rows.slice(0, LIFECYCLE_CAP);
   const lifecycles = await pool(toRead, LIFECYCLE_PARALLEL, (m) => readLifecycle(ctx, m.symbol));
   const tally = orders.kind === 'ok' ? tallyOrders(orders.data) : null;
+  // A share from a capped read would be a guess: past the cap the share is unread for every market.
+  const shares = orders.kind === 'ok' && orders.data.length < ORDER_READ_LIMIT ? seededQtyShares(orders.data) : null;
   const views = rows.map((market, i): MarketRowView => ({
     market,
     lifecycle: (lifecycles[i] as Outcome<LifecycleRow> | undefined) ?? null,
     orders: tally ? (tally.get(market.symbol) ?? { open: 0, seeded: 0, held: 0 }) : null,
     fee: feeCellFor(fees, market.symbol),
+    ...(orders.kind === 'ok' ? { seededShare: shares ? (shares.get(market.symbol) ?? null) : null } : {}),
   }));
   return { markets, orders, fees, views, lifecycleCapped: rows.length > LIFECYCLE_CAP };
 }

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { LatencyBody, OperationLatency } from './operation-latency.js';
 
 /**
  * What `GET /health` reads from the engine. Structural so the route can be
@@ -38,9 +39,20 @@ export interface MatchingHealthBody {
   readonly admissionReason: string | null;
   /** Markets halted because a resting hold could not be pulled. */
   readonly holdHalted: readonly string[];
+  /**
+   * Latency and throughput per order operation since the engine started (J-cex-spot-20 #1). Absent when the process
+   * keeps none; the console then shows each metric as `matching_metrics_unread`.
+   */
+  readonly metrics?: LatencyBody;
 }
 
-export function matchingHealthBody(service: string, engine: HealthEngine, journal: HealthJournal): MatchingHealthBody {
+export function matchingHealthBody(
+  service: string,
+  engine: HealthEngine,
+  journal: HealthJournal,
+  latency?: OperationLatency,
+  now: () => Date = () => new Date(),
+): MatchingHealthBody {
   return {
     ok: true,
     service,
@@ -52,6 +64,14 @@ export function matchingHealthBody(service: string, engine: HealthEngine, journa
     admissionOpen: engine.admissionOpen,
     admissionReason: engine.admissionReason,
     holdHalted: engine.holdHaltedMarkets(),
+    ...(latency
+      ? {
+          metrics: latency.read(
+            now(),
+            engine.markets.filter((m): m is string => typeof m === 'string'),
+          ),
+        }
+      : {}),
   };
 }
 
@@ -66,6 +86,12 @@ export function matchingHealthBody(service: string, engine: HealthEngine, journa
  * count of orders the engine believes are live is the number an operator needs
  * before anything is allowed to trade against them.
  */
-export function registerHealth(app: FastifyInstance, service: string, engine: HealthEngine, journal: HealthJournal): void {
-  app.get('/health', async () => matchingHealthBody(service, engine, journal));
+export function registerHealth(
+  app: FastifyInstance,
+  service: string,
+  engine: HealthEngine,
+  journal: HealthJournal,
+  latency?: OperationLatency,
+): void {
+  app.get('/health', async () => matchingHealthBody(service, engine, journal, latency));
 }

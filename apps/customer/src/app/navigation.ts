@@ -123,6 +123,7 @@ export const rooms: readonly Room[] = [
   },
   { path: '/lab', title: 'Lab', description: 'Entries the owner publishes', area: 'public' },
   { path: '/fees', title: 'Trading fees', description: 'Maker and taker rates by pair group and tier', area: 'public' },
+  { path: '/rulebook', title: 'Trading rulebook', description: 'The published trading rules, by version', area: 'public' },
   {
     path: '/fees/my-tier',
     title: 'My fee tier',
@@ -1218,7 +1219,18 @@ export function roomPath(room: Room, locale: UiLocale = currentPreferences().lan
 export function doorLabel(door: Door, locale: UiLocale = currentPreferences().language): string {
   return navigationCopy.forLocale(locale).t(door);
 }
-const publicSearchable = new Set(['/help', '/status', '/notice', '/lab', '/fees', '/app', '/partner', '/developers', '/developers/hosts']);
+const publicSearchable = new Set([
+  '/help',
+  '/status',
+  '/notice',
+  '/lab',
+  '/fees',
+  '/rulebook',
+  '/app',
+  '/partner',
+  '/developers',
+  '/developers/hosts',
+]);
 /**
  * Pages offered by search: every room you can open. Aliases, detail routes (flagged `hidden`) and the separate Team desk
  * never appear; Web3 rooms do, so a search finds them and shows their blockers. Business rooms wait for Business

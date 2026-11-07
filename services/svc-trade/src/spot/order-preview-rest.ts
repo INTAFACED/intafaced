@@ -200,6 +200,8 @@ const LIFECYCLE_CODES = new Set([
   'trade.lifecycle_authority_stale',
   'trade.market_closed',
   'trade.unknown_schedule',
+  'trade.mode_cancel_only',
+  'trade.mode_post_only',
 ]);
 
 function sendError(reply: FastifyReply, status: number, code: string, message: string): FastifyReply {
