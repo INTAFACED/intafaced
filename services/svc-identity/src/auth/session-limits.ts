@@ -121,6 +121,8 @@ export function createSessionSettingsRouter(
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: `Choose an idle sign-out from ${range.min} to ${range.max} seconds. [${SESSION_SETTING_OUT_OF_RANGE}]`,
+            // The named code rides as the cause, so the client reads it as `intafacedCode`-style data, never from prose.
+            cause: { code: SESSION_SETTING_OUT_OF_RANGE },
           });
         }
         await sql`UPDATE users SET idle_signout_seconds = ${input.seconds} WHERE id = ${ctx.principal.userId}`;

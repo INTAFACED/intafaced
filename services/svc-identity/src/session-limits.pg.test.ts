@@ -141,6 +141,8 @@ if (!(await postgresAvailable(URL))) {
       await me.setIdleSignout({ seconds: 1800 });
       for (const seconds of [3601, 899]) {
         await expect(me.setIdleSignout({ seconds })).rejects.toThrow(SESSION_SETTING_OUT_OF_RANGE);
+        // The code is data on the refusal (the formatter sends it as `cause.code`), so the page can name the range.
+        await expect(me.setIdleSignout({ seconds })).rejects.toMatchObject({ cause: { code: SESSION_SETTING_OUT_OF_RANGE } });
       }
       expect((await me.sessionSettings({})).own.idleSeconds).toBe(1800);
       // Clearing goes back to the owner's.
