@@ -65,6 +65,8 @@ const en = {
   cannotReceive: 'That person cannot receive this right now. Nothing was sent.',
   receiveCheckDown: 'We could not check whether the recipient can receive money. Nothing was sent. Try again in a moment.',
   receiveCheckOff: 'Paying other people is not set up on this service. Nothing was sent.',
+  accountFrozenSelf:
+    'You froze this account, so no withdrawal address can be added and nothing can be withdrawn until you reactivate it in Security. Nothing was changed.',
   securityLocked:
     'Your security lock is on, so no withdrawal address can be added and nothing can be withdrawn to one until it ends. Nothing was changed.',
   securityLockDown: 'We could not check your security lock, so nothing was changed. Try again in a moment.',
@@ -167,6 +169,8 @@ const es = {
   cannotReceive: 'Esa persona no puede recibir esto ahora. No se envió nada.',
   receiveCheckDown: 'No pudimos comprobar si el destinatario puede recibir dinero. No se envió nada. Inténtalo de nuevo en un momento.',
   receiveCheckOff: 'Pagar a otras personas no está configurado en este servicio. No se envió nada.',
+  accountFrozenSelf:
+    'Congelaste esta cuenta: no se pueden añadir direcciones de retiro ni retirar nada hasta que la reactives en Seguridad. No se cambió nada.',
   securityLocked:
     'Tu bloqueo de seguridad está activado: no se pueden añadir direcciones de retiro ni retirar nada a ellas hasta que termine. No se cambió nada.',
   securityLockDown: 'No pudimos comprobar tu bloqueo de seguridad, así que no se cambió nada. Inténtalo de nuevo en un momento.',
@@ -274,6 +278,8 @@ const fr = {
   receiveCheckDown:
     'Nous n’avons pas pu vérifier si le destinataire peut recevoir de l’argent. Rien n’a été envoyé. Réessayez dans un instant.',
   receiveCheckOff: 'Payer d’autres personnes n’est pas configuré sur ce service. Rien n’a été envoyé.',
+  accountFrozenSelf:
+    'Vous avez gelé ce compte : aucune adresse de retrait ne peut être ajoutée et rien ne peut être retiré jusqu’à ce que vous le réactiviez dans Sécurité. Rien n’a été modifié.',
   securityLocked:
     'Votre verrou de sécurité est activé : aucune adresse de retrait ne peut être ajoutée et rien ne peut y être retiré tant qu’il dure. Rien n’a été modifié.',
   securityLockDown: 'Nous n’avons pas pu vérifier votre verrou de sécurité, donc rien n’a été modifié. Réessayez dans un instant.',
@@ -378,6 +384,7 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.recipient_check_unavailable': 'receiveCheckDown',
   'bank.recipient_check_unset': 'receiveCheckOff',
   'bank.security_locked': 'securityLocked',
+  'bank.account_frozen_self': 'accountFrozenSelf',
   'bank.security_lock_unavailable': 'securityLockDown',
   'bank.security_lock_unset': 'securityLockOff',
   'ledger.insufficient_funds': 'notEnough',

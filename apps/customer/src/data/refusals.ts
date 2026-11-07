@@ -188,6 +188,10 @@ const FIXED: Readonly<Partial<Record<RefusalKind, Words>>> = {
   },
   addressLabelTaken: { title: 'That name is taken', body: 'You already have a saved address with this name. Choose another name.' },
   addressBookFull: { title: 'Your address book is full', body: 'Remove an address to save a new one.' },
+  accountFrozenSelf: {
+    title: 'You froze this account',
+    body: 'Withdrawals, new withdrawal addresses and new API keys are stopped until you reactivate it in Security. Deposits still arrive. Nothing was changed.',
+  },
   securityLocked: {
     title: 'Your security lock is on',
     body: 'No withdrawal address can be added and nothing can be withdrawn to one until the lock ends. Nothing was changed.',

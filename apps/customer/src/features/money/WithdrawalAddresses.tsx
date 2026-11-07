@@ -201,6 +201,8 @@ export function readinessWords(
       return { text: t('aUseBlocked', { label }), locked: false };
     case 'approval_pending':
       return { text: t('aUseApproval', { label }), locked: false };
+    case 'frozen':
+      return { text: t('aUseFrozen'), locked: true };
     case 'locked':
       return {
         text: `${t('aUseLocked')} ${answer.lockUnlocksAt ? t('aUseLockEnds', { time: date(answer.lockUnlocksAt) }) : t('aUseLockAsk')}`,

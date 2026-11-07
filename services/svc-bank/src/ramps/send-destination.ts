@@ -24,6 +24,10 @@ export async function sendableDestination(
   input: BankSendDestinationInput,
   now?: Date,
 ): Promise<BankSendDestination> {
+  // The owner's own freeze refuses every send first, saved address or not (J-wallet-13 #2). An unreadable lock throws.
+  if ((await deps.securityLock.read(input.userId)).selfFrozen) {
+    return { state: 'frozen', destinationId: null, coolingOffEndsAt: null };
+  }
   const assetId = input.assetId.trim().toUpperCase();
   const network = input.network.trim().toLowerCase();
   const sameAddress = addressMatcher(input.ref);

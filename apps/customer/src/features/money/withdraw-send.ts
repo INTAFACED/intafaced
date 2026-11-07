@@ -147,6 +147,7 @@ export const SEND_REFUSAL_KEYS = {
   'pay.withdrawal_destination_cooling': 'sCooling',
   'pay.withdrawal_destination_cooling_unset': 'sCoolingUnset',
   'pay.withdrawal_destination_locked': 'sLocked',
+  'pay.account_frozen_self': 'sFrozen',
   'pay.withdrawal_destination_unavailable': 'sBookUnreadable',
   'pay.withdrawal_fee_unbound': 'sFeeUnbound',
   'withdrawal_quote.required': 'sQuoteTerms',

@@ -44,6 +44,8 @@ export const BANK_SEND_DESTINATION_STATES = [
   'not_saved',
   'other_network',
   'locked',
+  /** The owner froze their own account (svc-identity self-freeze): nothing is sent until they reactivate it. */
+  'frozen',
   'blocked',
   'approval_pending',
   'cooling_unset',

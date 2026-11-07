@@ -75,6 +75,7 @@ export type RefusalKind =
   | 'addressLabelTaken'
   | 'addressBookFull'
   | 'securityLocked'
+  | 'accountFrozenSelf'
   | 'activitySortBounded'
   | 'entriesDoNotSum'
   | 'entriesTooLong'
@@ -263,6 +264,9 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'bank.destination_label_taken': 'addressLabelTaken',
   'bank.address_book_full': 'addressBookFull',
   'bank.security_locked': 'securityLocked',
+  'bank.account_frozen_self': 'accountFrozenSelf',
+  'identity.account_frozen_self': 'accountFrozenSelf',
+  'pay.account_frozen_self': 'accountFrozenSelf',
   'bank.security_lock_unavailable': 'tryAgain',
   'bank.global_corridors_unset': 'globalOff',
   'bank.global_corridors_unusable': 'globalOff',

@@ -359,13 +359,13 @@ describe('whether a saved address can be used now', () => {
     });
   });
 
-  it('reads a self-frozen account as locked with no end, so the address is not ready', async () => {
+  it('reads a self-frozen account as frozen, named as the owner’s freeze, so the address is not ready (J-wallet-13 #2)', async () => {
     const clock = { now: new Date(Date.now() - 25 * HOUR) };
     const { service, lock, destinations } = at(clock);
     const saved = await approved(service('24'), destinations);
     lock.set(USER, { locked: false, unlocksAt: null, selfFrozen: true });
     await expect(service('24').destinationReadiness({ userId: USER, destinationId: saved.destinationId })).resolves.toMatchObject({
-      state: 'locked',
+      state: 'frozen',
       lockUnlocksAt: null,
     });
   });

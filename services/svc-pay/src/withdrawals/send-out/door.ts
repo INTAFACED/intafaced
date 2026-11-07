@@ -74,6 +74,10 @@ const DESTINATION_REFUSALS: Record<Exclude<BankSendDestinationState, 'ready'>, {
     code: 'pay.withdrawal_destination_cooling_unset',
     message: 'No cooling-off period is published for new addresses, so none can be sent to yet',
   },
+  frozen: {
+    code: 'pay.account_frozen_self',
+    message: 'You froze this account, so nothing can be sent until you reactivate it in Security',
+  },
   locked: { code: 'pay.withdrawal_destination_locked', message: 'Your security lock is on; nothing can be sent while it holds' },
   blocked: { code: 'pay.withdrawal_destination_blocked', message: 'That saved address cannot be used' },
 };
