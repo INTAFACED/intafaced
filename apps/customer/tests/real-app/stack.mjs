@@ -134,13 +134,35 @@ function withOutput(error, script, args) {
   return error;
 }
 
-const run = (script, args, timeout) =>
-  execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout,
-  });
+/** Where Node's own `fetch` finds its connection pool (undici's global dispatcher). */
+const FETCH_POOL = Symbol.for('undici.globalDispatcher.1');
+
+/**
+ * Swaps this worker's fetch pool for a fresh one of the same kind and closes the old one (requests still in it finish).
+ * A stack tool blocks the worker, for a minute or more on a restart or the founders' TOTP waits. A worker blocked past
+ * Edge's keep-alive (72 s) never sees Edge close its idle sockets, so the next call through Edge is written to a closed
+ * one and fails before any answer ("other side closed", #7461). After the swap that call opens a fresh socket.
+ * The worker still freezes while the tool runs; only the dead sockets are left behind.
+ */
+function freshFetchPool() {
+  const old = globalThis[FETCH_POOL];
+  if (!old) return; // no fetch yet in this worker, so no pool to replace
+  globalThis[FETCH_POOL] = new old.constructor();
+  old.close().catch(() => {});
+}
+
+const run = (script, args, timeout) => {
+  try {
+    return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout,
+    });
+  } finally {
+    freshFetchPool();
+  }
+};
 
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
