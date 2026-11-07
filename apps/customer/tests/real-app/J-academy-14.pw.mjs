@@ -466,10 +466,9 @@ test(`${J} #8 a read-only support agent reads the page with no unenrol or overri
   await expect(desk.locator('form')).toHaveCount(0);
 
   // A direct call from this session, past the page, is refused as not permitted, and nothing changes.
-  const attemptId = (await staff('query', 'admin.learnerProgress', { userId: learnerId })).courses
-    .find((c) => c.pathSlug === PATH)
-    .items.find((i) => i.slug === items.quiz)
-    .quiz.attempts.find((a) => a.voided === null).attemptId;
+  // Every item of every course the learner takes, by slug: the quiz sits in the second course.
+  const itemsNow = async () => (await staff('query', 'admin.learnerProgress', { userId: learnerId })).courses.flatMap((c) => c.items);
+  const attemptId = (await itemsNow()).find((i) => i.slug === items.quiz).quiz.attempts.find((a) => a.voided === null).attemptId;
   const direct = await page.evaluate(
     async ({ userId, itemSlug, attemptId }) => {
       const session = await (await fetch('/api/session', { cache: 'no-store' })).json();
@@ -492,7 +491,7 @@ test(`${J} #8 a read-only support agent reads the page with no unenrol or overri
     expect(answer.status, JSON.stringify(answer.body)).toBe(403);
     expect(answer.body).toMatchObject({ ok: false, code: 'academy.permission_denied', title: 'Not permitted: this session may only read' });
   }
-  const after = (await staff('query', 'admin.learnerProgress', { userId: learnerId })).courses.find((c) => c.pathSlug === PATH);
-  expect(after.items.find((i) => i.slug === items.undone).status).toBe('undone');
-  expect(after.items.find((i) => i.slug === items.quiz).quiz.attempts.find((a) => a.attemptId === attemptId).voided).toBeNull();
+  const after = await itemsNow();
+  expect(after.find((i) => i.slug === items.undone).status).toBe('undone');
+  expect(after.find((i) => i.slug === items.quiz).quiz.attempts.find((a) => a.attemptId === attemptId).voided).toBeNull();
 });
