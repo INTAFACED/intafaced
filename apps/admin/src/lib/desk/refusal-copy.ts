@@ -1365,6 +1365,21 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'A grade file is a CSV whose first line is learner,score,comment,reason, with at least one row below it.',
     next: 'Correct the file and upload it again. Nothing was changed.',
   },
+  'academy.grant_expired': {
+    title: 'This learner’s access has ended',
+    body: 'Their access record for this course reached its end date, so the course’s items do not open for them.',
+    next: 'Reinstate the access record on the learner page, with a reason, if they should have it again.',
+  },
+  'academy.grant_not_found': {
+    title: 'No such access record',
+    body: 'This learner holds no access record with that reference.',
+    next: 'Read the learner page again. Nothing was changed.',
+  },
+  'academy.grant_active': {
+    title: 'This access has not ended',
+    body: 'Only an access record that has ended can be reinstated.',
+    next: 'Read the learner page again. Nothing was changed.',
+  },
   'academy.permission_denied': {
     title: 'This needs a role you do not hold',
     body: 'Answer-level quiz data needs the data researcher role on the course. Academy has no course roles to hold, so no account holds it.',
