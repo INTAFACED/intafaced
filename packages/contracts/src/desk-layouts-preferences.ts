@@ -31,7 +31,13 @@ export const deskWorkspaceSchema = z
     v: z.literal(1),
     preset: z.enum(DESK_PRESET_IDS),
     order: z.array(z.enum(DESK_WIDGET_IDS)).min(1).max(DESK_WIDGET_IDS.length),
-    widths: z.record(z.enum(['markets', 'book', 'trades']), z.number().min(10).max(32)),
+    widths: z
+      .object({
+        markets: z.number().min(10).max(32).optional(),
+        book: z.number().min(10).max(32).optional(),
+        trades: z.number().min(10).max(32).optional(),
+      })
+      .strict(),
   })
   .strict()
   .refine((desk) => new Set(desk.order).size === desk.order.length, 'each widget once');

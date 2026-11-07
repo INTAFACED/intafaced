@@ -32,7 +32,7 @@ import {
 import { isChartStyle, type ColourScheme } from './chart-style';
 import { WatchlistPanel } from '../../features/watchlists/WatchlistPanel';
 import { chartHrefFor, WATCHLIST_DRAG_TYPE } from '../../features/watchlists/links';
-import { TemplatesMenu } from './Templates';
+import { TemplatesMenu } from './TemplatesMenu';
 import { styleFrom, studiesFrom, type ChartTemplate } from './templates';
 import { templatesCopy } from './templates-copy';
 import { FRESH_STORE, isStudyStore, storeKey, type StudyStore } from './studies/model';
