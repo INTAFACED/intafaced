@@ -187,11 +187,13 @@ export default function AlertsPage() {
   const gate = useRef(createGate());
 
   const list = state.status === 'ready' ? state : null;
-  // The webhook log is read again whenever the list is, so a row and its deliveries agree.
+  // The webhook log is read again whenever the list's rows are, so a row and its deliveries agree. Keyed on the rows, not
+  // the state object: a state rebuilt with the same rows on every render would otherwise read the log again forever.
   const reloadDelivery = delivery.reload;
+  const listedItems = list ? list.items : null;
   useEffect(() => {
-    if (state.status === 'ready') reloadDelivery();
-  }, [state, reloadDelivery]);
+    if (listedItems) reloadDelivery();
+  }, [listedItems, reloadDelivery]);
   // The most conditions an alert may hold (the main one included), when the owner has set it: the form stops at it.
   const maxConditions = quota.state.status === 'ready' ? (quota.state.quota.maxConditions ?? null) : null;
   // Until the cap is read, nothing past the main condition can be added: the form never lets through what it cannot check.
