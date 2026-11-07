@@ -467,17 +467,8 @@ jobs:
         if: success() || failure()
         run: node tooling/scripts/local-test-stack.mjs csp-report --fail
 
-      # The stack's own service logs, for the shard's artifact: they show why a service was slow or stayed down (#7463).
-      # An artifact is not masked the way this log is, so the copy drops every line naming the sanctions screening and
-      # masks every secret value (the job's secrets and the stack's generated ones); a file still holding one is left
-      # out. Never what makes a shard red.
-      - name: Stack logs for the artifact, with nothing secret
-        if: always()
-        continue-on-error: true
-        run: node tooling/ci/redact-stack-logs.mjs "$LOCAL_STACK_STATE/logs" "$RUNNER_TEMP/stack-logs" --secrets "$LOCAL_STACK_STATE/secrets.json"
-
-      # The shard's blob (merged by the scoreboard job), its failure screenshots and its redacted stack logs; the run's
-      # TEST account files stay on the runner.
+      # The shard's blob (merged by the scoreboard job) and its failure screenshots; the run's TEST account files stay
+      # on the runner.
       - name: Keep the shard's report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -486,7 +477,6 @@ jobs:
           path: |
             ${{ runner.temp }}/journeys/blob
             /tmp/intafaced-real-app/results
-            ${{ runner.temp }}/stack-logs
           if-no-files-found: warn
           retention-days: 7
 
