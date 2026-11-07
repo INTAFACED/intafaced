@@ -124,7 +124,7 @@ test('J-ops-console-01 #6 Ctrl K and "ledger" lists matching pages and actions, 
 test('J-ops-console-01 #6 scope: pages the person lacks scope for are not listed', async ({ page, browser }) => {
   await staffSignIn(page, browser, 'support');
   await page.goto(`${ADMIN}/accounts`);
-  await expect(page.getByRole('button', { name: /^Search/ })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /^Search Ctrl K/ })).toBeEnabled();
   // The nav shows the support desk its own pages, and no ledger page.
   const nav = page.getByRole('navigation', { name: 'Operator console' }).first();
   await expect(nav.getByRole('link', { name: 'Account controls' })).toBeVisible();
