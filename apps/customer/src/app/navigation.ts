@@ -435,7 +435,7 @@ export const rooms: readonly Room[] = [
   {
     path: '/trade/terminal',
     title: 'Terminal',
-    description: 'Your orders, fills, copied positions and algo orders in one view',
+    description: 'Orders, positions, history and depth in one view',
     door: 'Trade',
     area: 'trade',
     screen: 'trade/terminal',
