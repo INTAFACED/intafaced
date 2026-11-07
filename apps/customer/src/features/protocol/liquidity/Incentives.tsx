@@ -1,5 +1,9 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { liquidityIncentiveCallOutputSchema, liquidityIncentivesOutputSchema, type LiquidityIncentiveRow } from '@intafaced/contracts/protocol-liquidity';
+import {
+  liquidityIncentiveCallOutputSchema,
+  liquidityIncentivesOutputSchema,
+  type LiquidityIncentiveRow,
+} from '@intafaced/contracts/protocol-liquidity';
 import { usePreferences } from '../../../shared/preferences';
 import { useResource } from '../../../shared/resource';
 import { Button, DataTable, EmptyState, Loading, Panel } from '../../../shared/ui';
@@ -25,7 +29,13 @@ export function IncentivesPanel({ pool }: { pool: string }) {
   const api = useMemo(
     () => ({
       list: (signal?: AbortSignal) =>
-        transport.query('protocol', 'amm.incentives', { pool, ...(wallet.address ? { account: wallet.address } : {}) }, liquidityIncentivesOutputSchema, { signal }),
+        transport.query(
+          'protocol',
+          'amm.incentives',
+          { pool, ...(wallet.address ? { account: wallet.address } : {}) },
+          liquidityIncentivesOutputSchema,
+          { signal },
+        ),
       build: (input: { account: string; id: number; action: 'stake' | 'unstake' | 'claim' | 'start' }) =>
         transport.query('protocol', 'amm.buildIncentiveCall', input, liquidityIncentiveCallOutputSchema),
     }),
@@ -40,25 +50,39 @@ export function IncentivesPanel({ pool }: { pool: string }) {
     setProblem(null);
     setBusy(row.id);
     try {
-      const gate = await signing.withRepresentation(async () => {
-        const built = await api.build({ account: wallet.address!, id: row.id, action });
-        if (!built.ok) return setProblem({ id: row.id, words: t('refused', { reason: plainReason(built.message) }) });
-        const approve =
-          action === 'stake'
-            ? await signing.approvals({ address: built.data.pool, name: 'LP' }, built.data.contract, BigInt(built.data.shares), amountText(built.data.shares, 18, 18))
-            : { ok: true as const, steps: [] };
-        if (!approve.ok) return setProblem({ id: row.id, words: approve.reason });
-        const steps = approve.steps.map((step) => ({ ...step, label: t('stepApproveShares', { shares: amountText(built.data.shares, 18, 18) }) }));
-        const outcome = await signing.send(
-          {
-            title: t('stepsIncentive'),
-            steps: [...steps, { label: t(`incentive_${action}`), request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data } }],
-          },
-          built.data.call,
-        );
-        if (!outcome.ok) setProblem({ id: row.id, words: outcome.reason });
-        setRevision((n) => n + 1);
-      }, () => void act(row, action));
+      const gate = await signing.withRepresentation(
+        async () => {
+          const built = await api.build({ account: wallet.address!, id: row.id, action });
+          if (!built.ok) return setProblem({ id: row.id, words: t('refused', { reason: plainReason(built.message) }) });
+          const approve =
+            action === 'stake'
+              ? await signing.approvals(
+                  { address: built.data.pool, name: 'LP' },
+                  built.data.contract,
+                  BigInt(built.data.shares),
+                  amountText(built.data.shares, 18, 18),
+                )
+              : { ok: true as const, steps: [] };
+          if (!approve.ok) return setProblem({ id: row.id, words: approve.reason });
+          const steps = approve.steps.map((step) => ({
+            ...step,
+            label: t('stepApproveShares', { shares: amountText(built.data.shares, 18, 18) }),
+          }));
+          const outcome = await signing.send(
+            {
+              title: t('stepsIncentive'),
+              steps: [
+                ...steps,
+                { label: t(`incentive_${action}`), request: { kind: 'transaction', to: built.data.call.to, data: built.data.call.data } },
+              ],
+            },
+            built.data.call,
+          );
+          if (!outcome.ok) setProblem({ id: row.id, words: outcome.reason });
+          setRevision((n) => n + 1);
+        },
+        () => void act(row, action),
+      );
       if (gate) setProblem({ id: row.id, words: gate });
     } finally {
       setBusy(null);
@@ -137,7 +161,13 @@ function IncentiveRow({
         {row.endBlock !== null && ` · ${t('incentiveBlocks', { start: String(row.startBlock), end: String(row.endBlock) })}`}
       </td>
       <td className="numeric" data-testid="your-split">
-        {staking ? t('yourSplit', { percent: bpsPercent(row.yourSplitBps), amount: amountText(projected, row.rewardToken.decimals), total: reward(row.total) }) : '—'}
+        {staking
+          ? t('yourSplit', {
+              percent: bpsPercent(row.yourSplitBps),
+              amount: amountText(projected, row.rewardToken.decimals),
+              total: reward(row.total),
+            })
+          : '—'}
       </td>
       <td className="numeric">
         <span data-testid="your-reward">{reward(row.yourReward)}</span>

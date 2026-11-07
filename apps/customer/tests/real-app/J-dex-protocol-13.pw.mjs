@@ -232,7 +232,14 @@ test(`${J} #8 stakes LP shares into a TEST incentive of 1000 over 10 blocks: rew
   page,
 }) => {
   const { record, reader } = chainParts();
-  const pool = getAddress(await reader.readContract({ address: record.factory, abi: FACTORY, functionName: 'getPool', args: [TOKEN_A.address, TOKEN_B.address, 30] }));
+  const pool = getAddress(
+    await reader.readContract({
+      address: record.factory,
+      abi: FACTORY,
+      functionName: 'getPool',
+      args: [TOKEN_A.address, TOKEN_B.address, 30],
+    }),
+  );
   // Setup: this wallet and another TEST provider hold shares 3:1; an outside TEST incentivizer announces and funds 1000
   // TEST Token B over 10 blocks, and announces a second incentive it never funds.
   await connectWallet(page, dex, { tokens: [TOKEN_A, TOKEN_B] });
@@ -247,8 +254,22 @@ test(`${J} #8 stakes LP shares into a TEST incentive of 1000 over 10 blocks: rew
   const incentivizer = sender();
   const incentives = record.liquidityIncentives;
   const id = await reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'count' });
-  await incentivizer.send(incentives, encodeFunctionData({ abi: INCENTIVES, functionName: 'create', args: [pool, TOKEN_B.address, 1000n * E18, 10n, incentivizer.account.address] }));
-  await incentivizer.send(incentives, encodeFunctionData({ abi: INCENTIVES, functionName: 'create', args: [pool, TOKEN_B.address, 500n * E18, 10n, incentivizer.account.address] }));
+  await incentivizer.send(
+    incentives,
+    encodeFunctionData({
+      abi: INCENTIVES,
+      functionName: 'create',
+      args: [pool, TOKEN_B.address, 1000n * E18, 10n, incentivizer.account.address],
+    }),
+  );
+  await incentivizer.send(
+    incentives,
+    encodeFunctionData({
+      abi: INCENTIVES,
+      functionName: 'create',
+      args: [pool, TOKEN_B.address, 500n * E18, 10n, incentivizer.account.address],
+    }),
+  );
   await incentivizer.send(TOKEN_B.address, encodeFunctionData({ abi: ERC20, functionName: 'approve', args: [incentives, maxUint256] }));
   await incentivizer.send(incentives, encodeFunctionData({ abi: INCENTIVES, functionName: 'fund', args: [id] }));
   await other.send(pool, encodeFunctionData({ abi: ERC20, functionName: 'approve', args: [incentives, maxUint256] }));
@@ -260,13 +281,17 @@ test(`${J} #8 stakes LP shares into a TEST incentive of 1000 over 10 blocks: rew
   const funded = bodyRows(table).filter({ hasText: '1000 TEST Token B over 10 blocks' }).filter({ hasText: 'Funded, not started' }).last();
   await funded.getByRole('button', { name: 'Stake' }).click(UNBUILT);
   await page.locator('[data-sheet="sequence"]').getByRole('button', { name: 'Continue in wallet' }).click();
-  await expect(funded.getByTestId('your-split')).toHaveText(/^75\.\d\d% · 75\d(\.\d+)? of 1000 TEST Token B over the period$/, { timeout: 60_000 });
+  await expect(funded.getByTestId('your-split')).toHaveText(/^75\.\d\d% · 75\d(\.\d+)? of 1000 TEST Token B over the period$/, {
+    timeout: 60_000,
+  });
 
   // The incentivizer starts it: both stakes accrue 3:1, so over the full period the split is 750:250.
   await incentivizer.send(incentives, encodeFunctionData({ abi: INCENTIVES, functionName: 'start', args: [id] }));
   const at = await reader.getBlockNumber();
   const [p1, p2] = await Promise.all(
-    [me.account.address, other.account.address].map((a) => reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'pending', args: [id, a], blockNumber: at })),
+    [me.account.address, other.account.address].map((a) =>
+      reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'pending', args: [id, a], blockNumber: at }),
+    ),
   );
   expect(p1 + p2).toBeGreaterThan(0n);
   expect(Number((p1 * 1000n) / (p1 + p2)) / 1000).toBeCloseTo(0.75, 2);
@@ -277,19 +302,29 @@ test(`${J} #8 stakes LP shares into a TEST incentive of 1000 over 10 blocks: rew
   await funded.getByRole('button', { name: 'Unstake' }).click();
   await page.locator('[data-sheet="sequence"]').getByRole('button', { name: 'Continue in wallet' }).click();
   await expect(funded.getByRole('status')).toHaveText('Not earning', { timeout: 60_000 });
-  expect(await reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'stakeOf', args: [id, me.account.address] })).toBe(0n);
+  expect(await reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'stakeOf', args: [id, me.account.address] })).toBe(
+    0n,
+  );
   const left = await reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'pending', args: [id, me.account.address] });
   expect(left).toBeGreaterThan(0n);
   expect(left).toBeLessThan(750n * E18);
   await expect(funded).toContainText('Period ended', { timeout: 120_000 });
-  expect(await reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'pending', args: [id, me.account.address] })).toBe(left);
+  expect(await reader.readContract({ address: incentives, abi: INCENTIVES, functionName: 'pending', args: [id, me.account.address] })).toBe(
+    left,
+  );
 
   // The unfunded incentive cannot start: Start is off with the reason, and the contract itself refuses it.
   const unfunded = bodyRows(table).filter({ hasText: '500 TEST Token B over 10 blocks' }).last();
   await expect(unfunded).toContainText('Not funded: cannot start');
   await expect(unfunded.getByRole('button', { name: 'Start' })).toBeDisabled();
   await expect(
-    reader.simulateContract({ account: incentivizer.account, address: incentives, abi: INCENTIVES, functionName: 'start', args: [id + 1n] }),
+    reader.simulateContract({
+      account: incentivizer.account,
+      address: incentives,
+      abi: INCENTIVES,
+      functionName: 'start',
+      args: [id + 1n],
+    }),
   ).rejects.toThrow(/NotFunded|reverted/);
 });
 
