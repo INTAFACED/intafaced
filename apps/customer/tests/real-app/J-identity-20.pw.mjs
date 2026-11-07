@@ -1,4 +1,4 @@
-// World: none
+// World: stack
 import { expect, test } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { unconfirmedAccount } from './p2p.mjs';
