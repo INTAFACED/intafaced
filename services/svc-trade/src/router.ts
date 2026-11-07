@@ -12,13 +12,13 @@ import {
   type Context,
   StepUpCheckError,
 } from '@intafaced/contracts';
-import { AuthError, requireTier, TIER_ORDER, type Principal } from '@intafaced/auth';
-import { checkAccess } from '@intafaced/config';
+import { AuthError, type Principal } from '@intafaced/auth';
 import { formatAmount, parseAmount, InsufficientFundsError, LedgerError } from '@intafaced/ledger-client';
 import { publicLedgerCode, publicLedgerMessage, SETTLEMENT_PENDING } from './ledger-public-code.js';
 import { orderSideSchema, timeInForceSchema } from '@intafaced/exchange-contract';
 import { TradeError, type FillRecord, type Market, type OrderRecord, type TimeInForce } from './spot/types.js';
 import { MatchingNoBookError } from './spot/matching-client.js';
+import { assertPlaceEligible } from './spot/place-eligibility.js';
 import { assertProductionUnsettledAssetClassListing, forexSettlementStatus } from './spot/forex-settlement.js';
 import { fxNamedDegrade } from './spot/fx-product.js';
 import {
@@ -46,6 +46,8 @@ import {
 } from './copy/desk-status.js';
 import { COPY_FEE_SHARE_RESIDUAL, COPY_JURISDICTION_RESIDUAL, CopyError } from './copy/errors.js';
 import type { LeadDesk } from './copy/lead-applications.js';
+import { signalsRouter } from './signals/router.js';
+import type { SignalDesk } from './signals/signal-desk.js';
 import { TradeOpsError } from './admin/common.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import { describeCopyPolicy } from './copy/copy-policy.js';
@@ -787,16 +789,6 @@ interface CustodialPlaceInput {
   readonly subAccountId?: string;
 }
 
-function refuseCustodialTradeJurisdiction(ctx: Context & { principal: Principal }): void {
-  const decision = checkAccess({
-    module: 'trade',
-    plane: 'fiat',
-    region: ctx.region,
-    kycTier: ctx.principal.tier,
-  });
-  if (!decision.allowed) throw new JurisdictionError(decision);
-}
-
 /**
  * Record the place, then hold. Tier below `basic` is `tier.insufficient` and
  * never calls `placeOrder`. A jurisdiction refusal is recorded and thrown the
@@ -818,18 +810,9 @@ async function placeAttributedOrder(
     orderId: null as string | null,
   };
 
-  if (TIER_ORDER[principal.tier] < TIER_ORDER.basic) {
-    book.record({
-      ...base,
-      outcome: 'refused',
-      reason: 'tier.insufficient',
-    });
-    requireTier(principal, 'basic');
-    throw new AuthError('Verification tier "basic" is required', 'tier.insufficient');
-  }
-
+  // The tier and the jurisdiction, in that order: the one check every door that places for a person shares.
   try {
-    refuseCustodialTradeJurisdiction(ctx);
+    assertPlaceEligible({ tier: principal.tier, region: ctx.region });
   } catch (err) {
     book.record({
       ...base,
@@ -893,6 +876,7 @@ export function createTradeRouter(
   supportSummary?: SupportTradeSummaryReader,
   leadDesk?: LeadDesk,
   grid?: GridService,
+  signals?: SignalDesk,
 ) {
   const placeAttempts = new PlaceAttemptBook();
   /** The lead desk's refusals carry their code at the end of the message, where the console reads it. */
@@ -923,6 +907,8 @@ export function createTradeRouter(
     support: supportTradeSummaryRouter(supportSummary),
     /** `bots.grid.*`: the spot grid bot (grid/router.ts). Unmounted, every door answers `trade.grid_unavailable`. */
     bots: router({ grid: gridRouter(grid) }),
+    /** `signals.*`: chart alert webhooks (signals/router.ts); the alert intake is the public REST route. */
+    signals: signalsRouter(signals),
     health: publicProcedure
       .output(z.object({ ok: z.boolean(), service: z.literal('svc-trade') }))
       .query(() => ({ ok: true, service: 'svc-trade' as const })),

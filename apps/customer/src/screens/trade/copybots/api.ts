@@ -17,6 +17,18 @@ export type CopyDesk = z.infer<typeof copyDeskSchema>;
 
 const ackSchema = z.object({ followId: z.string(), relationshipState: z.string(), newIntentFenced: z.boolean(), disposition: z.string() });
 
+/** A chart alert webhook (svc-trade `signals.webhooks.*`). `token` is in the create reply only, once. */
+export const signalWebhookSchema = z.object({
+  webhookId: z.string(),
+  symbol: z.string(),
+  path: z.string(),
+  tokenPrefix: z.string(),
+  state: z.enum(['active', 'paused', 'ended']),
+  createdAt: z.string(),
+  token: z.string().nullable().optional(),
+});
+export type SignalWebhook = z.infer<typeof signalWebhookSchema>;
+
 export const algoPolicySchema = z.object({
   capability: z.object({ createEnabled: z.boolean(), jobsEnabled: z.boolean() }),
   immatureKinds: z.array(z.string()),
@@ -301,6 +313,9 @@ export function createRoomApi(api: ApiClient) {
     flatten: (input: { followId: string; requestId: string; stepUpApprovalId: string | null }) =>
       api.mutate('trade', 'copy.flatten', input, ackSchema.passthrough()),
     algoPolicy: (signal?: AbortSignal) => api.query('trade', 'algo.policy', undefined, algoPolicySchema, { signal }),
+    webhooks: (signal?: AbortSignal) => api.query('trade', 'signals.webhooks.list', undefined, z.array(signalWebhookSchema), { signal }),
+    createWebhook: (input: { symbol: string; clientRequestId: string }) =>
+      api.mutate('trade', 'signals.webhooks.create', input, signalWebhookSchema),
     createTwap: (input: TwapRequest) => api.mutate('trade', 'algo.createTwap', input, algoSchema),
     algoList: (limit: number, signal?: AbortSignal) => api.query('trade', 'algo.list', { limit }, botListSchema, { signal }),
     algoGet: tools.algoGet,

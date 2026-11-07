@@ -1,4 +1,4 @@
-// World: none
+// World: book
 import { test, expect } from './journey.mjs';
 import { api, journeyState } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
@@ -46,28 +46,46 @@ test(`${J} #1 creates a webhook for BTCUSDT: the URL and token shown once; later
   await page.getByRole('dialog').getByRole('button', { name: 'Create webhook' }).click();
   const url = (await page.getByTestId('webhook-url').innerText()).trim();
   const token = (await page.getByTestId('webhook-token').innerText()).trim();
-  expect(url).toMatch(/^https?:\/\//);
+  expect(url).toMatch(/^https?:\/\/.+\/api\/v1\/signals\/webhook\/[0-9a-f-]{36}$/);
   run.write({ url, token, webhookId: url.split('/').at(-1) });
   await page.reload();
   await expect(page.getByText(token)).toHaveCount(0);
   await expect(page.getByText(token.slice(0, 6))).toBeVisible();
 });
 
-test(`${J} #2 an alert with a wrong token, then one older than the limit: refused as auth failed with no intent; refused as stale`, async () => {
+test(`${J} #2 an alert with a wrong token, then one older than the owner's maximum: refused as auth failed with no intent row; refused as stale`, async () => {
   const url = state('url');
-  const wrong = await alert(url, { ...base(), token: 'wrong', side: 'buy', amount: '0.001' });
-  expect(wrong.status).toBe(401);
-  const stale = await alert(url, { ...base({ time: new Date(Date.now() - 3_600_000).toISOString() }), side: 'buy', amount: '0.001' });
-  expect(JSON.stringify(stale.body)).toMatch(/stale/);
-  expect(await intents(state('trader'))).toHaveLength(0);
+  const wrong = await alert(url, { ...base(), token: 'wrong-token', side: 'buy', amount: '0.0005' });
+  expect([wrong.status, wrong.body?.code]).toEqual([403, 'trade.signal_auth_failed']);
+  expect(await intents(state('trader'))).toEqual([]);
+  // An hour old, far past the stack's TEST maximum alert age.
+  const stale = await alert(url, { ...base({ time: new Date(Date.now() - 3_600_000).toISOString() }), side: 'buy', amount: '0.0005' });
+  expect([stale.status, stale.body?.code]).toEqual([400, 'trade.signal_stale']);
+  expect(await intents(state('trader'))).toEqual([]);
 });
 
-test(`${J} #3 the same alert id twice: the stored result comes back and no second order is placed`, async () => {
-  const body = { ...base({ alertId: `${J}-3` }), side: 'buy', amount: '0.0005' };
+/** The trader's closed BTC/USDT orders, newest first, as their own read gives them. */
+async function closedOrders(who) {
+  const res = await (await api(who)).get('/api/v1/orders/closed?symbol=BTC%2FUSDT&limit=100');
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body;
+}
+
+test(`${J} #3 the same alert id twice: the stored result is returned and no second order is placed`, async () => {
+  const trader = state('trader');
+  const body = { ...base({ alertId: `${J}-3-${Date.now().toString(36)}` }), side: 'buy', amount: '0.0005' };
   const first = await alert(state('url'), body);
+  expect(first.status, JSON.stringify(first.body).slice(0, 300)).toBe(200);
+  const [intent] = (await intents(trader)).filter((i) => i.alertId === body.alertId);
+  expect(intent).toMatchObject({ action: 'open', side: 'buy', status: 'placed', sizing: { kind: 'quantity', value: '0.0005' } });
+  expect(intent.orderId).toBeTruthy();
+  const orders = await closedOrders(trader);
+  expect(orders.map((o) => o.id)).toContain(intent.orderId);
+
   const second = await alert(state('url'), body);
-  expect(second.body).toEqual(first.body);
-  expect((await intents(state('trader'))).filter((i) => i.alertId === `${J}-3`)).toHaveLength(1);
+  expect(second).toEqual(first);
+  expect((await intents(trader)).filter((i) => i.alertId === body.alertId)).toHaveLength(1);
+  expect((await closedOrders(trader)).map((o) => o.id)).toEqual(orders.map((o) => o.id));
 });
 
 test(`${J} #4 sends an amount of 50 percent of position: the order is planned as position percent 50`, async () => {

@@ -981,6 +981,11 @@ export class TradeService {
     return this.placeOrderInner(principal, input, 'algo.child', `grid:${botId}`);
   }
 
+  /** Owning SignalDesk supplies its webhook id: one alert's order, a delegated child of the webhook's admitted `strategy.start`. */
+  async placeSignalOrder(principal: Principal, input: PlaceOrderInput, webhookId: string): Promise<OrderRecord> {
+    return this.placeOrderInner(principal, input, 'algo.child', `signal:${webhookId}`);
+  }
+
   /** Owned worker hook: resolve uncertain grant, then execute only its original payload. */
   async recoverAdmittedOrder(userId: string, orderId: string): Promise<OrderRecord | null> {
     const existing = await this.findOrder(orderId);

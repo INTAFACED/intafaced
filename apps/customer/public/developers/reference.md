@@ -12,56 +12,57 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 
 ## Spot
 
-| Route                                               | Name                    | Permission                    |
-| --------------------------------------------------- | ----------------------- | ----------------------------- |
-| `GET /api/v1/markets`                               | `fetchMarkets`          | public; with a key trade:read |
-| `GET /api/v1/ticker/:symbol`                        | `fetchTicker`           | public; with a key trade:read |
-| `GET /api/v1/tickers`                               | `fetchTickers`          | public; with a key trade:read |
-| `GET /api/v1/orderbook/:symbol`                     | `fetchOrderBook`        | public; with a key trade:read |
-| `GET /api/v1/ohlcv/:symbol`                         | `fetchOHLCV`            | public; with a key trade:read |
-| `GET /api/v1/trades/:symbol`                        | `fetchTrades`           | public; with a key trade:read |
-| `GET /api/v1/market-halt/:symbol`                   | `fetchMarketHalt`       | public; with a key trade:read |
-| `GET /api/v1/rulebook`                              | `fetchRulebook`         | public; with a key trade:read |
-| `GET /api/v1/rulebook/versions`                     | `fetchRulebookVersions` | public; with a key trade:read |
-| `GET /api/v1/market-lifecycle/:symbol`              | `fetchMarketLifecycle`  | public; with a key trade:read |
-| `GET /api/v1/charts/owner-values`                   | `fetchChartOwnerValues` | public; with a key trade:read |
-| `GET /api/v1/fees/published`                        | `fetchPublishedFees`    | public; with a key trade:read |
-| `POST /api/v1/orders`                               | `createOrder`           | trade:write                   |
-| `POST /api/v1/convert/quote`                        | `createConvertQuote`    | trade:write                   |
-| `POST /api/v1/convert/accept`                       | `acceptConvertQuote`    | trade:write                   |
-| `DELETE /api/v1/orders/:id`                         | `cancelOrder`           | trade:write                   |
-| `DELETE /api/v1/orders`                             | `cancelAllOrders`       | trade:write                   |
-| `GET /api/v1/orders/:id`                            | `fetchOrder`            | trade:read                    |
-| `GET /api/v1/orders/open`                           | `fetchOpenOrders`       | trade:read                    |
-| `GET /api/v1/orders/closed`                         | `fetchClosedOrders`     | trade:read                    |
-| `POST /api/v1/orders/preview`                       | `previewOrder`          | trade:write                   |
-| `POST /api/v1/orders/batch-amend`                   | `batchAmendOrders`      | trade:write                   |
-| `POST /api/v1/orders/batch-cancel`                  | `batchCancelOrders`     | trade:write                   |
-| `POST /api/v1/markets/:marketId/orders/mass-cancel` | `massCancelOrders`      | trade:write                   |
-| `POST /api/v1/orders/cancel-all-after`              | `cancelAllOrdersAfter`  | trade:write                   |
-| `GET /api/v1/orders/cancel-all-after`               | `fetchCancelAllAfter`   | trade:read                    |
-| `POST /api/v1/orders/batch`                         | `createOrders`          | trade:write                   |
-| `PATCH /api/v1/orders/:id`                          | `editOrder`             | trade:write                   |
-| `POST /api/v1/orders/:id/replace`                   | `replaceOrder`          | trade:write                   |
-| `GET /api/v1/orders/:id/amendments`                 | `fetchOrderAmendments`  | trade:read                    |
-| `GET /api/v1/orders/:id/trades`                     | `fetchOrderTrades`      | trade:read                    |
-| `GET /api/v1/orders/by-client-id/:clientOrderId`    | `fetchOrderByClientId`  | trade:read                    |
-| `GET /api/v1/orders/by-client/:clientOrderId`       | `fetchOrderByClient`    | trade:read                    |
-| `DELETE /api/v1/orders/by-client-id/:clientOrderId` | `cancelOrderByClientId` | trade:write                   |
-| `DELETE /api/v1/orders/by-client/:clientOrderId`    | `cancelOrderByClient`   | trade:write                   |
-| `POST /api/v1/spot/positions/close`                 | `closeSpotPosition`     | trade:write                   |
-| `POST /api/v1/promotions`                           | `previewPromotion`      | trade:write                   |
-| `POST /api/v1/quant/live-deploy`                    | `previewLiveDeploy`     | trade:write                   |
-| `GET /api/v1/bots/grid`                             | `fetchGridBots`         | trade:read                    |
-| `GET /api/v1/bots/grid/:id`                         | `fetchGridBot`          | trade:read                    |
-| `POST /api/v1/bots/grid`                            | `createGridBot`         | trade:write                   |
-| `POST /api/v1/bots/grid/:id/stop`                   | `stopGridBot`           | trade:write                   |
-| `POST /api/v1/bots/grid/:id/withdraw`               | `withdrawGridProfit`    | trade:write                   |
-| `GET /api/v1/algo`                                  | `fetchAlgoOrders`       | trade:read                    |
-| `GET /api/v1/algo/:id`                              | `fetchAlgoOrder`        | trade:read                    |
-| `POST /api/v1/algo`                                 | `createAlgoOrder`       | trade:write                   |
-| `PATCH /api/v1/algo/:id`                            | `editAlgoOrder`         | trade:write                   |
-| `POST /api/v1/algo/:id/cancel`                      | `cancelAlgoOrder`       | trade:write                   |
+| Route                                               | Name                    | Permission                     |
+| --------------------------------------------------- | ----------------------- | ------------------------------ |
+| `GET /api/v1/markets`                               | `fetchMarkets`          | public; with a key trade:read  |
+| `GET /api/v1/ticker/:symbol`                        | `fetchTicker`           | public; with a key trade:read  |
+| `GET /api/v1/tickers`                               | `fetchTickers`          | public; with a key trade:read  |
+| `GET /api/v1/orderbook/:symbol`                     | `fetchOrderBook`        | public; with a key trade:read  |
+| `GET /api/v1/ohlcv/:symbol`                         | `fetchOHLCV`            | public; with a key trade:read  |
+| `GET /api/v1/trades/:symbol`                        | `fetchTrades`           | public; with a key trade:read  |
+| `GET /api/v1/market-halt/:symbol`                   | `fetchMarketHalt`       | public; with a key trade:read  |
+| `GET /api/v1/rulebook`                              | `fetchRulebook`         | public; with a key trade:read  |
+| `GET /api/v1/rulebook/versions`                     | `fetchRulebookVersions` | public; with a key trade:read  |
+| `GET /api/v1/market-lifecycle/:symbol`              | `fetchMarketLifecycle`  | public; with a key trade:read  |
+| `GET /api/v1/charts/owner-values`                   | `fetchChartOwnerValues` | public; with a key trade:read  |
+| `GET /api/v1/fees/published`                        | `fetchPublishedFees`    | public; with a key trade:read  |
+| `POST /api/v1/orders`                               | `createOrder`           | trade:write                    |
+| `POST /api/v1/convert/quote`                        | `createConvertQuote`    | trade:write                    |
+| `POST /api/v1/convert/accept`                       | `acceptConvertQuote`    | trade:write                    |
+| `DELETE /api/v1/orders/:id`                         | `cancelOrder`           | trade:write                    |
+| `DELETE /api/v1/orders`                             | `cancelAllOrders`       | trade:write                    |
+| `GET /api/v1/orders/:id`                            | `fetchOrder`            | trade:read                     |
+| `GET /api/v1/orders/open`                           | `fetchOpenOrders`       | trade:read                     |
+| `GET /api/v1/orders/closed`                         | `fetchClosedOrders`     | trade:read                     |
+| `POST /api/v1/orders/preview`                       | `previewOrder`          | trade:write                    |
+| `POST /api/v1/orders/batch-amend`                   | `batchAmendOrders`      | trade:write                    |
+| `POST /api/v1/orders/batch-cancel`                  | `batchCancelOrders`     | trade:write                    |
+| `POST /api/v1/markets/:marketId/orders/mass-cancel` | `massCancelOrders`      | trade:write                    |
+| `POST /api/v1/orders/cancel-all-after`              | `cancelAllOrdersAfter`  | trade:write                    |
+| `GET /api/v1/orders/cancel-all-after`               | `fetchCancelAllAfter`   | trade:read                     |
+| `POST /api/v1/orders/batch`                         | `createOrders`          | trade:write                    |
+| `PATCH /api/v1/orders/:id`                          | `editOrder`             | trade:write                    |
+| `POST /api/v1/orders/:id/replace`                   | `replaceOrder`          | trade:write                    |
+| `GET /api/v1/orders/:id/amendments`                 | `fetchOrderAmendments`  | trade:read                     |
+| `GET /api/v1/orders/:id/trades`                     | `fetchOrderTrades`      | trade:read                     |
+| `GET /api/v1/orders/by-client-id/:clientOrderId`    | `fetchOrderByClientId`  | trade:read                     |
+| `GET /api/v1/orders/by-client/:clientOrderId`       | `fetchOrderByClient`    | trade:read                     |
+| `DELETE /api/v1/orders/by-client-id/:clientOrderId` | `cancelOrderByClientId` | trade:write                    |
+| `DELETE /api/v1/orders/by-client/:clientOrderId`    | `cancelOrderByClient`   | trade:write                    |
+| `POST /api/v1/spot/positions/close`                 | `closeSpotPosition`     | trade:write                    |
+| `POST /api/v1/promotions`                           | `previewPromotion`      | trade:write                    |
+| `POST /api/v1/quant/live-deploy`                    | `previewLiveDeploy`     | trade:write                    |
+| `POST /api/v1/signals/webhook/:webhookId`           | `postSignalAlert`       | public; with a key trade:write |
+| `GET /api/v1/bots/grid`                             | `fetchGridBots`         | trade:read                     |
+| `GET /api/v1/bots/grid/:id`                         | `fetchGridBot`          | trade:read                     |
+| `POST /api/v1/bots/grid`                            | `createGridBot`         | trade:write                    |
+| `POST /api/v1/bots/grid/:id/stop`                   | `stopGridBot`           | trade:write                    |
+| `POST /api/v1/bots/grid/:id/withdraw`               | `withdrawGridProfit`    | trade:write                    |
+| `GET /api/v1/algo`                                  | `fetchAlgoOrders`       | trade:read                     |
+| `GET /api/v1/algo/:id`                              | `fetchAlgoOrder`        | trade:read                     |
+| `POST /api/v1/algo`                                 | `createAlgoOrder`       | trade:write                    |
+| `PATCH /api/v1/algo/:id`                            | `editAlgoOrder`         | trade:write                    |
+| `POST /api/v1/algo/:id/cancel`                      | `cancelAlgoOrder`       | trade:write                    |
 
 | WebSocket stream | Door                                                   | Permission                |
 | ---------------- | ------------------------------------------------------ | ------------------------- |

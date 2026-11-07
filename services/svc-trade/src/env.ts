@@ -767,6 +767,19 @@ const schema = serviceEnvSchema
       TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS: z.string().default(''),
 
       /**
+       * The oldest chart alert a webhook accepts, in whole seconds (1 to 3600): server time minus the alert's time
+       * (CB-bots-api-signal-01, J-copy-bots-otc-20 #2). Empty (default) = unset → every alert refuses
+       * `trade.signal_latency_not_set`. Owner value; never invented.
+       */
+      TRADE_SIGNAL_MAX_ALERT_AGE_SECONDS: z.string().default(''),
+
+      /**
+       * How long a chart alert webhook may place orders for its creator, in whole days (1 to 366). Empty (default) =
+       * unset → every webhook create refuses `trade.signal_webhook_life_not_set`. Owner value; never invented.
+       */
+      TRADE_SIGNAL_WEBHOOK_DAYS: z.string().default(''),
+
+      /**
        * How often the limit-convert sweep prices each waiting limit convert (J-cex-spot-11 #8). Blank (default): no
        * sweep runs, and placing a limit convert refuses `trade.convert_limit_unset`; nothing is ever held unwatched.
        */
