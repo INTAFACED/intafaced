@@ -1,0 +1,35 @@
+# Throwaway probe for #7386 (no secrets, push to this branch only): what an unprivileged agent user can reach on a
+# hosted runner. Not for merge.
+name: Builder probe
+on:
+  push:
+    branches: [factory/builder-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: Probe
+        run: |
+          set -x
+          id; ls -ld /home/runner /home/runner/work "$RUNNER_TEMP" /opt/hostedtoolcache "$(dirname "$(command -v node)")"
+          command -v node; node --version; ls -l /usr/local/bin/node /usr/bin/node || true; /usr/local/bin/node --version || true
+          sudo useradd --create-home --shell /bin/bash factory-agent
+          sudo -u factory-agent -H "$(command -v node)" --version || echo "agent cannot run toolcache node"
+          sudo -u factory-agent -H /usr/local/bin/node --version || true
+          sudo -u factory-agent -H ls "$RUNNER_TEMP" || echo "agent cannot list RUNNER_TEMP"
+          sudo -u factory-agent -H touch "$GITHUB_WORKSPACE/x" || echo "agent cannot write the workspace"
+          sudo -u factory-agent -H touch "$(dirname "$(command -v node)")/x" || echo "agent cannot write the toolcache"
+          sudo -u factory-agent -H cat /proc/$$/environ >/dev/null || echo "agent cannot read runner environ"
+          sudo -u factory-agent -H docker ps || echo "agent has no docker"
+          SECRETISH=probe sudo -u factory-agent -H --preserve-env=SECRETISH -- /usr/bin/env PATH=/usr/bin:/bin sh -c 'echo "preserved=${SECRETISH:-none}"'
+          sudo -u factory-agent -H setsid sh -c 'trap "" TERM; sleep 300' &
+          sleep 1; pgrep -u factory-agent -a; sudo pkill -TERM -u factory-agent; sleep 1; pgrep -u factory-agent -a || echo "TERM cleared"
+          sudo pkill -KILL -u factory-agent; sleep 1; pgrep -u factory-agent -a || echo "KILL cleared"
+          sudo -u factory-agent -H git clone -q --depth 1 https://github.com/INTAFACED/intafaced.git /home/factory-agent/w && echo "agent clone ok"
+          sudo -u factory-agent -H "$(command -v npm)" --version || true
