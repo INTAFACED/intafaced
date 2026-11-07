@@ -14,6 +14,7 @@ const messages = {
   'Save as template': 'Save as template',
   'Template name': 'Template name',
   'Save template': 'Save template',
+  'Saved template': 'Template “{name}” saved.',
   Cancel: 'Cancel',
   'Replace title': 'Replace “{name}”?',
   'Replace body': 'A template called “{name}” is kept already. Replace it with this chart’s studies?',

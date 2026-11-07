@@ -269,6 +269,12 @@
     font: inherit;
     cursor: pointer;
   }
+  .cw-templates-saved {
+    margin: 0;
+    align-self: center;
+    color: var(--if-fg-2);
+    font: 400 var(--if-text-xs)/var(--if-leading-xs) var(--if-font-ui);
+  }
   .cw-templates-problem {
     margin: 0;
     color: var(--if-down-text);
