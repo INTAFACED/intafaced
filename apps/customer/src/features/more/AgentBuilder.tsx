@@ -538,6 +538,16 @@ export function OwnAgentPage({ id }: { id: string }) {
   );
 }
 
+const backgroundRunSchema = z.object({
+  id: z.string(),
+  state: z.enum(['running', 'done', 'stopped']),
+  stepsDone: z.number(),
+  stepsTotal: z.number(),
+  stopCode: z.string().nullable(),
+  cost: z.string(),
+  startedAt: z.string(),
+});
+
 const agentStatusSchema = z.object({ status: z.enum(['active', 'quarantined', 'disabled_by_kind']) });
 
 /**
@@ -910,6 +920,12 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
     (signal) => api.query('agents', 'own.runs', { id: agent.id, limit: 50 }, z.array(ownAgentRunRowSchema), { signal }),
     `own-runs:${agent.id}:${version}`,
   );
+  // Background test runs first, newest first: each says how far it got, or what stopped it at its next step.
+  const background = useResource(
+    (signal) => api.query('agents', 'own.backgroundRuns', { id: agent.id, limit: 20 }, z.array(backgroundRunSchema), { signal }),
+    `own-background-runs:${agent.id}:${version}`,
+  );
+  const backgroundRows = background.resource.status === 'ready' ? background.resource.data : [];
   return (
     <Panel title={t('runsTitle')} role="region" aria-label={t('runsTitle')}>
       <Read resource={runs.resource} retry={runs.reload}>
@@ -925,6 +941,24 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                 </tr>
               </thead>
               <tbody>
+                {backgroundRows.map((run) => (
+                  <tr key={`background:${run.id}`} data-background-run={run.id}>
+                    <td>{new Date(run.startedAt).toLocaleString()}</td>
+                    <td>
+                      {run.state === 'running'
+                        ? t('bg_running', { done: String(run.stepsDone), total: String(run.stepsTotal) })
+                        : run.state === 'done'
+                          ? t('bg_done', { total: String(run.stepsTotal) })
+                          : run.stopCode === 'agents.agent.quarantined'
+                            ? t('bg_stopped_quarantined')
+                            : run.stopCode === 'agents.agent.disabled_by_kind'
+                              ? t('bg_stopped_kind')
+                              : t('bg_stopped_other')}
+                    </td>
+                    <td>{run.stopCode ? <code lang="zxx">{run.stopCode}</code> : null}</td>
+                    <td data-testid="run-cost">{run.cost}</td>
+                  </tr>
+                ))}
                 {rows.map((row) => (
                   <tr key={row.status === 'waiting' ? row.requestId : `${row.sessionId}:${row.sequence}`}>
                     <td>{new Date(row.occurredAt).toLocaleString()}</td>
@@ -941,7 +975,7 @@ function Runs({ agent, version = 0 }: { agent: OwnAgent; version?: number }) {
                 ))}
               </tbody>
             </table>
-            {rows.length === 0 ? <p className="muted">{t('runsEmpty')}</p> : null}
+            {rows.length === 0 && backgroundRows.length === 0 ? <p className="muted">{t('runsEmpty')}</p> : null}
           </>
         )}
       </Read>

@@ -1389,6 +1389,9 @@ services:
       AGENTS_TRANSCRIPT_RETENTION_DAYS:
       # The operator fleet registry's page size; unset refuses the registry read.
       AGENTS_REGISTRY_LIST_LIMIT:
+      # Background test runs of an own agent; unset refuses a new one.
+      AGENTS_BACKGROUND_TEST_STEPS:
+      AGENTS_BACKGROUND_STEP_MS:
       # Copy-intel live plane (Class X). Pass-through only — unset stays refuse-closed.
       LIVE_TRADE_COPY_LEADER_PLANE_OPEN:
       LIVE_TRADE_COPY_LEADER_IDS:

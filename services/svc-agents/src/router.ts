@@ -74,6 +74,7 @@ import type { TeamMembershipPort } from './team/membership.js';
 import { teamRouter } from './team/routes.js';
 import { opsLogRouter, parseReasons, type OpsLogSettings } from './oplog/routes.js';
 import { fleetRouter, type FleetSettings } from './fleet/control.js';
+import type { BackgroundSettings } from './own/background.js';
 
 /**
  * The internal tRPC surface (§1: "Fastify + tRPC (internal) / REST (public)").
@@ -307,6 +308,8 @@ export interface AgentsRouterDeps {
   readonly opsLog?: OpsLogSettings;
   /** The operator fleet registry's owner values (AG-registry-01). Absent is blank: the registry read refuses. */
   readonly fleet?: FleetSettings;
+  /** Background test runs of own agents (AG-control-02). Absent is blank: a new background run refuses. */
+  readonly ownBackground?: BackgroundSettings;
   readonly gateway: ModelGateway;
   readonly meter: UsageMeter;
   readonly feeAssetId: string;
@@ -4049,6 +4052,7 @@ export function createAgentsRouter(deps: AgentsRouterDeps) {
       assistantModel: deps.ownAssistantModel ?? null,
       approvalTtlSeconds: deps.ownApprovalTtlSeconds ?? null,
       reviewerModel: deps.ownReviewerModel ?? null,
+      background: deps.ownBackground ?? null,
     }),
     /** A business team's agent roles, pool, projects, runs and usage (AG-governance-01). Membership is svc-bank's, read per call. */
     team: teamRouter({ sql, membership: deps.teamMembership, feeAssetId, runtime }),

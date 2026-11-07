@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { assertTestDatabase } from '@intafaced/db';
+import { advanceBackgroundRuns, BackgroundRunStore } from '../own/background.js';
 import { ownRouter } from '../own/routes.js';
 import { fleetCsv, fleetRouter, ownAgentSwitch, productKindOff, readFleet } from './control.js';
 
@@ -66,7 +67,7 @@ function ctxOf(userId: string, scopes: string[]) {
   beforeEach(async () => {
     await sql`
       TRUNCATE agents.agent_switches, agents.agent_kind_switches, agents.agent_owner_assignments, agents.agent_sessions,
-               agents.agent_definitions, agents.own_agents RESTART IDENTITY CASCADE
+               agents.agent_definitions, agents.own_agents, agents.own_agent_background_runs RESTART IDENTITY CASCADE
     `;
     // agent_fleet_audit is append-only (its trigger refuses DELETE); TRUNCATE is the test's own reset.
     await sql`TRUNCATE agents.agent_fleet_audit`;
@@ -196,6 +197,35 @@ function ctxOf(userId: string, scopes: string[]) {
       });
       expect(await founder(FOUNDER_B).restoreKind({ kind: 'customer_built', requestId: 'req-fleet-k3' })).toEqual({ outcome: 'restored' });
       expect(await ownAgentSwitch(sql, OWN)).toBe('active');
+    });
+
+    it('stops a background run at its next step once the agent is quarantined, and refuses a new one as disabled', async () => {
+      const store = new BackgroundRunStore(sql);
+      const run = await store.start(CUSTOMER, OWN, 'req-bg-1', 'TEST: check every market one by one', 10);
+      expect(await store.start(CUSTOMER, OWN, 'req-bg-1', 'TEST: check every market one by one', 10)).toMatchObject({ id: run.id });
+      await advanceBackgroundRuns(sql);
+      await advanceBackgroundRuns(sql);
+      expect((await store.list(CUSTOMER, OWN, 5))[0]).toMatchObject({ state: 'running', stepsDone: 2, cost: '0', label: 'TEST' });
+
+      await founder(FOUNDER_A).quarantine({ ref: `own:${OWN}`, reason: 'TEST quarantine', requestId: 'req-fleet-bg' });
+      await advanceBackgroundRuns(sql);
+      await advanceBackgroundRuns(sql);
+      expect((await store.list(CUSTOMER, OWN, 5))[0]).toMatchObject({
+        state: 'stopped',
+        stepsDone: 2,
+        stopCode: 'agents.agent.quarantined',
+      });
+
+      const own = ownRouter(sql, undefined, undefined, { baseline: {}, background: { steps: 10, stepMs: 1000 } }).createCaller(
+        ctxOf(CUSTOMER, ['agents:read']),
+      );
+      await expect(own.backgroundRun({ id: OWN, requestId: 'req-bg-2', ask: 'x' })).rejects.toMatchObject({
+        message: 'agents.agent.disabled',
+      });
+      const blank = ownRouter(sql).createCaller(ctxOf(CUSTOMER, ['agents:read']));
+      await expect(blank.backgroundRun({ id: OWN, requestId: 'req-bg-3', ask: 'x' })).rejects.toMatchObject({
+        message: 'agents.background_unset',
+      });
     });
 
     it('gives an ownerless agent an owner, and never takes an agent from its owner', async () => {

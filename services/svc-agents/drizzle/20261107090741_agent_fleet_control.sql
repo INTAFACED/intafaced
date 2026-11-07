@@ -88,3 +88,31 @@ DROP TRIGGER IF EXISTS "agent_fleet_audit_no_delete" ON "agents"."agent_fleet_au
 CREATE TRIGGER "agent_fleet_audit_no_delete"
   BEFORE DELETE ON "agents"."agent_fleet_audit"
   FOR EACH ROW EXECUTE FUNCTION "agents"."agent_fleet_audit_append_only"();
+
+-- `own_agent_background_runs`: a person's test run of their own agent that goes on in the background, one step at a
+-- time (AG-control-02, ENGINE KS-4). Before each step the run re-reads the agent's switches; a quarantine or a kind
+-- kill stops it there, as `stopped` with the code that stopped it. Mode test, cost 0, labelled TEST: never billed, no
+-- session, reservation, usage row or ledger call.
+CREATE TABLE IF NOT EXISTS "agents"."own_agent_background_runs" (
+  "id"           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "owner_id"     text NOT NULL,
+  "agent_id"     uuid NOT NULL REFERENCES "agents"."own_agents" ("id"),
+  "request_key"  text NOT NULL,
+  "ask"          text NOT NULL,
+  "steps_total"  integer NOT NULL,
+  "steps_done"   integer NOT NULL DEFAULT 0,
+  "state"        text NOT NULL DEFAULT 'running',
+  "stop_code"    text,
+  "started_at"   timestamptz NOT NULL DEFAULT now(),
+  "updated_at"   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT "own_agent_background_runs_key_uq" UNIQUE ("owner_id", "request_key"),
+  CONSTRAINT "own_agent_background_runs_state_ck" CHECK ("state" IN ('running', 'done', 'stopped')),
+  CONSTRAINT "own_agent_background_runs_steps_ck" CHECK ("steps_total" >= 1 AND "steps_done" BETWEEN 0 AND "steps_total"),
+  CONSTRAINT "own_agent_background_runs_stop_ck" CHECK (("state" = 'stopped') = ("stop_code" IS NOT NULL)),
+  CONSTRAINT "own_agent_background_runs_ask_ck" CHECK (char_length("ask") <= 4000)
+);
+
+CREATE INDEX IF NOT EXISTS "own_agent_background_runs_agent_idx"
+  ON "agents"."own_agent_background_runs" ("owner_id", "agent_id", "started_at" DESC);
+CREATE INDEX IF NOT EXISTS "own_agent_background_runs_running_idx"
+  ON "agents"."own_agent_background_runs" ("state") WHERE "state" = 'running';

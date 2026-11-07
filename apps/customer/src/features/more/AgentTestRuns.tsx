@@ -139,11 +139,27 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
   const keys = usePressKeys('own-test', agent.id);
+  const [background, setBackground] = useState(false);
+  const [started, setStarted] = useState(false);
 
   async function runTest() {
     setBusy(true);
     setRan(null);
     setRefused(null);
+    setStarted(false);
+    if (background) {
+      const res = await api.mutate(
+        'agents',
+        'own.backgroundRun',
+        { id: agent.id, requestId: keys.next(`background:${ask}`), ask },
+        z.object({ id: z.string() }).passthrough(),
+      );
+      setBusy(false);
+      if (res.ok || refusalCode(res)) keys.settled();
+      if (!res.ok) return setRefused(res);
+      setStarted(true);
+      return;
+    }
     const res = await api.mutate('agents', 'own.testRun', { id: agent.id, requestId: keys.next(ask), ask }, ownAgentTestRunSchema);
     setBusy(false);
     if (res.ok || refusalCode(res)) keys.settled();
@@ -156,9 +172,13 @@ function EngineRun({ agent }: { agent: OwnAgent }) {
       <h3>{t('runTitle')}</h3>
       <p className="muted">{t('runIntro')}</p>
       <Field label={t('ask')} value={ask} maxLength={4000} onChange={(event) => setAsk(event.target.value)} />
+      <label>
+        <input type="checkbox" checked={background} onChange={(event) => setBackground(event.target.checked)} /> {t('runInBackground')}
+      </label>
       <Button disabled={busy} onClick={() => void runTest()}>
         {t('runTest')}
       </Button>
+      {started ? <p className="muted">{t('backgroundStarted')}</p> : null}
       {refused ? <Answer failed={refused} /> : null}
       {ran ? (
         <section role="region" aria-label={t('engineRun')}>

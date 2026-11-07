@@ -59,6 +59,7 @@ import { AgentError } from '../errors.js';
 import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
 import { executeProcedure } from '../procedures.js';
 import { AGENT_DISABLED, ownAgentSwitch } from '../fleet/control.js';
+import { BackgroundRunStore, ownBackgroundRunSchema, type BackgroundSettings } from './background.js';
 import { RefusedError, type AgentRuntime } from '../runtime.js';
 import { assertPersonSetsLimits } from '../spend/routes.js';
 import {
@@ -262,6 +263,8 @@ export interface OwnToolDeps {
   readonly approvalTtlSeconds?: number | null;
   /** The owner's model for the automatic reviewer (AG-approvals-02); blank sends every call to the person. */
   readonly reviewerModel?: string | null;
+  /** The owner's values for background test runs (AG-control-02); blank refuses agents.background_unset. */
+  readonly background?: BackgroundSettings | null;
 }
 const NO_TOOL_DEPS: OwnToolDeps = { baseline: {} };
 
@@ -914,6 +917,39 @@ export function ownRouter(
           return { status: await ownAgentSwitch(sqlOf(sql), agent.id) };
         }),
       ),
+
+    /**
+     * A test run that goes on in the background, one step at a time, on the test engine (AG-control-02; J-agents-14 #3):
+     * mode test, cost 0, labelled TEST, never billed. Before each step it re-reads the agent's switches, so a quarantine
+     * stops it at its next step. The same request id again is that run.
+     */
+    backgroundRun: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(z.object({ id: z.string().min(1).max(64), requestId: z.string().min(8).max(200), ask: z.string().max(4000) }))
+      .output(ownBackgroundRunSchema)
+      .mutation(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const steps = tooling.background?.steps ?? null;
+          if (steps === null || (tooling.background?.stepMs ?? null) === null) {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'agents.background_unset' });
+          }
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          await assertOwnAgentOn(sqlOf(sql), agent.id);
+          return new BackgroundRunStore(sqlOf(sql)).start(ctx.principal.userId, agent.id, input.requestId, input.ask, steps);
+        });
+      }),
+
+    /** The agent's background test runs, newest first, each with its state and the code that stopped it. */
+    backgroundRuns: scopedProcedure('agents:read', { module: 'agents', person: true })
+      .input(idInput.extend({ limit: z.number().int().min(1).max(200) }))
+      .output(z.array(ownBackgroundRunSchema))
+      .query(({ ctx, input }) => {
+        assertPersonSetsLimits(ctx.principal);
+        return guard(async () => {
+          const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+          return new BackgroundRunStore(sqlOf(sql)).list(ctx.principal.userId, agent.id, input.limit);
+        });
+      }),
 
     testRun: scopedProcedure('agents:read', { module: 'agents', person: true })
       .input(ownAgentTestRunStartSchema)

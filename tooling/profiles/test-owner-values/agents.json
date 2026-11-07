@@ -51,6 +51,16 @@
       "value": "200",
       "note": "LOCAL TEST rows per operator fleet registry read (J-agents-14). Not an owner decision (blank refuses agents.registry_list_limit_unset)."
     },
+    "AGENTS_BACKGROUND_TEST_STEPS": {
+      "service": "agents",
+      "value": "600",
+      "note": "LOCAL TEST steps of one background test run of an own agent (J-agents-14 #3). Not an owner decision (blank refuses agents.background_unset)."
+    },
+    "AGENTS_BACKGROUND_STEP_MS": {
+      "service": "agents",
+      "value": "1000",
+      "note": "LOCAL TEST length of one background step, so a run is still going when a journey quarantines its agent (J-agents-14 #3). Not an owner decision (blank refuses agents.background_unset)."
+    },
     "AGENTS_POLICY_BASELINE": {
       "service": "agents",
       "value": "{\"own_data\":\"act_on_request\",\"market_data\":\"act_on_request\",\"draft_write\":\"ask_before\",\"live_write\":\"act_on_request\"}",
