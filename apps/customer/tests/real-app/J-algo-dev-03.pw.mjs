@@ -317,6 +317,15 @@ test(`${J} #5 deletes a strategy then restores it from the recycle bin: it moves
   await expect(back).toHaveAttribute('data-folder', FOLDER);
 });
 
+/** The ids of the strategy's stored runs, as its page lists them: #3 ran one, so the list has loaded once a row shows. */
+async function storedRuns(page, strategyId) {
+  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
+  const versions = page.getByTestId('quant-versions');
+  await expect(versions).toHaveAttribute('data-strategy-id', strategyId);
+  await expect(versions.getByTestId('quant-strategy-run').first(), `${J} #3 ran a backtest of this strategy`).toBeVisible();
+  return versions.getByTestId('quant-strategy-run').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-run-id')));
+}
+
 /** The operator's quota door (AL-limits-01), as the founder console calls it, with the stack's TEST founder. */
 async function quotaDoor() {
   const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
@@ -402,13 +411,11 @@ test(`${J} #7 opens the usage view: counts for strategies, runs, storage and col
   await signIn(page, developer());
 
   // What the account holds, read from its own pages: the saved list and the strategy's runs.
-  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
-  await expect(page.getByTestId('quant-versions')).toHaveAttribute('data-strategy-id', strategyId);
-  const ran = await page.getByTestId('quant-versions').getByTestId('quant-strategy-run').count();
-  expect(ran, `${J} #3 ran a backtest, so the strategy has at least one run`).toBeGreaterThan(0);
+  const ran = (await storedRuns(page, strategyId)).length;
   await page.goto('/quant/strategies');
+  // The list has loaded once this journey's strategy is in it; then every saved row is counted.
+  await expect(rowOf(page, strategyId)).toBeVisible();
   const saved = await page.getByTestId('quant-strategy-row').count();
-  expect(saved).toBeGreaterThan(0);
 
   // The usage view names the plan that applies and counts each resource against that plan's stored limit.
   const usage = page.getByTestId('quant-usage');
@@ -465,13 +472,6 @@ async function startBacktest(page, slippage) {
   return room;
 }
 
-/** The ids of the strategy's stored runs, as its page lists them. */
-async function storedRuns(page, strategyId) {
-  await page.goto(`/quant/strategies/${encodeURIComponent(strategyId)}`);
-  const versions = page.getByTestId('quant-versions');
-  await expect(versions).toHaveAttribute('data-strategy-id', strategyId);
-  return versions.getByTestId('quant-strategy-run').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-run-id')));
-}
 
 test(`${J} #9 starts a fourth run when the plan allows three stored runs: a refusal naming stored runs with 3 used of 3 allowed; the stored runs are unchanged`, async ({
   page,
