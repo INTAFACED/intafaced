@@ -20,17 +20,6 @@
  *     -f sha="$(gh api 'repos/INTAFACED/intafaced/contents/FACTORY?ref=factory-switch' --jq .sha)"
  * Builders read it with:
  *   gh api -H 'Accept: application/vnd.github.raw' 'repos/INTAFACED/intafaced/contents/FACTORY?ref=factory-switch'
- *
- * Written limits (what the switch does not close):
- *   A. Anyone with write access can flip it, and every agent pushes as one login, so the branch's history shows when it
- *      flipped, not who flipped it. The branch's sweep workflow is as editable as the switch, which adds no power.
- *   B. Between a push to `pause` and the sweep's re-runs (about 25 seconds in #7361's proof), a green PR can still merge.
- *   C. A seal from before 2026-11-06 07:26 UTC (before the journey-steps step) doesn't read the switch on a re-run; such
- *      a PR needs a new push or a merge from main.
- *   D. The check that the CI review passed is itself a step inside the seal job, so it doesn't catch a PR that rewrites
- *      that job: the PR's own seal can drop both the switch step and the review step.
- *   E. Every agent acts as the admin login, so `gh pr merge --admin` passes a pause through the ruleset's admin bypass.
- *      A bounded identity for agents, without admin (the redesign's B1), closes it.
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';

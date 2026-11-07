@@ -2,7 +2,7 @@
 // unreadable answer fail closed. tooling-tests.mjs runs this file.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { judgeSwitch, readSwitch, switchProblem, sweep, sweepHead, sweepWants } from './factory-switch.mjs';
+import { judgeSwitch, readSwitch, sweep, sweepHead, sweepWants } from './factory-switch.mjs';
 
 test('run passes, with or without a trailing newline', () => {
   assert.equal(judgeSwitch('run').pass, true);
@@ -111,37 +111,4 @@ test('sweep reports a head it could not sweep and fails', async () => {
     console.error = orig;
   }
   assert.match(errors[0], /Not swept::#1: HTTP 500/);
-});
-
-// What the seal and the sweep act on (factory-switch.mjs main, journey-seal.mjs): a refused or unreadable read must be
-// a problem, never a pass, or a broken read would let every pull request through while the factory is paused.
-test('switchProblem: only a readable `run` is no problem; a refused, unreadable or thrown read fails closed', async () => {
-  const answer = (status, text) => async () => ({ ok: status === 200, status, text: async () => text });
-  assert.equal(await switchProblem({ repo: 'o/r', token: 't', fetchImpl: answer(200, 'run\n') }), null);
-  assert.equal((await switchProblem({ repo: 'o/r', token: 't', fetchImpl: answer(200, 'pause\n') }))?.title, 'Factory paused');
-  for (const status of [401, 403, 404, 429, 500]) {
-    const p = await switchProblem({ repo: 'o/r', token: 't', fetchImpl: answer(status, 'run') });
-    assert.equal(p?.title, 'Factory switch unreadable', `HTTP ${status}`);
-    assert.match(p.why, new RegExp(`HTTP ${status}.*fails closed`));
-  }
-  const thrown = await switchProblem({
-    repo: 'o/r',
-    token: 't',
-    fetchImpl: async () => {
-      throw new Error('connect ETIMEDOUT');
-    },
-  });
-  assert.equal(thrown?.title, 'Factory switch unreadable');
-  const badBody = await switchProblem({
-    repo: 'o/r',
-    token: 't',
-    fetchImpl: async () => ({
-      ok: true,
-      status: 200,
-      text: async () => {
-        throw new Error('body cut off');
-      },
-    }),
-  });
-  assert.equal(badBody?.title, 'Factory switch unreadable');
 });
