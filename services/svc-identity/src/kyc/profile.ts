@@ -465,9 +465,34 @@ export class KycProfileDesk {
         throw new KycProfileError('The draft changed while it was being sent', 'kyc.profile_version');
       await tx`UPDATE kyc_profile_drafts SET record_id = ${record.id}, version = version + 1, last_save = NULL, updated_at = now()
         WHERE user_id = ${userId}`;
+      // One person, one account (I-kyc-compliance-14): the case keeps a keyed fingerprint of the identity it names, and a
+      // match on another account's case flags it with that account, for staff only.
+      const fingerprint = identityFingerprint(this.requireKey(), fields!);
+      await tx`UPDATE kyc_cases SET identity_fingerprint = ${fingerprint},
+          duplicate_of_user_id = (SELECT o.user_id FROM kyc_cases o
+            WHERE o.identity_fingerprint = ${fingerprint} AND o.user_id <> ${userId} ORDER BY o.created_at ASC LIMIT 1)
+        WHERE record_id = ${record.id}`;
       return { recordId: record.id, documentCheck: 'not_connected' as const };
     });
   }
+}
+
+/**
+ * A keyed fingerprint of the identity a guided verification names: the legal name (case and spacing folded), date of birth,
+ * document type and number (spacing and dashes folded) and nationality, under a key derived from the KYC document key. It
+ * proves two requests name the same person without storing or revealing who.
+ */
+export function identityFingerprint(key: Buffer, fields: KycProfileFields): Buffer {
+  const fold = (v: string | null) => (v ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
+  const subject = [
+    fold(fields.legalName),
+    fields.dateOfBirth ?? '',
+    fold(fields.documentType),
+    fold(fields.documentNumber).replace(/[\s-]/g, ''),
+    (fields.nationality ?? '').toUpperCase(),
+  ].join('\u0000');
+  const derived = createHmac('sha256', key).update('identity.kyc.identity_fingerprint.v1').digest();
+  return createHmac('sha256', derived).update(subject, 'utf8').digest();
 }
 
 function pick(fields: KycProfileFields, step: KycProfileFieldStep): Record<string, unknown> {

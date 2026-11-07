@@ -72,6 +72,7 @@ interface QueueRow {
   created_at: Date;
   assigned_to: string | null;
   assigned_at: Date | null;
+  duplicate: boolean;
 }
 
 /** `IDENTITY_KYC_RFI_DAYS`: whole days from 1 to 365. Unset or blank is null: a request for information sets no deadline. */
@@ -136,7 +137,8 @@ export class KycReviewDesk {
     if (pageSize === null) throw new KycReviewError('The owner has not set the review queue page size', 'kyc.queue_page_size_unset');
     const after = cursor ? decodeQueueCursor(cursor) : null;
     const rows = await this.sql<QueueRow[]>`
-      SELECT c.id, c.record_id, c.user_id, r.tier, r.jurisdiction, c.created_at, c.assigned_to, c.assigned_at
+      SELECT c.id, c.record_id, c.user_id, r.tier, r.jurisdiction, c.created_at, c.assigned_to, c.assigned_at,
+             (c.duplicate_of_user_id IS NOT NULL) AS duplicate
       FROM kyc_cases c JOIN kyc_records r ON r.id = c.record_id
       WHERE c.state = 'submitted' AND r.status = 'pending'
         ${after ? this.sql`AND (c.created_at, c.id) > (${after.at}, ${after.id})` : this.sql``}
@@ -155,6 +157,7 @@ export class KycReviewDesk {
         submittedAt: r.created_at.toISOString(),
         assignedTo: r.assigned_to,
         assignedAt: r.assigned_at?.toISOString() ?? null,
+        duplicateFlag: r.duplicate,
       })),
       nextCursor: rows.length > pageSize && last ? encodeQueueCursor(last.created_at, last.id) : null,
     };
@@ -203,9 +206,10 @@ export class KycReviewDesk {
         assigned_to: string | null;
         assigned_at: Date | null;
         final: boolean;
+        duplicate_of_user_id: string | null;
       }>
     >`
-      SELECT c.user_id, r.status, c.assigned_to, c.assigned_at, c.final
+      SELECT c.user_id, r.status, c.assigned_to, c.assigned_at, c.final, c.duplicate_of_user_id
       FROM kyc_cases c JOIN kyc_records r ON r.id = c.record_id WHERE c.id = ${caseId}`;
     if (!row) throw new KycReviewError('No such verification case', 'kyc.case_unknown');
     const cases = await listKycCases(this.sql, row.user_id, 200, this.options.reasons);
@@ -219,6 +223,7 @@ export class KycReviewDesk {
       assignedAt: row.assigned_at?.toISOString() ?? null,
       reasonCodes: [...this.options.reasons.values()].map((r) => ({ code: r.code, reason: r.reason })),
       notes: await this.notes(caseId),
+      duplicateOfUserId: row.duplicate_of_user_id,
       final: row.final,
       appeals: await this.appeals(caseId),
     };

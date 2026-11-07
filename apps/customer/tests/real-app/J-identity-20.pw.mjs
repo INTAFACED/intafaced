@@ -451,3 +451,98 @@ test('J-identity-20 #9 a business application shows compliance the same status t
     await compliance.context().close();
   }
 });
+
+/** A small LABELLED TEST PDF, so no real document is ever used. */
+const TEST_ID_PDF = Buffer.from('%PDF-1.4\n% LOCAL TEST identity document, not a real person\n%%EOF\n', 'latin1');
+
+/** A fresh TEST customer sends a guided basic verification naming `person`; returns its case. */
+async function guidedRequest(tag, person) {
+  const who = await unconfirmedAccount(tag);
+  const customer = await api(who);
+  const call = async (procedure, input) => {
+    const res = await customer.post(`/api/identity/trpc/kyc.profile.${procedure}`, input);
+    const data = res.body?.result?.data;
+    expect(data, `kyc.profile.${procedure}: ${JSON.stringify(res.body).slice(0, 300)}`).toBeTruthy();
+    return data;
+  };
+  let draft = await call('start', { tier: 'basic' });
+  draft = await call('saveStep', { step: 'residence', version: draft.version, fields: { residence: 'DE', nationality: 'DE' } });
+  draft = await call('saveStep', {
+    step: 'identity',
+    version: draft.version,
+    fields: { legalName: person.legalName, localName: null, dateOfBirth: person.dateOfBirth },
+  });
+  draft = await call('saveStep', {
+    step: 'document',
+    version: draft.version,
+    fields: { documentType: 'passport', documentNumber: person.documentNumber },
+  });
+  draft = await call('saveStep', {
+    step: 'address',
+    version: draft.version,
+    fields: { addressLine: 'TEST 1 Example Street', city: 'TEST City', postalCode: '10115' },
+  });
+  draft = await call('upload', { version: draft.version, contentType: 'application/pdf', bytesBase64: TEST_ID_PDF.toString('base64') });
+  const sent = await call('submit', { version: draft.version });
+  const history = await customer.get(`/api/identity/trpc/kyc.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`);
+  const open = history.body?.result?.data?.cases?.find((c) => c.recordId === sent.recordId);
+  expect(open?.state).toBe('submitted');
+  return { who, caseId: open.id, recordId: sent.recordId };
+}
+
+test('J-identity-20 #4 a duplicate-document flag shows with the other account, to staff only, and is never auto-approved', async ({
+  browser,
+}) => {
+  test.setTimeout(480_000);
+  // Two TEST customers send guided verifications naming the same TEST person (same name, birth date and passport number).
+  const person = {
+    legalName: `TEST Duplicate Person ${randomBytes(3).toString('hex')}`,
+    dateOfBirth: '1988-03-14',
+    documentNumber: `T${randomBytes(4).toString('hex').toUpperCase()}`,
+  };
+  const first = await guidedRequest('jd1x', person);
+  // The second one types the name with different spacing and case, and the number with a dash: still the same person.
+  const second = await guidedRequest('jd2x', {
+    ...person,
+    legalName: `  ${person.legalName.toUpperCase().replace(/ /g, '  ')} `,
+    documentNumber: `${person.documentNumber.slice(0, 3)}-${person.documentNumber.slice(3)}`,
+  });
+  const firstUser = (await (await api(first.who)).get('/api/identity/trpc/me')).body?.result?.data?.userId;
+  expect(firstUser).toMatch(/^[0-9a-f-]{36}$/);
+
+  const compliance = await (await browser.newContext()).newPage();
+  await staffSignIn(compliance, browser, 'compliance');
+  try {
+    // Compliance opens the second case: the flag shows, naming the other account.
+    await compliance.goto(`${ADMIN}/identity-ops/kyc/${second.caseId}`, { waitUntil: 'load' });
+    const review = compliance.getByTestId('kyc-case-review');
+    const flag = review.getByTestId('kyc-case-duplicate');
+    await expect(flag).toBeVisible({ timeout: 60_000 });
+    const other = await flag.getAttribute('data-other');
+    expect(other).toMatch(/^[0-9a-f-]{36}$/);
+    expect(other).toBe(firstUser);
+    await expect(flag.getByRole('link')).toHaveAttribute('href', `/accounts/${other}`);
+    // The first account's own case carries no flag: it was there first.
+    await compliance.goto(`${ADMIN}/identity-ops/kyc/${first.caseId}`, { waitUntil: 'load' });
+    await expect(compliance.getByTestId('kyc-case-review')).toBeVisible({ timeout: 60_000 });
+    await expect(compliance.getByTestId('kyc-case-duplicate')).toHaveCount(0);
+
+    // Never auto-approved: the flagged request is still pending and its case still open, waiting for a reviewer.
+    await compliance.goto(`${ADMIN}/identity-ops/kyc/${second.caseId}`, { waitUntil: 'load' });
+    await expect(review.getByTestId('kyc-case-record-status')).toHaveText('pending', { timeout: 60_000 });
+    await expect(review.getByTestId('kyc-case-state')).toHaveText('submitted');
+    await expect(flag).toContainText('never approved automatically');
+
+    // Staff only: nothing the second customer reads names the other account or the flag.
+    const theirs = await api(second.who);
+    const own = await theirs.get(`/api/identity/trpc/kyc.history?input=${encodeURIComponent(JSON.stringify({ limit: 5 }))}`);
+    const status = await theirs.get('/api/identity/trpc/kyc.status');
+    for (const body of [own.body, status.body]) {
+      const text = JSON.stringify(body);
+      expect(text).not.toContain(other);
+      expect(text.toLowerCase()).not.toContain('duplicate');
+    }
+  } finally {
+    await compliance.context().close();
+  }
+});

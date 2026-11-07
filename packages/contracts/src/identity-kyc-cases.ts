@@ -69,6 +69,8 @@ export const kycReviewQueueRowSchema = z.object({
   submittedAt: isoSchema,
   assignedTo: z.string().nullable(),
   assignedAt: isoSchema.nullable(),
+  /** Staff only: the case names the same person as another account's verification (I-kyc-compliance-14). */
+  duplicateFlag: z.boolean(),
 });
 export type KycReviewQueueRow = z.infer<typeof kycReviewQueueRowSchema>;
 
@@ -124,6 +126,11 @@ export const kycReviewCaseSchema = z.object({
   /** The owner's reject reasons, in the owner's order. Empty when the list is unset: a reject then refuses. */
   reasonCodes: z.array(z.object({ code: kycReasonCodeSchema, reason: z.string().min(1) })),
   notes: z.array(kycReviewNoteSchema),
+  /**
+   * Staff only (I-kyc-compliance-14): the other account whose verification names the same person, or null. Never in
+   * anything the customer reads.
+   */
+  duplicateOfUserId: z.string().guid().nullable(),
   /** A final rejection takes no more appeals. */
   final: z.boolean(),
   /** The appeals on this case, oldest first. */

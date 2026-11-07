@@ -151,6 +151,11 @@ export function KycReviewQueue({ me }: { me: string }) {
                         <Link href={`/identity-ops/kyc/${encodeURIComponent(c.caseId)}`}>
                           <code>{c.caseId.slice(0, 8)}</code>
                         </Link>
+                        {c.duplicateFlag ? (
+                          <span className="adm-chip" data-tone="warn" data-testid="kyc-queue-duplicate">
+                            Duplicate identity
+                          </span>
+                        ) : null}
                       </td>
                       <td>{c.tier}</td>
                       <td>{c.jurisdiction}</td>

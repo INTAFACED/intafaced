@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import type { KycCapabilitiesOutput } from '@intafaced/contracts/identity-kyc-capabilities';
 import type { KycReviewCase } from '@intafaced/contracts/identity-kyc-cases';
@@ -146,6 +147,20 @@ export function KycCaseReview({ caseId, me }: { caseId: string; me: string }) {
           {c.case.reason ? `${c.case.reason.code}${c.case.reason.text ? `: ${c.case.reason.text}` : ''}` : 'None'}
         </dd>
       </dl>
+
+      {c.duplicateOfUserId ? (
+        <article className="adm-callout" data-tone="warn" role="status" data-testid="kyc-case-duplicate" data-other={c.duplicateOfUserId}>
+          <strong>Duplicate identity flag</strong>
+          <p>
+            This request names the same person as the verification on account{' '}
+            <Link href={`/accounts/${encodeURIComponent(c.duplicateOfUserId)}`}>
+              <code>{c.duplicateOfUserId}</code>
+            </Link>
+            . Only staff see this; the customer is never told which account it is.
+          </p>
+          <p>A flagged request is never approved automatically: a reviewer decides it, and the decision needs a second person.</p>
+        </article>
+      ) : null}
 
       <h3>Reason codes (the owner&apos;s list)</h3>
       {c.reasonCodes.length === 0 ? (
