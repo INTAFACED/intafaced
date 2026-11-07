@@ -49,13 +49,15 @@ async function drag(from, to) {
   await page.mouse.up();
 }
 
-/** The drawings this device keeps for the workbench, as stored (`charts-drawings:<user>:<workbench>:<symbol>`). */
+/** The drawings this device keeps for the workbench's market, as stored (`charts-drawings:<user>:<workbench>:<symbol>`). */
 const storedDrawings = () =>
-  page.evaluate(() =>
-    Object.keys(localStorage)
-      .filter((key) => key.startsWith('charts-drawings:') && key.endsWith(':BTC-USDT'))
-      .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? '{}').drawings ?? []),
-  );
+  page.evaluate(() => {
+    const market = document.querySelector('.cw-page[data-market]')?.getAttribute('data-market');
+    if (!market) throw new Error('the workbench names no market');
+    return Object.keys(localStorage)
+      .filter((key) => key.startsWith('charts-drawings:') && key.endsWith(`:${market}`))
+      .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? '{}').drawings ?? []);
+  });
 
 /** Where the chart draws a selected drawing's handle now, in page pixels (`readDrawnLines`). */
 async function handleAt(row, index) {
@@ -254,9 +256,9 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   }
   const storedBrush = kept.find((x) => x.kind === 'brush');
   expect(
-    storedBrush.points.map((p) => String(p.price)),
+    storedBrush.points.map((p) => cents(Number(p.price))),
     'the stored stroke is the edited one',
-  ).toEqual(strokeAfter);
+  ).toEqual(strokeAfter.map((price) => cents(Number(price))));
   await openWorkbench(page);
   for (const [id, text] of Object.entries(edited)) {
     await expect(pointText(page.locator(`[data-drawing-id="${id}"]`)), `drawing ${id} after a reload`).toHaveText(text);
