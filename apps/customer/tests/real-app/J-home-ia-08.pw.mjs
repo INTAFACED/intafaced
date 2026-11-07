@@ -87,12 +87,13 @@ test(`${J} #2 a room with no indexer or no wallet keeps its layout and names the
   browser,
 }) => {
   const page = await device(browser);
-  // Every indexer room is built now (the pool page since #6880), so the room still waiting is the wallet one: its full
-  // layout, the blocker named, and the way back.
+  // Every indexer room is built now (the pool page since #6880), and so is the new-pool room (J-dex-protocol-12). Opened
+  // with no wallet connected, it keeps its full layout (the form), names the blocker, and offers the way back.
   await page.goto('/dex/pools/new');
   await expectWeb3(page);
+  await expect(page.getByRole('form', { name: 'New pool' })).toBeVisible();
   await expect(page.getByText('Blocked by')).toBeVisible();
-  await expect(page.getByText('Wallet connection is not built in this build, so there is nothing to sign with or read.')).toBeVisible();
+  await expect(page.getByText('No wallet is connected, so there is nothing to sign with.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Back to DEX' })).toBeVisible();
 
   // A malformed pool id is not found, with no lookup and no blocker: the page says so in words.

@@ -6,6 +6,9 @@ import { WalletRoom } from './wallet/WalletRoom';
 import { ClaimPage } from './wallet/ClaimPage';
 import { TokenPage } from './tokens/TokenPage';
 import { TokensRoom } from './tokens/TokensRoom';
+import { NewPool } from './liquidity/NewPool';
+import { AddLiquidity } from './liquidity/AddLiquidity';
+import { PositionPage, PositionsList } from './liquidity/Positions';
 import { AddressPage } from './watch/AddressPage';
 import { WatchlistPage } from './watch/WatchlistPage';
 import { BlockPage, TxPage } from './explorer/pages';
@@ -23,6 +26,14 @@ export function ProtocolRoutes({ path }: { path: string }) {
   if (route.wallet) return <WalletRoom section={route.wallet} />;
   if (route.tokens === 'list') return <TokensRoom />;
   if (route.tokens === 'detail') return <TokenPage address={safeDecode(params.address)} />;
+  if (route.liquidity === 'new') return <NewPool />;
+  if (route.liquidity === 'positions') return <PositionsList />;
+  if (route.liquidity === 'add' || route.liquidity === 'position') {
+    const value = route.param ? safeDecode(params[route.param.name]) : undefined;
+    // A malformed id is answered not found without asking the service.
+    if (value === undefined || !route.param?.shape.test(value)) return <NotFoundRoute path={path} />;
+    return route.liquidity === 'add' ? <AddLiquidity pool={value.toLowerCase()} /> : <PositionPage id={value.toLowerCase()} />;
+  }
   if (route.pool === 'detail') {
     const value = safeDecode(params.poolId);
     // A pool id that is not an address is answered not found without asking the indexer.

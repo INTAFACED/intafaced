@@ -6,7 +6,7 @@ import { BlockerNote, NoteRow, refusalWords, short, useChainRef } from '../explo
 import { useExplorerWords } from './refusal';
 import { bpsPercent, pairName, tokenAmount, tokenSymbol } from './format';
 import { usePools } from './usePools';
-import type { Pool, PoolCursor } from './pools-api';
+import type { Pool, PoolCursor, PoolListRow } from './pools-api';
 import type { PoolsTranslate } from './copy';
 
 /**
@@ -25,7 +25,7 @@ export function PoolsList() {
     `pools:list:${chainId ?? 'none'}${cursor ? `:${cursor.height}:${cursor.index}:${cursor.logIndex}` : ''}`,
   );
   const network = networkLabel(chainId).name;
-  const headers = [t('hdrPool'), t('hdrContracts'), t('hdrFee'), t('hdrReserves'), t('hdrCreated')];
+  const headers = [t('hdrPool'), t('hdrContracts'), t('hdrFee'), t('hdrReserves'), t('hdrVolume'), t('hdrCreated'), t('addLiquidity')];
   const { resource } = pools;
   let body: ReactNode;
   if (chain.status === 'failed')
@@ -65,6 +65,14 @@ export function PoolsList() {
     <Panel title={t('poolsTitle')}>
       <p className="muted">{t('poolsNote', { network })}</p>
       <p className="muted">{t('symbolsNote')}</p>
+      <p className="protocol-actions">
+        <a className="button button--primary" href="/dex/pools/new">
+          {t('newPool')}
+        </a>{' '}
+        <a className="button button--secondary" href="/dex/positions">
+          {t('positions')}
+        </a>
+      </p>
       <DataTable label={t('poolsTitle')} headers={headers}>
         {body}
       </DataTable>
@@ -77,7 +85,7 @@ export function PoolsList() {
   );
 }
 
-function PoolRow({ pool }: { pool: Pool }) {
+function PoolRow({ pool }: { pool: PoolListRow }) {
   const { t } = usePools();
   return (
     <tr>
@@ -92,7 +100,11 @@ function PoolRow({ pool }: { pool: Pool }) {
       </td>
       <td>{t('feePercent', { percent: bpsPercent(pool.feeBps) })}</td>
       <td>{reservesWords(pool, t)}</td>
+      <td>{t('volumeCell', { amount: tokenAmount(pool.volume1, pool.token1, t), symbol: tokenSymbol(pool.token1), swaps: pool.swaps })}</td>
       <td>{pool.createdHeight}</td>
+      <td>
+        <a href={`/dex/pools/${pool.address}/add`}>{t('addLiquidity')}</a>
+      </td>
     </tr>
   );
 }
