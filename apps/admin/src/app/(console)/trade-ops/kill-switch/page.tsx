@@ -20,8 +20,10 @@ import { KillSwitchTabs } from '@/components/trade-ops/kill-switch-tabs';
 /** Kill switch room: stop or resume new trade orders for the whole module, with two founders (the console's own request flow); venue halt and mass cancel are built but blocked. */
 export const dynamic = 'force-dynamic';
 
-export default async function KillSwitchPage() {
+export default async function KillSwitchPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { session, config } = await requireFounderPage();
+  // ?tab=copy-bots opens the room on the Copy and bots tab, so a link (or a reload) keeps the tab.
+  const tab = (await searchParams).tab === 'copy-bots' ? 'copy-bots' : 'trade';
   const [plane, pauses] = await Promise.all([readKillSwitches(), readPauseDesk({ session, config })]);
   const snapshot = killStateOutcome(plane);
   const writesBlocked = isModuleEnabled('killswitches')
@@ -38,6 +40,7 @@ export default async function KillSwitchPage() {
       stateReason={snapshot.kind === 'ok' ? undefined : snapshot.kind === 'unknown' ? snapshot.message : snapshot.code}
     >
       <KillSwitchTabs
+        initialTab={tab}
         copyBots={<CopyBotsPauseDesk initial={pauses} userId={session.userId} />}
         trade={
           <div className="flex flex-col gap-6">

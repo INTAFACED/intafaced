@@ -53,13 +53,9 @@ const pausedNow = (desk, kind, value) => desk.paused.some((p) => p.scope.kind ==
 async function killSwitch(browser, key = 'a') {
   const page = await (await browser.newContext()).newPage();
   await founderSignIn(page, key);
-  await page.goto(`${ADMIN}/trade-ops/kill-switch`);
-  // A click before the page hydrates is lost, so click until the tab is selected.
-  const tab = page.getByRole('tab', { name: 'Copy and bots' });
-  await expect(async () => {
-    await tab.click(UNBUILT);
-    await expect(tab).toHaveAttribute('aria-selected', 'true', { timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
+  // The room opens on the Copy and bots tab from its link, so no click can be lost to hydration or a re-render.
+  await page.goto(`${ADMIN}/trade-ops/kill-switch?tab=copy-bots`);
+  await expect(page.getByRole('tab', { name: 'Copy and bots' })).toHaveAttribute('aria-selected', 'true', UNBUILT);
   return page;
 }
 
