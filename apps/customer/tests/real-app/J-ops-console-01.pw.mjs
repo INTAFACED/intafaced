@@ -6,6 +6,7 @@ import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { ADMIN, assertAdminUp, founderSignIn } from './admin.mjs';
 import { mailedCodes, nextMailedCode } from './stack.mjs';
+import { staffSignIn } from './staff.mjs';
 
 // J-ops-console-01: a founder signs in to the console and sees how every module is doing.
 // Steps covered here: #1 (sign in as a founder) and #5 (the same eight sections on each of the five desks).
@@ -116,25 +117,27 @@ test('J-ops-console-01 #6 Ctrl K and "ledger" lists matching pages and actions, 
   await expect(page).toHaveURL(/\/ledger$/);
 });
 
-// #6's last clause is red until the console has per-operator scope: today it admits founders only, and the palette
-// filters by the deployment's modules, not by the person. The stack must hold an operator without ledger scope for
-// this to run; until the admin-access lane builds that, the test fails here by name rather than being dropped or faked.
-test('J-ops-console-01 #6 scope: pages the person lacks scope for are not listed', async ({ page }) => {
-  await assertAdminUp();
-  const ctx = await makeContext({ log: () => {} });
-  const vault = JSON.parse(readFileSync(path.join(ctx.paths.stateDir, FOUNDER_VAULT_NAME), 'utf8'));
-  const narrow = (vault.operators ?? []).find((o) => Array.isArray(o.scopes) && !o.scopes.includes('ledger'));
-  expect(narrow, 'no operator without ledger scope exists: the console has no per-operator scope yet').toBeTruthy();
-  await page.goto(`${ADMIN}/login`);
-  await page.getByLabel('Email or handle').fill(narrow.handle ?? narrow.email);
-  await page.getByLabel('Password').fill(narrow.password);
-  await page.getByLabel('Authenticator or recovery code').fill(await founderTotp(ctx, 'a', narrow.totpSecret));
-  await page.locator('button[type=submit]').click();
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
+// #6's last clause: pages the person lacks scope for are not listed. The person is the stack's TEST support staff member
+// (identity's labelled TEST roster, staff.mjs), whose role may read accounts, payments, trading and documents and not the
+// ledger. The palette lists them the pages they may open and none of the ledger's pages or actions; a founder searching the
+// same word is shown both (the test above).
+test('J-ops-console-01 #6 scope: pages the person lacks scope for are not listed', async ({ page, browser }) => {
+  await staffSignIn(page, browser, 'support');
+  await page.goto(`${ADMIN}/accounts`);
+  await expect(page.getByRole('button', { name: /^Search/ })).toBeEnabled();
+  // The nav shows the support desk its own pages, and no ledger page.
+  const nav = page.getByRole('navigation', { name: 'Operator console' }).first();
+  await expect(nav.getByRole('link', { name: 'Account controls' })).toBeVisible();
+  await expect(nav.getByRole('link', { name: 'Ledger ops' })).toHaveCount(0);
   await page.keyboard.press('Control+k');
   const palette = page.getByTestId('command-palette');
   await expect(palette).toBeVisible();
-  await page.keyboard.type('ledger');
+  // A page this person has scope for is listed, so an empty list cannot pass for a filtered one.
+  await page.keyboard.type('account controls');
+  await expect(palette.getByRole('option', { name: /Account controls/ })).toBeVisible();
+  await palette.getByRole('combobox').fill('ledger');
   await expect(palette.getByRole('option', { name: /Ledger ops/ })).toHaveCount(0);
   await expect(palette.getByRole('option', { name: /Freeze or unfreeze ledger posting/ })).toHaveCount(0);
+  await expect(palette.getByRole('option', { name: /Halt or clear a pay rail/ })).toHaveCount(0);
+  await expect(palette.getByRole('option', { name: /Ledger restore proof|Prove a ledger restore/ })).toHaveCount(0);
 });

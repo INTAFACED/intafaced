@@ -3608,14 +3608,6 @@
       "why": "service page panel shows its content: who is on call: no on-call source exists (the on-call desk, its rota and who holds the pager, is not built), so the panel cannot show anyone, and with no source t"
     },
     {
-      "step": "J-ops-console-01#6",
-      "file": "apps/customer/tests/real-app/J-ops-console-01.pw.mjs",
-      "state": "regression",
-      "money": false,
-      "issue": 6750,
-      "why": "no operator without ledger scope exists: the console has no per-operator scope yet"
-    },
-    {
       "step": "J-ops-console-02#3",
       "file": "apps/customer/tests/real-app/J-ops-console-02-customer-record.pw.mjs",
       "state": "regression",
