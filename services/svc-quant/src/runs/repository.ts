@@ -1,4 +1,14 @@
-import type { ClaimRow, RunCounts, RunHistoryPage, RunKind, RunListPage, StoredRun, StoredRunResult } from './types.js';
+import type {
+  ClaimRow,
+  PaperSettings,
+  RunCounts,
+  RunHistoryPage,
+  RunKind,
+  RunListPage,
+  StoredPaperRun,
+  StoredRun,
+  StoredRunResult,
+} from './types.js';
 
 export interface BeginRun {
   readonly userId: string | null;
@@ -6,6 +16,8 @@ export interface BeginRun {
   readonly kind: RunKind;
   readonly strategyId: string | null;
   readonly strategyVersion: number | null;
+  /** A paper run's start settings, stored in the same transaction as its row. */
+  readonly paper?: PaperSettings;
 }
 
 export interface FinishRun {
@@ -70,4 +82,12 @@ export interface RunRepository {
    * result stay as they were stored. Another account's run refuses as not found.
    */
   setLabel(input: { readonly userId: string; readonly runId: string; readonly label: string }): Promise<{ readonly label: string }>;
+  /** One account's paper runs, newest first, of one strategy when given. */
+  paperRuns(input: {
+    readonly userId: string;
+    readonly strategyId: string | null;
+    readonly limit: number;
+  }): Promise<readonly StoredPaperRun[]>;
+  /** One of the account's own paper runs; another account's reads as null. */
+  paperRun(input: { readonly userId: string; readonly id: string }): Promise<StoredPaperRun | null>;
 }

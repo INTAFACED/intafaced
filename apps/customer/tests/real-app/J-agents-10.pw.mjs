@@ -7,11 +7,12 @@ import { signIn } from './desk.mjs';
 // where its facts came from. One test per step, titled "J-agents-10 #<n>", run in order on one verified TEST account
 // with an agent of its own that reads outside content. Untrusted content is labelled and blocked, a blocked step bills
 // 0, tool arguments come only from the approved payload, and research answers cite their sources.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - the person cannot create an agent yet (no builder at /agents/new), so there is no Test panel with outside content,
-//   approval payload or output schema (AG-guardrails-03);
-// - #4: opening a Navigator session is refused for a standard account ("agents:execute"), and research answers cite
-//   nothing yet (RC-agents-09).
+// #1 to #3 are built (AG-guardrails-03): the Test panel takes outside content and an output schema; svc-agents labels
+// the content untrusted, blocks an instructing page with agents.content.untrusted at a charge of 0, reads a value
+// action's approval payload from the person's words only and refuses a drafted step that differs
+// (agents.payload.mismatch), and withholds a reply that fails the schema (agents.output.blocked).
+// #4 is not built, so it fails at its first missing part, quickly (UNBUILT): opening a Navigator session is refused for
+// a standard account ("agents:execute"), and research answers cite nothing yet (RC-agents-09).
 const J = 'J-agents-10';
 const agents = agentsRun(J);
 
