@@ -187,9 +187,9 @@ function cmdJudge(dir) {
 }
 
 async function cmdRerunSeal() {
-  const { rerunSeal } = await import('./review-signoff.mjs');
+  const { rerunSeal } = await import('./seal-rerun.mjs');
   const pull = eventPull(JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')), process.env.GITHUB_REPOSITORY);
-  console.log(await rerunSeal(process.env.GITHUB_REPOSITORY, pull.head));
+  console.log(await rerunSeal(process.env.GITHUB_REPOSITORY, pull.head, { number: pull.number }));
 }
 
 async function main() {

@@ -874,10 +874,14 @@ test(`${J} part of #7 compliance decides in the founder console: the proof saved
 
     // B approves exactly that hash in Freezes & approvals; A applies it.
     await b.goto(`${ADMIN}/trade-ops/approvals`);
+    // The pending list loads after the page and lands above the form, moving "Approve request": act once it is in, or a
+    // press before it lands and a release after miss the button (J-cex-spot-17 #4, main run 42455893390, #7536).
+    await expect(b.getByRole('grid', { name: 'Approvals waiting for this operator' })).toBeVisible();
     await b.getByLabel('Approval id', { exact: true }).fill(approvalId);
     await b.getByLabel('Payload hash you reviewed').fill(payloadHash);
     await b.getByRole('button', { name: 'Approve request' }).click();
     const approveDialog = b.getByRole('alertdialog');
+    await expect(approveDialog).toBeVisible();
     await approveDialog.getByRole('button', { name: 'Approve', exact: true }).click();
     await expect(approveDialog.locator('[data-outcome=ok]')).toBeVisible();
 
