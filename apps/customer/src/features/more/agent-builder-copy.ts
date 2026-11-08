@@ -74,7 +74,6 @@ const en = {
   parked_Privacy:
     'Data controls and the retention statement are not built (AG-guardrails-04). This draft has never run, so it holds no data from a run.',
   page_Access: 'Access',
-  parked_Access: 'Policy rules and which portfolios an agent may reach are not built (AG-spend-02), so this agent reaches no portfolio.',
   page_Allowance: 'Allowance',
   parked_Allowance: 'A per-agent allowance is not built (AG-spend-02), so this agent has no allowance of its own.',
   page_Schedules: 'Schedules',
@@ -375,8 +374,6 @@ const es = {
   parked_Privacy:
     'Los controles de datos y la declaración de conservación no están construidos (AG-guardrails-04). Este borrador nunca se ha ejecutado, así que no guarda datos de ninguna ejecución.',
   page_Access: 'Acceso',
-  parked_Access:
-    'Las reglas de política y las carteras a las que puede llegar un agente no están construidas (AG-spend-02), así que este agente no llega a ninguna cartera.',
   page_Allowance: 'Asignación',
   parked_Allowance: 'La asignación por agente no está construida (AG-spend-02), así que este agente no tiene asignación propia.',
   page_Schedules: 'Horarios',
@@ -685,8 +682,6 @@ const fr = {
   parked_Privacy:
     'Les contrôles des données et la déclaration de conservation ne sont pas construits (AG-guardrails-04). Ce brouillon n’a jamais tourné ; il ne détient aucune donnée d’exécution.',
   page_Access: 'Accès',
-  parked_Access:
-    'Les règles de politique et les portefeuilles qu’un agent peut atteindre ne sont pas construits (AG-spend-02) ; cet agent n’atteint aucun portefeuille.',
   page_Allowance: 'Allocation',
   parked_Allowance: 'L’allocation par agent n’est pas construite (AG-spend-02) ; cet agent n’a pas d’allocation propre.',
   page_Schedules: 'Planifications',
