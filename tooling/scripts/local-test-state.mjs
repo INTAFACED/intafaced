@@ -29,9 +29,10 @@ const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'cu
 
 /**
  * The kernel's own birth mark for a process on Linux: field 22 of /proc/<pid>/stat, clock ticks since boot. It never
- * moves while the process lives, unlike ps's lstart, which Linux derives from a boot time rounded to whole seconds and
- * which the runner's clock corrections move: on a loaded CI runner it drifted past the 2-second allowance below and the
- * stack refused its own running service's port (#7488: trade in main run 42400147448; market in main run 42440617559).
+ * moves while the process lives. The 2-second allowance below compares ps's lstart (on Linux derived from a boot time
+ * rounded to whole seconds, and moved by clock corrections) with a time written after spawn (late on a loaded runner);
+ * on CI one or both put a live service outside it and the stack refused its own service's port (#7488: trade in main
+ * run 42400147448; market in main run 42440617559). The mark comes from neither clock, so either cause is closed.
  * Elsewhere (macOS) it is null and the start time is checked as before. Read only; never the process environment.
  */
 export function readKernelStart(pid, { platform = process.platform, read = fs.readFileSync } = {}) {
