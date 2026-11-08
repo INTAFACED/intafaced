@@ -141,7 +141,7 @@ test(`${J} #6 opens programme funding: who funds the programme and any reserve t
   await verify(customer, who);
   expect(fund(who.email, 'USDC', '100').tx).toBeTruthy();
   const issued = await (await customerBank(who))('cards.issue', { cardId: randomUUID(), assetId: 'USDC', perAuthorizationLimit: '50' });
-  const cardId = issued?.result?.data?.id;
+  const cardId = issued?.body?.result?.data?.id;
   expect(cardId, JSON.stringify(issued).slice(0, 300)).toBeTruthy();
   await customer.context().close();
   const before = (await fundingRead()).rows.find((r) => r.assetId === 'USDC') ?? { appHeld: '0', appCaptured: '0', appFigure: '0' };

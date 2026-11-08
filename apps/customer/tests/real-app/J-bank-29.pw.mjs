@@ -190,10 +190,15 @@ test(`${J} #2 with the TEST list back, opens Pay from and orders USDC, then BTC,
   const usdc = rated.data.assets.find((a) => a.assetId === 'USDC');
   expect(usdc).toMatchObject({ rate: '1' });
   expect(Date.parse(usdc.rateAsOf)).toBeGreaterThan(heldAt - 60_000);
+  const reloadedAt = Date.now();
   await page.reload();
   const btcRate = rated.data.assets.find((a) => a.assetId === 'BTC');
+  // The price is held, so the screen shows the same rate; the ticker stamps each answer with its own time, so the screen's
+  // rate time is the time of its own read, which falls inside this reload.
   await expect(page.getByTestId('card-pay-from-BTC-rate')).toHaveText(`${btcRate.rate} USDC`);
-  await expect(page.getByTestId('card-pay-from-BTC-rate-time').locator('time')).toHaveAttribute('datetime', btcRate.rateAsOf);
+  const shownAt = Date.parse(await page.getByTestId('card-pay-from-BTC-rate-time').locator('time').getAttribute('datetime'));
+  expect(shownAt).toBeGreaterThanOrEqual(reloadedAt - 2_000);
+  expect(shownAt).toBeLessThanOrEqual(Date.now() + 2_000);
   await expect(page.getByTestId('card-pay-from-USDC-rate')).toHaveText('1 USDC');
   await expect(page.getByTestId('card-pay-from-USDC-rate-time').locator('time')).toHaveAttribute('datetime', /^\d{4}-\d\d-\d\dT/);
   expect(Date.now() - heldAt, 'the BTC/USDC hold lapsed before the screen showed the rate').toBeLessThan(HOLD_MAX_MS);
