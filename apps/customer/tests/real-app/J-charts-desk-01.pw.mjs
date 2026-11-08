@@ -297,10 +297,20 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
     await pick(label, id);
     await expect
       .poll(async () => {
+        // The drawn series is exactly the bars the chart holds right now: the same count, first and last bar time.
+        const held = await drawn(page);
         const got = await libraryPoints(page);
-        return [got.type, got.own, drawsAs(id, got.points, bars)];
+        return [
+          held.type,
+          held.bars === held.held,
+          held.first === held.heldFirst,
+          held.last === held.heldLast,
+          got.type,
+          got.own,
+          drawsAs(id, got.points, bars),
+        ];
       })
-      .toEqual([kind, true, 'ok']);
+      .toEqual([kind, true, true, true, kind, true, 'ok']);
   }
 
   // The choice is kept on this device: after a reload Heikin Ashi is pressed and drawn, averaged, over the same bars.
@@ -310,10 +320,19 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
   await expect(styles.getByRole('button', { name: 'Heikin Ashi', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect
     .poll(async () => {
+      const held = await drawn(page);
       const got = await libraryPoints(page);
-      return [got.type, got.own, drawsAs('heikin-ashi', got.points, bars)];
+      return [
+        held.type,
+        held.bars === held.held,
+        held.first === held.heldFirst,
+        held.last === held.heldLast,
+        got.type,
+        got.own,
+        drawsAs('heikin-ashi', got.points, bars),
+      ];
     })
-    .toEqual(['Candlestick', true, 'ok']);
+    .toEqual(['Candlestick', true, true, true, 'Candlestick', true, 'ok']);
 });
 
 test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({ page }) => {
