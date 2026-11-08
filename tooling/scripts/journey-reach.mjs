@@ -24,6 +24,8 @@
  *   - nomap: the first time this worker sees one, a built script that ran and has no position map (the boot script, the
  *     bundler's runtime, vendor code). Its sources are in no table, so the map reads them as unmapped: full;
  *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached by the next file's first test);
+ *     afterAllDue: true on the other records of a file that declares afterAll hooks, so the map can tell when that
+ *     record never came (a worker's last file has no next test): it reads such a file as incomplete;
  *   - incomplete: reason codes (INCOMPLETE) for what this record can't see whole. The map treats an incomplete journey
  *     as reaching every source.
  *
@@ -49,6 +51,7 @@ export const INCOMPLETE = {
   notBuilt: 'a customer script ran that the build on disk does not hold',
   otherBuild: 'a customer script ran whose length differs from the build on disk (another build served)',
   badMap: "a customer script's position map could not be read",
+  otherDist: 'the stack serves the customer app from another folder (a customer-dist override), not the build on disk here',
 };
 
 const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'WS']);
@@ -201,8 +204,8 @@ export function loadScript({ distDir, scriptPath }) {
   }
 }
 
-/** The source and line (1-based) a generated offset maps to, or null. */
-export function originalAt(script, offset) {
+/** The generated line (0-based) an offset is on. */
+const lineOf = (script, offset) => {
   let lo = 0;
   let hi = script.starts.length - 1;
   while (lo < hi) {
@@ -210,21 +213,68 @@ export function originalAt(script, offset) {
     if (script.starts[mid] <= offset) lo = mid;
     else hi = mid - 1;
   }
-  const col = offset - script.starts[lo];
-  let best = null;
-  for (const s of script.lines[lo] ?? []) {
-    if (s[0] <= col) best = s;
-    else break;
+  return lo;
+};
+
+/** The index of the last segment at or before `col` on a generated line, or -1. */
+const segAt = (segs, col) => {
+  let lo = -1;
+  let hi = segs.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (segs[mid][0] <= col) lo = mid;
+    else hi = mid - 1;
   }
-  if (!best) return null;
-  const source = script.sources[best[1]];
-  return source ? { source, line: best[2] + 1 } : null;
+  return lo;
+};
+
+/** The source and line (1-based) a generated offset maps to, or null. */
+export function originalAt(script, offset) {
+  const line = lineOf(script, offset);
+  const segs = script.lines[line] ?? [];
+  const i = segAt(segs, offset - script.starts[line]);
+  if (i < 0) return null;
+  const source = script.sources[segs[i][1]];
+  return source ? { source, line: segs[i][2] + 1 } : null;
+}
+
+/**
+ * Every repository source line a generated span [start, end) maps to, as { [source]: [firstLine, lastLine] } (1-based):
+ * the segment covering `start` and every segment that begins inside the span. A function the bundler joined from
+ * several modules (scope hoisting) counts in each, and a function that starts before its line's first segment still
+ * counts by the segments inside it; a span no segment maps (bundler code) counts in none.
+ */
+export function spanSources(script, start, end) {
+  const out = {};
+  const note = (seg) => {
+    const source = script.sources[seg[1]];
+    if (!source) return;
+    const l = seg[2] + 1;
+    const r = out[source];
+    if (!r) out[source] = [l, l];
+    else {
+      if (l < r[0]) r[0] = l;
+      if (l > r[1]) r[1] = l;
+    }
+  };
+  const last = Math.max(start, end - 1);
+  const first = lineOf(script, start);
+  const final = lineOf(script, last);
+  for (let g = first; g <= final; g++) {
+    const segs = script.lines[g] ?? [];
+    const to = g === final ? last - script.starts[g] : Infinity;
+    let i = g === first ? Math.max(0, segAt(segs, start - script.starts[g])) : 0;
+    for (; i < segs.length && segs[i][0] <= to; i++) note(segs[i]);
+  }
+  return out;
 }
 
 /**
  * The functions that ran in one script's coverage (CDP Profiler.takePreciseCoverage `functions`, with call counts), as
- * line ranges per source: { sources: { [source]: [[startLine, endLine]] }, loaded }. The script's own top level (the
- * unnamed function at offset 0) means the chunk loaded; it is `loaded`, not a range.
+ * line ranges per source: { sources: { [source]: [[startLine, endLine]] }, loaded }. A function counts whole, in every
+ * source its span maps to (spanSources), so a function that ran is never cut short; functions nested in it that did not
+ * run count with it (more reach, never less). The script's own top level (the unnamed function at offset 0) means the
+ * chunk loaded; it is `loaded`, not a range.
  */
 export function executedRanges(script, functions) {
   const out = {};
@@ -236,11 +286,7 @@ export function executedRanges(script, functions) {
       loaded = true;
       continue;
     }
-    const a = originalAt(script, r.startOffset);
-    if (!a) continue;
-    const b = originalAt(script, Math.max(r.startOffset, r.endOffset - 1));
-    const end = b && b.source === a.source && b.line >= a.line ? b.line : a.line;
-    (out[a.source] ??= []).push([a.line, end]);
+    for (const [source, range] of Object.entries(spanSources(script, r.startOffset, r.endOffset))) (out[source] ??= []).push(range);
   }
   return { sources: out, loaded };
 }
@@ -303,17 +349,22 @@ export function makeLogReader(logsDir) {
         if (size === from) continue;
         const buf = Buffer.alloc(Math.min(size - from, 64 * 2 ** 20));
         let fd;
+        let got = 0;
         try {
           fd = openSync(file, 'r');
-          readSync(fd, buf, 0, buf.length, from);
+          got = readSync(fd, buf, 0, buf.length, from);
         } catch {
           continue;
         } finally {
           if (fd !== undefined) closeSync(fd);
         }
-        at.set(f, from + buf.length);
-        const lines = ((rest.get(f) ?? '') + buf.toString('utf8')).split('\n');
-        rest.set(f, lines.pop() ?? '');
+        if (!got) continue;
+        at.set(f, from + got);
+        // Bytes, split at newlines before decoding, so a character split across two reads is decoded whole.
+        const data = Buffer.concat([rest.get(f) ?? Buffer.alloc(0), buf.subarray(0, got)]);
+        const end = data.lastIndexOf(10);
+        rest.set(f, data.subarray(end + 1));
+        const lines = end < 0 ? [] : data.subarray(0, end).toString('utf8').split('\n');
         const service = f.slice(0, -4);
         for (const line of lines) {
           if (!line.trim()) continue;
@@ -343,7 +394,8 @@ export function makeLogReader(logsDir) {
 
 /**
  * One worker's recorder. `root`: the repository (its route table is read from there); `customerPort` and `distDir`: the
- * loopback port the customer app is served on and the build on disk it serves. `take(file)` returns what this worker has
+ * loopback port the customer app is served on and the build on disk it serves (null when the stack serves another folder:
+ * every script that ran is then `otherDist`). `take(file)` returns what this worker has
  * not attached for that journey file yet, as one record.
  */
 export function makeRecorder({ root, customerPort = '3210', distDir, routes = routeTable(root) }) {
@@ -353,6 +405,7 @@ export function makeRecorder({ root, customerPort = '3210', distDir, routes = ro
   const timeline = [];
   const sent = new Map();
   const pending = new Map();
+  const withAfterAll = new Set();
   const slot = (file) => {
     if (!pending.has(file))
       pending.set(file, {
@@ -386,17 +439,20 @@ export function makeRecorder({ root, customerPort = '3210', distDir, routes = ro
     },
     /** From `time` on, `file` is the journey file running (log lines are placed by their own time). */
     enter(file, time = Date.now()) {
-      if (timeline.at(-1)?.[1] !== file) timeline.push([time, file]);
+      const t = Math.max(time, timeline.at(-1)?.[0] ?? -Infinity);
+      if (timeline.at(-1)?.[1] !== file) timeline.push([t, file]);
     },
     /** Log lines (makeLogReader().read()), each to the file that ran at its time; a line with no time to `now`. */
     served(lines, now) {
       const fileAt = (t) => {
-        let f = null;
-        for (const [at, file] of timeline) {
-          if (at <= t) f = file;
-          else break;
+        let lo = -1;
+        let hi = timeline.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (timeline[mid][0] <= t) lo = mid;
+          else hi = mid - 1;
         }
-        return f ?? timeline[0]?.[1] ?? null;
+        return timeline[Math.max(lo, 0)]?.[1] ?? null;
       };
       for (const l of lines ?? []) {
         if (!SERVICE.test(String(l?.service))) continue;
@@ -421,6 +477,10 @@ export function makeRecorder({ root, customerPort = '3210', distDir, routes = ro
         if (u.port !== String(customerPort) || !LOOPBACK.has(u.hostname) || !u.pathname.endsWith('.js')) continue;
         if (!(e.functions ?? []).some((f) => f.ranges?.[0]?.count > 0)) continue;
         const p = slot(file);
+        if (!distDir) {
+          p.incomplete.add('otherDist');
+          continue;
+        }
         if (!BUILT_SCRIPT.test(u.pathname)) {
           p.incomplete.add('notBuilt');
           continue;
@@ -460,6 +520,11 @@ export function makeRecorder({ root, customerPort = '3210', distDir, routes = ro
     afterAll(file) {
       slot(file).after = true;
     },
+    /** The file declares afterAll hooks: each of its records says so (`afterAllDue`), and the map reads a file whose
+     *  `afterAll: true` record never came (the worker's last file: no later test attaches it) as incomplete. */
+    declaresAfterAll(file) {
+      withAfterAll.add(file);
+    },
     /** The journey files with something not attached yet. */
     files: () => [...pending.keys()],
     take(file) {
@@ -489,6 +554,7 @@ export function makeRecorder({ root, customerPort = '3210', distDir, routes = ro
         nomap: [...p.nomap].sort(),
         incomplete: [...p.incomplete].sort(),
         ...(p.after ? { afterAll: true } : {}),
+        ...(withAfterAll.has(file) && !p.after ? { afterAllDue: true } : {}),
       };
       const empty =
         !record.http.length &&

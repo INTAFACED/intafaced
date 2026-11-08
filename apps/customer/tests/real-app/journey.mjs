@@ -1,6 +1,8 @@
 import { test as base, expect as baseExpect, chromium as playwrightChromium } from '@playwright/test';
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
@@ -61,7 +63,10 @@ export const expect = new Proxy(baseExpect, {
 // What each journey file reached (tooling/scripts/journey-reach.mjs): the stack's ports and paths its Node code and its
 // pages called, and the customer app's functions its pages ran, attached to the report per test as `journey-reach`. The
 // file running now owns what is recorded; a file's own beforeAll and afterAll hooks enter it first (below).
-const reach = makeRecorder({ root: ROOT, distDir: path.join(ROOT, 'apps', 'customer', 'dist') });
+// The build on disk here, unless the stack serves the customer app from another folder (local-test-stack.mjs's
+// customer-dist override): then no script can be placed, and each record says so (otherDist).
+const servesOtherDist = !!process.env.LOCAL_STACK_CUSTOMER_DIST || existsSync(path.join(localStackState(), 'customer-dist.json'));
+const reach = makeRecorder({ root: ROOT, distDir: servesOtherDist ? null : path.join(ROOT, 'apps', 'customer', 'dist') });
 let reachFile = 'outside-any-file';
 // What the stack's services logged they served, read from their own logs at each read below (journey-reach.mjs).
 const stackLogs = makeLogReader(path.join(localStackState(), 'logs'));
@@ -101,8 +106,12 @@ globalThis.fetch = (input, init) => {
 const covered = new Map(); // page -> { cdp, file }
 async function startCoverage(page, { opened = false } = {}) {
   if (covered.has(page)) return;
-  const entry = { cdp: null, file: reachFile, gone: false };
+  const entry = { cdp: null, gone: false };
   covered.set(page, entry);
+  page.on('close', () => {
+    if (!entry.gone) reach.incomplete(reachFile, 'closed');
+    covered.delete(page);
+  });
   try {
     entry.cdp = await page.context().newCDPSession(page);
     await entry.cdp.send('Profiler.enable');
@@ -115,10 +124,6 @@ async function startCoverage(page, { opened = false } = {}) {
     reach.incomplete(reachFile, 'noStart');
   }
   page.on('websocket', (ws) => noted(() => reach.request(reachFile, ws.url(), 'WS')));
-  page.on('close', () => {
-    if (!entry.gone) reach.incomplete(reachFile, 'closed');
-    covered.delete(page);
-  });
 }
 async function readCoverage(page, { last = false } = {}) {
   const entry = covered.get(page);
@@ -133,11 +138,39 @@ async function readCoverage(page, { last = false } = {}) {
 }
 const readAll = (pages, opts) => Promise.all(pages.map((p) => readCoverage(p, opts)));
 
+/**
+ * Playwright's API requests (page.request and context.request, the `request` fixture, playwright.request.newContext)
+ * fire no context `request` event and skip Node's fetch: get, post and the rest all go through the instance's `fetch`,
+ * which records the URL it was given (when whole) and the URL the response came from.
+ */
+const watchedApi = new WeakSet();
+function watchApi(api) {
+  if (!api || typeof api.fetch !== 'function' || watchedApi.has(api)) return api;
+  watchedApi.add(api);
+  const fetchApi = api.fetch.bind(api);
+  api.fetch = async (urlOrRequest, options = {}) => {
+    const given = typeof urlOrRequest === 'string' ? urlOrRequest : urlOrRequest?.url?.();
+    const m = options?.method ?? (typeof urlOrRequest === 'string' ? undefined : urlOrRequest?.method?.()) ?? 'GET';
+    noted(() => reach.request(reachFile, given, m));
+    const response = await fetchApi(urlOrRequest, options);
+    noted(() => reach.request(reachFile, response.url(), m));
+    return response;
+  };
+  return api;
+}
+function watchApiMaker(apiRequest) {
+  if (!apiRequest || watchedApi.has(apiRequest)) return;
+  watchedApi.add(apiRequest);
+  const newContext = apiRequest.newContext.bind(apiRequest);
+  apiRequest.newContext = async (...args) => watchApi(await newContext(...args));
+}
+
 const creating = new WeakMap(); // context -> pages being made by our own newPage, not opened by the app
 const watched = new WeakSet();
 function watchContext(context) {
   if (watched.has(context)) return context;
   watched.add(context);
+  noted(() => watchApi(context.request));
   context.on('request', (req) => {
     recordSignIn(req.url(), req.postData() ?? undefined);
     noted(() => reach.request(reachFile, req.url(), req.method()));
@@ -219,6 +252,14 @@ const extended = base.extend({
   browser: [
     async ({ browser }, use) => {
       await use(watchBrowser(browser));
+    },
+    { scope: 'worker' },
+  ],
+  // The worker's API request maker (the `request` fixture and playwright.request.newContext) reports its requests too.
+  playwright: [
+    async ({ playwright }, use) => {
+      noted(() => watchApiMaker(playwright.request));
+      await use(playwright);
     },
     { scope: 'worker' },
   ],
@@ -305,8 +346,19 @@ extended.beforeAll = (...args) => {
 
 /** A file's afterAll hooks run after its last test: what they reach is its own, read once they end and attached by the
  *  next test that runs (journeyReach). */
+/** The journey file (`*.pw.mjs`) whose loading registers a hook, from the call stack, or null. */
+const registeringFile = () => {
+  for (const line of String(new Error().stack).split('\n')) {
+    const m = line.match(/(file:\/\/[^\s()]+?\.pw\.mjs|\/[^\s()]+?\.pw\.mjs)/);
+    if (m) return m[1].startsWith('file:') ? fileURLToPath(m[1]) : m[1];
+  }
+  return null;
+};
 const afterAll = extended.afterAll;
 extended.afterAll = (...args) => {
+  // Its records say a file's afterAll record is due, so the map can tell when it never came (journey-reach.mjs).
+  const from = registeringFile();
+  if (from) noted(() => reach.declaresAfterAll(from));
   const hook = args.pop();
   const after = async (fixtures, testInfo) => {
     enterReach(testInfo.file);

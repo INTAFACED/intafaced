@@ -1013,9 +1013,13 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
   // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
+  // So is one built before its scripts had position maps (the journeys' reach recorder, journey-reach.mjs).
   const customerOk = override
     ? !act.error
-    : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
+    : fs.existsSync(path.join(P.customerDist, 'index.html')) &&
+      stamp.customerBuilt !== false &&
+      stamp.customerTeamUrl === TEAM_TLS_ORIGIN &&
+      stamp.customerPositions === true;
   const edits = worktreeEdits(SOURCE_PATHS);
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
   const backend = backendDecision({ rebuild, stamp, repo: REPO, head, edits, customerOk, missing });
@@ -1188,6 +1192,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
         backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
         customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
+        customerPositions: override ? stamp.customerPositions : true,
       },
       null,
       2,

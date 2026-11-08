@@ -17,6 +17,7 @@ import {
   mergeRanges,
   originalAt,
   reduceMaps,
+  spanSources,
   requestKey,
   routeOf,
   routeTable,
@@ -284,4 +285,63 @@ test('planted: a token, an email and an id in a log line or a request leave no t
   assert.doesNotMatch(record, /PLANTED|example\.test|Bearer|token|sessions|users/i);
   assert.deepEqual(JSON.parse(record).served, ['identity OTHER', 'identity POST /api/identity']);
   assert.deepEqual(JSON.parse(record).http, ['14523 WS', '3210 GET /api/identity']);
+});
+
+test('spanSources (#7512 review): a function counts in every source its span maps to, and is never cut short', () => {
+  // Line 0: bundler code with no segment at cols 0-4, then a.ts from col 5, then b.ts from col 20 (scope hoisting).
+  const script = {
+    text: 'x'.repeat(40),
+    starts: [0, 30],
+    lines: [
+      [
+        [5, 0, 9],
+        [12, 0, 14],
+        [20, 1, 2],
+      ],
+      [[0, 1, 7]],
+    ],
+    sources: ['apps/customer/src/a.ts', 'packages/ui/src/b.ts', null],
+  };
+  assert.deepEqual(
+    spanSources(script, 0, 25),
+    { 'apps/customer/src/a.ts': [10, 15], 'packages/ui/src/b.ts': [3, 3] },
+    'a start before the first segment',
+  );
+  assert.deepEqual(spanSources(script, 13, 35), { 'apps/customer/src/a.ts': [15, 15], 'packages/ui/src/b.ts': [3, 8] }, 'across two lines');
+  assert.deepEqual(spanSources(script, 0, 4), {}, 'a span no segment maps is bundler code');
+  assert.deepEqual(executedRanges(script, [fn('f', 0, 25, 1)]).sources, {
+    'apps/customer/src/a.ts': [[10, 15]],
+    'packages/ui/src/b.ts': [[3, 3]],
+  });
+});
+
+test('the recorder (#7512 review): another folder served is otherDist; a file with afterAll hooks marks them due', () => {
+  const rec = makeRecorder({ root: ROOT, distDir: null, routes: ROUTES });
+  rec.coverage('A', cov([TOP, fn('a', 0, 22, 1)]));
+  assert.deepEqual(rec.take('A').incomplete, ['otherDist']);
+  const rec2 = makeRecorder({ root: ROOT, distDir: DIST, routes: ROUTES });
+  rec2.declaresAfterAll('B');
+  rec2.request('B', 'http://127.0.0.1:14509/x', 'GET');
+  assert.equal(rec2.take('B').afterAllDue, true, 'due until its afterAll record comes');
+  rec2.request('B', 'http://127.0.0.1:14510/x', 'GET');
+  rec2.afterAll('B');
+  const last = rec2.take('B');
+  assert.equal(last.afterAll, true);
+  assert.equal(last.afterAllDue, undefined);
+  rec2.request('C', 'http://127.0.0.1:14509/x', 'GET');
+  assert.equal(rec2.take('C').afterAllDue, undefined, 'a file with no afterAll hooks owes none');
+});
+
+test("the stack's logs (#7512 review): a character split across two reads is decoded whole", () => {
+  const logs = mkdtempSync(path.join(tmpdir(), 'journey-reach-logs-'));
+  writeFileSync(path.join(logs, 'bank.log'), '');
+  const reader = makeLogReader(logs);
+  const whole = Buffer.from(JSON.stringify({ time: 1, req: { method: 'GET', url: '/api/bank/ü' }, msg: 'incoming request' }) + '\n');
+  const cut = whole.indexOf(Buffer.from('ü')) + 1;
+  appendFileSync(path.join(logs, 'bank.log'), whole.subarray(0, cut));
+  assert.deepEqual(reader.read(), []);
+  appendFileSync(path.join(logs, 'bank.log'), whole.subarray(cut));
+  const [l] = reader.read();
+  assert.equal(l.path, '/api/bank/ü');
+  assert.equal(l.served, true);
 });
