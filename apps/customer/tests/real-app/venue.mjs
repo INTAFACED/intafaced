@@ -11,7 +11,7 @@ import { installTestWallet } from './test-wallet.mjs';
 // Every figure the TEST venue reports is TEST.
 
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
-export const TEST_VENUE = 'http://127.0.0.1:14533';
+export const TEST_VENUE = 'http://127.0.0.1:14560';
 /** The setting that points svc-trade's door at it (tooling/scripts/local-stack-services/trade.mjs). */
 const SWITCH = 'LOCAL_STACK_USER_VENUE';
 
