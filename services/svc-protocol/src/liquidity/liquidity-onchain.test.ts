@@ -118,7 +118,9 @@ describe('liquidity procedures on chain (J-dex-protocol-12)', () => {
     liquidityRouter = await deploy('LiquidityRouter', [factory]);
     tokenA = await deploy('MockERC20');
     tokenB = await deploy('MockERC20');
-    [person, other, trader] = [0, 1, 2].map(() => privateKeyToAccount(generatePrivateKey()));
+    person = privateKeyToAccount(generatePrivateKey());
+    other = privateKeyToAccount(generatePrivateKey());
+    trader = privateKeyToAccount(generatePrivateKey());
     for (const who of [person, other, trader]) {
       await devChainMod.fundDevAccount(clients.publicClient, who.address, 10n * E);
       for (const token of [tokenA, tokenB]) {
