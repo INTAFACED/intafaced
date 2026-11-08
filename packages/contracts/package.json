@@ -330,6 +330,10 @@
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
     },
+    "./api-rate-limits": {
+      "types": "./dist/api-rate-limits.d.ts",
+      "default": "./dist/api-rate-limits.js"
+    },
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"

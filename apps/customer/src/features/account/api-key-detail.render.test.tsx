@@ -26,6 +26,11 @@ const api = {
     world.asked.push({ kind: 'mutate', procedure, input });
     return Promise.resolve(world.mutate.shift());
   },
+  // The usage panel's read of the edge (J-developer-06 #3): no calls counted yet for this key.
+  plain: (_module: string, path: string) => {
+    const keyId = /keys\/([^/]+)\/usage/.exec(path)?.[1] ?? '';
+    return Promise.resolve({ ok: true, data: { state: 'none', asOf: '2026-11-07T08:00:00.000Z', keyId } });
+  },
 };
 vi.mock('../session/session', () => ({ useSession: () => ({ userId: USER, api }) }));
 vi.mock('../session/webauthn', () => ({

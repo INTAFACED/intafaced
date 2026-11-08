@@ -182,6 +182,12 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.residency.decide', { id: request.id, decision: request.decision });
     case 'bank.card.status':
       return shaBank('bank.ops.setCardStatus', { cardId: request.cardId, status: request.status });
+    case 'bank.card.funding':
+      return shaBank('bank.ops.requestCardProgrammeFunding', {
+        kind: request.fundingKind,
+        amount: request.amount,
+        threshold: request.threshold,
+      });
     case 'market.listing.takedown':
       return sha('market.takedown', { listingId: request.listingId, reason: request.reason });
     case 'identity.auth_key.rotate':
@@ -344,6 +350,15 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         policyVersion: 'v1',
       };
     // svc-bank consumes against its own verb as the target id (a founder-level action: identity wants both founders live).
+    case 'bank.card.funding':
+      return {
+        actionType: 'bank.ops.requestCardProgrammeFunding',
+        targetService: 'svc-bank',
+        targetId: 'bank.ops.requestCardProgrammeFunding',
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
     case 'bank.card.status':
       return {
         actionType: 'bank.ops.setCardStatus',

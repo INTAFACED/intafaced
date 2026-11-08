@@ -406,3 +406,176 @@ export function CardCashback() {
     </section>
   );
 }
+
+const PAY_FROM_STATE = {
+  offered: 'payFromOffered',
+  not_offered: 'payFromNotOffered',
+  not_known: 'payFromNotKnown',
+  not_listed: 'payFromNotListed',
+} as const;
+const PAY_FROM_MODE = { partner_holds: 'payFromModePartner', wallet_pull: 'payFromModeWallet' } as const;
+
+const timeOf = (iso: string) =>
+  new Intl.DateTimeFormat('en', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZone: 'UTC',
+    timeZoneName: 'short',
+  }).format(new Date(iso));
+
+type PayFrom = z.infer<(typeof bankWrites)['cards.setPayFromOrder']>;
+
+/**
+ * Pay from (J-bank-29 #1 and #2): which assets the card partner can spend from, and how it spends (it holds the crypto,
+ * or the card pulls from the person's own wallet). For each asset the partner can spend from: the partner's balance, the
+ * rate in the card's settlement asset and the rate's time. Then the person's pay-from order, saved by the bank, and the
+ * accounts a card never pays from. Each figure is the bank's answer; an unknown reads "not known" and an asset the partner
+ * cannot spend from reads "not offered by the partner".
+ */
+export function CardPayFrom() {
+  const { t } = cardOrderCopy.useCopy();
+  const read = useBankRead('cards.payFrom', undefined);
+  if (read.resource.status === 'loading') return null;
+  if (read.resource.status === 'failed') {
+    return (
+      <section className="form-stack" data-testid="card-pay-from">
+        <h3 className="bd-subhead">{t('payFromTitle')}</h3>
+        <Refusal failure={read.resource.failure} />
+      </section>
+    );
+  }
+  return <PayFromPanel view={read.resource.data} reload={read.reload} />;
+}
+
+function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }) {
+  const { t } = cardOrderCopy.useCopy();
+  const { api } = useSession();
+  const offered = p.assets.filter((a) => a.state === 'offered').map((a) => a.assetId);
+  // The saved order first (what is still offered), then every other offered asset, so none can be left out of reach.
+  const [draft, setDraft] = useState<string[]>(() => {
+    const saved = (p.order ?? []).filter((a) => offered.includes(a));
+    return [...saved, ...offered.filter((a) => !saved.includes(a))];
+  });
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<Failed | null>(null);
+  const move = (index: number, by: -1 | 1) => {
+    const next = [...draft];
+    const [item] = next.splice(index, 1);
+    next.splice(index + by, 0, item!);
+    setDraft(next);
+  };
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setFailure(null);
+    const result = await api.mutate('bank', 'cards.setPayFromOrder', { assetIds: draft }, bankWrites['cards.setPayFromOrder']);
+    setBusy(false);
+    if (!result.ok) return setFailure(result);
+    reload();
+  }
+  const known = (value: string | null, render: (v: string) => string) => (value === null ? t('payFromNotKnown') : render(value));
+  return (
+    <section className="form-stack" data-testid="card-pay-from" data-mode={p.custodyMode ?? 'not_known'}>
+      <h3 className="bd-subhead">{t('payFromTitle')}</h3>
+      {p.test && <p className="money-caption">{t('payFromTest')}</p>}
+      <p data-testid="card-pay-from-mode">
+        {t('payFromHow')}: {t(p.custodyMode ? PAY_FROM_MODE[p.custodyMode] : 'payFromModeUnknown')}
+      </p>
+      <table aria-label={t('payFromAssets')}>
+        <thead>
+          <tr>
+            <th scope="col">{t('payFromAssetHead')}</th>
+            <th scope="col">{t('payFromStateHead')}</th>
+            <th scope="col">{t('payFromBalanceHead')}</th>
+            <th scope="col">{p.settlementAssetId ? t('payFromRateHead', { asset: p.settlementAssetId }) : t('payFromRateHeadNone')}</th>
+            <th scope="col">{t('payFromRateTimeHead')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {p.assets.map((row) => {
+            const offeredRow = row.state === 'offered';
+            return (
+              <tr key={row.assetId} data-testid={`card-pay-from-${row.assetId}`} data-state={row.state}>
+                <td>{row.assetId}</td>
+                <td>{t(PAY_FROM_STATE[row.state])}</td>
+                <td data-testid={`card-pay-from-${row.assetId}-balance`}>
+                  {offeredRow ? known(row.partnerBalance, (v) => `${v} ${row.assetId}`) : null}
+                </td>
+                <td data-testid={`card-pay-from-${row.assetId}-rate`}>
+                  {offeredRow ? known(row.rate, (v) => `${v} ${p.settlementAssetId ?? ''}`.trim()) : null}
+                </td>
+                <td data-testid={`card-pay-from-${row.assetId}-rate-time`}>
+                  {offeredRow ? (
+                    row.rateAsOf === null ? (
+                      t('payFromNotKnown')
+                    ) : (
+                      <time dateTime={row.rateAsOf}>{timeOf(row.rateAsOf)}</time>
+                    )
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p data-testid="card-pay-from-saved">
+        {t('payFromSavedHead')}:{' '}
+        {p.order
+          ? p.order
+              .map((assetId) => {
+                // An asset saved earlier that the partner no longer spends from says so, rather than reading as usable.
+                const state = p.assets.find((a) => a.assetId === assetId)?.state ?? 'not_known';
+                return state === 'offered' ? assetId : `${assetId} (${t(PAY_FROM_STATE[state])})`;
+              })
+              .join(', ')
+          : t('payFromNoOrder')}
+      </p>
+      {draft.length > 0 && (
+        <form className="form-stack" onSubmit={save} noValidate aria-label={t('payFromOrderHead')}>
+          <ol data-testid="card-pay-from-order">
+            {draft.map((assetId, index) => (
+              <li key={assetId} data-asset={assetId}>
+                {assetId}{' '}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={index === 0}
+                  onClick={() => move(index, -1)}
+                  aria-label={t('payFromMoveUp', { asset: assetId })}
+                >
+                  {t('payFromUp')}
+                </Button>{' '}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={index === draft.length - 1}
+                  onClick={() => move(index, 1)}
+                  aria-label={t('payFromMoveDown', { asset: assetId })}
+                >
+                  {t('payFromDown')}
+                </Button>
+              </li>
+            ))}
+          </ol>
+          <Button type="submit" disabled={busy}>
+            {t('payFromSave')}
+          </Button>
+          {failure && <Refusal failure={failure} />}
+        </form>
+      )}
+      <ul data-testid="card-pay-from-not-used">
+        {p.notUsedForCards.map((kind) => (
+          <li key={kind} data-kind={kind}>
+            {t(kind === 'trading' ? 'payFromTradingAccount' : 'payFromAgentAccounts')}: {t('payFromNotUsed')}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
