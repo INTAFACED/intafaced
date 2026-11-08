@@ -177,9 +177,9 @@ export class NotificationDispatcher {
         const outcomes: ChannelOutcome[] = [];
         const ownerDisabled = outOfApp && this.options.disabledChannels ? await this.options.disabledChannels() : new Set<ChannelId>();
 
-        // Only a critical message writes a row for a channel it could not use, so
-        // only a critical message needs to know WHY there was nothing to use. A
-        // fill notification does not pay for this read.
+        // Only a critical message, or a channel the person asked for, writes a row
+        // for a channel it could not use, so only those need to know WHY there was
+        // nothing to use. A fill notification does not pay for this read.
         const unverified =
           notification.severity === 'critical' || (outOfApp && asked.size > 0)
             ? new Set(await this.targets.unverifiedChannels(notification.userId))
@@ -228,11 +228,9 @@ export class NotificationDispatcher {
             continue;
           }
 
+          const noSender = this.channels.get(channel).unavailableReason === 'channel.not_configured';
           // The mailed copy is owed and no sender is set: it waits instead of being skipped or refused. See MAILED_KINDS.
-          const owed =
-            channel === 'email' &&
-            MAILED_KINDS.has(notification.kind) &&
-            this.channels.get(channel).unavailableReason === 'channel.not_configured';
+          const owed = channel === 'email' && MAILED_KINDS.has(notification.kind) && noSender;
 
           if (!target) {
             if (owed) {
@@ -248,8 +246,8 @@ export class NotificationDispatcher {
               continue;
             }
             // Nothing was promised on a channel the user never gave us — except
-            // when the message is critical, where silence is the thing worth
-            // recording. See the header.
+            // when the message is critical, or the person asked for this channel,
+            // where silence is the thing worth recording. See the header.
             //
             // Which silence it was, matters. "You gave us nothing" and "you gave
             // us an address and never clicked the code" are different facts about
@@ -257,7 +255,7 @@ export class NotificationDispatcher {
             // same argument `channel.ts` makes for keeping `target_unroutable`
             // separate. Recording both as `no_target` told somebody who was one
             // click from a margin-call SMS that they had no phone number.
-            if (asked.has(channel) && this.channels.get(channel).unavailableReason === 'channel.not_configured') {
+            if (asked.has(channel) && noSender) {
               // The person asked for this channel and the platform has no sender for it: that is the binding cause.
               // `detail` keeps the second fact.
               outcomes.push(

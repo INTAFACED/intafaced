@@ -140,7 +140,7 @@ describe('an out-of-app channel the person asked for is always on the record', (
     expect(emailOf(report)).toMatchObject({ status: 'refused', code: 'channel.disabled', detail: 'no confirmed address on this channel' });
   });
 
-  it('nobody asked: nothing is written on a channel nobody can use, and the unasked channels stay off the record', async () => {
+  it('nobody asked: nothing is written on a channel nobody can use', async () => {
     const plain = await dispatcher(new MemoryDeliveryStore()).dispatch(alert());
     expect(plain.outcomes.map((o) => o.channel)).toEqual(['inapp']);
     const asked = await dispatcher(new MemoryDeliveryStore()).dispatch(alert(), { asked: ['email'] });
@@ -156,9 +156,13 @@ describe('an out-of-app channel the person asked for is always on the record', (
 describe('the agent spend alert asks for email only when the person ticked it (J-agents-02 #6)', () => {
   async function wired() {
     const deliveries = new MemoryDeliveryStore();
-    const notify = new NotifyService(new MemoryNotifyStore(), { fanoutEnabled: true }, {
-      dispatcher: dispatcher(deliveries),
-    } as never);
+    const targets = new MemoryTargetStore();
+    const channels = registry();
+    const notify = new NotifyService(
+      new MemoryNotifyStore(),
+      { fanoutEnabled: true },
+      { targets, deliveries, channels, dispatcher: dispatcher(deliveries, {}, channels, targets) },
+    );
     const bus = new MemoryEventBus('svc-agents');
     await subscribeNotificationEvents(bus, notify);
     return { bus, notify, deliveries };
