@@ -31,12 +31,31 @@ export interface ConformanceWallet {
 export interface ConformanceHarness {
   /** True when `setup().loseNextAnswer` exists; otherwise the lost-answer check is reported skipped. */
   readonly canLoseAnswers: boolean;
+  /**
+   * True when the venue itself answers a second order with a client id it has seen with the first order. The contract
+   * does not require it (one prepared action per business key is the caller's guarantee); a venue that does is checked.
+   */
+  readonly dedupesClientIds: boolean;
+  /** A perpetual market the harness can trade with leverage set; `null` skips the perp checks (reported skipped). */
+  readonly perp: {
+    readonly symbol: string;
+    readonly quote: string;
+    readonly price: Amount;
+    /** A price above `price` the closes trade at; 40 percent of `size` must be a whole lot. */
+    readonly closePrice: Amount;
+    readonly size: Amount;
+    readonly leverageBps: number;
+  } | null;
+  /** True when `setup().settleWithdrawals` exists; otherwise the withdrawal check is reported skipped. */
+  readonly canSettleWithdrawals: boolean;
   /** A fresh venue, with `fund` able to credit both accounts. */
   setup(): Promise<{
     readonly venue: UserVenue;
     readonly trader: { readonly account: UserVenueAccount; readonly wallet: ConformanceWallet; readonly agent: ConformanceWallet };
     /** Another TEST trader who rests liquidity. */
     readonly other: { readonly account: UserVenueAccount; readonly wallet: ConformanceWallet };
+    /** A third TEST trader, flat, for the other side of a close. */
+    readonly third: { readonly account: UserVenueAccount; readonly wallet: ConformanceWallet };
     readonly spot: {
       readonly symbol: string;
       readonly base: string;
@@ -47,6 +66,10 @@ export interface ConformanceHarness {
     fund(account: UserVenueAccount, asset: string, amount: Amount, ref: string): Promise<void>;
     /** Make the next submit's answer get lost after the venue applied it; `null` when this venue can't. */
     loseNextAnswer: (() => void) | null;
+    /** Mark pending withdrawals done (the chain confirmed them); `null` when this venue can't on demand. */
+    settleWithdrawals: (() => void) | null;
+    /** Make the venue refuse everything as down, and back; `null` when this venue can't on demand. */
+    setVenueDown: ((down: boolean) => void) | null;
   }>;
 }
 
@@ -89,8 +112,12 @@ async function signAndSubmit(
   return { prepared, outcome, signature };
 }
 
-function freeOf(balances: readonly { asset: string; free: Amount; locked: Amount }[], asset: string) {
+/** Free and locked for one asset, after checking the venue's own total equals their sum (a venue mid-incident fails here). */
+function freeOf(balances: readonly { asset: string; free: Amount; locked: Amount; total: Amount }[], asset: string) {
   const b = balances.find((x) => x.asset === asset);
+  if (b && b.total !== add(b.free, b.locked)) {
+    throw new Error(`${asset}: the venue reports total ${b.total} but free + locked is ${add(b.free, b.locked)}`);
+  }
   return { free: b?.free ?? ZERO, locked: b?.locked ?? ZERO };
 }
 
@@ -120,7 +147,7 @@ export function defineUserVenueConformance(harness: ConformanceHarness, t: { des
       expect(after.asOf instanceof Date).toBe(true);
     });
 
-    it('the same intent pressed twice places one order, even with a fresh signature', async () => {
+    (harness.dedupesClientIds ? it : it.skip)('the same intent pressed twice places one order, even with a fresh signature', async () => {
       const h = await harness.setup();
       // Funded for many orders, so only the venue's client-id check can stop a second one.
       await h.fund(h.trader.account, h.spot.quote, parseAmount('100000'), 'deposit:test:2');
@@ -146,7 +173,9 @@ export function defineUserVenueConformance(harness: ConformanceHarness, t: { des
         limit(h.spot.symbol, 'buy', sub(h.spot.price, parseAmount('100')), h.spot.size, 'order:trader:conf:3'),
       );
       const again = await h.venue.submit(prepared, signature);
-      expect(again).toEqual(outcome);
+      // The first answer again, or "already submitted" (a venue that only knows the nonce is used): never a second action.
+      if (again.definite) expect(again).toEqual(outcome);
+      else expect(again).toEqual({ definite: false, reason: 'already_submitted' });
       expect((await h.venue.openOrders(h.trader.account)).value.length).toBe(1);
     });
 
@@ -228,6 +257,118 @@ export function defineUserVenueConformance(harness: ConformanceHarness, t: { des
       const after = await h.venue.balances(h.trader.account);
       expect(freeOf(after.value, h.spot.quote)).toEqual({ free: parseAmount('1000'), locked: ZERO });
     });
+
+    it("authority is the venue's at submit: an agent withdrawal or a stranger's owner claim, built by hand, moves nothing", async () => {
+      const h = await harness.setup();
+      await h.fund(h.trader.account, h.spot.quote, parseAmount('1000'), 'deposit:test:auth');
+      await signAndSubmit(h.venue, h.trader.wallet, h.trader.account, {
+        kind: 'approve_agent',
+        agentAddress: h.trader.agent.signer.address,
+        agentName: 'TEST bot',
+        validUntil: null,
+      });
+      const withdraw = {
+        kind: 'withdraw',
+        asset: h.spot.quote,
+        amount: parseAmount('900'),
+        destination: h.trader.account.owner,
+        withdrawalKey: 'withdraw:trader:auth',
+      } as const;
+      // Prepared as the owner, then re-labelled to the agent and signed by the agent key.
+      const asOwner = await h.venue.prepare(h.trader.account, h.trader.wallet.signer, withdraw);
+      const relabelled = { ...asOwner, signer: h.trader.agent.signer };
+      const agentTry = h.venue.submit(relabelled, await h.trader.agent.sign(relabelled)).then(
+        (o) => o,
+        () => null,
+      );
+      const agentOutcome = await agentTry;
+      expect(agentOutcome === null || (agentOutcome.definite && !agentOutcome.accepted)).toBe(true);
+      // Prepared on the stranger's own account, then pointed at the trader's.
+      const strangerOwn = await h.venue.prepare(h.other.account, h.other.wallet.signer, withdraw);
+      const pointed = { ...strangerOwn, account: h.trader.account };
+      const strangerOutcome = await h.venue.submit(pointed, await h.other.wallet.sign(pointed)).then(
+        (o) => o,
+        () => null,
+      );
+      expect(strangerOutcome === null || (strangerOutcome.definite && !strangerOutcome.accepted)).toBe(true);
+      expect(freeOf((await h.venue.balances(h.trader.account)).value, h.spot.quote).free).toBe(parseAmount('1000'));
+    });
+
+    (harness.canSettleWithdrawals ? it : it.skip)('an owner withdrawal is pending, then done, with its fee or "not known"', async () => {
+      const h = await harness.setup();
+      await h.fund(h.trader.account, h.spot.quote, parseAmount('1000'), 'deposit:test:wd');
+      const { prepared, outcome } = await signAndSubmit(h.venue, h.trader.wallet, h.trader.account, {
+        kind: 'withdraw',
+        asset: h.spot.quote,
+        amount: parseAmount('10'),
+        destination: h.trader.account.owner,
+        withdrawalKey: 'withdraw:trader:wd',
+      });
+      expect(outcome.definite && outcome.accepted).toBe(true);
+      const pending = (await h.venue.withdrawal(h.trader.account, prepared.nonce)).value!;
+      expect(pending.status).toBe('pending');
+      expect(pending.amount).toBe(parseAmount('10'));
+      h.settleWithdrawals!();
+      const done = (await h.venue.withdrawal(h.trader.account, prepared.nonce)).value!;
+      expect(done.status).toBe('done');
+      const fee = done.fee.known ? done.fee.value : null;
+      if (fee !== null)
+        expect(freeOf((await h.venue.balances(h.trader.account)).value, h.spot.quote).free).toBe(sub(parseAmount('990'), fee));
+    });
+
+    (harness.perp ? it : it.skip)(
+      'perp: no leverage set refuses; one long opens; closing 40 percent then the rest sums to the full close',
+      async () => {
+        const h = await harness.setup();
+        const p = harness.perp!;
+        const lev = (who: ConformanceWallet, acct: UserVenueAccount) =>
+          signAndSubmit(h.venue, who, acct, {
+            kind: 'update_leverage',
+            symbol: p.symbol,
+            leverageBps: p.leverageBps,
+            marginMode: 'isolated',
+          });
+        const perpOrder = (side: 'buy' | 'sell', amount: Amount, key: string, extra: Partial<PlaceUserOrderIntent> = {}) => ({
+          ...limit(p.symbol, side, p.price, amount, key),
+          ...extra,
+        });
+        await h.fund(h.trader.account, p.quote, parseAmount('100000'), 'deposit:test:perp');
+        await h.fund(h.other.account, p.quote, parseAmount('100000'), 'deposit:other:perp');
+        await expect(
+          h.venue.prepare(h.trader.account, h.trader.wallet.signer, perpOrder('buy', p.size, 'order:trader:perp:0')),
+        ).rejects.toBeInstanceOf(VenueRefusalError);
+        await lev(h.trader.wallet, h.trader.account);
+        await lev(h.other.wallet, h.other.account);
+        await signAndSubmit(h.venue, h.other.wallet, h.other.account, perpOrder('sell', p.size, 'order:other:perp:1'));
+        await signAndSubmit(h.venue, h.trader.wallet, h.trader.account, perpOrder('buy', p.size, 'order:trader:perp:1'));
+        const open = (await h.venue.positions(h.trader.account)).value;
+        expect(open.map((x) => [x.symbol, x.side, x.size])).toEqual([[p.symbol, 'long', p.size]]);
+        const leverage = (await h.venue.leverage(h.trader.account, p.symbol)).value;
+        expect(leverage?.leverageBps).toBe(p.leverageBps);
+        expect(freeOf((await h.venue.balances(h.trader.account)).value, p.quote).locked).toBe(open[0]!.margin);
+        // The other side of the closes: a third, flat trader rests a bid at the close price.
+        await h.fund(h.third.account, p.quote, parseAmount('100000'), 'deposit:third:perp');
+        await lev(h.third.wallet, h.third.account);
+        await signAndSubmit(h.venue, h.third.wallet, h.third.account, limit(p.symbol, 'buy', p.closePrice, p.size, 'order:third:perp:bid'));
+        const forty = div(mul(p.size, parseAmount('40'), 'floor'), parseAmount('100'), 'floor');
+        const close = (amount: Amount, key: string) => ({
+          ...limit(p.symbol, 'sell', p.closePrice, amount, key),
+          reduceOnly: true,
+          timeInForce: 'IOC' as const,
+        });
+        await signAndSubmit(h.venue, h.trader.wallet, h.trader.account, close(forty, 'order:trader:perp:close40'));
+        expect((await h.venue.positions(h.trader.account)).value.map((x) => x.size)).toEqual([sub(p.size, forty)]);
+        await signAndSubmit(h.venue, h.trader.wallet, h.trader.account, close(sub(p.size, forty), 'order:trader:perp:close60'));
+        expect((await h.venue.positions(h.trader.account)).value).toEqual([]);
+        const results = (await h.venue.fills(h.trader.account, new Date(0))).value
+          .filter((f) => f.realisedPnl !== null)
+          .map((f) => f.realisedPnl!);
+        // The split results sum to the result of the full close, as the venue reports them.
+        expect(results.length).toBe(2);
+        expect(add(results[0]!, results[1]!)).toBe(mul(sub(p.closePrice, p.price), p.size));
+        expect(freeOf((await h.venue.balances(h.trader.account)).value, p.quote).locked).toBe(ZERO);
+      },
+    );
 
     it('an agent key can trade but is refused a withdrawal before anything is signed', async () => {
       const h = await harness.setup();

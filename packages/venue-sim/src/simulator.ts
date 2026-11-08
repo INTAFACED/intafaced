@@ -80,8 +80,11 @@ export interface SimMarketConfig {
 export interface SimSwitches {
   venueDown: boolean;
   withdrawalFee: MaybeKnown<Amount>;
-  /** The fee actually charged when `withdrawalFee` is not published. */
+  /** The fee actually charged when `withdrawalFee` is not published (never 0 by default, so "not known" is never read as free). */
   unpublishedWithdrawalFee: Amount;
+  /** The trading fees actually charged, and reported on fills, on a market whose fee is not published. */
+  unpublishedMakerFeeBps: Amount;
+  unpublishedTakerFeeBps: Amount;
   loseAnswers: number;
 }
 
@@ -154,6 +157,7 @@ export class TestVenueSimulator implements UserVenue {
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
   private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
+  private readonly withdrawalFeeCharged = new Map<string, Amount>();
   private seqCounter = 0;
   private fillCounter = 0;
   private venueOrderCounter = 0;
@@ -172,7 +176,9 @@ export class TestVenueSimulator implements UserVenue {
     this.switches = {
       venueDown: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
-      unpublishedWithdrawalFee: ZERO,
+      unpublishedWithdrawalFee: parseAmount('2'),
+      unpublishedMakerFeeBps: parseAmount('2'),
+      unpublishedTakerFeeBps: parseAmount('5'),
       loseAnswers: 0,
       ...options.switches,
     };
@@ -191,6 +197,7 @@ export class TestVenueSimulator implements UserVenue {
    * Returns true when it credited.
    */
   deposit(account: UserVenueAccount, asset: string, amount: Amount, depositRef: string): boolean {
+    if (compare(amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a deposit must be positive');
     const state = this.account(account);
     if (state.deposits.has(depositRef)) return false;
     state.deposits.add(depositRef);
@@ -204,13 +211,20 @@ export class TestVenueSimulator implements UserVenue {
     this.marks.set(symbol, price);
   }
 
-  /** Settle every pending withdrawal (the chain confirmed it). */
-  settleWithdrawals(): number {
+  /**
+   * Settle every pending withdrawal: `done` (the chain confirmed it) or
+   * `failed` (the venue returns the amount and its fee to free).
+   */
+  settleWithdrawals(outcome: 'done' | 'failed' = 'done'): number {
     let settled = 0;
     for (const state of this.accounts.values()) {
       for (const [nonce, withdrawal] of state.withdrawals) {
         if (withdrawal.status === 'pending') {
-          state.withdrawals.set(nonce, { ...withdrawal, status: 'done' });
+          if (outcome === 'failed') {
+            const balance = this.balance(state, withdrawal.asset);
+            balance.free = add(balance.free, add(withdrawal.amount, this.withdrawalFeeCharged.get(`${state.key}#${nonce}`) ?? ZERO));
+          }
+          state.withdrawals.set(nonce, { ...withdrawal, status: outcome });
           settled += 1;
         }
       }
@@ -344,38 +358,13 @@ export class TestVenueSimulator implements UserVenue {
 
   async prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
     this.up();
-    if (account.venueId !== this.venue.id)
-      refuse(this.venue.id, 'venue_rejected', `account is on ${account.venueId}, not ${this.venue.id}`);
-    assertSignerMaySign(account, signer, intent);
-    const state = this.account(account);
-    if (signer.role === 'agent' && !this.agentLive(state, signer.address)) {
-      refuse(this.venue.id, 'signer_not_authorised', `${signer.address.toLowerCase()} is not an approved, unexpired agent on this account`);
-    }
-
-    let cloid: string | null = null;
-    let builderFee: PreparedVenueAction['builderFee'] = null;
-    if (intent.kind === 'place_order') {
-      this.checkOrderOnItsFace(state, intent);
-      cloid = venueClientOrderId(this.venue.id, intent.clientOrderKey);
-      if (intent.builderFee) {
-        const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
-        if (compare(approved, intent.builderFee.feeBps) < 0) {
-          refuse(
-            this.venue.id,
-            'builder_fee_not_approved',
-            `this account has approved ${approved} bps for the builder; the order carries more`,
-          );
-        }
-        builderFee = { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps };
-      }
-    } else if (intent.kind === 'update_leverage') {
-      this.checkLeverageOnItsFace(intent.symbol, intent.leverageBps, intent.marginMode);
-    } else if (intent.kind === 'withdraw' && account.subAccount !== null) {
-      refuse(this.venue.id, 'not_offered', 'a withdrawal from a sub-account is not offered: move the funds to the main account first');
-    } else if (intent.kind === 'amend_order' || intent.kind === 'cancel_order') {
-      this.market(intent.symbol);
-      cloid = venueClientOrderId(this.venue.id, intent.clientOrderKey);
-    }
+    this.validate(account, signer, intent);
+    const cloid =
+      intent.kind === 'place_order' || intent.kind === 'cancel_order' ? venueClientOrderId(this.venue.id, intent.clientOrderKey) : null;
+    const builderFee: PreparedVenueAction['builderFee'] =
+      intent.kind === 'place_order' && intent.builderFee
+        ? { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps }
+        : null;
 
     // Strictly increasing, and near the clock in microseconds, as a venue's nonce window expects.
     this.lastNonce = Math.max(this.lastNonce + 1, this.clock().getTime() * 1000);
@@ -393,6 +382,61 @@ export class TestVenueSimulator implements UserVenue {
       builderFee,
       preparedAt: this.clock(),
     };
+  }
+
+  /**
+   * Every check on an action's own face and on who may sign it, against the venue's record now. Run at prepare (so
+   * the wallet is never asked to sign what must fail) and again at submit (prepare's checks are the caller's to skip:
+   * the prepared object may be hand-built). Throws `VenueRefusalError`.
+   */
+  private validate(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): void {
+    if (account.venueId !== this.venue.id)
+      refuse(this.venue.id, 'venue_rejected', `account is on ${account.venueId}, not ${this.venue.id}`);
+    assertSignerMaySign(account, signer, intent);
+    const state = this.account(account);
+    if (signer.role === 'agent' && !this.agentLive(state, signer.address)) {
+      refuse(this.venue.id, 'signer_not_authorised', `${signer.address.toLowerCase()} is not an approved, unexpired agent on this account`);
+    }
+    switch (intent.kind) {
+      case 'place_order': {
+        this.checkOrderOnItsFace(state, intent);
+        venueClientOrderId(this.venue.id, intent.clientOrderKey);
+        if (intent.builderFee) {
+          if (compare(intent.builderFee.feeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee cannot be negative');
+          const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
+          if (compare(approved, intent.builderFee.feeBps) < 0) {
+            refuse(
+              this.venue.id,
+              'builder_fee_not_approved',
+              `this account has approved ${approved} bps for the builder; the order carries more`,
+            );
+          }
+        }
+        return;
+      }
+      case 'update_leverage':
+        this.checkLeverageOnItsFace(intent.symbol, intent.leverageBps, intent.marginMode);
+        return;
+      case 'withdraw':
+        if (compare(intent.amount, ZERO) <= 0) refuse(this.venue.id, 'venue_rejected', 'a withdrawal must be positive');
+        if (account.subAccount !== null) {
+          refuse(this.venue.id, 'not_offered', 'a withdrawal from a sub-account is not offered: move the funds to the main account first');
+        }
+        return;
+      case 'approve_builder_fee':
+        if (compare(intent.maxFeeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee approval cannot be negative');
+        return;
+      case 'amend_order':
+        refuse(this.venue.id, 'not_offered', 'amend is not offered on the TEST venue simulator: cancel and place a new order');
+      // falls through: refuse never returns
+      case 'cancel_order':
+        this.market(intent.symbol);
+        venueClientOrderId(this.venue.id, intent.clientOrderKey);
+        return;
+      case 'approve_agent':
+      case 'revoke_agent':
+        return;
+    }
   }
 
   async submit(prepared: PreparedVenueAction, signature: VenueSignature): Promise<VenueSubmitOutcome> {
@@ -418,11 +462,13 @@ export class TestVenueSimulator implements UserVenue {
     this.submitted.set(key, byNonce);
     const seen = byNonce.get(prepared.nonce);
     if (seen) {
-      if (seen.digest !== digest) refuse(this.venue.id, 'venue_rejected', `nonce ${prepared.nonce} was already used for another action`);
+      // The venue only knows the nonce is used: never a definite refusal (the first action may be the caller's own).
+      if (seen.digest !== digest) return { definite: false, reason: 'already_submitted' };
       return seen.outcome;
     }
 
     const outcome = this.apply(prepared);
+    this.assertNoNegativeBalance();
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
@@ -509,6 +555,24 @@ export class TestVenueSimulator implements UserVenue {
   }
 
   // ── internals ──────────────────────────────────────────────────────────
+
+  /** A balance below zero is money the venue made up: fail loudly, never report it. */
+  private assertNoNegativeBalance(): void {
+    for (const state of this.accounts.values()) {
+      for (const [asset, b] of state.balances) {
+        if (compare(b.free, ZERO) < 0 || compare(b.locked, ZERO) < 0) {
+          throw new Error(`TEST simulator invariant: ${state.key} ${asset} free ${b.free} locked ${b.locked}`);
+        }
+      }
+    }
+  }
+
+  /** The fee a fill is charged: the published one, or the TEST switch's hidden one when it is not published. */
+  private chargedFeeBps(market: SimMarketConfig, role: 'maker' | 'taker'): Amount {
+    const published = role === 'maker' ? market.makerFeeBps : market.takerFeeBps;
+    if (published.known) return published.value;
+    return role === 'maker' ? this.switches.unpublishedMakerFeeBps : this.switches.unpublishedTakerFeeBps;
+  }
 
   private agentLive(state: AccountState, address: string): boolean {
     const agent = state.agents.get(address.toLowerCase());
@@ -621,25 +685,35 @@ export class TestVenueSimulator implements UserVenue {
       asOf: now,
     });
 
-    // The agent's approval is the venue's record at submit, not at prepare: a revoke in between wins.
-    if (prepared.signer.role === 'agent' && !this.agentLive(state, prepared.signer.address)) {
-      return refused('signer_not_authorised', 'the agent key was revoked or has expired');
+    // Every check runs again here, at submit, on the signed fields only: the prepared object is the caller's and may
+    // have been edited or hand-built. Who signed (recovered from the bytes) must own the account or be its live agent.
+    try {
+      this.validate(prepared.account, prepared.signer, intent);
+    } catch (error) {
+      if (error instanceof VenueRefusalError) return refused(error.refusal.code, error.refusal.detail);
+      throw error;
     }
+    // The client order id and the builder fee come from the signed intent, never from the prepared object.
+    const cloidOf = (key: string) => venueClientOrderId(this.venue.id, key);
 
     switch (intent.kind) {
       case 'place_order': {
-        const cloid = prepared.venueClientOrderId as string;
+        const cloid = cloidOf(intent.clientOrderKey);
         const existing = state.orders.get(cloid);
         if (existing) return accepted(existing.order.venueOrderId, existing.order);
-        if (prepared.builderFee) {
-          const approved = state.builderApprovals.get(prepared.builderFee.builder) ?? ZERO;
-          if (compare(approved, prepared.builderFee.feeBps) < 0)
+        const builderFee = intent.builderFee
+          ? { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps }
+          : null;
+        if (builderFee) {
+          if (compare(builderFee.feeBps, ZERO) < 0) return refused('venue_rejected', 'a builder fee cannot be negative');
+          const approved = state.builderApprovals.get(builderFee.builder) ?? ZERO;
+          if (compare(approved, builderFee.feeBps) < 0)
             return refused('builder_fee_not_approved', 'the builder fee approval no longer covers this order');
         }
-        return this.place(state, intent, cloid, prepared.builderFee, refused, accepted);
+        return this.place(state, intent, cloid, builderFee, refused, accepted);
       }
       case 'cancel_order': {
-        const cloid = prepared.venueClientOrderId as string;
+        const cloid = cloidOf(intent.clientOrderKey);
         const existing = state.orders.get(cloid);
         if (!existing) return refused('unknown_order', 'no order with that client id');
         if (existing.order.status !== 'open' && existing.order.status !== 'partially_filled') {
@@ -651,14 +725,8 @@ export class TestVenueSimulator implements UserVenue {
         this.release(existing, 'canceled');
         return accepted(existing.order.venueOrderId, existing.order);
       }
-      case 'amend_order': {
-        const cloid = prepared.venueClientOrderId as string;
-        const existing = state.orders.get(cloid);
-        if (!existing) return refused('unknown_order', 'no order with that client id');
-        if (existing.order.status !== 'open')
-          return refused('order_final', `only an unfilled open order can be amended (it is ${existing.order.status})`);
+      case 'amend_order':
         return refused('not_offered', 'amend is not offered on the TEST venue simulator: cancel and place a new order');
-      }
       case 'withdraw': {
         const fee = this.switches.withdrawalFee.known ? this.switches.withdrawalFee.value : this.switches.unpublishedWithdrawalFee;
         const balance = this.balance(state, intent.asset);
@@ -666,6 +734,7 @@ export class TestVenueSimulator implements UserVenue {
         if (compare(balance.free, needed) < 0)
           return refused('insufficient_balance', `free ${intent.asset} does not cover the withdrawal and its fee`);
         balance.free = sub(balance.free, needed);
+        this.withdrawalFeeCharged.set(`${state.key}#${prepared.nonce}`, fee);
         const withdrawal: UserVenueWithdrawal = {
           nonce: prepared.nonce,
           asset: intent.asset,
@@ -739,15 +808,17 @@ export class TestVenueSimulator implements UserVenue {
       if (opposite) return refused('not_offered', 'opening orders on both sides of one market are not offered on the TEST simulator');
     }
 
-    // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled first.
-    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
-    if (intent.timeInForce === 'ALO' && contra().some(crossesPrice))
+    // Post-only is judged against other traders' orders; this account's own crossing orders are cancelled below,
+    // only once the new order is sure to be placed, so a refused order never changes the book.
+    if (intent.timeInForce === 'ALO' && contra().some((o) => o.account !== state && crossesPrice(o)))
       return refused('venue_rejected', 'post-only order would take liquidity');
 
     const { lockAsset, lockPerUnit, lockAmount } = this.orderLock(market, intent, setting, builderFee);
     const balance = this.balance(state, lockAsset);
     if (compare(balance.free, lockAmount) < 0)
       return refused('insufficient_balance', `free ${lockAsset} does not cover what this order locks`);
+    // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled now.
+    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
     balance.free = sub(balance.free, lockAmount);
     balance.locked = add(balance.locked, lockAmount);
 
@@ -813,7 +884,8 @@ export class TestVenueSimulator implements UserVenue {
     setting: { leverageBps: number } | undefined,
     builderFee: PreparedVenueAction['builderFee'],
   ): { lockAsset: string; lockPerUnit: Amount; lockAmount: Amount } {
-    const maxFeeBps = add(market.takerFeeBps.known ? market.takerFeeBps.value : ZERO, builderFee?.feeBps ?? ZERO);
+    // A perp order also locks the most it can pay in fees: the fee charged, even when the venue does not publish it.
+    const maxFeeBps = add(this.chargedFeeBps(market, 'taker'), builderFee?.feeBps ?? ZERO);
     const feeBuffer = (notional: Amount) => div(mul(notional, maxFeeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
     let lockAsset: string;
     let lockPerUnit: Amount;
@@ -851,14 +923,18 @@ export class TestVenueSimulator implements UserVenue {
       [maker, 'maker'],
       [taker, 'taker'],
     ] as const) {
-      const feeBpsKnown = role === 'maker' ? market.makerFeeBps : market.takerFeeBps;
-      const feeBps = feeBpsKnown.known ? feeBpsKnown.value : ZERO;
+      const feeBps = this.chargedFeeBps(market, role);
       // A spot buy pays its fees in the base it receives; everything else pays in the quote asset.
       const feeInBase = market.kind === 'spot' && side.order.side === 'buy';
       const feeBasis = feeInBase ? qty : mul(price, qty, QUOTE_ROUND);
-      const venueFee = div(mul(feeBasis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
-      const builderFee = side.builderFee ? div(mul(feeBasis, side.builderFee.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
-      const realisedPnl = this.settle(market, side, qty, price, add(venueFee, builderFee));
+      const venueFeeDue = div(mul(feeBasis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
+      let builderFee = side.builderFee ? div(mul(feeBasis, side.builderFee.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
+      let venueFee = venueFeeDue;
+      const { realisedPnl, uncharged } = this.settle(market, side, qty, price, add(venueFee, builderFee));
+      // Report only what was charged: a fee the account could not pay is cut from our builder fee first.
+      const builderCut = min(builderFee, uncharged);
+      builderFee = sub(builderFee, builderCut);
+      venueFee = sub(venueFee, sub(uncharged, builderCut));
 
       const o = side.order; // after settle, which moved its lock
       const filled = add(o.filled, qty);
@@ -891,7 +967,13 @@ export class TestVenueSimulator implements UserVenue {
    * take this fill's share out of the order's lock exactly once. Returns the
    * realised result on a perp close.
    */
-  private settle(market: SimMarketConfig, side: OrderState, qty: Amount, price: Amount, fees: Amount): Amount | null {
+  private settle(
+    market: SimMarketConfig,
+    side: OrderState,
+    qty: Amount,
+    price: Amount,
+    fees: Amount,
+  ): { realisedPnl: Amount | null; uncharged: Amount } {
     const state = side.account;
     const o = side.order;
     const lockForQty = min(o.locked, mul(side.lockPerUnit, qty, QUOTE_ROUND));
@@ -909,7 +991,7 @@ export class TestVenueSimulator implements UserVenue {
       } else {
         quote.free = add(quote.free, sub(notional, fees));
       }
-      return null;
+      return { realisedPnl: null, uncharged: ZERO };
     }
 
     // Perpetual, isolated margin. The order's lock pays this fill's margin and fees; the rest returns to free.
@@ -924,6 +1006,8 @@ export class TestVenueSimulator implements UserVenue {
       const available = add(lockForQty, extra);
       const posted = max(ZERO, min(margin, sub(available, fees)));
       usdc.free = add(usdc.free, sub(available, add(posted, fees)));
+      // Posted margin is "used as margin": it stays in locked until the position closes (user-venue.ts).
+      usdc.locked = add(usdc.locked, posted);
       if (!current || current.size === ZERO) {
         state.positions.set(market.symbol, {
           side: o.side === 'buy' ? 'long' : 'short',
@@ -941,7 +1025,7 @@ export class TestVenueSimulator implements UserVenue {
         current.size = size;
         current.margin = add(current.margin, posted);
       }
-      return null;
+      return { realisedPnl: null, uncharged: ZERO };
     }
     // Reduce-only: close (part of) the position. Isolated: the loss stops at the margin released.
     const p = current as PositionState;
@@ -950,11 +1034,14 @@ export class TestVenueSimulator implements UserVenue {
     const released = closeQty === p.size ? p.margin : div(mul(p.margin, closeQty), p.size, QUOTE_ROUND);
     p.margin = sub(p.margin, released);
     p.size = sub(p.size, closeQty);
+    usdc.locked = sub(usdc.locked, released);
     const realised = max(pnl, sub(ZERO, released));
     const feeFromLock = min(fees, lockForQty);
     const feeLeft = sub(fees, feeFromLock);
-    usdc.free = add(usdc.free, add(sub(lockForQty, feeFromLock), max(ZERO, sub(add(released, realised), feeLeft))));
-    return realised;
+    const back = add(released, realised);
+    const feeFromBack = min(feeLeft, back);
+    usdc.free = add(usdc.free, add(sub(lockForQty, feeFromLock), sub(back, feeFromBack)));
+    return { realisedPnl: realised, uncharged: sub(feeLeft, feeFromBack) };
   }
 
   private pnl(p: PositionState, price: Amount, qty: Amount): Amount {
