@@ -8,6 +8,8 @@ import {
   buildIndex,
   buildJourneys,
   dependsOn,
+  finishLine,
+  finishLineProblems,
   journeyOrder,
   keepParkedNeeds,
   laneFor,
@@ -460,4 +462,118 @@ test('a joined range names both slices; an id may touch `_`; a requirement id in
   ]);
   const [j] = parseJourneys(['## J-a-01: x', '- Order: 1', '| 1 | does | sees | CB-bots-02-CB-bots-19 | none |'].join('\n'), 'a', known);
   assert.deepEqual(j.steps[0].slices, ['CB-bots-02', 'CB-bots-19']);
+});
+
+// The finish line's order (OWNER 223 (3), OWNER 226; the factory plan of 8 Nov, R5 §2): a `Later: custody` journey stays
+// live, ranks after every launch journey, and is never Order 1.
+const finishMap = (later1 = '2', laterLine = '- Later: custody (OWNER 226)') =>
+  [
+    '## J-wallet-01: I see what I hold',
+    '- Persona: retail',
+    '- Tier: core',
+    '- Order: 1',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Opens Assets | Balances | W-balances-01 | none |',
+    '| 2 | Places an order | Locked | W-balances-01, W-balances-02 | none |',
+    '',
+    '## J-wallet-02: I deposit crypto',
+    '- Persona: pro-trader',
+    '- Tier: core',
+    `- Order: ${later1}`,
+    laterLine,
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Opens Deposit | An address | W-deposit-01 | none |',
+    '',
+    '## J-wallet-16: I run reconciliation (finance)',
+    '- Persona: operator:finance',
+    '- Tier: core',
+    '- Order: 1',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Runs reconciliation | Breaks | W-balances-02 | none |',
+    '',
+    '## J-wallet-08: I look back at my activity',
+    '- Persona: retail',
+    '- Tier: core',
+    '- Order: 2',
+    '',
+    '| # | The person does | They see | Slices | Proof |',
+    '| - | - | - | - | - |',
+    '| 1 | Opens Activity | Rows | W-activity-01 | none |',
+  ].join('\n');
+
+test('a Later: custody line marks the journey later; it stays live and its slices rank after every launch Order', () => {
+  const journeys = parseJourneys(finishMap(), 'wallet');
+  assert.equal(journeys[1].later, 'custody');
+  assert.equal(journeys[0].later, undefined);
+  assert.deepEqual(finishLineProblems(journeys), []);
+  assert.equal(liveJourneys(journeys).length, 4, 'later is not parked: it stays live and in "finished"');
+  const order = journeyOrder(journeys);
+  assert.equal(order.get('W-deposit-01'), 4, 'a slice only a later journey needs comes after Orders 1 to 3');
+  assert.equal(order.get('W-activity-01'), 2);
+  assert.equal(order.get('W-balances-01'), 1);
+});
+
+test('planted: a later journey at Order 1, or a later reason other than custody, is refused', () => {
+  const atOne = parseJourneys(finishMap('1'), 'wallet');
+  assert.match(finishLineProblems(atOne).join('\n'), /J-wallet-02 is later \(custody\) at Order 1/);
+  assert.throws(() => parseJourneys(finishMap('2', '- Later: no'), 'wallet'), /the only later reason is "Later: custody"/);
+  const odd = structuredClone(parseJourneys(finishMap(), 'wallet'));
+  odd[1].later = 'someday';
+  assert.match(finishLineProblems(odd).join('\n'), /J-wallet-02 is later for "someday"/);
+  const dir = mkdtempSync(join(tmpdir(), 'roadmap-later-'));
+  mkdirSync(join(dir, 'modules', 'wallet', 'acceptance'), { recursive: true });
+  writeFileSync(join(dir, 'modules', 'wallet', 'acceptance', 'journeys.md'), finishMap('1'));
+  assert.throws(
+    () => buildJourneys(dir, new Set(['W-balances-01', 'W-balances-02', 'W-deposit-01', 'W-activity-01'])),
+    /later \(custody\) at Order 1/,
+  );
+  writeFileSync(join(dir, 'modules', 'wallet', 'acceptance', 'journeys.md'), finishMap('2'));
+  assert.equal(buildJourneys(dir, new Set(['W-balances-01', 'W-balances-02', 'W-deposit-01', 'W-activity-01'])).length, 4);
+});
+
+test('the finish line: launch before later, then Order, customers before operators, then the most shared slices, then the fewest open steps', () => {
+  const journeys = parseJourneys(finishMap(), 'wallet');
+  assert.deepEqual(
+    finishLine(journeys).map((e) => [e.rank, e.j.id, e.later, e.unblocks]),
+    [
+      [1, 'J-wallet-01', false, 1],
+      [2, 'J-wallet-16', false, 1],
+      [3, 'J-wallet-08', false, 0],
+      [4, 'J-wallet-02', true, 0],
+    ],
+  );
+  // With a report, the open steps break a tie: two Order 2 customer journeys sharing nothing, one with a passing step.
+  const two = [
+    {
+      id: 'J-m-01',
+      persona: 'retail',
+      order: 2,
+      steps: [
+        { n: 1, slices: ['A-1'] },
+        { n: 2, slices: ['A-1'] },
+      ],
+    },
+    {
+      id: 'J-m-02',
+      persona: 'retail',
+      order: 2,
+      steps: [
+        { n: 1, slices: ['B-1'] },
+        { n: 2, slices: ['B-1'] },
+      ],
+    },
+  ];
+  assert.deepEqual(
+    finishLine(two, new Set(['J-m-02#1'])).map((e) => [e.j.id, e.open]),
+    [
+      ['J-m-02', 1],
+      ['J-m-01', 2],
+    ],
+  );
 });
