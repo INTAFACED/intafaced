@@ -62,6 +62,10 @@
       "types": "./dist/protocol-swap.d.ts",
       "default": "./dist/protocol-swap.js"
     },
+    "./protocol-dex-orders": {
+      "types": "./dist/protocol-dex-orders.d.ts",
+      "default": "./dist/protocol-dex-orders.js"
+    },
     "./protocol-address-book": {
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"

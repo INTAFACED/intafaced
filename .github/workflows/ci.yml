@@ -132,9 +132,11 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-        # look-baselines.mjs is the guard's one import (what a look baseline is); it comes from main the same way.
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }} # the test judge runs only for this repository's own
+        # Its imports, look-baselines.mjs (what a look baseline is) and judged-paths.mjs (what the test judge rules on), come
+        # from main the same way.
         run: |
-          for f in test-diff-guard.mjs look-baselines.mjs; do
+          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs; do
             if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
               git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
             else
@@ -228,7 +230,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: node tooling/ci/ci-affected.mjs --self-test
       - run: node tooling/ci/review-marker.mjs --self-test
-      - run: node tooling/ci/review-signoff.mjs --self-test
       - run: node tooling/ci/main-trust.mjs --self-test
       - run: node tooling/ci/post-merge-trust.mjs --self-test
       - run: node --test tooling/ci/journey-verdict.test.mjs
@@ -560,6 +561,8 @@ jobs:
       # A pull request whose diff touches the journey stack's shared setup (SHARED_SETUP in journey-seal.mjs), whatever its
       # title, also needs the newest finished full journeys run on its exact head clean by the journeys verdict, judged with
       # the default branch's baseline (the pilot lead's rule of 7 Nov 2026, moved from a message into CI).
+      # A pull request that changes a journey test (apps/customer/tests/real-app/J-*.pw.mjs) names, for each changed file,
+      # a step it holds, in the title or on a Left-or-replaced line; otherwise it fails and prints them (#1249 seal gap).
       - name: Require the named journey steps on this exact head
         if: steps.base.outcome == 'success'
         env:

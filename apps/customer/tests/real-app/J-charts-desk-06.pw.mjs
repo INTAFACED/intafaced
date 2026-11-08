@@ -1,14 +1,15 @@
 // World: none
 import { test, expect } from './journey.mjs';
 import { clickPlot, figureLines, openWorkbench, pick, plot, pointText, pricesOf, rowNamed, rows, timesOf } from './charts-desk.mjs';
+import { openOrders, signUp } from './desk.mjs';
 
 // J-charts-desk-06 "I mark up a trade idea with Fibonacci, channels, patterns and position boxes", in the running app. One
 // test per step, titled "J-charts-desk-06 #<n>", run in order in one browser context (drawings are kept on this device).
-// The figures are checked against the same arithmetic on the stored points, at the tick size (BTC-USDT, 0.01).
+// The figures are checked against the same arithmetic on the stored points, at the tick size (BTC-USDT, 0.01). The person
+// is a fresh TEST account, so step 5 can read the account's open orders from Edge and show the position box placed none.
 //
-// Gaps this draft does not close: the brush needs the owner's point cap set on this workbench (a TEST value); until it is,
-// step 4's stroke is refused with its typed message and the step fails on purpose. Bar 50 and bar 80 are placed by
-// fraction of the chart's width, so the figures are checked against the stored points, not the bar indexes.
+// The brush needs the owner's point cap on this workbench; the TEST stack sets a TEST value, and with it blank step 4's
+// stroke is refused with its typed message and the step fails. Bar 50 and bar 80 are placed by fraction of the chart's width, so the figures are checked against the stored points, not the bar indexes.
 const J = 'J-charts-desk-06';
 const LEVELS = ['0', '0.236', '0.382', '0.5', '0.618', '0.786', '1'];
 const EXTENSION = ['0', '0.618', '1', '1.618', '2.618'];
@@ -40,15 +41,53 @@ async function select(row, name) {
 }
 const ms = (t) => Date.parse(`${t.replace(' ', 'T')}:00Z`);
 
+/** Drags from one pixel to another with the mouse, in a few steps (a handle drag on the chart). */
+async function drag(from, to) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 6 });
+  await page.mouse.up();
+}
+
+/** The drawings this device keeps for the workbench's market, as stored (`charts-drawings:<user>:<workbench>:<symbol>`). */
+const storedDrawings = () =>
+  page.evaluate(() => {
+    const market = document.querySelector('.cw-page[data-market]')?.getAttribute('data-market');
+    if (!market) throw new Error('the workbench names no market');
+    return Object.keys(localStorage)
+      .filter((key) => key.startsWith('charts-drawings:') && key.endsWith(`:${market}`))
+      .flatMap((key) => JSON.parse(localStorage.getItem(key) ?? '{}').drawings ?? []);
+  });
+
+/** Where the chart draws a selected drawing's handle now, in page pixels (`readDrawnLines`). */
+async function handleAt(row, index) {
+  const id = await row.getAttribute('data-drawing-id');
+  const host = page.getByTestId('cw').getByTestId('wc-host');
+  const read = () =>
+    host.evaluate(
+      (el, [want, at]) =>
+        el
+          .readDrawnLines?.()
+          .find((d) => d.id === want)
+          ?.handles.find((h) => h.index === at) ?? null,
+      [id, index],
+    );
+  await expect.poll(read, `drawing ${id} shows handle ${index}`).not.toBeNull();
+  const [h, box] = [await read(), await host.boundingBox()];
+  return { x: box.x + h.x, y: box.y + h.y };
+}
+
 /** Test arithmetic only: the expected figure at two decimals, for the fixture's own points. */
 const cents = (value) => (Math.round(value * 100) / 100).toFixed(2);
 
 test.describe.configure({ mode: 'serial' });
 
 let page;
+let who;
 test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   page = await context.newPage();
+  who = await signUp(page, 'jcd06');
   await openWorkbench(page);
 });
 test.afterAll(async () => {
@@ -192,9 +231,48 @@ test(`${J} #4 draws a pattern and a shape, and uses the brush: each is stored an
   await expect(rows(page)).toHaveCount(count - 1);
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(pointText(rowNamed(page, /^Brush \d+$/))).toHaveText(stroke);
+  // Editable like any drawing: dragging the stroke's first point moves that point only, as the pattern's did. The brush
+  // stays the active tool after a stroke (a press with it draws another), so the person takes Select first.
+  await pick(page, 'Select');
+  await select(brush, /^Brush \d+$/);
+  const strokeBefore = pricesOf(stroke);
+  const first = await handleAt(brush, 0);
+  await drag(first, { x: first.x, y: first.y - 30 });
+  await expect.poll(async () => pricesOf(await pointText(brush).textContent())[0]).not.toBe(strokeBefore[0]);
+  const strokeAfter = pricesOf(await pointText(brush).textContent());
+  expect(strokeAfter.slice(1), 'the other points of the stroke stay where they were').toEqual(strokeBefore.slice(1));
+
+  // Stored: each of the three, with its edit, is in this device's drawing store, and a reload brings it back exactly.
+  const edited = {};
+  for (const row of [pattern, ellipse, brush]) edited[await row.getAttribute('data-drawing-id')] = await pointText(row).textContent();
+  const kept = await storedDrawings();
+  for (const [kind, id] of [
+    ['pattern', await pattern.getAttribute('data-drawing-id')],
+    ['ellipse', await ellipse.getAttribute('data-drawing-id')],
+    ['brush', await brush.getAttribute('data-drawing-id')],
+  ]) {
+    const d = kept.find((x) => x.id === id);
+    expect(d?.kind, `the ${kind} is in the device store`).toBe(kind);
+  }
+  const storedBrush = kept.find((x) => x.kind === 'brush');
+  expect(
+    storedBrush.points.map((p) => cents(Number(p.price))),
+    'the stored stroke is the edited one',
+  ).toEqual(strokeAfter.map((price) => cents(Number(price))));
+  await openWorkbench(page);
+  for (const [id, text] of Object.entries(edited)) {
+    await expect(pointText(page.locator(`[data-drawing-id="${id}"]`)), `drawing ${id} after a reload`).toHaveText(text);
+  }
 });
 
 test(`${J} #5 places a long position box with entry, stop and target: the risk to reward and the distances, and no order`, async () => {
+  expect(await openOrders(who), 'the fresh account has no open order before the box').toEqual([]);
+  const orderWrites = [];
+  const watch = (req) => {
+    if (req.method() !== 'GET' && /\/(orders|order)\b|trpc\/[^?]*order/i.test(new URL(req.url()).pathname))
+      orderWrites.push(`${req.method()} ${req.url()}`);
+  };
+  page.on('request', watch);
   await pick(page, 'Long position');
   await clickPlot(page, 0.3, 0.5);
   await clickPlot(page, 0.4, 0.6);
@@ -202,6 +280,7 @@ test(`${J} #5 places a long position box with entry, stop and target: the risk t
   const box = rowNamed(page, /^Long position \d+$/);
   const [entry, stop, target] = pricesOf(await pointText(box).textContent()).map(Number);
   const lines = await figureLines(box).allTextContents();
+  page.off('request', watch);
   // The distances: risk is entry minus stop and reward is target minus entry, at the tick, each with its percent of the
   // entry; then the reward to risk ratio; and no order is placed.
   const [risk, reward] = [entry - stop, target - entry];
@@ -214,6 +293,9 @@ test(`${J} #5 places a long position box with entry, stop and target: the risk t
   const ratio = /^Reward to risk (\d+\.\d{2})$/.exec(lines[2]);
   expect(ratio && atCents(ratio[1], reward / risk), `${lines[2]} (worked ${reward / risk})`).toBe(true);
   expect(lines[3]).toContain('places no order');
+  // No order exists: the page sent nothing to an order route, and the account's open orders on Edge are still none.
+  expect(orderWrites, 'requests to an order route while the box was placed').toEqual([]);
+  expect(await openOrders(who), "the account's open orders after the position box").toEqual([]);
 });
 
 test(`${J} #6 measures between two bars and two prices: the bars, the price difference at the tick and the time span`, async () => {
