@@ -44,7 +44,7 @@ test(`${J} #6 Connected apps and API access lists both keys with prefix, permiss
     expect(keys.map((k) => k.name).sort()).toEqual(['app-one', 'app-two']);
     const table = page.getByTestId('api-keys__table');
     await expect(table.getByRole('row')).toHaveCount(3);
-    await expect(table.getByRole('columnheader').nth(4)).toHaveText('Permissions');
+    await expect(table.getByRole('columnheader').nth(3)).toHaveText('Permissions');
     await expect(table.getByRole('columnheader').nth(8)).toHaveText('State');
     for (const [name, key] of [
       ['app-one', first],

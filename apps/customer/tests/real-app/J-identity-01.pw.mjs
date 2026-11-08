@@ -155,7 +155,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   // Under-age: identity's own answer is a typed refusal (the stack's TEST minimum age is 18), the page shows it in plain
   // words with its code, the code step never opens, no code is mailed for this sign-up and no account exists.
   const young = await signUpStart(who, { dateOfBirth: '2015-01-01' });
-  expect(young.status).toBe(400);
+  expect(young.status).toBe(403);
   expect(young.code).toBe('identity.underage');
   expect(young.message).toBe('You must be at least 18 to open an account.');
   let first = outbox();
@@ -168,7 +168,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
 
   // A blocked country (AQ, closed on the stack's TEST owner list): the same, by its own code.
   const blocked = await signUpStart(who, { country: 'AQ' });
-  expect(blocked.status).toBe(400);
+  expect(blocked.status).toBe(403);
   expect(blocked.code).toBe('identity.region_blocked');
   expect(blocked.message).toBe('We cannot open accounts for this country right now.');
   first = outbox();

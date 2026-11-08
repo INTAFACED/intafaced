@@ -577,7 +577,11 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   // the month to its hard limit; the second is then refused with the hard limit's code before the engine. With the
   // engine held, the refused run is recorded while the admitted one waits at the engine; let go, the run in flight
   // finishes with its reply and is charged.
-  await ask.fill('TEST question within the limit');
+  // "Run twice at once" is on the agent's Test page.
+  await pages(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question within the limit');
   await withEngineHeld(async (engineCalls) => {
     await session(page).getByRole('button', { name: 'Run twice at once' }).click();
     await expect.poll(engineCalls, { message: 'the admitted run reaches the engine' }).toBe(1);
