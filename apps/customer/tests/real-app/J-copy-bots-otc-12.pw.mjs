@@ -230,7 +230,6 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   run.reset({ tag, leader, leaderName, leaderRef, follower, paused: [] });
   await signIn(page, follower);
   const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
-  hold();
   // PLANTED FAULT (probe only): the maker jumps 1% up right after the lead fill, before the mirror lands.
   await takeBest(leader, 'buy', '0.001', `${J}-1-a-${tag}`);
   tool('local-test-market.mjs', 'move', 'BTC/USDT', '+1%');
@@ -241,7 +240,6 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   run.write({ followId });
   const holding = (await (await api(follower)).balances()).BTC.total;
   expect(toUnits(holding), 'the copied buy is held').toBeGreaterThan(0n);
-  release();
 
   const { request } = await twoFounders(browser, pauseScope('lead', leaderRef));
   expect(request).toMatchObject({ op: 'pause', scope: { kind: 'lead', value: leaderRef } });
