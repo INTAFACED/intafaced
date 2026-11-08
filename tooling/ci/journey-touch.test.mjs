@@ -87,6 +87,14 @@ test('pathKind: what needs the full run, what touches only its own journey file,
   assert.equal(pathKind('apps/customer/tests/real-app/registry-blockers.pw.mjs').kind, 'full');
 });
 
+test('a path with a control character is full and is printed without it (no workflow command from a file name)', () => {
+  const evil = 'apps/customer/tests/real-app/J-a-01\n::error::x.pw.mjs';
+  assert.equal(pathKind(evil).kind, 'full');
+  const t = journeyTouch([evil]);
+  assert.equal(t.mode, 'full');
+  assert.equal(t.full[0].path.includes('\n'), false);
+});
+
 test('journeyTouch: the most demanding path decides; a removed journey file runs nothing', () => {
   assert.deepEqual(journeyTouch(['.github/workflows/ci.yml']), { mode: 'none', full: [], files: [] });
   assert.deepEqual(journeyTouch([]), { mode: 'none', full: [], files: [] });

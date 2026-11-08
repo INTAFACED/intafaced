@@ -35,7 +35,11 @@ import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
 
 /** A journey test file the Real-app journeys run runs by name: directly in the real-app folder, ending `.pw.mjs`. */
-export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([^/]+\.pw\.mjs)$/;
+export const RUN_FILE = /^apps\/customer\/tests\/real-app\/([A-Za-z0-9._-]+\.pw\.mjs)$/;
+
+/** A changed path as printed in a log line: a pull request names its own paths, so a control character (a newline that
+ *  would start a workflow command) is shown as `?`, never written. */
+export const printable = (p) => String(p).replace(/[\u0000-\u001f\u007f]/g, '?');
 
 /** The CI checks under tooling/ci that the journeys run executes or imports (real-app-journeys.yml, the seal, Main
  *  trust's post-merge job). A change to one of them changes how a journeys run is judged, so it needs the full run. */
@@ -104,7 +108,7 @@ export function journeyTouch(paths, atHead = () => true) {
   const files = new Set();
   for (const p of [...new Set(paths ?? [])].sort()) {
     const k = pathKind(p);
-    if (k.kind === 'full') full.push({ path: p, why: k.why });
+    if (k.kind === 'full') full.push({ path: printable(p), why: k.why });
     else if (k.kind === 'file' && atHead(p)) files.add(k.file);
   }
   const list = [...files].sort();
