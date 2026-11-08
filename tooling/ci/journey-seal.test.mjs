@@ -19,6 +19,7 @@ import {
   judgeSteps,
   mainReference,
   splitInherited,
+  areaOf,
   RANGE_MAX,
   pullFilePaths,
   sharedPulls,
@@ -1121,6 +1122,7 @@ const range =
 
 test('C1 planted: a red main already had, outside the pull request area, stops no one; inside it, it stops', async () => {
   const out = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef(),
     touches: area([], ['services/svc-support/src/chat.ts']),
@@ -1129,12 +1131,13 @@ test('C1 planted: a red main already had, outside the pull request area, stops n
   assert.deepEqual(out.blocking, [], 'outside its journey and its break range: passed over');
   assert.match(
     out.passed[0].why,
-    /main's run 50 on cccccccccc has it red too; its area is J-wallet-05 and the 1 package\(s\) changed in dddddddddd\.\.cccccccccc \(services\/svc-wallet\)/,
+    /main's run 50 on cccccccccc has it red too; its area is J-wallet-05 and what 3 commit\(s\) in dddddddddd\.\.cccccccccc changed \(services\/svc-wallet\)/,
   );
-  const byJourney = await splitInherited({ red: redW, main: mainRef(), touches: area(['J-wallet-05']), rangeOf: range() });
+  const byJourney = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area(['J-wallet-05']), rangeOf: range() });
   assert.equal(byJourney.blocking.length, 1, 'a pull request touching its journey is stopped');
   assert.match(byJourney.blocking[0].why, /inherited from main's run 50 .*touches J-wallet-05/);
   const byCode = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef(),
     touches: area([], ['services/svc-wallet/src/send.ts']),
@@ -1143,9 +1146,10 @@ test('C1 planted: a red main already had, outside the pull request area, stops n
   assert.equal(byCode.blocking.length, 1, 'a pull request changing a file its break range changed is stopped');
   assert.match(
     byCode.blocking[0].why,
-    /changes services\/svc-wallet\/src\/send\.ts, in services\/svc-wallet, which a commit in dddddddddd\.\.cccccccccc/,
+    /changes services\/svc-wallet\/src\/send\.ts \(services\/svc-wallet\), which a commit in dddddddddd\.\.cccccccccc/,
   );
   const samePackage = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef(),
     touches: area([], ['services/svc-wallet/src/other.ts']),
@@ -1153,6 +1157,7 @@ test('C1 planted: a red main already had, outside the pull request area, stops n
   });
   assert.equal(samePackage.blocking.length, 1, 'another file of a package its break range changed is in its area (AGENTS.md floor 5)');
   const root = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef(),
     touches: area([], ['pnpm-lock.yaml']),
@@ -1163,24 +1168,37 @@ test('C1 planted: a red main already had, outside the pull request area, stops n
 
 test('C1 planted: a red new on the head always stops it, whatever main has', async () => {
   const mine = [{ step: 'J-bank-13#1', why: 'failing, not in the baseline' }, ...redW];
-  const out = await splitInherited({ red: mine, main: mainRef(), touches: area(), rangeOf: range() });
+  const out = await splitInherited({ upTo: MAIN_SHA, red: mine, main: mainRef(), touches: area(), rangeOf: range() });
   assert.deepEqual(
     out.blocking.map((x) => x.step),
     ['J-bank-13#1'],
     'green on main, red here: this head broke it',
   );
-  const input = await splitInherited({ red: [{ step: '(input)', why: 'x' }], main: mainRef(), touches: area(), rangeOf: range() });
+  const input = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: '(input)', why: 'x' }],
+    main: mainRef(),
+    touches: area(),
+    rangeOf: range(),
+  });
   assert.equal(input.blocking.length, 1, 'an unreadable input is never inherited');
 });
 
 test('C1 planted: a red that cannot be bounded stops every pull request', async () => {
-  const none = await splitInherited({ red: redW, main: null, touches: area(), rangeOf: range() });
+  const none = await splitInherited({ upTo: MAIN_SHA, red: redW, main: null, touches: area(), rangeOf: range() });
   assert.equal(none.blocking.length, 1, 'no main run in the head history: every red counts');
-  const blind = await splitInherited({ red: redW, main: mainRef({ problems: ['history unreadable'] }), touches: area(), rangeOf: range() });
+  const blind = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef({ problems: ['history unreadable'] }),
+    touches: area(),
+    rangeOf: range(),
+  });
   assert.equal(blind.blocking.length, 1, 'main run with an unreadable input: every red counts');
-  const wide = await splitInherited({ red: redW, main: mainRef(), touches: area(), rangeOf: range(['a'], RANGE_MAX + 1) });
+  const wide = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area(), rangeOf: range(['a'], RANGE_MAX + 1) });
   assert.match(wide.blocking[0]?.why ?? '', /can't be bounded \(101 commits/);
   const err = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef(),
     touches: area(),
@@ -1188,6 +1206,7 @@ test('C1 planted: a red that cannot be bounded stops every pull request', async 
   });
   assert.match(err.blocking[0]?.why ?? '', /can't be bounded \(HTTP 404\)/);
   const short = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef(),
     touches: area(),
@@ -1195,6 +1214,7 @@ test('C1 planted: a red that cannot be bounded stops every pull request', async 
   });
   assert.equal(short.blocking.length, 1, 'a file list GitHub cut short');
   const noSha = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef({ lastPass: { 'J-wallet-05#3': '' } }),
     touches: area(),
@@ -1202,6 +1222,7 @@ test('C1 planted: a red that cannot be bounded stops every pull request', async 
   });
   assert.equal(noSha.blocking.length, 1, 'where it last passed is unreadable');
   const never = await splitInherited({
+    upTo: MAIN_SHA,
     red: redW,
     main: mainRef({ lastPass: { 'J-wallet-05#3': null } }),
     touches: area(),
@@ -1257,6 +1278,7 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
     verdictOf: async (_rep, r) => (r.id === 50 ? mainVerdict : dirty),
     mainRuns: async () => [mainRun(50)],
     contains: async (sha, head) => sha === MAIN_SHA && head === HEAD,
+    mergeBase: async (base, head) => (base === MAIN_SHA && head === HEAD ? MAIN_SHA : null),
     rangeOf: async () => ({ files: rangeFiles, commits: 2, short: false }),
   });
   const outside = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'] }) });
@@ -1331,4 +1353,75 @@ test('C1: fullVerdict says where each red step last passed on main', () => {
     read,
   });
   assert.deepEqual(v.lastPass, { 'J-a-01#1': PASS_SHA, 'J-a-01#2': MAIN_SHA, 'J-a-01#3': null });
+});
+
+test('C1 review round 0: a flake on one commit, a reason main lacks, a re-run of an older main run, and areas', async () => {
+  const flake = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': MAIN_SHA } }),
+    touches: area([], ['services/svc-wallet/src/send.ts']),
+    rangeOf: async () => assert.fail('no compare for an empty range'),
+  });
+  assert.equal(flake.blocking.length, 0, 'last passed on the commit it now fails on: no commit broke it, its journey is its area');
+  const other = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: 'J-wallet-05#3', why: 'the baseline says money false, the money rule at this commit says true' }],
+    main: mainRef(),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(other.blocking.length, 1, 'red for a reason main does not have: not inherited');
+  const numbers = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: 'J-wallet-05#3', why: 'called unbuilt, but passed on main in run 1990' }],
+    main: mainRef({ red: new Map([['J-wallet-05#3', 'called unbuilt, but passed on main in run 1981']]) }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(numbers.blocking.length, 0, 'the same reason read from two runs differs only in run numbers');
+  const noTip = await splitInherited({ upTo: null, red: redW, main: mainRef(), touches: area(), rangeOf: range() });
+  assert.equal(noTip.blocking.length, 1, 'the newest main commit the head holds unreadable: unbounded');
+  const fixTried = await splitInherited({
+    upTo: 'e'.repeat(40),
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-fees/src/a.ts']),
+    rangeOf: async (from, to) => ({ files: to === 'e'.repeat(40) ? ['services/svc-fees/src/b.ts'] : [], commits: 4, short: false }),
+  });
+  assert.equal(fixTried.blocking.length, 1, 'the range runs to the newest main commit the head holds, past the reference run');
+  // A journey test file in the break range is only its own journey's area; a path no journeys run reads is none.
+  assert.equal(areaOf('apps/customer/tests/real-app/J-bank-13.pw.mjs'), 'journey J-bank-13');
+  assert.equal(areaOf('apps/customer/src/features/more/Support.tsx'), 'apps/customer');
+  assert.equal(areaOf('.github/workflows/ci.yml'), null);
+  assert.equal(areaOf('services/svc-bank/src/a.test.ts'), null);
+  assert.equal(areaOf('pnpm-lock.yaml'), 'pnpm-lock.yaml');
+  const testEdit = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['apps/customer/src/features/more/Support.tsx', 'tooling/ci/why-red.mjs']),
+    rangeOf: range(['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'tooling/ci/why-red.mjs', 'apps/customer/src/x.test.ts']),
+  });
+  assert.equal(testEdit.blocking.length, 0, 'a test edit of another journey and CI-only paths in the range stop no customer pull request');
+  // A re-run attempt of an older main run started last is still older than a later run.
+  const reps = { 60: { ok: 1 }, 61: { ok: 1 } };
+  const ref = await mainReference({
+    repo: REPO,
+    mainRuns: [
+      mainRun(60, { run_number: 1700, created_at: '2026-11-06T01:00:00Z', run_started_at: '2026-11-06T09:00:00Z', run_attempt: 2 }),
+      mainRun(61, { run_number: 1720, created_at: '2026-11-06T05:00:00Z', run_started_at: '2026-11-06T05:00:00Z' }),
+    ],
+    contains: async () => true,
+    reportOf: async (r) => reps[r.id],
+    verdictOf: async () => ({ red: [], missing: [], lastPass: {} }),
+  });
+  assert.equal(ref.run.id, 61, 'by creation, not by the newest attempt start');
+});
+
+test('C1: a path a pull request names is printed with its control characters shown as ?, never written', async () => {
+  const evil = 'services/svc-wallet/x\n::error::forged.ts';
+  const out = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area([], [evil]), rangeOf: range() });
+  assert.equal(out.blocking.length, 1);
+  assert.doesNotMatch(out.blocking[0].why, /\n/);
 });

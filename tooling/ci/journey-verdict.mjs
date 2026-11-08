@@ -218,9 +218,12 @@ export function passesSince(reports) {
 
 /** The finished runs on main to read for the history: after the named run, before this one, never cancelled or skipped,
  *  only main's own (a fork's branch named main reports head_branch "main" too). */
+/** One of main's own runs: on main, from this repository (a fork's branch named main reports head_branch "main" too), and
+ *  started by a push, the schedule or a dispatch, not a pull request. */
+export const isMainRun = (r, repo) => r?.head_branch === 'main' && r?.head_repository?.full_name === repo && MAIN_EVENTS.has(r?.event);
 export function historyRuns(runs, { repo, namedCreated, thisCreated, thisId }) {
   return runs
-    .filter((r) => r.id !== thisId && r.head_branch === 'main' && r.head_repository?.full_name === repo && MAIN_EVENTS.has(r.event))
+    .filter((r) => r.id !== thisId && isMainRun(r, repo))
     .filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
     .filter((r) => r.created_at > namedCreated && r.created_at < thisCreated)
     .sort((a, b) => a.run_number - b.run_number);
