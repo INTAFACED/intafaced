@@ -82,16 +82,32 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
 
     // The run in flight stops at its next step, and a new session of the agent is refused as disabled. The Runs panel
     // reads the runs once when it opens, and the next step boundary (one AGENTS_BACKGROUND_STEP_MS tick) can come just
-    // after that read; so the panel is read again until the boundary has passed. A run that never stops still reads
-    // "Running" on every read and fails here.
+    // after that read (#7517's run 42455921357: still Running on a read made after the quarantine). So the panel is read
+    // again until the run reads stopped, and the stop is held to steps, not time: read after the quarantine committed,
+    // the run may take at most the one step a tick that read the switch before the commit could still take.
+    const runsRead = () => own.waitForResponse((r) => r.url().includes('/api/agents/trpc/own.backgroundRuns'));
+    const newestRun = async (response) => {
+      const body = await response.json();
+      return (body?.result?.data?.json ?? body?.result?.data)?.[0];
+    };
+    const firstRead = runsRead();
     await openOwnAgent(own, agents, 'Runs');
+    const atQuarantine = await newestRun(await firstRead);
+    expect(atQuarantine?.stepsDone, 'the run in flight, read after the quarantine').toEqual(expect.any(Number));
+    let latest = atQuarantine;
     await expect(async () => {
-      await own.reload();
-      await own.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Runs', exact: true }).click();
-      await expect(tableIn(own.getByRole('main'), 'Live runs').getByRole('row').nth(1)).toContainText('Stopped: agent quarantined', {
-        timeout: 2_000,
-      });
-    }).toPass({ timeout: 20_000 });
+      if (latest.state !== 'stopped') {
+        const read = runsRead();
+        await own.reload();
+        await own.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Runs', exact: true }).click(UNBUILT);
+        latest = await newestRun(await read);
+      }
+      expect(latest.state).toBe('stopped');
+    }).toPass({ timeout: 10_000 });
+    expect(latest.id, 'the same run').toBe(atQuarantine.id);
+    expect(latest.stopCode).toBe('agents.agent.quarantined');
+    expect(latest.stepsDone, 'it stopped at its next step, not later').toBeLessThanOrEqual(atQuarantine.stepsDone + 1);
+    await expect(tableIn(own.getByRole('main'), 'Live runs').getByRole('row').nth(1)).toContainText('Stopped: agent quarantined');
     await own.getByRole('main').getByRole('button', { name: 'Open a session' }).click({ force: true });
     await expect(own.getByRole('main').getByRole('alert')).toContainText('agents.agent.disabled');
   } finally {
