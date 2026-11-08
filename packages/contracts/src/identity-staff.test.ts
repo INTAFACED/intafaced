@@ -35,7 +35,7 @@ const perms = (...list: auth.StaffPermission[]): auth.StaffPermission[] => list;
 /** The overloads take one action at a time; a loop over every action goes through the implementation signature. */
 const anySubject = staffChangeApprovalSubject as (action: IdentityStaffActionType, input: unknown) => StaffChangeApprovalSubject;
 const HASH = `sha256:${'a'.repeat(64)}`;
-const approval = { approvalId: 'appr-1', payloadHash: HASH };
+const approval = { approvalId: 'appr-1', operationId: 'op-1', payloadHash: HASH };
 
 const entry = {
   staffId: 'staff-1',
