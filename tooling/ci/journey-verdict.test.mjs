@@ -613,6 +613,7 @@ test('off main the set-aside excuses nothing: a branch or targeted run with a ca
   assert.ok(freeStep, 'a real step the guard allows to be set aside');
   assert.equal(cli({ ref: 'refs/heads/main' }), 0, 'on main the carried entry keeps the failure out of the red (the control)');
   assert.equal(cli({ ref: 'refs/heads/feature' }), 1, 'a branch run');
+  assert.equal(cli({}), 1, 'a run that does not say it is on main (no GITHUB_REF)');
   assert.equal(cli({ ref: 'refs/pull/7363/merge' }), 1, 'a pull request run');
   assert.equal(cli({ ref: 'refs/heads/main', target: `${freeStep.split('#')[0]}.pw.mjs` }), 1, 'a targeted run');
   assert.deepEqual(excusedSetAside({ setAside: { a: 1 }, onMain: false, incomplete: false }), {});

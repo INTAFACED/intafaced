@@ -651,8 +651,10 @@ function main() {
     incomplete = true;
     problem(`the last run on main's set-aside list couldn't be read: ${e.message.split('\n')[0]}`);
   }
-  // On main only: a branch run or a targeted run neither adds to the list nor is excused by it.
-  const onMain = !target && (process.env.GITHUB_REF ?? (fetch ? null : MAIN_REF)) === MAIN_REF;
+  // On main only: a branch run or a targeted run neither adds to the list nor is excused by it, and neither is a run
+  // that doesn't say it is on main (GITHUB_REF unset: never main). An offline run (--prior-set-aside) feeds nothing on
+  // main either: the next run on main reads its list only from a run on main's own artifact (priorSetAside, --fetch).
+  const onMain = !target && process.env.GITHUB_REF === MAIN_REF;
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};
