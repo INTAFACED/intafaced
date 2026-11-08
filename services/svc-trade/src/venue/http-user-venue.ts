@@ -188,12 +188,9 @@ export class HttpUserVenue implements UserVenue {
     }
     switch (answer.failure.kind) {
       case 'not_sent':
-        return {
-          definite: true,
-          accepted: false,
-          refusal: { venueId: this.venue.id, code: 'venue_down', detail: `nothing was sent: ${answer.failure.detail}` },
-          asOf: new Date(),
-        };
+        // Nothing reached the venue on THIS attempt, but the same signed bytes may have landed on an earlier one: that
+        // is no answer about the action, so it is the venue being down (nothing recorded), never a definite refusal.
+        throw this.down(`${this.venue.displayName}: /submit: nothing was sent on this attempt: ${answer.failure.detail}`);
       case 'timeout':
         return { definite: false, reason: 'timeout' };
       case 'connection_lost':
