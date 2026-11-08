@@ -173,6 +173,49 @@ export const ownAgentRuleSchema = z.object({
 });
 export type OwnAgentRule = z.infer<typeof ownAgentRuleSchema>;
 
+/**
+ * `own.policy.*` (AG-spend-02, J-agents-08 #1): the person's allow and deny rules for what their agent may do, by action
+ * and account scope. A deny at any scope wins whatever order the rules were written in; on an agent that requires rules,
+ * an action no rule allows is refused. The rules only narrow: they never move value and an agent never writes them.
+ */
+export const OWN_AGENT_POLICY_EFFECTS = ['allow', 'deny'] as const;
+export type OwnAgentPolicyEffect = (typeof OWN_AGENT_POLICY_EFFECTS)[number];
+export const OWN_AGENT_POLICY_ACTIONS = ['place_order', 'cancel_order', 'amend_order'] as const;
+export type OwnAgentPolicyAction = (typeof OWN_AGENT_POLICY_ACTIONS)[number];
+/** `all` covers every account of the person's; `main` is their main account. */
+export const OWN_AGENT_POLICY_SCOPES = ['all', 'main'] as const;
+export type OwnAgentPolicyScope = (typeof OWN_AGENT_POLICY_SCOPES)[number];
+/** What the rules decide for one action on one account: refused by a deny, allowed by an allow, refused because rules
+ * are required and none allows it, or open because no rule touches it and rules are not required. */
+export const OWN_AGENT_POLICY_OUTCOMES = ['denied', 'allowed', 'no_match_refused', 'no_rule'] as const;
+export type OwnAgentPolicyOutcome = (typeof OWN_AGENT_POLICY_OUTCOMES)[number];
+
+export const ownAgentPolicyRuleSchema = z.object({
+  id: z.string().uuid(),
+  effect: z.enum(OWN_AGENT_POLICY_EFFECTS),
+  action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+  scope: z.enum(OWN_AGENT_POLICY_SCOPES),
+  createdAt: z.string(),
+});
+export type OwnAgentPolicyRule = z.infer<typeof ownAgentPolicyRuleSchema>;
+
+export const ownAgentPolicyDecisionSchema = z.object({
+  action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+  account: z.literal('main'),
+  outcome: z.enum(OWN_AGENT_POLICY_OUTCOMES),
+  /** The rule that decided it, or null when no rule did. */
+  ruleId: z.string().uuid().nullable(),
+});
+export type OwnAgentPolicyDecision = z.infer<typeof ownAgentPolicyDecisionSchema>;
+
+/** The stored rules, whether rules are required, and the service's decision for each action on the main account. */
+export const ownAgentPolicySchema = z.object({
+  rulesRequired: z.boolean(),
+  rules: z.array(ownAgentPolicyRuleSchema),
+  decisions: z.array(ownAgentPolicyDecisionSchema),
+});
+export type OwnAgentPolicy = z.infer<typeof ownAgentPolicySchema>;
+
 /** `own.consents.*`: the person's consent to one class of tools for one agent; a withdrawn one keeps its revoke time. */
 export const ownAgentConsentSchema = z.object({
   dataClass: z.enum(OWN_AGENT_DATA_CLASSES),
