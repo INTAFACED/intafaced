@@ -4,95 +4,106 @@
  * pull request runs the whole suite because nothing says which journeys its code reaches). This file only records; the
  * map and its use in the merge seal are separate changes.
  *
- * One record per test, attached to the Playwright report as `journey-reach` (application/json), holding only what this
+ * The record goes into the Playwright report, which a public repository's run uploads for anyone to read. So it holds
+ * only values from fixed lists or of a fixed shape, never text a request, a log or a page supplied: an allow-list, since
+ * a deny-list fails open. One record per test, attached as `journey-reach` (application/json), holding only what this
  * worker had not attached for the same journey file yet:
- *   - http: every request a journey's Node code or its browser pages sent, and every WebSocket they opened, as
- *     `<port> <METHOD> <path template>` (ids, hashes, addresses and numbers in the path read `:id`; no query, no host,
- *     no body), so a port names a service of the stack and a path an Edge route;
- *   - served: what each service of the stack logged that it served while the file ran, as `<service> <METHOD> <path
- *     template>`, read from the stack's own logs (`<state>/logs/<service>.log`, Fastify's `incoming request` lines at
- *     the stack's LOG_LEVEL info), so a call from one service to another counts too. A line goes to the journey file
- *     that was running at the line's own time, so a write that lands late still counts for the right file. Background
- *     work (the TEST market maker, pollers) counts for whichever file runs: more reach, never less;
+ *   - http: `<port> <METHOD>` for each request a journey's Node code or its pages sent to the stack (loopback), with
+ *     ` <route>` added when the path is under one of Edge's own route prefixes (`/api/bank`; routeTable, read from
+ *     services/svc-edge/src/routes.ts): a port names a stack service, a prefix an Edge route. Nothing else of the URL;
+ *   - served: `<service>` for each service whose own log (`<state>/logs/<service>.log`, Fastify's `incoming request`
+ *     lines at the stack's LOG_LEVEL info) shows it served a request while the file ran, with ` <route>` on the same
+ *     terms; so a call from one service to another counts. A line goes to the journey file running at the line's own
+ *     time, so a write that lands late still counts for the right file. Background work (the TEST market maker,
+ *     pollers) counts for whichever file runs: more reach, never less;
  *   - active: the services that logged anything at all while the file ran (an event handler that serves no request);
- *   - chunks: the customer app's scripts each page ran, by their path in the build (`/assets/index-1a2b.js`);
- *   - sources: for each source file of the customer app (and the packages it bundles), the line ranges of the functions
- *     that ran at least once, read from Chromium's precise coverage and mapped back through the build's hidden source
- *     maps (`vite build` with INTAFACED_SOURCEMAP=hidden, set by the local test stack);
- *   - table: the first time this worker sees a chunk, the source files its map lists (a chunk that loaded evaluated every
- *     module in it);
- *   - nomap: the first time this worker sees one, a script that ran and was built with no map (the boot script, the
- *     bundler's runtime, prebuilt vendor code). Its sources are in no table, so the map reads them as unmapped: full;
- *   - afterAll: true on the record that carries a file's afterAll hooks' requests (attached by the next file's first
- *     test, since a hook after the last test has no test to attach to; a file with afterAll hooks and no such record, the
- *     last in its shard, is read as incomplete by the map);
- *   - incomplete: why this test's record can't be read as whole, when it can't (a page the app opened by itself, a page
- *     closed before its coverage was read, a script with no map, a coverage read that failed). A map built from records
- *     treats an incomplete journey as reaching every source.
+ *   - chunks: the customer app's built scripts that loaded (`/assets/index-1a2b.js`; built file names only);
+ *   - sources: for each repository source file of the customer app (and the packages it bundles), the line ranges of the
+ *     functions that ran, from Chromium's precise coverage, placed through the build's reduced position maps;
+ *   - table: the first time this worker sees a chunk, the repository source paths its map lists;
+ *   - nomap: the first time this worker sees one, a built script that ran and has no position map (the boot script, the
+ *     bundler's runtime, vendor code). Its sources are in no table, so the map reads them as unmapped: full;
+ *   - afterAll: true on the record that carries a file's afterAll hooks' reach (attached by the next file's first test);
+ *   - incomplete: reason codes (INCOMPLETE) for what this record can't see whole. The map treats an incomplete journey
+ *     as reaching every source.
+ *
+ * The position maps: the stack's customer build writes Vite's hidden source maps, and reduceMaps turns each into
+ * `<script>.positions.json` (repository source paths and generated-to-source line positions, no source text) and deletes
+ * the `.map`, before anything packs or serves the build. No `.map` file and no source content leaves the build step.
  * Recording never changes a request or a page, and never fails a test.
  */
-import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 export const REACH_ATTACHMENT = 'journey-reach';
-export const REACH_VERSION = 1;
+export const REACH_VERSION = 2;
+export const POSITIONS_SUFFIX = '.positions.json';
 
-// ---- URLs ----
+/** The only reasons a record may give for being incomplete. */
+export const INCOMPLETE = {
+  popup: 'the app opened a page by itself; its first scripts ran before coverage started',
+  closed: 'a page closed before its coverage was read',
+  detached: 'a page lost its coverage session before it was read',
+  noStart: 'coverage could not start on a page',
+  noRead: "a page's coverage could not be read",
+  notBuilt: 'a customer script ran that the build on disk does not hold',
+  otherBuild: 'a customer script ran whose length differs from the build on disk (another build served)',
+  badMap: "a customer script's position map could not be read",
+};
 
+const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'WS']);
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+const SERVICE = /^[a-z][a-z0-9-]{0,39}$/;
+const BUILT_SCRIPT = /^\/assets\/[A-Za-z0-9._-]{1,120}\.js$/;
+const REPO_SOURCE = /^(apps|packages|services)\/[A-Za-z0-9._@/-]{1,300}$/;
 
-const ID_SEGMENT =
-  /^(?:\d+|[0-9a-f]{8,}|0x[0-9a-fA-F]+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[A-Za-z0-9_-]{20,}|[^@/]+@[^@/]+|[A-Z0-9]{2,}[-_][A-Z0-9][-_A-Z0-9]*|.*\d.*\d.*\d.*)$/;
-
-/** A built or static file (`index-1a2b.js`, `font.woff2`): the scripts a page ran are recorded as chunks, not paths. */
-const STATIC_FILE = /\.(?:js|mjs|css|map|woff2?|ttf|otf|svg|png|jpe?g|gif|webp|ico|webm|mp4|json|txt|html)$/i;
-
-/** A path's template: a built or static file reads `:file`, and a segment that looks like an id, a hash, an address, an email or holds three digits reads `:id`. */
-export function pathTemplate(pathname) {
-  return (
-    String(pathname || '/')
-      .split('/')
-      .map((s) => {
-        let d = s;
-        try {
-          d = decodeURIComponent(s);
-        } catch {
-          /* kept as written */
-        }
-        if (d && STATIC_FILE.test(d)) return ':file';
-        return d && ID_SEGMENT.test(d) ? ':id' : d.replace(/[\u0000-\u001f\u007f\s]/g, '_');
-      })
-      .join('/') || '/'
-  );
+/** Edge's route prefixes (`/api/bank`), read from its route table: the only path text a record may hold. */
+export function routeTable(root) {
+  try {
+    const text = readFileSync(path.join(root, 'services/svc-edge/src/routes.ts'), 'utf8');
+    return [...new Set([...text.matchAll(/prefix:\s*'(\/api\/[a-z0-9-]+(?:\/[a-z0-9-]+)*)'/g)].map((m) => m[1]))].sort(
+      (a, b) => b.length - a.length,
+    );
+  } catch {
+    return [];
+  }
 }
 
-/** `<port> <METHOD> <template>` for a URL the stack serves (loopback), or null for anything else (a data: URL, an outside host). */
-export function requestKey(url, method = 'GET') {
+/** The longest route prefix a path is under, or null. */
+export const routeOf = (routes, pathname) => {
+  const p = String(pathname ?? '');
+  return routes.find((r) => p === r || p.startsWith(`${r}/`)) ?? null;
+};
+
+const method = (m) => {
+  const u = String(m ?? 'GET').toUpperCase();
+  return METHODS.has(u) ? u : 'OTHER';
+};
+
+/** `<port> <METHOD>[ <route>]` for a URL on the stack (loopback), or null for anything else. */
+export function requestKey(routes, url, m = 'GET') {
   let u;
   try {
     u = new URL(String(url));
   } catch {
     return null;
   }
-  if (!/^(https?|wss?):$/.test(u.protocol)) return null;
-  if (!LOOPBACK.has(u.hostname)) return null;
+  if (!/^(https?|wss?):$/.test(u.protocol) || !LOOPBACK.has(u.hostname)) return null;
   const port = u.port || (/^(https|wss):$/.test(u.protocol) ? '443' : '80');
-  const m = /^wss?:$/.test(u.protocol) ? 'WS' : String(method || 'GET').toUpperCase();
-  return `${port} ${m} ${pathTemplate(u.pathname)}`;
+  if (!/^\d{1,5}$/.test(port)) return null;
+  const r = routeOf(routes, u.pathname);
+  return `${port} ${/^wss?:$/.test(u.protocol) ? 'WS' : method(m)}${r ? ` ${r}` : ''}`;
 }
 
-// ---- Source maps ----
+// ---- Source maps, reduced to positions ----
 
-const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const B64_VAL = new Map([...B64].map((c, i) => [c, i]));
+const B64_VAL = new Map([...'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'].map((c, i) => [c, i]));
 
 /** A source map's `mappings`, decoded: per generated line, [genCol, srcIndex, srcLine (0-based)] sorted by genCol. */
 export function decodeMappings(mappings) {
   const lines = [];
   let src = 0;
   let srcLine = 0;
-  let srcCol = 0;
-  let name = 0;
   for (const lineText of String(mappings ?? '').split(';')) {
     const segs = [];
     let genCol = 0;
@@ -103,7 +114,7 @@ export function decodeMappings(mappings) {
       let value = 0;
       for (const c of seg) {
         const d = B64_VAL.get(c);
-        if (d === undefined) throw new Error(`bad base64 VLQ digit ${JSON.stringify(c)}`);
+        if (d === undefined) throw new Error('bad base64 VLQ digit');
         value += (d & 31) << shift;
         if (d & 32) shift += 5;
         else {
@@ -116,8 +127,6 @@ export function decodeMappings(mappings) {
       if (vals.length >= 4) {
         src += vals[1];
         srcLine += vals[2];
-        srcCol += vals[3];
-        if (vals.length >= 5) name += vals[4];
         segs.push([genCol, src, srcLine]);
       }
     }
@@ -127,33 +136,68 @@ export function decodeMappings(mappings) {
   return lines;
 }
 
-/**
- * A source path as the repository names it (`apps/customer/src/x.tsx`, `packages/ui/src/y.ts`), from a map's `sources`
- * entry resolved against the map's own folder; null for a dependency (node_modules) or anything outside the repository.
- */
+/** A map `sources` entry as the repository path it names (`apps/customer/src/x.tsx`), or null (a dependency, outside). */
 export function repoSource(root, mapFile, source, sourceRoot = '') {
   const abs = path.resolve(path.dirname(mapFile), sourceRoot || '', String(source).replace(/^[a-z]+:\/\/\/?/i, ''));
   const rel = path.relative(root, abs).split(path.sep).join('/');
-  if (rel.startsWith('..') || path.isAbsolute(rel) || rel.split('/').includes('node_modules')) return null;
+  if (rel.startsWith('..') || path.isAbsolute(rel) || rel.split('/').includes('node_modules') || !REPO_SOURCE.test(rel)) return null;
   return rel;
 }
 
-/** One script's text and map, read from the build on disk, ready for offset lookups; or { error }. */
-export function loadScript({ root, distDir, scriptPath }) {
+/**
+ * Every `.map` under a build folder is deleted; each `<script>.js.map` first becomes `<script>.js.positions.json`:
+ * { v: 1, sources: [repository path or null], lines: [[[genCol, srcIndex, srcLine]]] }, positions only, no source text
+ * and no names. A map that can't be read is deleted all the same (its script then has no positions: nomap). Returns
+ * { reduced, dropped }. The stack's customer build runs it straight after `vite build`.
+ */
+export function reduceMaps(root, distDir) {
+  let reduced = 0;
+  let dropped = 0;
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.map')) {
+        try {
+          if (!e.name.endsWith('.js.map')) throw new Error('not a script map');
+          const map = JSON.parse(readFileSync(full, 'utf8'));
+          const out = {
+            v: 1,
+            sources: (map.sources ?? []).map((s) => repoSource(root, full, s, map.sourceRoot)),
+            lines: decodeMappings(map.mappings),
+          };
+          writeFileSync(full.replace(/\.map$/, POSITIONS_SUFFIX), JSON.stringify(out));
+          reduced++;
+        } catch {
+          dropped++;
+        } finally {
+          rmSync(full, { force: true });
+        }
+      }
+    }
+  };
+  if (existsSync(distDir)) walk(distDir);
+  return { reduced, dropped };
+}
+
+/** One built script's text and positions, read from the build on disk: { text, starts, lines, sources }, { noMap },
+ *  or { error: <INCOMPLETE code> }. */
+export function loadScript({ distDir, scriptPath }) {
+  if (!BUILT_SCRIPT.test(scriptPath)) return { error: 'notBuilt' };
   const file = path.join(distDir, scriptPath.replace(/^\/+/, ''));
-  if (!path.resolve(file).startsWith(path.resolve(distDir) + path.sep)) return { error: `outside the build: ${scriptPath}` };
-  if (!existsSync(file)) return { error: `not in the build: ${scriptPath}` };
-  const mapFile = `${file}.map`;
-  if (!existsSync(mapFile)) return { noMap: true, error: `no source map: ${scriptPath}` };
+  if (!path.resolve(file).startsWith(path.resolve(distDir) + path.sep) || !existsSync(file)) return { error: 'notBuilt' };
+  const posFile = `${file}${POSITIONS_SUFFIX}`;
+  if (!existsSync(posFile)) return { noMap: true };
   try {
     const text = readFileSync(file, 'utf8');
-    const map = JSON.parse(readFileSync(mapFile, 'utf8'));
+    const pos = JSON.parse(readFileSync(posFile, 'utf8'));
+    if (pos.v !== 1 || !Array.isArray(pos.lines) || !Array.isArray(pos.sources)) throw new Error('shape');
     const starts = [0];
     for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) starts.push(i + 1);
-    const sources = (map.sources ?? []).map((s) => repoSource(root, mapFile, s, map.sourceRoot));
-    return { text, starts, lines: decodeMappings(map.mappings), sources };
-  } catch (e) {
-    return { error: `unreadable map for ${scriptPath}: ${e.message}` };
+    const sources = pos.sources.map((s) => (typeof s === 'string' && REPO_SOURCE.test(s) ? s : null));
+    return { text, starts, lines: pos.lines, sources };
+  } catch {
+    return { error: 'badMap' };
   }
 }
 
@@ -167,9 +211,8 @@ export function originalAt(script, offset) {
     else hi = mid - 1;
   }
   const col = offset - script.starts[lo];
-  const segs = script.lines[lo] ?? [];
   let best = null;
-  for (const s of segs) {
+  for (const s of script.lines[lo] ?? []) {
     if (s[0] <= col) best = s;
     else break;
   }
@@ -180,8 +223,8 @@ export function originalAt(script, offset) {
 
 /**
  * The functions that ran in one script's coverage (CDP Profiler.takePreciseCoverage `functions`, with call counts), as
- * line ranges per source: { sources: { [source]: [[startLine, endLine]] }, loaded: boolean }. The script's own top level
- * (the function spanning offset 0) means the chunk loaded; it is reported as `loaded`, not as a range.
+ * line ranges per source: { sources: { [source]: [[startLine, endLine]] }, loaded }. The script's own top level (the
+ * unnamed function at offset 0) means the chunk loaded; it is `loaded`, not a range.
  */
 export function executedRanges(script, functions) {
   const out = {};
@@ -217,17 +260,19 @@ export function mergeRanges(ranges) {
 // ---- The stack's own logs ----
 
 /**
- * A reader of the stack's service logs that returns, on each read, the lines written since the last one, parsed:
- * [{ service, time (ms, or null), method, url }] (method and url only on an `incoming request` line). It starts at the
- * logs' current ends, so the stack's start is nobody's. A log that shrank (a restart that truncated it) is read again
- * from its start. A partial last line waits for the next read.
+ * A reader of the stack's service logs that returns, on each read, the lines written since the last one, reduced to
+ * { service, time (ms, or null), served (true on an `incoming request` line), method, path }. `method` and `path` stay
+ * in this worker's memory: the recorder only compares them with fixed lists (METHODS, the route table) and never
+ * stores them. It starts at the logs' current ends, so the stack's start is nobody's. A log that shrank (a restart that
+ * truncated it) is read again from its start. A partial last line waits for the next read. A log whose name is not a
+ * service's shape is passed over.
  */
 export function makeLogReader(logsDir) {
   const at = new Map();
   const rest = new Map();
   const list = () => {
     try {
-      return readdirSync(logsDir).filter((f) => f.endsWith('.log'));
+      return readdirSync(logsDir).filter((f) => f.endsWith('.log') && SERVICE.test(f.slice(0, -4)));
     } catch {
       return [];
     }
@@ -267,10 +312,9 @@ export function makeLogReader(logsDir) {
           if (fd !== undefined) closeSync(fd);
         }
         at.set(f, from + buf.length);
-        const text = (rest.get(f) ?? '') + buf.toString('utf8');
-        const lines = text.split('\n');
+        const lines = ((rest.get(f) ?? '') + buf.toString('utf8')).split('\n');
         rest.set(f, lines.pop() ?? '');
-        const service = f.replace(/\.log$/, '');
+        const service = f.slice(0, -4);
         for (const line of lines) {
           if (!line.trim()) continue;
           let o = null;
@@ -280,12 +324,13 @@ export function makeLogReader(logsDir) {
             } catch {
               o = null;
             }
-          const req = o?.msg === 'incoming request' ? o.req : null;
+          const req = o?.msg === 'incoming request' && o.req && typeof o.req === 'object' ? o.req : null;
           out.push({
             service,
             time: Number.isFinite(o?.time) ? o.time : null,
-            method: req?.method ?? null,
-            url: typeof req?.url === 'string' ? req.url : null,
+            served: !!req,
+            method: typeof req?.method === 'string' ? req.method : null,
+            path: typeof req?.url === 'string' ? req.url : null,
           });
         }
       }
@@ -297,17 +342,17 @@ export function makeLogReader(logsDir) {
 // ---- The recorder ----
 
 /**
- * One worker's recorder. `root`: the repository; `customerPort` and `distDir`: the loopback port the customer app is
- * served on and the build on disk it serves. `note(file, kind, value)` collects; `take(file)` returns what this worker has not
- * attached for that journey file yet, as one record, and forgets the incomplete reasons it returned.
+ * One worker's recorder. `root`: the repository (its route table is read from there); `customerPort` and `distDir`: the
+ * loopback port the customer app is served on and the build on disk it serves. `take(file)` returns what this worker has
+ * not attached for that journey file yet, as one record.
  */
-export function makeRecorder({ root, customerPort = '3210', distDir }) {
-  const scripts = new Map(); // scriptPath -> loadScript result
-  const tabled = new Set(); // chunks whose source table this worker already attached
-  const noMapSeen = new Set(); // scripts with no map this worker already named
-  const timeline = []; // [time, file]: which journey file was running from when
-  const sent = new Map(); // file -> { http:Set, chunks:Set, ranges: Map(source -> Set("a-b")) }
-  const pending = new Map(); // file -> { http:Set, chunks:Set, ranges: Map(source -> ranges[]), incomplete:Set, table:{} }
+export function makeRecorder({ root, customerPort = '3210', distDir, routes = routeTable(root) }) {
+  const scripts = new Map();
+  const tabled = new Set();
+  const noMapSeen = new Set();
+  const timeline = [];
+  const sent = new Map();
+  const pending = new Map();
   const slot = (file) => {
     if (!pending.has(file))
       pending.set(file, {
@@ -327,10 +372,17 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
     if (!sent.has(file)) sent.set(file, { http: new Set(), served: new Set(), active: new Set(), chunks: new Set(), ranges: new Map() });
     return sent.get(file);
   };
+  const add = (file, kind, key) => {
+    if (!seen(file)[kind].has(key)) slot(file)[kind].add(key);
+  };
   return {
-    request(file, url, method) {
-      const k = requestKey(url, method);
-      if (k && !seen(file).http.has(k)) slot(file).http.add(k);
+    request(file, url, m) {
+      const k = requestKey(routes, url, m);
+      if (k) add(file, 'http', k);
+    },
+    /** One of INCOMPLETE's codes; anything else is recorded as `noRead`, never as given. */
+    incomplete(file, code) {
+      slot(file).incomplete.add(Object.hasOwn(INCOMPLETE, code) ? code : 'noRead');
     },
     /** From `time` on, `file` is the journey file running (log lines are placed by their own time). */
     enter(file, time = Date.now()) {
@@ -347,24 +399,15 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
         return f ?? timeline[0]?.[1] ?? null;
       };
       for (const l of lines ?? []) {
+        if (!SERVICE.test(String(l?.service))) continue;
         const file = l.time === null ? now : fileAt(l.time);
         if (!file) continue;
-        const s = seen(file);
-        if (!s.active.has(l.service)) slot(file).active.add(l.service);
-        if (l.url !== null) {
-          const k = `${l.service} ${String(l.method ?? 'GET').toUpperCase()} ${pathTemplate(l.url.split('?')[0])}`;
-          if (!s.served.has(k)) slot(file).served.add(k);
+        add(file, 'active', l.service);
+        if (l.served) {
+          const r = l.path === null ? null : routeOf(routes, String(l.path).split('?')[0]);
+          add(file, 'served', `${l.service} ${method(l.method)}${r ? ` ${r}` : ''}`);
         }
       }
-    },
-    /** The file's afterAll hooks have run: their requests are in this file's next record, attached by a later test. */
-    afterAll(file) {
-      slot(file).after = true;
-    },
-    /** The journey files with something not attached yet. */
-    files: () => [...pending.keys()],
-    incomplete(file, why) {
-      slot(file).incomplete.add(String(why).slice(0, 300));
     },
     /** One page's coverage since its last read: `entries` are takePreciseCoverage's `result`. */
     coverage(file, entries) {
@@ -373,18 +416,18 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
         try {
           u = new URL(e.url);
         } catch {
-          continue; // an eval'd or anonymous script: no file to map
+          continue;
         }
         if (u.port !== String(customerPort) || !LOOPBACK.has(u.hostname) || !u.pathname.endsWith('.js')) continue;
-        const ran = (e.functions ?? []).some((f) => f.ranges?.[0]?.count > 0);
-        if (!ran) continue;
-        if (!scripts.has(u.pathname)) scripts.set(u.pathname, loadScript({ root, distDir, scriptPath: u.pathname }));
-        const s = scripts.get(u.pathname);
+        if (!(e.functions ?? []).some((f) => f.ranges?.[0]?.count > 0)) continue;
         const p = slot(file);
+        if (!BUILT_SCRIPT.test(u.pathname)) {
+          p.incomplete.add('notBuilt');
+          continue;
+        }
+        if (!scripts.has(u.pathname)) scripts.set(u.pathname, loadScript({ distDir, scriptPath: u.pathname }));
+        const s = scripts.get(u.pathname);
         if (s.noMap) {
-          // A script built with no map (the boot script, the bundler's runtime, prebuilt vendor code): none of its sources
-          // is in any chunk's table, so a map built from these records reads them as unmapped, and a change to one of
-          // them as a full run. Recorded once per worker, so the map can name them.
           if (!noMapSeen.has(u.pathname)) {
             noMapSeen.add(u.pathname);
             p.nomap.add(u.pathname);
@@ -392,16 +435,13 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
           continue;
         }
         if (s.error) {
-          p.incomplete.add(`customer script ${u.pathname} ran but can't be mapped (${s.error})`);
+          p.incomplete.add(s.error);
           continue;
         }
-        // The script's own top level spans it whole: a length other than the file's means the build on disk is not the
-        // one the page ran (another build served, or rebuilt since), so its map would point at the wrong lines.
+        // The script's own top level spans it whole: a length other than the file's means the page ran another build.
         const top = (e.functions ?? []).find((f) => f.ranges?.[0]?.startOffset === 0 && !f.functionName);
         if (top && top.ranges[0].endOffset !== s.text.length) {
-          p.incomplete.add(
-            `customer script ${u.pathname} ran with ${top.ranges[0].endOffset} characters, the build on disk has ${s.text.length}`,
-          );
+          p.incomplete.add('otherBuild');
           continue;
         }
         if (!tabled.has(u.pathname)) {
@@ -409,13 +449,19 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
           p.table[u.pathname] = [...new Set(s.sources.filter(Boolean))].sort();
         }
         const { sources, loaded } = executedRanges(s, e.functions);
-        if (loaded && !seen(file).chunks.has(u.pathname)) p.chunks.add(u.pathname);
+        if (loaded) add(file, 'chunks', u.pathname);
         for (const [src, rs] of Object.entries(sources)) {
           if (!p.ranges.has(src)) p.ranges.set(src, []);
           p.ranges.get(src).push(...rs);
         }
       }
     },
+    /** The file's afterAll hooks have run: their reach is in this file's next record, attached by a later test. */
+    afterAll(file) {
+      slot(file).after = true;
+    },
+    /** The journey files with something not attached yet. */
+    files: () => [...pending.keys()],
     take(file) {
       const p = pending.get(file);
       pending.delete(file);
@@ -430,13 +476,10 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
         s.ranges.set(src, sentHere);
         sources[src] = fresh;
       }
-      for (const k of p.http) s.http.add(k);
-      for (const k of p.served) s.served.add(k);
-      for (const k of p.active) s.active.add(k);
-      for (const c of p.chunks) s.chunks.add(c);
+      for (const kind of ['http', 'served', 'active', 'chunks']) for (const k of p[kind]) s[kind].add(k);
       const record = {
         v: REACH_VERSION,
-        file: path.basename(String(file)),
+        file: path.basename(String(file)).replace(/[^A-Za-z0-9._-]/g, '_'),
         http: [...p.http].sort(),
         served: [...p.served].sort(),
         active: [...p.active].sort(),

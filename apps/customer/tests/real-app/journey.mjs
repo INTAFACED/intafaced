@@ -108,15 +108,15 @@ async function startCoverage(page, { opened = false } = {}) {
     await entry.cdp.send('Profiler.enable');
     await entry.cdp.send('Profiler.startPreciseCoverage', { callCount: true, detailed: false });
     entry.cdp.on('close', () => {
-      if (!entry.gone) reach.incomplete(reachFile, 'a page lost its coverage session before it was read');
+      if (!entry.gone) reach.incomplete(reachFile, 'detached');
     });
-    if (opened) reach.incomplete(reachFile, 'the app opened a page by itself; its first scripts ran before coverage started');
-  } catch (e) {
-    reach.incomplete(reachFile, `coverage could not start on a page (${e.message})`);
+    if (opened) reach.incomplete(reachFile, 'popup');
+  } catch {
+    reach.incomplete(reachFile, 'noStart');
   }
   page.on('websocket', (ws) => noted(() => reach.request(reachFile, ws.url(), 'WS')));
   page.on('close', () => {
-    if (!entry.gone) reach.incomplete(reachFile, 'a page closed before its coverage was read');
+    if (!entry.gone) reach.incomplete(reachFile, 'closed');
     covered.delete(page);
   });
 }
@@ -126,8 +126,8 @@ async function readCoverage(page, { last = false } = {}) {
   try {
     const { result } = await entry.cdp.send('Profiler.takePreciseCoverage');
     reach.coverage(reachFile, result);
-  } catch (e) {
-    if (!entry.gone) reach.incomplete(reachFile, `a page's coverage could not be read (${e.message})`);
+  } catch {
+    if (!entry.gone) reach.incomplete(reachFile, 'noRead');
   }
   if (last) entry.gone = true;
 }
