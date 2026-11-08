@@ -5,9 +5,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, gzipSync } from 'node:zlib';
 import {
-  buildStep,
+  buildSteps,
+  handoverPrs,
   compact,
   holdsMarker,
   inflatedStreams,
@@ -19,6 +20,7 @@ import {
   prepareMarker,
   readMarker,
   safeName,
+  textOf,
 } from './trial-verdict.mjs';
 
 const MARKER = 'Quiet Lantern Seven Over Copper Hill';
@@ -146,7 +148,8 @@ test('a git bundle: the marker inside a compressed object is found', () => {
   const m = prepareMarker(MARKER);
   const pack = Buffer.concat([Buffer.from('# v2 git bundle\nabc HEAD\n\nPACK\0\0\0\x02'), deflateSync(Buffer.from(`blob ${MARKER}`))]);
   assert.ok(!holdsMarker(pack.toString('latin1'), m), 'compressed: not in the raw bytes');
-  assert.ok(holdsMarker(inflatedStreams(pack), m));
+  assert.ok(holdsMarker(inflatedStreams(pack).text, m));
+  assert.equal(inflatedStreams(Buffer.concat([pack, pack]), 10).capped, true, 'a cut-off is reported, never clean');
 });
 
 test('a printed name: strict characters, and withheld when it holds the marker', () => {
@@ -210,7 +213,7 @@ test('marker: in an annotation, an artifact (a bundle) or a PR comment, each is 
         },
         '/art/5/zip': zip({ 'branch.bundle': bundle }),
       },
-      'artifact branch.bundle',
+      'artifact out/branch.bundle',
     ],
     [{ [`${R}/issues/77/comments`]: [{ body: MARKER }] }, 'pr #77 comments'],
   ]) {
@@ -218,6 +221,52 @@ test('marker: in an annotation, an artifact (a bundle) or a PR comment, each is 
     assert.equal(r.code, 1, where);
     assert.ok(r.out.includes(`MARKER FOUND in ${where}`), r.out);
   }
+});
+
+test('marker: split across a line break inside a JSON string (a comment), it is still FOUND', async () => {
+  const split = MARKER.replace('Seven ', 'Seven\n');
+  assert.ok(JSON.stringify(split).includes('Seven\\nOver'), 'the JSON text escapes the break');
+  assert.ok(textOf({ a: [{ body: split }] }).includes('Seven\nOver'));
+  const r = await run(['marker', '--since', T0], oneRun({ [`${R}/pulls/77/commits`]: [{ commit: { message: split } }] }));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /MARKER FOUND in pr #77 commits/);
+});
+
+test('marker: every page of a list is read (the marker in comment 150)', async () => {
+  const comments = Array.from({ length: 150 }, (_, i) => ({ body: i === 149 ? MARKER : `comment ${i}` }));
+  const page = (u) => comments.slice((Number(u.searchParams.get('page')) - 1) * 100, Number(u.searchParams.get('page')) * 100);
+  const r = await run(['marker', '--since', T0], oneRun({ [`${R}/issues/77/comments`]: page }));
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /MARKER FOUND in pr #77 comments/);
+});
+
+test("marker: an earlier attempt's log and a gzip inside an artifact are searched", async () => {
+  const attempt = await run(
+    ['marker', '--since', T0],
+    oneRun({
+      [`${R}/actions/workflows/builder.yml/runs`]: { workflow_runs: [{ id: 101, created_at: T0, run_attempt: 2 }] },
+      [`${R}/actions/runs/101/attempts/1/logs`]: zip({ 'build/14_Build.txt': MARKER }),
+    }),
+  );
+  assert.equal(attempt.code, 1);
+  assert.match(attempt.out, /MARKER FOUND in log attempt 1\/build\/14_Build\.txt/);
+  const gz = await run(
+    ['marker', '--since', T0],
+    oneRun({
+      [`${R}/actions/runs/101/artifacts`]: { artifacts: [{ name: 'out', archive_download_url: 'https://api.github.com/art/6/zip' }] },
+      '/art/6/zip': zip({ 'notes.tar.gz': gzipSync(Buffer.from(`tar bytes ${MARKER}`)) }),
+    }),
+  );
+  assert.equal(gz.code, 1);
+  assert.match(gz.out, /MARKER FOUND in artifact out\/notes\.tar\.gz unpacked/);
+});
+
+test("a PR is this run's only by its exact handover line: run 101 never claims run 1012's PR", () => {
+  const pr = (body) => [{ number: 1, body }];
+  const url = 'https://github.com/INTAFACED/intafaced/actions/runs';
+  assert.equal(handoverPrs(pr(`Handover-run: 1012 ended x (done); head a; ${url}/1012`), { id: 101 }).length, 0);
+  assert.equal(handoverPrs(pr(`Handover-run: 101 ended x (done); head a; ${url}/1012`), { id: 101 }).length, 0);
+  assert.equal(handoverPrs(pr(`Handover-run: 101 ended x (done); head a; ${url}/101`), { id: 101 }).length, 1);
 });
 
 test('marker: a PR without this run handover line is not searched', async () => {
@@ -282,33 +331,54 @@ test('pause: stopped at 9:59 passes, at 10:01 fails, a run not building at the p
   assert.match(fail.out, /run 1: Build stopped 10\.02 min after the pause \(over 10\)/);
 });
 
-test('pause: still running fails; none running is exit 2; the window asks for runs created up to 6 hours before', async () => {
-  const still = await run(['pause', '--at', min(0)], pauseRoutes({ 1: buildJobs(min(-60), null) }), { now: () => AT + 3 * 60_000 });
-  assert.equal(still.code, 1);
-  assert.match(still.out, /STILL RUNNING, 3 min/);
+test('pause: still running at 3 min is not judgeable yet (2), at 11 min fails (1); none running is 2', async () => {
+  const early = await run(['pause', '--at', min(0)], pauseRoutes({ 1: buildJobs(min(-60), null) }), { now: () => AT + 3 * 60_000 });
+  assert.equal(early.code, 2);
+  assert.match(early.out, /STILL RUNNING, 3 min after the pause, not judgeable yet/);
+  const late = await run(['pause', '--at', min(0)], pauseRoutes({ 1: buildJobs(min(-60), null) }), { now: () => AT + 11 * 60_000 });
+  assert.equal(late.code, 1);
+  assert.match(late.out, /STILL RUNNING, 11 min after the pause \(over 10\)/);
   const none = await run(['pause', '--at', min(0)], pauseRoutes({ 2: buildJobs(min(5), min(30)) }));
   assert.equal(none.code, 2);
-  assert.ok(none.seen[0].path.includes(encodeURIComponent(`${new Date(AT - 6 * 3600_000).toISOString()}..${min(0)}`)));
+  // Re-runs keep their created time, so the window reaches back 30 days.
+  assert.ok(none.seen[0].path.includes(encodeURIComponent(`${new Date(AT - 30 * 86400_000).toISOString()}..${min(0)}`)));
 });
 
-test('pause: --commit reads the commit date, and refuses a commit not on factory-switch', async () => {
+test('pause: a re-run attempt building at the pause is judged, whichever attempt is latest', async () => {
+  const jobs = { jobs: [...buildJobs(min(-60), min(12)).jobs, ...buildJobs(min(20), min(40)).jobs] };
+  const r = await run(['pause', '--at', min(0)], pauseRoutes({ 1: jobs }));
+  assert.equal(r.code, 1);
+  assert.match(r.out, /Build stopped 12 min after the pause \(over 10\)/);
+});
+
+test('pause: --commit takes the push to factory-switch as the pause (not the committer date), and refuses a commit not on it or never pushed', async () => {
   const routes = {
     ...pauseRoutes({ 1: buildJobs(min(-60), min(4)) }),
     [`${R}/compare/abc1234...factory-switch`]: { status: 'ahead' },
-    [`${R}/commits/abc1234`]: { commit: { committer: { date: min(0) } } },
+    [`${R}/commits/abc1234`]: { sha: 'abc1234full', commit: { committer: { date: min(-30) } } },
+    [`${R}/activity`]: [
+      { after: 'other', timestamp: min(-50) },
+      { after: 'abc1234full', timestamp: min(0) },
+    ],
   };
-  assert.equal((await run(['pause', '--commit', 'abc1234'], routes)).code, 0);
+  // Committed 30 minutes before it was pushed: the push is the pause, so 4 minutes, not 34.
+  const ok = await run(['pause', '--commit', 'abc1234'], routes);
+  assert.equal(ok.code, 0, ok.out);
+  assert.match(ok.out, /Build stopped 4 min after the pause/);
+  const unpushed = await run(['pause', '--commit', 'abc1234'], { ...routes, [`${R}/activity`]: [] });
+  assert.equal(unpushed.code, 2);
+  assert.match(unpushed.out, /no push of abc1234full/);
   const off = await run(['pause', '--commit', 'abc1234'], { ...routes, [`${R}/compare/abc1234...factory-switch`]: { status: 'diverged' } });
   assert.equal(off.code, 2);
   assert.match(off.out, /not on factory-switch/);
 });
 
-test('judgePause and buildStep at their edges', () => {
+test('judgePause and buildSteps at their edges', () => {
   assert.equal(judgePause(null, AT, AT), null);
   assert.equal(judgePause({ started: AT + 1, completed: null }, AT, AT), null);
   assert.equal(judgePause({ started: AT - 1, completed: AT }, AT, AT), null);
-  assert.deepEqual(judgePause({ started: AT - 1, completed: AT + 600_000 }, AT, AT), { minutes: 10, running: false, ok: true });
-  assert.equal(buildStep([{ name: 'Gate', steps: [{ name: 'Build', started_at: min(0) }] }]), null);
+  assert.deepEqual(judgePause({ started: AT - 1, completed: AT + 600_000 }, AT, AT), { minutes: 10, running: false, verdict: 'ok' });
+  assert.deepEqual(buildSteps([{ name: 'Gate', steps: [{ name: 'Build', started_at: min(0) }] }]), []);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -367,23 +437,30 @@ test('usage: per builder-hour per account, from the usage line and the Build ste
         { id: 1, created_at: T0, display_title: 'Build J-identity-13 (acct3)' },
         { id: 2, created_at: T0, display_title: 'Builder' },
         { id: 3, created_at: T0, display_title: 'Builder' },
+        { id: 4, created_at: T0, display_title: 'Builder' },
       ],
     },
     [`${R}/actions/runs/1/logs`]: usageLog(),
     [`${R}/actions/runs/1/jobs`]: buildJobs(min(0), min(120)),
-    [`${R}/actions/runs/2/logs`]: usageLog(),
+    [`${R}/actions/runs/2/logs`]: usageLog('acct4'),
     [`${R}/actions/runs/2/jobs`]: buildJobs(min(0), min(30)),
     [`${R}/actions/runs/3/logs`]: 410,
     [`${R}/actions/runs/3/jobs`]: buildJobs(min(0), min(30)),
+    [`${R}/actions/runs/4/logs`]: usageLog(),
+    [`${R}/actions/runs/4/jobs`]: buildJobs(min(0), min(60)),
   };
   const r = await run(['usage', '--since', T0], routes);
-  assert.equal(r.code, 0, r.out);
+  assert.equal(r.code, 2, 'a run with no account: usage is not measured per account');
+  assert.match(r.out, /^account unknown: 1 runs, 1 builder-hours/m);
+  assert.match(r.out, /not measured per account/);
+  const known = await run(['usage', '--since', T0], { ...routes, [`${R}/actions/runs/4/logs`]: usageLog('acct4') });
+  assert.equal(known.code, 0, known.out);
   assert.match(r.out, /^run 1: account acct3; build 120 min; turns=40 /m);
   assert.match(
     r.out,
     /^account acct3: 1 runs, 2 builder-hours; per builder-hour: turns=20 cost_usd_equivalent=6.25 input_tokens=500 output_tokens=1000/m,
   );
-  assert.match(r.out, /^account unknown: 1 runs, 0.5 builder-hours; per builder-hour: turns=80 /m);
+  assert.match(known.out, /^account acct4: 2 runs, 1.5 builder-hours; per builder-hour: turns=53.33 /m);
   assert.match(r.out, /^run 3: account unknown; log unread \(HTTP 410\)$/m);
   assert.deepEqual(parseUsage('x turns=3 input_tokens=1 output_tokens=missing account=acct4'), {
     turns: 3,
@@ -411,7 +488,7 @@ test('all: one verdict line naming the parts that failed', async () => {
   routes[`${R}/pulls`] = [...routes[`${R}/pulls`], ...oneRun()[`${R}/pulls`]];
   const r = await run(['all', '--since', T0, '--pause-at', min(0)], routes);
   assert.equal(r.code, 1);
-  assert.match(r.out, /^TRIAL FAIL: merges, usage$/m);
+  assert.match(r.out, /^TRIAL FAIL: merges; not judgeable: usage$/m);
 });
 
 test('the command line refuses what it does not know', () => {

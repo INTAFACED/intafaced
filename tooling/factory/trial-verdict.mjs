@@ -27,7 +27,7 @@ import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync,
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { inflateSync } from 'node:zlib';
+import { gunzipSync, inflateSync } from 'node:zlib';
 
 export const REPO = 'INTAFACED/intafaced';
 export const WORKFLOW = 'builder.yml';
@@ -82,11 +82,12 @@ export function holdsMarker(text, compactMarker) {
   return compact(t).includes(compactMarker) || compact(t.replace(/^[+\- ]/gm, '')).includes(compactMarker);
 }
 
-/** zlib streams inside a buffer (a git bundle's pack), inflated: their text joined, bounded in size. */
+/** zlib streams inside a buffer (a git bundle's pack), inflated: { text, capped } (capped: some were left unread). */
 export function inflatedStreams(buf, cap = 64 * 2 ** 20) {
   const parts = [];
   let total = 0;
-  for (let i = 0; i + 2 < buf.length && total < cap; i++) {
+  let i = 0;
+  for (; i + 2 < buf.length && total < cap; i++) {
     if (buf[i] !== 0x78 || ![0x01, 0x5e, 0x9c, 0xda].includes(buf[i + 1])) continue;
     try {
       const out = inflateSync(buf.subarray(i));
@@ -94,7 +95,19 @@ export function inflatedStreams(buf, cap = 64 * 2 ** 20) {
       total += out.length;
     } catch {}
   }
-  return parts.join('\n');
+  return { text: parts.join('\n'), capped: total >= cap && i + 2 < buf.length };
+}
+
+/** Every string inside a JSON value, one per line: what a person wrote, with its line breaks real, not escaped. */
+export function textOf(value) {
+  const out = [];
+  const walk = (v) => {
+    if (typeof v === 'string') out.push(v);
+    else if (Array.isArray(v)) v.forEach(walk);
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(value);
+  return out.join('\n');
 }
 
 function looksLikeBundle(name, buf) {
@@ -103,10 +116,12 @@ function looksLikeBundle(name, buf) {
   return head.startsWith('# v2 git bundle') || head.startsWith('# v3 git bundle') || head.startsWith('PACK');
 }
 
-/** A buffer's text, raw and (for a git bundle or pack) its inflated objects too. */
+/** A buffer searched raw and (for a git bundle or pack) in its inflated objects too: 'found', 'clean' or 'capped'. */
 export function bufferHolds(name, buf, m) {
-  if (holdsMarker(buf.toString('utf8'), m) || holdsMarker(buf.toString('latin1'), m)) return true;
-  return looksLikeBundle(name, buf) && holdsMarker(inflatedStreams(buf), m);
+  if (holdsMarker(buf.toString('utf8'), m) || holdsMarker(buf.toString('latin1'), m)) return 'found';
+  if (!looksLikeBundle(name, buf)) return 'clean';
+  const { text, capped } = inflatedStreams(buf);
+  return holdsMarker(text, m) ? 'found' : capped ? 'capped' : 'clean';
 }
 
 /** A name safe to print: a strict character set, and withheld when it holds the marker itself. */
@@ -143,16 +158,16 @@ export function github({ fetch = globalThis.fetch, token = process.env.GH_TOKEN,
     if (!r.ok) throw new Error(`GitHub ${r.why} on ${path.replace(/\?.*/, '')}`);
     return r.body;
   }
-  /** Every page of a list (`key` names the array in a wrapped response), up to `max` pages. */
+  /** Every page of a list (`key` names the array in a wrapped response); more than `max` pages is an error. */
   async function pages(path, key, { max = 50, stop } = {}) {
     const all = [];
     for (let page = 1; page <= max; page++) {
       const body = await json(`${path}${path.includes('?') ? '&' : '?'}per_page=100&page=${page}`);
       const items = key ? (body[key] ?? []) : body;
       all.push(...items);
-      if (items.length < 100 || (stop && items.some(stop))) break;
+      if (items.length < 100 || (stop && items.some(stop))) return all;
     }
-    return all;
+    throw new Error(`more than ${max} pages on ${path.replace(/\?.*/, '')}`);
   }
   return { request, json, pages };
 }
@@ -165,6 +180,14 @@ export async function listRuns(gh, { repo, workflow, since, until }) {
     'workflow_runs',
   );
   return runs.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+}
+
+/** A run's latest log zip, fetched once per command (the marker and the usage share it). */
+export async function runLog(gh, repo, id, cache = {}) {
+  cache.logs ??= new Map();
+  if (!cache.logs.has(id))
+    cache.logs.set(id, await gh.request(`/repos/${repo}/actions/runs/${id}/logs`, { as: 'bytes', timeout: 300_000 }));
+  return cache.logs.get(id);
 }
 
 /** A zip, unpacked by the system unzip in its own temp folder: [{ name, buf }]. */
@@ -211,24 +234,41 @@ async function prsSince(gh, repo, since, cache) {
 
 /** The PRs whose body carries this run's Handover-run line (with the run's URL). */
 export function handoverPrs(prs, run) {
-  const url = `/actions/runs/${run.id}`;
-  return prs.filter((p) => {
-    const body = String(p.body ?? '');
-    return body.split('\n').some((l) => l.includes('Handover-run:') && l.includes(url));
-  });
+  const url = new RegExp(`/actions/runs/${run.id}(?!\\d)`);
+  return prs.filter((p) =>
+    String(p.body ?? '')
+      .split('\n')
+      .some((l) => l.includes(`Handover-run: ${run.id} `) && url.test(l)),
+  );
 }
 
 /** One run's public text, searched: { id, state: clean|found|unread, files, bytes, found: [], unread: [] }. */
 export async function searchRun(gh, { repo, run, marker, since, cache = {}, unzip }) {
   const r = { id: run.id, state: 'clean', files: 0, bytes: 0, found: [], unread: [] };
-  const look = (kind, name, data) => {
-    const buf = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : JSON.stringify(data));
+  const look = (kind, name, data, depth = 0) => {
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(typeof data === 'string' ? data : textOf(data));
     r.files++;
     r.bytes += buf.length;
-    if (bufferHolds(name, buf, marker)) r.found.push(`${kind} ${safeName(name, marker)}`);
+    const label = `${kind} ${safeName(name, marker)}`;
+    const hit = bufferHolds(name, buf, marker);
+    if (hit === 'found') r.found.push(label);
+    else if (hit === 'capped') r.unread.push(`${label}: too large to search whole`);
+    // What a file packs inside it: a zip, or gzip (a .tar.gz's tar is plain bytes once unpacked).
+    if (depth < 2 && buf[0] === 0x50 && buf[1] === 0x4b && buf[2] === 0x03 && buf[3] === 0x04) {
+      try {
+        for (const e of unzipEntries(buf, { unzip })) look(kind, `${name}/${e.name}`, e.buf, depth + 1);
+      } catch {
+        r.unread.push(`${label}: an inner zip not readable`);
+      }
+    } else if (depth < 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
+      try {
+        look(kind, `${name} unpacked`, gunzipSync(buf, { maxOutputLength: 256 * 2 ** 20 }), depth + 1);
+      } catch {
+        r.unread.push(`${label}: gzip not readable`);
+      }
+    }
   };
-  const zip = async (kind, path, label) => {
-    const z = await gh.request(path, { as: 'bytes', accept: 'application/vnd.github+json', timeout: 300_000 });
+  const unpack = (kind, z, label) => {
     if (!z.ok) {
       r.unread.push(`${label}: ${z.status === 404 || z.status === 410 ? `expired or gone, HTTP ${z.status}` : z.why}`);
       return;
@@ -241,31 +281,40 @@ export async function searchRun(gh, { repo, run, marker, since, cache = {}, unzi
       return;
     }
     if (entries.length === 0) r.unread.push(`${label}: empty zip`);
-    for (const e of entries) look(kind, e.name, e.buf);
+    for (const e of entries) look(kind, label === 'log' ? e.name : `${label}/${e.name}`, e.buf);
+  };
+  const list = async (label, path, key) => {
+    try {
+      return await gh.pages(path, key);
+    } catch (e) {
+      if (e instanceof Refusal) throw e;
+      r.unread.push(`${label}: ${String(e.message).slice(0, 120)}`);
+      return null;
+    }
   };
 
-  // The run itself (its title and head commit), its log, its jobs and their annotations.
+  // The run itself (its title and head commit), the log of every attempt, its jobs and their annotations.
   look('run', `run ${run.id}`, run);
-  await zip('log', `/repos/${repo}/actions/runs/${run.id}/logs`, 'log');
-  const jobs = await gh.request(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=all&per_page=100`);
-  if (!jobs.ok) r.unread.push(`jobs: ${jobs.why}`);
-  else {
-    look('jobs', `jobs of ${run.id}`, jobs.body);
-    for (const job of jobs.body.jobs ?? []) {
-      const a = await gh.request(`/repos/${repo}/check-runs/${job.id}/annotations?per_page=100`);
-      if (!a.ok) r.unread.push(`annotations of job ${job.id}: ${a.why}`);
-      else look('annotations', `job ${job.id}`, a.body);
+  unpack('log', await runLog(gh, repo, run.id, cache), 'log');
+  for (let n = 1; n < (run.run_attempt ?? 1); n++) {
+    const z = await gh.request(`/repos/${repo}/actions/runs/${run.id}/attempts/${n}/logs`, { as: 'bytes', timeout: 300_000 });
+    unpack('log', z, `attempt ${n}`);
+  }
+  const jobs = await list('jobs', `/repos/${repo}/actions/runs/${run.id}/jobs?filter=all`, 'jobs');
+  if (jobs) {
+    look('jobs', `jobs of ${run.id}`, jobs);
+    for (const job of jobs) {
+      const a = await list(`annotations of job ${job.id}`, `/repos/${repo}/check-runs/${job.id}/annotations`, null);
+      if (a) look('annotations', `job ${job.id}`, a);
     }
   }
   // Its artifacts.
-  const arts = await gh.request(`/repos/${repo}/actions/runs/${run.id}/artifacts?per_page=100`);
-  if (!arts.ok) r.unread.push(`artifacts: ${arts.why}`);
-  else
-    for (const a of arts.body.artifacts ?? []) {
-      look('artifact', `artifact ${a.name} metadata`, { name: a.name });
-      if (a.expired) r.unread.push(`artifact ${safeName(a.name, marker)}: expired`);
-      else await zip('artifact', a.archive_download_url, `artifact ${safeName(a.name, marker)}`);
-    }
+  for (const a of (await list('artifacts', `/repos/${repo}/actions/runs/${run.id}/artifacts`, 'artifacts')) ?? []) {
+    const name = `artifact ${safeName(a.name, marker)}`;
+    look('artifact', `${a.name} (its name)`, String(a.name));
+    if (a.expired) r.unread.push(`${name}: expired`);
+    else unpack('artifact', await gh.request(a.archive_download_url, { as: 'bytes', timeout: 300_000 }), safeName(a.name, marker));
+  }
   // The PRs carrying its handover line: title, body, comments, reviews, commits and diff.
   for (const pr of handoverPrs(await prsSince(gh, repo, since, cache), run)) {
     const n = pr.number;
@@ -276,9 +325,8 @@ export async function searchRun(gh, { repo, run, marker, since, cache = {}, unzi
       ['reviews', `/repos/${repo}/pulls/${n}/reviews`],
       ['commits', `/repos/${repo}/pulls/${n}/commits`],
     ]) {
-      const c = await gh.request(`${path}?per_page=100`);
-      if (!c.ok) r.unread.push(`#${n} ${what}: ${c.why}`);
-      else look('pr', `#${n} ${what}`, c.body);
+      const c = await list(`#${n} ${what}`, path, null);
+      if (c) look('pr', `#${n} ${what}`, c);
     }
     const d = await gh.request(`/repos/${repo}/pulls/${n}`, { accept: 'application/vnd.github.diff', as: 'text' });
     if (!d.ok) r.unread.push(`#${n} diff: ${d.why}`);
@@ -307,66 +355,88 @@ export function markerExit(results) {
 // ---------------------------------------------------------------------------------------------------------------------
 // (b) the pause
 
-/** The Build step of a run's jobs: { started, completed } in ms (completed null while running), or null. */
-export function buildStep(jobs) {
+/** Every Build step in a run's jobs (every attempt): [{ started, completed }] in ms, completed null while running. */
+export function buildSteps(jobs) {
+  const out = [];
   for (const job of jobs ?? []) {
     if (!String(job.name ?? '').startsWith('Build')) continue;
     const step = (job.steps ?? []).find((s) => s.name === BUILD_STEP);
-    if (!step?.started_at) continue;
-    return { started: Date.parse(step.started_at), completed: step.completed_at ? Date.parse(step.completed_at) : null };
+    if (step?.started_at)
+      out.push({ started: Date.parse(step.started_at), completed: step.completed_at ? Date.parse(step.completed_at) : null });
   }
-  return null;
+  return out;
 }
 
-/** One run judged against the pause: null when its Build step was not running at the pause, else its minutes to stop. */
+/** The latest finished Build step, or null. */
+export function lastBuild(jobs) {
+  return (
+    buildSteps(jobs)
+      .filter((s) => s.completed !== null)
+      .sort((a, b) => a.started - b.started)
+      .at(-1) ?? null
+  );
+}
+
+/**
+ * One Build step judged against the pause: null when it was not running at the pause; else its minutes to stop and a
+ * verdict: 'ok' (stopped within the limit), 'late' (stopped after it, or still running past it), 'pending' (still
+ * running, the limit not yet reached: not judgeable yet).
+ */
 export function judgePause(step, at, now) {
   if (!step || step.started > at || (step.completed !== null && step.completed <= at)) return null;
   const end = step.completed ?? now;
   const minutes = Math.round(((end - at) / 60_000) * 100) / 100;
-  return { minutes, running: step.completed === null, ok: step.completed !== null && minutes <= PAUSE_LIMIT_MIN };
+  const verdict = minutes > PAUSE_LIMIT_MIN ? 'late' : step.completed === null ? 'pending' : 'ok';
+  return { minutes, running: step.completed === null, verdict };
 }
 
-async function pauseMoment(gh, repo, { at, commit }) {
+/** The pause moment: --at, or when the commit was pushed to factory-switch (its committer date is only the author's clock). */
+async function pauseMoment(gh, repo, { at, commit }, log) {
   if (at) return Date.parse(at);
   const cmp = await gh.json(`/repos/${repo}/compare/${encodeURIComponent(commit)}...factory-switch`);
   if (!['identical', 'ahead'].includes(cmp.status)) throw new Error(`commit ${commit} is not on factory-switch`);
   const c = await gh.json(`/repos/${repo}/commits/${encodeURIComponent(commit)}`);
-  return Date.parse(c.commit.committer.date);
+  const pushes = await gh.pages(`/repos/${repo}/activity?ref=factory-switch&activity_type=push`, null, { max: 10 });
+  const push = pushes.filter((p) => p.after === c.sha).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))[0];
+  if (!push) throw new Error(`no push of ${String(c.sha).slice(0, 12)} in factory-switch's activity; give --at`);
+  log(`pause commit ${String(c.sha).slice(0, 12)}: committed ${c.commit.committer.date}, pushed ${push.timestamp}`);
+  return Date.parse(push.timestamp);
 }
 
 export async function checkPause(gh, { repo, workflow, at, commit, now = Date.now, log = console.log }) {
-  const t = await pauseMoment(gh, repo, { at, commit });
+  const t = await pauseMoment(gh, repo, { at, commit }, log);
   if (!Number.isFinite(t)) throw new Error('the pause moment is not a date');
-  // A Build job lasts at most 340 minutes, so a run created more than 6 hours before the pause had ended by then.
-  const runs = await listRuns(gh, {
-    repo,
-    workflow,
-    since: new Date(t - 6 * 3600_000).toISOString(),
-    until: new Date(t).toISOString(),
-  });
-  let running = 0;
-  let bad = 0;
+  // A run can be re-run up to 30 days after it was created, and keeps its created time; a run untouched since before
+  // the pause was not running at it.
+  const runs = (
+    await listRuns(gh, { repo, workflow, since: new Date(t - 30 * 86400_000).toISOString(), until: new Date(t).toISOString() })
+  ).filter((r) => !r.updated_at || Date.parse(r.updated_at) >= t);
+  const count = { ok: 0, late: 0, pending: 0 };
   log(`pause at ${new Date(t).toISOString()}`);
   for (const run of runs) {
-    const jobs = await gh.json(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`);
-    const j = judgePause(buildStep(jobs.jobs), t, now());
-    if (!j) {
+    const jobs = await gh.pages(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=all`, 'jobs');
+    const judged = buildSteps(jobs)
+      .map((s) => judgePause(s, t, now()))
+      .filter(Boolean);
+    if (judged.length === 0) {
       log(`run ${run.id}: not building at the pause, ignored`);
       continue;
     }
-    running++;
-    if (!j.ok) bad++;
-    log(
-      j.running
-        ? `run ${run.id}: STILL RUNNING, ${j.minutes} min after the pause`
-        : `run ${run.id}: Build stopped ${j.minutes} min after the pause${j.ok ? '' : ` (over ${PAUSE_LIMIT_MIN})`}`,
-    );
+    for (const j of judged) {
+      count[j.verdict]++;
+      log(
+        j.running
+          ? `run ${run.id}: STILL RUNNING, ${j.minutes} min after the pause${j.verdict === 'late' ? ` (over ${PAUSE_LIMIT_MIN})` : ', not judgeable yet'}`
+          : `run ${run.id}: Build stopped ${j.minutes} min after the pause${j.verdict === 'late' ? ` (over ${PAUSE_LIMIT_MIN})` : ''}`,
+      );
+    }
   }
-  if (running === 0) {
+  if (count.late) return 1;
+  if (count.ok + count.pending === 0) {
     log('no builder was running at the pause: nothing to judge');
     return 2;
   }
-  return bad ? 1 : 0;
+  return count.pending ? 2 : 0;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -444,15 +514,16 @@ export function accountOf(run, usage) {
   return m ? m[0] : 'unknown';
 }
 
-export async function checkUsage(gh, { repo, workflow, since, unzip, log = console.log }) {
+export async function checkUsage(gh, { repo, workflow, since, unzip, cache = {}, log = console.log }) {
   const runs = await listRuns(gh, { repo, workflow, since });
   const per = new Map();
   let measured = 0;
   for (const run of runs) {
+    // The latest attempt only: its log holds its own usage line (an earlier attempt's usage is not measured).
     const jobs = await gh.request(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`);
-    const step = jobs.ok ? buildStep(jobs.body.jobs) : null;
-    const minutes = step?.completed ? (step.completed - step.started) / 60_000 : null;
-    const z = await gh.request(`/repos/${repo}/actions/runs/${run.id}/logs`, { as: 'bytes', timeout: 300_000 });
+    const step = jobs.ok ? lastBuild(jobs.body.jobs) : null;
+    const minutes = step ? (step.completed - step.started) / 60_000 : null;
+    const z = await runLog(gh, repo, run.id, cache);
     let usage = null;
     if (z.ok) {
       try {
@@ -468,6 +539,7 @@ export async function checkUsage(gh, { repo, workflow, since, unzip, log = conso
       continue;
     }
     measured++;
+    if ((run.run_attempt ?? 1) > 1) log(`run ${run.id}: attempts before ${run.run_attempt} are not measured`);
     log(
       `run ${run.id}: account ${account}; build ${Math.round(minutes * 10) / 10} min; ${USAGE_KEYS.map((k) => `${k}=${usage[k] ?? 'missing'}`).join(' ')}`,
     );
@@ -489,6 +561,10 @@ export async function checkUsage(gh, { repo, workflow, since, unzip, log = conso
   }
   if (measured === 0) {
     log('no run with a usage line and a finished Build step: nothing measured');
+    return 2;
+  }
+  if (per.has('unknown')) {
+    log('some runs name no account (no account= on the usage line, no acctN in the run title): not measured per account');
     return 2;
   }
   return 0;
@@ -542,8 +618,7 @@ export function readMarker(o, env, root = REPO_ROOT) {
   return prepareMarker(env.TRIAL_MARKER);
 }
 
-export async function checkMarker(gh, { repo, workflow, since, runIds = [], marker, unzip, log = console.log }) {
-  const cache = {};
+export async function checkMarker(gh, { repo, workflow, since, runIds = [], marker, unzip, cache = {}, log = console.log }) {
   let runs;
   if (runIds.length) runs = await Promise.all(runIds.map((id) => gh.json(`/repos/${repo}/actions/runs/${id}`)));
   else runs = await listRuns(gh, { repo, workflow, since });
@@ -563,7 +638,7 @@ export async function main(argv, { env = process.env, fetch = globalThis.fetch, 
     return 2;
   }
   const gh = github({ fetch, token: env.GH_TOKEN });
-  const common = { repo: o.repo, workflow: o.workflow, unzip, log };
+  const common = { repo: o.repo, workflow: o.workflow, unzip, log, cache: {} };
   try {
     if (o.cmd === 'marker') return await checkMarker(gh, { ...common, since: o.since, runIds: o.runs, marker: readMarker(o, env) });
     if (o.cmd === 'pause') return await checkPause(gh, { ...common, at: o.at, commit: o.commit, now });
@@ -571,19 +646,39 @@ export async function main(argv, { env = process.env, fetch = globalThis.fetch, 
     if (o.cmd === 'usage') return await checkUsage(gh, { ...common, since: o.since });
     const marker = readMarker(o, env);
     const parts = {};
-    log('== (a) merges');
-    parts.merges = await checkMerges(gh, { ...common, since: o.since, factoryLogins: o.factoryLogins });
-    log('== (b) pause');
-    parts.pause = await checkPause(gh, { ...common, at: o.at, commit: o.commit, now });
-    log('== (c) marker');
-    parts.marker = await checkMarker(gh, { ...common, since: o.since, runIds: o.runs, marker });
-    log('== (d) usage');
-    parts.usage = await checkUsage(gh, { ...common, since: o.since });
-    const failed = Object.entries(parts)
-      .filter(([, c]) => c !== 0)
-      .map(([k]) => k);
-    log(failed.length ? `TRIAL FAIL: ${failed.join(', ')}` : 'TRIAL PASS');
-    return failed.length ? 1 : 0;
+    // Each part runs whatever another part threw; a refusal still stops everything (the outer catch).
+    const part = async (name, title, fn) => {
+      log(`== ${title}`);
+      try {
+        parts[name] = await fn();
+      } catch (e) {
+        if (e instanceof Refusal) throw e;
+        log(
+          `error: ${String(e.message)
+            .replace(/[\r\n]+/g, ' ')
+            .slice(0, 300)}`,
+        );
+        parts[name] = 2;
+      }
+    };
+    await part('merges', '(a) merges', () => checkMerges(gh, { ...common, since: o.since, factoryLogins: o.factoryLogins }));
+    await part('pause', '(b) pause', () => checkPause(gh, { ...common, at: o.at, commit: o.commit, now }));
+    await part('marker', '(c) marker', () => checkMarker(gh, { ...common, since: o.since, runIds: o.runs, marker }));
+    await part('usage', '(d) usage', () => checkUsage(gh, { ...common, since: o.since }));
+    const with_ = (c) =>
+      Object.entries(parts)
+        .filter(([, v]) => v === c)
+        .map(([k]) => k);
+    if (with_(1).length) {
+      log(`TRIAL FAIL: ${with_(1).join(', ')}${with_(2).length ? `; not judgeable: ${with_(2).join(', ')}` : ''}`);
+      return 1;
+    }
+    if (with_(2).length) {
+      log(`TRIAL FAIL: not judgeable: ${with_(2).join(', ')}`);
+      return 2;
+    }
+    log('TRIAL PASS');
+    return 0;
   } catch (e) {
     if (e instanceof Refusal) {
       log(e.message);
