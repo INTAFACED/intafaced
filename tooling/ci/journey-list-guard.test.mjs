@@ -201,3 +201,24 @@ test('the script: passes the base unchanged, refuses a dropped journey with a re
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('planted: a journey marked later (custody) at Order 1 fails; at Order 2 it passes and stays live', async () => {
+  const head = copy();
+  const j = head.find((x) => !x.parked && !x.deferred && x.order === 1);
+  j.later = 'custody';
+  const v = await verdict(head);
+  assert.equal(v.ok, false);
+  assert.ok(
+    v.lines.some((l) => l.endsWith(`${j.id} is later (custody) at Order 1; Order 1 is the launch wedge, so give it Order 2 or 3`)),
+    v.lines.join('\n'),
+  );
+  j.order = 2;
+  assert.deepEqual(await verdict(head), { ok: true, lines: [] });
+  j.later = 'one day';
+  const odd = await verdict(head);
+  assert.equal(odd.ok, false);
+  assert.ok(
+    odd.lines.some((l) => l.endsWith(`${j.id} is later for "one day"; the only later reason is "custody"`)),
+    odd.lines.join('\n'),
+  );
+});
