@@ -94,8 +94,10 @@ export function catalogueFromStored(stored: readonly StoredAgent[]): CatalogueAg
   return [...known, ...other];
 }
 
-/** Whether a person can use an agent now: its stored row's `enabled`. One the deployment has not stored cannot be used. */
+/** Whether a person can use an agent now: its stored row's `enabled`. One the deployment has not stored cannot be used,
+ * and a staff-only or unconnected agent is never usable by a customer, whatever its row says. */
 export function agentEnabled(agent: CatalogueAgent, stored: readonly StoredAgent[]): boolean {
+  if (agent.kind === 'staff' || agent.kind === 'unwired') return false;
   return stored.some((row) => row.agentId === agent.id && row.enabled);
 }
 

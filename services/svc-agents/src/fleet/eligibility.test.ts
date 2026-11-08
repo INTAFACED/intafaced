@@ -48,3 +48,10 @@ describe('agent eligibility (J-agents-01 #2)', () => {
       expect(agentEligibility(id, laws, 'none')).toEqual({ rule: 'none', eligible: true, reason: null, code: null, yourPlan: 'none' });
   });
 });
+
+describe('agent eligibility when the published limits for a plan are not valid', () => {
+  it('keeps the scanner door’s own depth_invalid code', () => {
+    const bad = parseTierLaws(JSON.stringify({ scanner: { published: true, matrix: { full: { maxSignals: 0, tools: [] } } } }));
+    expect(agentEligibility('scanner', bad, 'full')).toMatchObject({ eligible: false, plans: ['full'], code: 'agents.depth_invalid' });
+  });
+});

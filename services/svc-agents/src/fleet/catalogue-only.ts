@@ -4,8 +4,8 @@
  * The catalogue is the stored list (`agent.catalogue` reads `agent_definitions`), so every agent a person can find has a
  * stored row. These four have no session surface here: Launch check and Growth drafts are used inside their rooms, the
  * Portfolio planner's data source is not connected, and Risk and compliance is for staff only. Each is stored with an
- * empty guardrail (no tools, no engine task, a spend cap of 0), so a session of one can do nothing and charge nothing,
- * and the two no customer can use are stored disabled. Registration upserts the guardrail and keeps `enabled` as
+ * empty guardrail (no tools, no engine task, a spend cap of 0) and opens no session (`isCatalogueOnlyAgent`, read by
+ * runtime.openSession), and the two no customer can use are stored disabled. Registration upserts the guardrail and keeps `enabled` as
  * stored, so an operator's switch survives a reboot (runtime.registerAgent).
  */
 
@@ -24,6 +24,11 @@ export const CATALOGUE_ONLY_AGENTS: readonly CatalogueOnlyAgent[] = [
   { agentId: 'portfolio', enabled: false },
   { agentId: 'risk-compliance', enabled: false },
 ];
+
+/** Whether an agent id is one of these: such an agent is listed, and never opens a session (runtime.openSession). */
+export function isCatalogueOnlyAgent(agentId: string): boolean {
+  return CATALOGUE_ONLY_AGENTS.some((row) => row.agentId === agentId);
+}
 
 /** The empty guardrail of a catalogue-only agent: it may call no tool and no engine task, and spend nothing. */
 export function catalogueOnlyGuardrail(agentId: CatalogueOnlyAgent['agentId']): Guardrail {

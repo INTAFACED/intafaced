@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CATALOGUE_ONLY_AGENTS, catalogueOnlyGuardrail, registerCatalogueOnlyAgents } from './catalogue-only.js';
+import { CATALOGUE_ONLY_AGENTS, catalogueOnlyGuardrail, isCatalogueOnlyAgent, registerCatalogueOnlyAgents } from './catalogue-only.js';
 import { parseGuardrail, type Guardrail } from './guardrails.js';
 import { FLEET_PRODUCT_AGENTS } from './matrix.js';
 
@@ -13,6 +13,11 @@ describe('catalogue-only agents (J-agents-01 #1)', () => {
     ]);
     const fleet = new Set(FLEET_PRODUCT_AGENTS.map((row) => row.agentId));
     for (const row of CATALOGUE_ONLY_AGENTS) expect(fleet.has(row.agentId)).toBe(false);
+  });
+  it('names exactly these four as catalogue-only, so runtime.openSession refuses them and no other agent', () => {
+    for (const { agentId } of CATALOGUE_ONLY_AGENTS) expect(isCatalogueOnlyAgent(agentId)).toBe(true);
+    for (const agentId of ['navigator', 'support', 'scanner', 'merchant', 'copy-intel', 'coach', 'own.x', ''])
+      expect(isCatalogueOnlyAgent(agentId)).toBe(false);
   });
   it('each guardrail can call no tool and no engine task, and spends nothing', () => {
     for (const { agentId } of CATALOGUE_ONLY_AGENTS) {

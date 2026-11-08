@@ -77,7 +77,7 @@ export function AgentsCatalogue({
   const about = (id: string) => (known(id) ? t(`about_${id}` as 'about_navigator') : (row(id)?.purpose ?? null));
   const shown = sortCatalogue(filterCatalogue(catalogue, { query, kind }, label), sort, label);
   const chosen = catalogue.find((agent) => agent.id === selected) ?? null;
-  const enabled = (agent: CatalogueAgent) => (stored.resource.status === 'ready' ? agentEnabled(agent, stored.resource.data) : null);
+  const enabled = (agent: CatalogueAgent) => agentEnabled(agent, rows);
   return (
     <div className="more-grid">
       <Panel title={t('catalogueTitle')}>
@@ -112,15 +112,7 @@ export function AgentsCatalogue({
                   {t(`kind_${agent.kind}`)}
                 </StatusPill>
                 <StatusPill state={usable ? 'ready' : 'blocked'}>
-                  <span data-testid="agent-status">
-                    {usable === null
-                      ? stored.resource.status === 'loading'
-                        ? t('statusChecking')
-                        : t('statusUnknown')
-                      : usable
-                        ? t('enabled')
-                        : t('disabled')}
-                  </span>
+                  <span data-testid="agent-status">{usable ? t('enabled') : t('disabled')}</span>
                 </StatusPill>
                 {about(agent.id) ? <p>{about(agent.id)}</p> : null}
                 <div className="depth-card-actions">
@@ -142,7 +134,7 @@ export function AgentsCatalogue({
                     </label>
                   ) : null}
                   {agent.kind === 'session' ? (
-                    <Button disabled={usable === false} onClick={() => onSession(agent.id)}>
+                    <Button disabled={!usable} onClick={() => onSession(agent.id)}>
                       <Copy k="openSession" />
                     </Button>
                   ) : agent.tab === 'Coach' ? (
@@ -388,6 +380,7 @@ function eligibilityWords(eligibility: Eligibility | undefined): string {
   if (eligibility.rule === 'none') return t('eligibleNoRule');
   if (eligibility.eligible) return t('eligiblePlan', { plan: plan(eligibility.yourPlan) });
   if (!eligibility.published) return t('notEligibleUnpublished');
+  if (eligibility.code === 'agents.depth_invalid') return t('notEligiblePlanLimits', { plan: plan(eligibility.yourPlan) });
   return t('notEligiblePlan', { plans: eligibility.plans.join(', '), plan: plan(eligibility.yourPlan) });
 }
 

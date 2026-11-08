@@ -45,6 +45,8 @@ export function agentEligibility(agentId: string, laws: TierLaws, tier: string):
   const plans = law && law.published === true ? Object.keys(law.matrix) : [];
   const verdict = gated.gate(laws, yourPlan);
   const eligible = verdict.status === 'ok';
+  // The scanner's own refusal when the limits published for this plan are not valid (`depth_invalid`) keeps its code, so
+  // the page says the plan's published limits are the reason, not that the plan is missing from the law.
   return {
     rule: 'plan',
     published: plans.length > 0,

@@ -86,6 +86,10 @@ describe('catalogue status, sort and run history', () => {
     const withCoach = [...stored, { agentId: 'coach', name: null, purpose: null, enabled: true, version: 1 }];
     expect(agentEnabled(byId('coach'), withCoach)).toBe(true);
     expect(agentEnabled(byId('portfolio'), stored)).toBe(false);
+    // A staff-only or unconnected agent stays off even when its row is switched on (an operator's restore).
+    const on = (agentId: string) => [{ agentId, name: null, purpose: null, enabled: true, version: 1 }];
+    expect(agentEnabled(byId('portfolio'), on('portfolio'))).toBe(false);
+    expect(agentEnabled(byId('risk-compliance'), on('risk-compliance'))).toBe(false);
   });
   it('lists exactly the stored agents: none stored is an empty catalogue, and an unknown stored agent is listed', () => {
     expect(catalogueFromStored([])).toEqual([]);
