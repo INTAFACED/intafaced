@@ -1,3 +1,4 @@
+// hand-declared-ok: svc-pay's merchantOps.disputes.funds answer is declared in the service (merchant-ops/router.ts, readDisputeFunds), and packages/contracts has no browser-safe schema for it.
 import { z } from 'zod';
 import { amount, asset } from '../../schemas';
 import type { PortalTools } from '../api-tools';
