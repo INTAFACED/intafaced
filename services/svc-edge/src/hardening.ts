@@ -51,7 +51,7 @@ const UNTHROTTLED = new Set(['/health', '/ready']);
 export const EDGE_IP_RATE_BUCKET = 'edge.ip' as const;
 export const EDGE_API_KEY_RATE_BUCKET = 'edge.api_key' as const;
 
-/** Every counted request costs 1. No per-route weights exist. */
+/** Every request the address throttle counts costs 1. A key's calls cost their route's owner-set cost (`rate-bucket.ts`). */
 export const EDGE_RATE_COST = 1 as const;
 
 export const RATE_LIMIT_HEADER = {
@@ -61,6 +61,7 @@ export const RATE_LIMIT_HEADER = {
   retryAfter: 'retry-after',
   bucket: 'x-ratelimit-bucket',
   cost: 'x-ratelimit-cost',
+  reason: 'x-ratelimit-reason',
 } as const;
 
 type HeaderReply = {
@@ -83,13 +84,33 @@ export function stampRateLimitDisclosure(reply: HeaderReply): void {
 }
 
 /** Overwrite remaining to the bucket that actually refused (429, not a delayed 200). */
-export function stampRateLimitRefuseHeaders(reply: HeaderReply, input: { limit: number; resetSeconds: number; bucket: string }): void {
+export function stampRateLimitRefuseHeaders(
+  reply: HeaderReply,
+  input: { limit: number; resetSeconds: number | null; bucket: string; cost?: number; reason?: string },
+): void {
   reply.header(RATE_LIMIT_HEADER.limit, input.limit);
   reply.header(RATE_LIMIT_HEADER.remaining, 0);
-  reply.header(RATE_LIMIT_HEADER.reset, input.resetSeconds);
-  reply.header(RATE_LIMIT_HEADER.retryAfter, input.resetSeconds);
+  // No wait can help a call that costs more than the whole burst: it carries no reset and no retry-after.
+  if (input.resetSeconds !== null) {
+    reply.header(RATE_LIMIT_HEADER.reset, input.resetSeconds);
+    reply.header(RATE_LIMIT_HEADER.retryAfter, input.resetSeconds);
+  }
   reply.header(RATE_LIMIT_HEADER.bucket, input.bucket);
-  reply.header(RATE_LIMIT_HEADER.cost, EDGE_RATE_COST);
+  reply.header(RATE_LIMIT_HEADER.cost, input.cost ?? EDGE_RATE_COST);
+  reply.header(RATE_LIMIT_HEADER.reason, input.reason ?? 'global');
+}
+
+/** An allowed key call: what the key's bucket holds after it, so a client can pace itself before a 429. */
+export function stampKeyMeteredHeaders(
+  reply: HeaderReply,
+  input: { limit: number; remaining: number; cost: number; bucket: string; resetSeconds: number },
+): void {
+  reply.header(RATE_LIMIT_HEADER.limit, input.limit);
+  reply.header(RATE_LIMIT_HEADER.remaining, input.remaining);
+  // The key's own reset (until its bucket is full), never the address throttle's window.
+  reply.header(RATE_LIMIT_HEADER.reset, input.resetSeconds);
+  reply.header(RATE_LIMIT_HEADER.bucket, input.bucket);
+  reply.header(RATE_LIMIT_HEADER.cost, input.cost);
 }
 
 export interface RateLimitConfig {
@@ -360,6 +381,8 @@ export async function registerRateLimit(app: FastifyInstance, config: RateLimitC
       statusCode: 429,
       error: userCopy('edge.rate_limited'),
       code: 'edge.rate_limited',
+      // The address budget covers every call from one address: the global limit.
+      reason: 'global',
       retryAfterSeconds: Math.ceil(Number(context.ttl) / 1000),
       remaining: 0,
       bucket: EDGE_IP_RATE_BUCKET,

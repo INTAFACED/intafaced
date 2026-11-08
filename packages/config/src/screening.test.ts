@@ -127,12 +127,19 @@ describe('the state is observable — "screened and clear" vs "screened nothing"
     expect(status.summary).toContain('nothing has been screened');
   });
 
-  it('names the regions and the provenance once a list exists', () => {
+  // The summary is a log line, and the list and its source are secret values:
+  // it names the state, the count and whether a source was set, never the
+  // region codes or the source string. The values stay on the in-process fields.
+  it('keeps the regions and the provenance in-process, and out of the summary, once a list exists', () => {
     const status = screeningStatus(POPULATED);
     expect(status.configured).toBe(true);
     expect(status.blockedRegions).toEqual(['AA', 'ZY']);
-    expect(status.summary).toContain('test-fixture-not-a-real-list');
+    expect(status.source).toContain('test-fixture-not-a-real-list');
+    expect(status.sourceSet).toBe(true);
     expect(status.summary).toContain('FIXTURE');
+    expect(status.summary).toContain('2 region(s)');
+    expect(status.summary).not.toContain('test-fixture-not-a-real-list');
+    expect(status.summary).not.toMatch(/\bAA\b|\bZY\b/);
     expect(status.readsAsScreenedClean).toBe(false);
   });
 
@@ -900,7 +907,10 @@ describe('the deliberately-empty list is a distinct, attributable state', () => 
   it('names the authority in the summary rather than reading as a clean tick', () => {
     const status = screeningStatus(parseScreeningList(SCREENING_REVIEWED_EMPTY, 'counsel-memo-ref'), []);
     expect(status.summary).toContain('DELIBERATELY EMPTY');
-    expect(status.summary).toContain('counsel-memo-ref');
+    // The authority is named by its variable; its value is a secret and stays out of the log line.
+    expect(status.summary).toContain('INTAFACED_SANCTIONS_LIST_SOURCE');
+    expect(status.sourceSet).toBe(true);
+    expect(status.summary).not.toContain('counsel-memo-ref');
     // It must not read as "we screened everyone and everyone is fine".
     expect(status.summary).toContain('recorded decision');
   });

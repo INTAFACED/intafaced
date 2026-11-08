@@ -39,6 +39,8 @@ export interface Web3Route {
   walletClaim?: true;
   /** The Tokens room, or one token's page by its address. */
   tokens?: 'list' | 'detail';
+  /** The person's own wallet orders (D-limit-dca-01 to -04). */
+  orders?: true;
   /** One pool's page by its contract address (D-explorer-05). */
   pool?: 'detail';
   /** One contract's page by its address: source status, proxy, Read and Write (D-explorer-06). */
@@ -76,6 +78,7 @@ export const WEB3_ROUTES: readonly Web3Route[] = [
   { path: '/dex/tokens', room: 'dex', tokens: 'list' },
   { path: '/dex/tokens/:address', room: 'dex', tokens: 'detail' },
   { path: '/dex/venue', room: 'dex', tab: 'venue' },
+  { path: '/dex/orders', room: 'dex', orders: true },
   ...(Object.entries(WALLET_SECTIONS) as [WalletSection, string][]).map(([wallet, path]) => ({ path, room: 'wallet' as const, wallet })),
   { path: '/wallet/groups/:groupId', room: 'wallet', walletGroup: true },
   { path: '/wallet/claim/:linkId', room: 'wallet', walletClaim: true, param: { name: 'linkId', shape: ADDRESS_SHAPE } },

@@ -16,6 +16,7 @@ describe('Web3 routes (IA-SPEC 2.8)', () => {
       '/dex/tokens',
       '/dex/tokens/:address',
       '/dex/venue',
+      '/dex/orders',
       '/wallet',
       '/wallet/activity',
       '/wallet/send',

@@ -50,6 +50,10 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   'edge.request_window_unset': 'error.generic',
   // A key used against the other environment's host (gateway-plane.ts). The code carries the detail.
   'env.mismatch': 'error.forbidden',
+  // A key's rate limit or a route's cost the owner has not set (rate-bucket.ts): the platform's to set.
+  'edge.limits_unset': 'error.generic',
+  'edge.cost_unset': 'error.generic',
+  'edge.api_key_bearer_required': 'error.forbidden',
   // Framework refusals renamed by the envelope (reply-envelope.ts). `edge.request_invalid` and
   // `edge.internal_error` have no row on purpose: they take the sentence for their status (`refusalCopy`).
   'edge.body_too_large': 'error.generic',

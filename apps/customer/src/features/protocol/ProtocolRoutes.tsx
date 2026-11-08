@@ -14,6 +14,7 @@ import { WatchlistPage } from './watch/WatchlistPage';
 import { BlockPage, TxPage } from './explorer/pages';
 import { PoolPage } from './pools/PoolPage';
 import { ContractPage } from './contracts/ContractPage';
+import { OrdersRoom } from './orders/OrdersRoom';
 
 /**
  * Mounts one component per Web3 route (IA-SPEC 2.8). A tab route renders its room's tab; a detail route renders its full
@@ -41,6 +42,7 @@ export function ProtocolRoutes({ path }: { path: string }) {
       return <PendingRoute room={route.room} page="poolDetail" blocker="indexer" valid={false} />;
     return <PoolPage address={value.toLowerCase()} />;
   }
+  if (route.orders) return <OrdersRoom />;
   if (route.contract) return <ContractPage address={safeDecode(params.address)} />;
   if (route.explorer === 'address') return <AddressPage address={safeDecode(params.address)} />;
   if (route.explorer === 'watchlist') return <WatchlistPage />;

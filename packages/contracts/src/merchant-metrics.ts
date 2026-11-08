@@ -107,3 +107,50 @@ export const merchantSettlementAssetsSchema = z
   })
   .strict();
 export type MerchantSettlementAssets = z.infer<typeof merchantSettlementAssetsSchema>;
+
+/**
+ * The acquiring partner's own terms for one business (CUSTODY-DELTA §1.3 "Unknown, never zero"; OWNER 226): what the
+ * partner has told us, and nothing else. Each figure the partner has not given is `{ known: false }`, which the rooms
+ * show as "not known", never zero; a feature the partner has said it does not offer is `offered: false`, shown as
+ * "not offered by the partner". `partner: 'TEST'` is the labelled TEST acquirer (`card-sandbox`), the only one today.
+ */
+export const merchantPartnerTermsInputSchema = z.object({ merchantId: payMerchantIdSchema }).strict();
+export type MerchantPartnerTermsInput = z.infer<typeof merchantPartnerTermsInputSchema>;
+
+const notKnownSchema = z.object({ known: z.literal(false) }).strict();
+
+export const merchantPartnerTermsSchema = z
+  .object({
+    merchantId: payMerchantIdSchema,
+    partner: z.literal('TEST'),
+    /** When the partner's terms were read. */
+    asOf: payTimestampSchema,
+    /** The partner's reserve rule on this business. */
+    reserveRule: z.union([
+      notKnownSchema,
+      z
+        .object({ known: z.literal(true), rollingReserveBps: z.number().int().min(0).max(10_000), holdDays: z.number().int().min(0) })
+        .strict(),
+    ]),
+    /** Who covers what a lost dispute takes beyond the merchant's funds. Never the ledger by default; `house` only when the partner's terms say INTAFACED does. */
+    shortfallCover: z.union([notKnownSchema, z.object({ known: z.literal(true), who: z.enum(['merchant', 'partner', 'house']) }).strict()]),
+    /** The currencies the partner holds accounts in for this business. */
+    currencies: z.union([notKnownSchema, z.object({ known: z.literal(true), offered: z.array(payAssetCodeSchema) }).strict()]),
+    /** The partner's instant payout: whether it is offered, and its fee when the partner has given one. */
+    instantPayout: z.union([
+      notKnownSchema,
+      z.object({ known: z.literal(true), offered: z.literal(false) }).strict(),
+      z
+        .object({
+          known: z.literal(true),
+          offered: z.literal(true),
+          fee: z.union([
+            notKnownSchema,
+            z.object({ known: z.literal(true), amount: payAmountStringSchema, assetCode: payAssetCodeSchema }).strict(),
+          ]),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+export type MerchantPartnerTerms = z.infer<typeof merchantPartnerTermsSchema>;

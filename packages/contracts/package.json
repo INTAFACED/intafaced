@@ -22,6 +22,10 @@
       "types": "./dist/account-controls.d.ts",
       "default": "./dist/account-controls.js"
     },
+    "./action-approval-policy": {
+      "types": "./dist/action-approval-policy.d.ts",
+      "default": "./dist/action-approval-policy.js"
+    },
     "./identity-staff": {
       "types": "./dist/identity-staff.d.ts",
       "default": "./dist/identity-staff.js"
@@ -37,6 +41,10 @@
     "./protocol-blockers": {
       "types": "./dist/protocol-blockers.d.ts",
       "default": "./dist/protocol-blockers.js"
+    },
+    "./protocol-bridge": {
+      "types": "./dist/protocol-bridge.d.ts",
+      "default": "./dist/protocol-bridge.js"
     },
     "./protocol-networks": {
       "types": "./dist/protocol-networks.d.ts",
@@ -62,9 +70,17 @@
       "types": "./dist/protocol-liquidity.d.ts",
       "default": "./dist/protocol-liquidity.js"
     },
+    "./protocol-dex-orders": {
+      "types": "./dist/protocol-dex-orders.d.ts",
+      "default": "./dist/protocol-dex-orders.js"
+    },
     "./protocol-address-book": {
       "types": "./dist/protocol-address-book.d.ts",
       "default": "./dist/protocol-address-book.js"
+    },
+    "./protocol-address-risk": {
+      "types": "./dist/protocol-address-risk.d.ts",
+      "default": "./dist/protocol-address-risk.js"
     },
     "./protocol-wallet-tx": {
       "types": "./dist/protocol-wallet-tx.d.ts",
@@ -101,6 +117,10 @@
     "./identity-account-status": {
       "types": "./dist/identity-account-status.d.ts",
       "default": "./dist/identity-account-status.js"
+    },
+    "./identity-compromise": {
+      "types": "./dist/identity-compromise.d.ts",
+      "default": "./dist/identity-compromise.js"
     },
     "./identity-appeals": {
       "types": "./dist/identity-appeals.d.ts",
@@ -153,6 +173,10 @@
     "./support-awaiting": {
       "types": "./dist/support-awaiting.d.ts",
       "default": "./dist/support-awaiting.js"
+    },
+    "./support-official-channels": {
+      "types": "./dist/support-official-channels.d.ts",
+      "default": "./dist/support-official-channels.js"
     },
     "./guest-verification": {
       "types": "./dist/guest-verification.d.ts",
@@ -310,6 +334,10 @@
       "types": "./dist/api-keys.d.ts",
       "default": "./dist/api-keys.js"
     },
+    "./api-rate-limits": {
+      "types": "./dist/api-rate-limits.d.ts",
+      "default": "./dist/api-rate-limits.js"
+    },
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"
@@ -341,6 +369,14 @@
     "./academy-course-release": {
       "types": "./dist/academy-course-release.d.ts",
       "default": "./dist/academy-course-release.js"
+    },
+    "./academy-learner-desk": {
+      "types": "./dist/academy-learner-desk.d.ts",
+      "default": "./dist/academy-learner-desk.js"
+    },
+    "./identity-learner-card": {
+      "types": "./dist/identity-learner-card.d.ts",
+      "default": "./dist/identity-learner-card.js"
     },
     "./academy-course-item-rules": {
       "types": "./dist/academy-course-item-rules.d.ts",
