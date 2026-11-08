@@ -273,10 +273,20 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
     expect(position[field], field).toMatch(/^\d+(\.\d+)?$/);
   }
   expect(position.unrealizedPnl).toMatch(/^-?\d+(\.\d+)?$/);
-  // Shown as the exact decimal the service sends, digit for digit, with the whole number grouped (the room's
-  // displayAmount). Padding to two places failed whenever the service sent one, as 52685.6 (run 42446058427, shard 17).
-  const [whole, fraction] = position.liquidationPrice.split('.');
-  await expect(row).toContainText(`${Number(whole).toLocaleString('en-US')}${fraction ? `.${fraction}` : ''}`);
+  // Shown as the service's decimal to eight places, with the whole number grouped (the room's displayAmount): sent
+  // with eight places or fewer it is shown digit for digit (52685.6 → 52,685.6, run 42446058427 shard 17; the old pad to
+  // two places failed on it); longer, it is shown rounded half up at the eighth (52754.49696969696969697 → 52,754.49696970,
+  // run 42448935569). Exact in bigint, never a float.
+  const [whole, fraction = ''] = position.liquidationPrice.split('.');
+  let shownWhole = BigInt(whole);
+  let shownFraction = fraction;
+  if (fraction.length > 8) {
+    let eight = BigInt(fraction.slice(0, 8)) + (fraction[8] >= '5' ? 1n : 0n);
+    if (eight === 10n ** 8n) [shownWhole, eight] = [shownWhole + 1n, 0n];
+    shownFraction = eight.toString().padStart(8, '0');
+  }
+  const grouped = shownWhole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  await expect(row).toContainText(`${grouped}${shownFraction ? `.${shownFraction}` : ''}`);
 });
 
 test(`${J} #10 closes 40 percent, then the rest`, async ({ page }) => {
