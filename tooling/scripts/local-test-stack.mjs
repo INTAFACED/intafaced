@@ -71,6 +71,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
@@ -97,6 +98,7 @@ import quant from './local-stack-services/quant.mjs';
 import support, { SUPPORT_EMPTY_CATALOGUE_DB, onEmptyCatalogueDb, supportCatalogueOff } from './local-stack-services/support.mjs';
 import tax from './local-stack-services/tax.mjs';
 import campaigns from './local-stack-services/campaigns.mjs';
+import dex from './local-stack-services/dex.mjs';
 import ws from './local-stack-services/ws.mjs';
 import token from './local-stack-services/token.mjs';
 import trade from './local-stack-services/trade.mjs';
@@ -120,6 +122,7 @@ import {
   localPgBin,
   assertActiveLocalStack,
   processRecordMatches,
+  readKernelStart,
   readProcessIdentity,
   postgresProcessMatches,
   localPgOsUser,
@@ -186,6 +189,8 @@ const PORTS = {
   protocol: 14520,
   // The chain explorer's read model; follows the TEST chain through the same gate (local-stack-services/indexer.mjs).
   indexer: 14524,
+  // The Protocol plane's order door: the wallet-signed order session and the person's own vault orders (J-dex-protocol-10).
+  dex: 14529,
   // LOCAL TEST stand-in for the object store Academy signs video URLs for (local-video-store.mjs).
   'video-store': 14521,
   // Seasons, limited drops and the TGE claim (the drop room).
@@ -522,7 +527,9 @@ function startProc(name, argv, env, cwd, extra = {}) {
   child.unref();
   fs.closeSync(fd);
   const procs = readProcs();
-  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), ...extra };
+  // The kernel's birth mark, read now while the child certainly lives, is what ownedAlive holds it to on Linux (#7488).
+  const kernelStart = readKernelStart(child.pid) ?? undefined;
+  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), kernelStart, ...extra };
   writeProcs(procs);
   return child.pid;
 }
@@ -732,6 +739,7 @@ const BACKEND_PKGS = [
   'svc-ops',
   'svc-protocol',
   'svc-indexer',
+  'svc-dex',
   'svc-campaigns',
   'svc-ws',
 ];
@@ -809,13 +817,21 @@ function sourceUnchangedSince(oldHead, head, paths = SOURCE_PATHS) {
  * A fingerprint of the uncommitted edits under `paths` in this checkout (changed, added and untracked files and their
  * content), '' when there are none. A build made from a dirty tree vouches only for that same dirt.
  */
-function worktreeEdits(paths, exclude = []) {
-  const spec = [...paths, ...exclude.map((p) => `:(exclude)${p}`)];
-  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: REPO });
+/**
+ * The state files a running service writes in its own folder of the checkout (`services/<name>/.data/`, the default of
+ * paths such as TRADE_MM_SEED_STATE_PATH, relative to the service's working folder). They are no source and git does not
+ * ignore them, so counting them made every restart after a journey that wrote one rebuild the whole stack (#7463). Only
+ * this folder, one level under `services/`: any other untracked or edited file still counts.
+ */
+export const RUNTIME_STATE = ['services/*/.data/**'];
+
+export function worktreeEdits(paths, exclude = [], repo = REPO) {
+  const spec = [...paths, ...[...exclude, ...RUNTIME_STATE].map((p) => `:(exclude,glob)${p}`)];
+  const status = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...spec], { cwd: repo });
   // A read that fails or is cut short is never "same as before".
   if (status.status !== 0 || status.error) return `unreadable:${Date.now()}`;
   if (status.stdout.length === 0) return '';
-  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
+  const diff = spawnSync('git', ['diff', 'HEAD', '--binary', '--', ...spec], { cwd: repo, maxBuffer: 256 * 1024 * 1024 });
   if (diff.status !== 0 || diff.error) return `unreadable:${Date.now()}`;
   const hash = crypto
     .createHash('sha256')
@@ -825,7 +841,7 @@ function worktreeEdits(paths, exclude = []) {
     // Untracked files are in no diff: hash their bytes too.
     if (entry.startsWith('?? ')) {
       try {
-        hash.update(fs.readFileSync(path.join(REPO, entry.slice(3))));
+        hash.update(fs.readFileSync(path.join(repo, entry.slice(3))));
       } catch {
         hash.update(`unreadable:${entry}`);
       }
@@ -850,6 +866,17 @@ const newBuildId = () => `${new Date().toISOString()}-${crypto.randomBytes(4).to
  * Whether a running process was started on the build that is on disk now. `wanted` is the stamp's id for that part; a
  * process recorded before builds had ids started on an unknown build.
  */
+/**
+ * What a start or restart builds, from the stamp the last build wrote: 'none' while the stamp still holds, 'missing'
+ * when it holds but a package's build output is gone, 'full' otherwise (everything rebuilt, every service restarted).
+ */
+export function backendDecision({ rebuild = false, stamp, repo, head, edits, customerOk = true, missing = [] }, unchanged) {
+  const fresh =
+    !rebuild &&
+    buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo, head, edits }, unchanged);
+  return fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+}
+
 export function onCurrentBuild(rec, wanted) {
   return !wanted || rec?.build === wanted;
 }
@@ -986,14 +1013,16 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
   // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
+  // So is one built before its scripts had position maps (the journeys' reach recorder, journey-reach.mjs).
   const customerOk = override
     ? !act.error
-    : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
+    : fs.existsSync(path.join(P.customerDist, 'index.html')) &&
+      stamp.customerBuilt !== false &&
+      stamp.customerTeamUrl === TEAM_TLS_ORIGIN &&
+      stamp.customerPositions === true;
   const edits = worktreeEdits(SOURCE_PATHS);
-  const fresh =
-    !rebuild && buildStillFresh({ stampRepo: stamp.repo, stampHead: stamp.head, stampEdits: stamp.edits }, { repo: REPO, head, edits });
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
-  const backend = fresh && customerOk ? (missing.length === 0 ? 'none' : 'missing') : 'full';
+  const backend = backendDecision({ rebuild, stamp, repo: REPO, head, edits, customerOk, missing });
   return { head, edits, stamp, override, missing, backend, customer: backend === 'full' && !override };
 }
 
@@ -1137,9 +1166,17 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     );
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
+  // Hidden source maps beside the scripts, for the journeys' reach recorder (apps/customer/vite.config.ts).
   if (!override) {
     say('  build: customer app…');
-    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', { VITE_TEAM_URL: TEAM_TLS_ORIGIN });
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', {
+      VITE_TEAM_URL: TEAM_TLS_ORIGIN,
+      INTAFACED_SOURCEMAP: 'hidden',
+    });
+    // Each map becomes positions only (source paths and line positions, no source text) and the .map is deleted, before
+    // the build is served or packed: the journeys run's build artifact is public (journey-reach.mjs reduceMaps).
+    const { reduced, dropped } = reduceMaps(REPO, P.customerDist);
+    say(`  build: customer app position maps: ${reduced} reduced, ${dropped} unreadable and dropped; no .map file kept`);
   }
   writePrivate(
     P.buildStamp,
@@ -1155,6 +1192,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
         backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
         customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
+        customerPositions: override ? stamp.customerPositions : true,
       },
       null,
       2,
@@ -1299,12 +1337,12 @@ const EDGE_UPSTREAMS = {
   OPS_URL: 'ops',
   PROTOCOL_URL: 'protocol',
   INDEXER_URL: 'indexer',
+  DEX_URL: 'dex',
   CAMPAIGNS_URL: 'campaigns',
 };
 
 /** Edge upstreams that are intentionally not started, each with the reason. The Customer app calls none of them except where noted. */
 const EDGE_ABSENT = {
-  DEX_URL: 'On-chain DEX; needs chain RPC. The Web3 rooms show it as a service that did not answer.',
   CONNECT_URL: 'Operator data-lake door; not a customer door.',
 };
 
@@ -1340,6 +1378,7 @@ const SERVICES = [
   miningPool,
   protocol,
   indexer,
+  dex,
   campaigns,
   ws,
   // After ws and before edge: the edge's adapter status door reads both (startDependencies).
@@ -1444,22 +1483,29 @@ const screeningSet = () => Boolean(screeningEnv().INTAFACED_SANCTIONS_REGIONS);
 
 // ── Start / status / stop ───────────────────────────────────────────────────
 
+/** The last lines of a service's log, or why there are none, for a start that failed. */
+function logTail(name, lines = 20) {
+  const file = path.join(P.logs, `${name}.log`);
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n').slice(-lines).join('\n');
+  } catch (err) {
+    return `(could not read ${file}: ${err.code ?? err.message})`;
+  }
+}
+
 async function waitHealthy(name, url, pid, timeoutMs = 90_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
-    if (!psCommand(pid)) {
-      const tail = fs
-        .readFileSync(path.join(P.logs, `${name}.log`), 'utf8')
-        .split('\n')
-        .slice(-20)
-        .join('\n');
-      fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${tail}`);
-    }
+    if (!psCommand(pid)) fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`);
     const r = await httpGet(url, 2000);
     if (r.status === 200) return;
     await sleep(500);
   }
-  fail(`${name} did not become healthy at ${url} within ${timeoutMs / 1000}s (see ${path.join(P.logs, `${name}.log`)})`);
+  // Still running but not answering: its log says how far it got. A Node service's logger writes asynchronously, so
+  // a process whose event loop is blocked can hold its last lines unwritten (#7554).
+  fail(
+    `${name} did not become healthy at ${url} within ${timeoutMs / 1000}s; it is still running (pid ${pid}). Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`,
+  );
 }
 
 async function startNats() {
