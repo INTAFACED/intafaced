@@ -44,7 +44,15 @@ test(`${J} #1 opens a 2x2 grid; dragging a border resizes two cells and a double
 test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on the same key`, async ({ page }) => {
   await openGrid(page);
   const sizes = async () => Promise.all([0, 1, 2, 3].map(async (i) => [await width(page, i), await height(page, i)]));
+  // The grid's own tracks in px, as the browser laid them out: [first, border, second] for columns and for rows.
+  const tracks = async () =>
+    page.getByTestId('cg-area').evaluate((el) => {
+      const px = (value) => value.split(' ').map(parseFloat);
+      const style = getComputedStyle(el);
+      return { cols: px(style.gridTemplateColumns), rows: px(style.gridTemplateRows) };
+    });
   const gridSizes = await sizes();
+  const gridTracks = await tracks();
   await canvasOf(page, 1).focus();
   await page.keyboard.press('Alt+Enter');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '1');
@@ -54,9 +62,25 @@ test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on t
   await page.keyboard.press('Alt+Enter');
   await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '');
   // Every cell is back in view at its grid size, and the others stayed alive: their bars are still drawn.
+  // Each cell fills exactly its own column and row track again, the columns are the widths they had before the
+  // maximise, and the rows keep the same proportion. A row's height follows its charts' content, and that content moves
+  // on the market's clock, not this step's: the Delayed banner appears once the newest TEST trade is older than the
+  // boundary, and goes when a new trade lands (main run 42440617559: the sizes were read 0.1 s after the bars drew,
+  // before the banner, so no later height could match them).
   for (const i of [0, 1, 2, 3]) await expect(cell(page, i)).toBeVisible();
+  const rowShare = (t) => t.rows[0] / (t.rows[0] + t.rows[2]);
   await expect
-    .poll(async () => (await sizes()).every(([w, h], i) => Math.abs(w - gridSizes[i][0]) < 2 && Math.abs(h - gridSizes[i][1]) < 2))
+    .poll(async () => {
+      const now = await sizes();
+      const t = await tracks();
+      return (
+        Math.abs(rowShare(t) - rowShare(gridTracks)) < 0.005 &&
+        now.every(
+          ([w, h], i) =>
+            Math.abs(w - gridSizes[i][0]) < 2 && Math.abs(w - t.cols[(i % 2) * 2]) < 2 && Math.abs(h - t.rows[Math.floor(i / 2) * 2]) < 2,
+        )
+      );
+    })
     .toBe(true);
   for (const i of [0, 2, 3]) await expect.poll(async () => Number(await canvasOf(page, i).getAttribute('data-bars'))).toBeGreaterThan(0);
 });
