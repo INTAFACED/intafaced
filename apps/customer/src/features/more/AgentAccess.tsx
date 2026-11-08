@@ -62,13 +62,22 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
   const [scope, setScope] = useState<OwnAgentPolicyScope>('all');
   const [refused, setRefused] = useState<Failed | null>(null);
   const [busy, setBusy] = useState(false);
+  // The tick shows the person's choice at once; the service's answer then sets it, or a refusal puts it back.
+  const [required, setRequired] = useState(stored.rulesRequired);
   async function send(procedure: string, input: Record<string, unknown>) {
     setBusy(true);
     setRefused(null);
     try {
       const res = await api.mutate('agents', procedure, { id: agent.id, ...input }, ownAgentPolicySchema);
-      if (!res.ok) return setRefused(res);
+      if (!res.ok) {
+        setRequired(policy.rulesRequired);
+        return setRefused(res);
+      }
       setPolicy(res.data);
+      setRequired(res.data.rulesRequired);
+    } catch (error) {
+      setRequired(policy.rulesRequired);
+      throw error;
     } finally {
       setBusy(false);
     }
@@ -124,14 +133,18 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
       ) : (
         <p className="muted">{t('noRules')}</p>
       )}
-      <label htmlFor={requiredId}>
+      {/* The page's reset gives a checkbox no size; the builder's choice class gives it one a person can tick. */}
+      <label className="agent-surface-choice" htmlFor={requiredId}>
         <input
           id={requiredId}
           type="checkbox"
-          checked={policy.rulesRequired}
+          checked={required}
           disabled={busy}
           aria-describedby={`${requiredId}-hint`}
-          onChange={(event) => void send('own.policy.require', { rulesRequired: event.target.checked })}
+          onChange={(event) => {
+            setRequired(event.target.checked);
+            void send('own.policy.require', { rulesRequired: event.target.checked });
+          }}
         />
         <span>{t('required')}</span>
       </label>
