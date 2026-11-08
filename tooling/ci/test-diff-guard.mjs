@@ -47,9 +47,11 @@ const BROWSER_TEST = /\.pw\.mjs$/;
 const PW_CONFIG = /(?:^|\/)(?:[\w.-]+\.)?playwright\.config\.[cm]?[jt]s$/;
 // A focus marker runs one test and drops every other test in the run. The test judge reads only the steps a change
 // touches, and a focused step still proves itself, so a focus stays the guard's in every file (review 7550-R1).
-// Any `.only` on a chain (`test.describe.serial.only(`, `test.only.each(`, a chained `.only(` on its own line), a
-// bracketed one (`test['only'](`), `fit(` and `fdescribe(` (review 7550-R3). The journeys config's forbidOnly backs it up.
-const FOCUS = /\.only\b\s*[.(]|\[\s*['"`]only['"`]\s*\]|\bf(?:it|describe)\s*\(/;
+// Any `.only` member at all (`test.describe.serial.only(`, `test.only.each(`, a chained `.only(` on its own line,
+// `test.only` with its `(` on the next line, an alias `const t = test.only;`), a bracketed one (`test['only'](`),
+// `fit(` and `fdescribe(` (reviews 7550-R3 and the CI review on 6a5f1389): every form SKIP caught and more. The
+// journeys config's forbidOnly backs it up.
+const FOCUS = /\.only\b|\[\s*['"`]only['"`]\s*\]|\bf(?:it|describe)\s*\(/;
 const SKIP = /\b(?:(?:it|test|describe|suite)\.(?:skip|todo|only|fixme|skipIf|runIf)\b|x(?:it|describe|test)\s*\(|f(?:it|describe)\s*\()/;
 // The repo's journalled no-database branch: `describe.skip('<suite> (Postgres unavailable)', ...)`. The suite
 // runs in full when the database is up; the skip-honesty gates account for the skip. Exact title shape only.
@@ -241,6 +243,9 @@ function selfTest() {
     '  .only(',
     "test['only']('x', () => {",
     'test.only.each(rows)(',
+    'test.only',
+    'const t = test.only;',
+    "describe.only ('x', () => {",
   ])
     eq(jf({ added: [line] }).length, 1, `journey focus ${line.trim()}: the guard`);
   eq(jf({ added: ["  test('only the owner sees it', async () => {"] }).length, 0, 'the word only in a title is fine');
