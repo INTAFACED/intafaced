@@ -194,6 +194,43 @@ export const submitAnswerSchema = z.object({
 });
 export type SubmitAnswer = z.infer<typeof submitAnswerSchema>;
 
+/** The signature this page made for one prepared action, kept in memory only. */
+export interface KeptSignature {
+  digest: string;
+  signature: string;
+  signedBy: string;
+}
+
+/**
+ * What to do with the door's answer to a prepare, given what this page itself knows about the key:
+ * - a definite answer already recorded stands (`outcome`);
+ * - a signed action with no definite answer is read back (`unknown`) and never sent again, unless this page's own last
+ *   submit of it was refused definitely before it was sent (`resend` the same bytes);
+ * - an unsigned action another tab or press is prompting for (`reused` and not this page's own prompt) waits for that
+ *   prompt; a second press here prompts here (`sign`);
+ * - otherwise the wallet signs (`sign`).
+ */
+export type PreparedStep =
+  | { step: 'outcome'; outcome: Extract<VenueOutcome, { definite: true }> }
+  | { step: 'unknown' }
+  | { step: 'resend'; signature: KeptSignature }
+  | { step: 'wait' }
+  | { step: 'sign' };
+
+export function preparedStep(
+  answer: Pick<PreparedAnswer, 'signed' | 'reused' | 'lastOutcome'>,
+  local: { kept: KeptSignature | undefined; refusedBeforeSend: boolean; promptedHere: boolean },
+): PreparedStep {
+  const last = answer.lastOutcome;
+  if (answer.signed) {
+    if (last?.definite) return { step: 'outcome', outcome: last };
+    if (!last && local.kept && local.refusedBeforeSend) return { step: 'resend', signature: local.kept };
+    return { step: 'unknown' };
+  }
+  if (answer.reused && !local.promptedHere) return { step: 'wait' };
+  return { step: 'sign' };
+}
+
 // ── Intents, as the door takes them: every Amount a decimal string ─────────────────────────────────────────────────
 
 export interface OrderIntent {

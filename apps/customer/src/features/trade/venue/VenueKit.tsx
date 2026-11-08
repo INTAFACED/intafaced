@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Badge } from '@intafaced/ui';
 import { Button, DataTable } from '../../../shared/ui';
 import { usePreferences } from '../../../shared/preferences';
@@ -15,6 +15,8 @@ import {
   walletTypedData,
   type AsOf,
   type MaybeKnown,
+  preparedStep,
+  type KeptSignature,
   type PreparedAnswer,
   type VenueApi,
   type VenueBalance,
@@ -247,6 +249,7 @@ export type ActionResult =
   | { kind: 'unknown'; clientOrderId: string | null; nonce: string | null }
   | { kind: 'refused'; code: string | undefined; message: string; beforeWallet: boolean }
   | { kind: 'rejected' }
+  | { kind: 'waiting' }
   | { kind: 'wallet_failed'; message: string };
 
 export type RunAction = (intent: VenueIntent, opts?: { actionKey?: string; stepUpApprovalId?: string | null }) => Promise<ActionResult>;
@@ -268,20 +271,28 @@ export function useVenueActions(owner: string | null) {
   const venue = useVenueApi();
   const wallet = useWallet();
   const inFlight = useRef(new Map<string, Promise<ActionResult>>());
-  // The signed bytes of this page's own actions, in memory only, so a lost answer can be re-sent as the same bytes.
-  const signatures = useRef(new Map<string, { digest: string; signature: string; signedBy: string }>());
+  // The signed bytes of this page's own actions, in memory only, so a submit refused before it was sent can be re-sent as
+  // the same bytes. A key whose bytes may have reached the venue is never sent again.
+  const signatures = useRef(new Map<string, KeptSignature>());
+  const refusedBeforeSend = useRef(new Set<string>());
+  // Keys this page prompted for, or told to wait for another prompt: the next press prompts here.
+  const promptedHere = useRef(new Set<string>());
 
   const submitSigned = useCallback(
-    async (key: string, prepared: PreparedAnswer['prepared'], signature: { digest: string; signature: string; signedBy: string }) => {
+    async (key: string, prepared: PreparedAnswer['prepared'], signature: KeptSignature): Promise<ActionResult> => {
       const sent = await venue.submit(key, signature);
       if (!sent.ok) {
-        if (sent.reason === 'uncertain')
-          return { kind: 'unknown', clientOrderId: prepared.venueClientOrderId, nonce: prepared.nonce } as const;
-        return { kind: 'refused', code: sent.code, message: sent.message, beforeWallet: false } as const;
+        if (sent.reason === 'uncertain') {
+          refusedBeforeSend.current.delete(key);
+          return { kind: 'unknown', clientOrderId: prepared.venueClientOrderId, nonce: prepared.nonce };
+        }
+        refusedBeforeSend.current.add(key);
+        return { kind: 'refused', code: sent.code, message: sent.message, beforeWallet: false };
       }
+      refusedBeforeSend.current.delete(key);
       const outcome = sent.data.outcome;
-      if (!outcome.definite) return { kind: 'unknown', clientOrderId: prepared.venueClientOrderId, nonce: prepared.nonce } as const;
-      return { kind: 'outcome', outcome, reused: false, clientOrderId: prepared.venueClientOrderId, nonce: prepared.nonce } as const;
+      if (!outcome.definite) return { kind: 'unknown', clientOrderId: prepared.venueClientOrderId, nonce: prepared.nonce };
+      return { kind: 'outcome', outcome, reused: false, clientOrderId: prepared.venueClientOrderId, nonce: prepared.nonce };
     },
     [venue],
   );
@@ -297,13 +308,25 @@ export function useVenueActions(owner: string | null) {
         if (!prepared.ok) return { kind: 'refused', code: prepared.code, message: prepared.message, beforeWallet: true };
         const answer = prepared.data;
         const p = answer.prepared;
-        if (answer.signed) {
-          const last = answer.lastOutcome;
-          if (last?.definite) return { kind: 'outcome', outcome: last, reused: true, clientOrderId: p.venueClientOrderId, nonce: p.nonce };
-          const kept = signatures.current.get(answer.actionKey);
-          if (kept) return submitSigned(answer.actionKey, p, kept);
-          return { kind: 'unknown', clientOrderId: p.venueClientOrderId, nonce: p.nonce };
+        const next = preparedStep(answer, {
+          kept: signatures.current.get(answer.actionKey),
+          refusedBeforeSend: refusedBeforeSend.current.has(answer.actionKey),
+          promptedHere: promptedHere.current.has(answer.actionKey),
+        });
+        switch (next.step) {
+          case 'outcome':
+            return { kind: 'outcome', outcome: next.outcome, reused: true, clientOrderId: p.venueClientOrderId, nonce: p.nonce };
+          case 'unknown':
+            return { kind: 'unknown', clientOrderId: p.venueClientOrderId, nonce: p.nonce };
+          case 'resend':
+            return submitSigned(answer.actionKey, p, next.signature);
+          case 'wait':
+            promptedHere.current.add(answer.actionKey);
+            return { kind: 'waiting' };
+          case 'sign':
+            break;
         }
+        promptedHere.current.add(answer.actionKey);
         const signed = await wallet.sign({ kind: 'typedData', typedData: walletTypedData(p.typedData) });
         if (signed.status === 'rejected') return { kind: 'rejected' };
         if (signed.status !== 'signed') return { kind: 'wallet_failed', message: signed.status === 'failed' ? signed.message : '' };
@@ -325,6 +348,8 @@ export function outcomeText(t: T, result: ActionResult): string {
   switch (result.kind) {
     case 'rejected':
       return t('Outcome rejected wallet');
+    case 'waiting':
+      return t('Outcome waiting');
     case 'wallet_failed':
       return t('Outcome wallet failed', { message: result.message });
     case 'unknown':
@@ -352,13 +377,39 @@ export function outcomeText(t: T, result: ActionResult): string {
   }
 }
 
-/** Reads an order back by its client id until the venue names it, for an answer that was not definite. */
-export function ReadBack({ owner, clientOrderId }: { owner: string; clientOrderId: string }) {
+/**
+ * Whether a draft's id must be held for the next press: until the venue answers definitely, a press is the same action
+ * (read back, or prompted again); after a definite answer a new press is a new action with a new id.
+ */
+export function keepsDraft(result: ActionResult): boolean {
+  return result.kind !== 'outcome';
+}
+
+/** The order statuses after which the venue does nothing more with an order. */
+export const SETTLED_STATUSES: readonly string[] = ['filled', 'canceled', 'rejected', 'expired'];
+
+/**
+ * Reads an order back by its client id until the venue names it, for an answer that was not definite. An order not found
+ * yet is only that: it keeps being read, and nothing is sent again. `onSettled` hears the venue's own settled record.
+ */
+export function ReadBack({
+  owner,
+  clientOrderId,
+  onSettled,
+}: {
+  owner: string;
+  clientOrderId: string;
+  onSettled?: (order: VenueOrder) => void;
+}) {
   const { t } = venueCopy.useCopy();
   const venue = useVenueApi();
   const read = usePolled((signal) => venue.orderByClientId(owner, clientOrderId, signal), `rb:${owner}:${clientOrderId}`, VENUE_POLL_MS);
+  const order = read.data?.value ?? null;
+  const settled = order && SETTLED_STATUSES.includes(order.status) ? order : null;
+  useEffect(() => {
+    if (settled) onSettled?.(settled);
+  }, [settled, onSettled]);
   if (!read.data) return <p className="muted">{t('Checking venue')}</p>;
-  const order = read.data.value;
   return (
     <p data-testid="venue-read-back">{order ? t('Read back', { status: word(t, 'status', order.status) }) : t('Read back missing')}</p>
   );

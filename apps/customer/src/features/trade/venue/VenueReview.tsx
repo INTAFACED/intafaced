@@ -14,6 +14,19 @@ export function builderApproved(account: VenueAccount, status: VenueUp): boolean
 }
 
 /**
+ * The words of the builder-fee approval line: a blank owner value is named as that, never only "not known"; an approval
+ * the venue has not reported yet is not known.
+ */
+export function builderApprovalLine(
+  published: boolean,
+  approved: boolean | null,
+): 'Builder fee owner blank' | 'Not known' | 'Builder approved' | 'Builder not approved' {
+  if (!published) return 'Builder fee owner blank';
+  if (approved === null) return 'Not known';
+  return approved ? 'Builder approved' : 'Builder not approved';
+}
+
+/**
  * The Review sheet of one order, every line the venue's: what it locks, its fee and our builder fee as separate lines,
  * the fee role, the time in force and the client id held for retry, the builder-fee approval when the wallet has not
  * signed one (signed here, before the order), and, on a perpetual, `extra` (margin, liquidation, total). Confirm signs
@@ -86,8 +99,14 @@ export function ReviewDialog({
           <div>
             <dt>{t('Our builder fee')}</dt>
             <dd className="numeric" data-line="builder-fee">
-              <Known value={p.builderFee.known ? { known: true, value: p.builderFee.value.amount } : { known: false }} />{' '}
-              {p.builderFee.known ? p.builderFee.value.asset : ''}
+              {status.builder ? (
+                <>
+                  <Known value={p.builderFee.known ? { known: true, value: p.builderFee.value.amount } : { known: false }} />{' '}
+                  {p.builderFee.known ? p.builderFee.value.asset : ''}
+                </>
+              ) : (
+                <span role="alert">{t('Builder fee owner blank')}</span>
+              )}
             </dd>
           </div>
           <div>
@@ -107,13 +126,7 @@ export function ReviewDialog({
           {extra}
           <div>
             <dt>{t('Builder approval')}</dt>
-            <dd data-line="builder-approval">
-              {approved === null
-                ? t('Not known')
-                : approved
-                  ? t('Builder approved', { bps: feeBps })
-                  : t('Builder not approved', { bps: feeBps })}
-            </dd>
+            <dd data-line="builder-approval">{t(builderApprovalLine(status.builder !== null, approved), { bps: feeBps })}</dd>
           </div>
         </dl>
         <AsOfLine asOf={preview.asOf} />

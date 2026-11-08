@@ -40,9 +40,21 @@ import { spotVenueCopy } from './venue-copy';
 export const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
 
 /**
- * The spot desk in venue mode: on when `/venue/status` says the door is on and the venue lists this pair as spot.
- * Anything else (still reading, the venue down, a pair it does not list) is today's desk, unchanged.
+ * Which spot page shows in venue mode: today's desk only while the venue's markets are still being read or when the venue
+ * does not list this pair as spot; the venue's notice when the venue is down or its market list could not be read (never
+ * today's custodial desk in its place); otherwise the venue desk.
  */
+export function spotGateChoice(
+  available: boolean,
+  markets: { status: 'loading' } | { status: 'failed' } | { status: 'ready'; listed: boolean },
+): 'today' | 'down' | 'venue' {
+  if (!available) return 'down';
+  if (markets.status === 'loading') return 'today';
+  if (markets.status === 'failed') return 'down';
+  return markets.listed ? 'venue' : 'today';
+}
+
+/** The spot desk in venue mode: on when `/venue/status` says the door is on and the venue lists this pair as spot. */
 export function VenueSpotGate({
   mode,
   pair,
@@ -52,12 +64,34 @@ export function VenueSpotGate({
   pair: string;
   fallback: React.ReactNode;
 }) {
+  const v = venueCopy.useCopy().t;
   const venue = useVenueApi();
   const markets = useResource((signal) => venue.markets(signal), 'venue-markets');
-  if (!mode.status.available || markets.resource.status !== 'ready') return <>{fallback}</>;
   const symbol = venueSymbolOf(pair);
-  const market = markets.resource.data.value.find((m) => m.kind === 'spot' && m.symbol === symbol);
-  if (!market) return <>{fallback}</>;
+  const r = markets.resource;
+  const market = r.status === 'ready' ? r.data.value.find((m) => m.kind === 'spot' && m.symbol === symbol) : undefined;
+  const choice = spotGateChoice(
+    mode.status.available,
+    r.status === 'ready'
+      ? { status: 'ready', listed: market !== undefined }
+      : r.status === 'failed'
+        ? { status: 'failed' }
+        : { status: 'loading' },
+  );
+  if (choice === 'today') return <>{fallback}</>;
+  if (choice === 'down' || !market || !mode.status.available) {
+    return (
+      <div data-testid="if-desk" className="if-desk" data-venue="on">
+        {!mode.status.available ? (
+          <p className="failure" role="alert" data-testid="venue-down">
+            {v('Venue unavailable', { detail: mode.status.refusal.detail })}
+          </p>
+        ) : (
+          <ReadProblem failure={r.status === 'failed' ? r.failure : null} venueName={mode.status.venue.displayName} />
+        )}
+      </div>
+    );
+  }
   return (
     <VenueFrame mode={mode}>
       <VenueSpotDesk status={mode.status} market={market} />

@@ -36,6 +36,8 @@ import {
   WalletBar,
   heldKeys,
   outcomeText,
+  keepsDraft,
+  ReadBack,
   useOwner,
   useVenueAccount,
   useVenueActions,
@@ -153,8 +155,8 @@ function ContractStrip({ market, positions, test }: { market: VenueMarket; posit
           <dd>{market.quoteAsset}</dd>
         </div>
         <div>
-          <dt>{t('Contract size')}</dt>
-          <dd className="numeric">{t('Contract size value', { lot: market.lotSize, base: market.baseAsset })}</dd>
+          <dt>{t('Lot size')}</dt>
+          <dd className="numeric">{t('Lot size value', { lot: market.lotSize, base: market.baseAsset })}</dd>
         </div>
         <div>
           <dt>{t('Tick size')}</dt>
@@ -218,7 +220,7 @@ function MarginStep({
       { actionKey: keys.leverage(owner, market.symbol, mode, bps, draft.current) },
     );
     setResult(answer);
-    if (answer.kind === 'outcome') draft.current = draftId();
+    if (!keepsDraft(answer)) draft.current = draftId();
     current.reload();
   }
 
@@ -604,7 +606,9 @@ function PositionsTable({
 
 /**
  * Close part of a position: one reduce-only order at the market with its own close id. The id is held until the venue
- * answers, so a double press or a lost answer is the same close, sent and answered once.
+ * answers definitely, so a double press or a lost answer is the same close, sent once: an answer that is not definite is
+ * read back by its client id and Close waits for it. After a definite answer (filled, or a refused or cancelled IOC) the
+ * next press is a new close with a new id.
  */
 function CloseControl({
   position,
@@ -624,8 +628,13 @@ function CloseControl({
   const [percent, setPercent] = useState('40');
   const [result, setResult] = useState<{ amount: string; result: ActionResult } | null>(null);
   const draft = useRef<{ percent: string; size: string; id: string } | null>(null);
+  // The client id of a not-definite close the venue's own record has since settled.
+  const [settledId, setSettledId] = useState<string | null>(null);
+  const read = result?.result.kind === 'unknown' ? result.result : null;
+  const unknown = read && read.clientOrderId !== settledId ? read : null;
 
   async function close() {
+    if (unknown) return;
     const p = Number(percent);
     if (!Number.isInteger(p) || p < 1 || p > 100) return;
     // One close id per (percent, size) until a definite answer: a second press is the same close.
@@ -644,6 +653,7 @@ function CloseControl({
       clientOrderKey: keys.close(owner, position.symbol, draft.current.id),
       builderFee: null,
     });
+    if (!keepsDraft(answer)) draft.current = null;
     setResult({ amount, result: answer });
     onDone();
   }
@@ -659,11 +669,26 @@ function CloseControl({
           onChange={(e) => setPercent(e.target.value)}
         />
       </label>
-      <Button onClick={() => void close()}>{t('Close button', { percent })}</Button>
+      <Button disabled={unknown !== null} onClick={() => void close()}>
+        {t('Close button', { percent })}
+      </Button>
       {result ? (
         <p role="status" data-testid="venue-close-outcome">
           {t('Close sent', { amount: displayAmount(result.amount), asset: market.baseAsset, outcome: outcomeText(v, result.result) })}
         </p>
+      ) : null}
+      {read?.clientOrderId ? (
+        <ReadBack
+          owner={owner}
+          clientOrderId={read.clientOrderId}
+          onSettled={() => {
+            if (settledId === read.clientOrderId) return;
+            // The venue's own record settled the close: the next press is a new close.
+            draft.current = null;
+            setSettledId(read.clientOrderId);
+            onDone();
+          }}
+        />
       ) : null}
     </div>
   );

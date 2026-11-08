@@ -1,6 +1,7 @@
 // World: book, gates, restart, stack
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
+import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ROOT, api, journeyState, toUnits } from './stack.mjs';
 import { signUp, verify } from './desk.mjs';
@@ -23,9 +24,11 @@ import {
 
 // J-cex-spot-01's steps on the user's own venue account (B1, project-state #1789), in the running app against the
 // stack's TEST venue simulator. One test per step, titled "J-cex-spot-01 #<n>" as J-cex-spot-01.pw.mjs titles them; a step
-// in both files must pass in both. Steps #1–#3 (sign up, verify) are today's file's; this file starts from a verified
-// account it makes in #4. #5 (ticker, book, chart, tape of the venue market) and #11 (profit and loss) need venue
-// market-data and lot reads the user-venue door does not have yet, so they stay in today's file only.
+// in both files must pass in both. Steps #1–#3 (sign up, verify) are today's file's. #4 (connect and deposit, the wallet
+// signing the transfer) waits for B2's chain-transfer watcher, so this file's TEST setup (beforeAll, not a journey step)
+// makes the verified account and funds its venue account by the TEST venue's own deposit control. #5 (ticker, book,
+// chart, tape of the venue market) and #11 (profit and loss) need venue market-data and lot reads the user-venue door
+// does not have yet, so they stay in today's file only.
 // Every figure is TEST. The door is on for this file only (venueForThisFile).
 const J = 'J-cex-spot-01';
 const DESK = '/trade/spot/BTC-USDC';
@@ -43,7 +46,7 @@ venueForThisFile(test);
 
 function state() {
   const s = run.read();
-  if (!s.account || !s.walletKey) throw new Error(`${J} #4 made no account and wallet, so this step has no one to act as`);
+  if (!s.account || !s.walletKey) throw new Error(`${J}'s TEST setup made no account and wallet, so this step has no one to act as`);
   return s;
 }
 
@@ -77,34 +80,29 @@ async function confirmAndSign(page, sheet) {
   return outcome;
 }
 
-test(`${J} #4 connects a wallet and deposits TEST 1000 USDC into the venue account; a replay of the same deposit adds nothing; the ledger posts nothing`, async ({
-  page,
-}) => {
+/**
+ * TEST setup, not a journey step: a verified account, this run's TEST wallet key, and TEST 1000 USDC in its venue account
+ * by the TEST venue's deposit control (keyed by a chain-transfer-shaped reference, so a replay credits nothing). A worker
+ * that restarts after a failed step keeps this run's account.
+ */
+test.beforeAll(async ({ browser }) => {
+  if (process.env.JOURNEY_RUN_ID && run.read().account) return;
   test.setTimeout(300_000);
-  const account = await signUp(page, 'vspot');
-  await verify(page, account);
-  run.reset({ account, walletKey: testWalletKey() });
-  const { owner } = await desk(page);
-  const ledgerBefore = await (await api(account)).balances();
-
-  // B2 owns the real chain-transfer watcher: until it lands, the deposit is the TEST venue's own deposit control, keyed by
-  // a chain-transfer-shaped reference (<chainId>:<txHash>:<logIndex>), and the wallet's own transfer is not signed here.
-  // #4 moves to that watcher when it lands.
-  const ref = `84532:0x${randomBytes(32).toString('hex')}:0`;
-  expect(await testDeposit(owner, 'USDC', '1000', ref)).toBe(true);
-  await expect.poll(async () => (await shownBalance(page, 'USDC')).free, { timeout: 15_000 }).toBe('1000');
-  expect((await shownBalance(page, 'USDC')).used).toBe('0');
-  await expect(page.getByTestId('venue-balances').getByTestId('venue-as-of')).toContainText('As of');
-  await expect(page.getByTestId('venue-balances').getByTestId('venue-test').first()).toHaveText('TEST');
-
-  // The same deposit event again credits nothing; the venue and the desk still read 1000.
-  expect(await testDeposit(owner, 'USDC', '1000', ref)).toBe(false);
-  const venue = await venueBalance(owner, 'USDC');
-  expect(sameDecimal(venue.free, '1000') && sameDecimal(venue.locked, '0')).toBe(true);
-  await page.waitForTimeout(2_500);
-  expect(await shownBalance(page, 'USDC')).toEqual({ free: '1000', used: '0', total: '1000' });
-  // The ledger posts nothing: the account's own ledger balances are as they were.
-  expect(await (await api(account)).balances()).toEqual(ledgerBefore);
+  const page = await browser.newPage();
+  try {
+    const account = await signUp(page, 'vspot');
+    await verify(page, account);
+    const walletKey = testWalletKey();
+    run.reset({ account, walletKey });
+    const owner = privateKeyToAccount(walletKey).address.toLowerCase();
+    const ref = `84532:0x${randomBytes(32).toString('hex')}:0`;
+    expect(await testDeposit(owner, 'USDC', '1000', ref)).toBe(true);
+    expect(await testDeposit(owner, 'USDC', '1000', ref)).toBe(false);
+    const venue = await venueBalance(owner, 'USDC');
+    expect(sameDecimal(venue.free, '1000') && sameDecimal(venue.locked, '0')).toBe(true);
+  } finally {
+    await page.close();
+  }
 });
 
 test(`${J} #6 reviews a TEST 0.1 BTC limit buy: what the venue locks, the venue's fee and our builder fee, maker role, time in force, the client id held for retry, and the builder-fee approval`, async ({
@@ -300,36 +298,49 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   await expect(page.getByTestId('venue-wallet-address')).toHaveText(owner);
   const before = await venueBalance(owner, 'USDC');
 
-  // A session that has not stepped up: the door refuses before anything is prepared, so no wallet is asked.
-  const fresh = await nextCode(totp, secret, step);
-  run.write({ step: fresh.step });
-  const client = await api(s.account, { totpCode: fresh.code });
-  const unstepped = await client.post('/api/v1/venue/prepare', {
-    owner,
-    signer: { role: 'owner', address: owner },
-    intent: { kind: 'withdraw', asset: 'USDC', amount: '10', destination: owner, withdrawalKey: `withdraw:${owner}:unstepped` },
-    stepUpApprovalId: null,
-  });
-  expect(unstepped.status, JSON.stringify(unstepped.body)).toBe(403);
-  expect(unstepped.body.intafacedCode).toMatch(/step_up/);
+  // A session that has not stepped up, driven in the desk: the confirmation's approval is taken off the prepare on its
+  // way to the door, so the door sees no step-up; it refuses before anything is prepared, and no wallet is asked.
+  const panel = page.getByTestId('venue-withdraw');
+  const withdrawInDesk = async (amount) => {
+    await panel.getByRole('combobox').selectOption('USDC');
+    await panel.getByRole('textbox').fill(amount);
+    await panel.getByRole('button', { name: 'Review withdrawal' }).click();
+    const code = await nextCode(totp, secret, run.read().step);
+    run.write({ step: code.step });
+    await panel.getByLabel('Authenticator code').fill(code.code);
+    await panel.getByRole('button', { name: 'Confirm', exact: true }).click();
+  };
+  const unstepped = async (route) => {
+    const body = route.request().postDataJSON();
+    await route.continue({ postData: JSON.stringify({ ...body, stepUpApprovalId: null }) });
+  };
+  await page.route('**/api/v1/venue/prepare', unstepped);
+  await withdrawInDesk('10');
+  await expect(panel.getByTestId('venue-outcome')).toContainText('Refused before your wallet was asked:', { timeout: 15_000 });
+  await page.unroute('**/api/v1/venue/prepare', unstepped);
   expect(wallet.requests).toHaveLength(0);
   expect(sameDecimal((await venueBalance(owner, 'USDC')).free, before.free)).toBe(true);
 
-  // In the desk: the amount, a fresh confirmation, then the wallet signs.
-  const panel = page.getByTestId('venue-withdraw');
-  await panel.getByRole('combobox').selectOption('USDC');
-  await panel.getByRole('textbox').fill('10');
-  await panel.getByRole('button', { name: 'Review withdrawal' }).click();
-  const code = await nextCode(totp, secret, run.read().step);
-  run.write({ step: code.step });
-  await panel.getByLabel('Authenticator code').fill(code.code);
-  await panel.getByRole('button', { name: 'Confirm', exact: true }).click();
+  // In the desk again, a new draft: the amount, a fresh confirmation, then the wallet signs.
+  await panel.getByRole('textbox').fill('');
+  const prepared = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/api/v1/venue/prepare') && r.ok());
+  await withdrawInDesk('10');
+  const { nonce } = (await (await prepared).json()).prepared;
   await continueInWallet(page);
   await expect(panel.getByTestId('venue-outcome')).toContainText('The venue accepted it.');
   expect(wallet.requests).toHaveLength(1);
   const shown = panel.getByTestId('venue-withdrawal');
   await expect(shown).toHaveAttribute('data-status', 'pending', { timeout: 15_000 });
-  await expect(shown.locator('[data-cell="fee"]')).toHaveText(/^(\d+(\.\d+)?|not known)$/);
+  // The fee is the venue's own record of this withdrawal: the same value, or "not known" only when the venue says so.
+  const fresh = await nextCode(totp, secret, run.read().step);
+  run.write({ step: fresh.step });
+  const client = await api(s.account, { totpCode: fresh.code });
+  const record = await client.get(`/api/v1/venue/withdrawals/${encodeURIComponent(nonce)}?owner=${owner}`);
+  expect(record.status, JSON.stringify(record.body)).toBe(200);
+  const fee = record.body.value.fee;
+  const feeShown = (await shown.locator('[data-cell="fee"]').innerText()).trim();
+  if (fee.known) expect(sameDecimal(feeShown, fee.value)).toBe(true);
+  else expect(feeShown).toBe('not known');
 
   // The venue settles it (its TEST control), and the desk reads it done.
   const settled = await testVenue('/test/settle-withdrawals', {});

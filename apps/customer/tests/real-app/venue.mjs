@@ -1,7 +1,7 @@
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { expect } from './journey.mjs';
-import { restartWithSetting, toUnits } from './stack.mjs';
+import { VENUE_DOOR_SETTING, markVenueDoor, restartWithSetting, toUnits } from './stack.mjs';
 import { signIn } from './desk.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
@@ -12,22 +12,23 @@ import { installTestWallet } from './test-wallet.mjs';
 
 /** The stack's TEST venue (local-test-stack.mjs PORTS['test-venue']). */
 export const TEST_VENUE = 'http://127.0.0.1:14560';
-/** The setting that points svc-trade's door at it (tooling/scripts/local-stack-services/trade.mjs). */
-const SWITCH = 'LOCAL_STACK_USER_VENUE';
 
 /**
  * Turns the door on for this file and always off after it, so every other file in the shard sees the door off. Trade's
  * restart with the setting on also starts the TEST venue (local-test-stack.mjs `cmdStart`); off, the venue may keep
- * running, and trade no longer points at it.
+ * running, and trade no longer points at it. A worker that dies before afterAll leaves a mark; the next file's first
+ * sign-in switches the door off (stack.mjs `venueDoorLeftOnGuard`).
  */
 export function venueForThisFile(test) {
   test.beforeAll(() => {
     test.setTimeout(240_000);
-    restartWithSetting('trade', SWITCH, 'on');
+    markVenueDoor(true);
+    restartWithSetting('trade', VENUE_DOOR_SETTING, 'on');
   });
   test.afterAll(() => {
     test.setTimeout(240_000);
-    restartWithSetting('trade', SWITCH, 'off');
+    restartWithSetting('trade', VENUE_DOOR_SETTING, 'off');
+    markVenueDoor(false);
   });
 }
 
