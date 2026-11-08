@@ -27,22 +27,44 @@ test(`${J} #6 Connected apps and API access lists both keys with prefix, permiss
     // Two keys, both listed with their prefix, permissions and state; neither secret appears anywhere on the page.
     const first = await makeKey(page, { name: 'app-one', preset: 'Read only' });
     const second = await makeKey(page, { name: 'app-two', preset: 'Read only' });
-    await page.goto('/uc/safe/api-keys');
+    // Read the list identity answers the page, so each row is held to the stored key: its prefix, its permissions in
+    // full and its state, cell by cell (cells after the name: prefix, mode, permissions, IPs, created, ends, last used,
+    // state, action).
+    const stored = async () => {
+      const listed = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith('/api/identity/trpc/developerKeys.list'));
+      await page.goto('/uc/safe/api-keys');
+      const res = await listed;
+      expect(res.status()).toBe(200);
+      const text = await res.text();
+      expect(text.includes(first), 'the first secret is never in the list identity answers').toBe(false);
+      expect(text.includes(second), 'the second secret is never in the list identity answers').toBe(false);
+      return JSON.parse(text).result.data.keys;
+    };
+    const keys = await stored();
+    expect(keys.map((k) => k.name).sort()).toEqual(['app-one', 'app-two']);
     const table = page.getByTestId('api-keys__table');
+    await expect(table.getByRole('row')).toHaveCount(3);
+    await expect(table.getByRole('columnheader').nth(4)).toHaveText('Permissions');
+    await expect(table.getByRole('columnheader').nth(8)).toHaveText('State');
     for (const [name, key] of [
       ['app-one', first],
       ['app-two', second],
     ]) {
+      const record = keys.find((k) => k.name === name);
+      expect(record.revoked, `${name} is not revoked yet`).toBe(false);
+      expect(record.scopes.length, `${name} holds the read-only permissions`).toBeGreaterThan(0);
       const row = table.getByRole('row', { name: new RegExp(name) });
       await expect(row).toHaveCount(1);
       const cells = row.getByRole('cell');
-      const prefix = (await cells.nth(0).textContent())?.trim() ?? '';
-      expect(prefix.length, `${name} shows its prefix`).toBeGreaterThan(0);
-      expect(key.startsWith(prefix), `${name}'s prefix is the start of its key`).toBe(true);
-      expect(prefix.length, `${name} shows only a prefix, not the key`).toBeLessThan(key.length);
-      await expect(cells.nth(2)).not.toHaveText('');
-      await expect(row).toContainText('Live');
+      await expect(cells.nth(0)).toHaveText(record.prefix);
+      expect(key.startsWith(record.prefix), `${name}'s prefix is the start of its key`).toBe(true);
+      expect(record.prefix.length, `${name} shows only a prefix, not the key`).toBeLessThan(key.length);
+      await expect(cells.nth(1)).toHaveText('Live');
+      await expect(cells.nth(2)).toHaveText(record.scopes.join(', '));
+      await expect(cells.nth(7)).toHaveText('Active');
     }
+    // The same preset gives both keys the same permissions.
+    expect(keys[0].scopes.slice().sort()).toEqual(keys[1].scopes.slice().sort());
     const html = await page.content();
     expect(html.includes(first), 'the first secret is never on the page').toBe(false);
     expect(html.includes(second), 'the second secret is never on the page').toBe(false);
@@ -62,8 +84,28 @@ test(`${J} #6 Connected apps and API access lists both keys with prefix, permiss
     await sheet.getByLabel('Reason').fill('TEST: no longer used');
     await sheet.getByRole('button', { name: 'Revoke', exact: true }).click();
     await expect(sheet).toBeHidden();
-    await expect(table.getByRole('row', { name: /app-two/ })).toContainText('Revoked by you: TEST: no longer used');
-    await expect(table.getByRole('row', { name: /app-one/ })).toContainText('Live');
+    await expect(
+      table
+        .getByRole('row', { name: /app-two/ })
+        .getByRole('cell')
+        .nth(7),
+    ).toHaveText(/Revoked by you: TEST: no longer used/);
+    await expect(
+      table
+        .getByRole('row', { name: /app-one/ })
+        .getByRole('cell')
+        .nth(7),
+    ).toHaveText('Active');
+    // identity holds the same: app-two revoked, app-one still live, scopes unchanged.
+    const afterRevoke = await stored();
+    expect(afterRevoke.find((k) => k.name === 'app-two').revoked).toBe(true);
+    expect(afterRevoke.find((k) => k.name === 'app-one').revoked).toBe(false);
+    await expect(
+      table
+        .getByRole('row', { name: /app-two/ })
+        .getByRole('cell')
+        .nth(7),
+    ).toHaveText(/Revoked by you: TEST: no longer used/);
 
     // Its next call fails as revoked; the other key still works.
     const refused = await withKey(second, { path: '/api/v1/account/balance' });

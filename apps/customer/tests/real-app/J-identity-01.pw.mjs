@@ -152,13 +152,31 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   const who = person();
   run.reset({ account: who });
 
+  // Under-age: identity's own answer is a typed refusal (the stack's TEST minimum age is 18), the page shows it in plain
+  // words with its code, the code step never opens, no code is mailed for this sign-up and no account exists.
+  const young = await signUpStart(who, { dateOfBirth: '2015-01-01' });
+  expect(young.status).toBe(400);
+  expect(young.code).toBe('identity.underage');
+  expect(young.message).toBe('You must be at least 18 to open an account.');
+  let first = outbox();
   await details(page, who, { dateOfBirth: '2015-01-01' });
-  await expect(notice(page)).toContainText('under the minimum age');
-  await expect(notice(page)).toContainText('Nothing was created');
+  await expect(notice(page)).toContainText('You are under the minimum age to open an account. Nothing was created.');
+  await expect(notice(page).locator('small')).toHaveText('identity.underage');
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
   await noAccount(who);
 
+  // A blocked country (AQ, closed on the stack's TEST owner list): the same, by its own code.
+  const blocked = await signUpStart(who, { country: 'AQ' });
+  expect(blocked.status).toBe(400);
+  expect(blocked.code).toBe('identity.region_blocked');
+  expect(blocked.message).toBe('We cannot open accounts for this country right now.');
+  first = outbox();
   await details(page, who, { country: 'AQ' });
-  await expect(notice(page)).toContainText('cannot open accounts for this country');
+  await expect(notice(page)).toContainText('We cannot open accounts for this country right now. Nothing was created.');
+  await expect(notice(page).locator('small')).toHaveText('identity.region_blocked');
+  await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
+  expect((await gainedSince(page, first)).filter((line) => line.includes(who.email) || line.includes(who.handle))).toEqual([]);
   await noAccount(who);
 
   // A country that is not on the list at all is refused by its own code and in plain words, and nothing is made. The
@@ -192,7 +210,7 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   // no code mailed anywhere. The outbox is the whole stack's, and other journeys mail their own codes meanwhile (run
   // 1130), so only the whole lines it gained are read, and none of them may name this sign-up.
   const phone = '+491701234567';
-  const first = outbox();
+  first = outbox();
   await phoneDetails(page, who, phone);
   await expect(notice(page)).toContainText('Phone sign-up needs a text-message provider, which is not connected in this build.');
   await expect(notice(page)).toContainText('vendor.sms');
@@ -205,6 +223,8 @@ test(`${J} #1 fills the form with channel, country, birth date and account type;
   try {
     await details(page, who);
     await expect(notice(page)).toContainText('Sign-up is closed right now. Nothing was created.', { timeout: 15_000 });
+    await expect(notice(page).locator('small')).toHaveText('identity.registration_closed');
+    await expect(page.getByRole('heading', { name: 'Check your email' })).toHaveCount(0);
     await noAccount(who);
   } finally {
     registration(true);

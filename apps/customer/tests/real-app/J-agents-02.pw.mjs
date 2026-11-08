@@ -573,8 +573,20 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText(
     'The hard limit leaves 0.02 USDT this month: a run whose worst case is more than that is refused.',
   );
+  // Two runs at once against that room: the first is admitted and goes in flight, holding its worst case, which brings
+  // the month to its hard limit; the second is then refused with the hard limit's code before the engine. With the
+  // engine held, the refused run is recorded while the admitted one waits at the engine; let go, the run in flight
+  // finishes with its reply and is charged.
   await ask.fill('TEST question within the limit');
-  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  await withEngineHeld(async (engineCalls) => {
+    await session(page).getByRole('button', { name: 'Run twice at once' }).click();
+    await expect.poll(engineCalls, { message: 'the admitted run reaches the engine' }).toBe(1);
+    await expect
+      .poll(async () => (await ownRuns('refused')).length, { message: 'the second run is refused while the first is in flight' })
+      .toBe(2);
+    await stillCalls(engineCalls, 1);
+  });
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
   await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(3);
   const within = await usageLimits();
   expect(toUnits(within.spent)).toBeGreaterThan(toUnits(afterAlert.spent));
@@ -585,12 +597,15 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await page.reload();
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
   const refusedRuns = await ownRuns('refused');
-  expect(refusedRuns).toHaveLength(1);
-  expect(refusedRuns[0].refusalCode).toBe('agents.usage.hard_limit_reached');
+  expect(refusedRuns).toHaveLength(2);
+  expect(refusedRuns.map((row) => [row.refusalCode, row.cost])).toEqual([
+    ['agents.usage.hard_limit_reached', '0'],
+    ['agents.usage.hard_limit_reached', '0'],
+  ]);
   expect(await ownRuns('executed')).toHaveLength(3);
-  const refusedRow = tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.usage.hard_limit_reached' });
-  await expect(refusedRow).toHaveCount(1);
-  await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
+  const refusedRows = tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.usage.hard_limit_reached' });
+  await expect(refusedRows).toHaveCount(2);
+  for (const refusedRow of await refusedRows.all()) await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
   expect(await usageLimits()).toMatchObject({ spent: within.spent, hardLimit: roomy, alert: crossed.alert });
   await expect(alertForm.getByTestId('usage-alert-state')).toHaveText(
     `This month’s alert was recorded once, at ${first} USDT. Runs go on.`,
@@ -602,6 +617,21 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await expect(page.getByRole('dialog', { name: /Notifications/ }).getByText('Agent spend passed your alert')).toHaveCount(1, {
     timeout: 20_000,
   });
+
+  // The delivery's outcome, as svc-notify recorded it for that one alert: the inbox row is in the inbox, and the email
+  // the person asked for was not sent, with the notice that this way of reaching them is not set up on the platform.
+  await page.keyboard.press('Escape');
+  await page.goto('/notifications?view=delivery');
+  const delivery = page.getByRole('region', { name: 'Delivery history' });
+  const alertItem = delivery.getByRole('listitem').filter({ hasText: 'Agent spend passed your alert' });
+  await expect(alertItem).toHaveCount(1, { timeout: 20_000 });
+  await alertItem.getByRole('button', { name: 'Show delivery' }).click();
+  const channels = alertItem.getByRole('listitem');
+  await expect(channels.filter({ hasText: 'Inbox in the app' })).toContainText('In your inbox');
+  const emailRow = channels.filter({ hasText: 'Email' });
+  await expect(emailRow).toHaveCount(1);
+  await expect(emailRow).toContainText('Not sent');
+  await expect(emailRow).toContainText('Why: This way of reaching you is not set up on the platform.');
 });
 
 /** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
