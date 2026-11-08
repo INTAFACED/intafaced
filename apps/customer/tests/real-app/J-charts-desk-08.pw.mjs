@@ -66,7 +66,33 @@ test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on t
         ),
       )
     ).join('|');
-  const snapshot = async () => ({ sizes: await sizes(), tracks: await tracks(), keys: await contentKeys() });
+  // The height of what those chips and banners take in each cell: each banner with the gap before it, and each row a chip
+  // sits in. When content changes, this is all a row may legitimately grow or shrink by.
+  const chrome = async () =>
+    Promise.all(
+      [0, 1, 2, 3].map((i) =>
+        cell(page, i).evaluate((el) => {
+          let px = 0;
+          for (const b of el.querySelectorAll('[data-testid="chart-banner"]'))
+            px += b.getBoundingClientRect().height + (parseFloat(getComputedStyle(b.parentElement).rowGap) || 0);
+          const chipRows = new Set([...el.querySelectorAll('[data-testid="chart-status"]')].map((c) => c.parentElement));
+          for (const r of chipRows) px += r.getBoundingClientRect().height;
+          return px;
+        }),
+      ),
+    );
+  const snapshot = async () => ({ sizes: await sizes(), tracks: await tracks(), keys: await contentKeys(), chrome: await chrome() });
+  // With content changed, each row may move only within what the chips and banners changed by (scaled by the row's flex
+  // share): a restore that halves or doubles the rows while a banner comes or goes fails here, before any re-run.
+  const withinChrome = (before, now) => {
+    const deltas = now.chrome.map((c, i) => c - before.chrome[i]);
+    const small = Math.min(before.tracks.rows[0], before.tracks.rows[2]);
+    return [0, 2].every((r) => {
+      const k = before.tracks.rows[r] / small;
+      const moved = now.tracks.rows[r] - before.tracks.rows[r];
+      return moved >= Math.min(0, ...deltas) * k - 2 && moved <= Math.max(0, ...deltas) * k + 2;
+    });
+  };
   const rowShare = (t) => t.rows[0] / (t.rows[0] + t.rows[2]);
   // Back exactly as before: every cell at its old width and height (2 px), filling its own column and row track, and the
   // rows in the same proportion. Only compared when no cell's status or banner changed in between.
@@ -111,7 +137,7 @@ test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on t
         const now = await snapshot();
         // Widths and proportion against the first reading whatever the content; heights against this cycle's own.
         if (!restored(original, now, { heights: false })) outcome = 'not restored';
-        else if (now.keys !== before.keys) outcome = 'content changed';
+        else if (now.keys !== before.keys) outcome = withinChrome(before, now) ? 'content changed' : 'not restored';
         else outcome = restored(before, now, { heights: true }) ? 'restored' : 'not restored';
         return outcome;
       })
