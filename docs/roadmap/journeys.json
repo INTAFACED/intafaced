@@ -5,7 +5,7 @@
     "module": "academy",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["AC-order-01", "AC-articles-01"], "noSlice": false },
       { "n": 2, "slices": ["AC-articles-01"], "noSlice": false },
@@ -22,7 +22,7 @@
     "module": "academy",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["AC-enrolment-01", "AC-catalogue-03"], "noSlice": false },
       { "n": 2, "slices": ["AC-enrolment-01"], "noSlice": false },
@@ -40,7 +40,7 @@
     "module": "academy",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["AC-progress-01"], "noSlice": false },
       { "n": 2, "slices": ["AC-progress-01"], "noSlice": false },
@@ -108,7 +108,7 @@
     "module": "academy",
     "persona": "retail",
     "tier": "advanced",
-    "order": 2,
+    "order": 3,
     "steps": [
       { "n": 1, "slices": ["AC-commerce-01", "AC-catalogue-03"], "noSlice": false },
       { "n": 2, "slices": ["AC-commerce-01", "AC-enrolment-01"], "noSlice": false },
@@ -176,7 +176,7 @@
     "module": "academy",
     "persona": "operator:founder",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["AC-course-structure-01"], "noSlice": false },
       { "n": 2, "slices": ["AC-course-structure-01"], "noSlice": false },
@@ -535,7 +535,7 @@
     "module": "agents",
     "persona": "pro-trader",
     "tier": "advanced",
-    "order": 2,
+    "order": 3,
     "steps": [
       { "n": 1, "slices": ["AG-sessions-02"], "noSlice": false },
       { "n": 2, "slices": ["AG-sessions-02"], "noSlice": false },
@@ -552,7 +552,7 @@
     "module": "agents",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["AG-spend-02"], "noSlice": false },
       { "n": 2, "slices": ["AG-spend-02"], "noSlice": false },
@@ -752,7 +752,7 @@
     "module": "agents",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["AG-outside-01"], "noSlice": false },
       { "n": 2, "slices": ["AG-outside-01"], "noSlice": false },
@@ -777,7 +777,7 @@
     "module": "algo-dev",
     "persona": "developer",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["AL-order-01", "AL-editor-03"], "noSlice": false },
       { "n": 2, "slices": ["AL-editor-03"], "noSlice": false },
@@ -1061,7 +1061,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-xfer-04", "BK-xfer-05", "BK-acct-02"], "noSlice": false },
       { "n": 2, "slices": ["BK-xfer-04", "BK-acct-03"], "noSlice": false },
@@ -1079,7 +1079,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-ord-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-ord-01"], "noSlice": false },
@@ -1094,7 +1094,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-xfer-01", "BK-xfer-02"], "noSlice": false },
       { "n": 2, "slices": ["BK-xfer-06"], "noSlice": false },
@@ -1168,7 +1168,8 @@
       { "n": 6, "slices": ["BK-earn-04"], "noSlice": false },
       { "n": 7, "slices": ["BK-earn-01"], "noSlice": false },
       { "n": 8, "slices": ["BK-earn-01"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-bank-09",
@@ -1183,7 +1184,8 @@
       { "n": 3, "slices": ["BK-loan-01"], "noSlice": false },
       { "n": 4, "slices": ["LOAN-01"], "noSlice": false },
       { "n": 5, "slices": ["BK-loan-02"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-bank-10",
@@ -1199,7 +1201,8 @@
       { "n": 4, "slices": ["BK-loan-03"], "noSlice": false },
       { "n": 5, "slices": ["BK-loan-03", "BK-loan-04"], "noSlice": false },
       { "n": 6, "slices": ["LOAN-03", "BK-loan-04"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-bank-11",
@@ -1215,7 +1218,8 @@
       { "n": 4, "slices": ["LOAN-05"], "noSlice": false },
       { "n": 5, "slices": ["BK-loan-05"], "noSlice": false },
       { "n": 6, "slices": ["BK-loan-06"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-bank-12",
@@ -1286,7 +1290,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-acct-07"], "noSlice": false },
       { "n": 2, "slices": ["BK-acct-07"], "noSlice": false },
@@ -1319,7 +1323,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["BK-safe-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-safe-02"], "noSlice": false },
@@ -1435,7 +1439,8 @@
       { "n": 5, "slices": ["LOAN-04"], "noSlice": false },
       { "n": 6, "slices": ["LOAN-06"], "noSlice": false },
       { "n": 7, "slices": ["LOAN-05"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-bank-26",
@@ -1490,7 +1495,7 @@
     "module": "bank",
     "persona": "retail",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["BK-ccrypto-01"], "noSlice": false },
       { "n": 2, "slices": ["BK-ccrypto-01"], "noSlice": false },
@@ -1526,7 +1531,7 @@
     "module": "campaigns",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CM-campaign-types-01"], "noSlice": false },
       { "n": 2, "slices": ["CM-campaign-types-01"], "noSlice": false },
@@ -1543,7 +1548,7 @@
     "module": "campaigns",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CM-tasks-quests-01"], "noSlice": false },
       { "n": 2, "slices": ["CM-tasks-quests-01"], "noSlice": false },
@@ -1561,7 +1566,7 @@
     "module": "campaigns",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CM-rewards-hub-01"], "noSlice": false },
       { "n": 2, "slices": ["CM-rewards-hub-01", "CM-payouts-ledger-02"], "noSlice": false },
@@ -1681,7 +1686,8 @@
       { "n": 2, "slices": ["CM-vouchers-coupons-04"], "noSlice": false },
       { "n": 3, "slices": ["CM-vouchers-coupons-04"], "noSlice": false },
       { "n": 4, "slices": ["CM-vouchers-coupons-04", "CM-payouts-ledger-01"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-campaigns-11",
@@ -1763,7 +1769,7 @@
     "module": "campaigns",
     "persona": "operator:founder",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CM-campaign-types-01"], "noSlice": false },
       { "n": 2, "slices": ["CM-campaign-types-02"], "noSlice": false },
@@ -1889,7 +1895,7 @@
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-order-entry-02"], "noSlice": false },
       { "n": 2, "slices": ["SP-order-entry-02"], "noSlice": false },
@@ -1925,7 +1931,7 @@
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-lifecycle-history-01"], "noSlice": false },
       { "n": 2, "slices": ["SP-lifecycle-history-02"], "noSlice": false },
@@ -1977,7 +1983,7 @@
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-conditional-algo-01"], "noSlice": false },
       { "n": 2, "slices": ["SP-conditional-algo-01"], "noSlice": false },
@@ -2015,7 +2021,7 @@
     "module": "cex-spot",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-fees-vip-01", "SP-fees-vip-02"], "noSlice": false },
       { "n": 2, "slices": ["SP-fees-vip-02"], "noSlice": false },
@@ -2036,7 +2042,7 @@
     "module": "cex-spot",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["SP-convert-buy-02"], "noSlice": false },
       { "n": 2, "slices": ["SP-convert-buy-02"], "noSlice": false },
@@ -2114,7 +2120,7 @@
     "module": "cex-spot",
     "persona": "developer",
     "tier": "advanced",
-    "order": 3,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-developer-status-02"], "noSlice": false },
       { "n": 2, "slices": ["SP-developer-status-02"], "noSlice": false },
@@ -2170,7 +2176,7 @@
     "module": "cex-spot",
     "persona": "operator:support",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["SP-ops-03"], "noSlice": false },
       { "n": 2, "slices": ["SP-ops-03"], "noSlice": false },
@@ -2210,7 +2216,8 @@
       { "n": 6, "slices": ["RC-cex-spot-08"], "noSlice": false },
       { "n": 7, "slices": ["RC-cex-spot-07"], "noSlice": false },
       { "n": 8, "slices": ["RC-cex-spot-09", "RC-cex-spot-06"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-charts-desk-01",
@@ -2528,7 +2535,7 @@
     "module": "copy-bots-otc",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CB-order-controls-01", "CB-copy-01"], "noSlice": false },
       { "n": 2, "slices": ["CB-copy-01"], "noSlice": false },
@@ -2659,7 +2666,8 @@
       { "n": 6, "slices": ["CB-copy-pro-share-08"], "noSlice": false },
       { "n": 7, "slices": ["CB-copy-pro-share-10"], "noSlice": false },
       { "n": 8, "slices": ["CB-copy-pro-share-12"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-09",
@@ -2677,7 +2685,8 @@
       { "n": 6, "slices": ["CB-copy-pro-share-09"], "noSlice": false },
       { "n": 7, "slices": ["CB-copy-pro-share-13"], "noSlice": false },
       { "n": 8, "slices": ["CB-copy-pro-share-13"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-10",
@@ -2685,7 +2694,7 @@
     "module": "copy-bots-otc",
     "persona": "operator:compliance",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CB-ops-01"], "noSlice": false },
       { "n": 2, "slices": ["CB-ops-01"], "noSlice": false },
@@ -2746,7 +2755,7 @@
     "module": "copy-bots-otc",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CB-order-controls-02", "CB-bots-01"], "noSlice": false },
       { "n": 2, "slices": ["CB-bots-10"], "noSlice": false },
@@ -2898,7 +2907,7 @@
     "module": "copy-bots-otc",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CB-order-controls-03"], "noSlice": false },
       { "n": 2, "slices": ["CB-execution-01"], "noSlice": false },
@@ -2916,7 +2925,7 @@
     "module": "copy-bots-otc",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["CB-otc-11", "CB-otc-21"], "noSlice": false },
       { "n": 2, "slices": ["CB-otc-01"], "noSlice": false },
@@ -2927,7 +2936,8 @@
       { "n": 7, "slices": ["CB-otc-07"], "noSlice": false },
       { "n": 8, "slices": ["CB-otc-02"], "noSlice": false },
       { "n": 9, "slices": ["CB-otc-12", "CB-order-controls-04"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-25",
@@ -2944,7 +2954,8 @@
       { "n": 5, "slices": ["CB-otc-05"], "noSlice": false },
       { "n": 6, "slices": ["CB-otc-06"], "noSlice": false },
       { "n": 7, "slices": ["CB-otc-06"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-26",
@@ -2961,7 +2972,8 @@
       { "n": 5, "slices": ["CB-otc-13"], "noSlice": false },
       { "n": 6, "slices": ["CB-otc-11"], "noSlice": false },
       { "n": 7, "slices": [], "noSlice": true }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-27",
@@ -2979,7 +2991,8 @@
       { "n": 6, "slices": ["CB-otc-18"], "noSlice": false },
       { "n": 7, "slices": ["CB-otc-15"], "noSlice": false },
       { "n": 8, "slices": ["CB-otc-15"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-28",
@@ -2996,7 +3009,8 @@
       { "n": 5, "slices": ["CB-otc-20"], "noSlice": false, "deferred": true },
       { "n": 6, "slices": ["CB-otc-10"], "noSlice": false },
       { "n": 7, "slices": ["CB-otc-19"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-29",
@@ -3012,7 +3026,8 @@
       { "n": 4, "slices": ["CB-otc-10"], "noSlice": false },
       { "n": 5, "slices": ["CB-otc-21"], "noSlice": false },
       { "n": 6, "slices": ["CB-otc-21"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-copy-bots-otc-30",
@@ -3056,7 +3071,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-account-04", "D-margin-03"], "noSlice": false },
       { "n": 2, "slices": ["D-margin-03"], "noSlice": false },
@@ -3074,7 +3089,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-orders-05"], "noSlice": false },
       { "n": 2, "slices": ["D-orders-05"], "noSlice": false },
@@ -3185,7 +3200,8 @@
       { "n": 4, "slices": ["D-instruments-04"], "noSlice": false },
       { "n": 5, "slices": ["D-instruments-04"], "noSlice": false },
       { "n": 6, "slices": ["D-orders-11", "D-data-03"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-10",
@@ -3204,7 +3220,8 @@
       { "n": 7, "slices": ["D-account-06"], "noSlice": false },
       { "n": 8, "slices": ["D-margin-05"], "noSlice": false },
       { "n": 9, "slices": ["RC-derivatives-02"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-11",
@@ -3223,7 +3240,8 @@
       { "n": 7, "slices": ["D-margin-09"], "noSlice": false },
       { "n": 8, "slices": ["D-margin-10"], "noSlice": false },
       { "n": 9, "slices": ["D-margin-10"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-12",
@@ -3265,7 +3283,7 @@
     "module": "derivatives",
     "persona": "developer",
     "tier": "advanced",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["D-data-01"], "noSlice": false },
       { "n": 2, "slices": ["D-data-02"], "noSlice": false },
@@ -3297,7 +3315,8 @@
       { "n": 8, "slices": ["D-ops-04"], "noSlice": false },
       { "n": 9, "slices": ["RC-derivatives-03"], "noSlice": false },
       { "n": 10, "slices": ["RC-derivatives-05"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-16",
@@ -3312,7 +3331,8 @@
       { "n": 3, "slices": ["D-ops-03"], "noSlice": false },
       { "n": 4, "slices": ["RC-derivatives-01"], "noSlice": false },
       { "n": 5, "slices": ["D-instruments-01"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-17",
@@ -3320,7 +3340,7 @@
     "module": "derivatives",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-ops-02"], "noSlice": false },
       { "n": 2, "slices": ["D-ops-02", "D-instruments-02"], "noSlice": false },
@@ -3342,7 +3362,8 @@
       { "n": 3, "slices": ["D-ops-05", "D-instruments-04"], "noSlice": false },
       { "n": 4, "slices": ["D-ops-05"], "noSlice": false },
       { "n": 5, "slices": ["D-ops-05"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-19",
@@ -3358,7 +3379,8 @@
       { "n": 4, "slices": ["D-margin-07", "D-margin-08"], "noSlice": false },
       { "n": 5, "slices": ["D-ops-06"], "noSlice": false },
       { "n": 6, "slices": ["RC-derivatives-04"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-20",
@@ -3374,7 +3396,8 @@
       { "n": 4, "slices": ["D-ops-07"], "noSlice": false },
       { "n": 5, "slices": ["D-ops-07"], "noSlice": false },
       { "n": 6, "slices": ["D-data-06"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-21",
@@ -3382,7 +3405,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "advanced",
-    "order": 3,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-multiasset-01", "D-multiasset-02"], "noSlice": false },
       { "n": 2, "slices": ["D-multiasset-02"], "noSlice": false },
@@ -3434,7 +3457,8 @@
       { "n": 3, "slices": ["D-funded-03"], "noSlice": false },
       { "n": 4, "slices": ["D-funded-04"], "noSlice": false },
       { "n": 5, "slices": ["D-funded-04"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-derivatives-25",
@@ -3442,7 +3466,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-cross-01"], "noSlice": false },
       { "n": 2, "slices": ["D-cross-01", "BK-ownmove-01", "I-account-lifecycle-03"], "noSlice": false },
@@ -3464,7 +3488,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-cross-04", "D-cross-06"], "noSlice": false },
       { "n": 2, "slices": ["D-cross-04"], "noSlice": false },
@@ -3483,7 +3507,7 @@
     "module": "derivatives",
     "persona": "pro-trader",
     "tier": "advanced",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["D-multiasset-02"], "noSlice": false },
       { "n": 2, "slices": [], "noSlice": true },
@@ -3516,7 +3540,7 @@
     "module": "developer",
     "persona": "developer",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["DV-portal-01"], "noSlice": false },
       { "n": 2, "slices": ["DV-portal-01"], "noSlice": false },
@@ -3533,7 +3557,7 @@
     "module": "developer",
     "persona": "developer",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["DV-portal-03"], "noSlice": false },
       { "n": 2, "slices": ["DV-sandbox-01"], "noSlice": false },
@@ -3570,7 +3594,7 @@
     "module": "developer",
     "persona": "developer",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["DV-auth-01"], "noSlice": false },
       { "n": 2, "slices": ["DV-auth-01"], "noSlice": false },
@@ -3587,7 +3611,7 @@
     "module": "developer",
     "persona": "developer",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["DV-auth-03"], "noSlice": false },
       { "n": 2, "slices": ["DV-auth-03"], "noSlice": false },
@@ -3812,7 +3836,7 @@
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["D-order-controls-01"], "noSlice": false },
       { "n": 2, "slices": ["D-order-controls-01"], "noSlice": false },
@@ -3831,7 +3855,7 @@
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["D-swap-10"], "noSlice": false },
       { "n": 2, "slices": ["D-swap-11"], "noSlice": false },
@@ -3852,7 +3876,7 @@
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "advanced",
-    "order": 2,
+    "order": 3,
     "steps": [
       { "n": 1, "slices": ["D-swap-intents-01"], "noSlice": false },
       { "n": 2, "slices": ["D-swap-intents-01"], "noSlice": false },
@@ -3871,7 +3895,7 @@
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["D-portfolio-wallet-03", "D-swap-12"], "noSlice": false },
       { "n": 2, "slices": ["D-portfolio-wallet-03"], "noSlice": false },
@@ -3928,7 +3952,7 @@
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["D-portfolio-wallet-06"], "noSlice": false },
       { "n": 2, "slices": ["D-launch-listing-04"], "noSlice": false },
@@ -3967,7 +3991,7 @@
     "module": "dex-protocol",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["D-explorer-07"], "noSlice": false },
       { "n": 2, "slices": ["D-explorer-01"], "noSlice": false },
@@ -4167,7 +4191,8 @@
       { "n": 7, "slices": ["D-perps-06"], "noSlice": false },
       { "n": 8, "slices": ["D-perps-06"], "noSlice": false },
       { "n": 9, "slices": ["D-perps-06", "D-perps-07"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-dex-protocol-20",
@@ -4246,7 +4271,7 @@
     "module": "dex-protocol",
     "persona": "developer",
     "tier": "advanced",
-    "order": 2,
+    "order": 3,
     "steps": [
       { "n": 1, "slices": ["D-launch-listing-08"], "noSlice": false },
       { "n": 2, "slices": ["D-launch-listing-08"], "noSlice": false },
@@ -4614,7 +4639,7 @@
     "module": "home-ia",
     "persona": "operator:founder",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["HM-desks-01"], "noSlice": false },
       { "n": 2, "slices": ["HM-desks-01"], "noSlice": false },
@@ -4629,7 +4654,7 @@
     "module": "home-ia",
     "persona": "operator:founder",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["HM-desks-02"], "noSlice": false },
       { "n": 2, "slices": ["HM-desks-02"], "noSlice": false },
@@ -4987,7 +5012,7 @@
     "module": "identity",
     "persona": "operator:founder",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["I-signin-sessions-06"], "noSlice": false },
       { "n": 2, "slices": ["I-signin-sessions-30"], "noSlice": false },
@@ -5004,7 +5029,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-plat-org-01"], "noSlice": false },
       { "n": 2, "slices": ["M-adv-phantom-order-02", "M-adv-phantom-order-01"], "noSlice": false },
@@ -5020,7 +5045,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-plat-org-13", "M-plat-org-09"], "noSlice": false },
       { "n": 2, "slices": ["M-plat-org-13"], "noSlice": false },
@@ -5037,7 +5062,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-catalogue-01"], "noSlice": false },
       { "n": 2, "slices": ["M-catalogue-01"], "noSlice": false },
@@ -5053,7 +5078,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-payments-core-08"], "noSlice": false },
       { "n": 2, "slices": ["M-catalogue-03", "M-payments-core-09"], "noSlice": false },
@@ -5070,7 +5095,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-payments-core-01"], "noSlice": false },
       { "n": 2, "slices": ["M-payments-core-01"], "noSlice": false },
@@ -5086,7 +5111,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-payments-core-05"], "noSlice": false },
       { "n": 2, "slices": ["M-payments-core-05"], "noSlice": false },
@@ -5104,7 +5129,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-money-out-01"], "noSlice": false },
       { "n": 2, "slices": ["RC-merchant-10"], "noSlice": false },
@@ -5201,7 +5226,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-plat-org-05"], "noSlice": false },
       { "n": 2, "slices": ["M-plat-org-05", "M-adv-org-access-06"], "noSlice": false },
@@ -5363,7 +5388,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-bill-04"], "noSlice": false },
       { "n": 2, "slices": ["M-adv-billing-tax-02"], "noSlice": false },
@@ -5377,7 +5402,7 @@
     "module": "merchant",
     "persona": "merchant",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["M-adv-billing-tax-10", "M-bill-11"], "noSlice": false },
       { "n": 2, "slices": ["M-bill-11"], "noSlice": false },
@@ -5681,7 +5706,7 @@
     "module": "more-catalogue",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["MC-order-01"], "noSlice": false },
       { "n": 2, "slices": ["MC-order-01"], "noSlice": false },
@@ -5697,7 +5722,7 @@
     "module": "more-catalogue",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["MC-market-01"], "noSlice": false },
       { "n": 2, "slices": ["MC-market-01"], "noSlice": false },
@@ -5707,7 +5732,8 @@
       { "n": 6, "slices": ["MC-market-02"], "noSlice": false },
       { "n": 7, "slices": ["MC-market-01"], "noSlice": false },
       { "n": 8, "slices": ["MC-market-02"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-more-catalogue-03",
@@ -5723,7 +5749,8 @@
       { "n": 4, "slices": ["MC-market-03"], "noSlice": false },
       { "n": 5, "slices": ["MC-market-01", "MC-market-03"], "noSlice": false },
       { "n": 6, "slices": ["RC-more-catalogue-21"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-more-catalogue-04",
@@ -5817,7 +5844,7 @@
     "module": "more-catalogue",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["MC-token-01"], "noSlice": false },
       { "n": 2, "slices": ["MC-token-01"], "noSlice": false },
@@ -5836,7 +5863,7 @@
     "module": "more-catalogue",
     "persona": "operator:founder",
     "tier": "advanced",
-    "order": 2,
+    "order": 3,
     "steps": [
       { "n": 1, "slices": ["MC-token-02"], "noSlice": false },
       { "n": 2, "slices": ["MC-token-02"], "noSlice": false },
@@ -5852,7 +5879,7 @@
     "module": "more-catalogue",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["MC-launch-01"], "noSlice": false },
       { "n": 2, "slices": ["MC-launch-01"], "noSlice": false },
@@ -5874,7 +5901,8 @@
       { "n": 3, "slices": ["MC-launch-03"], "noSlice": false },
       { "n": 4, "slices": ["MC-launch-03"], "noSlice": false },
       { "n": 5, "slices": ["MC-launch-03"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-more-catalogue-13",
@@ -5889,7 +5917,8 @@
       { "n": 3, "slices": ["MC-launch-04"], "noSlice": false },
       { "n": 4, "slices": ["MC-launch-05"], "noSlice": false },
       { "n": 5, "slices": ["MC-launch-05"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-more-catalogue-14",
@@ -6024,7 +6053,8 @@
       { "n": 5, "slices": ["RC-more-catalogue-09"], "noSlice": false },
       { "n": 6, "slices": ["RC-more-catalogue-04"], "noSlice": false },
       { "n": 7, "slices": ["RC-more-catalogue-08"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-ops-console-01",
@@ -6032,7 +6062,7 @@
     "module": "ops-console",
     "persona": "operator:founder",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["OPS-ORD-01"], "noSlice": false },
       { "n": 2, "slices": ["OPS-ORD-01"], "noSlice": false },
@@ -6068,7 +6098,7 @@
     "module": "ops-console",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["OPS-ledger-desk-01"], "noSlice": false },
       { "n": 2, "slices": ["OPS-ledger-desk-01"], "noSlice": false },
@@ -6141,7 +6171,8 @@
       { "n": 9, "slices": ["OPS-payments-desk-03"], "noSlice": false },
       { "n": 10, "slices": ["OPS-payments-desk-04"], "noSlice": false },
       { "n": 11, "slices": ["OPS-payments-desk-04"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-ops-console-07",
@@ -6467,7 +6498,7 @@
     "module": "ops-console",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["RC-ops-console-02"], "noSlice": false },
       { "n": 2, "slices": ["RC-ops-console-02"], "noSlice": false },
@@ -6509,7 +6540,7 @@
     "module": "ops-console",
     "persona": "operator:compliance",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["RC-ops-console-21"], "noSlice": false },
       { "n": 2, "slices": ["RC-ops-console-20"], "noSlice": false },
@@ -6564,7 +6595,7 @@
     "module": "p2p",
     "persona": "p2p-user",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["P-order-03", "P-trade-orders-02"], "noSlice": false },
       { "n": 2, "slices": ["P-trade-orders-01"], "noSlice": false },
@@ -6579,7 +6610,8 @@
       { "n": 7, "slices": ["P-trade-orders-16", "P-trade-orders-15", "P-disputes-security-09"], "noSlice": false },
       { "n": 8, "slices": ["P-trade-orders-13", "P-trade-orders-12"], "noSlice": false },
       { "n": 9, "slices": ["P-trade-orders-14", "P-ads-merchant-21", "P-trade-orders-23"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-02",
@@ -6587,7 +6619,7 @@
     "module": "p2p",
     "persona": "p2p-user",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["P-trade-orders-23"], "noSlice": false },
       { "n": 2, "slices": ["P-trade-orders-06", "P-trade-orders-15"], "noSlice": false },
@@ -6595,7 +6627,8 @@
       { "n": 4, "slices": ["P-trade-orders-11"], "noSlice": false },
       { "n": 5, "slices": ["P-trade-orders-16", "P-trade-orders-07"], "noSlice": false },
       { "n": 6, "slices": ["P-trade-orders-12", "P-trade-orders-13", "P-trade-orders-22"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-03",
@@ -6661,7 +6694,8 @@
       { "n": 6, "slices": ["P-trade-orders-15"], "noSlice": false },
       { "n": 7, "slices": ["P-trade-orders-20"], "noSlice": false },
       { "n": 8, "slices": ["P-trade-orders-19"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-07",
@@ -6693,7 +6727,8 @@
       { "n": 5, "slices": ["P-disputes-security-03"], "noSlice": false },
       { "n": 6, "slices": ["P-disputes-security-02"], "noSlice": false },
       { "n": 7, "slices": ["P-disputes-security-01", "P-trade-orders-23"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-09",
@@ -6709,7 +6744,8 @@
       { "n": 4, "slices": ["P-disputes-security-07"], "noSlice": false },
       { "n": 5, "slices": ["P-order-02"], "noSlice": false },
       { "n": 6, "slices": ["P-disputes-security-06"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-10",
@@ -6724,7 +6760,8 @@
       { "n": 3, "slices": ["P-trade-orders-10"], "noSlice": false },
       { "n": 4, "slices": ["P-trade-orders-10"], "noSlice": false },
       { "n": 5, "slices": ["P-trade-orders-11"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-11",
@@ -6738,7 +6775,8 @@
       { "n": 2, "slices": ["P-trade-orders-04"], "noSlice": false },
       { "n": 3, "slices": ["P-trade-orders-04"], "noSlice": false },
       { "n": 4, "slices": ["P-trade-orders-04"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-12",
@@ -6770,7 +6808,8 @@
       { "n": 5, "slices": ["P-ads-merchant-13"], "noSlice": false },
       { "n": 6, "slices": ["P-ads-merchant-15"], "noSlice": false },
       { "n": 7, "slices": ["RC-p2p-03"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-14",
@@ -6830,7 +6869,8 @@
       { "n": 1, "slices": ["P-ads-merchant-23"], "noSlice": false },
       { "n": 2, "slices": ["P-ads-merchant-23"], "noSlice": false },
       { "n": 3, "slices": ["P-ads-merchant-23"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-18",
@@ -6838,7 +6878,7 @@
     "module": "p2p",
     "persona": "p2p-user",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["P-trade-orders-13"], "noSlice": false },
       { "n": 2, "slices": ["P-trade-orders-14"], "noSlice": false },
@@ -6858,7 +6898,8 @@
       { "n": 3, "slices": ["P-order-01"], "noSlice": false },
       { "n": 4, "slices": ["P-order-01"], "noSlice": false },
       { "n": 5, "slices": ["P-order-01", "P-order-03"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-p2p-20",
@@ -6866,7 +6907,7 @@
     "module": "p2p",
     "persona": "operator:risk",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["P-ads-merchant-05"], "noSlice": false },
       { "n": 2, "slices": ["P-disputes-security-18"], "noSlice": false },
@@ -6896,7 +6937,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["PP-order-02"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-01"], "noSlice": false },
@@ -6914,7 +6955,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-07", "PP-money-balance-04"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-07"], "noSlice": false },
@@ -6931,7 +6972,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-03"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-03"], "noSlice": false },
@@ -6954,7 +6995,8 @@
       { "n": 3, "slices": ["PP-send-request-08", "PP-order-02"], "noSlice": false },
       { "n": 4, "slices": ["PP-send-request-08", "PP-send-request-09"], "noSlice": false },
       { "n": 5, "slices": ["PP-send-request-08"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-pay-05",
@@ -6962,7 +7004,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-12", "PP-order-02"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-12", "PP-order-02"], "noSlice": false },
@@ -6978,7 +7020,7 @@
     "module": "pay",
     "persona": "retail",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["PP-send-request-04", "PP-order-02"], "noSlice": false },
       { "n": 2, "slices": ["PP-send-request-04"], "noSlice": false },
@@ -7015,7 +7057,8 @@
       { "n": 2, "slices": ["PP-send-request-24"], "noSlice": false },
       { "n": 3, "slices": ["PP-send-request-24"], "noSlice": false },
       { "n": 4, "slices": ["PP-send-request-24"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-pay-09",
@@ -7154,7 +7197,8 @@
       { "n": 3, "slices": ["PP-disputes-safety-05"], "noSlice": false },
       { "n": 4, "slices": ["PP-disputes-safety-06"], "noSlice": false },
       { "n": 5, "slices": ["PP-disputes-safety-05", "PP-disputes-safety-09"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-pay-18",
@@ -7203,7 +7247,8 @@
       { "n": 6, "slices": ["PP-send-request-19", "PP-send-request-21", "PP-order-01"], "noSlice": false },
       { "n": 7, "slices": ["PP-order-01"], "noSlice": false },
       { "n": 8, "slices": [], "noSlice": true }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-pay-21",
@@ -7473,7 +7518,8 @@
       { "n": 1, "slices": ["PF-balances-01"], "noSlice": false },
       { "n": 2, "slices": ["PF-balances-01"], "noSlice": false },
       { "n": 3, "slices": ["PF-balances-01"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-portfolio-17",
@@ -7498,7 +7544,7 @@
     "module": "support-public",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["SP-help-centre-01"], "noSlice": false },
       { "n": 2, "slices": ["SP-help-centre-03"], "noSlice": false },
@@ -7516,7 +7562,7 @@
     "module": "support-public",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["SP-kb-03"], "noSlice": false },
       { "n": 2, "slices": ["SP-help-centre-01"], "noSlice": false },
@@ -7604,7 +7650,7 @@
     "module": "support-public",
     "persona": "retail",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["SP-status-01"], "noSlice": false },
       { "n": 2, "slices": ["SP-status-01"], "noSlice": false },
@@ -7655,7 +7701,7 @@
     "module": "support-public",
     "persona": "operator:support",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["SP-desk-01", "SP-sla-01"], "noSlice": false },
       { "n": 2, "slices": ["SP-desk-01"], "noSlice": false },
@@ -7841,7 +7887,7 @@
     "module": "support-public",
     "persona": "operator:support",
     "tier": "core",
-    "order": 2,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },
       { "n": 2, "slices": ["RC-support-public-01"], "noSlice": false },
@@ -7867,7 +7913,8 @@
       { "n": 4, "slices": [], "noSlice": true },
       { "n": 5, "slices": [], "noSlice": true },
       { "n": 6, "slices": [], "noSlice": true }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-support-public-22",
@@ -7905,7 +7952,7 @@
     "module": "wallet",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["W-deposit-11", "W-deposit-01"], "noSlice": false },
       { "n": 2, "slices": ["W-deposit-03", "W-deposit-04"], "noSlice": false },
@@ -7915,7 +7962,8 @@
       { "n": 6, "slices": ["W-deposit-05"], "noSlice": false },
       { "n": 7, "slices": ["W-deposit-05", "W-deposit-09"], "noSlice": false },
       { "n": 8, "slices": ["W-compliance-notices-01"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-03",
@@ -7930,7 +7978,8 @@
       { "n": 3, "slices": ["W-compliance-notices-05"], "noSlice": false, "deferred": true },
       { "n": 4, "slices": ["W-compliance-notices-03"], "noSlice": false, "deferred": true },
       { "n": 5, "slices": ["W-deposit-06"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-04",
@@ -7938,7 +7987,7 @@
     "module": "wallet",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["W-withdraw-08"], "noSlice": false },
       { "n": 2, "slices": ["W-withdraw-08", "W-withdraw-03"], "noSlice": false },
@@ -7947,7 +7996,8 @@
       { "n": 5, "slices": ["W-withdraw-09"], "noSlice": false },
       { "n": 6, "slices": ["W-withdraw-17"], "noSlice": false },
       { "n": 7, "slices": ["W-withdraw-09"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-05",
@@ -7955,7 +8005,7 @@
     "module": "wallet",
     "persona": "pro-trader",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["W-withdraw-02"], "noSlice": false },
       { "n": 2, "slices": ["W-withdraw-03", "W-compliance-notices-02"], "noSlice": false },
@@ -7965,7 +8015,8 @@
       { "n": 6, "slices": ["W-withdraw-01"], "noSlice": false },
       { "n": 7, "slices": ["W-withdraw-01"], "noSlice": false },
       { "n": 8, "slices": ["W-withdraw-06"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-06",
@@ -7981,7 +8032,8 @@
       { "n": 4, "slices": ["W-withdraw-07"], "noSlice": false },
       { "n": 5, "slices": ["W-withdraw-06"], "noSlice": false },
       { "n": 6, "slices": ["W-withdraw-07"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-07",
@@ -7996,7 +8048,8 @@
       { "n": 3, "slices": ["W-withdraw-14"], "noSlice": false },
       { "n": 4, "slices": ["W-withdraw-14"], "noSlice": false },
       { "n": 5, "slices": ["W-withdraw-14"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-08",
@@ -8019,7 +8072,7 @@
     "module": "wallet",
     "persona": "pro-trader",
     "tier": "advanced",
-    "order": 3,
+    "order": 1,
     "steps": [
       { "n": 1, "slices": ["W-balances-10"], "noSlice": false },
       { "n": 2, "slices": ["W-balances-10", "W-withdraw-17"], "noSlice": false },
@@ -8041,7 +8094,8 @@
       { "n": 3, "slices": ["W-withdraw-12"], "noSlice": false },
       { "n": 4, "slices": ["W-withdraw-12", "W-security-accounts-01"], "noSlice": false },
       { "n": 5, "slices": ["W-deposit-09"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-11",
@@ -8072,7 +8126,8 @@
       { "n": 4, "slices": ["W-withdraw-11"], "noSlice": false },
       { "n": 5, "slices": ["W-withdraw-11"], "noSlice": false },
       { "n": 6, "slices": ["W-withdraw-10"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-13",
@@ -8113,7 +8168,8 @@
       { "n": 2, "slices": ["W-deposit-10"], "noSlice": false },
       { "n": 3, "slices": ["W-withdraw-15"], "noSlice": false },
       { "n": 4, "slices": ["W-withdraw-15"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-16",
@@ -8121,7 +8177,7 @@
     "module": "wallet",
     "persona": "operator:finance",
     "tier": "core",
-    "order": 1,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": ["W-balances-07"], "noSlice": false },
       { "n": 2, "slices": ["W-balances-07"], "noSlice": false },
@@ -8147,7 +8203,8 @@
       { "n": 5, "slices": ["W-custody-ops-04"], "noSlice": false },
       { "n": 6, "slices": ["W-custody-ops-05"], "noSlice": false },
       { "n": 7, "slices": ["W-custody-ops-13"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-18",
@@ -8165,7 +8222,8 @@
       { "n": 6, "slices": ["W-custody-ops-11"], "noSlice": false },
       { "n": 7, "slices": ["W-custody-ops-12"], "noSlice": false },
       { "n": 8, "slices": ["W-security-accounts-05"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-19",
@@ -8183,7 +8241,8 @@
       { "n": 6, "slices": ["W-compliance-notices-05"], "noSlice": false, "deferred": true },
       { "n": 7, "slices": ["W-withdraw-03"], "noSlice": false },
       { "n": 8, "slices": ["W-withdraw-17"], "noSlice": false, "deferred": true }
-    ]
+    ],
+    "later": "custody"
   },
   {
     "id": "J-wallet-20",
@@ -8212,6 +8271,7 @@
       { "n": 2, "slices": ["W-withdraw-05", "W-security-accounts-05"], "noSlice": false },
       { "n": 3, "slices": ["W-withdraw-10"], "noSlice": false },
       { "n": 4, "slices": ["W-withdraw-13"], "noSlice": false }
-    ]
+    ],
+    "later": "custody"
   }
 ]
