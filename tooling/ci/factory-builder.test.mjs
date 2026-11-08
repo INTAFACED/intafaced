@@ -581,6 +581,15 @@ export function workflowProblems(wf) {
     !/\n          retention-days: 1\n/.test(up)
   )
     p.push("only the agent's commits, PR text, asks and end record are uploaded, for a day");
+  // One artifact name per build attempt, which the publish job (and a re-run of it alone) reads from the build's output.
+  const NAME = 'builder-output-${{ github.run_id }}-${{ github.run_attempt }}';
+  if (
+    !build.includes(`\n      artifact: ${NAME}\n`) ||
+    !up.includes(`\n          name: ${NAME}\n`) ||
+    !stepOf(publish, "The agent's output").includes('\n          name: ${{ needs.build.outputs.artifact }}\n') ||
+    !stepOf(publish, 'Publish').includes('\n          ARTIFACT: ${{ needs.build.outputs.artifact }}\n')
+  )
+    p.push("the publish reads, and deletes, the build attempt's own artifact");
   for (const line of wf.split('\n'))
     if (
       /\b(cat|tee|head|tail|less|more)\b/.test(line) &&
@@ -712,6 +721,10 @@ test('each planted fault in the workflow is caught', () => {
     ),
     'a second upload': `${WF}\n      - uses: actions/upload-artifact@v7\n        with:\n          path: \${{ env.BUILDER_DIR }}\n`,
     'the output kept for months': plant('          retention-days: 1\n', '          retention-days: 90\n'),
+    'a re-run reading another attempt': plant(
+      '          name: ${{ needs.build.outputs.artifact }}\n',
+      '          name: builder-output-${{ github.run_id }}-${{ github.run_attempt }}\n',
+    ),
     'the output handed over before the stop': (() => {
       const kill = stepOf(WF, 'Stop every process of the agent');
       const take = stepOf(WF, "Take the agent's commits");

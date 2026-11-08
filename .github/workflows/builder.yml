@@ -39,10 +39,10 @@
 # Public-repo hygiene: anyone can read this repository's logs and download its artifacts. The CLI's output goes to
 # files inside the build job that no step prints or uploads. No step prints text from project-state or from the
 # agent's PR text. The artifact holds the agent's commits beyond main, its PR text, its asks and the end record: what
-# publish puts on GitHub, unless publish refuses it (a rewritten history, a workflow change). Publish deletes it once
-# read; a run that never publishes leaves it a day. Written limit: from its upload to that delete (about a minute), or
-# for that day, a refused commit or PR text can be downloaded; the Actions trial's marker check searches artifacts with
-# the logs for text from project-state.
+# publish puts on GitHub, unless publish refuses it (a rewritten history, a workflow change). Publish deletes it once the
+# commits are pushed and the PR written; a run whose publish fails or never runs leaves it a day. Written limit: until
+# then, a refused commit or PR text can be downloaded. The Actions trial's marker check reads what reaches the PR, and an
+# artifact only while it is kept; refused content that was deleted is not checked.
 #
 # The steps' logic is tooling/ci/factory-builder.mjs, with its planted cases in factory-builder.test.mjs.
 name: Builder
@@ -162,6 +162,8 @@ jobs:
       contents: read
     outputs:
       took: ${{ steps.take.outcome == 'success' }}
+      # The build attempt's own name, so a re-run of the publish job alone still finds it.
+      artifact: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
 
     # The same databases CI's Tests job declares (ci.yml), for .github/actions/test-infra below.
     services:
@@ -449,7 +451,7 @@ jobs:
       - name: The agent's output
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.build.outputs.artifact }}
           path: ${{ runner.temp }}/builder
 
       # It mints its write token in memory (intafaced only; contents, pull requests and actions; never workflows) and
@@ -458,6 +460,6 @@ jobs:
         env:
           FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
           BRANCH: ${{ needs.gate.outputs.branch }}
-          ARTIFACT: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
+          ARTIFACT: ${{ needs.build.outputs.artifact }}
           BUILDER_DIR: ${{ runner.temp }}/builder
         run: node tooling/ci/factory-builder.mjs publish

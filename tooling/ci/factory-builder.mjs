@@ -706,7 +706,6 @@ async function main(cmd, args, env) {
     const gh = api(env.GH_TOKEN);
     const end = readIf(join(dir, 'end.json')) ? JSON.parse(readIf(join(dir, 'end.json'))) : null;
     let reason = end?.reason ?? 'ended before the builder ran';
-    if (env.ARTIFACT) await deleteArtifact(gh, env.REPO, env.RUN_ID, env.ARTIFACT);
     // A fresh repository, filled only from the agent's bundle (data, not a repository whose config or hooks could run)
     // and from GitHub. The token is in git's environment for the push alone, never in a command line.
     const repoDir = join(dir, 'publish');
@@ -792,6 +791,9 @@ async function main(cmd, args, env) {
       pull = await gh.send('POST', `/repos/${env.REPO}/pulls`, { title: agent.title, head: env.BRANCH, base: 'main', body, draft: false });
       console.log(`#${pull.number}: opened`);
     }
+    // Only now, with the commits pushed and the PR written, is the artifact no longer needed: on any failure before
+    // this, it stays (a day) so a re-run of the publish job can still read it.
+    if (env.ARTIFACT) await deleteArtifact(gh, env.REPO, env.RUN_ID, env.ARTIFACT);
     if (agent.asks.prove) {
       const test = `apps/customer/tests/real-app/${env.JOURNEY}.pw.mjs`;
       let has = true;
