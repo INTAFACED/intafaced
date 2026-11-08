@@ -6,7 +6,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, isSharedSetup, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const REPO = 'INTAFACED/intafaced';
@@ -423,4 +423,42 @@ test('an empty report (nothing to run) seals nothing and blocks nothing', async 
     verdictOf: async () => ({ red: [], missing: [] }),
   });
   assert.equal(alone.ok, false, 'an empty run does not prove a touched file');
+});
+
+test('CI review: an empty run (nothing to run, or a draft) never stands in for the full run product code needs', async () => {
+  const { readReport } = await import('./journey-verdict.mjs');
+  const spec = (title, file) => ({ title, file, tests: [{ status: 'expected' }] });
+  const named = readReport({
+    suites: [{ file: 'J-a-01.pw.mjs', specs: [spec('J-a-01 #1', 'J-a-01.pw.mjs'), spec('J-b-01 #1', 'J-b-01.pw.mjs')] }],
+  });
+  const empty = readReport({ suites: [], errors: [], stats: { expected: 0, unexpected: 0 } });
+  const inputs = { baseline: { run: { number: 100, id: 1, sha: 'c'.repeat(40) }, steps: [] }, money: {}, reports: new Map() };
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [], shas: {} });
+  const HEAD = 'a'.repeat(40);
+  const REPO = 'INTAFACED/intafaced';
+  const run = {
+    id: 9,
+    head_sha: HEAD,
+    path: JOURNEYS_WORKFLOW,
+    status: 'completed',
+    conclusion: 'success',
+    created_at: '2026-11-08T05:00:00Z',
+    run_started_at: '2026-11-08T05:00:00Z',
+    head_repository: { full_name: REPO },
+    repository: { full_name: REPO },
+  };
+  // The seal's own full-run rule, with its real verdict: a green run whose report ran no journey file is short of
+  // every file, so it is passed over, and with no full run the seal fails.
+  const v = await judgeFullRun({
+    sha: HEAD,
+    repo: REPO,
+    shared: [],
+    because: 'it changes product code',
+    runs: [run],
+    reportOf: async () => empty,
+    verdictOf: async (report, r) => fullVerdict({ repo: REPO, report, run: r, inputs, read }),
+  });
+  assert.equal(v.ok, false);
+  assert.match(v.lines.join('\n'), /none has finished/);
+  assert.match(v.lines.join('\n'), /not a full run \(no step from 2 journey file/);
 });
