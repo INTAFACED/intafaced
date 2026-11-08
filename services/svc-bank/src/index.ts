@@ -31,6 +31,7 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
+import { testPartnerFor } from './partner/test-partner.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
@@ -148,7 +149,11 @@ const onrampPartner = onrampPartnerFor(
   { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
 );
 
+/** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
+const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+
 const bank = createBankServices(sql, ledger, history, {
+  testPartner,
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),

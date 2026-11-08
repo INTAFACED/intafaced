@@ -22,6 +22,7 @@ import { UserSpendStore } from './spend/store.js';
 import { createHttpTeamMembershipPort } from './team/membership.js';
 import { registerProductAgentsAtBoot } from './fleet/boot-register.js';
 import { registerCoachAgent } from './coach/coach-run.js';
+import { registerCatalogueOnlyAgents } from './fleet/catalogue-only.js';
 import { fleetMatrixBoardCard } from './fleet/matrix.js';
 import { agentsReadiness } from './readiness.js';
 import { describeAgentsLivePlanes } from './live-planes.js';
@@ -156,6 +157,8 @@ const runtime = new AgentRuntime(sql, gateway, meter, bus, {
 // agent_definitions; a process with zero rows makes every runSession 404.
 const bootAgents = await registerProductAgentsAtBoot(runtime);
 await registerCoachAgent(runtime);
+// The catalogue is the stored list: the agents it names that hold no tools here are stored too (fleet/catalogue-only.ts).
+await registerCatalogueOnlyAgents(runtime);
 
 const academyUrl = env.ACADEMY_URL;
 const loadCoachGrounding = academyUrl
