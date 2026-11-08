@@ -1,7 +1,8 @@
-import type { TestPartner } from './partner/test-partner.js';
+import { testPartnerCustody, type TestPartner } from './partner/test-partner.js';
+import { bankCustodyLayer, custodyGuardedLedger } from './partner/partner-bank.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
-import type { LedgerClient } from '@intafaced/ledger-client';
+import type { CustodyLayerState, LedgerClient } from '@intafaced/ledger-client';
 import { SpaceService } from './spaces/space-service.js';
 import { TransferService } from './transfers/transfer-service.js';
 import { EarnService } from './earn/earn-service.js';
@@ -170,6 +171,11 @@ export interface BankServiceOptions {
   onrampPartner?: OnrampPartner | null;
   /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
   testPartner?: TestPartner | null;
+  /**
+   * The custody switch as svc-bank reads it (`LEDGER_CUSTODY_LAYER`, OWNER 226). A value passed in wins; otherwise the
+   * live env, where unset is off. Off: every customer-balance post refuses `bank.no_partner_bank` before svc-ledger.
+   */
+  custodyLayer?: CustodyLayerState;
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -302,10 +308,20 @@ export interface BankServiceOptions {
   proofLimits?: string | undefined;
 }
 
-export function createBankServices(sql: Sql, ledger: LedgerClient, history: LedgerHistory, options: BankServiceOptions = {}): BankServices {
+export function createBankServices(
+  sql: Sql,
+  bookLedger: LedgerClient,
+  history: LedgerHistory,
+  options: BankServiceOptions = {},
+): BankServices {
+  // With the custodial layer off no customer balance is posted from here: refused by name before svc-ledger is asked.
+  const ledger = custodyGuardedLedger(bookLedger, bankCustodyLayer(options.custodyLayer));
+  // A person the TEST partner holds money for (`custody: 'off'`) reads and moves it at the partner; everyone else, as before.
+  const custody = testPartnerCustody(options.testPartner);
   const spaces = new SpaceService(sql, ledger, options.recipients, {
     spaceLimit: () => options.spaceLimit,
     unlockWaitHours: () => options.spaceUnlockWaitHours,
+    custody,
   });
   const billsPots = new BillsPotService(sql, spaces);
   const transfers = new TransferService(sql, ledger, spaces, { editCutoffMinutes: options.scheduleEditCutoffMinutes }, billsPots);
@@ -352,6 +368,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const activityRecords = new ActivityRecordService(sql);
   const activity = new ActivityService(spaces, {
     ...(options.activity ?? {}),
+    custody,
     records: activityRecords,
     transferFacts: { forTransfers: (userId, txIds) => personalPay.factsFor(userId, txIds) },
   });

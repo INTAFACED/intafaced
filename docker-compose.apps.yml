@@ -1165,6 +1165,9 @@ services:
       HTTP_PORT: '4009'
       DATABASE_URL: postgres://svc_bank:${SVC_BANK_DB_PASSWORD:-svc_bank}@postgres:5432/intafaced
       LEDGER_URL: http://svc-ledger:4001
+      # The custody switch, the same value svc-ledger reads (OWNER 226): off unless the environment says on. Off, svc-bank
+      # refuses a customer-balance post by name (bank.no_partner_bank) before svc-ledger would.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Identity affiliate accrue/payout after loan house fees. env.ts is
       # optional with no localhost default; unset is a noop port. Fleet
       # identity only — not a rate, not JWT restamp, not #2194 quote/sweep keys.

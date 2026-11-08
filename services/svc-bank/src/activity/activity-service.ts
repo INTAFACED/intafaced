@@ -4,6 +4,8 @@ import type { SpaceRecord } from '../spaces/space-service.js';
 import { classify, directionOf, type ActivityKind, type EntryDirection } from './activity-kind.js';
 import { ActivityCursorInvalidError, decodeCursor, encodeCursor, type OwnerPosition } from './activity-cursor.js';
 import type { ActivityAnnotation, ActivityRecordService } from './activity-records.js';
+import type { PartnerCustody } from '../partner/partner-bank.js';
+import { partnerActivityItem, partnerActivityPage } from './partner-activity.js';
 
 /**
  * ACTIVITY — the signed-in user's merged money history, newest first (U5b).
@@ -75,6 +77,8 @@ export interface ActivityItem {
    * no address says so by having none, and the address filter never matches it.
    */
   readonly address?: string;
+  /** Set on a line the partner bank reports (OWNER 226): whose record it is, e.g. "TEST partner bank". */
+  readonly heldAt?: { readonly label: string };
 }
 
 export interface ActivityPage {
@@ -152,6 +156,8 @@ export interface ActivityServiceOptions {
   transferFacts?: ActivityTransferFacts;
   /** Space-transfer words, private notes and disputes. Unset = those fields stay absent. A failure never hides a line. */
   records?: Pick<ActivityRecordService, 'forItems'> & Partial<Pick<ActivityRecordService, 'addressesFor'>>;
+  /** Whose bank money the partner holds: their history is the partner's record of its moves. Unset: the ledger's. */
+  custody?: PartnerCustody;
 }
 
 /** The date range is backwards. */
@@ -448,6 +454,11 @@ export class ActivityService {
 
   /** `userId` is the verified principal, never input. */
   async list(userId: string, input: ActivityQuery = {}): Promise<ActivityPage> {
+    const partner = this.options.custody?.bankFor(userId);
+    if (partner) {
+      const limit = Math.min(Math.max(Math.trunc(input.limit ?? ACTIVITY_DEFAULT_LIMIT), 1), ACTIVITY_MAX_LIMIT);
+      return partnerActivityPage(userId, partner, this.spaces, input, limit);
+    }
     if (input.sort === 'asc') return this.listOldestFirst(userId, input);
     if (!hasFilter(input)) return this.listPage(userId, input);
     return this.listFiltered(userId, input);
@@ -460,6 +471,8 @@ export class ActivityService {
    * does not start with `order:`.
    */
   async get(userId: string, id: string): Promise<{ item: ActivityItem; lines: ActivityItem[]; complete: boolean }> {
+    const partner = this.options.custody?.bankFor(userId);
+    if (partner) return partnerActivityItem(userId, partner, this.spaces, id);
     if (id.startsWith('order:')) {
       const orderId = id.slice('order:'.length);
       if (orderId.length < 1 || orderId.length > 128) throw new ActivityNotFoundError();

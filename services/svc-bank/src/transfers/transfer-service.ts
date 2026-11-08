@@ -19,6 +19,7 @@ import { RECIPIENT_CANNOT_RECEIVE_MESSAGE, accountForSpace, type SpaceService } 
 import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type ScheduleCadence } from './schedule.js';
 import { withMoneySpan, withSpan } from '../tracing.js';
 import type { BillsPotService } from '../spaces/bills-pot.js';
+import { partnerAccountFor, partnerCustodyMismatch, reportedAmount, type PartnerBank, type PartnerMove } from '../partner/partner-bank.js';
 
 /**
  * TRANSFERS — the rails half of §8.1.
@@ -48,6 +49,28 @@ export interface TransferResult {
   occurrence: number;
   ledgerTxId: string;
   amount: string;
+}
+
+/** A move the partner bank made (OWNER 226): one partner instruction under the business key, nothing on the ledger. */
+export interface PartnerTransferResult {
+  transferId: string;
+  occurrence: number;
+  ledgerTxId: null;
+  partnerMove: PartnerMove;
+  amount: string;
+}
+
+/** The partner refused a move because the source does not hold it. */
+function isPartnerInsufficient(err: unknown): err is BankError {
+  return err instanceof BankError && err.code === 'bank.partner_insufficient_funds';
+}
+
+/** A partner-held side on a path whose partner version is not built: refused by name before anything is sent. */
+function partnerPathNotBuilt(): BankError {
+  return new BankError(
+    'This payment is not yet made through the partner bank that holds this money, so it was not sent. Nothing was sent or changed.',
+    'bank.partner_path_not_built',
+  );
 }
 
 export interface ScheduleRecord {
@@ -241,6 +264,26 @@ export class TransferService {
     keySpace?: 'own' | 'p2p';
     now?: Date;
   }): Promise<TransferResult> {
+    // Every caller but `transfers.create` records the ledger transaction, so a partner-held side refuses here by name.
+    return (await this.move(input, false)) as TransferResult;
+  }
+
+  /**
+   * The person's own move between spaces (`transfers.create`): the ledger's `bankTransfer` on the custodial layer, or,
+   * when the partner bank holds this money (OWNER 226), ONE partner move under the same business key
+   * (`bank.transfer.<keySpace>:<transferId>:0`) and nothing posted to the ledger.
+   *
+   * If this crashes exactly here, after the partner moved and before we answered, nobody's funds are stranded: the
+   * partner holds the move under the key, and the caller's retry with the same `transferId` is answered with it, once.
+   */
+  async moveBetweenSpaces(input: Parameters<TransferService['transfer']>[0]): Promise<TransferResult | PartnerTransferResult> {
+    return this.move(input, true);
+  }
+
+  private async move(
+    input: Parameters<TransferService['transfer']>[0],
+    partnerAllowed: boolean,
+  ): Promise<TransferResult | PartnerTransferResult> {
     const now = input.now ?? new Date();
     const keySpace = input.keySpace ?? 'own';
 
@@ -252,10 +295,13 @@ export class TransferService {
           throw new BankError('A transfer needs two different spaces', 'bank.same_space');
         }
 
+        // A locked or archived source refuses here, before anything is asked of the ledger or the partner.
         const from = await this.spaces.resolveForDebit(input.fromSpaceId, now);
+        const key = bankTransferKey(keySpace, input.transferId, 0);
+        const partner = this.spaces.custody.bankFor(from.userId);
         const to = await this.spaces.resolveForCredit(input.toSpaceId, {
           actingUserId: from.userId,
-          alreadyBooked: async () => (await this.ledger.getTxByKey(bankTransferKey(keySpace, input.transferId, 0))) !== null,
+          alreadyBooked: async () => (partner ? (await partner.moveByKey(key)) !== null : (await this.ledger.getTxByKey(key)) !== null),
         });
 
         if (from.assetId !== to.assetId) {
@@ -266,6 +312,26 @@ export class TransferService {
 
         const note = input.note ?? null;
         const reference = input.reference ?? null;
+
+        const toPartner = this.spaces.custody.bankFor(to.userId);
+        if (partner || toPartner) {
+          if (!partner || toPartner !== partner) throw partnerCustodyMismatch();
+          if (!partnerAllowed || keySpace !== 'own') throw partnerPathNotBuilt();
+          // The note and reference bind to the transfer id first, as on the ledger path; "already made" is the partner's.
+          await bindTransferMessage(
+            this.sql,
+            { getTxByKey: async (k) => ((await partner.moveByKey(k)) ? { id: k } : null) },
+            { transferId: input.transferId, keySpace, fromUserId: from.userId, toUserId: to.userId, note, reference },
+          );
+          const moved = await partner.move({ key, from: partnerAccountFor(from), to: partnerAccountFor(to), amount: input.amount });
+          return {
+            transferId: input.transferId,
+            occurrence: 0,
+            ledgerTxId: null,
+            partnerMove: moved,
+            amount: formatAmount(moved.amount),
+          };
+        }
         await bindTransferMessage(this.sql, this.ledger, {
           transferId: input.transferId,
           keySpace,
@@ -1133,7 +1199,19 @@ export class TransferService {
             // ledger.post already moved value under bank.transfer.sched:<id>:<n>. A
             // later lock must RECOVER that movement as settled — never mark
             // rejected while the ledger already moved money.
-            const prior = await this.ledger.getTxByKey(bankTransferKey('sched', schedule.id, occurrence));
+            // The same for a partner-held source (OWNER 226): the partner's move under the key is the movement.
+            const key = bankTransferKey('sched', schedule.id, occurrence);
+            const partner = this.spaces.custody.bankFor(schedule.userId);
+            const priorMove = partner ? await partner.moveByKey(key) : null;
+            if (priorMove) {
+              await tx`
+                UPDATE bank.transfer_executions
+                   SET status = 'settled', partner_move_id = ${priorMove.id}, settled_at = now()
+                 WHERE id = ${executionId}
+              `;
+              return 'settled';
+            }
+            const prior = partner ? null : await this.ledger.getTxByKey(key);
             if (prior) {
               await tx`
                 UPDATE bank.transfer_executions
@@ -1179,6 +1257,13 @@ export class TransferService {
       `;
       return 'rejected';
     };
+    const partner = this.spaces.custody.bankFor(from.userId);
+    const toPartner = this.spaces.custody.bankFor(to.userId);
+    if (partner || toPartner) {
+      // Two places hold the two sides: no one partner move can make it. A refusal of this occurrence, like a lock.
+      if (!partner || toPartner !== partner) return reject(partnerCustodyMismatch().code);
+      return this.settleAtPartner(tx, executionId, schedule, from, to, occurrence, now, partner, reject);
+    }
     const post = () =>
       this.ledger.post(
         recipes.bankTransfer({
@@ -1221,6 +1306,94 @@ export class TransferService {
        WHERE id = ${executionId}
     `;
     return 'settled';
+  }
+
+  /**
+   * A standing order's occurrence when the partner bank holds the person's money (OWNER 226): ONE partner move under
+   * `bank.transfer.sched:<scheduleId>:<occurrence>`, the key the ledger path posts under, and nothing on the ledger. The
+   * claim row records the partner's reference. Too little at the partner is a refusal of this occurrence (after the bills
+   * pot top-up, as on the ledger path); anything else (the partner down, its reply lost) rethrows, the claim rolls back,
+   * and the next pass sends the same key again, which the partner answers with the move if it made it.
+   */
+  private async settleAtPartner(
+    tx: Sql,
+    executionId: string,
+    schedule: ScheduleRecord,
+    from: Awaited<ReturnType<SpaceService['get']>>,
+    to: Awaited<ReturnType<SpaceService['get']>>,
+    occurrence: number,
+    now: Date,
+    partner: PartnerBank,
+    reject: (code: string) => Promise<FiringOutcome>,
+  ): Promise<FiringOutcome> {
+    const move = () =>
+      partner.move({
+        key: bankTransferKey('sched', schedule.id, occurrence),
+        from: partnerAccountFor(from),
+        to: partnerAccountFor(to),
+        amount: schedule.amount,
+      });
+    let moved: PartnerMove;
+    try {
+      moved = await move();
+    } catch (err) {
+      if (!isPartnerInsufficient(err)) throw err;
+      if (!(await this.topUpBillsPotAtPartner(tx, schedule, from, to, occurrence, now, partner))) return reject(err.code);
+      try {
+        moved = await move();
+      } catch (retryErr) {
+        if (isPartnerInsufficient(retryErr)) return reject(retryErr.code);
+        throw retryErr;
+      }
+    }
+    await tx`
+      UPDATE bank.transfer_executions
+         SET status = 'settled', partner_move_id = ${moved.id}, settled_at = now()
+       WHERE id = ${executionId}
+    `;
+    return 'settled';
+  }
+
+  /**
+   * The bills pot fallback at the partner: the same rule as `topUpBillsPot`, with the partner's figures and one partner
+   * move under the same key. A move already under the key that is not a main-to-pot move throws
+   * `BookedTransferConflict`, so nothing is recorded on a movement nobody can account for.
+   */
+  private async topUpBillsPotAtPartner(
+    tx: Sql,
+    schedule: ScheduleRecord,
+    pot: Awaited<ReturnType<SpaceService['get']>>,
+    to: Awaited<ReturnType<SpaceService['get']>>,
+    occurrence: number,
+    now: Date,
+    partner: PartnerBank,
+  ): Promise<boolean> {
+    if (pot.kind !== 'named' || !this.billsPots || to.userId === pot.userId) return false;
+    const role = await this.billsPots.forSpace(pot.id, tx);
+    if (!role?.fallback) return false;
+    const primary = await this.spaces.findPrimary(pot.userId, pot.assetId, tx);
+    if (!primary) return false;
+    const transferId = billsFallbackTransferId(schedule.id, pot.id);
+    const key = bankTransferKey('own', transferId, occurrence);
+    const prior = await partner.moveByKey(key);
+    if (prior) {
+      const main = partnerAccountFor(primary);
+      const into = partnerAccountFor(pot);
+      const same = (a: typeof main, b: typeof main) => a.userId === b.userId && a.assetId === b.assetId && a.spaceId === b.spaceId;
+      if (!same(prior.from, main) || !same(prior.to, into)) throw new BookedTransferConflict(transferId);
+      return true;
+    }
+    const held = reportedAmount(await partner.balance(partnerAccountFor(pot)));
+    const shortfall = schedule.amount - held;
+    if (shortfall <= 0n) return true;
+    const main = await this.spaces.resolveForDebit(primary.id, now, tx);
+    try {
+      await partner.move({ key, from: partnerAccountFor(main), to: partnerAccountFor(pot), amount: shortfall });
+      return true;
+    } catch (err) {
+      if (isPartnerInsufficient(err)) return false;
+      throw err;
+    }
   }
 
   /**
@@ -1292,12 +1465,28 @@ export class TransferService {
   async executions(
     scheduleId: string,
     limit?: number,
-  ): Promise<Array<{ occurrence: number; amount: string; status: string; ledgerTxId: string | null; rejectionCode: string | null }>> {
+  ): Promise<
+    Array<{
+      occurrence: number;
+      amount: string;
+      status: string;
+      ledgerTxId: string | null;
+      partnerMoveId: string | null;
+      rejectionCode: string | null;
+    }>
+  > {
     const page = assertExecutionsListLimit(limit);
     const rows = await this.sql<
-      Array<{ occurrence: number; amount: string; status: string; ledger_tx_id: string | null; rejection_code: string | null }>
+      Array<{
+        occurrence: number;
+        amount: string;
+        status: string;
+        ledger_tx_id: string | null;
+        partner_move_id: string | null;
+        rejection_code: string | null;
+      }>
     >`
-      SELECT occurrence, amount, status, ledger_tx_id, rejection_code
+      SELECT occurrence, amount, status, ledger_tx_id, partner_move_id, rejection_code
         FROM bank.transfer_executions WHERE schedule_id = ${scheduleId} ORDER BY occurrence ASC
        LIMIT ${page}
     `;
@@ -1306,6 +1495,8 @@ export class TransferService {
       amount: formatAmount(parseAmount(r.amount)),
       status: r.status,
       ledgerTxId: r.ledger_tx_id,
+      // The partner's reference when the partner bank made this occurrence's move (OWNER 226); null on the ledger path.
+      partnerMoveId: r.partner_move_id,
       rejectionCode: r.rejection_code,
     }));
   }

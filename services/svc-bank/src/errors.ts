@@ -1045,7 +1045,26 @@ export type BankErrorCode =
   /** The partner's ramp gave no fee, so the pay amount is not known; no quote was kept. */
   | 'bank.onramp_fee_not_known'
   /** The TEST partner switches exist only on a stack that runs the TEST partner (`BANK_TEST_PARTNER=test`). */
-  | 'bank.test_partner_off';
+  | 'bank.test_partner_off'
+  // ── Partner-held bank money (OWNER 226; `partner/partner-bank.ts`) ─────
+  /** The custodial layer is off and no partner bank holds this money, so no customer balance is posted. */
+  | 'bank.no_partner_bank'
+  /** The partner has not reported this balance: "not known", never 0. */
+  | 'bank.partner_balance_not_known'
+  /** One side of a move is held at the partner and the other is not; no single partner move can make it. */
+  | 'bank.partner_custody_mismatch'
+  /** The partner holds a different move under this business key; nothing was moved. */
+  | 'bank.partner_move_conflict'
+  /** The source account at the partner does not hold the amount; nothing was moved. */
+  | 'bank.partner_insufficient_funds'
+  /** The partner's answer was lost: the move may have been made. Retry under the same key: it is made at most once. */
+  | 'bank.partner_reply_lost'
+  /** A partner move or TEST funding needs an amount above zero. */
+  | 'bank.partner_amount_invalid'
+  /** This payment's partner path is not built yet; nothing was sent. */
+  | 'bank.partner_path_not_built'
+  /** The partner's history cannot answer this filter here; nothing is silently ignored. */
+  | 'bank.partner_history_filter_unsupported';
 
 export class BankError extends Error {
   constructor(

@@ -17,6 +17,7 @@ import type { LedgerClient } from '@intafaced/ledger-client';
 import { accountKey, formatAmount, userAvailable } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import type { SpaceService } from '../spaces/space-service.js';
+import { reportedAmount } from '../partner/partner-bank.js';
 
 const ASSET = /^[A-Z0-9]{2,16}$/;
 
@@ -67,10 +68,18 @@ export class CurrencyService {
        WHERE user_id = ${userId} AND kind = 'primary' AND archived_at IS NULL AND removed_at IS NULL
        ORDER BY asset_id ASC
     `;
-    // One ledger read for every main balance: a primary space is the customer's `userAvailable` account in its asset.
+    // One read for every main balance: a primary space is the customer's `userAvailable` account in its asset, or the
+    // partner's main balance in it when the partner holds their money (OWNER 226).
     const main = new Map<string, bigint>();
-    for (const b of await this.ledger.balances('user', userId)) {
-      if (accountKey(b.account) === accountKey(userAvailable(userId, b.account.assetId))) main.set(b.account.assetId, b.amount);
+    const partner = this.spaces.custody.bankFor(userId);
+    if (partner) {
+      for (const b of await partner.balances(userId)) {
+        if (b.account.spaceId === null) main.set(b.account.assetId, reportedAmount(b));
+      }
+    } else {
+      for (const b of await this.ledger.balances('user', userId)) {
+        if (accountKey(b.account) === accountKey(userAvailable(userId, b.account.assetId))) main.set(b.account.assetId, b.amount);
+      }
     }
     const currencies: AccountCurrency[] = rows.map((row) => ({
       assetId: row.asset_id,
@@ -110,8 +119,12 @@ export class CurrencyService {
     // refuses this, or lands after and puts the currency back. Money that arrives after the check is not lost: the
     // next read of the account shows a funded currency again (`ensureHeldPrimaries`).
     return this.spaces.underSpaceLock(userId, async (tx) => {
-      const accounts = (await this.ledger.balances('user', userId)).filter((b) => b.account.assetId === id && b.amount !== 0n);
-      if (accounts.length > 0) throw inUse(id);
+      // In use while anything the partner reports (partner-held), or any ledger account, in that asset is not zero.
+      const partner = this.spaces.custody.bankFor(userId);
+      const amounts = partner
+        ? (await partner.balances(userId)).filter((b) => b.account.assetId === id).map((b) => reportedAmount(b))
+        : (await this.ledger.balances('user', userId)).filter((b) => b.account.assetId === id).map((b) => b.amount);
+      if (amounts.some((amount) => amount !== 0n)) throw inUse(id);
       const named = await tx<Array<{ id: string; archived: boolean }>>`
         SELECT id, archived_at IS NOT NULL AS archived FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${id} AND kind = 'named'
       `;

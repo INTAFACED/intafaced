@@ -1,4 +1,4 @@
-import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
+import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown, testPartnerCustody } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
   router,
@@ -55,7 +55,8 @@ export function createTransfersRouter(c: BankRouterContext) {
     /**
      * The caller's own transfer history: money sent to or received from another person, and moves between their own
      * accounts. It is the activity feed narrowed to those kinds, so it has the same sources, paging and ownership
-     * rules and no second list of its own. Every line is a posted ledger entry, so every line is `completed`; a failed
+     * rules and no second list of its own. Every line is a posted ledger entry, or for money the partner bank holds a
+     * move the partner reports it made (`heldAt`), so every line is `completed`; a failed
      * or skipped standing-order run is read with `transfers.executions`.
      */
     list: scopedProcedure('bank:read', { module: 'bank' })
@@ -85,6 +86,8 @@ export function createTransfersRouter(c: BankRouterContext) {
               status: z.literal('completed'),
               counterparty: z.object({ handle: z.string() }).nullable(),
               spaceName: z.string().nullable(),
+              /** Set when the partner bank holds this money and the line is its record of the move (OWNER 226). */
+              heldAt: z.object({ label: z.string() }).optional(),
               note: z.string().optional(),
               reference: z.string().optional(),
             }),
@@ -110,6 +113,7 @@ export function createTransfersRouter(c: BankRouterContext) {
               status: 'completed' as const,
               counterparty: item.counterparty,
               spaceName: item.spaceName,
+              ...(item.heldAt ? { heldAt: item.heldAt } : {}),
               ...(item.note ? { note: item.note } : {}),
               ...(item.reference ? { reference: item.reference } : {}),
             })),
@@ -146,7 +150,15 @@ export function createTransfersRouter(c: BankRouterContext) {
           stepUpApprovalId: stepUpApprovalField,
         }),
       )
-      .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
+      .output(
+        z.object({
+          /** The ledger transaction on the custodial layer. Null when the partner bank made the move (OWNER 226). */
+          ledgerTxId: z.string().nullable(),
+          amount: amountString,
+          /** The partner bank's one move under this transfer's key, with its label (TEST) and time. Null on the ledger path. */
+          partnerMove: z.object({ id: z.string(), label: z.string(), movedAt: z.string().datetime() }).nullable(),
+        }),
+      )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
           assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
@@ -205,21 +217,33 @@ export function createTransfersRouter(c: BankRouterContext) {
 
           const gate = await gateDestination(bank, ctx.principal.userId, from, input.toSpaceId);
 
-          const result = await bank.transfers
-            .transfer({
-              transferId: input.transferId,
-              fromSpaceId: input.fromSpaceId,
-              toSpaceId: input.toSpaceId,
-              amount: parseAmount(input.amount),
-              note: input.note ?? null,
-              reference: input.reference ?? null,
-            })
-            .catch(async (err: unknown) => {
+          const move = {
+            transferId: input.transferId,
+            fromSpaceId: input.fromSpaceId,
+            toSpaceId: input.toSpaceId,
+            amount: parseAmount(input.amount),
+            note: input.note ?? null,
+            reference: input.reference ?? null,
+          };
+          // The caller's money at the partner bank (OWNER 226): one partner move, nothing on the ledger. Otherwise the
+          // custodial layer's transfer, exactly as before.
+          const partnerHeld = testPartnerCustody(bank.testPartner).bankFor(ctx.principal.userId) !== null;
+          const result = await (partnerHeld ? bank.transfers.moveBetweenSpaces(move) : bank.transfers.transfer(move)).catch(
+            async (err: unknown) => {
               const shown = gate.mayDescribe ? err : hideDestinationDetail(err);
               // RC-wallet-09: the debit side is the caller's own space (assertSelf above), so these are the caller's own figures.
               throw await bank.spendFigures.refusal(shown, ctx.principal.userId, from.assetId);
-            });
-          return { ledgerTxId: result.ledgerTxId, amount: result.amount };
+            },
+          );
+          if ('partnerMove' in result) {
+            const move = result.partnerMove;
+            return {
+              ledgerTxId: null,
+              amount: result.amount,
+              partnerMove: { id: move.id, label: move.label, movedAt: move.movedAt.toISOString() },
+            };
+          }
+          return { ledgerTxId: result.ledgerTxId, amount: result.amount, partnerMove: null };
         }),
       ),
 
@@ -660,6 +684,8 @@ export function createTransfersRouter(c: BankRouterContext) {
             amount: amountString,
             status: z.string(),
             ledgerTxId: z.string().nullable(),
+            /** The partner bank's reference when it made this occurrence's move (OWNER 226). Null on the ledger path. */
+            partnerMoveId: z.string().nullable(),
             rejectionCode: z.string().nullable(),
           }),
         ),

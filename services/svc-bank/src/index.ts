@@ -155,6 +155,8 @@ const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // The custody switch (OWNER 226): off unless set; the TEST stack pins it on.
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),

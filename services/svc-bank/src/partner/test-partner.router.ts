@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
+import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
+import { amountString } from '../router/shared.js';
 import type { BankServices } from '../bank-service.js';
 import { PARTNER_FEATURES, partnerReserve, type TestPartner, type TestPartnerSwitches } from './test-partner.js';
 
@@ -14,6 +16,8 @@ const switches = z
     down: z.boolean(),
     rampQuote: z.enum(['live', 'expired']),
     rampFee: z.enum(['known', 'unknown']),
+    custody: z.enum(['on', 'off']),
+    nextReply: z.enum(['answered', 'lost']),
   })
   .strict();
 
@@ -59,6 +63,24 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner'>,
         guard(async () => {
           const partner = on(bank.testPartner);
           return out(partner, ctx.principal.userId, partner.set(ctx.principal.userId, input));
+        }),
+      ),
+    /**
+     * TEST money paid into the person's main balance at the TEST partner bank, once per `fundId` (the journey's "a
+     * partner account funded with TEST money"). It is the partner's figure, not a ledger post: nothing is posted.
+     */
+    fund: scopedProcedure('bank:write', { module: 'bank' })
+      .input(z.object({ fundId: z.string().min(8).max(64), assetId: z.string().min(1).max(16), amount: amountString }).strict())
+      .output(z.object({ label: z.string(), assetId: z.string(), balance: z.string(), asOf: z.string().datetime() }))
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          const partner = on(bank.testPartner);
+          const now = partner.fund(ctx.principal.userId, {
+            fundId: input.fundId,
+            assetId: input.assetId,
+            amount: parseAmount(input.amount),
+          });
+          return { label: now.label, assetId: input.assetId, balance: formatAmount(now.amount!), asOf: now.asOf.toISOString() };
         }),
       ),
   });
