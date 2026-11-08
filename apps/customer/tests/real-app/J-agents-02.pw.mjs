@@ -319,7 +319,7 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
 test(`${J} #4 asks for a run when the payment method's available amount, as the partner or the chain reports it, is below the worst case: a refusal naming the payment method and its figure with its source and as-of time; the engine is never called, nothing is billed; with that figure unreadable the run does not start and says why`, async ({
   page,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   // The payment method is a TEST wallet that can sign (tests/real-app/test-wallet.mjs, a fresh key), linked by its own
   // signature and a passkey confirmation as J-identity-04 #7 does, then chosen on the agent's Limits page. It holds 0
   // TEST USD on the stack's TEST chain (tooling/scripts/local-test-chain.mjs, chain 84532), below one run's worst case
@@ -414,6 +414,55 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
     tool('local-test-chain.mjs', 'gate', 'open');
   }
   expect(await ledgerBalances(payer)).toEqual(before);
+
+  // With no payment method chosen, the run is checked against the platform balance as before, and its two money
+  // failure branches keep their end-to-end check here (CI review on #7585). A second TEST person with 0.005 USDT, the
+  // same kind of agent and limits: one run's worst case is above the balance.
+  const poor = await fundedTrader(page, 'ag02p', '0.005');
+  await ownAgentWithLimits(page, poor);
+  await expect(main(page).getByRole('form', { name: 'Payment method' }).getByTestId('payment-method')).toContainText(
+    'No payment method chosen',
+  );
+  await session(page).getByRole('button', { name: 'Open a session' }).click();
+  await expect(session(page).getByText('Session open:')).toBeVisible();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question');
+  const poorBefore = await ledgerBalances(poor);
+  const short = session(page).getByRole('alert');
+  await withEngineHeld(async (engineCalls) => {
+    await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(short).toContainText('Your available balance is below this run’s worst case, so it did not start.');
+    await expect(short.locator('code')).toHaveText('agents.funds_insufficient');
+    await stillCalls(engineCalls, 0);
+  });
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  const poorRuns = tableIn(main(page), 'Runs').getByRole('row');
+  await expect(poorRuns).toHaveCount(2);
+  await expect(poorRuns.nth(1).locator('code')).toHaveText('agents.funds_insufficient');
+  await expect(poorRuns.nth(1).getByTestId('run-cost')).toHaveText('0 USDT');
+  expect(await ledgerBalances(poor)).toEqual(poorBefore);
+
+  // With the platform balance read down (the stack's ledger stopped), the run does not start and says why: the balance
+  // could not be read, which is not the same as short. The engine is never called and nothing is billed.
+  try {
+    tool('local-test-stack.mjs', 'stop', 'ledger');
+    const unread = session(page).getByRole('alert');
+    await withEngineHeld(async (engineCalls) => {
+      await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+      await expect(unread).toContainText('Your balance could not be read just now, so this run did not start. Nothing was charged', {
+        timeout: 20_000,
+      });
+      await expect(unread.locator('code')).toHaveText('agents.funds_unread');
+      await stillCalls(engineCalls, 0);
+    });
+    await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+    await expect(poorRuns).toHaveCount(3);
+    await expect(poorRuns.filter({ hasText: 'agents.funds_unread' }).getByTestId('run-cost')).toHaveText('0 USDT');
+  } finally {
+    tool('local-test-stack.mjs', 'start', '--only', 'ledger');
+  }
+  expect(await ledgerBalances(poor)).toEqual(poorBefore);
 });
 
 test(`${J} #5 leaves the overage grace value blank after a window could not be paid: the next run refuses with recovery text; the unpaid window retries on its charge key`, async ({
