@@ -75,7 +75,10 @@ export const SAMPLE_STEPS = 24;
 const SHA40 = /^[0-9a-f]{40}$/;
 
 /** Whether a file is shared test code or a journey test the judge rules on. */
-export const judgedFile = (f) => !(UNIT_TEST.test(f) && !f.startsWith(`${REAL_APP}/`)) && JUDGE_PATHS.some(([re]) => re.test(f));
+// A unit test is skipped only where proof v2's reachKind skips one: directly under tooling/scripts/. Anywhere else
+// (any tests/real-app/ folder, the TEST config folders) a file named like a unit test is still judged.
+const SKIPPED_UNIT_TEST = /^tooling\/scripts\/[^/]+$/;
+export const judgedFile = (f) => !(UNIT_TEST.test(f) && SKIPPED_UNIT_TEST.test(f)) && JUDGE_PATHS.some(([re]) => re.test(f));
 
 /** Why the seal needs the test judge for this change, or null. An empty file list fails closed. */
 export function judgeReason(files) {

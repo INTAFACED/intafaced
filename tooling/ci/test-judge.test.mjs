@@ -73,7 +73,16 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
     .filter(Boolean);
   const missed = tree.filter((f) => reachKind(f) && !judgedFile(f));
   assert.deepEqual(missed, [], `files a reach read covered but the judge misses: ${missed.join(', ')}`);
-  for (const f of ['tooling/scripts/journey-shards.mjs', 'tooling/scripts/local-tester-seed.mjs', 'apps/admin/tests/real-app/x.mjs'])
+  for (const f of [
+    'tooling/scripts/journey-shards.mjs',
+    'tooling/scripts/local-tester-seed.mjs',
+    'apps/admin/tests/real-app/x.mjs',
+    // Named like unit tests, but reachKind covers them (#7502 round 1): only tooling/scripts/*.test.mjs is skipped.
+    'tooling/scripts/local-stack-services/zz-planted.test.mjs',
+    'apps/admin/tests/real-app/zz-helper.test.mjs',
+    'services/x/tests/real-app/a.test.ts',
+    'tooling/profiles/test-owner-values/a.test.js',
+  ])
     assert.ok(judgedFile(f), f);
   assert.equal(judgedFile('tooling/scripts/journey-shards.test.mjs'), false);
 });
