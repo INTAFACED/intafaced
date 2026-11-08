@@ -2,8 +2,9 @@
  * Local account details and the eligibility statement (BK-acct-03).
  *
  * Reads only, and no ledger write. A set of account details (account number, sort code, routing, BSB, IBAN) is issued by a
- * banking partner, never by us, so nothing here makes one up: with no partner wired every currency answers `unavailable` with the
- * blocker `rail.bank`, and `get` and `request` refuse `rail.bank`. The currencies a customer may ask for are the owner's list
+ * banking partner, never by us, so nothing here makes one up: with no partner for the person every currency answers `unavailable`
+ * with the blocker `rail.bank`, and `get` and `request` refuse `rail.bank`. Which partner answers can depend on the person
+ * (`partnerFor`): on the TEST stack the TEST partner answers only a person who switched its details on. The currencies a customer may ask for are the owner's list
  * (`BANK_ACCOUNT_DETAILS_CURRENCIES`); a blank list refuses `bank.account_details_currencies_unset` and no list is invented.
  *
  * The eligibility statement is the owner's published rule set (`BANK_ELIGIBILITY_JSON`) next to the platform's own verdict for a

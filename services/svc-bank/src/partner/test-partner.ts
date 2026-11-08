@@ -190,8 +190,8 @@ export function assertRampFeeKnown(partner: TestPartner | null | undefined, user
  */
 export function testPartnerAccountDetails(partner: TestPartner): (userId: string) => AccountDetailsPartner | undefined {
   const details = (userId: string, currency: string): AccountDetailSet => ({
-    id: `test-partner:${currency}`,
-    accountNumber: `TEST-${currency}-${userId.replace(/-/g, '').slice(0, 8).toUpperCase()}`,
+    id: `test-partner:${userId}:${currency}`,
+    accountNumber: `TEST-${currency}-${userId.replace(/-/g, '').toUpperCase()}`,
     sortCode: null,
     routingNumber: null,
     bsb: null,
@@ -201,9 +201,11 @@ export function testPartnerAccountDetails(partner: TestPartner): (userId: string
     restrictions: ['TEST details: no real account exists and nothing can be received'],
   });
   const issued = { state: 'done' as const };
-  const issuer: AccountDetailsPartner = {
-    detailsFor: async (userId, currency) => ({ ...issued, sets: [details(userId, currency)] }),
-    request: async (userId, currency) => ({ ...issued, sets: [details(userId, currency)] }),
+  // The partner down answers nothing, as at every other partner-held door.
+  const answer = async (userId: string, currency: string) => {
+    assertPartnerAnswering(partner, userId);
+    return { ...issued, sets: [details(userId, currency)] };
   };
+  const issuer: AccountDetailsPartner = { detailsFor: answer, request: answer };
   return (userId) => (partner.switches(userId).accountDetails === 'issued' ? issuer : undefined);
 }

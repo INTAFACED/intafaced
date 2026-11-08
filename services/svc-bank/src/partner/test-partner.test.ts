@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Principal } from '@intafaced/auth';
 import { createEdgeContext, encodePrincipal, signPrincipalHeader } from '@intafaced/contracts';
 import { BankError } from '../errors.js';
+import { AccountDetailsService } from '../account-details/account-details.js';
 import type { BankServices } from '../bank-service.js';
 import { createBankRouter } from '../router.js';
 import {
@@ -14,6 +15,7 @@ import {
   partnerReserve,
   rampQuoteExpired,
   testPartner,
+  testPartnerAccountDetails,
   testPartnerFor,
 } from './test-partner.js';
 
@@ -270,9 +272,7 @@ describe('the partner-held doors refuse before any service is reached', () => {
 
 describe('the TEST partner issues TEST account details only to a person who switched them on (J-bank-01 #6)', () => {
   it('answers no partner by default, and TEST-labelled details once issued, for that person only', async () => {
-    const { AccountDetailsService } = await import('../account-details/account-details.js');
-    const { testPartner: make, testPartnerAccountDetails } = await import('./test-partner.js');
-    const partner = make();
+    const partner = testPartner();
     const service = new AccountDetailsService({ currencies: 'EUR,GBP', partnerFor: testPartnerAccountDetails(partner) });
     const a = '11111111-1111-4111-8111-111111111111';
     const b = '22222222-2222-4222-8222-222222222222';
@@ -295,7 +295,10 @@ describe('the TEST partner issues TEST account details only to a person who swit
     }
     // Another person still has no partner.
     expect((await service.list(b)).currencies.every((c) => c.blocker === 'rail.bank')).toBe(true);
-    partner.set(a, { accountDetails: 'none' });
+    // The partner down answers nothing, as at every other partner-held door.
+    partner.set(a, { down: true });
+    await expect(service.request(a, 'EUR')).rejects.toMatchObject({ code: 'bank.partner_unavailable' });
+    partner.set(a, { down: false, accountDetails: 'none' });
     expect((await service.list(a)).currencies.every((c) => c.blocker === 'rail.bank')).toBe(true);
   });
 });

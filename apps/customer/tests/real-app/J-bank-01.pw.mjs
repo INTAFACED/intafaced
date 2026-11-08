@@ -263,7 +263,7 @@ test(`${J} #6 opens account details: the TEST partner's details labelled TEST, a
     await page.goto('/bank');
     for (const currency of ['EUR', 'GBP', 'USD']) {
       const row = answer.data.currencies.find((c) => c.currency === currency);
-      expect(row, `${currency} in the partner's answer`).toMatchObject({ blocker: null });
+      expect(row, `${currency} in the partner's answer`).toMatchObject({ state: 'done', blocker: null });
       expect(row.sets.length, `${currency}: the partner issued a set`).toBeGreaterThan(0);
       const block = page.getByTestId(`account-details-${currency}`);
       await expect(block).not.toContainText('rail.bank');
