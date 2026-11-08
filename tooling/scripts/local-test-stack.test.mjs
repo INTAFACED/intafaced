@@ -478,6 +478,7 @@ const script = resolve(here, 'local-test-stack.mjs');
   const profile = loadProfile().values;
   assert.equal(bank.env.BANK_GLOBAL_PARTNER, 'global-sim');
   assert.equal(bank.env.BANK_ONRAMP_RATES, 'ramp-sim');
+  assert.equal(bank.env.BANK_TEST_PARTNER, 'test');
   assert.equal(bank.env.BANK_PAYOUT_PARTNER, 'payout-sim');
   assert.equal(bank.env.BANK_ONRAMP_PARTNER, 'payin-sim');
   // The pay-in stand-in's page is svc-bank's own address, and it sends the payer back to the customer app's add-money room.

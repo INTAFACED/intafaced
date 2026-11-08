@@ -54,6 +54,8 @@ const en = {
   unlockRuleUnset:
     'The bank has not set how long an early unlock waits, so no new lock is made and a locked space stays locked to its date. Nothing was changed.',
   spaceNotLocked: 'This space is not locked now, so there is no lock to end early. Nothing was changed.',
+  notOfferedByPartner: 'Not offered by the partner. Your bank partner does not offer this, so nothing was sent or changed.',
+  partnerDown: 'Your bank partner is not answering. Nothing was sent or changed. Try again later.',
   roundUpTarget:
     'A round-up goes into one of your own spaces or one pool, and never back into the account it comes from. Nothing was set up.',
   sorterTermsUnset: 'The bank has not published when incoming payments are sorted, so no sorter can be set up now. Nothing was set up.',
@@ -156,6 +158,8 @@ const es = {
   unlockRuleUnset:
     'El banco no ha fijado cuánto espera un desbloqueo anticipado, así que no se crea ningún bloqueo nuevo y un espacio bloqueado sigue así hasta su fecha. No se cambió nada.',
   spaceNotLocked: 'Este espacio no está bloqueado ahora, así que no hay bloqueo que terminar antes. No se cambió nada.',
+  notOfferedByPartner: 'El banco asociado no lo ofrece, así que no se envió ni se cambió nada.',
+  partnerDown: 'Tu banco asociado no responde. No se envió ni se cambió nada. Inténtalo más tarde.',
   roundUpTarget: 'Un redondeo va a uno de tus espacios o a un fondo, y nunca de vuelta a la cuenta de la que sale. No se configuró nada.',
   sorterTermsUnset:
     'El banco no ha publicado cuándo se reparten los pagos entrantes, así que ahora no se puede configurar un reparto. No se configuró nada.',
@@ -262,6 +266,8 @@ const fr = {
   unlockRuleUnset:
     'La banque n’a pas fixé la durée d’attente d’un déverrouillage anticipé, donc aucun nouveau verrouillage n’est créé et un espace verrouillé le reste jusqu’à sa date. Rien n’a été modifié.',
   spaceNotLocked: 'Cet espace n’est pas verrouillé maintenant, donc il n’y a aucun verrouillage à terminer plus tôt. Rien n’a été modifié.',
+  notOfferedByPartner: 'Non proposé par le partenaire. Votre banque partenaire ne le propose pas, donc rien n’a été envoyé ni modifié.',
+  partnerDown: 'Votre banque partenaire ne répond pas. Rien n’a été envoyé ni modifié. Réessayez plus tard.',
   roundUpTarget: 'Un arrondi va dans un de tes espaces ou dans un fonds, et jamais dans le compte d’où il part. Rien n’a été configuré.',
   sorterTermsUnset:
     'La banque n’a pas publié quand les paiements entrants sont répartis, donc aucune répartition ne peut être configurée pour le moment. Rien n’a été configuré.',
@@ -367,6 +373,8 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.space_change_invalid': 'spaceChangeInvalid',
   'bank.space_unlock_rule_unset': 'unlockRuleUnset',
   'bank.space_not_locked': 'spaceNotLocked',
+  'bank.not_offered_by_partner': 'notOfferedByPartner',
+  'bank.partner_unavailable': 'partnerDown',
   'bank.auto_invest_target_invalid': 'roundUpTarget',
   'bank.sorter_terms_unset': 'sorterTermsUnset',
   'bank.sorter_invalid': 'sorterInvalid',

@@ -1,3 +1,4 @@
+import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount } from '@intafaced/ledger-client';
@@ -129,16 +130,17 @@ export function createSorterRouter(bank: BankServices, guard: Guard) {
       )
       .output(sorterView)
       .mutation(({ ctx, input }) =>
-        guard(async () =>
-          viewOf(
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
+          return viewOf(
             await bank.sorter.create({
               userId: ctx.principal.userId,
               sorterId: input.sorterId,
               assetId: input.assetId,
               legs: input.legs,
             }),
-          ),
-        ),
+          );
+        }),
       ),
 
     /** Stop sorting. Credits already sorted stay where they went. */

@@ -1,3 +1,4 @@
+import { assertRampFeeKnown, rampQuoteExpired, type TestPartner } from '../partner/test-partner.js';
 import { assertWithdrawNetwork, type WithdrawNetworkSource } from './withdraw-networks.js';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -43,6 +44,8 @@ export interface CustomerRampDeps {
   quotes: OnrampQuoteSource | null;
   /** The TEST rate stand-in of the local stack (`ramp-sim`), for the asks it lists. Null everywhere else. */
   standIn?: OnrampStandIn | null;
+  /** The TEST ramp's switches (CUSTODY-DELTA §4: quote expired, fee not known), on a dev or test stack only. */
+  testRamp?: TestPartner | null;
   payments: OnrampPaymentPort | null;
   fees: OfframpFeeSource | null;
   destinations: UserWithdrawDestinations;
@@ -196,6 +199,8 @@ export async function quoteOnramp(
       'bank.onramp_rate_unset',
     );
   }
+  // The TEST ramp that gives no fee gives no pay amount either: "not known", never 0, and no quote is kept.
+  assertRampFeeKnown(deps.testRamp, input.userId);
   const terms = await source.quote({
     assetId: input.assetId,
     amount: formatAmount(amount),
@@ -599,6 +604,8 @@ async function loadQuote(deps: CustomerRampDeps, userId: string, quoteId: string
   `;
   const row = rows[0];
   if (!row) throw new BankError('On-ramp quote was not found', 'bank.onramp_quote_missing');
+  // The TEST ramp that says its quote expired: the quote reads as run out now, whatever time it gave.
+  if (rampQuoteExpired(deps.testRamp, userId) && row.expires_at.getTime() > Date.now()) return { ...row, expires_at: new Date() };
   return row;
 }
 

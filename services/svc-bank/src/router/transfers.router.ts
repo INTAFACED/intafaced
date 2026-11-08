@@ -1,3 +1,4 @@
+import { assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
   router,
@@ -148,6 +149,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .output(z.object({ ledgerTxId: z.string(), amount: amountString }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
           const from = await bank.spaces.get(input.fromSpaceId);
 
           /**
@@ -366,12 +368,20 @@ export function createTransfersRouter(c: BankRouterContext) {
           spentToday: amountString,
           fee: amountString,
           feeBlocker: z.string().nullable(),
+          /**
+           * The partner's fee on the move (CUSTODY-DELTA §1.3). Absent: no partner reports one for this send. Null: the
+           * partner moves it and has not said what it costs, read as "not known", never 0.
+           */
+          networkFee: amountString.nullable().optional(),
           withinPerTransfer: z.boolean(),
           withinDaily: z.boolean(),
         }),
       )
       .query(async ({ ctx, input }) =>
-        guard(async () => bank.personalPay.quote(ctx.principal.userId, input.assetId, parseAmount(input.amount))),
+        guard(async () => {
+          const quote = await bank.personalPay.quote(ctx.principal.userId, input.assetId, parseAmount(input.amount));
+          return partnerFeeKnown(bank.testPartner, ctx.principal.userId) ? quote : { ...quote, networkFee: null };
+        }),
       ),
 
     scheduleToUser: scopedProcedure('bank:write', { module: 'bank' })

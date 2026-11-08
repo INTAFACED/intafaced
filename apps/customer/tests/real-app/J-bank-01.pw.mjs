@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-bank-01, in the running app (docs/roadmap/journeys.json): I open my bank, see my accounts and spaces, and create one.
 // One test per step, titled "J-bank-01 #<n>", run in order on one TEST account funded with TEST 100 USDT. The stack
@@ -124,6 +125,21 @@ test(`${J} #3 adds a currency once, and removing one that holds money is refused
   await page.getByTestId('currency-USDC').getByRole('button', { name: 'Remove USDC' }).click();
   await expect(page.getByText('USDC was removed from your account.')).toBeVisible();
   await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+
+  // Where the partner has no currency accounts (the TEST partner switched to offer none): "not offered by the partner",
+  // and no currency account is opened.
+  await withPartner(who, { notOffered: ['currencies'] }, async () => {
+    await page.reload();
+    await page.getByLabel('Currency to add').selectOption('USDC');
+    await page.getByRole('button', { name: 'Add currency' }).click();
+    await expect(page.getByTestId('failure').filter({ hasText: /not offered by the partner/i })).toBeVisible();
+    await expect(page.getByTestId('currency-USDC')).toHaveCount(0);
+    expect(await (await bank(who)).mutate('currencies.add', { assetId: 'USDC' })).toMatchObject({
+      ok: false,
+      code: 'bank.not_offered_by_partner',
+    });
+    expect((await spaces(who)).filter((s) => s.kind === 'primary' && s.assetId === 'USDC')).toHaveLength(0);
+  });
 });
 
 test(`${J} #4 creates a space, and at the TEST limit of ${LIMIT} the create is refused with the limit`, async ({ page }) => {
@@ -197,6 +213,31 @@ test(`${J} #5 moves TEST 20 from the main balance into the space, and a locked s
   await dialog.getByRole('button', { name: 'Review' }).click();
   await expect(dialog.getByText('This space is locked', { exact: false })).toBeVisible();
   expect(sent).toEqual([]);
+
+  // Where the partner has no spaces (the TEST partner switched to offer none): the move reads "not offered by the
+  // partner", and both balances stay as the partner reports them.
+  await withPartner(who, { notOffered: ['spaces'] }, async () => {
+    await page.goto('/bank/transfers');
+    await page.getByLabel('From your space').selectOption(main(after).id);
+    await page.getByRole('button', { name: 'Continue' }).click();
+    await dialog.getByLabel('To which of your accounts').selectOption(trip.id);
+    await dialog.getByLabel(/Amount/).fill('20');
+    await dialog.getByRole('button', { name: 'Review' }).click();
+    await dialog.getByRole('button', { name: 'Confirm' }).click();
+    await expect(dialog).toContainText(/not offered by the partner/i);
+    const refused = await (
+      await bank(who)
+    ).mutate('transfers.create', {
+      transferId: `jb01-${randomUUID()}`,
+      fromSpaceId: main(after).id,
+      toSpaceId: trip.id,
+      amount: '20',
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.not_offered_by_partner' });
+    const held = await spaces(who);
+    expect(main(held).balance).toBe(main(after).balance);
+    expect(named(held, SPACE).balance).toBe(named(after, SPACE).balance);
+  });
 });
 
 test(`${J} #6 opens account details: each currency needs a banking partner, rail.bank, and no number is shown`, async ({ page }) => {

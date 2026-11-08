@@ -1,3 +1,4 @@
+import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
@@ -124,6 +125,7 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
       .output(invite.extend({ invitee: person }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
           const made = await bank.sharedPots.invite({ ...input, ownerUserId: ctx.principal.userId });
           return { ...inviteOut(made), invitee: personOut(made.invitee) };
         }),
@@ -139,7 +141,12 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
     accept: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ inviteId: z.string().guid() }))
       .output(z.object({ spaceId: z.string(), role }))
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.accept(input.inviteId, ctx.principal.userId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.accept(input.inviteId, ctx.principal.userId);
+        }),
+      ),
 
     /** Decline an invite to the caller. Moves no value. */
     decline: scopedProcedure('bank:write', { module: 'bank' })
