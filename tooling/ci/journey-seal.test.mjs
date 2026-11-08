@@ -19,6 +19,7 @@ import {
   judgeSteps,
   mainReference,
   splitInherited,
+  rangeFromCommits,
   areaOf,
   RANGE_MAX,
   pullFilePaths,
@@ -1196,7 +1197,7 @@ test('C1 planted: a red that cannot be bounded stops every pull request', async 
   });
   assert.equal(blind.blocking.length, 1, 'main run with an unreadable input: every red counts');
   const wide = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area(), rangeOf: range(['a'], RANGE_MAX + 1) });
-  assert.match(wide.blocking[0]?.why ?? '', /can't be bounded \(101 commits/);
+  assert.match(wide.blocking[0]?.why ?? '', new RegExp(`can't be bounded \\(${RANGE_MAX + 1} commits`));
   const err = await splitInherited({
     upTo: MAIN_SHA,
     red: redW,
@@ -1228,7 +1229,7 @@ test('C1 planted: a red that cannot be bounded stops every pull request', async 
     touches: area(),
     rangeOf: range(),
   });
-  assert.equal(never.blocking.length, 0, 'a step that never passed on main broke no code: its journey is its area');
+  assert.equal(never.blocking.length, 1, 'council G1: a step that never passed on main has no break range, so it is unbounded');
 });
 
 test('C1: the main run compared with is the newest finished full one on main the head contains', async () => {
@@ -1457,5 +1458,61 @@ test("C1 review round 1: the break range also runs to main's reference run when 
       .length,
     1,
     'money code: every red counts',
+  );
+});
+
+test("C1 council G2: the break range is every commit's own paths, so a package one commit broke and a later one restored counts", async () => {
+  const A = '1'.repeat(40);
+  const B = '2'.repeat(40);
+  const calls = [];
+  const get = async (p) => {
+    calls.push(p);
+    if (p.includes('/compare/'))
+      return { status: 'ahead', total_commits: 2, commits: [{ sha: A }, { sha: B }], files: [{ filename: 'services/svc-a/x.ts' }] };
+    if (p.endsWith(A))
+      return {
+        files: [{ filename: 'services/svc-a/x.ts' }, { filename: 'services/svc-b/y.ts', previous_filename: 'services/svc-c/y.ts' }],
+      };
+    if (p.endsWith(B)) return { files: [{ filename: 'services/svc-b/y.ts' }] };
+    throw new Error(p);
+  };
+  const r = await rangeFromCommits(get, REPO, PASS_SHA, MAIN_SHA);
+  assert.deepEqual(r.files.sort(), ['services/svc-a/x.ts', 'services/svc-b/y.ts', 'services/svc-c/y.ts']);
+  assert.equal(r.commits, 2);
+  assert.equal(r.short, false);
+  const out = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-b/z.ts']),
+    rangeOf: async () => r,
+  });
+  assert.equal(out.blocking.length, 1, 'svc-b, restored by the net diff, is still in the area');
+  const wide = await rangeFromCommits(
+    async () => ({ status: 'ahead', total_commits: RANGE_MAX + 1, commits: [] }),
+    REPO,
+    PASS_SHA,
+    MAIN_SHA,
+  );
+  assert.equal(wide.short, true, 'too wide: no reads, and marked');
+  const cut = await rangeFromCommits(async () => ({ status: 'ahead', total_commits: 3, commits: [{ sha: A }] }), REPO, PASS_SHA, MAIN_SHA);
+  assert.equal(cut.short, true, 'a commit list shorter than the count is short');
+  assert.deepEqual(await rangeFromCommits(async () => ({ status: 'identical' }), REPO, MAIN_SHA, MAIN_SHA), {
+    files: [],
+    commits: 0,
+    short: false,
+  });
+  await assert.rejects(
+    rangeFromCommits(async () => ({ status: 'behind', total_commits: 0 }), REPO, MAIN_SHA, PASS_SHA),
+    /behind/,
+  );
+  await assert.rejects(
+    rangeFromCommits(
+      async (p) => (p.includes('/compare/') ? { status: 'ahead', total_commits: 1, commits: [{ sha: A }] } : {}),
+      REPO,
+      PASS_SHA,
+      MAIN_SHA,
+    ),
+    /files: not a list/,
   );
 });

@@ -608,13 +608,7 @@ export function makeIo(repo, token) {
     // The newest commit of the base branch (its tip when the pull request was read) the head holds.
     mergeBase: async (base, head) =>
       (await api(`/repos/${repo}/compare/${base}...${head}?per_page=1`, token))?.merge_base_commit?.sha ?? null,
-    async rangeOf(from, to) {
-      const c = await api(`/repos/${repo}/compare/${from}...${to}?per_page=1`, token);
-      if (c?.status === 'identical') return { files: [], commits: 0, short: false };
-      if (c?.status !== 'ahead') throw new Error(`${to.slice(0, 10)} is ${c?.status} of ${from.slice(0, 10)}`);
-      const files = pullFilePaths(c.files);
-      return { files, commits: c.total_commits, short: !Array.isArray(c.files) || c.files.length >= 300 };
-    },
+    rangeOf: (from, to) => rangeFromCommits((path) => api(path, token), repo, from, to),
     files: (n) => pullFiles((path) => api(path, token), repo, n),
     async text(path, ref) {
       const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
@@ -768,8 +762,9 @@ export async function touchedSteps({ paths, head, base, text }) {
 
 /** How many of main's newest runs the seal reads to find the one this head's history holds. */
 export const MAIN_LOOKBACK = 10;
-/** A break range wider than this many commits (or one GitHub's compare can't list whole) can't be bounded. */
-export const RANGE_MAX = 100;
+/** A break range wider than this many commits (or one GitHub's compare can't list whole) can't be bounded; each commit
+ *  in it is read on its own (rangeFromCommits), so this also caps the seal's reads. */
+export const RANGE_MAX = 40;
 export const journeyOf = (step) => String(step).split('#')[0];
 /** The package a path is in (`services/svc-wallet`), or the path itself outside one. */
 export const packageOf = (path) => /^(?:apps|services|packages|tooling)\/[^/]+(?=\/)/.exec(String(path))?.[0] ?? String(path);
@@ -830,9 +825,9 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  * when main shares it") is in every red's area, so nothing it inherited is passed over.
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
  * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
- * short. A step that never passed on main broke through no commit, so its journey is its whole area; so is one that
- * last passed on the commit it now fails on (a flake: no commit between). Every other red (new on this head) stops it
- * as before. Returns { blocking, passed, notes }.
+ * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
+ * passed on the commit it now fails on (a flake: no commit between) has its journey as its whole area. Every other red
+ * (new on this head) stops it as before. Returns { blocking, passed, notes }.
  */
 export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   if (!main) return { blocking: red, passed: [], notes: [`no finished full run on main is in this head's history, so every red counts`] };
@@ -864,10 +859,7 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     }
     const from = main.lastPass[x.step];
     if (from === null || from === undefined) {
-      passed.push({
-        step: x.step,
-        why: `${at} has it red too and it never passed on main, so its area is ${journey}, which this pull request doesn't touch`,
-      });
+      stop(`but it never passed on main, so no commit bounds where it broke and it can't be bounded`);
       continue;
     }
     if (!SHA40.test(String(from))) {
@@ -945,6 +937,34 @@ async function splitOrAll(inherited, red, run) {
 }
 /** The lines that name each red passed over as inherited, and the main run it was read against. */
 const inheritedLines = (split) => [...split.notes, ...split.passed.map((x) => `${x.step} is red on this head and inherited: ${x.why}`)];
+
+/**
+ * The paths each commit from `from` (exclusive) to `to` on main changed, unioned, renames by both names: what the
+ * commits one of which broke a step touched. Each commit is read on its own, not the net diff, so a package a breaking
+ * commit changed and a later one restored still counts (council review G2). `get(path)` is a GitHub GET. A range wider
+ * than RANGE_MAX commits is returned with its count and no reads; a commit list or a commit's files GitHub lists short
+ * (250 commits, 300 files) marks it short.
+ */
+export async function rangeFromCommits(get, repo, from, to) {
+  const c = await get(`/repos/${repo}/compare/${from}...${to}?per_page=100`);
+  if (c?.status === 'identical') return { files: [], commits: 0, short: false };
+  if (c?.status !== 'ahead') throw new Error(`${String(to).slice(0, 10)} is ${c?.status} of ${String(from).slice(0, 10)}`);
+  const commits = c.total_commits;
+  if (!Number.isSafeInteger(commits)) throw new Error('the compare has no commit count');
+  if (commits > RANGE_MAX) return { files: [], commits, short: true };
+  const list = Array.isArray(c.commits) ? c.commits : [];
+  if (list.length !== commits) return { files: [], commits, short: true };
+  const files = new Set();
+  let short = false;
+  for (const { sha } of list) {
+    if (!SHA40.test(String(sha))) throw new Error('a commit in the range has no sha');
+    const one = await get(`/repos/${repo}/commits/${sha}`);
+    if (!Array.isArray(one?.files)) throw new Error(`commit ${String(sha).slice(0, 10)}'s files: not a list`);
+    if (one.files.length >= 300) short = true;
+    for (const f of pullFilePaths(one.files)) files.add(f);
+  }
+  return { files: [...files], commits, short };
+}
 
 /** One pull request's head, judged. */
 export async function sealPull({ repo, number, sha, io, requireOpen = true, waitOnRunning = true }) {
