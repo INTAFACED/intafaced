@@ -101,12 +101,14 @@ export async function openChargeback(
     const fromMerchantBalance = rest < available ? rest : available;
     const shortfall = rest - fromMerchantBalance;
     if (shortfall > 0n) {
-      const fund = (await svc.ledger.balance(insuranceFund(input.assetId))).amount;
+      const cover = shortfallCoverOf(svc, payment.railAdapter, input.merchantId);
+      const fund = cover === null ? (await svc.ledger.balance(insuranceFund(input.assetId))).amount : 0n;
       if (fund < shortfall) {
-        throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', {
+        throw new PayError(unfundedMessage(cover), 'pay.chargeback_shortfall_unfunded', {
           disputeId: input.disputeId,
           shortfall: formatAmount(shortfall),
           fund: formatAmount(fund),
+          ...(cover === null ? {} : { cover }),
         });
       }
     }
@@ -141,7 +143,8 @@ export async function openChargeback(
       if (plan.shortfall > 0n) {
         const shortfallBooked = await svc.chargebackBookedTx(chargebackKeys(input.disputeId).shortfall);
         if (!shortfallBooked) {
-          const fund = (await svc.ledger.balance(insuranceFund(input.assetId))).amount;
+          const cover = shortfallCoverOf(svc, payment.railAdapter, input.merchantId);
+          const fund = cover === null ? (await svc.ledger.balance(insuranceFund(input.assetId))).amount : 0n;
           if (fund < plan.shortfall) {
             const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
             const openingBooked = covered > 0n ? await svc.chargebackBookedTx(openingKey) : null;
@@ -155,6 +158,7 @@ export async function openChargeback(
               openingTxId: openingBooked?.id ?? null,
               shortfall: formatAmount(plan.shortfall),
               fund: formatAmount(fund),
+              ...(cover === null ? {} : { cover }),
             });
           }
         }
@@ -476,11 +480,13 @@ export async function throwUnfundedChargebackShortfall(
     openingTxId: string | null;
     shortfall?: string;
     fund?: string;
+    cover?: ShortfallCover;
   },
 ): Promise<never> {
   const detail: Record<string, unknown> = { disputeId: input.disputeId };
   if (input.shortfall !== undefined) detail.shortfall = input.shortfall;
   if (input.fund !== undefined) detail.fund = input.fund;
+  if (input.cover !== undefined) detail.cover = input.cover;
   if (input.openingTxId) {
     await svc.recordChargebackLedgerEffect(input.paymentId, input.disputeId, {
       openingTxId: input.openingTxId,
@@ -490,7 +496,30 @@ export async function throwUnfundedChargebackShortfall(
     });
     detail.openingTxId = input.openingTxId;
   }
-  throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', detail);
+  throw new PayError(unfundedMessage(input.cover ?? null), 'pay.chargeback_shortfall_unfunded', detail);
+}
+
+/**
+ * Who covers what a lost dispute takes beyond the merchant's funds, on an acquiring partner's rail (CUSTODY-DELTA §1.3;
+ * J-merchant-18 #5; OWNER 226): `not_known` until the partner's terms say, else the partner's own answer. On such a rail
+ * the ledger never covers a shortfall by default, so the house fund is never read and the shortfall is refused by name,
+ * with the dispute still recorded. `null` keeps the house fund's cover as before: a rail that is not an acquiring partner
+ * (no `partnerTerms`), or a partner whose terms say INTAFACED covers it (`who: 'house'`, the "Later (OWNER 226)" path).
+ */
+export type ShortfallCover = 'not_known' | 'merchant' | 'partner';
+export function shortfallCoverOf(svc: Pick<PayServiceInternal, 'rails'>, railId: string, merchantId: string): ShortfallCover | null {
+  const adapter = svc.rails.has(railId) ? svc.rails.get(railId) : null;
+  if (!adapter?.partnerTerms) return null;
+  const cover = adapter.partnerTerms(merchantId).shortfallCover;
+  if (!cover.known) return 'not_known';
+  return cover.who === 'house' ? null : cover.who;
+}
+
+function unfundedMessage(cover: ShortfallCover | null): string {
+  if (cover === null) return 'Insurance fund cannot cover the chargeback shortfall';
+  return cover === 'not_known'
+    ? 'Who covers the chargeback shortfall is not known; the ledger does not cover it'
+    : `The ${cover} covers the chargeback shortfall, not the ledger`;
 }
 
 export async function recordChargebackLedgerEffect(

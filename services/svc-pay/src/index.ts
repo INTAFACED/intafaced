@@ -81,6 +81,7 @@ import { recordingChainFor } from './rails/recording-chain.js';
 import { createLedgerClient, createReceiptAssetPlaces } from './ledger-client.js';
 import { BankPayoutAbsentAdapter } from './rails/bank-payout.js';
 import { CardSandboxAdapter } from './rails/card-sandbox.js';
+import { readPartnerTerms } from './partner-terms.js';
 import { bankTransferSandboxFromEnv } from './rails/bank-transfer-sandbox.js';
 import { readPayerNameMatchRule } from './payer-name/match.js';
 import { CryptoNativeAdapter } from './rails/crypto-native.js';
@@ -99,6 +100,7 @@ import {
   railPostureStatus,
   selectPublicCheckoutRail,
   shouldRegisterCardSandbox,
+  testAcquirerSwitchesAllowed,
 } from './rails/posture.js';
 import { createPayRouter } from './router.js';
 import { createSandboxFundsRouter } from './developer-sandbox-funds/router.js';
@@ -252,21 +254,25 @@ const bankTransferRail = bankTransferSandboxFromEnv(process.env, env.PAY_WEBHOOK
 /** RC-merchant-09: the owner's payer-name rule. Blank holds every bank transfer for review; an unknown value refuses boot. */
 const payerNameMatchRule = readPayerNameMatchRule(process.env);
 
+/**
+ * The labelled TEST acquirer (mock acquirer), registered only when `shouldRegisterCardSandbox` says so. Kept by name so
+ * the webhook route can hand it the TEST partner's signed terms reports (`partner.terms`, the stack's `card-terms`).
+ */
+const cardRail = shouldRegisterCardSandbox(process.env)
+  ? new CardSandboxAdapter({
+      secret: env.PAY_CARD_SANDBOX_WEBHOOK_SECRET,
+      toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
+      noteMalformedEvidenceDueBy: (eventId) => evidenceDueByLog.warn(eventId),
+    })
+  : null;
+
 const rails = new RailRegistry([
   cryptoRail,
   // Always registered. mode:'absent' — not a sandbox, so staging/prod boot is
   // fine. Merchants who ask for bank settlement get pay.rail_not_live before any
   // hold, instead of a silent "rail unknown" or a card-sandbox lie.
   new BankPayoutAbsentAdapter(),
-  ...(shouldRegisterCardSandbox(process.env)
-    ? [
-        new CardSandboxAdapter({
-          secret: env.PAY_CARD_SANDBOX_WEBHOOK_SECRET,
-          toleranceSeconds: env.PAY_WEBHOOK_TOLERANCE_SECONDS,
-          noteMalformedEvidenceDueBy: (eventId) => evidenceDueByLog.warn(eventId),
-        }),
-      ]
-    : []),
+  ...(cardRail ? [cardRail] : []),
   ...(bankTransferRail ? [bankTransferRail] : []),
 ]);
 
@@ -757,6 +763,7 @@ export const appRouter = mergeRouters(
     metrics,
     registries: { sql, approvals: actionApprovals },
     sql,
+    partnerTerms: (merchantId) => readPartnerTerms(rails.list(), merchantId),
     // Places come from the published ledger asset registry. Null or blank stays unset.
     receiptPlaces: createReceiptAssetPlaces(env.LEDGER_URL, env.INTERNAL_SERVICE_SECRET, s2sKey),
     depositSettings: { sql, approvals: actionApprovals },
@@ -1181,6 +1188,12 @@ await app.register(async (webhookScope) => {
       // The TEST bank books a verified transfer before the delivery is applied, as the in-memory chain does above.
       if (bankTransferRail && request.params.railId === bankTransferRail.id)
         bankTransferRail.receive(bankTransferRail.verifyWebhook(delivery));
+      // The TEST acquirer's own report of its terms for one business: kept on the adapter, never a payment event.
+      if (cardRail && request.params.railId === cardRail.id && testAcquirerSwitchesAllowed(process.env)) {
+        const terms = cardRail.receivePartnerTerms(delivery);
+        if (terms === true) return reply.code(200).send({ received: true, terms: true });
+        if (terms === null) return reply.code(400).send({ error: 'malformed partner terms report' });
+      }
       const outcome = await pay.handleWebhook(request.params.railId, delivery);
       // A duplicate is a 200. A rail that gets anything else will keep retrying
       // a delivery we have already handled, forever.

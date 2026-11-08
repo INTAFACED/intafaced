@@ -10,6 +10,9 @@ import { portalCopy } from './copy';
 import { useNow, useUrlParam, type ListState } from '../hooks';
 import { shortId } from '../model';
 import { useOptionalMerchantAccess } from '../access/MerchantAccess';
+import { WithAccount } from '../access/WithAccount';
+import { mc } from '../money/copy';
+import { PartnerShortfallLine } from '../money/PartnerTerms';
 import { useRequestId } from './invoice-model';
 import { refusalText } from '../refusal';
 import type { PortalApi } from '../api';
@@ -212,7 +215,26 @@ export function DisputesView({
 
 export function DisputeDetailPage({ portal, disputeId }: { portal: PortalApi; disputeId: string }) {
   const dispute = useResource((s) => portal.dispute(disputeId, s), `portal:dispute:${disputeId}`);
-  return <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />;
+  return (
+    <>
+      <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />
+      <WithAccount>{({ merchantId }) => <DisputeShortfallCover portal={portal} merchantId={merchantId} />}</WithAccount>
+    </>
+  );
+}
+
+/**
+ * J-merchant-18 #5: who covers what a lost dispute takes beyond the business's funds, as the acquiring partner's terms
+ * say, "not known" until they do. The ledger never covers it (OWNER 226).
+ */
+function DisputeShortfallCover({ portal, merchantId }: { portal: PortalApi; merchantId: string }) {
+  const partner = useResource((s) => portal.partnerTerms(merchantId, s), `portal:partner-terms:${merchantId}`);
+  const { t } = mc.useCopy();
+  return (
+    <PaySection title={t('partnerShortfallTitle')} description={t('partnerShortfallBody')}>
+      <PartnerShortfallLine terms={partner.resource} />
+    </PaySection>
+  );
 }
 
 export function DisputeDetailView({
