@@ -267,6 +267,7 @@ test("a PR is this run's only by its exact handover line: run 101 never claims r
   assert.equal(handoverPrs(pr(`Handover-run: 1012 ended x (done); head a; ${url}/1012`), { id: 101 }).length, 0);
   assert.equal(handoverPrs(pr(`Handover-run: 101 ended x (done); head a; ${url}/1012`), { id: 101 }).length, 0);
   assert.equal(handoverPrs(pr(`Handover-run: 101 ended x (done); head a; ${url}/101`), { id: 101 }).length, 1);
+  assert.equal(handoverPrs(pr(`the failing run: ${url}/101`), { id: 101 }).length, 0, 'a mention is not a handover line');
 });
 
 test('marker: a PR without this run handover line is not searched', async () => {
