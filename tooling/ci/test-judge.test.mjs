@@ -67,10 +67,10 @@ test("the judge covers every file proof v2's reach reads covered (project-state 
   // the judge stands in for those reads only if every file they named is judged here.
   const TEST_CONFIG = /^tooling\/(scripts\/local-stack-services|profiles\/test-owner-values)\//;
   const reachKind = (f) =>
-    TEST_CONFIG.test(f) ||
-    /(^|\/)tests\/real-app\//.test(f) ||
-    (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !/\.test\.mjs$/.test(f));
-  const tree = execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 << 20 }).split('\n').filter(Boolean);
+    TEST_CONFIG.test(f) || /(^|\/)tests\/real-app\//.test(f) || (/^tooling\/scripts\/[^/]+\.mjs$/.test(f) && !/\.test\.mjs$/.test(f));
+  const tree = execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 << 20 })
+    .split('\n')
+    .filter(Boolean);
   const missed = tree.filter((f) => reachKind(f) && !judgedFile(f));
   assert.deepEqual(missed, [], `files a reach read covered but the judge misses: ${missed.join(', ')}`);
   for (const f of ['tooling/scripts/journey-shards.mjs', 'tooling/scripts/local-tester-seed.mjs', 'apps/admin/tests/real-app/x.mjs'])
