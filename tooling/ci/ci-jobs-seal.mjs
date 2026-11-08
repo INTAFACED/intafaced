@@ -58,7 +58,10 @@ export function jobResults(jobs) {
 export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
   if (!run) return { ok: false, wait: true, lines: ['CI (ci.yml) has not run on this head yet; the seal re-runs when it finishes'] };
   const id = `CI run ${run.id} (attempt ${run.run_attempt ?? 1})`;
-  if (run.status !== 'completed')
+  // A run is judged once every job but ci.yml's own seal has finished: a re-run of that seal alone puts the run back in
+  // progress, and must not turn this seal red (the CI review on 7a7eb9a0, 8 Nov 2026).
+  const pending = (jobs ?? []).filter((j) => j?.name !== 'CI merge seal' && j?.status !== 'completed');
+  if (run.status !== 'completed' && (pending.length || !(jobs ?? []).length))
     return { ok: false, wait: true, lines: [`${id} on this head is ${run.status}; the seal re-runs when it finishes`] };
   const flags = files === null ? { full: true, affected: false } : classify(files, { forceFull });
   const problems = sealNeeded(flags, jobResults(jobs));
@@ -108,7 +111,7 @@ async function main() {
   if (!Array.isArray(runs)) throw new Error(`ci.yml runs on ${sha}: not a list`);
   const run = ciRunFor(runs, { sha, event });
   const jobs = [];
-  if (run?.status === 'completed')
+  if (run)
     for (let page = 1; page <= 10; page++) {
       const r = (await get(`/repos/${REPO}/actions/runs/${run.id}/jobs?filter=latest&per_page=100&page=${page}`))?.jobs;
       if (!Array.isArray(r)) throw new Error(`run ${run.id}'s jobs: not a list`);

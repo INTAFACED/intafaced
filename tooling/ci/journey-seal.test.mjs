@@ -1670,3 +1670,20 @@ test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (ed
   // Planted: without `edited`, a retarget to main starts no seal run here.
   assert.doesNotMatch(text.replace('reopened, edited', 'reopened'), /reopened, edited/);
 });
+
+test('after CI finished, only the default branch seal is re-run; re-running ci.yml would loop (CI review on 7a7eb9a0)', async () => {
+  const { sealsToRecheck } = await import('./journey-seal.mjs');
+  assert.deepEqual(
+    sealsToRecheck('CI').map((w) => w.workflow),
+    ['merge-seal.yml'],
+  );
+  assert.deepEqual(
+    sealsToRecheck('Real-app journeys').map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+  );
+  assert.deepEqual(
+    sealsToRecheck('').map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+    'an edit re-runs both',
+  );
+});

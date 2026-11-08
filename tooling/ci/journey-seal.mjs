@@ -1251,6 +1251,9 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
   return out;
 }
 
+/** The seals a re-check re-runs: after CI finished (`finished` = 'CI'), only the default branch's (see recheck). */
+export const sealsToRecheck = (finished) => SEAL_WORKFLOWS.filter((w) => finished !== 'CI' || w.workflow !== CI_WORKFLOW);
+
 /**
  * The open pull requests a re-check re-seals: after CI finished (`finished` = 'CI'), every open pull request into this
  * repository on `sha`, since the default branch's seal reads CI's jobs; otherwise those recheckPulls takes (named steps,
@@ -1301,7 +1304,10 @@ async function recheck({ repo, token }) {
   // Each seal on the head, ci.yml's and the default branch's (SEAL_WORKFLOWS); every one must pass, so each is re-run.
   // Read again just before a re-run: the head may have moved while a running seal was waited out (rerunBlocker).
   const outcomes = [];
-  for (const { workflow, event } of SEAL_WORKFLOWS) {
+  // After CI finished, ci.yml's own seal ran in that same run after its needs, so only the default branch's seal is
+  // re-run: re-running ci.yml's would start a new attempt of that CI run, the default branch's seal would read CI as
+  // running, and the next CI completion would start it all again (the CI review on 7a7eb9a0, 8 Nov 2026).
+  for (const { workflow, event } of sealsToRecheck(FINISHED)) {
     const blocker = async () => {
       const now = await Promise.all(named.map((p) => get(`/repos/${repo}/pulls/${p.number}`)));
       const headRuns = (await get(`/repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${SHA}&event=${event}&per_page=100`))
