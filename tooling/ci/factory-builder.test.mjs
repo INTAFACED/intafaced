@@ -23,6 +23,9 @@ import {
   buildPrompt,
   checkInputs,
   childEnv,
+  openPrompt,
+  promptKey,
+  sealPrompt,
   deleteArtifact,
   handoverLine,
   journeySection,
@@ -439,10 +442,12 @@ export function workflowProblems(wf) {
   if (!/\npermissions: \{\}\n/.test(wf)) p.push('the workflow grants no token permissions by default');
   if (!/\nconcurrency:\n  group: builder-\$\{\{ inputs\.journey \}\}\n  cancel-in-progress: false\n/.test(wf))
     p.push('one run per journey');
+  const ki = wf.indexOf('\n  key:\n');
   const gi = wf.indexOf('\n  gate:\n');
   const bi = wf.indexOf('\n  build:\n');
   const pi = wf.indexOf('\n  publish:\n');
-  if (gi < 0 || bi < gi || pi < bi) return [...p, 'three jobs: gate, build, publish'];
+  if (ki < 0 || gi < ki || bi < gi || pi < bi) return [...p, 'four jobs: key, gate, build, publish'];
+  const key = wf.slice(ki, gi);
   const gate = wf.slice(gi, bi);
   const build = wf.slice(bi, pi);
   const publish = wf.slice(pi);
@@ -454,10 +459,25 @@ export function workflowProblems(wf) {
   ])
     if (/secrets\./.test(job) && !/\n    environment: factory\n/.test(job))
       p.push(`the ${name} job takes its secrets from the environment factory`);
-  if (!/\n    environment: factory-\$\{\{ inputs\.account \}\}\n/.test(build))
-    p.push("the build job runs in the account's own environment");
-  if ((build.match(/secrets\.[A-Za-z_]+/g) ?? []).some((r) => r !== 'secrets.CLAUDE_FACTORY_TOKEN'))
-    p.push("the build job references no secret but the account's CLI token");
+  for (const [name, job] of [
+    ['key', key],
+    ['build', build],
+  ]) {
+    if (!/\n    environment: factory-\$\{\{ inputs\.account \}\}\n/.test(job))
+      p.push(`the ${name} job runs in the account's own environment`);
+    if ((job.match(/secrets\.[A-Za-z_]+/g) ?? []).some((r) => r !== 'secrets.CLAUDE_FACTORY_TOKEN'))
+      p.push(`the ${name} job references no secret but the account's CLI token`);
+  }
+  const ks = steps(key);
+  if (ks[0]?.name !== 'Only from main' || !/"\$REF" != "refs\/heads\/main"[\s\S]*exit 1/.test(ks[0].text))
+    p.push("the key job's first step refuses any ref but main");
+  if (
+    stepOf(key, 'The prompt key')
+      .match(/\n        run: (.*)\n/)?.[1]
+      ?.trim() !== 'node tooling/ci/factory-builder.mjs pubkey' ||
+    !/\n    needs: key\n/.test(gate)
+  )
+    p.push('the gate gets the public half of the prompt key from the key job');
   const gs = steps(gate);
   if (gs[0]?.name !== 'Only from main' || !/"\$REF" != "refs\/heads\/main"[\s\S]*exit 1/.test(gs[0].text))
     p.push('the first step refuses any ref but main');
@@ -475,7 +495,7 @@ export function workflowProblems(wf) {
     p.push('the build runs only when the switch says run');
   if (!/\n    needs: \[gate, build\]\n    if: always\(\) && needs\.build\.outputs\.took == 'true'\n/.test(publish))
     p.push("the publish runs after the build, only when the agent's commits were taken");
-  if ((wf.match(/\n    runs-on: ubuntu-latest\n/g) ?? []).length !== 3 || /runs-on: (?!ubuntu-latest)/.test(wf)) p.push('ubuntu-latest');
+  if ((wf.match(/\n    runs-on: ubuntu-latest\n/g) ?? []).length !== 4 || /runs-on: (?!ubuntu-latest)/.test(wf)) p.push('ubuntu-latest');
   if (!/\n    timeout-minutes: 340 /.test(build)) p.push('the build job is limited to 340 minutes');
   // Tokens. No step's environment holds a GitHub token: the two steps that need GitHub mint theirs in memory from the
   // App key (factory-builder.mjs before and publish, whose token specs the script's own tests pin), and the App key
@@ -497,16 +517,18 @@ export function workflowProblems(wf) {
   if (
     before.match(/\n        run: (.*)\n/)?.[1]?.trim() !== 'node tooling/ci/factory-builder.mjs before' ||
     !/\n        if: steps\.switch\.outputs\.run == 'true'\n/.test(before) ||
-    !/\n      prompt: \$\{\{ steps\.before\.outputs\.prompt \}\}\n/.test(gate)
+    !/\n      prompt: \$\{\{ steps\.before\.outputs\.prompt \}\}\n/.test(gate) ||
+    !/\n          PROMPT_PUB: \$\{\{ needs\.key\.outputs\.pub \}\}\n/.test(before)
   )
-    p.push('the gate reads GitHub and hands the prompt on, only when the switch says run');
+    p.push('the gate reads GitHub and hands the prompt on sealed, only when the switch says run');
   const promptIn = stepOf(build, 'Write the prompt');
   if (
-    !/\n          PROMPT_B64: \$\{\{ needs\.gate\.outputs\.prompt \}\}\n/.test(promptIn) ||
+    !/\n          PROMPT_SEALED: \$\{\{ needs\.gate\.outputs\.prompt \}\}\n/.test(promptIn) ||
+    (wf.match(/needs\.gate\.outputs\.prompt/g) ?? []).length !== 1 ||
     !/factory-builder\.mjs prompt-in/.test(promptIn) ||
     !(at('Write the prompt') >= 0 && at('Write the prompt') < at('The agent user and its working tree'))
   )
-    p.push("the build writes the gate's prompt before the agent user exists");
+    p.push("the build opens the gate's sealed prompt, its one reader, before the agent user exists");
   if (!/\n          GATE_STARTED_AT: \$\{\{ needs\.gate\.outputs\.started_at \}\}\n/.test(stepOf(build, 'Start the clock')))
     p.push("the deadlines count from the gate's read");
   if (/factory-builder\.mjs (publish|before)\b/.test(build) || /factory-builder\.mjs (before|run)\b/.test(publish))
@@ -525,12 +547,12 @@ export function workflowProblems(wf) {
     .map((s) => s.name)
     .join();
   if (
-    cliSteps !== "The account's CLI token is set,Build" ||
+    cliSteps !== "The prompt key,The account's CLI token is set,Write the prompt,Build" ||
     !stepOf(build, 'Build').includes('          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n') ||
-    (wf.match(/secrets\.CLAUDE_FACTORY_TOKEN/g) ?? []).length !== 2 ||
+    (wf.match(/secrets\.CLAUDE_FACTORY_TOKEN/g) ?? []).length !== 4 ||
     /secrets\.CLAUDE_CODE_OAUTH_TOKEN|secrets\[/.test(wf)
   )
-    p.push("the account's CLI token reaches only its check and the Build step");
+    p.push("the account's CLI token reaches only the prompt key, its check, the prompt's opening and the Build step");
   // Trust: the job's steps run main's code only. Its checkouts are of the dispatched commit on main; nothing runs in
   // the agent's tree except as the agent user; the job's own scripts run from the job's checkout with its pinned node.
   for (const m of wf.matchAll(/\n          ref: (.*)\n/g))
@@ -778,6 +800,16 @@ test('each planted fault in the workflow is caught', () => {
       '      - name: Read again\n        env:\n          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n        run: \'"$NODE_BIN" tooling/ci/factory-builder.mjs before\'\n      - name: Write the prompt\n',
     ),
     'the prompt not handed on': plant('      prompt: ${{ steps.before.outputs.prompt }}\n', ''),
+    'the prompt unsealed': plant('          PROMPT_PUB: ${{ needs.key.outputs.pub }}\n', ''),
+    'the prompt in another step': plant(
+      '      - name: Write the prompt\n',
+      '      - name: Peek\n        env:\n          P: ${{ needs.gate.outputs.prompt }}\n        run: /usr/bin/true\n      - name: Write the prompt\n',
+    ),
+    'the key job in the shared environment': plant(
+      '    timeout-minutes: 5 # healthy run: under a minute\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 5 # healthy run: under a minute\n    environment: factory\n',
+    ),
+    'the gate not waiting for the key': plant('    needs: key\n', ''),
     'the read run while paused': plant("        if: steps.switch.outputs.run == 'true'\n", ''),
     'the prompt written after the agent exists': (() => {
       const w = stepOf(WF, 'Write the prompt');
@@ -1234,6 +1266,7 @@ const beforeEnv = (dir, server) => ({
   WORK: '/home/factory-agent/work',
   OUT: '/home/factory-agent/out',
   GITHUB_API_URL: `http://127.0.0.1:${server.address().port}`,
+  PROMPT_PUB: promptKey('cli', '9').publicKey,
 });
 
 test('before: one read-only token, minted from the key, reads, writes the prompt, and is revoked; a failed revoke fails', async () => {
@@ -1266,11 +1299,16 @@ test('before: one read-only token, minted from the key, reads, writes the prompt
       const outs = readFileSync(join(dir, 'out'), 'utf8');
       assert.match(outs, /^branch=factory\/J-identity-13$/m);
       assert.match(outs, /^started_at=\d{10}$/m);
-      const b64 = /^prompt=([A-Za-z0-9+/]+=*)$/m.exec(outs)?.[1];
+      const sealed = /^prompt=([A-Za-z0-9+/]+=*)$/m.exec(outs)?.[1];
+      const written = readFileSync(join(dir, 'prompt.txt'), 'utf8');
       assert.equal(
-        Buffer.from(b64, 'base64').toString(),
-        readFileSync(join(dir, 'prompt.txt'), 'utf8'),
-        'the prompt handed on is the one written',
+        openPrompt(sealed, promptKey('cli', '9').privateKey).toString(),
+        written,
+        'the prompt handed on opens to the one written',
+      );
+      assert.ok(
+        !outs.includes('THE BRIEF') && !outs.includes(Buffer.from(written).toString('base64').slice(0, 16)),
+        'the outputs carry no plaintext',
       );
       // The runner swallows its own ::add-mask:: line (it masks the token in every later line, and isn't shown).
       const shown = out
@@ -1328,10 +1366,30 @@ test("publish deletes the build's artifact by its exact name; a failed delete on
 test("prompt-in writes the gate's prompt, and refuses anything that isn't one", async () => {
   const dir = mkdtempSync(join(tmpdir(), 'prompt-in-'));
   const text = 'THE PROMPT\nline two';
-  const ok = await runStep('prompt-in', { PROMPT_B64: Buffer.from(text).toString('base64'), BUILDER_DIR: dir });
+  const sealedEnv = (v) => ({ PROMPT_SEALED: v, BUILDER_DIR: dir, CLAUDE_FACTORY_TOKEN: 'cli', RUN_ID: '7' });
+  const ok = await runStep('prompt-in', sealedEnv(sealPrompt(text, promptKey('cli', '7').publicKey)));
   assert.equal(ok.code, 0, ok.out);
   assert.equal(readFileSync(join(dir, 'prompt.txt'), 'utf8'), text);
   assert.doesNotMatch(ok.out, /THE PROMPT/);
-  for (const bad of ['', 'not base64!', 'abc\n::error::x'])
-    assert.notEqual((await runStep('prompt-in', { PROMPT_B64: bad, BUILDER_DIR: dir })).code, 0, JSON.stringify(bad));
+  const other = sealPrompt(text, promptKey('cli', '8').publicKey);
+  for (const bad of ['', 'not base64!', 'abc\n::error::x', Buffer.from(text).toString('base64'), other])
+    assert.notEqual((await runStep('prompt-in', sealedEnv(bad))).code, 0, JSON.stringify(bad).slice(0, 40));
+});
+
+test("the prompt is sealed to the run's key: only the same CLI token and run id open it, and no plaintext crosses", () => {
+  const text = 'THE BRIEF and | 1 | step |';
+  const { publicKey, privateKey } = promptKey('cli-token', '42');
+  assert.equal(promptKey('cli-token', '42').publicKey, publicKey, 'the key job and the build derive the same key');
+  const sealed = sealPrompt(text, publicKey);
+  assert.ok(!sealed.includes(Buffer.from(text).toString('base64').slice(0, 16)), 'no plaintext base64 in the sealed form');
+  assert.equal(openPrompt(sealed, privateKey).toString(), text);
+  assert.notEqual(sealPrompt(text, publicKey), sealed, 'a fresh ephemeral key each time');
+  for (const [tok, run] of [
+    ['other-token', '42'],
+    ['cli-token', '43'],
+  ])
+    assert.throws(() => openPrompt(sealed, promptKey(tok, run).privateKey), undefined, `${tok} ${run}`);
+  const tampered = Buffer.from(sealed, 'base64');
+  tampered[tampered.length - 1] ^= 1;
+  assert.throws(() => openPrompt(tampered.toString('base64'), privateKey), undefined, 'a changed ciphertext is refused');
 });

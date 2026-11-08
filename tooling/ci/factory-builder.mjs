@@ -11,9 +11,10 @@
  *             fails it (closed).
  *   before    in the gate job, the one step that reads GitHub: mints a read-only App token in memory from
  *             FACTORY_APP_KEY (READ_TOKEN), runs `branch`, `status` and `prompt` with it, then revokes it (`revokeToken`).
- *             Its outputs hand the branch, the start time and the prompt (base64) to the build job, which never holds the
- *             App key. Only sizes are printed.
- *   prompt-in in the build job: writes the gate's prompt (PROMPT_B64) to BUILDER_DIR/prompt.txt.
+ *             Its outputs hand the branch, the start time and the prompt, sealed to the key job's public key
+ *             (`sealPrompt`), to the build job, which never holds the App key. Only sizes are printed.
+ *   pubkey    in the key job (the account's environment): the public half of this run's prompt key (`promptKey`).
+ *   prompt-in in the build job: opens the gate's sealed prompt (PROMPT_SEALED) and writes it to BUILDER_DIR.
  *   branch    the branch this run builds on: the journey's open PR's branch when there is one (a successor resumes it),
  *             else factory/<journey>, or factory/<journey>-r<run number> when that name is already taken.
  *   status    the resumed PR's head and its CI runs (names, states, links), for the agent, which can't read GitHub.
@@ -36,7 +37,18 @@
  * strict pattern, and quoted, shortened input (so input can't add lines or workflow commands to the log).
  */
 import { execFileSync, spawn } from 'node:child_process';
-import { createSign } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  createPrivateKey,
+  createPublicKey,
+  createSign,
+  diffieHellman,
+  generateKeyPairSync,
+  hkdfSync,
+  randomBytes,
+} from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -416,6 +428,40 @@ export async function mintToken({ pem, repo, spec, now, apiFor = api }) {
   return t.token;
 }
 
+/**
+ * The prompt's seal. The prompt (private) crosses from the gate job to the build job in job outputs and a step's
+ * environment, which GitHub prints in the public log, so only ciphertext crosses. The build environment's one secret,
+ * the account's CLI token, derives an X25519 key pair for this run (HMAC of the token and the run id); the `key` job
+ * hands the gate the public half; the gate seals the prompt to it (an ephemeral X25519 key, HKDF-SHA256, AES-256-GCM);
+ * `prompt-in` derives the private half again and opens it. Whoever holds the CLI token can open it: the agent, which
+ * reads the prompt anyway.
+ */
+const X25519_PKCS8 = Buffer.from('302e020100300506032b656e04220420', 'hex');
+export function promptKey(cliToken, runId) {
+  const seed = createHmac('sha256', String(cliToken)).update(`factory-prompt:${runId}`).digest();
+  const privateKey = createPrivateKey({ key: Buffer.concat([X25519_PKCS8, seed]), format: 'der', type: 'pkcs8' });
+  return { privateKey, publicKey: createPublicKey(privateKey).export({ format: 'jwk' }).x };
+}
+const sealKey = (shared, ephPub) => Buffer.from(hkdfSync('sha256', shared, ephPub, 'factory-prompt', 32));
+export function sealPrompt(text, publicKeyX) {
+  const peer = createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: publicKeyX }, format: 'jwk' });
+  const eph = generateKeyPairSync('x25519');
+  const ephPub = Buffer.from(eph.publicKey.export({ format: 'jwk' }).x, 'base64url');
+  const iv = randomBytes(12);
+  const c = createCipheriv('aes-256-gcm', sealKey(diffieHellman({ privateKey: eph.privateKey, publicKey: peer }), ephPub), iv);
+  const body = Buffer.concat([c.update(Buffer.from(text)), c.final()]);
+  return Buffer.concat([ephPub, iv, c.getAuthTag(), body]).toString('base64');
+}
+export function openPrompt(sealed, privateKey) {
+  const b = Buffer.from(sealed, 'base64');
+  if (b.length < 60) throw new Error('the gate handed no sealed prompt');
+  const ephPub = b.subarray(0, 32);
+  const peer = createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: ephPub.toString('base64url') }, format: 'jwk' });
+  const d = createDecipheriv('aes-256-gcm', sealKey(diffieHellman({ privateKey, publicKey: peer }), ephPub), b.subarray(32, 44));
+  d.setAuthTag(b.subarray(44, 60));
+  return Buffer.concat([d.update(b.subarray(60)), d.final()]);
+}
+
 /** The largest prompt the gate hands on: it travels base64 in one environment variable of the build job's step (Linux
  *  refuses a single variable over 128 KiB). Today's prompts are a few KB. */
 export const MAX_PROMPT_B64 = 120_000;
@@ -562,15 +608,22 @@ async function main(cmd, args, env) {
     const b = { BRANCH: r.branch, RESUME: String(r.resume), PR: r.pr ?? '', HEAD: r.head ?? '', BUILDER_DIR: dir, STARTED_AT: startedAt };
     await main('status', args, { ...env, ...b });
     await main('prompt', args, { ...env, ...b });
-    const prompt = readFileSync(join(dir, 'prompt.txt')).toString('base64');
+    need(env, 'PROMPT_PUB');
+    const prompt = sealPrompt(readFileSync(join(dir, 'prompt.txt')), env.PROMPT_PUB);
     if (prompt.length > MAX_PROMPT_B64) throw new Error(`the prompt is ${prompt.length} bytes as base64, over ${MAX_PROMPT_B64}`);
     output({ branch: r.branch, resume: String(r.resume), started_at: startedAt, prompt });
     return 0;
   }
+  if (cmd === 'pubkey') {
+    need(env, 'CLAUDE_FACTORY_TOKEN', 'RUN_ID');
+    output({ pub: promptKey(env.CLAUDE_FACTORY_TOKEN, env.RUN_ID).publicKey });
+    console.log("the prompt's public key for this run is handed to the gate");
+    return 0;
+  }
   if (cmd === 'prompt-in') {
-    need(env, 'PROMPT_B64', 'BUILDER_DIR');
-    if (!/^[A-Za-z0-9+/]+=*$/.test(env.PROMPT_B64)) throw new Error('the gate handed no prompt');
-    const text = Buffer.from(env.PROMPT_B64, 'base64');
+    need(env, 'PROMPT_SEALED', 'BUILDER_DIR', 'CLAUDE_FACTORY_TOKEN', 'RUN_ID');
+    if (!/^[A-Za-z0-9+/]+=*$/.test(env.PROMPT_SEALED)) throw new Error('the gate handed no sealed prompt');
+    const text = openPrompt(env.PROMPT_SEALED, promptKey(env.CLAUDE_FACTORY_TOKEN, env.RUN_ID).privateKey);
     writeFileSync(join(env.BUILDER_DIR, 'prompt.txt'), text);
     console.log(`prompt written: ${text.length} bytes`);
     return 0;

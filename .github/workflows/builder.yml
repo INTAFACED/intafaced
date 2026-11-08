@@ -8,7 +8,7 @@
 # by a script and waited on his clicks; the Mac's builders hit its memory ceiling. Round 3 B's recommendation, adopted
 # by the system design's section 4.)
 #
-# Three jobs, so the agent's runner holds no GitHub credential at all. `gate` mints a read-only App token in memory,
+# Four jobs (`key`, `gate`, `build`, `publish`), so the agent's runner holds no GitHub credential at all. `gate` mints a read-only App token in memory,
 # picks the branch, writes the agent's CI status and prompt, and revokes the token; it hands the branch and the prompt
 # to `build` as job outputs (data). `build` runs the agent in the account's own environment, whose one secret is that
 # account's CLI token: the App key and the other accounts' tokens are never referenced there, so they never reach its
@@ -33,8 +33,8 @@
 #     the agent holds (it can't be avoided, and its owner can revoke it). The `account` input picks the environment, so
 #     builders spread over accounts and never draw on the CI review's.
 # GITHUB_TOKEN is never used: GitHub runs no workflow on a push made with it. The prompt (private: project-state's brief
-# and the journey's step words) passes from `gate` to `build` as a job output, which GitHub keeps with the run and
-# shows in no log or page (my inference, 8 Nov: no REST endpoint returns job outputs); `before` prints only its size.
+# and the journey's step words) passes from `gate` to `build` sealed: a job output and a step's environment are
+# printed in the public log, so only ciphertext crosses, to a key that only the account's CLI token derives (`key`).
 #
 # Public-repo hygiene: anyone can read this repository's logs and download its artifacts. The CLI's output goes to
 # files inside the build job that no step prints or uploads. No step prints text from project-state or from the
@@ -75,8 +75,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The public half of this run's prompt key, derived from the account's CLI token in the account's environment, so the
+  # gate can seal the prompt to it (factory-builder.mjs promptKey). Its output is public, by design.
+  key:
+    name: Prompt key
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: under a minute
+    environment: factory-${{ inputs.account }}
+    permissions:
+      contents: read
+    outputs:
+      pub: ${{ steps.key.outputs.pub }}
+    steps:
+      - name: Only from main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error title=Not main::builder.yml runs only from main; dispatch it with --ref main"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            tooling/ci
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: The prompt key
+        id: key
+        env:
+          CLAUDE_FACTORY_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+        run: node tooling/ci/factory-builder.mjs pubkey
+
   gate:
     name: Gate
+    needs: key
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: under a minute
     environment: factory
@@ -149,6 +186,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           WORK: /home/factory-agent/work
           OUT: /home/factory-agent/out
+          PROMPT_PUB: ${{ needs.key.outputs.pub }}
         run: node tooling/ci/factory-builder.mjs before
 
   build:
@@ -260,10 +298,12 @@ jobs:
           sudo chmod -R a+rX,go-w /opt/factory-cli
           echo "CLAUDE_BIN=/opt/factory-cli/node_modules/.bin/claude" >> "$GITHUB_ENV"
 
-      # The prompt the gate wrote, from its job output (data), into BUILDER_DIR; nothing of it is printed.
+      # The prompt the gate sealed to this run's key: opened with the account's CLI token into BUILDER_DIR. Only the
+      # ciphertext is in a job output or this step's environment, which GitHub prints in the log.
       - name: Write the prompt
         env:
-          PROMPT_B64: ${{ needs.gate.outputs.prompt }}
+          PROMPT_SEALED: ${{ needs.gate.outputs.prompt }}
+          CLAUDE_FACTORY_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
         run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt-in'
 
       # Before the agent user exists: no directory on PATH (nor the tool-cache node's, nor any directory above them) may
