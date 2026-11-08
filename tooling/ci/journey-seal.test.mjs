@@ -20,7 +20,7 @@ import {
   mainReference,
   splitInherited,
   rangeFromCommits,
-  areaOf,
+  areasOf,
   RANGE_MAX,
   pullFilePaths,
   sharedPulls,
@@ -1323,6 +1323,17 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
     io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), moneyCode: async (p) => p.includes('services/svc-support/src/chat.ts') },
   });
   assert.equal(money.ok, false, 'review R2: a pull request changing money code inherits nothing (AGENTS.md How work flows 8)');
+  const manifest = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts', 'services/svc-support/package.json'] }), moneyCode: async () => false },
+  });
+  assert.equal(
+    manifest.ok,
+    false,
+    "CI review: a changed package.json may add a ledger-client dependency the base can't see, so every red counts",
+  );
   const notInHistory = await sealPull({
     repo: REPO,
     number: 7,
@@ -1399,20 +1410,29 @@ test('C1 review round 0: a flake on one commit, a reason main lacks, a re-run of
     rangeOf: async (from, to) => ({ files: to === 'e'.repeat(40) ? ['services/svc-fees/src/b.ts'] : [], commits: 4, short: false }),
   });
   assert.equal(fixTried.blocking.length, 1, 'the range runs to the newest main commit the head holds, past the reference run');
-  // A journey test file in the break range is only its own journey's area; a path no journeys run reads is none.
-  assert.equal(areaOf('apps/customer/tests/real-app/J-bank-13.pw.mjs'), 'journey J-bank-13');
-  assert.equal(areaOf('apps/customer/src/features/more/Support.tsx'), 'apps/customer');
-  assert.equal(areaOf('.github/workflows/ci.yml'), null);
-  assert.equal(areaOf('services/svc-bank/src/a.test.ts'), null);
-  assert.equal(areaOf('pnpm-lock.yaml'), 'pnpm-lock.yaml');
-  const testEdit = await splitInherited({
+  // Every path counts by its package, and a journey test file by its journey too (CI review on e288d257).
+  assert.deepEqual(areasOf('apps/customer/tests/real-app/J-bank-13.pw.mjs'), ['apps/customer', 'journey J-bank-13']);
+  assert.deepEqual(areasOf('apps/customer/src/features/more/Support.tsx'), ['apps/customer']);
+  assert.deepEqual(areasOf('services/svc-bank/src/a.test.ts'), ['services/svc-bank']);
+  assert.deepEqual(areasOf('pnpm-lock.yaml'), ['pnpm-lock.yaml']);
+  for (const rangeFile of ['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'apps/customer/src/x.test.ts']) {
+    const out = await splitInherited({
+      upTo: MAIN_SHA,
+      red: redW,
+      main: mainRef(),
+      touches: area([], ['apps/customer/src/features/more/Support.tsx']),
+      rangeOf: range([rangeFile]),
+    });
+    assert.equal(out.blocking.length, 1, `planted: ${rangeFile} in the break range puts apps/customer in the area`);
+  }
+  const elsewhere = await splitInherited({
     upTo: MAIN_SHA,
     red: redW,
     main: mainRef(),
-    touches: area([], ['apps/customer/src/features/more/Support.tsx', 'tooling/ci/why-red.mjs']),
-    rangeOf: range(['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'tooling/ci/why-red.mjs', 'apps/customer/src/x.test.ts']),
+    touches: area([], ['services/svc-support/src/chat.ts']),
+    rangeOf: range(['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'tooling/ci/why-red.mjs']),
   });
-  assert.equal(testEdit.blocking.length, 0, 'a test edit of another journey and CI-only paths in the range stop no customer pull request');
+  assert.equal(elsewhere.blocking.length, 0, 'a pull request in none of the range packages still passes over the inherited red');
   // A re-run attempt of an older main run started last is still older than a later run.
   const reps = { 60: { ok: 1 }, 61: { ok: 1 } };
   const ref = await mainReference({

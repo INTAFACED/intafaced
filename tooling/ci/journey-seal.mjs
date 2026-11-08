@@ -81,7 +81,7 @@ import {
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
-import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
+import { RUN_FILE, journeyTouch, printable } from './journey-touch.mjs';
 import { groupPulls } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -769,16 +769,14 @@ export const journeyOf = (step) => String(step).split('#')[0];
 /** The package a path is in (`services/svc-wallet`), or the path itself outside one. */
 export const packageOf = (path) => /^(?:apps|services|packages|tooling)\/[^/]+(?=\/)/.exec(String(path))?.[0] ?? String(path);
 /**
- * The part of the product a changed path can break journeys through: a journey test file breaks only its own journey
- * (`journey J-bank-13`); a path no journeys run executes or reads (journey-touch.mjs `none`: other workflows, CI checks
- * the run doesn't use, unit tests) breaks none (null); anything else breaks through its package, since a breaking commit
- * blocks merges into the packages it touches (AGENTS.md floor 5).
+ * The areas a changed path is in: always its package (a breaking commit blocks merges into the packages it touches,
+ * AGENTS.md floor 5; REVIEW.md's record of owner decision 180, "the packages the commits on main since the step last
+ * passed there changed"), and for a journey test file its journey too (`journey J-bank-13`). Every path counts, a unit
+ * test or a CI file included (CI review on e288d257: dropping them narrowed the area past the decision).
  */
-export function areaOf(path) {
-  const k = pathKind(path);
-  if (k.kind === 'none') return null;
+export function areasOf(path) {
   const m = JOURNEY_TEST.exec(String(path));
-  return m ? `journey ${m[1]}` : packageOf(path);
+  return m ? [packageOf(path), `journey ${m[1]}`] : [packageOf(path)];
 }
 /** A verdict line without its run numbers, so the same red read from two runs compares equal. */
 const reasonOf = (why) => String(why).replace(/\d+/g, 'N');
@@ -817,7 +815,7 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  * its area (owner decision 180: "the failing steps' journeys and the code paths the bisected PR touched"):
  *   - one that touches its journey: a journey test file of it, or a step of it in the title or on a Left-or-replaced
  *     line (`touches.journeys`);
- *   - one whose paths share an area (areaOf) with a commit on main from where the step last passed to the newest main
+ *   - one whose paths share an area (areasOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) or money
@@ -843,7 +841,7 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
         `this pull request changes ${touches.shared ? "the journey stack's shared setup, which reaches every journey" : 'money code (AGENTS.md "How work flows" 8)'}, so every red counts, inherited or not`,
       ],
     };
-  const mine = new Set([...touches.paths].map(areaOf).filter(Boolean));
+  const mine = new Set([...touches.paths].flatMap(areasOf));
   const blocking = [];
   const passed = [];
   const ranges = new Map();
@@ -918,16 +916,16 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
       stop(`but its break range ${span} can't be bounded (${wide})`);
       continue;
     }
-    const broke = new Set(range.files.map(areaOf).filter(Boolean));
-    const hit = [...touches.paths].find((f) => broke.has(areaOf(f)));
+    const broke = new Set(range.files.flatMap(areasOf));
+    const hit = [...touches.paths].find((f) => areasOf(f).some((x) => broke.has(x)));
     if (hit)
       stop(
-        `and this pull request changes ${printable(hit)} (${printable(areaOf(hit))}), which a commit in ${span} (where it broke) changed too`,
+        `and this pull request changes ${printable(hit)} (${printable(areasOf(hit).find((x) => broke.has(x)))}), which a commit in ${span} (where it broke) changed too`,
       );
     else
       passed.push({
         step: x.step,
-        why: `${at} has it red too; its area is ${journey} and what ${range.commits} commit(s) in ${span} changed (${[...broke].slice(0, 5).map(printable).join(', ') || 'nothing a journey reads'}${broke.size > 5 ? `, ${broke.size - 5} more` : ''}), none of which this pull request touches`,
+        why: `${at} has it red too; its area is ${journey} and what ${range.commits} commit(s) in ${span} changed (${[...broke].slice(0, 5).map(printable).join(', ') || 'nothing'}${broke.size > 5 ? `, ${broke.size - 5} more` : ''}), none of which this pull request touches`,
       });
   }
   return { blocking, passed, notes: passed.length ? [`reds inherited from main are read against ${at}`] : [] };
@@ -1015,7 +1013,9 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
     ]),
     paths: new Set(paths),
     shared: shared.length > 0,
-    money: io.moneyCode ? await io.moneyCode(paths) : false,
+    // Money code by the base's manifests, or any package.json the pull request changes: a dependency on ledger-client it
+    // adds, or a new package, would make money code the base can't see (CI review on e288d257).
+    money: paths.some((f) => /(^|\/)package\.json$/.test(f)) || (io.moneyCode ? await io.moneyCode(paths) : false),
   };
   let main;
   let upTo;
