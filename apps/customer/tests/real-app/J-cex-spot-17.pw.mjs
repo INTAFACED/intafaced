@@ -610,7 +610,12 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
       `/api/bank/trpc/addMoney.methods?input=${encodeURIComponent(JSON.stringify({ assetId: 'USDT', amount: '20', country: 'NL' }))}`,
     );
     expect(none.status, JSON.stringify(none.body).slice(0, 300)).toBe(200);
-    for (const m of none.body.result.data.methods.filter((x) => priced.some((p) => p.method === x.method))) {
+    const stillListed = none.body.result.data.methods.filter((x) => priced.some((p) => p.method === x.method));
+    // Every way it priced is still offered, unpriced: a partner that dropped them would make the check below vacuous.
+    expect(stillListed.map((m) => m.method).sort(), JSON.stringify(none.body.result.data.methods).slice(0, 300)).toEqual(
+      priced.map((p) => p.method).sort(),
+    );
+    for (const m of stillListed) {
       expect(m, JSON.stringify(m)).toMatchObject({ quote: null, blocker: 'bank.onramp_fee_not_known' });
     }
     const started = await client.post('/api/bank/trpc/addMoney.start', {
