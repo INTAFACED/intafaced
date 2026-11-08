@@ -46,11 +46,23 @@ import {
 } from './data';
 import { deskCopy } from './desk-copy';
 import { isPlaneOff } from './refusals';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueFuturesDesk } from './VenueFuturesDesk';
 
 type Tab = 'positions' | 'orders' | 'history' | 'funding' | 'adl' | 'calls' | 'tiers' | 'calculator' | 'collateral';
 
+/**
+ * Futures desk. In venue mode (B1: `/api/v1/venue/status` says the user-venue door is on) the desk trades the venue's
+ * perpetuals on the customer's own venue account (VenueFuturesDesk.tsx); with the door off it is today's desk unchanged.
+ */
+export default function FuturesScreen(props: ScreenProps) {
+  const venue = useVenueMode();
+  if (venue.mode === 'on') return <VenueFuturesDesk mode={venue} symbol={new URLSearchParams(props.search).get('symbol')} />;
+  return <TodayFuturesScreen {...props} />;
+}
+
 /** Futures desk (TRFUT-SPEC §2): contract strip, chart, ticket with all-in cost, risk, and the positions blotter with its tabs. */
-export default function FuturesScreen({ search }: ScreenProps) {
+function TodayFuturesScreen({ search }: ScreenProps) {
   const { t } = deskCopy.useCopy();
   const { userId } = useSession();
   const now = useNow(5_000);

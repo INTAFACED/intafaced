@@ -12,6 +12,7 @@ import {
   firstAddress,
   parseChainId,
   runSignRequest,
+  SIGN_TIMEOUT_MS,
   toHexChainId,
   type ChainGuard,
   type DiscoveredWallet,
@@ -171,8 +172,20 @@ interface Pending {
 /**
  * `scope` names the room the provider serves. The Web3 frame keeps one provider across its rooms, so the connection
  * outlasts a move between them; a sheet still open when the room changes is cancelled, as nothing in it was sent.
+ * `chainId` is the network the room signs on: the app's own (APP_CHAIN_ID) unless the room names another, as a venue
+ * desk does with the chain its venue's signatures name.
  */
-export function WalletProvider({ children, discovery = true, scope }: { children: ReactNode; discovery?: boolean; scope?: string }) {
+export function WalletProvider({
+  children,
+  discovery = true,
+  scope,
+  chainId: configured = APP_CHAIN_ID,
+}: {
+  children: ReactNode;
+  discovery?: boolean;
+  scope?: string;
+  chainId?: number;
+}) {
   const { language } = usePreferences();
   const { t } = walletCopy.forLocale(language);
   const [wallets, setWallets] = useState<DiscoveredWallet[]>([]);
@@ -329,12 +342,12 @@ export function WalletProvider({ children, discovery = true, scope }: { children
     if (!connected) return;
     setProblem(null);
     try {
-      await connected.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(APP_CHAIN_ID) }] });
+      await connected.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: toHexChainId(configured) }] });
       setChainId(parseChainId(await connected.provider.request({ method: 'eth_chainId' })));
     } catch {
       setProblem(t('switchFailed'));
     }
-  }, [connected, t]);
+  }, [connected, configured, t]);
 
   const sign = useCallback(
     (request: SignRequest): Promise<SignResult> => {
@@ -342,7 +355,8 @@ export function WalletProvider({ children, discovery = true, scope }: { children
       const refused = refuseReason(request);
       if (refused)
         return Promise.resolve({ status: 'failed', reason: 'invalid_request', message: `${refused} Nothing was signed or sent.` });
-      if (!chainGuard(chainId).ok) return Promise.resolve({ status: 'failed', reason: 'chain_mismatch', message: t('signWrongNetwork') });
+      if (!chainGuard(chainId, configured).ok)
+        return Promise.resolve({ status: 'failed', reason: 'chain_mismatch', message: t('signWrongNetwork') });
       const wallet = connected;
       const account = address;
       return new Promise<SignResult>((resolve) => {
@@ -350,13 +364,13 @@ export function WalletProvider({ children, discovery = true, scope }: { children
         setPending({
           request,
           account,
-          chainId: chainId ?? APP_CHAIN_ID,
+          chainId: chainId ?? configured,
           resolve,
-          run: () => runSignRequest(wallet.provider, account, request),
+          run: () => runSignRequest(wallet.provider, account, request, SIGN_TIMEOUT_MS, configured),
         });
       });
     },
-    [connected, address, chainId, t],
+    [connected, address, chainId, configured, t],
   );
 
   const call = useCallback(
@@ -406,19 +420,20 @@ export function WalletProvider({ children, discovery = true, scope }: { children
         const refused = refuseReason(step.request);
         if (refused) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: `${refused} Nothing was signed or sent.` });
       }
-      if (!chainGuard(chainId).ok) return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
+      if (!chainGuard(chainId, configured).ok)
+        return Promise.resolve({ status: 'failed', step: 0, sent: [], message: t('signWrongNetwork') });
       const wallet = connected;
       const account = address;
       return new Promise<SequenceResult>((resolve) => {
         setSequence({
           sequence: next,
           account,
-          chainId: chainId ?? APP_CHAIN_ID,
+          chainId: chainId ?? configured,
           resolve,
           run: async () => {
             const sent: string[] = [];
             for (const [index, step] of next.steps.entries()) {
-              const result = await runSignRequest(wallet.provider, account, step.request);
+              const result = await runSignRequest(wallet.provider, account, step.request, SIGN_TIMEOUT_MS, configured);
               if (result.status === 'rejected') return { status: 'rejected', sent };
               if (result.status !== 'sent')
                 return {
@@ -449,7 +464,7 @@ export function WalletProvider({ children, discovery = true, scope }: { children
         });
       });
     },
-    [connected, address, chainId, t],
+    [connected, address, chainId, configured, t],
   );
 
   const api: WalletApi = {
@@ -458,7 +473,7 @@ export function WalletProvider({ children, discovery = true, scope }: { children
     connected,
     address,
     chainId,
-    guard: status === 'connected' ? chainGuard(chainId) : null,
+    guard: status === 'connected' ? chainGuard(chainId, configured) : null,
     problem,
     connect,
     disconnect,

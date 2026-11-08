@@ -252,6 +252,22 @@ export function restartWith(service, envKey, on) {
   }
 }
 
+/**
+ * A stack service restarted with one TEST setting set to `value` (`null` unsets it), for a setting that is off by
+ * default (`LOCAL_STACK_USER_VENUE=on`). As `restartWith`, this process's environment is put back as it was.
+ */
+export function restartWithSetting(service, envKey, value) {
+  const before = process.env[envKey];
+  if (value === null) delete process.env[envKey];
+  else process.env[envKey] = value;
+  try {
+    tool('local-test-stack.mjs', 'restart', service);
+  } finally {
+    if (before === undefined) delete process.env[envKey];
+    else process.env[envKey] = before;
+  }
+}
+
 /** Every LOCAL-TEST sign-up code the stack's identity service mailed to `email`, oldest first (its outbox file). */
 export function mailedCodes(email, purpose = 'signup-code') {
   const file = path.join(STATE, 'email-outbox.log');

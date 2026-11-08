@@ -36,6 +36,8 @@ import { ChartTrade, clickAmountOk, type ChartPick } from './ChartTrade';
 import { DEFAULT_DOM, isDomSetting, type DomSetting } from './order-flow';
 import type { Reference, Side } from './order-math';
 import { EmailProofNotice } from '../../../features/account/EmailProofNotice';
+import { useVenueMode } from '../../../features/trade/use-venue-mode';
+import { VenueSpotGate } from './VenueSpotDesk';
 
 function PairPicker({ selected }: { selected: string }) {
   const { t } = deskCopy.useCopy();
@@ -286,8 +288,19 @@ function DeskSkeleton() {
   );
 }
 
-/** Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). */
-export default function TradeDeskScreen({ params, search }: ScreenProps) {
+/**
+ * Pro desk, `/trade/spot/:pair` (UI-SPEC 5.7). In venue mode (B1: `/api/v1/venue/status` says the user-venue door is on)
+ * a pair the venue lists as spot trades on the customer's own venue account (VenueSpotDesk.tsx); everything else, and
+ * every deployment with the door off, is today's desk unchanged.
+ */
+export default function TradeDeskScreen(props: ScreenProps) {
+  const venue = useVenueMode();
+  const today = <TodayDeskScreen {...props} />;
+  if (venue.mode !== 'on') return today;
+  return <VenueSpotGate mode={venue} pair={normalizePair(props.params.pair ?? defaultDeskPair)} fallback={today} />;
+}
+
+function TodayDeskScreen({ params, search }: ScreenProps) {
   const { t } = deskCopy.useCopy();
   const markets = useDeskMarkets();
   const pair = normalizePair(params.pair ?? defaultDeskPair);
