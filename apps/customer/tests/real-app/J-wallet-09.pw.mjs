@@ -14,9 +14,12 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // protocol.json) give a one-minute connection, so #4 waits about a minute, and a wallet sanctions list of one TEST
 // address, the wallet #1 derives from the TEST seed below. #1 also restarts svc-protocol once with that list blank
 // (`LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS=off`, tooling/scripts/local-stack-services/protocol.mjs) and puts it back.
-// Region refusal: the journeys stack names no trusted region header, and its blocked regions are a repository secret, so
-// a test cannot play a visitor from a blocked region here; svc-protocol's mounted test proves that refusal
-// (services/svc-protocol/src/venue-wallet/connection.test.ts). #3 and #5 need the TEST venue simulator.
+// Region refusal: #1 restarts svc-protocol and Edge once with `LOCAL_STACK_TEST_REGION_SERVED=off`
+// (tooling/scripts/local-stack-services/protocol.mjs and edge.mjs): svc-protocol then holds a labelled TEST business
+// block for the TEST region AA (a user-assigned ISO code, no country; INTAFACED_TEST_BUSINESS_BLOCKS), Edge stamps every
+// request from AA, and the person, signed in again, is refused denied.region_blocked with that region's reason in the
+// room. Both are put back after. The stack's screened regions are a repository secret, so the test plays the TEST
+// region, never one of them, and the sanctions list is never touched. #3 and #5 need the TEST venue simulator.
 // Money: INTAFACED moves nothing and the ledger posts nothing in this journey; #3 reads the ledger before and after.
 const J = 'J-wallet-09';
 // #3 (deposit) and #5 (withdraw) need the TEST venue in the stack; their tests land with the venue PR, under the
@@ -27,6 +30,8 @@ const LISTED_KEY = keccak256(toHex('INTAFACED LOCAL TEST sanctioned wallet (J-wa
 const LISTED = '0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83';
 /** The TEST USDC #3 deposits; the venue's figure for this new account must read exactly this after. */
 const DEPOSIT = '25';
+/** The TEST region AA's reason while it is not served (TEST_BUSINESS_BLOCK_REASON in packages/config jurisdiction.ts). */
+const REGION_REASON = 'TEST region, not served at launch';
 const NO_KEY = 'INTAFACED holds no key that can move this wallet’s funds. You sign every venue action in your own wallet.';
 
 test.describe.configure({ mode: 'default' });
@@ -66,11 +71,11 @@ async function connectAndSign(page, button = 'Connect to my account') {
   await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
 }
 
-test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on the blank or set sanctions list is refused with its reason`, async ({
+test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on the blank or set sanctions list, or from a blocked region, is refused with its reason`, async ({
   page,
 }) => {
-  // Two restarts of svc-protocol (the blank list, then the set one back).
-  test.setTimeout(300_000);
+  // Two restarts of svc-protocol for the blank list, and two of svc-protocol and Edge for the blocked region.
+  test.setTimeout(480_000);
   const who = await signUp(page, 'jwallet09');
   const walletKey = testWalletKey();
   run.reset({ who, walletKey });
@@ -108,6 +113,31 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
   } finally {
     await blankPage.close();
     restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', true);
+  }
+
+  // A visitor from a blocked region is refused with its reason before any message, the person's own wallet included
+  // (OWNER 88, OWNER 237): the TEST region AA blocked in svc-protocol, and Edge stamping every request from it.
+  const regionPage = await page.context().newPage();
+  try {
+    restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
+    await openVenue(regionPage, who, walletKey);
+    await regionPage.getByRole('button', { name: 'Connect to my account' }).click();
+    await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(
+      regionPage.getByText(`Connecting a wallet is not available where you are: ${REGION_REASON}. Nothing was connected.`),
+    ).toBeVisible();
+    await expect(regionPage.getByText('denied.region_blocked')).toBeVisible();
+    await expect(regionPage.locator('[data-venue-message]')).toHaveCount(0);
+    await expect(sheet(regionPage)).toHaveCount(0);
+  } finally {
+    await regionPage.close();
+    // Edge first, so no request is stamped from the TEST region once it is served again.
+    try {
+      restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+    } finally {
+      restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', true);
+    }
   }
 
   // The person's own wallet: Connect shows the exact message to sign, naming INTAFACED, the address, the chain, a nonce

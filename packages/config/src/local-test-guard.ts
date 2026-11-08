@@ -1,5 +1,5 @@
-import { isExplicitDevOrTest } from './app-env.js';
-import { SCREENING_FAIL_CLOSED_ENV, screeningFailClosedIsExplicitlyOff } from './jurisdiction.js';
+import { isExplicitDevOrTest, isUserAssignedRegionCode } from './app-env.js';
+import { SCREENING_FAIL_CLOSED_ENV, TEST_BUSINESS_BLOCKS_ENV, screeningFailClosedIsExplicitlyOff } from './jurisdiction.js';
 import { envScreeningList, screeningLooksLikeFixture, type ScreeningList } from './screening.js';
 
 /**
@@ -14,6 +14,8 @@ import { envScreeningList, screeningLooksLikeFixture, type ScreeningList } from 
  *      user-assigned.
  *   3. `LOCAL_TEST_KMS` must not be set. A local-test instrument key is a
  *      stand-in, and every service that calls this guard refuses it.
+ *   4. `INTAFACED_TEST_BUSINESS_BLOCKS` must not be set (a TEST business block;
+ *      `checkAccess` also ignores it outside dev/test).
  *
  * It does NOT say the list is complete or counsel-approved; that stays with
  * `assertScreeningConfigured` and the owner. It only refuses the stand-ins.
@@ -22,15 +24,7 @@ import { envScreeningList, screeningLooksLikeFixture, type ScreeningList } from 
 /** Stable code carried on `LocalTestFixtureError` for logs and tests. */
 export const LOCAL_TEST_FIXTURE_REFUSE_CODE = 'config.local_test_fixture_outside_dev_test' as const;
 
-/**
- * ISO 3166-1 user-assigned alpha-2 codes: AA, QM-QZ, XA-XZ, ZZ.
- * `XK` (Kosovo) sits in the XA-XZ range but is in real use, so it is excluded.
- */
-export function isUserAssignedRegionCode(code: string): boolean {
-  const upper = code.trim().toUpperCase();
-  if (upper === 'XK') return false;
-  return upper === 'AA' || upper === 'ZZ' || /^Q[M-Z]$/.test(upper) || /^X[A-Z]$/.test(upper);
-}
+export { isUserAssignedRegionCode } from './app-env.js';
 
 /** Why a screening list looks like a local-test stand-in. Empty means it does not. */
 export function screeningListStandInIssues(list: ScreeningList): string[] {
@@ -70,6 +64,10 @@ export function localTestFixtureIssues(env: Record<string, string | undefined> =
     issues.push(`${SCREENING_FAIL_CLOSED_ENV} is set to an explicit off value (screening would let unscreened regions through)`);
   }
   issues.push(...screeningListStandInIssues(envScreeningList(env)));
+  const testBlocks = env[TEST_BUSINESS_BLOCKS_ENV];
+  if (typeof testBlocks === 'string' && testBlocks.trim() !== '') {
+    issues.push(`${TEST_BUSINESS_BLOCKS_ENV} is set (a TEST business block)`);
+  }
   const localTestKms = env.LOCAL_TEST_KMS;
   if (typeof localTestKms === 'string' && localTestKms.trim() !== '') {
     issues.push('LOCAL_TEST_KMS is set');

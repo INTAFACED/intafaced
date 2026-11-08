@@ -40,6 +40,9 @@ export default ({
       FIX_STATUS_READ_SECRET: secrets.fixStatusRead,
       WS_STATUS_URL: urlOf('ws'),
       WS_STATUS_READ_SECRET: secrets.wsStatusRead,
+      // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart stamps every request from the TEST region AA,
+      // the region protocol.mjs then blocks with a TEST business block (J-wallet-09 #1). Otherwise edge keeps its default.
+      ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { DEFAULT_REGION: 'AA' } : {}),
     };
     for (const [k, service] of Object.entries(EDGE_UPSTREAMS)) env[k] = urlOf(service);
     for (const k of Object.keys(EDGE_ABSENT)) env[k] = UNUSED; // nothing listens; answers 502 by design

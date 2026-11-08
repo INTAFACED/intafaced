@@ -56,6 +56,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // `LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS=off` on a start or restart leaves the list blank instead, so the blank-list
       // refusal can be seen too (J-wallet-09 #1).
       PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: 'TEST:60',
+      // LOCAL TEST only: `LOCAL_STACK_TEST_REGION_SERVED=off` on a restart adds a TEST business block for the TEST region
+      // AA (a user-assigned ISO code, no country; packages/config jurisdiction.ts testBusinessBlocksFromEnv), and edge.mjs
+      // then stamps every request from AA, so the venue wallet's jurisdiction guard refuses denied.region_blocked with its
+      // reason (J-wallet-09 #1, OWNER 237). The sanctions list is never touched.
+      ...(process.env.LOCAL_STACK_TEST_REGION_SERVED === 'off' ? { INTAFACED_TEST_BUSINESS_BLOCKS: 'TEST:AA' } : {}),
       ...(process.env.LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS === 'off'
         ? {}
         : { PROTOCOL_WALLET_SANCTIONS: 'TEST:0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83' }),
