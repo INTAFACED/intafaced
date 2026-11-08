@@ -168,6 +168,10 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   // rules is 400.
   'bank.space_archived': 'CONFLICT',
   'bank.space_locked': 'CONFLICT',
+  'bank.not_offered_by_partner': 'PRECONDITION_FAILED',
+  'bank.partner_unavailable': 'SERVICE_UNAVAILABLE',
+  'bank.onramp_fee_not_known': 'PRECONDITION_FAILED',
+  'bank.test_partner_off': 'PRECONDITION_FAILED',
   'bank.schedule_inactive': 'CONFLICT',
   'bank.pool_closed': 'CONFLICT',
   'bank.pool_conflict': 'CONFLICT',

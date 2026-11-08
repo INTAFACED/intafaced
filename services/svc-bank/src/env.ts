@@ -1,3 +1,4 @@
+import { TEST_PARTNER_SETTINGS } from './partner/test-partner.js';
 import { z } from 'zod';
 import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
@@ -239,6 +240,14 @@ const schema = serviceEnvSchema
        * plausible one, so choosing the ledger half is an act somebody performed.
        */
       BANK_RAMP_MODE: z.enum(RAMP_SETTINGS).default('none'),
+
+      /**
+       * THE TEST PARTNER BANK AND RAMP (CUSTODY-DELTA §4; OWNER 226): `off` (default) | `test`. `test` stands in for the
+       * partner while none is named, with per-person switches a journey sets (`testPartner.set`): a feature not offered by
+       * the partner, a fee not known, a reserve required, the partner down, a ramp quote expired, a ramp fee not known.
+       * Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production (`partner/test-partner.ts`).
+       */
+      BANK_TEST_PARTNER: z.enum(TEST_PARTNER_SETTINGS).default('off'),
 
       /**
        * WHO PRICES ADD MONEY ON A TEST STACK. `none` (default) | `ramp-sim` (J-bank-02 #4).

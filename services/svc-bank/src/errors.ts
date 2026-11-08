@@ -1036,7 +1036,16 @@ export type BankErrorCode =
   /** Identity refused the claim; the message names identity's code. Nothing moved. */
   | 'bank.recovery_claim_refused'
   /** Some of the owner's value is held, staked or pledged, so nothing is swept until it is free. */
-  | 'bank.recovery_blocked';
+  | 'bank.recovery_blocked'
+  // ── The TEST partner bank and ramp (CUSTODY-DELTA §4; OWNER 226) ───────
+  /** The partner bank does not offer this feature (currency accounts, spaces, pots or joint accounts); nothing written. */
+  | 'bank.not_offered_by_partner'
+  /** The partner bank is not answering; nothing was sent or changed. */
+  | 'bank.partner_unavailable'
+  /** The partner's ramp gave no fee, so the pay amount is not known; no quote was kept. */
+  | 'bank.onramp_fee_not_known'
+  /** The TEST partner switches exist only on a stack that runs the TEST partner (`BANK_TEST_PARTNER=test`). */
+  | 'bank.test_partner_off';
 
 export class BankError extends Error {
   constructor(
