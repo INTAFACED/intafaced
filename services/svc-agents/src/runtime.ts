@@ -2,6 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
+import { fundsRefusalParams, readFunds, type FundsPort } from './funds.js';
 import { AgentError, MeteredReplayError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
@@ -82,10 +83,11 @@ export interface AgentRuntimeOptions {
    */
   readonly spend?: SpendGate;
   /**
-   * The person's available balance in the fee asset, read before the engine is called. Absent only in tests that do
-   * not exercise funds; production wires the ledger's balance read.
+   * The funds a run is checked against before the engine is called: the person's available balance in the fee asset,
+   * or, for an own agent whose payment method is a wallet, that wallet's balance as the chain reports it (`funds.ts`).
+   * Absent only in tests that do not exercise funds; production wires `paymentMethodFunds` over the ledger's read.
    */
-  readonly funds?: { available(userId: string, assetId: string): Promise<Amount> };
+  readonly funds?: FundsPort;
   /**
    * AGENTS_TRANSCRIPT_RETENTION_DAYS: how many days an executed engine call's prompt text is kept for an operator's
    * transcript read. Null (blank) or 0 keeps nothing: only the digests are on the action row.
@@ -594,21 +596,19 @@ export class AgentRuntime {
     //      unknown balance is not a covered one.
     //      With a spend gate the check runs inside its reservation instead, under the per-user lock and net of what is
     //      already owed and held (2c); this path is only for a runtime wired without one.
+    //      A wallet payment method is read the same way, and its refusal names the wallet, its figure, the chain and
+    //      block it was read at and that block's time, or why it could not be read (J-agents-02 #4).
     if (!this.spend && this.funds && shouldMeter && worstCaseCost > 0n) {
-      let available: Amount | null;
-      try {
-        available = await this.funds.available(session.userId, this.feeAssetId);
-      } catch {
-        available = null;
-      }
-      if (available === null || available < worstCaseCost) {
+      const funds = this.funds;
+      const outcome = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId));
+      if (!outcome.ok || outcome.reading.available < worstCaseCost) {
         throw await this.appendRefusal(
           session,
           {
             allowed: false,
-            code: available === null ? 'agents.funds_unread' : 'agents.funds_insufficient',
-            userMessageKey: available === null ? 'agents.refused.funds_unread' : 'agents.refused.funds_insufficient',
-            userMessageParams: { worstCase: formatAmount(worstCaseCost), asset: this.feeAssetId },
+            code: outcome.ok ? 'agents.funds_insufficient' : 'agents.funds_unread',
+            userMessageKey: outcome.ok ? 'agents.refused.funds_insufficient' : 'agents.refused.funds_unread',
+            userMessageParams: fundsRefusalParams(formatAmount(worstCaseCost), this.feeAssetId, outcome),
           },
           { kind: 'completion', task: input.task },
         );
@@ -638,7 +638,8 @@ export class AgentRuntime {
     let reserved: Amount | null = null;
     let reservationKey = input.requestId;
     const funds = this.funds;
-    const fundsRead = funds && shouldMeter && worstCaseCost > 0n ? () => funds.available(session.userId, this.feeAssetId) : null;
+    const fundsRead =
+      funds && shouldMeter && worstCaseCost > 0n ? () => funds.available(session.userId, this.feeAssetId, session.agentId) : null;
     if (this.spend) {
       try {
         let held = await this.spend.reserve({

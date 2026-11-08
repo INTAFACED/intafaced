@@ -92,7 +92,7 @@ if (!available) {
 
   beforeEach(async () => {
     await lock`select pg_advisory_lock(842671)`;
-    await sql`TRUNCATE agents.own_agent_background_runs, agents.own_agent_tokens, agents.own_agent_surfaces, agents.own_agent_versions, agents.own_agent_co_owners, agents.own_agent_session_versions, agents.own_agent_test_runs, agents.own_agent_eval_runs, agents.own_agent_eval_cases, agents.own_agent_reviews, agents.own_agent_reviewer_settings, agents.own_agent_approval_requests, agents.own_agent_consents, agents.own_agent_rules, agents.own_agent_usage_alerts, agents.own_agent_usage_limits, agents.own_agent_limits, agents.own_agents`;
+    await sql`TRUNCATE agents.own_agent_background_runs, agents.own_agent_tokens, agents.own_agent_surfaces, agents.own_agent_versions, agents.own_agent_co_owners, agents.own_agent_session_versions, agents.own_agent_test_runs, agents.own_agent_eval_runs, agents.own_agent_eval_cases, agents.own_agent_reviews, agents.own_agent_reviewer_settings, agents.own_agent_approval_requests, agents.own_agent_consents, agents.own_agent_rules, agents.own_agent_usage_alerts, agents.own_agent_usage_limits, agents.own_agent_payment_methods, agents.own_agent_limits, agents.own_agents`;
   });
 
   afterEach(async () => {

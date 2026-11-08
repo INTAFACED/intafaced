@@ -109,6 +109,11 @@ const ownAgentRunRowBase = {
   cost: z.string(),
   assetId: z.string(),
   occurredAt: z.string(),
+  /**
+   * The words' parameters of a refused run, as its action row keeps them (the method, figure, source and as-of time of
+   * a funds refusal, J-agents-02 #4); empty on a run that was not refused and on a held tool call.
+   */
+  messageParams: z.record(z.string(), z.union([z.string(), z.number()])),
 };
 export const ownAgentRunRowSchema = z.union([
   z.object({
@@ -127,6 +132,38 @@ export const ownAgentRunRowSchema = z.union([
   }),
 ]);
 export type OwnAgentRunRow = z.infer<typeof ownAgentRunRowSchema>;
+
+/**
+ * `own.paymentMethod.get` / `own.paymentMethod.set` (J-agents-02 #4): the payment method the person chose for this
+ * agent's runs, and the wallets they linked by their own signature, which they may choose from. Today a method is one
+ * linked wallet (`kind: 'wallet'`); none chosen is null, and runs are checked against the platform balance as before.
+ * `linked` is identity's answer as svc-agents read it through its door: `unread` when identity could not be asked, so
+ * the page says so rather than showing "no wallet". Addresses are lower-case.
+ */
+const walletAddressSchema = z.string().regex(/^0x[0-9a-f]{40}$/);
+export const ownAgentPaymentMethodSchema = z.object({
+  method: z.object({ kind: z.literal('wallet'), address: walletAddressSchema, chosenAt: z.string() }).nullable(),
+  linked: z.discriminatedUnion('state', [
+    z.object({ state: z.literal('usable'), wallets: z.array(z.object({ address: walletAddressSchema, linkedAt: z.string() })) }),
+    z.object({ state: z.literal('account_inactive') }),
+    z.object({ state: z.literal('unread') }),
+  ]),
+});
+export type OwnAgentPaymentMethod = z.infer<typeof ownAgentPaymentMethodSchema>;
+/**
+ * Choose a linked wallet (`address`), or clear the choice (`address: null`). Choosing refuses
+ * `agents.payment_method.wallet_not_linked` when the address is not one of the person's linked wallets right now,
+ * `agents.payment_method.account_inactive` when identity says none of them may be used, and
+ * `agents.payment_method.wallets_unread` when identity could not be asked. Clearing always succeeds.
+ */
+export const ownAgentPaymentMethodInputSchema = z.object({
+  id: z.string().min(1).max(64),
+  address: z
+    .string()
+    .regex(/^0x[0-9a-fA-F]{40}$/)
+    .nullable(),
+});
+export type OwnAgentPaymentMethodInput = z.infer<typeof ownAgentPaymentMethodInputSchema>;
 
 /** `own.session.close`: the session closed once every window of it is paid. An unpaid one refuses `agents.window_unpaid`. */
 export const ownAgentSessionClosedSchema = z.object({ sessionId: z.string().uuid(), status: z.literal('closed'), closedAt: z.string() });
