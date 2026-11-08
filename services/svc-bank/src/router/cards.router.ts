@@ -571,14 +571,7 @@ export function createCardsRouter(c: BankRouterContext) {
         z.object({
           test: z.boolean(),
           custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
-          custodyWords: z.string(),
-          assets: z.array(
-            z.object({
-              assetId: z.string(),
-              state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
-              words: z.string(),
-            }),
-          ),
+          assets: z.array(z.object({ assetId: z.string(), state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']) })),
         }),
       )
       .query(({ ctx }) => guard(async () => bank.cards.payFrom(ctx.principal.userId))),

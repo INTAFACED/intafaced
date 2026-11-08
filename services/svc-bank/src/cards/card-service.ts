@@ -29,14 +29,7 @@ import {
 import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
 import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates } from './card-programme.js';
 import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
-import {
-  NOTHING_REPORTED,
-  payFromAssets,
-  requireSpendAssets,
-  custodyModeWords,
-  type CardPartnerTerms,
-  type PayFromAsset,
-} from './partner-terms.js';
+import { NOTHING_REPORTED, payFromAssets, requireSpendAssets, type CardPartnerTerms, type PayFromAsset } from './partner-terms.js';
 
 /**
  * CARDS (§8.1) — the LEDGER half: authorise, hold, capture, reverse, cash back.
@@ -469,18 +462,16 @@ export class CardService {
    * marked offered, "not offered by the partner", or "not known" from the partner's own list, with how the partner spends
    * (it holds the crypto, or the card pulls from the person's own wallet). Reads only; nothing is held or posted.
    */
-  async payFrom(
-    userId: string,
-  ): Promise<{ test: boolean; custodyMode: CardPartnerTerms['custodyMode']; custodyWords: string; assets: PayFromAsset[] }> {
-    const owner = requireSpendAssets(this.spendAssets);
+  async payFrom(userId: string): Promise<{ test: boolean; custodyMode: CardPartnerTerms['custodyMode']; assets: PayFromAsset[] }> {
+    // The partner first: with no issuer, or the simulator in a live deployment, that is the blocker to name.
     const terms = this.partnerTerms();
+    const owner = requireSpendAssets(this.spendAssets);
     const rows = await this.sql<Array<{ asset_id: string }>>`
       SELECT DISTINCT asset_id FROM bank.cards WHERE user_id = ${userId} AND status <> 'closed' ORDER BY asset_id
     `;
     return {
       test: terms.test,
       custodyMode: terms.custodyMode,
-      custodyWords: custodyModeWords(terms),
       assets: payFromAssets(
         owner,
         terms,

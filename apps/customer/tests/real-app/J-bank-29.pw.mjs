@@ -67,7 +67,7 @@ async function bank(who = person()) {
 const payFrom = (page) => page.getByTestId('card-pay-from');
 const assetRow = (page, assetId) => page.getByTestId(`card-pay-from-${assetId}`);
 
-test(`${J} #1 with the owner's spendable-asset list switched off for one restart, opens Pay from: refused bank.card_spend_assets_unset, and no order can be saved`, async ({
+test(`${J} #1 with the owner's spendable-asset list switched off for one restart, opens Pay from: refused bank.card_spend_assets_unset, with no asset listed to order`, async ({
   page,
 }) => {
   test.setTimeout(300_000);

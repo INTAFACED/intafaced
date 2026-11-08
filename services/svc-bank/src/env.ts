@@ -494,7 +494,8 @@ const schema = serviceEnvSchema
        * "partner_holds" | "wallet_pull" | null, spendFrom: [assetId] | null, lossLiability: { bearer, terms } | null,
        * reserve: { required: false } | { required: true, amount, assetId } | null, funder: string | null }`. `null` is
        * "not known" and is shown so. Unset, card-sim reports nothing. Refused at boot outside APP_ENV=dev or test, or under
-       * NODE_ENV=production.
+       * NODE_ENV=production, whatever BANK_CARD_ISSUER says: a TEST partner's answers left in a deployment's settings stop it
+       * starting rather than waiting for someone to switch the simulator on.
        */
       BANK_CARD_SIM_PARTNER_JSON: z.string().optional(),
 

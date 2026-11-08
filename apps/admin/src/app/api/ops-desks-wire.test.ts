@@ -93,7 +93,7 @@ const ANSWERS: Record<string, unknown> = {
   'ops.cardPartnerTerms': {
     test: true,
     label: 'TEST partner card adapter',
-    custodyMode: 'The partner holds the crypto it spends',
+    custodyMode: 'The partner holds the cardholder’s crypto and spends it',
     funder: 'not known',
     reserve: 'not known',
     reserveStatus: 'not_known',

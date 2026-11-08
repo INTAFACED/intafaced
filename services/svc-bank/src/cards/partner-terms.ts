@@ -1,3 +1,4 @@
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { z } from 'zod';
 import { BankError } from '../errors.js';
 
@@ -82,8 +83,7 @@ export function cardSimPartnerFor(
   env: { APP_ENV?: string | undefined; NODE_ENV?: string | undefined },
 ): CardPartnerTerms {
   if (raw === undefined || raw === null || raw.trim() === '') return NOTHING_REPORTED;
-  const devOrTest = env.APP_ENV === 'dev' || env.APP_ENV === 'test';
-  if (!devOrTest || env.NODE_ENV === 'production') {
+  if (!isExplicitDevOrTest(env.APP_ENV) || env.NODE_ENV === 'production') {
     throw new Error(
       `${BANK_CARD_SIM_PARTNER_ENV} is the TEST partner card adapter's switches and refuses to start outside APP_ENV=dev or test, or under NODE_ENV=production`,
     );
@@ -116,9 +116,10 @@ const BEARER_WORDS: Record<LossBearer, string> = {
   programme: 'the programme (INTAFACED)',
   cardholder: 'the cardholder',
 };
+/** For an operator: whose crypto, said in the third person. The customer's own words live in the customer app's copy. */
 const MODE_WORDS: Record<CardCustodyMode, string> = {
-  partner_holds: 'The partner holds the crypto it spends',
-  wallet_pull: 'The card pulls from your own wallet',
+  partner_holds: 'The partner holds the cardholder’s crypto and spends it',
+  wallet_pull: 'The card pulls from the cardholder’s own wallet',
 };
 
 /** The partner's terms as an operator reads them (J-bank-26 #6, J-bank-27 #4). Each unknown is "not known". */
@@ -150,7 +151,8 @@ export function partnerTermsView(terms: CardPartnerTerms): CardPartnerTermsView 
 
 /**
  * THE OWNER'S SPENDABLE-ASSET LIST (BK-ccrypto-01, J-bank-29 #1): `BANK_CARD_SPEND_ASSETS`, comma separated. NO DEFAULT.
- * Blank or malformed refuses `bank.card_spend_assets_unset`: no Pay from list and no order can be built without it.
+ * Blank or malformed refuses `bank.card_spend_assets_unset`: Pay from lists nothing without it. (The pay-from order and
+ * the authorisation that follows it, J-bank-29 #2 to #8, are not built yet; when they are, they read this same list.)
  */
 export const BANK_CARD_SPEND_ASSETS_ENV = 'BANK_CARD_SPEND_ASSETS';
 
@@ -175,31 +177,31 @@ export type PayFromAssetState = 'offered' | 'not_offered' | 'not_known' | 'not_l
 export interface PayFromAsset {
   readonly assetId: string;
   readonly state: PayFromAssetState;
-  readonly words: string;
 }
 
 /**
- * Pay from (J-bank-29 #2): every asset on the owner's list, then every other asset the person's cards draw on.
+ * Pay from (J-bank-29 #2): every asset on the owner's list, then every other asset the person's cards draw on. Each
+ * surface words the state itself (the customer app's copy): `not_offered` is "not offered by the partner" and `not_known`
+ * is "not known".
  *
- * An asset is `offered` only when the owner lists it AND the partner reports it can spend from it. One the partner does not
- * list reads "not offered by the partner", whatever the owner listed. When the partner has reported no list at all, each
- * reads "not known": an unanswered list is not an empty one. One the partner offers that the owner has not listed reads
- * "not on the spendable list".
+ * An asset is `offered` only when the owner lists it AND the partner reports it can spend from it. One the partner's list
+ * leaves out is `not_offered`, whatever the owner listed: the partner's answer is the one that binds. Where the partner has
+ * reported no list at all, an owner-listed asset is `not_known` (an unanswered list is not an empty one), and an asset the
+ * owner never listed is `not_listed`, because the owner's answer is already final for it. One the partner offers that
+ * the owner has not listed is `not_listed` too.
  */
 export function payFromAssets(owner: readonly string[], terms: CardPartnerTerms, held: readonly string[]): PayFromAsset[] {
   const seen = new Set<string>();
   const out: PayFromAsset[] = [];
-  for (const id of [...owner, ...held]) {
-    if (seen.has(id)) continue;
-    seen.add(id);
-    if (terms.spendFrom === null) out.push({ assetId: id, state: 'not_known', words: NOT_KNOWN });
-    else if (!terms.spendFrom.includes(id)) out.push({ assetId: id, state: 'not_offered', words: NOT_OFFERED_BY_PARTNER });
-    else if (!owner.includes(id)) out.push({ assetId: id, state: 'not_listed', words: 'not on the spendable list' });
-    else out.push({ assetId: id, state: 'offered', words: 'offered by the partner' });
+  for (const assetId of [...owner, ...held]) {
+    if (seen.has(assetId)) continue;
+    seen.add(assetId);
+    const listed = owner.includes(assetId);
+    let state: PayFromAssetState;
+    if (terms.spendFrom === null) state = listed ? 'not_known' : 'not_listed';
+    else if (!terms.spendFrom.includes(assetId)) state = 'not_offered';
+    else state = listed ? 'offered' : 'not_listed';
+    out.push({ assetId, state });
   }
   return out;
-}
-
-export function custodyModeWords(terms: CardPartnerTerms): string {
-  return terms.custodyMode ? MODE_WORDS[terms.custodyMode] : NOT_KNOWN;
 }

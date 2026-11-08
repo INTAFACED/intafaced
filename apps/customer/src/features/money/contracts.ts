@@ -1075,10 +1075,7 @@ export const bankReads = {
   'cards.payFrom': z.object({
     test: z.boolean(),
     custodyMode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
-    custodyWords: z.string(),
-    assets: z.array(
-      z.object({ assetId: z.string(), state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']), words: z.string() }),
-    ),
+    assets: z.array(z.object({ assetId: z.string(), state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']) })),
   }),
   'cards.delivery': cardDeliverySchema,
   'cards.cashback': z.object({

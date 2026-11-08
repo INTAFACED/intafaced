@@ -5,13 +5,12 @@
  * in a production config to see them refused (the way `rails/posture.ts` refuses sandbox rails).
  */
 import { describe, expect, it } from 'vitest';
+import { CardService } from './card-service.js';
 import { cardIssuerFor, cardSim, noCardIssuer } from './issuer.js';
 import {
   NOTHING_REPORTED,
   NOT_KNOWN,
-  NOT_OFFERED_BY_PARTNER,
   cardSimPartnerFor,
-  custodyModeWords,
   parseSpendAssets,
   partnerTermsView,
   payFromAssets,
@@ -29,9 +28,11 @@ describe('custody mode switch: the partner holds the crypto, or the card pulls f
     const pulls = cardSimPartnerFor(json({ custodyMode: 'wallet_pull' }), DEV);
     expect(cardSim({ partner: holds }).partnerTerms!().custodyMode).toBe('partner_holds');
     expect(cardSim({ partner: pulls }).partnerTerms!().custodyMode).toBe('wallet_pull');
-    expect(custodyModeWords(holds)).toBe('The partner holds the crypto it spends');
-    expect(custodyModeWords(pulls)).toBe('The card pulls from your own wallet');
-    expect(custodyModeWords(cardSim().partnerTerms!())).toBe(NOT_KNOWN);
+    expect(cardSim().partnerTerms!().custodyMode).toBeNull();
+    // The operator's words are in the third person: the cardholder's crypto, never "your" wallet.
+    expect(partnerTermsView(holds).custodyMode).toBe('The partner holds the cardholder’s crypto and spends it');
+    expect(partnerTermsView(pulls).custodyMode).toBe('The card pulls from the cardholder’s own wallet');
+    expect(partnerTermsView(cardSim().partnerTerms!()).custodyMode).toBe(NOT_KNOWN);
   });
 
   it('refuses a mode that is not one of the two', () => {
@@ -93,23 +94,29 @@ describe('spend-from switch: an asset the partner cannot spend from is "not offe
 
   it('marks each owner asset offered or not offered from the partner list, then the person’s other card assets', () => {
     expect(payFromAssets(owner, partner, ['USDT', 'USDC'])).toEqual([
-      { assetId: 'USDC', state: 'offered', words: 'offered by the partner' },
-      { assetId: 'BTC', state: 'not_offered', words: NOT_OFFERED_BY_PARTNER },
-      { assetId: 'USD', state: 'offered', words: 'offered by the partner' },
-      { assetId: 'USDT', state: 'not_offered', words: NOT_OFFERED_BY_PARTNER },
+      { assetId: 'USDC', state: 'offered' },
+      { assetId: 'BTC', state: 'not_offered' },
+      { assetId: 'USD', state: 'offered' },
+      { assetId: 'USDT', state: 'not_offered' },
     ]);
   });
 
   it('a partner asset the owner did not list is not offered to the person', () => {
     const wide = cardSimPartnerFor(json({ spendFrom: ['USDC', 'ETH'] }), DEV);
     expect(payFromAssets(['USDC'], wide, ['ETH'])).toEqual([
-      { assetId: 'USDC', state: 'offered', words: 'offered by the partner' },
-      { assetId: 'ETH', state: 'not_listed', words: 'not on the spendable list' },
+      { assetId: 'USDC', state: 'offered' },
+      { assetId: 'ETH', state: 'not_listed' },
     ]);
   });
 
-  it('no partner list is "not known" for every asset, never an empty list read as "none offered"', () => {
-    expect(payFromAssets(owner, NOTHING_REPORTED, []).map((a) => a.words)).toEqual([NOT_KNOWN, NOT_KNOWN, NOT_KNOWN]);
+  it('no partner list is "not known" for every owner asset, never an empty list read as "none offered"', () => {
+    expect(payFromAssets(owner, NOTHING_REPORTED, ['USDT']).map((a) => [a.assetId, a.state])).toEqual([
+      ['USDC', 'not_known'],
+      ['BTC', 'not_known'],
+      ['USD', 'not_known'],
+      // The owner never listed USDT: that answer is already final, whatever the partner has not said.
+      ['USDT', 'not_listed'],
+    ]);
   });
 
   it('the owner list is the owner’s: blank or malformed refuses bank.card_spend_assets_unset', () => {
@@ -152,7 +159,34 @@ describe('production refusal (planted)', () => {
     expect(adapter.partnerTerms!()).toMatchObject({ test: true, custodyMode: 'partner_holds', spendFrom: ['USDC'] });
   });
 
+  it('a leftover switch refuses boot even where the issuer is not card-sim (fail closed): index.ts reads it for every setting', () => {
+    expect(() => cardSimPartnerFor(planted, { APP_ENV: 'staging' })).toThrow(/refuses to start/);
+  });
+
   it('unset switches start anywhere and report nothing', () => {
     expect(cardSimPartnerFor(undefined, { APP_ENV: 'prod' })).toEqual(NOTHING_REPORTED);
+  });
+});
+
+describe('Pay from names the real blocker first', () => {
+  // The partner is asked before the owner's list, and before any read: a dead sql handle proves nothing was read.
+  const noSql = (() => {
+    throw new Error('Pay from read the database before naming its blocker');
+  }) as unknown as ConstructorParameters<typeof CardService>[0];
+  const ledger = {} as ConstructorParameters<typeof CardService>[1];
+
+  it('no issuer and no owner list: bank.no_card_issuer, not the list', async () => {
+    const cards = new CardService(noSql, ledger, { issuer: noCardIssuer, spendAssets: null });
+    await expect(cards.payFrom('u')).rejects.toMatchObject({ code: 'bank.no_card_issuer' });
+  });
+
+  it('the simulator in a live deployment: bank.card_sim_not_live, not the list', async () => {
+    const cards = new CardService(noSql, ledger, { issuer: cardIssuerFor('card-sim', { APP_ENV: 'prod' }), spendAssets: null });
+    await expect(cards.payFrom('u')).rejects.toMatchObject({ code: 'bank.card_sim_not_live' });
+  });
+
+  it('card-sim on a test posture and no owner list: bank.card_spend_assets_unset', async () => {
+    const cards = new CardService(noSql, ledger, { issuer: cardIssuerFor('card-sim', { live: false }), spendAssets: null });
+    await expect(cards.payFrom('u')).rejects.toMatchObject({ code: 'bank.card_spend_assets_unset' });
   });
 });
