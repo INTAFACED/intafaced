@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
 import { declaredWorld } from './world-line.mjs';
-import { makerUnquoted, stackPaths } from '../../../../tooling/scripts/local-test-market.mjs';
+import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './market.mjs';
 
 /**
  * Putting the shared world back between journey files (world-line.mjs, held by tooling/scripts/journey-world.mjs). Each file declares, in its
@@ -39,13 +39,7 @@ export function marketRunning() {
 
 /** The options the running market maker was started with (its pid record), or null when it is not running. */
 export function marketArgs() {
-  if (!marketRunning()) return null;
-  try {
-    const rec = JSON.parse(fs.readFileSync(stackPaths().pidFile, 'utf8'));
-    return Array.isArray(rec?.args) ? rec.args.map(String) : [];
-  } catch {
-    return [];
-  }
+  return marketRunning() ? makerRecordArgs() : null;
 }
 
 /** One account's own session on Edge, or null when it cannot sign in (an account with an authenticator, a frozen one). */
@@ -65,20 +59,6 @@ async function sessionOf(who) {
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(10_000),
     }).then(json);
-}
-
-/** The stack's own TEST accounts (the market maker and its taker): the maker loop owns their orders, never a journey. */
-function stackAccounts() {
-  try {
-    const accounts = JSON.parse(fs.readFileSync(stackPaths().accounts, 'utf8'));
-    return new Set(
-      Object.values(accounts)
-        .map((a) => a?.email)
-        .filter(Boolean),
-    );
-  } catch {
-    return new Set();
-  }
 }
 
 const rows = (body, ...keys) => {
@@ -123,25 +103,6 @@ export async function clearAccountBooks(who) {
   return left;
 }
 
-/** How long the next file waits for a restarted maker to quote every book: its start funds it, then one cycle. */
-export const MAKER_QUOTING_MS = 90_000;
-
-/**
- * Waits until the running maker's newest run has quoted every market it named (local-test-market.mjs,
- * `unquotedMarkets`), or `ms` passes. Returns the markets still unquoted then (empty when all are quoted). Failure it
- * prevents: J-copy-bots-otc-14 #7 restarted the maker, and J-derivatives-03 #1, the next file in the shard, found no
- * TEST perpetual quotes for its market long (main run 42373885351, #1 to #6 red).
- */
-export async function makerQuoting({ ms = MAKER_QUOTING_MS, read = makerUnquoted, pause = 1_000 } = {}) {
-  const until = Date.now() + ms;
-  for (;;) {
-    const { announced, waiting } = read();
-    if (announced.length > 0 && waiting.length === 0) return [];
-    if (Date.now() >= until) return announced.length ? waiting : ['any market (no market named in its log yet)'];
-    await new Promise((resolve) => setTimeout(resolve, pause));
-  }
-}
-
 /**
  * Put back what the journey file `file` declared it changes. `makerArgs` are the options the market maker was running
  * with when that file began (null if it was not running), and `accounts` the TEST accounts it signed up or acted as.
@@ -151,13 +112,15 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
   const parts = worldOf(file);
   const said = [];
   if (parts.has('book')) {
-    const own = stackAccounts();
+    const own = makerEmails();
     const cleared = await Promise.all(
       accounts.filter((who) => !own.has(who.email)).map((who) => clearAccountBooks(who).catch((err) => [`${who.email}: ${err.message}`])),
     );
     for (const lines of cleared) said.push(...lines);
   }
   if (parts.has('market')) {
+    // Every cycle the next file reads must have started after this point, so it sees the shifts and holds cleared.
+    const since = Date.now();
     try {
       tool('local-test-market.mjs', 'unshift');
     } catch (err) {
@@ -181,10 +144,13 @@ export async function restoreWorld(file, { makerArgs = null, accounts = [] }) {
             .slice(0, 200)}`,
         );
       }
-    // A maker this file (or the lines above) started again is quoting only once its first cycle has reached every book;
-    // `start` returns before that, and the perpetual is quoted last. The next file waits for it, never an empty book.
-    const waiting = marketRunning() ? await makerQuoting() : [];
-    if (waiting.length) said.push(`market maker not yet quoting ${waiting.join(', ')} after ${MAKER_QUOTING_MS / 1000}s`);
+    // The next file starts on a settled book: a whole cycle that began after the `unshift` above (and after any restart)
+    // has quoted every market, unshifted and unheld (market.mjs `unsettled`). `unshift` and `start` both return before
+    // that. Failures it prevents: J-copy-bots-otc-14 #7 restarted the maker, and J-derivatives-03 #1, next in the shard,
+    // found no TEST perpetual quotes (main run 42373885351, #1 to #6 red); and, read from the code, a file after one that
+    // moved or held a price could read that book still shifted or held until the maker's next cycle.
+    const waiting = marketRunning() ? await makerSettled({ since }) : [];
+    if (waiting.length) said.push(`market maker not settled after ${MAKER_SETTLE_MS / 1000}s: ${waiting.join(', ')}`);
   }
   for (const line of said) console.log(`WORLD RESTORE after ${file.split('/').at(-1)}: ${line}`);
   return said;
