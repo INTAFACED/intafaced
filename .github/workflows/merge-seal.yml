@@ -16,7 +16,9 @@ name: CI merge seal
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened]
+    # `edited` for a base change only (the job's `if:`): a pull request retargeted to main gets this seal too, so its own
+    # ci.yml seal never decides alone (review 7552-R1). A skipped run on a title or body edit is skipped, not red.
+    types: [opened, synchronize, reopened, edited]
 
 permissions: {}
 
@@ -30,6 +32,7 @@ concurrency:
 jobs:
   seal:
     name: CI merge seal
+    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25

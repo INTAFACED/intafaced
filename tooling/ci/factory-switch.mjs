@@ -34,7 +34,7 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { CI_WORKFLOW, recheckStep, SEAL, SEAL_WORKFLOWS } from './journey-seal.mjs';
+import { CI_WORKFLOW, otherSeals, recheckStep, SEAL, SEAL_WORKFLOWS } from './journey-seal.mjs';
 
 export const SWITCH_BRANCH = 'factory-switch';
 export const SWITCH_FILE = 'FACTORY';
@@ -110,12 +110,21 @@ export async function sweepHead({
     if (step.act === 'done') return step.msg.replace('read the steps', 'read the switch');
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {
+      // An older seal run on the same head (a reopen, a second push) is swept by the same rule (review 7552-R2).
+      const older = [];
+      for (const o of await otherSeals({ repo, runs, skip: step.runId, event, get })) {
+        if (!sweepWants(paused, o.seal)) continue;
+        const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
+        if (r.status === 403 && /already running/i.test(r.message ?? '')) continue;
+        if (r.status !== 201) throw new Error(`could not re-run the older seal job ${o.seal.id}: HTTP ${r.status} ${r.message ?? ''}`);
+        older.push(`; and the older ${o.seal.conclusion} seal job ${o.seal.id} of run ${o.runId}`);
+      }
       const seal = jobsByRun.get(step.runId).find((j) => String(j.id) === step.jobId);
-      if (!sweepWants(paused, seal)) return `the seal (${seal?.conclusion}) is left as it is`;
+      if (!sweepWants(paused, seal)) return `the seal (${seal?.conclusion}) is left as it is${older.join('')}`;
       const { status, message = '' } = await post(`/repos/${repo}/actions/jobs/${step.jobId}/rerun`);
       if (status === 403 && /already running/i.test(message)) return `run ${step.runId} is already re-running`;
       if (status !== 201) throw new Error(`could not re-run the seal job ${step.jobId}: HTTP ${status} ${message}`);
-      return `re-ran the ${seal.conclusion} seal job ${step.jobId} of run ${step.runId}`;
+      return `re-ran the ${seal.conclusion} seal job ${step.jobId} of run ${step.runId}${older.join('')}`;
     }
     if (poll >= polls) throw new Error(`${step.msg} after ${(polls * pollMs) / 60_000} min; push to the switch again`);
     await sleep(pollMs);

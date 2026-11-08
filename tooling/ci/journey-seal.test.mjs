@@ -1631,3 +1631,41 @@ test("rerunSealJob reads merge-seal.yml's pull_request_target runs when asked, a
   assert.match(posted, /jobs\/50\/rerun$/, msg);
   assert.match(paths[1], /runs\/5\/jobs/, 'the pull_request_target run, not the ci.yml one');
 });
+
+test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-check re-runs it with the newest', async () => {
+  const runs = [
+    { id: 30, event: 'pull_request_target', status: 'completed' },
+    { id: 31, event: 'pull_request_target', status: 'completed' },
+    { id: 32, event: 'pull_request_target', status: 'completed' },
+  ];
+  const jobs = {
+    30: [{ id: 300, name: SEAL, status: 'completed', conclusion: 'failure' }],
+    31: [{ id: 310, name: SEAL, status: 'completed', conclusion: 'success' }],
+    32: [{ id: 320, name: SEAL, status: 'completed', conclusion: 'skipped' }],
+  };
+  const get = async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] });
+  const posted = [];
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get,
+    post: async (p) => (posted.push(/jobs\/(\d+)\/rerun/.exec(p)[1]), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: 'pull_request_target',
+  });
+  // The skipped seal (an edit) is passed over; the newest real one (31) is re-run, and so is the older red one (30).
+  assert.deepEqual(posted, ['310', '300'], msg);
+  // Planted: without otherSeals, run 30's red seal would stay and block the head.
+  assert.ok(!posted.includes('320'), 'a skipped seal is never re-run');
+});
+
+test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (edited, base change only)', () => {
+  const text = readFileSync(new URL('../../.github/workflows/merge-seal.yml', import.meta.url), 'utf8');
+  assert.match(text, /types: \[opened, synchronize, reopened, edited\]/);
+  assert.match(text, /\n {4}if: github\.event\.action != 'edited' \|\| github\.event\.changes\.base\n/);
+  assert.match(text, /branches: \[main\]/);
+  // Planted: without `edited`, a retarget to main starts no seal run here.
+  assert.doesNotMatch(text.replace('reopened, edited', 'reopened'), /reopened, edited/);
+});

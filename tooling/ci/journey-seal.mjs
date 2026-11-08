@@ -1101,6 +1101,8 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
     const runId = String(run.id);
     if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
     const seal = (jobsByRun.get(runId) ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
+    // A skipped seal (merge-seal.yml on a title or body edit) holds no verdict: the run before it decides.
+    if (seal?.status === 'completed' && seal?.conclusion === 'skipped') continue;
     if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
       if (run.status === 'completed') continue;
       return { act: 'done', msg: 'the seal has not started; it will read the steps itself' };
@@ -1145,6 +1147,22 @@ export function rerunBlocker({ sha, pulls, headRuns, event = 'pull_request' }) {
 }
 
 /**
+ * The seal jobs of the other finished runs of one workflow on a head (`runs`, the newest `skip`ped): a close and reopen,
+ * or the same head pushed twice, leaves an older seal run beside the newest, and every `CI merge seal` on a head must
+ * pass (probe #7547), so each red one is re-run too (review 7552-R2). The newest seal job per run.
+ */
+export async function otherSeals({ repo, runs, skip, event, get }) {
+  const out = [];
+  for (const run of (runs ?? []).filter((r) => r?.event === event && r?.status === 'completed' && String(r.id) !== String(skip))) {
+    const jobs = (await get(`/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    if (!Array.isArray(jobs)) throw new Error(`run ${run.id}'s jobs: not a list`);
+    const seal = jobs.filter((j) => j?.name === SEAL && j?.status === 'completed').sort((a, b) => b.id - a.id)[0];
+    if (seal && seal.conclusion !== 'skipped') out.push({ runId: String(run.id), seal });
+  }
+  return out;
+}
+
+/**
  * Re-run the seal job on `sha` (recheckStep). `post`/`get` are the API (tests pass their own). `blocker` is read just
  * before each re-run (rerunBlocker): `skip` returns its reason and posts nothing; `wait` polls on inside SEAL_POLLS.
  */
@@ -1184,7 +1202,16 @@ export async function rerunSealJob({
       // AGENTS.md "Check, then merge" 6: the one 403 that only means wait. Any other 403 or 429 stops and is reported.
       if (status === 403 && /already running/i.test(message)) return `run ${step.runId} is already re-running (${message})`;
       if (status !== 201) throw new Error(`could not re-run the seal job ${step.jobId} of run ${step.runId}: HTTP ${status} ${message}`);
-      return `re-ran the seal job ${step.jobId} of run ${step.runId}`;
+      let said2 = `re-ran the seal job ${step.jobId} of run ${step.runId}`;
+      for (const o of await otherSeals({ repo, runs, skip: step.runId, event, get })) {
+        if (o.seal.conclusion === 'success') continue;
+        const r = await post(`/repos/${repo}/actions/jobs/${o.seal.id}/rerun`);
+        if (r.status === 403 && /already running/i.test(r.message ?? '')) continue;
+        if (r.status !== 201)
+          throw new Error(`could not re-run the older red seal job ${o.seal.id} of run ${o.runId}: HTTP ${r.status} ${r.message ?? ''}`);
+        said2 += `; and the older red seal job ${o.seal.id} of run ${o.runId}`;
+      }
+      return said2;
     }
     if (poll >= SEAL_POLLS)
       throw new Error(`${step.msg} after ${(SEAL_POLLS * SEAL_POLL_MS) / 60_000} min; re-run the seal once it finishes`);
