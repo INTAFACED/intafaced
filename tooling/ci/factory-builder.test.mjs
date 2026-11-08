@@ -480,7 +480,7 @@ export function workflowProblems(wf) {
   if (/secrets\.GITHUB_TOKEN|github\.token|GH_TOKEN|_PAT\b/.test(wf)) p.push('no step holds a GitHub token');
   if (/create-github-app-token|actions\/github-script/.test(wf)) p.push('no action mints or uses a GitHub token');
   const keySteps = steps(wf)
-    .filter((s) => /FACTORY_APP_KEY: /.test(s.text))
+    .filter((s) => /FACTORY_APP_KEY/.test(s.text))
     .map((s) => s.name)
     .join();
   if (keySteps !== 'The factory secrets are set,Read GitHub before the agent,Publish')
@@ -626,6 +626,7 @@ test('each planted fault in the workflow is caught', () => {
   const CLI_TOKEN = '          ACCOUNT: ${{ inputs.account }}\n          CLAUDE_TOKEN_ACCT1: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}\n';
   const USAGE =
     "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n";
+  const AGENT_ENV = '          FACTORY_OUT: /home/factory-agent/out\n';
   const faults = {
     'a push trigger': plant('on:\n  workflow_dispatch:\n', 'on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n'),
     'no main check': plant('if [ "$REF" != "refs/heads/main" ]; then', 'if false; then'),
@@ -679,8 +680,8 @@ test('each planted fault in the workflow is caught', () => {
       GATE_CHECKOUT,
       GATE_CHECKOUT.replace('persist-credentials: false', 'persist-credentials: true'),
     ),
-    'a GitHub token given to the agent': plant(CLI_TOKEN, `${CLI_TOKEN}          GH_TOKEN: \${{ secrets.FACTORY_GH_TOKEN }}\n`),
-    'the App key given to the agent': plant(CLI_TOKEN, `${CLI_TOKEN}          KEY: \${{ secrets.FACTORY_APP_KEY }}\n`),
+    'a GitHub token given to the agent': plant(AGENT_ENV, `${AGENT_ENV}          GH_TOKEN: \${{ secrets.FACTORY_GH_TOKEN }}\n`),
+    'the App key given to the agent': plant(AGENT_ENV, `${AGENT_ENV}          KEY: \${{ secrets.FACTORY_APP_KEY }}\n`),
     'the App key in another step': plant(
       "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n        env:\n          PATH: /usr/bin:/bin\n",
       "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n        env:\n          PATH: /usr/bin:/bin\n          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n",
