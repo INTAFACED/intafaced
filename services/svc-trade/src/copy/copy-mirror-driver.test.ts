@@ -37,10 +37,10 @@ const principal = {
 } as Principal;
 const fee: CopyFeeShareLaw = {
   published: true,
-  leaderShareBps: 1000,
+  leaderShareBps: 1337,
   earningsCapPerFollower: '100',
   decayRoundTrips: 0,
-  decayShareBps: 1000,
+  decayShareBps: 4321,
 };
 const jur: CopyJurisdictionLaw = { published: true, allowedRegions: ['SG'] };
 

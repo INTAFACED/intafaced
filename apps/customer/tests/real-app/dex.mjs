@@ -28,7 +28,7 @@ export const TOKEN_B = {
  * seeded TEST tokens, pools and router). Their wallet is connected to that node and their run's key is funded with
  * TEST ETH and TEST Token A and B when the run starts. Every other journey's wallet reaches no chain, as before.
  */
-export const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-04']);
+export const ON_TEST_CHAIN = new Set(['J-dex-protocol-02', 'J-dex-protocol-04', 'J-dex-protocol-10']);
 
 /** The stack's TEST chain: `{ chain: 'running', gate, gateUrl }` or `{ chain: 'absent' }` (no anvil on this stack). */
 export function testChain() {

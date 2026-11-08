@@ -46,7 +46,7 @@ describe('affiliates L3 freeze store (non-pay)', () => {
         at: new Date('2026-08-05T00:00:00.000Z'),
       },
       parent,
-      tiers: [{ hop: 0, rate: '0.10' }],
+      tiers: [{ hop: 0, rate: '0.130' }],
     });
     expect(rows.every((r) => r.beneficiaryId !== 'u-ref')).toBe(true);
   });

@@ -32,6 +32,7 @@ import { OperationLatency, registerOperationLatency } from './operation-latency.
 import { registerRoutes } from './router.js';
 import { createIdentityApprovalClient, parseOperatorIds, unwiredApprovalConsumer } from './action-approval-consume.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
+import { startExpirySweep } from './expiry-sweep.js';
 import { openAfterReplay } from './open-after-replay.js';
 import { createReplayHoldLookup, unwiredReplayHoldLookup } from './replay-hold.js';
 
@@ -202,11 +203,18 @@ if (boot.gate && !boot.gate.open) {
   );
 }
 
+// GTD/GTT rests leave at their expiry even in a quiet market, not only when the next order reaches the book.
+const expirySweep = startExpirySweep({
+  engine,
+  onError: (err) => app.log.error({ err }, 'expiry sweep pass failed; the next pass retries'),
+});
+
 // Drain rather than drop: an in-flight submission finishes, its events publish,
 // and the journal file descriptor closes cleanly before the process exits.
 // A rejected app.close() or bus.close() still closes the journal and exits.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, () => {
+    expirySweep.stop();
     void shutdownMatching({
       engine,
       app,

@@ -21,6 +21,30 @@ test.describe.configure({ mode: 'default' });
 const main = (page) => page.getByRole('main');
 const workspace = (page) => main(page).getByRole('region', { name: 'Session workspace' });
 
+/** A guardrail refusal code in the detail page's words (apps/customer agents-catalogue-copy, English); a code it does
+ * not word stays the code itself. */
+const REFUSAL_WORDS = {
+  session_closed: 'The session is closed',
+  action_limit: 'The session’s action budget is spent',
+  tool_not_declared: 'This agent may never use it',
+  module_not_allowed: 'Its module is not granted to this agent',
+  mode_unknown: 'No known permission mode allows it',
+  mode_forbids_write: 'The permission mode does not allow changes',
+  withdraw_scope_required: 'Withdrawals need a separate grant',
+  tool_call_limit: 'Its calls for this session are used up',
+  approval_required: 'It waits for your approval',
+  place_idempotency_required: 'An order needs its own request key',
+  place_key_conflict: 'That request key already belongs to another order',
+  task_not_allowed: 'This agent may not run that task',
+  'copy_intel.returns_board_refused': 'Copy intelligence never ranks leaders by returns; nothing was run or charged',
+  output_limit: 'It asked for more output than allowed',
+  spend_limit: 'Its worst case would pass the spend cap',
+  price_unset: 'No rate is published for this task',
+  funds_insufficient: 'Your available balance is below its worst case',
+  funds_unread: 'Your balance could not be read, so it did not start',
+};
+const refusalWords = (code) => REFUSAL_WORDS[code.replace(/^agents\./, '')] ?? code;
+
 /** The session #5 ran, from the run file; a later step after a failed #5 says so instead of using another session. */
 function ranSession() {
   const { sessionId } = agents.run.read();
@@ -151,8 +175,29 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
   await expect(tools.getByRole('row').filter({ hasText: 'trade.quote' })).toBeVisible();
   for (const header of ['Inputs', 'Outputs', 'Refusals'])
     await expect(tools.getByRole('columnheader', { name: header })).toBeVisible(UNBUILT);
-  // A tool that publishes no shape says so, rather than showing an empty cell.
-  for (const cell of await tools.getByRole('cell').all()) await expect(cell).toHaveText(/\S/);
+  // Each declared tool, held to its stored guardrail row by row: its name, and every refusal it can return in words, in
+  // the stored order. The stored guardrail publishes no input or output shape for a tool, so each such cell says so in
+  // words, never an empty cell.
+  const declared = stored?.result?.data?.tools ?? [];
+  expect(declared.length, JSON.stringify(stored).slice(0, 400)).toBeGreaterThan(0);
+  const rows = tools.getByRole('row').filter({ has: page.getByRole('cell') });
+  await expect(rows).toHaveCount(declared.length);
+  for (const [i, tool] of declared.entries()) {
+    expect(tool.refusals.length, `${tool.name} declares the refusals it can return`).toBeGreaterThan(0);
+    const cells = rows.nth(i).getByRole('cell');
+    await expect(cells).toHaveCount(6);
+    await expect(cells.nth(0)).toHaveText(tool.name);
+    await expect(cells.nth(1)).toHaveText(tool.mode);
+    await expect(cells.nth(2)).toHaveText(tool.requiresApproval ? 'Required' : 'None needed');
+    // agent.get publishes no input or output shape for any tool, so both cells say so in words.
+    expect(tool, `${tool.name} publishes no input shape`).not.toHaveProperty('inputs');
+    expect(tool, `${tool.name} publishes no output shape`).not.toHaveProperty('outputs');
+    await expect(cells.nth(3)).toHaveText('Not published by this agent');
+    await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    // Every refusal is worded, never left as its raw code.
+    for (const code of tool.refusals) expect(REFUSAL_WORDS[code.replace(/^agents\./, '')], `${tool.name}: ${code} has words`).toBeDefined();
+    await expect(cells.nth(5).getByRole('listitem')).toHaveText(tool.refusals.map(refusalWords));
+  }
   // The permission mode is the one svc-agents stores for Navigator, in its words: research only.
   expect(stored?.result?.data?.capacityMode, JSON.stringify(stored).slice(0, 400)).toBe('research_only');
   const mode = main(page).getByRole('term').filter({ hasText: 'Permission mode' });

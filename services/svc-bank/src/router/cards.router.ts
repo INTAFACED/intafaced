@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
-import type { CardRecord } from '../cards/card-service.js';
 import { assertSelf } from '../assert-self.js';
 import {
   issueCardBinding,
@@ -15,6 +14,7 @@ import {
   updateCardShippingBinding,
 } from '../step-up/money-out-fields.js';
 import { cardInactive } from '../cards/card-service.js';
+import { cardOutput, presentCard } from '../cards/card-view.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
@@ -48,55 +48,6 @@ export function createCardsRouter(c: BankRouterContext) {
    * deployment with no issuer at all cannot get this far: it refuses with
    * `bank.no_card_issuer` before a row is written.
    */
-  const cardOutput = z.object({
-    id: z.string(),
-    /** Which balance the card draws on. Every posting against it is in this asset. */
-    assetId: z.string(),
-    /**
-     * What merchants charge this card in (§18).
-     *
-     * Equal to `assetId` means no conversion happens and no rate is consulted.
-     * Different means every authorisation is quoted at the authorisation moment
-     * — and refuses by name where no rate can be got, which on a fiat settlement
-     * asset is every time, because this platform has no FX source.
-     */
-    settlementAssetId: z.string(),
-    /** The programme id, which is also the ledger rail label. */
-    issuer: z.string(),
-    /** TRUE MEANS THERE IS NO CARD. Never omitted, never defaulted. */
-    simulated: z.boolean(),
-    /** Four digits. Not a card number and not part of one. */
-    panTail: z.string(),
-    /** `inactive`: issued but not activated yet (BK-cissue-04); it declines every authorisation until it is. */
-    status: z.enum(['active', 'inactive', 'frozen', 'closed']),
-    cashbackBps: z.number().int(),
-    perAuthorizationLimit: amountString,
-    dailyLimit: amountString.nullable(),
-    monthlyLimit: amountString.nullable(),
-    cashLimit: amountString.nullable(),
-    online: z.boolean(),
-    contactless: z.boolean(),
-    atm: z.boolean(),
-    abroad: z.boolean(),
-    cardType: z.enum(['virtual', 'physical']),
-    shippingAddress: z
-      .object({
-        name: z.string(),
-        line1: z.string(),
-        line2: z.string().nullable(),
-        city: z.string(),
-        region: z.string().nullable(),
-        postalCode: z.string(),
-        country: z.string(),
-      })
-      .nullable(),
-    /** Single-use (1) or n-use: captured payments before it closes itself. NULL is no limit. */
-    usesAllowed: z.number().int().nullable(),
-    designId: z.string().nullable(),
-    deliverySpeed: z.string().nullable(),
-    replacesCardId: z.string().nullable(),
-    replacedByCardId: z.string().nullable(),
-  });
 
   const shippingAddressInput = z.object({
     name: z.string().trim().min(1).max(120),
@@ -110,38 +61,6 @@ export function createCardsRouter(c: BankRouterContext) {
       .trim()
       .regex(/^[A-Za-z]{2}$/),
   });
-
-  function presentCard(c: CardRecord) {
-    return {
-      id: c.id,
-      assetId: c.assetId,
-      settlementAssetId: c.settlementAssetId,
-      issuer: c.issuer,
-      simulated: c.simulated,
-      panTail: c.panTail,
-      status: presentStatus(c),
-      cashbackBps: c.cashbackBps,
-      perAuthorizationLimit: formatAmount(c.perAuthorizationLimit),
-      dailyLimit: c.dailyLimit == null ? null : formatAmount(c.dailyLimit),
-      monthlyLimit: c.monthlyLimit == null ? null : formatAmount(c.monthlyLimit),
-      cashLimit: c.cashLimit == null ? null : formatAmount(c.cashLimit),
-      online: c.online ?? true,
-      contactless: c.contactless ?? true,
-      atm: c.atm ?? true,
-      abroad: c.abroad ?? true,
-      cardType: c.cardType ?? 'virtual',
-      shippingAddress: c.shippingAddress ?? null,
-      usesAllowed: c.usesAllowed ?? null,
-      designId: c.designId ?? null,
-      deliverySpeed: c.deliverySpeed ?? null,
-      replacesCardId: c.replacesCardId ?? null,
-      replacedByCardId: c.replacedByCardId ?? null,
-    };
-  }
-
-  function presentStatus(c: CardRecord): 'active' | 'inactive' | 'frozen' | 'closed' {
-    return c.status === 'active' && cardInactive(c) ? 'inactive' : c.status;
-  }
 
   const deliveryOutput = z.object({
     cardId: z.string(),
