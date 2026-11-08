@@ -1158,9 +1158,13 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     );
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
+  // Hidden source maps beside the scripts, for the journeys' reach recorder (apps/customer/vite.config.ts).
   if (!override) {
     say('  build: customer app…');
-    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', { VITE_TEAM_URL: TEAM_TLS_ORIGIN });
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', {
+      VITE_TEAM_URL: TEAM_TLS_ORIGIN,
+      INTAFACED_SOURCEMAP: 'hidden',
+    });
   }
   writePrivate(
     P.buildStamp,
