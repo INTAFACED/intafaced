@@ -121,6 +121,7 @@ import {
   localPgBin,
   assertActiveLocalStack,
   processRecordMatches,
+  readKernelStart,
   readProcessIdentity,
   postgresProcessMatches,
   localPgOsUser,
@@ -525,7 +526,9 @@ function startProc(name, argv, env, cwd, extra = {}) {
   child.unref();
   fs.closeSync(fd);
   const procs = readProcs();
-  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), ...extra };
+  // The kernel's birth mark, read now while the child certainly lives, is what ownedAlive holds it to on Linux (#7488).
+  const kernelStart = readKernelStart(child.pid) ?? undefined;
+  procs[name] = { pid: child.pid, argv, startedAt: new Date().toISOString(), kernelStart, ...extra };
   writeProcs(procs);
   return child.pid;
 }
