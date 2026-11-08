@@ -26,10 +26,32 @@ test('the command line: journeys, per-journey areas, --area, --dry-run', () => {
 test("a journey's area: its own, then --area, then its module", () => {
   const { runs } = plan(parseArgs(['J-identity-13', 'J-wallet-05=payments']), CATALOG);
   assert.deepEqual(runs, [
-    { journey: 'J-identity-13', area: 'identity' },
-    { journey: 'J-wallet-05', area: 'payments' },
+    { journey: 'J-identity-13', area: 'identity', account: 'acct1' },
+    { journey: 'J-wallet-05', area: 'payments', account: 'acct3' },
   ]);
-  assert.deepEqual(plan(parseArgs(['--area', 'x', 'J-identity-13']), CATALOG).runs, [{ journey: 'J-identity-13', area: 'x' }]);
+  assert.deepEqual(plan(parseArgs(['--area', 'x', '--account', 'acct1', 'J-identity-13']), CATALOG).runs, [
+    { journey: 'J-identity-13', area: 'x', account: 'acct1' },
+  ]);
+});
+
+test("a journey's account: --account for all, else the accounts in turn, never the CI review's", () => {
+  const four = [
+    { id: 'J-a-01', module: 'a' },
+    { id: 'J-a-02', module: 'a' },
+    { id: 'J-a-03', module: 'a' },
+    { id: 'J-a-04', module: 'a' },
+  ];
+  assert.deepEqual(
+    plan(parseArgs(['J-a-01', 'J-a-02', 'J-a-03', 'J-a-04']), four).runs.map((r) => r.account),
+    ['acct1', 'acct3', 'acct4', 'acct1'],
+  );
+  assert.deepEqual(
+    plan(parseArgs(['--account', 'acct4', 'J-a-01', 'J-a-02']), four).runs.map((r) => r.account),
+    ['acct4', 'acct4'],
+  );
+  assert.match(parseArgs(['--account', 'desktop', 'J-a-01']).error, /--account is one of acct1, acct3, acct4/);
+  assert.match(parseArgs(['--account']).error, /needs a value/);
+  assert.match(parseArgs(['J-a-01']).error, /name the account of a lone journey/, 'a rotation of one would always pick acct1');
 });
 
 test('one bad journey starts none', () => {
@@ -40,14 +62,14 @@ test('one bad journey starts none', () => {
     [['J-identity-13;rm -rf'], /not a journey id/],
     [['J-identity-13=Bad Area'], /area/],
   ]) {
-    const p = plan(parseArgs(argv), CATALOG);
+    const p = plan(parseArgs(['--account', 'acct1', ...argv]), CATALOG);
     assert.match(p.error ?? '', why, argv.join(' '));
     assert.equal(p.runs, undefined);
   }
 });
 
 test('each journey is one gh workflow run of builder.yml on main, arguments never through a shell', () => {
-  assert.deepEqual(ghArgs({ journey: 'J-identity-13', area: 'identity' }), [
+  assert.deepEqual(ghArgs({ journey: 'J-identity-13', area: 'identity', account: 'acct3' }), [
     'workflow',
     'run',
     'builder.yml',
@@ -59,6 +81,8 @@ test('each journey is one gh workflow run of builder.yml on main, arguments neve
     'journey=J-identity-13',
     '-f',
     'area=identity',
+    '-f',
+    'account=acct3',
   ]);
   const calls = [];
   const r = dispatch(
@@ -96,6 +120,9 @@ test('a 403 or 429 stops the batch; any other failure is reported and the rest g
 test('--dry-run against the real journeys.json prints the commands and starts nothing', () => {
   const script = fileURLToPath(new URL('./dispatch.mjs', import.meta.url));
   const root = fileURLToPath(new URL('../..', import.meta.url));
-  const out = execFileSync(process.execPath, [script, '--dry-run', 'J-identity-13'], { cwd: root, encoding: 'utf8' });
-  assert.equal(out, 'gh workflow run builder.yml -R INTAFACED/intafaced --ref main -f journey=J-identity-13 -f area=identity\n');
+  const out = execFileSync(process.execPath, [script, '--dry-run', '--account', 'acct1', 'J-identity-13'], { cwd: root, encoding: 'utf8' });
+  assert.equal(
+    out,
+    'gh workflow run builder.yml -R INTAFACED/intafaced --ref main -f journey=J-identity-13 -f area=identity -f account=acct1\n',
+  );
 });

@@ -20,6 +20,7 @@ Finished is the Operation Zero definition: every build row of all 21 modules com
 - **Front end.** Build on the default design tokens. Look choices go to the owner in one batch per phase, as two or three rendered options side by side; without an answer the default stays.
 - **Outside services.** A slice whose rail, vendor or chain is missing is still built in full; only the outside call refuses, with the allowlisted notice.
 - **Deferred steps.** A step whose Slices cell in the journey map says DEFERRED leaves the done count, and its cell names the decision; a slice that only deferred steps name gets order 0 (in no live journey). Deferred on 6 Nov 2026: J-agents-12 #2, opening an agent run with an API key, while the owner decision of 29 Oct stands that agents run only from a person's own session, never from API keys or delegated tokens (the outside-assistant journey J-agents-21 is the separate, capped use the owner added on 6 Nov); and J-copy-bots-otc-01 #6, accepting the copy disclosure, under the owner decision of 2026-10-27 (no legal or compliance work until launch prep), which the journey map already said and the index had missed. CB-copy-22, that step's only slice, so goes to order 0.
+- **Later journeys (custody).** A journey whose map has a `Later: custody` line works only while INTAFACED holds customer money (owner decision of 7 Nov 2026: no customer money at launch). It stays live and in finished, never sits at Order 1, and ranks after every launch journey, so a slice only later journeys need shows `journey order 4` in the lane queues below. `node tooling/scripts/roadmap.mjs --finish-line` prints every live journey in the order to build it.
 
 ## Decisions many slices sit on
 
@@ -58,7 +59,7 @@ Done is defined by 448 journeys (2952 steps) in `modules/<module>/acceptance/jou
 | copy-bots-otc  | 30       | 0       | 18      | 12      | 205   | 1                   |
 | dex-protocol   | 30       | 0       | 19      | 11      | 250   | 0                   |
 | derivatives    | 28       | 15      | 5       | 8       | 199   | 10                  |
-| support-public | 22       | 1       | 14      | 7       | 171   | 14                  |
+| support-public | 22       | 1       | 15      | 6       | 171   | 14                  |
 | agents         | 21       | 4       | 9       | 8       | 134   | 3                   |
 | identity       | 21       | 7       | 9       | 5       | 133   | 1                   |
 | p2p            | 21       | 0       | 16      | 5       | 117   | 0                   |
