@@ -670,7 +670,11 @@ test('each planted fault in the workflow is caught', () => {
   const AGENT_ENV = '          FACTORY_OUT: /home/factory-agent/out\n';
   const faults = {
     'a push trigger': plant('on:\n  workflow_dispatch:\n', 'on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n'),
-    'no main check': plant('if [ "$REF" != "refs/heads/main" ]; then', 'if false; then'),
+    'no main check in the key job': plant('if [ "$REF" != "refs/heads/main" ]; then', 'if false; then'),
+    'no main check in the gate': (() => {
+      const at = WF.lastIndexOf('if [ "$REF" != "refs/heads/main" ]; then');
+      return `${WF.slice(0, at)}if false; then${WF.slice(at + 'if [ "$REF" != "refs/heads/main" ]; then'.length)}`;
+    })(),
     'a missing secret only warns': plant(
       '            exit 1\n          fi\n\n      - uses: actions/checkout',
       '            exit 0\n          fi\n\n      - uses: actions/checkout',
@@ -782,9 +786,18 @@ test('each planted fault in the workflow is caught', () => {
     'an unpinned model': WF.replace(/"--model","[a-z0-9-]+"/, '"--model","sonnet"'),
     'another effort': plant('"--effort","medium"', '"--effort","high"'),
     'the CLI secret unchecked': plant('          if [ -z "$CLAUDE_FACTORY_TOKEN" ]; then\n', '          if false; then\n'),
-    'the build in the shared environment': plant('    environment: factory-${{ inputs.account }}\n', '    environment: factory\n'),
-    'one account for every builder': plant('    environment: factory-${{ inputs.account }}\n', '    environment: factory-acct1\n'),
-    'the build off any environment': plant('    environment: factory-${{ inputs.account }}\n', ''),
+    'the build in the shared environment': plant(
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory\n',
+    ),
+    'one account for every builder': plant(
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-acct1\n',
+    ),
+    'the build off any environment': plant(
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory-${{ inputs.account }}\n',
+      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n',
+    ),
     'the CI review token': plant(CLI_TOKEN, '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n'),
     'another secret on the agent runner': plant(CLI_TOKEN, `${CLI_TOKEN}          OTHER: \${{ secrets.CLAUDE_TOKEN_ACCT1 }}\n`),
     'the token named from the input': plant(
