@@ -322,7 +322,12 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   // 42187412745), so the tape is read newest first with no time cut, never only the last two sweeps.
   const tape = await (await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=500`)).json();
   expect(Array.isArray(tape) && tape.length > 0, 'the TEST tape has trades').toBe(true);
-  const upTo = tape.filter((t) => t.timestamp <= onLast.at + 5_000).sort((a, b) => b.timestamp - a.timestamp);
+  // "Latest" is the tape's own order, the match sequence (a print's id), which is how the ticker picks its last
+  // (svc-trade publicTape: ORDER BY sequence DESC). A print's time is when its row was written, not its place in the
+  // sequence, so the latest by time can be another print (main run 42447632070: the alert fired at 65153.12 and the
+  // latest print by time was 65152.95). Never re-sort by time.
+  for (const t of tape) expect(String(t.id), 'a tape print is identified by its match sequence').toMatch(/^\d+$/);
+  const upTo = tape.filter((t) => t.timestamp <= onLast.at + 5_000).sort((a, b) => Number(b.id) - Number(a.id));
   // The latest print at the sweep, and any print in the few seconds around it (the read is a moment after the sweep's time).
   const prints = upTo.filter((t, i) => i === 0 || t.timestamp >= onLast.at - 5_000).map((t) => fromCents(cents(String(t.price))));
   expect(prints, `the last-trade alert fired at ${onLast.price}, a print on the tape`).toContain(fromCents(cents(onLast.price)));
