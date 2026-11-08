@@ -273,9 +273,10 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
     expect(position[field], field).toMatch(/^\d+(\.\d+)?$/);
   }
   expect(position.unrealizedPnl).toMatch(/^-?\d+(\.\d+)?$/);
-  // Shown as the exact decimal the service sends (to eight places): the whole number and the cents must match.
-  const [whole, cents] = position.liquidationPrice.split('.');
-  await expect(row).toContainText(`${Number(whole).toLocaleString('en-US')}.${(cents ?? '').padEnd(2, '0').slice(0, 2)}`);
+  // Shown as the exact decimal the service sends, digit for digit, with the whole number grouped (the room's
+  // displayAmount). Padding to two places failed whenever the service sent one, as 52685.6 (run 42446058427, shard 17).
+  const [whole, fraction] = position.liquidationPrice.split('.');
+  await expect(row).toContainText(`${Number(whole).toLocaleString('en-US')}${fraction ? `.${fraction}` : ''}`);
 });
 
 test(`${J} #10 closes 40 percent, then the rest`, async ({ page }) => {
