@@ -1,0 +1,12 @@
+name: Seal name probe (green, last)
+# Throwaway probe for INTAFACED/project-state#1574 (C3 piece 2): finishes green after every other job of this name.
+on:
+  pull_request:
+permissions: {}
+jobs:
+  probe:
+    name: CI merge seal
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - run: sleep 1800

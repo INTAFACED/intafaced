@@ -1,0 +1,13 @@
+name: Seal name probe (red)
+# Throwaway probe for INTAFACED/project-state#1574 (C3 piece 2): does a red job named like a required check block the
+# merge when another job of that name is green? Never merged; the pull request is closed after reading the result.
+on:
+  pull_request:
+permissions: {}
+jobs:
+  probe:
+    name: CI merge seal
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - run: exit 1
