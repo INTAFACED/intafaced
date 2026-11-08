@@ -708,3 +708,38 @@ test('the pass history counts a pass only on the retry: an unbuilt step that pas
   assert.match(v.red.map((r) => r.why).join('\n'), /called unbuilt, but passed on main in run 101/);
   assert.deepEqual(run(report(ok('J-a-01 #1'), bad('J-a-01 #2'))).red, [], 'without that pass, the unbuilt entry holds (the control)');
 });
+
+test('a step id two files share: the run lists both files, and a targeted run of one of them still judges the step', () => {
+  // judge's inScope reads the step-to-file map, which keeps one file a step. It only decides a step the newest run has no
+  // state for, and a run that ran either file has that step's state, so a shared id is never judged missing by it.
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const rep = (...specs) => readReport({ suites: [{ specs }] });
+  const named2 = rep(
+    spec("J-w-04 #7 (the bank's half)", 'expected', 'J-w-04.pw.mjs'),
+    spec("J-w-04 #7 (identity's half)", 'expected', 'J-w-04-lock.pw.mjs'),
+  );
+  assert.deepEqual(named2.ran, ['J-w-04-lock.pw.mjs', 'J-w-04.pw.mjs']);
+  assert.equal(named2.files['J-w-04#7'], 'J-w-04.pw.mjs', 'the map keeps the first file only');
+  const onlyLock = rep(spec("J-w-04 #7 (identity's half)", 'expected', 'J-w-04-lock.pw.mjs'));
+  const v = judge({
+    newest: onlyLock,
+    named: named2,
+    baseline: { run: { number: 1 }, steps: [] },
+    money: { 'J-w-04#7': false },
+    target: new Set(onlyLock.ran),
+  });
+  assert.deepEqual([v.red, v.failing], [[], 0], 'run in the other file, the step passed and nothing is missing');
+  const lockFails = rep(spec("J-w-04 #7 (identity's half)", 'unexpected', 'J-w-04-lock.pw.mjs'));
+  const red = judge({
+    newest: lockFails,
+    named: named2,
+    baseline: { run: { number: 1 }, steps: [] },
+    money: { 'J-w-04#7': false },
+    target: new Set(lockFails.ran),
+  });
+  assert.deepEqual(
+    red.red.map((r) => r.step),
+    ['J-w-04#7'],
+    'and a failure there is red',
+  );
+});

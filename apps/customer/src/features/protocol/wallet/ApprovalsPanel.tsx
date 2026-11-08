@@ -113,6 +113,7 @@ function Allowances({ owner, headers }: { owner: string; headers: string[] }) {
       facts: [
         { label: t('revokeFactToken'), value: row.token },
         { label: t('revokeFactSpender'), value: row.spender },
+        { label: t('revokeFactAmount'), value: t('revokeFactAmountValue') },
       ],
     });
     if (result.status !== 'sent') {

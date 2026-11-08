@@ -37,6 +37,7 @@ export interface CopyNotices {
 /** The skips the follower did not choose, so they are told. */
 const SKIPS_TOLD: ReadonlySet<CopySkipReason> = new Set<CopySkipReason>([
   'lead_stopped',
+  'platform_paused',
   'risk_control',
   'insufficient_funds',
   'max_copy_total',

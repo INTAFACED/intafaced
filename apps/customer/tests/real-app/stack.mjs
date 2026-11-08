@@ -104,14 +104,136 @@ export function journeyState(id) {
   };
 }
 
-/** A stack tool, as `node tooling/scripts/<script> ...args`; returns its output. */
-export function tool(script, ...args) {
-  return execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
+/** How long a stack tool may run. */
+const TOOL_CAP_MS = 120_000;
+/** How much of a tool's shown output its error keeps, from the end, so a timed-out restart says where it stood. */
+const OUTPUT_TAIL = 4_000;
+
+/**
+ * The gates script's name, kept out of the function bodies below (`toolError`'s scoped-session rule): journey-world.mjs
+ * counts a helper whose body names a stack script as running the stack's tools.
+ */
+const GATES_SCRIPT = 'local-test-gates.mjs';
+
+/**
+ * The only lines of a tool's output that a failure shows, by shape (an allow-list: anything else is withheld and only
+ * counted, so an output nobody foresaw shows nothing). A failure's text reaches the public job log and report.
+ *   - a status line, `  matching: stopped`, `test market: ok`, `  host dispatch (TEST): app … served`;
+ *   - a row of the stack's health table;
+ *   - a typed refusal, `refusing [code]: …`;
+ *   - the header of a service that exited during start or never became healthy. The log tail that the stack prints
+ *     under an "exited during start" header is never shown: every line after it is withheld.
+ * A line that names a credential (NAMES_CREDENTIAL) is withheld whatever its shape.
+ */
+const SHOWN = [
+  /^ {0,4}[a-z][A-Za-z0-9 ,()/'._-]{0,48}: \S/,
+  /^ {2}(SERVICE|svc-[a-z0-9-]+|postgres|nats|chain \(TEST\)|video-store|rail-statements|customer|invitation|apex|admin|team-tls) +\S/,
+  /^ *refusing \[[a-z0-9._-]+\]/,
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9-]* did not become healthy at \S+ within \d+s\b/,
+  /^INTAFACED local test stack$/,
+  /^LOCAL TEST GATES — /,
+];
+/**
+ * The headers under which a tool prints a raw log tail, each as far as it is shown; every line after one is withheld.
+ * A stack script's `fail()` writes `local-test-<script>: <message>` (local-test-stack.mjs `fail`, and the same in
+ * -gates, -market, -world), so each header takes that prefix or none. The emitters (#7465 review round 2):
+ *   - local-test-stack.mjs `waitHealthy`: `<service> exited during start. Log <path>:` and 20 log lines;
+ *   - local-test-stack.mjs `startTeamTls`: `team-tls exited during start. Log <path>` (no tail; the header holds it);
+ *   - local-test-stack.mjs `pnpmRun`: `<label> failed (exit <n>). Log: <path>` and 25 log lines;
+ *   - local-test-market.mjs `start --wait`: `test market starting (pid <n>). Watch: …` and 6 log lines, on stdout.
+ */
+const TAIL_HEADERS = [
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9-]* exited during start\b/,
+  /^ *(?:local-test-[a-z]+: )?[a-z][a-z0-9 ()/._-]* failed \(exit [^)]*\)\. Log\b/,
+  /^ *(?:local-test-[a-z]+: )?test market starting \(pid \d+\)/,
+];
+/** A line naming a credential is withheld whatever its shape: a short value beside it would not be masked as opaque. */
+const NAMES_CREDENTIAL = /password|passphrase|secret|cookie|bearer|authori[sz]ation|private[ _-]?key|api[ _-]?key|totp/i;
+/** A run of 24 or more base64, base64url or hex characters (a generated key, a token, a hash) inside a shown line. */
+const OPAQUE = /[A-Za-z0-9+/_=-]{24,}/g;
+const SHOWN_WIDTH = 160;
+
+/** One line as shown: opaque runs masked, then cut to SHOWN_WIDTH characters. */
+const shownLine = (line) => {
+  const masked = line.replace(OPAQUE, '[withheld]');
+  return masked.length > SHOWN_WIDTH ? `${masked.slice(0, SHOWN_WIDTH)}…` : masked;
+};
+
+/** What of one output stream a failure may show: the allow-listed lines (masked and cut) and how many were withheld. */
+export function shownOutput(text) {
+  const shown = [];
+  let withheld = 0;
+  let inTail = false;
+  for (const line of String(text ?? '').split('\n')) {
+    if (line.trim() === '') continue;
+    if (inTail) {
+      withheld += 1;
+      continue;
+    }
+    const header = TAIL_HEADERS.map((re) => re.exec(line)).find(Boolean);
+    if (header) {
+      // The header only, as far as it matched: what follows on the line is the log's path, then its tail.
+      shown.push(shownLine(header[0]));
+      inTail = true;
+    } else if (!NAMES_CREDENTIAL.test(line) && SHOWN.some((re) => re.test(line))) shown.push(shownLine(line));
+    else withheld += 1;
+  }
+  let kept = shown;
+  while (kept.length > 1 && kept.join('\n').length > OUTPUT_TAIL) kept = kept.slice(1);
+  return { text: kept.join('\n'), lines: kept.length, withheld: withheld + (shown.length - kept.length) };
+}
+
+/** A stream that is never shown: nothing of it, only how many lines it had. */
+const withheldAll = (text) => ({
+  text: '',
+  lines: 0,
+  withheld: String(text ?? '')
+    .split('\n')
+    .filter((l) => l.trim() !== '').length,
+});
+
+/**
+ * The only error `tool` throws: a new Error, never Node's, whose message, `stdout` and `stderr` hold only the shown
+ * output (`shownOutput`). Node's own message appends a failed command's raw stderr, and its error keeps the raw output,
+ * so neither is ever thrown or kept as a cause. `status`, `signal` and `code` are Node's.
+ */
+export function toolError(raw, script, args) {
+  // `gates scoped-session` prints only a TEST console session's cookies: its stdout is never shown, even on a failure.
+  const out = script === GATES_SCRIPT && args[0] === 'scoped-session' ? withheldAll(raw?.stdout) : shownOutput(raw?.stdout);
+  const err = shownOutput(raw?.stderr);
+  const status = typeof raw?.status === 'number' ? raw.status : null;
+  const code = raw?.code ?? raw?.error?.code ?? null;
+  // A timeout reads as Node said it ("spawnSync <node> ETIMEDOUT"), which is how a runner error is told apart.
+  const why =
+    code === 'ETIMEDOUT'
+      ? `timed out after ${TOOL_CAP_MS / 1000} s (spawnSync ${process.execPath} ETIMEDOUT)`
+      : status !== null
+        ? `exit ${status}`
+        : `failed (${code ?? raw?.signal ?? 'no exit status'})`;
+  const block = (name, s) =>
+    `  its ${name} (${s.lines} line(s) shown, ${s.withheld} withheld):${s.text ? `\n${s.text.replace(/^/gm, '    ')}` : ''}`;
+  const error = new Error(`tool ${shownLine([script, ...args].join(' '))} ${why}\n${block('stdout', out)}\n${block('stderr', err)}`);
+  return Object.assign(error, { status, signal: raw?.signal ?? null, code, stdout: out.text, stderr: err.text });
+}
+
+const run = (script, args, timeout) =>
+  execFileSync(process.execPath, [path.join(ROOT, 'tooling/scripts', script), ...args], {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 120_000,
+    timeout,
   });
+
+/**
+ * A stack tool, as `node tooling/scripts/<script> ...args`; returns its output. A failure, a timeout included, carries
+ * the tool's own stdout and stderr.
+ */
+export function tool(script, ...args) {
+  try {
+    return run(script, args, TOOL_CAP_MS);
+  } catch (error) {
+    throw toolError(error, script, args);
+  }
 }
 
 /**

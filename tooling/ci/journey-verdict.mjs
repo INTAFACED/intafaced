@@ -83,7 +83,10 @@ const MAIN_REF = 'refs/heads/main';
 const byStep = (a, b) => a.localeCompare(b, 'en', { numeric: true });
 
 /**
- * Each journey step in a Playwright JSON report: { states: { step: "passed"|"flaky"|"failed"|"skipped" }, files: { step: file } }.
+ * Each journey step in a Playwright JSON report: { states: { step: "passed"|"flaky"|"failed"|"skipped" }, files: { step: file },
+ * ran: [every journey file the report has a step from], retried }. `files` keeps one file a step, so it can't say which
+ * files ran when two share a step id (J-wallet-04 #7 is in J-wallet-04.pw.mjs and J-wallet-04-security-lock.pw.mjs);
+ * `ran` does.
  * Main trust's rule (post-merge-trust.mjs stepStates): a step with any test that did not end expected or flaky failed,
  * and a failing duplicate title never hides behind a passing one. A step whose tests all passed, at least one only on its
  * retry, is "flaky": a test Playwright calls flaky counts only when an attempt failed (or timed out) and a later attempt
@@ -100,6 +103,7 @@ export function readReport(report) {
   const states = {};
   const files = {};
   const retried = new Set();
+  const ran = new Set();
   const walk = (suite, file) => {
     const here = suite.file ?? file;
     for (const spec of suite.specs ?? []) {
@@ -119,12 +123,13 @@ export function readReport(report) {
       const had = states[key];
       states[key] = ['failed', 'flaky', 'passed'].find((s) => had === s || state === s) ?? 'skipped';
       const f = spec.file ?? here;
+      if (f) ran.add(String(f).split('/').pop());
       if (f && !files[key]) files[key] = String(f).split('/').pop();
     }
     for (const child of suite.suites ?? []) walk(child, here);
   };
   for (const suite of report?.suites ?? []) walk(suite, suite.file);
-  return { states, files, retried };
+  return { states, files, ran: [...ran].sort(), retried };
 }
 
 /** The money rule (regression-issue-state.md "Money"; the same as project-state ready-journeys.mjs moneyRule). */

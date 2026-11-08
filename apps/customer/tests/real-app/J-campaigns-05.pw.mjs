@@ -471,6 +471,9 @@ test(`${J} #7 my relationship screen shows the referrer and the date; with no fe
 
   // While it lasts, a fee the friend pays earns the referrer a commission: the commission engine's dry run (it writes
   // nothing and posts nothing) under a TEST simulation tier, since the owner's rates are blank, names the referrer.
+  // LOCAL TEST ONLY, not an owner decision: the dry run's one simulation tier, a synthetic rate. On a fee of 1 the
+  // commission is exactly the rate, so the expected amount is built from it.
+  const SIMULATION_RATE = '0.1234';
   const { ctx, ops } = await operators();
   const friendApi = await api(friend);
   const friendId = friendApi.userId;
@@ -484,14 +487,14 @@ test(`${J} #7 my relationship screen shows the referrer and the date; with no fe
           userId: friendId,
           feeAmount: '1',
           asset: 'USDT',
-          tiers: [{ hop: 0, rate: '0.1' }],
+          tiers: [{ hop: 0, rate: SIMULATION_RATE }],
         },
         await ops.a.tradeOpsToken(),
       ),
     );
   const before = await dryRun('before');
   expect(before.data?.rows, JSON.stringify(before)).toHaveLength(1);
-  expect(before.data.rows[0]).toMatchObject({ beneficiaryId: referrerId, payerId: friendId, hop: 0, commissionAmount: '0.1' });
+  expect(before.data.rows[0]).toMatchObject({ beneficiaryId: referrerId, payerId: friendId, hop: 0, commissionAmount: SIMULATION_RATE });
 
   // An hour passes for the friend with no fee: the sweep ends the relationship once.
   expect(tool('local-test-gates.mjs', 'age', friend.handle, '3700')).toContain('LOCAL TEST');

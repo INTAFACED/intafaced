@@ -686,3 +686,67 @@ export const quantQuotaProfileSchema = z.object({
   profile: z.string(),
   limits: z.array(z.object({ resource: quantQuotaResourceSchema, limit: quotaWhole.nullable(), setAt: z.string().nullable() })),
 });
+
+/**
+ * Paper runs on the exchange's own prices (AL-live-01). A paper run keeps going until it is stopped; its fills,
+ * position and equity are derived on every read from the exchange's own closed candles since it started, by the same
+ * engine and costs as a backtest. Our own venue data is the only feed that starts; an outside market feed is listed and
+ * refuses `feed.market` (not connected in this build). Nothing here posts to a ledger: every figure is paper.
+ */
+export const QUANT_PAPER_FEEDS = ['own_venue', 'outside_market'] as const;
+export type QuantPaperFeed = (typeof QUANT_PAPER_FEEDS)[number];
+/** The published page size of the paper run list. */
+export const QUANT_PAPER_LIST_MAX = 50;
+
+/**
+ * `paper.start`. The run key is `algo:paper:<strategyId>:v<version>:<ordinal>`, where the ordinal is the count of that
+ * version's paper runs the screen read when the start dialog opened: a retry after a lost reply reads the same run.
+ */
+export const quantPaperStartInputSchema = z.object({
+  strategyId: z.string().min(1).max(128),
+  strategyVersion: z.number().int().positive(),
+  cash: z.string().max(40),
+  holdings: z.array(z.object({ symbol: z.string().max(32), qty: z.string().max(40) })).max(20),
+  feed: z.string().max(40),
+  costs: z.object({ feeRole: z.string().max(10), slippageBps: z.string().max(20), delayBars: z.string().max(5) }),
+  ordinal: z.number().int().nonnegative(),
+});
+export type QuantPaperStartInput = z.infer<typeof quantPaperStartInputSchema>;
+
+export const quantPaperRunSummarySchema = z.object({
+  runId: z.string(),
+  strategyId: z.string(),
+  strategyVersion: z.number().int().positive(),
+  state: z.enum(['running', 'stopped']),
+  startedAt: z.string(),
+  stoppedAt: z.string().nullable(),
+  cash: decimalText,
+  feed: z.literal('own_venue'),
+});
+export type QuantPaperRunSummary = z.infer<typeof quantPaperRunSummarySchema>;
+
+export const quantPaperListSchema = z.object({
+  runs: z.array(quantPaperRunSummarySchema),
+  /** How many paper runs each version of the strategy has, for the next start's ordinal. */
+  counts: z.array(z.object({ strategyVersion: z.number().int().positive(), runs: z.number().int().nonnegative() })),
+});
+
+/** `paper.get`: one paper run, its settings and what it did, every figure labelled paper. */
+export const quantPaperRunSchema = quantPaperRunSummarySchema.extend({
+  holdings: z.array(z.object({ symbol: z.string(), qty: decimalText })),
+  costs: z.object({ feeRole: z.enum(QUANT_FEE_ROLES), slippageBps: decimalText, delayBars: z.number().int().nonnegative() }),
+  symbol: z.string(),
+  barSize: z.string(),
+  /** Whether a closed bar has traded since the start. Before one has, nothing fills: no price is carried over. */
+  priced: z.boolean(),
+  /** The end of the newest closed bar read, or null before the first. */
+  pricedThrough: z.string().nullable(),
+  trades: z.array(quantBacktestTradeSchema),
+  equity: z.array(z.object({ ts: z.string(), equity: decimalText })),
+  position: z.object({ symbol: z.string(), qty: decimalText }),
+  totals: z.object({ startCash: decimalText, fees: decimalText, net: decimalText, endEquity: decimalText }),
+  simulated: z.literal(true),
+  live: z.literal(false),
+  claimLabel: z.literal('Paper — not live performance'),
+});
+export type QuantPaperRun = z.infer<typeof quantPaperRunSchema>;

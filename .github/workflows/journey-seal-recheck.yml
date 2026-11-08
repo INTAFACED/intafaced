@@ -19,9 +19,17 @@ on:
 
 permissions: {}
 
-# No concurrency group: a group would let an event whose job is then skipped (an edit of the base branch only) cancel a
-# re-check that is waiting out a running seal, and GitHub keeps one pending run per group, dropping the rest. Two
-# re-checks on one head each re-run the seal once it is finished; the second reads the same state.
+# One waiting re-check per head for finished journeys runs (2026-11-07): on 7 Nov at 11:01 UTC, 32 re-checks were queued,
+# 21 of them repeats of a head already queued, each holding a runner up to 25 minutes. A finished journeys run on a pull
+# request's head joins that head's group: a running re-check is never cancelled (cancel-in-progress false), and GitHub
+# keeps one waiting run per group, so a newer finished run replaces the waiting one, which would have read an older state;
+# the one that runs reads every run finished before it. Every other event gets a group of its own (its run id), so it
+# never displaces a waiting re-check: an event whose job is skipped (a main or fork run, an edit of neither title nor
+# body), and every title or body edit, since the script reads that edit's old title (OLD_TITLE).
+# tooling/ci/workflow-concurrency.test.mjs holds this.
+concurrency:
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' && github.event.workflow_run.head_repository.full_name == github.repository) && format('journey-seal-recheck-head-{0}', github.event.workflow_run.head_sha) || format('journey-seal-recheck-run-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 jobs:
   recheck:
@@ -49,4 +57,5 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OLD_TITLE: ${{ github.event.changes.title.from }}
+          OLD_BODY: ${{ github.event.changes.body.from }} # an env value, never part of the script text
         run: node tooling/ci/journey-seal.mjs --recheck

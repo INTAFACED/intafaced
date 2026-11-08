@@ -46,7 +46,7 @@
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
- *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
+ *   GH_TOKEN=... REPO=... SHA=... [PR_NUMBER=...] [OLD_TITLE=...] [OLD_BODY=...] node tooling/ci/journey-seal.mjs --recheck   (re-runs the seal)
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -112,15 +112,13 @@ export function titleProblems(title) {
 }
 
 /**
- * The steps a body exempts, and the exemption-like lines it can't accept: { steps: Set, problems: [line] }. One fence
- * tracker over the raw lines (a fence opens at any indent, so one inside a list counts) and HTML comments stripped; a
- * line inside either is code or hidden and exempts nothing. Outside them, a `Left-or-replaced:` line at column 0 whose
- * rest is only full step ids (`J-bank-13 #1 #3, J-bank-14 #2`) exempts those steps; every other line that looks like an
- * exemption is a problem, and so is an exemption line with anything else after the colon or a range that can't be read.
+ * A pull request body's lines that are neither inside a fenced code block nor inside an HTML comment, as written (not
+ * trimmed). One fence tracker over the raw lines (a fence opens at any indent, so one inside a list counts); HTML comments
+ * are blanked first. The strict body lines (`Left-or-replaced:` here, `Journey-retired:` in journey-list-guard.mjs) are
+ * read only from these, so a line in code or hidden in a comment never counts.
  */
-export function exemptions(body) {
-  const steps = new Set();
-  const problems = [];
+export function linesOutsideCode(body) {
+  const out = [];
   let fence = null;
   for (const line of String(body ?? '')
     .replace(/\r/g, '')
@@ -135,6 +133,22 @@ export function exemptions(body) {
       fence = f[1];
       continue;
     }
+    out.push(line);
+  }
+  return out;
+}
+
+/**
+ * The steps a body exempts, and the exemption-like lines it can't accept: { steps: Set, problems: [line] }. One fence
+ * tracker over the raw lines (a fence opens at any indent, so one inside a list counts) and HTML comments stripped; a
+ * line inside either is code or hidden and exempts nothing. Outside them, a `Left-or-replaced:` line at column 0 whose
+ * rest is only full step ids (`J-bank-13 #1 #3, J-bank-14 #2`) exempts those steps; every other line that looks like an
+ * exemption is a problem, and so is an exemption line with anything else after the colon or a range that can't be read.
+ */
+export function exemptions(body) {
+  const steps = new Set();
+  const problems = [];
+  for (const line of linesOutsideCode(body)) {
     if (!LOOKS_EXEMPT.test(line)) continue;
     const m = EXEMPT_LINE.exec(line);
     const rest = m ? m[1] : '';
@@ -445,14 +459,24 @@ export function makeIo(repo, token) {
         const zip = join(dir, 'a.zip');
         writeFileSync(zip, await api(`/repos/${repo}/actions/artifacts/${art.id}/zip`, token, { raw: true }));
         const text = execFileSync('unzip', ['-p', zip, 'report.json'], { maxBuffer: 256 * 2 ** 20, encoding: 'utf8' });
-        const { states, files } = readReport(JSON.parse(text));
-        return { states, files, artifact: art.id };
+        const { states, files, ran } = readReport(JSON.parse(text));
+        return { states, files, ran, artifact: art.id };
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
     files: (n) => pullFiles((path) => api(path, token), repo, n),
+    async text(path, ref) {
+      const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
+      const res = await fetch(`https://api.github.com${url}`, {
+        headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json' },
+        redirect: 'follow',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
+      return res.text();
+    },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
   };
 }
@@ -469,8 +493,13 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   const got = read({ repo, baseline, thisRun: run, reports, log: () => {} });
   const red = got.problems.map((why) => ({ step: '(input)', why }));
   if (!got.named) return { red, failing: 0, missing: [] };
-  const have = new Set(Object.values(report.files ?? {}));
-  const missing = [...new Set(Object.values(got.named.files))].filter((f) => !have.has(f)).sort();
+  // The files each run ran, never the step-to-file map: that keeps one file a step, so a step id two files share
+  // (J-wallet-04 #7) dropped one of them on both sides, and a clean full run read as short of it (#7492's seal,
+  // run 42419894849 attempt 2). A report without its list is read as having run nothing: short, so never sealed full.
+  if (!Array.isArray(got.named.ran))
+    return { red: [...red, { step: '(input)', why: "the named run's report has no list of the files it ran" }], failing: 0, missing: [] };
+  const have = new Set(report.ran ?? []);
+  const missing = got.named.ran.filter((f) => !have.has(f));
   // A run short of journey files (targeted, or a shard lost) is judged on the files it has, as a targeted run's own
   // verdict is: a red step there fails the seal; only a run clean on all it has is passed over (judgeFullRun).
   const target = missing.length ? have : null;
@@ -490,6 +519,89 @@ export async function pullFiles(get, repo, n) {
   throw new Error(`#${n} changes 3,000 files or more, which GitHub can't list whole`);
 }
 
+/**
+ * A journey test file and its journey id: `J-bank-13.pw.mjs`, or one of a journey split across files
+ * (`J-ops-console-02-documents.pw.mjs` holds J-ops-console-02's steps). Every journey id is letter-led segments and a
+ * final number (all 472 in docs/roadmap/journeys.json on 7 Nov 2026), so the id ends at the first number. Only these hold
+ * journey steps; the look sweeps and other `*.pw.mjs` files beside them do not.
+ */
+export const JOURNEY_TEST = /^apps\/customer\/tests\/real-app\/(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)(?:-[a-z0-9-]+)?\.pw\.mjs$/;
+
+/**
+ * The step keys a journey test file holds: each `test(` whose title starts with its journey id, written out
+ * (`'J-bank-13 #1 …'`) or as the file's `${J}` (`` `${J} #1 …` ``), keyed as readReport keys them.
+ */
+export function fileSteps(journey, text) {
+  const out = new Set();
+  const id = journey.replace(/[-]/g, '\\-');
+  const re = new RegExp(`\\btest(?:\\.[a-z]+)*\\(\\s*[\`'"](?:\\$\\{J\\}|${id})\\s*#(\\d+)\\b`, 'g');
+  for (const m of String(text ?? '').matchAll(re)) if (Number(m[1]) <= STEP_MAX) out.add(`${journey}#${Number(m[1])}`);
+  return [...out].sort(byStep);
+}
+
+/**
+ * A pull request that changes a journey test file says which steps it touches: for each changed file, at least one of
+ * the steps it holds is named in the title (then judged by judgeSteps) or on a strict `Left-or-replaced:` line. A
+ * title naming another journey's steps, or none, fails, and so does an exemption-like line that isn't one. `touched`:
+ * [{ file, journey, steps }], the steps each file holds at the head (or at the base, for a file the head removed).
+ * (Failure it prevents: #7434 and #7435 changed journey tests on 7 Nov 2026 with no `#n` in their titles, so the seal
+ * judged none of their steps; project-state #1249 comment 6681706701.)
+ */
+export function judgeTouched({ title, body, touched, repo }) {
+  if (!touched.length) return { ok: true, lines: [] };
+  // GitHub's Revert button (title `Revert "…"`, body line `Reverts owner/repo#n`) passes, as judgeSteps lets it: a red
+  // main is fixed or undone within 2 hours (project-state OWNER 180), so a revert never waits on a body line.
+  const reverts = revertOf({ title, body, repo });
+  if (reverts) return { ok: true, lines: [`a revert of #${reverts} (GitHub's Revert form): its journey tests need no steps named`] };
+  const left = exemptions(body);
+  if (left.problems.length)
+    return {
+      ok: false,
+      lines: left.problems.map(
+        (l) =>
+          `"${l.slice(0, 160)}" looks like an exemption but isn't one: write \`Left-or-replaced: J-bank-13 #1 #3\` at the start of a line, outside code, with step ids only`,
+      ),
+    };
+  const named = new Set([...titleSteps(title), ...left.steps]);
+  const lines = [];
+  for (const { file, journey, steps } of touched) {
+    const hit = steps.filter((k) => named.has(k));
+    if (hit.length) continue;
+    lines.push(
+      steps.length
+        ? `${file} changes the tests of ${steps.map((k) => k.replace('#', ' #')).join(', ')}, and neither the title nor a Left-or-replaced line names any of them: name the steps it touches in the title (\`${journey} ${steps
+            .map((k) => `#${k.split('#')[1]}`)
+            .join(' ')}\`), or leave them on a body line: ${exemptionLine(steps)}`
+        : `${file} changes a journey test, but no \`test(\` titled \`${journey} #n\` could be read in it, so the steps it touches can't be named; the seal fails closed`,
+    );
+  }
+  return { ok: lines.length === 0, lines };
+}
+
+/** The pull request a GitHub revert undoes: the title is exactly `Revert "…"` and a body line, at column 0, is exactly
+ *  `Reverts <this repo>#n`, as GitHub's Revert button writes them. Null for anything else. */
+export function revertOf({ title, body, repo }) {
+  if (!isRevert(title) || !repo) return null;
+  const esc = String(repo).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`^Reverts ${esc}#(\\d+)[ \\t]*$`, 'm').exec(String(body ?? '').replace(/\r/g, ''));
+  return m ? Number(m[1]) : null;
+}
+
+/** The changed journey test files of a pull request with the steps each holds, read at the head (the base for a removed
+ *  file). `text(path, ref)` is the file's text, or null when the ref has no such file. */
+export async function touchedSteps({ paths, head, base, text }) {
+  const out = [];
+  for (const file of [...new Set(paths)].sort()) {
+    const m = JOURNEY_TEST.exec(file);
+    if (!m) continue;
+    let t = await text(file, head);
+    if (t === null) t = await text(file, base);
+    if (t === null) throw new Error(`${file} could not be read at the head or the base`);
+    out.push({ file, journey: m[1], steps: fileSteps(m[1], t) });
+  }
+  return out;
+}
+
 /** One pull request's head, judged. */
 export async function sealPull({ repo, number, sha, io, requireOpen = true, waitOnRunning = true }) {
   const pull = await io.pull(number);
@@ -498,7 +610,14 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   if (sha && head !== sha)
     return { ok: false, lines: [`#${number}: its head is now ${head}, not ${sha}; the newer head gets its own seal run`] };
   if (requireOpen && pull.state !== 'open') return { ok: false, lines: [`#${number}: is ${pull.state}`] };
-  const shared = (await io.files(number)).filter(isSharedSetup);
+  const paths = await io.files(number);
+  const shared = paths.filter(isSharedSetup);
+  const touched = judgeTouched({
+    repo,
+    title: pull.title,
+    body: pull.body,
+    touched: await touchedSteps({ paths, head, base: pull.base?.sha, text: (f, ref) => io.text(f, ref) }),
+  });
   const runs = titleSteps(pull.title).length || shared.length ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
@@ -509,7 +628,12 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   const full = shared.length
     ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf: (rep, r) => io.verdictOf(rep, r), waitOnRunning })
     : { ok: true, state: 'none', lines: [] };
-  const v = { ok: steps.ok && full.ok, stepsOk: steps.ok, fullOk: full.ok, lines: [...steps.lines, ...full.lines] };
+  const v = {
+    ok: steps.ok && full.ok && touched.ok,
+    stepsOk: steps.ok && touched.ok,
+    fullOk: full.ok,
+    lines: [...steps.lines, ...touched.lines, ...full.lines],
+  };
   return { ...v, lines: v.lines.map((l) => `#${number} (${head.slice(0, 10)}): ${l}`) };
 }
 
@@ -547,8 +671,51 @@ export function recheckStep(runs, jobsByRun = new Map()) {
   return { act: 'fail', msg: `no CI run on this head has a ${SEAL} job (${prs.map((r) => r.id).join(', ')} finished with none)` };
 }
 
-/** Re-run the seal job on `sha` (recheckStep). `post`/`get` are the API (tests pass their own). */
-export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log }) {
+/**
+ * Whether a re-run of the seal on `sha` may be posted now. A job re-run is a new attempt of its CI run, and a new
+ * attempt joins ci.yml's concurrency group (`CI-refs/pull/<n>/merge`, cancel-in-progress off main), so it cancels
+ * whatever CI run of that pull request is still in flight. On 7 Nov 2026 a re-check that had waited out the run on
+ * 26f9c60d re-ran its seal after the pull request's head had moved to 7ce4bf86f: the old run's attempt 2 started at
+ * 14:35:27 UTC and the new head's jobs were cancelled from 14:35:28. Read just before the re-run, never earlier:
+ * `pulls` are the named pull requests as they are now; `headRuns` are ci.yml's pull_request runs on `sha`.
+ * - `skip`: a pull request closed or its head moved. The new head's own CI seal reads the change; the re-check is green.
+ * - `wait`: another CI run on `sha` itself is still going (a reopen, a re-run by hand). Wait it out, as a running seal
+ *   is waited out, then re-run; at the bound the re-check goes red. A run on another SHA is not counted: cancelling it
+ *   cancels no check the head is judged by, and `?branch=` would also match a fork's branch of the same name.
+ * - null: post the re-run.
+ * Pure, so the table is testable.
+ */
+export function rerunBlocker({ sha, pulls, headRuns }) {
+  for (const p of pulls ?? []) {
+    if (p?.state !== 'open') return { act: 'skip', msg: `#${p?.number} is no longer open` };
+    if (p?.head?.sha !== sha)
+      return { act: 'skip', msg: `#${p.number}'s head moved to ${String(p?.head?.sha).slice(0, 10)}; its own CI seal reads the change` };
+  }
+  const going = (headRuns ?? [])
+    .filter((r) => r?.event === 'pull_request' && r?.head_sha === sha && r?.status !== 'completed')
+    .sort((a, b) => b.id - a.id);
+  if (going.length)
+    return {
+      act: 'wait',
+      msg: `CI run ${going.map((r) => `${r.id} (${r.status})`).join(', ')} on this head is still going; a re-run now would join its concurrency group and cancel it`,
+    };
+  return null;
+}
+
+/**
+ * Re-run the seal job on `sha` (recheckStep). `post`/`get` are the API (tests pass their own). `blocker` is read just
+ * before each re-run (rerunBlocker): `skip` returns its reason and posts nothing; `wait` polls on inside SEAL_POLLS.
+ */
+export async function rerunSealJob({
+  repo,
+  sha,
+  get,
+  post,
+  blocker = async () => null,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  log = console.log,
+}) {
+  let said = '';
   for (let poll = 1; ; poll++) {
     const runs = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&event=pull_request&per_page=100`))
       ?.workflow_runs;
@@ -564,6 +731,11 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {
+      const held = await blocker();
+      if (held?.act === 'skip') return `not re-run: ${held.msg}`;
+      if (held?.act === 'wait') step = { act: 'wait', runId: step.runId, msg: held.msg };
+    }
+    if (step.act === 'rerun') {
       const { status, message = '' } = await post(`/repos/${repo}/actions/jobs/${step.jobId}/rerun`);
       // AGENTS.md "Check, then merge" 6: the one 403 that only means wait. Any other 403 or 429 stops and is reported.
       if (status === 403 && /already running/i.test(message)) return `run ${step.runId} is already re-running (${message})`;
@@ -572,7 +744,7 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
     }
     if (poll >= SEAL_POLLS)
       throw new Error(`${step.msg} after ${(SEAL_POLLS * SEAL_POLL_MS) / 60_000} min; re-run the seal once it finishes`);
-    if (poll === 1) log(`${step.msg}; checking every ${SEAL_POLL_MS / 1000}s`);
+    if (step.msg !== said) log(`${(said = step.msg)}; checking every ${SEAL_POLL_MS / 1000}s`);
     await sleep(SEAL_POLL_MS);
   }
 }
@@ -581,13 +753,21 @@ export async function rerunSealJob({ repo, sha, get, post, sleep = (ms) => new P
 export const namesSteps = (title) => titleSteps(title).length > 0 || titleProblems(title).length > 0;
 
 /**
- * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`).
+ * The open pull requests on `sha` whose seal a re-check re-runs: the title judged now, or before an edit (`oldTitle`),
+ * and a body that has an exemption-like line now or had one before the edit (`oldBody`), so removing a line re-runs it.
  * A title edited from "fix J-bank-13" to "J-bank-13 #1-#100" is judged, so its green seal turns red.
  */
-export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', shared = new Set() }) =>
+export const recheckPulls = ({ pulls, sha, repo, oldTitle = '', oldBody = '', shared = new Set() }) =>
   (pulls ?? [])
     .filter((p) => p?.state === 'open' && p?.head?.sha === sha && p?.base?.repo?.full_name === repo)
-    .filter((p) => namesSteps(p.title) || namesSteps(oldTitle) || shared.has(p.number));
+    .filter(
+      (p) =>
+        namesSteps(p.title) ||
+        namesSteps(oldTitle) ||
+        LOOKS_EXEMPT.test(p.body ?? '') ||
+        LOOKS_EXEMPT.test(oldBody ?? '') ||
+        shared.has(p.number),
+    );
 
 /** The open pull requests on `sha` that `recheckPulls` would not take by their title: their numbers that touch shared
  *  setup (`filesOf(n)`: the changed paths). */
@@ -604,7 +784,7 @@ export async function sharedPulls({ pulls, sha, repo, filesOf }) {
  * before an edit, OLD_TITLE), each with its seal re-run. A head no open pull request names is left alone.
  */
 async function recheck({ repo, token }) {
-  const { SHA, PR_NUMBER, OLD_TITLE = '' } = process.env;
+  const { SHA, PR_NUMBER, OLD_TITLE = '', OLD_BODY = '' } = process.env;
   if (!SHA40.test(SHA ?? '')) throw new Error('recheck needs SHA');
   const get = (path) => api(path, token);
   const post = async (path) => {
@@ -623,11 +803,20 @@ async function recheck({ repo, token }) {
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
   const shared = await sharedPulls({ pulls, sha: SHA, repo, filesOf: (n) => pullFiles(get, repo, n) });
-  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, shared });
+  const named = recheckPulls({ pulls, sha: SHA, repo, oldTitle: OLD_TITLE, oldBody: OLD_BODY, shared });
   if (!named.length)
     return console.log(`no open pull request on ${SHA} names journey steps or touches shared setup; the seal is left as it is`);
+  // Read again just before a re-run: the head may have moved while a running seal was waited out (rerunBlocker).
+  const blocker = async () => {
+    const now = await Promise.all(named.map((p) => get(`/repos/${repo}/pulls/${p.number}`)));
+    const headRuns = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${SHA}&event=pull_request&per_page=100`))
+      ?.workflow_runs;
+    if (!Array.isArray(headRuns)) throw new Error(`${CI_WORKFLOW} runs on ${SHA}: not a list`);
+    return rerunBlocker({ sha: SHA, pulls: now, headRuns });
+  };
+  const outcome = await rerunSealJob({ repo, sha: SHA, get, post, blocker });
   console.log(
-    `#${named.map((p) => p.number).join(', #')} on ${SHA} name journey steps or touch shared setup: ${await rerunSealJob({ repo, sha: SHA, get, post })}`,
+    `${outcome.startsWith('not re-run') ? '::notice::' : ''}#${named.map((p) => p.number).join(', #')} on ${SHA} name journey steps or touch shared setup: ${outcome}`,
   );
 }
 
