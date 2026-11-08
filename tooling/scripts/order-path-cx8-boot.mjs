@@ -370,6 +370,8 @@ async function main() {
       // SMOKE RIG ONLY — owner integers and ids that boot refuses without; not production values
       ...profileEnvFor('bank', common.APP_ENV),
       INTAFACED_SCREENING_FAIL_CLOSED: 'off', // SMOKE RIG ONLY — local-test fixture value; refused outside dev/test
+      // The custody switch as this rig's svc-ledger runs it (on), so the two services agree (OWNER 226).
+      LEDGER_CUSTODY_LAYER: 'on',
     });
 
   // Tax, for the profit and loss journey: it reads the caller's fills from the ledger (no database of its own). The jurisdiction map,

@@ -333,6 +333,95 @@ describe('partner-held card authorisations (PG)', () => {
       expect(ledger.journal()).toHaveLength(0);
     });
 
+    it('the partner’s refusal to hold after our read is a decline naming its reason, not a pending row re-driven forever', async () => {
+      const card = await issue();
+      const refusing: PartnerCardHolds = {
+        ...holds,
+        hold: async () => {
+          throw new PartnerCardRefusal('mode withdrawn', 'bank.card_partner_mode_not_known');
+        },
+      };
+      const svc = build({ holds: refusing }).cards;
+      const auth = await svc.authorize({ cardId: card.id, authorizationRef: 'jb14-refused', amount: amt('5') });
+      expect(auth).toMatchObject({ decision: 'declined', declineCode: 'bank.card_partner_mode_not_known', status: 'rejected' });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('resumeSettlements does not re-send a capture the partner refused', async () => {
+      const card = await issue();
+      await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-noresend', amount: amt('40') });
+      expect(await codeOf(cards.capture({ cardId: card.id, authorizationRef: 'jb14-noresend', amount: amt('41') }))).toBe(
+        'bank.card_partner_capture_exceeds_hold',
+      );
+      const resumed = await cards.resumeSettlements({ cardId: card.id, authorizationRef: 'jb14-noresend' });
+      expect(resumed).toMatchObject({ resumed: [], held: amt('40') });
+    });
+
+    it('on a converted card the merchant’s own ceiling is kept before the partner is asked', async () => {
+      terms = { ...PARTNER, balances: { USDC: '100', BTC: '1' } };
+      const NOW = new Date('2026-11-09T00:00:00Z');
+      const rates = {
+        marks: async (ids: readonly string[]) =>
+          new Map(ids.map((assetId) => [assetId, { assetId, price: amt('50000'), asOf: NOW, quality: 'mid' as const }])),
+      };
+      const svc = new CardService(sql, ledger, {
+        issuer: cardSim({ partner: terms }),
+        rates,
+        clock: () => NOW,
+        heldBy: () => 'partner',
+        partnerHolds: holds,
+      });
+      const card = await svc.issue({
+        cardId: randomUUID(),
+        userId: ADA,
+        assetId: 'BTC',
+        settlementAssetId: 'USDT',
+        perAuthorizationLimit: amt('1'),
+      });
+      const auth = await svc.authorize({ cardId: card.id, authorizationRef: 'jb14-fx', amount: amt('100') });
+      expect(auth).toMatchObject({ decision: 'approved', heldBy: 'partner' });
+      expect(await codeOf(svc.capture({ cardId: card.id, authorizationRef: 'jb14-fx', amount: amt('100.000001') }))).toBe(
+        'bank.card_capture_exceeds_authorization',
+      );
+      expect(await sql`SELECT 1 FROM bank.card_settlements WHERE authorization_id = ${auth.id}`).toHaveLength(0);
+      const done = await svc.capture({ cardId: card.id, authorizationRef: 'jb14-fx', amount: amt('100') });
+      expect(done).toMatchObject({ heldBy: 'partner', captured: auth.amount, returned: 0n });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('a stolen card is closed and replaced even when the partner cannot release a hold it forgot', async () => {
+      const card = await issue();
+      await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-stolen', amount: amt('10') });
+      // A restart: the TEST partner forgets every hold.
+      const forgetful = testPartnerCardHolds({ terms: () => terms, switches: (u) => partner.switches(u) });
+      const svc = build({ holds: forgetful }).cards;
+      const replacement = await svc.replace({ cardId: card.id, userId: ADA, replacementId: randomUUID(), reason: 'stolen' });
+      expect(replacement.status).toBe('active');
+      expect((await svc.card(card.id)).status).toBe('closed');
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
+    it('a refund replayed returns the partner’s reference, and no figures it did not read', async () => {
+      const card = await issue();
+      await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-replay', amount: amt('10') });
+      await cards.capture({ cardId: card.id, authorizationRef: 'jb14-replay', amount: amt('10') });
+      const first = await cards.refund({ cardId: card.id, authorizationRef: 'jb14-replay', amount: amt('4') });
+      expect(first.figures).toMatchObject({ available: '94' });
+      const replay = await cards.refund({ cardId: card.id, authorizationRef: 'jb14-replay', amount: amt('4') });
+      expect(replay).toMatchObject({ partnerRef: first.partnerRef, figures: null });
+    });
+
+    it('the down migration refuses, changing nothing, while a partner-held row exists', async () => {
+      const card = await issue();
+      await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-down', amount: amt('10') });
+      const down = readFileSync(join(drizzle, '20261108231000_card_partner_held.down.sql'), 'utf8');
+      await expect(sql.unsafe(down)).rejects.toThrow(/partner-held card rows exist/);
+      const [row] = await sql<
+        Array<{ money_book: string }>
+      >`SELECT money_book FROM bank.card_authorizations WHERE authorization_ref = 'jb14-down'`;
+      expect(row).toEqual({ money_book: 'partner' });
+    });
+
     it('a partner that has not said its mode, or reports no balance, refuses before anything is written', async () => {
       terms = { ...PARTNER, custodyMode: null };
       const card = await issue();

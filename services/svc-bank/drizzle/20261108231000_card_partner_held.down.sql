@@ -1,3 +1,16 @@
+-- Refuses, changing nothing, while any partner-held row exists: those rows name a partner's reference and no ledger
+-- transaction, so the old checks re-added below could not hold them, and dropping their columns would erase what the
+-- partner did. Undo them at the partner first; this down is for a schema that never recorded one.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "bank"."card_authorizations" WHERE "money_book" = 'partner')
+     OR EXISTS (SELECT 1 FROM "bank"."card_settlements" WHERE "money_book" = 'partner')
+     OR EXISTS (SELECT 1 FROM "bank"."card_partner_refunds") THEN
+    RAISE EXCEPTION 'card_partner_held down: partner-held card rows exist; nothing was changed';
+  END IF;
+END
+$$;
+
 DROP TABLE IF EXISTS "bank"."card_partner_refunds";
 
 ALTER TABLE "bank"."card_settlements" DROP CONSTRAINT IF EXISTS "card_settlements_settled_has_tx_ck";

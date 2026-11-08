@@ -112,12 +112,16 @@ const MAX_KEPT = 50_000;
 interface Book {
   available: Amount;
   held: Amount;
+  /** This book's holds that still hold something: the only ones a hold time can run out. */
+  readonly open: Set<Hold>;
 }
 
 interface Hold {
   readonly ref: string;
   readonly userId: string;
   readonly assetId: string;
+  /** The book it holds from, kept on the hold so a book the map lets go of is never lost under an open hold. */
+  readonly book: Book;
   readonly mode: CardCustodyMode;
   readonly amount: Amount;
   readonly expiresAt: Date;
@@ -136,6 +140,10 @@ interface Hold {
  * (`BANK_CARD_SIM_PARTNER_JSON` `balances`); an asset it reports no figure for is "not known", and no hold can be asked
  * in it. In `wallet_pull` mode the same TEST figure stands for the person's own wallet as the partner reads it: the
  * card pulls from the wallet, the partner's answer says so, and INTAFACED holds nothing either way.
+ *
+ * Past its bound the TEST partner lets go of its oldest records; a hold keeps its own book, so an open hold is never
+ * orphaned, but a person whose book was let go of starts again from the TEST figure (a TEST artefact of a stack past
+ * 50,000 people and assets, never a real partner's).
  *
  * Every instruction is answered once per key: a repeat of a key with the same body returns the first answer, and with a
  * different body refuses `bank.card_partner_key_conflict`. A refusal is not kept under its key, because nothing happened.
@@ -163,23 +171,27 @@ export function testPartnerCardHolds(options: {
     if (kept) return kept;
     const reported = options.terms().balances?.[assetId];
     if (reported === undefined) return null;
-    const book = { available: parseAmount(reported), held: 0n };
+    const book: Book = { available: parseAmount(reported), held: 0n, open: new Set() };
     keep(books, id, book);
     return book;
   };
 
   const open = (h: Hold): Amount => h.amount - h.captured - h.released;
+  /** After a move: a hold that holds nothing more leaves its book's open set. */
+  const settle = (h: Hold): void => {
+    if (open(h) === 0n) h.book.open.delete(h);
+  };
 
   /** The partner gives an uncaptured hold back when its hold time runs out, or when the person's TEST switch says so. */
   const runOut = (h: Hold): void => {
     if (h.expired || h.captured > 0n || open(h) === 0n) return;
     if (clock() < h.expiresAt && options.switches(h.userId).cardHold !== 'expired') return;
-    const book = books.get(`${h.userId}|${h.assetId}`)!;
     const back = open(h);
-    book.held -= back;
-    book.available += back;
+    h.book.held -= back;
+    h.book.available += back;
     h.released += back;
     h.expired = true;
+    settle(h);
   };
 
   const report = (h: Hold): PartnerHoldReport => {
@@ -245,7 +257,8 @@ export function testPartnerCardHolds(options: {
     test: true,
 
     figures: async ({ userId, assetId }) => {
-      for (const h of holds.values()) if (h.userId === userId && h.assetId === assetId) runOut(h);
+      const book = books.get(`${userId}|${assetId}`);
+      if (book) for (const h of [...book.open]) runOut(h);
       return figuresOf(userId, assetId);
     },
 
@@ -275,6 +288,7 @@ export function testPartnerCardHolds(options: {
           ref: ref(key),
           userId,
           assetId,
+          book,
           mode,
           amount: want,
           expiresAt: new Date(clock().getTime() + TEST_CARD_HOLD_DAYS * 86_400_000),
@@ -284,6 +298,7 @@ export function testPartnerCardHolds(options: {
           expired: false,
         };
         keep(holds, key, h);
+        book.open.add(h);
         return { approved: true, hold: report(h), figures: figuresOf(userId, assetId) };
       }),
 
@@ -303,9 +318,9 @@ export function testPartnerCardHolds(options: {
             'bank.card_partner_capture_exceeds_hold',
           );
         }
-        const book = books.get(`${h.userId}|${h.assetId}`)!;
-        book.held -= take;
+        h.book.held -= take;
         h.captured = take;
+        settle(h);
         return { partnerRef: ref(key), amount, by: 'instruction', hold: report(h), figures: figuresOf(h.userId, h.assetId) };
       }),
 
@@ -328,10 +343,10 @@ export function testPartnerCardHolds(options: {
             'bank.card_partner_hold_closed',
           );
         }
-        const book = books.get(`${h.userId}|${h.assetId}`)!;
-        book.held -= back;
-        book.available += back;
+        h.book.held -= back;
+        h.book.available += back;
         h.released += back;
+        settle(h);
         return {
           partnerRef: ref(key),
           amount: formatAmount(back),
@@ -351,8 +366,7 @@ export function testPartnerCardHolds(options: {
             'bank.card_partner_refund_exceeds_capture',
           );
         }
-        const book = books.get(`${h.userId}|${h.assetId}`)!;
-        book.available += back;
+        h.book.available += back;
         h.refunded += back;
         return { partnerRef: ref(key), amount, by: 'instruction', hold: report(h), figures: figuresOf(h.userId, h.assetId) };
       }),

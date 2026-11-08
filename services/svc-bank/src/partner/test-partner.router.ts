@@ -75,7 +75,9 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner' |
      */
     cardRefund: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ cardId: z.string().guid(), authorizationRef: z.string().min(4).max(128), amount: amountString }).strict())
-      .output(z.object({ authorizationId: z.string(), refunded: amountString, partnerRef: z.string(), figures: partnerFiguresOutput }))
+      .output(
+        z.object({ authorizationId: z.string(), refunded: amountString, partnerRef: z.string(), figures: partnerFiguresOutput.nullable() }),
+      )
       .mutation(({ ctx, input }) =>
         guard(async () => {
           on(bank.testPartner);

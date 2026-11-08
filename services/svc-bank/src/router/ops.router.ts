@@ -680,7 +680,9 @@ export function createOpsRouter(c: BankRouterContext) {
           /** Whose book this capture moved in (OWNER 226). */
           heldBy: z.enum(['ledger', 'partner']),
           /** The partner's references and its figures as it reports them (TEST on the TEST partner card); else null. */
-          partner: z.object({ captureRef: z.string(), releaseRef: z.string().nullable(), figures: partnerFiguresOutput }).nullable(),
+          partner: z
+            .object({ captureRef: z.string(), releaseRef: z.string().nullable(), figures: partnerFiguresOutput.nullable() })
+            .nullable(),
           /**
            * What the merchant cleared and the FROZEN rate it converted at — the
            * rate the authorisation was decided on, re-read and never re-quoted.
@@ -772,7 +774,9 @@ export function createOpsRouter(c: BankRouterContext) {
           /** Null on a partner-held authorisation: the partner released it. */
           ledgerTxId: z.string().nullable(),
           /** The partner's release, and whether it was our instruction or the partner's own hold time running out. */
-          partner: z.object({ releaseRef: z.string(), by: z.enum(['instruction', 'expiry']), figures: partnerFiguresOutput }).optional(),
+          partner: z
+            .object({ releaseRef: z.string(), by: z.enum(['instruction', 'expiry']), figures: partnerFiguresOutput.nullable() })
+            .optional(),
           confirmOperatorId: z.string(),
         }),
       )
