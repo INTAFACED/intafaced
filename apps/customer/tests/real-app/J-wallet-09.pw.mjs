@@ -91,9 +91,9 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
   }
 
   // A blank wallet sanctions list refuses every wallet, the person's own included, with its reason (OWNER 88).
-  restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', false);
   const blankPage = await page.context().newPage();
   try {
+    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', false);
     await openVenue(blankPage, who, walletKey);
     await blankPage.getByRole('button', { name: 'Connect to my account' }).click();
     await expect(blankPage.getByText('No wallet can be screened')).toBeVisible({ timeout: 20_000 });
