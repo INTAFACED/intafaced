@@ -121,61 +121,8 @@ export const mainSetAsideDays = (text) =>
 export const setAsideCap = (mainDays) =>
   mainDays === 'none' ? SET_ASIDE_MAX_DAYS : Number.isInteger(mainDays) && mainDays >= 1 ? Math.min(mainDays, SET_ASIDE_MAX_DAYS) : null;
 
-/**
- * JavaScript source with its comments removed (line and block), strings, template literals and regular expression
- * literals kept as they are, so a comment can't hide a key or fake one. Returns null when the source can't be read to
- * the end (an unclosed comment, string or regular expression): the caller refuses.
- */
-export function withoutComments(text) {
-  const src = String(text ?? '');
-  let out = '';
-  let i = 0;
-  let prev = ''; // the last non-space character of code, to tell a regular expression from a division
-  const skipQuoted = (q) => {
-    let k = i + 1;
-    while (k < src.length && src[k] !== q) k += src[k] === '\\' ? 2 : 1;
-    return k < src.length ? k + 1 : -1;
-  };
-  while (i < src.length) {
-    const c = src[i];
-    const d = src[i + 1];
-    if (c === '/' && d === '/') {
-      const k = src.indexOf('\n', i);
-      i = k === -1 ? src.length : k;
-      continue;
-    }
-    if (c === '/' && d === '*') {
-      const k = src.indexOf('*/', i + 2);
-      if (k === -1) return null;
-      out += ' ';
-      i = k + 2;
-      continue;
-    }
-    if (c === "'" || c === '"' || c === '`' || (c === '/' && (prev === '' || /[(,=:[!&|?{};+\-*%<>~^]/.test(prev)))) {
-      let k;
-      if (c === '/') {
-        k = i + 1;
-        let cls = false;
-        while (k < src.length && (cls || src[k] !== '/') && src[k] !== '\n') {
-          if (src[k] === '\\') k++;
-          else if (src[k] === '[') cls = true;
-          else if (src[k] === ']') cls = false;
-          k++;
-        }
-        k = k < src.length && src[k] === '/' ? k + 1 : -1;
-      } else k = skipQuoted(c);
-      if (k === -1) return null;
-      out += src.slice(i, k);
-      prev = c;
-      i = k;
-      continue;
-    }
-    out += c;
-    if (!/\s/.test(c)) prev = c;
-    i++;
-  }
-  return out;
-}
+/** A line that is only a line comment: the one place outside B8's own line where these checks let a name appear. */
+const commentLine = (l) => l.trim().startsWith('//');
 
 /**
  * B8's one retry form, exactly: one retry when the journeys workflow sets JOURNEY_RETRIES to '1' (on main), none
@@ -183,17 +130,20 @@ export function withoutComments(text) {
  */
 export const RETRY_FORM = "retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,";
 /**
- * The retry in the head's Playwright config, fail closed: with comments removed, the word `retries` appears exactly once
- * anywhere in the file (a key, a string, a nested project, a property set later all count), and it begins RETRY_FORM
- * exactly. Returns null when it is so, else why not. That the workflow sets JOURNEY_RETRIES only on main is the judge's
- * `retryOnce` reading.
+ * The retry in the head's Playwright config, fail closed over the raw text (no parser runs here, and none is trusted
+ * to strip comments): the word `retries` appears on exactly one line that is RETRY_FORM alone, and on no other line
+ * except a line that is only a `//` comment. Any other mention (a nested project, a property set later, a quoted key,
+ * one inside a string, a template, a regular expression or a block comment) refuses. Returns null when it is so, else
+ * why not. What no word check can see (a computed key, a spread from another file) is the judge's `retryOnce` reading.
  */
 export function retryProblem(text) {
-  const code = withoutComments(text);
-  if (code == null) return "the retry's file can't be read to its end";
-  const at = [...code.matchAll(/(?<![\w$])retries(?![\w$])/g)].map((m) => m.index);
-  if (at.length !== 1) return `the retry's file names retries ${at.length} times, not once`;
-  if (code.slice(at[0], at[0] + RETRY_FORM.length) !== RETRY_FORM) return `its retries is not B8's form (${RETRY_FORM} exactly)`;
+  if (text == null) return "the retry's file can't be read";
+  const word = /(?<![\w$])retries(?![\w$])/;
+  const lines = String(text).split('\n');
+  const b8 = lines.filter((l) => l.trim() === RETRY_FORM).length;
+  const other = lines.findIndex((l) => word.test(l) && l.trim() !== RETRY_FORM && !commentLine(l));
+  if (other !== -1) return `retries appears outside B8's line on line ${other + 1}`;
+  if (b8 !== 1) return `B8's retries line (${RETRY_FORM}) appears ${b8} times, not once`;
   return null;
 }
 /** The files whose change is the set-aside's retry (a change entry may answer `set-aside` only for these). */
@@ -215,12 +165,28 @@ export const SET_ASIDE_READERS = [
 
 /** The head's set-aside length in days (`export const SET_ASIDE_DAYS = <n>;` in SET_ASIDE_CODE), or null. */
 export function setAsideDays(text) {
-  // Comments removed first, so a commented-out or block-commented line never counts. How the code uses the length (a
-  // multiple of it, a second constant) is the judge's endDate reading.
-  const code = withoutComments(text);
-  if (code == null) return null;
-  const all = [...code.matchAll(/^export const SET_ASIDE_DAYS = ([1-9]\d*);$/gm)];
-  return all.length === 1 ? Number(all[0][1]) : null;
+  // Fail closed over the raw text: exactly one line `export const SET_ASIDE_DAYS = <n>;` at the line's start, and no
+  // other line, outside a line that is only a `//` comment, that declares, exports, renames or reassigns the name. A
+  // second copy of the line (in a block comment, a string or a template) refuses, so none can stand in for the real one.
+  if (text == null) return null;
+  const lines = String(text).split('\n');
+  const decl = lines.map((l) => /^export const SET_ASIDE_DAYS = ([1-9]\d*);$/.exec(l)).filter(Boolean);
+  const BIND =
+    /(?:\b(?:const|let|var|as|function|class)\s+|(?<!\$)[{,]\s*)SET_ASIDE_DAYS(?![\w$])|(?<![\w$.])SET_ASIDE_DAYS\s*(?:[-+*/%]?=(?!=)|\+\+|--)|\.SET_ASIDE_DAYS\b/;
+  const binds = lines.filter((l) => BIND.test(l) && !/^export const SET_ASIDE_DAYS = [1-9]\d*;$/.test(l) && !commentLine(l));
+  if (decl.length !== 1 || binds.length !== 0) return null;
+  // Refuse-only: a declaration that may sit inside a block comment or a template (an odd count of backticks, or a `/*`
+  // not yet closed, on the lines before it) is no declaration. This never accepts more; the code's real use of the
+  // length is the judge's endDate reading.
+  const before = lines
+    .slice(
+      0,
+      lines.findIndex((l) => decl[0][0] === l),
+    )
+    .join('\n');
+  const open = before.lastIndexOf('/*') > before.lastIndexOf('*/');
+  if (open || (before.match(/`/g) ?? []).length % 2 === 1) return null;
+  return Number(decl[0][1]);
 }
 
 /**
@@ -697,7 +663,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
       `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
       `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
       `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays) ?? '(none: main is unreadable)'}; the default branch's: ${setAside.mainDays})`,
-      `the retry's file: ${setAside.retry === null ? `at most one retry (exactly ${RETRY_FORM})` : `refused: ${setAside.retry}`}`,
+      `the retry's file: ${setAside.retry === null ? `retries appears only as ${RETRY_FORM} (one line, nowhere else but line comments); the judge still checks nothing else sets it (retryOnce)` : `refused: ${setAside.retry}`}`,
       `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
     ].join('\n'),
     { must: true },

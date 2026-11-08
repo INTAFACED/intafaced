@@ -301,11 +301,26 @@ test('B8 refuses (planted): no end date, an end date the code does not set, or a
   assert.equal(setAsideDays('/*\nexport const SET_ASIDE_DAYS = 7;\n*/\n'), null, 'a block-commented line never counts');
   assert.equal(
     setAsideDays('export const SET_ASIDE_DAYS = 7;\n/*\nexport const SET_ASIDE_DAYS = 70;\n*/\n'),
+    null,
+    'a second copy, even in a block comment, refuses',
+  );
+  assert.equal(setAsideDays('// export const SET_ASIDE_DAYS = 70;\nexport const SET_ASIDE_DAYS = 7;\n'), 7, 'a line comment is ignored');
+  // The CI review's plant on 0a50400: a template holds the 7 while the real length is computed another way.
+  for (const real of [
+    'export const SET_ASIDE_DAYS = Number(process.env.D);',
+    'export let SET_ASIDE_DAYS = 30;',
+    'const SET_ASIDE_DAYS = 30;\nexport { SET_ASIDE_DAYS };',
+  ])
+    assert.equal(setAsideDays(`const doc = \`\nexport const SET_ASIDE_DAYS = 7;\n\`;\n${real}\n`), null, real);
+  assert.equal(setAsideDays('const doc = `\nexport const SET_ASIDE_DAYS = 7;\n`;\nconst D = 30;\n'), null, 'the 7 only in a template');
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nSET_ASIDE_DAYS = 30;\n'), null, 'reassigned');
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nexport { X as SET_ASIDE_DAYS };\n'), null, 'renamed export');
+  assert.equal(
+    setAsideDays('export const SET_ASIDE_DAYS = 7;\nconst t = `${SET_ASIDE_DAYS} days`;\nf({ days: SET_ASIDE_DAYS });\n'),
     7,
-    'the live line counts alone',
+    'uses are fine',
   );
   assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 0;\n'), null);
-  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\n/* unclosed\n'), null, 'unreadable to its end');
   assert.equal(setAsideDays(null), null);
 });
 
@@ -334,11 +349,16 @@ test('B8 refuses (planted): a set-aside lengthened past the default branch, a re
   assert.equal(unreadable.verdict, 'FAIL');
   assert.match(unreadable.lines.find((l) => l.id === CONFIG).why, /set-aside length can't be read/);
   assert.equal(verdictOf(b8(), { ...RULES, mainDays: undefined }).verdict, 'FAIL', 'not given: refused');
-  // The retry, fail closed: `retries` once anywhere outside comments, in B8's one form exactly.
+  // The retry, fail closed over the raw text: `retries` only on B8's one line, and elsewhere only in `//` comment lines.
   const cfg = (line, extra = '') => `export default defineConfig({\n  workers: 1,\n${line}\n  timeout: 90_000,${extra}\n});\n`;
-  const B8_LINE = "  // retries once on main\n  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,";
+  const RETRY_LINE = "  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,";
+  const B8_LINE = `  // retries once on main\n${RETRY_LINE}`;
   assert.equal(retryProblem(cfg(B8_LINE)), null, 'the control: B8 form, a comment that mentions retries is ignored');
-  assert.equal(retryProblem(cfg(B8_LINE, '\n  /* retries: 9, */')), null, 'a block-commented key is ignored');
+  assert.notEqual(
+    retryProblem(cfg(B8_LINE, '\n  /* retries: 9, */')),
+    null,
+    'a block-commented key refuses (no parser decides what is a comment)',
+  );
   for (const [why, text] of [
     // The independent review's plants on ef5639a13 (comment 6716262764), each accepted by the old line check.
     ['a value read from elsewhere', cfg('  retries: main ? R : 0, // R = 5 above')],
@@ -353,14 +373,19 @@ test('B8 refuses (planted): a set-aside lengthened past the default branch, a re
     ['no retry at all (nothing to set aside)', cfg('  retries: 0,')],
     ['the key only in a comment', cfg("  // retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,")],
     ['an unclosed block comment', cfg(B8_LINE, '\n  /* retries: 1,')],
-    ['an unclosed string', cfg(B8_LINE, "\n  name: 'x,")],
     ['no file', null],
+    // The CI review's plants on 0a50400 (run 42439593286): a regular expression or a template that a comment stripper
+    // misreads can't hide a live key, since every line is read as it is.
+    ['a regular expression that looks like a comment', `const re = () => { return /[/*]/; };\n${cfg(B8_LINE)}config.retries = 5; // */\n`],
+    ['a template holding a quoted backtick', `const t = \`\${'\`'}\`;\nconst u = '//';\n${cfg(B8_LINE, '\n  retries: 5,')}`],
+    ['the B8 line twice (a nested project)', cfg(B8_LINE, `\n  projects: [{\n${RETRY_LINE}\n  }],`)],
+    ['B8 line only inside a template', `const fake = \`\n${RETRY_LINE}\n\`;\n${cfg('  retries: 5,')}`],
   ])
     assert.notEqual(retryProblem(text), null, why);
   // The facts line says "at most one retry" only when the check passed.
   const twice = verdictOf(b8(), { ...RULES, retry: retryProblem(cfg("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,")) });
   assert.equal(twice.verdict, 'FAIL');
-  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: .*not B8's form/);
+  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: retries appears outside B8's line/);
   assert.equal(verdictOf(b8(), { ...RULES, retry: undefined }).verdict, 'FAIL', 'an unread retry refuses');
   // A step reached only through another shared file can't be set aside on the judge's word alone.
   const untouched = verdictOf(b8({ change: 'still-proves' }), { ...RULES, touches: false });
@@ -464,7 +489,7 @@ test("B8: the input carries the code's set-aside facts and, when changed, the se
     own: ['J-x-01 #2'],
     days: 7,
     mainDays: 'none',
-    retry: "the retry's file names retries 0 times, not once",
+    retry: "the retry's file can't be read",
     touches: true,
   });
   assert.match(got.prompt, /SET-ASIDE FACTS[^]*money steps among those listed \(never set aside\): J-x-01 #1/);
