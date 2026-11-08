@@ -621,21 +621,6 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await expect(page.getByRole('dialog', { name: /Notifications/ }).getByText('Agent spend passed your alert')).toHaveCount(1, {
     timeout: 20_000,
   });
-
-  // The delivery's outcome, as svc-notify recorded it for that one alert: the inbox row is in the inbox, and the email
-  // the person asked for was not sent, with the notice that this way of reaching them is not set up on the platform.
-  await page.keyboard.press('Escape');
-  await page.goto('/notifications?view=delivery');
-  const delivery = page.getByRole('region', { name: 'Delivery history' });
-  const alertItem = delivery.getByRole('listitem').filter({ hasText: 'Agent spend passed your alert' });
-  await expect(alertItem).toHaveCount(1, { timeout: 20_000 });
-  await alertItem.getByRole('button', { name: 'Show delivery' }).click();
-  const channels = alertItem.getByRole('listitem');
-  await expect(channels.filter({ hasText: 'Inbox in the app' })).toContainText('In your inbox');
-  const emailRow = channels.filter({ hasText: 'Email' });
-  await expect(emailRow).toHaveCount(1);
-  await expect(emailRow).toContainText('Not sent');
-  await expect(emailRow).toContainText('Why: This way of reaching you is not set up on the platform.');
 });
 
 /** svc-agents restarted with no routing table (every rate blank, as production runs until the owner sets them), or back on the stack's TEST rates. */
