@@ -50,6 +50,8 @@ export const OWN_AGENT_CHILD_TABLES = [
   'own_agent_reviewer_settings',
   'own_agent_approval_requests',
   'own_agent_rules',
+  'own_agent_policy_rules',
+  'own_agent_policy_settings',
   'own_agent_consents',
   'own_agent_test_runs',
   'own_agent_eval_runs',
