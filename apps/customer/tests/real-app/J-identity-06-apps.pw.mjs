@@ -59,7 +59,7 @@ test(`${J} #6 Connected apps and API access lists both keys with prefix, permiss
       await expect(cells.nth(0)).toHaveText(record.prefix);
       expect(key.startsWith(record.prefix), `${name}'s prefix is the start of its key`).toBe(true);
       expect(record.prefix.length, `${name} shows only a prefix, not the key`).toBeLessThan(key.length);
-      await expect(cells.nth(1)).toHaveText('Live');
+      await expect(cells.nth(1)).toHaveText(record.mode === 'live' ? 'Live' : 'Sandbox');
       await expect(cells.nth(2)).toHaveText(record.scopes.join(', '));
       await expect(cells.nth(7)).toHaveText('Active');
     }

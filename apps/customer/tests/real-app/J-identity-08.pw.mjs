@@ -5,7 +5,7 @@ import { chromium, test, expect } from './journey.mjs';
 import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, reviewLimit } from './desk.mjs';
-import { api, signUpInBrowser, tool } from './stack.mjs';
+import { ORIGIN, api, signUpInBrowser, tool } from './stack.mjs';
 
 // J-identity-08, in the running app (docs/roadmap/journeys.json): I get verified and see what each level unlocks.
 // Starts signed in at level none on /verification. Tests titled "J-identity-08 #<n>" prove a whole step; the others
@@ -182,7 +182,7 @@ test(`${J} #2: guided verification resumes at the step left, a country with no d
   // with this browser's session, is a typed refusal naming the 262144-byte cap, and the draft stays on the upload step
   // at the same version.
   expect(authorization).toMatch(/^Bearer \S+$/);
-  const headers = { origin: 'http://127.0.0.1:3210', authorization, 'content-type': 'application/json' };
+  const headers = { origin: ORIGIN, authorization, 'content-type': 'application/json' };
   const readDraft = async () => {
     const res = await page.request.get('/api/identity/trpc/kyc.profile.read', { headers });
     expect(res.status()).toBe(200);

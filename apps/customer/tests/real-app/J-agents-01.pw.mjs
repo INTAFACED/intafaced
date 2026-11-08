@@ -187,11 +187,15 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
     const cells = rows.nth(i).getByRole('cell');
     await expect(cells).toHaveCount(6);
     await expect(cells.nth(0)).toHaveText(tool.name);
-    const shape = ['inputs', 'outputs'].map((key) => tool[key]);
-    for (const [j, published] of shape.entries()) {
-      if (published === undefined || published === null) await expect(cells.nth(3 + j)).toHaveText('Not published by this agent');
-      else await expect(cells.nth(3 + j)).not.toHaveText('Not published by this agent');
-    }
+    await expect(cells.nth(1)).toHaveText(tool.mode);
+    await expect(cells.nth(2)).toHaveText(tool.requiresApproval ? 'Required' : 'None needed');
+    // agent.get publishes no input or output shape for any tool, so both cells say so in words.
+    expect(tool, `${tool.name} publishes no input shape`).not.toHaveProperty('inputs');
+    expect(tool, `${tool.name} publishes no output shape`).not.toHaveProperty('outputs');
+    await expect(cells.nth(3)).toHaveText('Not published by this agent');
+    await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    // Every refusal is worded, never left as its raw code.
+    for (const code of tool.refusals) expect(REFUSAL_WORDS[code.replace(/^agents\./, '')], `${tool.name}: ${code} has words`).toBeDefined();
     await expect(cells.nth(5).getByRole('listitem')).toHaveText(tool.refusals.map(refusalWords));
   }
   // The permission mode is the one svc-agents stores for Navigator, in its words: research only.
