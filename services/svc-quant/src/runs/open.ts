@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import type { QuotaGate } from '../quota/quota.js';
 import { QUANT_DATABASE_POOL_MAX_UNSET, QUANT_DATABASE_URL_UNSET, QuantError } from '../errors.js';
 import { assertRunResultCap, RUN_RESULT_MAX_BYTES } from './limit.js';
 import { createPostgresRunRepository } from './postgres-repository.js';
@@ -20,6 +21,8 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
     history: async () => fail(),
     setLabel: async () => fail(),
     variantCount: async () => fail(),
+    paperRuns: async () => fail(),
+    paperRun: async () => fail(),
   };
 }
 
@@ -28,7 +31,10 @@ function refuse(code: typeof QUANT_DATABASE_URL_UNSET | typeof QUANT_DATABASE_PO
  * Pool size is never invented. The result cap is the published constant,
  * not an environment default.
  */
-export function openRunRepository(env: { DATABASE_URL?: string | undefined; DATABASE_POOL_MAX?: string | undefined }): {
+export function openRunRepository(
+  env: { DATABASE_URL?: string | undefined; DATABASE_POOL_MAX?: string | undefined },
+  quota?: QuotaGate,
+): {
   repository: RunRepository;
   close: () => Promise<void>;
 } {
@@ -50,7 +56,7 @@ export function openRunRepository(env: { DATABASE_URL?: string | undefined; DATA
   assertRunResultCap(RUN_RESULT_MAX_BYTES);
   const sql = postgres(url, { max: pool, onnotice: () => undefined });
   return {
-    repository: createPostgresRunRepository(sql, 'quant', RUN_RESULT_MAX_BYTES),
+    repository: createPostgresRunRepository(sql, 'quant', RUN_RESULT_MAX_BYTES, quota),
     close: () => sql.end({ timeout: 5 }),
   };
 }

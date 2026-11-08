@@ -87,6 +87,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     ...(process.env.LOCAL_STACK_AGENTS_TEMPLATES === 'off' ? { AGENTS_OWN_TEMPLATES: 'blank' } : {}),
     ...(process.env.LOCAL_STACK_AGENTS_LOG_READ_REASONS === 'off' ? {} : { AGENTS_LOG_READ_REASONS: testValue('AGENTS_LOG_READ_REASONS') }),
     AGENTS_OPS_ACTIONS_LIMIT: testValue('AGENTS_OPS_ACTIONS_LIMIT'),
+    // LOCAL TEST page size of the operator fleet registry (J-agents-14).
+    AGENTS_REGISTRY_LIST_LIMIT: testValue('AGENTS_REGISTRY_LIST_LIMIT'),
+    // LOCAL TEST background test runs of an own agent, slow enough to be quarantined mid-run (J-agents-14 #3).
+    AGENTS_BACKGROUND_TEST_STEPS: testValue('AGENTS_BACKGROUND_TEST_STEPS'),
+    AGENTS_BACKGROUND_STEP_MS: testValue('AGENTS_BACKGROUND_STEP_MS'),
     // LOCAL TEST managed baseline for own agents' tools (J-agents-05 #1). `LOCAL_STACK_AGENTS_POLICY_BASELINE=off` leaves
     // it blank, so every own-agent tool call refuses agents.baseline_value_unset.
     ...(process.env.LOCAL_STACK_AGENTS_POLICY_BASELINE === 'off' ? {} : { AGENTS_POLICY_BASELINE: testValue('AGENTS_POLICY_BASELINE') }),

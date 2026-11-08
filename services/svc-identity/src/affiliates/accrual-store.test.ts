@@ -21,8 +21,8 @@ describe('Slice B durable accrual store — no payout', () => {
       fee,
       parent,
       tiers: [
-        { hop: 0, rate: '0.10' },
-        { hop: 1, rate: '0.05' },
+        { hop: 0, rate: '0.130' },
+        { hop: 1, rate: '0.07' },
       ],
     });
     expect(rows).toHaveLength(0);
@@ -47,8 +47,8 @@ describe('Slice B durable accrual store — no payout', () => {
       fee,
       parent,
       tiers: [
-        { hop: 0, rate: '0.10' },
-        { hop: 1, rate: '0.05' },
+        { hop: 0, rate: '0.130' },
+        { hop: 1, rate: '0.07' },
       ],
     });
     expect(rows.length).toBeGreaterThan(0);
@@ -58,7 +58,7 @@ describe('Slice B durable accrual store — no payout', () => {
     expect(await store.saveRows(rows)).toBe(0); // idempotent retry
     const listed = await store.listByFeeEvent('fee-1');
     expect(listed).toHaveLength(rows.length);
-    expect(listed[0]!.commissionAmount).toBe('10');
+    expect(listed[0]!.commissionAmount).toBe('13');
     // Default pool when fee omits sourceModule — legacy operator path only.
     expect(listed.every((r) => r.sourceModule === 'identity')).toBe(true);
   });
@@ -77,7 +77,7 @@ describe('Slice B durable accrual store — no payout', () => {
     const rows = accrueCommission({
       fee,
       parent,
-      tiers: [{ hop: 0, rate: '0.10' }],
+      tiers: [{ hop: 0, rate: '0.130' }],
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.sourceModule).toBe('trade');
@@ -95,9 +95,9 @@ describe('Slice B durable accrual store — no payout', () => {
         beneficiaryId: REF,
         payerId: PAYER,
         hop: 0,
-        rate: '0.10',
+        rate: '0.130',
         feeAmount: '100',
-        commissionAmount: '10',
+        commissionAmount: '13',
         asset: 'USDT',
         accruedAt: at,
         sourceModule: 'trade',
@@ -107,9 +107,9 @@ describe('Slice B durable accrual store — no payout', () => {
         beneficiaryId: REF2,
         payerId: PAYER,
         hop: 0,
-        rate: '0.05',
+        rate: '0.07',
         feeAmount: '100',
-        commissionAmount: '5',
+        commissionAmount: '7',
         asset: 'USDT',
         accruedAt: at,
         sourceModule: 'pay',
