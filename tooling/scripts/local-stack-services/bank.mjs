@@ -90,6 +90,18 @@ function cardPartner() {
 }
 
 /**
+ * The card dispute cap (J-bank-27 #4): the profile's TEST cap, or blank when a restart asks
+ * `LOCAL_STACK_BANK_CARD_DISPUTE_CAP=off`, so a journey can see a credit and a cardholder decision refused
+ * bank.card_dispute_cap_unset.
+ */
+function disputeCap() {
+  const asked = process.env.LOCAL_STACK_BANK_CARD_DISPUTE_CAP;
+  if (asked === undefined || asked === '') return { BANK_CARD_DISPUTE_CAP_JSON: testValue('BANK_CARD_DISPUTE_CAP_JSON') };
+  if (asked === 'off') return {};
+  throw new Error(`LOCAL_STACK_BANK_CARD_DISPUTE_CAP is "${asked}"; leave it unset for the TEST cap, or set it to off.`);
+}
+
+/**
  * The owner's money-out step-up rule (ADR 2026-10-14-money-out-step-up): off on the stack, as in production today, or
  * `required` when a journey asks for it on a restart (J-pay-01 #5: the fresh confirmation before a send to a person).
  */
@@ -277,6 +289,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // The money-out step-up rule is off unless `LOCAL_STACK_BANK_STEP_UP_MONEY_OUT=required` on a restart (J-pay-01 #5).
     ...moneyOutStepUp(),
     ...cardPartner(),
+    ...disputeCap(),
     // No send review rule unless `LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on` on a restart (J-pay-01 #6).
     ...sendReview(),
     // Nothing moves money in the background of a test stack.

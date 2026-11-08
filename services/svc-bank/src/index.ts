@@ -27,6 +27,7 @@ import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './ca
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
+import { parseDisputeCap } from './cards/card-disputes.js';
 import { cardSimPartnerFor, parseSpendAssets } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
@@ -241,6 +242,8 @@ const bank = createBankServices(sql, ledger, history, {
    * what a deployment gets by saying nothing. It just is no longer what a
    * deployment gets by SAYING ANYTHING.
    */
+  /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
+  cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
   cards: {
     issuer: cardIssuerFor(
       env.BANK_CARD_ISSUER,

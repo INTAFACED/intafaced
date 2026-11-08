@@ -365,6 +365,22 @@ const bankSections: readonly DeskSection[] = [
     ],
   },
   {
+    id: 'card-disputes',
+    title: 'Card disputes',
+    intro:
+      'Cardholders’ disputes of settled card payments: the queue by state, each case’s timeline, evidence, representment and arbitration, the card partner’s provisional credit and the decision with who bears the loss.',
+    reads: [],
+    unavailable: [],
+    disabledActions: [],
+    links: [
+      {
+        href: '/bank-ops/cards/disputes',
+        label: 'Card disputes',
+        why: 'The dispute queue and each case are on their own pages.',
+      },
+    ],
+  },
+  {
     id: 'customer-balances',
     title: 'Customer balances',
     intro:

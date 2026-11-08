@@ -3077,6 +3077,9 @@ describe('svc-bank money PG-hard', () => {
         'card_programme_funding_requests.amount':
           'the INSTRUCTION one programme funding request sent the card partner; written once, nothing posts with it (the partner moves the money)',
         'card_programme_funding_requests.threshold': 'a POLICY: the auto reload trigger sent to the card partner; no money path writes it',
+        'card_disputes.amount': 'a RECORD of what one cardholder disputed on one settled capture; written once, nothing posts with it',
+        'card_disputes.credit_amount':
+          "a RECORD of the provisional credit the card partner reports it gave its cardholder; the partner's money, nothing posts with it",
         'card_cashback.amount': 'a RECORD of one reward; summing the table is the lifetime figure',
 
         // ── JIT conversion (§18) ─────────────────────────────────────────────

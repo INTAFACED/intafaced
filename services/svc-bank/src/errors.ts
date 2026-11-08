@@ -318,6 +318,20 @@ export type BankErrorCode =
   | 'bank.card_funding_not_offered'
   /** A programme funding request needs a positive amount, and auto reload a positive threshold. */
   | 'bank.card_funding_invalid'
+  /** No card dispute with that id (J-bank-27). */
+  | 'bank.card_dispute_not_found'
+  /** A dispute request is not in shape, or a case key was used for a different dispute. */
+  | 'bank.card_dispute_invalid'
+  /** That step is not open to a dispute in its state (a closed case, representment twice, arbitration before representment). */
+  | 'bank.card_dispute_state'
+  /** The authorisation has no settled capture to dispute, or the amount is above what was captured. */
+  | 'bank.card_dispute_not_disputable'
+  /** The owner has not published the dispute cap for this asset, so no credit or cardholder decision is made (J-bank-27 #4). */
+  | 'bank.card_dispute_cap_unset'
+  /** The disputed amount is above the owner's dispute cap (J-bank-27 #4). */
+  | 'bank.card_dispute_cap_exceeded'
+  /** The card partner does not take provisional credits or dispute decisions through this adapter. */
+  | 'bank.card_dispute_partner_unset'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */

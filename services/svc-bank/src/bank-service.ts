@@ -9,6 +9,8 @@ import { SpendAnalytics } from './analytics/spend.js';
 import { LoanService, type LoanServiceOptions } from './loans/loan-service.js';
 import { fixedPriceSource } from './loans/prices.js';
 import { CardService, type CardServiceOptions } from './cards/card-service.js';
+import { CardDisputeService, type DisputeCap } from './cards/card-disputes.js';
+import { noCardIssuer } from './cards/issuer.js';
 import { CardOrderService } from './cards/card-orders.js';
 import { RampService, type RampServiceOptions } from './ramps/ramp-service.js';
 import { AddMoneyService } from './ramps/add-money.js';
@@ -112,6 +114,8 @@ export interface BankServices {
   readonly cards: CardService;
   /** J-bank-13: the card room's product list, terms, order and delivery. */
   readonly cardOrders: CardOrderService;
+  /** J-bank-27: card disputes worked by support; the partner's provisional credit and loss liability, the owner's cap. */
+  readonly cardDisputes: CardDisputeService;
   readonly ramps: RampService;
   /** Add money: the ways to pay in with their quotes, and the customer's requests (J-bank-02). */
   readonly addMoney: AddMoneyService;
@@ -198,6 +202,8 @@ export interface BankServiceOptions {
    * programme (and none has one: the live rail is `socket.live-issuer`).
    */
   cards?: CardServiceOptions;
+  /** The owner's dispute cap per asset (`BANK_CARD_DISPUTE_CAP_JSON`); unset refuses `bank.card_dispute_cap_unset`. */
+  cardDisputeCap?: DisputeCap;
   /**
    * Ramp wiring: crypto ledger half, if any.
    *
@@ -383,6 +389,12 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
   });
+  const cardDisputes = new CardDisputeService(sql, {
+    issuer: options.cards?.issuer ?? noCardIssuer,
+    partnerTerms: () => cards.partnerTerms(),
+    simulated: () => cards.programme().simulated,
+    cap: options.cardDisputeCap ?? null,
+  });
   const cardOrders = new CardOrderService(sql, cards, {
     terms: options.cards?.programmeTerms ?? null,
   });
@@ -475,6 +487,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
     loans,
     cards,
     cardOrders,
+    cardDisputes,
     ramps,
     addMoney,
     linkedAccounts,

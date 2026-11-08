@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mulBps, type Amount } from '@intafaced/ledger-client';
+import { formatAmount, mulBps, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { BankError } from '../errors.js';
 import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
 
@@ -141,6 +141,26 @@ export interface CardIssuerAdapter {
     threshold: string | null;
   }): Promise<{ partnerRef: string }>;
 
+  /**
+   * Ask the partner to credit its cardholder provisionally while a dispute is open (J-bank-27 #3). The credit is the
+   * partner's, under its licence: the partner answers with its reference and the amount it credited, and the cardholder's
+   * available, as the partner reports it, rises by that amount. `requestId` is the business key the partner deduplicates
+   * on, so a retry after a crash is the same credit. Nothing posts to our ledger. Optional: an adapter without it takes no
+   * provisional credit (`bank.card_dispute_partner_unset`).
+   */
+  provisionalCredit?(input: { requestId: string; userId: string; assetId: string; amount: string }): Promise<{
+    partnerRef: string;
+    amount: string;
+  }>;
+
+  /**
+   * Tell the partner how a dispute was decided (J-bank-27 #4): its provisional credit becomes final, or the partner
+   * reverses it. Deduplicated on `requestId`. Optional, as `provisionalCredit`.
+   */
+  settleProvisionalCredit?(input: { requestId: string; creditRequestId: string; settlement: 'final' | 'reversed' }): Promise<{
+    partnerRef: string;
+  }>;
+
   /** Freeze, unfreeze or close the card at the issuer. */
   setStatus(input: { cardId: string; issuerRef: string; status: 'active' | 'frozen' | 'closed' }): Promise<void>;
 
@@ -223,6 +243,7 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
     // Says what it is in the name, because this string reaches a screen.
     displayName: options.displayName ?? 'Simulated card (no card programme)',
   });
+  const credits = new Map<string, { userId: string; assetId: string; amount: Amount; partnerRef: string; reversed: boolean }>();
 
   return {
     programme,
@@ -241,8 +262,9 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
     respondToAuthorization: async () => undefined,
     setStatus: async () => undefined,
     partnerTerms: () => partner,
-    // The TEST partner's figures: the same TEST balances for every cardholder, as its switches set them.
-    cardholderBalances: async () => partner.balances,
+    // The TEST partner's figures: the same TEST balances for every cardholder, as its switches set them, plus any
+    // provisional dispute credit it has given that cardholder and not reversed (J-bank-27 #3).
+    cardholderBalances: async ({ userId }) => withCredits(partner.balances, userId, credits),
     // The TEST partner takes an instruction it offers and answers with a TEST reference derived from the request's key,
     // so the same request always gets the same reference. It moves nothing: there is no partner and no money behind it.
     programmeFunding: async (input) => {
@@ -253,7 +275,47 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
       }
       return { partnerRef: `TEST-card-sim-${createHash('sha256').update(input.requestId).digest('hex').slice(0, 16)}` };
     },
+    // TEST rule: the TEST partner credits the disputed amount in full, once per request key, and adds it to what it reports
+    // that cardholder can spend in that asset. It keeps its credits in this process only, as a stand-in: there is no
+    // partner and no money behind them, and nothing posts to the ledger.
+    provisionalCredit: async (input) => {
+      const prior = credits.get(input.requestId);
+      if (prior) return { partnerRef: prior.partnerRef, amount: formatAmount(prior.amount) };
+      const credit = {
+        userId: input.userId,
+        assetId: input.assetId,
+        amount: parseAmount(input.amount),
+        partnerRef: testRef('credit', input.requestId),
+        reversed: false,
+      };
+      credits.set(input.requestId, credit);
+      return { partnerRef: credit.partnerRef, amount: formatAmount(credit.amount) };
+    },
+    settleProvisionalCredit: async (input) => {
+      const credit = credits.get(input.creditRequestId);
+      if (credit && input.settlement === 'reversed') credit.reversed = true;
+      return { partnerRef: testRef(input.settlement, input.requestId) };
+    },
   };
+}
+
+const testRef = (kind: string, key: string): string =>
+  `TEST-card-sim-${kind}-${createHash('sha256').update(key).digest('hex').slice(0, 16)}`;
+
+/** The TEST partner's reported balance for one cardholder: its TEST figure plus the provisional credits it has not reversed. */
+function withCredits(
+  balances: Readonly<Record<string, string>> | null,
+  userId: string,
+  credits: ReadonlyMap<string, { userId: string; assetId: string; amount: Amount; reversed: boolean }>,
+): Readonly<Record<string, string>> | null {
+  if (!balances) return balances;
+  const out: Record<string, string> = { ...balances };
+  for (const c of credits.values()) {
+    // An asset the partner reports no balance for stays "not known": a credit does not make it known.
+    if (c.userId !== userId || c.reversed || out[c.assetId] === undefined) continue;
+    out[c.assetId] = formatAmount(parseAmount(out[c.assetId]!) + c.amount);
+  }
+  return out;
 }
 
 /**
@@ -287,6 +349,12 @@ export const noCardIssuer: CardIssuerAdapter = {
   },
   programmeFunding: async () => {
     throw new BankError('No card issuer is configured — this deployment has no card partner to fund', 'bank.no_card_issuer');
+  },
+  provisionalCredit: async () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to credit', 'bank.no_card_issuer');
+  },
+  settleProvisionalCredit: async () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to tell', 'bank.no_card_issuer');
   },
 };
 
@@ -352,6 +420,8 @@ export function cardSimNotLive(): CardIssuerAdapter {
     partnerTerms: () => refuse(),
     cardholderBalances: async () => refuse(),
     programmeFunding: async () => refuse(),
+    provisionalCredit: async () => refuse(),
+    settleProvisionalCredit: async () => refuse(),
   };
 }
 

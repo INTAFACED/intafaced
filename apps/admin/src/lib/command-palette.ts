@@ -42,6 +42,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/support/articles', label: 'Support: write and review help articles' },
   { href: '/compliance/cases', label: 'Compliance cases', keywords: ['aml', 'review', 'case'] },
   { href: '/bank-ops/holds', label: 'Bank: global send holds', keywords: ['held', 'release'] },
+  { href: '/bank-ops/cards/disputes', label: 'Bank: card disputes', keywords: ['chargeback', 'dispute', 'provisional credit'] },
   { href: '/more-ops/mining', label: 'Mining desk', keywords: ['pool', 'shares', 'workers'] },
   { href: '/more-ops/predict', label: 'Predict desk', keywords: ['prediction'] },
   { href: '/more-ops/agents', label: 'Agent fleet', keywords: ['agents', 'registry', 'quarantine', 'kill', 'owner'] },
