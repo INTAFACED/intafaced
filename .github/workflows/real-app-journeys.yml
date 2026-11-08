@@ -126,6 +126,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read # a pull request's changed files
+      actions: read # main's runs, for the touched-journeys map's age (journey-reach-map.mjs runsBehind)
     outputs:
       mode: ${{ steps.touch.outputs.mode }}
       target: ${{ steps.touch.outputs.target }}
@@ -192,9 +193,13 @@ jobs:
             { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --files-from "$list") || full "journey-touch couldn't judge this pull request"
+          # --reach: product code runs only the journeys main's touched-journeys map recorded reaching it (the base's map,
+          # beside its journey-touch.mjs), else the full suite.
+          touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --reach --files-from "$list") || full "journey-touch couldn't judge this pull request"
           mode=$(jq -r .mode <<<"$touch")
           echo "journey-touch: $mode ($listed changed files)"
+          # Counts only: a changed path is the pull request's own text and never reaches a log line here.
+          jq -r 'select(.reach) | "journey-touch: the touched-journeys map narrows \(.reach | length) product path(s) to \(.files | length) journey file(s)"' <<<"$touch"
           # The steps the title names and no Left-or-replaced line leaves (the seal's titleSteps and exemptions): their
           # journey files at the head run too, so the seal's named steps are proven without a manual run.
           named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"
