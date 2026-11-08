@@ -10,7 +10,19 @@ import {
   staffHoldTargetId,
 } from '@intafaced/contracts/ops-staff-holds';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
+import { APPROVAL_POLICY_SET_ACTION_TYPE, approvalPolicySetPayloadFields } from '@intafaced/contracts/action-approval-policy';
+import { staffChangeApprovalSubject, staffChangePayloadText } from '@intafaced/contracts/identity-staff';
 import type { DeskRequest } from './approval-packet';
+
+/** The subject identity binds an invite to: the named person, no roles yet. */
+export function staffInviteSubject(request: Extract<DeskRequest, { kind: 'identity.staff.invite' }>) {
+  return staffChangeApprovalSubject('identity.staff.invite', {
+    requestId: request.requestId,
+    email: request.email,
+    displayName: request.displayName,
+    roleIds: [],
+  });
+}
 
 /** The verb svc-identity binds a waitlist wave release to (`waitlist.waves.release`). */
 export const WAVE_RELEASE_TARGET = 'waitlist.wave.release';
@@ -170,12 +182,26 @@ export function payloadHashFor(request: DeskRequest): string {
       return sha('academy.residency.decide', { id: request.id, decision: request.decision });
     case 'bank.card.status':
       return shaBank('bank.ops.setCardStatus', { cardId: request.cardId, status: request.status });
+    case 'bank.card.funding':
+      return shaBank('bank.ops.requestCardProgrammeFunding', {
+        kind: request.fundingKind,
+        amount: request.amount,
+        threshold: request.threshold,
+      });
     case 'market.listing.takedown':
       return sha('market.takedown', { listingId: request.listingId, reason: request.reason });
     case 'identity.auth_key.rotate':
       return shaIdentity('identity.auth_key_rotate', { keyId: request.keyId });
     case 'identity.auth_key.remove_old':
       return shaIdentity('identity.auth_key_remove_old', { keyIds: request.keyIds });
+    // svc-identity `approvalPolicy.set`: { targetId: 'identity.approval_policy.set', ...approvalPolicySetPayloadFields }.
+    case 'identity.approval_policy.set':
+      return shaIdentity(APPROVAL_POLICY_SET_ACTION_TYPE, approvalPolicySetPayloadFields(request));
+    // svc-identity `staff.invite`: sha256 of `staffChangePayloadText(staffChangeApprovalSubject('identity.staff.invite', …))`.
+    case 'identity.staff.invite':
+      return `sha256:${createHash('sha256')
+        .update(staffChangePayloadText(staffInviteSubject(request)))
+        .digest('hex')}`;
     // svc-identity `consumePrivileged(…, 'kyc.doc.get', { documentId })`: { targetId: 'kyc.doc.get', documentId }.
     case 'identity.kyc_document.open':
       return shaIdentity(KYC_DOCUMENT_GET, { documentId: request.documentId });
@@ -324,6 +350,15 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         policyVersion: 'v1',
       };
     // svc-bank consumes against its own verb as the target id (a founder-level action: identity wants both founders live).
+    case 'bank.card.funding':
+      return {
+        actionType: 'bank.ops.requestCardProgrammeFunding',
+        targetService: 'svc-bank',
+        targetId: 'bank.ops.requestCardProgrammeFunding',
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
     case 'bank.card.status':
       return {
         actionType: 'bank.ops.setCardStatus',
@@ -391,6 +426,28 @@ export function proposeInputFor(request: DeskRequest): ProposeInput {
         policyVersion: 'v1',
       };
     // svc-identity consumes against its own verb as the target id. Both are founder-only action types at identity.
+    // A row change is founder-only at identity and consumed against its own verb, at version 1 (the row version is hashed).
+    case 'identity.approval_policy.set':
+      return {
+        actionType: APPROVAL_POLICY_SET_ACTION_TYPE,
+        targetService: 'svc-identity',
+        targetId: APPROVAL_POLICY_SET_ACTION_TYPE,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    // A governed staff change: identity judges it by the type's policy row and consumes it against the invite's target.
+    case 'identity.staff.invite': {
+      const subject = staffInviteSubject(request);
+      return {
+        actionType: subject.actionType,
+        targetService: subject.targetService,
+        targetId: subject.targetId,
+        expectedVersion: '1',
+        payloadHash,
+        policyVersion: 'v1',
+      };
+    }
     case 'identity.auth_key.rotate':
     case 'identity.auth_key.remove_old': {
       const verb = request.kind === 'identity.auth_key.rotate' ? 'identity.auth_key_rotate' : 'identity.auth_key_remove_old';
