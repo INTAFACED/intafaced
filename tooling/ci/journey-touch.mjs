@@ -28,9 +28,10 @@
  *
  *   node tooling/ci/journey-touch.mjs --base origin/main     (this checkout's branch against a base; prints what to run)
  *   node tooling/ci/journey-touch.mjs --files a b c          (named paths)
+ *   node tooling/ci/journey-touch.mjs --json --files-from f  (one path a line; JSON { mode, full, files }; real-app-journeys.yml's plan)
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { JOURNEY_TEST, isSharedSetup } from './journey-seal.mjs';
 
@@ -121,7 +122,14 @@ function main() {
   let atHead = (p) => existsSync(p);
   const b = args.indexOf('--base');
   const f = args.indexOf('--files');
-  if (b >= 0 && args[b + 1]) {
+  const from = args.indexOf('--files-from');
+  if (from >= 0 && args[from + 1]) {
+    // One changed path a line (a pull request's files, from the API), judged against this checkout of its head: a
+    // journey test file the head removed runs nothing.
+    paths = readFileSync(args[from + 1], 'utf8')
+      .split('\n')
+      .filter(Boolean);
+  } else if (b >= 0 && args[b + 1]) {
     paths = execFileSync('git', ['diff', '--name-only', '--no-renames', `${args[b + 1]}...HEAD`], { encoding: 'utf8' })
       .split('\n')
       .filter(Boolean);
@@ -129,10 +137,11 @@ function main() {
     paths = args.slice(f + 1);
     atHead = () => true;
   } else {
-    console.error('usage: journey-touch.mjs --base <ref> | --files <path>...');
+    console.error('usage: journey-touch.mjs [--json] --base <ref> | --files <path>... | --files-from <file>');
     process.exit(2);
   }
   const t = journeyTouch(paths, atHead);
+  if (args.includes('--json')) return console.log(JSON.stringify(t));
   if (t.mode === 'full') {
     console.log('full: this change needs a clean full Real-app journeys run on its exact head (no journeys input), because of:');
     for (const x of t.full.slice(0, 20)) console.log(`  ${x.path}: ${x.why}`);
