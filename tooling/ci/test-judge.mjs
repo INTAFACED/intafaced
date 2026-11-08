@@ -121,6 +121,37 @@ export const mainSetAsideDays = (text) =>
 export const setAsideCap = (mainDays) =>
   mainDays === 'none' ? SET_ASIDE_MAX_DAYS : Number.isInteger(mainDays) && mainDays >= 1 ? Math.min(mainDays, SET_ASIDE_MAX_DAYS) : null;
 
+/**
+ * Whether lines[0..end) are a header that leaves nothing open at line `end`: a first-line shebang, blank lines, `//`
+ * lines, block comments
+ * laid out one way (a line that is a block-comment opener alone, then lines starting `*` that never close it early,
+ * then a line that is the closer alone; or a one-line doc comment with nothing after it), and one-line
+ * `import ... from '...';` or `[export] const NAME = ...;` statements with no backtick, no comment marker and no
+ * backslash. Anything else (a template, a multi-line statement, a regular expression with a comment marker) refuses.
+ */
+export function headerBefore(lines, end) {
+  if (!(end >= 0)) return false;
+  let inBlock = false;
+  for (const [n, raw] of lines.slice(0, end).entries()) {
+    const l = raw.trim();
+    if (n === 0 && raw.startsWith('#!')) continue; // a shebang line
+    if (inBlock) {
+      if (l === '*/') inBlock = false;
+      else if (!l.startsWith('*') || l.includes('*/')) return false;
+      continue;
+    }
+    if (l === '' || l.startsWith('//')) continue;
+    if (l === '/*' || l === '/**') {
+      inBlock = true;
+      continue;
+    }
+    if (/^\/\*\*? /.test(l) && l.endsWith('*/') && l.indexOf('*/') === l.length - 2) continue;
+    const code = /^import [^`\\]+ from '[^'`\\]+';$/.test(l) || /^(?:export )?const [A-Za-z_$][\w$]* = [^`\\]+;$/.test(l);
+    if (!code || l.includes('/*') || l.includes('*/')) return false;
+  }
+  return !inBlock;
+}
+
 /** A line that is only a line comment: the one place outside B8's own line where these checks let a name appear. */
 const commentLine = (l) => l.trim().startsWith('//');
 
@@ -175,18 +206,10 @@ export function setAsideDays(text) {
     /(?:\b(?:const|let|var|as|function|class)\s+|(?<!\$)[{,]\s*)SET_ASIDE_DAYS(?![\w$])|(?<![\w$.])SET_ASIDE_DAYS\s*(?:[-+*/%]?=(?!=)|\+\+|--)|\.SET_ASIDE_DAYS\b/;
   const binds = lines.filter((l) => BIND.test(l) && !/^export const SET_ASIDE_DAYS = [1-9]\d*;$/.test(l) && !commentLine(l));
   if (decl.length !== 1 || binds.length !== 0) return null;
-  // Refuse-only: a declaration that may sit inside a block comment or a template (an odd count of backticks, or a `/*`
-  // not yet closed, on the lines before it) is no declaration. This never accepts more; the code's real use of the
-  // length is the judge's endDate reading.
-  const before = lines
-    .slice(
-      0,
-      lines.findIndex((l) => decl[0][0] === l),
-    )
-    .join('\n');
-  const open = before.lastIndexOf('/*') > before.lastIndexOf('*/');
-  if (open || (before.match(/`/g) ?? []).length % 2 === 1) return null;
-  return Number(decl[0][1]);
+  // The declaration must sit in the file's header, so it is live code and no string, template or comment can be open
+  // around it: every line before it is one headerBefore allows. Whether the end date is built from it is the judge's
+  // endDate reading.
+  return headerBefore(lines, lines.indexOf(decl[0][0])) ? Number(decl[0][1]) : null;
 }
 
 /**

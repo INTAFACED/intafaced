@@ -313,6 +313,24 @@ test('B8 refuses (planted): no end date, an end date the code does not set, or a
   ])
     assert.equal(setAsideDays(`const doc = \`\nexport const SET_ASIDE_DAYS = 7;\n\`;\n${real}\n`), null, real);
   assert.equal(setAsideDays('const doc = `\nexport const SET_ASIDE_DAYS = 7;\n`;\nconst D = 30;\n'), null, 'the 7 only in a template');
+  // The CI review's plant on f829d44 (run 42439981348): a backtick inside a quote evens the count, the template stays open.
+  for (const opener of ["const q = '`';\nconst doc = `", "const doc = `${'`'}", 'const re = /[/*]/;\nconst doc = `'])
+    assert.equal(setAsideDays(`${opener}\nexport const SET_ASIDE_DAYS = 7;\n\`;\nconst LEN = 30;\n`), null, opener);
+  // Only a header before it: comment blocks, line comments, one-line imports and consts.
+  const header =
+    "#!/usr/bin/env node\n/**\n * The verdict. `a` and `b`.\n */\nimport { x } from 'node:fs';\n// c\n/** d */\nexport const A = 'b';\n";
+  assert.equal(setAsideDays(`${header}export const SET_ASIDE_DAYS = 7;\n`), 7, 'the control');
+  for (const bad of [
+    '/**\n * x */ const doc = `\n',
+    '/**\n * x */ const doc = `\n */\n',
+    'const s = "x\\\n',
+    'function f() {\n',
+    '/* x */ const doc = `\n',
+    'const a = 1; /* `\n',
+    'import {\n  x,\n} from "y";\n',
+    '/**\n * never closed\n',
+  ])
+    assert.equal(setAsideDays(`${bad}export const SET_ASIDE_DAYS = 7;\n`), null, JSON.stringify(bad));
   assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nSET_ASIDE_DAYS = 30;\n'), null, 'reassigned');
   assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nexport { X as SET_ASIDE_DAYS };\n'), null, 'renamed export');
   assert.equal(
