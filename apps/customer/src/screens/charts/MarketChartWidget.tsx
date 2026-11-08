@@ -32,6 +32,7 @@ import { isStreamInterval, mergeLive, useCandleStream, type OpenSocket } from '.
 import { intervalLabel, type ChartMode } from './workbench';
 import { WorkbenchChart } from './WorkbenchChart';
 import { ChartTrading } from './trading/ChartTrading';
+import { ChartAlerts } from './alerts/ChartAlerts';
 import { CompareTools } from './CompareTools';
 import { useNow } from '../trade/desk/hooks';
 
@@ -280,6 +281,7 @@ export const MarketChartWidget = memo(function MarketChartWidget({
               protectionWhy={protectionRead.ok ? null : protectionRead.why}
               replaying={replay.replay !== null}
             />
+            <ChartAlerts host={host} market={market} replaying={replay.replay !== null} />
           </>
         )}
       </WorkbenchChart>

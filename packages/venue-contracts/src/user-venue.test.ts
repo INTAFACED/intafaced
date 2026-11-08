@@ -8,6 +8,8 @@ import {
   venueClientOrderId,
   type PreparedVenueAction,
   isTestVenue,
+  needsReadBack,
+  type VenueSubmitOutcome,
   type UserVenueAccount,
   type UserVenueDescriptor,
   type VenueIntent,
@@ -51,6 +53,9 @@ describe('venueClientOrderId', () => {
     expect(refusalCode(() => venueClientOrderId('test-sim', '   '))).toBe('invalid_client_order_key');
     expect(refusalCode(() => venueClientOrderId('test-sim', '3f2b8c1e-9d4a-4b7e-8f6a-1c2d3e4f5a6b'))).toBe('invalid_client_order_key');
     expect(refusalCode(() => venueClientOrderId('test-sim', 'justanid'))).toBe('invalid_client_order_key');
+    expect(refusalCode(() => venueClientOrderId('test-sim', ':'))).toBe('invalid_client_order_key');
+    expect(refusalCode(() => venueClientOrderId('test-sim', 'order:'))).toBe('invalid_client_order_key');
+    expect(refusalCode(() => venueClientOrderId('test-sim', ':order:1'))).toBe('invalid_client_order_key');
   });
 });
 
@@ -66,14 +71,14 @@ describe('assertSignerMaySign', () => {
       timeInForce: 'GTC',
       reduceOnly: false,
       clientOrderKey: 'order:u:1',
-      leverageBps: null,
-      marginMode: null,
+      builderFee: null,
     },
     { kind: 'amend_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1', amount: 1n, price: 1n },
     { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1' },
     { kind: 'withdraw', asset: 'USDC', amount: 1n, destination: '0xowner', withdrawalKey: 'withdraw:u:1' },
     { kind: 'approve_builder_fee', builder: '0xbuilder', maxFeeBps: 1n },
-    { kind: 'approve_agent', agentAddress: '0xagent', agentName: 'bot' },
+    { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'isolated' },
+    { kind: 'approve_agent', agentAddress: '0xagent', agentName: 'bot', validUntil: null },
     { kind: 'revoke_agent', agentAddress: '0xagent' },
   ];
 
@@ -123,6 +128,10 @@ describe('assertSignatureMatches', () => {
     expect(() => assertSignatureMatches(prepared, { digest: '0xabcd', signature: '0x01', signedBy: '0xowner' })).not.toThrow();
   });
 
+  it('accepts a signer address that differs only in case', () => {
+    expect(() => assertSignatureMatches(prepared, { digest: '0xABCD', signature: '0x01', signedBy: '0xOWNER' })).not.toThrow();
+  });
+
   it('refuses a signature over a different payload', () => {
     expect(refusalCode(() => assertSignatureMatches(prepared, { digest: '0xabce', signature: '0x01', signedBy: '0xowner' }))).toBe(
       'signature_mismatch',
@@ -150,7 +159,7 @@ describe('refuseTestVenueOutsideTest', () => {
     expect(() => refuseTestVenueOutsideTest(sim, env)).not.toThrow();
   });
 
-  it.each([['prod'], ['staging'], [''], ['TEST'], [undefined]])('refuses a TEST venue in APP_ENV %j', (env) => {
+  it.each([['prod'], ['staging'], [''], ['TEST'], ['Dev'], [undefined]])('refuses a TEST venue in APP_ENV %j', (env) => {
     expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env))).toBe('test_venue_outside_test');
   });
 
@@ -165,5 +174,22 @@ describe('refuseTestVenueOutsideTest', () => {
 
   it('never refuses a live venue on these grounds', () => {
     expect(() => refuseTestVenueOutsideTest(live, 'prod')).not.toThrow();
+  });
+});
+
+describe('needsReadBack', () => {
+  it('is true for every answer that is not definite, already_submitted included', () => {
+    for (const reason of ['timeout', 'connection_lost', 'venue_error_after_send', 'already_submitted'] as const) {
+      const outcome: VenueSubmitOutcome = { definite: false, reason };
+      expect(needsReadBack(outcome)).toBe(true);
+    }
+  });
+
+  it('is false for a definite acceptance or refusal', () => {
+    const asOf = new Date(0);
+    expect(needsReadBack({ definite: true, accepted: true, venueRef: null, order: null, asOf })).toBe(false);
+    expect(needsReadBack({ definite: true, accepted: false, refusal: { venueId: 'v', code: 'venue_rejected', detail: 'x' }, asOf })).toBe(
+      false,
+    );
   });
 });
