@@ -52,6 +52,15 @@
  * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.)
  *
+ * A red step a pull request's run inherited from main stops only a pull request in its area (splitInherited; owner
+ * decision 180, "only the broken area stops"): inherited means main's newest finished full run that the head contains is
+ * red on that step too, by the same verdict; its area is its journey (a test file of it, a step of it in the title or on
+ * a Left-or-replaced line) and the packages the commits since it last passed on main changed. A red new on the head
+ * always stops it, and a red that can't be bounded (no such main run, an unreadable input, a break range that can't be
+ * read or is wider than RANGE_MAX commits) stops every pull request it reaches. (Failure it prevents: a red main
+ * blocked every product pull request, so on 8 Nov 2026 20 of 29 ready pull requests sat BLOCKED; project-state
+ * research/factory-2026-11-08 R3 C1.) Fixing or reverting a main red within 2 hours stays the owners' job.
+ *
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=... PR_NUMBER=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... MERGE_GROUP_BASE_SHA=... MERGE_GROUP_HEAD_SHA=... MERGE_GROUP_HEAD_REF=... node tooling/ci/journey-seal.mjs
  *   GH_TOKEN=... REPO=... node tooling/ci/journey-seal.mjs --dry-run <pr> [<sha>]   (any pull request, closed too; read only)
@@ -341,7 +350,17 @@ const newestFirst = (a, b) => Date.parse(b.run_started_at ?? b.created_at) - Dat
  * any is red, and is passed over only when all it has is clean. A run still going holds it (as judgeSteps), a cancelled
  * or skipped run says nothing, and a report that can't be read fails closed.
  */
-export async function judgeFullRun({ sha, repo, shared, runs, reportOf, verdictOf, waitOnRunning = true, because = null }) {
+export async function judgeFullRun({
+  sha,
+  repo,
+  shared,
+  runs,
+  reportOf,
+  verdictOf,
+  waitOnRunning = true,
+  because = null,
+  inherited = null,
+}) {
   const why =
     because ??
     `it changes the journey stack's shared setup (${shared.slice(0, 5).join(', ')}${shared.length > 5 ? `, ${shared.length - 5} more` : ''})`;
@@ -382,26 +401,49 @@ export async function judgeFullRun({ sha, repo, shared, runs, reportOf, verdictO
         lines: [`full run: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
-    if (v.missing?.length && v.red.length === 0) {
+    // Reds this head inherited from main, outside this pull request's area, stop no one but their owner (owner decision
+    // 180, the affected-area stop); every other red still fails the seal (splitInherited).
+    let split = { blocking: v.red, passed: [], notes: [] };
+    if (v.red.length && inherited) {
+      try {
+        split = await inherited(v.red, r);
+      } catch (e) {
+        split = {
+          blocking: v.red,
+          passed: [],
+          notes: [`which reds main already had couldn't be read (${e.message}), so every red counts`],
+        };
+      }
+    }
+    const kept = [
+      ...split.notes.map((l) => `full run: ${l}`),
+      ...split.passed.map((x) => `full run: ${x.step} is red on this head and inherited: ${x.why}`),
+    ];
+    const red = split.blocking;
+    if (v.missing?.length && red.length === 0) {
       passed.push(
-        `${where} is not a full run (no step from ${v.missing.length} journey file(s), e.g. ${v.missing.slice(0, 3).join(', ')}) and is clean on the files it has`,
+        `${where} is not a full run (no step from ${v.missing.length} journey file(s), e.g. ${v.missing.slice(0, 3).join(', ')}) and is clean on the files it has${split.passed.length ? ' but for reds inherited from main outside its area' : ''}`,
       );
       continue;
     }
-    if (v.red.length === 0)
+    if (red.length === 0)
       return {
         ok: true,
         state: 'pass',
-        lines: [`full run: ${why}; ${where} is clean: ${v.failing} failing or missing step(s), 0 outside the list or against its rules`],
+        lines: [
+          `full run: ${why}; ${where} is clean: ${v.failing} failing or missing step(s), 0 outside the list or against its rules${split.passed.length ? ` but ${split.passed.length} inherited from main outside this pull request's area` : ''}`,
+          ...kept,
+        ],
       };
     return {
       ok: false,
       state: 'fail',
       lines: [
-        `full run: ${why}; ${where}${v.missing?.length ? `, short of ${v.missing.length} journey file(s),` : ''} has ${v.red.length} step(s) outside the list or against its rules: ${v.red
+        `full run: ${why}; ${where}${v.missing?.length ? `, short of ${v.missing.length} journey file(s),` : ''} has ${red.length} step(s) outside the list or against its rules: ${red
           .slice(0, 10)
           .map((x) => `${x.step}: ${x.why}`)
-          .join('; ')}${v.red.length > 10 ? `; ${v.red.length - 10} more` : ''}`,
+          .join('; ')}${red.length > 10 ? `; ${red.length - 10} more` : ''}`,
+        ...kept,
       ],
     };
   }
@@ -423,7 +465,7 @@ export async function judgeFullRun({ sha, repo, shared, runs, reportOf, verdictO
  * of them. A touched file no finished run on the head ran fails the seal and is named. A run still going holds it, a
  * cancelled or skipped run says nothing, and a report or verdict that can't be read fails closed.
  */
-export async function judgeTouchedRun({ sha, repo, files, runs, reportOf, verdictOf, waitOnRunning = true }) {
+export async function judgeTouchedRun({ sha, repo, files, runs, reportOf, verdictOf, waitOnRunning = true, inherited = null }) {
   const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})`;
   const how = `dispatch real-app-journeys.yml on the branch with -f journeys="${files.join(' ')}" (or no journeys input, the full suite); the seal re-runs when it finishes`;
   const mine = onHead(runs, sha, repo);
@@ -464,15 +506,31 @@ export async function judgeTouchedRun({ sha, repo, files, runs, reportOf, verdic
         lines: [`touched journeys: ${why}; ${where}'s verdict couldn't be worked out (${e.message}), so the seal fails closed`],
       };
     }
-    if (v.red.length)
+    // As judgeFullRun: a red this head inherited from main outside this pull request's area stops no one.
+    let split = { blocking: v.red, passed: [], notes: [] };
+    if (v.red.length && inherited) {
+      try {
+        split = await inherited(v.red, r);
+      } catch (e) {
+        split = {
+          blocking: v.red,
+          passed: [],
+          notes: [`which reds main already had couldn't be read (${e.message}), so every red counts`],
+        };
+      }
+    }
+    read.push(...split.notes, ...split.passed.map((x) => `${x.step} is red on this head and inherited: ${x.why}`));
+    const red = split.blocking;
+    if (red.length)
       return {
         ok: false,
         state: 'fail',
         lines: [
-          `touched journeys: ${why}; ${where} has ${v.red.length} step(s) outside the list or against its rules: ${v.red
+          `touched journeys: ${why}; ${where} has ${red.length} step(s) outside the list or against its rules: ${red
             .slice(0, 10)
             .map((x) => `${x.step}: ${x.why}`)
-            .join('; ')}${v.red.length > 10 ? `; ${v.red.length - 10} more` : ''}`,
+            .join('; ')}${red.length > 10 ? `; ${red.length - 10} more` : ''}`,
+          ...read.map((l) => `touched journeys: ${l}`),
         ],
       };
     const covered = (rep.ran ?? []).filter((f) => left.has(f));
@@ -553,6 +611,21 @@ export function makeIo(repo, token) {
       }
     },
     compare: (base, head) => api(`/repos/${repo}/compare/${base}...${head}?per_page=250`, token),
+    mainRuns: async () => {
+      const r = await api(`/repos/${repo}/actions/workflows/${file}/runs?branch=main&status=completed&per_page=30`, token);
+      if (!Array.isArray(r?.workflow_runs)) throw new Error(`${file} runs on main: not a list`);
+      return r.workflow_runs;
+    },
+    // Whether `head` holds `sha`: GitHub's compare says the head is ahead of it or the same commit.
+    contains: async (sha, head) =>
+      ['ahead', 'identical'].includes((await api(`/repos/${repo}/compare/${sha}...${head}?per_page=1`, token))?.status),
+    // The files changed and the commit count from `from` to `to` on main; GitHub lists at most 300 files.
+    async rangeOf(from, to) {
+      const c = await api(`/repos/${repo}/compare/${from}...${to}?per_page=1`, token);
+      if (c?.status !== 'ahead') throw new Error(`${to.slice(0, 10)} is ${c?.status} of ${from.slice(0, 10)}`);
+      const files = pullFilePaths(c.files);
+      return { files, commits: c.total_commits, short: !Array.isArray(c.files) || c.files.length >= 300 };
+    },
     files: (n) => pullFiles((path) => api(path, token), repo, n),
     async text(path, ref) {
       const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
@@ -591,7 +664,15 @@ export function fullVerdict({ repo, report, run, inputs, read = fetchInputs }) {
   // verdict is: a red step there fails the seal; only a run clean on all it has is passed over (judgeFullRun).
   const target = missing.length ? have : null;
   const v = judge({ newest: report, named: got.named, baseline, money, passedSince: got.passedSince, issues: got.issues, target });
-  return { red: [...red, ...v.red], failing: v.failing, missing };
+  // Where each red step last passed on main before this run (the newest history run that passed it, else the named run
+  // when it passed there), or null when it never passed: the merge seal bounds an inherited red by the commits since.
+  const lastPass = {};
+  for (const { step } of v.red) {
+    const n = got.passedSince?.[step];
+    lastPass[step] =
+      n !== undefined ? (got.shas?.[n] ?? '') : got.named.states?.[step] === 'passed' ? String(baseline?.run?.sha ?? '') : null;
+  }
+  return { red: [...red, ...v.red], failing: v.failing, missing, lastPass };
 }
 
 /** A pull request's changed paths, whole: GitHub lists at most 3,000, so a longer list fails closed. */
@@ -689,6 +770,136 @@ export async function touchedSteps({ paths, head, base, text }) {
   return out;
 }
 
+// ---- Reds inherited from main (owner decision 180: only the broken area stops) ----
+
+/** How many finished runs on main, newest first, the seal reads to find the one this head's history holds. */
+export const MAIN_LOOKBACK = 10;
+/** A break range wider than this many commits (or one GitHub's compare can't list whole) can't be bounded. */
+export const RANGE_MAX = 100;
+const MAIN_EVENTS = new Set(['push', 'schedule', 'workflow_dispatch']);
+export const journeyOf = (step) => String(step).split('#')[0];
+/** The package a path is in (`services/svc-wallet`), or the path itself outside one: a break blocks the packages it
+ *  touches (AGENTS.md floor 5), so an inherited red's area is the packages its break range changed. */
+export const packageOf = (path) => /^(?:apps|services|packages|tooling)\/[^/]+(?=\/)/.exec(String(path))?.[0] ?? String(path);
+
+/**
+ * The finished full Real-app journeys run on main that a pull request's red steps are compared with: the newest of
+ * main's own finished runs (push, schedule or dispatch on main, from this repository) whose commit the head contains
+ * (`contains(sha)`), read with the same verdict as the head's run. A run short of journey files (a shard lost) can't say
+ * what main had and is passed over. Returns { run, red: Map(step → verdict line), lastPass, problems } or null when none
+ * of the newest MAIN_LOOKBACK is in the head's history.
+ */
+export async function mainReference({ repo, mainRuns, contains, reportOf, verdictOf }) {
+  const mine = (mainRuns ?? [])
+    .filter(
+      (r) =>
+        r?.head_branch === 'main' &&
+        MAIN_EVENTS.has(r.event) &&
+        r?.path === JOURNEYS_WORKFLOW &&
+        r?.head_repository?.full_name === repo &&
+        r?.repository?.full_name === repo &&
+        r.status === 'completed' &&
+        !['cancelled', 'skipped'].includes(r.conclusion),
+    )
+    .sort(newestFirst)
+    .slice(0, MAIN_LOOKBACK);
+  for (const r of mine) {
+    if (!SHA40.test(String(r.head_sha)) || !(await contains(r.head_sha))) continue;
+    const rep = (await reportOf(r)) ?? { error: 'no report' };
+    if (rep.error) throw new Error(`main's run ${r.id} report couldn't be read (${rep.error})`);
+    const v = await verdictOf(rep, r);
+    if (v.missing?.length) continue;
+    const problems = v.red.filter((x) => x.step === '(input)').map((x) => x.why);
+    return { run: r, red: new Map(v.red.map((x) => [x.step, x.why])), lastPass: v.lastPass ?? {}, problems };
+  }
+  return null;
+}
+
+/**
+ * Which of a head's red steps (`red`: [{ step, why }]) stop this pull request. A red step is inherited when main's
+ * reference run (mainReference) is red on it too. An inherited red stops only a pull request in its area:
+ *   - one that touches its journey: a journey test file of it, or a step of it in the title or on a Left-or-replaced
+ *     line (`touches.journeys`);
+ *   - one that changes a package (packageOf) a commit changed between where the step last passed on main and main's
+ *     reference run (`rangeOf(from, to)` → { files, commits } from GitHub's compare), the commits one of which broke it;
+ *     package, not file, because a breaking commit blocks merges into the packages it touches (AGENTS.md floor 5).
+ * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
+ * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
+ * short. A step that never passed on main broke no code, so its journey is its whole area. Every other red (new on this
+ * head) stops it as before. Returns { blocking, passed, notes }.
+ */
+export async function splitInherited({ red, main, touches, rangeOf }) {
+  if (!main) return { blocking: red, passed: [], notes: [`no finished full run on main is in this head's history, so every red counts`] };
+  const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
+  if (main.problems.length)
+    return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
+  const blocking = [];
+  const passed = [];
+  const ranges = new Map();
+  for (const x of red) {
+    if (x.step === '(input)' || !main.red.has(x.step)) {
+      blocking.push(x);
+      continue;
+    }
+    const journey = journeyOf(x.step);
+    if (touches.journeys.has(journey)) {
+      blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, and this pull request touches ${journey}` });
+      continue;
+    }
+    const from = main.lastPass[x.step];
+    if (from === null || from === undefined) {
+      passed.push({
+        step: x.step,
+        why: `${at} has it red too and it never passed on main, so its area is ${journey}, which this pull request doesn't touch`,
+      });
+      continue;
+    }
+    if (!SHA40.test(String(from))) {
+      blocking.push({
+        step: x.step,
+        why: `${x.why}; inherited from ${at}, but where it last passed can't be read, so it can't be bounded`,
+      });
+      continue;
+    }
+    const key = `${from}...${main.run.head_sha}`;
+    if (!ranges.has(key))
+      ranges.set(
+        key,
+        Promise.resolve()
+          .then(() => rangeOf(from, main.run.head_sha))
+          .catch((e) => ({ error: e.message })),
+      );
+    const range = await ranges.get(key);
+    const span = `${from.slice(0, 10)}..${String(main.run.head_sha).slice(0, 10)}`;
+    const wide =
+      range?.error ??
+      (!Array.isArray(range?.files) || !Number.isSafeInteger(range?.commits)
+        ? 'not readable'
+        : range.commits > RANGE_MAX
+          ? `${range.commits} commits, more than ${RANGE_MAX}`
+          : range.short
+            ? 'its files are not listed whole'
+            : null);
+    if (wide) {
+      blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, but its break range ${span} can't be bounded (${wide})` });
+      continue;
+    }
+    const broke = new Set(range.files.map(packageOf));
+    const hit = [...touches.paths].find((f) => broke.has(packageOf(f)));
+    if (hit)
+      blocking.push({
+        step: x.step,
+        why: `${x.why}; inherited from ${at}, and this pull request changes ${hit}, in ${packageOf(hit)}, which a commit in ${span} (where it broke) changed`,
+      });
+    else
+      passed.push({
+        step: x.step,
+        why: `${at} has it red too; its area is ${journey} and the ${broke.size} package(s) changed in ${span} (${[...broke].slice(0, 5).join(', ')}${broke.size > 5 ? ', …' : ''}), none of which this pull request touches`,
+      });
+  }
+  return { blocking, passed, notes: passed.length ? [`reds inherited from main are read against ${at}`] : [] };
+}
+
 /** One pull request's head, judged. */
 export async function sealPull({ repo, number, sha, io, requireOpen = true, waitOnRunning = true }) {
   const pull = await io.pull(number);
@@ -705,12 +916,8 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
     if (!texts.has(k)) texts.set(k, Promise.resolve(io.text(f, ref)));
     return texts.get(k);
   };
-  const touched = judgeTouched({
-    repo,
-    title: pull.title,
-    body: pull.body,
-    touched: await touchedSteps({ paths, head, base: pull.base?.sha, text }),
-  });
+  const touchedFiles = await touchedSteps({ paths, head, base: pull.base?.sha, text });
+  const touched = judgeTouched({ repo, title: pull.title, body: pull.body, touched: touchedFiles });
   // The journeys this pull request can reach (journey-touch.mjs): a journey test file the head removed runs nothing.
   const atHead = new Map();
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
@@ -727,9 +934,33 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   };
   const steps = await judgeSteps({ sha: head, repo, title: pull.title, body: pull.body, runs, reportOf, waitOnRunning });
   const verdictOf = (rep, r) => io.verdictOf(rep, r);
+  // The area of this pull request, for reds it inherited from main (splitInherited): the journeys it touches and its paths.
+  const touches = {
+    journeys: new Set([
+      ...touchedFiles.map((t) => t.journey),
+      ...[...titleSteps(pull.title), ...exemptions(pull.body).steps].map(journeyOf),
+    ]),
+    paths: new Set(paths),
+  };
+  let main;
+  const inherited = io.mainRuns
+    ? async (red) =>
+        splitInherited({
+          red,
+          main: await (main ??= mainReference({
+            repo,
+            mainRuns: await io.mainRuns(),
+            contains: (sha) => io.contains(sha, head),
+            reportOf,
+            verdictOf,
+          })),
+          touches,
+          rangeOf: io.rangeOf,
+        })
+    : null;
   const notShared = reach.full.filter((x) => !isSharedSetup(x.path));
   const full = shared.length
-    ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf, waitOnRunning })
+    ? await judgeFullRun({ sha: head, repo, shared, runs, reportOf, verdictOf, waitOnRunning, inherited })
     : reach.mode === 'full'
       ? await judgeFullRun({
           sha: head,
@@ -739,13 +970,14 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
           reportOf,
           verdictOf,
           waitOnRunning,
+          inherited,
           because: `it changes what can reach any journey (${notShared
             .slice(0, 3)
             .map((x) => `${x.path}: ${x.why}`)
             .join('; ')}${notShared.length > 3 ? `; ${notShared.length - 3} more` : ''})`,
         })
       : reach.mode === 'files'
-        ? await judgeTouchedRun({ sha: head, repo, files: reach.files, runs, reportOf, verdictOf, waitOnRunning })
+        ? await judgeTouchedRun({ sha: head, repo, files: reach.files, runs, reportOf, verdictOf, waitOnRunning, inherited })
         : { ok: true, state: 'none', lines: [] };
   const v = {
     ok: steps.ok && full.ok && touched.ok,

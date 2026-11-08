@@ -17,6 +17,9 @@ import {
   isSharedSetup,
   judgeFullRun,
   judgeSteps,
+  mainReference,
+  splitInherited,
+  RANGE_MAX,
   pullFilePaths,
   sharedPulls,
   SHARED_SETUP,
@@ -1096,4 +1099,236 @@ test('fullVerdict: two journey files sharing one step id, both run, make a full 
     ["the named run's report has no list of the files it ran"],
     'a named run without its file list fails closed',
   );
+});
+
+// ---- C1: reds inherited from main stop only their area (owner decision 180) ----
+
+const MAIN_SHA = 'c'.repeat(40);
+const PASS_SHA = 'd'.repeat(40);
+const mainRun = (id, over = {}) => run(id, { head_sha: MAIN_SHA, head_branch: 'main', event: 'push', ...over });
+const mainRef = (over = {}) => ({
+  run: mainRun(50),
+  red: new Map([['J-wallet-05#3', 'failing, not in the baseline']]),
+  lastPass: { 'J-wallet-05#3': PASS_SHA },
+  problems: [],
+  ...over,
+});
+const redW = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }];
+const area = (journeys = [], paths = []) => ({ journeys: new Set(journeys), paths: new Set(paths) });
+const range =
+  (files = ['services/svc-wallet/src/send.ts'], commits = 3) =>
+  async () => ({ files, commits, short: false });
+
+test('C1 planted: a red main already had, outside the pull request area, stops no one; inside it, it stops', async () => {
+  const out = await splitInherited({
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-support/src/chat.ts']),
+    rangeOf: range(),
+  });
+  assert.deepEqual(out.blocking, [], 'outside its journey and its break range: passed over');
+  assert.match(
+    out.passed[0].why,
+    /main's run 50 on cccccccccc has it red too; its area is J-wallet-05 and the 1 package\(s\) changed in dddddddddd\.\.cccccccccc \(services\/svc-wallet\)/,
+  );
+  const byJourney = await splitInherited({ red: redW, main: mainRef(), touches: area(['J-wallet-05']), rangeOf: range() });
+  assert.equal(byJourney.blocking.length, 1, 'a pull request touching its journey is stopped');
+  assert.match(byJourney.blocking[0].why, /inherited from main's run 50 .*touches J-wallet-05/);
+  const byCode = await splitInherited({
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-wallet/src/send.ts']),
+    rangeOf: range(),
+  });
+  assert.equal(byCode.blocking.length, 1, 'a pull request changing a file its break range changed is stopped');
+  assert.match(
+    byCode.blocking[0].why,
+    /changes services\/svc-wallet\/src\/send\.ts, in services\/svc-wallet, which a commit in dddddddddd\.\.cccccccccc/,
+  );
+  const samePackage = await splitInherited({
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-wallet/src/other.ts']),
+    rangeOf: range(),
+  });
+  assert.equal(samePackage.blocking.length, 1, 'another file of a package its break range changed is in its area (AGENTS.md floor 5)');
+  const root = await splitInherited({
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['pnpm-lock.yaml']),
+    rangeOf: range(['pnpm-lock.yaml']),
+  });
+  assert.equal(root.blocking.length, 1, 'a root file is its own area');
+});
+
+test('C1 planted: a red new on the head always stops it, whatever main has', async () => {
+  const mine = [{ step: 'J-bank-13#1', why: 'failing, not in the baseline' }, ...redW];
+  const out = await splitInherited({ red: mine, main: mainRef(), touches: area(), rangeOf: range() });
+  assert.deepEqual(
+    out.blocking.map((x) => x.step),
+    ['J-bank-13#1'],
+    'green on main, red here: this head broke it',
+  );
+  const input = await splitInherited({ red: [{ step: '(input)', why: 'x' }], main: mainRef(), touches: area(), rangeOf: range() });
+  assert.equal(input.blocking.length, 1, 'an unreadable input is never inherited');
+});
+
+test('C1 planted: a red that cannot be bounded stops every pull request', async () => {
+  const none = await splitInherited({ red: redW, main: null, touches: area(), rangeOf: range() });
+  assert.equal(none.blocking.length, 1, 'no main run in the head history: every red counts');
+  const blind = await splitInherited({ red: redW, main: mainRef({ problems: ['history unreadable'] }), touches: area(), rangeOf: range() });
+  assert.equal(blind.blocking.length, 1, 'main run with an unreadable input: every red counts');
+  const wide = await splitInherited({ red: redW, main: mainRef(), touches: area(), rangeOf: range(['a'], RANGE_MAX + 1) });
+  assert.match(wide.blocking[0]?.why ?? '', /can't be bounded \(101 commits/);
+  const err = await splitInherited({
+    red: redW,
+    main: mainRef(),
+    touches: area(),
+    rangeOf: async () => Promise.reject(new Error('HTTP 404')),
+  });
+  assert.match(err.blocking[0]?.why ?? '', /can't be bounded \(HTTP 404\)/);
+  const short = await splitInherited({
+    red: redW,
+    main: mainRef(),
+    touches: area(),
+    rangeOf: async () => ({ files: ['a'], commits: 2, short: true }),
+  });
+  assert.equal(short.blocking.length, 1, 'a file list GitHub cut short');
+  const noSha = await splitInherited({
+    red: redW,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': '' } }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(noSha.blocking.length, 1, 'where it last passed is unreadable');
+  const never = await splitInherited({
+    red: redW,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': null } }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(never.blocking.length, 0, 'a step that never passed on main broke no code: its journey is its area');
+});
+
+test('C1: the main run compared with is the newest finished full one on main the head contains', async () => {
+  const reps = { 50: { ok: 1 }, 51: { ok: 1 }, 52: { ok: 1 }, 53: { ok: 1 }, 54: { error: 'gone' } };
+  const ref = (mainRuns, { contains = async () => true, verdicts = {} } = {}) =>
+    mainReference({
+      repo: REPO,
+      mainRuns,
+      contains,
+      reportOf: async (r) => reps[r.id],
+      verdictOf: async (_rep, r) =>
+        verdicts[r.id] ?? { red: [{ step: 'J-x-01#1', why: 'f' }], missing: [], lastPass: { 'J-x-01#1': null } },
+    });
+  const runs = [mainRun(50), mainRun(51), mainRun(52, { head_sha: OLD })];
+  assert.equal((await ref(runs, { contains: async (sha) => sha === MAIN_SHA }))?.run.id, 51, 'newest the head contains');
+  assert.equal((await ref([mainRun(50), mainRun(51, { head_sha: OLD })], { contains: async (sha) => sha === MAIN_SHA }))?.run.id, 50);
+  assert.equal(await ref(runs, { contains: async () => false }), null, 'none in the head history');
+  assert.equal(
+    (await ref([mainRun(50), mainRun(51, { head_branch: 'feature' }), mainRun(53, { event: 'pull_request' })]))?.run.id,
+    50,
+    'a branch run or a pull request run is not main',
+  );
+  assert.equal((await ref([mainRun(50), mainRun(51, { conclusion: 'cancelled' })]))?.run.id, 50, 'a cancelled run says nothing');
+  assert.equal(
+    (await ref([mainRun(50), mainRun(51)], { verdicts: { 51: { red: [], missing: ['J-b-01.pw.mjs'] } } }))?.run.id,
+    50,
+    'a run short of files is passed over',
+  );
+  await assert.rejects(ref([mainRun(50), mainRun(54)]), /report couldn't be read/, 'an unreadable main report fails closed');
+  const got = await ref([mainRun(50)]);
+  assert.deepEqual([...got.red.keys()], ['J-x-01#1']);
+});
+
+test('C1 sealPull planted: a product pull request on a red main seals outside the red area and not inside it', async () => {
+  const inheritedDirty = { ...dirty, lastPass: { 'J-wallet-05#3': PASS_SHA } };
+  const io = ({
+    files,
+    title = 'svc-support: chat keeps its draft',
+    mainVerdict = inheritedDirty,
+    rangeFiles = ['services/svc-wallet/src/send.ts'],
+  }) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title, body: '' }),
+    runs: async () => [run(1)],
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] }, 50: fullRep }),
+    files: async () => files,
+    text: async () => 'test(`${J} #1 opens`, async () => {}); test(`${J} #3 sends`, async () => {});',
+    verdictOf: async (_rep, r) => (r.id === 50 ? mainVerdict : dirty),
+    mainRuns: async () => [mainRun(50)],
+    contains: async (sha, head) => sha === MAIN_SHA && head === HEAD,
+    rangeOf: async () => ({ files: rangeFiles, commits: 2, short: false }),
+  });
+  const outside = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'] }) });
+  assert.equal(outside.ok, true, outside.lines.join('\n'));
+  assert.match(outside.lines.join('\n'), /J-wallet-05#3 is red on this head and inherited/);
+  const own = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: io({ files: ['services/svc-support/src/chat.ts'], mainVerdict: { ...clean, lastPass: {} } }),
+  });
+  assert.equal(own.ok, false, "planted: the same red with main green on it is this pull request's own");
+  const named = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: io({ files: ['services/svc-support/src/chat.ts'], title: 'svc-support: chat (J-wallet-05 #1)' }),
+  });
+  assert.equal(named.fullOk, false, 'a title naming a step of its journey is in its area');
+  const testFile = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: io({ files: ['services/svc-support/src/chat.ts', 'apps/customer/tests/real-app/J-wallet-05.pw.mjs'], title: 'x (J-wallet-05 #3)' }),
+  });
+  assert.equal(testFile.fullOk, false, 'its journey test file is in its area');
+  const code = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-wallet/src/fees.ts'] }) });
+  assert.equal(code.ok, false, 'a package its break range changed is in its area');
+  // A journey-test-only pull request run on the full suite: a red main had, in another journey, stops it no more.
+  const testOnly = (title, file) =>
+    sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: [`apps/customer/tests/real-app/${file}`], title }) });
+  assert.equal((await testOnly('x (J-bank-13 #1)', 'J-bank-13.pw.mjs')).fullOk, true, 'test-only, red elsewhere inherited: passes');
+  assert.equal((await testOnly('x (J-wallet-05 #3)', 'J-wallet-05.pw.mjs')).fullOk, false, 'test-only on the red journey: stopped');
+  const shared = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['tooling/scripts/local-test-world.mjs'] }) });
+  assert.equal(shared.ok, true, 'shared setup outside its break range: the inherited red is passed over too');
+  const notInHistory = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), contains: async () => false },
+  });
+  assert.equal(notInHistory.ok, false, 'no main run in the head history: every red counts');
+  const broken = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), mainRuns: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(broken.ok, false, 'an unreadable main fails closed');
+  assert.match(broken.lines.join('\n'), /couldn't be read \(HTTP 502\), so every red counts/);
+});
+
+test('C1: fullVerdict says where each red step last passed on main', () => {
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const rep = (...specs) => readReport({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
+  const named = rep(
+    spec('J-a-01 #1', 'expected', 'J-a-01.pw.mjs'),
+    spec('J-a-01 #2', 'expected', 'J-a-01.pw.mjs'),
+    spec('J-a-01 #3', 'unexpected', 'J-a-01.pw.mjs'),
+  );
+  const inputs = { baseline: { run: { number: 100, id: 1, sha: PASS_SHA }, steps: [] }, money: {}, reports: new Map() };
+  const read = () => ({ named, passedSince: { 'J-a-01#2': 105 }, issues: {}, problems: [], shas: { 105: MAIN_SHA } });
+  const v = fullVerdict({
+    repo: REPO,
+    report: rep(
+      spec('J-a-01 #1', 'unexpected', 'J-a-01.pw.mjs'),
+      spec('J-a-01 #2', 'unexpected', 'J-a-01.pw.mjs'),
+      spec('J-a-01 #3', 'unexpected', 'J-a-01.pw.mjs'),
+    ),
+    run: run(1),
+    inputs,
+    read,
+  });
+  assert.deepEqual(v.lastPass, { 'J-a-01#1': PASS_SHA, 'J-a-01#2': MAIN_SHA, 'J-a-01#3': null });
 });

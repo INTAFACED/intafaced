@@ -287,8 +287,9 @@ export function rootInputs(root, baselineFile) {
 /**
  * The verdict's inputs read from GitHub, GET only: the baseline's named run's report, the pass history on main after it
  * and before the run judged (`thisRunId`, or `thisRun` when already read), and the regression issues the baseline names.
- * Returns { named, passedSince, issues, problems }; each input that can't be read is a problem, which is red, never
- * green. `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
+ * Returns { named, passedSince, issues, problems, shas }; each input that can't be read is a problem, which is red, never
+ * green. `shas` maps the run number of the named run and of each history run to its head commit (the merge seal reads
+ * where a step last passed from it). `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
  */
 export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new Map(), log = console.log }) {
   const problems = [];
@@ -299,6 +300,7 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
   let named = null;
   let passedSince = {};
   const issues = {};
+  const shas = {};
   try {
     named = reportOf(baseline.run.id);
   } catch (e) {
@@ -311,7 +313,9 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
       'workflow_runs',
     );
+    shas[namedRun.run_number] = namedRun.head_sha;
     const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: run.created_at, thisId: run.id });
+    for (const r of runs) shas[r.run_number] = r.head_sha;
     if (runs.length > HISTORY_MAX)
       throw new Error(
         `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
@@ -336,7 +340,7 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       issues[n] = { problem: e.message.split('\n')[0] };
     }
   }
-  return { named, passedSince, issues, problems };
+  return { named, passedSince, issues, problems, shas };
 }
 
 function main() {
