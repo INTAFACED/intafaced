@@ -387,8 +387,9 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     // midway can meet its next ask and the post-only is refused instead of resting: in runs 42438858355 and 42439927846
     // fillsOf found no fill of it, and the second run's desk showed it neither resting nor filled (5,000 USDT free, 0 IFC).
     // Held, the maker's ladder rests as it is and its taker sends nothing, so only this step's own sell meets the buy.
-    tool('local-test-market.mjs', 'hold', 'IFC/USDT');
+    // Timed from before the ask, as the hold's own lapse is (it is asked, then waits for a cycle to pass).
     const heldAt = Date.now();
+    tool('local-test-market.mjs', 'hold', 'IFC/USDT');
     const { bid, ask: ifcAsk } = await bestPrices('IFC/USDT');
     // Inside the spread, so it rests ahead of the house bids and a crossing sell reaches it first.
     const price = fromUnits(toUnits(bid) + ((toUnits(ifcAsk) - toUnits(bid)) / 2n / 10n ** 14n) * 10n ** 14n);
