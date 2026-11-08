@@ -80,9 +80,18 @@ test(`${J} #3 quarantines one agent with a reason: new sessions refuse as disabl
     await expect(ownRow(page)).toContainText('Quarantined');
     await expect(ownRow(page).getByTestId('audit-operator')).toHaveText(founder.handle);
 
-    // The run in flight stops at its next step, and a new session of the agent is refused as disabled.
+    // The run in flight stops at its next step, and a new session of the agent is refused as disabled. The Runs panel
+    // reads the runs once when it opens, and the next step boundary (one AGENTS_BACKGROUND_STEP_MS tick) can come just
+    // after that read; so the panel is read again until the boundary has passed. A run that never stops still reads
+    // "Running" on every read and fails here.
     await openOwnAgent(own, agents, 'Runs');
-    await expect(tableIn(own.getByRole('main'), 'Live runs').getByRole('row').nth(1)).toContainText('Stopped: agent quarantined');
+    await expect(async () => {
+      await own.reload();
+      await own.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Runs', exact: true }).click();
+      await expect(tableIn(own.getByRole('main'), 'Live runs').getByRole('row').nth(1)).toContainText('Stopped: agent quarantined', {
+        timeout: 2_000,
+      });
+    }).toPass({ timeout: 20_000 });
     await own.getByRole('main').getByRole('button', { name: 'Open a session' }).click({ force: true });
     await expect(own.getByRole('main').getByRole('alert')).toContainText('agents.agent.disabled');
   } finally {
