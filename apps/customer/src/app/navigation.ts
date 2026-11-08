@@ -52,6 +52,12 @@ export const rooms: readonly Room[] = [
   { path: '/helplist', title: 'Help centre', description: 'Published help', area: 'public', alias: '/help', returnAfterSignIn: true },
   { path: '/helpdetail', title: 'Help article', description: 'Published guidance', area: 'public', hidden: true, returnAfterSignIn: true },
   {
+    path: '/help/official-channels',
+    title: 'Official channels',
+    description: 'Our real web addresses, email senders and support channels, and scam guides',
+    area: 'public',
+  },
+  {
     path: '/help/category/:id',
     title: 'Help topic',
     description: 'Sections of one help topic',
@@ -438,6 +444,14 @@ export const rooms: readonly Room[] = [
     door: 'Trade',
     area: 'trade',
     screen: 'trade/convert',
+  },
+  {
+    path: '/trade/terminal',
+    title: 'Terminal',
+    description: 'Orders, positions, history and depth in one view',
+    door: 'Trade',
+    area: 'trade',
+    screen: 'trade/terminal',
   },
   {
     path: '/execution',
@@ -933,6 +947,9 @@ export const rooms: readonly Room[] = [
       ['quant/strategies', 'Strategies', 'Your saved strategies, folders and recycle bin'],
       ['quant/studio', 'Quant Studio', 'Build and run strategies'],
       ['quant/backtest', 'Backtest', 'Review strategy results'],
+      ['quant/editor', 'Code editor', 'Preview · sample data: the strategy code editor'],
+      ['quant/tester', 'Strategy tester', 'Preview · sample data: replay a strategy tick by tick'],
+      ['quant/optimise', 'Optimiser', 'Preview · sample data: parameter passes and walk-forward'],
       ['launch', 'Launch', 'Issue and list an asset'],
       ['market', 'Market catalogue', 'Browse available listings'],
       ['market/mine', 'My listings', 'Your market listings'],
@@ -1092,6 +1109,14 @@ export const rooms: readonly Room[] = [
   },
   { path: '/uc/account', title: 'Account', description: 'Your profile and account ID', area: 'person', screen: 'account' },
   { path: '/uc/safe', title: 'Security', description: 'Passkeys, sign-in checks and your devices', area: 'person', screen: 'account' },
+  {
+    path: '/uc/safe/compromised',
+    title: 'My account is compromised',
+    description: 'End every sign-in and key, freeze the account and work through a checklist',
+    area: 'person',
+    hidden: true,
+    screen: 'account',
+  },
   {
     path: '/uc/safe/api-keys',
     title: 'API keys',

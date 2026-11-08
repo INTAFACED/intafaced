@@ -527,3 +527,85 @@ export function createPriceAlerts(
     }),
   );
 }
+
+// ── Following a watchlist (J-charts-desk-09 #7, C-alerts-scan-03) ───────────────────────────────────────────────
+// `notify.createWatchlistAlert` and `notify.stopWatchlistAlert` (notify:write), `notify.watchlistAlerts` (notify:read). The list is
+// the account's own (`trade.watchlists`), read by the service from identity: the page sends only which list, never its markets.
+
+/** Why the last check of a followed list added nothing it should have. Null when it had nothing to refuse. */
+export const WATCH_RULE_SYNC_CODES = [
+  'identity.watchlists_unavailable',
+  'alert.watchlist_not_found',
+  'alert.markets_unavailable',
+  'alert.quota_reached',
+  'notify.alert_quota_unset',
+  'alert.watchlist_sync_failed',
+] as const;
+export type WatchRuleSyncCode = (typeof WATCH_RULE_SYNC_CODES)[number];
+
+export const watchRuleSchema = z.object({
+  id: z.string().guid(),
+  listId: z.string().min(1).max(40),
+  listName: z.string().min(1).max(40),
+  condition: z.enum(ALERT_CONDITIONS),
+  targetPrice: z.string().min(1).max(64),
+  status: z.enum(['active', 'stopped']),
+  markets: z.array(z.string()),
+  createdAt: date,
+  lastSyncAt: date.nullable(),
+  // A code this page does not know reads as one it cannot name, never as "nothing refused".
+  lastSyncCode: z.string().nullable(),
+});
+export type WatchRule = z.infer<typeof watchRuleSchema>;
+
+export const listWatchRules = (api: ApiClient, signal?: AbortSignal): Promise<ApiResult<{ items: WatchRule[] }>> =>
+  api.query('notify', 'notify.watchlistAlerts', undefined, z.object({ items: z.array(watchRuleSchema).max(100) }), { signal });
+
+export interface FollowIntent {
+  listId: string;
+  condition: AlertCondition;
+  /** A positive decimal string, exactly as the person typed it (trimmed). */
+  targetPrice: string;
+}
+
+/** Follow a list. The answer must be this person's alerts, one per covered market, each with the rule just sent, or it is not believed. */
+export function createWatchRule(
+  api: ApiClient,
+  intent: FollowIntent,
+  userId: string,
+): Promise<ApiResult<{ rule: WatchRule; alerts: PriceAlert[] }>> {
+  return api.mutate(
+    'notify',
+    'notify.createWatchlistAlert',
+    { listId: intent.listId, condition: intent.condition, targetPrice: intent.targetPrice },
+    z
+      .object({ rule: watchRuleSchema, alerts: z.array(priceAlertSchema).min(1) })
+      .refine(
+        ({ rule, alerts }) =>
+          rule.listId === intent.listId &&
+          rule.condition === intent.condition &&
+          canonicalPrice(rule.targetPrice) === canonicalPrice(intent.targetPrice) &&
+          alerts.every(
+            (row) =>
+              row.userId === userId &&
+              row.kind === 'price' &&
+              row.status === 'active' &&
+              row.condition === intent.condition &&
+              canonicalPrice(row.targetPrice) === canonicalPrice(intent.targetPrice),
+          ) &&
+          JSON.stringify(alerts.map((row) => row.marketId).sort()) === JSON.stringify([...rule.markets].sort()),
+        'Returned alerts do not match',
+      ),
+  );
+}
+
+/** Stop following a list. Its alerts stay. Stopping twice is harmless. */
+export const stopWatchRule = (api: ApiClient, id: string): Promise<ApiResult<{ rule: WatchRule | null }>> =>
+  api.mutate(
+    'notify',
+    'notify.stopWatchlistAlert',
+    { id },
+    z
+      .object({ rule: watchRuleSchema.nullable() })
+      .refine(({ rule }) => rule === null || (rule.id === id && rule.status === 'stopped'), 'Returned rule does not match'),
+  );

@@ -173,6 +173,10 @@ test(`${J} #4 gets a decision, lifted: the restriction is released through four 
   lifts.push(freed.handle);
   const freedClient = await api(freed);
   await fileAppeal(page, 'TEST: the review should clear me.');
+  // The person who set the restriction cannot lift it through its appeal either: identity refuses them by name.
+  expect(tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'lift', LIFT_REASON.code, '--as-restrictor')).toMatch(
+    /REFUSED .* appeal lift: .*identity\.appeal_decider_restricted/,
+  );
   expect(tool('local-test-gates.mjs', 'appeal-decide', freed.handle, 'lift', LIFT_REASON.code)).toMatch(/OK .* appeal lift: lifted/);
   const lifted = await readBack(freedClient);
   expect(lifted.mine.appeals).toHaveLength(1);

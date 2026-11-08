@@ -60,6 +60,13 @@ describe('boot refresh request', () => {
     expect(calls[0]!.init.body).toBe('{}');
     expect(headers(calls[0]!).authorization).toBeUndefined();
   });
+  it('says idle only when the browser saw no use since its last refresh (I-signin-sessions-06)', async () => {
+    const { calls, fetcher } = fakeFetch(() => ok(session('a1')));
+    const refresher = createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 });
+    await refresher.refresh({ unused: () => true });
+    await refresher.refresh({ unused: () => false });
+    expect(calls.map((call) => call.init.body)).toEqual(['{"idle":true}', '{}']);
+  });
   it('ignores a refreshToken in the reply: it is not in the session object', async () => {
     const { fetcher } = fakeFetch(() => ok({ ...session('a1'), refreshToken: SECRET }));
     const outcome = await createSessionRefresher({ fetch: fetcher, locks: null, retryDelayMs: 0 }).refresh();

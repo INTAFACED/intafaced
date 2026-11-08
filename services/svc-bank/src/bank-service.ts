@@ -1,3 +1,4 @@
+import type { TestPartner } from './partner/test-partner.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -79,6 +80,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  */
 
 export interface BankServices {
+  /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
+  readonly testPartner: TestPartner | null;
   readonly spaces: SpaceService;
   readonly transfers: TransferService;
   readonly personalPay: PersonalPayService;
@@ -174,6 +177,8 @@ export interface BankServiceOptions {
   cashOutPartner?: CashOutPartner | null;
   /** Who opens and says paid an add-money pay-in (J-bank-02 #3, #5). The TEST stand-in is the only one; unset refuses by name. */
   onrampPartner?: OnrampPartner | null;
+  /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
+  testPartner?: TestPartner | null;
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -401,6 +406,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const assetRegistry = options.assetRegistry ?? null;
   const ramps = new RampService(sql, ledger, {
     ...options.ramps,
+    testRamp: options.testPartner ?? null,
     onrampPayments: options.ramps?.onrampPayments ?? options.onrampPartner?.payments ?? null,
     withdrawNetworks: options.ramps?.withdrawNetworks ?? (assetRegistry ? withdrawNetworksFrom(assetRegistry) : null),
   });
@@ -460,6 +466,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
+    testPartner: options.testPartner ?? null,
     spaces,
     sorter,
     billsPots,

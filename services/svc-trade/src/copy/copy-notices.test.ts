@@ -40,7 +40,7 @@ function setup(fills: LeaderFill[], bus = new MemoryEventBus('svc-trade')) {
   const warn = vi.fn();
   const svc = new CopyService(new MemoryLedger(), {
     accountAdmission: readyTestAdmission(),
-    feeShareLaw: { published: true, leaderShareBps: 1000, earningsCapPerFollower: '100', decayRoundTrips: 0, decayShareBps: 1000 },
+    feeShareLaw: { published: true, leaderShareBps: 1337, earningsCapPerFollower: '100', decayRoundTrips: 0, decayShareBps: 4321 },
     jurisdictionLaw: { published: true, allowedRegions: ['SG'] },
     placeMirrorEnabled: true,
     now: () => NOW,

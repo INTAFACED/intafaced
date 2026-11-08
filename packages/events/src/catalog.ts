@@ -1276,6 +1276,7 @@ export const COPY_SKIP_REASON_IDS = [
   'paused',
   'stopped',
   'lead_stopped',
+  'platform_paused',
   'risk_control',
   'insufficient_funds',
   'max_copy_total',
@@ -2297,18 +2298,6 @@ export const WIRING_SOCKETS = [
   // subscribes (services/svc-identity/src/events.ts, `subscribeXpEvents`). The
   // entry is deleted rather than reworded: an entry leaves this list by being
   // wired, and a socket must not outlive the gap it describes.
-  {
-    event: 'userCreated',
-    missing: 'subscriber',
-    /**
-     * CLASS A. Confirmed against the code, not just the reason: every module
-     * that needs a user resolves it through packages/contracts under the caller's
-     * own authority, so nothing is waiting on the announcement.
-     */
-    class: 'A',
-    reason:
-      "svc-identity announces that a sovereign account exists; no service reacts to the announcement today. Every module that needs a user resolves it through packages/contracts under the caller's own authority instead, so nothing is missing a fact it needs — the stream is a durable record ahead of its first reader.",
-  },
   {
     event: 'ledgerTxPosted',
     missing: 'subscriber',

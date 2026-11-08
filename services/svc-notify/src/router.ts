@@ -40,6 +40,7 @@ import {
 } from './alerts/service.js';
 import { NOTIFY_ALERT_TRIGGER_LOG_RETENTION_UNSET } from './alerts/trigger-log.js';
 import { AlertValidationError } from './alerts/store.js';
+import { WatchRuleError, type WatchRule, type WatchRuleService } from './alerts/watch-rules.js';
 import {
   ALERT_CONDITIONS,
   ALERT_FREQUENCIES,
@@ -558,6 +559,34 @@ function alertManagerError(err: unknown): unknown {
   return err;
 }
 
+const watchRuleOutput = z.object({
+  id: z.string(),
+  listId: z.string(),
+  listName: z.string(),
+  condition: z.enum(ALERT_CONDITIONS),
+  targetPrice: z.string(),
+  status: z.enum(['active', 'stopped']),
+  markets: z.array(z.string()),
+  createdAt: z.string(),
+  lastSyncAt: z.string().nullable(),
+  lastSyncCode: z.string().nullable(),
+});
+
+function watchRuleToWire(row: WatchRule) {
+  return {
+    id: row.id,
+    listId: row.listId,
+    listName: row.listName,
+    condition: row.condition,
+    targetPrice: row.targetPrice,
+    status: row.status,
+    markets: [...row.markets],
+    createdAt: row.createdAt.toISOString(),
+    lastSyncAt: row.lastSyncAt ? row.lastSyncAt.toISOString() : null,
+    lastSyncCode: row.lastSyncCode,
+  };
+}
+
 function priceAlertToWire(row: PriceAlert) {
   return {
     id: row.id,
@@ -599,6 +628,7 @@ export function createNotifyRouter(
   statusPage?: StatusPageDeps,
   navMetrics?: NavMetricStore,
   verifications?: GuestVerificationService,
+  watchRules?: WatchRuleService,
 ) {
   return router({
     guestNotifications: guestNotificationsRouter(guests),
@@ -1852,6 +1882,54 @@ export function createNotifyRouter(
             if (err instanceof AlertValidationError) throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
             throw alertManagerError(err);
           }
+        }),
+
+      /**
+       * A watchlist alert (J-charts-desk-09 #7): one price rule on every market of one of the person's watchlists, read from
+       * identity. One price alert per market is stored with the rule, all or none, under the price-alert quota; each sweep then
+       * adds an alert for a market added to the list since. Refuses `identity.watchlists_unavailable` when identity gives no
+       * answer and `alert.watchlist_not_found` for a list the person does not have: never an empty list standing in for either.
+       */
+      createWatchlistAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(
+          z.object({
+            listId: z.string().min(1).max(40),
+            condition: z.enum(ALERT_CONDITIONS),
+            /** Decimal string. Optional so a blank price reaches `notify.price_unset` instead of a Zod "Required". */
+            targetPrice: z.string().max(64).optional(),
+          }),
+        )
+        .output(z.object({ rule: watchRuleOutput, alerts: z.array(priceAlertOutput).min(1) }))
+        .mutation(async ({ ctx, input }) => {
+          if (!alerts || !watchRules) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'identity.watchlists_unavailable' });
+          try {
+            const made = await watchRules.create({ userId: ctx.principal.userId, ...input });
+            return { rule: watchRuleToWire(made.rule), alerts: made.alerts.map(priceAlertToWire) };
+          } catch (err) {
+            if (err instanceof WatchRuleError) {
+              throw new TRPCError({
+                code: err.code === 'alert.watchlist_not_found' ? 'NOT_FOUND' : 'PRECONDITION_FAILED',
+                message: err.code,
+                cause: err,
+              });
+            }
+            // Named by code (`alert.invalid_market: …`), so the page can say which refusal it was.
+            throw alertManagerError(err);
+          }
+        }),
+
+      /** The person's watchlist alerts, newest first, each with the markets it covers and why its last sweep added nothing. */
+      watchlistAlerts: scopedProcedure('notify:read', { module: 'notify' })
+        .output(z.object({ items: z.array(watchRuleOutput) }))
+        .query(async ({ ctx }) => ({ items: watchRules ? (await watchRules.list(ctx.principal.userId)).map(watchRuleToWire) : [] })),
+
+      /** Stop following a list. The alerts it made stay, each managed on its own. Stopping twice is harmless. */
+      stopWatchlistAlert: scopedProcedure('notify:write', { module: 'notify' })
+        .input(z.object({ id: z.string().guid() }))
+        .output(z.object({ rule: watchRuleOutput.nullable() }))
+        .mutation(async ({ ctx, input }) => {
+          const row = watchRules ? await watchRules.stop(ctx.principal.userId, input.id) : null;
+          return { rule: row ? watchRuleToWire(row) : null };
         }),
 
       cancelAlert: scopedProcedure('notify:write', { module: 'notify' })
