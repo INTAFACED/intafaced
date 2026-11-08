@@ -4,7 +4,16 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ReadBlock } from '@/components/ops-desk';
-import { CUSTOMER_TABS, INDICATOR_STRIP, RECORD_SOURCE_UNWIRED, RISK_CARD, TAB_LABELS, type CustomerTab } from '@/lib/customer-record/tabs';
+import {
+  CUSTOMER_TABS,
+  INDICATOR_STRIP,
+  RECORD_PERMISSION_DENIED,
+  RECORD_SOURCE_UNWIRED,
+  RISK_CARD,
+  TAB_LABELS,
+  TAB_STAFF_AREA,
+  type CustomerTab,
+} from '@/lib/customer-record/tabs';
 import type { ReadOutcome, ReadSpec, Unavailable } from '@/lib/ops-desk/types';
 import './desk.css';
 
@@ -15,13 +24,15 @@ export interface CustomerRecordProps {
   readonly reads: readonly ReadSpec[];
   readonly outcomes: Readonly<Record<string, ReadOutcome>>;
   readonly unwired: readonly Unavailable[];
+  /** The signed-in person may not read this tab's area: the tab says so and nothing was read for it. */
+  readonly denied?: boolean;
 }
 
 /**
  * One customer's record: a tab per area, the open tab read when the page opened. Each read answers or refuses on its own; a part
  * no service can read for one account says so with the reason. Nothing here changes the account.
  */
-export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwired }: CustomerRecordProps) {
+export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwired, denied = false }: CustomerRecordProps) {
   const router = useRouter();
   const [openKey, setOpenKey] = useState<string | null>(null);
   const ctx = { userId: founderId, onChanged: () => router.refresh() };
@@ -72,6 +83,16 @@ export function CustomerRecord({ userId, founderId, tab, reads, outcomes, unwire
       </nav>
       <section className="dk-stack" aria-labelledby="h-customer-tab" data-testid={`customer-panel-${tab}`}>
         <h2 id="h-customer-tab">{TAB_LABELS[tab]}</h2>
+        {denied ? (
+          <article className="adm-callout" data-tone="danger" data-testid="customer-tab-denied" data-state="denied" role="alert">
+            <strong>Permission denied</strong>
+            <p>
+              Your staff role may not read {TAB_LABELS[tab].toLowerCase()} (the {TAB_STAFF_AREA[tab]} area), so nothing on this tab was read
+              for this account.
+            </p>
+            <p className="dk-muted">Code: {RECORD_PERMISSION_DENIED}</p>
+          </article>
+        ) : null}
         {reads.map((spec) => (
           <ReadBlock key={spec.id} spec={spec} outcome={outcomes[spec.id]} ctx={ctx} openKey={openKey} onOpen={setOpenKey} />
         ))}

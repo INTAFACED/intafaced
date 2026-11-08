@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { accountStateSchema } from './identity.js';
 import { supportTicketCategorySchema } from './support-categories.js';
 import { supportCreateFormSchema } from './support-forms.js';
+import { SUPPORT_HEADERS_TOO_LONG, SUPPORT_MESSAGE_HEADERS_MAX } from './support-categories.js';
 
 /**
  * Support desk contracts (ops.support Stage-1 ticket spine).
@@ -26,11 +27,8 @@ export {
   type SupportTicketCategory,
 } from './support-categories.js';
 
-/**
- * Pasted message headers on a phishing report (I-signin-sessions-27). The same
- * bound as `body`: a schema limit on text, not a product magnitude.
- */
-export const SUPPORT_MESSAGE_HEADERS_MAX = 10_000;
+// The header cap lives beside the categories so a browser reads it from a light subpath, never the package index.
+export { SUPPORT_HEADERS_TOO_LONG, SUPPORT_MESSAGE_HEADERS_MAX };
 
 /**
  * What the customer reads as their request's status (SP-tickets-01, ENGINE TK-1): `awaiting_reply` when the team's last
@@ -48,7 +46,7 @@ export const supportTicketSchema = z.object({
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
   /** Pasted headers of a reported message. Null or absent on any other ticket. */
-  messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).nullable().optional(),
+  messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX, { message: SUPPORT_HEADERS_TOO_LONG }).nullable().optional(),
   status: supportTicketStatusSchema,
   assigneeId: z.string().guid().nullable(),
   /** Set when this request was merged into another (SP-tickets-07); the request stays closed and readable. */
@@ -104,7 +102,7 @@ export const createTicketInputSchema = z.object({
    */
   followsTicketId: z.string().guid().optional(),
   /** Only for a `phishing` ticket; any other category refuses it. */
-  messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX).optional(),
+  messageHeaders: z.string().min(1).max(SUPPORT_MESSAGE_HEADERS_MAX, { message: SUPPORT_HEADERS_TOO_LONG }).optional(),
   /**
    * One key per submission. A replay by the same caller returns the stored
    * ticket and creates no second one. Optional so older callers still parse.
