@@ -323,6 +323,8 @@ async function main() {
     HTTP_PORT: '4001',
     DATABASE_URL: ledgerUrl,
     LEDGER_POSTING_ENABLED: 'true',
+    // TEST stack: the custodial layer runs for the journeys marked Later (OWNER 226 keeps it built, off at launch).
+    LEDGER_CUSTODY_LAYER: 'on',
   });
 
   startIdentity();
