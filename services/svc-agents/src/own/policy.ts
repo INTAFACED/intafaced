@@ -96,7 +96,9 @@ export class OwnPolicyStore {
       SELECT id, effect, action, scope, created_at FROM agents.own_agent_policy_rules
        WHERE owner_id = ${ownerId} AND rule_key = ${key} AND removed_at IS NULL
     `;
-    return ruleView(stored[0]!);
+    if (stored[0]) return ruleView(stored[0]);
+    // The live row was removed between the insert and this read: the add is the person's newer word, so it is made again.
+    return this.add(ownerId, agentId, rule);
   }
 
   /** Removes a live rule; a repeated remove of the same rule answers the same. One not the person's is not found. */
@@ -109,6 +111,7 @@ export class OwnPolicyStore {
     if (!rows[0]) throw new OwnAgentRefusal('agents.policy_rule_not_found', { rule: ruleId });
   }
 
+  /** The caller has already read the agent as the person's own (`agent_id` is the key, so one row per agent). */
   async setRulesRequired(ownerId: string, agentId: string, rulesRequired: boolean): Promise<void> {
     await this.sql`
       INSERT INTO agents.own_agent_policy_settings (agent_id, owner_id, rules_required)
@@ -117,20 +120,26 @@ export class OwnPolicyStore {
         SET rules_required = EXCLUDED.rules_required,
             updated_at = CASE WHEN own_agent_policy_settings.rules_required = EXCLUDED.rules_required
                               THEN own_agent_policy_settings.updated_at ELSE now() END
-       WHERE own_agent_policy_settings.owner_id = EXCLUDED.owner_id
     `;
   }
 
   /** The live rules, whether rules are required, and the decision for every action on the main account. */
   async read(ownerId: string, agentId: string): Promise<OwnAgentPolicy> {
-    const rows = await this.sql<RuleRow[]>`
-      SELECT id, effect, action, scope, created_at FROM agents.own_agent_policy_rules
-       WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND removed_at IS NULL
-       ORDER BY created_at, id
-    `;
-    const settings = await this.sql<{ rules_required: boolean }[]>`
-      SELECT rules_required FROM agents.own_agent_policy_settings WHERE owner_id = ${ownerId} AND agent_id = ${agentId}
-    `;
+    // One read-only transaction, so the rules and the flag come from one snapshot.
+    const [rows, settings] = await this.sql.begin(
+      'isolation level repeatable read read only',
+      (tx) =>
+        [
+          tx<RuleRow[]>`
+            SELECT id, effect, action, scope, created_at FROM agents.own_agent_policy_rules
+             WHERE owner_id = ${ownerId} AND agent_id = ${agentId} AND removed_at IS NULL
+             ORDER BY created_at, id
+          `,
+          tx<{ rules_required: boolean }[]>`
+            SELECT rules_required FROM agents.own_agent_policy_settings WHERE owner_id = ${ownerId} AND agent_id = ${agentId}
+          `,
+        ] as const,
+    );
     const rules = rows.map(ruleView);
     const rulesRequired = settings[0]?.rules_required ?? false;
     return {

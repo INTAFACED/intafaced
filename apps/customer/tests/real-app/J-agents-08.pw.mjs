@@ -19,7 +19,7 @@ const agents = agentsRun(J);
 test.describe.configure({ mode: 'default' });
 
 const main = (page) => page.getByRole('main');
-const access = (page) => main(page).getByRole('region', { name: 'Access' });
+const access = (page) => main(page).getByRole('region', { name: 'Access', exact: true });
 const allowance = (page) => main(page).getByRole('form', { name: 'Allowance' });
 
 /** The account's USDT as the ledger holds it, free and held, in scaled units: a market order never rests, so balances tell. */
@@ -74,12 +74,16 @@ test(`${J} #1 writes an allow and a deny rule for one action at different scopes
       ['Allow', 'All my accounts'],
     ],
   ]) {
-    while ((await rules().getByRole('row').count()) > 1)
+    // Each remove is answered before the next: the stored rules come back one fewer.
+    const table = access(page).getByRole('region', { name: 'Access rules', exact: true });
+    for (let left = (await table.count()) ? (await rules().getByRole('row').count()) - 1 : 0; left > 0; left--) {
       await rules().getByRole('row').nth(1).getByRole('button', { name: 'Remove' }).click();
+      if (left > 1) await expect(rules().getByRole('row')).toHaveCount(left);
+    }
     await expect(access(page).getByText('No access rules yet.')).toBeVisible();
     for (const [effect, scope] of order) await add(effect, scope);
     await expect(access(page).getByTestId('effective-place-order')).toHaveText('Refused: a deny rule wins');
-    // The service's own gate refuses the call itself, not only the page's words.
+    // The service's own gate refuses it, not only the page's words: the check every agent action is to pass first.
     expect(await policyCheck(id, 'place_order')).toEqual({ status: 403, code: 'agents.policy_denied' });
   }
   // The decision is stored, not the page's: a fresh load reads the same.

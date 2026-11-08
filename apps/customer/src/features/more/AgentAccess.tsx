@@ -65,10 +65,13 @@ function Policy({ agent, stored }: { agent: OwnAgent; stored: OwnAgentPolicy }) 
   async function send(procedure: string, input: Record<string, unknown>) {
     setBusy(true);
     setRefused(null);
-    const res = await api.mutate('agents', procedure, { id: agent.id, ...input }, ownAgentPolicySchema);
-    setBusy(false);
-    if (!res.ok) return setRefused(res);
-    setPolicy(res.data);
+    try {
+      const res = await api.mutate('agents', procedure, { id: agent.id, ...input }, ownAgentPolicySchema);
+      if (!res.ok) return setRefused(res);
+      setPolicy(res.data);
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <>
