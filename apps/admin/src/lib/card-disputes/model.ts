@@ -160,6 +160,13 @@ export function parseQueue(raw: unknown): DisputeSummary[] | null {
   return rows.every((r): r is DisputeSummary => r !== null) ? rows : null;
 }
 
+/** The queue page svc-bank sends: its rows, and whether the list was cut at its limit. */
+export function parseQueuePage(raw: unknown): { rows: DisputeSummary[]; more: boolean } | null {
+  const r = rec(raw);
+  const rows = parseQueue(r?.rows);
+  return r && rows && typeof r.more === 'boolean' ? { rows, more: r.more } : null;
+}
+
 export function parseCase(raw: unknown): DisputeCase | null {
   const base = parseSummary(raw);
   const r = rec(raw);

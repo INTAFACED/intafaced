@@ -1,7 +1,7 @@
 import 'server-only';
 import { founderCall, type FounderCallContext } from '@/lib/desk/founder-call';
 import { partFrom, type Part } from '@/lib/desk/part';
-import { parseCase, parseQueue, refusalWords, type DisputeCase, type DisputeState, type DisputeSummary } from './model';
+import { parseCase, parseQueuePage, refusalWords, type DisputeCase, type DisputeState, type DisputeSummary } from './model';
 
 const labels = {
   service: 'svc-bank',
@@ -13,8 +13,10 @@ const labels = {
 export async function readDisputeQueue(
   ctx: FounderCallContext,
   state: DisputeState | null,
-): Promise<{ asOf: string; queue: Part<DisputeSummary[]> }> {
-  const result = await founderCall(ctx, 'bank', 'ops.cardDisputes', 'GET', state ? { state } : {}, parseQueue);
+): Promise<{ asOf: string; queue: Part<{ rows: DisputeSummary[]; more: boolean }> }> {
+  const result = await founderCall(ctx, 'bank', 'ops.cardDisputes', 'GET', state ? { state } : {}, parseQueuePage, {
+    sendEmptyInput: true,
+  });
   return { asOf: new Date().toISOString(), queue: partFrom(result, (d) => d, labels) };
 }
 

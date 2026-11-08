@@ -66,7 +66,7 @@ export function cardDisputeProcedures(bank: BankServices, guard: Guard) {
     /** The queue, newest first; `state` filters it. */
     cardDisputes: scopedProcedure('admin:read')
       .input(z.object({ state: state.optional() }).strict())
-      .output(z.array(summary))
+      .output(z.object({ rows: z.array(summary), more: z.boolean() }))
       .query(({ input }) => guard(() => d().list(input.state))),
     /** One case with its whole timeline and the owner's cap for its asset. */
     cardDispute: scopedProcedure('admin:read')

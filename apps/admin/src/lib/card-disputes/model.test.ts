@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { refusalCode, lossWords, parseCase, parseQueue, procedureFor, readDisputeAction, readStateFilter } from './model';
+import { refusalCode, lossWords, parseCase, parseQueue, parseQueuePage, procedureFor, readDisputeAction, readStateFilter } from './model';
 
 const ID = '5a3b9c10-1111-4222-8333-444455556666';
 const base = {
@@ -41,6 +41,8 @@ describe('card disputes model (J-bank-27)', () => {
     expect(parseQueue([{ ...base, decision: decision({ lossStatus: 'reported' }) }])).toBeNull();
     expect(parseQueue([{ ...base, decision: decision({ lossBearer: 'partner' }) }])).toBeNull();
     expect(parseQueue([{ ...base, amount: 50, decision: null }])).toBeNull();
+    expect(parseQueuePage({ rows: [{ ...base, decision: null }], more: true })?.more).toBe(true);
+    expect(parseQueuePage([{ ...base, decision: null }])).toBeNull();
     expect(parseCase({ ...base, decision: null, cap: null, events: [{ sequence: 1 }] })).toBeNull();
     expect(parseCase({ ...base, decision: null, cap: '100', events: [] })?.cap).toBe('100');
   });

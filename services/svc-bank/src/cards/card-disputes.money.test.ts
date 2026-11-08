@@ -170,12 +170,12 @@ describe('card disputes (J-bank-27, PG-hard)', () => {
       description: 'TEST rep',
       actor: OPERATOR,
     });
-    const opened = (await disputes().list('opened')).map((d) => d.id);
-    const represented = (await disputes().list('representment')).map((d) => d.id);
+    const opened = (await disputes().list('opened')).rows.map((d) => d.id);
+    const represented = (await disputes().list('representment')).rows.map((d) => d.id);
     expect(opened).toContain(c.id);
     expect(opened).not.toContain(second.c.id);
     expect(represented).toEqual([second.c.id]);
-    expect((await disputes().list()).map((d) => d.id)).toEqual(expect.arrayContaining([c.id, second.c.id]));
+    expect((await disputes().list()).rows.map((d) => d.id)).toEqual(expect.arrayContaining([c.id, second.c.id]));
   });
 
   it('keeps evidence after submission with its time, makes arbitration an explicit state, and refuses out-of-order steps', async () => {
@@ -281,6 +281,7 @@ describe('card disputes (J-bank-27, PG-hard)', () => {
     expect((await disputes().get(big.c.id)).state).toBe('opened');
     // Exactly at the cap is within it.
     const atCap = await open('100');
+    await disputes().grantProvisionalCredit({ disputeId: atCap.c.id, actor: OPERATOR });
     expect((await disputes().decide({ disputeId: atCap.c.id, outcome: 'cardholder', actor: OPERATOR })).state).toBe('closed');
 
     const blank = await open('10');
@@ -327,6 +328,53 @@ describe('card disputes (J-bank-27, PG-hard)', () => {
     const { provisionalCredit, ...rest } = await disputes().get(c.id);
     void rest;
     expect(provisionalCredit.partnerRef).toBeNull();
+  });
+
+  it('a decision for the cardholder needs the partner’s credit first; once a decision is pinned no credit is asked and no other outcome is taken', async () => {
+    const { c } = await open('50');
+    expect(await code(disputes().decide({ disputeId: c.id, outcome: 'cardholder', actor: OPERATOR }))).toBe('bank.card_dispute_state');
+    expect((await disputes().get(c.id)).state).toBe('opened');
+    // A decision pinned and then interrupted (the partner call or the write failed) holds its outcome.
+    await sql`UPDATE bank.card_disputes SET decision_requested_outcome = 'merchant' WHERE id = ${c.id}`;
+    expect(await code(disputes().grantProvisionalCredit({ disputeId: c.id, actor: OPERATOR }))).toBe('bank.card_dispute_state');
+    expect(await code(disputes().decide({ disputeId: c.id, outcome: 'cardholder', actor: OPERATOR }))).toBe('bank.card_dispute_state');
+    expect((await disputes().decide({ disputeId: c.id, outcome: 'merchant', actor: OPERATOR })).decision).toMatchObject({
+      outcome: 'merchant',
+    });
+  });
+
+  it('a partner credit of another amount than asked is not recorded', async () => {
+    const { c, userId } = await open('50');
+    const odd: CardIssuerAdapter = {
+      ...issuer,
+      provisionalCredit: async (input) => ({ ...(await issuer.provisionalCredit!(input)), amount: '500' }),
+    };
+    expect(await code(disputes(CAP, odd).grantProvisionalCredit({ disputeId: c.id, actor: OPERATOR }))).toBe(
+      'bank.card_dispute_partner_mismatch',
+    );
+    expect((await disputes().get(c.id)).provisionalCredit).toMatchObject({ state: 'asked', amount: null, partnerRef: null });
+    void userId;
+  });
+
+  it('a step key is one step: the same key for another step refuses, and a typed key cannot take a key the service writes', async () => {
+    const { c } = await open('50');
+    const k = `ev-${randomUUID()}`;
+    await disputes().addEvidence({ disputeId: c.id, stepKey: k, description: 'TEST receipt', actor: OPERATOR });
+    expect(await code(disputes().submitRepresentment({ disputeId: c.id, stepKey: k, description: 'r', actor: OPERATOR }))).toBe(
+      'bank.card_dispute_invalid',
+    );
+    // A support key that spells the decision's own key lives under `step:`, so the decision still closes the case.
+    await disputes().addEvidence({ disputeId: c.id, stepKey: `card-dispute-decision:${c.id}`, description: 'TEST', actor: OPERATOR });
+    expect((await disputes().decide({ disputeId: c.id, outcome: 'merchant', actor: OPERATOR })).state).toBe('closed');
+  });
+
+  it('two opens of the same case at once are one case', async () => {
+    const p = await captured('30');
+    const caseKey = `case-${randomUUID()}`;
+    const input = { caseKey, cardId: p.cardId, authorizationRef: p.ref, amount: '30', reason: 'TEST', actor: OPERATOR };
+    const [x, y] = await Promise.all([disputes().open(input), disputes().open(input)]);
+    expect(x.id).toBe(y.id);
+    expect(x.events.filter((e) => e.kind === 'opened')).toHaveLength(1);
   });
 
   it('parses the cap: blank is unpublished and malformed refuses to start', () => {

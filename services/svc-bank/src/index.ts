@@ -229,6 +229,8 @@ const bank = createBankServices(sql, ledger, history, {
     affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
     affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
   },
+  /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
+  cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
    *
@@ -242,8 +244,6 @@ const bank = createBankServices(sql, ledger, history, {
    * what a deployment gets by saying nothing. It just is no longer what a
    * deployment gets by SAYING ANYTHING.
    */
-  /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
-  cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
   cards: {
     issuer: cardIssuerFor(
       env.BANK_CARD_ISSUER,

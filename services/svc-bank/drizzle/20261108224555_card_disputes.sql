@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS "bank"."card_disputes" (
   "credit_settlement" text CHECK ("credit_settlement" IN ('final', 'reversed')),
   "credit_settlement_partner_ref" text,
   "closed_at" timestamptz,
+  -- The outcome pinned under the case's lock before the partner is told, so a second decision of another kind refuses and
+  -- no credit is asked once a decision is under way.
+  "decision_requested_outcome" text CHECK ("decision_requested_outcome" IN ('cardholder', 'merchant')),
   "created_at" timestamptz NOT NULL DEFAULT now(),
   "updated_at" timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT "card_disputes_credit_answered" CHECK (
@@ -46,7 +49,7 @@ CREATE TABLE IF NOT EXISTS "bank"."card_disputes" (
   ),
   CONSTRAINT "card_disputes_closed_decided" CHECK (
     ("state" = 'closed') = ("closed_at" IS NOT NULL)
-    AND ("state" <> 'closed' OR ("outcome" IS NOT NULL AND "loss_status" IS NOT NULL))
+    AND ("state" <> 'closed' OR ("outcome" IS NOT NULL AND "loss_status" IS NOT NULL AND "outcome" = "decision_requested_outcome"))
     AND (("credit_settlement" IS NULL) OR ("credit_partner_ref" IS NOT NULL AND "state" = 'closed'))
   )
 );

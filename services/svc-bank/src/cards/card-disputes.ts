@@ -159,6 +159,7 @@ interface DisputeRow {
   credit_settlement: 'final' | 'reversed' | null;
   credit_settlement_partner_ref: string | null;
   closed_at: Date | null;
+  decision_requested_outcome: DisputeOutcome | null;
   created_at: Date;
 }
 
@@ -241,16 +242,16 @@ export class CardDisputeService {
     this.clock = options.clock ?? (() => new Date());
   }
 
-  /** The queue, newest first, optionally one state. */
-  async list(state?: DisputeState): Promise<DisputeSummary[]> {
+  /** The queue, newest first, optionally one state; `more` says the list was cut at its limit, so nothing drops out unseen. */
+  async list(state?: DisputeState): Promise<{ rows: DisputeSummary[]; more: boolean }> {
     const rows = await this.sql<DisputeRow[]>`
       SELECT d.*, a.authorization_ref FROM bank.card_disputes d
         JOIN bank.card_authorizations a ON a.id = d.authorization_id
        WHERE ${state === undefined ? this.sql`TRUE` : this.sql`d.state = ${state}`}
        ORDER BY d.created_at DESC, d.id
-       LIMIT ${LIST_LIMIT}
+       LIMIT ${LIST_LIMIT + 1}
     `;
-    return rows.map(summary);
+    return { rows: rows.slice(0, LIST_LIMIT).map(summary), more: rows.length > LIST_LIMIT };
   }
 
   async get(id: string): Promise<DisputeCase> {
@@ -326,12 +327,22 @@ export class CardDisputeService {
           'bank.card_dispute_not_disputable',
         );
       }
-      const [prior] = await tx<Array<{ id: string; case_key: string; amount: string; reason: string; authorization_id: string }>>`
-        SELECT id, case_key, amount::text, reason, authorization_id FROM bank.card_disputes
-         WHERE case_key = ${caseKey} OR authorization_id = ${auth.id} FOR UPDATE
+      // Insert first: of two concurrent opens one inserts and the other conflicts, and then reads what the first wrote.
+      const inserted = await tx<Array<{ id: string }>>`
+        INSERT INTO bank.card_disputes (id, case_key, card_id, user_id, authorization_id, asset_id, amount, reason, state, test)
+        VALUES (${id}, ${caseKey}, ${input.cardId}, ${auth.user_id}, ${auth.id}, ${auth.asset_id}, ${formatAmount(amount)},
+                ${reason}, 'opened', ${this.options.simulated()})
+        ON CONFLICT DO NOTHING
+        RETURNING id
       `;
-      if (prior) {
+      if (inserted.length === 0) {
+        const [prior] = await tx<Array<{ case_key: string; amount: string; reason: string; authorization_id: string }>>`
+          SELECT case_key, amount::text, reason, authorization_id FROM bank.card_disputes
+           WHERE id = ${id} OR case_key = ${caseKey} OR authorization_id = ${auth.id}
+           ORDER BY (case_key = ${caseKey}) DESC LIMIT 1
+        `;
         const same =
+          prior !== undefined &&
           prior.case_key === caseKey &&
           prior.authorization_id === auth.id &&
           parseAmount(prior.amount) === amount &&
@@ -344,12 +355,7 @@ export class CardDisputeService {
         }
         return;
       }
-      await tx`
-        INSERT INTO bank.card_disputes (id, case_key, card_id, user_id, authorization_id, asset_id, amount, reason, state, test)
-        VALUES (${id}, ${caseKey}, ${input.cardId}, ${auth.user_id}, ${auth.id}, ${auth.asset_id}, ${formatAmount(amount)},
-                ${reason}, 'opened', ${this.options.simulated()})
-      `;
-      await this.event(tx, id, `${caseKey}:opened`, 'opened', null, 'opened', input.actor, reason, false);
+      await this.event(tx, id, `opened:${id}`, 'opened', null, 'opened', input.actor, reason, false);
     });
     return this.get(id);
   }
@@ -357,9 +363,9 @@ export class CardDisputeService {
   /** Evidence, kept with its time. After the representment was submitted it is still kept, and marked as after submission. */
   async addEvidence(input: { disputeId: string; stepKey: string; description: string; actor: string }): Promise<DisputeCase> {
     const description = text(input.description, 1, 2000, 'Evidence');
-    await this.step(input.disputeId, input.stepKey, async (tx, row) => {
+    await this.step(input.disputeId, input.stepKey, 'evidence', async (tx, row, eventKey) => {
       if (row.state === 'closed') this.wrongState('add evidence to', row.state);
-      await this.event(tx, row.id, input.stepKey, 'evidence', row.state, row.state, input.actor, description, row.state !== 'opened');
+      await this.event(tx, row.id, eventKey, 'evidence', row.state, row.state, input.actor, description, row.state !== 'opened');
     });
     return this.get(input.disputeId);
   }
@@ -367,7 +373,7 @@ export class CardDisputeService {
   /** The representment: from opened only, and only with evidence on the case. */
   async submitRepresentment(input: { disputeId: string; stepKey: string; description: string; actor: string }): Promise<DisputeCase> {
     const description = text(input.description, 1, 2000, 'A representment');
-    await this.step(input.disputeId, input.stepKey, async (tx, row) => {
+    await this.step(input.disputeId, input.stepKey, 'representment', async (tx, row, eventKey) => {
       if (row.state !== 'opened') this.wrongState('submit a representment on', row.state);
       const [evidence] = await tx<Array<{ n: number }>>`
         SELECT count(*)::int AS n FROM bank.card_dispute_events WHERE dispute_id = ${row.id} AND kind = 'evidence'
@@ -376,17 +382,17 @@ export class CardDisputeService {
         throw new BankError('A representment needs evidence on the case first (bank.card_dispute_state)', 'bank.card_dispute_state');
       }
       await this.transition(tx, row.id, 'representment');
-      await this.event(tx, row.id, input.stepKey, 'representment', 'opened', 'representment', input.actor, description, false);
+      await this.event(tx, row.id, eventKey, 'representment', 'opened', 'representment', input.actor, description, false);
     });
     return this.get(input.disputeId);
   }
 
   /** Arbitration, an explicit state: only after a representment. */
   async escalateToArbitration(input: { disputeId: string; stepKey: string; actor: string }): Promise<DisputeCase> {
-    await this.step(input.disputeId, input.stepKey, async (tx, row) => {
+    await this.step(input.disputeId, input.stepKey, 'arbitration', async (tx, row, eventKey) => {
       if (row.state !== 'representment') this.wrongState('escalate to arbitration', row.state);
       await this.transition(tx, row.id, 'arbitration');
-      await this.event(tx, row.id, input.stepKey, 'arbitration', 'representment', 'arbitration', input.actor, null, false);
+      await this.event(tx, row.id, eventKey, 'arbitration', 'representment', 'arbitration', input.actor, null, false);
     });
     return this.get(input.disputeId);
   }
@@ -404,24 +410,39 @@ export class CardDisputeService {
         'bank.card_dispute_partner_unset',
       );
     }
-    const row = await this.row(this.sql, input.disputeId);
+    // The ask is written under the case's lock, and only while no decision is under way: a decision then sees it and waits
+    // for the partner's answer rather than closing past a credit in flight.
+    const row = await transaction(this.sql, async (tx) => {
+      const r = await this.row(tx, input.disputeId, true);
+      if (r.credit_partner_ref) return r;
+      if (r.state === 'closed' || r.decision_requested_outcome !== null)
+        this.wrongState('credit', r.state === 'closed' ? r.state : 'being decided');
+      assertUnderDisputeCap(this.options.cap, r.asset_id, formatAmount(parseAmount(r.amount)));
+      await tx`
+        UPDATE bank.card_disputes SET credit_requested_at = COALESCE(credit_requested_at, ${this.clock()}), updated_at = now()
+         WHERE id = ${r.id}
+      `;
+      return r;
+    });
     if (row.credit_partner_ref) return this.get(row.id);
-    if (row.state === 'closed') this.wrongState('credit', row.state);
-    assertUnderDisputeCap(this.options.cap, row.asset_id, formatAmount(parseAmount(row.amount)));
-    await this.sql`
-      UPDATE bank.card_disputes SET credit_requested_at = COALESCE(credit_requested_at, ${this.clock()}), updated_at = now()
-       WHERE id = ${row.id}
-    `;
     const answer = await credit({
       requestId: creditKey(row.id),
       userId: row.user_id,
       assetId: row.asset_id,
       amount: formatAmount(parseAmount(row.amount)),
     });
-    if (!/^\d+(\.\d{1,18})?$/.test(answer.amount) || parseAmount(answer.amount) <= 0n || !answer.partnerRef) {
+    if (!/^\d+(\.\d{1,18})?$/.test(answer.amount) || !answer.partnerRef) {
       throw new BankError(
         'The card partner answered the credit in a shape this service cannot record (bank.card_dispute_partner_unset)',
         'bank.card_dispute_partner_unset',
+      );
+    }
+    // The case asked for the disputed amount, under the cap. Another figure is not recorded as if it were that credit: the
+    // ask stays open and support reads the partner's answer.
+    if (parseAmount(answer.amount) !== parseAmount(row.amount)) {
+      throw new BankError(
+        `The card partner reports a credit of ${answer.amount} ${row.asset_id}, not the ${formatAmount(parseAmount(row.amount))} asked; nothing was recorded (bank.card_dispute_partner_mismatch)`,
+        'bank.card_dispute_partner_mismatch',
       );
     }
     await transaction(this.sql, async (tx) => {
@@ -456,12 +477,34 @@ export class CardDisputeService {
    * known". A closed case returns as it is.
    */
   async decide(input: { disputeId: string; outcome: DisputeOutcome; actor: string }): Promise<DisputeCase> {
-    const row = await this.row(this.sql, input.disputeId);
-    if (row.state === 'closed') {
-      if (row.outcome !== input.outcome) this.wrongState('decide again', row.state);
-      return this.get(row.id);
-    }
-    if (input.outcome === 'cardholder') assertUnderDisputeCap(this.options.cap, row.asset_id, formatAmount(parseAmount(row.amount)));
+    // Pin the decision under the case's lock before the partner hears of it: a second decision with another outcome, or a
+    // credit asked after this, refuses, so the partner is never told two things about one case.
+    const row = await transaction(this.sql, async (tx) => {
+      const r = await this.row(tx, input.disputeId, true);
+      if (r.state === 'closed' || (r.decision_requested_outcome !== null && r.decision_requested_outcome !== input.outcome)) {
+        if ((r.outcome ?? r.decision_requested_outcome) !== input.outcome)
+          this.wrongState('be decided another way', r.state === 'closed' ? r.state : 'being decided');
+        return r;
+      }
+      if (input.outcome === 'cardholder') assertUnderDisputeCap(this.options.cap, r.asset_id, formatAmount(parseAmount(r.amount)));
+      if (r.credit_requested_at && !r.credit_partner_ref) {
+        // A credit asked and never answered: the outcome is not known, so the case cannot close on a guess.
+        throw new BankError(
+          'The partner has not answered the provisional credit asked on this case; grant it again to read its answer first (bank.card_dispute_state)',
+          'bank.card_dispute_state',
+        );
+      }
+      if (input.outcome === 'cardholder' && !r.credit_partner_ref) {
+        // For the cardholder means the partner's credit stands: it is asked first, so the partner is told, never assumed.
+        throw new BankError(
+          'A decision for the cardholder needs the partner’s provisional credit first (bank.card_dispute_state)',
+          'bank.card_dispute_state',
+        );
+      }
+      await tx`UPDATE bank.card_disputes SET decision_requested_outcome = ${input.outcome}, updated_at = now() WHERE id = ${r.id}`;
+      return r;
+    });
+    if (row.state === 'closed') return this.get(row.id);
     const loss = lossFromTerms(this.options.partnerTerms());
     let settlement: { kind: 'final' | 'reversed'; partnerRef: string } | null = null;
     if (row.credit_partner_ref) {
@@ -475,12 +518,6 @@ export class CardDisputeService {
       const kind = input.outcome === 'cardholder' ? 'final' : 'reversed';
       const answer = await settle({ requestId: `card-dispute-decision:${row.id}`, creditRequestId: creditKey(row.id), settlement: kind });
       settlement = { kind, partnerRef: answer.partnerRef };
-    } else if (row.credit_requested_at) {
-      // A credit asked and never answered: the outcome is not known, so the case cannot close on a guess.
-      throw new BankError(
-        'The partner has not answered the provisional credit asked on this case; grant it again to read its answer first (bank.card_dispute_state)',
-        'bank.card_dispute_state',
-      );
     }
     await transaction(this.sql, async (tx) => {
       const [locked] = await tx<Array<{ state: DisputeState }>>`SELECT state FROM bank.card_disputes WHERE id = ${row.id} FOR UPDATE`;
@@ -524,18 +561,29 @@ export class CardDisputeService {
     return r;
   }
 
-  /** One step under its key: a retried key that already ran returns without running again. */
-  private async step(id: string, stepKey: string, fn: (tx: Sql, row: DisputeRow) => Promise<void>): Promise<void> {
-    const k = key(stepKey);
+  /**
+   * One support step under its key: a retried key that already ran the same step on the same case returns without running
+   * again; the key on another case or another step refuses. Support's keys live under `step:`, apart from the keys this
+   * service writes itself (`opened:`, `card-dispute-credit:`, `card-dispute-decision:`), so a typed key can never take one.
+   */
+  private async step(
+    id: string,
+    stepKey: string,
+    kind: DisputeEventKind,
+    fn: (tx: Sql, row: DisputeRow, eventKey: string) => Promise<void>,
+  ): Promise<void> {
+    const eventKey = `step:${key(stepKey)}`;
     await transaction(this.sql, async (tx) => {
       const row = await this.row(tx, id, true);
-      const [done] = await tx<Array<{ dispute_id: string }>>`SELECT dispute_id FROM bank.card_dispute_events WHERE event_key = ${k}`;
+      const [done] = await tx<Array<{ dispute_id: string; kind: DisputeEventKind }>>`
+        SELECT dispute_id, kind FROM bank.card_dispute_events WHERE event_key = ${eventKey}
+      `;
       if (done) {
-        if (done.dispute_id !== row.id)
-          throw new BankError('That step key was used on another case (bank.card_dispute_invalid)', 'bank.card_dispute_invalid');
+        if (done.dispute_id !== row.id || done.kind !== kind)
+          throw new BankError('That step key was used for another step (bank.card_dispute_invalid)', 'bank.card_dispute_invalid');
         return;
       }
-      await fn(tx, row);
+      await fn(tx, row, eventKey);
     });
   }
 
@@ -561,7 +609,7 @@ export class CardDisputeService {
     `;
   }
 
-  private wrongState(what: string, state: DisputeState): never {
+  private wrongState(what: string, state: DisputeState | 'being decided'): never {
     throw new BankError(`A case that is ${state} cannot ${what} (bank.card_dispute_state)`, 'bank.card_dispute_state');
   }
 }

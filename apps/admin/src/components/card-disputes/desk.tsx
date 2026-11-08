@@ -34,8 +34,17 @@ function Failed({ part, testId }: { part: Extract<Part<unknown>, { kind: 'failed
 
 const TestMark = ({ test }: { test: boolean }) => (test ? <span className="dk-badge">TEST</span> : null);
 
-export function DisputeQueue({ asOf, queue, state }: { asOf: string; queue: Part<DisputeSummary[]>; state: DisputeState | null }) {
-  const rows = queue.kind === 'ok' ? queue.data : [];
+export function DisputeQueue({
+  asOf,
+  queue,
+  state,
+}: {
+  asOf: string;
+  queue: Part<{ rows: DisputeSummary[]; more: boolean }>;
+  state: DisputeState | null;
+}) {
+  const rows = queue.kind === 'ok' ? queue.data.rows : [];
+  const more = queue.kind === 'ok' && queue.data.more;
   return (
     <div className="dk-stack" data-testid="dispute-desk">
       <p>
@@ -62,6 +71,11 @@ export function DisputeQueue({ asOf, queue, state }: { asOf: string; queue: Part
           Filter
         </button>
       </form>
+      {more && (
+        <div className="adm-callout" data-tone="warn" role="status" data-testid="dispute-queue-more">
+          svc-bank has more cases than this list shows; the oldest are not listed. Filter by state to see them.
+        </div>
+      )}
       {queue.kind === 'failed' ? (
         <Failed part={queue} testId="dispute-queue-failed" />
       ) : rows.length === 0 ? (
