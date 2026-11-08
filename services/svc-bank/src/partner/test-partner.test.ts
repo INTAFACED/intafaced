@@ -267,3 +267,35 @@ describe('the partner-held doors refuse before any service is reached', () => {
     });
   });
 });
+
+describe('the TEST partner issues TEST account details only to a person who switched them on (J-bank-01 #6)', () => {
+  it('answers no partner by default, and TEST-labelled details once issued, for that person only', async () => {
+    const { AccountDetailsService } = await import('../account-details/account-details.js');
+    const { testPartner: make, testPartnerAccountDetails } = await import('./test-partner.js');
+    const partner = make();
+    const service = new AccountDetailsService({ currencies: 'EUR,GBP', partnerFor: testPartnerAccountDetails(partner) });
+    const a = '11111111-1111-4111-8111-111111111111';
+    const b = '22222222-2222-4222-8222-222222222222';
+    expect((await service.list(a)).currencies).toEqual([
+      { currency: 'EUR', state: 'unavailable', blocker: 'rail.bank', sets: [] },
+      { currency: 'GBP', state: 'unavailable', blocker: 'rail.bank', sets: [] },
+    ]);
+    await expect(service.get(a, 'EUR')).rejects.toMatchObject({ code: 'rail.bank' });
+    partner.set(a, { accountDetails: 'issued' });
+    const issued = (await service.list(a)).currencies;
+    expect(issued.map((c) => [c.currency, c.state, c.blocker])).toEqual([
+      ['EUR', 'done', null],
+      ['GBP', 'done', null],
+    ]);
+    for (const c of issued) {
+      expect(c.sets).toHaveLength(1);
+      expect(c.sets[0]!.partnerBank).toBe('TEST partner bank');
+      expect(c.sets[0]!.accountNumber).toMatch(new RegExp(`^TEST-${c.currency}-`));
+      expect([c.sets[0]!.iban, c.sets[0]!.sortCode, c.sets[0]!.routingNumber]).toEqual([null, null, null]);
+    }
+    // Another person still has no partner.
+    expect((await service.list(b)).currencies.every((c) => c.blocker === 'rail.bank')).toBe(true);
+    partner.set(a, { accountDetails: 'none' });
+    expect((await service.list(a)).currencies.every((c) => c.blocker === 'rail.bank')).toBe(true);
+  });
+});

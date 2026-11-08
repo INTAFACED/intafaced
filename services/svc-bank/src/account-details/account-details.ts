@@ -49,6 +49,8 @@ export interface AccountDetailsOptions {
   /** Owner-published, comma separated ISO-4217 codes. Blank or unset refuses. */
   readonly currencies?: string | undefined;
   readonly partner?: AccountDetailsPartner | undefined;
+  /** The partner for one person, when it depends on them (the TEST partner's per-person switch). `partner` wins. */
+  readonly partnerFor?: ((userId: string) => AccountDetailsPartner | undefined) | undefined;
   /** Owner-published eligibility rule set as JSON (`BANK_ELIGIBILITY_JSON`). Blank or unreadable refuses. */
   readonly eligibilityJson?: string | undefined;
 }
@@ -91,8 +93,12 @@ export class AccountDetailsService {
     return code;
   }
 
-  private partner(): AccountDetailsPartner {
-    const { partner } = this.options;
+  private partnerOf(userId: string): AccountDetailsPartner | undefined {
+    return this.options.partner ?? this.options.partnerFor?.(userId);
+  }
+
+  private partner(userId: string): AccountDetailsPartner {
+    const partner = this.partnerOf(userId);
     if (!partner) throw new BankError('Account details need a banking partner. It is switched off in this build', 'rail.bank');
     return partner;
   }
@@ -113,7 +119,7 @@ export class AccountDetailsService {
 
   async list(userId: string): Promise<{ readonly currencies: CurrencyDetails[] }> {
     const codes = this.currencies();
-    const { partner } = this.options;
+    const partner = this.partnerOf(userId);
     if (!partner) {
       return { currencies: codes.map((currency) => ({ currency, state: 'unavailable', blocker: 'rail.bank', sets: [] })) };
     }
@@ -128,7 +134,7 @@ export class AccountDetailsService {
 
   async get(userId: string, currency: string): Promise<CurrencyDetails> {
     const code = this.known(currency);
-    const partner = this.partner();
+    const partner = this.partner(userId);
     const got = await this.fromPartner(() => partner.detailsFor(userId, code));
     return { currency: code, state: got.state, blocker: null, sets: got.sets };
   }
@@ -136,7 +142,7 @@ export class AccountDetailsService {
   /** Ask the partner for details in this currency. The same customer and currency twice is one request. */
   async request(userId: string, currency: string): Promise<CurrencyDetails> {
     const code = this.known(currency);
-    const partner = this.partner();
+    const partner = this.partner(userId);
     const got = await this.fromPartner(() => partner.request(userId, code, requestKey(userId, code)));
     return { currency: code, state: got.state, blocker: null, sets: got.sets };
   }
