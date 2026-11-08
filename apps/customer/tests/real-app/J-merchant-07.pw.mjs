@@ -136,6 +136,10 @@ test(`${J} #1 opens Money: zero per asset with "No money yet" for a new business
   const reserveRead = await api.query('merchantControl.reserve', { merchantId });
   expect(reserveRead).toMatchObject({ rule: null, holding: 'recorded_not_withheld', payoutsRefused: false, assets: [] });
   await expect(page.getByRole('region', { name: 'Reserve' })).toContainText('No reserve rule is set for your account.');
+  // The acquiring partner's own reserve rule: this business's TEST partner has given none, so the card reads "not known",
+  // never a zero (the TEST acquirer's switch; CUSTODY-DELTA §1.3). The page's words are the service's answer.
+  expect((await api.query('merchantMetrics.partnerTerms', { merchantId })).reserveRule).toEqual({ known: false });
+  await expect(page.getByRole('region', { name: 'Reserve' }).getByTestId('partner-term')).toHaveText('Partner’s reserve rule: not known');
 
   // A TEST card payment, paid: it is captured, so it waits in clearing until a settlement makes it available. The TEST
   // acquirer holds its funds (`tok_funds_held`) until it reports them available, which #2 needs.
