@@ -25,6 +25,7 @@ import {
   setAsideRefusal,
   retryProblem,
   mainSetAsideDays,
+  setAsideCap,
   SET_ASIDE_CONDITIONS,
   SET_ASIDE_FILES,
 } from './test-judge.mjs';
@@ -297,6 +298,14 @@ test('B8 refuses (planted): no end date, an end date the code does not set, or a
   assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nexport const SET_ASIDE_DAYS = 70;\n'), null);
   assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7 * 10;\n'), null);
   assert.equal(setAsideDays('// export const SET_ASIDE_DAYS = 7;\n'), null);
+  assert.equal(setAsideDays('/*\nexport const SET_ASIDE_DAYS = 7;\n*/\n'), null, 'a block-commented line never counts');
+  assert.equal(
+    setAsideDays('export const SET_ASIDE_DAYS = 7;\n/*\nexport const SET_ASIDE_DAYS = 70;\n*/\n'),
+    7,
+    'the live line counts alone',
+  );
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 0;\n'), null);
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\n/* unclosed\n'), null, 'unreadable to its end');
   assert.equal(setAsideDays(null), null);
 });
 
@@ -313,27 +322,45 @@ test('B8 refuses (planted): a set-aside lengthened past the default branch, a re
   assert.equal(mainSetAsideDays('export const SET_ASIDE_DAYS = 3 * 1;\n'), 'unreadable');
   assert.equal(mainSetAsideDays('export const SET_ASIDE_DAYS = 3;\n'), 3);
   assert.equal(mainSetAsideDays('export const X = 1;\n'), 'none');
+  // Main mentions a set-aside anywhere (a comment too) but its length can't be read: unreadable, never 7.
+  assert.equal(mainSetAsideDays('// the set-aside lasts SET_ASIDE_DAYS\nconst days = 7;\n'), 'unreadable');
+  assert.equal(mainSetAsideDays('/*\nexport const SET_ASIDE_DAYS = 3;\n*/\nexport const setAside = 1;\n'), 'unreadable');
+  // A renamed length: main has a set-aside, so it is unreadable, never 'none' (which would cap at 7).
+  assert.equal(mainSetAsideDays('// the set-aside length\nexport const SET_ASIDE_LENGTH = 3;\n'), 'unreadable');
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: mainSetAsideDays('export function setAsideSteps() {}\n'), days: 7 }).verdict, 'FAIL');
+  assert.equal(setAsideCap('unreadable'), null);
   assert.equal(mainSetAsideDays(null), 'none');
   const unreadable = verdictOf(b8(), { ...RULES, mainDays: 'unreadable', days: 3 });
   assert.equal(unreadable.verdict, 'FAIL');
   assert.match(unreadable.lines.find((l) => l.id === CONFIG).why, /set-aside length can't be read/);
   assert.equal(verdictOf(b8(), { ...RULES, mainDays: undefined }).verdict, 'FAIL', 'not given: refused');
-  // The retry: exactly one retries: line, in one of B8's exact forms.
-  assert.equal(retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,"), null);
-  assert.equal(retryProblem('  retries: 0,'), null);
-  for (const bad of [
-    "  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,",
-    '  retries: 1,',
-    '  retries: process.env.R ? Number(process.env.R) : 0,',
-    '  retries: Number(process.env.R ?? 0),',
-    "  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0, // plus",
+  // The retry, fail closed: `retries` once anywhere outside comments, in B8's one form exactly.
+  const cfg = (line, extra = '') => `export default defineConfig({\n  workers: 1,\n${line}\n  timeout: 90_000,${extra}\n});\n`;
+  const B8_LINE = "  // retries once on main\n  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,";
+  assert.equal(retryProblem(cfg(B8_LINE)), null, 'the control: B8 form, a comment that mentions retries is ignored');
+  assert.equal(retryProblem(cfg(B8_LINE, '\n  /* retries: 9, */')), null, 'a block-commented key is ignored');
+  for (const [why, text] of [
+    // The independent review's plants on ef5639a13 (comment 6716262764), each accepted by the old line check.
+    ['a value read from elsewhere', cfg('  retries: main ? R : 0, // R = 5 above')],
+    ['a hex literal', cfg('  retries: main ? 0x3 : 0,')],
+    ['an exponent', cfg('  retries: main ? 1e1 : 0,')],
+    ['a nested second key', cfg(B8_LINE, '\n  projects: [{ name: "x", retries: 4 }],')],
+    ['a property set later', `${cfg(B8_LINE)}config.retries = 3;\n`],
+    ['a quoted key', cfg(B8_LINE, "\n  use: { 'retries': 2 },")],
+    ['a second retry', cfg("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,")],
+    ['every run', cfg('  retries: 1,')],
+    ['a number from the environment', cfg('  retries: Number(process.env.R ?? 0),')],
+    ['no retry at all (nothing to set aside)', cfg('  retries: 0,')],
+    ['the key only in a comment', cfg("  // retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,")],
+    ['an unclosed block comment', cfg(B8_LINE, '\n  /* retries: 1,')],
+    ['an unclosed string', cfg(B8_LINE, "\n  name: 'x,")],
+    ['no file', null],
   ])
-    assert.match(retryProblem(bad), /not one of B8's forms/, bad);
-  assert.match(retryProblem('  retries: 0,\n  retries: 3,'), /2 retries: lines/);
-  assert.match(retryProblem(null), /0 retries: lines/);
-  const twice = verdictOf(b8(), { ...RULES, retry: retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,") });
+    assert.notEqual(retryProblem(text), null, why);
+  // The facts line says "at most one retry" only when the check passed.
+  const twice = verdictOf(b8(), { ...RULES, retry: retryProblem(cfg("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,")) });
   assert.equal(twice.verdict, 'FAIL');
-  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: .*not one of B8's forms/);
+  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: .*not B8's form/);
   assert.equal(verdictOf(b8(), { ...RULES, retry: undefined }).verdict, 'FAIL', 'an unread retry refuses');
   // A step reached only through another shared file can't be set aside on the judge's word alone.
   const untouched = verdictOf(b8({ change: 'still-proves' }), { ...RULES, touches: false });
@@ -437,7 +464,7 @@ test("B8: the input carries the code's set-aside facts and, when changed, the se
     own: ['J-x-01 #2'],
     days: 7,
     mainDays: 'none',
-    retry: "the retry's file has 0 retries: lines, not one",
+    retry: "the retry's file names retries 0 times, not once",
     touches: true,
   });
   assert.match(got.prompt, /SET-ASIDE FACTS[^]*money steps among those listed \(never set aside\): J-x-01 #1/);

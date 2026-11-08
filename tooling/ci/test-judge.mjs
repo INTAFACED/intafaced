@@ -114,27 +114,86 @@ export const SET_ASIDE_MAX_DAYS = 7;
  * Main's set-aside length: its days, 'none' when main's SET_ASIDE_CODE never names SET_ASIDE_DAYS (no set-aside yet), or
  * 'unreadable' when it names it in any form but the one setAsideDays reads, which refuses every set-aside (fail closed).
  */
-export const mainSetAsideDays = (text) => (!/\bSET_ASIDE_DAYS\b/.test(String(text ?? '')) ? 'none' : (setAsideDays(text) ?? 'unreadable'));
+export const mainSetAsideDays = (text) =>
+  // 'none' only when main's file never mentions a set-aside at all, comments included: main before the set-aside.
+  !/set.?aside/i.test(String(text ?? '')) ? 'none' : (setAsideDays(text) ?? 'unreadable');
 /** The cap for a head: main's length (never above SET_ASIDE_MAX_DAYS), SET_ASIDE_MAX_DAYS when main has none, else null. */
 export const setAsideCap = (mainDays) =>
   mainDays === 'none' ? SET_ASIDE_MAX_DAYS : Number.isInteger(mainDays) && mainDays >= 1 ? Math.min(mainDays, SET_ASIDE_MAX_DAYS) : null;
 
 /**
- * The retry forms B8 allows, exactly: none, or one retry when the journeys workflow sets JOURNEY_RETRIES to '1'.
- * Anything else (a number read from the environment, a second retry, a retry on every run) is refused.
+ * JavaScript source with its comments removed (line and block), strings, template literals and regular expression
+ * literals kept as they are, so a comment can't hide a key or fake one. Returns null when the source can't be read to
+ * the end (an unclosed comment, string or regular expression): the caller refuses.
  */
-export const RETRY_FORMS = [/^\s*retries: 0,$/, /^\s*retries: process\.env\.JOURNEY_RETRIES === '1' \? 1 : 0,$/];
+export function withoutComments(text) {
+  const src = String(text ?? '');
+  let out = '';
+  let i = 0;
+  let prev = ''; // the last non-space character of code, to tell a regular expression from a division
+  const skipQuoted = (q) => {
+    let k = i + 1;
+    while (k < src.length && src[k] !== q) k += src[k] === '\\' ? 2 : 1;
+    return k < src.length ? k + 1 : -1;
+  };
+  while (i < src.length) {
+    const c = src[i];
+    const d = src[i + 1];
+    if (c === '/' && d === '/') {
+      const k = src.indexOf('\n', i);
+      i = k === -1 ? src.length : k;
+      continue;
+    }
+    if (c === '/' && d === '*') {
+      const k = src.indexOf('*/', i + 2);
+      if (k === -1) return null;
+      out += ' ';
+      i = k + 2;
+      continue;
+    }
+    if (c === "'" || c === '"' || c === '`' || (c === '/' && (prev === '' || /[(,=:[!&|?{};+\-*%<>~^]/.test(prev)))) {
+      let k;
+      if (c === '/') {
+        k = i + 1;
+        let cls = false;
+        while (k < src.length && (cls || src[k] !== '/') && src[k] !== '\n') {
+          if (src[k] === '\\') k++;
+          else if (src[k] === '[') cls = true;
+          else if (src[k] === ']') cls = false;
+          k++;
+        }
+        k = k < src.length && src[k] === '/' ? k + 1 : -1;
+      } else k = skipQuoted(c);
+      if (k === -1) return null;
+      out += src.slice(i, k);
+      prev = c;
+      i = k;
+      continue;
+    }
+    out += c;
+    if (!/\s/.test(c)) prev = c;
+    i++;
+  }
+  return out;
+}
+
 /**
- * The retry in the head's Playwright config: exactly one `retries:` line, in one of RETRY_FORMS. Returns null when it is
- * so, else why not. Whether the workflow sets JOURNEY_RETRIES only on main is the judge's `retryOnce` reading.
+ * B8's one retry form, exactly: one retry when the journeys workflow sets JOURNEY_RETRIES to '1' (on main), none
+ * otherwise. The literal 1 and 0 and nothing else: no number read from elsewhere, no other base or exponent.
+ */
+export const RETRY_FORM = "retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,";
+/**
+ * The retry in the head's Playwright config, fail closed: with comments removed, the word `retries` appears exactly once
+ * anywhere in the file (a key, a string, a nested project, a property set later all count), and it begins RETRY_FORM
+ * exactly. Returns null when it is so, else why not. That the workflow sets JOURNEY_RETRIES only on main is the judge's
+ * `retryOnce` reading.
  */
 export function retryProblem(text) {
-  const lines = String(text ?? '')
-    .split('\n')
-    .filter((l) => /^\s*retries\s*:/.test(l));
-  if (lines.length !== 1) return `the retry's file has ${lines.length} retries: lines, not one`;
-  if (!RETRY_FORMS.some((re) => re.test(lines[0].trimEnd())))
-    return "its retries: line is not one of B8's forms (none, or one when JOURNEY_RETRIES is '1')";
+  const code = withoutComments(text);
+  if (code == null) return "the retry's file can't be read to its end";
+  const at = [...code.matchAll(/(?<![\w$])retries(?![\w$])/g)].map((m) => m.index);
+  if (at.length !== 1) return `the retry's file names retries ${at.length} times, not once`;
+  if (code.slice(at[0], at[0] + RETRY_FORM.length) !== RETRY_FORM) return `its retries is not B8's form (${RETRY_FORM} exactly)`;
   return null;
 }
 /** The files whose change is the set-aside's retry (a change entry may answer `set-aside` only for these). */
@@ -156,7 +215,11 @@ export const SET_ASIDE_READERS = [
 
 /** The head's set-aside length in days (`export const SET_ASIDE_DAYS = <n>;` in SET_ASIDE_CODE), or null. */
 export function setAsideDays(text) {
-  const all = [...String(text ?? '').matchAll(/^export const SET_ASIDE_DAYS = (\d+);/gm)];
+  // Comments removed first, so a commented-out or block-commented line never counts. How the code uses the length (a
+  // multiple of it, a second constant) is the judge's endDate reading.
+  const code = withoutComments(text);
+  if (code == null) return null;
+  const all = [...code.matchAll(/^export const SET_ASIDE_DAYS = ([1-9]\d*);$/gm)];
   return all.length === 1 ? Number(all[0][1]) : null;
 }
 
@@ -634,7 +697,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
       `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
       `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
       `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays) ?? '(none: main is unreadable)'}; the default branch's: ${setAside.mainDays})`,
-      `the retry's file: ${setAside.retry ?? 'one retries: line, at most one retry'}`,
+      `the retry's file: ${setAside.retry === null ? `at most one retry (exactly ${RETRY_FORM})` : `refused: ${setAside.retry}`}`,
       `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
     ].join('\n'),
     { must: true },
