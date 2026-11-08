@@ -47,7 +47,9 @@ const BROWSER_TEST = /\.pw\.mjs$/;
 const PW_CONFIG = /(?:^|\/)(?:[\w.-]+\.)?playwright\.config\.[cm]?[jt]s$/;
 // A focus marker runs one test and drops every other test in the run. The test judge reads only the steps a change
 // touches, and a focused step still proves itself, so a focus stays the guard's in every file (review 7550-R1).
-const FOCUS = /\b(?:it|test|describe|suite)\.only\b|\bf(?:it|describe)\s*\(/;
+// Any `.only` on a chain (`test.describe.serial.only(`, `test.only.each(`, a chained `.only(` on its own line), a
+// bracketed one (`test['only'](`), `fit(` and `fdescribe(` (review 7550-R3). The journeys config's forbidOnly backs it up.
+const FOCUS = /\.only\b\s*[.(]|\[\s*['"`]only['"`]\s*\]|\bf(?:it|describe)\s*\(/;
 const SKIP = /\b(?:(?:it|test|describe|suite)\.(?:skip|todo|only|fixme|skipIf|runIf)\b|x(?:it|describe|test)\s*\(|f(?:it|describe)\s*\()/;
 // The repo's journalled no-database branch: `describe.skip('<suite> (Postgres unavailable)', ...)`. The suite
 // runs in full when the database is up; the skip-honesty gates account for the skip. Exact title shape only.
@@ -233,6 +235,14 @@ function selfTest() {
   // Planted (review 7550-R1): a focus in a journey step file drops every other test, which the judge can't see.
   eq(jf({ added: ['test.only(`${J} #2 pays`, async ({ page }) => {'] }).length, 1, 'journey test.only: the guard');
   eq(jf({ added: ["test.describe.only('J-x-01', () => {"] }).length, 1, 'journey describe.only: the guard');
+  for (const line of [
+    "test.describe.serial.only('x', () => {",
+    "test.describe.parallel.only('x', () => {",
+    '  .only(',
+    "test['only']('x', () => {",
+    'test.only.each(rows)(',
+  ])
+    eq(jf({ added: [line] }).length, 1, `journey focus ${line.trim()}: the guard`);
   eq(jf({ added: ["  test('only the owner sees it', async () => {"] }).length, 0, 'the word only in a title is fine');
   // Planted: everything the judge does not always rule on stays the guard's.
   eq(jf({ added: skipLine }, {}).length, 1, 'no judge job (a fork, another base): the guard');
@@ -367,7 +377,7 @@ function selfTest() {
     2,
     'assertion delta counted',
   );
-  console.log('✓ test-diff-guard --self-test OK (57 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (62 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {

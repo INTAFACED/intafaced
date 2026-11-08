@@ -54,10 +54,9 @@ test('judgeRunsFor: only a same-repository pull request into main', () => {
 test('the seal needs the test judge for every journey step file the guard leaves to it', () => {
   for (const path of ['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'apps/customer/tests/real-app/J-ops-console-02-documents.pw.mjs']) {
     assert.ok(JOURNEY_FILE.test(path) && leftToJudge({ path, status: 'M' }, { judgeRuns: true }), path);
-    for (const status of ['M', 'A'])
-      assert.ok(
-        requiredChecks([path]).some((r) => r.check === JUDGE_CHECK),
-        `${path} (${status}) needs the test judge's verdict`,
-      );
+    assert.ok(
+      requiredChecks([path]).some((r) => r.check === JUDGE_CHECK),
+      `${path} needs the test judge's verdict`,
+    );
   }
 });
