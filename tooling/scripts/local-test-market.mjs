@@ -55,6 +55,7 @@ import {
   localStackState,
   assertActiveLocalStack,
   processRecordMatches,
+  readKernelStart,
   readProcessIdentity,
   readLatestEmailConfirmToken,
 } from './local-test-state.mjs';
@@ -1733,7 +1734,8 @@ async function startBackground(p, args, { wait }) {
     });
     child.unref();
     fs.closeSync(fd);
-    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args, argv }), { mode: 0o600 });
+    const kernelStart = readKernelStart(child.pid) ?? undefined; // held to it exactly on Linux (#7488)
+    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), kernelStart, args, argv }), { mode: 0o600 });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();
