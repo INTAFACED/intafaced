@@ -43,16 +43,18 @@ describe('the Refusal of a run paid from a wallet (J-agents-02 #4)', () => {
     method: 'wallet',
     address: WALLET,
     available: '0',
+    token: 'TESTUSD',
     source: 'chain',
     chainId: 84532,
     block: '1234',
     asOf: '2026-11-09T00:00:00.000Z',
   };
 
-  it('names the wallet, its figure with its asset, the TEST chain and block, and the as-of time', async () => {
+  it('names the wallet, its figure in the chain’s own token name, the TEST chain and block, and the as-of time', async () => {
     const host = await mount(<Refusal code="agents.funds_insufficient" params={figure} />);
     const alert = host.querySelector('[role="alert"]')!;
-    expect(alert.textContent).toContain('Wallet 0x0000…11ce holds 0 USDT, as TEST chain 84532, block 1234 reported it at');
+    expect(alert.textContent).toContain('Wallet 0x0000…11ce holds 0 TESTUSD, as TEST chain 84532, block 1234 reported it at');
+    expect(alert.textContent).toContain('worst case of 0.010245 USDT');
     expect(alert.textContent).toContain(new Date(figure.asOf).toLocaleString());
     expect(alert.textContent).toContain('worst case of 0.010245 USDT');
     expect(alert.getAttribute('title')).toBe(WALLET);

@@ -141,6 +141,7 @@ function walletFundsWords(t: BuilderT, code: string, params: RefusalParams): str
     return t('fundsWalletInsufficient', {
       address,
       available: text(params, 'available'),
+      token: text(params, 'token'),
       asset: text(params, 'asset'),
       worstCase: text(params, 'worstCase'),
       source: t(TEST_CHAIN_IDS.has(chainId) ? 'fundsSourceTestChain' : 'fundsSourceChain', { chainId, block }),

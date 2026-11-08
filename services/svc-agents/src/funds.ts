@@ -18,6 +18,8 @@ export type FundsReading =
       readonly kind: 'wallet';
       /** In the fee asset's Amount scale. */
       readonly available: Amount;
+      /** The token the figure is in, as the chain names it (its own `symbol()`), so the figure is never relabelled. */
+      readonly token: string;
       readonly method: FundsMethod;
       readonly source: { readonly kind: 'chain'; readonly chainId: number; readonly block: bigint };
       /** ISO time of `source.block`, from the block itself. */
@@ -74,7 +76,7 @@ type Params = Record<string, string | number>;
 
 /**
  * The words' parameters of a funds refusal. A ledger reading keeps today's `{ worstCase, asset }`. A wallet reading
- * adds the method (`method`, `address`), the figure (`available`, in `asset`), its source (`source`, `chainId`,
+ * adds the method (`method`, `address`), the figure (`available`, in `token`, the chain's own name for it), its source (`source`, `chainId`,
  * `block`) and as-of time (`asOf`). An unread wallet adds the method and `reason`.
  */
 export function fundsRefusalParams(worstCase: string, asset: string, outcome: FundsOutcome): Params {
@@ -87,6 +89,7 @@ export function fundsRefusalParams(worstCase: string, asset: string, outcome: Fu
       method: r.method.kind,
       address: r.method.address,
       available: formatAmount(r.available),
+      token: r.token,
       source: r.source.kind,
       chainId: r.source.chainId,
       block: r.source.block.toString(),

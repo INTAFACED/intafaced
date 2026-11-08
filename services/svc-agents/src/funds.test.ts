@@ -5,6 +5,7 @@ const WALLET = '0x00000000000000000000000000000000000a11ce';
 const reading = {
   kind: 'wallet',
   available: 5n * 10n ** 15n,
+  token: 'TESTUSD',
   method: { kind: 'wallet', address: WALLET },
   source: { kind: 'chain', chainId: 84532, block: 42n },
   asOf: '2026-11-09T00:00:00.000Z',
@@ -46,6 +47,7 @@ describe('fundsRefusalParams', () => {
       method: 'wallet',
       address: WALLET,
       available: '0.005',
+      token: 'TESTUSD',
       source: 'chain',
       chainId: 84532,
       block: '42',

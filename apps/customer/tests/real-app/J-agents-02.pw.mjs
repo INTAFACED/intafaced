@@ -376,9 +376,11 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
   });
   expect(held).toBeLessThan(toUnits('0.01024') / 10n ** 12n);
   const figure = fromUnits(held * 10n ** 12n);
+  // The figure is named in the token the chain holds, by the chain's own name for it, never relabelled.
+  const token = await chain.readContract({ address: TEST_USD, abi: erc20Abi, functionName: 'symbol', blockNumber: block });
   const shown = await page.evaluate((iso) => new Date(iso).toLocaleString(), asOf);
   await expect(refusal).toContainText(
-    `Wallet ${address.slice(0, 6)}…${address.slice(-4)} holds ${figure} USDT, as TEST chain 84532, block ${block} reported it at ${shown}.`,
+    `Wallet ${address.slice(0, 6)}…${address.slice(-4)} holds ${figure} ${token}, as TEST chain 84532, block ${block} reported it at ${shown}.`,
   );
   await expect(refusal).toContainText('so it did not start. Nothing was charged.');
   await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);

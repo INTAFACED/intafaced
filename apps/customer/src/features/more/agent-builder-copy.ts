@@ -287,7 +287,7 @@ const en = {
   code_payment_method_account_inactive: 'Your account cannot pay from its wallets right now. Nothing was changed.',
   code_payment_method_wallets_unread: 'Your linked wallets could not be read just now. Nothing was changed; try again shortly.',
   fundsWalletInsufficient:
-    'Wallet {address} holds {available} {asset}, as {source} reported it at {asOf}. That is below this run’s worst case of {worstCase} {asset}, so it did not start. Nothing was charged.',
+    'Wallet {address} holds {available} {token}, as {source} reported it at {asOf}. That is below this run’s worst case of {worstCase} {asset}, so it did not start. Nothing was charged.',
   fundsWalletUnread: 'The amount in wallet {address} could not be read, so this run did not start: {why} Nothing was charged.',
   fundsSourceChain: 'chain {chainId}, block {block}',
   fundsSourceTestChain: 'TEST chain {chainId}, block {block}',
@@ -596,7 +596,7 @@ const es = {
   code_payment_method_account_inactive: 'Tu cuenta no puede pagar desde sus billeteras ahora mismo. No se cambió nada.',
   code_payment_method_wallets_unread: 'No se pudieron leer tus billeteras vinculadas. No se cambió nada; inténtalo de nuevo en breve.',
   fundsWalletInsufficient:
-    'La billetera {address} tiene {available} {asset}, según {source} a las {asOf}. Es menos que el peor caso de esta ejecución, {worstCase} {asset}, así que no empezó. No se cobró nada.',
+    'La billetera {address} tiene {available} {token}, según {source} a las {asOf}. Es menos que el peor caso de esta ejecución, {worstCase} {asset}, así que no empezó. No se cobró nada.',
   fundsWalletUnread: 'No se pudo leer el importe de la billetera {address}, así que esta ejecución no empezó: {why} No se cobró nada.',
   fundsSourceChain: 'la cadena {chainId}, bloque {block}',
   fundsSourceTestChain: 'la cadena TEST {chainId}, bloque {block}',
@@ -912,7 +912,7 @@ const fr = {
   code_payment_method_account_inactive: 'Votre compte ne peut pas payer depuis ses portefeuilles pour le moment. Rien n’a été modifié.',
   code_payment_method_wallets_unread: 'Vos portefeuilles liés n’ont pas pu être lus. Rien n’a été modifié ; réessayez sous peu.',
   fundsWalletInsufficient:
-    'Le portefeuille {address} détient {available} {asset}, selon {source} à {asOf}. C’est moins que le pire cas de cette exécution, {worstCase} {asset} ; elle n’a pas commencé. Rien n’a été facturé.',
+    'Le portefeuille {address} détient {available} {token}, selon {source} à {asOf}. C’est moins que le pire cas de cette exécution, {worstCase} {asset} ; elle n’a pas commencé. Rien n’a été facturé.',
   fundsWalletUnread:
     'Le montant du portefeuille {address} n’a pas pu être lu ; cette exécution n’a pas commencé : {why} Rien n’a été facturé.',
   fundsSourceChain: 'la chaîne {chainId}, bloc {block}',

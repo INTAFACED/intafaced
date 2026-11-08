@@ -158,6 +158,7 @@ if (!available) {
       return {
         kind: 'wallet',
         available: chainAnswer,
+        token: 'TESTUSD',
         method: { kind: 'wallet', address },
         source: { kind: 'chain', chainId: 84532, block: 777n },
         asOf: AS_OF,
@@ -339,6 +340,7 @@ if (!available) {
           method: 'wallet',
           address: LINKED,
           available: formatAmount(WORST - 1n),
+          token: 'TESTUSD',
           source: 'chain',
           chainId: 84532,
           block: '777',

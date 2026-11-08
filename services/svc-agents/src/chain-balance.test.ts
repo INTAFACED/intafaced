@@ -11,6 +11,7 @@ function node(answers: {
   chainId?: number | Error;
   block?: { number: bigint | null; timestamp: bigint } | Error;
   balance?: bigint | Error;
+  symbol?: string | Error;
 }) {
   const asked: Array<{ fn: string; args: unknown }> = [];
   const answer = <T>(value: T | Error | undefined, fallback: T): T => {
@@ -26,9 +27,9 @@ function node(answers: {
       asked.push({ fn: 'getBlock', args });
       return answer(answers.block, { number: 1234n, timestamp: 1_762_646_400n });
     },
-    readContract: async (args: unknown) => {
+    readContract: async (args: { functionName: string }) => {
       asked.push({ fn: 'readContract', args });
-      return answer(answers.balance, 0n);
+      return args.functionName === 'symbol' ? answer(answers.symbol, 'TESTUSD') : answer(answers.balance, 0n);
     },
   };
   return { client: client as never, asked };
@@ -50,12 +51,16 @@ describe('createChainBalance', () => {
     expect(reading).toEqual({
       kind: 'wallet',
       available: 4_000n * 10n ** 12n,
+      token: 'TESTUSD',
       method: { kind: 'wallet', address: WALLET.toLowerCase() },
       source: { kind: 'chain', chainId: 84532, block: 1234n },
       asOf: new Date(1_762_646_400_000).toISOString(),
     });
-    const call = asked.find((a) => a.fn === 'readContract')!.args as Record<string, unknown>;
-    expect(call).toMatchObject({ address: TOKEN, functionName: 'balanceOf', args: [WALLET.toLowerCase()], blockNumber: 1234n });
+    const calls = asked.filter((a) => a.fn === 'readContract').map((a) => a.args as Record<string, unknown>);
+    expect(calls).toEqual([
+      expect.objectContaining({ address: TOKEN, functionName: 'balanceOf', args: [WALLET.toLowerCase()], blockNumber: 1234n }),
+      expect.objectContaining({ address: TOKEN, functionName: 'symbol', blockNumber: 1234n }),
+    ]);
   });
 
   it('a node for another chain refuses chain_mismatch and reads no balance', async () => {
@@ -69,6 +74,9 @@ describe('createChainBalance', () => {
     ['the block read fails', { block: new Error('timeout') }],
     ['the latest block is pending', { block: { number: null, timestamp: 1n } }],
     ['the balance call fails', { balance: new Error('execution reverted') }],
+    ['the symbol call fails', { symbol: new Error('execution reverted') }],
+    ['the symbol is blank', { symbol: '' }],
+    ['the symbol is markup', { symbol: '<b>USDT</b>' }],
   ])('%s: chain_unreachable, with the wallet named, never a figure', async (_label, answers) => {
     const { client } = node(answers as never);
     const err = await createChainBalance(CONFIG, client)
