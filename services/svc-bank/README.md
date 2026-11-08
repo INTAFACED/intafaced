@@ -608,6 +608,18 @@ Failure branches covered (sample, not exhaustive): insufficient funds on a one-o
 
 A `cardSpend` recipe would have been `withdrawSettle` with a different string in it — a second way to spell one movement, which is how two subsystems come to disagree about what happened.
 
+### Partner-held authorisations (OWNER 226): the partner holds it, and the ledger posts nothing
+
+INTAFACED holds no customer money at launch: the card's money is the card partner's. Each authorisation is decided once in one of two books, recorded on its row as `money_book` (`heldBy` in code), and every later movement of it follows that row, whatever the switches say by then.
+
+| Whose book | When                                                                                    | Hold, capture, release, refund                                                                                                                                    |
+| ---------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partner`  | The person's TEST switch `testPartner.set({ custody: 'off' })`                          | The partner (`src/cards/partner-card-holds.ts`), once each under `card.partner.<hold\|capture\|release\|refund>:<authorisation id>`. No ledger post, no cashback. |
+| `ledger`   | Otherwise, with `LEDGER_CUSTODY_LAYER=on` (the TEST stack)                              | The four recipes above, exactly as before.                                                                                                                        |
+| none       | Otherwise, with `LEDGER_CUSTODY_LAYER` off (its default, the same parser as svc-ledger) | Refused `bank.partner_unset` before anything is written.                                                                                                          |
+
+Only the TEST partner card implements the port today (card-sim with `BANK_TEST_PARTNER=test`; in this process only, forgotten on a restart). It holds from its TEST balance per asset (`BANK_CARD_SIM_PARTNER_JSON` `balances`; an asset with none is "not known" and refuses `bank.card_partner_balance_not_known`), refuses a capture above the hold, gives an uncaptured hold back after its TEST hold time (or at once with the person's `cardHold: 'expired'`), and in `wallet_pull` mode answers that the card pulls from the person's own wallet. The doors: `ops.cardAuthorize`, `ops.cardCapture`, `ops.cardReverse` and `ops.cardResumeSettlement` (ledger ids null on the partner path, the partner's references and figures beside them), `cards.partnerHeld` (the partner's own report for a card), and `testPartner.cardRefund` (the TEST stand-in for a merchant's refund).
+
 ### `card-sim` is a simulator. What it is **not**
 
 - **NOT a card.** Nothing here can be presented at a terminal, added to a wallet, or used online. `panTail` is four digits derived from a uuid, and there is no column a card number could be stored in.

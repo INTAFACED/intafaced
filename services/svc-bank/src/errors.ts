@@ -1045,7 +1045,32 @@ export type BankErrorCode =
   /** The partner's ramp gave no fee, so the pay amount is not known; no quote was kept. */
   | 'bank.onramp_fee_not_known'
   /** The TEST partner switches exist only on a stack that runs the TEST partner (`BANK_TEST_PARTNER=test`). */
-  | 'bank.test_partner_off';
+  | 'bank.test_partner_off'
+  // ── Partner-held money (OWNER 226; B3 on project-state #1790) ─────────
+  /** No partner holds this person's money and the custodial layer is off (`LEDGER_CUSTODY_LAYER`): nothing was written. */
+  | 'bank.partner_unset'
+  /** This person's card money is partner-held, but the card programme has no partner that holds authorisations. */
+  | 'bank.card_partner_holds_unset'
+  /** The card partner has not said whether it holds the crypto or pulls from the wallet; nothing was decided. */
+  | 'bank.card_partner_mode_not_known'
+  /** The card partner reports no balance for this asset, so no hold can be asked; nothing was decided. */
+  | 'bank.card_partner_balance_not_known'
+  /** The card partner refused a capture above what it holds for the authorisation. Nothing moved. */
+  | 'bank.card_partner_capture_exceeds_hold'
+  /** The card partner says the hold is already captured, released or expired. Nothing moved. */
+  | 'bank.card_partner_hold_closed'
+  /** The card partner refused a refund above what was captured. Nothing moved. */
+  | 'bank.card_partner_refund_exceeds_capture'
+  /** The card partner saw one business key with a different instruction. Nothing moved. */
+  | 'bank.card_partner_key_conflict'
+  /** The card partner has no record of this hold (the TEST partner forgets on a restart). */
+  | 'bank.card_partner_hold_not_found'
+  /** A refund on a card held in INTAFACED's own ledger is not built (`card-service.ts`, WHAT IS NOT HERE). */
+  | 'bank.card_refund_not_built'
+  /** A refund needs a settled capture first. */
+  | 'bank.card_refund_nothing_captured'
+  /** This authorisation's one refund was asked for a different amount. */
+  | 'bank.card_refund_amount_conflict';
 
 export class BankError extends Error {
   constructor(

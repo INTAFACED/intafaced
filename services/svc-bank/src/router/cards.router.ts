@@ -40,7 +40,13 @@ const payFromOutput = z.object({
 });
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
-import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
+import {
+  amountString,
+  partnerFiguresOutput,
+  partnerHoldReportOutput,
+  stepUpApprovalField,
+  refuseCardSecretWithoutStepUp,
+} from './shared.js';
 import { guard } from './errors.js';
 import type { BankRouterContext } from './context.js';
 
@@ -846,6 +852,8 @@ export function createCardsRouter(c: BankRouterContext) {
             decision: z.enum(['approved', 'declined']),
             declineCode: z.string().nullable(),
             status: z.string(),
+            /** Whose book held it (OWNER 226): `ledger`, or `partner` (the card partner held it; our ledger posted nothing). */
+            heldBy: z.enum(['ledger', 'partner']),
             decidedAt: z.string(),
             /**
              * WHAT THE MERCHANT CHARGED, and the rate it converted at (§18).
@@ -886,6 +894,7 @@ export function createCardsRouter(c: BankRouterContext) {
             decision: a.decision,
             declineCode: a.declineCode,
             status: a.status,
+            heldBy: a.heldBy,
             decidedAt: a.decidedAt.toISOString(),
             conversion: a.conversion
               ? {
@@ -897,6 +906,42 @@ export function createCardsRouter(c: BankRouterContext) {
                 }
               : null,
           }));
+        }),
+      ),
+
+    /**
+     * THE CARD PARTNER'S OWN REPORT FOR THIS CARD (OWNER 226; J-bank-14's hold, capture and release steps): whose book a
+     * new authorisation is held in now (`ledger`, `partner`, or `none`: no partner and the custodial layer off), the
+     * partner's figures for the card's asset, and each partner-held authorisation as the partner reports it now: held,
+     * captured, released, or given back by the partner on expiry. `test` is true on the TEST partner card. Every null is
+     * "not known", never 0. Reads only.
+     */
+    partnerHeld: scopedProcedure('bank:read', { module: 'bank' })
+      .input(z.object({ cardId: z.string().guid(), limit: z.number().int().min(1).max(200).optional() }))
+      .output(
+        z.object({
+          heldBy: z.enum(['ledger', 'partner', 'none']),
+          figures: partnerFiguresOutput.nullable(),
+          authorizations: z.array(
+            z.object({
+              authorizationId: z.string(),
+              authorizationRef: z.string(),
+              amount: amountString,
+              report: partnerHoldReportOutput.nullable(),
+            }),
+          ),
+        }),
+      )
+      .query(async ({ ctx, input }) =>
+        guard(async () => {
+          const card = await bank.cards.card(input.cardId);
+          assertSelf(ctx.principal.userId, card.userId);
+          const held = await bank.cards.partnerHeld(input.cardId, input.limit);
+          return {
+            heldBy: held.heldBy,
+            figures: held.figures,
+            authorizations: held.authorizations.map((a) => ({ ...a, amount: formatAmount(a.amount) })),
+          };
         }),
       ),
   });

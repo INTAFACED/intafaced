@@ -35,9 +35,19 @@ import {
   assertPayFromOrder,
   payFromAssets,
   requireSpendAssets,
+  type CardCustodyMode,
   type CardPartnerTerms,
   type PayFromRow,
 } from './partner-terms.js';
+import {
+  PartnerCardRefusal,
+  partnerCardKey,
+  type PartnerCardFigures,
+  type PartnerCardHolds,
+  type PartnerHoldReport,
+  type PartnerMoveAnswer,
+} from './partner-card-holds.js';
+import { partnerUnset, type MoneyHeldBy } from '../partner/test-partner.js';
 import {
   assertFundingOffered,
   fundingOfferStates,
@@ -388,6 +398,16 @@ export interface AuthorizationRecord {
   declineCode: string | null;
   status: 'pending' | 'settled' | 'rejected';
   holdLedgerTxId: string | null;
+  /**
+   * WHOSE BOOK HOLDS IT (OWNER 226). `ledger`: the custodial layer, every movement a ledger post. `partner`: the card
+   * partner holds it from the partner balance, and our ledger posts nothing for it (`partner-card-holds.ts`). Decided once,
+   * at the decision, and every later movement of this authorisation follows it, whatever the switch says by then.
+   */
+  heldBy: 'ledger' | 'partner';
+  /** The partner's reference for its hold, once it answered. Null on the ledger path. */
+  partnerHoldRef: string | null;
+  /** How the partner answered the hold: it holds the crypto, or the card pulls from the person's own wallet. */
+  partnerMode: CardCustodyMode | null;
   decidedAt: Date;
   /** NULL on a same-asset card, where nothing was converted and no rate was consulted. */
   conversion: ConversionRecord | null;
@@ -400,8 +420,13 @@ export interface CaptureResult {
   captured: Amount;
   /** The unspent part of the hold, returned in the same pass. Often zero. Funding asset. */
   returned: Amount;
-  captureLedgerTxId: string;
+  /** Null on a partner-held authorisation: the partner moved it and `partner` names its instructions. */
+  captureLedgerTxId: string | null;
   reversalLedgerTxId: string | null;
+  /** Whose book this capture moved in. */
+  heldBy: 'ledger' | 'partner';
+  /** The partner's references and figures as it reports them, on a partner-held authorisation; else null. */
+  partner: { readonly captureRef: string; readonly releaseRef: string | null; readonly figures: PartnerCardFigures } | null;
   cashback: CashbackOutcome;
   /**
    * What the merchant cleared, in their currency, and the frozen rate it
@@ -499,6 +524,30 @@ export interface CardServiceOptions {
    * refuses `bank.card_spend_assets_unset`.
    */
   readonly spendAssets?: readonly string[] | null;
+  /**
+   * WHOSE BOOK HOLDS THIS PERSON'S CARD MONEY (OWNER 226), asked once per new authorisation: `ledger` (the custodial
+   * layer, as before), `partner` (the card partner holds it; `partnerHolds` below) or `none` (no partner and the custodial
+   * layer off: refused `bank.partner_unset`, nothing written). Absent: always `ledger`, exactly as before.
+   */
+  readonly heldBy?: (userId: string) => MoneyHeldBy;
+  /** The card partner that holds partner-held authorisations (today only the TEST partner card). Absent: none. */
+  readonly partnerHolds?: PartnerCardHolds | null;
+}
+
+/** A refund the card partner made of a partner-held capture. */
+export interface PartnerRefundResult {
+  readonly authorizationId: string;
+  readonly refunded: Amount;
+  readonly partnerRef: string;
+  readonly figures: PartnerCardFigures;
+}
+
+/** One partner-held authorisation as the partner reports it now; `report` null is the partner has no record of it. */
+export interface PartnerHeldAuthorization {
+  readonly authorizationId: string;
+  readonly authorizationRef: string;
+  readonly amount: Amount;
+  readonly report: PartnerHoldReport | null;
 }
 
 /** One change of a card's status, as `onStatusChanged` hears it. */
@@ -526,6 +575,8 @@ export class CardService {
   private readonly rankTier: RankTierPort;
   private readonly simulatorPays: boolean;
   private readonly spendAssets: readonly string[] | null;
+  private readonly heldByOf: (userId: string) => MoneyHeldBy;
+  private readonly partnerHolds: PartnerCardHolds | null;
 
   constructor(
     private readonly sql: Sql,
@@ -544,6 +595,8 @@ export class CardService {
     this.rankTier = options.cashback?.rankTier ?? unconfiguredRankTier();
     this.simulatorPays = options.cashback?.simulatorPays === true;
     this.spendAssets = options.spendAssets ?? null;
+    this.heldByOf = options.heldBy ?? (() => 'ledger');
+    this.partnerHolds = options.partnerHolds ?? null;
   }
 
   /**
@@ -1414,10 +1467,20 @@ export class CardService {
     // require status settled. Re-drive the stored amount. Do not quote again.
     const already = await this.authorizationByRef(card.id, input.authorizationRef);
     if (already) {
-      const strandedHold = already.decision === 'approved' && already.status === 'pending' && already.holdLedgerTxId === null;
+      const strandedHold =
+        already.decision === 'approved' &&
+        already.status === 'pending' &&
+        (already.heldBy === 'partner' ? already.partnerHoldRef === null : already.holdLedgerTxId === null);
       if (!strandedHold) return already;
       return this.redriveHold(card, already);
     }
+
+    // WHOSE BOOK (OWNER 226), decided before anything is written. `none` refuses by name: no partner holds this person's
+    // money and the custodial layer is off, so there is nowhere honest to hold it. On the partner path the partner must
+    // have said how it holds and what the person has, or nothing is decided: a decline is an answer, and nobody gave one.
+    const heldBy = this.heldByOf(card.userId);
+    if (heldBy === 'none') throw partnerUnset();
+    const partnerAvailable = heldBy === 'partner' ? await this.partnerAvailable(card) : null;
 
     return withMoneySpan(
       'bank.card.authorize',
@@ -1434,7 +1497,7 @@ export class CardService {
         span.setAttribute('intafaced.card_funding_amount', formatAmount(fundingAmount));
         span.setAttribute('intafaced.card_channel', channel);
 
-        const declineCode = await this.declineReason(card, fundingAmount, channel);
+        const declineCode = await this.declineReason(card, fundingAmount, channel, partnerAvailable);
 
         if (declineCode) {
           span.setAttribute('intafaced.card_decision', 'declined');
@@ -1445,6 +1508,7 @@ export class CardService {
             quote,
             decision: 'declined',
             declineCode,
+            heldBy,
           });
           await this.tellIssuer(card, declined, { decision: 'declined', reason: declineCode });
           return declined;
@@ -1457,6 +1521,7 @@ export class CardService {
           quote,
           decision: 'approved',
           declineCode: null,
+          heldBy,
         });
         if (claimed.decision === 'declined') {
           // The card's use limit was reached under its lock (or a redelivery found a decline): an answer, told once.
@@ -1514,6 +1579,7 @@ export class CardService {
    * to the card that made it.
    */
   private async commitHold(card: CardRecord, claimed: AuthorizationRecord, merchantAmount: Amount): Promise<AuthorizationRecord> {
+    if (claimed.heldBy === 'partner') return this.commitPartnerHold(card, claimed, merchantAmount);
     try {
       const posted = await this.ledger.post(
         recipes.withdrawHold({
@@ -1564,7 +1630,12 @@ export class CardService {
    * top of the daily and monthly ones. Card-present (chip or swipe at home) is
    * not one of the four switches.
    */
-  private async declineReason(card: CardRecord, fundingAmount: Amount, channel: CardChannel): Promise<string | null> {
+  private async declineReason(
+    card: CardRecord,
+    fundingAmount: Amount,
+    channel: CardChannel,
+    partnerAvailable: Amount | null = null,
+  ): Promise<string | null> {
     if (card.status !== 'active' || cardInactive(card)) return 'bank.card_not_active';
     // THE CEILING IS IN THE FUNDING ASSET, and it is checked against the
     // CONVERTED amount. A limit denominated in the asset the card draws on is a
@@ -1588,6 +1659,9 @@ export class CardService {
       if (spent + fundingAmount > card.cashLimit) return 'bank.card_cash_limit_exceeded';
     }
 
+    // A partner-held person's money is the partner's figure, never a read of our ledger (which holds none of it). The
+    // partner's own hold answer is still the one that decides, as the ledger's post is on the custodial path.
+    if (partnerAvailable !== null) return partnerAvailable < fundingAmount ? 'bank.card_partner_insufficient_funds' : null;
     const balance = (await this.ledger.balance(userAvailable(card.userId, card.assetId))).amount;
     if (balance < fundingAmount) return 'ledger.insufficient_funds';
     return null;
@@ -1689,6 +1763,7 @@ export class CardService {
   async capture(input: { cardId: string; authorizationRef: string; amount: Amount }): Promise<CaptureResult> {
     const card = await this.card(input.cardId);
     const authorization = await this.requireOpenAuthorization(card, input.authorizationRef, 'capture');
+    if (authorization.heldBy === 'partner') return this.capturePartnerHeld(card, authorization, input.amount);
     const conversion = authorization.conversion;
 
     // The ceiling is checked in the MERCHANT'S currency, because the merchant's
@@ -1773,6 +1848,8 @@ export class CardService {
           returned: remainder,
           captureLedgerTxId: captureTxId,
           reversalLedgerTxId: reversalTxId,
+          heldBy: 'ledger',
+          partner: null,
           cashback,
           roundUp,
           settlement: conversion ? { assetId: conversion.settlementAssetId, amount: input.amount, rate: conversion.rate } : null,
@@ -1787,9 +1864,15 @@ export class CardService {
    * Sequence 0, the same slot a capture would have taken, so the unique index
    * makes "captured then reversed" impossible rather than merely unlikely.
    */
-  async reverse(input: { cardId: string; authorizationRef: string }): Promise<{ returned: Amount; ledgerTxId: string }> {
+  async reverse(input: { cardId: string; authorizationRef: string }): Promise<{
+    returned: Amount;
+    /** Null on a partner-held authorisation: the partner released it, and `partner` says how. */
+    ledgerTxId: string | null;
+    partner?: { readonly releaseRef: string; readonly by: 'instruction' | 'expiry'; readonly figures: PartnerCardFigures };
+  }> {
     const card = await this.card(input.cardId);
     const authorization = await this.requireOpenAuthorization(card, input.authorizationRef, 'reversal');
+    if (authorization.heldBy === 'partner') return this.releasePartnerHeld(card, authorization);
 
     return withMoneySpan(
       'bank.card.reverse',
@@ -1814,6 +1897,443 @@ export class CardService {
         return { returned: authorization.amount, ledgerTxId };
       },
     );
+  }
+
+  // ── Partner-held authorisations (OWNER 226; `partner-card-holds.ts`) ──────
+  //
+  // IF THE PROCESS DIES EXACTLY HERE, WHOSE FUNDS ARE STRANDED? None of them are in our book: the partner holds the
+  // money, and every instruction goes under a key derived from our authorisation id, so a re-drive asks the partner the
+  // same question and gets the same answer.
+  //
+  //   after the decision row, before the partner's hold answer: the row is `approved` and `pending` with no partner
+  //     reference. A redelivery re-sends `card.partner.hold:<id>`, and the partner holds once.
+  //   after the partner held, before the row is marked: the same re-send finds the partner's first answer.
+  //   after a capture claim, before the partner's answer: `resumeSettlements` re-sends `card.partner.capture:<id>`.
+  //   a partner's refusal (`PartnerCardRefusal`) moved nothing: the claim is `rejected`, and the next ask retires it.
+
+  private requirePartnerHolds(): PartnerCardHolds {
+    if (!this.partnerHolds) {
+      throw new BankError(
+        'This card money is held by the partner, but the card programme has no partner that holds authorisations. Nothing was decided.',
+        'bank.card_partner_holds_unset',
+      );
+    }
+    return this.partnerHolds;
+  }
+
+  /** The partner's spendable figure, read before anything is written. Mode or balance not known refuses; nothing is decided. */
+  private async partnerAvailable(card: CardRecord): Promise<Amount> {
+    const figures = await this.requirePartnerHolds().figures({ userId: card.userId, assetId: card.assetId });
+    if (figures.mode === null) {
+      throw new BankError(
+        'The card partner has not said whether it holds the crypto or pulls from the wallet. Nothing was decided.',
+        'bank.card_partner_mode_not_known',
+      );
+    }
+    if (figures.available === null) {
+      throw new BankError(
+        `The card partner reports no ${card.assetId} balance, so nothing can be held. Nothing was decided.`,
+        'bank.card_partner_balance_not_known',
+      );
+    }
+    return parseAmount(figures.available);
+  }
+
+  /**
+   * The partner holds the claimed amount from the partner balance, once under `card.partner.hold:<authorisation>`. Our
+   * ledger posts nothing. The partner's no is a decline (an answer); anything else it throws leaves the row `pending` for
+   * a redelivery to re-send the same key, exactly as an unreachable ledger does on the custodial path.
+   */
+  private async commitPartnerHold(card: CardRecord, claimed: AuthorizationRecord, merchantAmount: Amount): Promise<AuthorizationRecord> {
+    const answer = await this.requirePartnerHolds().hold({
+      key: partnerCardKey('hold', claimed.id),
+      userId: card.userId,
+      assetId: card.assetId,
+      amount: formatAmount(claimed.amount),
+    });
+    if (!answer.approved) {
+      await this.sql`
+        UPDATE bank.card_authorizations
+           SET decision = 'declined', decline_code = ${answer.reason}, status = 'rejected'
+         WHERE id = ${claimed.id} AND status = 'pending'
+      `;
+      const declined = (await this.authorizationByRef(card.id, claimed.authorizationRef))!;
+      await this.tellIssuer(card, declined, { decision: 'declined', reason: answer.reason });
+      return declined;
+    }
+    if (parseAmount(answer.hold.amount) !== claimed.amount) {
+      throw new BankError(
+        `The card partner holds ${answer.hold.amount} under this authorisation's key, not ${formatAmount(claimed.amount)}`,
+        'bank.card_partner_key_conflict',
+      );
+    }
+    await this.sql`
+      UPDATE bank.card_authorizations
+         SET status = 'settled', partner_hold_ref = ${answer.hold.partnerRef}, partner_mode = ${answer.hold.mode}, settled_at = now()
+       WHERE id = ${claimed.id}
+    `;
+    const approved = (await this.authorizationByRef(card.id, claimed.authorizationRef))!;
+    await this.tellIssuer(card, approved, { decision: 'approved', amount: merchantAmount });
+    return approved;
+  }
+
+  /**
+   * One partner instruction against a partner-held authorisation: claim the settlement row, send, mark it with the
+   * partner's reference. The same claim rules as `settlement` (one kind and one amount per sequence), with one
+   * difference: a partner's refusal moved nothing, so a `rejected` claim is retired and claimed again for what is asked
+   * now (a capture refused above the hold, then asked within it).
+   */
+  private async partnerSettlement(input: {
+    authorization: AuthorizationRecord;
+    sequence: number;
+    kind: 'capture' | 'reversal';
+    amount: Amount;
+    send: () => Promise<PartnerMoveAnswer>;
+  }): Promise<{ partnerRef: string; answer: PartnerMoveAnswer | null }> {
+    const claim = await transaction(
+      this.sql,
+      async (tx) => {
+        const insert = () => tx<Array<{ id: string }>>`
+          INSERT INTO bank.card_settlements (authorization_id, sequence, kind, amount, money_book)
+          VALUES (${input.authorization.id}, ${input.sequence}, ${input.kind}, ${formatAmount(input.amount)}::numeric, 'partner')
+          ON CONFLICT (authorization_id, sequence) DO NOTHING
+          RETURNING id
+        `;
+        const fresh = await insert();
+        if (fresh[0]) return { id: fresh[0].id, partnerRef: null };
+        const [prior] = await tx<
+          Array<{ id: string; kind: 'capture' | 'reversal'; amount: string; status: string; partner_ref: string | null }>
+        >`
+          SELECT id, kind, amount::text AS amount, status, partner_ref FROM bank.card_settlements
+           WHERE authorization_id = ${input.authorization.id} AND sequence = ${input.sequence}
+           FOR UPDATE
+        `;
+        if (prior!.status === 'rejected') {
+          await tx`DELETE FROM bank.card_settlements WHERE id = ${prior!.id} AND status = 'rejected'`;
+          const again = await insert();
+          return { id: again[0]!.id, partnerRef: null };
+        }
+        if (prior!.kind !== input.kind) {
+          throw new BankError(
+            `Settlement ${input.sequence} on this authorisation was claimed as ${prior!.kind}, not ${input.kind}`,
+            'bank.card_settlement_kind_conflict',
+          );
+        }
+        if (parseAmount(prior!.amount) !== input.amount) {
+          throw new BankError(
+            `Settlement ${input.sequence} on this authorisation was claimed for ${prior!.amount}, not ${formatAmount(input.amount)}`,
+            'bank.card_settlement_amount_conflict',
+          );
+        }
+        return { id: prior!.id, partnerRef: prior!.status === 'settled' ? prior!.partner_ref : null };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+    if (claim.partnerRef) return { partnerRef: claim.partnerRef, answer: null };
+
+    let answer: PartnerMoveAnswer;
+    try {
+      answer = await input.send();
+    } catch (err) {
+      // Only the partner's own no proves nothing moved there. Anything else may follow an instruction it carried out:
+      // the claim stays `pending` and a retry re-sends the same key.
+      if (err instanceof PartnerCardRefusal) {
+        await this.sql`
+          UPDATE bank.card_settlements SET status = 'rejected', rejection_code = ${err.code}
+           WHERE id = ${claim.id} AND status = 'pending'
+        `;
+      }
+      throw err;
+    }
+    if (parseAmount(answer.amount) !== input.amount) {
+      throw new BankError(
+        `The card partner moved ${answer.amount} under this ${input.kind}'s key, not ${formatAmount(input.amount)}`,
+        'bank.card_partner_key_conflict',
+      );
+    }
+    await this.sql`
+      UPDATE bank.card_settlements SET status = 'settled', partner_ref = ${answer.partnerRef}, settled_at = now() WHERE id = ${claim.id}
+    `;
+    return { partnerRef: answer.partnerRef, answer };
+  }
+
+  /**
+   * The partner captures what the merchant took, and gives the rest of its hold back: two instructions, each once under
+   * its key, the same two steps as the custodial path. Above the hold is the partner's to refuse (J-bank-14's Money line),
+   * and it does (`bank.card_partner_capture_exceeds_hold`). Nothing posts to our ledger, so no cashback and no round-up,
+   * which both pay from our book: each reads `bank.card_partner_held`.
+   */
+  private async capturePartnerHeld(card: CardRecord, authorization: AuthorizationRecord, merchantAmount: Amount): Promise<CaptureResult> {
+    if (merchantAmount <= 0n) {
+      throw new BankError(`Capture of ${formatAmount(merchantAmount)} is not above zero`, 'bank.card_capture_exceeds_authorization');
+    }
+    const partner = this.requirePartnerHolds();
+    const conversion = authorization.conversion;
+    // The frozen rate, re-read, as on the custodial path. The partner holds the funding amount.
+    const capturedFunding = conversion ? fundingFor(merchantAmount, conversion.rate) : merchantAmount;
+    const holdKey = partnerCardKey('hold', authorization.id);
+    return withMoneySpan(
+      'bank.card.capture',
+      { operation: 'card-capture', cardId: card.id, amount: formatAmount(capturedFunding), assetId: card.assetId },
+      async () => {
+        const captured = await this.partnerSettlement({
+          authorization,
+          sequence: 0,
+          kind: 'capture',
+          amount: capturedFunding,
+          send: () => partner.capture({ key: partnerCardKey('capture', authorization.id), holdKey, amount: formatAmount(capturedFunding) }),
+        });
+        const remainder = authorization.amount - capturedFunding;
+        const released =
+          remainder > 0n
+            ? await this.partnerSettlement({
+                authorization,
+                sequence: 1,
+                kind: 'reversal',
+                amount: remainder,
+                send: () => partner.release({ key: partnerCardKey('release', authorization.id), holdKey }),
+              })
+            : null;
+        await this.closeWhenUsedUp(card);
+        return {
+          authorizationId: authorization.id,
+          captured: capturedFunding,
+          returned: remainder,
+          captureLedgerTxId: null,
+          reversalLedgerTxId: null,
+          heldBy: 'partner',
+          partner: {
+            captureRef: captured.partnerRef,
+            releaseRef: released?.partnerRef ?? null,
+            figures: await partner.figures({ userId: card.userId, assetId: card.assetId }),
+          },
+          cashback: { status: 'refused', amount: 0n, reason: 'bank.card_partner_held' },
+          roundUp: { status: 'skipped', amount: 0n, reason: 'bank.card_partner_held' },
+          settlement: conversion ? { assetId: conversion.settlementAssetId, amount: merchantAmount, rate: conversion.rate } : null,
+        };
+      },
+    );
+  }
+
+  /**
+   * The partner gives the whole hold back, once under `card.partner.release:<authorisation>`. If its hold time already ran
+   * out, the partner had given it back itself, and says so (`by: 'expiry'`); this records that answer once.
+   */
+  private async releasePartnerHeld(
+    card: CardRecord,
+    authorization: AuthorizationRecord,
+  ): Promise<{
+    returned: Amount;
+    ledgerTxId: null;
+    partner: { releaseRef: string; by: 'instruction' | 'expiry'; figures: PartnerCardFigures };
+  }> {
+    const partner = this.requirePartnerHolds();
+    const holdKey = partnerCardKey('hold', authorization.id);
+    return withMoneySpan(
+      'bank.card.reverse',
+      { operation: 'card-reverse', cardId: card.id, amount: formatAmount(authorization.amount), assetId: card.assetId },
+      async () => {
+        const released = await this.partnerSettlement({
+          authorization,
+          sequence: 0,
+          kind: 'reversal',
+          amount: authorization.amount,
+          send: () => partner.release({ key: partnerCardKey('release', authorization.id), holdKey }),
+        });
+        const by = released.answer
+          ? released.answer.by
+          : (await partner.holdState({ holdKey }))?.status === 'expired'
+            ? 'expiry'
+            : 'instruction';
+        return {
+          returned: authorization.amount,
+          ledgerTxId: null,
+          partner: { releaseRef: released.partnerRef, by, figures: await partner.figures({ userId: card.userId, assetId: card.assetId }) },
+        };
+      },
+    );
+  }
+
+  /** `resumeSettlements` on a partner-held authorisation: re-send each unsettled claim under its key; `held` is the partner's. */
+  private async resumePartnerHeld(authorization: AuthorizationRecord): Promise<{
+    authorizationId: string;
+    resumed: Array<{
+      sequence: number;
+      kind: 'capture' | 'reversal';
+      amount: Amount;
+      outcome: 'settled' | 'failed';
+      partnerRef?: string;
+      reason?: string;
+    }>;
+    held: Amount;
+  }> {
+    const partner = this.requirePartnerHolds();
+    const holdKey = partnerCardKey('hold', authorization.id);
+    const rows = await this.sql<Array<{ sequence: number; kind: 'capture' | 'reversal'; amount: string }>>`
+      SELECT sequence, kind, amount::text AS amount FROM bank.card_settlements
+       WHERE authorization_id = ${authorization.id} AND status <> 'settled'
+       ORDER BY sequence ASC
+    `;
+    const resumed: Array<{
+      sequence: number;
+      kind: 'capture' | 'reversal';
+      amount: Amount;
+      outcome: 'settled' | 'failed';
+      partnerRef?: string;
+      reason?: string;
+    }> = [];
+    for (const row of rows) {
+      const amount = parseAmount(row.amount);
+      try {
+        const done = await this.partnerSettlement({
+          authorization,
+          sequence: row.sequence,
+          kind: row.kind,
+          amount,
+          send: () =>
+            row.kind === 'capture'
+              ? partner.capture({ key: partnerCardKey('capture', authorization.id), holdKey, amount: formatAmount(amount) })
+              : partner.release({ key: partnerCardKey('release', authorization.id), holdKey }),
+        });
+        resumed.push({ sequence: row.sequence, kind: row.kind, amount, outcome: 'settled', partnerRef: done.partnerRef });
+      } catch (err) {
+        resumed.push({
+          sequence: row.sequence,
+          kind: row.kind,
+          amount,
+          outcome: 'failed',
+          reason: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    const report = await partner.holdState({ holdKey });
+    if (!report) {
+      throw new BankError(
+        `The card partner has no record of the hold for ${authorization.authorizationRef}`,
+        'bank.card_partner_hold_not_found',
+      );
+    }
+    return { authorizationId: authorization.id, resumed, held: parseAmount(report.open) };
+  }
+
+  /**
+   * A MERCHANT'S REFUND of a partner-held capture: the partner gives `amount` of what it captured back to the partner
+   * balance, once under `card.partner.refund:<authorisation>`. One refund per authorisation. Above what was captured, the
+   * partner refuses. Nothing posts to our ledger. On a custodial (ledger) authorisation a refund is not built: it refuses
+   * `bank.card_refund_not_built`, as before (see WHAT IS NOT HERE at the top of this file).
+   */
+  async refund(input: { cardId: string; authorizationRef: string; amount: Amount }): Promise<PartnerRefundResult> {
+    this.assertIssuerMayMutate();
+    const card = await this.card(input.cardId);
+    const authorization = await this.requireApprovedAuthorization(card, input.authorizationRef);
+    if (authorization.heldBy !== 'partner') {
+      throw new BankError('A refund on a card held in INTAFACED’s own ledger is not built. Nothing moved.', 'bank.card_refund_not_built');
+    }
+    if (input.amount <= 0n) {
+      throw new BankError('A refund is an amount above zero. Nothing moved.', 'bank.card_refund_amount_conflict');
+    }
+    const [captured] = await this.sql<Array<{ n: number }>>`
+      SELECT 1 AS n FROM bank.card_settlements
+       WHERE authorization_id = ${authorization.id} AND sequence = 0 AND kind = 'capture' AND status = 'settled'
+    `;
+    if (!captured) {
+      throw new BankError(`Authorisation ${input.authorizationRef} has no settled capture to refund`, 'bank.card_refund_nothing_captured');
+    }
+    const partner = this.requirePartnerHolds();
+    const claim = await transaction(
+      this.sql,
+      async (tx) => {
+        const fresh = await tx<Array<{ authorization_id: string }>>`
+          INSERT INTO bank.card_partner_refunds (authorization_id, amount)
+          VALUES (${authorization.id}, ${formatAmount(input.amount)}::numeric)
+          ON CONFLICT (authorization_id) DO NOTHING
+          RETURNING authorization_id
+        `;
+        if (fresh[0]) return { partnerRef: null };
+        const [prior] = await tx<Array<{ amount: string; status: string; partner_ref: string | null }>>`
+          SELECT amount::text AS amount, status, partner_ref FROM bank.card_partner_refunds
+           WHERE authorization_id = ${authorization.id} FOR UPDATE
+        `;
+        if (prior!.status === 'rejected') {
+          // The partner said no and nothing moved: this ask replaces it.
+          await tx`
+            UPDATE bank.card_partner_refunds
+               SET amount = ${formatAmount(input.amount)}::numeric, status = 'pending', rejection_code = NULL
+             WHERE authorization_id = ${authorization.id}
+          `;
+          return { partnerRef: null };
+        }
+        if (parseAmount(prior!.amount) !== input.amount) {
+          throw new BankError(
+            `This authorisation's refund was asked for ${prior!.amount}, not ${formatAmount(input.amount)}`,
+            'bank.card_refund_amount_conflict',
+          );
+        }
+        return { partnerRef: prior!.status === 'settled' ? prior!.partner_ref : null };
+      },
+      { isolation: 'read committed', maxAttempts: 5 },
+    );
+    const figures = () => partner.figures({ userId: card.userId, assetId: card.assetId });
+    if (claim.partnerRef) {
+      return { authorizationId: authorization.id, refunded: input.amount, partnerRef: claim.partnerRef, figures: await figures() };
+    }
+    let answer: PartnerMoveAnswer;
+    try {
+      answer = await partner.refund({
+        key: partnerCardKey('refund', authorization.id),
+        holdKey: partnerCardKey('hold', authorization.id),
+        amount: formatAmount(input.amount),
+      });
+    } catch (err) {
+      if (err instanceof PartnerCardRefusal) {
+        await this.sql`
+          UPDATE bank.card_partner_refunds SET status = 'rejected', rejection_code = ${err.code}
+           WHERE authorization_id = ${authorization.id} AND status = 'pending'
+        `;
+      }
+      throw err;
+    }
+    await this.sql`
+      UPDATE bank.card_partner_refunds SET status = 'settled', partner_ref = ${answer.partnerRef}, settled_at = now()
+       WHERE authorization_id = ${authorization.id}
+    `;
+    return { authorizationId: authorization.id, refunded: input.amount, partnerRef: answer.partnerRef, figures: answer.figures };
+  }
+
+  /**
+   * What the card partner reports for this card (J-bank-14's hold, capture and release steps): whose book a new
+   * authorisation would be held in now, the partner's figures for the card's asset, and each partner-held authorisation
+   * as the partner reports it now (held, captured, released by an instruction, or given back on expiry). Reads only:
+   * nothing here is summed into a balance of ours, and a partner with no record of a hold reads null, never 0.
+   */
+  async partnerHeld(
+    cardId: string,
+    limit?: number,
+  ): Promise<{ heldBy: MoneyHeldBy; figures: PartnerCardFigures | null; authorizations: PartnerHeldAuthorization[] }> {
+    const card = await this.card(cardId);
+    const page = assertCardAuthorizationsListLimit(limit);
+    const heldBy = this.heldByOf(card.userId);
+    const partner = this.partnerHolds;
+    const rows = await this.sql<Array<{ id: string; authorization_ref: string; amount: string }>>`
+      SELECT id, authorization_ref, amount::text AS amount FROM bank.card_authorizations
+       WHERE card_id = ${card.id} AND money_book = 'partner' AND decision = 'approved' AND partner_hold_ref IS NOT NULL
+       ORDER BY decided_at DESC
+       LIMIT ${page}
+    `;
+    const authorizations: PartnerHeldAuthorization[] = [];
+    for (const row of rows) {
+      authorizations.push({
+        authorizationId: row.id,
+        authorizationRef: row.authorization_ref,
+        amount: parseAmount(row.amount),
+        report: partner ? await partner.holdState({ holdKey: partnerCardKey('hold', row.id) }) : null,
+      });
+    }
+    return {
+      heldBy,
+      figures: partner ? await partner.figures({ userId: card.userId, assetId: card.assetId }) : null,
+      authorizations,
+    };
   }
 
   /** What is still held against an authorisation — read from the ledger, never stored. */
@@ -1857,12 +2377,15 @@ export class CardService {
       amount: Amount;
       outcome: 'settled' | 'failed';
       ledgerTxId?: string;
+      /** On a partner-held authorisation: the partner's reference for the re-sent instruction. */
+      partnerRef?: string;
       reason?: string;
     }>;
     held: Amount;
   }> {
     const card = await this.card(input.cardId);
     const authorization = await this.requireApprovedAuthorization(card, input.authorizationRef);
+    if (authorization.heldBy === 'partner') return this.resumePartnerHeld(authorization);
 
     const rows = await this.sql<Array<{ sequence: number; kind: 'capture' | 'reversal'; amount: string }>>`
       SELECT sequence, kind, amount::text AS amount FROM bank.card_settlements
@@ -2249,7 +2772,7 @@ export class CardService {
     const page = assertCardAuthorizationsListLimit(limit);
     const rows = await this.sql<AuthorizationRow[]>`
       SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
-             a.hold_ledger_tx_id, a.decided_at,
+             a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
         LEFT JOIN bank.card_conversions c ON c.authorization_id = a.id
@@ -2264,7 +2787,7 @@ export class CardService {
   async authorizationById(authorizationId: string): Promise<(AuthorizationRecord & { userId: string; assetId: string }) | null> {
     const rows = await this.sql<Array<AuthorizationRow & { user_id: string; card_asset_id: string }>>`
       SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
-             a.hold_ledger_tx_id, a.decided_at,
+             a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of,
              k.user_id, k.asset_id AS card_asset_id
         FROM bank.card_authorizations a
@@ -2297,7 +2820,7 @@ export class CardService {
   private async authorizationByRef(cardId: string, authorizationRef: string): Promise<AuthorizationRecord | null> {
     const rows = await this.sql<AuthorizationRow[]>`
       SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
-             a.hold_ledger_tx_id, a.decided_at,
+             a.hold_ledger_tx_id, a.money_book, a.partner_hold_ref, a.partner_mode, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
         LEFT JOIN bank.card_conversions c ON c.authorization_id = a.id
@@ -2389,6 +2912,7 @@ export class CardService {
     quote: ConversionQuote | null;
     decision: 'approved' | 'declined';
     declineCode: string | null;
+    heldBy: 'ledger' | 'partner';
   }): Promise<AuthorizationRecord> {
     await transaction(
       this.sql,
@@ -2417,11 +2941,11 @@ export class CardService {
           }
         }
         const claimed = await tx<Array<{ id: string }>>`
-          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, channel, decision, decline_code, status)
+          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, channel, decision, decline_code, status, money_book)
           VALUES (
             ${input.card.id}, ${input.input.authorizationRef}, ${formatAmount(input.fundingAmount)}::numeric,
             ${input.input.merchantCategory ?? null}, ${input.input.channel}, ${decision}, ${declineCode},
-            ${decision === 'approved' ? 'pending' : 'rejected'}
+            ${decision === 'approved' ? 'pending' : 'rejected'}, ${input.heldBy}
           )
           ON CONFLICT (card_id, authorization_ref) DO NOTHING
           RETURNING id
@@ -2788,7 +3312,7 @@ export class CardService {
         FROM bank.card_authorizations a
        WHERE a.card_id = ${card.id}
          AND a.decision = 'approved'
-         AND a.hold_ledger_tx_id IS NOT NULL
+         AND (a.hold_ledger_tx_id IS NOT NULL OR a.partner_hold_ref IS NOT NULL)
          -- Any sequence-0 row means a capture or reversal already claimed this hold: a capture in flight finishes on its
          -- own key (or the recovery job re-drives it) and is never raced here.
          AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.sequence = 0)
@@ -2904,6 +3428,9 @@ interface AuthorizationRow {
   decline_code: string | null;
   status: AuthorizationRecord['status'];
   hold_ledger_tx_id: string | null;
+  money_book: 'ledger' | 'partner';
+  partner_hold_ref: string | null;
+  partner_mode: CardCustodyMode | null;
   decided_at: Date;
   /** All NULL together, from the LEFT JOIN, when this card converts nothing. */
   settlement_asset_id: string | null;
@@ -3046,6 +3573,9 @@ function toAuthorization(row: AuthorizationRow): AuthorizationRecord {
     declineCode: row.decline_code,
     status: row.status,
     holdLedgerTxId: row.hold_ledger_tx_id,
+    heldBy: row.money_book,
+    partnerHoldRef: row.partner_hold_ref,
+    partnerMode: row.partner_mode,
     decidedAt: row.decided_at,
     conversion: toConversion(row),
   };

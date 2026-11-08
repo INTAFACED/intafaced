@@ -46,6 +46,18 @@ export interface TestPartnerSwitches {
   readonly rampQuote: 'live' | 'expired';
   /** `unknown`: the ramp gives no fee, so no pay amount: the quote reads "not known" and nothing can be asked. */
   readonly rampFee: 'known' | 'unknown';
+  /**
+   * `off`: this person's money is partner-held (OWNER 226; B3's decision on project-state #1790). The partner holds it and
+   * reports it, and INTAFACED's ledger posts nothing for it: a card authorisation is held, captured, released and refunded
+   * by the TEST partner card (`cards/partner-card-holds.ts`). `on` (the default) runs the custodial layer exactly as before,
+   * for the journeys marked Later. Seam A (partner-held bank balances and moves) reads this same switch.
+   */
+  readonly custody: 'on' | 'off';
+  /**
+   * `expired`: the TEST partner card reports every hold of this person's that is still open as past its hold time, and
+   * releases it, as a partner does when a merchant never captures. `live` (the default): a hold runs its TEST hold time.
+   */
+  readonly cardHold: 'live' | 'expired';
 }
 
 export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
@@ -55,6 +67,8 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   down: false,
   rampQuote: 'live',
   rampFee: 'known',
+  custody: 'on',
+  cardHold: 'live',
 });
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */
@@ -164,6 +178,27 @@ export function partnerReserve(partner: TestPartner | null | undefined, userId: 
 /** Whether the ramp says a quote it gave has expired, whatever its own time said. */
 export function rampQuoteExpired(partner: TestPartner | null | undefined, userId: string): boolean {
   return !!partner && partner.switches(userId).rampQuote === 'expired';
+}
+
+/**
+ * Whose book holds this person's money: `partner` when the TEST partner's custody switch is off for them, else the
+ * custodial layer (`ledger`) when it is switched on, else nobody: `none`, which every customer-balance door refuses with
+ * `bank.partner_unset` (no partner is set and INTAFACED holds no customer money). `custodyLayer` is the same switch
+ * svc-ledger reads (`LEDGER_CUSTODY_LAYER`, `parseCustodyLayer`).
+ */
+export type MoneyHeldBy = 'ledger' | 'partner' | 'none';
+
+export function moneyHeldBy(partner: TestPartner | null | undefined, userId: string, custodyLayer: 'on' | 'off'): MoneyHeldBy {
+  if (partner && partner.switches(userId).custody === 'off') return 'partner';
+  return custodyLayer === 'on' ? 'ledger' : 'none';
+}
+
+/** The refusal for `none`: no partner holds this person's money, and the custodial layer is switched off. */
+export function partnerUnset(): BankError {
+  return new BankError(
+    'No partner is set to hold this money, and INTAFACED holds no customer money (the custodial layer is off). Nothing was sent or changed.',
+    'bank.partner_unset',
+  );
 }
 
 /** Refuses a ramp quote whose fee the ramp does not give: no fee, so no pay amount, and nothing is kept. */

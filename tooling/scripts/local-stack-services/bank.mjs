@@ -229,6 +229,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // The custody switch as svc-ledger runs it on this stack (`ledger.mjs`): on, so the custodial journeys marked Later
+    // stay green. A person whose `testPartner.set({ custody: 'off' })` is set has partner-held card money instead.
+    LEDGER_CUSTODY_LAYER: 'on',
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
     // through the pay-in stand-in below.

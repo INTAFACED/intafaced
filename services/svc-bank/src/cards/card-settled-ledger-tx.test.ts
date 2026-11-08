@@ -25,9 +25,14 @@ const AUTH_SETTLED_HOLD = 'card_authorizations_settled_approved_has_hold_ck';
 const SETTLEMENT_SETTLED_TX = 'card_settlements_settled_has_tx_ck';
 const CASHBACK_SETTLED_TX = 'card_cashback_settled_has_tx_ck';
 
-function forwardMigrations(except?: string): string[] {
+/**
+ * Every forward migration, or with `before`, only those that sort before it: the schema exactly as it stood when that
+ * migration ran. A later migration may restate the same check (20261108231000 keeps it for ledger rows and states it for
+ * partner-held ones), so replaying `before` on top of migrations that came after it would test a schema that never existed.
+ */
+function forwardMigrations(before?: string): string[] {
   return readdirSync(drizzle)
-    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql') && f !== except)
+    .filter((f) => f.endsWith('.sql') && !f.endsWith('.down.sql') && (before === undefined || f < before))
     .sort()
     .map((f) => readFileSync(join(drizzle, f), 'utf8'));
 }

@@ -155,6 +155,9 @@ const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env
 
 const bank = createBankServices(sql, ledger, history, {
   testPartner,
+  // The custody switch, as svc-ledger reads it (OWNER 226): off, a card authorisation no partner holds refuses
+  // `bank.partner_unset` rather than meeting the ledger's raw refusal.
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),

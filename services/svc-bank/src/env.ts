@@ -2,6 +2,7 @@ import { TEST_PARTNER_SETTINGS } from './partner/test-partner.js';
 import { z } from 'zod';
 import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
+import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
 import { parseRecoveryBatchLimit, parseRecoveryInterval } from './recovery-jobs.js';
 import { parseStatementJobsInterval, parseStatementJobsLease } from './statements/statement-jobs.js';
@@ -248,6 +249,24 @@ const schema = serviceEnvSchema
        * Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production (`partner/test-partner.ts`).
        */
       BANK_TEST_PARTNER: z.enum(TEST_PARTNER_SETTINGS).default('off'),
+
+      /**
+       * THE CUSTODY SWITCH (OWNER 226), the same variable and the same parser as svc-ledger (`parseCustodyLayer`): `on` |
+       * `off`; unset or blank is `off`, anything else refuses boot. With it off, a card authorisation for a person whose
+       * money no partner holds refuses `bank.partner_unset` (no partner is set, and INTAFACED holds no customer money)
+       * instead of meeting svc-ledger's raw `ledger.custody_layer_off`. The TEST journey stack runs it `on`.
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseCustodyLayer(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+            return z.NEVER;
+          }
+        }),
 
       /**
        * WHO PRICES ADD MONEY ON A TEST STACK. `none` (default) | `ramp-sim` (J-bank-02 #4).

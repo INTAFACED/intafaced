@@ -1,4 +1,6 @@
-import type { TestPartner } from './partner/test-partner.js';
+import { moneyHeldBy, type TestPartner } from './partner/test-partner.js';
+import { testPartnerCardHolds } from './cards/partner-card-holds.js';
+import { NOTHING_REPORTED } from './cards/partner-terms.js';
 import { AssetPauseService } from './ops/asset-pause.js';
 import type { Sql } from 'postgres';
 import type { LedgerClient } from '@intafaced/ledger-client';
@@ -170,6 +172,12 @@ export interface BankServiceOptions {
   onrampPartner?: OnrampPartner | null;
   /** The TEST partner bank and ramp (`BANK_TEST_PARTNER=test`); refused at boot outside dev/test. Unset: no switches. */
   testPartner?: TestPartner | null;
+  /**
+   * THE CUSTODY SWITCH as svc-ledger reads it (`LEDGER_CUSTODY_LAYER`, `parseCustodyLayer`; OWNER 226). With it `off`, a
+   * person whose money no partner holds is refused `bank.partner_unset` on the card path rather than meeting the ledger's
+   * raw `ledger.custody_layer_off`. Absent: `on`, the custodial layer as before (the composition root passes the env).
+   */
+  custodyLayer?: 'on' | 'off';
   /** `BANK_GLOBAL_REFUND_FEE`: the fee on refunding a global send the rail returned. Blank refuses; only zero refunds. */
   refundFee?: string;
   /** Refused by earn pools — svc-token owns native staking (§8.1). */
@@ -377,8 +385,23 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const autoInvest = new AutoInvestService(sql, ledger, earn, spaces, options.autoInvest ?? {});
   // No issuer configured = no card programme, and every card procedure refuses
   // by name rather than simulating one. See `cards/issuer.ts`.
+  // WHOSE BOOK HOLDS A PERSON'S CARD MONEY (OWNER 226): the TEST partner's per-person custody switch, else the custody
+  // switch. The TEST partner card holds partner-held authorisations, only on the TEST stack (card-sim and the TEST partner
+  // both chosen, each refused at boot outside dev/test).
+  const custodyLayer = options.custodyLayer ?? 'on';
+  const cardIssuer = options.cards?.issuer;
+  const partnerHolds =
+    options.cards?.partnerHolds ??
+    (options.testPartner && cardIssuer && cardIssuer.programme.id === 'card-sim' && !cardIssuer.mutationRefuse
+      ? testPartnerCardHolds({
+          terms: () => (cardIssuer.partnerTerms ? cardIssuer.partnerTerms() : NOTHING_REPORTED),
+          switches: (userId) => options.testPartner!.switches(userId),
+        })
+      : null);
   const cards = new CardService(sql, ledger, {
     ...(options.cards ?? {}),
+    heldBy: options.cards?.heldBy ?? ((userId) => moneyHeldBy(options.testPartner, userId, custodyLayer)),
+    partnerHolds,
     onCaptureSettled: options.cards?.onCaptureSettled ?? ((event) => autoInvest.applyRoundUp(event)),
     // A card linked to a shared pot: every change of its status is a line in the pot's log, in the card's transaction.
     onStatusChanged: options.cards?.onStatusChanged ?? ((tx, change) => sharedPots.noteCardStatus(tx, change)),
