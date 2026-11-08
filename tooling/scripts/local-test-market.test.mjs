@@ -23,8 +23,13 @@ import {
   parseShift,
   shiftedMid,
   quoteOrder,
+  placingOrder,
+  shiftQuoted,
   crossesOn,
   quotesInTheWay,
+  quotesThisCycle,
+  holdTaken,
+  HOLD_MAX_MS,
   stackNotActive,
   STACK_INACTIVE_LIMIT_MS,
   fromScaled,
@@ -78,6 +83,43 @@ try {
   ]) {
     assert.throws(() => assertLocalTarget({ home, urls: [url] }), GuardError, url);
   }
+
+  // 4b. A hold with no maker running is saved and returns; release and unshift clear it.
+  const holdFile = join(state, 'run', 'market-hold.json');
+  r = run(home, ['hold', 'BTC/USDT']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /BTC\/USDT held; the test market is not running/);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(holdFile, 'utf8'))['BTC/USDT']));
+  r = run(home, ['release', 'BTC/USDT']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {});
+  run(home, ['hold', 'BTC/USDT']);
+  r = run(home, ['unshift']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /hold released for BTC\/USDT/);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {});
+  r = run(home, ['hold', 'NOPE/USDT']);
+  assert.equal(r.status, 2, r.stderr);
+
+  // 4c. A hold left set by a file that never released it (a worker killed in J-cex-spot-03 #8) does not outlive the
+  // file: the journeys' world restore, entering the next file, clears it (world-restore.mjs restoreWorld, `unshift`).
+  // Failure it prevents: a frozen BTC/USDT book for every journey file after it.
+  run(home, ['hold', 'BTC/USDT']);
+  assert.ok(Number.isFinite(JSON.parse(readFileSync(holdFile, 'utf8'))['BTC/USDT']));
+  const realApp = resolve(dirname(script), '../../apps/customer/tests/real-app');
+  const between = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `const w = await import(${JSON.stringify(join(realApp, 'world-restore.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-03.pw.mjs'))});
+       await w.enterFile(${JSON.stringify(join(realApp, 'J-cex-spot-04.pw.mjs'))});`,
+    ],
+    { env: { ...process.env, HOME: home, TEST_PARALLEL_INDEX: 'hold-leak' }, encoding: 'utf8' },
+  );
+  assert.equal(between.status, 0, between.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(holdFile, 'utf8')), {}, 'a hold outlived the journey file that set it');
   // 5. Through the command line as well: a real-looking target never gets past the guard.
   r = run(home, ['start', '--edge-url', 'https://api.intafaced.com']);
   assert.equal(r.status, 1, r.stderr);
@@ -230,6 +272,82 @@ assert.equal(b.next(), a.next());
     ['L1', null],
     ['L2', 'L1'],
   ]);
+  // The TEST perp's ladder after its leader jumped 25% up, placed while last cycle's quotes still rest. The matching
+  // engine's self-trade prevention expires a standing quote, unfilled, when a new quote of the maker's meets it. Replayed
+  // quote by quote, the book must keep a bid and an ask throughout (J-derivatives-06 #1, run 42411089854: a market long
+  // found no ask between the maker's first new bid and its first new ask).
+  {
+    const ladderAt = (mid) =>
+      buildLadder({
+        mid: toScaled(mid),
+        tick: toScaled('0.01'),
+        lot: toScaled('0.0001'),
+        minAmount: toScaled('0.0001'),
+        minCost: toScaled('5'),
+        levels: 3,
+        halfSpreadBps: 6n,
+        stepBps: 9n,
+        levelNotional: toScaled('3000'),
+      });
+    const replay = (standing, placing) => {
+      const book = standing.map((q) => ({ ...q }));
+      const gaps = [];
+      for (const q of placing) {
+        const p = toScaled(q.price);
+        for (let i = book.length - 1; i >= 0; i -= 1) {
+          const o = book[i];
+          const op = toScaled(o.price);
+          if ((q.side === 'buy' && o.side === 'sell' && p >= op) || (q.side === 'sell' && o.side === 'buy' && p <= op)) book.splice(i, 1);
+        }
+        book.push(q);
+        for (const side of ['buy', 'sell'])
+          if (!book.some((o) => o.side === side)) gaps.push(`${side} side empty after ${q.side} ${q.price}`);
+      }
+      return gaps;
+    };
+    for (const [from, to] of [
+      ['52000', '65000'],
+      ['65000', '52000'],
+    ]) {
+      const standing = ladderAt(from).map((q, i) => ({ id: `old-${i}`, side: q.side, price: q.price }));
+      const fresh = ladderAt(to);
+      assert.deepEqual(replay(standing, placingOrder(fresh, standing)), [], `a jump from ${from} to ${to} keeps both sides`);
+      // Every quote is still placed, once.
+      assert.deepEqual(
+        [...placingOrder(fresh, standing)].sort((a, b) => a.price.localeCompare(b.price)),
+        [...fresh].sort((a, b) => a.price.localeCompare(b.price)),
+      );
+    }
+    // Nothing standing, or no new quote meeting one: the ladder goes up as built.
+    const calm = ladderAt('65000');
+    assert.equal(placingOrder(calm, null), calm);
+    assert.deepEqual(placingOrder(calm, []), calm);
+    assert.deepEqual(
+      placingOrder(
+        calm,
+        ladderAt('65001').map((q, i) => ({ id: `o${i}`, ...q })),
+      ).length,
+      calm.length,
+    );
+  }
+  // A `move` counts as on the book only once the maker has logged quoting it, at or after the move was asked. A line
+  // from before the move, another market's or another shift's, is not it (J-derivatives-04 #2 aimed from a book that
+  // still carried the stop half's -0.30%, main run 42419522734).
+  {
+    const log = [
+      '2026-11-07T22:12:43.900Z [TEST MARKET] BTC/USDT TEST PRICE mid 64800.97 USDT: 6/6 quotes resting',
+      '2026-11-07T22:12:43.901Z [TEST MARKET] BTC/USDT TEST PRICE shift -30 bps quoted',
+      '2026-11-07T22:12:56.100Z [TEST MARKET] BTC/USDC TEST PRICE shift 0 bps quoted',
+      '2026-11-07T22:12:56.500Z [TEST MARKET] BTC/USDT TEST PRICE shift 0 bps quoted',
+    ].join('\n');
+    const asked = new Date('2026-11-07T22:12:44.600Z');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', 0n, asked), true);
+    assert.equal(shiftQuoted(log, 'BTC/USDT', -30n, asked), false, 'quoted before the move was asked');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', 0n, new Date('2026-11-07T22:12:57Z')), false, 'not yet quoted');
+    assert.equal(shiftQuoted(log, 'BTC/USDT', -1000n, asked), false, 'another shift');
+    assert.equal(shiftQuoted(log.split('\n').slice(0, 3).join('\n'), 'BTC/USDT', 0n, asked), false, 'only another market');
+    assert.equal(shiftQuoted('', 'BTC/USDT', 0n, asked), false);
+  }
   // The leader's book mid, from the best bid and ask; an empty or unreadable side is no mid.
   assert.equal(bookMid({ bids: [['65000', '1']], asks: [['65001', '1']] }), toScaled('65000.5'));
   assert.equal(bookMid({ bids: [], asks: [['65001', '1']] }), null);
@@ -567,6 +685,24 @@ assert.equal(shiftedMid(toScaled('1'), 200n, toScaled('0.0001')), toScaled('1.02
 assert.equal(shiftedMid(toScaled('65000'), -600n, toScaled('0.01')), toScaled('61100'));
 assert.equal(shiftedMid(toScaled('1.00005'), 0n, toScaled('0.0001')), toScaled('1.00005'));
 assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled('1'));
+
+// A held market is not quoted (no new ladder, no crossing); every other market is. The hold is in force only once a
+// cycle that started after it was asked for has passed the market by (J-cex-spot-03 #8, #7490).
+{
+  const holds = new Map([['BTC/USDT', 1_000]]);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 2_000), false);
+  assert.equal(quotesThisCycle('ETH/USDT', holds, 2_000), true);
+  assert.equal(quotesThisCycle('BTC/USDT', new Map(), 2_000), true);
+  // A hold left set (a worker killed mid-step runs no release) lapses on its own, but never inside one step's 90 s.
+  assert.ok(HOLD_MAX_MS > 90_000);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 1_000 + 90_000), false);
+  assert.equal(quotesThisCycle('BTC/USDT', holds, 1_000 + HOLD_MAX_MS + 1), true);
+  assert.equal(holdTaken({}, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 999 }, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 1_000 }, 'BTC/USDT', 1_000), false);
+  assert.equal(holdTaken({ 'BTC/USDT': 1_001 }, 'BTC/USDT', 1_000), true);
+  assert.equal(holdTaken({ 'ETH/USDT': 2_000 }, 'BTC/USDT', 1_000), false);
+}
 
 // A maker restart is ready only once its newest run has quoted every market it named, the perpetual (quoted last) too.
 {
