@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { test } from '@playwright/test';
 import path from 'node:path';
 import { founderStepRefused, founderTotp, makeContext, signInOnceMore } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
@@ -30,9 +31,23 @@ export async function founderSignIn(page, key = 'a') {
   await signInOnceMore({
     attempt: () => consoleSignIn(page, founder, () => founderTotp(ctx, key, founder.totpSecret)),
     onRefused: () => founderStepRefused(ctx, key),
-    log: (line) => console.log(`founder ${key} sign-in: ${line}`),
+    log: (line) => retryNoted(key, line),
   });
   return { userId: founder.userId, handle: founder.handle };
+}
+
+/**
+ * A retry that fired, made visible with both steps: a `founder-totp-retry` annotation on the running test (in the
+ * report, so how often it fires is counted) and a log line. If it fires on most runs, the cause is elsewhere.
+ */
+function retryNoted(key, line) {
+  const description = `founder ${key}: ${line}`;
+  console.log(`founder sign-in retry: ${description}`);
+  try {
+    test.info().annotations.push({ type: 'founder-totp-retry', description });
+  } catch {
+    // Outside a running test (a script), the log line is the record.
+  }
 }
 
 /**
