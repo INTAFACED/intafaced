@@ -25,9 +25,14 @@ on:
 
 permissions: {}
 
-# One build at a time per ref; a newer finished main run makes the older build's map stale, so it replaces it.
+# Only main's own builds share a group (a newer one replaces an older one). A Real-app journeys run of a pull request
+# also starts this workflow, and its job skips; with github.ref (always main for workflow_run) it cancelled main's build
+# in progress (runs 42522896030, 42532262144, 42535543684 on 8 Nov), so every other run gets a group of its own.
 concurrency:
-  group: journey-reach-map-${{ github.ref }}
+  group: >-
+    journey-reach-map-${{ (github.event_name == 'workflow_dispatch' ||
+    (github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository &&
+    github.event.workflow_run.event != 'pull_request')) && github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:

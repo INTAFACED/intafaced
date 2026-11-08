@@ -541,7 +541,8 @@ test('the committed map holds only shapes a public map may hold', () => {
     assert.match(r.head, /^[0-9a-f]{40}$/);
     assert.match(r.created, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   }
-  const PATH = /^(apps|packages|services)\/[A-Za-z0-9._@/-]+$/;
+  // The roots manifestsAt (journey-verdict.mjs) reads workspace folders from: the money list holds tooling/pay-sim.
+  const PATH = /^(apps|packages|services|tooling)\/[A-Za-z0-9._@/-]+$/;
   const JOURNEY = /^J-[a-z0-9-]+\.pw\.mjs$/;
   for (const j of map.journeys ?? []) assert.match(j, JOURNEY);
   for (const k of ['services', 'packages', 'customer', 'consumers', 'dependents'])
