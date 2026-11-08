@@ -409,11 +409,12 @@ export type RailEventType =
    */
   | 'funds.available'
   /** The rail still holds a captured payment's funds and names (`availableOn`) the day it will release them. */
-  | 'funds.pending'
-  /**
+  | 'funds.pending';
+/**
    * The destination sent a payout back (J-merchant-08 #5). Carries `amount`, the amount returned as the partner
-   * reports it, which may differ from what was sent. Recorded on the payout, never posted: payouts are the partner's.
-   */
+   * reports it, which may differ from what was sent. Never posted: payouts are the partner's. NOT RECORDED YET: the
+   * core has no `case` for it and its ref names a payout, not a payment, so svc-pay answers it unmatched (202) until
+   * the payout's returned state is built.
   | 'payout.returned';
 
 /** §6.1: `verifyWebhook(req): RailEvent | null`. */

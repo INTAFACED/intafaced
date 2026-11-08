@@ -1189,10 +1189,11 @@ await app.register(async (webhookScope) => {
       if (bankTransferRail && request.params.railId === bankTransferRail.id)
         bankTransferRail.receive(bankTransferRail.verifyWebhook(delivery));
       // The TEST acquirer's own report of its terms for one business: kept on the adapter, never a payment event.
-      if (cardRail && request.params.railId === cardRail.id && testAcquirerSwitchesAllowed(process.env)) {
-        const terms = cardRail.receivePartnerTerms(delivery);
-        if (terms === true) return reply.code(200).send({ received: true, terms: true });
-        if (terms === null) return reply.code(400).send({ error: 'malformed partner terms report' });
+      if (cardRail && request.params.railId === cardRail.id) {
+        const terms = cardRail.receivePartnerTerms(delivery, { allowed: testAcquirerSwitchesAllowed(process.env) });
+        if (terms === 'applied' || terms === 'stale') return reply.code(200).send({ received: true, terms, duplicate: terms === 'stale' });
+        if (terms === 'malformed') return reply.code(400).send({ error: 'malformed partner terms report' });
+        if (terms === 'refused') return reply.code(403).send({ error: 'TEST partner switches are refused outside dev and test' });
       }
       const outcome = await pay.handleWebhook(request.params.railId, delivery);
       // A duplicate is a 200. A rail that gets anything else will keep retrying

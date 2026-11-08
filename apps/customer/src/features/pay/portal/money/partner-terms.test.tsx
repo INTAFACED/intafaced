@@ -68,8 +68,14 @@ describe("the acquiring partner's terms in the rooms (CUSTODY-DELTA §1.3: unkno
 
   it('the partner\'s silence on currencies marks nothing, and an unreadable read never says "not known"', () => {
     expect(renderToString(<PartnerCurrencyNotes terms={terms()} assets={['USDT']} />)).toBe('');
-    const failed: Resource<PartnerTerms> = { status: 'failed', failure: { ok: false, status: 503, code: 'x', message: 'x' } as never };
-    expect(text(<PartnerReserveLine terms={failed} />)).toBe("Partner's reserve rule: Can't be read right now.");
+    const failed = (code: string): Resource<PartnerTerms> => ({
+      status: 'failed',
+      failure: { ok: false, status: 412, reason: 'error', code, message: code } as never,
+    });
+    expect(text(<PartnerReserveLine terms={failed('pay.partner_terms_unavailable')} />)).toBe(
+      "Partner's reserve rule: No payment partner is connected here, so its terms can't be shown.",
+    );
+    expect(text(<PartnerReserveLine terms={failed('pay.something_else')} />)).not.toMatch(/not known/);
   });
 
   it("a known reserve rule and cover read the partner's own words", () => {

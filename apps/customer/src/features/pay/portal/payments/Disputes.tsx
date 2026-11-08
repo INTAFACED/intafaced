@@ -218,7 +218,10 @@ export function DisputeDetailPage({ portal, disputeId }: { portal: PortalApi; di
   return (
     <>
       <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />
-      <WithAccount>{({ merchantId }) => <DisputeShortfallCover portal={portal} merchantId={merchantId} />}</WithAccount>
+      {/* Only for a case that has loaded and is not won: a won case takes nothing, and a missing one has no cover. */}
+      {dispute.resource.status === 'ready' && dispute.resource.data.status !== 'won' && (
+        <WithAccount>{({ merchantId }) => <DisputeShortfallCover portal={portal} merchantId={merchantId} />}</WithAccount>
+      )}
     </>
   );
 }

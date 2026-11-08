@@ -1165,6 +1165,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
     it('refuses an unfunded shortfall before planning, and plans nothing', async () => {
       const m = await merchant(0);
+      // The house fund covers a shortfall only when the partner's terms say INTAFACED does (the TEST acquirer's switch).
+      card.setPartnerTerms(m.id, { shortfallCover: { known: true, who: 'house' } });
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
       await expect(open(m, payment.id, 'dp-replay-4', '500')).rejects.toMatchObject({ code: 'pay.chargeback_shortfall_unfunded' });
@@ -2101,6 +2103,8 @@ describe('svc-pay money PG-hard', { timeout: 30_000 }, () => {
 
     it('dispute.opened records an unfunded shortfall as a refused dispute and posts nothing', async () => {
       const m = await merchant();
+      // The house fund covers a shortfall only when the partner's terms say INTAFACED does (the TEST acquirer's switch).
+      card.setPartnerTerms(m.id, { shortfallCover: { known: true, who: 'house' } });
       const payment = await cardPayment(m.id, '100');
       await pay.capture(payment.id);
       await settle(m.id, 'w-cb-uncovered');

@@ -28,9 +28,19 @@ test(`${J} #5 the case is won or lost: who covers a shortfall reads "not known"`
   const api = await payApiOf(who, (step) => (who.step = step));
   const paid = await paidCardPayment(api, merchantId, { key: `${J}:payment:${merchantId}`, amount: '40.00' });
   expect(paid.status).toBe('captured');
+  // The TEST acquirer disputes TEST 60.00 against a payment that brought in TEST 40.00, so the business holds less than the
+  // dispute takes: a real shortfall, which nobody is known to cover.
   const disputeId = `TEST-dp-${merchantId.slice(0, 8)}`;
-  tool('local-test-stack.mjs', 'card-dispute', paid.id, 'opened', disputeId);
-  tool('local-test-stack.mjs', 'card-dispute', paid.id, 'lost', disputeId);
+  tool('local-test-stack.mjs', 'card-dispute', paid.id, 'opened', disputeId, '--amount', '60.00');
+  tool('local-test-stack.mjs', 'card-dispute', paid.id, 'lost', disputeId, '--amount', '60.00');
+
+  // The ledger never covers it: what the business held is taken back once, nothing comes from the house, and the rest
+  // stays not yet taken (`merchantOps.disputes.funds`, read from the chargeback posts under the dispute's keys).
+  const funds = await api.query('merchantOps.disputes.funds', { disputeId });
+  expect(funds).toMatchObject({ status: 'lost', openingBooked: true, ledgerTxIds: { shortfall: null } });
+  expect(funds.shortfall).toMatch(/^0(\.0+)?$/);
+  expect(funds.takenAtOpening).toMatch(/^40(\.0+)?$/);
+  expect(funds.notYetTaken).toMatch(/^20(\.0+)?$/);
 
   // The service's answer: the TEST partner has not said who covers a shortfall on this business.
   expect((await api.query('merchantMetrics.partnerTerms', { merchantId })).shortfallCover).toEqual({ known: false });

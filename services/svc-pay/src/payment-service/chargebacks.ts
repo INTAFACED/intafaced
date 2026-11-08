@@ -5,6 +5,7 @@
  * function here, which passes itself as `svc`.
  */
 import { transaction } from '@intafaced/db';
+import { testAcquirerSwitchesAllowed } from '../rails/posture.js';
 import {
   formatAmount,
   InvalidEntryError,
@@ -101,14 +102,26 @@ export async function openChargeback(
     const fromMerchantBalance = rest < available ? rest : available;
     const shortfall = rest - fromMerchantBalance;
     if (shortfall > 0n) {
+      // Decided once, here, and frozen into the plan: a stored plan with a shortfall is one the house fund covers.
       const cover = shortfallCoverOf(svc, payment.railAdapter, input.merchantId);
-      const fund = cover === null ? (await svc.ledger.balance(insuranceFund(input.assetId))).amount : 0n;
+      if (cover !== null) {
+        // The ledger never covers it: take back what the merchant holds, and leave the rest unbooked ("not yet
+        // taken" on the funds card) until the partner's terms say who covers it. With nothing to take back, refuse.
+        if (fromClearing + fromMerchantBalance === 0n) {
+          throw new PayError(unfundedMessage(cover), 'pay.chargeback_shortfall_unfunded', {
+            disputeId: input.disputeId,
+            shortfall: formatAmount(shortfall),
+            cover,
+          });
+        }
+        return { fromClearing, fromMerchantBalance, shortfall: 0n, uncovered: shortfall };
+      }
+      const fund = (await svc.ledger.balance(insuranceFund(input.assetId))).amount;
       if (fund < shortfall) {
-        throw new PayError(unfundedMessage(cover), 'pay.chargeback_shortfall_unfunded', {
+        throw new PayError('Insurance fund cannot cover the chargeback shortfall', 'pay.chargeback_shortfall_unfunded', {
           disputeId: input.disputeId,
           shortfall: formatAmount(shortfall),
           fund: formatAmount(fund),
-          ...(cover === null ? {} : { cover }),
         });
       }
     }
@@ -143,8 +156,8 @@ export async function openChargeback(
       if (plan.shortfall > 0n) {
         const shortfallBooked = await svc.chargebackBookedTx(chargebackKeys(input.disputeId).shortfall);
         if (!shortfallBooked) {
-          const cover = shortfallCoverOf(svc, payment.railAdapter, input.merchantId);
-          const fund = cover === null ? (await svc.ledger.balance(insuranceFund(input.assetId))).amount : 0n;
+          // A plan carries a shortfall only when the house fund was to cover it when the plan was made (above).
+          const fund = (await svc.ledger.balance(insuranceFund(input.assetId))).amount;
           if (fund < plan.shortfall) {
             const openingKey = covered > 0n ? disputeOpeningKey(request) : chargebackKeys(input.disputeId).open;
             const openingBooked = covered > 0n ? await svc.chargebackBookedTx(openingKey) : null;
@@ -158,7 +171,6 @@ export async function openChargeback(
               openingTxId: openingBooked?.id ?? null,
               shortfall: formatAmount(plan.shortfall),
               fund: formatAmount(fund),
-              ...(cover === null ? {} : { cover }),
             });
           }
         }
@@ -229,7 +241,7 @@ export async function chargebackSplit(
   disputeId: string,
   amount: Amount,
   settledPot: 'proceeds' | 'user',
-  compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount }>,
+  compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount; uncovered?: Amount }>,
 ): Promise<ChargebackSplit> {
   const decode = (planned: ChargebackPlan, replayed: boolean): ChargebackSplit => {
     if (parseAmount(planned.amount) !== amount) {
@@ -255,7 +267,7 @@ export async function chargebackSplit(
   // Pot reads sit outside the lock. Another delivery can commit the plan and post before
   // `compute` runs, so the pots this split would use are already empty. That is the booked
   // opening, not a shortfall: replay the stored plan. A real shortfall has no plan to replay.
-  let split: { fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount };
+  let split: { fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount; uncovered?: Amount };
   try {
     split = await compute();
   } catch (e) {
@@ -277,6 +289,8 @@ export async function chargebackSplit(
       fromMerchantBalance: formatAmount(split.fromMerchantBalance),
       shortfall: formatAmount(split.shortfall),
       settledPot,
+      // What no one is known to cover: never booked, kept on the plan so the record says what was left (OWNER 226).
+      ...(split.uncovered && split.uncovered > 0n ? { uncovered: formatAmount(split.uncovered) } : {}),
     };
     const [row] = await tx<Array<{ seq: string }>>`
       INSERT INTO pay.payment_events (payment_id, event, payload)
@@ -510,6 +524,8 @@ export type ShortfallCover = 'not_known' | 'merchant' | 'partner';
 export function shortfallCoverOf(svc: Pick<PayServiceInternal, 'rails'>, railId: string, merchantId: string): ShortfallCover | null {
   const adapter = svc.rails.has(railId) ? svc.rails.get(railId) : null;
   if (!adapter?.partnerTerms) return null;
+  // Outside dev and test the TEST partner's terms are never an answer (`testAcquirerSwitchesAllowed`): not known.
+  if (adapter.mode !== 'sandbox' || !testAcquirerSwitchesAllowed(process.env)) return 'not_known';
   const cover = adapter.partnerTerms(merchantId).shortfallCover;
   if (!cover.known) return 'not_known';
   return cover.who === 'house' ? null : cover.who;

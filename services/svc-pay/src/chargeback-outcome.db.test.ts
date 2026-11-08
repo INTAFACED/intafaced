@@ -342,8 +342,8 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
 
   it('who covers a shortfall not known (the TEST acquirer default): the ledger never covers it, open or lost', async () => {
     // J-merchant-18 #5, CUSTODY-DELTA §1.3: a funded house fund and a short merchant pot, and the partner has not said who
-    // covers the rest. Nothing is taken from the house fund, the shortfall is refused by name with the case still
-    // recorded, and a later lost delivery still posts no house shortfall.
+    // covers the rest. The opening takes back what the merchant holds and nothing more; the house fund is untouched,
+    // and the rest stays "not yet taken" on the case, through a lost outcome too.
     const { merchantId, payment } = await settled();
     expect(card.partnerTerms(merchantId).shortfallCover).toEqual({ known: false });
     await ledger.post({
@@ -364,29 +364,55 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
         { account: railBoundary('test-spend', 'USDT'), direction: 'debit', amount: amt('70') },
       ],
     });
+    expect(await proceedsOf(merchantId)).toBe('30');
     const disputeId = 'dp-cover-not-known';
     const opened = await deliver(payment, 'dispute.opened', disputeId, 'evt-cover-open', '100');
     expect(opened.applied).toBe(true);
+    expect((await store.get(disputeId))?.ledgerWire).toBe('posted');
+    expect(await proceedsOf(merchantId)).toBe('0');
+    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('70');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(0);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+
+    // The partner's terms changing after the plan was made do not move this dispute: the plan is frozen.
+    card.setPartnerTerms(merchantId, { shortfallCover: { known: true, who: 'house' } });
+    const lost = await deliver(payment, 'dispute.lost', disputeId, 'evt-cover-lost', '100');
+    expect(lost.applied).toBe(true);
+    expect((await store.get(disputeId))?.status).toBe('lost');
+    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('70');
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.opened')).toHaveLength(1);
+    expect(ledger.reconcile()).toEqual({ ok: true });
+  });
+
+  it('who covers a shortfall not known and nothing to take back: refused by name, the case recorded, nothing posted', async () => {
+    const { merchantId, payment } = await settled();
+    await ledger.post({
+      idempotencyKey: `test.drain:${payment.id}`,
+      module: 'pay',
+      reason: 'test.proceeds.spent',
+      entries: [
+        { account: merchantProceeds(merchantId, 'USDT'), direction: 'credit', amount: amt('100') },
+        { account: railBoundary('test-spend', 'USDT'), direction: 'debit', amount: amt('100') },
+      ],
+    });
+    const disputeId = 'dp-cover-nothing';
+    await deliver(payment, 'dispute.opened', disputeId, 'evt-cover-nothing-open', '100');
     const refused = await store.get(disputeId);
     expect(refused?.status).toBe('open');
     expect(refused?.ledgerWire).toBe('refused');
     expect(refused?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
-    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('70');
-    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(0);
-
-    // A lost delivery cannot book a shortfall nobody is known to cover: it is refused by name (the rail redelivers), the
-    // case stays open with the refusal, and the house fund is still untouched.
-    await expect(deliver(payment, 'dispute.lost', disputeId, 'evt-cover-lost', '100')).rejects.toMatchObject({
+    expect(ledger.journal().filter((tx) => tx.reason.startsWith('pay.chargeback'))).toHaveLength(0);
+    await expect(deliver(payment, 'dispute.lost', disputeId, 'evt-cover-nothing-lost', '100')).rejects.toMatchObject({
       code: 'pay.chargeback_shortfall_unfunded',
       detail: expect.objectContaining({ cover: 'not_known' }),
     });
-    expect((await store.get(disputeId))?.status).toBe('open');
-    expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('70');
-    expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(0);
+    expect(ledger.journal().filter((tx) => tx.reason.startsWith('pay.chargeback'))).toHaveLength(0);
     expect(ledger.reconcile()).toEqual({ ok: true });
   });
 
-  it('a partner that covers the shortfall itself: the ledger still takes nothing from the house fund', async () => {
+  it("a partner that covers the shortfall itself: the ledger takes back the merchant's part and nothing from the house fund", async () => {
     const { merchantId, payment } = await settled();
     card.setPartnerTerms(merchantId, { shortfallCover: { known: true, who: 'partner' } });
     await ledger.post({
@@ -408,7 +434,8 @@ describe('chargeback outcomes book the ledger', { timeout: 30_000 }, () => {
       ],
     });
     await deliver(payment, 'dispute.opened', 'dp-cover-partner', 'evt-cover-partner-open', '100');
-    expect((await store.get('dp-cover-partner'))?.ledgerRefuse?.code).toBe('pay.chargeback_shortfall_unfunded');
+    expect((await store.get('dp-cover-partner'))?.ledgerWire).toBe('posted');
+    expect(await proceedsOf(merchantId)).toBe('0');
     expect(formatAmount((await ledger.balance(insuranceFund('USDT'))).amount)).toBe('70');
     expect(ledger.journal().filter((tx) => tx.reason === 'pay.chargeback.shortfall.covered')).toHaveLength(0);
     expect(ledger.reconcile()).toEqual({ ok: true });

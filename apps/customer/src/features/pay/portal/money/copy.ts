@@ -252,7 +252,6 @@ const en = {
   rSettlementAssetsUnset: 'No list of the assets your account settles in is set, so we can’t show a balance for each one.',
   rPartnerTermsUnavailable: 'No payment partner is connected here, so its terms can’t be shown.',
   partnerReading: 'Reading…',
-  partnerUnread: 'Can’t be read right now.',
   partnerNotKnown: 'not known',
   partnerNotOffered: 'not offered by the partner',
   partnerReserveLabel: 'Partner’s reserve rule:',

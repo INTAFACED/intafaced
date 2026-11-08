@@ -18,8 +18,9 @@ const OTHER = '7b0e8f5e-6d64-4a4c-9a55-4c6f1d3a7e13';
 const rail = () => new CardSandboxAdapter({ secret: SECRET, toleranceSeconds: 300 });
 
 /** A delivery signed the way the stack's `card-terms` command signs it. */
-function termsReport(adapter: CardSandboxAdapter, body: Record<string, unknown>) {
-  return adapter.signWebhook({ id: `terms:${String(body.merchantId)}`, type: 'partner.terms', ...body });
+let clock = Date.now() - 60_000;
+function termsReport(adapter: CardSandboxAdapter, body: Record<string, unknown>, occurredAt = new Date((clock += 1000)).toISOString()) {
+  return adapter.signWebhook({ id: `terms:${String(body.merchantId)}:${occurredAt}`, type: 'partner.terms', occurredAt, ...body });
 }
 
 describe('TEST acquirer partner terms', () => {
@@ -39,13 +40,13 @@ describe('TEST acquirer partner terms', () => {
   it('a signed terms report sets one business, merged over what it said, and leaves another alone', () => {
     const a = rail();
     expect(a.receivePartnerTerms(termsReport(a, { merchantId: MERCHANT, terms: { currencies: { known: true, offered: ['USDT'] } } }))).toBe(
-      true,
+      'applied',
     );
     expect(
       a.receivePartnerTerms(
         termsReport(a, { merchantId: MERCHANT, terms: { instantPayout: { known: true, offered: true, fee: { known: false } } } }),
       ),
-    ).toBe(true);
+    ).toBe('applied');
     const read = readPartnerTerms([a], MERCHANT, { APP_ENV: 'test' });
     expect(read.currencies).toEqual({ known: true, offered: ['USDT'] });
     expect(read.instantPayout).toEqual({ known: true, offered: true, fee: { known: false } });
@@ -74,7 +75,7 @@ describe('TEST acquirer partner terms', () => {
     const forged = new CardSandboxAdapter({ secret: 'some-other-secret-that-is-32-chars-long', toleranceSeconds: 300 });
     expect(
       a.receivePartnerTerms(termsReport(forged, { merchantId: MERCHANT, terms: { shortfallCover: { known: true, who: 'partner' } } })),
-    ).toBe(false);
+    ).toBe('not_terms');
     for (const terms of [
       { shortfallCover: { known: true, who: 'nobody' } },
       { reserveRule: { known: true, rollingReserveBps: 0.5, holdDays: 1 } },
@@ -83,11 +84,30 @@ describe('TEST acquirer partner terms', () => {
       { reserveRule: { known: false, rollingReserveBps: 0 } },
       { somethingElse: { known: false } },
     ]) {
-      expect(a.receivePartnerTerms(termsReport(a, { merchantId: MERCHANT, terms })), JSON.stringify(terms)).toBeNull();
+      expect(a.receivePartnerTerms(termsReport(a, { merchantId: MERCHANT, terms })), JSON.stringify(terms)).toBe('malformed');
     }
     expect(a.partnerTerms(MERCHANT)).toEqual(PARTNER_TERMS_NOT_KNOWN);
     // An ordinary delivery is not a terms report: it passes on to the core untouched.
-    expect(a.receivePartnerTerms(a.signWebhook({ id: 'e1', type: 'captured', ref: 'ch_x' }))).toBe(false);
+    expect(a.receivePartnerTerms(a.signWebhook({ id: 'e1', type: 'captured', ref: 'ch_x' }))).toBe('not_terms');
+  });
+
+  it('a replayed or late report never overwrites newer terms', () => {
+    const a = rail();
+    const first = termsReport(a, { merchantId: MERCHANT, terms: { shortfallCover: { known: true, who: 'house' } } });
+    const second = termsReport(a, { merchantId: MERCHANT, terms: { shortfallCover: { known: true, who: 'partner' } } });
+    expect(a.receivePartnerTerms(first)).toBe('applied');
+    expect(a.receivePartnerTerms(second)).toBe('applied');
+    expect(a.receivePartnerTerms(first)).toBe('stale');
+    expect(a.partnerTerms(MERCHANT).shortfallCover).toEqual({ known: true, who: 'partner' });
+    const undated = a.signWebhook({ id: 't', type: 'partner.terms', merchantId: MERCHANT, terms: {} });
+    expect(a.receivePartnerTerms(undated)).toBe('malformed');
+  });
+
+  it('outside dev and test a signed report is refused by name and changes nothing', () => {
+    const a = rail();
+    const report = termsReport(a, { merchantId: MERCHANT, terms: { shortfallCover: { known: true, who: 'house' } } });
+    expect(a.receivePartnerTerms(report, { allowed: false })).toBe('refused');
+    expect(a.partnerTerms(MERCHANT)).toEqual(PARTNER_TERMS_NOT_KNOWN);
   });
 
   it('a terms report is not a payment event: the ordinary webhook parser refuses it', () => {
@@ -108,8 +128,11 @@ describe('TEST acquirer payout returned', () => {
       destination: { kind: 'bank', ref: 'acct' },
     });
     expect(sent.ok).toBe(true);
-    const event = a.verifyWebhook(a.returnPayout('po_s1', parseAmount('99.5')));
+    const event = a.verifyWebhook(a.returnPayout('po_s1', parseAmount('99.5'), new Date(Date.now() - 2000)));
     expect(event).toMatchObject({ type: 'payout.returned', railRef: 'po_s1', amount: parseAmount('99.5'), assetId: 'USDT' });
+    // A second, partial return is its own delivery, never a duplicate of the first.
+    const again = a.verifyWebhook(a.returnPayout('po_s1', parseAmount('0.5'), new Date(Date.now() - 1000)));
+    expect(again?.eventId).not.toBe(event?.eventId);
     expect(() => a.returnPayout('po_s1', parseAmount('100.01'))).toThrow(/at most what was paid out/);
     expect(() => a.returnPayout('po_nope', parseAmount('1'))).toThrow(/no payout/);
   });

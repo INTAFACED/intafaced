@@ -102,6 +102,8 @@ export class CardSandboxAdapter implements RailAdapter {
    * (`PARTNER_TERMS_NOT_KNOWN`). Set only by the test controls below or a signed `partner.terms` report.
    */
   private readonly terms = new Map<string, AcquirerPartnerTerms>();
+  /** The time of the last terms report taken per business: a replayed or late report never overwrites a newer one. */
+  private readonly termsAt = new Map<string, number>();
 
   constructor(private readonly options: CardSandboxOptions) {
     this.now = options.now ?? (() => new Date());
@@ -162,7 +164,8 @@ export class CardSandboxAdapter implements RailAdapter {
       throw new Error('TEST acquirer: a returned amount is positive and at most what was paid out');
     return this.signWebhook(
       {
-        id: `payout.returned:${idempotencyKey}`,
+        // One delivery per return: a second partial return of the same payout is its own event, never a duplicate.
+        id: `payout.returned:${idempotencyKey}:${formatAmount(returned)}:${at.toISOString()}`,
         type: 'payout.returned',
         ref: idempotencyKey,
         amount: formatAmount(returned),
@@ -178,11 +181,15 @@ export class CardSandboxAdapter implements RailAdapter {
   }
 
   /**
-   * A signed `partner.terms` report from the TEST partner (the stack's `card-terms` command). Returns false for any
-   * delivery that is not one, so the caller passes it on as an ordinary webhook; a report that verifies but does not
-   * parse is refused (null), never half-applied.
+   * A signed `partner.terms` report from the TEST partner (the stack's `card-terms` command). `not_terms` for any
+   * delivery that is not one, so the caller passes it on as an ordinary webhook; `malformed` for one that verifies but
+   * does not parse (never half-applied); `stale` for one no newer than the last taken (`occurredAt`), which changes
+   * nothing; `refused` outside dev and test.
    */
-  receivePartnerTerms(req: RailWebhookRequest): boolean | null {
+  receivePartnerTerms(
+    req: RailWebhookRequest,
+    opts: { allowed: boolean } = { allowed: true },
+  ): 'not_terms' | 'applied' | 'stale' | 'malformed' | 'refused' {
     const ok = verifySignature({
       body: req.body,
       signature: req.headers['x-sandbox-signature'],
@@ -191,22 +198,29 @@ export class CardSandboxAdapter implements RailAdapter {
       toleranceSeconds: this.toleranceSeconds,
       now: this.now(),
     });
-    if (!ok) return false;
+    if (!ok) return 'not_terms';
     let body: unknown;
     try {
       body = JSON.parse(req.body);
     } catch {
-      return false;
+      return 'not_terms';
     }
-    if (typeof body !== 'object' || body === null || (body as { type?: unknown }).type !== 'partner.terms') return false;
+    if (typeof body !== 'object' || body === null || (body as { type?: unknown }).type !== 'partner.terms') return 'not_terms';
+    // Outside dev and test the switches are refused by name, before anything is parsed or kept.
+    if (!opts.allowed) return 'refused';
     const parsed = parsePartnerTermsReport(body as Record<string, unknown>);
-    if (!parsed) return null;
+    const at = Date.parse(String((body as { occurredAt?: unknown }).occurredAt ?? ''));
+    if (!parsed || !Number.isFinite(at)) return 'malformed';
+    const last = this.termsAt.get(parsed.merchantId);
+    if (last !== undefined && at <= last) return 'stale';
+    this.termsAt.set(parsed.merchantId, at);
     this.setPartnerTerms(parsed.merchantId, parsed.terms);
-    return true;
+    return 'applied';
   }
 
   reset(): void {
     this.terms.clear();
+    this.termsAt.clear();
     this.charges.clear();
     this.payouts.clear();
     this.forcedFailure = null;

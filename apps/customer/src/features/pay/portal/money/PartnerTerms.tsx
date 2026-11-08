@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Resource } from '../../../../shared/resource';
 import { MoneyText } from '../ui/MoneyText';
+import { refusalText } from '../refusal';
 import { mc } from './copy';
 import { bpsPercent } from './model';
 import type { PartnerTerms } from './partner-terms-api';
@@ -17,7 +18,12 @@ function Line({ label, terms, children }: { label: string; terms: Terms; childre
   return (
     <p data-testid="partner-term">
       <strong>{label}</strong>{' '}
-      {terms.status === 'ready' ? children(terms.data) : terms.status === 'loading' ? t('partnerReading') : t('partnerUnread')}
+      {terms.status === 'ready'
+        ? children(terms.data)
+        : terms.status === 'loading'
+          ? t('partnerReading')
+          : // The refusal in words (no partner here: `pay.partner_terms_unavailable`), never "not known" for a failed read.
+            refusalText(terms.failure)}
     </p>
   );
 }
