@@ -16,13 +16,14 @@
  *
  * WHAT IT DOES NOT SEE (named, not hidden): a recipe reached through a wrapper or re-export in another file (that file
  * is the site, and packages/ is walked), or through computed access other than `recipes[...]`.
- * tooling/ and apps/ are not walked: tooling posts only against the TEST stack and apps never post.
+ * tooling/ and apps/ are not walked: tooling posts only against the TEST stack and apps never post. Test files and
+ * `__tests__/` folders are skipped; a `testing/` folder is walked, since shipping code can live there.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
 export const INVENTORY_PATH = 'tooling/ci/custody-layer-inventory.json';
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', '.next', 'coverage', 'drizzle', 'target', '.git', 'testing', '__tests__']);
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.turbo', '.next', 'coverage', 'drizzle', 'target', '.git', '__tests__']);
 const TEST_FILE = /\.(test|spec|testkit|fixture|fixtures)\.[cm]?tsx?$|\.pw\.[cm]?[jt]s$/;
 const LEDGER_CLIENT_SRC = 'packages/ledger-client/';
 /** Names every recipe to sample its shape for the HTTP door's allowlist; it posts none of them. */

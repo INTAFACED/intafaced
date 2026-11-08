@@ -181,7 +181,8 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
         // The custody switch, before anything is written. A key already booked (while the layer was on) still goes
         // to the engine, which replays it or refuses a different body: a caller retrying a committed post must learn
         // it committed, never be told it was refused. Only a NEW customer-balance post is refused, and with the layer
-        // off none can commit, so there is no race between this read and the engine's insert.
+        // off none can commit in this process, so there is no race here. Across replicas whose switches differ (a
+        // rollout, a flip) there can be, which is why callers read this refusal as `unknown` (ledger-client post-outcome.ts).
         if (this.custodyLayer === 'off' && movesCustomerBalance(request.entries)) {
           let booked: LedgerTx | null;
           try {
@@ -421,14 +422,6 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   }
 
   /**
-   * What the DATABASE says, every time — no cached field.
-   *
-   * A round trip per `/health` and `/ready` call, accepted: a single-row
-   * primary-key read is cheap, and the alternative is a replica reporting
-   * itself ready while the book it writes to is frozen. That is the exact
-   * failure this change exists to remove.
-   */
-  /**
    * Boot guard for the custody switch. With the layer off, every new customer-balance post is refused, including the
    * release, settle or refund of a hold booked while it was on, so switching it off on a book that still holds
    * customer money would strand that money in its holds. So the process refuses to start instead, naming how many
@@ -446,6 +439,14 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     if (open > 0) throw new CustodyLayerOpenBalancesError(open);
   }
 
+  /**
+   * What the DATABASE says, every time — no cached field.
+   *
+   * A round trip per `/health` and `/ready` call, accepted: a single-row
+   * primary-key read is cheap, and the alternative is a replica reporting
+   * itself ready while the book it writes to is frozen. That is the exact
+   * failure this change exists to remove.
+   */
   async status(): Promise<{ postingEnabled: boolean; frozenReason: string | null; frozenBy: string | null }> {
     const state = await readFreeze(this.sql);
     return { postingEnabled: !state.frozen, frozenReason: state.reason, frozenBy: state.actor };
