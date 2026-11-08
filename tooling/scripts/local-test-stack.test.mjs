@@ -843,7 +843,7 @@ try {
 // The only Customer build call is inside the `!override` guard in ensureBuilt.
 assert.match(
   source,
-  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{ VITE_TEAM_URL: TEAM_TLS_ORIGIN \}\);/,
+  /if \(!override\) \{\s*say\('  build: customer app…'\);\s*runPnpm\(\['--filter', '@intafaced\/customer\.\.\.', 'build'\], 'build-customer', \{\s*VITE_TEAM_URL: TEAM_TLS_ORIGIN,\s*INTAFACED_SOURCEMAP: 'hidden',\s*\}\);/,
 );
 // Its Team link points at the console's TEST HTTPS front: the build's HTTPS-only check stays as it is (TeamDesk.tsx).
 assert.match(source, /const TEAM_TLS_ORIGIN = `https:\/\/\$\{HOST\}:\$\{PORTS\['team-tls'\]\}`;/);
