@@ -6,6 +6,7 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { RevokedReason, stateOf } from './ApiKeys';
+import { KeyUsage } from './KeyUsage';
 import {
   changeRefusal,
   endOfDayUtc,
@@ -217,6 +218,7 @@ export function ApiKeyDetail({ keyId }: { keyId: string }) {
               </div>
             </dl>
           </section>
+          <KeyUsage keyId={detail.key.id} />
           {stateOf(detail.key, now) === 'stateActive' ? (
             <ExpiryForm detail={detail} onSaved={setUpdated} />
           ) : (
