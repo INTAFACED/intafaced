@@ -114,7 +114,7 @@ export function httpError(err: unknown): { status: number; body: Record<string, 
   // 412, like a freeze: a deliberate platform posture, not a fault. Nothing was booked under the key, and retrying
   // unchanged is useless until the custodial layer is switched on.
   if (err instanceof LedgerError && err.code === CUSTODY_LAYER_OFF_CODE) {
-    return { status: 412, body: { message: err.message, code: err.code } };
+    return { status: 412, body: { message: userCopy(err.code), code: err.code } };
   }
   if (err instanceof LedgerError && err.code === 'ledger.frozen') {
     return { status: 412, body: { message: userCopy(err.code), code: err.code } };

@@ -31,9 +31,8 @@ export const DEFINITE_POST_REFUSAL_CODES: ReadonlySet<string> = new Set([
   'ledger.unbalanced',
   'ledger.owner_identity_space',
   'ledger.frozen',
-  // Refused before the engine is called, and only when no transaction exists under the key (svc-ledger replays a
-  // committed key even with the switch off), so nothing was booked under it.
-  'ledger.custody_layer_off',
+  // Not 'ledger.custody_layer_off': svc-ledger refuses it after reading the key, so a replica whose switch differs
+  // (a rollout, a flip) could have booked the same key in between. It stays 'unknown', and the caller looks the key up.
 ]);
 
 /** Undici reports these on `error.cause` when the socket never connected. */

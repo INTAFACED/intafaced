@@ -100,14 +100,6 @@ const schema = serviceEnvSchema
       ),
 
       /**
-       * Emergency freeze. When false, every `post` is refused.
-       *
-       * This is the most consequential switch in the platform and it exists
-       * because §4.2 requires it: on a reconciliation mismatch the diverging
-       * module is frozen rather than allowed to keep writing to a book we no
-       * longer trust.
-       */
-      /**
        * The custody switch (OWNER 226: no customer money held at launch). `off` (the default, and what unset or blank
        * means) refuses every post that moves a customer balance with `ledger.custody_layer_off`; `on` runs the
        * custodial layer, kept built for the journeys marked Later. Any other value refuses boot, so a typo cannot turn
@@ -125,6 +117,14 @@ const schema = serviceEnvSchema
           }
         }),
 
+      /**
+       * Emergency freeze. When false, every `post` is refused.
+       *
+       * This is the most consequential switch in the platform and it exists
+       * because §4.2 requires it: on a reconciliation mismatch the diverging
+       * module is frozen rather than allowed to keep writing to a book we no
+       * longer trust.
+       */
       LEDGER_POSTING_ENABLED: z
         .union([z.boolean(), z.string()])
         .default(true)

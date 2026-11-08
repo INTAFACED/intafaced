@@ -14,8 +14,8 @@
  *     left off the list;
  *   · a dynamic recipe call (`recipes[name](...)`) counts as a posting of every customer recipe (`*`).
  *
- * WHAT IT DOES NOT SEE (named, not hidden): a recipe reached through an alias of the `recipes` object assigned to
- * another variable, or a post assembled from a recipe returned by a helper in another file (that file is the site).
+ * WHAT IT DOES NOT SEE (named, not hidden): a recipe reached through a wrapper or re-export in another file (that file
+ * is the site, and packages/ is walked), or through computed access other than `recipes[...]`.
  * tooling/ and apps/ are not walked: tooling posts only against the TEST stack and apps never post.
  */
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
@@ -65,6 +65,18 @@ export function customerRecipeCalls(text, customerRecipes) {
     recipeObjects.add(m[1]);
   }
 
+  // const { deposit, rewardPay: pay } = recipes;   and   const r = recipes;
+  for (const obj of [...recipeObjects]) {
+    const o = obj.replace(/\./g, '\\s*\\.\\s*');
+    for (const m of text.matchAll(new RegExp(`(?:const|let|var)\\s*\\{([^}]*)\\}\\s*=\\s*${o}\\b`, 'g'))) {
+      for (const raw of m[1].split(',')) {
+        const [imported, local] = raw.split(':').map((s) => s.trim());
+        if (imported && customer.has(imported)) named.set(local || imported, imported);
+      }
+    }
+    for (const m of text.matchAll(new RegExp(`(?:const|let|var)\\s+(\\w+)\\s*=\\s*${o}\\s*;`, 'g'))) recipeObjects.add(m[1]);
+  }
+
   for (const obj of recipeObjects) {
     const o = obj.replace(/\./g, '\\s*\\.\\s*');
     for (const m of text.matchAll(new RegExp(`\\b${o}\\s*\\.\\s*(\\w+)\\s*\\(`, 'g'))) if (customer.has(m[1])) found.add(m[1]);
@@ -92,7 +104,8 @@ export function customerPostingSites(root, customerRecipes) {
 
 /**
  * Is the switch's default off? Read from source, so the check can't be satisfied by an inventory alone.
- * Returns a list of problems; empty means off by default in all three places.
+ * Returns a list of problems; empty means off by default everywhere it is set: the parser, svc-ledger's env, service and
+ * boot, and the compose file staging deploys.
  */
 export function switchDefaultProblems(root) {
   const problems = [];
@@ -102,9 +115,24 @@ export function switchDefaultProblems(root) {
     problems.push("packages/ledger-client/src/custody-layer.ts: parseCustodyLayer must read unset or blank as 'off'");
   }
   const env = read('services/svc-ledger/src/env.ts');
-  const envBlock = env?.match(/LEDGER_CUSTODY_LAYER:[\s\S]{0,400}?parseCustodyLayer\(/)?.[0];
-  if (!envBlock || /\.default\(/.test(envBlock)) {
-    problems.push('services/svc-ledger/src/env.ts: LEDGER_CUSTODY_LAYER must be parsed by parseCustodyLayer, with no other default');
+  // The whole field, up to the next env key: a `.default(...)` anywhere in it, before or after the transform, would
+  // feed a value in when the variable is unset.
+  const envBlock = env?.match(/\n\s*LEDGER_CUSTODY_LAYER:([\s\S]*?)(?=\n\s*(?:\/\*\*|[A-Z][A-Z0-9_]*:))/)?.[1];
+  if (!envBlock || !/parseCustodyLayer\(/.test(envBlock) || /\.(default|catch|preprocess)\(|z\.preprocess\(/.test(envBlock)) {
+    problems.push('services/svc-ledger/src/env.ts: LEDGER_CUSTODY_LAYER must be parsed by parseCustodyLayer, with no default of its own');
+  }
+  const index = read('services/svc-ledger/src/index.ts');
+  if (!index || !/custodyLayer:\s*env\.LEDGER_CUSTODY_LAYER\s*,/.test(index) || /custodyLayer:\s*['"]on['"]/.test(index)) {
+    problems.push('services/svc-ledger/src/index.ts: the service must take custodyLayer from env.LEDGER_CUSTODY_LAYER');
+  }
+  if (!index || !/await\s+ledger\.assertCustodyLayerBootable\(\)/.test(index)) {
+    problems.push('services/svc-ledger/src/index.ts: boot must call ledger.assertCustodyLayerBootable()');
+  }
+  // docker-compose.apps.yml is staging's deployment unit as well as `pnpm platform:up`.
+  const compose = read('docker-compose.apps.yml');
+  const composeLine = compose?.match(/^\s*LEDGER_CUSTODY_LAYER:\s*(.*)$/m)?.[1]?.trim();
+  if (composeLine !== undefined && composeLine !== '${LEDGER_CUSTODY_LAYER:-off}' && composeLine !== '${LEDGER_CUSTODY_LAYER}') {
+    problems.push('docker-compose.apps.yml: LEDGER_CUSTODY_LAYER must default to off (it is the staging deployment unit)');
   }
   const service = read('services/svc-ledger/src/service.ts');
   if (!service || !/this\.custodyLayer\s*=\s*options\.custodyLayer\s*\?\?\s*'off'/.test(service)) {
@@ -116,7 +144,10 @@ export function switchDefaultProblems(root) {
   return problems;
 }
 
-/** Compare the sites found with the inventory. New sites or new recipes at a site are violations; stale rows are notices. */
+/**
+ * Compare the sites found with the inventory. A new site, or a new recipe at a listed site, is a violation. So is a
+ * stale row: a listed recipe a file no longer posts would otherwise keep permission to come back unreviewed.
+ */
 export function judgeCustodyLayer(found, inventorySites) {
   const violations = [];
   const stale = [];
@@ -166,8 +197,14 @@ export function runCustodyLayerCheck(root) {
       detail: `INTAFACED holds no customer money at launch (OWNER 226). Record what the source reports instead, or, if this is the custodial layer kept for later, add it to ${INVENTORY_PATH} in a reviewed gate: change`,
     });
   }
-  for (const s of stale)
-    out.notices.push(`${s.file}: the inventory lists ${s.recipes.join(', ')}, no longer posted there (remove the row)`);
+  for (const s of stale) {
+    out.violations.push({
+      check: 'custody-layer-inventory-stale',
+      file: s.file,
+      reason: `the inventory lists ${s.recipes.join(', ')} for this file, which no longer posts ${s.recipes.length === 1 ? 'it' : 'them'}`,
+      detail: `Remove the row from ${INVENTORY_PATH}: a stale row would let that posting come back without review`,
+    });
+  }
   const n = Object.keys(found).length;
   out.summary = `${n} custodial-layer posting site(s) match the inventory; switch default off`;
   return out;

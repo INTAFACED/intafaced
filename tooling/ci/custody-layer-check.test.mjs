@@ -24,9 +24,20 @@ test('finds a recipe posted through recipes., an alias, a named import and a dyn
     customerRecipeCalls(`import { recipes } from '@intafaced/ledger-client';\nrecipes.sweepFeesToRewards(x);`, CUSTOMER),
     [],
   );
+  assert.deepEqual(
+    customerRecipeCalls(
+      `import { recipes } from '@intafaced/ledger-client';\nconst { deposit, rewardPay: pay } = recipes;\ndeposit(a); pay(b);`,
+      CUSTOMER,
+    ),
+    ['deposit', 'rewardPay'],
+  );
+  assert.deepEqual(
+    customerRecipeCalls(`import { recipes } from '@intafaced/ledger-client';\nconst r = recipes;\nr.feeCharge(a);`, CUSTOMER),
+    ['feeCharge'],
+  );
 });
 
-test('a new site or a new recipe at a listed site is a violation; a vanished row is only a notice', () => {
+test('a new site or a new recipe at a listed site is a violation, and so is a stale row', () => {
   const { violations, stale } = judgeCustodyLayer(
     { 'services/a.ts': ['deposit'], 'services/b.ts': ['deposit', 'feeCharge'] },
     { 'services/b.ts': ['deposit'], 'services/gone.ts': ['rewardPay'] },
@@ -43,14 +54,18 @@ test('the repo as it stands passes: the switch is off by default and every site 
   assert.deepEqual(runCustodyLayerCheck(ROOT).violations, []);
 });
 
-/** A copy of just the files check 4 reads, so a plant never touches the working tree. */
+/** A copy of just the files check 4 reads (the switch's sources and every listed site), so a plant never touches the tree. */
 function sandbox() {
   const dir = mkdtempSync(join(tmpdir(), 'custody-layer-'));
+  const inventory = JSON.parse(readFileSync(join(ROOT, 'tooling/ci/custody-layer-inventory.json'), 'utf8'));
   for (const p of [
     'tooling/ci/custody-layer-inventory.json',
     'packages/ledger-client/src/custody-layer.ts',
     'services/svc-ledger/src/env.ts',
     'services/svc-ledger/src/service.ts',
+    'services/svc-ledger/src/index.ts',
+    'docker-compose.apps.yml',
+    ...Object.keys(inventory.sites),
   ]) {
     mkdirSync(join(dir, p, '..'), { recursive: true });
     cpSync(join(ROOT, p), join(dir, p));
@@ -88,6 +103,14 @@ test('planted: turning the default on, or removing the runtime refusal, fails', 
     ['services/svc-ledger/src/service.ts', "options.custodyLayer ?? 'off'", "options.custodyLayer ?? 'on'"],
     ['services/svc-ledger/src/service.ts', "this.custodyLayer === 'off' && movesCustomerBalance(", 'false && movesCustomerBalance('],
     ['packages/ledger-client/src/custody-layer.ts', "raw.trim() === '') return 'off'", "raw.trim() === '') return 'on'"],
+    [
+      'services/svc-ledger/src/env.ts',
+      '            return z.NEVER;\n          }\n        }),',
+      "            return z.NEVER;\n          }\n        })\n        .default('on'),",
+    ],
+    ['services/svc-ledger/src/index.ts', 'custodyLayer: env.LEDGER_CUSTODY_LAYER,', "custodyLayer: 'on',"],
+    ['services/svc-ledger/src/index.ts', 'await ledger.assertCustodyLayerBootable();', ''],
+    ['docker-compose.apps.yml', '${LEDGER_CUSTODY_LAYER:-off}', '${LEDGER_CUSTODY_LAYER:-on}'],
   ]) {
     const dir = sandbox();
     try {
@@ -103,6 +126,20 @@ test('planted: turning the default on, or removing the runtime refusal, fails', 
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+});
+
+test('planted: a stale inventory row fails, so a removed posting cannot come back unreviewed', () => {
+  const dir = sandbox();
+  try {
+    const p = join(dir, 'tooling/ci/custody-layer-inventory.json');
+    const inv = JSON.parse(readText(p));
+    inv.sites['services/svc-agents/src/gone.ts'] = ['deposit'];
+    writeFileSync(p, JSON.stringify(inv));
+    const v = runCustodyLayerCheck(dir).violations;
+    assert.ok(v.some((x) => x.check === 'custody-layer-inventory-stale' && x.file === 'services/svc-agents/src/gone.ts'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

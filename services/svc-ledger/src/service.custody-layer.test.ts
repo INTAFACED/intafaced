@@ -6,7 +6,7 @@ import { describe, expect, it, beforeAll, beforeEach, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import { MemoryEventBus } from '@intafaced/events';
 import { CUSTODY_LAYER_OFF_CODE, CustodyLayerOffError, classifyPostOutcome, parseAmount as amt, recipes } from '@intafaced/ledger-client';
-import { LedgerService } from './service.js';
+import { CUSTODY_LAYER_OPEN_BALANCES_CODE, CustodyLayerOpenBalancesError, LedgerService } from './service.js';
 import { httpError } from './s2s-http.js';
 import { truncateBook } from './db/journal-guards.testkit.js';
 
@@ -103,9 +103,13 @@ describe('svc-ledger custody switch', () => {
     expect(await txCount()).toBe(0);
     expect(Number((await requireDb().sql`SELECT count(*)::int AS n FROM accounts WHERE owner_type = 'user'`)[0]!.n)).toBe(0);
 
-    // The door answers 412 with the code on the wire, and a caller classifies it as a definite refusal.
+    // The door answers 412 with the code and user copy on the wire. A caller does NOT read it as "definitely not
+    // booked": a replica with the switch on could have booked the key between this read and the refusal.
     expect(httpError(err)).toMatchObject({ status: 412, body: { code: CUSTODY_LAYER_OFF_CODE } });
-    expect(classifyPostOutcome(err)).toBe('refused');
+    expect((httpError(err).body as { message: string }).message).toBe(
+      'INTAFACED does not hold customer money, so this money movement is not offered. Nothing was moved.',
+    );
+    expect(classifyPostOutcome(err)).toBe('unknown');
   });
 
   it('refuses a merchant-money leg too: a merchant is a customer', async () => {
@@ -142,6 +146,20 @@ describe('svc-ledger custody switch', () => {
     const ledger = new LedgerService(requireDb().sql, new MemoryEventBus('custody-on'), { custodyLayer: 'on' });
     await expect(ledger.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
     expect(await txCount()).toBe(1);
+  });
+
+  it('refuses to boot with the layer off while customer accounts hold a balance, and boots on an empty book', async () => {
+    const off = new LedgerService(requireDb().sql, new MemoryEventBus('custody-off'), { custodyLayer: 'off' });
+    await expect(off.assertCustodyLayerBootable()).resolves.toBeUndefined();
+
+    const on = new LedgerService(requireDb().sql, new MemoryEventBus('custody-on'), { custodyLayer: 'on' });
+    await on.post(deposit());
+    await expect(on.assertCustodyLayerBootable()).resolves.toBeUndefined();
+
+    const err = await off.assertCustodyLayerBootable().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CustodyLayerOpenBalancesError);
+    expect((err as CustodyLayerOpenBalancesError).code).toBe(CUSTODY_LAYER_OPEN_BALANCES_CODE);
+    expect((err as CustodyLayerOpenBalancesError).openAccounts).toBe(1);
   });
 
   it('replays a key booked while on after the layer is switched off, and refuses only a new key', async () => {

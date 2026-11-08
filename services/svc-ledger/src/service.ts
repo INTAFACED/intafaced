@@ -94,6 +94,20 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/** svc-ledger refuses to boot with the custodial layer off while customer accounts still hold a balance. */
+export const CUSTODY_LAYER_OPEN_BALANCES_CODE = 'ledger.custody_layer_open_balances';
+export class CustodyLayerOpenBalancesError extends LedgerError {
+  constructor(readonly openAccounts: number) {
+    super(
+      `LEDGER_CUSTODY_LAYER is off, but ${openAccounts} customer account(s) still hold a balance in this book. Switching ` +
+        'custody off now would strand that money in its holds: set LEDGER_CUSTODY_LAYER=on, unwind them through their ' +
+        'recipes, then switch it off.',
+      CUSTODY_LAYER_OPEN_BALANCES_CODE,
+    );
+    this.name = 'CustodyLayerOpenBalancesError';
+  }
+}
+
 export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly engine: PostgresLedger;
   private readonly bootPostingEnabled: boolean;
@@ -169,7 +183,13 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
         // it committed, never be told it was refused. Only a NEW customer-balance post is refused, and with the layer
         // off none can commit, so there is no race between this read and the engine's insert.
         if (this.custodyLayer === 'off' && movesCustomerBalance(request.entries)) {
-          const booked = await this.engine.getTxByKey(request.idempotencyKey);
+          let booked: LedgerTx | null;
+          try {
+            booked = await this.engine.getTxByKey(request.idempotencyKey);
+          } catch (err) {
+            // Same answer as a failed write: the store can't be read, nothing was booked here, retry with the same key.
+            throw toWriteBlockError(err);
+          }
           if (!booked) {
             span.setAttribute('intafaced.refused', CUSTODY_LAYER_OFF_CODE);
             throw new CustodyLayerOffError(request.module, request.reason);
@@ -408,6 +428,24 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
    * itself ready while the book it writes to is frozen. That is the exact
    * failure this change exists to remove.
    */
+  /**
+   * Boot guard for the custody switch. With the layer off, every new customer-balance post is refused, including the
+   * release, settle or refund of a hold booked while it was on, so switching it off on a book that still holds
+   * customer money would strand that money in its holds. So the process refuses to start instead, naming how many
+   * customer accounts still hold a balance. Turn the layer on, unwind them through their recipes, then switch it off.
+   * Call once at boot, before serving. With the layer on it reads nothing.
+   */
+  async assertCustodyLayerBootable(): Promise<void> {
+    if (this.custodyLayer === 'on') return;
+    const [row] = await this.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM accounts
+      WHERE balance <> 0
+        AND (owner_type IN ('user', 'subaccount')
+          OR (owner_type = 'module' AND (owner_id LIKE 'pay:clearing:%' OR owner_id LIKE 'pay:proceeds:%')))`;
+    const open = row?.n ?? 0;
+    if (open > 0) throw new CustodyLayerOpenBalancesError(open);
+  }
+
   async status(): Promise<{ postingEnabled: boolean; frozenReason: string | null; frozenBy: string | null }> {
     const state = await readFreeze(this.sql);
     return { postingEnabled: !state.frozen, frozenReason: state.reason, frozenBy: state.actor };
