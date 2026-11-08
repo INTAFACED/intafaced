@@ -23,6 +23,7 @@ import {
   moneyGuard,
   setAsideDays,
   setAsideRefusal,
+  retryProblem,
   SET_ASIDE_CONDITIONS,
   SET_ASIDE_FILES,
 } from './test-judge.mjs';
@@ -237,7 +238,7 @@ test('fails closed (planted): an unanswered step or change, an error, or no stru
 const CONFIG = SET_ASIDE_FILES[0];
 const SA_REQ = { steps: ['J-x-01 #1', 'J-x-01 #2', 'J-m-01 #1'], changes: [CONFIG] };
 /** The facts buildInputs decides: J-m-01 #1 is money, J-x-01 #2's own test changed, the head sets aside for 7 days. */
-const RULES = { money: ['J-m-01 #1'], own: ['J-x-01 #2'], days: 7 };
+const RULES = { money: ['J-m-01 #1'], own: ['J-x-01 #2'], days: 7, mainDays: null, retry: null, touches: true };
 const held = (over = {}) => ({
   used: true,
   ...Object.fromEntries(Object.keys(SET_ASIDE_CONDITIONS).map((k) => [k, { holds: true, why: 'journey-verdict.mjs:1' }])),
@@ -298,8 +299,33 @@ test('B8 refuses (planted): no end date, an end date the code does not set, or a
   assert.equal(setAsideDays(null), null);
 });
 
-test('B8 refuses (planted): a set-aside step counted as proven, or with no owner, or set aside by anyone but the machine', () => {
-  for (const k of ['notProven', 'owner', 'machineOnly']) {
+test('B8 refuses (planted): a set-aside lengthened past the default branch, a retry of more than once, or no set-aside change', () => {
+  // Main sets aside for 3 days: the head may shorten it, never lengthen it, and 7 stays the ceiling.
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: 3, days: 3 }).verdict, 'PASS', 'the control: as long as main');
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: 3, days: 2 }).verdict, 'PASS', 'shorter than main');
+  const longer = verdictOf(b8(), { ...RULES, mainDays: 3, days: 7 });
+  assert.equal(longer.verdict, 'FAIL');
+  assert.match(longer.lines.find((l) => l.id === CONFIG).why, /longer than 3 \(the default branch's length\)/);
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: 30, days: 8 }).verdict, 'FAIL', 'never past 7, whatever main says');
+  // The retry: exactly one retries: line, at most one retry, and not on every run.
+  assert.equal(retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,"), null);
+  assert.equal(retryProblem('  retries: 0,'), null);
+  assert.match(retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,"), /more than one retry/);
+  assert.match(retryProblem('  retries: 1,'), /every run/);
+  assert.match(retryProblem('  retries: 0,\n  retries: 3,'), /2 retries: lines/);
+  assert.match(retryProblem(null), /0 retries: lines/);
+  const twice = verdictOf(b8(), { ...RULES, retry: retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,") });
+  assert.equal(twice.verdict, 'FAIL');
+  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: .*more than one retry/);
+  assert.equal(verdictOf(b8(), { ...RULES, retry: undefined }).verdict, 'FAIL', 'an unread retry refuses');
+  // A step reached only through another shared file can't be set aside on the judge's word alone.
+  const untouched = verdictOf(b8({ change: 'still-proves' }), { ...RULES, touches: false });
+  assert.equal(untouched.verdict, 'FAIL');
+  assert.match(untouched.lines.find((l) => l.id === 'J-x-01 #1').why, /changes neither the retry's file nor the set-aside's code/);
+});
+
+test('B8 refuses (planted): a set-aside step counted as proven, with no owner, retried past B8, or set aside by anyone but the machine', () => {
+  for (const k of ['notProven', 'owner', 'machineOnly', 'retryOnce']) {
     const a = verdictOf(b8({ setAside: held({ [k]: { holds: false, why: 'x' } }) }));
     assert.equal(a.verdict, 'FAIL', k);
     assert.match(a.lines.find((l) => l.id === 'J-x-01 #1').why, new RegExp(`did not find these held: ${k}`), k);
@@ -389,7 +415,14 @@ test("B8: the input carries the code's set-aside facts and, when changed, the se
   };
   const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
   const got = await buildInputs({ src, base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords });
-  assert.deepEqual(got.setAside, { money: ['J-x-01 #1'], own: ['J-x-01 #2'], days: 7 });
+  assert.deepEqual(got.setAside, {
+    money: ['J-x-01 #1'],
+    own: ['J-x-01 #2'],
+    days: 7,
+    mainDays: null,
+    retry: "the retry's file has 0 retries: lines, not one",
+    touches: true,
+  });
   assert.match(got.prompt, /SET-ASIDE FACTS[^]*money steps among those listed \(never set aside\): J-x-01 #1/);
   assert.match(got.prompt, new RegExp(`BEGIN UNTRUSTED FILE after \\(head [0-9a-f]{10}\\) ${verdictFile}`));
   // An unchanged reader is read whole too: a line left as main has it never shows in the diff.

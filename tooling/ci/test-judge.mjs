@@ -27,6 +27,8 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join, dirname, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
+// The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
+// request's, so the money rule below is main's.
 import { moneyRule, manifestsAt } from './journey-verdict.mjs';
 
 /** The journey tests and the shared code they run on: a pull request that changes any of these is judged. */
@@ -99,9 +101,31 @@ export const SET_ASIDE_CONDITIONS = {
   neverMoney: 'a money step is never set aside, and a step not known to be non-money counts as money',
   notProven: 'a set-aside step, or a pass only on a retry, never counts as proven',
   machineOnly: 'only CI on main sets a step aside, from a list no person or agent can edit',
+  retryOnce: 'a failed journey test is retried at most once, and only in a CI run on main',
 };
-/** B8's limited time: the builder's choice shown to the owner was 7 days (project-state B8-FLAKY-TEXT.md). */
+/**
+ * B8's limited time when main has no set-aside yet: the length shown to the owner with B8 was 7 days. Once main has one,
+ * its own SET_ASIDE_DAYS is the cap, so a pull request can shorten the set-aside but never lengthen it.
+ */
 export const SET_ASIDE_MAX_DAYS = 7;
+/** The cap for a head: main's length when main has one (never above SET_ASIDE_MAX_DAYS), else SET_ASIDE_MAX_DAYS. */
+export const setAsideCap = (mainDays) =>
+  Number.isInteger(mainDays) && mainDays >= 1 ? Math.min(mainDays, SET_ASIDE_MAX_DAYS) : SET_ASIDE_MAX_DAYS;
+
+/**
+ * The retry in the head's Playwright config: exactly one `retries:` line, whose numbers are only 0 and 1 (at most one
+ * retry). Returns null when it is so, else why not. Whether it runs only on main is the judge's `retryOnce` reading.
+ */
+export function retryProblem(text) {
+  const lines = String(text ?? '')
+    .split('\n')
+    .filter((l) => /^\s*retries\s*:/.test(l));
+  if (lines.length !== 1) return `the retry's file has ${lines.length} retries: lines, not one`;
+  const nums = lines[0].replace(/\/\/.*$/, '').match(/\b\d+(?:\.\d+)?\b/g) ?? [];
+  if (nums.some((n) => n !== '0' && n !== '1')) return `its retries: line allows more than one retry (${nums.join(', ')})`;
+  if (!/\?/.test(lines[0]) && !nums.includes('0')) return 'its retries: line retries every run';
+  return null;
+}
 /** The files whose change is the set-aside's retry (a change entry may answer `set-aside` only for these). */
 export const SET_ASIDE_FILES = ['apps/customer/tests/real-app/real-app.playwright.config.mjs'];
 /** Where the set-aside lives. */
@@ -111,7 +135,13 @@ export const SET_ASIDE_CODE = 'tooling/ci/journey-verdict.mjs';
  * the head, whenever the head sets anything aside or the pull request changes one of them, since a line the pull
  * request leaves as main has it (a reader counting a pass only on the retry) never shows in the diff.
  */
-export const SET_ASIDE_READERS = [SET_ASIDE_CODE, 'tooling/ci/post-merge-trust.mjs', 'tooling/scripts/roadmap.mjs'];
+export const SET_ASIDE_READERS = [
+  SET_ASIDE_CODE,
+  'tooling/ci/post-merge-trust.mjs',
+  'tooling/scripts/roadmap.mjs',
+  // Where the retry is set for runs on main only (retryOnce).
+  '.github/workflows/real-app-journeys.yml',
+];
 
 /** The head's set-aside length in days (`export const SET_ASIDE_DAYS = <n>;` in SET_ASIDE_CODE), or null. */
 export function setAsideDays(text) {
@@ -145,9 +175,11 @@ export function moneyGuard({ journeys, slices, manifests }) {
 
 /**
  * Why a `set-aside` entry is refused, or null when it is accepted. `answer` is the judge's setAside reading; `rules` is
- * meta.setAside: { money: [steps], own: [steps], days }. Refused: a money step, a step whose own test changed (a
- * softened step is weaker, whatever else changed), a change outside SET_ASIDE_FILES, a head with no set-aside length or
- * one over SET_ASIDE_MAX_DAYS, or any condition the judge did not find held. Missing rules refuse.
+ * meta.setAside: { money: [steps], own: [steps], days, mainDays, retry, touches }. Refused: a money step, a step whose
+ * own test changed (a softened step is weaker, whatever else changed), a change outside SET_ASIDE_FILES, a pull request
+ * that changes neither the retry's file nor the set-aside's code, a head with no set-aside length or one longer than
+ * main's (setAsideCap), a retry that is not at most one (retryProblem), or any condition the judge did not find held.
+ * Missing rules refuse.
  */
 export function setAsideRefusal(line, answer, rules) {
   if (!rules) return 'the input carries no set-aside facts';
@@ -157,9 +189,13 @@ export function setAsideRefusal(line, answer, rules) {
     return "this step's own test changed, which a set-aside never covers";
   if (line.kind === 'change' && !SET_ASIDE_FILES.includes(line.id))
     return `only the retry's file (${SET_ASIDE_FILES.join(', ')}) may be set aside`;
+  if (rules.touches !== true) return "the pull request changes neither the retry's file nor the set-aside's code";
   if (!Number.isInteger(rules.days) || rules.days < 1)
     return `the head's ${SET_ASIDE_CODE} sets no end date (no single export const SET_ASIDE_DAYS = <n>;)`;
-  if (rules.days > SET_ASIDE_MAX_DAYS) return `a set-aside of ${rules.days} days is longer than ${SET_ASIDE_MAX_DAYS}`;
+  const cap = setAsideCap(rules.mainDays);
+  if (rules.days > cap)
+    return `a set-aside of ${rules.days} days is longer than ${cap}${Number.isInteger(rules.mainDays) ? " (the default branch's length)" : ''}`;
+  if (rules.retry !== null) return `the retry is not B8's: ${rules.retry ?? 'unread'}`;
   if (answer?.used !== true) return 'the judge did not find the set-aside in the code';
   const failed = Object.keys(SET_ASIDE_CONDITIONS).filter((k) => answer?.[k]?.holds !== true);
   if (failed.length) return `the judge did not find these held: ${failed.join(', ')}`;
@@ -523,6 +559,9 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     money: required.steps.filter((s) => isMoney(s)),
     own: judgedSteps,
     days: setAsideDays(setAsideText),
+    mainDays: setAsideDays(src.readGraph(SET_ASIDE_CODE)),
+    retry: retryProblem(await src.read(head, SET_ASIDE_FILES[0])),
+    touches: files.some((f) => SET_ASIDE_FILES.includes(f.path) || SET_ASIDE_READERS.includes(f.path)),
   };
   if (required.steps.length === 0 && required.changes.length === 0)
     return {
@@ -582,7 +621,8 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
       "\nSET-ASIDE FACTS (decided by the judge's code, from the default branch and the head; trusted)",
       `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
       `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
-      `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${SET_ASIDE_MAX_DAYS})`,
+      `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays)}; the default branch's: ${setAside.mainDays ?? '(none)'})`,
+      `the retry's file: ${setAside.retry ?? 'one retries: line, at most one retry'}`,
       `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
     ].join('\n'),
     { must: true },
@@ -752,7 +792,7 @@ export function readAnswer(text, required, rules = null) {
     !weaker && a.verdict === 'FAIL'
       ? 'the judge answered FAIL with every entry still proving: counted as FAIL'
       : !weaker && kept
-        ? `${kept} entr${kept === 1 ? 'y is' : 'ies are'} weaker only through the machine's approved set-aside (owner decision 2026-11-07, B8), accepted in its exact form: ${Object.keys(SET_ASIDE_CONDITIONS).join(', ')}, not money, not its own test, at most ${SET_ASIDE_MAX_DAYS} days (${rules.days} at this head)`
+        ? `${kept} entr${kept === 1 ? 'y is' : 'ies are'} weaker only through the machine's approved set-aside (owner decision 2026-11-07, B8), accepted in its exact form: ${Object.keys(SET_ASIDE_CONDITIONS).join(', ')}, not money, not its own test, at most ${setAsideCap(rules.mainDays)} days (${rules.days} at this head), at most one retry`
         : null;
   return { ok: true, verdict, lines, note };
 }
