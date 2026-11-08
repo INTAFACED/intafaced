@@ -1,4 +1,4 @@
-// World: book
+// World: book, market
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
@@ -11,7 +11,8 @@ import {
   setFeeDiscountSchedule,
   setFeeSchedule,
 } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
+import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
 import {
   awayBid,
   confirm,
@@ -382,6 +383,12 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     await tab(page, 'Limit').click();
     await page.getByRole('combobox', { name: 'Time in force' }).click();
     await page.getByRole('option', { name: 'Post only', exact: true }).click();
+    // The TEST maker re-quotes every 8 s cycle and its walk moves up to 12 bps, more than half its spread, so a buy priced
+    // midway can meet its next ask and the post-only is refused instead of resting: in runs 42438858355 and 42439927846
+    // fillsOf found no fill of it, and the second run's desk showed it neither resting nor filled (5,000 USDT free, 0 IFC).
+    // Held, the maker's ladder rests as it is and its taker sends nothing, so only this step's own sell meets the buy.
+    tool('local-test-market.mjs', 'hold', 'IFC/USDT');
+    const heldAt = Date.now();
     const { bid, ask: ifcAsk } = await bestPrices('IFC/USDT');
     // Inside the spread, so it rests ahead of the house bids and a crossing sell reaches it first.
     const price = fromUnits(toUnits(bid) + ((toUnits(ifcAsk) - toUnits(bid)) / 2n / 10n ** 14n) * 10n ** 14n);
@@ -405,6 +412,9 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     const id = placed.body.id;
 
     await sellInto(who, { id, price, amount }, `${J}-4-${id}`);
+    // The hold lapses HOLD_MAX_MS after it was asked for; the price read, the placement and the sell must all fall inside
+    // it, or the maker's walk was back on and this step proved nothing about the race it guards. Fail and say so.
+    expect(Date.now() - heldAt, 'the IFC/USDT hold lapsed before the sell met the buy').toBeLessThan(HOLD_MAX_MS);
 
     // Every fill of the order: a maker, no fee, and a rebate in the USDT the maker paid, at 0.05% rounded down.
     const fills = await fillsOf(client, 'IFC/USDT', id);
@@ -441,6 +451,11 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
   } finally {
     await publish(SCHEDULE, 'IFC/USDT back in the default pair group');
   }
+});
+
+// Held for #4 only, passed or not: the next step's IFC/USDT book is quoted again.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #4 `)) tool('local-test-market.mjs', 'release', 'IFC/USDT');
 });
 
 test(`${J} #5 opens My tier: the tier, the volume counted and from what, what is excluded, and the next threshold`, async ({ page }) => {
