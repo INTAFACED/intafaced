@@ -1565,3 +1565,125 @@ test('CI review: a money step red on main too is never passed over, outside ever
   });
   assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
 });
+
+test('recheckTargets: after CI every open pull request on the head is re-sealed; after a journeys run only named ones (R3 C3 piece 2)', async () => {
+  const { recheckTargets } = await import('./journey-seal.mjs');
+  const sha = 'c'.repeat(40);
+  const pr = (number, title, over = {}) => ({
+    number,
+    title,
+    state: 'open',
+    head: { sha },
+    base: { repo: { full_name: 'o/r' } },
+    body: '',
+    ...over,
+  });
+  const pulls = [
+    pr(1, 'fix the copy'),
+    pr(2, 'J-bank-13 #1 pays'),
+    pr(3, 'other head', { head: { sha: 'd'.repeat(40) } }),
+    pr(4, 'closed', { state: 'closed' }),
+  ];
+  const filesOf = async () => ['services/svc-pay/src/a.test.ts']; // a change no journeys run judges (journey-touch none)
+  const ci = await recheckTargets({ finished: 'CI', pulls, sha, repo: 'o/r', filesOf });
+  assert.deepEqual(
+    ci.map((p) => p.number),
+    [1, 2],
+  );
+  const journeys = await recheckTargets({ finished: 'Real-app journeys', pulls, sha, repo: 'o/r', filesOf });
+  assert.deepEqual(
+    journeys.map((p) => p.number),
+    [2],
+    'a journeys run re-seals only what names or touches journeys',
+  );
+});
+
+test("rerunSealJob reads merge-seal.yml's pull_request_target runs when asked, and re-runs that seal", async () => {
+  const { SEAL_WORKFLOWS } = await import('./journey-seal.mjs');
+  assert.deepEqual(
+    SEAL_WORKFLOWS.map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+  );
+  const paths = [];
+  const get = async (path) => {
+    paths.push(path);
+    if (path.includes('/runs?'))
+      return {
+        workflow_runs: [
+          { id: 5, event: 'pull_request_target', status: 'completed' },
+          { id: 6, event: 'pull_request', status: 'completed' },
+        ],
+      };
+    return { jobs: [{ id: 50, name: SEAL, status: 'completed', conclusion: 'failure' }] };
+  };
+  let posted = '';
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get,
+    post: async (p) => ((posted = p), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: 'pull_request_target',
+  });
+  assert.match(paths[0], /workflows\/merge-seal\.yml\/runs\?head_sha=.*&event=pull_request_target/);
+  assert.match(posted, /jobs\/50\/rerun$/, msg);
+  assert.match(paths[1], /runs\/5\/jobs/, 'the pull_request_target run, not the ci.yml one');
+});
+
+test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-check re-runs it with the newest', async () => {
+  const runs = [
+    { id: 30, event: 'pull_request_target', status: 'completed' },
+    { id: 31, event: 'pull_request_target', status: 'completed' },
+    { id: 32, event: 'pull_request_target', status: 'completed' },
+  ];
+  const jobs = {
+    30: [{ id: 300, name: SEAL, status: 'completed', conclusion: 'failure' }],
+    31: [{ id: 310, name: SEAL, status: 'completed', conclusion: 'success' }],
+    32: [{ id: 320, name: SEAL, status: 'completed', conclusion: 'skipped' }],
+  };
+  const get = async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] });
+  const posted = [];
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get,
+    post: async (p) => (posted.push(/jobs\/(\d+)\/rerun/.exec(p)[1]), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: 'pull_request_target',
+  });
+  // The skipped seal (an edit) is passed over; the newest real one (31) is re-run, and so is the older red one (30).
+  assert.deepEqual(posted, ['310', '300'], msg);
+  // Planted: without otherSeals, run 30's red seal would stay and block the head.
+  assert.ok(!posted.includes('320'), 'a skipped seal is never re-run');
+});
+
+test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (edited, base change only)', () => {
+  const text = readFileSync(new URL('../../.github/workflows/merge-seal.yml', import.meta.url), 'utf8');
+  assert.match(text, /types: \[opened, synchronize, reopened, edited\]/);
+  // Review 7552-R6: never a skipped seal job (GitHub counts it as passing); every edit runs the whole seal.
+  assert.doesNotMatch(text.split('\njobs:')[1], /\n {4}if:/, 'the seal job has no if: that could skip it');
+  assert.match(text, /branches: \[main\]/);
+  // Planted: without `edited`, a retarget to main starts no seal run here.
+  assert.doesNotMatch(text.replace('reopened, edited', 'reopened'), /reopened, edited/);
+});
+
+test('after CI finished, only the default branch seal is re-run; re-running ci.yml would loop (CI review on 7a7eb9a0)', async () => {
+  const { sealsToRecheck } = await import('./journey-seal.mjs');
+  assert.deepEqual(
+    sealsToRecheck('CI').map((w) => w.workflow),
+    ['merge-seal.yml'],
+  );
+  assert.deepEqual(
+    sealsToRecheck('Real-app journeys').map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+  );
+  assert.deepEqual(
+    sealsToRecheck('').map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+    'an edit re-runs both',
+  );
+});
