@@ -15,6 +15,8 @@ import { SqlAnnouncementStore } from './console-announcements/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
+import { createCapitalSources } from './capital/sources.js';
+import { SqlCapitalStore } from './capital/store.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
@@ -210,6 +212,13 @@ const appRouter = createOpsRouter(
     alertHeartbeatMaxAgeSeconds: env.OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS ?? null,
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     consoleMode: crmSql ? new SqlConsoleModeStore(crmSql) : undefined,
+    capital: crmSql ? new SqlCapitalStore(crmSql) : undefined,
+    capitalSources: createCapitalSources({
+      ledgerUrl: env.LEDGER_URL,
+      bankUrl: env.BANK_URL,
+      secret: env.INTERNAL_SERVICE_SECRET,
+      ...(s2sKey ? { s2s: s2sKey } : {}),
+    }),
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,

@@ -33,6 +33,7 @@ import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
 import { testPartnerFor } from './partner/test-partner.js';
+import { cardTermsOrNone, partnerReservesRead } from './partner/reserves.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
@@ -552,6 +553,16 @@ app.post('/internal/restore/watermark', async (req, reply) => {
   if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
   if (callerService(req) !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'bank.caller_forbidden' });
   return readBankWatermark(sql);
+});
+
+/**
+ * Any reserve a partner holds of ours (J-ops-console-24 #1): a read for svc-ops' capital monitor alone, signed like the
+ * job doors. No credentials is 401; a valid service that is not svc-ops is 403.
+ */
+app.post('/internal/capital/partner-reserves', async (req, reply) => {
+  if (!requireService(req)) return reply.code(401).send({ error: 'service credentials required', code: 'bank.unauthenticated' });
+  if (callerService(req) !== 'svc-ops') return reply.code(403).send({ error: 'caller not allowed', code: 'bank.caller_forbidden' });
+  return partnerReservesRead({ testPartner, cardTerms: cardTermsOrNone(() => bank.cards.partnerTerms()), now: new Date() });
 });
 
 app.post('/internal/jobs/run-due-transfers', async (req, reply) => {

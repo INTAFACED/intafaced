@@ -86,6 +86,10 @@
       "types": "./dist/outcome-markets.d.ts",
       "default": "./dist/outcome-markets.js"
     },
+    "./ops-capital": {
+      "types": "./dist/ops-capital.d.ts",
+      "default": "./dist/ops-capital.js"
+    },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
       "default": "./dist/ops-console-mode.js"

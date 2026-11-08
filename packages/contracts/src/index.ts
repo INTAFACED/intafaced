@@ -45,6 +45,7 @@ export * from './ledger-fee-revenue.js';
 export * from './ledger-holdings-history.js';
 export * from './ops-venue-economics.js';
 export * from './ops-console-mode.js';
+export * from './ops-capital.js';
 export * from './ops-staff-holds.js';
 export * from './identity-recovery.js';
 export * from './identity-staff.js';
