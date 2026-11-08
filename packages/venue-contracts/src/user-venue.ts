@@ -96,9 +96,29 @@ export interface PlaceUserOrderIntent {
    * own id format.
    */
   readonly clientOrderKey: string;
-  /** Leverage for a perpetual, in basis points of 1x. `null` on spot. */
-  readonly leverageBps: number | null;
-  readonly marginMode: VenueMarginMode | null;
+  /**
+   * Our builder fee on this order, from the owner's published value, or
+   * `null` for none. The app refuses `builder_fee_not_published` itself when
+   * the owner value is blank (floor 8); `prepare` refuses
+   * `builder_fee_not_approved` when the account approved less.
+   */
+  readonly builderFee: { readonly builder: string; /** Scaled decimal bps, as `maxFeeBps`. */ readonly feeBps: Amount } | null;
+}
+
+/**
+ * Set a perpetual's leverage and margin mode for this account. A separate
+ * signed action, because a venue sets them per account and market, not per
+ * order (Hyperliquid: `updateLeverage`; its order action has no leverage).
+ * A perp order uses the account's current setting; `prepare` refuses it
+ * `leverage_not_set` when there is none, so the Review screen never shows a
+ * margin the venue will not lock. An agent may sign it.
+ */
+export interface UpdateLeverageIntent {
+  readonly kind: 'update_leverage';
+  readonly symbol: string;
+  /** Basis points of 1x: `100_000` is 10x. */
+  readonly leverageBps: number;
+  readonly marginMode: VenueMarginMode;
 }
 
 export interface AmendUserOrderIntent {
@@ -138,11 +158,18 @@ export interface ApproveBuilderFeeIntent {
   readonly maxFeeBps: Amount;
 }
 
+/**
+ * Approve an agent key. Never re-approve an address that was revoked: a venue
+ * that prunes old nonces per signer (Hyperliquid) could then accept a replay of
+ * that key's old signed actions. A new agent gets a new key.
+ */
 export interface ApproveAgentIntent {
   readonly kind: 'approve_agent';
   readonly agentAddress: string;
   /** For humans and the venue's own list. Never parsed. */
   readonly agentName: string;
+  /** When the approval lapses on the venue, or `null` for the venue's default. */
+  readonly validUntil: Date | null;
 }
 
 export interface RevokeAgentIntent {
@@ -152,6 +179,7 @@ export interface RevokeAgentIntent {
 
 export type VenueIntent =
   | PlaceUserOrderIntent
+  | UpdateLeverageIntent
   | AmendUserOrderIntent
   | CancelUserOrderIntent
   | WithdrawIntent
@@ -218,9 +246,11 @@ export interface VenueSignature {
  *
  * `definite: true` — the venue answered and the answer is the record.
  * `definite: false` — the request may or may not have landed (a timeout, a
- * dropped connection, a 5xx after send). The caller MUST read back by client
- * id (`orderByClientId`) or by withdrawal key; it never prepares a fresh
- * action for the same intent, because that is how a second order is placed.
+ * dropped connection, a 5xx after send, or a re-send the venue refuses as a
+ * used nonce). The caller MUST read back by client id (`orderByClientId`) or
+ * by nonce (`withdrawal`); it never prepares a fresh action for the same
+ * intent, because that is how a second order or withdrawal is made. A venue's
+ * "nonce already used" answer is never mapped to a definite refusal.
  */
 export type VenueSubmitOutcome =
   | {
@@ -238,9 +268,19 @@ export type VenueSubmitOutcome =
     }
   | {
       readonly definite: false;
-      /** What we know: the bytes were sent and no definite answer came back. */
-      readonly reason: 'timeout' | 'connection_lost' | 'venue_error_after_send';
+      /**
+       * What we know: the bytes were sent and no definite answer came back
+       * (`timeout`, `connection_lost`, `venue_error_after_send`), or the venue
+       * says it has already seen this nonce (`already_submitted`) — so the
+       * first send may have landed, and only a read-back can say.
+       */
+      readonly reason: 'timeout' | 'connection_lost' | 'venue_error_after_send' | 'already_submitted';
     };
+
+/** True when the caller must read back before anything else: the answer is not definite. */
+export function needsReadBack(outcome: VenueSubmitOutcome): outcome is Extract<VenueSubmitOutcome, { definite: false }> {
+  return !outcome.definite;
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // REFUSALS — typed, named, never a plausible-looking rejected order
@@ -265,6 +305,8 @@ export type VenueRefusalCode =
   | 'insufficient_balance'
   /** The market is not listed on this venue. */
   | 'unknown_market'
+  /** A perpetual order on an account with no leverage set for that market (`update_leverage` first). */
+  | 'leverage_not_set'
   /** No order with that client id exists on the venue. */
   | 'unknown_order'
   /** The order is already final (filled, cancelled, rejected). */
@@ -308,6 +350,7 @@ export interface UserVenueBalance {
 }
 
 export interface UserVenueFill {
+  /** The venue's own stable trade id. Our ledger keys the builder fee earned on it (once per fill). */
   readonly fillId: string;
   readonly venueClientOrderId: string | null;
   readonly symbol: string;
@@ -438,22 +481,26 @@ export interface UserVenue {
   /**
    * Build the payload `signer` will sign for `intent`. Sends nothing.
    *
-   * Refuses (throws `VenueRefusalError`) what the venue would refuse on its
-   * face — `not_offered`, `unknown_market`, `builder_fee_not_published`,
-   * `agent_not_permitted` — so the wallet is never asked to sign an action
-   * that cannot succeed. Balance checks are the venue's, at submit.
+   * Refuses (throws `VenueRefusalError`) what would fail on its face, so the
+   * wallet is never asked to sign an action that cannot succeed:
+   * `not_offered`, `unknown_market`, `leverage_not_set`, `agent_not_permitted`,
+   * `signer_not_authorised` (an owner address that is not the account's, or an
+   * agent the venue's `agents()` record does not hold), `builder_fee_not_approved`
+   * (the venue's `builderFeeApproval()` is below the order's fee), and
+   * `not_offered` for a withdrawal from a sub-account (a venue sub-account has
+   * no key of its own; moving its funds back is a later intent). Balance
+   * checks are the venue's, at submit.
    *
-   * The same order intent prepared twice yields the same `venueClientOrderId`,
-   * and the venue's client-id check is what makes a second submit place no
-   * second order.
-   *
-   * A withdrawal or an approval has no client id on the venue; its only
-   * anti-replay is the signed `nonce`. So the caller stores the prepared action
-   * and its signature under the intent's business key BEFORE `submit`, and
-   * after a `definite: false` answer it re-submits those same signed bytes
-   * (the venue refuses a reused nonce, so this is one action) or reads back by
-   * nonce. It never prepares that intent again: a fresh nonce is a second
-   * withdrawal.
+   * ONE PREPARED ACTION PER BUSINESS KEY. The nonce is fixed here, so two
+   * prepares of one intent are two digests and two wallet prompts. The caller
+   * stores the prepared action and its signature under the intent's business
+   * key (`clientOrderKey`, `withdrawalKey`, or one the caller derives for an
+   * approval) BEFORE `submit`, and never prepares a stored key again: a double
+   * press re-uses the stored action, and asks for one signature. After a
+   * `definite: false` answer it reads back (by client id or nonce) and may
+   * re-send the same stored bytes. This, not the venue, is the guarantee; the
+   * same order intent also always maps to the same `venueClientOrderId`, so a
+   * venue that refuses a duplicate client id is a second line of defence.
    */
   prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction>;
 
@@ -463,8 +510,9 @@ export interface UserVenue {
    * (`assertSignatureMatches`), and must verify the signature bytes
    * themselves against `prepared.signer.address` — the wallet's `signedBy` is
    * a claim, not proof.
-   * Re-submitting the same signed action returns the venue's answer for it,
-   * never a second action.
+   * Re-submitting the same signed action is never a second action: it returns
+   * the venue's first answer, or `definite: false, reason: 'already_submitted'`
+   * when the venue only says the nonce is used.
    */
   submit(prepared: PreparedVenueAction, signature: VenueSignature): Promise<VenueSubmitOutcome>;
 
@@ -487,6 +535,7 @@ export interface UserVenue {
 // ════════════════════════════════════════════════════════════════════════════
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BUSINESS_KEY_RE = /^[a-z][a-z0-9-]*:.+$/;
 
 /**
  * Map a business key to the venue's 128-bit client order id (`0x` + 32 hex,
@@ -501,7 +550,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 export function venueClientOrderId(venueId: string, clientOrderKey: string): string {
   const key = clientOrderKey.trim();
-  if (key === '' || UUID_RE.test(key) || !key.includes(':')) {
+  if (UUID_RE.test(key) || !BUSINESS_KEY_RE.test(key)) {
     throw new VenueRefusalError({
       venueId,
       code: 'invalid_client_order_key',
