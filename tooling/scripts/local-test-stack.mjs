@@ -71,6 +71,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { apiSecurityHeaders, securityHeaders } from '../../apps/customer/deployment/render-security-headers.mjs';
 import { APEX_DESCRIPTOR_PATH, APEX_PRODUCT } from '../../apps/customer/deployment/host-dispatch.mjs';
 import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedScript, TEST_CHAIN_ID } from './local-test-chain.mjs';
+import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
@@ -1012,9 +1013,13 @@ function buildPlan(rebuild, act = activeCustomerDist()) {
   const override = act.source !== 'own';
   // Without an override, a stamp written while an override skipped the Customer build cannot vouch for our own dist.
   // Our own dist must also name the Team link this script gives it: a build from before that, or with another, is stale.
+  // So is one built before its scripts had position maps (the journeys' reach recorder, journey-reach.mjs).
   const customerOk = override
     ? !act.error
-    : fs.existsSync(path.join(P.customerDist, 'index.html')) && stamp.customerBuilt !== false && stamp.customerTeamUrl === TEAM_TLS_ORIGIN;
+    : fs.existsSync(path.join(P.customerDist, 'index.html')) &&
+      stamp.customerBuilt !== false &&
+      stamp.customerTeamUrl === TEAM_TLS_ORIGIN &&
+      stamp.customerPositions === true;
   const edits = worktreeEdits(SOURCE_PATHS);
   const missing = BACKEND_PKGS.filter((s) => !fs.existsSync(distOf(s)));
   const backend = backendDecision({ rebuild, stamp, repo: REPO, head, edits, customerOk, missing });
@@ -1161,9 +1166,17 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
     );
   say('  build: backend packages and services (a few minutes on a cold tree)…');
   runPnpm([...BACKEND_PKGS.flatMap((s) => ['--filter', `@intafaced/${s}...`]), 'build'], 'build-backend');
+  // Hidden source maps beside the scripts, for the journeys' reach recorder (apps/customer/vite.config.ts).
   if (!override) {
     say('  build: customer app…');
-    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', { VITE_TEAM_URL: TEAM_TLS_ORIGIN });
+    runPnpm(['--filter', '@intafaced/customer...', 'build'], 'build-customer', {
+      VITE_TEAM_URL: TEAM_TLS_ORIGIN,
+      INTAFACED_SOURCEMAP: 'hidden',
+    });
+    // Each map becomes positions only (source paths and line positions, no source text) and the .map is deleted, before
+    // the build is served or packed: the journeys run's build artifact is public (journey-reach.mjs reduceMaps).
+    const { reduced, dropped } = reduceMaps(REPO, P.customerDist);
+    say(`  build: customer app position maps: ${reduced} reduced, ${dropped} unreadable and dropped; no .map file kept`);
   }
   writePrivate(
     P.buildStamp,
@@ -1179,6 +1192,7 @@ function ensureBuilt(rebuild, { admin = true } = {}) {
         backendBuild: backendChanged ? newBuildId() : stamp.backendBuild,
         customerBuild: override ? stamp.customerBuild : newBuildId(),
         customerTeamUrl: override ? stamp.customerTeamUrl : TEAM_TLS_ORIGIN,
+        customerPositions: override ? stamp.customerPositions : true,
       },
       null,
       2,
@@ -1469,22 +1483,29 @@ const screeningSet = () => Boolean(screeningEnv().INTAFACED_SANCTIONS_REGIONS);
 
 // ── Start / status / stop ───────────────────────────────────────────────────
 
+/** The last lines of a service's log, or why there are none, for a start that failed. */
+function logTail(name, lines = 20) {
+  const file = path.join(P.logs, `${name}.log`);
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n').slice(-lines).join('\n');
+  } catch (err) {
+    return `(could not read ${file}: ${err.code ?? err.message})`;
+  }
+}
+
 async function waitHealthy(name, url, pid, timeoutMs = 90_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
-    if (!psCommand(pid)) {
-      const tail = fs
-        .readFileSync(path.join(P.logs, `${name}.log`), 'utf8')
-        .split('\n')
-        .slice(-20)
-        .join('\n');
-      fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${tail}`);
-    }
+    if (!psCommand(pid)) fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`);
     const r = await httpGet(url, 2000);
     if (r.status === 200) return;
     await sleep(500);
   }
-  fail(`${name} did not become healthy at ${url} within ${timeoutMs / 1000}s (see ${path.join(P.logs, `${name}.log`)})`);
+  // Still running but not answering: its log says how far it got. A Node service's logger writes asynchronously, so
+  // a process whose event loop is blocked can hold its last lines unwritten (#7554).
+  fail(
+    `${name} did not become healthy at ${url} within ${timeoutMs / 1000}s; it is still running (pid ${pid}). Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`,
+  );
 }
 
 async function startNats() {
