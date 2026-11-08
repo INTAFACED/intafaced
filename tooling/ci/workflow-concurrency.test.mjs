@@ -253,11 +253,32 @@ export function journeysProblems(text) {
       ref: 'refs/pull/7/merge',
       head_ref: 'b1',
       run_id: 1,
+      event: { pull_request: { draft: false, head: { repo: { full_name: REPO } } } },
     },
     inputs: {},
   });
   if (pr.group !== branch('').group) problems.push("a pull request's run and a manual full run on its branch are in different groups");
   if (!pr.cancel) problems.push('a newer pull request run does not cancel the superseded one');
+  // A fork's pull request or a draft runs nothing, in a group of its own, so it never cancels a branch's run (council
+  // R1, R2/G2): a fork branch named like this repository's, or a draft push racing a manual run.
+  for (const pull of [
+    { draft: false, head: { repo: { full_name: 'someone/fork' } } },
+    { draft: true, head: { repo: { full_name: REPO } } },
+  ]) {
+    const other = resolve(text, {
+      github: {
+        workflow: 'Real-app journeys',
+        repository: REPO,
+        event_name: 'pull_request',
+        ref: 'refs/pull/8/merge',
+        head_ref: 'b1',
+        run_id: 2,
+        event: { pull_request: pull },
+      },
+      inputs: {},
+    });
+    if (other.group === branch('').group) problems.push(`a ${pull.draft ? 'draft' : "fork's"} pull request run shares a branch's group`);
+  }
   const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');

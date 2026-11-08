@@ -346,7 +346,7 @@ test('--json --files-from: a pull request file list, judged against this checkou
 
 test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {
   const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
-  assert.match(t, /\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review, converted_to_draft\]\n/);
+  assert.match(t, /\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n/);
   // Every checkout tests the pull request's head (the seal reads runs by head), never GitHub's merge commit, except the
   // default branch's copy of the rules the touch job judges with.
   const checkouts = [...t.matchAll(/uses: actions\/checkout@[^\n]*\n((?: {8}[^\n]*\n)+)/g)].map((m) => m[1]);
@@ -364,15 +364,24 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
   assert.match(t, /\|\| full "this pull request's files couldn't be read"/);
   assert.match(t, /-ge 3000 \]; then full /);
   assert.match(t, /=~ \^\[A-Za-z0-9\._,\\ -\]\*\$ \]\]/);
+  // The steps the title names and no Left-or-replaced line leaves run too, by the seal's own readers (council R3/G1).
+  assert.match(t, /m\.exemptions\(process\.env\.BODY\)\.steps/);
+  assert.match(t, /m\.titleSteps\(process\.env\.TITLE\)/);
+  assert.match(t, /none\) if \[ -n "\$named" \]; then \{ echo "mode=run"; echo "target=\$named"; \}/);
+  // A failed touch job on a fork or a draft never falls through to the full suite (council R4).
+  assert.equal(
+    t.split('github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft').length - 1,
+    3,
+  );
   // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing.
   for (const job of ['plan', 'build'])
     assert.match(
       t,
       new RegExp(
-        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.touch\\.outputs\\.mode != 'none' \\}\\}`,
+        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.touch\\.outputs\\.mode != 'none' && \\(github\\.event_name != 'pull_request'`,
       ),
     );
-  assert.match(t, /needs\.touch\.outputs\.mode != 'none' && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
+  assert.match(t, /\.draft\)\) && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
   assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
 });
 

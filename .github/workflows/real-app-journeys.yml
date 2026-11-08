@@ -26,13 +26,13 @@ on:
   # research/factory-2026-11-08 PLAN.md): the touch job runs what the pull request touches by tooling/ci/journey-touch.mjs
   # (full, its journey files, or nothing), so a builder never dispatches a run by hand to seal. The merge seal still
   # decides what counts (journey-seal.mjs, the default branch's copy); this run only saves the dispatch. A draft or a
-  # fork's pull request runs nothing here (a draft is proven by a manual run; turning a pull request back into a draft
-  # replaces its running run with one that runs nothing). The run tests the pull request's head commit, as a manual run
+  # fork's pull request runs nothing here (a draft is proven by a manual run), in a group of its own, so it never cancels
+  # a run of this repository's branches. The run tests the pull request's head commit, as a manual run
   # on its branch does, never GitHub's merge commit, so the seal reads it on that head. It shares its branch's group with
   # a manual full run there, so either replaces the other. A pull request run keeps the ordinary limits (no fail-fast),
   # so the steps a builder builds run as in a targeted run.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       journeys:
@@ -89,7 +89,7 @@ on:
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
+  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || (github.event_name == 'pull_request' && (github.event.pull_request.draft || github.event.pull_request.head.repo.full_name != github.repository)) && format('real-app-journeys-runs-nothing-{0}', github.run_id) || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -187,9 +187,13 @@ jobs:
           touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --files-from "$list") || full "journey-touch couldn't judge this pull request"
           mode=$(jq -r .mode <<<"$touch")
           echo "journey-touch: $mode ($listed changed files)"
+          # The steps the title names and no Left-or-replaced line leaves (the seal's titleSteps and exemptions): their
+          # journey files at the head run too, so the seal's named steps are proven without a manual run.
+          named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"
+          [ -n "$named" ] && echo "the title's steps are in: $named"
           case "$mode" in
-            none) { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
-            files) { echo "mode=run"; echo "target=$(jq -r '.files | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
+            none) if [ -n "$named" ]; then { echo "mode=run"; echo "target=$named"; } >> "$GITHUB_OUTPUT"; else { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"; fi ;;
+            files) { echo "mode=run"; echo "target=$(jq -r --arg n "$named" '(.files + ($n | split(" ") | map(select(. != "")))) | unique | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
             *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
           esac
 
@@ -205,7 +209,7 @@ jobs:
   plan:
     name: Plan the shards
     needs: [touch]
-    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' }}
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -292,7 +296,7 @@ jobs:
   build:
     name: Build the stack once
     needs: [touch]
-    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' }}
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20 # healthy run: about 3 minutes
     permissions:
@@ -350,7 +354,7 @@ jobs:
       contents: read
       actions: read # to read the build job's state and download its build
     # The shards run even when planning failed (they fall back to Playwright's split), except a targeted run's.
-    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && !(needs.plan.result == 'failure' && needs.touch.outputs.target != '') }}
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)) && !(needs.plan.result == 'failure' && needs.touch.outputs.target != '') }}
     runs-on: ubuntu-24.04
     # Setup (about 10 minutes, once 21 when the browser's system packages were slow) plus at most 60 minutes of journeys,
     # which Playwright stops itself (JOURNEY_GLOBAL_TIMEOUT_MS below), so the job's own limit is never what ends a shard
