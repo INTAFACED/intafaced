@@ -10,6 +10,7 @@ import {
   dexOrderSlippageField,
   dexOrderWarnTokensField,
 } from './order/trigger-settings.js';
+import { dexAuthSecretField, dexAuthTtlField, dexOrderCapScheduleField } from './auth/settings.js';
 
 /**
  * svc-dex environment.
@@ -226,6 +227,20 @@ const schema = baseEnvSchema
        * Directory for dex.orders and dex.order_attempts. Not a balance.
        * Blank uses the system temp directory intafaced-svc-dex-orders so a restart can read the same rows.
        */
+      /**
+       * The order session's sealing secret (D-limit-dca-01). NO DEFAULT. Blank refuses `dex.auth.session_unset`.
+       * A TEST-labelled secret refuses to boot outside dev or test.
+       */
+      DEX_AUTH_SECRET: dexAuthSecretField.optional(),
+      /** Access token lifetime in seconds (60 to 2592000). NO DEFAULT. Blank refuses `dex.auth.lifetime_unset`. */
+      DEX_AUTH_ACCESS_TTL_SECONDS: dexAuthTtlField('DEX_AUTH_ACCESS_TTL_SECONDS').optional(),
+      /** Refresh token lifetime in seconds (60 to 2592000). NO DEFAULT. Blank refuses `dex.auth.lifetime_unset`. */
+      DEX_AUTH_REFRESH_TTL_SECONDS: dexAuthTtlField('DEX_AUTH_REFRESH_TTL_SECONDS').optional(),
+      /**
+       * The order cap schedule: a JSON array of `{ token, symbol, max }`, the most one session may keep open in orders
+       * selling that token. NO DEFAULT. Blank refuses `dex.order.cap_unset` and no session is written.
+       */
+      DEX_ORDER_CAP_SCHEDULE: dexOrderCapScheduleField.optional(),
       DEX_ORDER_STORE_DIR: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), z.string().min(1).optional()),
     }),
   )

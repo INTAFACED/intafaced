@@ -26,6 +26,9 @@ test('reads the raw file on the factory-switch branch', async () => {
   assert.equal(await readSwitch({ repo: 'o/r', token: 't', fetchImpl }), 'run\n');
   assert.equal(seen.url, 'https://api.github.com/repos/o/r/contents/FACTORY?ref=factory-switch');
   assert.equal(seen.init.headers.accept, 'application/vnd.github.raw');
+  assert.equal(seen.init.headers.authorization, 'Bearer t');
+  await readSwitch({ repo: 'o/r', fetchImpl });
+  assert.equal(seen.init.headers.authorization, undefined, 'no token, no header (never "Bearer undefined")');
 });
 
 test('a missing branch or file, or any refusal, throws so the seal fails closed', async () => {

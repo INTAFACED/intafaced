@@ -328,6 +328,7 @@ const messages = {
   'Pause this bot?': 'Pause this bot?',
   'Pause this follow?': 'Pause this follow?',
   Paused: 'Paused',
+  'Paused by the platform': 'Paused by the platform',
   'Paused: the price is outside the range': 'Paused: the price is outside the range',
   Performance: 'Performance',
   'Permission ends': 'Permission ends',

@@ -71,6 +71,8 @@ const en = {
   revokeStep: 'Set the allowance of {token} for {spender} to 0',
   revokeFactToken: 'Token contract',
   revokeFactSpender: 'Spender',
+  revokeFactAmount: 'Amount',
+  revokeFactAmountValue: 'Approve 0: after this the spender can move none of this token',
   revoking: 'Revoking: waiting for the network…',
   revokeRejected: 'You cancelled. Nothing was sent.',
   revokeReverted: 'The revoke failed on the network, so the allowance is unchanged.',

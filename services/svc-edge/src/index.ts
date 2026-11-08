@@ -9,6 +9,7 @@ import { registerAdminRoutes, registerGeoBlockGuard, registerKillSwitchGuard, re
 import { httpMatchingOperator } from './matching-operator-door.js';
 import { resolveRequestRegion } from './geo-region.js';
 import { CORS_ENFORCED_ENVS, edgeOriginAllowlist, registerCors } from './cors.js';
+import { logScreeningAtBoot } from './screening-boot-log.js';
 import { edgeEd25519Config } from './edge-ed25519-config.js';
 import { env } from './env.js';
 import {
@@ -102,20 +103,7 @@ const app = Fastify({
  * instead of throwing, and the warning below is the control's visibility.
  */
 const screening = assertScreeningConfigured();
-app.log[screening.configured ? 'info' : 'warn'](
-  {
-    appEnv: env.APP_ENV,
-    configured: screening.configured,
-    // `configured` alone no longer identifies the state. A reviewed-and-
-    // deliberately-empty list is `configured: true` with a count of zero, which
-    // reads in a field set exactly like a list that happens to be short. The
-    // message string spells it out; a structured field is what gets queried.
-    declaration: screening.declaration,
-    blocked: screening.blockedRegions.length,
-    source: screening.source,
-  },
-  screening.summary,
-);
+logScreeningAtBoot(app.log, env.APP_ENV, screening);
 
 /**
  * Which browser origins may call this edge (see `cors.ts`).

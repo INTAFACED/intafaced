@@ -29,6 +29,7 @@ describe('skipWords (CB-copy-11)', () => {
       'paused',
       'stopped',
       'lead_stopped',
+      'platform_paused',
       'risk_control',
       'insufficient_funds',
       'max_copy_total',
@@ -40,6 +41,7 @@ describe('skipWords (CB-copy-11)', () => {
     expect(new Set(words).size).toBe(reasons.length);
     for (const w of words) expect(w).not.toMatch(/_|trade\./);
     expect(skipWords('paused')).toBe('You had paused this follow');
+    expect(skipWords('platform_paused')).toBe('Paused by the platform');
     expect(skipWords('trade.something_new')).toBe('The copy was refused');
   });
 });
