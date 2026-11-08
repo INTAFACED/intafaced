@@ -1,0 +1,89 @@
+# The touched-journeys map, built in CI (OWNER 248, phase 0, point 2: "merges a normal PR within about an hour on honest
+# checks"; R3 C4: the map from main's full runs, so a one-service pull request runs only its journeys).
+#
+# `node tooling/ci/journey-reach-map.mjs build` reads the `journey-reach` records of main's newest whole full Real-app
+# journeys runs and writes tooling/ci/journey-reach-map.json. It needs a token that can download those runs' reports, so
+# it runs here with this workflow's own GITHUB_TOKEN (actions: read, contents: read) and keeps the map as the
+# `journey-reach-map` artifact. Nothing here writes to the repository: committing a map is an ordinary pull request,
+# and the Doctrine gates job (ci.yml) rebuilds that map with main's builder and compares it byte for byte.
+#
+# After the build, the same job checks its own map with `verify` (it rebuilds up to the newest run the map names and
+# must match), then plants one edit in a copy and requires `verify` to fail on it, so every build also proves the check
+# a pull request is held to.
+#
+# Triggers: a manual run, and every Real-app journeys run on main that finished green (push or schedule; a manual run
+# on main is full too). Both run the copy of this file on the default branch for workflow_run; a manual run on a branch
+# runs that branch's copy, still with a read-only token. No pull request event reaches this workflow, and it reads no
+# pull request text.
+name: Touched-journeys map
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Real-app journeys]
+    types: [completed]
+
+permissions: {}
+
+# One build at a time per ref; a newer finished main run makes the older build's map stale, so it replaces it.
+concurrency:
+  group: journey-reach-map-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the map from main's runs
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # healthy run: a few minutes, most of it downloading three reports twice (build, then verify)
+    permissions:
+      contents: read
+      actions: read # main's Real-app journeys runs and their report artifacts
+    steps:
+      # fetch-depth: 0: the builder lists the journey files at each run's head commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      # Exit 3 is the builder's refusal (fewer than 3 whole runs): it still writes a map, whose mode is 'full'.
+      - name: Build the map
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/reach-map"
+          set +e
+          node tooling/ci/journey-reach-map.mjs build --out "$RUNNER_TEMP/reach-map/journey-reach-map.json"
+          code=$?
+          set -e
+          if [ "$code" = 3 ]; then echo "::warning::the builder refused: the map it wrote is full"; elif [ "$code" != 0 ]; then exit "$code"; fi
+          node tooling/ci/journey-reach-map.mjs show --map "$RUNNER_TEMP/reach-map/journey-reach-map.json"
+
+      # The check a pull request that commits this map is held to, on the map just built, then on a planted edit of it.
+      - name: Verify the map, and that a planted edit fails
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          map="$RUNNER_TEMP/reach-map/journey-reach-map.json"
+          node tooling/ci/journey-reach-map.mjs verify --map "$map"
+          node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.skipped=[...(m.skipped??[]),"0: planted"];fs.writeFileSync(process.argv[2],JSON.stringify(m)+"\n")' "$map" "$RUNNER_TEMP/planted.json"
+          if node tooling/ci/journey-reach-map.mjs verify --map "$RUNNER_TEMP/planted.json"; then
+            echo "::error::verify passed a planted edit"
+            exit 1
+          fi
+          echo "verify failed the planted edit, as it must"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: journey-reach-map
+          path: ${{ runner.temp }}/reach-map/journey-reach-map.json
+          if-no-files-found: error
+          retention-days: 14

@@ -164,6 +164,30 @@ jobs:
           fi
           node "$guard" --repo "$REPO" --base-ref origin/main
 
+      # The touched-journeys map is only what main's builder builds (review 7561-R1 #2): a pull request that changes
+      # tooling/ci/journey-reach-map.json has it rebuilt from main's Real-app journeys runs up to the newest run it names,
+      # by main's copy of the builder in a worktree of main, and compared byte for byte, so a hand-edited map, or one built
+      # from hand-picked runs, fails (`verify`, tooling/ci/journey-reach-map.mjs; the Touched-journeys map workflow builds
+      # one). A manual CI run checks the committed map the same way. It does nothing when the pull request leaves the map
+      # alone. Falls back to the PR copy only while main's builder has no `verify` (the PR that introduces it).
+      - name: Touched-journeys map rebuild (builder from main)
+        if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && !cancelled()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          map=tooling/ci/journey-reach-map.json
+          if [ "$EVENT" = pull_request ] && git diff --quiet origin/main...HEAD -- "$map"; then
+            echo "the pull request leaves $map alone"
+            exit 0
+          fi
+          builder=tooling/ci/journey-reach-map.mjs
+          if git show "origin/main:$builder" 2>/dev/null | grep -q "cmd === 'verify'"; then
+            git worktree add --detach "$RUNNER_TEMP/reach-base" origin/main
+            builder="$RUNNER_TEMP/reach-base/$builder"
+          fi
+          node "$builder" verify --map "$GITHUB_WORKSPACE/$map"
+
       # The journey list is the finish line (OWNER 1), from main like the guard above (tooling/ci/journey-list-guard.mjs):
       # a journey or step on main may leave docs/roadmap/journeys.json, or its live count, only on a body line
       # `Journey-retired: J-bank-13 #2 (OWNER <n>)`; every step's slice ids are slices in docs/roadmap/slices.json; and

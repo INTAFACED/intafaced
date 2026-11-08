@@ -11,7 +11,7 @@
  *   { v, mode: 'reach' | 'full', why?, runs: [{ id, head, created }], journeys: [file], full: { [file]: reason },
  *     services: { 'services/svc-x': [journey index] }, packages: { 'packages/x': [journey index] },
  *     customer: { 'apps/customer/src/…': [journey index] }, consumers: { 'packages/x': [consumer dir] },
- *     harness: [dir], subscribers: [service dir], money: [dir] }
+ *     dependents: { 'packages/x': [package dir] }, harness: [dir], subscribers: [service dir], money: [dir] }
  * Built (buildMap) only from main's full runs that are whole: every journey file at the run's head in its report, and a
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
@@ -19,8 +19,11 @@
  * A journey's reach comes only from the runs where every one of its tests passed (a failed step stops it short); with
  * no such run it reaches everything. Open edge, not covered: a service that publishes an event from background work
  * without logging while a journey runs is not tied to the journey that sees the subscriber's effect (review 7561-R1 #3;
- * subscribers are full). Before the first 'reach' map merges, CI should rebuild it from the run ids it names and
- * compare it byte for byte (review 7561-R1 #2, with the rebuild follow-up).
+ * subscribers are full). A pull request that changes the committed map is held to `verify` (the Doctrine gates job in
+ * ci.yml, main's copy of this file in a worktree of main): it rebuilds the map from main's runs up to the newest run the
+ * map names and compares it byte for byte, so a hand-edited map, or one built from hand-picked runs, fails (review
+ * 7561-R1 #2). The Touched-journeys map workflow (journey-reach-map.yml) builds it in CI with the workflow's own
+ * read-only token and keeps it as an artifact; nothing pushes it to main.
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
@@ -39,8 +42,11 @@
  * MIN_RUNS runs, or when more than STALE_RUNS of main's finished full runs came after its newest run (or that count
  * can't be read).
  *
- *   node tooling/ci/journey-reach-map.mjs build [--runs <id,id,id>] [--out <file>]   (GH_TOKEN; writes the map)
- *   node tooling/ci/journey-reach-map.mjs show                                         (what the committed map holds)
+ *   node tooling/ci/journey-reach-map.mjs build [--runs <id,id,id>] [--until <run id>] [--out <file>]
+ *                                                    (GH_TOKEN; writes the map; --until: only runs up to that run)
+ *   node tooling/ci/journey-reach-map.mjs verify [--map <file>]
+ *                                                    (GH_TOKEN; rebuilds the map up to its newest run, compares bytes)
+ *   node tooling/ci/journey-reach-map.mjs show [--map <file>]                         (what the map holds)
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -228,6 +234,24 @@ export function workspace(root = ROOT) {
   return { dirs, byName, deps };
 }
 
+/** Every package depending on a package, through other packages too: { 'packages/x': [package dir] }. consumersOf keeps
+ *  only apps and services, so this is how pathReach sees a package that only a money package depends on (review
+ *  7561-R2). */
+export function dependentPackages({ dirs, deps }) {
+  const pkgs = dirs.filter((d) => PACKAGE_DIR.test(d));
+  const out = {};
+  for (const p of pkgs) {
+    const seen = new Set();
+    const queue = [p];
+    while (queue.length) {
+      const x = queue.shift();
+      for (const d of pkgs) if (d !== p && deps[d].includes(x) && !seen.has(d)) seen.add(d) && queue.push(d);
+    }
+    out[p] = [...seen].sort();
+  }
+  return out;
+}
+
 /** Every app and service depending on a package, through other packages too: { 'packages/x': [dir] }. */
 export function consumersOf({ dirs, deps }) {
   const out = {};
@@ -316,7 +340,7 @@ export function subscribers(root = ROOT) {
  * lost shard), is not whole and is passed over. In a whole run, a journey file it ran with no record of its own is
  * full in the map (it runs with every change). The newest MIN_RUNS whole runs build it; fewer, and its mode is 'full'.
  */
-export function buildMap({ runs, services, consumers, harness, subscribers: subs, money, minRuns = MIN_RUNS }) {
+export function buildMap({ runs, services, consumers, dependents = {}, harness, subscribers: subs, money, minRuns = MIN_RUNS }) {
   const whole = [];
   const skipped = [];
   for (const r of runs) {
@@ -383,6 +407,7 @@ export function buildMap({ runs, services, consumers, harness, subscribers: subs
     packages: sorted(packages),
     customer: sorted(customer),
     consumers: sorted(consumers),
+    dependents: sorted(dependents),
     harness: [...harness].sort(),
     subscribers: [...subs].sort(),
     money: [...new Set([...(money ?? []), ...MONEY_SERVICES])].sort(),
@@ -450,6 +475,12 @@ export function pathReach(map, path, subscribesHere = false) {
   if ((svc && money.includes(svc)) || (pkgOf && money.includes(pkgOf))) return { full: 'money code, which always runs the full suite' };
   if (pkgOf && (map.consumers?.[pkgOf] ?? []).some((d) => money.includes(d)))
     return { full: `money code depends on ${pkgOf}, and money code always runs the full suite` };
+  // A package only a money package depends on (consumersOf keeps apps and services only; review 7561-R2). A map without
+  // the list can't tell, so every package path is full.
+  if (pkgOf && (!map.dependents || typeof map.dependents !== 'object'))
+    return { full: 'the map does not list which packages depend on which, so it cannot tell whether money code does' };
+  const moneyPkg = pkgOf && (map.dependents[pkgOf] ?? []).find((d) => money.includes(d));
+  if (moneyPkg) return { full: `money code (${moneyPkg}) depends on ${pkgOf}, and money code always runs the full suite` };
   if (svc) {
     if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
     if (map.subscribers?.includes(svc))
@@ -524,13 +555,35 @@ export const filesAt = (sha, root = ROOT) =>
       .filter((f) => JOURNEY_FILE.test(f)),
   );
 
-/** Main's finished full runs since the recorder, newest first: the candidates buildMap reads. */
-function mainCandidates(ids) {
-  const list = JSON.parse(gh(['api', `repos/${REPO}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=60`]));
-  return (list.workflow_runs ?? [])
-    .filter((r) => isMainRun(r, REPO) && !['cancelled', 'skipped'].includes(r.conclusion))
+/**
+ * Which of a list of the workflow's runs the builder reads, newest first: main's finished full runs (not cancelled or
+ * skipped), only those named in `ids` when given, and only those created no later than the run `until` (a run object,
+ * which must itself be one of main's finished full runs) when given. Pure, for the tests.
+ */
+export function candidates(list, { ids, until, repo = REPO } = {}) {
+  const at = until ? Date.parse(until.created_at) : Infinity;
+  return (list ?? [])
+    .filter((r) => isMainRun(r, repo) && r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
     .filter((r) => !ids || ids.includes(String(r.id)))
+    .filter((r) => Date.parse(r.created_at) <= at)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+}
+
+/** Main's finished full runs since the recorder, newest first: the candidates buildMap reads. With `until` (a run id),
+ *  only the runs created up to that run, so a rebuild sees what the build saw then. */
+function mainCandidates(ids, until) {
+  let upTo = null;
+  let window = '';
+  if (until) {
+    upTo = JSON.parse(gh(['api', `repos/${REPO}/actions/runs/${Number(until)}`]));
+    if (!String(upTo.path ?? '').endsWith(`/${JOURNEYS_FILE}`) || !candidates([upTo], { repo: REPO }).length)
+      throw new Error(`run ${until} is not one of main's finished full ${JOURNEYS_FILE} runs`);
+    window = `&created=${encodeURIComponent(`<=${upTo.created_at}`)}`;
+  }
+  const list = JSON.parse(
+    gh(['api', `repos/${REPO}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&per_page=60${window}`]),
+  );
+  return candidates(list.workflow_runs, { ids, until: upTo });
 }
 
 /** Downloads a run's merged report into its own new temp folder and reads it; the folder is removed. */
@@ -546,29 +599,15 @@ function downloadReport(id) {
   }
 }
 
-function main() {
-  const [cmd, ...args] = process.argv.slice(2);
-  const opt = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
-  if (cmd === 'show') {
-    const map = loadMap(opt('--map') ?? MAP_FILE);
-    if (!map) return console.log('no map');
-    console.log(`mode ${map.mode}${map.why ? ` (${map.why})` : ''}; runs ${(map.runs ?? []).map((r) => r.id).join(', ') || 'none'}`);
-    if (map.mode === 'reach')
-      console.log(
-        `${map.journeys.length} journeys, ${Object.keys(map.full).length} full; ${Object.keys(map.services).length} services, ${Object.keys(map.packages).length} packages, ${Object.keys(map.customer).length} customer files`,
-      );
-    for (const s of map.skipped ?? []) console.log(`  passed over: ${s}`);
-    return;
-  }
-  if (cmd !== 'build') {
-    console.error('usage: journey-reach-map.mjs build [--runs <id,id,id>] [--out <file>] | show [--map <file>]');
-    process.exit(2);
-  }
-  const ids = opt('--runs')?.split(',').filter(Boolean);
+/** The map as the builder writes it: one line of JSON and a newline. */
+export const mapText = (map) => `${JSON.stringify(map)}\n`;
+
+/** Builds the map from main's runs (GH_TOKEN), as text: `ids` names the runs to read, `until` the newest run to read. */
+function buildFromMain({ ids, until } = {}) {
   const ws = workspace();
   const services = new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d)));
   const runs = [];
-  for (const r of mainCandidates(ids)) {
+  for (const r of mainCandidates(ids, until)) {
     let files;
     try {
       execFileSync('git', ['cat-file', '-e', `${r.head_sha}^{commit}`], { cwd: ROOT, stdio: 'ignore' });
@@ -585,15 +624,85 @@ function main() {
     runs.push({ id: r.id, head: r.head_sha, created: r.created_at, report, files });
     if (reportRecords(report).length === 0) break; // older runs come before the recorder
   }
-  const map = buildMap({
+  return buildMap({
     runs,
     services,
     consumers: consumersOf(ws),
+    dependents: dependentPackages(ws),
     harness: harnessImports(ROOT, ws),
     subscribers: subscribers(),
     money: [...moneyCodeDirs(manifestsAt(ROOT))],
   });
-  writeFileSync(opt('--out') ?? MAP_FILE, `${JSON.stringify(map)}\n`);
+}
+
+/**
+ * Whether a committed map is exactly what the builder builds from main's runs up to the newest run it names (review
+ * 7561-R1 #2): { ok: true } or { ok: false, why }. `rebuild(until)` returns the rebuilt map's text. A map that can't be
+ * read, or names no run, can't be rebuilt, so it fails. A difference names the top-level keys that differ, never their
+ * values.
+ */
+export function verifyMap(text, rebuild) {
+  let map;
+  try {
+    map = JSON.parse(text);
+  } catch {
+    return { ok: false, why: 'the map is not JSON' };
+  }
+  const until = map?.runs?.[0]?.id;
+  if (!Number.isInteger(until)) return { ok: false, why: 'the map names no run, so it cannot be rebuilt' };
+  let built;
+  try {
+    built = rebuild(until);
+  } catch (e) {
+    return { ok: false, why: `the map couldn't be rebuilt (${String(e?.message ?? e).split('\n')[0]})` };
+  }
+  if (built === text) return { ok: true };
+  let other = null;
+  try {
+    other = JSON.parse(built);
+  } catch {
+    /* compared as text below */
+  }
+  const keys = other
+    ? [...new Set([...Object.keys(map), ...Object.keys(other)])].filter((k) => JSON.stringify(map[k]) !== JSON.stringify(other[k]))
+    : [];
+  return {
+    ok: false,
+    why: keys.length
+      ? `the map differs from the one built from main's runs up to run ${until} in: ${keys.join(', ')}`
+      : `the map is not byte for byte the one built from main's runs up to run ${until} (its layout differs)`,
+  };
+}
+
+function main() {
+  const [cmd, ...args] = process.argv.slice(2);
+  const opt = (n) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
+  if (cmd === 'show') {
+    const map = loadMap(opt('--map') ?? MAP_FILE);
+    if (!map) return console.log('no map');
+    console.log(`mode ${map.mode}${map.why ? ` (${map.why})` : ''}; runs ${(map.runs ?? []).map((r) => r.id).join(', ') || 'none'}`);
+    if (map.mode === 'reach')
+      console.log(
+        `${map.journeys.length} journeys, ${Object.keys(map.full).length} full; ${Object.keys(map.services).length} services, ${Object.keys(map.packages).length} packages, ${Object.keys(map.customer).length} customer files`,
+      );
+    for (const s of map.skipped ?? []) console.log(`  passed over: ${s}`);
+    return;
+  }
+  if (cmd === 'verify') {
+    const file = opt('--map') ?? MAP_FILE;
+    const r = verifyMap(readFileSync(file, 'utf8'), (until) => mapText(buildFromMain({ until })));
+    console.log(r.ok ? `ok: ${file} is the map main's builder builds from the runs it names` : `FAIL: ${r.why}`);
+    if (!r.ok) process.exitCode = 1;
+    return;
+  }
+  if (cmd !== 'build') {
+    console.error(
+      'usage: journey-reach-map.mjs build [--runs <id,id,id>] [--until <run id>] [--out <file>] | verify [--map <file>] | show [--map <file>]',
+    );
+    process.exit(2);
+  }
+  const map = buildFromMain({ ids: opt('--runs')?.split(',').filter(Boolean), until: opt('--until') });
+  writeFileSync(opt('--out') ?? MAP_FILE, mapText(map));
   console.log(
     map.mode === 'reach' ? `map built from runs ${map.runs.map((r) => r.id).join(', ')}` : `refused: ${map.why}; the map written is full`,
   );

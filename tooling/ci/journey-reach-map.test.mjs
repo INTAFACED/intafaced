@@ -7,7 +7,11 @@ import {
   reportUnclean,
   STALE_RUNS,
   buildMap,
+  candidates,
+  dependentPackages,
   harnessImports,
+  mapText,
+  verifyMap,
   loadMap,
   mapProblem,
   reachSelect,
@@ -101,14 +105,17 @@ const CONSUMERS = {
   'packages/lonely': [],
   'packages/money-util': ['services/svc-ledger'],
 };
-const build = (runs = RUNS) =>
+const DEPENDENTS = { 'packages/market-data': [], 'packages/money-util': [] };
+const build = (runs = RUNS, over = {}) =>
   buildMap({
     runs,
     services: SERVICES,
     consumers: CONSUMERS,
+    dependents: DEPENDENTS,
     harness: ['packages/events', 'apps/customer/deployment/host-dispatch.mjs'],
     subscribers: ['services/svc-notify'],
     money: ['packages/ledger-client', 'services/svc-ops'],
+    ...over,
   });
 const MAP = build();
 // The map ships off (REACH_MAP_MODE 'full'); these tests judge it switched on.
@@ -213,6 +220,104 @@ test('planted: money code never narrows (the CI review on b26447ca)', () => {
   assert.match(select(['services/svc-tax/src/rates.ts'], { map: bare }).why, /lists no money code/);
   // Mixed with a narrowable path, the money path keeps the whole change full.
   assert.equal(select(['services/svc-tax/src/rates.ts', 'services/svc-ledger/src/post.ts']).mode, 'full');
+});
+
+test('planted: a package only a money package depends on never narrows (review 7561-R2)', () => {
+  // packages/fee-math is used only by packages/wallet-kit, a money package; consumersOf reaches svc-tax through it, and
+  // svc-tax is not money code, so without the dependents list the change would narrow to svc-tax's journeys.
+  const over = {
+    consumers: { ...CONSUMERS, 'packages/fee-math': ['services/svc-tax'] },
+    dependents: { ...DEPENDENTS, 'packages/fee-math': ['packages/wallet-kit'] },
+    money: ['packages/ledger-client', 'packages/wallet-kit', 'services/svc-ops'],
+  };
+  const map = build(RUNS, over);
+  const r = select(['packages/fee-math/src/round.ts'], { map });
+  assert.equal(r.mode, 'full', JSON.stringify(r));
+  assert.match(r.why, /money code \(packages\/wallet-kit\) depends on packages\/fee-math/);
+  // The fault it closes: the same package under a package that is not money narrows to svc-tax's journeys.
+  const plain = build(RUNS, { ...over, dependents: { ...DEPENDENTS, 'packages/fee-math': ['packages/other'] } });
+  assert.deepEqual(
+    select(['packages/fee-math/src/round.ts'], { map: plain }).files,
+    [POPUP, TAX].sort(),
+    'its journeys, and the one the map cannot speak for',
+  );
+  // A map without the list can't tell: every package path is full, and a service path still narrows.
+  const { dependents, ...bare } = plain;
+  assert.ok(dependents);
+  assert.match(select(['packages/fee-math/src/round.ts'], { map: bare }).why, /does not list which packages depend/);
+  assert.match(select(['packages/market-data/src/x.ts'], { map: bare }).why, /does not list which packages depend/);
+  assert.equal(select(['services/svc-tax/src/rates.ts'], { map: bare }).mode, 'files');
+  // dependentPackages follows packages through packages, and leaves apps and services to consumersOf.
+  const ws = {
+    dirs: ['packages/fee-math', 'packages/wallet-kit', 'packages/top', 'services/svc-tax', 'apps/customer'],
+    deps: {
+      'packages/fee-math': [],
+      'packages/wallet-kit': ['packages/fee-math'],
+      'packages/top': ['packages/wallet-kit'],
+      'services/svc-tax': ['packages/top'],
+      'apps/customer': ['packages/fee-math'],
+    },
+  };
+  assert.deepEqual(dependentPackages(ws), {
+    'packages/fee-math': ['packages/top', 'packages/wallet-kit'],
+    'packages/wallet-kit': ['packages/top'],
+    'packages/top': [],
+  });
+});
+
+test('verify: a map is exactly what the builder builds from the runs it names (review 7561-R1 #2)', () => {
+  const good = mapText(MAP);
+  const asked = [];
+  const rebuild = (until) => (asked.push(until), good);
+  assert.deepEqual(verifyMap(good, rebuild), { ok: true });
+  assert.deepEqual(asked, [3], 'rebuilt up to the newest run the map names');
+  // Planted: a hand edit (a journey dropped from a service) fails, naming the key.
+  const edited = JSON.parse(good);
+  edited.services['services/svc-bank'] = edited.services['services/svc-bank'].slice(1);
+  const r = verifyMap(mapText(edited), rebuild);
+  assert.equal(r.ok, false);
+  assert.match(r.why, /differs from the one built from main's runs up to run 3 in: services$/);
+  // Planted: a hand-picked map (an older run in place of the newest whole one) fails: the rebuild reads every run up to
+  // the newest it names, so the run left out comes back.
+  const picked = mapText(build([RUNS[0], RUNS[2]], { minRuns: 2 }));
+  const rebuiltPicked = mapText(build([RUNS[0], RUNS[1]], { minRuns: 2 }));
+  assert.match(verifyMap(picked, () => rebuiltPicked).why, /in: runs/);
+  // Planted: the same map reformatted is not byte for byte the built one.
+  assert.match(verifyMap(`${JSON.stringify(MAP, null, 2)}\n`, rebuild).why, /layout differs/);
+  // A map that can't be read, names no run, or can't be rebuilt fails.
+  assert.match(verifyMap('{', rebuild).why, /not JSON/);
+  assert.match(verifyMap(mapText({ v: 1, runs: [], mode: 'full' }), rebuild).why, /names no run/);
+  assert.match(
+    verifyMap(good, () => {
+      throw new Error('HTTP 404\nmore');
+    }).why,
+    /couldn't be rebuilt \(HTTP 404\)$/,
+  );
+});
+
+test("candidates: main's finished full runs, the named ones, up to the run named", () => {
+  const r = (id, created, over = {}) => ({
+    id,
+    created_at: created,
+    head_branch: 'main',
+    head_repository: { full_name: REPO },
+    event: 'push',
+    status: 'completed',
+    conclusion: 'success',
+    ...over,
+  });
+  const list = [
+    r(1, '2026-11-08T10:00:00Z'),
+    r(2, '2026-11-08T11:00:00Z', { conclusion: 'failure' }),
+    r(3, '2026-11-08T12:00:00Z', { conclusion: 'cancelled' }),
+    r(4, '2026-11-08T13:00:00Z', { head_branch: 'feature' }),
+    r(5, '2026-11-08T14:00:00Z', { status: 'in_progress' }),
+    r(6, '2026-11-08T15:00:00Z'),
+  ];
+  const ids = (xs) => xs.map((x) => x.id);
+  assert.deepEqual(ids(candidates(list, { repo: REPO })), [6, 2, 1], 'newest first; a red run is read, a cancelled one not');
+  assert.deepEqual(ids(candidates(list, { repo: REPO, until: list[1] })), [2, 1], 'nothing after the run named');
+  assert.deepEqual(ids(candidates(list, { repo: REPO, ids: ['1', '6'] })), [6, 1]);
 });
 
 test('planted: each full fallback', () => {
@@ -412,6 +517,7 @@ test('the committed map holds only shapes a public map may hold', () => {
     'packages',
     'customer',
     'consumers',
+    'dependents',
     'harness',
     'subscribers',
     'money',
@@ -425,7 +531,7 @@ test('the committed map holds only shapes a public map may hold', () => {
   const PATH = /^(apps|packages|services)\/[A-Za-z0-9._@/-]+$/;
   const JOURNEY = /^J-[a-z0-9-]+\.pw\.mjs$/;
   for (const j of map.journeys ?? []) assert.match(j, JOURNEY);
-  for (const k of ['services', 'packages', 'customer', 'consumers'])
+  for (const k of ['services', 'packages', 'customer', 'consumers', 'dependents'])
     for (const [p, v] of Object.entries(map[k] ?? {})) {
       assert.match(p, PATH);
       for (const x of v) assert.ok(Number.isInteger(x) || PATH.test(x), `${k}.${p}`);
