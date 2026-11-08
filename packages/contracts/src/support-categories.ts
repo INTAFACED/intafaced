@@ -62,3 +62,11 @@ export const supportCategoriesSchema = z.object({
   ),
 });
 export type SupportCategories = z.infer<typeof supportCategoriesSchema>;
+
+/**
+ * Pasted message headers on a phishing report (I-signin-sessions-27). The same
+ * bound as `body`: a schema limit on text, not a product magnitude.
+ */
+export const SUPPORT_MESSAGE_HEADERS_MAX = 10_000;
+/** An oversize paste of headers, refused with the cap (J-identity-13 #2); never cut short. */
+export const SUPPORT_HEADERS_TOO_LONG = 'support.headers_too_long';

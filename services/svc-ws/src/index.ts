@@ -1,6 +1,6 @@
 import Fastify from 'fastify';
 import { JetStreamEventBus, type Subscription } from '@intafaced/events';
-import { JAVA_ENV, sbeCodec } from '@intafaced/sbe-codec';
+import { JAVA_ENV } from '@intafaced/sbe-codec';
 import { s2sFromEnv } from '@intafaced/contracts';
 import { env } from './env.js';
 import { createBusLifecycle } from './bus-lifecycle.js';
@@ -40,6 +40,7 @@ import { HttpCandleSource, HttpMarketDirectory, HttpTickerSource } from './mux/s
 import { TickerHub } from './mux/ticker-hub.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 import { registerTapeLabelDoor } from './tape-label-http.js';
+import { WS_SBE_UNLINKED, serviceSbeCodec } from './sbe-runtime.js';
 
 // §9 — register the TracerProvider before the first span is created.
 // `@opentelemetry/api` alone is a no-op: without this call every span in
@@ -84,6 +85,9 @@ registerProcessHooks(
 
 const source = new HttpDepthSource({ baseUrl: env.MATCHING_URL });
 
+/** Chosen by INTAFACED_SBE_JAVA alone, never the package's synchronous fallback build (sbe-runtime.ts, #7554). */
+const sbe = serviceSbeCodec(env.INTAFACED_SBE_JAVA);
+
 const app = Fastify({
   logger: {
     level: env.LOG_LEVEL,
@@ -100,6 +104,13 @@ const app = Fastify({
     },
   },
 });
+
+if (!sbe.linked) {
+  app.log.warn(
+    { code: WS_SBE_UNLINKED, pinned: env.INTAFACED_SBE_JAVA ?? null },
+    'svc-ws: no SBE codec (INTAFACED_SBE_JAVA unset, or its jar or Java missing) — the SBE doors refuse depth.sbe_unavailable',
+  );
+}
 
 /**
  * WHAT A CLIENT MAY SUBSCRIBE TO — and why it is not the engine's list.
@@ -458,6 +469,7 @@ registerRoutes(app, {
   privateAuthorityConfigured: () => authority !== null,
   dropCopyBus: busLifecycle.dropCopyBus,
   pollMs: env.WS_POLL_INTERVAL_MS,
+  sbe,
 });
 registerTapeLabelDoor(app);
 const sbeConsumers = new SbeConsumers();
@@ -466,7 +478,7 @@ registerSbeStatusDoor(app, {
   secret: env.WS_STATUS_READ_SECRET,
   verifier: s2s.serviceVerifier,
   mode: s2s.s2sMode,
-  codecLinked: () => sbeCodec.linked,
+  codecLinked: () => sbe.linked,
 });
 
 /**
@@ -507,6 +519,7 @@ const gateway = createWebSocketGateway({
   enabled: isEnabled,
   admitNewConnection: () => newConnections.admit(),
   sbeConsumers,
+  sbe,
 });
 
 const customerOrigins = customerOriginsFromEnv(env);
@@ -554,7 +567,7 @@ app.log.info(
     privatePositions: busLifecycle.privateBus() && privateTokens !== null && authority !== null,
     dropCopy: busLifecycle.dropCopyBus() && privateTokens !== null && authority !== null,
     enabled,
-    sbeLinked: sbeCodec.linked,
+    sbeLinked: sbe.linked,
     sbeJava: process.env[JAVA_ENV] ?? null,
   },
   'svc-ws ready — depth + trade tape + private orders/fills/positions + drop-copy',

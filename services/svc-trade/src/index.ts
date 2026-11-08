@@ -42,6 +42,7 @@ import { MATCHED_FILL_RETRY_BATCH } from './futures/matched-orders.js';
 import { createTradeRouter, type TradeRouter } from './router.js';
 import { identityApprovalBook } from './admin/identity-approval.js';
 import { LeadDesk, parseLeadReapplyWait } from './copy/lead-applications.js';
+import { PlatformPauseDesk } from './copy/platform-pauses.js';
 import { bindTradingRestrictApprovals, currentTradingRestrictApprovals } from './admin/trading-restrict.js';
 import { operatorSeedAllows as readOperatorSeedAllows } from './admin/service.js';
 import { operatorSeedTargets } from './admin/seed-config.js';
@@ -432,8 +433,20 @@ const stepUp = createStepUpCheck({
       })
     : null,
 });
+// The copy and bots kill switch (CB-ops-03): two founders pause or resume a lead, a bot type or a symbol. Copy mirrors,
+// grid bots and algo bots read its active pauses; the approvals book is the trade ops desk's (bound below).
+const platformPauses = new PlatformPauseDesk({
+  sql,
+  approvals: { consume: (input) => tradeOpsApprovals.consume(input) },
+  now: () => new Date(),
+  leaderUserIdByRef: (leaderRef) => leaderDirectory.resolveLeaderId(undefined, leaderRef).catch(() => null),
+  marketIdBySymbol: async (symbol) => (await trade.marketBySymbol(symbol))?.id ?? null,
+});
+const readPlatformPauses = () => platformPauses.snapshot();
+trade.bindPlatformPauses(readPlatformPauses);
 const copy = new CopyService(ledger, {
   stepUp,
+  platformPauses: readPlatformPauses,
   notices: busCopyNotices(bus),
   gridUnusedReserves: (userId, asset) => gridStore.sumUnusedReserves(userId, asset),
   accountAdmission: tradingControls,
@@ -543,6 +556,7 @@ const grid = new GridService({
   cancelOrder: (principal, orderId) => trade.cancelOrder(principal, orderId),
   fillsForOrder: (principal, orderId) => trade.everyFillOfOrder(principal, orderId),
   stepUp,
+  platformPauses: readPlatformPauses,
 });
 const tradeOpsApprovals = currentTradingRestrictApprovals() ?? identityApprovalBook(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, outS2s);
 export const appRouter = createTradeRouter(
@@ -579,6 +593,7 @@ export const appRouter = createTradeRouter(
     reapplyWaitSeconds: parseLeadReapplyWait(env.TRADE_COPY_LEAD_REAPPLY_WAIT_SECONDS),
   }),
   grid,
+  platformPauses,
 );
 export type AppRouter = typeof appRouter;
 const edgeContext = createEdgeContext({

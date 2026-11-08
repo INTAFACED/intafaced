@@ -1,5 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import { guestProcedures } from './guest-router.js';
+import { officialChannelProcedures } from './official-channels.js';
+import type { OfficialChannelList } from '@intafaced/contracts';
 import { safetyRouter } from './safety-router.js';
 import { MemorySafetyBook, SafetyCases } from './safety-cases.js';
 import type { GuestRequests } from './guest-requests.js';
@@ -247,6 +249,8 @@ export function createSupportRouter(
   kbSegmentCap: number | null = null,
   /** The balance disclosure gate (J-support-public-20 #2). Left out, no record owner is wired and no check can be recorded. */
   checks: VerificationChecks = new VerificationChecks(new MemoryCheckBook(), support, null),
+  /** The owner's official channel list (`SUPPORT_OFFICIAL_CHANNELS`); null is unpublished. */
+  officialChannels: OfficialChannelList | null = null,
   /** Complaints and bereavement reports, each acknowledged once (BK-safe-03, J-bank-18 #5 #6). */
   safety: SafetyCases = new SafetyCases(new MemorySafetyBook(), support, null),
 ) {
@@ -264,6 +268,7 @@ export function createSupportRouter(
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
     ...verificationCheckProcedures(checks),
+    ...officialChannelProcedures(officialChannels),
     safety: safetyRouter(safety),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),

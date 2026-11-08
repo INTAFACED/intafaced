@@ -26,6 +26,8 @@ const en = {
   standIn: 'TEST price from a stand-in: {label}. No partner takes the payment.',
   expiredNow: 'The price ran out before you asked, so nothing was asked for, kept or charged. See ways to pay for a new price.',
   notSet: 'not set',
+  notKnown: 'not known',
+  feeNotKnown: 'The partner gave no fee for this way to pay, so what you would pay is not known. Nothing can be asked for.',
   railOff: 'Needs a partner for {rail}. It is switched off in this build.',
   reference: 'Reference: {code}',
   continue: 'Continue',
@@ -96,6 +98,8 @@ const es: Record<keyof typeof en, string> = {
   expiredNow:
     'El precio caducó antes de que lo pidieras, así que no se pidió, guardó ni cobró nada. Consulta las formas de pago para un precio nuevo.',
   notSet: 'sin definir',
+  notKnown: 'no se conoce',
+  feeNotKnown: 'El socio no dio una comisión para esta forma de pago, así que no se conoce lo que pagarías. No se puede pedir nada.',
   railOff: 'Necesita un socio para {rail}. Está desactivado en esta versión.',
   reference: 'Referencia: {code}',
   continue: 'Continuar',
@@ -167,6 +171,9 @@ const fr: Record<keyof typeof en, string> = {
   expiredNow:
     'Le prix a expiré avant votre demande, donc rien n’a été demandé, gardé ni facturé. Voyez les moyens de payer pour un nouveau prix.',
   notSet: 'non défini',
+  notKnown: 'inconnu',
+  feeNotKnown:
+    'Le partenaire n’a donné aucun frais pour ce moyen de paiement, donc ce que vous paieriez est inconnu. Rien ne peut être demandé.',
   railOff: 'Nécessite un partenaire pour {rail}. C’est désactivé dans cette version.',
   reference: 'Référence : {code}',
   continue: 'Continuer',

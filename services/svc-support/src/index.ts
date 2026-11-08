@@ -1,4 +1,5 @@
 import postgres from 'postgres';
+import { officialChannelsFromEnv } from './official-channels.js';
 import { GuestRequests } from './guest-requests.js';
 import { createGuestVerificationClient } from './guest-verification-client.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
@@ -244,6 +245,7 @@ const appRouter = createSupportRouter(
   // Balance disclosure gate: no owner serves the desk a check door yet (svc-identity, svc-trade, svc-pay), so none is wired:
   // every check refuses naming its owner, and every read refuses support.verification_checks_required.
   new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
+  officialChannelsFromEnv(env.SUPPORT_OFFICIAL_CHANNELS),
   // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
   new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
 );

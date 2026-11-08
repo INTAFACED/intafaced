@@ -481,8 +481,8 @@ describe('scheduled reconciliation tick — against a real book', () => {
 
   it('a real mismatch freezes the book, so a second connection cannot post', async () => {
     const writerSql = connect();
-    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'));
-    const reader = new LedgerService(connect(), new MemoryEventBus('reader'));
+    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'), { custodyLayer: 'on' });
+    const reader = new LedgerService(connect(), new MemoryEventBus('reader'), { custodyLayer: 'on' });
     await expect(reader.post(deposit())).resolves.toMatchObject({ module: 'ledger' });
     await requireDb().sql`UPDATE accounts SET balance = balance + 1 WHERE owner_type = 'user'`;
 
@@ -503,8 +503,8 @@ describe('scheduled reconciliation tick — against a real book', () => {
   it('an INCOMPLETE run (real statement timeout) freezes nothing, and the book keeps posting', async () => {
     const opened = requireDb();
     const writerSql = connect();
-    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'));
-    const reader = new LedgerService(connect(), new MemoryEventBus('reader'));
+    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'), { custodyLayer: 'on' });
+    const reader = new LedgerService(connect(), new MemoryEventBus('reader'), { custodyLayer: 'on' });
     await reader.post(deposit());
 
     // A held ACCESS EXCLUSIVE lock makes the proof wait until its own statement_timeout fires: 57014.
@@ -530,8 +530,8 @@ describe('scheduled reconciliation tick — against a real book', () => {
 
   it('an incomplete run leaves an operator freeze standing', async () => {
     const writerSql = connect();
-    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'));
-    const reader = new LedgerService(connect(), new MemoryEventBus('reader'));
+    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'), { custodyLayer: 'on' });
+    const reader = new LedgerService(connect(), new MemoryEventBus('reader'), { custodyLayer: 'on' });
     await writer.freeze('operator: suspected drift', OPERATOR);
 
     const { log } = logSink();
@@ -551,8 +551,8 @@ describe('scheduled reconciliation tick — against a real book', () => {
   it('the staleness reporting reports an old proof without freezing or refusing a post', async () => {
     const opened = requireDb();
     const writerSql = connect();
-    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'));
-    const reader = new LedgerService(connect(), new MemoryEventBus('reader'));
+    const writer = new LedgerService(writerSql, new MemoryEventBus('writer'), { custodyLayer: 'on' });
+    const reader = new LedgerService(connect(), new MemoryEventBus('reader'), { custodyLayer: 'on' });
     await opened.sql`
       INSERT INTO reconcile_runs (started_at, finished_at, outcome, through_seq)
       VALUES (now() - interval '26 hours', now() - interval '26 hours', 'ok', 5)
@@ -572,8 +572,8 @@ describe('scheduled reconciliation tick — against a real book', () => {
 
   it('a fresh ok run keeps the backstop quiet, and an operator freeze beats a stale one', async () => {
     const opened = requireDb();
-    const writer = new LedgerService(connect(), new MemoryEventBus('writer'));
-    const reader = new LedgerService(connect(), new MemoryEventBus('reader'));
+    const writer = new LedgerService(connect(), new MemoryEventBus('writer'), { custodyLayer: 'on' });
+    const reader = new LedgerService(connect(), new MemoryEventBus('reader'), { custodyLayer: 'on' });
     await opened.sql`INSERT INTO reconcile_runs (started_at, outcome, through_seq) VALUES (now(), 'ok', 5)`;
     const quiet = logSink();
     await runScheduledReconciliationTick(async () => ({ outcome: 'skipped' }), writer, quiet.log, { maxStaleHours: 24 });

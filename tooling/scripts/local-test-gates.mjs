@@ -823,6 +823,42 @@ export async function founderTotp(ctx, key, secret) {
   return code;
 }
 
+/**
+ * After the founder console refused founder `key`'s sign-in: counts as spent the step that sign-in sent (the last one
+ * recorded in founder-totp-steps.json) or the latest step identity can hold by now, whichever is later
+ * (`stepAfterRefusal`), and records it, so the next code is a step after any identity holds. Returns the steps, to log.
+ */
+export function founderStepRefused(ctx, key) {
+  const stepsFile = path.join(ctx.paths.stateDir, FOUNDER_STEPS_NAME);
+  const all = readJson(stepsFile, {});
+  const refused = Number(all[key] ?? 0);
+  const current = stepOf(ctx);
+  const next = stepAfterRefusal(refused, current);
+  writePrivate(stepsFile, { ...all, [key]: next });
+  return { refused, current, next };
+}
+
+/**
+ * One console sign-in, tried once more after a refusal, as `operatorLogin` does for the gates' own sign-in.
+ * `attempt()` signs in with a fresh step and answers 'in' or 'refused'; `onRefused()` records the refused step
+ * (`founderStepRefused`) and returns { refused, current, next }. A second refusal fails, naming both steps. MFA is not
+ * loosened: each attempt sends a real, unused step. (Failure it prevents: main run 42427369496, J-cex-spot-18 #4, the
+ * console refused founder b's code and the sign-in, which had no retry, waited out 30 s on /login.)
+ */
+export async function signInOnceMore({ attempt, onRefused, log = () => {} }) {
+  if ((await attempt()) === 'in') return { retried: false };
+  const first = await onRefused();
+  log(`the console refused TOTP step ${first.refused} at step ${first.current}; signing in once more after step ${first.next}`);
+  if ((await attempt()) === 'in') {
+    log(`signed in on the retry, after step ${first.next}`);
+    return { retried: true, refused: first.refused };
+  }
+  const second = await onRefused();
+  throw new Error(
+    `the console refused the sign-in twice: TOTP step ${first.refused} (at step ${first.current}), then step ${second.refused} (at step ${second.current})`,
+  );
+}
+
 async function signInPair(ctx, ops, saveSteps) {
   const sessions = {};
   for (const l of ['a', 'b']) sessions[l] = await signInOne(ctx, ops[l], saveSteps);
