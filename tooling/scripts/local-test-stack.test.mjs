@@ -680,6 +680,11 @@ try {
   used.add('trade');
   used.delete('ledger'); // /api/ledger is deliberately not routed (a string in a comment/refusal)
   used.delete('v2');
+  // /api/edge/* is no upstream: svc-edge answers it itself (the rate-limit doors, J-developer-06). Exempt only while
+  // svc-edge really registers that door, so a customer call to a missing edge path still fails here.
+  if (/'\/api\/edge\/rate-limits\//.test(readFileSync(join(repo, 'services', 'svc-edge', 'src', 'rate-limits-door.ts'), 'utf8'))) {
+    used.delete('edge');
+  }
   assert.ok(used.size >= 12, `found only ${used.size} Customer modules: ${[...used]}`);
   const unmapped = [...used].filter((m) => !upstreams.some((u) => u.prefix === m));
   assert.deepEqual(unmapped, [], `Customer calls modules Edge has no route for: ${unmapped}`);
