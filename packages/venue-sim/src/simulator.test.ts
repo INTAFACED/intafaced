@@ -812,3 +812,78 @@ describe('TEST venue simulator: council round 1 regressions', () => {
     }
   });
 });
+
+describe('TEST venue simulator: council round 2 regressions (every check runs again at submit)', () => {
+  /** Sign `intent` by hand on the base action's nonce, as a caller that skipped prepare would. */
+  async function forge(
+    w: ReturnType<typeof world>,
+    who: ConformanceWallet,
+    account: UserVenueAccount,
+    base: PreparedVenueAction,
+    intent: VenueIntent,
+  ) {
+    const typedData = buildTypedData(w.sim.venue.id, account, who.signer, intent, base.nonce);
+    const forged = { ...base, account, intent, typedData, digest: digestOf(typedData) };
+    try {
+      return await w.sim.submit(forged, await who.sign(forged));
+    } catch (error) {
+      return { thrown: (error as VenueRefusalError).refusal?.code ?? String(error) };
+    }
+  }
+  const refusedCode = (o: unknown) => (o as { refusal?: { code: string } }).refusal?.code ?? (o as { thrown?: string }).thrown;
+
+  it('Q1 a hand-built negative-amount order is refused and creates nothing', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100'), 'chain:t:q1');
+    const base = await w.sim.prepare(w.trader, w.wallet.signer, order('BTC-USDC', 'buy', '60000', '0.001', 'order:t:q1'));
+    expect(refusedCode(await forge(w, w.wallet, w.trader, base, order('BTC-USDC', 'buy', '60000', '-1', 'order:t:q1')))).toBe(
+      'venue_rejected',
+    );
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({ free: a('100'), locked: ZERO });
+  });
+
+  it('Q2 a hand-built withdrawal from a sub-account is refused', async () => {
+    const w = world();
+    const sub = { ...w.trader, subAccount: 'sub-1' };
+    w.sim.deposit(sub, 'USDC', a('100'), 'chain:t:q2');
+    const base = await w.sim.prepare(w.trader, w.wallet.signer, {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10'),
+      destination: w.wallet.address,
+      withdrawalKey: 'withdraw:t:q2',
+    });
+    expect(refusedCode(await forge(w, w.wallet, sub, base, base.intent))).toBe('not_offered');
+    expect(balanceOf((await w.sim.balances(sub)).value, 'USDC').free).toBe(a('100'));
+  });
+
+  it('Q3 a hand-built 1000x leverage is refused', async () => {
+    const w = world();
+    const base = await w.sim.prepare(w.trader, w.wallet.signer, {
+      kind: 'update_leverage',
+      symbol: 'BTC-PERP',
+      leverageBps: 100_000,
+      marginMode: 'isolated',
+    });
+    expect(
+      refusedCode(
+        await forge(w, w.wallet, w.trader, base, {
+          kind: 'update_leverage',
+          symbol: 'BTC-PERP',
+          leverageBps: 10_000_000,
+          marginMode: 'isolated',
+        }),
+      ),
+    ).toBe('not_offered');
+    expect((await w.sim.leverage(w.trader, 'BTC-PERP')).value).toBeNull();
+  });
+
+  it('Q4 a hand-built zero-price order is refused', async () => {
+    const w = world();
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:q4');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '1', 'order:o:q4'));
+    const base = await w.sim.prepare(w.trader, w.wallet.signer, order('BTC-USDC', 'buy', '60000', '0.001', 'order:t:q4'));
+    expect(refusedCode(await forge(w, w.wallet, w.trader, base, order('BTC-USDC', 'buy', '0', '1', 'order:t:q4')))).toBe('venue_rejected');
+    expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
+  });
+});
