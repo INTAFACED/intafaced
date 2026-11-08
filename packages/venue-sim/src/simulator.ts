@@ -14,6 +14,7 @@ import {
   type UserVenueBalance,
   type UserVenueDescriptor,
   type UserVenueFill,
+  type UserVenueLeverage,
   type UserVenueMarket,
   type UserVenueOrder,
   type UserVenuePosition,
@@ -386,6 +387,13 @@ export class TestVenueSimulator implements UserVenue {
     return this.asOf(this.account(account).builderApprovals.get(builder.toLowerCase()) ?? ZERO);
   }
 
+  async leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>> {
+    this.up();
+    this.market(symbol);
+    const setting = this.account(account).leverage.get(symbol);
+    return this.asOf(setting ? { symbol, ...setting } : null);
+  }
+
   async agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>> {
     this.up();
     return this.asOf([...this.account(account).agents.values()]);
@@ -467,7 +475,12 @@ export class TestVenueSimulator implements UserVenue {
     if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage or margin mode`);
     if (!market.marginModes.includes(marginMode))
       refuse(this.venue.id, 'not_offered', `margin mode ${marginMode} is not offered on ${symbol}`);
-    if (!Number.isInteger(leverageBps) || leverageBps < 10_000 || (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps)) {
+    if (
+      !Number.isInteger(leverageBps) ||
+      leverageBps % 10_000 !== 0 ||
+      leverageBps < 10_000 ||
+      (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps)
+    ) {
       refuse(this.venue.id, 'not_offered', `leverage ${leverageBps} bps is outside what ${symbol} offers`);
     }
     return market;

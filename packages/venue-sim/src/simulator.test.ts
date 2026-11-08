@@ -295,6 +295,14 @@ describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
       'leverage_not_set',
     );
     expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 250_000 }))).toBe('not_offered');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 105_000 }))).toBe('not_offered');
+    expect((await w.sim.leverage(w.trader, 'BTC-PERP')).value).toBeNull();
+    await w.run(w.wallet, w.trader, tenX);
+    expect((await w.sim.leverage(w.trader, 'BTC-PERP')).value).toEqual({
+      symbol: 'BTC-PERP',
+      leverageBps: 100_000,
+      marginMode: 'isolated',
+    });
   });
 
   it('#7 a time in force the venue does not offer is refused with no network write', async () => {
