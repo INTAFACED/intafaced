@@ -6,11 +6,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { founderTotp, makeContext, stackFounderScopes } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { LOCAL_TEST_DEVICE_KEY } from '../../../../tooling/scripts/local-test-device.mjs';
-import { FOUNDER_VAULT_NAME, foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
-import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
-import { deviceCodesMailedTo, OUTBOX_NAME } from '../../../../tooling/scripts/local-test-entry.mjs';
-import { HOME_ASSET, HOME_DEPOSIT_AMOUNT, HOME_NOTICE_TITLE } from '../../../../tooling/scripts/local-test-home.mjs';
+import {
+  FOUNDER_VAULT_NAME,
+  HOME_ASSET,
+  HOME_DEPOSIT_AMOUNT,
+  HOME_NOTICE_TITLE,
+  LOCAL_TEST_DEVICE_KEY,
+  localStackState,
+  OUTBOX_NAME,
+} from '../../../../tooling/scripts/local-test-facts.mjs';
+import { foundersEnrolled } from '../../../../tooling/scripts/local-test-founders.mjs';
+import { deviceCodesMailedTo } from '../../../../tooling/scripts/local-test-entry.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
 import { NOTICE_DRAIN_MINUTES } from './notices.mjs';
 import { EDGE, ORIGIN as CUSTOMER, ROOT } from './stack.mjs';

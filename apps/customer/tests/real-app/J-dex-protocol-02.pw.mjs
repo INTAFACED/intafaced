@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { createPublicClient, decodeEventLog, http, parseAbi, parseUnits } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
+import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, walletSection } from './dex.mjs';
 
 // J-dex-protocol-02, in the running app (docs/roadmap/journeys.json): swap one token for another. One test per step,

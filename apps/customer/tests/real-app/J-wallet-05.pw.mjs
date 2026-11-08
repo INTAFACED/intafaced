@@ -5,7 +5,7 @@ import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, mailedLines, toUnit
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { TEST_WITHDRAW_NETWORK_RULES } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../../../../tooling/scripts/local-stack-services/bank.mjs';
+import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // J-wallet-05, in the running app (docs/roadmap/journeys.json): I withdraw crypto. One test per step, titled
 // "J-wallet-05 #<n>", run in order on one verified TEST account with an authenticator app, TEST 300 USDT, and two saved

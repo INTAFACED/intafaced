@@ -3,7 +3,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, un
 import path from 'node:path';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { totpNow } from '../../../../tooling/scripts/local-founder-seed.mjs';
-import { LOCAL_TEST_DEVICE_KEY, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-device.mjs';
+import { LOCAL_TEST_DEVICE_KEY, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { ADMIN, assertAdminUp } from './admin.mjs';
 import { signUpInBrowser } from './stack.mjs';
 

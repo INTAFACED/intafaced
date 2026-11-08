@@ -19,8 +19,10 @@ import { FOUNDER_VAULT_NAME } from './local-test-founders.mjs';
 import { approverSessions, founderSignIns, founderTotp, makeContext } from './local-test-gates.mjs';
 import { readLatestEmailConfirmToken } from './local-test-state.mjs';
 
-/** The stack identity's LOCAL-TEST mail file (tooling/scripts/local-stack-services/identity.mjs). */
-export const OUTBOX_NAME = 'email-outbox.log';
+/** The stack identity's LOCAL-TEST mail file, kept in local-test-facts.mjs. */
+import { OUTBOX_NAME } from './local-test-facts.mjs';
+
+export { OUTBOX_NAME };
 const CONFIRM_WAIT_MS = 20_000;
 const DEVICE_WAIT_MS = 10_000;
 

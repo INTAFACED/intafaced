@@ -3,7 +3,7 @@ import { expect, test } from './journey.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
+import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { tool } from './stack.mjs';
 

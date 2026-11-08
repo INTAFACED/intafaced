@@ -15,7 +15,7 @@ import {
   parseUnits,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-chain.mjs';
+import { chainRecordPath, GATE_URL } from '../../../../tooling/scripts/local-test-facts.mjs';
 import { test, expect } from './journey.mjs';
 import {
   CHAIN_ID,

@@ -1,8 +1,10 @@
 import path from 'node:path';
 import { loadProfile } from '../owner-settings.mjs';
 
-/** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2). */
-export const LOCAL_TEST_SANCTIONED_ADDRESS = '0x5a7c7100000000000000000000000000000ba5ed';
+/** LOCAL TEST sanctioned destination, not a real list (J-wallet-05 #2), kept in local-test-facts.mjs. */
+import { LOCAL_TEST_SANCTIONED_ADDRESS } from '../local-test-facts.mjs';
+
+export { LOCAL_TEST_SANCTIONED_ADDRESS };
 const LOCAL_TEST_SANCTIONED_DESTINATION = `*:${LOCAL_TEST_SANCTIONED_ADDRESS}`;
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */

@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
-import { localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-device.mjs';
+import { FOUNDER_VAULT_NAME, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // The founder console (apps/admin) for operator journeys. It runs beside the stack against the same Edge, and the founders
 // sign in with the stack's own LOCAL TEST founder pair (founders.json). Each TOTP code is taken through founderTotp, which

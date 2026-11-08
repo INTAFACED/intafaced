@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
+import { localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // Journeys in the running app: `pnpm local:stack` must be up (Customer on 127.0.0.1:3210). Nothing is mocked; each
 // spec drives the browser and, where the journey names another actor (an operator, TEST funding, another trader),
