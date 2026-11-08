@@ -72,6 +72,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // test accounts; "LOCAL TEST — not a real approval".
     IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
     IDENTITY_ACTION_APPROVAL_POLICIES: testValue('IDENTITY_ACTION_APPROVAL_POLICIES'),
+    // LOCAL TEST life of a staff invite's first-connection link (J-ops-console-09 #2), labelled TEST in the same profile,
+    // never an owner decision. Blank refuses every invite (identity.staff_invite_ttl_unset).
+    IDENTITY_STAFF_INVITE_TTL_SECONDS: testValue('IDENTITY_STAFF_INVITE_TTL_SECONDS'),
     // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
     // transport, a lifetime, and a rate budget are published. local-outbox is refused
     // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
