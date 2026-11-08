@@ -322,9 +322,19 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   // 42187412745), so the tape is read newest first with no time cut, never only the last two sweeps.
   const tape = await (await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=500`)).json();
   expect(Array.isArray(tape) && tape.length > 0, 'the TEST tape has trades').toBe(true);
-  const upTo = tape.filter((t) => t.timestamp <= onLast.at + 5_000).sort((a, b) => b.timestamp - a.timestamp);
-  // The latest print at the sweep, and any print in the few seconds around it (the read is a moment after the sweep's time).
-  const prints = upTo.filter((t, i) => i === 0 || t.timestamp >= onLast.at - 5_000).map((t) => fromCents(cents(String(t.price))));
+  // "Latest" is the tape's own order, the match sequence (a print's id), which is how the ticker picks its last
+  // (svc-trade publicTape: ORDER BY sequence DESC). Never re-sort by time.
+  for (const t of tape) expect(String(t.id), 'a tape print is identified by its match sequence').toMatch(/^\d+$/);
+  const bySequence = [...tape].sort((a, b) => Number(b.id) - Number(a.id));
+  // A trigger's time is when its sweep started; the sweep reads the ticker a moment later. So the alert fired on the
+  // latest print written by the sweep's start, or on one written in the few seconds before its read. A print after the
+  // read is not the one it saw, and must not stand in for it (main run 42447632070 and PR #7526's repeat 42451286997:
+  // the TEST maker sold at 65153.12 on its cycle 7, the sweep read the cycle-12 book, bid 65231.23 and ask 65309.57,
+  // with that print still its last, and the cycle-13 sale at 65152.95 landed within 5 s after the sweep's start;
+  // taking the latest print up to 5 s after the start as "the latest at the sweep" dropped the one the alert read).
+  const atStart = bySequence.find((t) => t.timestamp <= onLast.at);
+  const justAfter = bySequence.filter((t) => t.timestamp > onLast.at && t.timestamp <= onLast.at + 5_000);
+  const prints = [...(atStart ? [atStart] : []), ...justAfter].map((t) => fromCents(cents(String(t.price))));
   expect(prints, `the last-trade alert fired at ${onLast.price}, a print on the tape`).toContain(fromCents(cents(onLast.price)));
 
   // Conditions up to the owner's cap (the main one included), saved and read back.
