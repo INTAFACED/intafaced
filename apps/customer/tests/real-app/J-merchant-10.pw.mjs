@@ -58,6 +58,7 @@ test(`${J} #1 opens Currencies: a row per asset with available and held and an a
 
   // Before the partner gives its list, nothing is marked: silence is not "not offered".
   await signInWithCode(page, who, '/pay/money');
+  kept(who.step);
   const all = section(page, 'All balances');
   await expect(all.getByRole('row').first()).toBeVisible();
   await expect(all.getByTestId('partner-currency-not-offered')).toHaveCount(0);
@@ -113,6 +114,7 @@ test(`${J} #4 sends an instant payout: the partner's fee and net before confirmi
     fee: { known: false },
   });
   await signInWithCode(page, who, '/pay/payouts/new');
+  kept(who.step);
   await expect(line).toHaveText('Instant payout: partner’s fee not known');
 
   // The partner has no instant rail for this business.
