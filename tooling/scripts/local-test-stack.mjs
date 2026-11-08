@@ -74,7 +74,7 @@ import { anvilBin, chainRecordPath, chainStatus, CHAIN_PORTS, GATE_URL, runSeedS
 import { reduceMaps } from './journey-reach.mjs';
 import { marketStatus } from './local-test-market.mjs';
 import { serveRailStatements } from './local-test-rail-statements.mjs';
-import { serveTestVenue, testVenueChainId } from './local-test-venue.mjs';
+import { serveTestVenue, testVenueChainId, userVenueSwitchOn } from './local-test-venue.mjs';
 import { ensureTestCert, httpsGetTrusting, serveTeamTls } from './local-test-team-tls.mjs';
 import { serveVideoStore } from './local-video-store.mjs';
 import academy from './local-stack-services/academy.mjs';
@@ -1847,10 +1847,11 @@ async function startRailStatements() {
  * with LOCAL_STACK_USER_VENUE=on. Off, nothing changes: the venue does not start and trade gets no TRADE_USER_VENUE_URL.
  */
 export function userVenueOn(env = process.env) {
-  const raw = (env.LOCAL_STACK_USER_VENUE ?? '').trim();
-  if (raw === '' || raw === 'off') return false;
-  if (raw !== 'on') fail(`LOCAL_STACK_USER_VENUE must be unset, off or on (got ${JSON.stringify(raw)})`, 2);
-  return true;
+  try {
+    return userVenueSwitchOn(env.LOCAL_STACK_USER_VENUE);
+  } catch (err) {
+    fail(err.message, 2);
+  }
 }
 
 /** The LOCAL TEST venue simulator (local-test-venue.mjs), for svc-trade's user-venue door. TEST figures only. */

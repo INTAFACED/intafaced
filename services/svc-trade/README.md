@@ -162,6 +162,8 @@ spends identity's step-up (`trade.step_up.venue.withdraw`) before it is prepared
 `TRADE_USER_VENUE_BUILDER_ADDRESS` / `TRADE_USER_VENUE_BUILDER_FEE_BPS` (owner values); blank, orders refuse
 `builder_fee_not_published`. A TEST venue is refused unless the raw APP_ENV is dev or test. The ledger posts nothing and
 no event is sent: the venue is the record of balances, locks, fills and withdrawals.
+Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
+B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
 
 ## Events
 

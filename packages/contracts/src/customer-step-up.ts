@@ -362,17 +362,19 @@ export const CUSTOMER_STEP_UP_DOORS: readonly CustomerStepUpDoor[] = [
     // svc-trade (B1 user-venue door): one withdrawal from the caller's own venue account, of one amount of one asset to
     // one address. The request id is `venue.withdraw:<withdrawalKey>`, so one confirmation approves one withdrawal; the
     // amount is the canonical decimal (`formatAmount`) and the destination a lowercase 0x address, as svc-trade hashes them.
+    // The venue account the funds leave (`owner`, lowercase 0x; `subAccount`, empty for the main account) is bound too.
     scope: 'trade.step_up.venue.withdraw',
     purpose: 'venue.withdraw',
-    clientFields: ['withdrawalKey', 'asset', 'amount', 'destination'],
+    clientFields: ['withdrawalKey', 'owner', 'subAccount', 'asset', 'amount', 'destination'],
     amountField: 'amount',
     targetField: 'withdrawalKey',
     targetRequired: true,
-    emptyOk: [],
+    emptyOk: ['subAccount'],
     decimalFields: ['amount'],
     fixed: {},
     shapes: {
       withdrawalKey: (value) => /^[a-z][a-z0-9-]*:.{1,160}$/.test(value),
+      owner: (value) => /^0x[0-9a-f]{40}$/.test(value),
       destination: (value) => /^0x[0-9a-f]{40}$/.test(value),
     },
   },

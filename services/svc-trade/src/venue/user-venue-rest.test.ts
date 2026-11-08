@@ -128,5 +128,11 @@ describe('/api/v1/venue/*', () => {
 
     const n = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: { ...order, amount: 0.1 } } });
     expect(n.statusCode).toBe(400);
+    // Anything but a decimal string in an Amount field is refused at decode, before the venue is asked.
+    for (const amount of [{}, true, null]) {
+      const bad = await app.inject({ method: 'POST', url: '/api/v1/venue/preview', payload: { owner, intent: { ...order, amount } } });
+      expect(bad.statusCode).toBe(400);
+      expect(bad.json().intafacedCode).toBe('trade.venue_request_invalid');
+    }
   });
 });

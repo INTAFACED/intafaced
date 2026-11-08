@@ -34,6 +34,17 @@ export function testVenueChainId(raw) {
   return Number(text);
 }
 
+/**
+ * `LOCAL_STACK_USER_VENUE`: unset, blank or `off` is off, `on` is on, anything else throws. The one reading of the switch,
+ * shared by the stack (which starts the TEST venue) and trade's env (which points the door at it), so the two never disagree.
+ */
+export function userVenueSwitchOn(raw) {
+  const text = (raw ?? '').trim();
+  if (text === '' || text === 'off') return false;
+  if (text !== 'on') throw new Error(`LOCAL_STACK_USER_VENUE must be unset, off or on (got ${JSON.stringify(raw)})`);
+  return true;
+}
+
 /** Start the TEST venue and seed it. Resolves with the server and its URL. */
 export async function serveTestVenue({ host, port, appEnv, chainId }) {
   if (!fs.existsSync(VENUE_SIM_DIST)) {

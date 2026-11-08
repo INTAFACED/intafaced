@@ -5,7 +5,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError, type StepUpCheck, type StepUpCheckRequest } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import type { PlaceUserOrderIntent, PreparedVenueAction, VenueIntent } from '@intafaced/venue-contracts';
+import type { PlaceUserOrderIntent, PreparedVenueAction, VenueIntent, VenueSubmitOutcome } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
@@ -268,6 +268,67 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     expect(open).toHaveLength(1);
   });
 
+  it('bad signature bytes are refused before they are stored; the key then completes with a good signature', async () => {
+    const { d, store } = door();
+    const p = await d.prepare(principal, { owner, signer, intent: order(6, { price: a('58200') }) });
+    await expect(
+      d.submit(principal, p.actionKey, { digest: p.prepared.digest, signature: '0xdead', signedBy: owner }),
+    ).rejects.toMatchObject({
+      refusal: { code: 'signature_mismatch' },
+    });
+    // A well-formed signature by another key, claiming our signer, is refused the same way.
+    const other = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet someone else')));
+    const t = p.prepared.typedData as TestVenueTypedData;
+    const forged = await other.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+    await expect(d.submit(principal, p.actionKey, { digest: p.prepared.digest, signature: forged, signedBy: owner })).rejects.toMatchObject(
+      {
+        refusal: { code: 'signature_mismatch' },
+      },
+    );
+    expect((await store.find(USER, p.actionKey))?.signature).toBeNull();
+    const ok = await d.submit(principal, p.actionKey, await sign(p.prepared));
+    expect(ok.outcome).toMatchObject({ definite: true, accepted: true });
+  });
+
+  it('a definite outcome is never replaced by a later not-definite one (in-memory store)', async () => {
+    const store = new InMemoryPreparedActionStore();
+    const k = `order:${USER}:door-test:outcome`;
+    await store.insertOnce(USER, k, somePrepared('v'));
+    const accepted = await store.recordOutcome(USER, k, { definite: false, reason: 'timeout' });
+    expect(accepted).toEqual({ definite: false, reason: 'timeout' });
+    const definite: VenueSubmitOutcome = {
+      definite: true,
+      accepted: false,
+      refusal: { venueId: 'v', code: 'venue_down', detail: 'x' },
+      asOf: new Date('2026-11-08T20:00:00.000Z'),
+    };
+    expect(await store.recordOutcome(USER, k, definite)).toEqual(definite);
+    expect(await store.recordOutcome(USER, k, { definite: false, reason: 'already_submitted' })).toEqual(definite);
+    expect((await store.find(USER, k))?.lastOutcome).toEqual(definite);
+  });
+
+  it('a changed builder fee between two prepares of one key refuses trade.venue_builder_fee_changed, not "key reused"', async () => {
+    const store = new InMemoryPreparedActionStore();
+    const before = door({ store });
+    const approve = await before.d.prepare(principal, {
+      owner,
+      signer,
+      intent: { kind: 'approve_builder_fee', builder: BUILDER.address, maxFeeBps: a('2') },
+      actionKey: `approve-builder:${USER}:fee-change`,
+    });
+    await before.d.submit(principal, approve.actionKey, await sign(approve.prepared));
+    await before.d.prepare(principal, { owner, signer, intent: order(7, { price: a('58300') }) });
+    const after = door({ store, builder: { address: BUILDER.address, feeBps: a('2') } });
+    await expect(after.d.prepare(principal, { owner, signer, intent: order(7, { price: a('58300') }) })).rejects.toMatchObject({
+      code: 'trade.venue_builder_fee_changed',
+      status: 409,
+    });
+    // Another change to the order is still "key reused".
+    await expect(after.d.prepare(principal, { owner, signer, intent: order(7, { price: a('58400') }) })).rejects.toMatchObject({
+      code: 'trade.venue_action_key_reused',
+    });
+  });
+
   it('blank builder fee: every order refuses builder_fee_not_published before the venue is asked', async () => {
     const { d, store } = door({ builder: null });
     await expect(d.prepare(principal, { owner, signer, intent: order(4) })).rejects.toMatchObject({
@@ -304,7 +365,7 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       userId: USER,
       sessionId: principal.sid,
       approvalId: 'appr-1',
-      fields: { withdrawalKey: `withdraw:${USER}:1`, asset: 'USDC', amount: '10.5', destination: owner },
+      fields: { withdrawalKey: `withdraw:${USER}:1`, owner, subAccount: '', asset: 'USDC', amount: '10.5', destination: owner },
       requestId: `venue.withdraw:withdraw:${USER}:1`,
     });
 

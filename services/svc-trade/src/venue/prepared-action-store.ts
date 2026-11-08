@@ -26,7 +26,11 @@ export interface PreparedActionStore {
   insertOnce(userId: string, businessKey: string, prepared: PreparedVenueAction, at: Date): Promise<StoredVenueAction>;
   /** Record the first signature; a later call keeps the first. Returns the stored row. */
   signOnce(userId: string, businessKey: string, signature: VenueSignature, at: Date): Promise<StoredVenueAction>;
-  recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<void>;
+  /**
+   * Record the venue's latest answer, except that a definite outcome is never replaced by a not-definite one. Returns the
+   * outcome now stored (the earlier definite one when it was kept).
+   */
+  recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
 }
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
@@ -67,7 +71,11 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
   async recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome) {
     const id = this.id(userId, businessKey);
     const row = this.rows.get(id);
-    if (row) this.rows.set(id, { ...row, lastOutcome: wire(outcome) });
+    if (!row) throw new Error(`no prepared venue action under ${businessKey}`);
+    if (row.lastOutcome?.definite && !outcome.definite) return row.lastOutcome;
+    const next = { ...row, lastOutcome: wire(outcome) };
+    this.rows.set(id, next);
+    return next.lastOutcome;
   }
 }
 
@@ -124,6 +132,10 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     const json = encodeVenueWire(outcome) as Parameters<Sql['json']>[0];
     await this.sql`
       UPDATE trade.user_venue_actions SET last_outcome = ${this.sql.json(json)}::jsonb, submitted_at = ${at}
-      WHERE user_id = ${userId} AND business_key = ${businessKey}`;
+      WHERE user_id = ${userId} AND business_key = ${businessKey}
+        AND (${outcome.definite} OR last_outcome IS NULL OR last_outcome->>'definite' IS DISTINCT FROM 'true')`;
+    const stored = await this.find(userId, businessKey);
+    if (!stored?.lastOutcome) throw new Error(`no prepared venue action under ${businessKey}`);
+    return stored.lastOutcome;
   }
 }

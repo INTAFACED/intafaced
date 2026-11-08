@@ -31,4 +31,18 @@ describe('user-venue wire', () => {
     expect(() => decodeVenueWire({ intent: { price: 60000 } })).toThrow(/decimal string/);
     expect(() => decodeVenueWire({ amount: '1e5' })).toThrow(VenueWireError);
   });
+
+  it('refuses anything but a decimal string (or null where the type allows it) in an Amount field', () => {
+    for (const bad of [{}, [], true, null, ['1']]) {
+      expect(() => decodeVenueWire({ intent: { amount: bad } })).toThrow(/amount must be a decimal string/);
+    }
+    expect(() => decodeVenueWire({ price: { value: '1' } })).toThrow(VenueWireError);
+    expect(() => decodeVenueWire({ balances: [{ free: false }] })).toThrow(/free must be a decimal string/);
+    expect(decodeVenueWire({ averagePrice: null, realisedPnl: null })).toEqual({ averagePrice: null, realisedPnl: null });
+    // A name some type also uses for an object still decodes field by field.
+    expect(decodeVenueWire({ builderFee: { builder: '0xb', feeBps: '1' }, fee: { known: true, value: '0.5' } })).toEqual({
+      builderFee: { builder: '0xb', feeBps: parseAmount('1') },
+      fee: { known: true, value: parseAmount('0.5') },
+    });
+  });
 });

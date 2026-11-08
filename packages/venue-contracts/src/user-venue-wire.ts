@@ -44,6 +44,26 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'value',
 ]);
 
+/**
+ * Amount fields whose name some type also uses for an object (`MaybeKnown<Amount>`, the order's `builderFee`, an
+ * `AsOf` value): an object there is decoded field by field. Every other Amount field is a decimal string, never an
+ * object, array or boolean.
+ */
+const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
+  'builderFee',
+  'venueFee',
+  'fee',
+  'withdrawalFee',
+  'liquidationPrice',
+  'initialMargin',
+  'makerFeeBps',
+  'takerFeeBps',
+  'value',
+]);
+
+/** Amount fields that may be `null` (`UserVenueFill.realisedPnl`, `UserVenueOrder.averagePrice`). */
+const NULLABLE_AMOUNT_FIELDS: ReadonlySet<string> = new Set(['realisedPnl', 'averagePrice']);
+
 const DATE_FIELDS: ReadonlySet<string> = new Set(['asOf', 'preparedAt', 'filledAt', 'validUntil', 'since']);
 
 const OPAQUE_FIELDS: ReadonlySet<string> = new Set(['typedData']);
@@ -75,6 +95,13 @@ export function decodeVenueWire<T>(value: unknown): T {
 }
 
 function decode(value: unknown, key: string | null): unknown {
+  if (key !== null && AMOUNT_FIELDS.has(key) && !AMOUNT_OR_OBJECT_FIELDS.has(key) && typeof value !== 'string') {
+    if (value === null && NULLABLE_AMOUNT_FIELDS.has(key)) return null;
+    if (typeof value === 'number') throw new VenueWireError(`${key} is a JSON number; money travels as a decimal string`);
+    throw new VenueWireError(
+      `${key} must be a decimal string, got ${value === null ? 'null' : Array.isArray(value) ? 'an array' : typeof value}`,
+    );
+  }
   if (Array.isArray(value)) return value.map((item) => decode(item, key));
   if (value !== null && typeof value === 'object') {
     const out: Record<string, unknown> = {};

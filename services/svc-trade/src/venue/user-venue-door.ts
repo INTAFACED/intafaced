@@ -1,3 +1,4 @@
+import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import type { Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
@@ -47,6 +48,7 @@ export type UserVenueDoorCode =
   | 'trade.venue_request_invalid'
   | 'trade.venue_action_key_invalid'
   | 'trade.venue_action_key_reused'
+  | 'trade.venue_builder_fee_changed'
   | 'trade.venue_action_unknown';
 
 export class UserVenueDoorError extends Error {
@@ -125,8 +127,41 @@ function invalid(message: string): never {
   throw new UserVenueDoorError(message, 'trade.venue_request_invalid', 400);
 }
 
+/** The wire form with every object's keys sorted: jsonb does not keep key order, so equality never depends on it. */
+function canonical(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(canonical);
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(value).sort()) out[k] = canonical((value as Record<string, unknown>)[k]);
+  return out;
+}
+
 function sameJson(a: unknown, b: unknown): boolean {
-  return JSON.stringify(encodeVenueWire(a)) === JSON.stringify(encodeVenueWire(b));
+  return JSON.stringify(canonical(encodeVenueWire(a))) === JSON.stringify(canonical(encodeVenueWire(b)));
+}
+
+/**
+ * The signature bytes themselves, checked before the first signature is stored: the prepared typed data must hash to the
+ * prepared digest and the bytes must recover to the prepared signer. Bad bytes are refused and never stored, so the key
+ * can still complete with a good signature.
+ */
+async function assertSignatureRecovers(prepared: PreparedVenueAction, signature: VenueSignature): Promise<void> {
+  let recovered: string | null = null;
+  try {
+    const typed = prepared.typedData as TypedDataDefinition;
+    if (hashTypedData(typed).toLowerCase() === prepared.digest.toLowerCase()) {
+      recovered = (await recoverTypedDataAddress({ ...typed, signature: signature.signature as Hex })).toLowerCase();
+    }
+  } catch {
+    recovered = null;
+  }
+  if (recovered !== prepared.signer.address.toLowerCase()) {
+    throw new VenueRefusalError({
+      venueId: prepared.venueId,
+      code: 'signature_mismatch',
+      detail: 'the signature bytes do not recover to the prepared signer over the prepared payload; nothing was stored or sent',
+    });
+  }
 }
 
 export class UserVenueDoor {
@@ -239,6 +274,9 @@ export class UserVenueDoor {
         approvalId: req.stepUpApprovalId,
         fields: {
           withdrawalKey: key,
+          // The venue account the funds leave: a step-up proves the account as well as the amount and destination.
+          owner: (req.owner ?? '').trim().toLowerCase(),
+          subAccount: req.subAccount ?? '',
           asset: intent.asset,
           amount: formatAmount(intent.amount),
           destination: (intent.destination ?? '').toLowerCase(),
@@ -276,6 +314,20 @@ export class UserVenueDoor {
 
   private reuse(row: StoredVenueAction, account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): PreparedAnswer {
     const p = row.prepared;
+    if (
+      p.intent.kind === 'place_order' &&
+      intent.kind === 'place_order' &&
+      sameJson(p.account, account) &&
+      sameJson(p.signer, signer) &&
+      sameJson({ ...p.intent, builderFee: null }, { ...intent, builderFee: null }) &&
+      !sameJson(p.intent.builderFee, intent.builderFee)
+    ) {
+      throw new UserVenueDoorError(
+        `our builder fee changed since ${row.businessKey} was prepared; the stored order keeps the fee it was prepared with, so a new order needs a new key`,
+        'trade.venue_builder_fee_changed',
+        409,
+      );
+    }
     if (!sameJson(p.account, account) || !sameJson(p.signer, signer) || !sameJson(p.intent, intent)) {
       throw new UserVenueDoorError(
         `the action key ${row.businessKey} was already used for a different action; a new action needs a new key`,
@@ -288,8 +340,8 @@ export class UserVenueDoor {
 
   /**
    * Send the stored action with its stored signature. The first signature given is stored before anything is sent and
-   * is the one every re-submit re-sends. A signature that does not even claim the stored digest and signer is refused
-   * before it is stored (`assertSignatureMatches`); the venue verifies the bytes themselves.
+   * is the one every re-submit re-sends. A signature that does not claim the stored digest and signer, or whose bytes do
+   * not recover to the prepared signer, is refused before it is stored; the venue verifies the bytes again.
    */
   async submit(principal: Principal, actionKey: string, signature: VenueSignature): Promise<SubmitAnswer> {
     const key = (actionKey ?? '').trim();
@@ -307,11 +359,13 @@ export class UserVenueDoor {
     let signed = row;
     if (!row.signature) {
       assertSignatureMatches(row.prepared, signature);
+      await assertSignatureRecovers(row.prepared, signature);
       signed = await this.deps.store.signOnce(principal.userId, key, signature, this.deps.now());
     }
     const venue = await this.venue();
-    const outcome = await venue.submit(signed.prepared, signed.signature as VenueSignature);
-    await this.deps.store.recordOutcome(principal.userId, key, outcome, this.deps.now());
+    const answered = await venue.submit(signed.prepared, signed.signature as VenueSignature);
+    // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
+    const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());
     const p = signed.prepared;
     const readBack = outcome.definite ? null : p.venueClientOrderId ? { venueClientOrderId: p.venueClientOrderId } : { nonce: p.nonce };
     return { actionKey: key, outcome, readBack };

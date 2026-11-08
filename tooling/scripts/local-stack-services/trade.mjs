@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { userVenueSwitchOn } from '../local-test-venue.mjs';
 import { loadProfile } from '../owner-settings.mjs';
 
 /** One labelled TEST value from this service's profile file; a missing one names the file instead of a bare TypeError. */
@@ -225,7 +226,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     // local-test-venue.mjs). Off, trade gets no TRADE_USER_VENUE_URL and nothing changes. The builder address and fee are
     // the labelled LOCAL TEST values; `LOCAL_STACK_USER_VENUE_BUILDER_FEE=off` leaves the fee blank, so every venue order
     // refuses builder_fee_not_published.
-    ...(process.env.LOCAL_STACK_USER_VENUE === 'on'
+    ...(userVenueSwitchOn(process.env.LOCAL_STACK_USER_VENUE)
       ? {
           TRADE_USER_VENUE_URL: urlOf('test-venue'),
           TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
