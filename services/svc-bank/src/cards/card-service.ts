@@ -29,7 +29,27 @@ import {
 import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
 import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates } from './card-programme.js';
 import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
-import { NOTHING_REPORTED, payFromAssets, requireSpendAssets, type CardPartnerTerms, type PayFromAsset } from './partner-terms.js';
+import {
+  NOTHING_REPORTED,
+  NOT_USED_FOR_CARDS,
+  assertPayFromOrder,
+  payFromAssets,
+  requireSpendAssets,
+  type CardPartnerTerms,
+  type PayFromRow,
+} from './partner-terms.js';
+
+/** Pay from, as the bank answers it (J-bank-29 #1 and #2). */
+export interface PayFromView {
+  readonly test: boolean;
+  readonly custodyMode: CardPartnerTerms['custodyMode'];
+  /** What the person's open cards settle in, which every rate is quoted in; null when none, or they differ. */
+  readonly settlementAssetId: string | null;
+  readonly assets: PayFromRow[];
+  /** The person's saved order, first to last, or null when none is saved. */
+  readonly order: string[] | null;
+  readonly notUsedForCards: Array<(typeof NOT_USED_FOR_CARDS)[number]>;
+}
 
 /**
  * CARDS (§8.1) — the LEDGER half: authorise, hold, capture, reverse, cash back.
@@ -460,24 +480,76 @@ export class CardService {
   /**
    * Pay from (J-bank-29 #1 and #2): the owner's spendable assets and any other asset this person's cards draw on, each
    * marked offered, "not offered by the partner", or "not known" from the partner's own list, with how the partner spends
-   * (it holds the crypto, or the card pulls from the person's own wallet). Reads only; nothing is held or posted.
+   * (it holds the crypto, or the card pulls from the person's own wallet). For each asset the partner can spend from: the
+   * partner's reported balance, and the rate of one unit in the card's settlement asset with the time the rate source
+   * stamped it; each is null ("not known") when its source is silent, never 0. Then the person's saved order, and the
+   * account kinds a card never pays from. Reads only; nothing is held or posted.
    */
-  async payFrom(userId: string): Promise<{ test: boolean; custodyMode: CardPartnerTerms['custodyMode']; assets: PayFromAsset[] }> {
+  async payFrom(userId: string): Promise<PayFromView> {
     // The partner first: with no issuer, or the simulator in a live deployment, that is the blocker to name.
     const terms = this.partnerTerms();
     const owner = requireSpendAssets(this.spendAssets);
-    const rows = await this.sql<Array<{ asset_id: string }>>`
-      SELECT DISTINCT asset_id FROM bank.cards WHERE user_id = ${userId} AND status <> 'closed' ORDER BY asset_id
+    const cards = await this.sql<Array<{ asset_id: string; settlement_asset_id: string }>>`
+      SELECT asset_id, settlement_asset_id FROM bank.cards WHERE user_id = ${userId} AND status <> 'closed' ORDER BY created_at, id
+    `;
+    const states = payFromAssets(owner, terms, [...new Set(cards.map((r) => r.asset_id))].sort());
+    const offered = states.filter((a) => a.state === 'offered').map((a) => a.assetId);
+    // One settlement asset to quote in: the one every open card settles in. None, or cards that settle in different
+    // assets, and the rate is "not known" rather than a guess at which card a payment will use.
+    const settlements = [...new Set(cards.map((r) => r.settlement_asset_id))];
+    const settlementAssetId = settlements.length === 1 ? settlements[0]! : null;
+    let marks = new Map<string, { price: Amount; asOf: Date }>();
+    if (settlementAssetId && offered.length > 0) {
+      try {
+        marks = await this.rates.marks(offered, settlementAssetId);
+      } catch {
+        // A rate source that cannot answer is silent: every rate reads "not known".
+      }
+    }
+    const balances = await this.partnerBalances(userId);
+    const [saved] = await this.sql<Array<{ asset_ids: string[] }>>`
+      SELECT asset_ids FROM bank.card_pay_from_orders WHERE user_id = ${userId}
     `;
     return {
       test: terms.test,
       custodyMode: terms.custodyMode,
-      assets: payFromAssets(
-        owner,
-        terms,
-        rows.map((r) => r.asset_id),
-      ),
+      settlementAssetId,
+      assets: states.map((a) => {
+        const mark = a.state === 'offered' ? marks.get(a.assetId) : undefined;
+        const balance = a.state === 'offered' ? balances?.[a.assetId] : undefined;
+        return {
+          ...a,
+          partnerBalance: balance ?? null,
+          rate: mark ? formatAmount(mark.price) : null,
+          rateAsOf: mark ? mark.asOf.toISOString() : null,
+        };
+      }),
+      order: saved ? saved.asset_ids : null,
+      notUsedForCards: [...NOT_USED_FOR_CARDS],
     };
+  }
+
+  /**
+   * Save the person's pay-from order (J-bank-29 #2): the assets a payment is taken from, first to last. Each must be one the
+   * owner lists and the partner can spend from; the owner's list blank refuses `bank.card_spend_assets_unset` and nothing is
+   * saved (J-bank-29 #1). Saving the same order again changes nothing. Moves no value.
+   */
+  async setPayFromOrder(userId: string, order: readonly string[]): Promise<PayFromView> {
+    const terms = this.partnerTerms();
+    const owner = requireSpendAssets(this.spendAssets);
+    assertPayFromOrder(order, payFromAssets(owner, terms, []));
+    await this.sql`
+      INSERT INTO bank.card_pay_from_orders (user_id, asset_ids) VALUES (${userId}, ${this.sql.array([...order])}::text[])
+      ON CONFLICT (user_id) DO UPDATE SET asset_ids = EXCLUDED.asset_ids, updated_at = now()
+      WHERE bank.card_pay_from_orders.asset_ids IS DISTINCT FROM EXCLUDED.asset_ids
+    `;
+    return this.payFrom(userId);
+  }
+
+  /** The partner's reported spendable balances for this cardholder, or null where the adapter reports none. */
+  private async partnerBalances(userId: string): Promise<Readonly<Record<string, string>> | null> {
+    if (!this.issuer.cardholderBalances) return null;
+    return this.issuer.cardholderBalances({ userId });
   }
 
   /** The owner's published programme terms, or null (BK-cissue-01). */

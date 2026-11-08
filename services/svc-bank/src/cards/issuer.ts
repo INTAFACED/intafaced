@@ -121,6 +121,12 @@ export interface CardIssuerAdapter {
    */
   partnerTerms?(): CardPartnerTerms;
 
+  /**
+   * What the partner reports this cardholder can spend, per asset, as decimal strings (J-bank-29 #2). `null` is "not
+   * known". Reads only. Optional: an adapter without it reports no balances, and each reads "not known".
+   */
+  cardholderBalances?(input: { userId: string }): Promise<Readonly<Record<string, string>> | null>;
+
   /** Freeze, unfreeze or close the card at the issuer. */
   setStatus(input: { cardId: string; issuerRef: string; status: 'active' | 'frozen' | 'closed' }): Promise<void>;
 
@@ -221,6 +227,8 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
     respondToAuthorization: async () => undefined,
     setStatus: async () => undefined,
     partnerTerms: () => partner,
+    // The TEST partner's figures: the same TEST balances for every cardholder, as its switches set them.
+    cardholderBalances: async () => partner.balances,
   };
 }
 
@@ -248,6 +256,9 @@ export const noCardIssuer: CardIssuerAdapter = {
     throw new BankError('No card issuer is configured — this deployment has no card programme', 'bank.no_card_issuer');
   },
   partnerTerms: () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to ask', 'bank.no_card_issuer');
+  },
+  cardholderBalances: async () => {
     throw new BankError('No card issuer is configured — this deployment has no card partner to ask', 'bank.no_card_issuer');
   },
 };
@@ -312,6 +323,7 @@ export function cardSimNotLive(): CardIssuerAdapter {
     setStatus: async () => refuse(),
     // The TEST partner's answers are never shown as a live partner's.
     partnerTerms: () => refuse(),
+    cardholderBalances: async () => refuse(),
   };
 }
 

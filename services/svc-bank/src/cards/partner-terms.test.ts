@@ -19,7 +19,7 @@ import {
 } from './partner-terms.js';
 
 const DEV = { APP_ENV: 'dev' };
-const UNKNOWN = { custodyMode: null, spendFrom: null, lossLiability: null, reserve: null, funder: null };
+const UNKNOWN = { custodyMode: null, spendFrom: null, lossLiability: null, reserve: null, funder: null, balances: null };
 const json = (v: object) => JSON.stringify({ ...UNKNOWN, ...v });
 
 describe('custody mode switch: the partner holds the crypto, or the card pulls from the wallet (J-bank-29)', () => {

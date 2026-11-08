@@ -310,6 +310,10 @@ export type BankErrorCode =
   /** The owner has not published the card programme (countries, card limits, terms), so no card can be ordered. */
   | 'bank.card_eligibility_unset'
   | 'bank.card_spend_assets_unset'
+  /** A pay-from order names an asset the card partner cannot spend from (J-bank-29 #2). */
+  | 'bank.card_pay_from_not_offered'
+  /** A pay-from order is empty or names an asset twice. */
+  | 'bank.card_pay_from_order_invalid'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */

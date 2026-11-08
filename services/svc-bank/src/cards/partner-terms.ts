@@ -32,6 +32,12 @@ export interface CardPartnerTerms {
   readonly lossLiability: { readonly bearer: LossBearer; readonly terms: string } | null;
   readonly reserve: { readonly required: false } | { readonly required: true; readonly amount: string; readonly assetId: string } | null;
   readonly funder: string | null;
+  /**
+   * What the partner reports a cardholder can spend, per asset (J-bank-29 #2), as decimal strings in the partner's own
+   * figures. `null` is "not known"; an asset the map leaves out is "not known" too, never 0. The TEST adapter reports the
+   * same TEST figures for every cardholder.
+   */
+  readonly balances: Readonly<Record<string, string>> | null;
 }
 
 /** Nothing reported: what a partner that has answered none of the four looks like. */
@@ -42,6 +48,7 @@ export const NOTHING_REPORTED: CardPartnerTerms = {
   lossLiability: null,
   reserve: null,
   funder: null,
+  balances: null,
 };
 
 const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
@@ -65,13 +72,17 @@ const simShape = z
       ])
       .nullable(),
     funder: z.string().trim().min(1).max(200).nullable(),
+    balances: z
+      .record(assetId, z.string().regex(/^\d+(\.\d{1,18})?$/))
+      .refine((m) => Object.keys(m).length <= 50, 'at most 50 assets')
+      .nullable(),
   })
   .strict();
 
 /**
  * THE TEST PARTNER CARD ADAPTER'S SWITCHES (`BANK_CARD_SIM_PARTNER_JSON`), on the local test stack only.
  *
- * Every one of the five keys must be present, as a value or as `null` (not known), so a missing key can never quietly
+ * Every one of the six keys must be present, as a value or as `null` (not known), so a missing key can never quietly
  * become a default. Unset is `NOTHING_REPORTED`. Set anywhere but `APP_ENV` dev or test, or under `NODE_ENV=production`,
  * it refuses to start: these are a stand-in partner's answers, and no deployment may carry them as a real partner's.
  * Malformed refuses to start too, naming the variable.
@@ -204,4 +215,38 @@ export function payFromAssets(owner: readonly string[], terms: CardPartnerTerms,
     out.push({ assetId, state });
   }
   return out;
+}
+
+/** The two kinds of account a card never pays from (J-bank-29 #2 and its Money line), whatever the order says. */
+export const NOT_USED_FOR_CARDS = ['trading', 'agent'] as const;
+
+/** One row of Pay from, with the partner's balance and the rate (J-bank-29 #2). Each null is "not known". */
+export interface PayFromRow extends PayFromAsset {
+  /** The partner's reported spendable balance, only for an asset it can spend from. */
+  readonly partnerBalance: string | null;
+  /** One unit of the asset in the card's settlement asset, from the rate source, and the time the source stamped it. */
+  readonly rate: string | null;
+  readonly rateAsOf: string | null;
+}
+
+/**
+ * A pay-from order to save (J-bank-29 #2): at least one asset, none twice, each one the partner can spend from and the owner
+ * lists. Anything else refuses by name; nothing is saved.
+ */
+export function assertPayFromOrder(order: readonly string[], rows: readonly PayFromAsset[]): void {
+  if (order.length === 0 || new Set(order).size !== order.length) {
+    throw new BankError(
+      'A pay-from order names each asset once, and at least one (bank.card_pay_from_order_invalid)',
+      'bank.card_pay_from_order_invalid',
+    );
+  }
+  for (const assetId of order) {
+    const row = rows.find((r) => r.assetId === assetId);
+    if (!row || row.state !== 'offered') {
+      throw new BankError(
+        `${assetId} is not an asset the card partner can spend from for this card programme (bank.card_pay_from_not_offered)`,
+        'bank.card_pay_from_not_offered',
+      );
+    }
+  }
 }

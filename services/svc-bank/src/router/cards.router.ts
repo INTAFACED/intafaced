@@ -16,7 +16,28 @@ import {
 import { cardInactive } from '../cards/card-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
-import { CARD_CUSTODY_MODES } from '../cards/partner-terms.js';
+import { CARD_CUSTODY_MODES, NOT_USED_FOR_CARDS } from '../cards/partner-terms.js';
+
+const decimalOrNull = z
+  .string()
+  .regex(/^\d+(\.\d{1,18})?$/)
+  .nullable();
+const payFromOutput = z.object({
+  test: z.boolean(),
+  custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
+  settlementAssetId: z.string().nullable(),
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+      partnerBalance: decimalOrNull,
+      rate: decimalOrNull,
+      rateAsOf: z.string().nullable(),
+    }),
+  ),
+  order: z.array(z.string()).nullable(),
+  notUsedForCards: z.array(z.enum(NOT_USED_FOR_CARDS)),
+});
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
 import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
@@ -562,19 +583,33 @@ export function createCardsRouter(c: BankRouterContext) {
 
     /**
      * Pay from (J-bank-29 #1 and #2; BK-ccrypto-01): the owner's spendable assets and any other the person's cards draw on,
-     * each offered, "not offered by the partner" or "not known", from the card partner's own list, and how the partner
-     * spends (it holds the crypto, or the card pulls from the person's own wallet). No owner list refuses
-     * `bank.card_spend_assets_unset`. Reads only.
+     * each offered, "not offered by the partner" or "not known", from the card partner's own list; how the partner spends
+     * (it holds the crypto, or the card pulls from the person's own wallet); for each offered asset the partner's balance
+     * and the rate with its time, or null ("not known"); the saved order; and the account kinds a card never pays from. No
+     * owner list refuses `bank.card_spend_assets_unset`. Reads only.
      */
     payFrom: scopedProcedure('bank:read', { module: 'bank' })
-      .output(
-        z.object({
-          test: z.boolean(),
-          custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
-          assets: z.array(z.object({ assetId: z.string(), state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']) })),
-        }),
-      )
+      .output(payFromOutput)
       .query(({ ctx }) => guard(async () => bank.cards.payFrom(ctx.principal.userId))),
+
+    /**
+     * Save the pay-from order (J-bank-29 #2): each asset once, each one the owner lists and the partner can spend from. No
+     * owner list refuses `bank.card_spend_assets_unset`; another asset refuses `bank.card_pay_from_not_offered`. Saving the
+     * same order again changes nothing. Moves no value.
+     */
+    setPayFromOrder: scopedProcedure('bank:write', { module: 'bank' })
+      .input(
+        z
+          .object({
+            assetIds: z
+              .array(z.string().regex(/^[A-Z0-9]{2,16}$/))
+              .min(1)
+              .max(50),
+          })
+          .strict(),
+      )
+      .output(payFromOutput)
+      .mutation(({ ctx, input }) => guard(async () => bank.cards.setPayFromOrder(ctx.principal.userId, input.assetIds))),
 
     // ── Getting a card (J-bank-13; BK-cissue-01 to -04) ─────────────────────
 

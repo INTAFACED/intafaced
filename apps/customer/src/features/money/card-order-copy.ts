@@ -128,6 +128,21 @@ const en = {
   payFromNotOffered: 'not offered by the partner',
   payFromNotKnown: 'not known',
   payFromNotListed: 'not on the spendable list',
+  payFromBalanceHead: 'Partner balance',
+  payFromRateHead: 'Rate in {asset}',
+  payFromRateHeadNone: 'Rate',
+  payFromRateTimeHead: 'Rate time',
+  payFromSavedHead: 'Saved order',
+  payFromNoOrder: 'No order saved',
+  payFromOrderHead: 'Pay-from order',
+  payFromUp: 'Up',
+  payFromDown: 'Down',
+  payFromMoveUp: 'Move {asset} up',
+  payFromMoveDown: 'Move {asset} down',
+  payFromSave: 'Save order',
+  payFromTradingAccount: 'Trading account',
+  payFromAgentAccounts: 'Agent accounts',
+  payFromNotUsed: 'not used for card payments',
 } as const;
 
 export const cardOrderCopy = defineCopy('customer.money.card-order', en);

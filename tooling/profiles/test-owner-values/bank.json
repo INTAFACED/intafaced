@@ -208,8 +208,8 @@
     },
     "BANK_CARD_SIM_PARTNER_JSON": {
       "service": "bank",
-      "value": "{\"custodyMode\": \"partner_holds\", \"spendFrom\": [\"USDC\", \"BTC\", \"USD\"], \"lossLiability\": null, \"reserve\": null, \"funder\": null}",
-      "note": "The TEST partner card adapter's switches (CUSTODY-DELTA section 4): the stand-in partner holds the crypto and spends from USDC, BTC and USD; loss liability, any programme reserve and who funds the programme are not known (null), so the app shows \"not known\" (J-bank-26 #6, J-bank-27 #4). Not a partner's answers. Refused at boot outside dev/test."
+      "value": "{\"custodyMode\": \"partner_holds\", \"spendFrom\": [\"USDC\", \"BTC\", \"USD\"], \"lossLiability\": null, \"reserve\": null, \"funder\": null, \"balances\": {\"USDC\": \"30\", \"BTC\": \"0.01\", \"USD\": \"50\"}}",
+      "note": "The TEST partner card adapter's switches (CUSTODY-DELTA section 4): the stand-in partner holds the crypto, spends from USDC, BTC and USD and reports TEST 30 USDC, 0.01 BTC and 50 USD spendable for every cardholder (J-bank-29 Starts); loss liability, any programme reserve and who funds the programme are not known (null), so the app shows \"not known\" (J-bank-26 #6, J-bank-27 #4). Not a partner's answers. Refused at boot outside dev/test."
     }
   }
 }

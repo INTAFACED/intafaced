@@ -1,21 +1,26 @@
-// World: restart
+// World: market, restart
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, fund, journeyState, json, tool } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, api, fund, journeyState, json, tool } from './stack.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-bank-29, in the running app (docs/roadmap/journeys.json): I pay by card from my crypto and stablecoins. The card and its
 // money are the partner's (OWNER 226); no partner is named, so the stack runs the TEST partner card adapter (card-sim, no
 // issuer, no network) with its switches from the bank profile (BANK_CARD_SIM_PARTNER_JSON, CUSTODY-DELTA §4): the stand-in
-// partner spends from USDC, BTC and USD. The owner's TEST spendable-asset list is USDC, BTC, USD (BANK_CARD_SPEND_ASSETS).
-// One TEST account, verified and funded with TEST USDT, holds one TEST card drawing on USDT: an asset the partner cannot
-// spend from. Step 1 (BK-ccrypto-01): the owner's list switched off for one restart refuses Pay from by name. Step 2: Pay
-// from lists what the partner can spend from and reads "not offered by the partner" for the rest, in both of the partner's
-// modes: it holds the crypto, or (one restart with LOCAL_STACK_BANK_CARD_PARTNER=wallet_pull) the card pulls from the
-// person's own wallet. Two more restarts tell the partner's list from the owner's and show the unknown: a partner spending
-// from USDC and USD only (LOCAL_STACK_BANK_CARD_PARTNER=narrow) reads BTC, on the owner's list, "not offered by the partner";
-// a partner reporting nothing (=off) reads its mode and every owner-listed asset "not known". Not yet built, and not asserted here: each asset's partner balance, rate and rate time, the saved
-// order, the trading and agent accounts' line, and steps 3 to 8 (the authorisation path in each mode).
+// partner spends from USDC, BTC and USD and reports TEST 30 USDC, 0.01 BTC and 50 USD spendable. The owner's TEST
+// spendable-asset list is USDC, BTC, USD (BANK_CARD_SPEND_ASSETS). One TEST account, verified and funded with TEST USDT,
+// holds one TEST card drawing on USDT (an asset the partner cannot spend from) and settling in USDC, so each rate is one
+// unit in USDC from the stack's TEST ticker (svc-trade, BTC/USDC; USDC in itself is 1). Step 1 (BK-ccrypto-01): the
+// owner's list switched off for one restart refuses Pay from by name, and no order can be saved. Step 2: Pay from lists
+// what the partner can spend from, each with the partner's balance, the rate and its time, and "not offered by the
+// partner" for the rest; the person orders USDC, then BTC, then USD, and the saved order reads back; the trading account
+// and agent accounts read "not used for card payments". In both of the partner's modes: it holds the crypto, or (one
+// restart with LOCAL_STACK_BANK_CARD_PARTNER=wallet_pull) the card pulls from the person's own wallet. Two more restarts
+// tell the partner's list from the owner's and show the unknown: a partner spending from USDC and USD only (=narrow) reads
+// BTC "not offered by the partner"; a partner reporting nothing (=off) reads its mode, every owner-listed asset and every
+// balance "not known". The stack's ticker has no USD market against USDC, so USD's rate reads "not known" (see the PR).
+// Steps 3 to 8 (the authorisation path in each mode) are not built yet.
 const J = 'J-bank-29';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -67,9 +72,14 @@ async function bank(who = person()) {
 }
 
 const payFrom = (page) => page.getByTestId('card-pay-from');
+/** A decimal string in 18-place units, so two rates compare without a JS number. */
+const units = (d) => {
+  const [whole, frac = ''] = String(d).split('.');
+  return BigInt(whole) * 10n ** 18n + BigInt((frac + '0'.repeat(18)).slice(0, 18));
+};
 const assetRow = (page, assetId) => page.getByTestId(`card-pay-from-${assetId}`);
 
-test(`${J} #1 with the owner's spendable-asset list switched off for one restart, opens Pay from: refused bank.card_spend_assets_unset, with no asset listed to order`, async ({
+test(`${J} #1 with the owner's spendable-asset list switched off for one restart, opens Pay from: refused bank.card_spend_assets_unset; no order can be saved`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -77,8 +87,15 @@ test(`${J} #1 with the owner's spendable-asset list switched off for one restart
   await verify(page, who);
   expect(fund(who.email, 'USDT', '100').tx).toBeTruthy();
   run.reset({ who });
-  // One TEST card on the TEST partner card adapter, drawing on USDT.
-  const issued = await (await bank()).mutate('cards.issue', { cardId: randomUUID(), assetId: 'USDT', perAuthorizationLimit: '50' });
+  // One TEST card on the TEST partner card adapter, drawing on USDT and settling in USDC (the stack's TEST settlement asset).
+  const issued = await (
+    await bank()
+  ).mutate('cards.issue', {
+    cardId: randomUUID(),
+    assetId: 'USDT',
+    settlementAssetId: 'USDC',
+    perAuthorizationLimit: '50',
+  });
   expect(issued.ok, JSON.stringify(issued.body ?? {}).slice(0, 300)).toBe(true);
   expect(issued.data).toMatchObject({ simulated: true, issuer: 'card-sim', assetId: 'USDT' });
 
@@ -93,14 +110,22 @@ test(`${J} #1 with the owner's spendable-asset list switched off for one restart
     const panel = payFrom(page);
     await expect(panel.getByRole('alert')).toContainText('The list of assets a card may pay from is not published');
     await expect(panel.getByRole('alert')).toContainText('bank.card_spend_assets_unset');
-    // Nothing to order: no asset row is listed while the list is unset.
+    // Nothing to order: no asset row and no order form while the list is unset.
     await expect(panel.locator('[data-testid^="card-pay-from-"][data-state]')).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: 'Save order' })).toHaveCount(0);
+    // And the bank saves none: an order sent anyway refuses by name, and Pay from still has none saved once the list is back.
+    const saved = await (await bank()).mutate('cards.setPayFromOrder', { assetIds: ['USDC', 'BTC', 'USD'] });
+    expect(saved).toMatchObject({ ok: false, status: 412 });
+    expect(saved.body?.error?.message).toContain('bank.card_spend_assets_unset');
   } finally {
     restartBank('LOCAL_STACK_BANK_CARD_SPEND_ASSETS', undefined);
   }
+  const after = await (await bank()).query('cards.payFrom');
+  expect(after.ok, JSON.stringify(after.body ?? {}).slice(0, 300)).toBe(true);
+  expect(after.data.order).toBeNull();
 });
 
-test(`${J} #2 with the TEST list back, opens Pay from: the assets the partner can spend from, and "not offered by the partner" for any other, in both modes (the partner holds them, or the card pulls from the user's own wallet)`, async ({
+test(`${J} #2 with the TEST list back, opens Pay from and orders USDC, then BTC, then USD: the assets the partner can spend from, each with its partner balance, its rate and the rate's time, and "not offered by the partner" for any other; the saved order reads USDC, BTC, USD; the trading account and any agent account are listed as "not used for card payments"; in both modes`, async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -131,6 +156,78 @@ test(`${J} #2 with the TEST list back, opens Pay from: the assets the partner ca
   await expect(assetRow(page, 'USDT')).toHaveAttribute('data-state', 'not_offered');
   await expect(assetRow(page, 'USDT')).toContainText('not offered by the partner');
 
+  // Each asset the partner can spend from, with the balance the partner reports: TEST 30 USDC, 0.01 BTC and 50 USD.
+  const balances = { USDC: '30', BTC: '0.01', USD: '50' };
+  for (const [asset, amount] of Object.entries(balances)) {
+    expect(held.data.assets.find((a) => a.assetId === asset)?.partnerBalance).toBe(amount);
+    await expect(page.getByTestId(`card-pay-from-${asset}-balance`)).toHaveText(`${amount} ${asset}`);
+  }
+  // None for the asset the partner cannot spend from.
+  await expect(page.getByTestId('card-pay-from-USDT-balance')).toHaveText('');
+  expect(held.data.settlementAssetId).toBe('USDC');
+
+  // The rate of each, in the card's settlement asset (USDC), and the rate's time, from the stack's TEST ticker. BTC/USDC
+  // is held for the reading so the screen and the service see one price (local-test-market.mjs hold).
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', 'BTC/USDC');
+  const ticker = await api(who);
+  let rated;
+  await expect(async () => {
+    const client = await bank();
+    const { body: quote } = await ticker.get('/api/v1/ticker/BTC%2FUSDC');
+    const askedAt = Date.now();
+    rated = await client.query('cards.payFrom');
+    const answeredAt = Date.now();
+    expect(rated.ok).toBe(true);
+    const btc = rated.data.assets.find((a) => a.assetId === 'BTC');
+    // svc-bank's mark is the floor of the ticker's mid (or its last price with no two-sided book), stamped with the time
+    // the ticker answered, which falls inside this read.
+    const mark = quote.bid && quote.ask ? (units(quote.bid) + units(quote.ask)) / 2n : units(quote.last);
+    expect(units(btc.rate)).toBe(mark);
+    expect(Date.parse(btc.rateAsOf)).toBeGreaterThanOrEqual(askedAt - 2_000);
+    expect(Date.parse(btc.rateAsOf)).toBeLessThanOrEqual(answeredAt + 2_000);
+  }).toPass({ timeout: 30_000 });
+  const usdc = rated.data.assets.find((a) => a.assetId === 'USDC');
+  expect(usdc).toMatchObject({ rate: '1' });
+  expect(Date.parse(usdc.rateAsOf)).toBeGreaterThan(heldAt - 60_000);
+  await page.reload();
+  const btcRate = rated.data.assets.find((a) => a.assetId === 'BTC');
+  await expect(page.getByTestId('card-pay-from-BTC-rate')).toHaveText(`${btcRate.rate} USDC`);
+  await expect(page.getByTestId('card-pay-from-BTC-rate-time').locator('time')).toHaveAttribute('datetime', btcRate.rateAsOf);
+  await expect(page.getByTestId('card-pay-from-USDC-rate')).toHaveText('1 USDC');
+  await expect(page.getByTestId('card-pay-from-USDC-rate-time').locator('time')).toHaveAttribute('datetime', /^\d{4}-\d\d-\d\dT/);
+  expect(Date.now() - heldAt, 'the BTC/USDC hold lapsed before the screen showed the rate').toBeLessThan(HOLD_MAX_MS);
+  tool('local-test-market.mjs', 'release', 'BTC/USDC');
+  // No USD market against USDC on the stack's ticker: USD's rate is "not known", never 0 or 1.
+  expect(rated.data.assets.find((a) => a.assetId === 'USD')).toMatchObject({ rate: null, rateAsOf: null });
+  await expect(page.getByTestId('card-pay-from-USD-rate')).toHaveText('not known');
+  await expect(page.getByTestId('card-pay-from-USD-rate-time')).toHaveText('not known');
+
+  // The person orders USDC, then BTC, then USD: nothing is saved yet; moved BTC first and back, then saved.
+  await expect(page.getByTestId('card-pay-from-saved')).toHaveText('Saved order: No order saved');
+  const order = page.getByTestId('card-pay-from-order');
+  await page.getByRole('button', { name: 'Move BTC up' }).click();
+  await expect(order.locator('li')).toHaveText([/^BTC/, /^USDC/, /^USD\b/]);
+  await page.getByRole('button', { name: 'Move BTC down' }).click();
+  await expect(order.locator('li')).toHaveText([/^USDC/, /^BTC/, /^USD\b/]);
+  await page.getByRole('button', { name: 'Save order' }).click();
+  await expect(page.getByTestId('card-pay-from-saved')).toHaveText('Saved order: USDC, BTC, USD');
+  const ordered = await (await bank()).query('cards.payFrom');
+  expect(ordered.data.order).toEqual(['USDC', 'BTC', 'USD']);
+  await page.reload();
+  await expect(page.getByTestId('card-pay-from-saved')).toHaveText('Saved order: USDC, BTC, USD');
+  // An asset the partner cannot spend from is refused by name and the saved order stays.
+  const refused = await (await bank()).mutate('cards.setPayFromOrder', { assetIds: ['USDT', 'USDC'] });
+  expect(refused).toMatchObject({ ok: false, status: 412 });
+  expect(refused.body?.error?.message).toContain('bank.card_pay_from_not_offered');
+  expect((await (await bank()).query('cards.payFrom')).data.order).toEqual(['USDC', 'BTC', 'USD']);
+
+  // The trading account and any agent account never fund a card.
+  expect(held.data.notUsedForCards).toEqual(['trading', 'agent']);
+  const notUsed = page.getByTestId('card-pay-from-not-used');
+  await expect(notUsed.locator('[data-kind="trading"]')).toHaveText('Trading account: not used for card payments');
+  await expect(notUsed.locator('[data-kind="agent"]')).toHaveText('Agent accounts: not used for card payments');
+
   // Mode two, for one restart: the card pulls from the person's own wallet. The same list, read again from the partner.
   restartBank('LOCAL_STACK_BANK_CARD_PARTNER', 'wallet_pull');
   try {
@@ -143,6 +240,15 @@ test(`${J} #2 with the TEST list back, opens Pay from: the assets the partner ca
     await expect(page.getByTestId('card-pay-from-mode')).toContainText('The card pulls from your own wallet');
     await expect(assetRow(page, 'USDC')).toHaveAttribute('data-state', 'offered');
     await expect(assetRow(page, 'USDT')).toContainText('not offered by the partner');
+    // The same partner balances and the same saved order in this mode.
+    for (const [asset, amount] of Object.entries(balances)) {
+      await expect(page.getByTestId(`card-pay-from-${asset}-balance`)).toHaveText(`${amount} ${asset}`);
+    }
+    await expect(page.getByTestId('card-pay-from-BTC-rate')).toHaveText(/^\d+(\.\d+)? USDC$/);
+    await expect(page.getByTestId('card-pay-from-saved')).toHaveText('Saved order: USDC, BTC, USD');
+    await expect(page.getByTestId('card-pay-from-not-used').locator('[data-kind="trading"]')).toHaveText(
+      'Trading account: not used for card payments',
+    );
   } finally {
     restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
   }
@@ -182,6 +288,9 @@ test(`${J} #2 with the TEST list back, opens Pay from: the assets the partner ca
       await expect(assetRow(page, asset)).toHaveAttribute('data-state', 'not_known');
       await expect(assetRow(page, asset)).toContainText('not known');
       await expect(assetRow(page, asset)).not.toContainText('offered');
+      // Nothing the partner did not report is shown as a figure.
+      await expect(page.getByTestId(`card-pay-from-${asset}-balance`)).not.toContainText(/\d/);
+      expect(silent.data.assets.find((a) => a.assetId === asset)).toMatchObject({ partnerBalance: null, rate: null });
     }
   } finally {
     restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
