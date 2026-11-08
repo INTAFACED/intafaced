@@ -1072,6 +1072,14 @@ export const bankReads = {
   }),
   'cards.programme': programmeSchema,
   'cards.catalogue': cardCatalogueSchema,
+  'cards.payFrom': z.object({
+    test: z.boolean(),
+    custodyMode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
+    custodyWords: z.string(),
+    assets: z.array(
+      z.object({ assetId: z.string(), state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']), words: z.string() }),
+    ),
+  }),
   'cards.delivery': cardDeliverySchema,
   'cards.cashback': z.object({
     tier: z.enum(['none', 'standard', 'metal', 'obsidian']),

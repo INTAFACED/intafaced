@@ -22,6 +22,7 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const SAY: Record<string, (t: Copy) => string> = {
   'bank.card_address_locked': (t) => t('addressLocked'),
   'bank.step_up_unavailable': (t) => t('stepUpOff'),
+  'bank.card_spend_assets_unset': (t) => t('payFromUnset'),
 };
 
 export function Refusal({ failure }: { failure: Failed }) {
@@ -403,6 +404,59 @@ export function CardCashback() {
           {t('cashbackOff')}
         </p>
       )}
+    </section>
+  );
+}
+
+const PAY_FROM_STATE = {
+  offered: 'payFromOffered',
+  not_offered: 'payFromNotOffered',
+  not_known: 'payFromNotKnown',
+  not_listed: 'payFromNotListed',
+} as const;
+const PAY_FROM_MODE = { partner_holds: 'payFromModePartner', wallet_pull: 'payFromModeWallet' } as const;
+
+/**
+ * Pay from (J-bank-29 #1 and #2): which assets the card partner can spend from, and how it spends (it holds the crypto,
+ * or the card pulls from the person's own wallet). Each state is the bank's answer from the partner; an unknown reads
+ * "not known" and an asset the partner cannot spend from reads "not offered by the partner".
+ */
+export function CardPayFrom() {
+  const { t } = cardOrderCopy.useCopy();
+  const read = useBankRead('cards.payFrom', undefined);
+  if (read.resource.status === 'loading') return null;
+  if (read.resource.status === 'failed') {
+    return (
+      <section className="form-stack" data-testid="card-pay-from">
+        <h3 className="bd-subhead">{t('payFromTitle')}</h3>
+        <Refusal failure={read.resource.failure} />
+      </section>
+    );
+  }
+  const p = read.resource.data;
+  return (
+    <section className="form-stack" data-testid="card-pay-from" data-mode={p.custodyMode ?? 'not_known'}>
+      <h3 className="bd-subhead">{t('payFromTitle')}</h3>
+      {p.test && <p className="money-caption">{t('payFromTest')}</p>}
+      <p data-testid="card-pay-from-mode">
+        {t('payFromHow')}: {t(p.custodyMode ? PAY_FROM_MODE[p.custodyMode] : 'payFromModeUnknown')}
+      </p>
+      <table aria-label={t('payFromAssets')}>
+        <thead>
+          <tr>
+            <th scope="col">{t('payFromAssetHead')}</th>
+            <th scope="col">{t('payFromStateHead')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {p.assets.map((row) => (
+            <tr key={row.assetId} data-testid={`card-pay-from-${row.assetId}`} data-state={row.state}>
+              <td>{row.assetId}</td>
+              <td>{t(PAY_FROM_STATE[row.state])}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   );
 }

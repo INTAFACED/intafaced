@@ -29,6 +29,14 @@ import {
 import { cardProgrammeOutput, cashbackOn, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
 import { CARD_TIERS, type CardProgrammeTerms, type CardTier, type CashbackRates } from './card-programme.js';
 import { unconfiguredRankTier, type RankTierPort } from './rank-tier.js';
+import {
+  NOTHING_REPORTED,
+  payFromAssets,
+  requireSpendAssets,
+  custodyModeWords,
+  type CardPartnerTerms,
+  type PayFromAsset,
+} from './partner-terms.js';
 
 /**
  * CARDS (§8.1) — the LEDGER half: authorise, hold, capture, reverse, cash back.
@@ -394,6 +402,11 @@ export interface CardServiceOptions {
    * it (BK-acct-09). Throwing rolls the row back. Absent = nothing else is told.
    */
   readonly onStatusChanged?: CardStatusHook;
+  /**
+   * The owner's list of assets a card may pay from (`BANK_CARD_SPEND_ASSETS`, BK-ccrypto-01). Absent or null, Pay from
+   * refuses `bank.card_spend_assets_unset`.
+   */
+  readonly spendAssets?: readonly string[] | null;
 }
 
 /** One change of a card's status, as `onStatusChanged` hears it. */
@@ -420,6 +433,7 @@ export class CardService {
   private readonly cashbackRates: CashbackRates | null;
   private readonly rankTier: RankTierPort;
   private readonly simulatorPays: boolean;
+  private readonly spendAssets: readonly string[] | null;
 
   constructor(
     private readonly sql: Sql,
@@ -437,6 +451,42 @@ export class CardService {
     this.cashbackRates = options.cashback?.rates ?? null;
     this.rankTier = options.cashback?.rankTier ?? unconfiguredRankTier();
     this.simulatorPays = options.cashback?.simulatorPays === true;
+    this.spendAssets = options.spendAssets ?? null;
+  }
+
+  /**
+   * What the card partner reports about its unknowns (CUSTODY-DELTA §1.3): custody mode, the assets it spends from, loss
+   * liability, reserve and funder. An adapter that reports nothing reads "not known" in every one. No issuer refuses
+   * `bank.no_card_issuer`; the simulator in a live deployment refuses `bank.card_sim_not_live`.
+   */
+  partnerTerms(): CardPartnerTerms {
+    if (!this.issuer.partnerTerms) return { ...NOTHING_REPORTED, test: this.issuer.programme.simulated };
+    return this.issuer.partnerTerms();
+  }
+
+  /**
+   * Pay from (J-bank-29 #1 and #2): the owner's spendable assets and any other asset this person's cards draw on, each
+   * marked offered, "not offered by the partner", or "not known" from the partner's own list, with how the partner spends
+   * (it holds the crypto, or the card pulls from the person's own wallet). Reads only; nothing is held or posted.
+   */
+  async payFrom(
+    userId: string,
+  ): Promise<{ test: boolean; custodyMode: CardPartnerTerms['custodyMode']; custodyWords: string; assets: PayFromAsset[] }> {
+    const owner = requireSpendAssets(this.spendAssets);
+    const terms = this.partnerTerms();
+    const rows = await this.sql<Array<{ asset_id: string }>>`
+      SELECT DISTINCT asset_id FROM bank.cards WHERE user_id = ${userId} AND status <> 'closed' ORDER BY asset_id
+    `;
+    return {
+      test: terms.test,
+      custodyMode: terms.custodyMode,
+      custodyWords: custodyModeWords(terms),
+      assets: payFromAssets(
+        owner,
+        terms,
+        rows.map((r) => r.asset_id),
+      ),
+    };
   }
 
   /** The owner's published programme terms, or null (BK-cissue-01). */

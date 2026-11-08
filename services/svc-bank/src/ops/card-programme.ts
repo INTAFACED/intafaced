@@ -12,6 +12,7 @@ import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';
+import { partnerTermsView } from '../cards/partner-terms.js';
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/);
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -112,6 +113,37 @@ export function cardProgrammeProcedure(bank: BankServices, guard: Guard) {
       guard(async () => {
         const span = assertProgrammeSpan(input.from, input.to);
         return readCardProgramme(bank, span.from, span.to);
+      }),
+    );
+}
+
+/**
+ * THE CARD PARTNER'S TERMS, AS AN OPERATOR READS THEM (J-bank-26 #6, J-bank-27 #4; CUSTODY-DELTA §1.3).
+ *
+ * Who funds the programme, any reserve the partner requires, who bears a lost chargeback or a fraud loss, and how the
+ * partner spends a cardholder's crypto. Each is the partner's own answer, from the issuer adapter, or the words "not known".
+ * A reserve never reads 0 for an unknown, and a loss is never assumed to be the partner's. `test` is true on the TEST
+ * partner card adapter. Reads only.
+ */
+export function cardPartnerTermsProcedure(bank: BankServices, guard: Guard) {
+  const words = z.string().min(1);
+  return scopedProcedure('admin:read')
+    .output(
+      z.object({
+        test: z.boolean(),
+        label: z.string(),
+        custodyMode: words,
+        funder: words,
+        reserve: words,
+        reserveStatus: z.enum(['reported', 'not_known']),
+        lossLiability: words,
+        lossLiabilityStatus: z.enum(['reported', 'not_known']),
+      }),
+    )
+    .query(() =>
+      guard(async () => {
+        const view = partnerTermsView(bank.cards.partnerTerms());
+        return { ...view, label: view.test ? 'TEST partner card adapter' : bank.cards.programme().displayName };
       }),
     );
 }

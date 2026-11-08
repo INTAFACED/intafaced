@@ -115,6 +115,20 @@ const en = {
   tierStandard: 'Standard',
   tierMetal: 'Metal',
   tierObsidian: 'Obsidian',
+  payFromTitle: 'Pay from',
+  payFromTest: 'TEST card partner: these are the stand-in partner’s answers, not a real partner’s.',
+  payFromHow: 'How the partner spends',
+  payFromModePartner: 'The partner holds the crypto it spends',
+  payFromModeWallet: 'The card pulls from your own wallet',
+  payFromModeUnknown: 'not known',
+  payFromAssets: 'Assets a card can pay from',
+  payFromAssetHead: 'Asset',
+  payFromStateHead: 'Partner',
+  payFromOffered: 'offered by the partner',
+  payFromNotOffered: 'not offered by the partner',
+  payFromNotKnown: 'not known',
+  payFromNotListed: 'not on the spendable list',
+  payFromUnset: 'The list of assets a card may pay from is not published yet.',
 } as const;
 
 export const cardOrderCopy = defineCopy('customer.money.card-order', en);

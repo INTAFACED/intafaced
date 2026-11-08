@@ -13,7 +13,7 @@ import {
 import { poolTotalsProcedure } from '../ops/pool-totals.js';
 import { loanBookProcedure } from '../ops/loan-book.js';
 import { assetPausesProcedure, setAssetPauseProcedure } from '../ops/asset-pause.js';
-import { cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
+import { cardPartnerTermsProcedure, cardProgrammeProcedure, setCardStatusProcedure } from '../ops/card-programme.js';
 import { decideLimitRequestProcedure, limitRequestQueueProcedure } from '../transfers/limit-requests.js';
 import { createLoanProductProcedure, setLoanProductRateProcedure } from '../ops/loan-products.js';
 import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusProcedure } from '../ops/earn-pools.js';
@@ -983,6 +983,8 @@ export function createOpsRouter(c: BankRouterContext) {
       guard,
     ),
     cardProgramme: cardProgrammeProcedure(bank, guard),
+    /** The card partner's answers on funder, reserve, loss liability and custody, or "not known" (J-bank-26 #6, J-bank-27 #4). */
+    cardPartnerTerms: cardPartnerTermsProcedure(bank, guard),
     setCardStatus: setCardStatusProcedure(bank, consumeOpsApproval, guard),
     rampHealth: rampHealthProcedure(bank, guard),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */

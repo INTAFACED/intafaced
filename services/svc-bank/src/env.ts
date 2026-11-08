@@ -490,6 +490,21 @@ const schema = serviceEnvSchema
       BANK_CARD_SIM_CASHBACK: z.enum(CARD_SIM_CASHBACK_SETTINGS).default('off'),
 
       /**
+       * THE TEST PARTNER CARD ADAPTER'S SWITCHES (CUSTODY-DELTA §4, `cards/partner-terms.ts`), as JSON: `{ custodyMode:
+       * "partner_holds" | "wallet_pull" | null, spendFrom: [assetId] | null, lossLiability: { bearer, terms } | null,
+       * reserve: { required: false } | { required: true, amount, assetId } | null, funder: string | null }`. `null` is
+       * "not known" and is shown so. Unset, card-sim reports nothing. Refused at boot outside APP_ENV=dev or test, or under
+       * NODE_ENV=production.
+       */
+      BANK_CARD_SIM_PARTNER_JSON: z.string().optional(),
+
+      /**
+       * The owner's list of assets a card may pay from, comma separated (BK-ccrypto-01, J-bank-29 #1). NO DEFAULT. Blank or
+       * malformed → Pay from refuses `bank.card_spend_assets_unset`.
+       */
+      BANK_CARD_SPEND_ASSETS: z.string().optional(),
+
+      /**
        * Owner-published risk wording for staking-style earn pools as JSON (BK-earn-04): `{ "slashing": "<text>",
        * "ownership": "<text>" }`, what slashing means for a saver and who owns a staked saving. NO DEFAULT. Blank / unset / not in shape → `earn.riskDisclosure` refuses
        * `bank.earn_risk_wording_unset` and the pool page says the wording is not published, never that there is no risk.

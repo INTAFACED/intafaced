@@ -16,6 +16,7 @@ import {
 import { cardInactive } from '../cards/card-service.js';
 import { cardOutput, presentCard } from '../cards/card-view.js';
 import { CARD_TIERS, DELIVERY_SPEEDS } from '../cards/card-programme.js';
+import { CARD_CUSTODY_MODES } from '../cards/partner-terms.js';
 import type { CardDelivery } from '../cards/card-orders.js';
 import { BankError } from '../errors.js';
 import { amountString, stepUpApprovalField, refuseCardSecretWithoutStepUp } from './shared.js';
@@ -558,6 +559,29 @@ export function createCardsRouter(c: BankRouterContext) {
           };
         }),
       ),
+
+    /**
+     * Pay from (J-bank-29 #1 and #2; BK-ccrypto-01): the owner's spendable assets and any other the person's cards draw on,
+     * each offered, "not offered by the partner" or "not known", from the card partner's own list, and how the partner
+     * spends (it holds the crypto, or the card pulls from the person's own wallet). No owner list refuses
+     * `bank.card_spend_assets_unset`. Reads only.
+     */
+    payFrom: scopedProcedure('bank:read', { module: 'bank' })
+      .output(
+        z.object({
+          test: z.boolean(),
+          custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
+          custodyWords: z.string(),
+          assets: z.array(
+            z.object({
+              assetId: z.string(),
+              state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+              words: z.string(),
+            }),
+          ),
+        }),
+      )
+      .query(({ ctx }) => guard(async () => bank.cards.payFrom(ctx.principal.userId))),
 
     // ── Getting a card (J-bank-13; BK-cissue-01 to -04) ─────────────────────
 

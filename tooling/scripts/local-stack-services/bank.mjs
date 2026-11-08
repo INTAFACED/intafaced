@@ -44,6 +44,42 @@ function originationFee() {
 }
 
 /**
+ * The TEST partner card adapter's switches (CUSTODY-DELTA §4, `services/svc-bank/src/cards/partner-terms.ts`): the
+ * profile's TEST partner (holds the crypto; spends USDC, BTC and USD; liability, reserve and funder not known), or on a
+ * restart `LOCAL_STACK_BANK_CARD_PARTNER`:
+ *   · `wallet_pull`: the same partner, but the card pulls from the person's own wallet (J-bank-29 in its second mode);
+ *   · `reported`: the same partner, reporting TEST answers for loss liability, reserve and funder, so a journey can see
+ *     the reported path beside the "not known" one;
+ *   · `off`: the partner reports nothing at all (every answer "not known").
+ * Alongside, `LOCAL_STACK_BANK_CARD_SPEND_ASSETS=off` blanks the owner's spendable-asset list (J-bank-29 #1).
+ */
+function cardPartner() {
+  const out = {};
+  const assets = process.env.LOCAL_STACK_BANK_CARD_SPEND_ASSETS;
+  if (assets === undefined || assets === '') out.BANK_CARD_SPEND_ASSETS = testValue('BANK_CARD_SPEND_ASSETS');
+  else if (assets !== 'off')
+    throw new Error(`LOCAL_STACK_BANK_CARD_SPEND_ASSETS is "${assets}"; leave it unset for the TEST list, or set it to off.`);
+  const asked = process.env.LOCAL_STACK_BANK_CARD_PARTNER;
+  const partner = JSON.parse(testValue('BANK_CARD_SIM_PARTNER_JSON'));
+  if (asked === undefined || asked === '') return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify(partner) };
+  if (asked === 'off') return out;
+  if (asked === 'wallet_pull') return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify({ ...partner, custodyMode: 'wallet_pull' }) };
+  if (asked === 'reported') {
+    // LOCAL TEST answers, made up for the stack: not a partner's terms.
+    const reported = {
+      ...partner,
+      lossLiability: { bearer: 'programme', terms: 'TEST terms: the programme bears card fraud and lost chargebacks' },
+      reserve: { required: true, amount: '25000.00', assetId: 'USDC' },
+      funder: 'TEST: the programme pre-funds in USDC',
+    };
+    return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify(reported) };
+  }
+  throw new Error(
+    `LOCAL_STACK_BANK_CARD_PARTNER is "${asked}"; leave it unset for the TEST partner, or set it to wallet_pull, reported or off.`,
+  );
+}
+
+/**
  * The owner's money-out step-up rule (ADR 2026-10-14-money-out-step-up): off on the stack, as in production today, or
  * `required` when a journey asks for it on a restart (J-pay-01 #5: the fresh confirmation before a send to a person).
  */
@@ -226,6 +262,7 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     ...earnRiskWording(),
     // The money-out step-up rule is off unless `LOCAL_STACK_BANK_STEP_UP_MONEY_OUT=required` on a restart (J-pay-01 #5).
     ...moneyOutStepUp(),
+    ...cardPartner(),
     // No send review rule unless `LOCAL_STACK_BANK_PERSONAL_SEND_REVIEW=on` on a restart (J-pay-01 #6).
     ...sendReview(),
     // Nothing moves money in the background of a test stack.
