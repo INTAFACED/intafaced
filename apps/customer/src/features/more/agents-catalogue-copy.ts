@@ -1,5 +1,13 @@
 import { defineCopy } from '../../shared/i18n';
 const en = {
+  catalogueEmpty: 'No agents are published in this deployment yet.',
+  eligibility: 'Who may use it',
+  eligibilityUnstated: 'Not stated by this deployment',
+  eligibleNoRule: 'You may use it: it has no plan, age or region rule',
+  eligiblePlan: 'You may use it: your plan ({plan}) is one it is published for',
+  notEligiblePlan: 'Not on your plan: it is published for {plans}, and your account is on {plan}',
+  notEligibleUnpublished: 'Not on your plan: no plan is published for it yet, so no one can use it',
+  planNone: 'none (not verified)',
   tabCatalogue: 'Catalogue',
   catalogueTitle: 'Agent catalogue',
   catalogueIntro:
@@ -159,6 +167,14 @@ const en = {
   refusal_funds_unread: 'Your balance could not be read, so it did not start',
 } as const;
 const es = {
+  catalogueEmpty: 'Todavía no hay agentes publicados en este despliegue.',
+  eligibility: 'Quién puede usarlo',
+  eligibilityUnstated: 'Este despliegue no lo indica',
+  eligibleNoRule: 'Puedes usarlo: no tiene regla de plan, edad ni región',
+  eligiblePlan: 'Puedes usarlo: tu plan ({plan}) es uno para el que está publicado',
+  notEligiblePlan: 'No está en tu plan: está publicado para {plans}, y tu cuenta está en {plan}',
+  notEligibleUnpublished: 'No está en tu plan: aún no hay ningún plan publicado para él, así que nadie puede usarlo',
+  planNone: 'ninguno (sin verificar)',
   tabCatalogue: 'Catálogo',
   catalogueTitle: 'Catálogo de agentes',
   catalogueIntro:
@@ -325,6 +341,14 @@ const es = {
   refusal_funds_unread: 'No se pudo leer tu saldo, así que no empezó',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
+  catalogueEmpty: 'Aucun agent n’est encore publié dans ce déploiement.',
+  eligibility: 'Qui peut l’utiliser',
+  eligibilityUnstated: 'Non indiqué par ce déploiement',
+  eligibleNoRule: 'Vous pouvez l’utiliser : il n’a aucune règle de forfait, d’âge ou de région',
+  eligiblePlan: 'Vous pouvez l’utiliser : votre forfait ({plan}) est l’un de ceux pour lesquels il est publié',
+  notEligiblePlan: 'Pas dans votre forfait : il est publié pour {plans}, et votre compte est en {plan}',
+  notEligibleUnpublished: 'Pas dans votre forfait : aucun forfait n’est encore publié pour lui, donc personne ne peut l’utiliser',
+  planNone: 'aucun (non vérifié)',
   tabCatalogue: 'Catalogue',
   catalogueTitle: 'Catalogue des agents',
   catalogueIntro:

@@ -12,6 +12,7 @@ import {
   agentEnabled,
   agentUse,
   AGENT_CATALOGUE,
+  catalogueFromStored,
   filterCatalogue,
   guardrailSchema,
   sortCatalogue,
@@ -20,6 +21,7 @@ import {
   type AgentKind,
   type CatalogueAgent,
   type CatalogueSort,
+  type Eligibility,
   type Guardrail,
 } from './agents-catalogue';
 import { agentsCatalogueCopy } from './agents-catalogue-copy';
@@ -65,15 +67,17 @@ export function AgentsCatalogue({
     (signal) => api.query('agents', 'agent.catalogue', undefined, storedCatalogueSchema, { signal }),
     'agent-catalogue',
   );
-  const label = (id: string) => t(`name_${id}` as 'name_navigator');
-  const shown = sortCatalogue(filterCatalogue(AGENT_CATALOGUE, { query, kind }, label), sort, label);
-  const chosen = AGENT_CATALOGUE.find((agent) => agent.id === selected) ?? null;
-  const enabled = (agent: CatalogueAgent) =>
-    agent.kind !== 'session'
-      ? agentEnabled(agent, [])
-      : stored.resource.status === 'ready'
-        ? agentEnabled(agent, stored.resource.data)
-        : null;
+  // The catalogue is the stored list and nothing else: until it is read there are no cards, and with none stored the
+  // empty state says so (catalogueFromStored).
+  const rows = stored.resource.status === 'ready' ? stored.resource.data : [];
+  const catalogue = catalogueFromStored(rows);
+  const known = (id: string) => AGENT_CATALOGUE.some((agent) => agent.id === id);
+  const row = (id: string) => rows.find((r) => r.agentId === id);
+  const label = (id: string) => (known(id) ? t(`name_${id}` as 'name_navigator') : (row(id)?.name ?? id));
+  const about = (id: string) => (known(id) ? t(`about_${id}` as 'about_navigator') : (row(id)?.purpose ?? null));
+  const shown = sortCatalogue(filterCatalogue(catalogue, { query, kind }, label), sort, label);
+  const chosen = catalogue.find((agent) => agent.id === selected) ?? null;
+  const enabled = (agent: CatalogueAgent) => (stored.resource.status === 'ready' ? agentEnabled(agent, stored.resource.data) : null);
   return (
     <div className="more-grid">
       <Panel title={t('catalogueTitle')}>
@@ -95,6 +99,8 @@ export function AgentsCatalogue({
             options={SORTS.map((value) => ({ value, label: t(`sort_${value}`) }))}
           />
         </div>
+        {stored.resource.status === 'loading' ? <Loading /> : null}
+        {stored.resource.status === 'ready' && catalogue.length === 0 ? <EmptyState title={t('catalogueEmpty')} /> : null}
         <div className="depth-cards">
           {shown.map((agent) => {
             const usable = enabled(agent);
@@ -116,7 +122,7 @@ export function AgentsCatalogue({
                         : t('disabled')}
                   </span>
                 </StatusPill>
-                <p>{t(`about_${agent.id}` as 'about_navigator')}</p>
+                {about(agent.id) ? <p>{about(agent.id)}</p> : null}
                 <div className="depth-card-actions">
                   <Button variant="secondary" aria-pressed={selected === agent.id} onClick={() => setSelected(agent.id)}>
                     <Copy k="open" />
@@ -175,7 +181,11 @@ export function AgentsCatalogue({
       </Panel>
       {compared ? <CompareAgents ids={compared} label={label} /> : null}
       <Panel title={t('detailTitle')}>
-        {chosen ? <AgentDetail agent={chosen} onSession={onSession} /> : <p className="muted">{t('pickAgent')}</p>}
+        {chosen ? (
+          <AgentDetail agent={chosen} name={label(chosen.id)} about={about(chosen.id)} onSession={onSession} />
+        ) : (
+          <p className="muted">{t('pickAgent')}</p>
+        )}
       </Panel>
       <MadeAgents />
       <MyAgents log={log} reload={reload} />
@@ -183,7 +193,17 @@ export function AgentsCatalogue({
   );
 }
 
-function AgentDetail({ agent, onSession }: { agent: CatalogueAgent; onSession: (agentId: string) => void }) {
+function AgentDetail({
+  agent,
+  name,
+  about,
+  onSession,
+}: {
+  agent: CatalogueAgent;
+  name: string;
+  about: string | null;
+  onSession: (agentId: string) => void;
+}) {
   const api = useApi();
   const { Copy, t } = agentsCatalogueCopy.useCopy();
   const guardrail = useResource(
@@ -195,8 +215,8 @@ function AgentDetail({ agent, onSession }: { agent: CatalogueAgent; onSession: (
   );
   return (
     <>
-      <h3>{t(`name_${agent.id}` as 'name_navigator')}</h3>
-      <p>{t(`about_${agent.id}` as 'about_navigator')}</p>
+      <h3>{name}</h3>
+      {about ? <p>{about}</p> : null}
       {agent.kind === 'unwired' || agent.kind === 'staff' ? (
         <p className="muted" role="note">
           <Copy k={agent.kind === 'unwired' ? 'blocker_unwired' : 'blocker_staff'} />
@@ -343,6 +363,7 @@ function CompareAgents({ ids, label }: { ids: readonly string[]; label: (id: str
                   },
                 ],
                 [t('tasks'), (g: Guardrail) => list(g.limits.allowedTasks)],
+                [t('eligibility'), (g: Guardrail) => eligibilityWords(g.eligibility)],
               ] as const
             ).map(([name, cell]) => (
               <tr key={name}>
@@ -357,6 +378,17 @@ function CompareAgents({ ids, label }: { ids: readonly string[]; label: (id: str
       </Read>
     </Panel>
   );
+}
+
+/** Whether this person may use the agent, and when not, the rule that leaves them out, from its published law. */
+function eligibilityWords(eligibility: Eligibility | undefined): string {
+  const { t } = agentsCatalogueCopy;
+  if (!eligibility) return t('eligibilityUnstated');
+  const plan = (value: string) => (value === 'none' || value === '' ? t('planNone') : value);
+  if (eligibility.rule === 'none') return t('eligibleNoRule');
+  if (eligibility.eligible) return t('eligiblePlan', { plan: plan(eligibility.yourPlan) });
+  if (!eligibility.published) return t('notEligibleUnpublished');
+  return t('notEligiblePlan', { plans: eligibility.plans.join(', '), plan: plan(eligibility.yourPlan) });
 }
 
 function MyAgents({ log, reload }: { log: Resource<ActionRow[]>; reload: () => void }) {

@@ -4,6 +4,7 @@ import {
   actionLogRows,
   agentEnabled,
   agentUse,
+  catalogueFromStored,
   costRange,
   runCosts,
   sortCatalogue,
@@ -76,14 +77,30 @@ describe('catalogue status, sort and run history', () => {
     { agentId: 'navigator', name: null, purpose: null, enabled: true, version: 1 },
     { agentId: 'support', name: null, purpose: null, enabled: false, version: 2 },
   ];
-  it('takes a session agent’s status from its stored row, and an unstored one cannot be used', () => {
+  it('takes every agent’s status from its stored row, and an unstored one cannot be used', () => {
     const byId = (id: string) => AGENT_CATALOGUE.find((agent) => agent.id === id)!;
     expect(agentEnabled(byId('navigator'), stored)).toBe(true);
     expect(agentEnabled(byId('support'), stored)).toBe(false);
     expect(agentEnabled(byId('scanner'), stored)).toBe(false);
-    expect(agentEnabled(byId('coach'), stored)).toBe(true);
+    expect(agentEnabled(byId('coach'), stored)).toBe(false);
+    const withCoach = [...stored, { agentId: 'coach', name: null, purpose: null, enabled: true, version: 1 }];
+    expect(agentEnabled(byId('coach'), withCoach)).toBe(true);
     expect(agentEnabled(byId('portfolio'), stored)).toBe(false);
-    expect(agentEnabled(byId('risk-compliance'), stored)).toBe(false);
+  });
+  it('lists exactly the stored agents: none stored is an empty catalogue, and an unknown stored agent is listed', () => {
+    expect(catalogueFromStored([])).toEqual([]);
+    expect(catalogueFromStored(stored).map((agent) => agent.id)).toEqual(['navigator', 'support']);
+    const more = [
+      { agentId: 'zeta', name: 'Zeta', purpose: null, enabled: true, version: 1 },
+      { agentId: 'portfolio', name: null, purpose: null, enabled: false, version: 1 },
+      ...stored,
+    ];
+    expect(catalogueFromStored(more)).toEqual([
+      { id: 'navigator', kind: 'session' },
+      { id: 'support', kind: 'session' },
+      { id: 'portfolio', kind: 'unwired' },
+      { id: 'zeta', kind: 'session' },
+    ]);
   });
   it('sorts by the shown name, or keeps the catalogue order', () => {
     const label = (id: string) => ({ navigator: 'Navigator', support: 'Support helper', coach: 'Curriculum coach' })[id] ?? id;
