@@ -18,7 +18,7 @@
  *
  * Tests are `.test.`/`.spec.` files, `__tests__/` folders, and the browser journeys and harnesses (`*.pw.mjs`).
  *
- * Checks 1, 3, 4 and 5 leave an added or modified journey step file (`apps/customer/tests/real-app/J-*.pw.mjs`) to the test
+ * Checks 1 (all but a focus: `.only`, `fit(`, `fdescribe(`, which drops every other test and stays here), 3, 4 and 5 leave an added or modified journey step file (`apps/customer/tests/real-app/J-*.pw.mjs`) to the test
  * judge on a pull request its job runs for (same repository, base main): the seal needs the judge's verdict on the exact
  * head, and the judge reads each changed test against the step it proves, which no line in the description can stand
  * in for (judged-paths.mjs leftToJudge; R3 C6). A deleted journey file, look sweeps, harnesses, configs, unit tests and
@@ -45,6 +45,9 @@ const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\
 const BROWSER_TEST = /\.pw\.mjs$/;
 // A Playwright config sets screenshot tolerances for a whole suite; only its tolerance lines are judged.
 const PW_CONFIG = /(?:^|\/)(?:[\w.-]+\.)?playwright\.config\.[cm]?[jt]s$/;
+// A focus marker runs one test and drops every other test in the run. The test judge reads only the steps a change
+// touches, and a focused step still proves itself, so a focus stays the guard's in every file (review 7550-R1).
+const FOCUS = /\b(?:it|test|describe|suite)\.only\b|\bf(?:it|describe)\s*\(/;
 const SKIP = /\b(?:(?:it|test|describe|suite)\.(?:skip|todo|only|fixme|skipIf|runIf)\b|x(?:it|describe|test)\s*\(|f(?:it|describe)\s*\()/;
 // The repo's journalled no-database branch: `describe.skip('<suite> (Postgres unavailable)', ...)`. The suite
 // runs in full when the database is up; the skip-honesty gates account for the skip. Exact title shape only.
@@ -67,7 +70,11 @@ export function judge(changes, { judgeRuns = false } = {}) {
   const problems = [];
   for (const c of changes) {
     // The test judge always rules on these, and the seal needs its verdict: neither these findings nor a Test-change line.
-    if (leftToJudge(c, { judgeRuns })) continue;
+    if (leftToJudge(c, { judgeRuns })) {
+      for (const l of c.added)
+        if (FOCUS.test(l)) problems.push({ path: c.path, why: `focus added (runs this test alone): ${l.trim().slice(0, 100)}` });
+      continue;
+    }
     if (PW_CONFIG.test(c.path) && c.status === 'M') {
       const raised = toleranceRaised(c.path, c.removed, c.added);
       if (raised) problems.push({ path: c.path, why: `screenshot tolerance raised: ${raised}` });
@@ -223,6 +230,10 @@ function selfTest() {
   const skipLine = ["  test.skip(!process.env.X, 'no stack');"];
   eq(jf({ added: skipLine }).length, 0, 'journey step file: left to the test judge');
   eq(jf({ removed: ["  await expect(page.getByRole('button')).toBeVisible();"] }).length, 0, 'journey assertion: the judge');
+  // Planted (review 7550-R1): a focus in a journey step file drops every other test, which the judge can't see.
+  eq(jf({ added: ['test.only(`${J} #2 pays`, async ({ page }) => {'] }).length, 1, 'journey test.only: the guard');
+  eq(jf({ added: ["test.describe.only('J-x-01', () => {"] }).length, 1, 'journey describe.only: the guard');
+  eq(jf({ added: ["  test('only the owner sees it', async () => {"] }).length, 0, 'the word only in a title is fine');
   // Planted: everything the judge does not always rule on stays the guard's.
   eq(jf({ added: skipLine }, {}).length, 1, 'no judge job (a fork, another base): the guard');
   eq(jf({ status: 'D', sourceExists: false }).length, 1, 'a deleted journey file: the guard');
@@ -356,7 +367,7 @@ function selfTest() {
     2,
     'assertion delta counted',
   );
-  console.log('✓ test-diff-guard --self-test OK (54 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (57 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {
