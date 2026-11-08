@@ -117,43 +117,55 @@ export function attachUserVenueRoutes(app: FastifyInstance, door: UserVenueDoor 
     return answer(reply, async (d) => (await d.venue()).markets(null));
   });
 
-  const accountRead = (
-    path: string,
-    read: (d: UserVenueDoor, q: Query, account: Awaited<ReturnType<UserVenueDoor['account']>>) => Promise<unknown>,
-  ) =>
+  type Account = Awaited<ReturnType<UserVenueDoor['account']>>;
+  // The venue's account reads, by path. Registered in one literal loop so the published route list can see every one
+  // (apps/customer developers-reference.test.ts reads `for (const path of [...])`).
+  const accountReads: Record<string, (d: UserVenueDoor, q: Query, a: Account) => Promise<unknown>> = {
+    '/api/v1/venue/balances': async (d, _q, a) => (await d.venue()).balances(a),
+    '/api/v1/venue/orders/open': async (d, _q, a) => (await d.venue()).openOrders(a),
+    '/api/v1/venue/positions': async (d, _q, a) => (await d.venue()).positions(a),
+    '/api/v1/venue/agents': async (d, _q, a) => (await d.venue()).agents(a),
+    '/api/v1/venue/orders/by-client-id': async (d, q, a) => {
+      if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');
+      return (await d.venue()).orderByClientId(a, q.clientOrderId);
+    },
+    '/api/v1/venue/fills': async (d, q, a) => {
+      const since = new Date(q.since ?? '');
+      if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
+      return (await d.venue()).fills(a, since);
+    },
+    '/api/v1/venue/leverage': async (d, q, a) => {
+      if (!q.symbol) throw new VenueWireError('symbol is required');
+      return (await d.venue()).leverage(a, q.symbol);
+    },
+    '/api/v1/venue/builder-fee-approval': async (d, _q, a) => {
+      const status = await d.status();
+      const builder = 'builder' in status ? status.builder : null;
+      if (!builder)
+        throw new VenueRefusalError({
+          venueId: a.venueId,
+          code: 'builder_fee_not_published',
+          detail: 'our builder is not published (owner value blank)',
+        });
+      return (await d.venue()).builderFeeApproval(a, builder.address);
+    },
+  };
+  for (const path of [
+    '/api/v1/venue/balances',
+    '/api/v1/venue/orders/open',
+    '/api/v1/venue/positions',
+    '/api/v1/venue/agents',
+    '/api/v1/venue/orders/by-client-id',
+    '/api/v1/venue/fills',
+    '/api/v1/venue/leverage',
+    '/api/v1/venue/builder-fee-approval',
+  ]) {
+    const read = accountReads[path]!;
     app.get<{ Querystring: Query }>(path, privateRead, async (req, reply) => {
       if (!admit(req, reply, 'trade:read')) return;
       return answer(reply, async (d) => read(d, req.query, await d.account(req.query.owner ?? '', req.query.subAccount ?? null)));
     });
-
-  accountRead('/api/v1/venue/balances', async (d, _q, a) => (await d.venue()).balances(a));
-  accountRead('/api/v1/venue/orders/open', async (d, _q, a) => (await d.venue()).openOrders(a));
-  accountRead('/api/v1/venue/positions', async (d, _q, a) => (await d.venue()).positions(a));
-  accountRead('/api/v1/venue/agents', async (d, _q, a) => (await d.venue()).agents(a));
-  accountRead('/api/v1/venue/orders/by-client-id', async (d, q, a) => {
-    if (!q.clientOrderId) throw new VenueWireError('clientOrderId is required');
-    return (await d.venue()).orderByClientId(a, q.clientOrderId);
-  });
-  accountRead('/api/v1/venue/fills', async (d, q, a) => {
-    const since = new Date(q.since ?? '');
-    if (Number.isNaN(since.getTime())) throw new VenueWireError('since is required (an ISO time)');
-    return (await d.venue()).fills(a, since);
-  });
-  accountRead('/api/v1/venue/leverage', async (d, q, a) => {
-    if (!q.symbol) throw new VenueWireError('symbol is required');
-    return (await d.venue()).leverage(a, q.symbol);
-  });
-  accountRead('/api/v1/venue/builder-fee-approval', async (d, _q, a) => {
-    const status = await d.status();
-    const builder = 'builder' in status ? status.builder : null;
-    if (!builder)
-      throw new VenueRefusalError({
-        venueId: a.venueId,
-        code: 'builder_fee_not_published',
-        detail: 'our builder is not published (owner value blank)',
-      });
-    return (await d.venue()).builderFeeApproval(a, builder.address);
-  });
+  }
 
   app.get<{ Params: { nonce: string }; Querystring: Query }>('/api/v1/venue/withdrawals/:nonce', privateRead, async (req, reply) => {
     if (!admit(req, reply, 'trade:read')) return;
