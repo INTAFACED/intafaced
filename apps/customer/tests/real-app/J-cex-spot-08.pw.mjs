@@ -1,6 +1,7 @@
-// World: book
+// World: book, market
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits } from './stack.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
+import { api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, tool, toUnits } from './stack.mjs';
 import { confirm, deskPath, fundedTrader, held, openDesk, openOrders, placements, previewed, reviewSheet } from './desk.mjs';
 
 // J-cex-spot-08, in the running app (docs/roadmap/journeys.json): a person protects a position with stops, an OCO and a
@@ -369,28 +370,22 @@ test(`${J} #7 a partial fill on the take-profit leg keeps the rest held for the 
 }) => {
   const who = account();
   const amount = '0.002';
-  // The stack's own taker can take the whole leg before ours takes half; then a new pair is placed (at most three).
-  let order;
-  let part;
   await deskFor(page, who);
-  for (let attempt = 0; attempt < 3 && part?.status !== 'open'; attempt++) {
-    if (attempt > 0) {
-      // Signed in already: a second sign-in can land back on /login, so only the desk is opened again.
-      await fresh(who);
-      await page.goto(deskPath());
-      await page.mouse.move(0, 600);
-    }
-    const { takeProfit, stopLoss } = await ocoPrices();
-    await review(page, 'sell', 'OCO', { 'Take profit': takeProfit, 'Stop loss': stopLoss, Amount: amount });
-    order = await place(page, 'sell');
-    await takeAt(takeProfit, amount, AMOUNT, `7-${attempt}`);
-    // A buy that took none of it (an ask ahead that was not counted) is one more attempt, not a failure.
-    await expect
-      .poll(async () => (await orderById(who, order.id)).filled, { timeout: 15_000 })
-      .not.toBe('0')
-      .catch(() => undefined);
-    part = await orderById(who, order.id);
-  }
+  // Held, the TEST maker's ladder rests as it is and its taker sends nothing, so our buy meets exactly the asks it was
+  // sized from. Unheld, the maker re-places its ladder every 8 s cycle, new asks first, and its taker crosses the best
+  // level: an ask that lands under the take-profit between the book read and the buy is taken first and can use the whole
+  // buy, so the leg reads filled 0 (full run 42508481674, #7576). Timed from before the ask, as the hold's own lapse is.
+  const heldAt = Date.now();
+  tool('local-test-market.mjs', 'hold', SYMBOL);
+  const { takeProfit, stopLoss } = await ocoPrices();
+  await review(page, 'sell', 'OCO', { 'Take profit': takeProfit, 'Stop loss': stopLoss, Amount: amount });
+  const order = await place(page, 'sell');
+  await takeAt(takeProfit, amount, AMOUNT, '7');
+  await expect.poll(async () => (await orderById(who, order.id)).filled, { timeout: 15_000 }).not.toBe('0');
+  const part = await orderById(who, order.id);
+  // The hold lapses HOLD_MAX_MS after it was asked for; the price read, the placement and the buy must all fall inside
+  // it, or the maker was quoting again and the fill proved nothing about our leg alone. Fail and say so.
+  expect(Date.now() - heldAt, 'the BTC/USDT hold lapsed before the buy met the take-profit leg').toBeLessThan(HOLD_MAX_MS);
   expect(part, 'a partly filled take-profit leg').toMatchObject({ status: 'open', filled: AMOUNT });
   const rest = toUnits(amount) - toUnits(AMOUNT);
   await expect.poll(async () => held(await balances(who), 'BTC'), { timeout: 20_000 }).toBe(rest);
@@ -616,4 +611,9 @@ test(`${J} #10 attaches a close to a buy (OTO): shown linked, cancelled with the
     .getByRole('button', { name: /^Cancel/ })
     .click();
   await expect.poll(async () => held(await balances(who), 'BTC'), { timeout: 20_000 }).toBe(0n);
+});
+
+// Held for #7 only, passed or not: the next step's BTC/USDT book is quoted again.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #7 `)) tool('local-test-market.mjs', 'release', SYMBOL);
 });
