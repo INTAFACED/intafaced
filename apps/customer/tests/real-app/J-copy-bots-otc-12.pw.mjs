@@ -1,7 +1,7 @@
-// World: book, gates
+// World: book, market, gates
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, bestPrices, journeyState, toUnits } from './stack.mjs';
+import { api, bestPrices, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
@@ -16,6 +16,16 @@ import { tableIn, bodyRows } from './tables.mjs';
 const J = 'J-copy-bots-otc-12';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const UNBUILT = { timeout: 5_000 };
+
+/**
+ * The TEST maker's BTC/USDT quotes held where they rest, or quoted again (local-test-market.mjs hold, release). The copy
+ * mirror is a resting limit at the leader's fill price, and the maker quotes post-only, so the mirror fills only while the
+ * maker's ask the leader took from still rests. Its walk moves up to 12 bps every 8 s cycle; when it moved up between the
+ * lead fill and the mirror, that ask was gone and the mirror rested unfilled (main run 42434015398: one copied order, the
+ * follower held no BTC). Held, the leader and the mirror meet the same ask.
+ */
+const hold = () => tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+const release = () => tool('local-test-market.mjs', 'release', 'BTC/USDT');
 
 test.describe.configure({ mode: 'default' });
 // An action on a part that never appears fails in 15 s, not at the test's time limit.
@@ -220,6 +230,7 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   run.reset({ tag, leader, leaderName, leaderRef, follower, paused: [] });
   await signIn(page, follower);
   const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
+  hold();
   await leadFill(leader, 'buy', '0.001', `${J}-1-a-${tag}`);
   await expect(async () => {
     await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(1, { timeout: 2_000 });
@@ -227,6 +238,7 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   run.write({ followId });
   const holding = (await (await api(follower)).balances()).BTC.total;
   expect(toUnits(holding), 'the copied buy is held').toBeGreaterThan(0n);
+  release();
 
   const { request } = await twoFounders(browser, pauseScope('lead', leaderRef));
   expect(request).toMatchObject({ op: 'pause', scope: { kind: 'lead', value: leaderRef } });
@@ -241,6 +253,11 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   const detail = await openFollow(page, leaderRef);
   await detail.getByRole('tab', { name: 'Skipped' }).click();
   await expect(detail.getByText('Paused by the platform').first()).toBeVisible();
+});
+
+// Held for #1's first lead fill and its mirror only, passed or not: the next step's book is quoted again.
+test.afterEach(() => {
+  if (test.info().title.startsWith(`${J} #1 `)) release();
 });
 
 test(`${J} #2 pauses a bot type such as grid: a new grid is refused and running grids continue`, async ({ page, browser }) => {
