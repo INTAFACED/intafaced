@@ -353,7 +353,11 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
   assert.ok(checkouts.length >= 5);
   for (const c of checkouts) if (!/path: \.base/.test(c)) assert.match(c, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
   assert.ok(checkouts.some((c) => /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/.test(c) && /path: \.base/.test(c)));
-  assert.match(t, /node "\$GITHUB_WORKSPACE\/\.base\/tooling\/ci\/journey-touch\.mjs" --json --files-from/);
+  assert.match(
+    t,
+    /node "\$GITHUB_WORKSPACE\/\.base\/tooling\/ci\/journey-touch\.mjs" --json --reach --files-from/,
+    "the base's copy, with the touched-journeys map",
+  );
   // A pull request run keeps the ordinary limits, as a targeted run does.
   assert.match(
     t,
