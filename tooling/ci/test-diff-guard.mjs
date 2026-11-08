@@ -18,7 +18,11 @@
  *
  * Tests are `.test.`/`.spec.` files, `__tests__/` folders, and the browser journeys and harnesses (`*.pw.mjs`).
  *
- * A PR that does one of 1-5 on purpose says so in its description with a line
+ * Checks 1-5 leave the paths the test judge rules on (judged-paths.mjs: the journeys, their harness and the shared test
+ * code) to the judge: the seal needs its `Test judge` verdict on the exact head for any change there, and the judge
+ * reads each changed check against the step it proves, which no line in the description can stand in for (R3 C6).
+ * Everywhere else (unit tests in services, packages and apps), a PR that does one of 1-5 on purpose says so in its
+ * description with a line
  *   Test-change: <the reason a reviewer can check>
  * which turns the failure into a printed notice. The reviewer sees both. A Test-change line never covers 6.
  *
@@ -33,6 +37,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { judgedFile } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
@@ -59,6 +64,8 @@ const count = (lines) => lines.reduce((n, l) => n + (l.match(ASSERT)?.length ?? 
 export function judge(changes) {
   const problems = [];
   for (const c of changes) {
+    // The test judge rules on these (its verdict is required for them), so neither its findings nor a Test-change line.
+    if (judgedFile(c.path)) continue;
     if (PW_CONFIG.test(c.path) && c.status === 'M') {
       const raised = toleranceRaised(c.path, c.removed, c.added);
       if (raised) problems.push({ path: c.path, why: `screenshot tolerance raised: ${raised}` });
@@ -204,9 +211,32 @@ function selfTest() {
   eq(judge([{ path: 'a/x.ts', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length, 0, 'non-test ignored');
   eq(DECLARED.test('Why\n\nTest-change: removed the legacy vue snapshot test'), true, 'declared line');
   eq(DECLARED.test('Test-change: n/a'), false, 'declaration needs a real reason');
-  // Browser journeys and harnesses.
+  // Browser tests and harnesses outside the judged paths (a room's look sweep): the guard still holds them.
   const pw = (c) =>
+    judge([{ path: 'apps/customer/src/screens/home/home.pw.mjs', status: 'M', removed: [], added: [], sourceExists: true, ...c }]);
+  // The paths the test judge rules on (judged-paths.mjs) are left to it: a weakening there is the judge's to fail (R3 C6).
+  const journey = (c) =>
     judge([{ path: 'apps/customer/tests/real-app/J-x-01.pw.mjs', status: 'M', removed: [], added: [], sourceExists: true, ...c }]);
+  eq(journey({ added: ["  test.skip(!process.env.X, 'no stack');"] }).length, 0, 'judged journey: left to the test judge');
+  eq(journey({ removed: ["  await expect(page.getByRole('button')).toBeVisible();"] }).length, 0, 'judged journey assertion: the judge');
+  eq(
+    judge([{ path: 'apps/customer/tests/real-app/J-x-01.pw.mjs', status: 'D', removed: [], added: [], sourceExists: false }]).length,
+    0,
+    'judged journey deleted: the judge',
+  );
+  eq(
+    judge([
+      { path: 'tooling/scripts/journey-shards.test.mjs', status: 'M', removed: ['assert.equal(a, 1)'], added: [], sourceExists: true },
+    ]).length,
+    1,
+    "a unit test under tooling/scripts/, which the judge skips, is still the guard's",
+  );
+  eq(
+    judge([{ path: 'services/svc-pay/src/a.test.ts', status: 'M', removed: [], added: ["  it.skip('x', () => {})"], sourceExists: true }])
+      .length,
+    1,
+    "a service unit test is still the guard's",
+  );
   eq(pw({ added: ["  test.skip(!process.env.X, 'no stack');"] }).length, 1, 'journey skip added');
   eq(pw({ added: ["test.describe.fixme('J-x-01', () => {"] }).length, 1, 'journey fixme added');
   eq(pw({ removed: ["  await expect(page.getByRole('button')).toBeVisible();"], added: [] }).length, 1, 'journey assertion removed');
@@ -258,7 +288,8 @@ function selfTest() {
     'a new file may set its tolerance',
   );
   eq(
-    judge([{ path: 'apps/customer/tests/real-app/stack.mjs', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }]).length,
+    judge([{ path: 'apps/customer/src/screens/home/stack.mjs', status: 'M', removed: ['expect(a)'], added: [], sourceExists: true }])
+      .length,
     0,
     'helper ignored',
   );
@@ -308,7 +339,7 @@ function selfTest() {
     2,
     'assertion delta counted',
   );
-  console.log('✓ test-diff-guard --self-test OK (45 fixtures)');
+  console.log('✓ test-diff-guard --self-test OK (50 fixtures)');
 }
 
 if (process.argv.includes('--self-test')) {

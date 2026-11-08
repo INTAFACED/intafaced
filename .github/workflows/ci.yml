@@ -132,9 +132,10 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-        # look-baselines.mjs is the guard's one import (what a look baseline is); it comes from main the same way.
+        # Its imports, look-baselines.mjs (what a look baseline is) and judged-paths.mjs (what the test judge rules on), come
+        # from main the same way.
         run: |
-          for f in test-diff-guard.mjs look-baselines.mjs; do
+          for f in test-diff-guard.mjs look-baselines.mjs judged-paths.mjs; do
             if git cat-file -e "origin/main:tooling/ci/$f" 2>/dev/null; then
               git show "origin/main:tooling/ci/$f" > "$RUNNER_TEMP/$f"
             else
