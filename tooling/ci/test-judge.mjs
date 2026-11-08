@@ -30,9 +30,9 @@ import { pathToFileURL } from 'node:url';
 // The default branch's copy: the job runs this file from the default branch's checkout (ci-review.yml), never the pull
 // request's, so the money rule below is main's.
 import { moneyRule, manifestsAt } from './journey-verdict.mjs';
-import { JUDGE_PATHS, judgedFile } from './judged-paths.mjs';
+import { JOURNEY_FILE, JUDGE_PATHS, judgedFile } from './judged-paths.mjs';
 
-export { JUDGE_PATHS, judgedFile };
+export { JOURNEY_FILE, JUDGE_PATHS, judgedFile };
 
 /** Shared code that sets the environment every journey starts in, whether or not a test imports it. */
 const ENVIRONMENT = [
@@ -42,9 +42,7 @@ const ENVIRONMENT = [
   /^tooling\/scripts\/local-test-(stack|world)\.mjs$/,
   /^apps\/customer\/tests\/real-app\/real-app\.playwright\.config\.mjs$/,
 ];
-const UNIT_TEST = /\.test\.(mjs|ts|js)$/;
 const REAL_APP = 'apps/customer/tests/real-app';
-export const JOURNEY_FILE = /^apps\/customer\/tests\/real-app\/(J-[a-z0-9-]+)\.pw\.mjs$/;
 /** The harness files the judge always reads, so it can follow a test's calls into them (E1: W5 and W9). */
 export const HARNESS = ['journey.mjs', 'stack.mjs', 'desk.mjs', 'world-restore.mjs'].map((f) => `${REAL_APP}/${f}`);
 

@@ -1,7 +1,7 @@
 /**
  * The paths the test judge rules on (tooling/ci/test-judge.mjs, the seal's `Test judge` verdict), in a module with no
  * imports, so test-diff-guard.mjs can read them from main's copy beside it (ci.yml copies the guard's imports from main).
- * A change to a judged path is ruled on by the judge, so the guard's weakening checks leave those files to it (R3 C6).
+ * The guard leaves only what the judge always rules on to it (leftToJudge); see test-diff-guard.mjs (R3 C6).
  */
 /** The journey tests and the shared code they run on: a pull request that changes any of these is judged. */
 export const JUDGE_PATHS = [
@@ -25,8 +25,19 @@ export const JUDGE_PATHS = [
   [/^tooling\/scripts\/[^/]+\.mjs$/, 'the tool scripts'],
 ];
 const UNIT_TEST = /\.test\.(mjs|ts|js)$/;
+/** A journey's step file: each test in it is a step the judge reads against its words (testsIn, stepsTouched). */
+export const JOURNEY_FILE = /^apps\/customer\/tests\/real-app\/(J-[a-z0-9-]+)\.pw\.mjs$/;
 /** Whether a file is shared test code or a journey test the judge rules on. */
 // A unit test is skipped only where proof v2's reachKind skips one: directly under tooling/scripts/. Anywhere else
 // (any tests/real-app/ folder, the TEST config folders) a file named like a unit test is still judged.
 const SKIPPED_UNIT_TEST = /^tooling\/scripts\/[^/]+$/;
 export const judgedFile = (f) => !(UNIT_TEST.test(f) && SKIPPED_UNIT_TEST.test(f)) && JUDGE_PATHS.some(([re]) => re.test(f));
+
+/**
+ * Whether test-diff-guard.mjs leaves a change to the test judge instead of asking for a Test-change line: a journey step
+ * file that is added or modified (never deleted, which the guard always reports), on a pull request the judge's job runs
+ * for (`judgeRuns`: same repository, base main; ci-review.yml's `judge` job condition). The judge always reads such a file:
+ * its changed tests are steps judged one by one, and a change outside its tests is judged file-level. A look sweep, a
+ * harness, a config or a unit-test-shaped file is judged only when a journey reaches it, so the guard keeps those.
+ */
+export const leftToJudge = (change, { judgeRuns }) => Boolean(judgeRuns) && change?.status !== 'D' && JOURNEY_FILE.test(change?.path ?? '');

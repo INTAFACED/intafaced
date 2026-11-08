@@ -132,6 +132,7 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }} # the test judge runs only for this repository's own
         # Its imports, look-baselines.mjs (what a look baseline is) and judged-paths.mjs (what the test judge rules on), come
         # from main the same way.
         run: |
