@@ -20,6 +20,7 @@ import {
   writesSetAside,
   assertFullHistory,
   excusedSetAside,
+  runIsOnMain,
 } from './journey-verdict.mjs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -609,12 +610,18 @@ function cli({ ref, target, priorIncomplete = false, state = 'unexpected' }) {
   return spawnSync(process.execPath, args, { cwd: ROOT, env, encoding: 'utf8' }).status;
 }
 
-test('off main the set-aside excuses nothing: a branch or targeted run with a carried active entry is red when the step fails', () => {
+test('off main the set-aside excuses nothing: a branch, targeted or offline run with a carried active entry is red when the step fails', () => {
   assert.ok(freeStep, 'a real step the guard allows to be set aside');
-  assert.equal(cli({ ref: 'refs/heads/main' }), 0, 'on main the carried entry keeps the failure out of the red (the control)');
-  assert.equal(cli({ ref: 'refs/heads/feature' }), 1, 'a branch run');
-  assert.equal(cli({}), 1, 'a run that does not say it is on main (no GITHUB_REF)');
-  assert.equal(cli({ ref: 'refs/pull/7363/merge' }), 1, 'a pull request run');
+  // Only CI's own full run on main reading main's runs counts as on main.
+  assert.equal(runIsOnMain({ target: null, fetch: true, ref: 'refs/heads/main' }), true, 'the control');
+  assert.equal(runIsOnMain({ target: null, fetch: true, ref: 'refs/heads/feature' }), false, 'a branch run');
+  assert.equal(runIsOnMain({ target: null, fetch: true, ref: 'refs/pull/7363/merge' }), false, 'a pull request run');
+  assert.equal(runIsOnMain({ target: new Set(['J-a-01.pw.mjs']), fetch: true, ref: 'refs/heads/main' }), false, 'a targeted run');
+  assert.equal(runIsOnMain({ target: null, fetch: false, ref: 'refs/heads/main' }), false, 'an offline run, GITHUB_REF or not');
+  assert.equal(runIsOnMain({ target: null, fetch: true, ref: undefined }), false, 'no GITHUB_REF');
+  // The CLI offline: a given prior file excuses nothing, whatever GITHUB_REF says.
+  for (const ref of ['refs/heads/main', 'refs/heads/feature', 'refs/pull/7363/merge', undefined])
+    assert.equal(cli({ ref }), 1, `offline, ${ref ?? 'no ref'}`);
   assert.equal(cli({ ref: 'refs/heads/main', target: `${freeStep.split('#')[0]}.pw.mjs` }), 1, 'a targeted run');
   assert.deepEqual(excusedSetAside({ setAside: { a: 1 }, onMain: false, incomplete: false }), {});
   assert.deepEqual(excusedSetAside({ setAside: { a: 1 }, onMain: true, incomplete: false }), { a: 1 });
@@ -653,7 +660,6 @@ test('no complete earlier list: fail closed, never fresh; fresh only when main n
   assert.equal(priorSetAside(runs, incomplete, () => true).unreadable, true);
   // A step in cool-down keeps it: no fresh 7 days. The CLI with no complete list excuses nothing, even a flaky step.
   assert.equal(excusedSetAside({ setAside: { a: 1 }, onMain: true, incomplete: true }).a, undefined);
-  assert.equal(cli({ ref: 'refs/heads/main', state: 'flaky' }), 0, 'with a complete list, a flaky set-aside step is green (the control)');
   assert.equal(cli({ ref: 'refs/heads/main', state: 'flaky', priorIncomplete: true }), 1, 'no complete list: the flaky step is red');
   assert.equal(cli({ ref: 'refs/heads/main', priorIncomplete: true }), 1, 'no complete list: the failure is red');
 });
