@@ -3,7 +3,7 @@ import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { api, bestPrices, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
+import { copiedOrders, followOnScreen, leadFill, takeBest, listLeader, openFollow } from './copy.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
 
 // J-copy-bots-otc-12, in the running app (docs/roadmap/journeys.json): two founders pause copy or bots by lead, bot type
@@ -231,7 +231,10 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   await signIn(page, follower);
   const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
   hold();
-  await leadFill(leader, 'buy', '0.001', `${J}-1-a-${tag}`);
+  // PLANTED FAULT (probe only): the maker jumps 1% up right after the lead fill, before the mirror lands.
+  await takeBest(leader, 'buy', '0.001', `${J}-1-a-${tag}`);
+  tool('local-test-market.mjs', 'move', 'BTC/USDT', '+1%');
+  await new Promise((resolve) => setTimeout(resolve, 15_000));
   await expect(async () => {
     await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(1, { timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
