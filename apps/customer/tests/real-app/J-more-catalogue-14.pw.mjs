@@ -6,8 +6,8 @@ import { EDGE, ORIGIN, journeyState } from './stack.mjs';
 // J-more-catalogue-14, in the running app (docs/roadmap/journeys.json): onboard an issuer and announce a launch event. One
 // test per step, titled "J-more-catalogue-14 #<n>", run in order. Founders A and B work the issuer lens in the admin app at
 // /launch, each on their own console: A asks, B pastes the packet and approves the same request, A runs it. Nothing is
-// written to a table directly. Every name, price and cap here is TEST. Steps #4 to #7 wait for MC-launch-03 and
-// RC-more-catalogue-22 to 24 and fail by name.
+// written to a table directly. Every name, price and cap here is TEST. Steps #4 to #6 wait for MC-launch-03 and
+// RC-more-catalogue-22 and 23 and fail by name; #7 is the marketing claims register (RC-more-catalogue-24).
 const J = 'J-more-catalogue-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 const MINUTE = 60_000;
@@ -203,7 +203,7 @@ test(`${J} #3 Onboards the issuer and announces: the event appears in the catalo
   run.write({ announced: true });
 });
 
-// Steps #4 to #7 wait for slices not yet built. They stay cheap (no founder sign-in, a short timeout) and fail naming the
+// Steps #4 to #6 wait for slices not yet built. They stay cheap (no founder sign-in, a short timeout) and fail naming the
 // slice; the lens lists each of them under "Not wired yet" with its blocker. Each becomes a real check when its slice lands.
 test(`${J} #4 Reads the commits and refunds panel: progress reads for the event`, async ({ page }) => {
   started('announced');
@@ -229,11 +229,67 @@ test(`${J} #6 Records a wrapped or structured issuance: the issuance with its ki
 });
 
 test(`${J} #7 Reviews the marketing claims evidence register before announcing: each claim with its evidence or a block`, async ({
-  page,
+  browser,
 }) => {
-  started('announced');
-  await page.goto(`${ADMIN}/launch`);
-  await expect(page.getByRole('region', { name: 'Marketing claims' }), 'RC-more-catalogue-24 is not built').toBeVisible({ timeout: 5_000 });
+  test.setTimeout(300_000);
+  await assertAdminUp();
+  const a = await (await browser.newContext()).newPage();
+  const b = await (await browser.newContext()).newPage();
+  const ida = await founderSignIn(a, 'a');
+  const idb = await founderSignIn(b, 'b');
+  const nonce = `T${Date.now().toString(36)}`;
+  const topic = `TEST ${nonce} launch`;
+  const evidenced = { text: `TEST ${nonce} reserves for this launch are held one to one`, evidence: `TEST reserve attestation ${nonce}` };
+  const bare = { text: `TEST ${nonce} best execution on every order` };
+
+  // The register sits on the launch lens, beside the control that announces a launch.
+  await a.goto(`${ADMIN}/launch`);
+  const register = (page) => page.getByRole('region', { name: 'Marketing claims' });
+  await expect(register(a)).toBeVisible();
+  await expect(desk(a, 'Move a launch')).toBeVisible();
+
+  // Founder A records two claims: one with its evidence, one with none.
+  const record = async ({ text, evidence = '' }) => {
+    const form = register(a).getByRole('form', { name: 'Record a claim' });
+    await form.getByLabel('Claim about').fill(topic);
+    await form.getByLabel('Claim', { exact: true }).fill(text);
+    await form.getByLabel(/^Evidence/).fill(evidence);
+    await form.getByRole('button', { name: 'Record this claim' }).click();
+    await expect(register(a).getByTestId('claims-outcome')).toContainText('Done: claim recorded', { timeout: 60_000 });
+  };
+  await record(evidenced);
+  await record(bare);
+  const row = (page, text) =>
+    register(page).getByRole('table', { name: 'Marketing claims register' }).locator('tr[data-claim]').filter({ hasText: text });
+  await expect(row(a, evidenced.text)).toHaveCount(1);
+  await expect(row(a, evidenced.text).getByTestId('claim-evidence')).toHaveText(evidenced.evidence);
+  await expect(row(a, evidenced.text).getByTestId('claim-state')).toHaveText('Blocked: waiting for a second founder to publish it');
+  await expect(row(a, evidenced.text).getByTestId('claim-author')).toHaveText(ida.userId);
+  await expect(row(a, bare.text).getByTestId('claim-evidence')).toHaveText('—');
+  await expect(row(a, bare.text).getByTestId('claim-state')).toHaveText('Blocked: no evidence recorded');
+
+  // The founder who recorded a claim cannot publish it: svc-ops refuses by name, and it stays blocked.
+  await row(a, evidenced.text)
+    .getByRole('button', { name: /^Publish/ })
+    .click();
+  await expect(register(a).getByTestId('claims-outcome')).toHaveAttribute('data-code', 'ops.claim_self_approval', { timeout: 60_000 });
+  await expect(row(a, evidenced.text).getByTestId('claim-state')).toHaveText('Blocked: waiting for a second founder to publish it');
+
+  // A second founder publishes the evidenced claim; the one with no evidence is refused by name and stays blocked.
+  await b.goto(`${ADMIN}/launch`);
+  await row(b, evidenced.text).getByRole('button', { name: 'Publish this claim' }).click();
+  await expect(register(b).getByTestId('claims-outcome')).toContainText('Done: claim published', { timeout: 60_000 });
+  await row(b, bare.text).getByRole('button', { name: 'Publish this claim' }).click();
+  await expect(register(b).getByTestId('claims-outcome')).toHaveAttribute('data-code', 'ops.claim_evidence_missing', { timeout: 60_000 });
+
+  // Read before announcing: each claim with its evidence, or its block, as svc-ops stores it.
+  await a.reload();
+  await expect(row(a, evidenced.text).getByTestId('claim-state')).toHaveText('Published');
+  await expect(row(a, evidenced.text).getByTestId('claim-evidence')).toHaveText(evidenced.evidence);
+  await expect(row(a, evidenced.text).getByTestId('claim-approver')).toHaveText(idb.userId);
+  await expect(row(a, bare.text).getByTestId('claim-state')).toHaveText('Blocked: no evidence recorded');
+  await expect(row(a, bare.text).getByTestId('claim-evidence')).toHaveText('—');
+  await expect(row(a, bare.text).getByTestId('claim-approver')).toHaveText('—');
 });
 
 test(`${J} #8 Moves the issuer to suspended: its open events close and the move is audited`, async ({ browser, page }) => {

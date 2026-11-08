@@ -12,6 +12,7 @@ import { StaffHoldDesk } from './staff-holds/desk.js';
 import { createStaffHoldLedger } from './staff-holds/ledger.js';
 import { SqlStaffHoldStore } from './staff-holds/store.js';
 import { SqlAnnouncementStore } from './console-announcements/store.js';
+import { SqlClaimStore } from './marketing-claims/store.js';
 import { SqlPreferenceStore } from './console-preferences/store.js';
 import { SqlServiceRecordStore } from './service-records/store.js';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
@@ -211,6 +212,7 @@ const appRouter = createOpsRouter(
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     consoleMode: crmSql ? new SqlConsoleModeStore(crmSql) : undefined,
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
+    claims: crmSql ? new SqlClaimStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
     staffHolds,

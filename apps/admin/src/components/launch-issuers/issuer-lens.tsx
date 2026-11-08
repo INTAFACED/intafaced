@@ -328,5 +328,4 @@ const PARKED: readonly (readonly [string, string])[] = [
   ],
   ['Fundraising milestones and investor records', 'svc-token keeps no milestone or investor record yet (RC-more-catalogue-22).'],
   ['Wrapped, synthetic or structured issuance', 'svc-token records no issuance kind yet (RC-more-catalogue-23).'],
-  ['Marketing claims evidence register', 'no service keeps claims and their evidence yet (RC-more-catalogue-24).'],
 ];

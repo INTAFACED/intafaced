@@ -66,6 +66,9 @@ import type { ConsoleModeStore } from './console-mode/store.js';
 import { AnnouncementDesk } from './console-announcements/desk.js';
 import { createAnnouncementsRouter } from './console-announcements/router.js';
 import type { AnnouncementStore } from './console-announcements/store.js';
+import { ClaimDesk } from './marketing-claims/desk.js';
+import { createClaimsRouter } from './marketing-claims/router.js';
+import type { ClaimStore } from './marketing-claims/store.js';
 import { createPreferencesRouter } from './console-preferences/router.js';
 import type { PreferenceStore } from './console-preferences/store.js';
 import { createServiceRecordsRouter } from './service-records/router.js';
@@ -248,6 +251,8 @@ export interface OperatorDeskConfig {
   readonly consoleMode?: ConsoleModeStore;
   /** The console's announcement banner. Absent means every call refuses `ops.announcement_storage_unconfigured`. */
   readonly announcements?: AnnouncementStore;
+  /** The marketing claims evidence register. Absent means every call refuses `ops.claims_storage_unconfigured`. */
+  readonly claims?: ClaimStore;
   /** Console preferences. Absent means every call refuses `ops.preferences_storage_unconfigured`. */
   readonly preferences?: PreferenceStore;
   /** Service records per module (owner, dependencies, runbook). Absent means every call refuses `ops.service_storage_unconfigured`. */
@@ -843,6 +848,8 @@ export function createOpsRouter(
     consoleMode: createConsoleModeRouter(new ConsoleModeDesk({ store: desks.consoleMode, approvals: desks.approvals, now })),
 
     announcements: createAnnouncementsRouter(new AnnouncementDesk({ store: desks.announcements, now })),
+
+    claims: createClaimsRouter(new ClaimDesk({ store: desks.claims, now })),
 
     preferences: createPreferencesRouter({ store: desks.preferences, now }),
 

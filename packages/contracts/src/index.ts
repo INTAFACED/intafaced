@@ -49,6 +49,7 @@ export * from './ops-staff-holds.js';
 export * from './identity-recovery.js';
 export * from './identity-staff.js';
 export * from './ops-console-announcements.js';
+export * from './ops-marketing-claims.js';
 export * from './ops-console-preferences.js';
 export * from './ops-console-services.js';
 export * from './ops-restore-watermarks.js';

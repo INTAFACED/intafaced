@@ -242,6 +242,26 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'svc-ops has no database configured for console announcements, so none can be saved and none shows. Nothing was changed.',
     next: 'Ask whoever runs the svc-ops host to connect its database.',
   },
+  'ops.claim_self_approval': {
+    title: 'You recorded this claim',
+    body: 'The founder who records a marketing claim cannot publish it: a second founder reads its evidence and publishes it. Nothing was published.',
+    next: 'Ask a second founder to publish it.',
+  },
+  'ops.claim_evidence_missing': {
+    title: 'This claim names no evidence',
+    body: 'A marketing claim is published only with the evidence it rests on. This one has none, so it stays blocked. Nothing was published.',
+    next: 'Record the claim again with its evidence.',
+  },
+  'ops.claim_not_found': {
+    title: 'That claim is not there',
+    body: 'svc-ops has no claim with that id. Nothing was changed.',
+    next: 'Read the register again.',
+  },
+  'ops.claims_storage_unconfigured': {
+    title: 'The claims register has no storage',
+    body: 'svc-ops has no database configured for the marketing claims register, so no claim can be recorded or published. Nothing was changed.',
+    next: 'Ask whoever runs the svc-ops host to connect its database.',
+  },
   'ops.preference_invalid': {
     title: 'That is not a value the console takes',
     body: 'A preference was not one svc-ops accepts: a time zone must be a known one such as Europe/Berlin, and a home page a console path such as /ledger. Nothing was saved.',
