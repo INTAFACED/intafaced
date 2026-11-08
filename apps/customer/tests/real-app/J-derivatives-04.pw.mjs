@@ -2,7 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, journeyState, tool, toUnits, fromUnits } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
-import { makerShiftQuoted, parseShift } from '../../../../tooling/scripts/local-test-market.mjs';
+import { parseShift, shiftQuoted as makerShiftQuoted } from './market.mjs';
 
 // J-derivatives-04, in the running app (docs/roadmap/journeys.json): manage futures orders in the orders room. One test
 // per step, titled "J-derivatives-04 #<n>", run in order on one TEST account. The contract is the TEST perpetual
@@ -95,18 +95,16 @@ const table = (page, name) => page.getByRole('table', { name });
  * at the stop's -0.30%, and landed short of the liquidation price; local TEST stack, 7 Nov, and main run 42419522734).
  */
 async function moveQuoted(symbol, percent) {
-  const since = new Date();
+  const since = Date.now();
   tool('local-test-market.mjs', 'move', symbol, percent);
   await shiftQuoted(symbol, percent, since);
 }
 
 /** Returns once the maker has quoted `symbol`'s shift `percent` at or after `since`. */
 async function shiftQuoted(symbol, percent, since) {
-  const end = Date.now() + 120_000;
-  while (!makerShiftQuoted(symbol, parseShift(percent), since)) {
-    if (Date.now() > end) throw new Error(`the TEST market maker never quoted ${symbol} ${percent} within 120 s of the move`);
-    await new Promise((r) => setTimeout(r, 250));
-  }
+  await makerShiftQuoted(symbol, parseShift(percent), since).catch(() => {
+    throw new Error(`the TEST market maker never quoted ${symbol} ${percent} within 120 s of the move`);
+  });
 }
 
 function shiftPercent(from, to) {
@@ -146,13 +144,17 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
     if (r.url().endsWith('/api/v1/futures/orders') && r.request().method() === 'POST') answer = r;
   });
   const moved = confirm.getByText('The numbers moved since you reviewed');
+  const tier = confirm.getByRole('region', { name: 'New margin tier' }).getByRole('checkbox');
+  // The re-check is done when the confirm can be pressed again, or when it is held back only by a tier box the re-check
+  // cleared, which the next attempt ticks (run 42446058427, shard 14: the box was cleared and the old wait never ended).
+  const tierCleared = async () => (await tier.count()) > 0 && !(await tier.isChecked());
   for (let attempt = 0; attempt < 6 && !answer; attempt += 1) {
-    const tier = confirm.getByRole('region', { name: 'New margin tier' }).getByRole('checkbox');
-    if ((await tier.count()) > 0 && !(await tier.isChecked())) await tier.check();
+    if (await tierCleared()) await tier.check();
     await go.click();
     // The re-check takes a moment; the notice from an earlier attempt may still be up while it runs.
     await page.waitForTimeout(1_000);
-    await expect.poll(async () => answer !== null || ((await moved.isVisible()) && (await go.isEnabled())), { timeout: 20_000 }).toBe(true);
+    const reCheckDone = async () => answer !== null || ((await moved.isVisible()) && ((await go.isEnabled()) || (await tierCleared())));
+    await expect.poll(reCheckDone, { timeout: 20_000 }).toBe(true);
   }
   expect(answer, 'the ticket sent the order').not.toBeNull();
   expect(answer.status(), await answer.text()).toBe(200);
