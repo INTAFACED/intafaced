@@ -565,7 +565,7 @@ test('shared setup: the list, and what is not on it', () => {
 
 const fullRep = { states: { 'J-a-01#1': 'passed' }, files: { 'J-a-01#1': 'J-a-01.pw.mjs', 'J-b-01#1': 'J-b-01.pw.mjs' } };
 const clean = { red: [], failing: 3, missing: [] };
-const dirty = { red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }], failing: 4, missing: [] };
+const dirty = { red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: false }], failing: 4, missing: [] };
 const targeted = { red: [], failing: 0, missing: ['J-b-01.pw.mjs'] };
 const partialRed = { red: [{ step: 'J-a-01#1', why: 'failing, not in the baseline' }], failing: 1, missing: ['J-b-01.pw.mjs'] };
 const full = (over) =>
@@ -1115,7 +1115,7 @@ const mainRef = (over = {}) => ({
   problems: [],
   ...over,
 });
-const redW = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }];
+const redW = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: false }];
 const area = (journeys = [], paths = []) => ({ journeys: new Set(journeys), paths: new Set(paths) });
 const range =
   (files = ['services/svc-wallet/src/send.ts'], commits = 3) =>
@@ -1383,7 +1383,7 @@ test('C1 review round 0: a flake on one commit, a reason main lacks, a re-run of
   assert.equal(other.blocking.length, 1, 'red for a reason main does not have: not inherited');
   const numbers = await splitInherited({
     upTo: MAIN_SHA,
-    red: [{ step: 'J-wallet-05#3', why: 'called unbuilt, but passed on main in run 1990' }],
+    red: [{ step: 'J-wallet-05#3', why: 'called unbuilt, but passed on main in run 1990', money: false }],
     main: mainRef({ red: new Map([['J-wallet-05#3', 'called unbuilt, but passed on main in run 1981']]) }),
     touches: area(),
     rangeOf: range(),
@@ -1515,4 +1515,33 @@ test("C1 council G2: the break range is every commit's own paths, so a package o
     ),
     /files: not a list/,
   );
+});
+
+test('CI review: a money step red on main too is never passed over, outside every area and as a same-commit flake', async () => {
+  const moneyRed = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }];
+  const outside = await splitInherited({
+    upTo: MAIN_SHA,
+    red: moneyRed,
+    main: mainRef(),
+    touches: area([], ['services/svc-support/src/chat.ts']),
+    rangeOf: range(),
+  });
+  assert.equal(outside.blocking.length, 1);
+  assert.match(outside.blocking[0].why, /money step, so it stops every pull request/);
+  const flake = await splitInherited({
+    upTo: MAIN_SHA,
+    red: moneyRed,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': MAIN_SHA } }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(flake.blocking.length, 1, 'the same-commit flake case does not clear a money step');
+  const unmarked = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }],
+    main: mainRef(),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
 });

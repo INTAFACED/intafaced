@@ -822,7 +822,8 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
  * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) or money
  * code (`touches.money`: AGENTS.md "How work flows" 8, "a red in a package your PR changes always blocks the merge, even
- * when main shares it") is in every red's area, so nothing it inherited is passed over.
+ * when main shares it") is in every red's area, so nothing it inherited is passed over. A money step's red (the verdict's
+ * money rule) is never passed over, for any pull request.
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
  * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short, or a step that never passed on main (no commit bounds where it broke; council review G1). A step that last
@@ -853,6 +854,12 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
     }
     const journey = journeyOf(x.step);
     const stop = (why) => blocking.push({ step: x.step, why: `${x.why}; inherited from ${at}, ${why}` });
+    // A money step is never passed over (REVIEW.md item 3: setting a money step aside is a quarantine); a red the verdict
+    // didn't mark either way counts as money.
+    if (x.money !== false) {
+      stop(`but it is a money step, so it stops every pull request`);
+      continue;
+    }
     if (touches.journeys.has(journey) || mine.has(`journey ${journey}`)) {
       stop(`and this pull request touches ${journey}`);
       continue;
