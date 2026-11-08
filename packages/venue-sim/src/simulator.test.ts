@@ -5,6 +5,7 @@ import { add, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-clie
 import {
   VenueRefusalError,
   refuseTestVenueOutsideTest,
+  type ApproveAgentIntent,
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenueAccount,
@@ -12,7 +13,7 @@ import {
 } from '@intafaced/venue-contracts';
 import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
 import { defineUserVenueConformance, type ConformanceWallet } from './conformance.js';
-import type { TestVenueTypedData } from './signing.js';
+import { buildTypedData, digestOf, type TestVenueTypedData } from './signing.js';
 
 const a = parseAmount;
 
@@ -125,18 +126,31 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
 defineUserVenueConformance(
   {
     canLoseAnswers: true,
+    dedupesClientIds: true,
+    canSettleWithdrawals: true,
+    perp: { symbol: 'BTC-PERP', quote: 'USDC', price: a('60000'), closePrice: a('61000'), size: a('0.1'), leverageBps: 100_000 },
     async setup() {
       const w = world();
       return {
         venue: w.sim,
         trader: { account: w.trader, wallet: w.wallet, agent: w.agent },
         other: { account: w.other, wallet: w.otherWallet },
+        third: (() => {
+          const wallet = testWallet('third');
+          return { account: { venueId: w.sim.venue.id, owner: wallet.address, subAccount: null }, wallet };
+        })(),
         spot: { symbol: 'BTC-USDC', base: 'BTC', quote: 'USDC', price: a('60000'), size: a('0.01') },
         async fund(account, asset, amount, ref) {
           w.sim.deposit(account, asset, amount, ref);
         },
         loseNextAnswer: () => {
           w.sim.switches.loseAnswers = 1;
+        },
+        settleWithdrawals: () => {
+          w.sim.settleWithdrawals();
+        },
+        setVenueDown: (down) => {
+          w.sim.switches.venueDown = down;
         },
       };
     },
@@ -331,7 +345,11 @@ describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
     // Liquidation: 60000 − (600 − 0.5% × 6000) / 0.1 = 54300.
     expect(positions[0]!.liquidationPrice).toEqual({ known: true, value: a('54300') });
     // Taker 4.5 bps of 6,000 = 2.7.
-    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({ free: a('397.3'), locked: ZERO });
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({
+      free: a('397.3'),
+      locked: a('600'),
+      total: a('997.3'),
+    });
 
     w.sim.setMark('BTC-PERP', a('61000'));
     positions = (await w.sim.positions(w.trader)).value;
@@ -535,7 +553,11 @@ describe('TEST venue simulator: review regressions', () => {
     const position = (await w.sim.positions(w.trader)).value[0]!;
     expect(position.margin).toBe(a('590'));
     // 602.7 locked; 590 margin and 2.655 taker fee taken; 10.045 back to free. Free never goes below zero.
-    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({ free: a('10.045'), locked: ZERO });
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({
+      free: a('10.045'),
+      locked: a('590'),
+      total: a('600.045'),
+    });
   });
 
   it('a reduce-only close larger than the position, or a resting one, is refused', async () => {
@@ -564,5 +586,229 @@ describe('TEST venue simulator: review regressions', () => {
     for (let i = 0; i < 1200; i++)
       seen.add((await sim.prepare(account, w.signer, order('BTC-USDC', 'buy', '1', '0.001', `order:f:${i}`))).nonce);
     expect(seen.size).toBe(1200);
+  });
+});
+
+describe('TEST venue simulator: council round 1 regressions', () => {
+  const outcomeCode = async (p: Promise<{ definite: boolean } & Record<string, unknown>>) => {
+    try {
+      const r = (await p) as { definite: boolean; accepted?: boolean; refusal?: { code: string } };
+      return r.definite ? (r.accepted ? 'accepted' : `refused:${r.refusal!.code}`) : 'not-definite';
+    } catch (error) {
+      return `threw:${(error as VenueRefusalError).refusal?.code ?? (error as Error).message}`;
+    }
+  };
+
+  it('P1 a negative withdrawal is refused and creates nothing', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100'), 'chain:t:p1');
+    const intent = {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('-1000'),
+      destination: w.wallet.address,
+      withdrawalKey: 'withdraw:t:p1',
+    } as const;
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, intent))).toBe('venue_rejected');
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free).toBe(a('100'));
+  });
+
+  it('P2 a key claiming the owner role on someone else account is refused at submit', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:p2');
+    const attacker = w.otherWallet;
+    const p = await w.sim.prepare(w.other, attacker.signer, {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('500'),
+      destination: attacker.address,
+      withdrawalKey: 'withdraw:x:p2',
+    });
+    const td = buildTypedData(w.sim.venue.id, w.trader, attacker.signer, p.intent, p.nonce);
+    const forged = { ...p, account: w.trader, typedData: td, digest: digestOf(td) };
+    expect(await outcomeCode(w.sim.submit(forged, await attacker.sign(forged)))).toBe('refused:signer_not_authorised');
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free).toBe(a('1000'));
+  });
+
+  it('P3 an approved agent that rewrites a cancel into a withdrawal is refused at submit', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:p3');
+    await w.run(w.wallet, w.trader, { kind: 'approve_agent', agentAddress: w.agent.address, agentName: 'TEST bot', validUntil: null });
+    const p = await w.sim.prepare(w.trader, w.agent.signer, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:x:p3' });
+    const intent = {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('900'),
+      destination: w.agent.address,
+      withdrawalKey: 'withdraw:a:p3',
+    } as const;
+    const td = buildTypedData(w.sim.venue.id, w.trader, w.agent.signer, intent, p.nonce);
+    const forged = { ...p, intent, venueClientOrderId: null, typedData: td, digest: digestOf(td) };
+    expect(await outcomeCode(w.sim.submit(forged, await w.agent.sign(forged)))).toBe('refused:agent_not_permitted');
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free).toBe(a('1000'));
+  });
+
+  it('P4 an agent expiry is signed: changing it after signing is refused', async () => {
+    const w = world();
+    const p = await w.sim.prepare(w.trader, w.wallet.signer, {
+      kind: 'approve_agent',
+      agentAddress: w.agent.address,
+      agentName: 'TEST bot',
+      validUntil: new Date(Date.UTC(2026, 10, 9)),
+    });
+    expect((p.typedData as TestVenueTypedData).message.payload).toContain('2026-11-09T00:00:00.000Z');
+    const signature = await w.wallet.sign(p);
+    const edited = { ...p, intent: { ...(p.intent as ApproveAgentIntent), validUntil: new Date(Date.UTC(2100, 0, 1)) } };
+    expect(await refusal(w.sim.submit(edited, signature))).toBe('signature_mismatch');
+    expect((await w.sim.agents(w.trader)).value).toEqual([]);
+  });
+
+  it('P5 the client order id comes from the signed intent: a swapped id cancels the signed order, not another', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:p5');
+    const A = await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:p5a'));
+    const B = await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:p5b'));
+    const p = await w.sim.prepare(w.trader, w.wallet.signer, { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:t:p5a' });
+    await w.sim.submit({ ...p, venueClientOrderId: B.prepared.venueClientOrderId }, await w.wallet.sign(p));
+    expect((await w.sim.openOrders(w.trader)).value.map((o) => o.venueClientOrderId)).toEqual([B.prepared.venueClientOrderId]);
+    expect(A.prepared.venueClientOrderId).not.toBe(B.prepared.venueClientOrderId);
+  });
+
+  it('P5b the builder fee comes from the signed intent: dropping it from the prepared object changes nothing', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:p5c');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:p5c');
+    await w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') });
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.01', 'order:o:p5c'));
+    const p = await w.sim.prepare(
+      w.trader,
+      w.wallet.signer,
+      order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:p5c', { builderFee: { builder: '0xb11de4', feeBps: a('1') } }),
+    );
+    await w.sim.submit({ ...p, builderFee: null }, await w.wallet.sign(p));
+    expect((await w.sim.fills(w.trader, new Date(0))).value[0]!.builderFee).toBe(a('0.000001'));
+  });
+
+  it('P6 a negative builder fee is refused, on the order and on the approval', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:p6');
+    expect(
+      await refusal(
+        w.sim.prepare(
+          w.trader,
+          w.wallet.signer,
+          order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:p6', { builderFee: { builder: '0xb', feeBps: a('-5000') } }),
+        ),
+      ),
+    ).toBe('venue_rejected');
+    expect(
+      await refusal(w.sim.prepare(w.trader, w.wallet.signer, { kind: 'approve_builder_fee', builder: '0xb', maxFeeBps: a('-1') })),
+    ).toBe('venue_rejected');
+  });
+
+  it('P8 a refused order never cancels this account own resting order', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:p8');
+    w.sim.deposit(w.trader, 'USDC', a('100'), 'chain:t:p8u');
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '60000', '0.01', 'order:t:p8s'));
+    const r = await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:p8b'));
+    expect(r.outcome.definite && !r.outcome.accepted && r.outcome.refusal.code).toBe('insufficient_balance');
+    expect((await w.sim.openOrders(w.trader)).value.length).toBe(1);
+  });
+
+  it('P9 an unpublished trading fee is still charged and reported on the fill, while the market says not known', async () => {
+    const sim = new TestVenueSimulator({ clock: () => new Date(0), markets: [{ ...SPOT, takerFeeBps: { known: false } }] });
+    const buyer = testWallet('p9-buyer');
+    const seller = testWallet('p9-seller');
+    const b = { venueId: sim.venue.id, owner: buyer.address, subAccount: null };
+    const s2 = { venueId: sim.venue.id, owner: seller.address, subAccount: null };
+    sim.deposit(b, 'USDC', a('100000'), 'chain:b:p9');
+    sim.deposit(s2, 'BTC', a('1'), 'chain:s:p9');
+    for (const [who, acct, intent] of [
+      [seller, s2, order('BTC-USDC', 'sell', '60000', '0.01', 'order:s:p9')],
+      [buyer, b, order('BTC-USDC', 'buy', '60000', '0.01', 'order:b:p9')],
+    ] as const) {
+      const p = await sim.prepare(acct, who.signer, intent);
+      await sim.submit(p, await who.sign(p));
+    }
+    expect((await sim.markets(null)).value[0]!.takerFeeBps).toEqual({ known: false });
+    // The hidden taker fee is 5 bps of 0.01 BTC.
+    expect((await sim.fills(b, new Date(0))).value[0]!.venueFee).toBe(a('0.000005'));
+  });
+
+  it('a reused nonce on a different action is answered not definite, never a definite refusal', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:nonce');
+    const first = await w.sim.prepare(w.trader, w.wallet.signer, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:n1'));
+    await w.sim.submit(first, await w.wallet.sign(first));
+    const second = await w.sim.prepare(w.trader, w.wallet.signer, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:n2'));
+    const td = buildTypedData(w.sim.venue.id, w.trader, w.wallet.signer, second.intent, first.nonce);
+    const reused = { ...second, nonce: first.nonce, typedData: td, digest: digestOf(td) };
+    expect(await w.sim.submit(reused, await w.wallet.sign(reused))).toEqual({ definite: false, reason: 'already_submitted' });
+  });
+
+  it('amend is refused at prepare, so the wallet is never asked', async () => {
+    const w = world();
+    expect(
+      await refusal(
+        w.sim.prepare(w.trader, w.wallet.signer, {
+          kind: 'amend_order',
+          symbol: 'BTC-USDC',
+          clientOrderKey: 'order:t:am',
+          amount: a('1'),
+          price: a('1'),
+        }),
+      ),
+    ).toBe('not_offered');
+  });
+
+  it('a failed withdrawal returns the amount and its fee', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:wf');
+    const { prepared } = await w.run(w.wallet, w.trader, {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10'),
+      destination: w.wallet.address,
+      withdrawalKey: 'withdraw:t:wf',
+    });
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free).toBe(a('989'));
+    expect(w.sim.settleWithdrawals('failed')).toBe(1);
+    expect((await w.sim.withdrawal(w.trader, prepared.nonce)).value?.status).toBe('failed');
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free).toBe(a('1000'));
+  });
+
+  it('money is conserved: deposits = free + locked + withdrawals + fees charged ± realised results, for every account', async () => {
+    const w = world();
+    const bidder = testWallet('bidder-cons');
+    const bAcct = { venueId: w.sim.venue.id, owner: bidder.address, subAccount: null };
+    const accounts = [
+      [w.wallet, w.trader],
+      [w.otherWallet, w.other],
+      [bidder, bAcct],
+    ] as const;
+    for (const [, acct] of accounts) w.sim.deposit(acct, 'USDC', a('100000'), `chain:${acct.owner}:cons`);
+    for (const [who, acct] of accounts)
+      await w.run(who, acct, { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'isolated' });
+    await w.run(w.otherWallet, w.other, order('BTC-PERP', 'sell', '60000', '0.1', 'order:o:cons'));
+    await w.run(w.wallet, w.trader, order('BTC-PERP', 'buy', '60000', '0.1', 'order:t:cons'));
+    await w.run(bidder, bAcct, order('BTC-PERP', 'buy', '61000', '0.1', 'order:b:cons'));
+    await w.run(w.wallet, w.trader, order('BTC-PERP', 'sell', '61000', '0.04', 'order:t:cons:c', { reduceOnly: true, timeInForce: 'IOC' }));
+    await w.run(w.wallet, w.trader, {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10'),
+      destination: w.wallet.address,
+      withdrawalKey: 'withdraw:t:cons',
+    });
+    for (const [, acct] of accounts) {
+      const usdc = balanceOf((await w.sim.balances(acct)).value, 'USDC');
+      expect(usdc.total).toBe(add(usdc.free, usdc.locked));
+      const fills = (await w.sim.fills(acct, new Date(0))).value;
+      const fees = fills.reduce((s3, f) => add(s3, add(f.venueFee, f.builderFee)), ZERO);
+      const realised = fills.reduce((s3, f) => add(s3, f.realisedPnl ?? ZERO), ZERO);
+      const withdrawn = acct === w.trader ? a('11') : ZERO; // 10 and its published fee of 1
+      expect(add(add(usdc.total, add(fees, withdrawn)), sub(ZERO, realised))).toBe(a('100000'));
+    }
   });
 });

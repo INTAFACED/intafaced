@@ -52,6 +52,8 @@ export interface TestVenueTypedData {
 export function canonicalIntent(intent: VenueIntent): string {
   const plain = (value: unknown): unknown => {
     if (typeof value === 'bigint') return formatAmount(value as Amount);
+    // Every field the wallet signs must be in the payload: a Date would otherwise serialise to {}.
+    if (value instanceof Date) return value.toISOString();
     if (value === null || typeof value !== 'object') return value;
     if (Array.isArray(value)) return value.map(plain);
     const out: Record<string, unknown> = {};
