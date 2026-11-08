@@ -175,8 +175,21 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
   await expect(eligibility).toHaveCount(1);
   const verdicts = eligibility.getByRole('cell');
   await expect(verdicts).toHaveCount(3);
-  for (const i of [1, 2]) await expect(verdicts.nth(i)).toHaveText(/you may use it|plan|age|region/i);
+  for (const [i, g] of [
+    [1, navigator],
+    [2, support],
+  ])
+    await expect(verdicts.nth(i)).toHaveText(eligibilityShown(g.eligibility));
 });
+
+/**
+ * What a comparison cell must say for one agent's stored eligibility: when the person may not use it, that they are left
+ * out ("Not ...") and the rule that leaves them out (plan, age or region); when they may, never that they are left out.
+ */
+function eligibilityShown(e) {
+  if (e?.eligible === false) return new RegExp(`^Not\\b.*\\b${e.rule === 'age' || e.rule === 'region' ? e.rule : 'plan'}\\b`, 'i');
+  return /^(?!Not\b)./i;
+}
 
 test(`${J} #2 an agent the person is not eligible for shows the real reason (plan, age or region) in the comparison`, async ({
   browser,
@@ -195,17 +208,27 @@ test(`${J} #2 an agent the person is not eligible for shows the real reason (pla
       password: `TEST-${randomBytes(9).toString('base64url')}-9a`,
     });
     await page.goto('/agents');
-    const read = page.waitForResponse((r) => r.ok() && r.url().includes('/api/agents/trpc/agent.get'));
+    const read = (agentId) =>
+      page.waitForResponse(
+        (r) => r.ok() && r.url().includes('/api/agents/trpc/agent.get') && decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+        { timeout: 15_000 },
+      );
+    const reads = [read('navigator'), read('support')];
     await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
     await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
     await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
-    const guardrail = (await (await read).json())?.result?.data;
-    expect(guardrail, 'the stored guardrail states who may use the agent').toHaveProperty('eligibility');
+    const [navigator, support] = await Promise.all(reads.map(async (answer) => (await (await answer).json())?.result?.data));
+    for (const g of [navigator, support]) expect(g, 'the stored guardrail states who may use the agent').toHaveProperty('eligibility');
+    // This person is left out of at least one of the two, which is the case the step is about.
+    expect([navigator, support].some((g) => g.eligibility?.eligible === false), 'one of the two agents is not for this person').toBe(true);
     const row = tableIn(main(page), 'Compare agents')
       .getByRole('row')
       .filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
     await expect(row).toHaveCount(1);
-    await expect(row).toContainText(/plan|age|region/i);
+    const cells = row.getByRole('cell');
+    await expect(cells).toHaveCount(3);
+    await expect(cells.nth(1)).toHaveText(eligibilityShown(navigator.eligibility));
+    await expect(cells.nth(2)).toHaveText(eligibilityShown(support.eligibility));
   } finally {
     await context.close();
   }
