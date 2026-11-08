@@ -122,8 +122,12 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
     restartWith('protocol', 'LOCAL_STACK_TEST_REGION_SERVED', false);
     restartWith('edge', 'LOCAL_STACK_TEST_REGION_SERVED', false);
     await openVenue(regionPage, who, walletKey);
-    await regionPage.getByRole('button', { name: 'Connect to my account' }).click();
+    // The room's read of the person's connections is refused by the same guard, so the refusal is there before Connect
+    // too; pressing Connect is refused the same way, and no message is written.
     await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await regionPage.getByRole('button', { name: 'Connect to my account' }).click();
+    await expect(regionPage.getByRole('button', { name: 'Connect to my account' })).toBeEnabled();
+    await expect(regionPage.getByText('Not available in your region', { exact: true })).toBeVisible();
     await expect(
       regionPage.getByText(`Connecting a wallet is not available where you are: ${REGION_REASON}. Nothing was connected.`),
     ).toBeVisible();

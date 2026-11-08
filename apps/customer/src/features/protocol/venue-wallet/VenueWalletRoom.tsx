@@ -69,6 +69,25 @@ export function venueRefusal(failure: Failed, t: T): Refusal {
   }
 }
 
+/**
+ * The room when the person's connections could not be read. A visitor from a blocked region is refused that read by the
+ * same jurisdiction guard as Connect, so the room says the region refusal in words, with its reason, and keeps Connect
+ * (which the service refuses the same way); any other failure is a read that failed.
+ */
+export function readFailedState(failure: Failed, refusal: Refusal | null, t: T): RoomState {
+  if (codeOf(failure) === 'denied.region_blocked') return { kind: 'ready', partial: { missing: refusal ?? venueRefusal(failure, t) } };
+  return {
+    kind: 'refused',
+    refusal: {
+      variant: 'unreachable',
+      title: t('readFailedTitle'),
+      body: t('readFailedBody'),
+      reference: codeOf(failure) ?? failure.reason,
+      action: { label: t('tryAgain'), href: '/wallet/venue' },
+    },
+  };
+}
+
 export function VenueWalletRoom() {
   const { t } = venueWalletCopy.useCopy();
   const { api, userId } = useSession();
@@ -184,17 +203,7 @@ export function VenueWalletRoom() {
         },
       };
     if (status.resource.status === 'loading') return { kind: 'loading' };
-    if (status.resource.status === 'failed')
-      return {
-        kind: 'refused',
-        refusal: {
-          variant: 'unreachable',
-          title: t('readFailedTitle'),
-          body: t('readFailedBody'),
-          reference: codeOf(status.resource.failure) ?? status.resource.failure.reason,
-          action: { label: t('tryAgain'), href: '/wallet/venue' },
-        },
-      };
+    if (status.resource.status === 'failed') return readFailedState(status.resource.failure, refusal, t);
     if (refusal) return { kind: 'ready', partial: { missing: refusal } };
     return { kind: 'ready' };
   }, [userId, status.resource, refusal, t]);

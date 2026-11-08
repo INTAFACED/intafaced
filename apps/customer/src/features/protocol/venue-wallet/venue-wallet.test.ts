@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { venueRefusal } from './VenueWalletRoom';
+import { readFailedState, venueRefusal } from './VenueWalletRoom';
 import { venueWalletCopy } from './venue-wallet-copy';
 
 /** J-wallet-09: every refusal the venue room can meet reads in the room's own words, with its code as the reference. */
@@ -23,6 +23,19 @@ describe('venue room refusals', () => {
     expect(r.title).toBe('Not available in your region');
     expect(r.body).toContain('Not served in US');
     expect(r.reference).toBe('denied.region_blocked');
+  });
+
+  it('a connections read refused for the region says the region refusal in words and keeps Connect; any other failure is a failed read', () => {
+    const region = readFailedState(failed('denied.region_blocked', 'TEST region, not served at launch'), null, t);
+    expect(region).toMatchObject({
+      kind: 'ready',
+      partial: { missing: { title: 'Not available in your region', reference: 'denied.region_blocked' } },
+    });
+    expect(JSON.stringify(region)).toContain('Connecting a wallet is not available where you are: TEST region, not served at launch.');
+    expect(readFailedState(failed('protocol.something_new'), null, t)).toMatchObject({
+      kind: 'refused',
+      refusal: { title: 'Your wallet connections could not be read' },
+    });
   });
 
   it('an expired connection asks the wallet to sign again; a code that leads the message is read too', () => {
