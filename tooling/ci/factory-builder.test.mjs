@@ -25,6 +25,7 @@ import {
   publishPlan,
   pushRef,
   readAgentOutput,
+  revokeToken,
   statusText,
   usageStats,
 } from './factory-builder.mjs';
@@ -311,6 +312,30 @@ test('as the agent user, the CLI starts through sudo with variable names only on
   });
 });
 
+test('the read-only token is revoked, and the revoke counts only when GitHub then refuses the token', async () => {
+  const fake = (after) => {
+    const calls = [];
+    return {
+      calls,
+      send: async (method, path) => {
+        calls.push(`${method} ${path}`);
+        return null;
+      },
+      status: async (path) => {
+        calls.push(`GET ${path}`);
+        return after;
+      },
+    };
+  };
+  const ok = fake(401);
+  assert.equal(await revokeToken(ok), 401);
+  assert.deepEqual(ok.calls, ['DELETE /installation/token', 'GET /repos/INTAFACED/project-state']);
+  for (const still of [200, 403, 404, 500])
+    await assert.rejects(revokeToken(fake(still)), new RegExp(`still answers after its revoke .*HTTP ${still}`), `HTTP ${still}`);
+  const refused = { send: async () => Promise.reject(new Error('DELETE /installation/token: HTTP 401')), status: async () => 401 };
+  await assert.rejects(revokeToken(refused), /HTTP 401/, 'a failed DELETE fails the step');
+});
+
 // ---- The workflow's shape: each rule holds on the file, and each planted fault breaks one ----
 
 const steps = (wf) => {
@@ -323,15 +348,12 @@ const steps = (wf) => {
   return out;
 };
 const stepOf = (wf, name) => steps(wf).find((s) => s.name === name)?.text ?? '';
-/** Steps that may hold the factory token: the gate's checks, the reads before the agent exists, and the publish. */
-const PAT_STEPS = [
-  'The factory secrets are set',
-  'Read the factory switch',
-  'Pick the branch',
-  'CI status for the agent',
-  'Write the prompt',
-  'Publish',
-];
+/** The build job's steps that hold the read-only App token: the reads before the agent exists, and its revoke. */
+const READ_STEPS = ['Pick the branch', 'CI status for the agent', 'Write the prompt', 'Revoke the read-only token'];
+/** The account's CLI token, picked by name from a fixed list (never built from the input). */
+const CLAUDE_TOKEN_EXPR =
+  "${{ inputs.account == 'acct1' && secrets.CLAUDE_TOKEN_ACCT1 || inputs.account == 'acct3' && secrets.CLAUDE_TOKEN_ACCT3 || inputs.account == 'acct4' && secrets.CLAUDE_TOKEN_ACCT4 || '' }}";
+const APP_ACTION = 'actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510';
 
 /** Shell words that aren't programs looked up on PATH: bash keywords and builtins, and the step's own function. */
 const NOT_LOOKED_UP = new Set([
@@ -410,18 +432,25 @@ export function workflowProblems(wf) {
     /\n  (push|pull_request|pull_request_target|schedule|workflow_run|issue_comment|issues|repository_dispatch):/.test(on)
   )
     p.push('starts on workflow_dispatch only');
-  for (const input of ['journey', 'area'])
+  for (const input of ['journey', 'area', 'account'])
     if (!new RegExp(`\\n      ${input}:\\n(?:        .*\\n)*?        required: true\\n`).test(on)) p.push(`input ${input} is required`);
+  if (!/\n      account:\n(?:        .*\n)*?        type: choice\n        options: \[acct1, acct3, acct4\]\n/.test(on))
+    p.push('the account is one of a fixed list');
   if (!/\npermissions: \{\}\n/.test(wf)) p.push('the workflow grants no token permissions by default');
   if (!/\nconcurrency:\n  group: builder-\$\{\{ inputs\.journey \}\}\n  cancel-in-progress: false\n/.test(wf))
     p.push('one run per journey');
-  const gate = wf.slice(wf.indexOf('\n  gate:\n'), wf.indexOf('\n  build:\n'));
-  const build = wf.slice(wf.indexOf('\n  build:\n'));
-  if (!gate || !build) return [...p, 'two jobs, gate then build'];
+  const gi = wf.indexOf('\n  gate:\n');
+  const bi = wf.indexOf('\n  build:\n');
+  const pi = wf.indexOf('\n  publish:\n');
+  if (gi < 0 || bi < gi || pi < bi) return [...p, 'three jobs: gate, build, publish'];
+  const gate = wf.slice(gi, bi);
+  const build = wf.slice(bi, pi);
+  const publish = wf.slice(pi);
   // The secrets come from the environment `factory` (main only): every job that reads one names it.
   for (const [name, job] of [
     ['gate', gate],
     ['build', build],
+    ['publish', publish],
   ])
     if (/secrets\./.test(job) && !/\n    environment: factory\n/.test(job))
       p.push(`the ${name} job takes its secrets from the environment factory`);
@@ -431,31 +460,77 @@ export function workflowProblems(wf) {
   const sec = stepOf(gate, 'The factory secrets are set');
   if (
     gs[1]?.name !== 'The factory secrets are set' ||
-    !/\[ -n "\$FACTORY_GH_TOKEN" \]/.test(sec) ||
-    !/\[ -n "\$CLAUDE_FACTORY_TOKEN" \]/.test(sec) ||
+    !/\[ -n "\$FACTORY_APP_KEY" \]/.test(sec) ||
+    !/\[ -n "\$CLAUDE_TOKEN" \]/.test(sec) ||
+    !sec.includes(`CLAUDE_TOKEN: ${CLAUDE_TOKEN_EXPR}\n`) ||
     !/exit 1/.test(sec)
   )
-    p.push('both secrets are checked before anything else runs, and a missing one fails');
+    p.push("the App key and the account's CLI token are checked before anything else runs, and a missing one fails");
   if (!/factory-builder\.mjs switch/.test(stepOf(gate, 'Read the factory switch'))) p.push('the gate reads the switch');
   if (!/\n    needs: gate\n    if: needs\.gate\.outputs\.run == 'true'\n/.test(build))
     p.push('the build runs only when the switch says run');
-  if ((wf.match(/\n    runs-on: ubuntu-latest\n/g) ?? []).length !== 2 || /runs-on: (?!ubuntu-latest)/.test(wf)) p.push('ubuntu-latest');
+  if (!/\n    needs: \[gate, build\]\n    if: always\(\) && needs\.build\.outputs\.took == 'true'\n/.test(publish))
+    p.push("the publish runs after the build, only when the agent's commits were taken");
+  if ((wf.match(/\n    runs-on: ubuntu-latest\n/g) ?? []).length !== 3 || /runs-on: (?!ubuntu-latest)/.test(wf)) p.push('ubuntu-latest');
   if (!/\n    timeout-minutes: 340 /.test(build)) p.push('the build job is limited to 340 minutes');
-  // Tokens: never GITHUB_TOKEN; the factory token only in its steps, never in the agent's; every GH_TOKEN is it.
-  if (/secrets\.GITHUB_TOKEN|github\.token/.test(wf)) p.push('GITHUB_TOKEN is never used');
+  // Tokens. GITHUB_TOKEN writes nothing: only the gate's switch read uses it. The App key reaches only the secrets
+  // check and the two mint steps; the build job's token is read-only and revoked before the agent user exists; the
+  // only write token is minted in the publish job, never on the agent's runner, and never with workflows permission.
+  if (/secrets\.GITHUB_TOKEN/.test(wf)) p.push('GITHUB_TOKEN is never used');
   for (const s of steps(wf))
-    if (/secrets\.FACTORY_GH_TOKEN/.test(s.text) && !PAT_STEPS.includes(s.name)) p.push(`the factory token is in step ${s.name}`);
-  for (const m of wf.matchAll(/GH_TOKEN: (.*)\n/g))
-    if (m[1] !== '${{ secrets.FACTORY_GH_TOKEN }}') p.push('every GH_TOKEN is the factory token');
+    if (/github\.token/.test(s.text) && s.name !== 'Read the factory switch') p.push(`GITHUB_TOKEN is used in step ${s.name}`);
+  const keySteps = steps(wf)
+    .filter((s) => /secrets\.FACTORY_APP_KEY/.test(s.text))
+    .map((s) => s.name)
+    .join();
+  if (keySteps !== 'The factory secrets are set,A read-only App token,A write App token') p.push('the App key reaches only its mint steps');
+  const readTok = stepOf(build, 'A read-only App token');
+  const writeTok = stepOf(publish, 'A write App token');
+  if (
+    !readTok.includes(`uses: ${APP_ACTION}`) ||
+    /permission-[a-z-]+: (?!read\n)/.test(readTok) ||
+    !/permission-contents: read\n/.test(readTok) ||
+    !/\n          skip-token-revoke: true\n/.test(readTok)
+  )
+    p.push("the build job's token is read-only");
+  if (
+    !writeTok.includes(`uses: ${APP_ACTION}`) ||
+    !/\n          repositories: intafaced\n/.test(writeTok) ||
+    /permission-workflows|permission-administration|permission-secrets|permission-environments/.test(writeTok)
+  )
+    p.push('the write token is for intafaced only, never workflows or admin');
+  if (/write-token|permission-[a-z-]+: write/.test(build) || /read-token/.test(publish) || /write-token/.test(gate))
+    p.push("no write token on the agent's runner");
+  for (const s of steps(wf)) {
+    const t = /\n          GH_TOKEN: (.*)\n/.exec(s.text)?.[1];
+    if (!t) continue;
+    const ok =
+      (s.name === 'Read the factory switch' && t === '${{ github.token }}') ||
+      (READ_STEPS.includes(s.name) && t === '${{ steps.read-token.outputs.token }}' && build.includes(s.text)) ||
+      (s.name === 'Publish' && t === '${{ steps.write-token.outputs.token }}' && publish.includes(s.text));
+    if (!ok) p.push(`step ${s.name} holds a token it shouldn't`);
+  }
+  const bnames = steps(build).map((s) => s.name);
+  const at = (n) => bnames.indexOf(n);
+  if (
+    !/factory-builder\.mjs revoke/.test(stepOf(build, 'Revoke the read-only token')) ||
+    !(at('Write the prompt') < at('Revoke the read-only token') && at('Revoke the read-only token') < at('The agent user and its working tree'))
+  )
+    p.push('the read-only token is revoked before the agent user exists');
   if (/\n          token: /.test(wf)) p.push('no checkout holds a token');
   for (const m of wf.matchAll(/persist-credentials: (\w+)/g)) if (m[1] !== 'false') p.push('no checkout keeps a credential');
   if ((wf.match(/actions\/checkout@/g) ?? []).length !== (wf.match(/persist-credentials: false/g) ?? []).length)
     p.push('every checkout drops its credential');
+  if (/actions\/checkout@/.test(build)) p.push('the build job has no checkout action (its post step would run git after the agent)');
+  const mainCode = stepOf(build, "Main's code");
+  if (!/\n          SHA: \$\{\{ github\.sha \}\}\n/.test(mainCode) || !/test "\$\(git rev-parse HEAD\)" = "\$SHA"/.test(mainCode))
+    p.push('the build job fetches the dispatched commit of main and checks it');
   if (
-    (wf.match(/secrets\.CLAUDE_FACTORY_TOKEN/g) ?? []).length !== 2 ||
-    !/CLAUDE_CODE_OAUTH_TOKEN: \$\{\{ secrets\.CLAUDE_FACTORY_TOKEN \}\}/.test(stepOf(build, 'Build'))
+    (wf.match(/secrets\.CLAUDE_TOKEN_/g) ?? []).length !== 6 ||
+    !stepOf(build, 'Build').includes(`CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_TOKEN_EXPR}\n`)
   )
-    p.push('the CLI token reaches only the secrets check and the Build step');
+    p.push("the account's CLI token reaches only the secrets check and the Build step");
+  if (/CLAUDE_TOKEN/.test(publish)) p.push('the publish job holds no CLI token');
   // Trust: the job's steps run main's code only. Its checkouts are of the dispatched commit on main; nothing runs in
   // the agent's tree except as the agent user; the job's own scripts run from the job's checkout with its pinned node.
   for (const m of wf.matchAll(/\n          ref: (.*)\n/g))
@@ -464,6 +539,7 @@ export function workflowProblems(wf) {
   for (const s of steps(build)) {
     const run = /\n        run: ([\s\S]*)$/.exec(s.text)?.[1] ?? '';
     for (const line of run.split('\n')) {
+      if (line.trim().startsWith('#')) continue;
       if (/\$WORK|\$\{WORK\}|\/home\/factory-agent/.test(line) && !/sudo -n -u "\$AGENT_USER"|as_agent /.test(line))
         p.push(`step ${s.name} touches the agent's tree as the runner`);
       if (/\b(cd|pushd)\b/.test(line)) p.push(`step ${s.name} changes directory`);
@@ -471,6 +547,9 @@ export function workflowProblems(wf) {
         p.push(`step ${s.name} runs the builder's script other than from main's checkout with the pinned node`);
     }
   }
+  if (/\$WORK|\/home\/factory-agent|AGENT_USER|services:/.test(publish)) p.push("the publish job never touches the agent's runner or tree");
+  if (stepOf(publish, 'Publish').match(/\n        run: (.*)\n?$/)?.[1]?.trim() !== 'node tooling/ci/factory-builder.mjs publish')
+    p.push("the publish runs main's script");
   if (/uses: \.\/(?!\.github\/actions\/test-infra\n)/.test(wf)) p.push("local actions are main's test-infra only");
   // The CLI: as the agent user, through the watcher, with no settings from the branch.
   const b = stepOf(build, 'Build');
@@ -483,8 +562,21 @@ export function workflowProblems(wf) {
   if ((wf.match(/"--effort","[a-z]+"/g) ?? []).join() !== '"--effort","medium"') p.push('the effort is medium');
   if (!/npm ci --prefix "\$RUNNER_TEMP\/cli"/.test(wf) || !/sudo chown -R root:root \/opt\/factory-cli/.test(wf))
     p.push('the CLI is the pinned one, root-owned');
-  // Public logs and leftovers.
-  if (/upload-artifact|actions\/cache@/.test(wf)) p.push('nothing is uploaded');
+  // Public logs and leftovers: one upload, of the four files publish needs, kept a day; never the CLI's files.
+  const up = stepOf(build, "Hand the agent's output to the publish job");
+  const uploadPaths =
+    /\n          path: \|\n((?:            .*\n)+)/
+      .exec(up)?.[1]
+      ?.trim()
+      .split('\n')
+      .map((l) => l.trim()) ?? [];
+  if (
+    (wf.match(/upload-artifact/g) ?? []).length !== 1 ||
+    /actions\/cache@/.test(wf) ||
+    uploadPaths.join() !== ['branch.bundle', 'pr.md', 'actions.json', 'end.json'].map((f) => `\${{ env.BUILDER_DIR }}/${f}`).join() ||
+    !/\n          retention-days: 1\n/.test(up)
+  )
+    p.push("only the agent's commits, PR text, asks and end record are uploaded, for a day");
   for (const line of wf.split('\n'))
     if (
       /\b(cat|tee|head|tail|less|more)\b/.test(line) &&
@@ -498,29 +590,29 @@ export function workflowProblems(wf) {
     !/\/usr\/bin\/sudo \/usr\/bin\/pkill -KILL -u "\$AGENT_USER"/.test(kill) ||
     !/\/usr\/bin\/pgrep -u "\$AGENT_USER"[\s\S]*exit 1/.test(kill)
   )
-    p.push('every process of the agent is stopped before the publish');
-  const names = steps(build).map((s) => s.name);
-  if (!(
-    names.indexOf('Build') < names.indexOf('Stop every process of the agent') &&
-    names.indexOf('Stop every process of the agent') < names.indexOf('Publish')
-  ))
-    p.push('the publish comes after the agent is stopped');
-  if (names.at(-1) !== 'Last, stop anything left' || !/if: always\(\)/.test(stepOf(build, 'Last, stop anything left')))
+    p.push('every process of the agent is stopped before its output is taken');
+  if (
+    !(
+      at('Build') < at('Stop every process of the agent') &&
+      at('Stop every process of the agent') < at("Take the agent's commits") &&
+      at("Take the agent's commits") < at("Hand the agent's output to the publish job")
+    )
+  )
+    p.push('the output is handed over after the agent is stopped');
+  if (bnames.at(-1) !== 'Last, stop anything left' || !/if: always\(\)/.test(stepOf(build, 'Last, stop anything left')))
     p.push('the last step stops anything left');
   // PATH: closed before the agent user exists, and from then on no step calls a program by its bare name.
   const close = stepOf(build, 'Close every directory on PATH');
   if (
-    !(
-      names.indexOf('Close every directory on PATH') >= 0 &&
-      names.indexOf('Close every directory on PATH') < names.indexOf('The agent user and its working tree')
-    ) ||
+    !(at('Close every directory on PATH') >= 0 && at('Close every directory on PATH') < at('The agent user and its working tree')) ||
     !/\/usr\/bin\/sudo \/usr\/bin\/chmod -R go-w "\$d"/.test(close) ||
     !/-perm \/022/.test(close) ||
     !/\/usr\/bin\/find -H "\$up" -maxdepth 0 -perm \/022/.test(close) ||
     !/::error title=PATH writable::[\s\S]*exit 1/.test(close)
   )
     p.push('every directory on PATH is closed, and checked, before the agent user exists');
-  for (const s of steps(build).slice(names.indexOf('The agent user and its working tree'))) {
+  for (const s of steps(build).slice(at('The agent user and its working tree'))) {
+    if (!/\n        run: /.test(s.text)) continue; // an action, run by the runner's own node: no shell, no PATH lookup
     if (!/\n        shell: \/usr\/bin\/bash -e \{0\}\n/.test(s.text)) p.push(`step ${s.name} runs /usr/bin/bash by its path`);
     if (!/\n          PATH: \/usr\/bin:\/bin\n/.test(s.text)) p.push(`step ${s.name} runs with PATH=/usr/bin:/bin`);
     for (const word of commandWords(s.text)) p.push(`step ${s.name} calls ${word} by its bare name`);
@@ -537,6 +629,9 @@ test('each planted fault in the workflow is caught', () => {
     assert.ok(WF.includes(from), `the plant's anchor is in the file: ${from.slice(0, 60)}`);
     return WF.replace(from, to);
   };
+  const GATE_CHECKOUT = '          persist-credentials: false\n          sparse-checkout: |\n            tooling/ci\n            docs/roadmap\n';
+  const CLI_TOKEN = `          CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_TOKEN_EXPR}\n`;
+  const USAGE = "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n";
   const faults = {
     'a push trigger': plant('on:\n  workflow_dispatch:\n', 'on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n'),
     'no main check': plant('if [ "$REF" != "refs/heads/main" ]; then', 'if false; then'),
@@ -544,7 +639,16 @@ test('each planted fault in the workflow is caught', () => {
       '            exit 1\n          fi\n\n      - uses: actions/checkout',
       '            exit 0\n          fi\n\n      - uses: actions/checkout',
     ),
-    'the CLI secret unchecked': plant('[ -n "$CLAUDE_FACTORY_TOKEN" ] || missing="$missing CLAUDE_FACTORY_TOKEN"\n', ''),
+    'the CLI secret unchecked': plant('[ -n "$CLAUDE_TOKEN" ] || missing=', 'true || missing='),
+    'the App key unchecked': plant('[ -n "$FACTORY_APP_KEY" ] || missing="$missing FACTORY_APP_KEY"\n', ''),
+    'the account optional': WF.replace(/(      account:\n(?:        .*\n)*?        required: )true/, '$1false'),
+    'a free-text account': plant('        type: choice\n        options: [acct1, acct3, acct4]\n', '        type: string\n'),
+    'the token named from the input': plant(
+      CLI_TOKEN,
+      "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets[format('CLAUDE_TOKEN_{0}', inputs.account)] }}\n",
+    ),
+    'one account for every builder': plant(CLI_TOKEN, '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}\n'),
+    'the CI review token': plant(CLI_TOKEN, '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n'),
     'the gate off the environment': plant(
       '    timeout-minutes: 10 # healthy run: under a minute\n    environment: factory\n',
       '    timeout-minutes: 10 # healthy run: under a minute\n',
@@ -553,38 +657,66 @@ test('each planted fault in the workflow is caught', () => {
       '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory\n',
       '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n',
     ),
+    'the publish off the environment': plant(
+      '    timeout-minutes: 15 # healthy run: under two minutes\n    environment: factory\n',
+      '    timeout-minutes: 15 # healthy run: under two minutes\n',
+    ),
     'a checkout pushing with GITHUB_TOKEN': plant(
-      '          ref: ${{ github.sha }}\n          persist-credentials: false\n      - uses: actions/setup-node',
-      '          ref: ${{ github.sha }}\n          token: ${{ secrets.GITHUB_TOKEN }}\n      - uses: actions/setup-node',
+      GATE_CHECKOUT,
+      `          token: \${{ secrets.GITHUB_TOKEN }}\n${GATE_CHECKOUT.slice(GATE_CHECKOUT.indexOf('\n') + 1)}`,
     ),
-    'a checkout keeping the factory token': plant(
-      '          ref: ${{ github.sha }}\n          persist-credentials: false\n      - uses: actions/setup-node',
-      '          ref: ${{ github.sha }}\n          token: ${{ secrets.FACTORY_GH_TOKEN }}\n      - uses: actions/setup-node',
+    'a checkout keeping a credential': plant(GATE_CHECKOUT, GATE_CHECKOUT.replace('persist-credentials: false', 'persist-credentials: true')),
+    'the read token given to the agent': plant(CLI_TOKEN, `${CLI_TOKEN}          GH_TOKEN: \${{ steps.read-token.outputs.token }}\n`),
+    'the App key given to the agent': plant(CLI_TOKEN, `${CLI_TOKEN}          KEY: \${{ secrets.FACTORY_APP_KEY }}\n`),
+    'a read token that can write': plant(
+      '          permission-contents: read\n          permission-pull-requests: read\n',
+      '          permission-contents: write\n          permission-pull-requests: read\n',
     ),
-    'the factory token given to the agent': plant(
-      '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n',
-      '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n          GH_TOKEN: ${{ secrets.FACTORY_GH_TOKEN }}\n',
+    'the read token never revoked': plant(
+      "      - name: Revoke the read-only token\n        env:\n          GH_TOKEN: ${{ steps.read-token.outputs.token }}\n        run: '\"$NODE_BIN\" tooling/ci/factory-builder.mjs revoke'\n",
+      '',
     ),
-    'GITHUB_TOKEN for the API': WF.replace(/GH_TOKEN: \$\{\{ secrets\.FACTORY_GH_TOKEN \}\}/, 'GH_TOKEN: ${{ github.token }}'),
+    'a write token on the agent runner': plant(
+      `${USAGE}        env:\n          PATH: /usr/bin:/bin\n`,
+      `${USAGE}        env:\n          PATH: /usr/bin:/bin\n          GH_TOKEN: \${{ steps.write-token.outputs.token }}\n`,
+    ),
+    'a write token with workflows': plant('          permission-actions: write\n', '          permission-actions: write\n          permission-workflows: write\n'),
+    'a write token for project-state': plant('          repositories: intafaced\n', '          repositories: intafaced,project-state\n'),
+    'GITHUB_TOKEN for the publish': plant('          GH_TOKEN: ${{ steps.write-token.outputs.token }}\n', '          GH_TOKEN: ${{ github.token }}\n'),
+    'the publish without the build': plant('    needs: [gate, build]\n', '    needs: [gate]\n'),
+    'the publish on a failed take': plant("    if: always() && needs.build.outputs.took == 'true'\n", '    if: always()\n'),
+    'the publish touching the agent tree': plant('          BUILDER_DIR: ${{ runner.temp }}/builder\n', '          BUILDER_DIR: /home/factory-agent/out\n'),
+    'a checkout action in the build job': plant(
+      "      - name: Main's code\n",
+      "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          ref: ${{ github.sha }}\n          persist-credentials: false\n      - name: Main's code\n",
+    ),
+    "main's code unchecked": plant('          test "$(git rev-parse HEAD)" = "$SHA"\n', ''),
     "the branch's script run": plant(
-      `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs publish'`,
-      `run: '"$NODE_BIN" "$WORK/tooling/ci/factory-builder.mjs" publish'`,
+      `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt'`,
+      `run: '"$NODE_BIN" "$WORK/tooling/ci/factory-builder.mjs" prompt'`,
     ),
-    'a step entering the agent tree': plant(
-      '      - name: Publish\n',
-      '      - name: Publish\n        working-directory: /home/factory-agent/work\n',
-    ),
+    'a step entering the agent tree': plant('      - name: Publish\n', '      - name: Publish\n        working-directory: /home/factory-agent/work\n'),
     "the agent's install run as the runner": plant(
       'as_agent /usr/bin/env -C "$WORK" pnpm install --frozen-lockfile',
       'pnpm install --frozen-lockfile --dir "$WORK"',
     ),
     'a checkout of the branch': plant(
-      '          ref: ${{ github.sha }}\n          persist-credentials: false\n      - uses: actions/setup-node',
-      '          ref: ${{ steps.branch.outputs.branch }}\n          persist-credentials: false\n      - uses: actions/setup-node',
+      `          ref: \${{ github.sha }}\n${GATE_CHECKOUT}`,
+      `          ref: \${{ steps.branch.outputs.branch }}\n${GATE_CHECKOUT}`,
     ),
     "the branch's CLI settings": plant('"--setting-sources",""', '"--setting-sources","project"'),
     'the CLI not as the agent user': plant('      AGENT_USER: factory-agent\n', ''),
-    'the transcript uploaded': `${WF}\n      - uses: actions/upload-artifact@v7\n        with:\n          path: \${{ env.BUILDER_DIR }}\n`,
+    'the transcript uploaded': plant(
+      '            ${{ env.BUILDER_DIR }}/end.json\n',
+      '            ${{ env.BUILDER_DIR }}/end.json\n            ${{ env.BUILDER_DIR }}/out.jsonl\n',
+    ),
+    'a second upload': `${WF}\n      - uses: actions/upload-artifact@v7\n        with:\n          path: \${{ env.BUILDER_DIR }}\n`,
+    'the output kept for months': plant('          retention-days: 1\n', '          retention-days: 90\n'),
+    'the output handed over before the stop': (() => {
+      const kill = stepOf(WF, 'Stop every process of the agent');
+      const take = stepOf(WF, "Take the agent's commits");
+      return WF.replace(kill, '').replace(take, `${take}${kill}`);
+    })(),
     'the output printed': plant(`run: '"$NODE_BIN" tooling/ci/factory-builder.mjs stats'`, 'run: cat "$BUILDER_DIR/out.jsonl"'),
     'the CLI run in the shell': plant(`run: '"$NODE_BIN" tooling/ci/factory-builder.mjs run'`, 'run: \'"$CLAUDE_BIN" -p < prompt.txt\''),
     'leftovers not stopped': plant(
@@ -606,14 +738,8 @@ test('each planted fault in the workflow is caught', () => {
       '          /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true\n          /usr/bin/sleep 2\n',
       '          sudo pkill -KILL -u "$AGENT_USER" || true\n          /usr/bin/sleep 2\n',
     ),
-    'the job PATH after the agent': plant(
-      "      - name: Publish\n        if: always() && steps.take.outcome == 'success'\n        shell: /usr/bin/bash -e {0}\n        env:\n          PATH: /usr/bin:/bin\n",
-      "      - name: Publish\n        if: always() && steps.take.outcome == 'success'\n        shell: /usr/bin/bash -e {0}\n        env:\n",
-    ),
-    'bash found on PATH after the agent': plant(
-      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n",
-      "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n",
-    ),
+    'the job PATH after the agent': plant(`${USAGE}        env:\n          PATH: /usr/bin:/bin\n`, `${USAGE}        env:\n          OTHER: x\n`),
+    'bash found on PATH after the agent': plant(USAGE, USAGE.replace('        shell: /usr/bin/bash -e {0}\n', '')),
     'the area optional': WF.replace(/(      area:\n(?:        .*\n)*?        required: )true/, '$1false'),
     'an unpinned model': WF.replace(/"--model","[a-z0-9-]+"/, '"--model","sonnet"'),
     'another effort': plant('"--effort","medium"', '"--effort","high"'),

@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /**
  * Starts one headless builder (.github/workflows/builder.yml) per journey: `gh workflow run builder.yml --ref main
- * -f journey=<id> -f area=<area>`, once each, in the order given.
+ * -f journey=<id> -f area=<area> -f account=<account>`, once each, in the order given.
  *
  * Usage (from the repo root):
  *   node tooling/factory/dispatch.mjs J-identity-13 J-wallet-05
  *   node tooling/factory/dispatch.mjs --area identity J-identity-13 J-identity-14
  *   node tooling/factory/dispatch.mjs J-identity-13=identity J-wallet-05=wallet
+ *   node tooling/factory/dispatch.mjs --account acct4 J-identity-13
  *   node tooling/factory/dispatch.mjs --dry-run ...      (prints the commands, starts nothing)
  *
  * A journey's area is, in order: its own `=area`, then --area, then its module in docs/roadmap/journeys.json. Every
+ * journey's Claude account is --account, else the accounts in turn (acct1, acct3, acct4, then acct1 again), so a
+ * batch spreads over them and never draws on the CI review's account. Every
  * journey is checked before any run starts: an unknown or parked journey, or a malformed id or area, starts none.
  * On a 403 or 429 from GitHub it stops and starts no more (AGENTS.md); the builder itself reads the factory switch.
  */
@@ -20,14 +23,16 @@ import { checkInputs } from '../ci/factory-builder.mjs';
 
 export const REPO = 'INTAFACED/intafaced';
 export const WORKFLOW = 'builder.yml';
+/** builder.yml's `account` choices, each with its own CLI token in the environment factory (CLAUDE_TOKEN_<ACCOUNT>). */
+export const ACCOUNTS = ['acct1', 'acct3', 'acct4'];
 
 /** The parsed command line: { journeys: [{ journey, area? }], area?, dryRun, repo } or { error }. */
 export function parseArgs(argv) {
-  const out = { journeys: [], area: null, dryRun: false, repo: REPO };
+  const out = { journeys: [], area: null, account: null, dryRun: false, repo: REPO };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--dry-run') out.dryRun = true;
-    else if (a === '--area' || a === '--repo') {
+    else if (a === '--area' || a === '--repo' || a === '--account') {
       const v = argv[++i];
       if (!v || v.startsWith('--')) return { error: `${a} needs a value` };
       out[a.slice(2)] = v;
@@ -39,11 +44,12 @@ export function parseArgs(argv) {
       }
   }
   if (!out.journeys.length) return { error: 'name at least one journey, e.g. J-identity-13' };
+  if (out.account !== null && !ACCOUNTS.includes(out.account)) return { error: `--account is one of ${ACCOUNTS.join(', ')}` };
   return out;
 }
 
 /** Each journey's gh arguments, or the first problem found (so nothing starts unless all are good). */
-export function plan({ journeys, area }, catalog) {
+export function plan({ journeys, area, account }, catalog) {
   const seen = new Set();
   const runs = [];
   for (const j of journeys) {
@@ -53,13 +59,27 @@ export function plan({ journeys, area }, catalog) {
     const chosen = j.area ?? area ?? module;
     const r = checkInputs(j.journey, chosen, catalog);
     if (r.error) return { error: r.error };
-    runs.push({ journey: j.journey, area: chosen });
+    runs.push({ journey: j.journey, area: chosen, account: account ?? ACCOUNTS[runs.length % ACCOUNTS.length] });
   }
   return { runs };
 }
 
 export function ghArgs(run, repo = REPO) {
-  return ['workflow', 'run', WORKFLOW, '-R', repo, '--ref', 'main', '-f', `journey=${run.journey}`, '-f', `area=${run.area}`];
+  return [
+    'workflow',
+    'run',
+    WORKFLOW,
+    '-R',
+    repo,
+    '--ref',
+    'main',
+    '-f',
+    `journey=${run.journey}`,
+    '-f',
+    `area=${run.area}`,
+    '-f',
+    `account=${run.account}`,
+  ];
 }
 
 /** A refusal that ends the batch: a 403 or 429, or GitHub's rate-limit words. */
@@ -74,7 +94,7 @@ export function dispatch(runs, { exec, repo = REPO, log = console.log }) {
     try {
       exec('gh', ghArgs(run, repo));
       result.started.push(run.journey);
-      log(`started ${run.journey} (area ${run.area})`);
+      log(`started ${run.journey} (area ${run.area}, account ${run.account})`);
     } catch (e) {
       const text = `${e?.stderr ?? ''} ${e?.message ?? ''}`;
       if (isRefusal(text)) {

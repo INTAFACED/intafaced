@@ -11,17 +11,19 @@
  *   branch    the branch this run builds on: the journey's open PR's branch when there is one (a successor resumes it),
  *             else factory/<journey>, or factory/<journey>-r<run number> when that name is already taken.
  *   status    the resumed PR's head and its CI runs (names, states, links), for the agent, which can't read GitHub.
- *   prompt    fetches project-state BUILDER.md and the journey's section of its module's journeys.md with the factory
- *             token, and writes the agent's prompt to a file. Nothing from project-state is ever printed.
+ *   prompt    fetches project-state BUILDER.md and the journey's section of its module's journeys.md with the read-only
+ *             App token, and writes the agent's prompt to a file. Nothing from project-state is ever printed.
+ *   revoke    ends the read-only App token before the agent starts (DELETE /installation/token), and fails unless GitHub
+ *             then refuses it (401), so no live GitHub token is left on the agent's runner.
  *   run       runs the CLI headless with the prompt, as the agent user when AGENT_USER is set; everything it prints
  *             goes to files in the job, never the log. Every POLL_MS it reads the switch (no token: the repo is public);
  *             a pause, three unreadable reads in a row or the hard stop ends it. However it ends, the agent's processes
  *             get SIGTERM, then after the grace SIGKILL, and the step exits only once none is left.
- *   publish   after the agent's processes are gone: takes the agent's commits from a bundle into a fresh repository,
+ *   publish   in the publish job, on a fresh runner: takes the agent's commits from a bundle into a fresh repository,
  *             pushes them to refs/heads/<the picked branch> only (never a force, never another ref), opens or updates
  *             the PR from the agent's PR text, adds the run's Handover-run line, and, if the agent asked, starts the
- *             journey's Real-app journeys run and arms squash auto-merge. The factory token reaches only this step and
- *             the read-only ones before the agent starts.
+ *             journey's Real-app journeys run and arms squash auto-merge. Only this step holds a write token, and it
+ *             never runs on the agent's runner.
  *   stats     the run's usage, numbers only, from the CLI's final result event (the trial measures usage per hour).
  *
  * Public-repo hygiene: intafaced is public and anyone can read its logs. Nothing here prints text it fetched from
@@ -371,6 +373,14 @@ function api(token) {
   };
 }
 
+/** Ends an installation token and proves it ended: GitHub must refuse it afterwards. `gh` is api(token)'s shape. */
+export async function revokeToken(gh, probe = `/repos/${PROJECT_STATE}`) {
+  await gh.send('DELETE', '/installation/token');
+  const st = await gh.status(probe);
+  if (st !== 401) throw new Error(`the token still answers after its revoke (GET ${probe}: HTTP ${st})`);
+  return st;
+}
+
 /** The switch without a token (the repository is public): the agent's step holds no GitHub token at all. */
 async function switchVerdict(repo) {
   try {
@@ -504,6 +514,12 @@ async function main(cmd, args, env) {
     console.log(
       `prompt written: ${Buffer.byteLength(prompt)} bytes (brief ${Buffer.byteLength(brief)}, steps ${Buffer.byteLength(section)})`,
     );
+    return 0;
+  }
+  if (cmd === 'revoke') {
+    need(env, 'GH_TOKEN');
+    await revokeToken(api(env.GH_TOKEN));
+    console.log('the read-only token is revoked: GitHub now refuses it (401)');
     return 0;
   }
   if (cmd === 'run') {
