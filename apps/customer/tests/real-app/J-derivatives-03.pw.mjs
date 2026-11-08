@@ -1,4 +1,4 @@
-// World: book, restart
+// World: book, market, restart
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits, fromUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
