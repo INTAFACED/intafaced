@@ -344,9 +344,22 @@ export function parseDiff(text) {
 
 const TEST_CALL = /^(\s*)test(?:\.(?:skip|fixme|only|fail|slow))?\(\s*[`'"](?:\$\{J\}|(J-[a-z0-9-]+)) #(\d+)\b/;
 
-/** The step tests of one journey file: `{ step: 'J-x-01 #3', start, end }` (1-based lines), as test-hash.mjs cuts them. */
+/** A journey file's own `const J = 'J-x-01';` (the id its `${J}` titles run under), or null when it declares none. */
+const J_DECL = /^\s*const\s+J\s*=\s*['"`](J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)['"`]\s*;?\s*$/m;
+/** The journey id a journey file's name gives: segments up to the first number, so a journey split across files
+ *  (`J-identity-06-apps.pw.mjs`) is J-identity-06, as journey-seal.mjs JOURNEY_TEST reads it. */
+export const journeyOfFile = (path) =>
+  /\/(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)(?:-[a-z0-9-]+)?\.pw\.mjs$/.exec(String(path ?? ''))?.[1] ?? null;
+
+/**
+ * The step tests of one journey file: `{ step: 'J-x-01 #3', start, end }` (1-based lines), as test-hash.mjs cuts them.
+ * A `${J}` title is the file's own `const J = '…'` when it declares one, which is what it runs under; else `journey`.
+ * (Failure it prevents: a split journey file, J-identity-06-apps.pw.mjs with `const J = 'J-identity-06'`, was judged as
+ * steps of "J-identity-06-apps", which has no step words; #7540, project-state #1578.)
+ */
 export function testsIn(text, journey) {
   const lines = String(text ?? '').split('\n');
+  journey = J_DECL.exec(String(text ?? ''))?.[1] ?? journey;
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     const m = TEST_CALL.exec(lines[i]);
@@ -558,17 +571,18 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     for (const t of testsIn(text, journey)) if (!testText.has(t.step)) testText.set(t.step, lines.slice(t.start - 1, t.end).join('\n'));
   };
   const allStepsOf = (jf) => {
-    const journey = JOURNEY_FILE.exec(jf)?.[1];
+    const journey = journeyOfFile(jf);
     const text = after.has(jf) ? after.get(jf) : src.readGraph(jf);
     bodyOf(text, journey);
     return testsIn(text, journey).map((t) => t.step);
   };
   for (const f of judged) {
-    const j = JOURNEY_FILE.exec(f.path) ?? (f.oldPath ? JOURNEY_FILE.exec(f.oldPath) : null);
+    const j =
+      JOURNEY_FILE.test(f.path) || (f.oldPath && JOURNEY_FILE.test(f.oldPath)) ? (journeyOfFile(f.path) ?? journeyOfFile(f.oldPath)) : null;
     if (j) {
-      const t = stepsTouched({ journey: j[1], before: before.get(f.path), after: after.get(f.path), removed: f.removed, added: f.added });
-      bodyOf(after.get(f.path), j[1]);
-      bodyOf(before.get(f.path), j[1]);
+      const t = stepsTouched({ journey: j, before: before.get(f.path), after: after.get(f.path), removed: f.removed, added: f.added });
+      bodyOf(after.get(f.path), j);
+      bodyOf(before.get(f.path), j);
       for (const s of t.own) own.add(s);
       if (t.fileLevel) {
         changes.push({ file: f.path, kind: 'file-level', reaches: t.all.size, journeys: 1 });
