@@ -722,6 +722,7 @@ test(`${J} #7 sees cashback in token on card spend with the rank-linked tier`, a
     [two, second],
   ]) {
     const [payment] = after.data.payments.filter((p) => p.authorizationId === spent.held.authorizationId);
+    expect(payment, `the bank lists the cashback of authorisation ${spent.held.authorizationId}`).toBeTruthy();
     expect(payment.ledgerTxId, 'a settled cashback names its ledger transaction').toBeTruthy();
     const tx = await ledgerTx(payment.ledgerTxId);
     expect(tx).toMatchObject({

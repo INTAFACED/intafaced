@@ -85,11 +85,12 @@ test(`${J} #1 opens Open orders: each order with its price, amount, filled and h
     expect(hold?.asset).toBe('USDT');
     expect(toUnits(hold.amount)).toBeGreaterThanOrEqual((toUnits(price) * toUnits(amount)) / toUnits('1'));
     sum += toUnits(hold.amount);
-    const cells = openTable(page)
+    const row = openTable(page)
       .locator('tbody tr')
       .filter({ hasText: symbol })
-      .filter({ hasText: shown(price) })
-      .locator('td');
+      .filter({ hasText: shown(price) });
+    await expect(row).toHaveCount(1);
+    const cells = row.locator('td');
     await expect(cells.nth(2)).toHaveText(symbol);
     await expect(cells.nth(5)).toHaveText(shown(price));
     await expect(cells.nth(6)).toHaveText(amount);
@@ -200,7 +201,8 @@ test(`${J} #4 changes the price: reviewed first, then the original is cancelled 
   const heldWithSpare = held(await (await api(who)).balances(), 'USDT');
   expect(heldWithSpare).toBe(heldNow + spareHold);
   const freeNow = free(await (await api(who)).balances(), 'USDT');
-  const tooBig = fromUnits((((freeNow + spareHold) * 2n * toUnits('1')) / toUnits(next) / 10n ** 13n) * 10n ** 13n);
+  // Just past what is free once the old hold is back (110%), cut to the 0.00001 BTC step.
+  const tooBig = fromUnits((((((freeNow + spareHold) * 11n) / 10n) * toUnits('1')) / toUnits(next) / 10n ** 13n) * 10n ** 13n);
   const failed = await (
     await api(who)
   ).post(`/api/v1/orders/${spare.id}/replace`, {
@@ -280,6 +282,17 @@ test(`${J} #6 cancels a batch by ids, then every spot order: each id answered, a
   page.on('request', (r) => {
     if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/orders/batch-cancel') batches.push(r.postDataJSON());
   });
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(3);
+  // The desk re-reads Open orders every 10 s and drops a ticked id that has left it. The third order is cancelled
+  // between the desk's last read and the press, so its reads are held (not answered) from here until the batch is sent:
+  // the desk still shows it, as it would if it had gone in the moments before the person pressed.
+  let release;
+  const gate = new Promise((resolve) => (release = resolve));
+  const OPEN_READ = /\/api\/v1\/orders\/open(\?|$)/;
+  await page.route(OPEN_READ, async (route) => {
+    await gate;
+    await route.continue().catch(() => {});
+  });
   await rowOf(page, shown(btc)).getByRole('checkbox').check();
   await rowOf(page, shown(fromUnits(toUnits(btc) - toUnits('9'))))
     .getByRole('checkbox')
@@ -298,6 +311,8 @@ test(`${J} #6 cancels a batch by ids, then every spot order: each id answered, a
   await expect(dialog).toContainText('Not cancelled:');
   expect(batches).toHaveLength(1);
   expect([...batches[0].ids].sort()).toEqual([one.id, three.id, orders.e.id].sort());
+  release();
+  await page.unroute(OPEN_READ);
   await dialog.getByRole('button', { name: 'Close' }).click();
   expect(await openOrders(who)).toHaveLength(0);
   expect(await openOrders(who, 'ETH/USDT')).toHaveLength(0);
@@ -327,31 +342,34 @@ test(`${J} #6 cancels a batch by ids, then every spot order: each id answered, a
   expect(fut.status, JSON.stringify(fut.body).slice(0, 300)).toBe(200);
   expect(fut.body).toMatchObject({ status: 'open', limitPrice: futPrice, filledQty: '0' });
   const futId = fut.body.orderId;
-  const futOpen = await me.get(`/api/v1/futures/orders/${futId}`);
-  expect(futOpen.body.status, JSON.stringify(futOpen.body).slice(0, 300)).toBe('open');
-  const heldWithFutures = held(await me.balances(), 'USDT');
-  await page.reload();
-  await expect(rowOf(page, shown(btc))).toHaveCount(1);
-  await expect(openTable(page).locator('tbody tr').filter({ hasText: 'ETH/USDT' })).toHaveCount(1);
-  const deletes = [];
-  page.on('request', (r) => {
-    if (r.method() === 'DELETE' && new URL(r.url()).pathname === '/api/v1/orders') deletes.push(new URL(r.url()).search);
-  });
-  await page.getByRole('button', { name: 'Cancel orders…' }).click();
-  await expect(dialog.getByRole('radio', { name: /Every spot order/ })).toBeChecked();
-  await dialog.getByRole('button', { name: 'Cancel orders' }).click();
-  await expect(dialog).toContainText('Cancelled 2 orders.');
-  expect(deletes).toEqual(['?kind=spot']);
-  await dialog.getByRole('button', { name: 'Close' }).click();
-  expect([...(await openOrders(who)), ...(await openOrders(who, 'ETH/USDT'))]).toHaveLength(0);
-  const futAfter = await me.get(`/api/v1/futures/orders/${futId}`);
-  expect(futAfter.body.status, JSON.stringify(futAfter.body).slice(0, 300)).toBe('open');
-  // Exactly the two spot holds came back; whatever the futures order holds did not move.
-  expect(held(await me.balances(), 'USDT')).toBe(heldWithFutures - spotHolds);
-  expect({ ...futAfter.body, status: undefined }).toMatchObject({ ...futOpen.body, status: undefined });
-  // The futures order is then cancelled on its own door (clean-up, not this step's claim).
-  const futCancel = await me.delete(`/api/v1/futures/orders/${futId}`);
-  expect(futCancel.status, JSON.stringify(futCancel.body).slice(0, 300)).toBeLessThan(300);
+  try {
+    const futOpen = await me.get(`/api/v1/futures/orders/${futId}`);
+    expect(futOpen.body.status, JSON.stringify(futOpen.body).slice(0, 300)).toBe('open');
+    const heldWithFutures = held(await me.balances(), 'USDT');
+    await page.reload();
+    await expect(rowOf(page, shown(btc))).toHaveCount(1);
+    await expect(openTable(page).locator('tbody tr').filter({ hasText: 'ETH/USDT' })).toHaveCount(1);
+    const deletes = [];
+    page.on('request', (r) => {
+      if (r.method() === 'DELETE' && new URL(r.url()).pathname === '/api/v1/orders') deletes.push(new URL(r.url()).search);
+    });
+    await page.getByRole('button', { name: 'Cancel orders…' }).click();
+    await expect(dialog.getByRole('radio', { name: /Every spot order/ })).toBeChecked();
+    await dialog.getByRole('button', { name: 'Cancel orders' }).click();
+    await expect(dialog).toContainText('Cancelled 2 orders.');
+    expect(deletes).toEqual(['?kind=spot']);
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    expect([...(await openOrders(who)), ...(await openOrders(who, 'ETH/USDT'))]).toHaveLength(0);
+    const futAfter = await me.get(`/api/v1/futures/orders/${futId}`);
+    expect(futAfter.body.status, JSON.stringify(futAfter.body).slice(0, 300)).toBe('open');
+    // Exactly the two spot holds came back; whatever the futures order holds did not move.
+    expect(held(await me.balances(), 'USDT')).toBe(heldWithFutures - spotHolds);
+    expect({ ...futAfter.body, status: undefined }).toMatchObject({ ...futOpen.body, status: undefined });
+  } finally {
+    // The futures order is then cancelled on its own door (clean-up, not this step's claim), whatever happened above.
+    const futCancel = await me.delete(`/api/v1/futures/orders/${futId}`);
+    expect(futCancel.status, JSON.stringify(futCancel.body).slice(0, 300)).toBeLessThan(300);
+  }
 });
 
 test(`${J} #7 looks at Positions: not applicable to cash spot, no zero row`, async ({ page }) => {

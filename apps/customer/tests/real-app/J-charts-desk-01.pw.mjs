@@ -192,10 +192,12 @@ async function libraryPoints(page) {
       for (let hook = fiber.memoizedState; hook && typeof hook === 'object' && 'next' in hook; hook = hook.next) {
         const series = hook.memoizedState?.current;
         if (series && typeof series.seriesType === 'function' && typeof series.data === 'function') {
-          return {
-            type: series.seriesType(),
-            points: series.data().map((p) => ({ time: p.time, open: p.open, high: p.high, low: p.low, close: p.close, value: p.value })),
-          };
+          const points = series
+            .data()
+            .map((p) => ({ time: p.time, open: p.open, high: p.high, low: p.low, close: p.close, value: p.value }));
+          // The series found is the one the chart says it drew (its own data-drawn and data-drawn-bars), not another.
+          const own = series.seriesType() === el.getAttribute('data-drawn') && String(points.length) === el.getAttribute('data-drawn-bars');
+          return { type: series.seriesType(), points, own };
         }
       }
     }
@@ -219,19 +221,29 @@ function heikinAshiOf(bars) {
 const near = (a, b) => typeof a === 'number' && typeof b === 'number' && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 
 /**
- * Whether the library's points are the glyph of `id` over exactly these plain bars: the same times, and each value the
- * style draws (OHLC for candles and bars, the averaged OHLC for Heikin Ashi, the close for line, area and columns). The
- * newest bar is still trading and may move between two reads, so its time is checked and its values only up to it.
+ * Whether the library's points are the glyph of `id` over these plain bars: point by point at the same times, each value
+ * the style draws (OHLC for candles and bars, the averaged OHLC for Heikin Ashi, the close for line, area and columns).
+ * The window may have moved on since the bars were read (a new bucket, the oldest dropped): the points are matched from
+ * the bar their first point names, Heikin Ashi seeded there as the chart seeds it, and a bucket newer than the bars is
+ * checked only for its time. The newest of the bars was still trading when read, so its values are not compared.
  */
 function drawsAs(id, points, bars) {
-  if (points.length !== bars.length) return `drew ${points.length} points over ${bars.length} bars`;
-  const want = id === 'heikin-ashi' ? heikinAshiOf(bars) : bars;
-  for (let i = 0; i < bars.length; i += 1) {
-    const [got, w] = [points[i], want[i]];
-    if (got.time !== w.time) return `point ${i} at ${got.time}, bar at ${w.time}`;
-    if (i === bars.length - 1) continue;
-    const fields = ['line', 'area', 'columns'].includes(id) ? [['value', 'close']] : ['open', 'high', 'low', 'close'].map((f) => [f, f]);
-    for (const [g, f] of fields) if (!near(got[g], w[f])) return `point ${i} ${g} ${got[g]}, wanted ${w[f]}`;
+  const start = bars.findIndex((b) => b.time === points[0]?.time);
+  if (start < 0) return `the first point (${points[0]?.time}) is not one of the bars`;
+  const base = bars.slice(start);
+  if (points.length < base.length) return `drew ${points.length} points over ${base.length} bars`;
+  if (points.length - base.length > 2) return `drew ${points.length - base.length} points past the bars`;
+  const want = id === 'heikin-ashi' ? heikinAshiOf(base) : base;
+  const fields = ['line', 'area', 'columns'].includes(id) ? [['value', 'close']] : ['open', 'high', 'low', 'close'].map((f) => [f, f]);
+  for (let i = 0; i < points.length; i += 1) {
+    const got = points[i];
+    if (i >= base.length) {
+      if (!(got.time > points[i - 1].time)) return `point ${i} at ${got.time} is not after the one before`;
+      continue;
+    }
+    if (got.time !== want[i].time) return `point ${i} at ${got.time}, bar at ${want[i].time}`;
+    if (i === base.length - 1) continue;
+    for (const [g, f] of fields) if (!near(got[g], want[i][f])) return `point ${i} ${g} ${got[g]}, wanted ${want[i][f]}`;
   }
   return 'ok';
 }
@@ -254,9 +266,9 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
       const got = await libraryPoints(page);
       const held = await drawn(page);
       bars = got.points;
-      return [got.type, got.points.length === held.held, got.points[0]?.time * 1000 === held.heldFirst];
+      return [got.type, got.own, got.points.length === held.held, got.points[0]?.time * 1000 === held.heldFirst];
     })
-    .toEqual(['Candlestick', true, true]);
+    .toEqual(['Candlestick', true, true, true]);
   const res = await fetch(`${EDGE}/api/v1/ohlcv/${encodeURIComponent('BTC/USDT')}?timeframe=15m&limit=240`);
   expect(res.status).toBe(200);
   const edge = new Map((await res.json()).map((row) => [row[0] / 1000, row]));
@@ -286,9 +298,9 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
     await expect
       .poll(async () => {
         const got = await libraryPoints(page);
-        return [got.type, drawsAs(id, got.points, bars)];
+        return [got.type, got.own, drawsAs(id, got.points, bars)];
       })
-      .toEqual([kind, 'ok']);
+      .toEqual([kind, true, 'ok']);
   }
 
   // The choice is kept on this device: after a reload Heikin Ashi is pressed and drawn, averaged, over the same bars.
@@ -299,11 +311,9 @@ test(`${J} #3 switches between candles, bars, line, area, columns and Heikin Ash
   await expect
     .poll(async () => {
       const got = await libraryPoints(page);
-      const common = got.points.filter((p) => p.time >= bars[0].time && p.time <= bars[bars.length - 2].time);
-      const base = bars.filter((b) => b.time >= got.points[0].time);
-      return [got.type, common.length > 0 && drawsAs('heikin-ashi', got.points.slice(0, base.length), base)];
+      return [got.type, got.own, drawsAs('heikin-ashi', got.points, bars)];
     })
-    .toEqual(['Candlestick', 'ok']);
+    .toEqual(['Candlestick', true, 'ok']);
 });
 
 test(`${J} #4 scrolls back to the oldest bar, more history loads with a stated depth, and keys zoom and pan`, async ({ page }) => {

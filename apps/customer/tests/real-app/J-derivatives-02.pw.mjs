@@ -281,7 +281,12 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   // Buying power as the venue's collateral read gives it, before anything is tried.
   const collateral = await me.get('/api/v1/futures/collateral');
   expect(collateral.status, JSON.stringify(collateral.body).slice(0, 300)).toBe(200);
-  const powerBefore = collateral.body.assets.find((x) => x.asset === 'USDT').buyingPower;
+  const usdtRow = (body) => {
+    const row = body?.assets?.find((x) => x.asset === 'USDT');
+    expect(row, `the collateral read has a USDT row: ${JSON.stringify(body).slice(0, 300)}`).toBeTruthy();
+    return row;
+  };
+  const powerBefore = usdtRow(collateral.body).buyingPower;
 
   const ticket = page.getByRole('region', { name: 'Order ticket' });
   await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
@@ -320,7 +325,8 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   expect((await me.get('/api/v1/positions')).body).toEqual([]);
   // Buying power is unchanged.
   const after = await me.get('/api/v1/futures/collateral');
-  expect(after.body.assets.find((x) => x.asset === 'USDT').buyingPower).toBe(powerBefore);
+  expect(after.status).toBe(200);
+  expect(usdtRow(after.body).buyingPower).toBe(powerBefore);
 });
 
 test(`${J} #5 previews past the order cap and the price band: a split offered and placed, the price moved to the band edge, the slippage cap shown`, async ({
