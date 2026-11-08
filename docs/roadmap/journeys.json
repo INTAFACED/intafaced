@@ -613,7 +613,7 @@
   },
   {
     "id": "J-agents-12",
-    "title": "Run an agent from my own code with the session API",
+    "title": "Read the agent runs I started in my own session from my own code with the session API",
     "module": "agents",
     "persona": "developer",
     "tier": "core",
@@ -7922,7 +7922,7 @@
     "module": "support-public",
     "persona": "retail",
     "tier": "core",
-    "order": 3,
+    "order": 2,
     "steps": [
       { "n": 1, "slices": [], "noSlice": true },
       { "n": 2, "slices": [], "noSlice": true },
