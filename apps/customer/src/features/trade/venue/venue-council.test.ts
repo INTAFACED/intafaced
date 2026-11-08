@@ -73,8 +73,8 @@ describe('one press after another on a venue action', () => {
 });
 
 describe('the spot page in venue mode', () => {
-  it('shows today’s desk only while reading or for a pair the venue does not list; a venue that is down gets its notice', () => {
-    expect(spotGateChoice(true, { status: 'loading' })).toBe('today');
+  it('shows a reading state, never today’s desk, while reading; today’s desk only for a pair the venue does not list; a venue that is down gets its notice', () => {
+    expect(spotGateChoice(true, { status: 'loading' })).toBe('loading');
     expect(spotGateChoice(true, { status: 'ready', listed: false })).toBe('today');
     expect(spotGateChoice(true, { status: 'ready', listed: true })).toBe('venue');
     expect(spotGateChoice(true, { status: 'failed' })).toBe('down');

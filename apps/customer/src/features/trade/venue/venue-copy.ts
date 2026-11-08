@@ -31,6 +31,7 @@ export const venueCopy = defineCopy('trade.venue', {
   'Venue unavailable': 'The venue is not answering: {detail}',
   'Venue refused': '{detail}',
   'Read failed': 'Couldn’t read the venue: {detail}',
+  'Reading markets': 'Reading the venue’s markets…',
 
   // Balances
   Balances: 'Venue balances',

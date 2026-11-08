@@ -40,16 +40,16 @@ import { spotVenueCopy } from './venue-copy';
 export const venueSymbolOf = (pair: string) => pair.replace(/[/_]/g, '-').toUpperCase();
 
 /**
- * Which spot page shows in venue mode: today's desk only while the venue's markets are still being read or when the venue
- * does not list this pair as spot; the venue's notice when the venue is down or its market list could not be read (never
- * today's custodial desk in its place); otherwise the venue desk.
+ * Which spot page shows in venue mode: a neutral reading state while the venue's markets are still being read (never
+ * today's custodial desk, which could take an order in that window); today's desk only when the venue does not list this
+ * pair as spot; the venue's notice when the venue is down or its market list could not be read; otherwise the venue desk.
  */
 export function spotGateChoice(
   available: boolean,
   markets: { status: 'loading' } | { status: 'failed' } | { status: 'ready'; listed: boolean },
-): 'today' | 'down' | 'venue' {
+): 'loading' | 'today' | 'down' | 'venue' {
   if (!available) return 'down';
-  if (markets.status === 'loading') return 'today';
+  if (markets.status === 'loading') return 'loading';
   if (markets.status === 'failed') return 'down';
   return markets.listed ? 'venue' : 'today';
 }
@@ -79,6 +79,15 @@ export function VenueSpotGate({
         : { status: 'loading' },
   );
   if (choice === 'today') return <>{fallback}</>;
+  if (choice === 'loading') {
+    return (
+      <div data-testid="if-desk" className="if-desk" data-venue="on">
+        <p role="status" aria-busy="true" data-testid="venue-reading">
+          {v('Reading markets')}
+        </p>
+      </div>
+    );
+  }
   if (choice === 'down' || !market || !mode.status.available) {
     return (
       <div data-testid="if-desk" className="if-desk" data-venue="on">
