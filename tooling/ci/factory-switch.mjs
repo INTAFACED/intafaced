@@ -57,7 +57,8 @@ export function judgeSwitch(text) {
 export async function readSwitch({ repo, token, fetchImpl = fetch }) {
   const path = `/repos/${repo}/contents/${SWITCH_FILE}?ref=${SWITCH_BRANCH}`;
   const res = await fetchImpl(`https://api.github.com${path}`, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw' },
+    // No token, no header: the repository is public, so a tokenless read (the builder's gate) is a plain read.
+    headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), accept: 'application/vnd.github.raw' },
   });
   if (!res.ok) throw new Error(`GET ${path}: HTTP ${res.status}`);
   return res.text();

@@ -114,6 +114,10 @@
       "types": "./dist/identity-account-status.d.ts",
       "default": "./dist/identity-account-status.js"
     },
+    "./identity-compromise": {
+      "types": "./dist/identity-compromise.d.ts",
+      "default": "./dist/identity-compromise.js"
+    },
     "./identity-appeals": {
       "types": "./dist/identity-appeals.d.ts",
       "default": "./dist/identity-appeals.js"
@@ -165,6 +169,10 @@
     "./support-awaiting": {
       "types": "./dist/support-awaiting.d.ts",
       "default": "./dist/support-awaiting.js"
+    },
+    "./support-official-channels": {
+      "types": "./dist/support-official-channels.d.ts",
+      "default": "./dist/support-official-channels.js"
     },
     "./guest-verification": {
       "types": "./dist/guest-verification.d.ts",
