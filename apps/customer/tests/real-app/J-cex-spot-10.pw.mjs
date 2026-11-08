@@ -11,6 +11,7 @@ import {
   setFeeDiscountSchedule,
   setFeeSchedule,
 } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, journeyState, otherTrader, times, toUnits, tool } from './stack.mjs';
 import {
   awayBid,
@@ -387,6 +388,7 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     // fillsOf found no fill of it, and the second run's desk showed it neither resting nor filled (5,000 USDT free, 0 IFC).
     // Held, the maker's ladder rests as it is and its taker sends nothing, so only this step's own sell meets the buy.
     tool('local-test-market.mjs', 'hold', 'IFC/USDT');
+    const heldAt = Date.now();
     const { bid, ask: ifcAsk } = await bestPrices('IFC/USDT');
     // Inside the spread, so it rests ahead of the house bids and a crossing sell reaches it first.
     const price = fromUnits(toUnits(bid) + ((toUnits(ifcAsk) - toUnits(bid)) / 2n / 10n ** 14n) * 10n ** 14n);
@@ -410,6 +412,9 @@ test(`${J} #4 fills on a zero-fee pair and a rebate pair: "Zero fee" on one, a m
     const id = placed.body.id;
 
     await sellInto(who, { id, price, amount }, `${J}-4-${id}`);
+    // The hold lapses HOLD_MAX_MS after it was asked for; the price read, the placement and the sell must all fall inside
+    // it, or the maker's walk was back on and this step proved nothing about the race it guards. Fail and say so.
+    expect(Date.now() - heldAt, 'the IFC/USDT hold lapsed before the sell met the buy').toBeLessThan(HOLD_MAX_MS);
 
     // Every fill of the order: a maker, no fee, and a rebate in the USDT the maker paid, at 0.05% rounded down.
     const fills = await fillsOf(client, 'IFC/USDT', id);
