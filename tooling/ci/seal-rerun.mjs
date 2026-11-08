@@ -83,8 +83,19 @@ export async function rerunSeal(repo, sha, opts = {}) {
 async function rerunOneSeal(
   repo,
   sha,
-  { api = gh, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, only, first } = {},
+  { api = gh, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, only, first, number } = {},
 ) {
+  // A re-run is a new attempt of its run and joins ci.yml's per-pull-request concurrency group, so re-running an old
+  // head's seal cancels the new head's CI (8 Nov 2026: CI on 3dbe29e7 cancelled at 10:32 UTC by a re-run on e888920f).
+  // Only a pull request still open on this head is re-sealed; a moved head gets its own seal. Read just before the
+  // re-run, never earlier: the head can move while a running seal is waited out (review 7553-R1).
+  const moved = async () => {
+    if (number === undefined) return null;
+    const p = await api('GET', `/repos/${repo}/pulls/${number}`);
+    if (p.status !== 200) throw new Error(`could not read #${number}: HTTP ${p.status}`);
+    if (p.json?.state === 'open' && p.json?.head?.sha === sha) return null;
+    return `not re-run: #${number} is ${p.json?.state} on ${String(p.json?.head?.sha).slice(0, 10)}, not on ${sha.slice(0, 10)}`;
+  };
   for (let poll = 1; ; poll++) {
     // The first read is rerunSeal's own; each poll after reads again.
     const c =
@@ -103,6 +114,8 @@ async function rerunOneSeal(
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
     if (step.act === 'rerun') {
+      const why = await moved();
+      if (why) return why;
       const r = await api('POST', `/repos/${repo}/actions/runs/${step.runId}/rerun-failed-jobs`);
       if (r.status === 403) return `run ${step.runId} is already re-running`;
       if (r.status !== 201) throw new Error(`could not re-run the failed jobs of run ${step.runId}: HTTP ${r.status}`);
