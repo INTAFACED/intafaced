@@ -54,6 +54,8 @@ import {
   nextTotpStep,
   operatorLogin,
   stepAfterRefusal,
+  founderStepRefused,
+  signInOnceMore,
   TOTP_SKEW_STEPS,
   EDGE_AUTHORITY_CACHE_MAX_MS,
   POSTING_FREEZE_REASON,
@@ -828,3 +830,70 @@ for (const [args, usage] of [
 }
 
 console.log('local-test-gates: marker, builder, hash and planning checks passed');
+
+// The founder console's sign-in, tried once more after a refusal at a step after any identity can hold (J-cex-spot-18 #4,
+// main run 42427369496), as operatorLogin does for the gates' own sign-in.
+{
+  const STEP = 30_000;
+  const state = mkdtempSync(join(tmpdir(), 'local-test-gates-founder-steps-'));
+  try {
+    const ctx = { paths: { stateDir: state }, clock: () => 100 * STEP + 5_000 };
+    const stepsFile = join(state, 'founder-totp-steps.json');
+    writeFileSync(stepsFile, JSON.stringify({ a: 7, b: 101 }));
+    // Founder b's last code was step 101 (the step after the current one); the refusal counts it spent, and step 101
+    // too (the latest identity can hold at step 100), so the next code is step 102 or later. Founder a is untouched.
+    assert.deepEqual(founderStepRefused(ctx, 'b'), { refused: 101, current: 100, next: 101 });
+    assert.deepEqual(JSON.parse(readFileSync(stepsFile, 'utf8')), { a: 7, b: 101 });
+    writeFileSync(stepsFile, JSON.stringify({ a: 7, b: 99 }));
+    assert.deepEqual(founderStepRefused(ctx, 'b'), { refused: 99, current: 100, next: 101 });
+    assert.equal(JSON.parse(readFileSync(stepsFile, 'utf8')).b, 101, 'a refused step 99 at step 100 is recorded as 101');
+    assert.equal(nextTotpStep(101, 100), null, 'so the retry waits for the clock rather than resend a step identity may hold');
+    assert.equal(nextTotpStep(101, 101), 102);
+  } finally {
+    rmSync(state, { recursive: true, force: true });
+  }
+
+  const run = async (answers) => {
+    const calls = { attempts: 0, refused: 0, log: [] };
+    const result = await signInOnceMore({
+      attempt: async () => answers[calls.attempts++],
+      onRefused: async () => {
+        calls.refused += 1;
+        return { refused: 100 + calls.refused * 2, current: 101 + calls.refused * 2, next: 102 + calls.refused * 2 };
+      },
+      log: (l) => calls.log.push(l),
+    });
+    return { result, calls };
+  };
+  // Signed in at once: no retry, nothing recorded.
+  {
+    const { result, calls } = await run(['in']);
+    assert.deepEqual(result, { retried: false });
+    assert.deepEqual([calls.attempts, calls.refused], [1, 0]);
+  }
+  // Refused once: the step is recorded as spent, then exactly one more sign-in, which succeeds; both steps are logged.
+  {
+    const { result, calls } = await run(['refused', 'in']);
+    assert.deepEqual(result, { retried: true, refused: 102 });
+    assert.deepEqual([calls.attempts, calls.refused], [2, 1]);
+    assert.match(calls.log.join('\n'), /refused TOTP step 102 at step 103; signing in once more after step 104/);
+  }
+  // Refused twice: it fails naming both steps, after recording the second as spent too, and never tries a third time.
+  {
+    const calls = { attempts: 0, refused: 0 };
+    await assert.rejects(
+      signInOnceMore({
+        attempt: async () => {
+          calls.attempts += 1;
+          return 'refused';
+        },
+        onRefused: async () => {
+          calls.refused += 1;
+          return { refused: 100 + calls.refused * 2, current: 101 + calls.refused * 2, next: 102 + calls.refused * 2 };
+        },
+      }),
+      /refused the sign-in twice: TOTP step 102 \(at step 103\), then step 104 \(at step 105\)/,
+    );
+    assert.deepEqual([calls.attempts, calls.refused], [2, 2]);
+  }
+}
