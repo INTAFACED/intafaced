@@ -146,6 +146,16 @@ export const touchRoot = (t) =>
 export const dependsOnLedgerClient = (m) =>
   ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some((k) => m?.[k] && Object.hasOwn(m[k], LEDGER_CLIENT));
 const isMoneyPackage = (m) => m?.name === LEDGER_CLIENT || dependsOnLedgerClient(m);
+/** The money code AGENTS.md "How work flows" 8 names: packages/ledger-client, every package that depends on it directly,
+ *  and svc-edge, svc-ops, svc-protocol and svc-fix. `manifests` is manifestsAt(root). Their folders, e.g. `services/svc-bank`. */
+export const moneyCodeDirs = (manifests) =>
+  new Set([
+    ...[...manifests].filter(([, m]) => isMoneyPackage(m)).map(([dir]) => dir),
+    'services/svc-edge',
+    'services/svc-ops',
+    'services/svc-protocol',
+    'services/svc-fix',
+  ]);
 export function moneyRule({ journeys, slices, manifests }) {
   const money = new Set([...manifests].filter(([, m]) => isMoneyPackage(m)).map(([root]) => root));
   const bySlice = new Map(slices.map((s) => [s.id, s]));
@@ -421,9 +431,12 @@ export function passesSince(reports) {
 
 /** The finished runs on main to read for the history: after the named run, before this one, never cancelled or skipped,
  *  only main's own (a fork's branch named main reports head_branch "main" too). */
+/** One of main's own runs: on main, from this repository (a fork's branch named main reports head_branch "main" too), and
+ *  started by a push, the schedule or a dispatch, not a pull request. */
+export const isMainRun = (r, repo) => r?.head_branch === 'main' && r?.head_repository?.full_name === repo && MAIN_EVENTS.has(r?.event);
 export function historyRuns(runs, { repo, namedCreated, thisCreated, thisId }) {
   return runs
-    .filter((r) => r.id !== thisId && r.head_branch === 'main' && r.head_repository?.full_name === repo && MAIN_EVENTS.has(r.event))
+    .filter((r) => r.id !== thisId && isMainRun(r, repo))
     .filter((r) => r.status === 'completed' && !['cancelled', 'skipped'].includes(r.conclusion))
     .filter((r) => r.created_at > namedCreated && r.created_at < thisCreated)
     .sort((a, b) => a.run_number - b.run_number);
@@ -507,8 +520,9 @@ export function rootInputs(root, baselineFile) {
 /**
  * The verdict's inputs read from GitHub, GET only: the baseline's named run's report, the pass history on main after it
  * and before the run judged (`thisRunId`, or `thisRun` when already read), and the regression issues the baseline names.
- * Returns { named, passedSince, issues, problems }; each input that can't be read is a problem, which is red, never
- * green. `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
+ * Returns { named, passedSince, issues, problems, shas }; each input that can't be read is a problem, which is red, never
+ * green. `shas` maps the run number of the named run and of each history run to its head commit (the merge seal reads
+ * where a step last passed from it). `reports` caches downloaded reports by run id, so the merge seal reading several runs downloads each once.
  */
 export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new Map(), log = console.log }) {
   const problems = [];
@@ -519,6 +533,7 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
   let named = null;
   let passedSince = {};
   const issues = {};
+  const shas = {};
   try {
     named = reportOf(baseline.run.id);
   } catch (e) {
@@ -531,7 +546,9 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       `/repos/${repo}/actions/workflows/${JOURNEYS_FILE}/runs?branch=main&status=completed&created=${encodeURIComponent(`>=${namedRun.created_at}`)}`,
       'workflow_runs',
     );
+    shas[namedRun.run_number] = namedRun.head_sha;
     const runs = historyRuns(all, { repo, namedCreated: namedRun.created_at, thisCreated: run.created_at, thisId: run.id });
+    for (const r of runs) shas[r.run_number] = r.head_sha;
     if (runs.length > HISTORY_MAX)
       throw new Error(
         `${runs.length} finished runs on main since run ${baseline.run.number}, more than ${HISTORY_MAX}: rewrite the baseline from a newer run`,
@@ -556,7 +573,7 @@ export function fetchInputs({ repo, baseline, thisRunId, thisRun, reports = new 
       issues[n] = { problem: e.message.split('\n')[0] };
     }
   }
-  return { named, passedSince, issues, problems };
+  return { named, passedSince, issues, problems, shas };
 }
 
 function main() {
