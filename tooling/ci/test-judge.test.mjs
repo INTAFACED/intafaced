@@ -12,6 +12,7 @@ import {
   parseDiff,
   testsIn,
   journeyOfFile,
+  declarationProblem,
   stepsTouched,
   reachMap,
   parseStepWords,
@@ -729,19 +730,25 @@ test('a copied journey file: the old file still runs, so only the copy is new', 
 
 // ── A journey split across files (project-state #1578, intafaced #7540) ──────────────────────────────────────────────
 
-test('a split journey file: `${J}` titles are the journey its `const J` names, not the file name', async () => {
-  const split = JFILE.replace("const J = 'J-x-01';", "const J = 'J-x-01';");
-  assert.deepEqual(
-    testsIn(split, 'J-x-01-apps').map((t) => t.step),
-    ['J-x-01 #1', 'J-x-01 #2'],
-    'the file declares J-x-01, so its ${J} steps are J-x-01 whatever name the caller passed',
-  );
-  const noDecl = JFILE.replace("const J = 'J-x-01';\n", '');
-  assert.deepEqual(testsIn(noDecl, 'J-x-01').map((t) => t.step)[1], 'J-x-01 #2', 'no declaration: the given journey');
+test('a split journey file: `${J}` steps are the journey its file name gives, never a `const J` the PR writes', async () => {
+  // Review R1 on #7544: a decoy declaration in a comment or a function must not steer which words the steps answer to.
+  for (const decoy of ["/*\nconst J = 'J-bank-01';\n*/\n", "function f() {\n  const J = 'J-bank-01';\n}\n"])
+    assert.deepEqual(
+      testsIn(decoy + JFILE, 'J-x-01').map((t) => t.step),
+      ['J-x-01 #1', 'J-x-01 #2'],
+    );
   assert.equal(journeyOfFile('apps/customer/tests/real-app/J-identity-06-apps.pw.mjs'), 'J-identity-06');
   assert.equal(journeyOfFile('apps/customer/tests/real-app/J-identity-06.pw.mjs'), 'J-identity-06');
   assert.equal(journeyOfFile('apps/customer/tests/real-app/J-copy-bots-otc-12.pw.mjs'), 'J-copy-bots-otc-12');
   assert.equal(journeyOfFile('apps/customer/tests/real-app/stack.mjs'), null);
+  // A top-level const J that disagrees with the file name, in a file whose titles use ${J}: the judge refuses.
+  assert.equal(declarationProblem(JFILE, 'J-x-01'), null);
+  assert.match(declarationProblem(JFILE.replace("const J = 'J-x-01';", "const J = 'J-y-02';"), 'J-x-01') ?? '', /J-y-02.*J-x-01/);
+  assert.equal(
+    declarationProblem("const J = 'J-ops-console-04-holds';\ntest('J-ops-console-04 #1 x', async () => {\n});\n", 'J-ops-console-04'),
+    null,
+    'a file that writes its step ids out is named by them',
+  );
 
   // End to end through buildInputs: a change inside step #2's test of a split file is J-x-01 #2's own change, judged
   // against J-x-01's words; before the fix it was "J-x-01-apps #2", which has no words.
@@ -768,4 +775,33 @@ test('a split journey file: `${J}` titles are the journey its `const J` names, n
   assert.ok(got.required.steps.includes('J-x-01 #2'), JSON.stringify(got.required.steps));
   assert.ok(!got.required.steps.some((s) => s.startsWith('J-x-01-apps')), 'no step is named after the file');
   assert.doesNotMatch((got.deterministic ?? []).map((d) => d.line).join(' '), /no step words/);
+});
+
+test('review R1/R5 on #7544: a split file whose const J disagrees with its name fails without the model', async () => {
+  const P = 'apps/customer/tests/real-app/J-x-01-apps.pw.mjs';
+  const bad = JFILE.replace("const J = 'J-x-01';", "const J = 'J-bank-01';");
+  const diff = DIFF.replaceAll('apps/customer/tests/real-app/J-x-01.pw.mjs', P).split(
+    'diff --git a/apps/customer/tests/real-app/stack.mjs',
+  )[0];
+  const files = { [P]: bad, 'apps/customer/tests/real-app/journey.mjs': 'export const test = 1; export const expect = 2;\n' };
+  const headFiles = { ...files, [P]: bad.replace('toBe(1);', 'toBeTruthy();') };
+  const src = {
+    diff: async () => ({ diff, mergeBase: BASE }),
+    read: async (sha, p) => (sha === HEAD ? headFiles : files)[p] ?? null,
+    journeys: async () => [P],
+    readGraph: (p) => files[p] ?? null,
+  };
+  const got = await buildInputs({
+    src,
+    base: BASE,
+    head: HEAD,
+    pr: 1,
+    brief: 'B',
+    loadWords: async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) }),
+  });
+  assert.match(got.deterministic.map((d) => d.line).join(' '), /declares const J = 'J-bank-01', but its file name gives journey J-x-01/);
+  assert.ok(
+    got.required.steps.every((s) => !s.startsWith('J-bank-01')),
+    'the decoy journey names no step',
+  );
 });

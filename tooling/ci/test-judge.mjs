@@ -344,22 +344,32 @@ export function parseDiff(text) {
 
 const TEST_CALL = /^(\s*)test(?:\.(?:skip|fixme|only|fail|slow))?\(\s*[`'"](?:\$\{J\}|(J-[a-z0-9-]+)) #(\d+)\b/;
 
-/** A journey file's own `const J = 'J-x-01';` (the id its `${J}` titles run under), or null when it declares none. */
-const J_DECL = /^\s*const\s+J\s*=\s*['"`](J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)['"`]\s*;?\s*$/m;
 /** The journey id a journey file's name gives: segments up to the first number, so a journey split across files
- *  (`J-identity-06-apps.pw.mjs`) is J-identity-06, as journey-seal.mjs JOURNEY_TEST reads it. */
+ *  (`J-identity-06-apps.pw.mjs`) is J-identity-06, the id journey-seal.mjs JOURNEY_TEST and fileSteps give the same
+ *  file's `${J}` steps. The file's text never names it: a PR controls that, and a decoy `const J` could steer which
+ *  words its tests are judged against (review R1 on #7544). */
 export const journeyOfFile = (path) =>
   /\/(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)(?:-[a-z0-9-]+)?\.pw\.mjs$/.exec(String(path ?? ''))?.[1] ?? null;
+/** Every top-level `const J = '…'` a journey file declares (at the start of a line, the way each journey file does). */
+const J_DECLS = /^const J = ['"`]([^'"`\n]*)['"`]/gm;
+/** Why a journey file's `const J` disagrees with the journey its name gives, or null: its `${J}` steps would run under
+ *  one id while the seal and this judge name them by another, so the judge refuses rather than guess. */
+export function declarationProblem(text, journey) {
+  // Only a file whose step titles use `${J}`: one that writes its ids out (J-ops-console-04-holds.pw.mjs) is named by them.
+  if (!/^\s*test(?:\.[a-z]+)?\(\s*`\$\{J\} #\d/m.test(String(text ?? ''))) return null;
+  const declared = [...String(text ?? '').matchAll(J_DECLS)].map((m) => m[1]);
+  const off = declared.find((d) => d !== journey);
+  return off !== undefined ? `declares const J = '${off}', but its file name gives journey ${journey}` : null;
+}
 
 /**
  * The step tests of one journey file: `{ step: 'J-x-01 #3', start, end }` (1-based lines), as test-hash.mjs cuts them.
- * A `${J}` title is the file's own `const J = '…'` when it declares one, which is what it runs under; else `journey`.
- * (Failure it prevents: a split journey file, J-identity-06-apps.pw.mjs with `const J = 'J-identity-06'`, was judged as
- * steps of "J-identity-06-apps", which has no step words; #7540, project-state #1578.)
+ * A `${J}` title is `journey`, the id the file name gives (journeyOfFile). (Failure it prevents: a split journey file,
+ * J-identity-06-apps.pw.mjs, was judged as steps of "J-identity-06-apps", which has no step words; #7540, project-state
+ * #1578.)
  */
 export function testsIn(text, journey) {
   const lines = String(text ?? '').split('\n');
-  journey = J_DECL.exec(String(text ?? ''))?.[1] ?? journey;
   const out = [];
   for (let i = 0; i < lines.length; i++) {
     const m = TEST_CALL.exec(lines[i]);
@@ -562,6 +572,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
   const headReach = reachMap(journeyFiles, (p) => (after.has(p) ? after.get(p) : src.readGraph(p)));
   const reach = new Map(journeyFiles.map((j) => [j, new Set([...(graphReach.get(j) ?? []), ...(headReach.get(j) ?? [])])]));
 
+  const declared = []; // journey files whose const J disagrees with their name: a FAIL line, without the model
   const own = new Set(); // steps whose own test changed
   const reached = new Map(); // step -> journey file, reached by a shared or file-level change
   const changes = []; // { file, kind, reaches, names }
@@ -583,6 +594,15 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
       const t = stepsTouched({ journey: j, before: before.get(f.path), after: after.get(f.path), removed: f.removed, added: f.added });
       bodyOf(after.get(f.path), j);
       bodyOf(before.get(f.path), j);
+      for (const [text, name] of [
+        [after.get(f.path), f.newPath],
+        [before.get(f.path), f.oldPath],
+      ])
+        if (text != null && name) {
+          const why = declarationProblem(text, journeyOfFile(name));
+          if (why)
+            declared.push({ step: `${f.path}`, line: `${f.path} ${why}; the judge can't tell which journey's words its tests answer to` });
+        }
       for (const s of t.own) own.add(s);
       if (t.fileLevel) {
         changes.push({ file: f.path, kind: 'file-level', reaches: t.all.size, journeys: 1 });
@@ -626,7 +646,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
   for (const s of pool) if (sample.length < Math.min(SAMPLE_STEPS, pool.length) && !sample.includes(s)) sample.push(s);
 
   // A step whose test changed but that has no words can't be judged adequate to them: a FAIL line, without the model.
-  const deterministic = [];
+  const deterministic = [...declared];
   const ownList = [...own].sort();
   for (const s of ownList)
     if (!stepWords.has(s))
