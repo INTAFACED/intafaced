@@ -44,6 +44,10 @@ export const JUDGE_PATHS = [
   [/^apps\/customer\/src\/app\/(feature-registry|path-match)\.ts$/, 'the feature registry and path matcher the journeys import'],
   [/^apps\/customer\/deployment\/(host-dispatch|render-security-headers)\.mjs$/, 'the host dispatch and headers the journeys import'],
   [/^services\/svc-fix\/scripts\/ensure-toolchain\.mjs$/, 'the FIX toolchain the journeys start'],
+  // Everything proof v2's reach reads covered (project-state tooling/proof-v2/request.mjs, reachKind), so the judge can
+  // stand in for them: any tests/real-app/ folder, and every tool script under tooling/scripts/ (its unit tests aside).
+  [/(^|\/)tests\/real-app\//, 'a real-app test folder'],
+  [/^tooling\/scripts\/[^/]+\.mjs$/, 'the tool scripts'],
 ];
 /** Shared code that sets the environment every journey starts in, whether or not a test imports it. */
 const ENVIRONMENT = [
