@@ -456,7 +456,11 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
   const { t } = cardOrderCopy.useCopy();
   const { api } = useSession();
   const offered = p.assets.filter((a) => a.state === 'offered').map((a) => a.assetId);
-  const [draft, setDraft] = useState<string[]>(() => (p.order ?? offered).filter((a) => offered.includes(a)));
+  // The saved order first (what is still offered), then every other offered asset, so none can be left out of reach.
+  const [draft, setDraft] = useState<string[]>(() => {
+    const saved = (p.order ?? []).filter((a) => offered.includes(a));
+    return [...saved, ...offered.filter((a) => !saved.includes(a))];
+  });
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
   const move = (index: number, by: -1 | 1) => {
@@ -521,7 +525,16 @@ function PayFromPanel({ view: p, reload }: { view: PayFrom; reload: () => void }
         </tbody>
       </table>
       <p data-testid="card-pay-from-saved">
-        {t('payFromSavedHead')}: {p.order ? p.order.join(', ') : t('payFromNoOrder')}
+        {t('payFromSavedHead')}:{' '}
+        {p.order
+          ? p.order
+              .map((assetId) => {
+                // An asset saved earlier that the partner no longer spends from says so, rather than reading as usable.
+                const state = p.assets.find((a) => a.assetId === assetId)?.state ?? 'not_known';
+                return state === 'offered' ? assetId : `${assetId} (${t(PAY_FROM_STATE[state])})`;
+              })
+              .join(', ')
+          : t('payFromNoOrder')}
       </p>
       {draft.length > 0 && (
         <form className="form-stack" onSubmit={save} noValidate aria-label={t('payFromOrderHead')}>

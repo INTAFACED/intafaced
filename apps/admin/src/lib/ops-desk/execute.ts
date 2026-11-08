@@ -67,12 +67,21 @@ export function readCardStatusAnswer(raw: unknown): CardStatusAnswer | null {
 interface CardFundingAnswer {
   readonly kind: string;
   readonly amount: string;
+  readonly threshold: string | null;
   readonly partnerRef: string;
+}
+
+/** A decimal's canonical text, compared as text and never as a number: "01000.50" and "1000.5" are one amount. */
+function canonicalDecimal(d: string): string {
+  const [whole = '', frac = ''] = d.split('.');
+  const f = frac.replace(/0+$/, '');
+  return `${whole.replace(/^0+(?=\d)/, '')}${f ? `.${f}` : ''}`;
 }
 
 export function readCardFundingAnswer(raw: unknown): CardFundingAnswer | null {
   if (!isRecord(raw) || typeof raw.kind !== 'string' || typeof raw.amount !== 'string' || typeof raw.partnerRef !== 'string') return null;
-  return { kind: raw.kind, amount: raw.amount, partnerRef: raw.partnerRef };
+  if (!(raw.threshold === null || typeof raw.threshold === 'string')) return null;
+  return { kind: raw.kind, amount: raw.amount, threshold: raw.threshold, partnerRef: raw.partnerRef };
 }
 
 interface TakedownAnswer {
@@ -336,7 +345,11 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       );
       if (result.kind !== 'ok') return failureRefusal('svc-bank', 'bank', result);
       const a = result.data;
-      if (a.kind !== request.fundingKind) return WRONG_STATE;
+      // The instruction svc-bank recorded must be the one the founders approved: same kind, amount and threshold, answered.
+      const wantThreshold = request.threshold === '' ? null : canonicalDecimal(request.threshold);
+      const gotThreshold = a.threshold === null ? null : canonicalDecimal(a.threshold);
+      if (a.kind !== request.fundingKind || canonicalDecimal(a.amount) !== canonicalDecimal(request.amount)) return WRONG_STATE;
+      if (wantThreshold !== gotThreshold || a.partnerRef === '') return WRONG_STATE;
       return { ok: true, detail: `svc-bank answered: the card partner took the instruction, reference ${a.partnerRef}.` };
     }
     if (request.kind === 'market.listing.takedown') {

@@ -67,7 +67,8 @@ describe('programme funding (J-bank-26 #6, PG-hard)', () => {
   let db: TestDatabase;
   let sql: TestDatabase['sql'];
   let ledger: MemoryLedger;
-  const service = (partner: CardPartnerTerms = REPORTED) => new CardService(sql, ledger, { issuer: cardSim({ partner }), rates });
+  const service = (partner: CardPartnerTerms = REPORTED) =>
+    new CardService(sql, ledger, { issuer: cardSim({ partner }), rates, clock: () => AT });
 
   beforeAll(async () => {
     const admin = await openAdmin();
@@ -163,6 +164,66 @@ describe('programme funding (J-bank-26 #6, PG-hard)', () => {
     expect(consumed).toBe(1);
     expect(ledger.journal().length).toBe(before);
     expect((await service().programmeFunding()).requests).toEqual([first]);
+  });
+
+  it('a refused approval leaves an unapproved row only; a partner failure after approval retries without a second approval', async () => {
+    const refused = async () => {
+      throw Object.assign(new Error('approval refused'), { code: 'bank.ops_approval_refused' });
+    };
+    await expect(
+      service().requestProgrammeFunding({
+        kind: 'fund',
+        amount: '10',
+        threshold: null,
+        reason: 'TEST reason long enough',
+        clientRequestId: 'op-r',
+        consume: refused,
+      }),
+    ).rejects.toThrow('approval refused');
+    expect((await service().programmeFunding()).requests).toEqual([]);
+    expect(await sql`SELECT approved_at, partner_ref FROM bank.card_programme_funding_requests WHERE client_request_id = 'op-r'`).toEqual([
+      { approved_at: null, partner_ref: null },
+    ]);
+
+    let consumed = 0;
+    let calls = 0;
+    const flaky = new CardService(sql, ledger, {
+      issuer: {
+        ...cardSim({ partner: REPORTED }),
+        programmeFunding: async (input) => {
+          calls++;
+          if (calls === 1) throw new Error('partner timed out');
+          return cardSim({ partner: REPORTED }).programmeFunding!(input);
+        },
+      },
+      rates,
+      clock: () => AT,
+    });
+    const ask = () =>
+      flaky.requestProgrammeFunding({
+        kind: 'defund',
+        amount: '7',
+        threshold: null,
+        reason: 'TEST reason long enough',
+        clientRequestId: 'op-f',
+        consume: async () => void consumed++,
+      });
+    await expect(ask()).rejects.toThrow('partner timed out');
+    const done = await ask();
+    expect(done.partnerRef).toMatch(/^TEST-card-sim-/);
+    expect({ consumed, calls }).toEqual({ consumed: 1, calls: 2 });
+    // The same id for a different instruction refuses by name.
+    await expect(
+      flaky.requestProgrammeFunding({
+        kind: 'defund',
+        amount: '8',
+        threshold: null,
+        reason: 'TEST reason long enough',
+        clientRequestId: 'op-f',
+        consume: async () => void consumed++,
+      }),
+    ).rejects.toMatchObject({ code: 'bank.card_funding_invalid' });
+    expect(consumed).toBe(1);
   });
 
   it('refuses before using the approval: a kind the partner does not offer, a silent partner, a bad amount or threshold', async () => {

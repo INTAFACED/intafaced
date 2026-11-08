@@ -270,6 +270,8 @@ test(`${J} #2 with the TEST list back, opens Pay from and orders USDC, then BTC,
     await expect(assetRow(page, 'BTC')).toHaveAttribute('data-state', 'not_offered');
     await expect(assetRow(page, 'BTC')).toContainText('not offered by the partner');
     await expect(assetRow(page, 'USDC')).toHaveAttribute('data-state', 'offered');
+    // The saved order still names BTC, and says the partner no longer spends from it rather than reading it as usable.
+    await expect(page.getByTestId('card-pay-from-saved')).toHaveText('Saved order: USDC, BTC (not offered by the partner), USD');
   } finally {
     restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
   }

@@ -16,7 +16,7 @@ import {
 import { BankError } from '../errors.js';
 import { isDefiniteLedgerRefusal } from '../ledger-outcome.js';
 import { assertCardAuthorizationsListLimit, assertCardsListLimit } from '../owner-list-limit.js';
-import type { MarkQuality, PriceSource } from '../loans/prices.js';
+import { acceptableForMarking, type MarkQuality, type PriceSource } from '../loans/prices.js';
 import { withMoneySpan } from '../tracing.js';
 import {
   DEFAULT_CARD_CONVERSION_POLICY,
@@ -66,6 +66,49 @@ export interface ProgrammeFundingView {
   readonly offers: Record<FundingKind, FundingOfferState>;
   readonly rows: ReconciliationRow[];
   readonly requests: ProgrammeFundingRequest[];
+}
+
+interface DisplayMark {
+  readonly price: Amount;
+  readonly asOf: Date;
+}
+
+interface FundingRow {
+  client_request_id: string;
+  kind: FundingKind;
+  asset_id: string;
+  amount: string;
+  threshold: string | null;
+  partner_ref: string | null;
+  approved_at: Date | null;
+  created_at: Date;
+}
+
+/** An answered instruction (one the partner has given its reference for). */
+function toFundingRequest(r: FundingRow): ProgrammeFundingRequest {
+  return {
+    clientRequestId: r.client_request_id,
+    kind: r.kind,
+    assetId: r.asset_id,
+    amount: formatAmount(parseAmount(r.amount)),
+    threshold: r.threshold === null ? null : formatAmount(parseAmount(r.threshold)),
+    partnerRef: r.partner_ref ?? '',
+    createdAt: r.created_at.toISOString(),
+  };
+}
+
+/** The same client request id is the same instruction: a different kind, amount or threshold under it refuses by name. */
+function assertSameFunding(row: FundingRow, fields: { kind: FundingKind; amount: string; threshold: string | null }): void {
+  const same =
+    row.kind === fields.kind &&
+    formatAmount(parseAmount(row.amount)) === fields.amount &&
+    (row.threshold === null ? null : formatAmount(parseAmount(row.threshold))) === fields.threshold;
+  if (!same) {
+    throw new BankError(
+      'This request id was already used for a different programme funding instruction (bank.card_funding_invalid)',
+      'bank.card_funding_invalid',
+    );
+  }
 }
 
 function positiveOrRefuse(raw: string, what: string): Amount {
@@ -534,14 +577,7 @@ export class CardService {
     // assets, and the rate is "not known" rather than a guess at which card a payment will use.
     const settlements = [...new Set(cards.map((r) => r.settlement_asset_id))];
     const settlementAssetId = settlements.length === 1 ? settlements[0]! : null;
-    let marks = new Map<string, { price: Amount; asOf: Date }>();
-    if (settlementAssetId && offered.length > 0) {
-      try {
-        marks = await this.rates.marks(offered, settlementAssetId);
-      } catch {
-        // A rate source that cannot answer is silent: every rate reads "not known".
-      }
-    }
+    const marks = settlementAssetId ? await this.displayMarks(offered, settlementAssetId) : new Map<string, DisplayMark>();
     const balances = await this.partnerBalances(userId);
     const [saved] = await this.sql<Array<{ asset_ids: string[] }>>`
       SELECT asset_ids FROM bank.card_pay_from_orders WHERE user_id = ${userId}
@@ -585,7 +621,43 @@ export class CardService {
   /** The partner's reported spendable balances for this cardholder, or null where the adapter reports none. */
   private async partnerBalances(userId: string): Promise<Readonly<Record<string, string>> | null> {
     if (!this.issuer.cardholderBalances) return null;
-    return this.issuer.cardholderBalances({ userId });
+    let reported: Readonly<Record<string, string>> | null;
+    try {
+      reported = await this.issuer.cardholderBalances({ userId });
+    } catch (error) {
+      // No partner to ask, or the simulator in a live deployment, is a blocker to name; any other failure is the partner
+      // not answering, which reads "not known" rather than breaking Pay from.
+      if (error instanceof BankError && (error.code === 'bank.no_card_issuer' || error.code === 'bank.card_sim_not_live')) throw error;
+      return null;
+    }
+    if (!reported) return null;
+    // Only a plain non-negative decimal is a figure; anything else the partner sent reads "not known" for that asset.
+    return Object.fromEntries(Object.entries(reported).filter(([, v]) => typeof v === 'string' && /^\d+(\.\d{1,18})?$/.test(v)));
+  }
+
+  /**
+   * Rates to SHOW (Pay from, the programme's stablecoin conversion): one unit of each asset in `quoteAssetId`. An asset in
+   * itself is 1 by definition. Any other comes from the rate source and must pass the freshness and positive-price check a
+   * conversion would (`acceptableForMarking` under the card conversion policy); a stale, zero or missing mark, or a source
+   * that cannot answer, is left out and reads "not known".
+   */
+  private async displayMarks(assetIds: readonly string[], quoteAssetId: string): Promise<Map<string, DisplayMark>> {
+    const now = this.clock();
+    const out = new Map<string, DisplayMark>();
+    const others = assetIds.filter((a) => a !== quoteAssetId);
+    if (assetIds.includes(quoteAssetId)) out.set(quoteAssetId, { price: parseAmount('1'), asOf: now });
+    if (others.length === 0) return out;
+    try {
+      const marks = await this.rates.marks(others, quoteAssetId);
+      for (const [assetId, mark] of marks) {
+        if (others.includes(assetId) && acceptableForMarking(mark, now, this.conversionPolicy).ok) {
+          out.set(assetId, { price: mark.price, asOf: mark.asOf });
+        }
+      }
+    } catch {
+      // A rate source that cannot answer is silent.
+    }
+    return out;
   }
 
   /** The owner's published programme terms, or null (BK-cissue-01). */
@@ -899,42 +971,18 @@ export class CardService {
     const terms = this.partnerTerms();
     const app = await this.appProgrammeFigures();
     const assets = [...new Set([...app.keys(), ...Object.keys(terms.programmeFigures ?? {})])];
-    let marks = new Map<string, { price: Amount; asOf: Date }>();
-    if (terms.fundingAssetId && assets.length > 0) {
-      try {
-        marks = await this.rates.marks(assets, terms.fundingAssetId);
-      } catch {
-        // A rate source that cannot answer is silent: every conversion reads "not known".
-      }
-    }
-    const requests = await this.sql<
-      Array<{
-        client_request_id: string;
-        kind: FundingKind;
-        asset_id: string;
-        amount: string;
-        threshold: string | null;
-        partner_ref: string;
-        created_at: Date;
-      }>
-    >`
-      SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, created_at
-        FROM bank.card_programme_funding_requests ORDER BY created_at DESC, client_request_id LIMIT 20
+    const marks = terms.fundingAssetId ? await this.displayMarks(assets, terms.fundingAssetId) : new Map<string, DisplayMark>();
+    const requests = await this.sql<FundingRow[]>`
+      SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, approved_at, created_at
+        FROM bank.card_programme_funding_requests WHERE partner_ref IS NOT NULL
+       ORDER BY created_at DESC, client_request_id LIMIT 20
     `;
     return {
       test: terms.test,
       fundingAssetId: terms.fundingAssetId,
       offers: fundingOfferStates(terms),
       rows: reconcileProgramme(app, terms.programmeFigures, marks),
-      requests: requests.map((r) => ({
-        clientRequestId: r.client_request_id,
-        kind: r.kind,
-        assetId: r.asset_id,
-        amount: formatAmount(parseAmount(r.amount)),
-        threshold: r.threshold === null ? null : formatAmount(parseAmount(r.threshold)),
-        partnerRef: r.partner_ref,
-        createdAt: r.created_at.toISOString(),
-      })),
+      requests: requests.map(toFundingRequest),
     };
   }
 
@@ -964,8 +1012,10 @@ export class CardService {
     if (input.kind !== 'auto_reload' && input.threshold !== null) {
       throw new BankError('Only auto reload takes a threshold (bank.card_funding_invalid)', 'bank.card_funding_invalid');
     }
-    const prior = await this.fundingRequest(input.clientRequestId);
-    if (prior) return prior;
+    const fields = { kind: input.kind, amount: formatAmount(amount), threshold: threshold === null ? null : formatAmount(threshold) };
+    let row = await this.fundingRow(input.clientRequestId);
+    if (row) assertSameFunding(row, fields);
+    if (row?.partner_ref) return toFundingRequest(row);
     const assetId = assertFundingOffered(this.partnerTerms(), input.kind);
     if (!this.issuer.programmeFunding) {
       throw new BankError(
@@ -973,61 +1023,58 @@ export class CardService {
         'bank.card_funding_not_offered',
       );
     }
-    await input.consume();
+    // The instruction is written down BEFORE the approval is used and marked approved after it, so a crash leaves a row
+    // saying how far it got: not yet approved (a retry asks for the approval again), or approved and not yet answered (a
+    // retry tells the partner again under the same key, which the partner deduplicates, and uses no second approval).
+    if (!row) {
+      await this.sql`
+        INSERT INTO bank.card_programme_funding_requests (client_request_id, kind, asset_id, amount, threshold, reason)
+        VALUES (${input.clientRequestId}, ${input.kind}, ${assetId}, ${fields.amount}::numeric, ${fields.threshold}::numeric, ${reason})
+        ON CONFLICT (client_request_id) DO NOTHING
+      `;
+      row = (await this.fundingRow(input.clientRequestId))!;
+      assertSameFunding(row, fields);
+    }
+    if (!row.approved_at) {
+      await input.consume();
+      await this.sql`
+        UPDATE bank.card_programme_funding_requests SET approved_at = now()
+         WHERE client_request_id = ${input.clientRequestId} AND approved_at IS NULL
+      `;
+    }
     const { partnerRef } = await this.issuer.programmeFunding({
       requestId: `card-funding:${input.clientRequestId}`,
       kind: input.kind,
-      assetId,
-      amount: formatAmount(amount),
-      threshold: threshold === null ? null : formatAmount(threshold),
+      assetId: row.asset_id,
+      amount: fields.amount,
+      threshold: fields.threshold,
     });
     await this.sql`
-      INSERT INTO bank.card_programme_funding_requests (client_request_id, kind, asset_id, amount, threshold, reason, partner_ref)
-      VALUES (${input.clientRequestId}, ${input.kind}, ${assetId}, ${formatAmount(amount)}::numeric,
-              ${threshold === null ? null : formatAmount(threshold)}::numeric, ${reason}, ${partnerRef})
-      ON CONFLICT (client_request_id) DO NOTHING
+      UPDATE bank.card_programme_funding_requests SET partner_ref = ${partnerRef}
+       WHERE client_request_id = ${input.clientRequestId} AND partner_ref IS NULL
     `;
-    return (await this.fundingRequest(input.clientRequestId))!;
+    return toFundingRequest((await this.fundingRow(input.clientRequestId))!);
   }
 
-  private async fundingRequest(clientRequestId: string): Promise<ProgrammeFundingRequest | null> {
-    const [r] = await this.sql<
-      Array<{
-        client_request_id: string;
-        kind: FundingKind;
-        asset_id: string;
-        amount: string;
-        threshold: string | null;
-        partner_ref: string;
-        created_at: Date;
-      }>
-    >`
-      SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, created_at
+  private async fundingRow(clientRequestId: string): Promise<FundingRow | null> {
+    const [r] = await this.sql<FundingRow[]>`
+      SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, approved_at, created_at
         FROM bank.card_programme_funding_requests WHERE client_request_id = ${clientRequestId}
     `;
-    if (!r) return null;
-    return {
-      clientRequestId: r.client_request_id,
-      kind: r.kind,
-      assetId: r.asset_id,
-      amount: formatAmount(parseAmount(r.amount)),
-      threshold: r.threshold === null ? null : formatAmount(parseAmount(r.threshold)),
-      partnerRef: r.partner_ref,
-      createdAt: r.created_at.toISOString(),
-    };
+    return r ?? null;
   }
 
   /**
-   * The app's own programme figures per funding asset (J-bank-26 #5, #6): open holds (an approval whose hold posted and that
-   * no capture or reversal has closed) and settled captures. Both in the card's funding asset, as the ledger moved them.
+   * The app's own programme figures per funding asset (J-bank-26 #5, #6): open holds (what each posted hold still holds, after
+   * every settled capture and reversal against it) and settled captures. Both in the card's funding asset, as the ledger moved them.
    */
   async appProgrammeFigures(): Promise<Map<string, AppProgrammeFigure>> {
     const rows = await this.sql<Array<{ asset_id: string; held: string; captured: string }>>`
       SELECT k.asset_id,
-             COALESCE(SUM(a.amount) FILTER (
-               WHERE a.decision = 'approved' AND a.status = 'settled'
-                 AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.status = 'settled')
-             ), 0)::text AS held,
+             -- What each posted hold still holds: its amount less every settled capture and reversal against it.
+             COALESCE(SUM(GREATEST(a.amount - COALESCE((
+               SELECT SUM(s.amount) FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.status = 'settled'
+             ), 0), 0)) FILTER (WHERE a.decision = 'approved' AND a.status = 'settled'), 0)::text AS held,
              COALESCE((
                SELECT SUM(s.amount) FROM bank.card_settlements s
                  JOIN bank.card_authorizations a2 ON a2.id = s.authorization_id

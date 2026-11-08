@@ -67,7 +67,7 @@ describe('Pay from (J-bank-29 #1 #2, PG-hard)', () => {
   let ledger: MemoryLedger;
   let user: string;
   const service = (partner: CardPartnerTerms = PARTNER, spendAssets: readonly string[] | null = ['USDC', 'BTC', 'USD'], source = rates) =>
-    new CardService(sql, ledger, { issuer: cardSim({ partner }), spendAssets, rates: source });
+    new CardService(sql, ledger, { issuer: cardSim({ partner }), spendAssets, rates: source, clock: () => AT });
 
   beforeAll(async () => {
     const admin = await openAdmin();
@@ -112,14 +112,56 @@ describe('Pay from (J-bank-29 #1 #2, PG-hard)', () => {
     expect(await entries()).toEqual(before);
   });
 
-  it('a partner that reports no balances reads each "not known"; a rate source that throws reads each rate "not known"', async () => {
+  it('a partner that reports no balances reads each "not known"; a rate source that throws reads each sourced rate "not known"', async () => {
     const silent = service({ ...PARTNER, balances: null }, undefined, {
       marks: async () => {
         throw new Error('ticker down');
       },
     });
     const view = await silent.payFrom(user);
-    for (const row of view.assets) expect(row).toMatchObject({ partnerBalance: null, rate: null, rateAsOf: null });
+    for (const row of view.assets) {
+      // The settlement asset in itself is 1 by definition; every rate the source would have given is "not known".
+      expect(row).toMatchObject(
+        row.assetId === 'USDC' ? { partnerBalance: null, rate: '1' } : { partnerBalance: null, rate: null, rateAsOf: null },
+      );
+    }
+  });
+
+  it('a stale or non-positive rate is not shown: it reads "not known", as a conversion would refuse it', async () => {
+    const old: PriceSource = {
+      marks: async () =>
+        new Map([['BTC', { assetId: 'BTC', price: amt('65000'), asOf: new Date(AT.getTime() - 120_000), quality: 'mid' }]]),
+    };
+    expect((await service(PARTNER, undefined, old).payFrom(user)).assets.find((a) => a.assetId === 'BTC')).toMatchObject({
+      rate: null,
+      rateAsOf: null,
+    });
+    const zero: PriceSource = { marks: async () => new Map([['BTC', { assetId: 'BTC', price: 0n, asOf: AT, quality: 'mid' }]]) };
+    expect((await service(PARTNER, undefined, zero).payFrom(user)).assets.find((a) => a.assetId === 'BTC')).toMatchObject({ rate: null });
+    // The settlement asset in itself is 1 by definition, whatever the source says.
+    expect((await service(PARTNER, undefined, zero).payFrom(user)).assets.find((a) => a.assetId === 'USDC')).toMatchObject({ rate: '1' });
+  });
+
+  it('a partner balance read that fails, or a figure that is not a plain decimal, reads "not known" without breaking Pay from', async () => {
+    const odd = new CardService(sql, ledger, {
+      issuer: { ...cardSim({ partner: PARTNER }), cardholderBalances: async () => ({ USDC: '-3', BTC: '1e2', USD: '50' }) },
+      spendAssets: ['USDC', 'BTC', 'USD'],
+      rates,
+      clock: () => AT,
+    });
+    expect((await odd.payFrom(user)).assets.map((a) => a.partnerBalance)).toEqual([null, null, '50', null]);
+    const down = new CardService(sql, ledger, {
+      issuer: {
+        ...cardSim({ partner: PARTNER }),
+        cardholderBalances: async () => {
+          throw new Error('partner timed out');
+        },
+      },
+      spendAssets: ['USDC', 'BTC', 'USD'],
+      rates,
+      clock: () => AT,
+    });
+    for (const row of (await down.payFrom(user)).assets) expect(row.partnerBalance).toBeNull();
   });
 
   it('an asset the partner map leaves out reads "not known", not 0', async () => {
