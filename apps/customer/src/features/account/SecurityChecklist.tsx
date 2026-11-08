@@ -4,6 +4,7 @@ import { useResource } from '../../shared/resource';
 import { Failure, Loading } from '../../shared/ui';
 import { securityChecklistCopy as copy } from './security-checklist-copy';
 import { factorStatus, type FactorStatus } from './security-checklist';
+import { ScamGuidesLink } from './CompromisedEntry';
 
 /**
  * The Security checklist at the top of `/uc/safe` (slice I-signin-sessions-14): each sign-in method with its status and
@@ -42,6 +43,7 @@ export function SecurityChecklist({ revision = 0 }: { revision?: number } = {}) 
     >
       <h2>{t('title')}</h2>
       <p>{t('body')}</p>
+      <ScamGuidesLink />
       <ul data-testid="security__rows" className="security__rows">
         {status.checklist.map((item) => {
           const more = detail(status, item.key, t);

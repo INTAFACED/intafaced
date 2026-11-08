@@ -62,7 +62,7 @@ const isLineOrder = (order: Order, symbol: string) =>
  * Where the price pane sits in the chart, from the host's top: the panes above it (a study moved up) and their separators.
  * The library measures a pane's coordinates from that pane's own top, and the overlay is laid over the whole host.
  */
-function pricePane(host: ChartHost): { index: number; top: number; height: number } {
+export function pricePane(host: ChartHost): { index: number; top: number; height: number } {
   const index = host.main.getPane().paneIndex();
   const panes = host.chart.panes();
   let top = 0;

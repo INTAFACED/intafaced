@@ -1,3 +1,4 @@
+import { assertPartnerOffers } from '../partner/test-partner.js';
 import { z } from 'zod';
 import { router, scopedProcedure } from '@intafaced/contracts';
 import type { BankServices } from '../bank-service.js';
@@ -124,6 +125,7 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
       .output(invite.extend({ invitee: person }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
           const made = await bank.sharedPots.invite({ ...input, ownerUserId: ctx.principal.userId });
           return { ...inviteOut(made), invitee: personOut(made.invitee) };
         }),
@@ -133,43 +135,78 @@ export function createSharedPotsRouter(bank: BankServices, guard: Guard) {
     cancelInvite: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ inviteId: z.string().guid() }))
       .output(z.object({ cancelled: z.literal(true) }))
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.cancelInvite(input.inviteId, ctx.principal.userId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.cancelInvite(input.inviteId, ctx.principal.userId);
+        }),
+      ),
 
     /** Accept an invite to the caller; past its lifetime refuses `bank.invite_expired`. Moves no value. */
     accept: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ inviteId: z.string().guid() }))
       .output(z.object({ spaceId: z.string(), role }))
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.accept(input.inviteId, ctx.principal.userId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.accept(input.inviteId, ctx.principal.userId);
+        }),
+      ),
 
     /** Decline an invite to the caller. Moves no value. */
     decline: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ inviteId: z.string().guid() }))
       .output(z.object({ declined: z.literal(true) }))
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.decline(input.inviteId, ctx.principal.userId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.decline(input.inviteId, ctx.principal.userId);
+        }),
+      ),
 
     /** Stop sharing a pot the caller is a member of. The pot and its money stay the owner's. */
     leave: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ spaceId: z.string().guid() }))
       .output(z.object({ left: z.literal(true) }))
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.leave(input.spaceId, ctx.principal.userId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.leave(input.spaceId, ctx.principal.userId);
+        }),
+      ),
 
     /** The owner stops sharing one of their pots with one member. Moves no value. */
     remove: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ spaceId: z.string().guid(), userId: z.string().min(1).max(64) }))
       .output(z.object({ removed: z.literal(true) }))
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.remove(input.spaceId, ctx.principal.userId, input.userId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.remove(input.spaceId, ctx.principal.userId, input.userId);
+        }),
+      ),
 
     /** The owner links one of their own cards to one of their pots, so the pot's holders can freeze it. Moves no money. */
     linkCard: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ spaceId: z.string().guid(), cardId: z.string().guid() }))
       .output(card)
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.linkCard(input.spaceId, ctx.principal.userId, input.cardId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.linkCard(input.spaceId, ctx.principal.userId, input.cardId);
+        }),
+      ),
 
     /** The owner unlinks the pot's card. The card itself is untouched. */
     unlinkCard: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ spaceId: z.string().guid() }))
       .output(z.object({ unlinked: z.literal(true) }))
-      .mutation(async ({ ctx, input }) => guard(() => bank.sharedPots.unlinkCard(input.spaceId, ctx.principal.userId))),
+      .mutation(async ({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'joint');
+          return bank.sharedPots.unlinkCard(input.spaceId, ctx.principal.userId);
+        }),
+      ),
 
     /**
      * A holder of the pot (its owner or a contributor) freezes its linked card, for example when it is lost. Freezing
