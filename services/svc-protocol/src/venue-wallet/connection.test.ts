@@ -143,8 +143,8 @@ describe('connect (J-wallet-09 #1, #2)', () => {
     );
     // A message written for Alice cannot connect the wallet to Bob's account.
     expect(await refusal(() => openVenueConnection(d, { userId: BOB, ...s }, T0))).toBe('protocol.wallet_challenge_invalid');
-    // Past the connection's expiry (one minute here, shorter than the five-minute challenge bound).
-    expect(await refusal(() => openVenueConnection(d, { userId: ALICE, ...s }, later(TTL * 1000)))).toBe(
+    // Past half the connection's lifetime (one minute here, so thirty seconds), so a connection never opens nearly spent.
+    expect(await refusal(() => openVenueConnection(d, { userId: ALICE, ...s }, later((TTL * 1000) / 2)))).toBe(
       'protocol.wallet_challenge_invalid',
     );
     // Past the five-minute bound when the connection lasts longer.
@@ -284,6 +284,19 @@ describe('venueWallet.* mounted', () => {
     expect((await alice.venueWallet.status()).connections).toEqual([]);
     await expect(alice.venueWallet.authorize({ address: WALLET.address, action: 'withdraw' })).rejects.toMatchObject({
       message: expect.stringMatching(/^protocol\.venue_connection_none:/),
+    });
+  });
+
+  it('status reads a wallet listed since it connected as blocked, the same answer an action gets', async () => {
+    let list = walletSanctionsFromSetting('none');
+    const d = deps({ sanctions: () => list });
+    const alice = caller(d);
+    const issued = await alice.venueWallet.challenge({ address: WALLET.address, origin: ORIGIN });
+    await alice.venueWallet.open({ challenge: issued.challenge, signature: await WALLET.signMessage({ message: issued.message }) });
+    list = walletSanctionsFromSetting(WALLET.address);
+    expect((await alice.venueWallet.status()).connections.map((c) => c.status)).toEqual(['blocked']);
+    await expect(alice.venueWallet.authorize({ address: WALLET.address, action: 'deposit' })).rejects.toMatchObject({
+      message: expect.stringMatching(/^protocol\.wallet_sanctioned:/),
     });
   });
 

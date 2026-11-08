@@ -28,6 +28,7 @@ import {
   type VenueConnectionRefusalCode,
   type VenueConnectionRecord,
   type VenueConnectionStore,
+  type WalletSanctionsList,
 } from './connection.js';
 
 /**
@@ -65,12 +66,12 @@ export function venueWalletTrpcError(err: unknown): TRPCError {
   return new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Protocol request failed', cause: err });
 }
 
-const out = (row: VenueConnectionRecord, now: Date) => ({
+const out = (row: VenueConnectionRecord, now: Date, sanctions: WalletSanctionsList | null) => ({
   address: row.address,
   chainId: row.chainId,
   connectedAt: row.connectedAt.toISOString(),
   expiresAt: row.expiresAt.toISOString(),
-  status: connectionStatus(row, now),
+  status: connectionStatus(row, now, sanctions),
   holdsKey: false as const,
 });
 
@@ -99,7 +100,7 @@ export function createVenueWalletRouter(deps: VenueWalletRouterDeps) {
       .mutation(({ ctx, input }) =>
         guarded(async () => {
           const at = now();
-          return out(await openVenueConnection(deps, { userId: ctx.principal.userId, ...input }, at), at);
+          return out(await openVenueConnection(deps, { userId: ctx.principal.userId, ...input }, at), at, deps.sanctions());
         }),
       ),
     status: scopedProcedure('protocol:read', guard)
@@ -108,7 +109,7 @@ export function createVenueWalletRouter(deps: VenueWalletRouterDeps) {
         guarded(async () => {
           const at = now();
           const rows = await deps.store.list(ctx.principal.userId, deps.chainId());
-          return { connections: rows.map((row) => out(row, at)) };
+          return { connections: rows.map((row) => out(row, at, deps.sanctions())) };
         }),
       ),
     disconnect: scopedProcedure('protocol:read', guard)

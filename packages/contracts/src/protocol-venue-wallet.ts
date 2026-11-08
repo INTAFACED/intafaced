@@ -58,8 +58,11 @@ export const protocolVenueWalletConnectionSchema = z.object({
   chainId: z.number().int(),
   connectedAt: z.string(),
   expiresAt: z.string(),
-  /** `live` until `expiresAt`; `expired` after it. A disconnected wallet is not listed. */
-  status: z.enum(['live', 'expired']),
+  /**
+   * `live` until `expiresAt`, `expired` after it, and `blocked` while the wallet sanctions list would refuse it (listed
+   * since it connected, or the list is blank). A disconnected wallet is not listed.
+   */
+  status: z.enum(['live', 'expired', 'blocked']),
   /** Always false: the connection stores an address, never a key that can move the wallet's funds. */
   holdsKey: z.literal(false),
 });

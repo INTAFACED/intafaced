@@ -67,6 +67,12 @@ export class VenueConnectionRefusedError extends Error {
 
 /** The longest a challenge waits for its signature: the same five minutes as the wallet session's challenge. */
 export const VENUE_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+/**
+ * The connection's lifetime starts when its message is written, because the message states its exact expiry. So that a
+ * connection never opens with only seconds left, a challenge is signable for at most half the lifetime.
+ */
+export const signableUntil = (issuedAt: number, expiresAt: number) =>
+  Math.min(issuedAt + VENUE_CHALLENGE_TTL_MS, issuedAt + Math.floor((expiresAt - issuedAt) / 2));
 /** Bounds on the owner's connection lifetime: an engineering range, not a value. */
 export const VENUE_CONNECTION_TTL_MIN_SECONDS = 30;
 export const VENUE_CONNECTION_TTL_MAX_SECONDS = 30 * 86_400;
@@ -323,13 +329,13 @@ export async function openVenueConnection(
   const session = requireSession(deps.session());
   const fields = readChallenge(session.secret, input.challenge);
   const t = now.getTime();
-  // Signable for five minutes at most, and never past the connection's own expiry. The origin is checked again: an origin
-  // the owner has since removed no longer connects wallets.
+  // Signable for five minutes at most, and for at most half the connection's lifetime. The origin is checked again: an
+  // origin the owner has since removed no longer connects wallets.
   if (
     !fields ||
     fields.userId !== input.userId ||
     fields.chainId !== deps.chainId() ||
-    t >= Math.min(fields.expiresAt, fields.issuedAt + VENUE_CHALLENGE_TTL_MS) ||
+    t >= signableUntil(fields.issuedAt, fields.expiresAt) ||
     !session.origins.includes(fields.origin)
   )
     throw new VenueConnectionRefusedError(WALLET_CHALLENGE_INVALID, 'This connect message is not valid any more. Ask for a new one.');
@@ -358,9 +364,15 @@ export async function openVenueConnection(
   return opened;
 }
 
-export type VenueConnectionStatus = 'live' | 'expired';
-export const connectionStatus = (row: VenueConnectionRecord, now: Date): VenueConnectionStatus =>
-  now.getTime() < row.expiresAt.getTime() ? 'live' : 'expired';
+export type VenueConnectionStatus = 'live' | 'expired' | 'blocked';
+/**
+ * How a connection reads now: `blocked` when the wallet would be refused by the sanctions list today (listed since it
+ * connected, or the list is blank), so the status read and the action check never disagree; else live until its expiry.
+ */
+export function connectionStatus(row: VenueConnectionRecord, now: Date, sanctions: WalletSanctionsList | null): VenueConnectionStatus {
+  if (!sanctions || sanctions.addresses.has(row.address.toLowerCase())) return 'blocked';
+  return now.getTime() < row.expiresAt.getTime() ? 'live' : 'expired';
+}
 
 /**
  * The connection a signed venue action needs, checked before the wallet is asked anything. Refuses a wallet that was never
@@ -375,12 +387,12 @@ export async function assertVenueConnectionLive(
   const row = await deps.store.find(input.userId, deps.chainId(), address);
   if (!row || row.revokedAt !== null)
     throw new VenueConnectionRefusedError(VENUE_CONNECTION_NONE, 'This wallet is not connected to your account. Connect it first.');
-  if (connectionStatus(row, now) === 'expired')
+  screenWallet(deps.sanctions(), row.address);
+  if (connectionStatus(row, now, deps.sanctions()) === 'expired')
     throw new VenueConnectionRefusedError(
       VENUE_CONNECTION_EXPIRED,
       'This wallet’s connection has expired. Sign again in the wallet to connect it before any signed action.',
     );
-  screenWallet(deps.sanctions(), row.address);
   return row;
 }
 

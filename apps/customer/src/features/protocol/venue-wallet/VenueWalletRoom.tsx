@@ -100,6 +100,8 @@ export function VenueWalletRoom() {
     return () => clearTimeout(timer);
   }, [expiresAt, clock]);
   const expired = connection !== null && (connection.status === 'expired' || (expiresAt !== null && expiresAt <= clock));
+  // Listed since it connected: the service refuses every action on it, and the room says why.
+  const blocked = connection?.status === 'blocked';
 
   /** One flight at a time: a second press while the first has no answer does nothing. */
   async function once(work: () => Promise<void>) {
@@ -109,6 +111,10 @@ export function VenueWalletRoom() {
     setRefusal(null);
     try {
       await work();
+    } catch {
+      // A wallet or network failure that came back as an error rather than an answer: say nothing went through.
+      setMessage(null);
+      setRefusal({ variant: 'unreachable', title: t('otherTitle'), body: t('otherBody') });
     } finally {
       inFlight.current = false;
       setBusy(false);
@@ -126,6 +132,7 @@ export function VenueWalletRoom() {
       setMessage(challenge.data.message);
       const signed = await wallet.sign({ kind: 'message', message: challenge.data.message });
       if (signed.status !== 'signed') {
+        setMessage(null);
         setRefusal({
           variant: 'refused',
           title: t(signed.status === 'rejected' ? 'rejectedTitle' : 'walletFailedTitle'),
@@ -136,6 +143,7 @@ export function VenueWalletRoom() {
       }
       const result = await venue.open({ challenge: challenge.data.challenge, signature: signed.signature });
       if (!result.ok) {
+        setMessage(null);
         setRefusal(venueRefusal(result, t));
         return;
       }
@@ -191,7 +199,7 @@ export function VenueWalletRoom() {
     return { kind: 'ready' };
   }, [userId, status.resource, refusal, t]);
 
-  const current = connection && !expired ? 2 : message ? 1 : 0;
+  const current = connection && !expired && !blocked ? 2 : message ? 1 : 0;
   const time = (iso: string) => new Date(iso).toLocaleString();
 
   return (
@@ -215,7 +223,7 @@ export function VenueWalletRoom() {
             </>
           ) : connection ? (
             <>
-              <h2>{expired ? t('expiredTitle') : t('connectedTitle')}</h2>
+              <h2>{blocked ? t('sanctionedTitle') : expired ? t('expiredTitle') : t('connectedTitle')}</h2>
               <dl>
                 <div>
                   <dt>{t('connectedAs')}</dt>
@@ -230,7 +238,8 @@ export function VenueWalletRoom() {
                   </dd>
                 </div>
               </dl>
-              {expired ? <p role="status">{t('expiredBody', { time: time(connection.expiresAt) })}</p> : null}
+              {blocked ? <p role="status">{t('sanctionedBody')}</p> : null}
+              {expired && !blocked ? <p role="status">{t('expiredBody', { time: time(connection.expiresAt) })}</p> : null}
               <p data-venue-no-key>{t('noKey')}</p>
             </>
           ) : (
@@ -248,15 +257,16 @@ export function VenueWalletRoom() {
       actions={
         address ? (
           <div>
-            {!connection || expired ? (
+            {!blocked && (!connection || expired) ? (
               <Button variant="primary" loading={busy} disabled={busy} onClick={() => void connect()}>
                 {connection ? t('signAgain') : t('connect')}
               </Button>
-            ) : (
+            ) : null}{' '}
+            {connection ? (
               <Button variant="secondary" disabled={busy} onClick={() => void disconnect()}>
                 {t('disconnect')}
               </Button>
-            )}
+            ) : null}
             {connection ? (
               <section aria-label={t('actionsTitle')}>
                 <h2>{t('actionsTitle')}</h2>
