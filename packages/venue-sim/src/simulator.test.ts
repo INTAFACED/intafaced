@@ -124,6 +124,7 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
 
 defineUserVenueConformance(
   {
+    canLoseAnswers: true,
     async setup() {
       const w = world();
       return {
@@ -166,13 +167,13 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
 
     await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.1', 'order:maker:desk:8'));
     const fill = (await w.sim.fills(w.trader, new Date(0))).value[0]!;
-    // Maker 1 bps of 6,000 = 0.6; builder 0.5 bps = 0.3; taken in BTC at the fill price.
+    // A spot buy pays in the BTC it receives: maker 1 bps of 0.1 BTC = 0.00001; builder 0.5 bps = 0.000005.
     expect([fill.role, fill.price, fill.amount, fill.venueFee, fill.builderFee, fill.feeAsset]).toEqual([
       'maker',
       a('60000'),
       a('0.1'),
-      a('0.6'),
-      a('0.3'),
+      a('0.00001'),
+      a('0.000005'),
       'BTC',
     ]);
     const balances = (await w.sim.balances(w.trader)).value;
@@ -336,11 +337,16 @@ describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
     positions = (await w.sim.positions(w.trader)).value;
     expect(positions[0]!.unrealisedPnl).toBe(a('100'));
 
-    await w.run(w.otherWallet, w.other, perpOrder('buy', '61000', '0.1', 'order:maker:d10'));
-    const close40 = perpOrder('sell', '61000', '0.04', 'order:t:d10:close1', { reduceOnly: true });
+    // A second TEST trader, flat, rests the bid the closes sell into.
+    const bidder = testWallet('bidder');
+    const bidderAccount = { venueId: w.sim.venue.id, owner: bidder.address, subAccount: null };
+    w.sim.deposit(bidderAccount, 'USDC', a('100000'), 'chain:b:d10');
+    await w.run(bidder, bidderAccount, tenX);
+    await w.run(bidder, bidderAccount, perpOrder('buy', '61000', '0.1', 'order:bidder:d10'));
+    const close40 = perpOrder('sell', '61000', '0.04', 'order:t:d10:close1', { reduceOnly: true, timeInForce: 'IOC' });
     await w.run(w.wallet, w.trader, close40);
     await w.run(w.wallet, w.trader, close40); // the repeated close id is answered once
-    await w.run(w.wallet, w.trader, perpOrder('sell', '61000', '0.06', 'order:t:d10:close2', { reduceOnly: true }));
+    await w.run(w.wallet, w.trader, perpOrder('sell', '61000', '0.06', 'order:t:d10:close2', { reduceOnly: true, timeInForce: 'IOC' }));
     expect((await w.sim.positions(w.trader)).value).toEqual([]);
     const closes = (await w.sim.fills(w.trader, new Date(0))).value.filter((f) => f.realisedPnl !== null);
     expect(closes.map((f) => f.realisedPnl)).toEqual([a('40'), a('60')]);
@@ -433,5 +439,130 @@ describe('TEST venue simulator: switches and labels', () => {
       const lockedByOrders = (await w.sim.openOrders(who)).value.reduce((s, o) => add(s, o.lockedAsset === 'USDC' ? o.locked : ZERO), ZERO);
       expect(balanceOf((await w.sim.balances(who)).value, 'USDC').locked).toBe(lockedByOrders);
     }
+  });
+});
+
+describe('TEST venue simulator: review regressions', () => {
+  const perp = (side: 'buy' | 'sell', price: string, size: string, key: string, extra: Partial<PlaceUserOrderIntent> = {}) =>
+    order('BTC-PERP', side, price, size, key, extra);
+  const tenX = { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'isolated' } as const;
+
+  it('recovers the signer over the typed data it rebuilt, not the client copy', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r1');
+    const big = await w.sim.prepare(w.trader, w.wallet.signer, order('BTC-USDC', 'buy', '50000', '1', 'order:t:r1'));
+    const small = await w.sim.prepare(w.trader, w.wallet.signer, order('BTC-USDC', 'buy', '50000', '0.001', 'order:t:r1b'));
+    const signedSmall = await w.wallet.sign(small);
+    expect(await refusal(w.sim.submit({ ...big, typedData: small.typedData, digest: small.digest }, signedSmall))).toBe(
+      'signature_mismatch',
+    );
+    // The wallet was shown (and signed) the small payload; the claim names the big digest, and the intent is big.
+    expect(await refusal(w.sim.submit({ ...big, typedData: small.typedData }, { ...signedSmall, digest: big.digest }))).toBe(
+      'signature_mismatch',
+    );
+    expect((await w.sim.openOrders(w.trader)).value).toEqual([]);
+  });
+
+  it('an agent revoked between prepare and submit is refused at submit', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r10');
+    await w.run(w.wallet, w.trader, { kind: 'approve_agent', agentAddress: w.agent.address, agentName: 'TEST bot', validUntil: null });
+    const prepared = await w.sim.prepare(w.trader, w.agent.signer, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:r10'));
+    await w.run(w.wallet, w.trader, { kind: 'revoke_agent', agentAddress: w.agent.address });
+    const outcome = await w.sim.submit(prepared, await w.agent.sign(prepared));
+    expect(outcome.definite && !outcome.accepted && outcome.refusal.code).toBe('signer_not_authorised');
+    expect((await w.sim.openOrders(w.trader)).value).toEqual([]);
+  });
+
+  it('an agent past its validUntil is refused', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r10b');
+    await w.run(w.wallet, w.trader, {
+      kind: 'approve_agent',
+      agentAddress: w.agent.address,
+      agentName: 'TEST bot',
+      validUntil: new Date(Date.UTC(2026, 10, 8, 12, 0, 5)),
+    });
+    for (let i = 0; i < 10; i++) w.tick();
+    expect(await refusal(w.sim.prepare(w.trader, w.agent.signer, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:r10b')))).toBe(
+      'signer_not_authorised',
+    );
+  });
+
+  it('a cross with this account own resting order cancels the resting one instead of crossing the book', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r9');
+    w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:r9b');
+    const sell = await w.run(w.wallet, w.trader, order('BTC-USDC', 'sell', '60000', '0.01', 'order:t:r9s'));
+    await w.run(w.wallet, w.trader, order('BTC-USDC', 'buy', '60100', '0.01', 'order:t:r9b'));
+    expect((await w.sim.orderByClientId(w.trader, sell.prepared.venueClientOrderId!)).value?.status).toBe('canceled');
+    expect((await w.sim.fills(w.trader, new Date(0))).value).toEqual([]);
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'BTC')).toMatchObject({ free: a('1'), locked: ZERO });
+  });
+
+  it('an isolated loss stops at the margin released', async () => {
+    const w = world();
+    const bidder = testWallet('bidder-loss');
+    const bidderAccount = { venueId: w.sim.venue.id, owner: bidder.address, subAccount: null };
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r6');
+    w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:r6');
+    w.sim.deposit(bidderAccount, 'USDC', a('100000'), 'chain:b:r6');
+    for (const [who, acct] of [
+      [w.wallet, w.trader],
+      [w.otherWallet, w.other],
+      [bidder, bidderAccount],
+    ] as const)
+      await w.run(who, acct, tenX);
+    await w.run(w.otherWallet, w.other, perp('sell', '60000', '0.1', 'order:o:r6'));
+    await w.run(w.wallet, w.trader, perp('buy', '60000', '0.1', 'order:t:r6'));
+    const freeOpen = balanceOf((await w.sim.balances(w.trader)).value, 'USDC').free;
+    await w.run(bidder, bidderAccount, perp('buy', '50000', '0.1', 'order:b:r6'));
+    await w.run(w.wallet, w.trader, perp('sell', '50000', '0.1', 'order:t:r6c', { reduceOnly: true, timeInForce: 'IOC' }));
+    const close = (await w.sim.fills(w.trader, new Date(0))).value.find((f) => f.realisedPnl !== null)!;
+    expect(close.realisedPnl).toBe(a('-600'));
+    // The margin (600) is gone and no more: free drops only by the close's taker fee (4.5 bps of 5,000 = 2.25).
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({ free: sub(freeOpen, a('2.25')), locked: ZERO });
+  });
+
+  it('perp margin is posted at the fill price, and the lock covers the fees', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('602.7'), 'chain:t:r7');
+    w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:r7');
+    await w.run(w.wallet, w.trader, tenX);
+    await w.run(w.otherWallet, w.other, tenX);
+    await w.run(w.otherWallet, w.other, perp('sell', '59000', '0.1', 'order:o:r7'));
+    await w.run(w.wallet, w.trader, perp('buy', '60000', '0.1', 'order:t:r7', { type: 'market', timeInForce: 'IOC' }));
+    const position = (await w.sim.positions(w.trader)).value[0]!;
+    expect(position.margin).toBe(a('590'));
+    // 602.7 locked; 590 margin and 2.655 taker fee taken; 10.045 back to free. Free never goes below zero.
+    expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({ free: a('10.045'), locked: ZERO });
+  });
+
+  it('a reduce-only close larger than the position, or a resting one, is refused', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:r5');
+    w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:r5');
+    await w.run(w.wallet, w.trader, tenX);
+    await w.run(w.otherWallet, w.other, tenX);
+    await w.run(w.otherWallet, w.other, perp('sell', '60000', '0.1', 'order:o:r5'));
+    await w.run(w.wallet, w.trader, perp('buy', '60000', '0.1', 'order:t:r5'));
+    const tooBig = await w.run(w.wallet, w.trader, perp('sell', '60000', '0.2', 'order:t:r5c', { reduceOnly: true, timeInForce: 'IOC' }));
+    expect(tooBig.outcome.definite && !tooBig.outcome.accepted && tooBig.outcome.refusal.code).toBe('venue_rejected');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, perp('sell', '61000', '0.1', 'order:t:r5r', { reduceOnly: true })))).toBe(
+      'not_offered',
+    );
+    const flip = await w.run(w.wallet, w.trader, perp('sell', '60000', '0.2', 'order:t:r5f'));
+    expect(flip.outcome.definite && !flip.outcome.accepted && flip.outcome.refusal.code).toBe('not_offered');
+    expect((await w.sim.positions(w.trader)).value.map((p) => [p.side, p.size])).toEqual([['long', a('0.1')]]);
+  });
+
+  it('nonces keep rising when the clock stands still', async () => {
+    const sim = new TestVenueSimulator({ clock: () => new Date(0), markets: [SPOT] });
+    const w = testWallet('frozen');
+    const account = { venueId: sim.venue.id, owner: w.address, subAccount: null };
+    const seen = new Set<string>();
+    for (let i = 0; i < 1200; i++)
+      seen.add((await sim.prepare(account, w.signer, order('BTC-USDC', 'buy', '1', '0.001', `order:f:${i}`))).nonce);
+    expect(seen.size).toBe(1200);
   });
 });

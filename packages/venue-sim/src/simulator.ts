@@ -26,7 +26,7 @@ import {
   type VenueSigner,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
-import { buildTypedData, digestOf, recoverSigner, type TestVenueTypedData } from './signing.js';
+import { buildTypedData, digestOf, recoverSigner } from './signing.js';
 
 /**
  * THE TEST VENUE SIMULATOR — a deterministic venue the customer's own wallet signs on.
@@ -112,8 +112,8 @@ interface OrderState {
   readonly builderFee: { readonly builder: string; readonly feeBps: Amount } | null;
   readonly leverageBps: number | null;
   readonly marginMode: VenueMarginMode | null;
-  /** Margin locked per unit of size for a perp order (initial margin at the order's price). */
-  readonly marginPerUnit: Amount;
+  /** What the order locks per unit of size: the quote notional (spot buy), 1 (spot sell), or margin plus the most fees (perp). */
+  readonly lockPerUnit: Amount;
 }
 
 interface PositionState {
@@ -147,7 +147,7 @@ export class TestVenueSimulator implements UserVenue {
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
   private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
-  private nonceCounter = 0;
+  private lastNonce = 0;
   private seqCounter = 0;
   private fillCounter = 0;
   private venueOrderCounter = 0;
@@ -240,8 +240,8 @@ export class TestVenueSimulator implements UserVenue {
       refuse(this.venue.id, 'venue_rejected', `account is on ${account.venueId}, not ${this.venue.id}`);
     assertSignerMaySign(account, signer, intent);
     const state = this.account(account);
-    if (signer.role === 'agent' && !state.agents.has(signer.address.toLowerCase())) {
-      refuse(this.venue.id, 'signer_not_authorised', `${signer.address.toLowerCase()} is not an approved agent on this account`);
+    if (signer.role === 'agent' && !this.agentLive(state, signer.address)) {
+      refuse(this.venue.id, 'signer_not_authorised', `${signer.address.toLowerCase()} is not an approved, unexpired agent on this account`);
     }
 
     let cloid: string | null = null;
@@ -269,8 +269,9 @@ export class TestVenueSimulator implements UserVenue {
       cloid = venueClientOrderId(this.venue.id, intent.clientOrderKey);
     }
 
-    this.nonceCounter += 1;
-    const nonce = String(this.clock().getTime() * 1000 + (this.nonceCounter % 1000));
+    // Strictly increasing, and near the clock in microseconds, as a venue's nonce window expects.
+    this.lastNonce = Math.max(this.lastNonce + 1, this.clock().getTime() * 1000);
+    const nonce = String(this.lastNonce);
     const typedData = buildTypedData(this.venue.id, account, signer, intent, nonce);
     return {
       venueId: this.venue.id,
@@ -295,7 +296,7 @@ export class TestVenueSimulator implements UserVenue {
     if (digest.toLowerCase() !== prepared.digest.toLowerCase()) {
       refuse(this.venue.id, 'signature_mismatch', 'the prepared action does not match its own digest');
     }
-    const recovered = await recoverSigner(prepared.typedData as TestVenueTypedData, signature.signature);
+    const recovered = await recoverSigner(typedData, signature.signature);
     if (recovered !== prepared.signer.address.toLowerCase()) {
       refuse(
         this.venue.id,
@@ -401,6 +402,11 @@ export class TestVenueSimulator implements UserVenue {
 
   // ── internals ──────────────────────────────────────────────────────────
 
+  private agentLive(state: AccountState, address: string): boolean {
+    const agent = state.agents.get(address.toLowerCase());
+    return agent !== undefined && (agent.validUntil === null || agent.validUntil.getTime() > this.clock().getTime());
+  }
+
   private up(): void {
     if (this.switches.venueDown) refuse(this.venue.id, 'venue_down', `${this.venue.displayName} is down (TEST switch)`);
   }
@@ -462,6 +468,9 @@ export class TestVenueSimulator implements UserVenue {
     if (intent.price % market.tickSize !== ZERO)
       refuse(this.venue.id, 'venue_rejected', `price is not a multiple of the tick size on ${market.symbol}`);
     if (market.kind === 'perpetual') {
+      if (intent.reduceOnly && intent.type !== 'market' && intent.timeInForce !== 'IOC') {
+        refuse(this.venue.id, 'not_offered', 'a resting reduce-only order is not offered on the TEST simulator: close with IOC or market');
+      }
       if (!state.leverage.has(market.symbol)) {
         refuse(this.venue.id, 'leverage_not_set', `no leverage is set on ${market.symbol} for this account: set it first`);
       }
@@ -503,6 +512,11 @@ export class TestVenueSimulator implements UserVenue {
       order,
       asOf: now,
     });
+
+    // The agent's approval is the venue's record at submit, not at prepare: a revoke in between wins.
+    if (prepared.signer.role === 'agent' && !this.agentLive(state, prepared.signer.address)) {
+      return refused('signer_not_authorised', 'the agent key was revoked or has expired');
+    }
 
     switch (intent.kind) {
       case 'place_order': {
@@ -590,32 +604,55 @@ export class TestVenueSimulator implements UserVenue {
   ): VenueSubmitOutcome {
     const market = this.market(intent.symbol);
     const perp = market.kind === 'perpetual';
-    const crosses = (resting: OrderState) =>
-      resting.account !== state &&
-      (intent.side === 'buy' ? compare(resting.order.price, intent.price) <= 0 : compare(resting.order.price, intent.price) >= 0);
-    const book = this.book.get(market.symbol) as OrderState[];
-    const contra = book.filter((o) => o.order.side !== intent.side);
-    if (intent.timeInForce === 'ALO' && contra.some(crosses)) return refused('venue_rejected', 'post-only order would take liquidity');
+    const crossesPrice = (resting: OrderState) =>
+      intent.side === 'buy' ? compare(resting.order.price, intent.price) <= 0 : compare(resting.order.price, intent.price) >= 0;
+    const contra = () => this.bookOf(market.symbol).filter((o) => o.order.side !== intent.side);
 
-    // What the venue locks for this order.
+    // Perpetual rules, checked against the venue's record now.
     const setting = perp ? state.leverage.get(market.symbol) : undefined;
     if (perp && !setting) return refused('leverage_not_set', `no leverage is set on ${market.symbol} for this account`);
-    const marginPerUnit = setting ? div(mul(intent.price, BPS), parseAmount(String(setting.leverageBps)), QUOTE_ROUND) : ZERO;
     const position = perp ? state.positions.get(market.symbol) : undefined;
-    const closing = perp && position !== undefined && position.size !== ZERO && (position.side === 'long') !== (intent.side === 'buy');
-    if (intent.reduceOnly && !closing) return refused('venue_rejected', 'reduce-only order would open or grow a position');
+    const held = position !== undefined && position.size !== ZERO ? position : undefined;
+    if (perp && intent.reduceOnly) {
+      if (!held || (held.side === 'long') === (intent.side === 'buy'))
+        return refused('venue_rejected', 'reduce-only order would open or grow a position');
+      if (compare(intent.amount, held.size) > 0) return refused('venue_rejected', 'reduce-only order is larger than the position');
+    } else if (perp) {
+      // An order is either opening (grows the position) or reduce-only (closes it). Netting through zero is not simulated.
+      if (held && (held.side === 'long') !== (intent.side === 'buy')) {
+        return refused(
+          'not_offered',
+          'closing or flipping a position with an opening order is not offered on the TEST simulator: close it reduce-only',
+        );
+      }
+      const opposite = [...state.orders.values()].some(
+        (o) => o.order.symbol === market.symbol && o.order.side !== intent.side && !o.order.reduceOnly && isLive(o),
+      );
+      if (opposite) return refused('not_offered', 'opening orders on both sides of one market are not offered on the TEST simulator');
+    }
+
+    // Self-trade prevention: this account's own resting orders that the new order would cross are cancelled first.
+    for (const own of contra().filter((o) => o.account === state && crossesPrice(o))) this.release(own, 'canceled');
+    if (intent.timeInForce === 'ALO' && contra().some(crossesPrice))
+      return refused('venue_rejected', 'post-only order would take liquidity');
+
+    // What the venue locks for this order. A perp order also locks the most it can pay in fees.
+    const maxFeeBps = add(market.takerFeeBps.known ? market.takerFeeBps.value : ZERO, builderFee?.feeBps ?? ZERO);
+    const feeBuffer = (notional: Amount) => div(mul(notional, maxFeeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
     let lockAsset: string;
-    let lockAmount: Amount;
+    let lockPerUnit: Amount;
     if (perp) {
       lockAsset = market.quoteAsset;
-      lockAmount = closing ? ZERO : mul(marginPerUnit, intent.amount, QUOTE_ROUND);
+      const margin = intent.reduceOnly ? ZERO : div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
+      lockPerUnit = add(margin, feeBuffer(intent.price));
     } else if (intent.side === 'buy') {
       lockAsset = market.quoteAsset;
-      lockAmount = mul(intent.price, intent.amount, QUOTE_ROUND);
+      lockPerUnit = intent.price;
     } else {
       lockAsset = market.baseAsset;
-      lockAmount = intent.amount;
+      lockPerUnit = parseAmount('1');
     }
+    const lockAmount = mul(lockPerUnit, intent.amount, QUOTE_ROUND);
     const balance = this.balance(state, lockAsset);
     if (compare(balance.free, lockAmount) < 0)
       return refused('insufficient_balance', `free ${lockAsset} does not cover what this order locks`);
@@ -630,7 +667,7 @@ export class TestVenueSimulator implements UserVenue {
       builderFee,
       leverageBps: setting?.leverageBps ?? null,
       marginMode: setting?.marginMode ?? null,
-      marginPerUnit,
+      lockPerUnit,
       order: {
         venueOrderId: `sim-${this.venueOrderCounter}`,
         venueClientOrderId: cloid,
@@ -652,8 +689,8 @@ export class TestVenueSimulator implements UserVenue {
     state.orders.set(cloid, order);
 
     // Match against the contra side, best price first, then time.
-    const ordered = contra
-      .filter(crosses)
+    const ordered = contra()
+      .filter(crossesPrice)
       .sort(
         (a, b) => (intent.side === 'buy' ? compare(a.order.price, b.order.price) : compare(b.order.price, a.order.price)) || a.seq - b.seq,
       );
@@ -668,10 +705,14 @@ export class TestVenueSimulator implements UserVenue {
         // The unfilled rest of an IOC ends here: final, nothing stays locked.
         this.release(order, 'canceled');
       } else {
-        book.push(order);
+        this.bookOf(market.symbol).push(order);
       }
     }
     return accepted(order.order.venueOrderId, order.order);
+  }
+
+  private bookOf(symbol: string): OrderState[] {
+    return this.book.get(symbol) as OrderState[];
   }
 
   /** One fill between a resting maker and an incoming taker at the maker's price. */
@@ -681,11 +722,13 @@ export class TestVenueSimulator implements UserVenue {
       [maker, 'maker'],
       [taker, 'taker'],
     ] as const) {
-      const notional = mul(price, qty, QUOTE_ROUND);
       const feeBpsKnown = role === 'maker' ? market.makerFeeBps : market.takerFeeBps;
       const feeBps = feeBpsKnown.known ? feeBpsKnown.value : ZERO;
-      const venueFee = div(mul(notional, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
-      const builderFee = side.builderFee ? div(mul(notional, side.builderFee.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
+      // A spot buy pays its fees in the base it receives; everything else pays in the quote asset.
+      const feeInBase = market.kind === 'spot' && side.order.side === 'buy';
+      const feeBasis = feeInBase ? qty : mul(price, qty, QUOTE_ROUND);
+      const venueFee = div(mul(feeBasis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
+      const builderFee = side.builderFee ? div(mul(feeBasis, side.builderFee.feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND) : ZERO;
       const realisedPnl = this.settle(market, side, qty, price, add(venueFee, builderFee));
 
       const o = side.order; // after settle, which moved its lock
@@ -706,78 +749,83 @@ export class TestVenueSimulator implements UserVenue {
         role,
         venueFee,
         builderFee,
-        feeAsset: market.kind === 'spot' && o.side === 'buy' ? market.baseAsset : market.quoteAsset,
+        feeAsset: feeInBase ? market.baseAsset : market.quoteAsset,
         realisedPnl,
         filledAt: now,
       });
     }
     if (market.kind === 'perpetual') this.marks.set(market.symbol, price);
-    const book = this.book.get(market.symbol) as OrderState[];
-    this.book.set(
-      market.symbol,
-      book.filter((o) => o.order.status === 'open' || o.order.status === 'partially_filled'),
-    );
   }
 
-  /** Move balances (spot) or the position (perp) for one side of a fill. Returns realised PnL on a perp close. */
+  /**
+   * Move balances (spot) or the position (perp) for one side of a fill, and
+   * take this fill's share out of the order's lock exactly once. Returns the
+   * realised result on a perp close.
+   */
   private settle(market: SimMarketConfig, side: OrderState, qty: Amount, price: Amount, fees: Amount): Amount | null {
     const state = side.account;
     const o = side.order;
+    const lockForQty = min(o.locked, mul(side.lockPerUnit, qty, QUOTE_ROUND));
+    const lockBalance = this.balance(state, o.lockedAsset);
+    lockBalance.locked = sub(lockBalance.locked, lockForQty);
+    side.order = { ...o, locked: sub(o.locked, lockForQty) };
+
     if (market.kind === 'spot') {
       const base = this.balance(state, market.baseAsset);
       const quote = this.balance(state, market.quoteAsset);
       const notional = mul(price, qty, QUOTE_ROUND);
       if (o.side === 'buy') {
-        const lockedForQty = mul(o.price, qty, QUOTE_ROUND);
-        quote.locked = sub(quote.locked, lockedForQty);
-        quote.free = add(quote.free, sub(lockedForQty, notional)); // price improvement returns to free
-        // The fee is taken from what is received, in base, at the fill price.
-        const feeInBase = div(fees, price, QUOTE_ROUND);
-        base.free = add(base.free, sub(qty, feeInBase));
+        quote.free = add(quote.free, sub(lockForQty, notional)); // price improvement returns to free
+        base.free = add(base.free, sub(qty, fees));
       } else {
-        base.locked = sub(base.locked, qty);
         quote.free = add(quote.free, sub(notional, fees));
       }
-      side.order = { ...side.order, locked: sub(o.locked, o.side === 'buy' ? mul(o.price, qty, QUOTE_ROUND) : qty) };
       return null;
     }
 
-    // Perpetual, isolated margin.
+    // Perpetual, isolated margin. The order's lock pays this fill's margin and fees; the rest returns to free.
     const usdc = this.balance(state, market.quoteAsset);
-    usdc.free = sub(usdc.free, fees);
     const current = state.positions.get(market.symbol);
-    const opening = !current || current.size === ZERO || (current.side === 'long') === (o.side === 'buy');
-    if (opening) {
-      const margin = mul(side.marginPerUnit, qty, QUOTE_ROUND);
-      usdc.locked = sub(usdc.locked, margin);
-      side.order = { ...side.order, locked: sub(o.locked, margin) };
+    if (!o.reduceOnly) {
+      const margin = div(mul(mul(price, qty, QUOTE_ROUND), BPS), parseAmount(String(side.leverageBps)), QUOTE_ROUND);
+      // A short that fills above its limit needs a little more margin than it locked: from free, while free has it.
+      const needed = add(margin, fees);
+      const extra = compare(needed, lockForQty) > 0 ? min(sub(needed, lockForQty), usdc.free) : ZERO;
+      usdc.free = sub(usdc.free, extra);
+      const available = add(lockForQty, extra);
+      const posted = max(ZERO, min(margin, sub(available, fees)));
+      usdc.free = add(usdc.free, sub(available, add(posted, fees)));
       if (!current || current.size === ZERO) {
         state.positions.set(market.symbol, {
           side: o.side === 'buy' ? 'long' : 'short',
           size: qty,
           entryPrice: price,
-          margin,
+          margin: posted,
           leverageBps: side.leverageBps as number,
           marginMode: side.marginMode as VenueMarginMode,
         });
       } else {
+        if ((current.side === 'long') !== (o.side === 'buy'))
+          throw new Error('TEST simulator invariant: an opening fill met an opposite position');
         const size = add(current.size, qty);
-        current.entryPrice = div(add(mul(current.entryPrice, current.size), mul(price, qty)), size);
+        current.entryPrice = div(add(mul(current.entryPrice, current.size), mul(price, qty)), size, QUOTE_ROUND);
         current.size = size;
-        current.margin = add(current.margin, margin);
+        current.margin = add(current.margin, posted);
       }
       return null;
     }
-    // Closing (part of) the position.
+    // Reduce-only: close (part of) the position. Isolated: the loss stops at the margin released.
     const p = current as PositionState;
     const closeQty = min(qty, p.size);
     const pnl = this.pnl(p, price, closeQty);
-    const released = closeQty === p.size ? p.margin : div(mul(p.margin, closeQty), p.size);
+    const released = closeQty === p.size ? p.margin : div(mul(p.margin, closeQty), p.size, QUOTE_ROUND);
     p.margin = sub(p.margin, released);
     p.size = sub(p.size, closeQty);
-    // The venue's own rules cover a loss beyond margin: the account never goes below zero here.
-    usdc.free = max(ZERO, add(usdc.free, add(released, pnl)));
-    return pnl;
+    const realised = max(pnl, sub(ZERO, released));
+    const feeFromLock = min(fees, lockForQty);
+    const feeLeft = sub(fees, feeFromLock);
+    usdc.free = add(usdc.free, add(sub(lockForQty, feeFromLock), max(ZERO, sub(add(released, realised), feeLeft))));
+    return realised;
   }
 
   private pnl(p: PositionState, price: Amount, qty: Amount): Amount {
@@ -785,10 +833,16 @@ export class TestVenueSimulator implements UserVenue {
     return mul(diff, qty);
   }
 
+  /**
+   * The simulator's own liquidation price: where the margin left after the
+   * maintenance requirement (taken at entry notional) is used up. A simple
+   * isolated-margin formula, not any real venue's; a real venue's adapter
+   * reports the venue's figure.
+   */
   private liquidationPrice(market: SimMarketConfig, p: PositionState): MaybeKnown<Amount> {
     if (market.maintenanceMarginRate === undefined) return { known: false };
     const maintenance = mul(mul(p.entryPrice, p.size), market.maintenanceMarginRate);
-    const cushion = div(sub(p.margin, maintenance), p.size);
+    const cushion = div(sub(p.margin, maintenance), p.size, 'floor');
     const price = p.side === 'long' ? sub(p.entryPrice, cushion) : add(p.entryPrice, cushion);
     return { known: true, value: max(ZERO, price) };
   }
@@ -802,10 +856,12 @@ export class TestVenueSimulator implements UserVenue {
       balance.free = add(balance.free, o.locked);
     }
     order.order = { ...order.order, locked: ZERO, status };
-    const book = this.book.get(o.symbol) as OrderState[];
-    this.book.set(
-      o.symbol,
-      book.filter((x) => x !== order),
-    );
+    const book = this.bookOf(o.symbol);
+    const at = book.indexOf(order);
+    if (at >= 0) book.splice(at, 1);
   }
+}
+
+function isLive(o: OrderState): boolean {
+  return o.order.status === 'open' || o.order.status === 'partially_filled';
 }

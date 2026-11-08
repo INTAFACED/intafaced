@@ -1,4 +1,4 @@
-import { add, compare, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, div, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   type PlaceUserOrderIntent,
@@ -29,6 +29,8 @@ export interface ConformanceWallet {
 }
 
 export interface ConformanceHarness {
+  /** True when `setup().loseNextAnswer` exists; otherwise the lost-answer check is reported skipped. */
+  readonly canLoseAnswers: boolean;
   /** A fresh venue, with `fund` able to credit both accounts. */
   setup(): Promise<{
     readonly venue: UserVenue;
@@ -49,7 +51,7 @@ export interface ConformanceHarness {
 }
 
 type Describe = (name: string, fn: () => void) => void;
-type It = (name: string, fn: () => Promise<void>) => void;
+type It = ((name: string, fn: () => Promise<void>) => void) & { skip: (name: string, fn: () => Promise<void>) => void };
 interface Expect {
   (actual: unknown): {
     toBe(expected: unknown): void;
@@ -148,9 +150,10 @@ export function defineUserVenueConformance(harness: ConformanceHarness, t: { des
       expect((await h.venue.openOrders(h.trader.account)).value.length).toBe(1);
     });
 
-    it('a lost answer is read back by client id, and the order exists once', async () => {
+    // A venue that cannot lose an answer on demand shows this as skipped, never as passed.
+    (harness.canLoseAnswers ? it : it.skip)('a lost answer is read back by client id, and the order exists once', async () => {
       const h = await harness.setup();
-      if (!h.loseNextAnswer) return;
+      if (!h.loseNextAnswer) throw new Error('harness.canLoseAnswers is set but setup() gave no loseNextAnswer');
       await h.fund(h.trader.account, h.spot.quote, parseAmount('1000'), 'deposit:test:4');
       h.loseNextAnswer();
       const { prepared, outcome } = await signAndSubmit(
@@ -189,10 +192,27 @@ export function defineUserVenueConformance(harness: ConformanceHarness, t: { des
       const fill = fills.value[0]!;
       expect(fill.price).toBe(h.spot.price);
       expect(fill.role).toBe('taker');
-      expect(compare(fill.venueFee, ZERO) >= 0).toBe(true);
       expect(fill.builderFee).toBe(ZERO);
+      // A buyer pays in the base it receives; what it received is the size less the fee lines, exactly.
+      expect(fill.feeAsset).toBe(h.spot.base);
+      const market = (await h.venue.markets(h.trader.account)).value.find((m) => m.symbol === h.spot.symbol)!;
+      if (market.takerFeeBps.known) {
+        expect(fill.venueFee).toBe(div(mul(h.spot.size, market.takerFeeBps.value, 'ceil'), parseAmount('10000'), 'ceil'));
+      }
       const after = await h.venue.balances(h.trader.account);
-      expect(freeOf(after.value, h.spot.quote).locked).toBe(ZERO);
+      expect(freeOf(after.value, h.spot.quote)).toEqual({
+        free: sub(parseAmount('100000'), mul(h.spot.price, h.spot.size, 'ceil')),
+        locked: ZERO,
+      });
+      expect(freeOf(after.value, h.spot.base).free).toBe(sub(h.spot.size, add(fill.venueFee, fill.builderFee)));
+      // The maker's side: its base left, its quote came in less its own fee lines, nothing stays locked.
+      const makerFill = (await h.venue.fills(h.other.account, since)).value[0]!;
+      expect([makerFill.role, makerFill.amount, makerFill.feeAsset]).toEqual(['maker', h.spot.size, h.spot.quote]);
+      const makerAfter = await h.venue.balances(h.other.account);
+      expect(freeOf(makerAfter.value, h.spot.base)).toEqual({ free: sub(parseAmount('10'), h.spot.size), locked: ZERO });
+      expect(freeOf(makerAfter.value, h.spot.quote).free).toBe(
+        sub(mul(h.spot.price, h.spot.size, 'ceil'), add(makerFill.venueFee, makerFill.builderFee)),
+      );
     });
 
     it('cancel releases the lock once, and a repeat cancel reports the same outcome', async () => {
@@ -234,6 +254,89 @@ export function defineUserVenueConformance(harness: ConformanceHarness, t: { des
           withdrawalKey: 'withdraw:trader:7',
         }),
       ).rejects.toBeInstanceOf(VenueRefusalError);
+    });
+
+    it('a part-filled limit rests on the book and the next crossing order fills it', async () => {
+      const h = await harness.setup();
+      await h.fund(h.other.account, h.spot.base, parseAmount('10'), 'deposit:other:9');
+      await h.fund(h.trader.account, h.spot.quote, parseAmount('100000'), 'deposit:test:9');
+      await signAndSubmit(
+        h.venue,
+        h.other.wallet,
+        h.other.account,
+        limit(h.spot.symbol, 'sell', h.spot.price, h.spot.size, 'order:other:conf:9a'),
+      );
+      const double = add(h.spot.size, h.spot.size);
+      const { prepared } = await signAndSubmit(
+        h.venue,
+        h.trader.wallet,
+        h.trader.account,
+        limit(h.spot.symbol, 'buy', h.spot.price, double, 'order:trader:conf:9'),
+      );
+      expect((await h.venue.orderByClientId(h.trader.account, prepared.venueClientOrderId!)).value?.status).toBe('partially_filled');
+      await signAndSubmit(
+        h.venue,
+        h.other.wallet,
+        h.other.account,
+        limit(h.spot.symbol, 'sell', h.spot.price, h.spot.size, 'order:other:conf:9b'),
+      );
+      expect((await h.venue.orderByClientId(h.trader.account, prepared.venueClientOrderId!)).value?.status).toBe('filled');
+      expect((await h.venue.openOrders(h.other.account)).value).toEqual([]);
+      expect(freeOf((await h.venue.balances(h.trader.account)).value, h.spot.quote).locked).toBe(ZERO);
+    });
+
+    it('a market buy fills within its worst price and leaves nothing locked or open', async () => {
+      const h = await harness.setup();
+      await h.fund(h.other.account, h.spot.base, parseAmount('10'), 'deposit:other:10');
+      await h.fund(h.trader.account, h.spot.quote, parseAmount('100000'), 'deposit:test:10');
+      await signAndSubmit(
+        h.venue,
+        h.other.wallet,
+        h.other.account,
+        limit(h.spot.symbol, 'sell', h.spot.price, h.spot.size, 'order:other:conf:10'),
+      );
+      const worst = add(h.spot.price, parseAmount('100'));
+      const { outcome } = await signAndSubmit(h.venue, h.trader.wallet, h.trader.account, {
+        ...limit(h.spot.symbol, 'buy', worst, add(h.spot.size, h.spot.size), 'order:trader:conf:10'),
+        type: 'market',
+        timeInForce: 'IOC',
+      });
+      expect(outcome.definite && outcome.accepted && outcome.order?.filled).toBe(h.spot.size);
+      expect((await h.venue.openOrders(h.trader.account)).value).toEqual([]);
+      const after = await h.venue.balances(h.trader.account);
+      expect(freeOf(after.value, h.spot.quote)).toEqual({
+        free: sub(parseAmount('100000'), mul(h.spot.price, h.spot.size, 'ceil')),
+        locked: ZERO,
+      });
+    });
+
+    it('a payload changed after signing is refused, whichever field carries the change', async () => {
+      const h = await harness.setup();
+      await h.fund(h.trader.account, h.spot.quote, parseAmount('100000'), 'deposit:test:11');
+      const away = sub(h.spot.price, parseAmount('100'));
+      const small = await h.venue.prepare(
+        h.trader.account,
+        h.trader.wallet.signer,
+        limit(h.spot.symbol, 'buy', away, h.spot.size, 'order:trader:conf:11'),
+      );
+      const big = await h.venue.prepare(
+        h.trader.account,
+        h.trader.wallet.signer,
+        limit(h.spot.symbol, 'buy', away, add(h.spot.size, h.spot.size), 'order:trader:conf:11'),
+      );
+      const signed = await h.trader.wallet.sign(small);
+      // The intent says big, the typed data and digest say small.
+      await expect(
+        h.venue.submit({ ...big, typedData: small.typedData, digest: small.digest, nonce: small.nonce }, signed),
+      ).rejects.toBeInstanceOf(VenueRefusalError);
+      // The wallet was shown the small payload; the intent, digest and the wallet's claim all say big.
+      await expect(h.venue.submit({ ...big, typedData: small.typedData }, { ...signed, digest: big.digest })).rejects.toBeInstanceOf(
+        VenueRefusalError,
+      );
+      // The wallet signed the big payload; it is presented as the small one's signature.
+      const signedBig = await h.trader.wallet.sign(big);
+      await expect(h.venue.submit(small, { ...signedBig, digest: small.digest })).rejects.toBeInstanceOf(VenueRefusalError);
+      expect((await h.venue.openOrders(h.trader.account)).value).toEqual([]);
     });
 
     it('a signature from another key is refused with nothing sent', async () => {
