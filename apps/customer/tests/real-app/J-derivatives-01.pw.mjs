@@ -273,7 +273,8 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
     expect(position[field], field).toMatch(/^\d+(\.\d+)?$/);
   }
   expect(position.unrealizedPnl).toMatch(/^-?\d+(\.\d+)?$/);
-  // Shown as the service's decimal to eight places, with the whole number grouped (the room's displayAmount): sent
+  // Shown as the service's decimal to eight places, with the whole number grouped (the positions room's fmtPrice with no
+  // tick: at most eight places, half up; screens/trade/futures/PositionsTable.tsx, data/format.ts): sent
   // with eight places or fewer it is shown digit for digit (52685.6 → 52,685.6, run 42446058427 shard 17; the old pad to
   // two places failed on it); longer, it is shown rounded half up at the eighth (52754.49696969696969697 → 52,754.49696970,
   // run 42448935569). Exact in bigint, never a float.
