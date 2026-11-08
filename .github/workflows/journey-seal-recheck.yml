@@ -4,15 +4,18 @@ name: Journey seal re-check
 # (tooling/ci/journey-seal.mjs), so a pull request that names journey steps is never stuck red after its proof lands,
 # and never stays green after its proof turns red:
 #   - a Real-app journeys run on a branch finished (workflow_run): the seal reads the new run;
+#   - CI on a branch finished (workflow_run): the seal's first step reads CI's jobs on the head (ci-jobs-seal.mjs), so
+#     every open pull request on that head is re-sealed, whatever its title (merge-seal.yml, R3 C3 piece 2);
 #   - a pull request's title or body was edited (pull_request_target): the seal reads the new title and "Left or
 #     replaced" list. CI runs on pushes, not on edits, so without this an edit after a green seal would never be read.
-# Only open pull requests whose title names journey steps (or named them before the edit) are touched.
+# After a journeys run or an edit, only open pull requests whose title names journey steps (or named them before the
+# edit), or whose change the journeys run judges, are touched; after CI, every open pull request on the head.
 #
 # Both triggers run the copy of this file and of the script on the default branch. Nothing here checks out, builds or
 # runs code from a pull request: the script reads the pull request, and CI's runs and jobs on the head, through the API.
 on:
   workflow_run:
-    workflows: [Real-app journeys]
+    workflows: [Real-app journeys, CI]
     types: [completed]
   pull_request_target:
     types: [edited]
@@ -23,27 +26,33 @@ permissions: {}
 # 21 of them repeats of a head already queued, each holding a runner up to 25 minutes. A finished journeys run on a pull
 # request's head joins that head's group: a running re-check is never cancelled (cancel-in-progress false), and GitHub
 # keeps one waiting run per group, so a newer finished run replaces the waiting one, which would have read an older state;
+# the group also names the finished workflow, so a waiting CI re-check (every pull request) is never replaced by a
+# journeys one (named pull requests only);
 # the one that runs reads every run finished before it. Every other event gets a group of its own (its run id), so it
 # never displaces a waiting re-check: an event whose job is skipped (a main or fork run, an edit of neither title nor
 # body), and every title or body edit, since the script reads that edit's old title (OLD_TITLE).
 # tooling/ci/workflow-concurrency.test.mjs holds this.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' && github.event.workflow_run.head_repository.full_name == github.repository) && format('journey-seal-recheck-head-{0}', github.event.workflow_run.head_sha) || format('journey-seal-recheck-run-{0}', github.run_id) }}
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' && github.event.workflow_run.head_repository.full_name == github.repository) && format('journey-seal-recheck-head-{0}-{1}', github.event.workflow_run.head_sha, github.event.workflow_run.name) || format('journey-seal-recheck-run-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
   recheck:
     name: Re-run the seal on this head
     # A run on main is never a pull request's head; an edit that changed neither the title nor the body changes nothing.
+    # CI on any pull request counts, a fork's included (its branch may even be called main): merge-seal.yml seals it from
+    # the default branch, and this job only reads and re-runs the default branch's jobs, never the fork's code.
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_run' &&
+       ((github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'pull_request') ||
+        (github.event.workflow_run.head_branch != 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))) ||
       (github.event_name == 'pull_request_target' && (github.event.changes.title || github.event.changes.body))
     runs-on: ubuntu-latest
     timeout-minutes: 30 # healthy run: seconds; waiting out a running seal takes up to 25 minutes (SEAL_POLLS in the script)
     permissions:
       contents: read
-      actions: write # find the seal job through the Actions API (ci.yml's runs and jobs on the head) and re-run it; no Checks API
+      actions: write # find the seal job through the Actions API (merge-seal.yml's runs and jobs on the head) and re-run it; no Checks API
       pull-requests: read # the pull requests on the head, and their titles
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,4 +67,5 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           OLD_TITLE: ${{ github.event.changes.title.from }}
           OLD_BODY: ${{ github.event.changes.body.from }} # an env value, never part of the script text
+          FINISHED: ${{ github.event.workflow_run.name }} # `CI` re-seals every open pull request on the head
         run: node tooling/ci/journey-seal.mjs --recheck

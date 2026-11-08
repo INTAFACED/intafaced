@@ -80,6 +80,28 @@ test('sealStep and rerunSeal: wait out a running seal, re-run a red one once, fa
   );
 });
 
+test('two seals on one head (ci.yml and merge-seal.yml): each red one is re-run, a green one left (R3 C3 piece 2)', async () => {
+  const { rerunSeal, sealsByRun } = await import('./seal-rerun.mjs');
+  const run = (id) => `https://github.com/o/r/actions/runs/${id}/job/1`;
+  const checks = [
+    { id: 1, name: 'CI merge seal', status: 'completed', conclusion: 'failure', details_url: run(10) },
+    { id: 2, name: 'CI merge seal', status: 'completed', conclusion: 'failure', details_url: run(20) },
+    { id: 3, name: 'CI merge seal', status: 'completed', conclusion: 'success', details_url: run(30) },
+  ];
+  assert.equal(sealsByRun(checks).length, 3);
+  const reran = [];
+  const api = async (method, path) => {
+    if (path.includes('/check-runs')) return { status: 200, json: { check_runs: checks } };
+    if (method === 'GET') return { status: 200, json: { status: 'completed' } };
+    reran.push(/runs\/(\d+)\/rerun/.exec(path)[1]);
+    return { status: 201 };
+  };
+  const msg = await rerunSeal('o/r', 'a'.repeat(40), { api, sleep: async () => {}, log: () => {} });
+  assert.deepEqual(reran.sort(), ['10', '20'], msg);
+  // Planted: the old rule (only the newest seal check run) leaves run 10's red seal blocking the head.
+  assert.ok(!reran.includes('30'));
+});
+
 test("a pull request whose head moved is not re-sealed: a re-run would cancel the new head's CI (8 Nov, 3dbe29e7)", async () => {
   const old = 'e'.repeat(40);
   const posted = [];

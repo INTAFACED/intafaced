@@ -198,8 +198,11 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
  *  - ci-review.yml: a change to the review job can't pass its own review and waits for the owner (intafaced AGENTS.md);
  *    its group is one per head, so an older head's review finishes but a newer one never waits for it.
  *  - journey-seal-recheck.yml: rule 4 below.
+ *  - merge-seal.yml: a cancelled seal is a red required check, and every `CI merge seal` run on a head must pass (probe
+ *    #7547), so a cancel would block its head until someone re-ran it. Its group is its own run's, so nothing cancels it, even
+ *    a pending one; an older head's seal finishes on its own head and never blocks the newer one.
  */
-export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'journey-seal-recheck.yml']);
+export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'journey-seal-recheck.yml', 'merge-seal.yml']);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
