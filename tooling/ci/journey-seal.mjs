@@ -1025,7 +1025,8 @@ export async function reachInputs({ io, paths, head, text }) {
     }
     subs.set(p, t === undefined ? true : t !== null && SUBSCRIBES.test(t));
   }
-  return { map, behind, journeyFiles, subscribes: (p) => subs.get(p) ?? false };
+  // io.reachMode: a test's stand-in for REACH_MAP_MODE; the seal itself never sets it.
+  return { map, behind, journeyFiles, subscribes: (p) => subs.get(p) ?? false, ...(io.reachMode ? { mode: io.reachMode } : {}) };
 }
 
 /** One pull request's head, judged. */

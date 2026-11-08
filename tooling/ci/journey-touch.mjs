@@ -135,6 +135,7 @@ export function journeyTouch(paths, atHead = () => true, reach = null) {
       behind: reach.behind,
       atHead: reach.journeyFiles,
       subscribes: reach.subscribes,
+      ...(reach.mode ? { mode: reach.mode } : {}),
     });
     if (sel.mode === 'files') {
       for (const f of sel.files) files.add(f);

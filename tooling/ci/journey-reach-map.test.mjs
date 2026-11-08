@@ -91,6 +91,7 @@ const CONSUMERS = {
   'packages/telemetry': ['services/svc-notify'],
   'packages/events': ['services/svc-bank'],
   'packages/lonely': [],
+  'packages/money-util': ['services/svc-ledger'],
 };
 const build = (runs = RUNS) =>
   buildMap({
@@ -99,9 +100,11 @@ const build = (runs = RUNS) =>
     consumers: CONSUMERS,
     harness: ['packages/events', 'apps/customer/deployment/host-dispatch.mjs'],
     subscribers: ['services/svc-notify'],
+    money: ['packages/ledger-client', 'services/svc-ops'],
   });
 const MAP = build();
-const select = (paths, over = {}) => reachSelect({ map: MAP, paths, behind: 0, atHead: FILES, ...over });
+// The map ships off (REACH_MAP_MODE 'full'); these tests judge it switched on.
+const select = (paths, over = {}) => reachSelect({ map: MAP, paths, behind: 0, atHead: FILES, mode: 'reach', ...over });
 
 test('the map: built from the newest three whole runs, each journey reaching its services, customer files and packages', () => {
   assert.equal(MAP.mode, 'reach');
@@ -139,7 +142,8 @@ test('planted: a one-service change selects that service’s journeys and no oth
 });
 
 test('journeyTouch with the map: product code joins the files list; any other full path keeps the whole change full', () => {
-  const reach = { map: MAP, behind: 0, journeyFiles: FILES, subscribes: () => false };
+  const reach = { map: MAP, behind: 0, journeyFiles: FILES, subscribes: () => false, mode: 'reach' };
+  assert.equal(journeyTouch(['services/svc-tax/src/rates.ts'], () => true, { ...reach, mode: undefined }).mode, 'full', 'shipped off');
   const t = journeyTouch(['services/svc-tax/src/rates.ts', `apps/customer/tests/real-app/${BANK}`], () => true, reach);
   assert.equal(t.mode, 'files');
   assert.deepEqual(t.files, [BANK, POPUP, TAX]);
@@ -153,6 +157,24 @@ test('journeyTouch with the map: product code joins the files list; any other fu
   assert.equal(journeyTouch(['tooling/ci/journey-reach-map.json'], () => true, reach).mode, 'full', 'the map itself');
   assert.equal(journeyTouch(['services/svc-tax/src/rates.ts']).mode, 'full', 'no map given: product code is full');
   assert.equal(journeyTouch(['services/svc-tax/src/rates.test.ts'], () => true, reach).mode, 'none', 'a unit test runs nothing');
+});
+
+test('planted: money code never narrows (the CI review on b26447ca)', () => {
+  assert.deepEqual(MAP.money, ['packages/ledger-client', 'services/svc-ledger', 'services/svc-ops'], 'svc-ledger always');
+  for (const p of ['services/svc-ledger/src/post.ts', 'services/svc-ops/src/x.ts', 'packages/ledger-client/src/recipes.ts']) {
+    const r = select([p]);
+    assert.equal(r.mode, 'full', p);
+    assert.match(r.why, /money code, which always runs the full suite/);
+  }
+  const dep = select(['packages/money-util/src/x.ts']);
+  assert.equal(dep.mode, 'full');
+  assert.match(dep.why, /money code depends on packages\/money-util/);
+  // A map with no money list can't say what is money: everything is full.
+  const { money, ...bare } = MAP;
+  assert.ok(money);
+  assert.match(select(['services/svc-tax/src/rates.ts'], { map: bare }).why, /lists no money code/);
+  // Mixed with a narrowable path, the money path keeps the whole change full.
+  assert.equal(select(['services/svc-tax/src/rates.ts', 'services/svc-ledger/src/post.ts']).mode, 'full');
 });
 
 test('planted: each full fallback', () => {
@@ -201,7 +223,12 @@ test('planted: each full fallback', () => {
 });
 
 test('planted: the off switch and the builder’s refusal', () => {
-  assert.equal(REACH_MAP_MODE, 'reach', 'on in this commit; set it to full to turn every product change back to the full suite');
+  assert.equal(REACH_MAP_MODE, 'full', 'off in this commit: narrowing turns on only in a reviewed code change');
+  assert.equal(
+    reachSelect({ map: MAP, paths: ['services/svc-tax/src/rates.ts'], behind: 0, atHead: FILES }).mode,
+    'full',
+    'the default is off',
+  );
   const off = select(['services/svc-tax/src/rates.ts'], { mode: 'full' });
   assert.equal(off.mode, 'full');
   assert.match(off.why, /switched off \(REACH_MAP_MODE is 'full'\)/);
@@ -291,6 +318,7 @@ const sealWith = ({
       reachMap: async () => map,
       mainRuns: async () => mainRuns,
       journeyFiles: async () => FILES,
+      reachMode: 'reach',
     },
   });
 const clean = { red: [], failing: 0, missing: [] };
@@ -348,6 +376,7 @@ test('the committed map holds only shapes a public map may hold', () => {
     'consumers',
     'harness',
     'subscribers',
+    'money',
   ]);
   for (const k of Object.keys(map)) assert.ok(allowed.has(k), `unexpected key ${k}`);
   for (const r of map.runs) {
@@ -363,7 +392,7 @@ test('the committed map holds only shapes a public map may hold', () => {
       assert.match(p, PATH);
       for (const x of v) assert.ok(Number.isInteger(x) || PATH.test(x), `${k}.${p}`);
     }
-  for (const p of [...(map.harness ?? []), ...(map.subscribers ?? [])]) assert.match(p, PATH);
+  for (const p of [...(map.harness ?? []), ...(map.subscribers ?? []), ...(map.money ?? [])]) assert.match(p, PATH);
   for (const f of Object.keys(map.full ?? {})) assert.match(f, JOURNEY);
 });
 

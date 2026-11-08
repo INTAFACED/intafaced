@@ -11,7 +11,7 @@
  *   { v, mode: 'reach' | 'full', why?, runs: [{ id, head, created }], journeys: [file], full: { [file]: reason },
  *     services: { 'services/svc-x': [journey index] }, packages: { 'packages/x': [journey index] },
  *     customer: { 'apps/customer/src/…': [journey index] }, consumers: { 'packages/x': [consumer dir] },
- *     harness: [dir], subscribers: [service dir] }
+ *     harness: [dir], subscribers: [service dir], money: [dir] }
  * Built (buildMap) only from main's full runs that are whole: every journey file at the run's head in its report, and a
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
@@ -42,10 +42,16 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSyn
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { isMainRun } from './journey-verdict.mjs';
+import { isMainRun, manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 
-/** The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map. */
-export const REACH_MAP_MODE = 'reach';
+/**
+ * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
+ * It ships 'full' (the CI review on b26447ca): narrowing turns on only in a reviewed code change, once a map built from
+ * MIN_RUNS whole runs is committed and REVIEW.md records the owner's decision for it, never by a data-only map commit.
+ */
+export const REACH_MAP_MODE = 'full';
+/** Money code beyond moneyCodeDirs (journey-verdict.mjs): the ledger service itself. */
+export const MONEY_SERVICES = ['services/svc-ledger'];
 export const MAP_VERSION = 1;
 /** The plan's "build the map from the next 3 full main runs": fewer whole runs build no map. */
 export const MIN_RUNS = 3;
@@ -282,7 +288,7 @@ export function subscribers(root = ROOT) {
  * lost shard), is not whole and is passed over. In a whole run, a journey file it ran with no record of its own is
  * full in the map (it runs with every change). The newest MIN_RUNS whole runs build it; fewer, and its mode is 'full'.
  */
-export function buildMap({ runs, services, consumers, harness, subscribers: subs, minRuns = MIN_RUNS }) {
+export function buildMap({ runs, services, consumers, harness, subscribers: subs, money, minRuns = MIN_RUNS }) {
   const whole = [];
   const skipped = [];
   for (const r of runs) {
@@ -344,6 +350,7 @@ export function buildMap({ runs, services, consumers, harness, subscribers: subs
     consumers: sorted(consumers),
     harness: [...harness].sort(),
     subscribers: [...subs].sort(),
+    money: [...new Set([...(money ?? []), ...MONEY_SERVICES])].sort(),
   };
 }
 
@@ -384,6 +391,7 @@ export function mapProblem(map, behind, mode = REACH_MAP_MODE) {
   if (map.mode !== 'reach') return `the touched-journeys map is full (${map.why ?? 'no reason given'})`;
   if (!Array.isArray(map.runs) || map.runs.length < MIN_RUNS) return `the touched-journeys map holds fewer than ${MIN_RUNS} runs`;
   if (!Array.isArray(map.journeys) || !map.journeys.length) return 'the touched-journeys map lists no journeys';
+  if (!Array.isArray(map.money) || !map.money.length) return 'the touched-journeys map lists no money code';
   if (behind === null || behind === undefined || !Number.isFinite(behind))
     return "how many main runs came after the touched-journeys map's newest run couldn't be read";
   if (behind > STALE_RUNS)
@@ -400,6 +408,13 @@ export function pathReach(map, path, subscribesHere = false) {
   const pkgOf = /^(packages\/[a-z0-9-]+)\//.exec(p)?.[1];
   if (map.harness?.includes(p) || (pkgOf && map.harness?.includes(pkgOf))) return { full: 'the journey harness imports it' };
   const svc = /^(services\/svc-[a-z0-9-]+)\//.exec(p)?.[1];
+  // Money code always runs the full suite (AGENTS.md "How work flows" 8: packages/ledger-client, its direct dependents,
+  // svc-edge, svc-ops, svc-protocol, svc-fix; and svc-ledger), and so does a package money code depends on.
+  const money = Array.isArray(map.money) ? map.money : null;
+  if (!money) return { full: 'the map lists no money code' };
+  if ((svc && money.includes(svc)) || (pkgOf && money.includes(pkgOf))) return { full: 'money code, which always runs the full suite' };
+  if (pkgOf && (map.consumers?.[pkgOf] ?? []).some((d) => money.includes(d)))
+    return { full: `money code depends on ${pkgOf}, and money code always runs the full suite` };
   if (svc) {
     if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
     if (map.subscribers?.includes(svc))
@@ -535,7 +550,14 @@ function main() {
     runs.push({ id: r.id, head: r.head_sha, created: r.created_at, report, files });
     if (reportRecords(report).length === 0) break; // older runs come before the recorder
   }
-  const map = buildMap({ runs, services, consumers: consumersOf(ws), harness: harnessImports(ROOT, ws), subscribers: subscribers() });
+  const map = buildMap({
+    runs,
+    services,
+    consumers: consumersOf(ws),
+    harness: harnessImports(ROOT, ws),
+    subscribers: subscribers(),
+    money: [...moneyCodeDirs(manifestsAt(ROOT))],
+  });
   writeFileSync(opt('--out') ?? MAP_FILE, `${JSON.stringify(map)}\n`);
   console.log(
     map.mode === 'reach' ? `map built from runs ${map.runs.map((r) => r.id).join(', ')}` : `refused: ${map.why}; the map written is full`,
