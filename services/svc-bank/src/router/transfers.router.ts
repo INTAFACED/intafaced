@@ -1,4 +1,4 @@
-import { assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
+import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
   router,
@@ -250,6 +250,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const from = await bank.spaces.get(input.fromSpaceId);
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
@@ -400,6 +401,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const from = await bank.spaces.get(input.fromSpaceId);
           await bank.sharedPots.assertMayTakeOut(ctx.principal.userId, from);
           assertSelf(ctx.principal.userId, from.userId);
@@ -454,6 +456,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       .output(z.object({ id: z.string(), nextRunAt: z.string() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const from = await bank.spaces.get(input.fromSpaceId);
           // Same exemption, same reason as `transfers.create` above: the debit
           // side is the side that can lose value, and a standing order to
@@ -595,6 +598,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           // Ownership before the write, as `cancel` does.
           const schedule = await bank.transfers.getSchedule(input.scheduleId);
           assertSelf(ctx.principal.userId, schedule.userId);
@@ -725,6 +729,7 @@ export function createTransfersRouter(c: BankRouterContext) {
       )
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerAnswering(bank.testPartner, ctx.principal.userId);
           const schedule = await bank.transfers.getSchedule(input.scheduleId);
           assertSelf(ctx.principal.userId, schedule.userId);
           const report = await bank.transfers.resumeSchedule(input.scheduleId);

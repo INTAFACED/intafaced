@@ -36,9 +36,10 @@ export interface TestPartnerSwitches {
   /** `required`: the partner requires a reserve of us, and does not say how much; it reads "not known", never 0. */
   readonly reserve: 'none' | 'required';
   /**
-   * The partner is not answering: every write to a currency account, space, pot or joint account refuses
-   * `bank.partner_unavailable`, nothing written. Freezing a shared pot's card stays open (it only protects), and reads
-   * still show what was last read.
+   * The partner is not answering: every write to a currency account, space, pot or joint account, a send to a person,
+   * and a standing order's create, change or resume refuses `bank.partner_unavailable`, nothing written. Freezing a
+   * shared pot's card, and cancelling or pausing a standing order, stay open (they only protect), and reads still show
+   * what was last read.
    */
   readonly down: boolean;
   /** `expired`: the ramp says any quote it gave has expired when it is accepted. */
@@ -135,6 +136,17 @@ export function assertPartnerOffers(partner: TestPartner | null | undefined, use
       `Not offered by the partner: ${FEATURE_WORDS[feature]}. Nothing was sent or changed.`,
       'bank.not_offered_by_partner',
     );
+  }
+}
+
+/**
+ * The partner-down switch alone, for doors that move or schedule money but are not one of the partner's optional
+ * features: a send to a person, and a standing order's create, change or resume. Cancel and pause stay open while it is
+ * down, like freezing a card: they only stop money leaving.
+ */
+export function assertPartnerAnswering(partner: TestPartner | null | undefined, userId: string): void {
+  if (partner?.switches(userId).down) {
+    throw new BankError('The partner bank is not answering. Nothing was sent or changed.', 'bank.partner_unavailable');
   }
 }
 

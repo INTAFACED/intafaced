@@ -222,6 +222,36 @@ describe('the partner-held doors refuse before any service is reached', () => {
     }
   });
 
+  it('a send to a person and a standing order refuse while the partner is down, and still go through when it is up', async () => {
+    const at = new Date(Date.now() + 86_400_000).toISOString();
+    const moves = (caller: ReturnType<typeof as>) => [
+      () => caller.transfers.toUser({ transferId: 'jb-send-down-1', fromSpaceId: SPACE, toUserId: 'bob', amount: '1' }),
+      () =>
+        caller.transfers.scheduleToUser({
+          fromSpaceId: SPACE,
+          toUserId: 'bob',
+          amount: '1',
+          cadence: 'once',
+          startsAt: at,
+          scheduleId: SPACE,
+        }),
+      () =>
+        caller.transfers.schedule({ fromSpaceId: SPACE, toSpaceId: SPACE, amount: '1', cadence: 'once', startsAt: at, scheduleId: SPACE }),
+      () => caller.transfers.updateSchedule({ scheduleId: SPACE, revision: 1, amount: '2', endsAt: null }),
+      () => caller.transfers.resume({ scheduleId: SPACE }),
+    ];
+    const partner = testPartner();
+    partner.set(ADA, { down: true });
+    for (const move of moves(as(unreachableBank(partner)))) {
+      expect(await refusal(move())).toEqual({ code: 'SERVICE_UNAVAILABLE', bank: 'bank.partner_unavailable' });
+    }
+    // Up again: the door goes on to the service (here the unreachable test bank), so the refusal is not the partner's.
+    partner.set(ADA, { down: false });
+    for (const move of moves(as(unreachableBank(partner)))) {
+      expect((await refusal(move())).bank).not.toBe('bank.partner_unavailable');
+    }
+  });
+
   it('the switches themselves: refused off the TEST stack, and the person sets only their own', async () => {
     expect(await refusal(as(unreachableBank(null)).testPartner.set({ down: true }))).toEqual({
       code: 'PRECONDITION_FAILED',
