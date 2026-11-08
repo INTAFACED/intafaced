@@ -7,7 +7,7 @@ import { codeOf, keyHolder, makeKey, withKey } from './developer.mjs';
 // may hold a key) makes its keys through /uc/safe/api-keys/new, as the developer journeys do.
 const J = 'J-identity-06';
 
-test(`${J} #6 Connected apps and API access lists both keys with prefix, permissions and state, never the secret; the revoked key fails on its next call; an empty list is an honest empty state`, async ({
+test(`J-identity-06 #6 Connected apps and API access lists both keys with prefix, permissions and state, never the secret; the revoked key fails on its next call; an empty list is an honest empty state`, async ({
   browser,
 }) => {
   test.setTimeout(240_000);
