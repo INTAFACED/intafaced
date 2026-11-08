@@ -4,10 +4,11 @@ name: CI merge seal
 # script it runs are the default branch's: a pull request can't change, drop or replace the check that judges it. It never
 # checks out, builds or runs a pull request's code; it reads the pull request, and the runs on its head, through the API.
 #
-# Until 8 Nov 2026 the seal was a job in ci.yml, which a pull request runs in its own version, so a pull request could
-# edit its own seal step. Every Actions job named `CI merge seal` on a head must pass (probe #7547: a red one blocked the
-# merge though a green one finished after it), so a pull request's own job of that name can't outrank this one, and a
-# pull request still on an older ci.yml carries both seals until it merges main.
+# ci.yml keeps its own seal job, which a pull request runs in its own version and so could edit. Every Actions job named
+# `CI merge seal` on a head must pass (probe #7547: a red one blocked the merge though a green one finished after it), so
+# this seal decides whatever a pull request does to that one or adds beside it. ci.yml's job stays, so the change that
+# adds this file is sealed too (main had no merge-seal.yml to run for it), and so is the merge queue's commit, which
+# pull_request_target never reaches: its required check is ci.yml's, on a commit holding only pull requests this passed.
 #
 # One seal run per head: an older red run would block until re-run, so nothing starts a second one. journey-seal-recheck.yml
 # re-runs this job in place when CI or a Real-app journeys run on the head finishes, or the title or body is edited; the
@@ -16,9 +17,6 @@ on:
   pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened]
-  # The merge queue's commit (OWNER 154 point 8): a required check must report on it. Its workflow file is the queue
-  # commit's, which holds only pull requests whose seals passed; its scripts are still read from the default branch.
-  merge_group:
 
 permissions: {}
 
@@ -54,7 +52,6 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: node tooling/ci/ci-jobs-seal.mjs
       # Named journey steps, the journeys a change touches, and journey test naming (journey-seal.mjs). It runs when CI's
       # jobs are red too, so every verdict shows on one seal run.
@@ -64,9 +61,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
-          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
-          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
           REPO: ${{ github.repository }}
         run: node tooling/ci/journey-seal.mjs
       # The CI review (and the test judge) on this exact head (review-marker.mjs). Only once CI's jobs are green, as before:
@@ -75,12 +69,9 @@ jobs:
         if: ${{ !cancelled() && steps.needed.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
-          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
-          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
           REPO: ${{ github.repository }}
         run: node tooling/ci/review-marker.mjs
       # The factory switch (owner decision 2026-11-07, factory-switch.mjs): only `run` lets a pull request or a merge

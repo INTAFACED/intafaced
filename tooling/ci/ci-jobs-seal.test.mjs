@@ -76,3 +76,13 @@ test('jobResults counts a repeated name by its newest job', () => {
   const r = jobResults([job(1, 'Format', 'failure'), job(2, 'Format', 'success')]);
   assert.equal(r.format, 'success');
 });
+
+test('planted: a full-suite change whose own ci.yml ran one shard fails; the whole matrix passes', () => {
+  const full = ['packages/ledger-client/src/a.ts', '.github/workflows/ci.yml'];
+  const one = judgeCiJobs({ run: run(1), jobs: green(['Tests (changed)']), files: full });
+  assert.equal(one.ok, false);
+  assert.match(one.lines.join('\n'), /16 shards never ran|of its 16 shards never ran/);
+  const all = Array.from({ length: 16 }, (_, i) => `Tests (${i + 1}/16)`);
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green(all), files: full }).ok, true);
+  assert.equal(judgeCiJobs({ run: run(1), jobs: green(all.slice(1)), files: full }).ok, false, 'one shard short');
+});

@@ -34,7 +34,7 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { recheckStep, SEAL, SEAL_EVENT, SEAL_WORKFLOW } from './journey-seal.mjs';
+import { CI_WORKFLOW, recheckStep, SEAL, SEAL_WORKFLOWS } from './journey-seal.mjs';
 
 export const SWITCH_BRANCH = 'factory-switch';
 export const SWITCH_FILE = 'FACTORY';
@@ -83,18 +83,29 @@ export function sweepWants(paused, seal) {
 }
 
 /** One open pull request's head on a flip: wait out a running seal, then re-run it if sweepWants says so. */
-export async function sweepHead({ repo, sha, paused, get, post, sleep, polls = 75, pollMs = 20_000 }) {
+export async function sweepHead({
+  repo,
+  sha,
+  paused,
+  get,
+  post,
+  sleep,
+  polls = 75,
+  pollMs = 20_000,
+  workflow = CI_WORKFLOW,
+  event = 'pull_request',
+}) {
   for (let poll = 1; ; poll++) {
-    const runs = (await get(`/repos/${repo}/actions/workflows/${SEAL_WORKFLOW}/runs?head_sha=${sha}&event=${SEAL_EVENT}&per_page=100`))
+    const runs = (await get(`/repos/${repo}/actions/workflows/${workflow}/runs?head_sha=${sha}&event=${event}&per_page=100`))
       ?.workflow_runs;
-    if (!Array.isArray(runs)) throw new Error(`${SEAL_WORKFLOW} runs on ${sha}: not a list`);
+    if (!Array.isArray(runs)) throw new Error(`${workflow} runs on ${sha}: not a list`);
     const jobsByRun = new Map();
-    let step = recheckStep(runs, jobsByRun);
+    let step = recheckStep(runs, jobsByRun, event);
     while (step.act === 'jobs') {
       const jobs = (await get(`/repos/${repo}/actions/runs/${step.runId}/jobs?filter=latest&per_page=100`))?.jobs;
       if (!Array.isArray(jobs)) throw new Error(`run ${step.runId}'s jobs: not a list`);
       jobsByRun.set(step.runId, jobs);
-      step = recheckStep(runs, jobsByRun);
+      step = recheckStep(runs, jobsByRun, event);
     }
     if (step.act === 'done') return step.msg.replace('read the steps', 'read the switch');
     if (step.act === 'fail') throw new Error(step.msg);
@@ -121,7 +132,15 @@ export async function sweep({ repo, base, paused, get, post, sleep, log = consol
     if (p.length < 100) break;
     if (page === 10) throw new Error('more than 1,000 open pull requests, not whole');
   }
-  const results = await Promise.allSettled(pulls.map((p) => sweepHead({ repo, sha: p.head.sha, paused, get, post, sleep })));
+  // Each seal on the head (SEAL_WORKFLOWS): every one must pass, so a flip re-runs each.
+  const results = await Promise.allSettled(
+    pulls.map(async (p) => {
+      const out = [];
+      for (const { workflow, event } of SEAL_WORKFLOWS)
+        out.push(`${workflow}: ${await sweepHead({ repo, sha: p.head.sha, paused, get, post, sleep, workflow, event })}`);
+      return out.join('; ');
+    }),
+  );
   let failed = 0;
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') log(`#${pulls[i].number}: ${r.value}`);

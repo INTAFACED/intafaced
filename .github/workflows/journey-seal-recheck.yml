@@ -40,9 +40,13 @@ jobs:
   recheck:
     name: Re-run the seal on this head
     # A run on main is never a pull request's head; an edit that changed neither the title nor the body changes nothing.
+    # CI on any pull request counts, a fork's included (its branch may even be called main): merge-seal.yml seals it from
+    # the default branch, and this job only reads and re-runs the default branch's jobs, never the fork's code.
     if: >-
-      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' &&
-       github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_run' &&
+       ((github.event.workflow_run.name == 'CI' && github.event.workflow_run.event == 'pull_request') ||
+        (github.event.workflow_run.head_branch != 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))) ||
       (github.event_name == 'pull_request_target' && (github.event.changes.title || github.event.changes.body))
     runs-on: ubuntu-latest
     timeout-minutes: 30 # healthy run: seconds; waiting out a running seal takes up to 25 minutes (SEAL_POLLS in the script)

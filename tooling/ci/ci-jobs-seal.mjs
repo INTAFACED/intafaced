@@ -9,14 +9,16 @@
  * the jobs to `sealNeeded`, the rule ci.yml's own seal job applied to its `needs` until now.
  *
  * - The newest ci.yml run of the event on the head decides (a reopen starts a new one and cancels the old).
- * - A run still going fails this verdict with a wait line; merge-seal-recheck re-runs the seal when CI finishes.
- * - Every test shard (`Tests (…)`) must succeed, and there must be one when the change needs tests.
+ * - A run still going fails this verdict with a wait line; journey-seal-recheck.yml re-runs the seal when CI finishes.
+ * - Every test shard (`Tests (…)`) must succeed, and there must be one when the change needs tests; when the default
+ *   branch says the change needs the full suite, every one of its SHARD_COUNT shards (`Tests (1/16)` …) must be there.
  * - A pull request's own ci.yml may differ from main's: a change to it is a gate file, so the seal's CI review step
  *   holds it to the independent review. This script never runs or reads the pull request's code.
  *
  *   GH_TOKEN=... REPO=owner/name HEAD_SHA=<sha> (PR_NUMBER=<n> | MERGE_GROUP_HEAD_SHA=<sha>) node tooling/ci/ci-jobs-seal.mjs
  */
-import { classify, sealNeeded } from './ci-affected.mjs';
+import { SHARD_COUNT, classify, sealNeeded, shardMatrix } from './ci-affected.mjs';
+import { pullFiles } from './journey-seal.mjs';
 
 export const CI_WORKFLOW_PATH = '.github/workflows/ci.yml';
 
@@ -60,6 +62,15 @@ export function judgeCiJobs({ run, jobs, files, forceFull = false }) {
     return { ok: false, wait: true, lines: [`${id} on this head is ${run.status}; the seal re-runs when it finishes`] };
   const flags = files === null ? { full: true, affected: false } : classify(files, { forceFull });
   const problems = sealNeeded(flags, jobResults(jobs));
+  // The full suite is the whole matrix: a pull request's own ci.yml can't narrow it to one passing shard.
+  if (flags.full) {
+    const names = new Set((jobs ?? []).map((j) => j?.name));
+    const missing = shardMatrix(flags).filter((sh) => !names.has(`Tests (${sh})`));
+    if (missing.length)
+      problems.push(
+        `the change needs the full suite, but ${missing.length} of its ${SHARD_COUNT} shards never ran (Tests (${missing[0]}) …)`,
+      );
+  }
   if (!problems.length) return { ok: true, wait: false, lines: [`${id}: required jobs succeeded`] };
   return { ok: false, wait: false, lines: problems.map((p) => `${id}: ${p}`) };
 }
@@ -72,16 +83,15 @@ async function api(path, token) {
   return res.json();
 }
 
-/** The pull request's changed paths (a renamed file counts by both names), or null at GitHub's 3,000-file limit. */
+/** The pull request's changed paths (journey-seal.mjs pullFiles: a renamed file counts by both names), or null when
+ *  GitHub can't list them whole (3,000 files or more), which then needs the full suite. */
 export async function changedFiles(get, repo, number) {
-  const all = [];
-  for (let page = 1; page <= 30; page++) {
-    const r = await get(`/repos/${repo}/pulls/${number}/files?per_page=100&page=${page}`);
-    if (!Array.isArray(r)) throw new Error(`#${number}'s files: not a list`);
-    for (const f of r) all.push(f.filename, ...(f.previous_filename ? [f.previous_filename] : []));
-    if (r.length < 100) return all;
+  try {
+    return await pullFiles(get, repo, number);
+  } catch (e) {
+    if (/3,000 files or more/.test(e.message)) return null;
+    throw e;
   }
-  return null;
 }
 
 async function main() {

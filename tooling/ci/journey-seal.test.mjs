@@ -304,7 +304,7 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
     details_url: 'https://github.com/o/r/actions/runs/77/job/9',
     ...over,
   });
-  const ci = (over) => ({ id: 77, event: 'pull_request_target', status: 'completed', ...over });
+  const ci = (over) => ({ id: 77, event: 'pull_request', status: 'completed', ...over });
   const J = (entries) => new Map(Object.entries(entries));
   assert.equal(recheckStep([]).act, 'done', 'no CI run yet');
   assert.equal(recheckStep([ci({ event: 'merge_group' })]).act, 'done', 'only pull_request runs');
@@ -322,7 +322,7 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
   let polls = 0;
   const get = async (path) => {
     calls.push(`GET ${path}`);
-    if (path.includes('/workflows/merge-seal.yml/runs')) return { workflow_runs: [ci()] };
+    if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: [ci()] };
     return { jobs: [seal({ status: polls++ < 2 ? 'in_progress' : 'completed' })] };
   };
   const post = async (path) => (calls.push(`POST ${path}`), { status: 201 });
@@ -489,13 +489,13 @@ test('a Revert title is only the exact form; extra text or an unclosed quote is 
 // finished with none (cancelled before its jobs) does not hide an older run's seal.
 test('the recheck skips a finished CI run with no seal job and re-runs the newest seal there is', async () => {
   const sealJob = (id, over) => ({ id, name: SEAL, status: 'completed', conclusion: 'failure', ...over });
-  const ci = (id, over) => ({ id, event: 'pull_request_target', status: 'completed', ...over });
+  const ci = (id, over) => ({ id, event: 'pull_request', status: 'completed', ...over });
   const runs = [ci(78, { conclusion: 'cancelled' }), ci(77)];
   const jobs = { 78: [], 77: [sealJob(9)] };
   const calls = [];
   const get = async (path) => {
     calls.push(path);
-    if (path.includes('/workflows/merge-seal.yml/runs')) return { workflow_runs: runs };
+    if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: runs };
     return { jobs: jobs[/\/runs\/(\d+)\/jobs/.exec(path)[1]] };
   };
   const msg = await rerunSealJob({
@@ -510,7 +510,7 @@ test('the recheck skips a finished CI run with no seal job and re-runs the newes
   // A newer run still going with its seal not started: that seal reads for itself.
   const going = { 79: [], 77: [sealJob(9)] };
   const get2 = async (path) =>
-    path.includes('/workflows/merge-seal.yml/runs')
+    path.includes('/workflows/ci.yml/runs')
       ? { workflow_runs: [ci(79, { status: 'in_progress' }), ci(77)] }
       : { jobs: going[/\/runs\/(\d+)\/jobs/.exec(path)[1]] };
   assert.match(
@@ -518,10 +518,10 @@ test('the recheck skips a finished CI run with no seal job and re-runs the newes
     /has not started/,
   );
   // No run on the head has a seal job: that is said, never passed.
-  const get3 = async (path) => (path.includes('/workflows/merge-seal.yml/runs') ? { workflow_runs: [ci(78)] } : { jobs: [] });
+  const get3 = async (path) => (path.includes('/workflows/ci.yml/runs') ? { workflow_runs: [ci(78)] } : { jobs: [] });
   await assert.rejects(
     rerunSealJob({ repo: 'o/r', sha: HEAD, get: get3, post: async () => ({ status: 201 }), sleep: async () => {} }),
-    /no merge-seal.yml run on this head has a CI merge seal job/,
+    /no CI run on this head has a CI merge seal job/,
   );
 });
 
@@ -959,21 +959,21 @@ test('journey-seal-recheck.yml passes the old body to the recheck as an env valu
   );
 });
 
-// 7 Nov 2026, #7398: a job re-run is a new attempt of its run; when the seal was a ci.yml job it joined ci.yml's concurrency group
+// 7 Nov 2026, #7398: a job re-run is a new attempt of its CI run, and it joins ci.yml's concurrency group
 // (CI-refs/pull/<n>/merge, cancel-in-progress off main), so it cancels whatever CI run of that pull request is in flight.
 // The re-check acts only when the run's head is the pull request's current head and no CI run on that head is going;
 // each skip has its own test, and each test fails on its own planted fault.
 const STALE_OLD = 'b'.repeat(40);
 const STALE_NEW = 'c'.repeat(40);
 const recheckSeal = (over) => ({ id: 9, name: SEAL, status: 'completed', conclusion: 'success', ...over });
-const ciRun = (id, over) => ({ id, event: 'pull_request_target', status: 'completed', head_sha: STALE_OLD, ...over });
+const ciRun = (id, over) => ({ id, event: 'pull_request', status: 'completed', head_sha: STALE_OLD, ...over });
 const pr7398 = (over) => ({ number: 7398, state: 'open', head: { sha: STALE_OLD, ref: 'b1' }, ...over });
 // `runs(i)` and `jobs(i)` answer the i-th read of the head's runs; `blocker(i)` is read with the same counter, so a
 // stand-in can answer differently before and after the wait.
 const recheckWith = async ({ runs, jobs, blocker }) => {
   const posts = [];
   let n = 0;
-  const get = async (path) => (path.includes('/workflows/merge-seal.yml/runs') ? { workflow_runs: runs(n++) } : { jobs: jobs(n) });
+  const get = async (path) => (path.includes('/workflows/ci.yml/runs') ? { workflow_runs: runs(n++) } : { jobs: jobs(n) });
   const post = async (path) => (posts.push(path), { status: 201 });
   const out = await rerunSealJob({
     repo: 'o/r',
@@ -1037,7 +1037,7 @@ test('skip 2, CI in progress: another CI run on the same head in flight is waite
   const going = () => rerunBlocker({ sha: STALE_OLD, pulls: [pr7398()], headRuns: [ciRun(79, { status: 'queued' }), ciRun(77)] });
   let r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: going });
   assert.deepEqual(r.posts, [], 'a run in flight on this head is never cancelled by a re-run');
-  assert.match(r.out, /^threw: seal run 79 \(queued\) on this head is still going.* after 25 min/);
+  assert.match(r.out, /^threw: CI run 79 \(queued\) on this head is still going.* after 25 min/);
   // Once it finishes, exactly one re-run.
   r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: (i) => (i < 4 ? going() : headFree()) });
   assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
@@ -1248,7 +1248,7 @@ test('C1: the main run compared with is the newest finished full one on main the
   assert.equal((await ref([mainRun(50), mainRun(51, { head_sha: OLD })], { contains: async (sha) => sha === MAIN_SHA }))?.run.id, 50);
   assert.equal(await ref(runs, { contains: async () => false }), null, 'none in the head history');
   assert.equal(
-    (await ref([mainRun(50), mainRun(51, { head_branch: 'feature' }), mainRun(53, { event: 'pull_request_target' })]))?.run.id,
+    (await ref([mainRun(50), mainRun(51, { head_branch: 'feature' }), mainRun(53, { event: 'pull_request' })]))?.run.id,
     50,
     'a branch run or a pull request run is not main',
   );
@@ -1564,4 +1564,70 @@ test('CI review: a money step red on main too is never passed over, outside ever
     rangeOf: range(),
   });
   assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
+});
+
+test('recheckTargets: after CI every open pull request on the head is re-sealed; after a journeys run only named ones (R3 C3 piece 2)', async () => {
+  const { recheckTargets } = await import('./journey-seal.mjs');
+  const sha = 'c'.repeat(40);
+  const pr = (number, title, over = {}) => ({
+    number,
+    title,
+    state: 'open',
+    head: { sha },
+    base: { repo: { full_name: 'o/r' } },
+    body: '',
+    ...over,
+  });
+  const pulls = [
+    pr(1, 'fix the copy'),
+    pr(2, 'J-bank-13 #1 pays'),
+    pr(3, 'other head', { head: { sha: 'd'.repeat(40) } }),
+    pr(4, 'closed', { state: 'closed' }),
+  ];
+  const filesOf = async () => ['services/svc-pay/src/a.test.ts']; // a change no journeys run judges (journey-touch none)
+  const ci = await recheckTargets({ finished: 'CI', pulls, sha, repo: 'o/r', filesOf });
+  assert.deepEqual(
+    ci.map((p) => p.number),
+    [1, 2],
+  );
+  const journeys = await recheckTargets({ finished: 'Real-app journeys', pulls, sha, repo: 'o/r', filesOf });
+  assert.deepEqual(
+    journeys.map((p) => p.number),
+    [2],
+    'a journeys run re-seals only what names or touches journeys',
+  );
+});
+
+test("rerunSealJob reads merge-seal.yml's pull_request_target runs when asked, and re-runs that seal", async () => {
+  const { SEAL_WORKFLOWS } = await import('./journey-seal.mjs');
+  assert.deepEqual(
+    SEAL_WORKFLOWS.map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+  );
+  const paths = [];
+  const get = async (path) => {
+    paths.push(path);
+    if (path.includes('/runs?'))
+      return {
+        workflow_runs: [
+          { id: 5, event: 'pull_request_target', status: 'completed' },
+          { id: 6, event: 'pull_request', status: 'completed' },
+        ],
+      };
+    return { jobs: [{ id: 50, name: SEAL, status: 'completed', conclusion: 'failure' }] };
+  };
+  let posted = '';
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get,
+    post: async (p) => ((posted = p), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: 'pull_request_target',
+  });
+  assert.match(paths[0], /workflows\/merge-seal\.yml\/runs\?head_sha=.*&event=pull_request_target/);
+  assert.match(posted, /jobs\/50\/rerun$/, msg);
+  assert.match(paths[1], /runs\/5\/jobs/, 'the pull_request_target run, not the ci.yml one');
 });
