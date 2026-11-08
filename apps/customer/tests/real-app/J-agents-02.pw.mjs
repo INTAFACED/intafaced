@@ -8,7 +8,7 @@ import { api, fromUnits, stackFile, toUnits, tool } from './stack.mjs';
 import { createPublicClient, erc20Abi, http } from 'viem';
 import { GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { testChain } from './dex.mjs';
-import { addPasskey, virtualAuthenticator } from './identity-factors.mjs';
+import { PASSKEY_ORIGIN, addPasskey, virtualAuthenticator } from './identity-factors.mjs';
 import { installTestWallet } from './test-wallet.mjs';
 
 // J-agents-02, in the running app (docs/roadmap/journeys.json): set my spending limits and see that a run I cannot pay
@@ -317,9 +317,13 @@ test(`${J} #3 starts two runs together whose worst cases are each more than half
 });
 
 test(`${J} #4 asks for a run when the payment method's available amount, as the partner or the chain reports it, is below the worst case: a refusal naming the payment method and its figure with its source and as-of time; the engine is never called, nothing is billed; with that figure unreadable the run does not start and says why`, async ({
-  page,
+  browser,
 }) => {
   test.setTimeout(480_000);
+  // A passkey belongs to the stack's relying party, `localhost` (an IP address cannot be one), so this step's page is
+  // the customer app at PASSKEY_ORIGIN, as J-identity-04 opens its own (identity-factors.mjs).
+  const passkeyContext = await browser.newContext({ baseURL: PASSKEY_ORIGIN });
+  const page = await passkeyContext.newPage();
   // The payment method is a TEST wallet that can sign (tests/real-app/test-wallet.mjs, a fresh key), linked by its own
   // signature and a passkey confirmation as J-identity-04 #7 does, then chosen on the agent's Limits page. It holds 0
   // TEST USD on the stack's TEST chain (tooling/scripts/local-test-chain.mjs, chain 84532), below one run's worst case
@@ -463,6 +467,7 @@ test(`${J} #4 asks for a run when the payment method's available amount, as the 
     tool('local-test-stack.mjs', 'start', '--only', 'ledger');
   }
   expect(await ledgerBalances(poor)).toEqual(poorBefore);
+  await passkeyContext.close();
 });
 
 test(`${J} #5 leaves the overage grace value blank after a window could not be paid: the next run refuses with recovery text; the unpaid window retries on its charge key`, async ({
