@@ -647,6 +647,7 @@ export const features: readonly Feature[] = [
       '/help',
       '/helplist',
       '/helpdetail',
+      '/help/official-channels',
       '/help/category/:id',
       '/help/section/:id',
       '/support',
