@@ -81,7 +81,8 @@ import {
   readReport,
   rootInputs,
 } from './journey-verdict.mjs';
-import { RUN_FILE, journeyTouch, printable } from './journey-touch.mjs';
+import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
+import { SUBSCRIBES, loadMap, runsBehind } from './journey-reach-map.mjs';
 import { groupPulls } from './review-marker.mjs';
 
 export const JOURNEYS_WORKFLOW = '.github/workflows/real-app-journeys.yml';
@@ -461,8 +462,18 @@ export async function judgeFullRun({
  * of them. A touched file no finished run on the head ran fails the seal and is named. A run still going holds it, a
  * cancelled or skipped run says nothing, and a report or verdict that can't be read fails closed.
  */
-export async function judgeTouchedRun({ sha, repo, files, runs, reportOf, verdictOf, waitOnRunning = true, inherited = null }) {
-  const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})`;
+export async function judgeTouchedRun({
+  sha,
+  repo,
+  files,
+  runs,
+  reportOf,
+  verdictOf,
+  waitOnRunning = true,
+  inherited = null,
+  reach = null,
+}) {
+  const why = `it touches ${files.length} journey file(s) (${files.slice(0, 5).join(', ')}${files.length > 5 ? `, ${files.length - 5} more` : ''})${reach?.length ? `, by the touched-journeys map (${reach.slice(0, 3).join('; ')}${reach.length > 3 ? `; ${reach.length - 3} more` : ''})` : ''}`;
   const how = `dispatch real-app-journeys.yml on the branch with -f journeys="${files.join(' ')}" (or no journeys input, the full suite); the seal re-runs when it finishes`;
   const mine = onHead(runs, sha, repo);
   const running = mine.filter((r) => r.status !== 'completed');
@@ -610,6 +621,14 @@ export function makeIo(repo, token) {
       (await api(`/repos/${repo}/compare/${base}...${head}?per_page=1`, token))?.merge_base_commit?.sha ?? null,
     rangeOf: (from, to) => rangeFromCommits((path) => api(path, token), repo, from, to),
     files: (n) => pullFiles((path) => api(path, token), repo, n),
+    // The journey files in the head's real-app folder (the contents API lists up to 1,000 entries; there are ~270).
+    journeyFiles: async (ref) => {
+      const list = await api(`/repos/${repo}/contents/apps/customer/tests/real-app?ref=${ref}`, token);
+      if (!Array.isArray(list) || list.length >= 1000) throw new Error('the real-app folder could not be listed whole');
+      return new Set(
+        list.filter((e) => e?.type === 'file' && JOURNEY_TEST.test(`apps/customer/tests/real-app/${e.name}`)).map((e) => e.name),
+      );
+    },
     async text(path, ref) {
       const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
       const res = await fetch(`https://api.github.com${url}`, {
@@ -971,8 +990,49 @@ export async function rangeFromCommits(get, repo, from, to) {
   return { files: [...files], commits, short };
 }
 
+/**
+ * What the touched-journeys map needs at seal time (journey-touch.mjs journeyTouch's `reach`), or null when the pull
+ * request changes no product path or the seal can't read main's runs or the head's journey files (then product code is
+ * full). The map is this script's own copy (the default branch's); its age is counted from main's runs; the journey
+ * files and whether a changed service file subscribes to bus events are read at the head. A read that fails leaves
+ * the input unknown, which the map reads as full.
+ */
+export async function reachInputs({ io, paths, head, text }) {
+  const kinds = paths.map((p) => [p, pathKind(p)]);
+  const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
+  // Any other full path makes the whole change full, so nothing below would be used: read nothing.
+  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
+  const map = io.reachMap ? await io.reachMap() : loadMap();
+  let behind = null;
+  try {
+    behind = runsBehind(map, await io.mainRuns());
+  } catch {
+    behind = null;
+  }
+  let journeyFiles = null;
+  try {
+    journeyFiles = await io.journeyFiles(head);
+  } catch {
+    journeyFiles = null;
+  }
+  const subs = new Map();
+  for (const p of product.filter((f) => f.startsWith('services/'))) {
+    let t;
+    try {
+      t = await text(p, head);
+    } catch {
+      t = undefined; // unreadable: counts as subscribing, so full
+    }
+    subs.set(p, t === undefined ? true : t !== null && SUBSCRIBES.test(t));
+  }
+  return { map, behind, journeyFiles, subscribes: (p) => subs.get(p) ?? false };
+}
+
 /** One pull request's head, judged. */
-export async function sealPull({ repo, number, sha, io, requireOpen = true, waitOnRunning = true }) {
+export async function sealPull({ repo, number, sha, io: given, requireOpen = true, waitOnRunning = true }) {
+  // Main's runs are read once: for the map's age (reachInputs) and for inherited reds (mainReference).
+  let mainRuns;
+  const io = given.mainRuns ? { ...given, mainRuns: () => (mainRuns ??= Promise.resolve().then(() => given.mainRuns())) } : given;
   const pull = await io.pull(number);
   const head = String(pull?.head?.sha ?? '');
   if (!SHA40.test(head)) return { ok: false, lines: [`#${number}: its head could not be read`] };
@@ -994,9 +1054,10 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   for (const f of paths) if (RUN_FILE.test(f)) atHead.set(f, (await text(f, head)) !== null);
   // GitHub's Revert button (revertOf) undoes a change and adds none, so only shared setup still holds it to a run: a red
   // main is fixed or undone within 2 hours (project-state OWNER 180), as judgeSteps and judgeTouched let it.
-  const reach = revertOf({ title: pull.title, body: pull.body, repo })
+  const reverting = revertOf({ title: pull.title, body: pull.body, repo });
+  const reach = reverting
     ? { mode: 'none', full: [], files: [] }
-    : journeyTouch(paths, (f) => atHead.get(f) ?? true);
+    : journeyTouch(paths, (f) => atHead.get(f) ?? true, await reachInputs({ io, paths, head, text }));
   const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
@@ -1056,7 +1117,17 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
             .join('; ')}${notShared.length > 3 ? `; ${notShared.length - 3} more` : ''})`,
         })
       : reach.mode === 'files'
-        ? await judgeTouchedRun({ sha: head, repo, files: reach.files, runs, reportOf, verdictOf, waitOnRunning, inherited })
+        ? await judgeTouchedRun({
+            sha: head,
+            repo,
+            files: reach.files,
+            runs,
+            reportOf,
+            verdictOf,
+            waitOnRunning,
+            inherited,
+            reach: reach.reach,
+          })
         : { ok: true, state: 'none', lines: [] };
   const v = {
     ok: steps.ok && full.ok && touched.ok,
