@@ -276,6 +276,7 @@ test('sealPull: the title and body come from the pull request now; a moved head 
     runs: async () => runs,
     reportOf: reports({ 1: green }),
     files: async () => ['services/svc-bank/src/cards.ts'],
+    verdictOf: async () => ({ red: [], failing: 0, missing: [] }), // product code: a clean full run (journey-touch.mjs)
   });
   const pull = { state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' };
   assert.equal((await sealPull({ repo: REPO, number: 5, sha: HEAD, io: io(pull) })).ok, true);
@@ -643,13 +644,23 @@ test('sealPull: a shared-setup pull request needs the clean full run, whatever i
   assert.equal(dirtySeal.fullOk, false);
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared }) })).ok, true, 'with a clean one passes');
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, runs: [] }) })).ok, false, 'with none fails');
+  // Product code off the list can reach any journey and no recorded map says which (journey-touch.mjs), so it needs the
+  // same clean full run; a pull request touching nothing a journeys run reads needs none.
+  const product = (over) =>
+    sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'], ...over }) });
+  const none = await product({ runs: [] });
+  assert.equal(none.ok, false, 'planted: product code with no run on its head fails');
+  assert.equal(none.fullOk, false);
+  assert.match(none.lines.join('\n'), /it changes what can reach any journey \(services\/svc-support\/src\/chat\.ts: product code/);
+  assert.equal((await product({ verdict: dirty })).ok, false, 'product code with a dirty full run fails');
+  assert.equal((await product({})).ok, true, 'product code with a clean full run passes');
   const plain = await sealPull({
     repo: REPO,
     number: 7,
     sha: HEAD,
-    io: io({ files: ['services/svc-support/src/chat.ts'], verdict: dirty, runs: [] }),
+    io: io({ files: ['.github/workflows/ci.yml', 'services/svc-support/src/chat.test.ts'], verdict: dirty, runs: [] }),
   });
-  assert.equal(plain.ok, true, 'a pull request off the list is unaffected');
+  assert.equal(plain.ok, true, 'a pull request touching nothing a journeys run reads is unaffected');
   assert.deepEqual(plain.lines, [`#7 (${HEAD.slice(0, 10)}): the title names no journey step`]);
   // Named steps and shared setup together: both must hold.
   const both = (verdict) => ({
@@ -670,12 +681,14 @@ test('the recheck takes a shared-setup pull request whose title names no step', 
   const pulls = [p(1, 'stack: staff roster'), p(2, 'svc-support: chat'), p(3, 'x (J-bank-13 #1)')];
   const files = { 1: ['tooling/scripts/local-stack-services/identity.mjs'], 2: ['services/svc-support/src/chat.ts'], 3: [] };
   const asked = [];
+  pulls.push(p(4, 'ci: a check'));
+  files[4] = ['.github/workflows/ci.yml'];
   const shared = await sharedPulls({ pulls, sha: HEAD, repo: REPO, filesOf: async (n) => (asked.push(n), files[n]) });
-  assert.deepEqual([...shared], [1]);
-  assert.deepEqual(asked, [1, 2], 'a title that names steps is taken without reading its files');
+  assert.deepEqual([...shared], [1, 2], 'shared setup and product code both need a journeys run (journey-touch.mjs)');
+  assert.deepEqual(asked, [1, 2, 4], 'a title that names steps is taken without reading its files');
   assert.deepEqual(
     recheckPulls({ pulls, sha: HEAD, repo: REPO, shared }).map((x) => x.number),
-    [1, 3],
+    [1, 2, 3],
   );
 });
 
@@ -801,7 +814,11 @@ const touchedPull = async ({
     io: {
       pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
       runs: async () => [run(1)],
-      reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' } } }),
+      reportOf: reports({
+        1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' }, ran: ['J-bank-13.pw.mjs'] },
+      }),
+      // The run on the head is clean by the journeys verdict, so these cases judge the step naming alone.
+      verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
       files: async () => files,
       text: async (f, ref) => (ref === HEAD ? (text[f] ?? null) : null),
     },

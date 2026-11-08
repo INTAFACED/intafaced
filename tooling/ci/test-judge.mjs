@@ -47,6 +47,10 @@ export const JUDGE_PATHS = [
   [/^apps\/customer\/src\/app\/(feature-registry|path-match)\.ts$/, 'the feature registry and path matcher the journeys import'],
   [/^apps\/customer\/deployment\/(host-dispatch|render-security-headers)\.mjs$/, 'the host dispatch and headers the journeys import'],
   [/^services\/svc-fix\/scripts\/ensure-toolchain\.mjs$/, 'the FIX toolchain the journeys start'],
+  // Everything proof v2's reach reads covered (project-state tooling/proof-v2/request.mjs, reachKind), so the judge can
+  // stand in for them: any tests/real-app/ folder, and every tool script under tooling/scripts/ (its unit tests aside).
+  [/(^|\/)tests\/real-app\//, 'a real-app test folder'],
+  [/^tooling\/scripts\/[^/]+\.mjs$/, 'the tool scripts'],
 ];
 /** Shared code that sets the environment every journey starts in, whether or not a test imports it. */
 const ENVIRONMENT = [
@@ -74,7 +78,10 @@ export const SAMPLE_STEPS = 24;
 const SHA40 = /^[0-9a-f]{40}$/;
 
 /** Whether a file is shared test code or a journey test the judge rules on. */
-export const judgedFile = (f) => !(UNIT_TEST.test(f) && !f.startsWith(`${REAL_APP}/`)) && JUDGE_PATHS.some(([re]) => re.test(f));
+// A unit test is skipped only where proof v2's reachKind skips one: directly under tooling/scripts/. Anywhere else
+// (any tests/real-app/ folder, the TEST config folders) a file named like a unit test is still judged.
+const SKIPPED_UNIT_TEST = /^tooling\/scripts\/[^/]+$/;
+export const judgedFile = (f) => !(UNIT_TEST.test(f) && SKIPPED_UNIT_TEST.test(f)) && JUDGE_PATHS.some(([re]) => re.test(f));
 
 /** Why the seal needs the test judge for this change, or null. An empty file list fails closed. */
 export function judgeReason(files) {
