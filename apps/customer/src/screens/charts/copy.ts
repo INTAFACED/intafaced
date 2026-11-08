@@ -193,7 +193,8 @@ const messages = {
   'Settings grid': 'Show grid lines',
   'Settings trading text': 'The chart places no order. Order entry is on the trading desk, which refuses while the market is halted.',
   'Settings trading link': 'Open the trading desk for {symbol}',
-  'Settings alerts text': 'Price alerts are set and read on the notifications page.',
+  'Settings alerts text':
+    'Price alerts are set and read on the notifications page. Your alerts on this market show on the chart: drag one to move its price.',
   'Settings alerts link': 'Open price alerts',
   // Price-line overlays: a labelled line at one exact price, kept on this device for this market.
   'Price line': 'Price line',
@@ -253,6 +254,21 @@ const messages = {
   'Chart protection unread': 'The protection distance couldn’t be read, so nothing was sent. Try again in a moment.',
   'Chart trading replay': 'Order entry is off during a replay: the chart is showing past bars, not the market now.',
   'Chart trading signed out': 'Sign in to place and move orders from the chart.',
+  'Chart alert crossing': 'Crossing, either way,',
+  'Chart alert crossing up': 'Crossing up through',
+  'Chart alert crossing down': 'Crossing down through',
+  'Chart alert above': 'At or above',
+  'Chart alert below': 'At or below',
+  'Chart alert level': 'Alert: {condition} {price} {quote}',
+  'Chart alert title': 'Alert',
+  'Chart alert handle': '{level}. Drag to move the alert’s price.',
+  'Chart alert moved': 'The alert now watches {price} {quote}.',
+  'Chart alert not moved': 'The alert wasn’t moved. Nothing was changed.',
+  'Chart alert move unsure': 'We couldn’t confirm the move. Check the alert’s price before you move it again.',
+  'Chart alert stopped': 'Stopped',
+  'Chart alerts list': 'Price alerts on this market',
+  'Chart alerts replay': 'Alerts can’t be moved during a replay: the chart is showing past bars, not the market now.',
+  'Chart alerts manage': 'Set and manage price alerts',
 } as const;
 
 export const chartsCopy = defineCopy('charts.workbench', messages);

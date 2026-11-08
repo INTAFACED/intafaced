@@ -78,6 +78,8 @@ export const users = identity.table(
     /** Staff archive of a closed account (J-ops-console-04 #10): set once with its reason code, never cleared. */
     archivedAt: timestamp('archived_at', { withTimezone: true }),
     archiveReason: text('archive_reason'),
+    /** The person's own idle sign-out in seconds (J-identity-06 #4); null leaves the owner's SESSION_IDLE_SECONDS alone. */
+    idleSignoutSeconds: integer('idle_signout_seconds'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -63,6 +63,7 @@ import { createApiKeyRotateRouter } from './api-key-rotate-router.js';
 import { createApiKeyExpireRouter } from './api-key-expire-router.js';
 import { createApiKeyRevokeAllRouter } from './api-key-revoke-all-router.js';
 import { createSessionFamiliesRouter } from './session-families-router.js';
+import { createSessionSettingsRouter, parseSessionLimits } from './auth/session-limits.js';
 import { createGrantsRouter } from './grants-router.js';
 import { createSessionRevokeAllRouter } from './session-revoke-all-router.js';
 import { createSessionRevokeRouter } from './session-revoke-router.js';
@@ -78,6 +79,7 @@ import { AccountLimitsDesk, parseLimitPolicy } from './controls/account-limits.j
 import { parseAccountTiers } from './controls/account-tiers.js';
 import { parseDormancyDays } from './controls/account-archive.js';
 import { createOperatorOpsRouter } from './ops/ops-router.js';
+import { createLearnerCardRouter } from './ops/learner-card.js';
 import { SocialSignin } from './social/social-signin.js';
 import { createPreferencesRouter } from './preferences/preferences-router.js';
 import { createMembershipRouter } from './membership/membership-router.js';
@@ -154,7 +156,9 @@ import { parseKycDocKey } from './kyc/document-crypto.js';
 import { identityReadyHonesty } from './ready-honesty.js';
 import { SqlActionApprovalStore } from './auth/action-approval-store.js';
 import { ActionApprovalService } from './auth/action-approval-service.js';
-import { approvalPolicySource } from './auth/action-approval-policy.js';
+import { ConsolePolicyRows } from './staff/policy-rows.js';
+import { StaffDirectory } from './staff/staff-directory.js';
+import { createStaffRouter } from './staff/staff-router.js';
 import { createActionApprovalRouter } from './action-approval-router.js';
 import { createStepUpRouter } from './step-up-router.js';
 import { CustomerStepUpService } from './auth/customer-step-up.js';
@@ -362,6 +366,9 @@ const auth = new AuthService(
   env.REFRESH_RECOVERY_SECONDS,
   env.IDENTITY_SUB_ACCOUNT_KINDS,
 );
+// The owner's idle sign-out and device limit (I-signin-sessions-06); a value that is not a whole number stops the start.
+const sessionLimits = parseSessionLimits(env, { accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS });
+auth.setSessionLimits(sessionLimits);
 // Per-service keys (S2S v3): unset S2S_AUTH_MODE leaves the ledger, pay and closure calls on the shared secret alone.
 const s2s = s2sFromEnv(env, 'svc-identity');
 /** The same keys on the inbound doors: a key-signed caller is named by its own key. */
@@ -578,6 +585,11 @@ installApiKeyAttribution(auth);
 installApiKeyRequestSignExchange(auth, sql, signingEncKey, requestSignWindowSeconds);
 
 const stepUpStore = new SqlCustomerStepUpStore(sql);
+const consolePolicyRows = new ConsolePolicyRows(sql, () => env.IDENTITY_ACTION_APPROVAL_POLICIES, {
+  warn: (obj, msg) => app.log.warn(obj, msg),
+});
+await consolePolicyRows.refresh();
+consolePolicyRows.start();
 const actionApprovals = new ActionApprovalService(
   new SqlActionApprovalStore(sql),
   {
@@ -586,7 +598,8 @@ const actionApprovals = new ActionApprovalService(
     // entitlement at approve and again at consume. Unconfigured founder controls answer false, so those types refuse closed.
     founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
     // Governed types (OPS-change-control-01 CR-1): the owner rows, read again on every propose, approve and consume.
-    policies: approvalPolicySource(() => env.IDENTITY_ACTION_APPROVAL_POLICIES),
+    // A row two founders set in the console stands in for the deployment's row of that type (J-ops-console-09 #1).
+    policies: consolePolicyRows.source,
   },
   () => new Date(),
   (row, at) =>
@@ -759,6 +772,10 @@ export const appRouter = mergeRouters(
   createSessionRevokeAllRouter(sql),
   createSessionRevokeRouter(sql),
   createSessionFamiliesRouter(sql),
+  createSessionSettingsRouter(sql, sessionLimits, {
+    accessTtlSeconds: env.JWT_ACCESS_TTL_SECONDS,
+    refreshTtlSeconds: env.JWT_REFRESH_TTL_SECONDS,
+  }),
   createListSessionsRouter(sql),
   createPanicRevokeRouter(sql),
   createApiKeyProductRouter(sql, auth, auth),
@@ -766,6 +783,7 @@ export const appRouter = mergeRouters(
   createDisableUserRouter(founderControls),
   createFounderControlsRouter(founderControls, customerDetails, accountLimits),
   createOperatorOpsRouter(sql),
+  createLearnerCardRouter(sql),
   createPreferencesRouter(sql, {
     displayCurrencies: env.IDENTITY_DISPLAY_CURRENCIES,
     watchlists: {
@@ -780,6 +798,18 @@ export const appRouter = mergeRouters(
   ),
   createOperationIdentityRouter(new OperationIdentityDecisions(sql)),
   createAuthKeysRouter(authKeyRing, { isFounder: (userId) => founderControls.isLiveFounder(userId) }),
+  createStaffRouter({
+    rows: consolePolicyRows,
+    approvals: actionApprovals,
+    founders: { isFounder: (userId) => founderControls.isLiveFounder(userId) },
+    directory: new StaffDirectory({
+      sql,
+      approvals: actionApprovals,
+      mail,
+      inviteTtlSeconds: env.IDENTITY_STAFF_INVITE_TTL_SECONDS,
+      registerAccount: (input, claim) => auth.registerInvitedStaff(input, claim),
+    }),
+  }),
   createLimitFeeTierRouter(sql, rank, actionApprovals),
   createSavedRecipientsRouter(new SavedRecipientService(sql)),
   createHandleRouter(new HandleSettingsService(sql, env.IDENTITY_HANDLE_CHANGE_MAX ?? null)),

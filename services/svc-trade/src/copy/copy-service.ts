@@ -13,6 +13,7 @@
  * laws refuse at the door. Pause/stop/detach never call flatten.
  */
 
+import { NO_PAUSES, mirrorPausedReason, type PauseSnapshot } from './platform-pauses.js';
 import type { Sql } from 'postgres';
 import { formatAmount, parseAmount, type Amount, type LedgerClient } from '@intafaced/ledger-client';
 import { requireScope, type Principal } from '@intafaced/auth';
@@ -223,6 +224,11 @@ export interface CopyServiceOptions {
   /** Paper vs live honesty — never place live from a paper leader fill. */
   inspectMarket?: InspectCopyMarket;
   /**
+   * The platform's copy and bots pauses (CB-ops-03): a paused lead or a halted market refuses the mirror
+   * `trade.copy_paused_by_platform`. Omitted → nothing is paused.
+   */
+  platformPauses?: () => Promise<PauseSnapshot>;
+  /**
    * Settled follower fill fee (`fills.fee_amount`). Required to settle.
    * Missing lookup or missing fill → refuse. Never a client `fillFeeAmount`.
    */
@@ -343,6 +349,7 @@ export class CopyService {
   private readonly now: () => Date;
   private readonly placeFollowerOrder: PlaceFollowerOrderPort | null;
   private readonly placeMirrorEnabled: boolean;
+  private readonly platformPauses: () => Promise<PauseSnapshot>;
   private readonly inspectMarket: InspectCopyMarket | null;
   private readonly lookupFollowerFillFee: LookupFollowerFillFeePort | null;
   private readonly lookupLeaderFill: LookupLeaderFillPort | null;
@@ -372,6 +379,7 @@ export class CopyService {
     this.store = options.store ?? new MemoryCopyFollowStore();
     this.placeFollowerOrder = options.placeFollowerOrder ?? null;
     this.placeMirrorEnabled = options.placeMirrorEnabled ?? parseCopyPlaceMirrorFlag(process.env.TRADE_COPY_PLACE_MIRROR);
+    this.platformPauses = options.platformPauses ?? (async () => NO_PAUSES);
     this.inspectMarket = options.inspectMarket ?? null;
     this.lookupFollowerFillFee = options.lookupFollowerFillFee ?? null;
     this.lookupLeaderFill = options.lookupLeaderFill ?? null;
@@ -477,6 +485,10 @@ export class CopyService {
             COPY_AUTO_MIRROR_PLACE_RESIDUAL,
           );
         }
+        // The platform's pause by lead or by symbol (CB-ops-03): the mirror is refused and nothing is placed; what the
+        // follower already holds stays as it is.
+        const pausedWhy = mirrorPausedReason(await this.platformPauses(), follow.leaderId, prior.marketId);
+        if (pausedWhy) throw new CopyError(pausedWhy, 'trade.copy_paused_by_platform');
         if (!this.placeFollowerOrder) {
           throw new CopyError(
             `Auto-mirror place into spot is refuse-closed (${COPY_AUTO_MIRROR_PLACE_SOCKET}) — planMirror claimed fill ${prior.fillId}; never invent a spot fill`,

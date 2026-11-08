@@ -6,6 +6,8 @@ import { explainRefusal } from './refusal-copy';
 
 export type ApprovalEndpoint =
   | '/api/kill-switch'
+  | '/api/identity-ops/policy'
+  | '/api/identity-ops/staff'
   | '/api/accounts/restore'
   | '/api/accounts/deposit-unfreeze'
   | '/api/accounts/closure'

@@ -1,0 +1,5 @@
+const J = 'J-bank-13';
+test(`${J} #1 opens Cards`, async ({ page }) => {});
+test.skip(`${J} #2 orders a card`, async () => {});
+test('J-bank-13 #3 freezes it', async () => {});
+// J-wallet-05 #4 is mentioned in a comment, not a test

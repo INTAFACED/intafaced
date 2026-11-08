@@ -1,6 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { TOKEN_A, UNBUILT, connectWallet, dexRun } from './dex.mjs';
+import { TOKEN_A, UNBUILT, connectWallet, continueSignIn, dexRun } from './dex.mjs';
 
 // J-dex-protocol-10, in the running app (docs/roadmap/journeys.json): place, edit and cancel limit, take-profit, stop and
 // trailing orders from my own wallet. One test per step, titled "J-dex-protocol-10 #<n>", run in order with one TEST
@@ -79,6 +79,8 @@ test(`${J} #1 opens Orders and signs the order session: scope, expiry and cap sh
   for (const term of ['Scope', 'Expires', 'Cap']) await expect(session.getByRole('term').filter({ hasText: term })).toBeVisible();
   expect(wallet.requests).toHaveLength(0);
   await session.getByRole('button', { name: 'Sign the order session' }).click();
+  // The wallet's plain-words sheet comes before every wallet prompt (WalletProvider.sign); the person continues it.
+  await continueSignIn(page);
   await expect(session.getByRole('status')).toContainText('Order session signed');
   expect(wallet.requests.map((r) => r.method)).toContain('eth_signTypedData_v4');
 

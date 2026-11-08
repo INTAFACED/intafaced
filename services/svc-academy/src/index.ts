@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import postgres from 'postgres';
 import { fastifyTRPCPlugin, type FastifyTRPCPluginOptions } from '@trpc/server/adapters/fastify';
-import { edgeTrustFromEnv } from '@intafaced/config';
+import { edgeTrustFromEnv, urlForLog } from '@intafaced/config';
 import { createEdgeContext, s2sFromEnv } from '@intafaced/contracts';
 import { registerInternalCurriculumRoute } from './curriculum/internal-curriculum.js';
 import { JetStreamEventBus } from '@intafaced/events';
@@ -113,7 +113,8 @@ const bus = await JetStreamEventBus.connect({
   producer: env.SERVICE_NAME,
   streamPrefix: env.NATS_STREAM_PREFIX,
 }).catch((err: unknown) => {
-  console.error({ err, nats: env.NATS_URL }, 'svc-academy could not reach the bus — certification XP will not be published');
+  // Scheme and host only: a NATS URL may carry `user:password@`.
+  console.error({ err, nats: urlForLog(env.NATS_URL) }, 'svc-academy could not reach the bus — certification XP will not be published');
   return null;
 });
 
