@@ -264,6 +264,10 @@ test('the set-aside list carries on from run to run, ends on time, and is not re
   assert.equal(ended['J-a-01#1'].since, 102, 'no new set-aside while the first one is in its second window');
   const fresh = aside({ 'J-a-01#1': 'flaky' }, 2 + 2 * SET_ASIDE_DAYS, rows(ended));
   assert.deepEqual([fresh['J-a-01#1'].since, fresh['J-a-01#1'].active], [102 + 2 * SET_ASIDE_DAYS, true]);
+  // A step whose journey names no owner is never set aside, and a prior entry that lost its owner is dropped.
+  const noOwner = setAsideSteps({ states: { 'J-a-01#1': 'flaky' }, money: moneyToo, owners: {}, run: { number: 102, at: at(2) } });
+  assert.deepEqual(noOwner, {});
+  assert.deepEqual(setAsideSteps({ prior: first, money: moneyToo, owners: {}, run: { number: 103, at: at(3) } }), {});
   // A prior entry the money rule now calls money is dropped.
   assert.deepEqual(aside({}, 3, [{ step: 'J-a-05#1', since: 1, sinceAt: at(1), until: at(8) }]), {});
 });

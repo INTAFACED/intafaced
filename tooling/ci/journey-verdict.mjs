@@ -28,7 +28,8 @@
  * by the machine alone: each run on main writes it into its own artifact (set-aside.json, --set-aside-out) and the next
  * run on main reads it from there (--fetch), so no file or issue anyone can edit feeds it:
  *   - a non-money step that is flaky in a run on main is set aside from that run for SET_ASIDE_DAYS; its owner is its
- *     journey's module area (docs/roadmap/journeys.json). Once that ends it is not set aside again for another
+ *     journey's module area (docs/roadmap/journeys.json), and a step with no owner is never set aside. Once that ends it
+ *     is not set aside again for another
  *     SET_ASIDE_DAYS, so the time stays limited;
  *   - a money step is never set aside (setAsideGuard: the money rule above, a wallet, bank, pay or p2p journey,
  *     J-ops-console-27, or a step with no slices or a slice that touches nothing), and neither is a step whose set-aside
@@ -236,12 +237,13 @@ const PASSED_BEFORE = new Set(['passed', 'flaky']);
  */
 export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {}, money, owners = {}, run, days = SET_ASIDE_DAYS }) {
   const now = Date.parse(run.at);
-  const owner = (step) => (owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : 'unknown');
+  // A step with no owner (its journey names no module) is never set aside: B8 gives every set-aside an owner.
+  const owner = (step) => (owners[step.split('#')[0]] ? `the ${owners[step.split('#')[0]]} area` : null);
   const out = {};
   for (const e of prior) {
     // The end date is re-derived from the start, never taken as written; a start that is missing or after now carries nothing.
     const start = Date.parse(e?.sinceAt);
-    if (typeof e?.step !== 'string' || (money[e.step] ?? true) || !(start <= now)) continue;
+    if (typeof e?.step !== 'string' || (money[e.step] ?? true) || !(start <= now) || !owner(e.step)) continue;
     const until = new Date(start + days * DAY_MS).toISOString();
     if (!(now < Date.parse(until) + days * DAY_MS)) continue;
     out[e.step] = {
@@ -254,7 +256,7 @@ export function setAsideSteps({ prior = [], priorIsPrevious = true, states = {},
     };
   }
   for (const [step, s] of Object.entries(states))
-    if (s === 'flaky' && !out[step] && !(money[step] ?? true))
+    if (s === 'flaky' && !out[step] && !(money[step] ?? true) && owner(step))
       out[step] = {
         since: run.number,
         sinceAt: run.at,
