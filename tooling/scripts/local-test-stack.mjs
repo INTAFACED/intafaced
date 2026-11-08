@@ -203,7 +203,7 @@ const PORTS = {
   'rail-statements': 14525,
   // The LOCAL TEST venue simulator behind svc-trade's user-venue door (local-test-venue.mjs). Started only with
   // LOCAL_STACK_USER_VENUE=on (userVenueOn).
-  'test-venue': 14533,
+  'test-venue': 14560,
   // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status). Its two FIX
   // sockets are FIX_SOCKET_PORTS, kept out of this table: one key here is one service (the marker's inventory).
   fix: 14526,

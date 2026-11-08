@@ -62,7 +62,7 @@ export async function serveTestVenue({ host, port, appEnv, chainId }) {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   serveTestVenue({
     host: process.env.TEST_VENUE_HOST ?? '127.0.0.1',
-    port: Number(process.env.TEST_VENUE_PORT ?? '14533'),
+    port: Number(process.env.TEST_VENUE_PORT ?? '14560'),
     // The RAW value: unset, blank and anything but dev or test refuse.
     appEnv: process.env.APP_ENV,
     chainId: testVenueChainId(process.env.TEST_VENUE_CHAIN_ID),
