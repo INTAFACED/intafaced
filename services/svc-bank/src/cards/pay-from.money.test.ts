@@ -41,6 +41,9 @@ const PARTNER: CardPartnerTerms = cardSimPartnerFor(
     reserve: null,
     funder: null,
     balances: { USDC: '30', BTC: '0.01', USD: '50' },
+    programmeFigures: null,
+    fundingAssetId: null,
+    fundingOffers: null,
   }),
   { APP_ENV: 'test' },
 );

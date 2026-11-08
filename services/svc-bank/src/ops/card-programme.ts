@@ -12,7 +12,7 @@ import { formatAmount, type Amount } from '@intafaced/ledger-client';
 import { z } from 'zod';
 import type { BankServices } from '../bank-service.js';
 import { BankError } from '../errors.js';
-import { partnerTermsView } from '../cards/partner-terms.js';
+import { NOT_KNOWN, partnerTermsView } from '../cards/partner-terms.js';
 
 const amountString = z.string().regex(/^\d+(\.\d{1,18})?$/);
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -145,6 +145,117 @@ export function cardPartnerTermsProcedure(bank: BankServices, guard: Guard) {
         const view = partnerTermsView(bank.cards.partnerTerms());
         return { ...view, label: view.test ? 'TEST partner card adapter' : bank.cards.programme().displayName };
       }),
+    );
+}
+
+const offerState = z.enum(['offered', 'not_offered', 'not_known']);
+const fundingKind = z.enum(['fund', 'defund', 'auto_reload']);
+const fundingRequestOutput = z.object({
+  clientRequestId: z.string(),
+  kind: fundingKind,
+  assetId: z.string(),
+  amount: amountString,
+  threshold: amountString.nullable(),
+  partnerRef: z.string(),
+  createdAt: z.string(),
+});
+
+/**
+ * PROGRAMME FUNDING, AS AN OPERATOR READS IT (J-bank-26 #6; BK-cops-05). The settlement reconciliation per funding asset:
+ * the app's open holds and captures beside the partner's own figure, the signed difference and "matches", a break, or "not
+ * known" when the partner has not reported; the stablecoin conversion of each into the funding asset the partner reports;
+ * and fund, defund and auto reload, each offered, not offered by the partner, or not known. Reads only.
+ */
+export function cardProgrammeFundingProcedure(bank: BankServices, guard: Guard) {
+  // Each unknown is the words "not known" on the wire, as `cardPartnerTerms` sends them, so no surface can print a dash,
+  // a blank or a 0 in its place.
+  const known = z.union([amountString, z.literal(NOT_KNOWN)]);
+  const signed = z.union([z.string().regex(/^-?\d+(\.\d{1,18})?$/), z.literal(NOT_KNOWN)]);
+  return scopedProcedure('admin:read')
+    .output(
+      z.object({
+        test: z.boolean(),
+        fundingAssetId: z.string().min(1),
+        offers: z.object({ fund: offerState, defund: offerState, auto_reload: offerState }),
+        rows: z.array(
+          z.object({
+            assetId: z.string(),
+            appHeld: amountString,
+            appCaptured: amountString,
+            appFigure: amountString,
+            partnerFigure: known,
+            difference: signed,
+            status: z.enum(['matches', 'break', 'not_known']),
+            fundingRate: known,
+            fundingRateAsOf: z.string().min(1),
+            appFigureInFunding: known,
+          }),
+        ),
+        requests: z.array(fundingRequestOutput),
+      }),
+    )
+    .query(() =>
+      guard(async () => {
+        const v = await bank.cards.programmeFunding();
+        return {
+          ...v,
+          fundingAssetId: v.fundingAssetId ?? NOT_KNOWN,
+          rows: v.rows.map((r) => ({
+            ...r,
+            partnerFigure: r.partnerFigure ?? NOT_KNOWN,
+            difference: r.difference ?? NOT_KNOWN,
+            fundingRate: r.fundingRate ?? NOT_KNOWN,
+            fundingRateAsOf: r.fundingRateAsOf ?? NOT_KNOWN,
+            appFigureInFunding: r.appFigureInFunding ?? NOT_KNOWN,
+          })),
+        };
+      }),
+    );
+}
+
+/**
+ * One programme funding instruction to the card partner (J-bank-26 #6): fund, defund, or set auto reload, where the
+ * partner offers it. Treasury, MFA, a reason, and a second founder's approval bound to the kind, amount and threshold,
+ * consumed only after the partner's offer is checked. A replay of the same client request id returns the first answer.
+ */
+export function requestCardProgrammeFundingProcedure(
+  bank: BankServices,
+  consumeOpsApproval: (
+    input: { approvalId?: string | null; operationId?: string | null },
+    actionType: string,
+    fields: Record<string, string>,
+  ) => Promise<string>,
+  guard: Guard,
+) {
+  return scopedProcedure('admin:treasury')
+    .input(
+      z.object({
+        kind: fundingKind,
+        amount: z.string(),
+        threshold: z.string().nullable(),
+        reason: z.string(),
+        approvalId: z.string().max(128).nullish(),
+        operationId: z.string().max(128).nullish(),
+        clientRequestId: z.string().min(1),
+      }),
+    )
+    .output(fundingRequestOutput)
+    .mutation(({ input }) =>
+      guard(() =>
+        bank.cards.requestProgrammeFunding({
+          kind: input.kind,
+          amount: input.amount,
+          threshold: input.threshold,
+          reason: input.reason,
+          clientRequestId: input.clientRequestId,
+          consume: () =>
+            consumeOpsApproval(input, 'bank.ops.requestCardProgrammeFunding', {
+              kind: input.kind,
+              amount: input.amount,
+              threshold: input.threshold ?? '',
+            }).then(() => undefined),
+        }),
+      ),
     );
 }
 

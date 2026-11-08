@@ -127,6 +127,20 @@ export interface CardIssuerAdapter {
    */
   cardholderBalances?(input: { userId: string }): Promise<Readonly<Record<string, string>> | null>;
 
+  /**
+   * Send the partner one programme funding instruction (J-bank-26 #6): fund or defund an amount of the funding stablecoin,
+   * or set auto reload (top up `amount` when the programme falls below `threshold`). `requestId` is the business key the
+   * partner deduplicates on, so a retry after a crash is the same instruction. The partner moves the money under its own
+   * licence; nothing posts to our ledger. Optional: an adapter without it offers none of the three.
+   */
+  programmeFunding?(input: {
+    requestId: string;
+    kind: 'fund' | 'defund' | 'auto_reload';
+    assetId: string;
+    amount: string;
+    threshold: string | null;
+  }): Promise<{ partnerRef: string }>;
+
   /** Freeze, unfreeze or close the card at the issuer. */
   setStatus(input: { cardId: string; issuerRef: string; status: 'active' | 'frozen' | 'closed' }): Promise<void>;
 
@@ -229,6 +243,16 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
     partnerTerms: () => partner,
     // The TEST partner's figures: the same TEST balances for every cardholder, as its switches set them.
     cardholderBalances: async () => partner.balances,
+    // The TEST partner takes an instruction it offers and answers with a TEST reference derived from the request's key,
+    // so the same request always gets the same reference. It moves nothing: there is no partner and no money behind it.
+    programmeFunding: async (input) => {
+      const offers = partner.fundingOffers;
+      const offered = offers && (input.kind === 'fund' ? offers.fund : input.kind === 'defund' ? offers.defund : offers.autoReload);
+      if (!offered || partner.fundingAssetId !== input.assetId) {
+        throw new BankError(`The TEST card partner does not offer ${input.kind} in ${input.assetId}`, 'bank.card_funding_not_offered');
+      }
+      return { partnerRef: `TEST-card-sim-${createHash('sha256').update(input.requestId).digest('hex').slice(0, 16)}` };
+    },
   };
 }
 
@@ -260,6 +284,9 @@ export const noCardIssuer: CardIssuerAdapter = {
   },
   cardholderBalances: async () => {
     throw new BankError('No card issuer is configured — this deployment has no card partner to ask', 'bank.no_card_issuer');
+  },
+  programmeFunding: async () => {
+    throw new BankError('No card issuer is configured — this deployment has no card partner to fund', 'bank.no_card_issuer');
   },
 };
 
@@ -324,6 +351,7 @@ export function cardSimNotLive(): CardIssuerAdapter {
     // The TEST partner's answers are never shown as a live partner's.
     partnerTerms: () => refuse(),
     cardholderBalances: async () => refuse(),
+    programmeFunding: async () => refuse(),
   };
 }
 

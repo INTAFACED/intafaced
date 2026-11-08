@@ -248,6 +248,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.card_spend_assets_unset': 'PRECONDITION_FAILED',
   'bank.card_pay_from_not_offered': 'PRECONDITION_FAILED',
   'bank.card_pay_from_order_invalid': 'BAD_REQUEST',
+  'bank.card_funding_not_offered': 'PRECONDITION_FAILED',
+  'bank.card_funding_invalid': 'BAD_REQUEST',
   'bank.card_not_eligible': 'PRECONDITION_FAILED',
   'bank.card_count_limit': 'PRECONDITION_FAILED',
   'bank.card_use_limit_invalid': 'BAD_REQUEST',

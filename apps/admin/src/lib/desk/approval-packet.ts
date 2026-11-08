@@ -101,6 +101,17 @@ export type DeskRequest =
   | { readonly kind: 'academy.ambassador.appoint'; readonly userId: string }
   | { readonly kind: 'academy.residency.decide'; readonly id: string; readonly decision: ResidencyDecision }
   | { readonly kind: 'bank.card.status'; readonly cardId: string; readonly status: CardStatus; readonly reason: string }
+  /**
+   * One programme funding instruction to the card partner (svc-bank `ops.requestCardProgrammeFunding`, J-bank-26 #6): fund or
+   * defund an amount of the funding stablecoin, or set auto reload with a threshold. A blank threshold is the empty string.
+   */
+  | {
+      readonly kind: 'bank.card.funding';
+      readonly fundingKind: CardFundingKind;
+      readonly amount: string;
+      readonly threshold: string;
+      readonly reason: string;
+    }
   | { readonly kind: 'market.listing.takedown'; readonly listingId: string; readonly reason: string }
   | { readonly kind: 'identity.auth_key.rotate'; readonly keyId: string }
   | { readonly kind: 'identity.auth_key.remove_old'; readonly keyIds: string }
@@ -254,6 +265,10 @@ export const VENDOR_DECISIONS = ['approved', 'rejected', 'suspended'] as const;
 export type VendorDecision = (typeof VENDOR_DECISIONS)[number];
 export const CARD_STATUSES = ['frozen', 'active'] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
+export const CARD_FUNDING_KINDS = ['fund', 'defund', 'auto_reload'] as const;
+export type CardFundingKind = (typeof CARD_FUNDING_KINDS)[number];
+const POSITIVE_DECIMAL = /^(?:0|[1-9]\d{0,19})(?:\.\d{1,18})?$/;
+const positiveDecimal = (v: unknown): v is string => typeof v === 'string' && POSITIVE_DECIMAL.test(v) && /[1-9]/.test(v);
 export const RESIDENCY_DECISIONS = ['accepted', 'rejected'] as const;
 export type ResidencyDecision = (typeof RESIDENCY_DECISIONS)[number];
 /** The decisions identity takes on a selfie (`kycSelfieDecisionSchema`). */
@@ -549,6 +564,21 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (typeof raw.status !== 'string' || !(CARD_STATUSES as readonly string[]).includes(raw.status)) return null;
     return { kind: 'bank.card.status', cardId: raw.cardId, status: raw.status as CardStatus, reason: raw.reason };
   }
+  // svc-bank binds the kind, the amount and the threshold to the approval; the reason is recorded with the instruction and
+  // rides in the packet so the second founder reads it. Only auto reload carries a threshold.
+  if (raw.kind === 'bank.card.funding') {
+    if (keys !== 'amount,fundingKind,kind,reason,threshold') return null;
+    if (typeof raw.fundingKind !== 'string' || !(CARD_FUNDING_KINDS as readonly string[]).includes(raw.fundingKind)) return null;
+    if (!positiveDecimal(raw.amount) || !validReason(raw.reason)) return null;
+    if (raw.fundingKind === 'auto_reload' ? !positiveDecimal(raw.threshold) : raw.threshold !== '') return null;
+    return {
+      kind: 'bank.card.funding',
+      fundingKind: raw.fundingKind as CardFundingKind,
+      amount: raw.amount,
+      threshold: raw.threshold as string,
+      reason: raw.reason,
+    };
+  }
   // svc-market binds the listing AND the reason to the approval, so a changed reason cannot ride on an approved takedown.
   if (raw.kind === 'market.listing.takedown') {
     if (keys !== 'kind,listingId,reason') return null;
@@ -773,6 +803,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `${request.decision === 'accepted' ? 'ACCEPT' : 'REJECT'} RESIDENCY ${request.id.slice(0, 8)}`;
     case 'bank.card.status':
       return `${request.status === 'frozen' ? 'FREEZE' : 'UNFREEZE'} CARD ${request.cardId.slice(0, 8)}`;
+    case 'bank.card.funding':
+      return `${request.fundingKind === 'auto_reload' ? 'AUTO RELOAD' : request.fundingKind.toUpperCase()} CARD PROGRAMME ${request.amount}`;
     case 'market.listing.takedown':
       return `TAKE DOWN LISTING ${request.listingId.slice(0, 8)}`;
     case 'identity.auth_key.rotate':
@@ -879,6 +911,10 @@ export function describeRequest(request: DeskRequest): string {
       return request.status === 'frozen'
         ? `Freeze card ${request.cardId} as an operator: the card is frozen and its owner cannot unfreeze it. Only an operator can lift it. The owner can still close it.`
         : `Lift the freeze on card ${request.cardId}, whoever set it: this includes a freeze the owner set themselves (for example after reporting the card lost). The card can be spent again at once. svc-bank does not show this console who froze it, so check with the owner first.`;
+    case 'bank.card.funding':
+      return request.fundingKind === 'auto_reload'
+        ? `Set auto reload at the card partner: when the programme falls below ${request.threshold}, the partner tops it up by ${request.amount} of the funding stablecoin. The partner moves the money under its own licence; nothing posts to INTAFACED's ledger.`
+        : `${request.fundingKind === 'fund' ? 'Fund' : 'Defund'} the card programme at the partner by ${request.amount} of the funding stablecoin. The partner moves the money under its own licence; nothing posts to INTAFACED's ledger.`;
     case 'market.listing.takedown':
       return `Take down market listing ${request.listingId}: it leaves the market for good. Nobody can set it active again, and the vendor cannot restore it. Purchases already settled keep their access, and nothing is refunded.`;
     case 'identity.auth_key.rotate':

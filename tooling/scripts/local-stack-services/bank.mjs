@@ -48,8 +48,9 @@ function originationFee() {
  * profile's TEST partner (holds the crypto; spends USDC, BTC and USD; liability, reserve and funder not known), or on a
  * restart `LOCAL_STACK_BANK_CARD_PARTNER`:
  *   · `wallet_pull`: the same partner, but the card pulls from the person's own wallet (J-bank-29 in its second mode);
- *   · `reported`: the same partner, reporting TEST answers for loss liability, reserve and funder, so a journey can see
- *     the reported path beside the "not known" one;
+ *   · `reported`: the same partner, reporting TEST answers for loss liability, reserve, funder, its programme figures,
+ *     the funding stablecoin and which of fund, defund and auto reload it offers, so a journey can see the reported path
+ *     beside the "not known" one;
  *   · `narrow`: the same partner, spending from USDC and USD only, so an asset on the owner's list (BTC) reads "not
  *     offered by the partner" (J-bank-29 #2 tells the partner's list from the owner's);
  *   · `off`: the partner reports nothing at all (every answer "not known").
@@ -74,6 +75,12 @@ function cardPartner() {
       lossLiability: { bearer: 'programme', terms: 'TEST terms: the programme bears card fraud and lost chargebacks' },
       reserve: { required: true, amount: '25000.00', assetId: 'USDC' },
       funder: 'TEST: the programme pre-funds in USDC',
+      // The partner's own programme figures, TEST: in USDC the 5 held and 20 captured J-bank-26 #6 makes on a fresh stack
+      // (so that row matches there), and a BTC capture the app has no record of (a break).
+      programmeFigures: { USDC: { held: '5', captured: '20' }, BTC: { held: '0', captured: '0.0005' } },
+      fundingAssetId: 'USDC',
+      // Fund and defund offered; auto reload not offered by this TEST partner.
+      fundingOffers: { fund: true, defund: true, autoReload: false },
     };
     return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify(reported) };
   }

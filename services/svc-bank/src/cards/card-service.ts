@@ -38,6 +38,42 @@ import {
   type CardPartnerTerms,
   type PayFromRow,
 } from './partner-terms.js';
+import {
+  assertFundingOffered,
+  fundingOfferStates,
+  reconcileProgramme,
+  type AppProgrammeFigure,
+  type FundingKind,
+  type FundingOfferState,
+  type ReconciliationRow,
+} from './programme-funding.js';
+
+/** One programme funding instruction sent to the card partner (J-bank-26 #6). */
+export interface ProgrammeFundingRequest {
+  readonly clientRequestId: string;
+  readonly kind: FundingKind;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly threshold: string | null;
+  readonly partnerRef: string;
+  readonly createdAt: string;
+}
+
+/** Programme funding as an operator reads it (J-bank-26 #6). */
+export interface ProgrammeFundingView {
+  readonly test: boolean;
+  readonly fundingAssetId: string | null;
+  readonly offers: Record<FundingKind, FundingOfferState>;
+  readonly rows: ReconciliationRow[];
+  readonly requests: ProgrammeFundingRequest[];
+}
+
+function positiveOrRefuse(raw: string, what: string): Amount {
+  if (!/^\d+(\.\d{1,18})?$/.test(raw) || parseAmount(raw) <= 0n) {
+    throw new BankError(`A programme funding ${what} is a positive decimal (bank.card_funding_invalid)`, 'bank.card_funding_invalid');
+  }
+  return parseAmount(raw);
+}
 
 /** Pay from, as the bank answers it (J-bank-29 #1 and #2). */
 export interface PayFromView {
@@ -851,6 +887,158 @@ export class CardService {
       `;
       return { cardId: card.id, status: input.status, frozenBy };
     });
+  }
+
+  /**
+   * Programme funding (J-bank-26 #6): who funds the programme and the reserve come from `partnerTerms()`; this is the rest.
+   * The settlement reconciliation of the app's records against the partner's figures, per funding asset; the stablecoin
+   * conversion of each into the funding asset the partner reports; which of fund, defund and auto reload the partner
+   * offers; and the instructions already sent. Reads only. No issuer refuses `bank.no_card_issuer`.
+   */
+  async programmeFunding(): Promise<ProgrammeFundingView> {
+    const terms = this.partnerTerms();
+    const app = await this.appProgrammeFigures();
+    const assets = [...new Set([...app.keys(), ...Object.keys(terms.programmeFigures ?? {})])];
+    let marks = new Map<string, { price: Amount; asOf: Date }>();
+    if (terms.fundingAssetId && assets.length > 0) {
+      try {
+        marks = await this.rates.marks(assets, terms.fundingAssetId);
+      } catch {
+        // A rate source that cannot answer is silent: every conversion reads "not known".
+      }
+    }
+    const requests = await this.sql<
+      Array<{
+        client_request_id: string;
+        kind: FundingKind;
+        asset_id: string;
+        amount: string;
+        threshold: string | null;
+        partner_ref: string;
+        created_at: Date;
+      }>
+    >`
+      SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, created_at
+        FROM bank.card_programme_funding_requests ORDER BY created_at DESC, client_request_id LIMIT 20
+    `;
+    return {
+      test: terms.test,
+      fundingAssetId: terms.fundingAssetId,
+      offers: fundingOfferStates(terms),
+      rows: reconcileProgramme(app, terms.programmeFigures, marks),
+      requests: requests.map((r) => ({
+        clientRequestId: r.client_request_id,
+        kind: r.kind,
+        assetId: r.asset_id,
+        amount: formatAmount(parseAmount(r.amount)),
+        threshold: r.threshold === null ? null : formatAmount(parseAmount(r.threshold)),
+        partnerRef: r.partner_ref,
+        createdAt: r.created_at.toISOString(),
+      })),
+    };
+  }
+
+  /**
+   * One programme funding instruction to the card partner (J-bank-26 #6), after a second founder approved it. Refuses
+   * before the approval is used when the partner does not offer the kind (`bank.card_funding_not_offered`) or the amount is
+   * not positive (`bank.card_funding_invalid`). The same client request id replays the first answer. The partner is told
+   * under the same key, so a crash between its answer and our record repeats one instruction, not two. Nothing posts.
+   */
+  async requestProgrammeFunding(input: {
+    kind: FundingKind;
+    amount: string;
+    threshold: string | null;
+    reason: string;
+    clientRequestId: string;
+    consume: () => Promise<void>;
+  }): Promise<ProgrammeFundingRequest> {
+    const reason = input.reason.trim();
+    if (reason.length < 10) {
+      throw new BankError(
+        'A programme funding request needs a reason of at least 10 characters (bank.ops_reason_too_short)',
+        'bank.ops_reason_too_short',
+      );
+    }
+    const amount = positiveOrRefuse(input.amount, 'amount');
+    const threshold = input.kind === 'auto_reload' ? positiveOrRefuse(input.threshold ?? '', 'threshold') : null;
+    if (input.kind !== 'auto_reload' && input.threshold !== null) {
+      throw new BankError('Only auto reload takes a threshold (bank.card_funding_invalid)', 'bank.card_funding_invalid');
+    }
+    const prior = await this.fundingRequest(input.clientRequestId);
+    if (prior) return prior;
+    const assetId = assertFundingOffered(this.partnerTerms(), input.kind);
+    if (!this.issuer.programmeFunding) {
+      throw new BankError(
+        'The card partner takes no programme funding instructions (bank.card_funding_not_offered)',
+        'bank.card_funding_not_offered',
+      );
+    }
+    await input.consume();
+    const { partnerRef } = await this.issuer.programmeFunding({
+      requestId: `card-funding:${input.clientRequestId}`,
+      kind: input.kind,
+      assetId,
+      amount: formatAmount(amount),
+      threshold: threshold === null ? null : formatAmount(threshold),
+    });
+    await this.sql`
+      INSERT INTO bank.card_programme_funding_requests (client_request_id, kind, asset_id, amount, threshold, reason, partner_ref)
+      VALUES (${input.clientRequestId}, ${input.kind}, ${assetId}, ${formatAmount(amount)}::numeric,
+              ${threshold === null ? null : formatAmount(threshold)}::numeric, ${reason}, ${partnerRef})
+      ON CONFLICT (client_request_id) DO NOTHING
+    `;
+    return (await this.fundingRequest(input.clientRequestId))!;
+  }
+
+  private async fundingRequest(clientRequestId: string): Promise<ProgrammeFundingRequest | null> {
+    const [r] = await this.sql<
+      Array<{
+        client_request_id: string;
+        kind: FundingKind;
+        asset_id: string;
+        amount: string;
+        threshold: string | null;
+        partner_ref: string;
+        created_at: Date;
+      }>
+    >`
+      SELECT client_request_id, kind, asset_id, amount::text AS amount, threshold::text AS threshold, partner_ref, created_at
+        FROM bank.card_programme_funding_requests WHERE client_request_id = ${clientRequestId}
+    `;
+    if (!r) return null;
+    return {
+      clientRequestId: r.client_request_id,
+      kind: r.kind,
+      assetId: r.asset_id,
+      amount: formatAmount(parseAmount(r.amount)),
+      threshold: r.threshold === null ? null : formatAmount(parseAmount(r.threshold)),
+      partnerRef: r.partner_ref,
+      createdAt: r.created_at.toISOString(),
+    };
+  }
+
+  /**
+   * The app's own programme figures per funding asset (J-bank-26 #5, #6): open holds (an approval whose hold posted and that
+   * no capture or reversal has closed) and settled captures. Both in the card's funding asset, as the ledger moved them.
+   */
+  async appProgrammeFigures(): Promise<Map<string, AppProgrammeFigure>> {
+    const rows = await this.sql<Array<{ asset_id: string; held: string; captured: string }>>`
+      SELECT k.asset_id,
+             COALESCE(SUM(a.amount) FILTER (
+               WHERE a.decision = 'approved' AND a.status = 'settled'
+                 AND NOT EXISTS (SELECT 1 FROM bank.card_settlements s WHERE s.authorization_id = a.id AND s.status = 'settled')
+             ), 0)::text AS held,
+             COALESCE((
+               SELECT SUM(s.amount) FROM bank.card_settlements s
+                 JOIN bank.card_authorizations a2 ON a2.id = s.authorization_id
+                 JOIN bank.cards k2 ON k2.id = a2.card_id
+                WHERE k2.asset_id = k.asset_id AND s.kind = 'capture' AND s.status = 'settled'
+             ), 0)::text AS captured
+        FROM bank.card_authorizations a
+        JOIN bank.cards k ON k.id = a.card_id
+       GROUP BY k.asset_id
+    `;
+    return new Map(rows.map((r) => [r.asset_id, { held: parseAmount(r.held), captured: parseAmount(r.captured) }]));
   }
 
   async countProgramme(): Promise<{ issued: number; active: number; frozen: number }> {

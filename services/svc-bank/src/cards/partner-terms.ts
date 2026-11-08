@@ -38,6 +38,15 @@ export interface CardPartnerTerms {
    * same TEST figures for every cardholder.
    */
   readonly balances: Readonly<Record<string, string>> | null;
+  /**
+   * The partner's own programme figures per asset (J-bank-26 #5, #6): what it holds as open authorisation holds and what
+   * it has captured, as decimal strings. `null` is "not known"; the reconciliation then reads "not known", never 0.
+   */
+  readonly programmeFigures: Readonly<Record<string, { readonly held: string; readonly captured: string }>> | null;
+  /** The stablecoin the programme is funded in, as the partner reports it (J-bank-26 #6), or null ("not known"). */
+  readonly fundingAssetId: string | null;
+  /** Which of fund, defund and auto reload the partner offers the programme (J-bank-26 #6), or null ("not known"). */
+  readonly fundingOffers: { readonly fund: boolean; readonly defund: boolean; readonly autoReload: boolean } | null;
 }
 
 /** Nothing reported: what a partner that has answered none of the four looks like. */
@@ -49,9 +58,13 @@ export const NOTHING_REPORTED: CardPartnerTerms = {
   reserve: null,
   funder: null,
   balances: null,
+  programmeFigures: null,
+  fundingAssetId: null,
+  fundingOffers: null,
 };
 
 const assetId = z.string().regex(/^[A-Z0-9]{2,16}$/);
+const decimal = z.string().regex(/^\d+(\.\d{1,18})?$/);
 const positiveDecimal = z
   .string()
   .regex(/^\d+(\.\d{1,18})?$/)
@@ -73,16 +86,22 @@ const simShape = z
       .nullable(),
     funder: z.string().trim().min(1).max(200).nullable(),
     balances: z
-      .record(assetId, z.string().regex(/^\d+(\.\d{1,18})?$/))
+      .record(assetId, decimal)
       .refine((m) => Object.keys(m).length <= 50, 'at most 50 assets')
       .nullable(),
+    programmeFigures: z
+      .record(assetId, z.object({ held: decimal, captured: decimal }).strict())
+      .refine((m) => Object.keys(m).length <= 50, 'at most 50 assets')
+      .nullable(),
+    fundingAssetId: assetId.nullable(),
+    fundingOffers: z.object({ fund: z.boolean(), defund: z.boolean(), autoReload: z.boolean() }).strict().nullable(),
   })
   .strict();
 
 /**
  * THE TEST PARTNER CARD ADAPTER'S SWITCHES (`BANK_CARD_SIM_PARTNER_JSON`), on the local test stack only.
  *
- * Every one of the six keys must be present, as a value or as `null` (not known), so a missing key can never quietly
+ * Every key must be present, as a value or as `null` (not known), so a missing key can never quietly
  * become a default. Unset is `NOTHING_REPORTED`. Set anywhere but `APP_ENV` dev or test, or under `NODE_ENV=production`,
  * it refuses to start: these are a stand-in partner's answers, and no deployment may carry them as a real partner's.
  * Malformed refuses to start too, naming the variable.

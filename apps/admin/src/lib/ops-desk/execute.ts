@@ -64,6 +64,17 @@ export function readCardStatusAnswer(raw: unknown): CardStatusAnswer | null {
   return { cardId: raw.cardId, status: raw.status, frozenBy: raw.frozenBy };
 }
 
+interface CardFundingAnswer {
+  readonly kind: string;
+  readonly amount: string;
+  readonly partnerRef: string;
+}
+
+export function readCardFundingAnswer(raw: unknown): CardFundingAnswer | null {
+  if (!isRecord(raw) || typeof raw.kind !== 'string' || typeof raw.amount !== 'string' || typeof raw.partnerRef !== 'string') return null;
+  return { kind: raw.kind, amount: raw.amount, partnerRef: raw.partnerRef };
+}
+
 interface TakedownAnswer {
   readonly listingId: string;
   readonly status: string;
@@ -305,6 +316,28 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
         ok: true,
         detail: `svc-bank answered and its returned card is ${a.status}${a.frozenBy === 'operator' ? ', frozen by an operator' : ''}.`,
       };
+    }
+    if (request.kind === 'bank.card.funding') {
+      const result = await founderCall(
+        ctx,
+        'bank',
+        'ops.requestCardProgrammeFunding',
+        'POST',
+        // The same fields the approval hash binds, byte for byte; the operation id is the client key, so a re-run replays.
+        {
+          kind: request.fundingKind,
+          amount: request.amount,
+          threshold: request.threshold === '' ? null : request.threshold,
+          reason: request.reason,
+          ...ids,
+          clientRequestId: ids.operationId,
+        },
+        readCardFundingAnswer,
+      );
+      if (result.kind !== 'ok') return failureRefusal('svc-bank', 'bank', result);
+      const a = result.data;
+      if (a.kind !== request.fundingKind) return WRONG_STATE;
+      return { ok: true, detail: `svc-bank answered: the card partner took the instruction, reference ${a.partnerRef}.` };
     }
     if (request.kind === 'market.listing.takedown') {
       const result = await founderCall(
