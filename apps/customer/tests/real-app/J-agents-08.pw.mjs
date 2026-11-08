@@ -9,9 +9,9 @@ import { api } from './stack.mjs';
 // account funded with TEST USDT, an agent of its own and two sub-accounts. The allowance is a limit, never a balance the
 // service holds; two draws that together exceed it admit one; an agent order holds funds on the one ledger and fills like
 // the person's own order, and the agent never holds withdraw scope.
-// Every step is written; none is built yet, so each fails at its first missing part, quickly (UNBUILT):
-// - the person cannot create an agent yet (no builder at /agents/new), and there are no allow and deny rules, sub-account
-//   access, allowances or the agent order preview (AG-spend-02, -03, RC-agents-06);
+// #1 is built: the Access page's allow and deny rules, decided by svc-agents (AG-spend-02). The other steps fail at their
+// first missing part, quickly (UNBUILT):
+// - there is no sub-account access, allowance or agent order preview yet (AG-spend-02, -03, RC-agents-06);
 // - the starting point's two sub-accounts are named in #2 only; a customer cannot make sub-accounts in the app yet.
 const J = 'J-agents-08';
 const agents = agentsRun(J);
@@ -28,6 +28,20 @@ async function usdt() {
   return { free: free(balances, 'USDT'), held: held(balances, 'USDT') };
 }
 
+/** The own agent's id, from the address of its page (/agents/<id>). */
+async function agentId(page) {
+  const id = new URL(page.url()).pathname.split('/').pop();
+  expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  return id;
+}
+
+/** svc-agents' own gate for an agent action on the main account, as the person: its status and refusal code. */
+async function policyCheck(id, action) {
+  const input = encodeURIComponent(JSON.stringify({ id, action, account: 'main' }));
+  const { status, body } = await (await api(agents.account())).get(`/api/agents/trpc/own.policy.check?input=${input}`);
+  return { status, code: body?.error?.message ?? null };
+}
+
 test(`${J} starts: a verified TEST account funded with TEST USDT, an agent of its own and two sub-accounts`, async ({ page }) => {
   test.setTimeout(240_000);
   await agents.start(page, 'ag08', '100');
@@ -40,19 +54,43 @@ test(`${J} #1 writes an allow and a deny rule for one action at different scopes
 }) => {
   await openOwnAgent(page, agents, 'Access');
   const rule = access(page).getByRole('form', { name: 'New access rule' });
-  for (const [effect, scope] of [
-    ['Allow', 'All my accounts'],
-    ['Deny', 'Main account'],
-  ]) {
+  const rules = () => tableIn(access(page), 'Access rules');
+  const add = async (effect, scope) => {
     await rule.getByRole('combobox', { name: 'Effect' }).selectOption({ label: effect });
     await rule.getByRole('combobox', { name: 'Action' }).selectOption({ label: 'Place an order' });
     await rule.getByRole('combobox', { name: 'Scope' }).selectOption({ label: scope });
     await rule.getByRole('button', { name: 'Add rule' }).click();
+    await expect(rules().getByRole('row').filter({ hasText: effect }).filter({ hasText: scope })).toHaveCount(1);
+  };
+  const id = await agentId(page);
+  // Both orders: allow on every account then deny on main, and then the same two rules written the other way round.
+  for (const order of [
+    [
+      ['Allow', 'All my accounts'],
+      ['Deny', 'Main account'],
+    ],
+    [
+      ['Deny', 'Main account'],
+      ['Allow', 'All my accounts'],
+    ],
+  ]) {
+    while ((await rules().getByRole('row').count()) > 1)
+      await rules().getByRole('row').nth(1).getByRole('button', { name: 'Remove' }).click();
+    await expect(access(page).getByText('No access rules yet.')).toBeVisible();
+    for (const [effect, scope] of order) await add(effect, scope);
+    await expect(access(page).getByTestId('effective-place-order')).toHaveText('Refused: a deny rule wins');
+    // The service's own gate refuses the call itself, not only the page's words.
+    expect(await policyCheck(id, 'place_order')).toEqual({ status: 403, code: 'agents.policy_denied' });
   }
+  // The decision is stored, not the page's: a fresh load reads the same.
+  await page.reload();
+  await page.getByRole('group', { name: 'Agent pages' }).getByRole('button', { name: 'Access', exact: true }).click();
   await expect(access(page).getByTestId('effective-place-order')).toHaveText('Refused: a deny rule wins');
-  // With rules required and none matching an action, the action is refused rather than allowed by default.
+  // No rule names cancelling: left to the agent's other limits until rules are required, then refused.
+  await expect(access(page).getByTestId('effective-cancel-order')).toHaveText('No rule: the agent’s other limits decide');
   await access(page).getByRole('checkbox', { name: 'Only allow what a rule allows' }).check();
   await expect(access(page).getByTestId('effective-cancel-order')).toHaveText('Refused: no rule allows it');
+  expect(await policyCheck(id, 'cancel_order')).toEqual({ status: 403, code: 'agents.policy_no_match' });
 });
 
 test(`${J} #2 gives the agent access to sub-account A only: a tool naming sub-account B is refused; access has an expiry and a blank expiry refuses`, async ({
