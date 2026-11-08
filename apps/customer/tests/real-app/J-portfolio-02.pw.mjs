@@ -162,7 +162,8 @@ test(`${J} #4 reads the label: an indicator, not a tax form, with the method FIF
   const who = account();
   await signIn(page, who);
   const main = await pnl(page);
-  await expect(main.locator('[data-indicator="true"]')).toHaveText(/indicator .* not a tax form/i);
+  // The step's own words name the label: "Indicator, not tax advice".
+  await expect(main.locator('[data-indicator="true"]')).toContainText('Indicator, not tax advice');
   const methods = main.getByRole('group', { name: 'Matching method' });
   await expect(methods.getByRole('button', { name: 'FIFO: oldest first' })).toHaveAttribute('aria-pressed', 'true');
   await expect(main).toContainText('Each sale is matched against the lots you bought, one lot at a time, using the method you pick.');
@@ -210,9 +211,13 @@ test(`${J} #6 sells coins that arrived by deposit: the sale reaches no lot, its 
   await signIn(page, who);
   await page.goto(deskPath('ETH/USDT'));
   const { bid } = await bestPrices('ETH/USDT');
+  const beforeSale = await (await api(who)).balances();
   await reviewLimit(page, 'sell', priceAt(bid, 99), '0.02', 'ETH');
   await confirm(page, 'sell');
   await expect.poll(async () => total(await (await api(who)).balances(), 'ETH'), { timeout: 20_000 }).toBe(toUnits('0.03'));
+  await settled(who);
+  const ethProceeds = total(await (await api(who)).balances(), 'USDT') - total(beforeSale, 'USDT');
+  expect(ethProceeds).toBeGreaterThan(0n);
 
   const main = await pnl(page);
   const sale = main.locator('tr[data-sale]').filter({ hasText: 'ETH' }).first();
@@ -226,9 +231,49 @@ test(`${J} #6 sells coins that arrived by deposit: the sale reaches no lot, its 
   // Never a made-up cost: the realised total is blank as soon as one sale's result is unknown.
   await expect(main.locator('[data-figure="realised"]')).toHaveText('Not known');
   await expect(main.getByRole('list', { name: 'Why some figures are not known' })).toBeVisible();
-  // The ETH still held has no recorded cost either.
+  // The ETH still held (0.03) has no recorded cost either: unknown, never zero.
   const eth = main.locator('tr[data-asset="ETH"]');
-  if (await eth.count()) await expect(eth.locator('[data-col="cost"]')).toHaveText('Not known');
+  await expect(eth).toHaveCount(1);
+  await expect(eth.locator('[data-col="cost"]')).toHaveText('Not known');
+
+  // Unless the person enters it: a TEST price of 2000 per ETH for the deposited lot. The sale then has a cost (0.02 at
+  // 2000 = $40.00) and a result (what the sale paid less $40.00), both labelled customer-entered; the held 0.03 costs
+  // $60.00; and the realised total is no longer blank: the BTC result of #3 plus the ETH one.
+  const PRICE = toUnits('2000');
+  const ethCostSold = (toUnits('0.02') * PRICE) / ONE;
+  const ethResult = ethProceeds - ethCostSold;
+  const { realised: btcRealised } = run.read();
+  const missingCard = main.getByRole('region', { name: 'Missing cost' });
+  await missingCard.getByRole('button', { name: 'Enter a cost' }).click();
+  const form = missingCard.getByRole('form', { name: 'Enter a cost for this lot' });
+  await form.getByLabel('Price you paid per ETH, in USD').fill('2000');
+  await form.getByLabel('Where this price comes from').fill('TEST receipt');
+  await form.getByRole('button', { name: 'Save price' }).click();
+  await expect(page.getByTestId('basis-notice')).toHaveText('Price saved. The figures use it, marked customer-entered.');
+  const priced = main.locator('tr[data-sale]').filter({ hasText: 'ETH' }).first();
+  await expect(priced.locator('td').nth(1)).toHaveText(usd(ethProceeds));
+  await expect(priced.locator('td').nth(2)).toHaveText(usd(ethCostSold));
+  await expect(priced.locator('[data-col="result"]')).toContainText(usd(ethResult, true));
+  await expect(priced.locator('[data-col="result"] [data-label="customer-entered"]')).toHaveText('Customer-entered');
+  await expect(eth.locator('[data-col="cost"]')).toHaveText(usd((toUnits('0.03') * PRICE) / ONE));
+  await expect(main.locator('[data-figure="realised"]')).toHaveText(usd(toUnits(btcRealised) + ethResult, true));
+
+  // Taking the price back makes the cost unknown again, and the total blank again: never zero.
+  // The price is taken back on the lot it was entered for, in the ETH lots.
+  const ethBook = await pnl(page, '?asset=ETH');
+  const pricedLot = ethBook
+    .getByRole('region', { name: 'Lots' })
+    .locator('tbody tr')
+    .filter({ has: page.locator('[data-label="customer-entered"]') });
+  await expect(pricedLot).toHaveCount(1);
+  await pricedLot.getByRole('button', { name: 'Remove my price' }).click();
+  await expect(page.getByTestId('basis-notice')).toHaveText('Price removed. That lot’s cost is unknown again.');
+  await expect(pricedLot).toHaveCount(0);
+  await pnl(page);
+  await expect(priced.locator('td').nth(2)).toHaveText('Not known');
+  await expect(priced.locator('[data-col="result"]')).toHaveText('Cost unknown Unknown share: 0.02 ETH sold with no cost');
+  await expect(main.locator('[data-figure="realised"]')).toHaveText('Not known');
+  await expect(eth.locator('[data-col="cost"]')).toHaveText('Not known');
 
   // With balances hidden (the eye on Money) the quantity inside that sentence is masked too, as every figure on the page is.
   const eye = async (name) => {

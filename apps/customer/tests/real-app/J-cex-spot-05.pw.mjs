@@ -72,19 +72,31 @@ test(`${J} #1 opens Open orders: each order with its price, amount, filled and h
     'Held',
     'Action',
   ]);
-  const cells = rowOf(page, shown(btc)).locator('td');
-  const hold = (await orderById(who, orders.a.id)).hold;
-  expect(hold?.asset).toBe('USDT');
-  expect(toUnits(hold.amount)).toBeGreaterThanOrEqual((toUnits(btc) * toUnits('0.002')) / toUnits('1'));
-  await expect(cells.nth(5)).toHaveText(shown(btc));
-  await expect(cells.nth(6)).toHaveText('0.002');
-  await expect(cells.nth(7)).toHaveText('0');
-  await expect(cells.nth(8)).toHaveText(`${shownHold(hold.amount)} USDT`);
-  // The holds of the open orders are what the ledger holds.
-  const all = [orders.a, orders.b].map((o) => o.id);
+  // Every open order is a row, each with its own price, amount, filled and the hold its venue lock takes.
+  const seeded = [
+    [orders.a, 'BTC/USDT', btc, '0.002'],
+    [orders.b, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('10')), '0.001'],
+    [orders.e, 'ETH/USDT', eth, '0.01'],
+  ];
+  await expect(openTable(page).locator('tbody tr')).toHaveCount(seeded.length);
   let sum = 0n;
-  for (const id of all) sum += toUnits((await orderById(who, id)).hold.amount);
-  sum += toUnits((await orderById(who, orders.e.id, 'ETH/USDT')).hold.amount);
+  for (const [order, symbol, price, amount] of seeded) {
+    const hold = (await orderById(who, order.id, symbol)).hold;
+    expect(hold?.asset).toBe('USDT');
+    expect(toUnits(hold.amount)).toBeGreaterThanOrEqual((toUnits(price) * toUnits(amount)) / toUnits('1'));
+    sum += toUnits(hold.amount);
+    const cells = openTable(page)
+      .locator('tbody tr')
+      .filter({ hasText: symbol })
+      .filter({ hasText: shown(price) })
+      .locator('td');
+    await expect(cells.nth(2)).toHaveText(symbol);
+    await expect(cells.nth(5)).toHaveText(shown(price));
+    await expect(cells.nth(6)).toHaveText(amount);
+    await expect(cells.nth(7)).toHaveText('0');
+    await expect(cells.nth(8)).toHaveText(`${shownHold(hold.amount)} USDT`);
+  }
+  // The holds of the open orders are what the ledger holds.
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(sum);
 });
 
@@ -179,6 +191,37 @@ test(`${J} #4 changes the price: reviewed first, then the original is cancelled 
   expect(JSON.stringify(refused.body)).toContain('trade.price_band');
   expect((await orderById(who, replacement.id)).status).toBe('open');
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(heldNow);
+
+  // A replacement that fails after the original was cancelled never claims the old order is safe: a fresh TEST order,
+  // replaced by one whose hold is more than the account has free once the old hold is back. The answer names the
+  // original as cancelled, no replacement, nothing accepted; the old lock was released exactly once and no new one taken.
+  const spare = await rest(who, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('3')), '0.001', '4c');
+  const spareHold = toUnits((await orderById(who, spare.id)).hold.amount);
+  const heldWithSpare = held(await (await api(who)).balances(), 'USDT');
+  expect(heldWithSpare).toBe(heldNow + spareHold);
+  const freeNow = free(await (await api(who)).balances(), 'USDT');
+  const tooBig = fromUnits((((freeNow + spareHold) * 2n * toUnits('1')) / toUnits(next) / 10n ** 13n) * 10n ** 13n);
+  const failed = await (
+    await api(who)
+  ).post(`/api/v1/orders/${spare.id}/replace`, {
+    symbol: 'BTC/USDT',
+    type: 'limit',
+    side: 'buy',
+    price: next,
+    amount: tooBig,
+    timeInForce: 'GTC',
+    clientOrderId: `${J}-4-fail-${Date.now()}`,
+  });
+  expect(failed.body, JSON.stringify(failed.body).slice(0, 400)).toMatchObject({
+    accepted: false,
+    code: 'REPLACEMENT_NOT_SUBMITTED',
+    originalOrderId: spare.id,
+    originalState: 'canceled',
+    replacementOrderId: null,
+  });
+  expect((await orderById(who, spare.id)).status).toBe('canceled');
+  expect(held(await (await api(who)).balances(), 'USDT')).toBe(heldNow);
+  expect((await openOrders(who)).map((o) => o.id).sort()).toEqual(open.map((o) => o.id).sort());
   run.write({ ...run.read(), replacement });
 });
 
@@ -227,35 +270,67 @@ test(`${J} #6 cancels a batch by ids, then every spot order: each id answered, a
   ]);
   expect((await orderById(who, two.id)).status).toBe('canceled');
 
-  // In the desk: tick this market's order and the other market's, cancel them in one batch request.
+  // In the desk: tick this market's order, the other market's, and a third that is gone by the time the batch is sent
+  // (cancelled on its own door meanwhile). One batch request; each id answered from the venue, the gone one reported
+  // as not cancelled, the rest cancelled.
+  const three = await rest(who, 'BTC/USDT', fromUnits(toUnits(btc) - toUnits('9')), '0.001', '6e');
   await openDesk(page, who);
   const batches = [];
   page.on('request', (r) => {
     if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/orders/batch-cancel') batches.push(r.postDataJSON());
   });
   await rowOf(page, shown(btc)).getByRole('checkbox').check();
+  await rowOf(page, shown(fromUnits(toUnits(btc) - toUnits('9'))))
+    .getByRole('checkbox')
+    .check();
   await openTable(page).locator('tbody tr').filter({ hasText: 'ETH/USDT' }).getByRole('checkbox').check();
+  const gone = await (await api(who)).delete(`/api/v1/orders/${three.id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+  expect(gone.status, JSON.stringify(gone.body).slice(0, 300)).toBeLessThan(300);
   await page.getByRole('button', { name: 'Cancel orders…' }).click();
   const dialog = page.getByRole('alertdialog');
-  await expect(dialog.getByRole('radio', { name: 'The 2 selected' })).toBeChecked();
+  await expect(dialog.getByRole('radio', { name: 'The 3 selected' })).toBeChecked();
   expect(batches).toHaveLength(0);
   await dialog.getByRole('button', { name: 'Cancel orders' }).click();
-  await expect(dialog).toContainText('2 of 2 cancelled.');
+  await expect(dialog).toContainText('2 of 3 cancelled.');
   await expect(dialog).toContainText('ETH/USDT: Cancelled');
   await expect(dialog).toContainText('BTC/USDT: Cancelled');
+  await expect(dialog).toContainText('Not cancelled:');
   expect(batches).toHaveLength(1);
-  expect([...batches[0].ids].sort()).toEqual([one.id, orders.e.id].sort());
+  expect([...batches[0].ids].sort()).toEqual([one.id, three.id, orders.e.id].sort());
   await dialog.getByRole('button', { name: 'Close' }).click();
   expect(await openOrders(who)).toHaveLength(0);
   expect(await openOrders(who, 'ETH/USDT')).toHaveLength(0);
   expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
   expect(ethHold).toBeGreaterThan(0n);
 
-  // Spot only: two new orders in two markets, one request with kind=spot, both cancelled, nothing left held.
-  await rest(who, 'BTC/USDT', btc, '0.001', '6c');
-  await rest(who, 'ETH/USDT', run.read().eth, '0.01', '6d');
+  // Spot only: two new orders in two spot markets and one resting TEST futures order (another product), one request
+  // with kind=spot, both spot orders cancelled; the futures order still rests with its margin still held.
+  const sixC = await rest(who, 'BTC/USDT', btc, '0.001', '6c');
+  const sixD = await rest(who, 'ETH/USDT', run.read().eth, '0.01', '6d');
+  const spotHolds = toUnits((await orderById(who, sixC.id)).hold.amount) + toUnits((await orderById(who, sixD.id, 'ETH/USDT')).hold.amount);
+  const me = await api(who);
+  const preview = await me.post('/api/v1/positions/preview', { symbol: 'BTC/USDT:USDT', side: 'long', size: '0.001', leverage: '2' });
+  expect(preview.status, JSON.stringify(preview.body).slice(0, 300)).toBe(200);
+  const cent = 10n ** 16n;
+  const futPrice = fromUnits(((toUnits(preview.body.markPrice) * 97n) / 100n / cent) * cent);
+  const fut = await me.post('/api/v1/futures/orders', {
+    symbol: 'BTC/USDT:USDT',
+    side: 'buy',
+    type: 'limit',
+    price: futPrice,
+    amount: '0.001',
+    leverage: '2',
+    marginMode: 'isolated',
+    clientOrderId: `${J}-6f-${Date.now()}`,
+  });
+  expect(fut.status, JSON.stringify(fut.body).slice(0, 300)).toBe(200);
+  const futId = fut.body.id;
+  const futOpen = await me.get(`/api/v1/futures/orders/${futId}`);
+  expect(futOpen.body.status, JSON.stringify(futOpen.body).slice(0, 300)).toBe('open');
+  const heldWithFutures = held(await me.balances(), 'USDT');
   await page.reload();
-  await expect(openTable(page).locator('tbody tr')).toHaveCount(2);
+  await expect(rowOf(page, shown(btc))).toHaveCount(1);
+  await expect(openTable(page).locator('tbody tr').filter({ hasText: 'ETH/USDT' })).toHaveCount(1);
   const deletes = [];
   page.on('request', (r) => {
     if (r.method() === 'DELETE' && new URL(r.url()).pathname === '/api/v1/orders') deletes.push(new URL(r.url()).search);
@@ -267,7 +342,14 @@ test(`${J} #6 cancels a batch by ids, then every spot order: each id answered, a
   expect(deletes).toEqual(['?kind=spot']);
   await dialog.getByRole('button', { name: 'Close' }).click();
   expect([...(await openOrders(who)), ...(await openOrders(who, 'ETH/USDT'))]).toHaveLength(0);
-  expect(held(await (await api(who)).balances(), 'USDT')).toBe(0n);
+  const futAfter = await me.get(`/api/v1/futures/orders/${futId}`);
+  expect(futAfter.body.status, JSON.stringify(futAfter.body).slice(0, 300)).toBe('open');
+  // Exactly the two spot holds came back; whatever the futures order holds did not move.
+  expect(held(await me.balances(), 'USDT')).toBe(heldWithFutures - spotHolds);
+  expect({ ...futAfter.body, status: undefined }).toMatchObject({ ...futOpen.body, status: undefined });
+  // The futures order is then cancelled on its own door (clean-up, not this step's claim).
+  const futCancel = await me.delete(`/api/v1/futures/orders/${futId}`);
+  expect(futCancel.status, JSON.stringify(futCancel.body).slice(0, 300)).toBeLessThan(300);
 });
 
 test(`${J} #7 looks at Positions: not applicable to cash spot, no zero row`, async ({ page }) => {

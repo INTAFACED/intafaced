@@ -109,8 +109,33 @@ test(`${J} #1 opens the margin and P&L calculator: margin, liquidation price and
   for (const label of ['Initial margin', 'Maintenance margin', 'Liquidation price', 'P&L at exit', 'Return on margin', 'P&L after fees']) {
     await expect(results.getByText(label, { exact: true })).toBeVisible();
   }
-  // The P&L the service worked out is on screen in the account's quote asset.
-  await expect(results).toContainText(`${shown.pnl.split('.')[0]}`);
+  // Each figure on screen is the service's own answer for these inputs, in USDT, to the places the screen shows: money
+  // to 8 places, the liquidation price to the tick's 2. Read from the row the label names, never anywhere on the panel.
+  const figure = async (label) => {
+    const row = results.locator('[data-slot="key-value-row"]').filter({ has: page.getByText(label, { exact: true }) });
+    await expect(row).toHaveCount(1);
+    const text = (await row.locator('dd').innerText()).trim();
+    const m = /^([−-]?)([\d,]+(?:\.\d+)?) USDT$/.exec(text);
+    expect(m, `${label} reads as a USDT figure: "${text}"`).not.toBeNull();
+    const units = toUnits(m[2].replace(/,/g, ''));
+    return m[1] ? -units : units;
+  };
+  const within = (got, want, places) => {
+    const half = 10n ** BigInt(18 - places) / 2n;
+    const diff = got - toUnits(want);
+    return diff <= half && diff >= -half;
+  };
+  for (const [label, value, places] of [
+    ['Initial margin', shown.initialMargin, 8],
+    ['Maintenance margin', shown.maintenanceMargin, 8],
+    ['Liquidation price', shown.liquidationPrice, 2],
+    ['P&L at exit', shown.pnl, 8],
+    ['P&L after fees', shown.netPnl, 8],
+  ]) {
+    expect(value, `the service answers ${label}`).toBeTruthy();
+    const got = await figure(label);
+    expect(within(got, value, places), `${label} on screen ${fromUnits(got)} is the service's ${value}`).toBe(true);
+  }
   const formulas = panel.getByRole('list', { name: 'Formulas' });
   await expect(formulas).toContainText('Initial margin = size × entry price ÷ leverage');
   await expect(formulas).toContainText('Liquidation price: where margin plus P&L equals the maintenance margin');
@@ -253,6 +278,10 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   // the collateral rule and nothing else.
   await expect(page.getByTestId('futures-access').getByText('Open for your account')).toBeVisible();
   const before = await me.balances();
+  // Buying power as the venue's collateral read gives it, before anything is tried.
+  const collateral = await me.get('/api/v1/futures/collateral');
+  expect(collateral.status, JSON.stringify(collateral.body).slice(0, 300)).toBe(200);
+  const powerBefore = collateral.body.assets.find((x) => x.asset === 'USDT').buyingPower;
 
   const ticket = page.getByRole('region', { name: 'Order ticket' });
   await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
@@ -289,6 +318,18 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   expect(await me.balances()).toEqual(before);
   expect((await me.get('/api/v1/futures/orders?scope=all&limit=10')).body).toEqual([]);
   expect((await me.get('/api/v1/positions')).body).toEqual([]);
+  // Buying power is unchanged.
+  const after = await me.get('/api/v1/futures/collateral');
+  expect(after.body.assets.find((x) => x.asset === 'USDT').buyingPower).toBe(powerBefore);
+
+  // The refusal names the venue that does not accept the asset: the venue the collateral read says it is for, named in
+  // the review's refusal and in the order door's refusal.
+  const venue = collateral.body.venue?.name ?? collateral.body.venue ?? null;
+  expect(venue, `the collateral read names its venue: ${JSON.stringify(collateral.body).slice(0, 300)}`).toBeTruthy();
+  await from.getByRole('button', { name: 'Staked' }).click();
+  await ticket.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(why).toContainText(String(venue));
+  expect(JSON.stringify(refused.body)).toContain(String(venue));
 });
 
 test(`${J} #5 previews past the order cap and the price band: a split offered and placed, the price moved to the band edge, the slippage cap shown`, async ({
@@ -752,20 +793,36 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
     const ticket = page.getByRole('region', { name: 'Order ticket' });
     await ticket.getByRole('textbox', { name: 'Size' }).fill(SIZE);
     await ticket.getByRole('textbox', { name: 'Leverage' }).fill(LEVERAGE);
-    const wider = ticket.getByText(
-      /Wider than usual: the mark plus or minus [\d.]+%, not the usual 5\.00%, while the futures price is [\d.]+% away/,
-    );
+    const WIDER = /Wider than usual: the mark plus or minus ([\d.]+)%, not the usual 5\.00%, while the futures price is ([\d.]+)% away/;
+    const wider = ticket.getByText(WIDER);
+    // A fraction as the review writes it: percent to 2 places, half up ("0.0712" is "7.12").
+    const asPercent = (fraction) => {
+      const hundredths = (toUnits(fraction) * 10_000n + 5n * 10n ** 17n) / 10n ** 18n;
+      return `${hundredths / 100n}.${String(hundredths % 100n).padStart(2, '0')}`;
+    };
+    // The width on screen is the service's current fraction, read around the review (the premium moves on the TEST
+    // book, so either read from just before or just after the review is the one in force).
     await expect
       .poll(
         async () => {
           await leanOnTheBook();
+          const ahead = (await preview()).body.band;
           await ticket.getByRole('button', { name: 'Review', exact: true }).click();
           await expect(ticket.getByText('Price band', { exact: true })).toBeVisible();
-          return wider.isVisible();
+          if (!(await wider.isVisible())) return 'not shown';
+          const text = await wider.innerText();
+          const behind = (await preview()).body.band;
+          const [, width, away] = WIDER.exec(text);
+          const matches = [ahead, behind].some(
+            (band) => band?.source === 'dynamic' && width === asPercent(band.fraction) && away === asPercent(band.premium),
+          );
+          return matches
+            ? 'matches'
+            : `shown ${width}% / ${away}%, service ${JSON.stringify([ahead, behind].map((b) => [b?.fraction, b?.premium]))}`;
         },
-        { timeout: 120_000, intervals: [2_000], message: 'the review shows the wider band' },
+        { timeout: 120_000, intervals: [2_000], message: 'the review shows the band at the width the service is using' },
       )
-      .toBe(true);
+      .toBe('matches');
 
     // Past the band in force refuses, in the review and at the service, before anything is held. 100 USDT past the
     // wider edge is past it whichever way the premium moves meanwhile (it moves by a few USDT on the TEST book).
