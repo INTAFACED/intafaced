@@ -19,6 +19,12 @@ import {
   buildInputs,
   summaryLines,
   JOURNEY_FILE,
+  JUDGE_SCHEMA,
+  moneyGuard,
+  setAsideDays,
+  setAsideRefusal,
+  SET_ASIDE_CONDITIONS,
+  SET_ASIDE_FILES,
 } from './test-judge.mjs';
 import {
   ciReviewVerdict,
@@ -224,6 +230,166 @@ test('fails closed (planted): an unanswered step or change, an error, or no stru
   assert.equal(readAnswer('not json', REQ).ok, false);
   assert.equal(readAnswer(cli({ ...ok(), verdict: 'MAYBE' }), REQ).ok, false);
   assert.equal(readAnswer(cli({ ...ok(), steps: [{ step: 'J-x-01 #2', verdict: 'fine', why: 'x' }] }), REQ).ok, false);
+});
+
+// ── The machine's set-aside (B8, owner decision 2026-11-07) ───────────────────────────────────────────────────────
+
+const CONFIG = SET_ASIDE_FILES[0];
+const SA_REQ = { steps: ['J-x-01 #1', 'J-x-01 #2', 'J-m-01 #1'], changes: [CONFIG] };
+/** The facts buildInputs decides: J-m-01 #1 is money, J-x-01 #2's own test changed, the head sets aside for 7 days. */
+const RULES = { money: ['J-m-01 #1'], own: ['J-x-01 #2'], days: 7 };
+const held = (over = {}) => ({
+  used: true,
+  ...Object.fromEntries(Object.keys(SET_ASIDE_CONDITIONS).map((k) => [k, { holds: true, why: 'journey-verdict.mjs:1' }])),
+  ...over,
+});
+/** The answer the judge gives a B8 set-aside done right: the retry's file and a non-money reached step `set-aside`. */
+const b8 = ({ setAside = held(), steps = {}, change = 'set-aside' } = {}) => ({
+  verdict: 'PASS',
+  steps: [
+    { step: 'J-x-01 #1', verdict: 'set-aside', why: 'retries=1 on main; excused only while set aside' },
+    { step: 'J-x-01 #2', verdict: 'still-proves', why: 'unchanged assertions' },
+    { step: 'J-m-01 #1', verdict: 'still-proves', why: 'money: a retry pass is red' },
+  ].map((e) => (steps[e.step] ? { ...e, verdict: steps[e.step] } : e)),
+  changes: [{ file: CONFIG, verdict: change, why: 'retries: JOURNEY_RETRIES' }],
+  setAside,
+});
+const verdictOf = (answer, rules = RULES, req = SA_REQ) => readAnswer(cli(answer), req, rules);
+
+test('B8 (passing case): a set-aside in exactly its approved form passes, with a note naming each condition', () => {
+  const a = verdictOf(b8());
+  assert.equal(a.ok, true);
+  assert.equal(a.verdict, 'PASS');
+  assert.deepEqual(
+    a.lines.filter((l) => l.verdict === 'set-aside').map((l) => l.id),
+    ['J-x-01 #1', CONFIG],
+  );
+  assert.match(a.note, /owner, endDate, neverMoney, notProven, machineOnly/);
+  assert.match(a.note, /7 at this head/);
+});
+
+test('B8 refuses (planted): a money step set aside', () => {
+  const a = verdictOf(b8({ steps: { 'J-m-01 #1': 'set-aside' } }));
+  assert.equal(a.verdict, 'FAIL');
+  assert.match(a.lines.find((l) => l.id === 'J-m-01 #1').why, /^set-aside refused: a money step is never set aside/);
+  // The judge's own reading can't override the code's money fact.
+  assert.equal(
+    verdictOf(b8({ steps: { 'J-m-01 #1': 'set-aside' }, setAside: held({ neverMoney: { holds: true, why: 'x' } }) })).verdict,
+    'FAIL',
+  );
+  // And when the judge finds the code would set a money step aside.
+  const code = verdictOf(b8({ setAside: held({ neverMoney: { holds: false, why: 'setAsideGuard drops the p2p test' } }) }));
+  assert.equal(code.verdict, 'FAIL');
+  assert.match(code.lines.find((l) => l.id === CONFIG).why, /did not find these held: neverMoney/);
+});
+
+test('B8 refuses (planted): no end date, an end date the code does not set, or a set-aside longer than 7 days', () => {
+  for (const days of [null, 0, 8, 30, 1.5]) {
+    const a = verdictOf(b8(), { ...RULES, days });
+    assert.equal(a.verdict, 'FAIL', `days ${days}`);
+    assert.match(a.lines.find((l) => l.id === CONFIG).why, /set-aside refused: .*(no end date|longer than 7)/, `days ${days}`);
+  }
+  assert.equal(verdictOf(b8({ setAside: held({ endDate: { holds: false, why: 'until is never read' } }) })).verdict, 'FAIL');
+  // The length comes from the head's code, one declaration only.
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\n'), 7);
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7;\nexport const SET_ASIDE_DAYS = 70;\n'), null);
+  assert.equal(setAsideDays('export const SET_ASIDE_DAYS = 7 * 10;\n'), null);
+  assert.equal(setAsideDays('// export const SET_ASIDE_DAYS = 7;\n'), null);
+  assert.equal(setAsideDays(null), null);
+});
+
+test('B8 refuses (planted): a set-aside step counted as proven, or with no owner, or set aside by anyone but the machine', () => {
+  for (const k of ['notProven', 'owner', 'machineOnly']) {
+    const a = verdictOf(b8({ setAside: held({ [k]: { holds: false, why: 'x' } }) }));
+    assert.equal(a.verdict, 'FAIL', k);
+    assert.match(a.lines.find((l) => l.id === 'J-x-01 #1').why, new RegExp(`did not find these held: ${k}`), k);
+  }
+  // A condition left out, or a set-aside the judge did not find in the code, refuses too.
+  const { notProven: _n, ...missing } = held();
+  assert.equal(verdictOf(b8({ setAside: missing })).verdict, 'FAIL');
+  assert.equal(verdictOf(b8({ setAside: held({ used: false }) })).verdict, 'FAIL');
+  assert.equal(verdictOf(b8({ setAside: null })).verdict, 'FAIL');
+});
+
+test('B8 refuses (planted): a softened step, whatever else the set-aside gets right', () => {
+  // The step's own test changed: a set-aside never covers it.
+  const own = verdictOf(b8({ steps: { 'J-x-01 #2': 'set-aside' } }));
+  assert.equal(own.verdict, 'FAIL');
+  assert.match(own.lines.find((l) => l.id === 'J-x-01 #2').why, /own test changed/);
+  // A weaker step next to an approved set-aside is still a FAIL.
+  assert.equal(verdictOf(b8({ steps: { 'J-x-01 #2': 'weaker' } })).verdict, 'FAIL');
+  // A shared file other than the retry's can't be set aside.
+  const req = { ...SA_REQ, changes: [CONFIG, 'apps/customer/tests/real-app/stack.mjs'] };
+  const other = b8();
+  other.changes.push({ file: 'apps/customer/tests/real-app/stack.mjs', verdict: 'set-aside', why: 'y' });
+  assert.equal(verdictOf(other, RULES, req).verdict, 'FAIL');
+  // No set-aside facts in the input (an older meta.json): nothing is accepted.
+  assert.equal(verdictOf(b8(), null).verdict, 'FAIL');
+});
+
+test('B8: the schema asks for every condition; the money guard reads money, money journeys and unknown slices as money', () => {
+  assert.deepEqual(JUDGE_SCHEMA.properties.setAside.required, ['used', ...Object.keys(SET_ASIDE_CONDITIONS)]);
+  assert.deepEqual(JUDGE_SCHEMA.properties.steps.items.properties.verdict.enum, ['still-proves', 'set-aside', 'weaker']);
+  const g = moneyGuard({
+    journeys: [
+      {
+        id: 'J-docs-01',
+        steps: [
+          { n: 1, slices: ['S-ui'] },
+          { n: 2, slices: [] },
+          { n: 3, slices: ['S-none'] },
+          { n: 4, slices: ['S-lost'] },
+        ],
+      },
+      { id: 'J-p2p-01', steps: [{ n: 1, slices: ['S-ui'] }] },
+      { id: 'J-ops-console-27', steps: [{ n: 1, slices: ['S-ui'] }] },
+      { id: 'J-led-01', steps: [{ n: 1, slices: ['S-led'] }] },
+    ],
+    slices: [
+      { id: 'S-ui', touches: ['customer: docs'] },
+      { id: 'S-none', touches: [] },
+      { id: 'S-led', touches: ['svc-led'] },
+    ],
+    manifests: new Map([
+      ['apps/customer', { name: 'customer' }],
+      ['services/svc-led', { name: 'led', dependencies: { '@intafaced/ledger-client': '1' } }],
+    ]),
+  });
+  assert.deepEqual(
+    [
+      'J-docs-01 #1',
+      'J-docs-01#1',
+      'J-docs-01 #2',
+      'J-docs-01 #3',
+      'J-docs-01 #4',
+      'J-p2p-01 #1',
+      'J-ops-console-27 #1',
+      'J-led-01 #1',
+      'J-new-01 #1',
+    ].map(g),
+    [false, false, true, true, true, true, true, true, true],
+  );
+});
+
+test("B8: the input carries the code's set-aside facts and, when changed, the set-aside's code whole", async () => {
+  const verdictFile = 'tooling/ci/journey-verdict.mjs';
+  const diff = `${DIFF}diff --git a/${verdictFile} b/${verdictFile}\n--- a/${verdictFile}\n+++ b/${verdictFile}\n@@ -1 +1 @@\n-export const X = 1;\n+export const SET_ASIDE_DAYS = 7;\n`;
+  const base = fakeSrc(diff);
+  const src = {
+    ...base,
+    read: async (sha, p) =>
+      p === verdictFile ? (sha === HEAD ? 'export const SET_ASIDE_DAYS = 7;\n' : 'export const X = 1;\n') : base.read(sha, p),
+    money: async () => (s) => s.startsWith('J-x-01 #1'),
+  };
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
+  const got = await buildInputs({ src, base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords });
+  assert.deepEqual(got.setAside, { money: ['J-x-01 #1'], own: ['J-x-01 #2'], days: 7 });
+  assert.match(got.prompt, /SET-ASIDE FACTS[^]*money steps among those listed \(never set aside\): J-x-01 #1/);
+  assert.match(got.prompt, new RegExp(`BEGIN UNTRUSTED FILE after \\(head [0-9a-f]{10}\\) ${verdictFile}`));
+  // No money source: every step counts as money.
+  const closed = await buildInputs({ src: fakeSrc(), base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords });
+  assert.deepEqual(closed.setAside.money, closed.required.steps);
+  assert.equal(closed.setAside.days, null);
 });
 
 /** A fake repository: the diff above, the files at the merge base and the head, and the default branch's journeys. */

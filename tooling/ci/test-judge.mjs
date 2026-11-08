@@ -27,6 +27,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { join, dirname, posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { moneyRule, manifestsAt } from './journey-verdict.mjs';
 
 /** The journey tests and the shared code they run on: a pull request that changes any of these is judged. */
 export const JUDGE_PATHS = [
@@ -79,6 +80,84 @@ export function judgeReason(files) {
   const f = files.find(judgedFile);
   if (!f) return null;
   return `journey test or shared test code: ${f}`;
+}
+
+// ── The machine's set-aside (B8) ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The owner's approved exception (owner decision 2026-11-07, B8; intafaced AGENTS.md rule 6): CI on main retries a
+ * failed journey test once and sets aside, for a limited time with an owner, a step that failed and then passed on the
+ * same commit, never a money step, and a set-aside step never counts as proven. The judge's one question stays; an entry
+ * the judge says is weaker only through that set-aside may answer `set-aside`, and this code accepts it only in exactly
+ * B8's form (setAsideRefusal): every condition below held, in the judge's reading of the code, plus these facts the code
+ * decides itself, from the default branch and the head: the step is not money, its own test did not change, the change
+ * is the retry's file, and the head's set-aside lasts at most SET_ASIDE_MAX_DAYS. Anything else stays `weaker`.
+ */
+export const SET_ASIDE_CONDITIONS = {
+  owner: 'each set-aside step has an owner, named where people see it',
+  endDate: 'each set-aside has an end date, and a step is not set aside again straight after it ends',
+  neverMoney: 'a money step is never set aside, and a step not known to be non-money counts as money',
+  notProven: 'a set-aside step, or a pass only on a retry, never counts as proven',
+  machineOnly: 'only CI on main sets a step aside, from a list no person or agent can edit',
+};
+/** B8's limited time: the builder's choice shown to the owner was 7 days (project-state B8-FLAKY-TEXT.md). */
+export const SET_ASIDE_MAX_DAYS = 7;
+/** The files whose change is the set-aside's retry (a change entry may answer `set-aside` only for these). */
+export const SET_ASIDE_FILES = ['apps/customer/tests/real-app/real-app.playwright.config.mjs'];
+/** Where the set-aside lives; the judge reads it whole when the pull request changes it. */
+export const SET_ASIDE_CODE = 'tooling/ci/journey-verdict.mjs';
+
+/** The head's set-aside length in days (`export const SET_ASIDE_DAYS = <n>;` in SET_ASIDE_CODE), or null. */
+export function setAsideDays(text) {
+  const all = [...String(text ?? '').matchAll(/^export const SET_ASIDE_DAYS = (\d+);/gm)];
+  return all.length === 1 ? Number(all[0][1]) : null;
+}
+
+/**
+ * The set-aside's money guard, read from the default branch (never the pull request's copy): the money rule
+ * (journey-verdict.mjs moneyRule), a wallet, bank, pay or p2p journey, J-ops-console-27, a step with no slices, or a
+ * slice that touches nothing or is unknown. A step missing from journeys.json is money. Returns a predicate on 'J-x-01 #3'.
+ */
+export function moneyGuard({ journeys, slices, manifests }) {
+  const money = moneyRule({ journeys, slices, manifests });
+  const touches = new Map(slices.map((x) => [x.id, x.touches ?? []]));
+  const safe = new Set();
+  for (const j of journeys)
+    for (const st of j.steps ?? []) {
+      const key = `${j.id}#${st.n}`;
+      const ids = st.slices ?? [];
+      const guarded =
+        (money[key] ?? true) ||
+        /^J-(wallet|bank|pay|p2p)-/.test(j.id) ||
+        j.id === 'J-ops-console-27' ||
+        ids.length === 0 ||
+        ids.some((id) => !(touches.get(id)?.length > 0));
+      if (!guarded) safe.add(`${j.id} #${st.n}`);
+    }
+  return (step) => !safe.has(normStep(step));
+}
+
+/**
+ * Why a `set-aside` entry is refused, or null when it is accepted. `answer` is the judge's setAside reading; `rules` is
+ * meta.setAside: { money: [steps], own: [steps], days }. Refused: a money step, a step whose own test changed (a
+ * softened step is weaker, whatever else changed), a change outside SET_ASIDE_FILES, a head with no set-aside length or
+ * one over SET_ASIDE_MAX_DAYS, or any condition the judge did not find held. Missing rules refuse.
+ */
+export function setAsideRefusal(line, answer, rules) {
+  if (!rules) return 'the input carries no set-aside facts';
+  if (line.kind === 'step' && (rules.money ?? []).map(normStep).includes(normStep(line.id)))
+    return 'a money step is never set aside (the money guard, from the default branch)';
+  if (line.kind === 'step' && (rules.own ?? []).map(normStep).includes(normStep(line.id)))
+    return "this step's own test changed, which a set-aside never covers";
+  if (line.kind === 'change' && !SET_ASIDE_FILES.includes(line.id))
+    return `only the retry's file (${SET_ASIDE_FILES.join(', ')}) may be set aside`;
+  if (!Number.isInteger(rules.days) || rules.days < 1)
+    return `the head's ${SET_ASIDE_CODE} sets no end date (no single export const SET_ASIDE_DAYS = <n>;)`;
+  if (rules.days > SET_ASIDE_MAX_DAYS) return `a set-aside of ${rules.days} days is longer than ${SET_ASIDE_MAX_DAYS}`;
+  if (answer?.used !== true) return 'the judge did not find the set-aside in the code';
+  const failed = Object.keys(SET_ASIDE_CONDITIONS).filter((k) => answer?.[k]?.holds !== true);
+  if (failed.length) return `the judge did not find these held: ${failed.join(', ')}`;
+  return null;
 }
 
 // ── Reading a diff ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -430,8 +509,24 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
       });
   const judgedSteps = ownList.filter((s) => stepWords.has(s));
   const required = { steps: [...judgedSteps, ...sample.sort()], changes: changes.map((c) => c.file) };
+  // The set-aside's facts, decided here rather than by the judge (setAsideRefusal): money from the default branch (no
+  // money source: every step counts as money), the steps whose own test changed, and the head's set-aside length.
+  const isMoney = src.money ? await src.money() : () => true;
+  const setAsideText = await src.read(head, SET_ASIDE_CODE);
+  const setAside = {
+    money: required.steps.filter((s) => isMoney(s)),
+    own: judgedSteps,
+    days: setAsideDays(setAsideText),
+  };
   if (required.steps.length === 0 && required.changes.length === 0)
-    return { applicable: true, wordsRef, deterministic, required, facts: { own: own.size, reached: reached.size, sample: 0, changes } };
+    return {
+      applicable: true,
+      wordsRef,
+      deterministic,
+      required,
+      setAside,
+      facts: { own: own.size, reached: reached.size, sample: 0, changes },
+    };
 
   // The prompt, in priority order, until the budget runs out.
   const parts = [];
@@ -476,6 +571,16 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     ].join('\n'),
     { must: true },
   );
+  add(
+    [
+      "\nSET-ASIDE FACTS (decided by the judge's code, from the default branch and the head; trusted)",
+      `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
+      `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
+      `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${SET_ASIDE_MAX_DAYS})`,
+      `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
+    ].join('\n'),
+    { must: true },
+  );
   add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
   const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
   const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
@@ -491,6 +596,9 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     if (b != null) add(fileBlock(`before (merge base ${mergeBase.slice(0, 10)})`, f.oldPath, b), { label: `${f.path} before`, must });
     if (a != null) add(fileBlock(`after (head ${head.slice(0, 10)})`, f.newPath, a), { label: `${f.path} after`, must });
   }
+  // The set-aside's code, whole, when the pull request changes it: the judge reads its conditions there.
+  if (setAsideText != null && files.some((f) => f.path === SET_ASIDE_CODE))
+    add(fileBlock(`after (head ${head.slice(0, 10)})`, SET_ASIDE_CODE, setAsideText), { must: true });
   for (const h of HARNESS) {
     if (after.has(h)) continue;
     const t = await src.read(head, h);
@@ -527,6 +635,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     prompt: parts.join('\n'),
     required,
     deterministic,
+    setAside,
     shingleTexts,
     facts: {
       own: own.size,
@@ -539,6 +648,13 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
   };
 }
 
+const VERDICTS = ['still-proves', 'set-aside', 'weaker'];
+const CONDITION = {
+  type: 'object',
+  properties: { holds: { type: 'boolean' }, why: { type: 'string' } },
+  required: ['holds', 'why'],
+  additionalProperties: false,
+};
 /** The structured answer the judge must give (the reviewer CLI, -p --json-schema). */
 export const JUDGE_SCHEMA = {
   type: 'object',
@@ -548,7 +664,7 @@ export const JUDGE_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { step: { type: 'string' }, verdict: { type: 'string', enum: ['still-proves', 'weaker'] }, why: { type: 'string' } },
+        properties: { step: { type: 'string' }, verdict: { type: 'string', enum: VERDICTS }, why: { type: 'string' } },
         required: ['step', 'verdict', 'why'],
         additionalProperties: false,
       },
@@ -557,13 +673,22 @@ export const JUDGE_SCHEMA = {
       type: 'array',
       items: {
         type: 'object',
-        properties: { file: { type: 'string' }, verdict: { type: 'string', enum: ['still-proves', 'weaker'] }, why: { type: 'string' } },
+        properties: { file: { type: 'string' }, verdict: { type: 'string', enum: VERDICTS }, why: { type: 'string' } },
         required: ['file', 'verdict', 'why'],
         additionalProperties: false,
       },
     },
+    setAside: {
+      type: 'object',
+      properties: {
+        used: { type: 'boolean' },
+        ...Object.fromEntries(Object.keys(SET_ASIDE_CONDITIONS).map((k) => [k, CONDITION])),
+      },
+      required: ['used', ...Object.keys(SET_ASIDE_CONDITIONS)],
+      additionalProperties: false,
+    },
   },
-  required: ['verdict', 'steps', 'changes'],
+  required: ['verdict', 'steps', 'changes', 'setAside'],
   additionalProperties: false,
 };
 
@@ -575,9 +700,10 @@ const normStep = (s) =>
 /**
  * The reviewer CLI's JSON output to a verdict. Fails closed: an error, no structured answer, an answer outside the
  * schema, or a listed step or change left unanswered is no verdict, never a PASS. The verdict is computed here from
- * the entries: PASS only when every required entry still proves and the judge said PASS.
+ * the entries: PASS only when every required entry still proves, or answers `set-aside` and setAsideRefusal accepts it
+ * against `rules` (meta.setAside), and the judge said PASS. A refused `set-aside` is counted as `weaker`.
  */
-export function readAnswer(text, required) {
+export function readAnswer(text, required, rules = null) {
   let out;
   try {
     out = JSON.parse(text);
@@ -589,8 +715,7 @@ export function readAnswer(text, required) {
   const a = out.structured_output;
   if (!a || typeof a !== 'object') return { ok: false, why: 'the judge gave no structured answer' };
   if (a.verdict !== 'PASS' && a.verdict !== 'FAIL') return { ok: false, why: `the verdict "${a.verdict}" is neither PASS nor FAIL` };
-  const good = (e, key) =>
-    e && typeof e[key] === 'string' && (e.verdict === 'still-proves' || e.verdict === 'weaker') && typeof e.why === 'string';
+  const good = (e, key) => e && typeof e[key] === 'string' && VERDICTS.includes(e.verdict) && typeof e.why === 'string';
   if (!Array.isArray(a.steps) || !a.steps.every((e) => good(e, 'step'))) return { ok: false, why: 'the steps are not well-formed' };
   if (!Array.isArray(a.changes) || !a.changes.every((e) => good(e, 'file'))) return { ok: false, why: 'the changes are not well-formed' };
   const steps = new Map(a.steps.map((e) => [normStep(e.step), e]));
@@ -606,9 +731,20 @@ export function readAnswer(text, required) {
     if (!e) return { ok: false, why: `the judge left the change to ${f} unanswered` };
     lines.push({ kind: 'change', id: f, verdict: e.verdict, why: e.why });
   }
+  const asides = lines.filter((l) => l.verdict === 'set-aside');
+  for (const l of asides) {
+    const no = setAsideRefusal(l, a.setAside, rules);
+    if (no) Object.assign(l, { verdict: 'weaker', why: `set-aside refused: ${no}; ${l.why}` });
+  }
   const weaker = lines.some((l) => l.verdict === 'weaker');
   const verdict = weaker || a.verdict === 'FAIL' ? 'FAIL' : 'PASS';
-  const note = !weaker && a.verdict === 'FAIL' ? 'the judge answered FAIL with every entry still proving: counted as FAIL' : null;
+  const kept = lines.filter((l) => l.verdict === 'set-aside').length;
+  const note =
+    !weaker && a.verdict === 'FAIL'
+      ? 'the judge answered FAIL with every entry still proving: counted as FAIL'
+      : !weaker && kept
+        ? `${kept} entr${kept === 1 ? 'y is' : 'ies are'} weaker only through the machine's approved set-aside (owner decision 2026-11-07, B8), accepted in its exact form: ${Object.keys(SET_ASIDE_CONDITIONS).join(', ')}, not money, not its own test, at most ${SET_ASIDE_MAX_DAYS} days (${rules.days} at this head)`
+        : null;
   return { ok: true, verdict, lines, note };
 }
 
@@ -713,8 +849,16 @@ function ciSource(repo, token, graphRoot) {
         .map((f) => `${REAL_APP}/${f}`)
         .sort(),
     readGraph: (p) => (existsSync(join(graphRoot, p)) ? readFileSync(join(graphRoot, p), 'utf8') : null),
+    money: async () => moneyGuard(roadmapAt((p) => readFileSync(join(graphRoot, p), 'utf8'), manifestsAt(graphRoot))),
   };
 }
+
+/** The default branch's journeys and slices, through `read(path)`, with its package manifests. */
+const roadmapAt = (read, manifests) => ({
+  journeys: JSON.parse(read('docs/roadmap/journeys.json')),
+  slices: JSON.parse(read('docs/roadmap/slices.json')),
+  manifests,
+});
 
 export function gitSource(clone, graphSha) {
   const git = (...a) => execFileSync('git', ['-C', clone, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
@@ -740,6 +884,16 @@ export function gitSource(clone, graphSha) {
         .map((f) => `${REAL_APP}/${f}`)
         .sort(),
     readGraph: (p) => show(graphSha, p),
+    money: async () => {
+      const manifests = new Map();
+      for (const parent of ['apps', 'services', 'packages', 'tooling'])
+        for (const line of git('ls-tree', `${graphSha}:${parent}`).split('\n')) {
+          const m = /^040000 tree \S+\t(.+)$/.exec(line);
+          const t = m && show(graphSha, `${parent}/${m[1]}/package.json`);
+          if (t != null && t !== false && m) manifests.set(`${parent}/${m[1]}`, JSON.parse(t));
+        }
+      return moneyGuard(roadmapAt((p) => show(graphSha, p), manifests));
+    },
   };
 }
 
@@ -773,7 +927,14 @@ export async function writeInputs(dir, { src, base, head, pr, loadWords }) {
     done('FAIL', { findings: [got.tooLarge], wordsRef: got.wordsRef });
     return 'too large: FAIL without asking the judge';
   }
-  const meta = { head, wordsRef: got.wordsRef, required: got.required, deterministic: got.deterministic, facts: got.facts };
+  const meta = {
+    head,
+    wordsRef: got.wordsRef,
+    required: got.required,
+    deterministic: got.deterministic,
+    setAside: got.setAside,
+    facts: got.facts,
+  };
   writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta));
   writeFileSync(join(dir, 'shingles.json'), JSON.stringify([...shingles(got.shingleTexts ?? [])]));
   if (!got.prompt) {
@@ -788,7 +949,7 @@ export async function writeInputs(dir, { src, base, head, pr, loadWords }) {
 
 function cmdRead(dir) {
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8'));
-  const a = readAnswer(readFileSync(join(dir, 'answer.json'), 'utf8'), meta.required);
+  const a = readAnswer(readFileSync(join(dir, 'answer.json'), 'utf8'), meta.required, meta.setAside ?? null);
   if (!a.ok) {
     console.error(`::error::no verdict: ${a.why}. Re-run the job; nothing about this head is decided yet.`);
     process.exit(1);
