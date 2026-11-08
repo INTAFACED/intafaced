@@ -25,14 +25,17 @@ on:
 
 permissions: {}
 
-# Only main's own builds share a group (a newer one replaces an older one). A Real-app journeys run of a pull request
-# also starts this workflow, and its job skips; with github.ref (always main for workflow_run) it cancelled main's build
-# in progress (runs 42522896030, 42532262144, 42535543684 on 8 Nov), so every other run gets a group of its own.
+# Only a run whose job builds shares a group (a newer build replaces an older one): the group's condition is the build
+# job's `if`, word for word. Every other Real-app journeys run (a pull request's, a red one) also starts this workflow,
+# and its job skips; with github.ref (always main for workflow_run) it cancelled main's build in progress (runs
+# 42522896030, 42532262144, 42535543684 on 8 Nov), so it gets a group of its own (review 7594-R1 F1).
 concurrency:
   group: >-
     journey-reach-map-${{ (github.event_name == 'workflow_dispatch' ||
-    (github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository &&
-    github.event.workflow_run.event != 'pull_request')) && github.ref || github.run_id }}
+    (github.event.workflow_run.conclusion == 'success' &&
+    github.event.workflow_run.head_branch == 'main' &&
+    github.event.workflow_run.head_repository.full_name == github.repository &&
+    contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event))) && github.ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
