@@ -1,6 +1,6 @@
 # Journeys in the running app (apps/customer/tests/real-app): the local test stack built from main, the customer app
-# in Chromium, nothing mocked. Runs after merge (push to main), once a day on main's newest commit, and on
-# workflow_dispatch, never on pull requests, and is not a required check. Main trust's post-merge job compares its
+# in Chromium, nothing mocked. Runs after merge (push to main), once a day on main's newest commit, on workflow_dispatch,
+# and on each push to a ready pull request from this repository (what it touches, below), and is not a required check. Main trust's post-merge job compares its
 # steps run to run (tooling/ci/post-merge-trust.mjs), so a journey that does not pass yet opens no issue, and the summary
 # shows the scoreboard from `roadmap.mjs --progress --results`.
 #
@@ -23,13 +23,16 @@ on:
   # 2026-10-30), so a builder proves its own journey on CI's stack without the whole suite. Runs on main, on push and on
   # the schedule always run the full suite, and Main trust and the shard planner read main's runs only.
   # Every ready pull request from this repository, on each push (U4 C3, piece 1; project-state
-  # research/factory-2026-11-08 PLAN.md): the plan job runs what the pull request touches by tooling/ci/journey-touch.mjs
+  # research/factory-2026-11-08 PLAN.md): the touch job runs what the pull request touches by tooling/ci/journey-touch.mjs
   # (full, its journey files, or nothing), so a builder never dispatches a run by hand to seal. The merge seal still
   # decides what counts (journey-seal.mjs, the default branch's copy); this run only saves the dispatch. A draft or a
-  # fork's pull request runs nothing here (a draft is proven by a manual run). The run tests the pull request's head
-  # commit, as a manual run on its branch does, never GitHub's merge commit, so the seal reads it on that head.
+  # fork's pull request runs nothing here (a draft is proven by a manual run; turning a pull request back into a draft
+  # replaces its running run with one that runs nothing). The run tests the pull request's head commit, as a manual run
+  # on its branch does, never GitHub's merge commit, so the seal reads it on that head. It shares its branch's group with
+  # a manual full run there, so either replaces the other. A pull request run keeps the ordinary limits (no fail-fast),
+  # so the steps a builder builds run as in a targeted run.
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   workflow_dispatch:
     inputs:
       journeys:
@@ -86,7 +89,7 @@ on:
 # git ref never holds one, so branch `x` with `J-a` and branch `x-J` with `a` never share a group. On 7 Nov at 11:01 UTC, 8 waiting branch runs were for
 # a head already superseded by a newer run on the same branch. tooling/ci/workflow-concurrency.test.mjs holds both rules.
 concurrency:
-  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || format('real-app-journeys-{0}:{1}', github.ref, inputs.journeys) }}
+  group: ${{ github.ref == 'refs/heads/main' && 'real-app-journeys-main' || format('real-app-journeys-{0}:{1}', github.event_name == 'pull_request' && format('refs/heads/{0}', github.head_ref) || github.ref, inputs.journeys) }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -101,6 +104,95 @@ env:
   JOURNEY_GLOBAL_TIMEOUT_MS: 3600000
 
 jobs:
+  # What this run runs, in seconds, so the planner and the build start on it at once. A manual run: its journeys input
+  # (JOURNEYS_TARGET; journey file names separated by spaces or commas only), or the full suite. A pull request: what its
+  # changed files touch, by the default branch's tooling/ci/journey-touch.mjs and its seal's revert rule (the copy the
+  # merge seal judges with, so the two agree): `full` the full suite, `files` its journey files, `none` nothing (the rest
+  # of the run is skipped and its report is empty, so the seal reads it as saying nothing). A pull request whose files
+  # can't be read whole (an error, or GitHub's 3,000-file cap) runs the full suite, never fewer. A draft or a fork's pull
+  # request runs nothing.
+  touch:
+    name: What this run runs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # a pull request's changed files
+    outputs:
+      mode: ${{ steps.touch.outputs.mode }}
+      target: ${{ steps.touch.outputs.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      # The rules the merge seal judges with: the default branch's journey-seal.mjs and journey-touch.mjs, never the
+      # pull request's own copies.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .base
+          sparse-checkout: tooling
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+      - name: What this run runs
+        id: touch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          CHANGED: ${{ github.event.pull_request.changed_files }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            # A manual run's input reaches the outputs only as journey file names, so it can't write another output.
+            if ! [[ "$JOURNEYS_TARGET" =~ ^[A-Za-z0-9._,\ -]*$ ]]; then
+              echo "::error::the journeys input holds something other than journey file names, spaces and commas"
+              exit 1
+            fi
+            { echo "mode=run"; echo "target=$JOURNEYS_TARGET"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$DRAFT" = true ] || [ "$SAME_REPO" != true ]; then
+            echo "::notice::a draft or a fork's pull request runs no journeys here; a manual run proves a draft"
+            { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          full() {
+            echo "::warning::$1, so the full suite runs"
+            { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          list="$RUNNER_TEMP/changed.txt"
+          names="$RUNNER_TEMP/names.txt"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename' > "$names" || full "this pull request's files couldn't be read"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$list" || full "this pull request's files couldn't be read"
+          listed=$(wc -l < "$names")
+          if [ "$listed" -lt "${CHANGED:-0}" ] || [ "$listed" -ge 3000 ]; then full "GitHub listed $listed of this pull request's ${CHANGED} changed files"; fi
+          # GitHub's Revert button undoes a change and adds none: the seal asks no run of it unless it touches shared
+          # setup (revertOf, isSharedSetup), so then none runs.
+          seal="$GITHUB_WORKSPACE/.base/tooling/ci/journey-seal.mjs"
+          # Paths go in through the environment: an argument naming the seal would start its own command line.
+          if SEAL="$seal" LIST="$list" node -e 'import(process.env.SEAL).then((m) => { const f = require("fs").readFileSync(process.env.LIST, "utf8").split("\n").filter(Boolean); process.exit(m.revertOf({ title: process.env.TITLE, body: process.env.BODY, repo: process.env.GITHUB_REPOSITORY }) && !f.some(m.isSharedSetup) ? 0 : 1); })'; then
+            echo "a revert made with GitHub's Revert button that touches no shared setup: the seal asks no journeys run of it"
+            { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          touch=$(node "$GITHUB_WORKSPACE/.base/tooling/ci/journey-touch.mjs" --json --files-from "$list") || full "journey-touch couldn't judge this pull request"
+          mode=$(jq -r .mode <<<"$touch")
+          echo "journey-touch: $mode ($listed changed files)"
+          case "$mode" in
+            none) { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
+            files) { echo "mode=run"; echo "target=$(jq -r '.files | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
+            *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
+          esac
+
   # Splits the journey files across the shards by their times in the last finished runs on main, so the shards end
   # together (tooling/scripts/journey-shards.mjs; Playwright's own --shard split by count left one shard 33 minutes
   # behind the shortest in run 338), and picks how many shards keep each near the longest journey file's time less the
@@ -112,15 +204,14 @@ jobs:
   # falls back: a name that is not a journey file fails this job, and no shard runs.
   plan:
     name: Plan the shards
+    needs: [touch]
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
       actions: read # to download the last finished runs' reports
-      pull-requests: read # a pull request's changed files, for what it touches
     outputs:
-      mode: ${{ steps.touch.outputs.mode }}
-      target: ${{ steps.touch.outputs.target }}
       shards: ${{ steps.plan.outputs.shards }}
       matrix: ${{ steps.plan.outputs.matrix }}
       count: ${{ steps.plan.outputs.count }}
@@ -133,46 +224,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
-      # What this run runs. A manual run: its journeys input (JOURNEYS_TARGET), or the full suite. A pull request: what
-      # its changed files touch (journey-touch.mjs): `full` the full suite, `files` its journey files, `none` nothing (the
-      # rest of the run is skipped and its report is empty, so the seal reads it as saying nothing). A pull request whose
-      # files can't be read runs the full suite, never fewer. A draft or a fork's pull request runs nothing.
-      - name: What this run runs
-        id: touch
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT: ${{ github.event_name }}
-          PR: ${{ github.event.pull_request.number }}
-          DRAFT: ${{ github.event.pull_request.draft }}
-          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
-        run: |
-          if [ "$EVENT" != pull_request ]; then
-            { echo "mode=run"; echo "target=$JOURNEYS_TARGET"; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$DRAFT" = true ] || [ "$SAME_REPO" != true ]; then
-            echo "::notice::a draft or a fork's pull request runs no journeys here; a manual run proves a draft"
-            { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          list="$RUNNER_TEMP/changed.txt"
-          if ! gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)' > "$list"; then
-            echo "::warning::this pull request's files couldn't be read, so the full suite runs"
-            { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          touch=$(node tooling/ci/journey-touch.mjs --json --files-from "$list")
-          mode=$(jq -r .mode <<<"$touch")
-          echo "journey-touch: $mode ($(wc -l < "$list") changed paths)"
-          case "$mode" in
-            none) { echo "mode=none"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
-            files) { echo "mode=run"; echo "target=$(jq -r '.files | join(" ")' <<<"$touch")"; } >> "$GITHUB_OUTPUT" ;;
-            *) { echo "mode=run"; echo "target="; } >> "$GITHUB_OUTPUT" ;;
-          esac
       # Up to three, so a run that lost a shard or failed a journey early does not make those files look fast. Most runs
       # are queued runs a newer push replaced (cancelled), so the list reaches back 100 runs to find three that finished.
       - name: Last finished runs' reports
-        if: steps.touch.outputs.mode != 'none'
+        if: needs.touch.outputs.mode != 'none'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -194,10 +249,10 @@ jobs:
           done
       - name: Plan
         id: plan
-        if: steps.touch.outputs.mode != 'none'
+        if: needs.touch.outputs.mode != 'none'
         continue-on-error: true
         env:
-          JOURNEYS_TARGET: ${{ steps.touch.outputs.target }}
+          JOURNEYS_TARGET: ${{ needs.touch.outputs.target }}
         run: |
           node --test tooling/scripts/journey-shards.test.mjs
           reports=()
@@ -214,7 +269,7 @@ jobs:
       # that passed in a run read above. Best effort: without it nothing fails fast.
       - name: Fail-fast plan
         id: fast
-        if: steps.touch.outputs.mode != 'none'
+        if: needs.touch.outputs.mode != 'none'
         continue-on-error: true
         run: |
           node --test tooling/scripts/journey-fail-fast.test.mjs
@@ -222,7 +277,7 @@ jobs:
           for f in "$RUNNER_TEMP"/last/*/report.json "$RUNNER_TEMP"/scheduled/*/report.json; do [ -f "$f" ] && reports+=(--report "$f"); done
           echo "plan=$(node tooling/scripts/journey-fail-fast.mjs --plan "${reports[@]}")" >> "$GITHUB_OUTPUT"
       - name: Targeted run has its plan
-        if: steps.touch.outputs.target != '' && steps.plan.outputs.shards == ''
+        if: needs.touch.outputs.target != '' && steps.plan.outputs.shards == ''
         run: |
           echo "::error::the journeys input (or the pull request's journey files) names a file that is not a journey file under apps/customer/tests/real-app (the Plan step's log names it), so nothing runs"
           exit 1
@@ -236,8 +291,8 @@ jobs:
   # else, or nothing, builds it itself as before (local-test-stack.mjs buildStillFresh).
   build:
     name: Build the stack once
-    needs: [plan]
-    if: ${{ !cancelled() && needs.plan.outputs.mode != 'none' }}
+    needs: [touch]
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20 # healthy run: about 3 minutes
     permissions:
@@ -290,12 +345,12 @@ jobs:
   journeys:
     name: Journeys (shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     # Not on the build job: a shard's own setup runs beside it, and only the step that takes its build waits for it.
-    needs: [plan]
+    needs: [touch, plan]
     permissions:
       contents: read
       actions: read # to read the build job's state and download its build
     # The shards run even when planning failed (they fall back to Playwright's split), except a targeted run's.
-    if: ${{ !cancelled() && needs.plan.outputs.mode != 'none' && !(needs.plan.result == 'failure' && needs.plan.outputs.target != '') }}
+    if: ${{ !cancelled() && needs.touch.outputs.mode != 'none' && !(needs.plan.result == 'failure' && needs.touch.outputs.target != '') }}
     runs-on: ubuntu-24.04
     # Setup (about 10 minutes, once 21 when the browser's system packages were slow) plus at most 60 minutes of journeys,
     # which Playwright stops itself (JOURNEY_GLOBAL_TIMEOUT_MS below), so the job's own limit is never what ends a shard
@@ -308,7 +363,7 @@ jobs:
     # The owner's labelled TEST screening placeholder, for every stack command in this job (see the check step). Secrets,
     # not variables, so the logs show *** and not the list.
     env:
-      JOURNEYS_TARGET: ${{ needs.plan.outputs.target }} # the manual run's input, or the pull request's journey files
+      JOURNEYS_TARGET: ${{ needs.touch.outputs.target }} # the manual run's input, or the pull request's journey files
       INTAFACED_SANCTIONS_REGIONS: ${{ secrets.INTAFACED_SANCTIONS_REGIONS }}
       INTAFACED_SANCTIONS_LIST_SOURCE: ${{ secrets.INTAFACED_SANCTIONS_LIST_SOURCE }}
     steps:
@@ -480,7 +535,7 @@ jobs:
           # tests that passed in a finished run read (tooling/scripts/journey-fail-fast.mjs). The daily scheduled run
           # keeps the ordinary limits, so a test built since the baseline was written passes on main under them; a
           # targeted run, where a builder proves a step, keeps them too.
-          JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && '1' || '0' }}
+          JOURNEY_FAIL_FAST: ${{ env.JOURNEYS_TARGET == '' && github.event_name != 'schedule' && github.event_name != 'pull_request' && '1' || '0' }}
           JOURNEY_FAIL_FAST_PLAN: ${{ needs.plan.outputs.fast_plan }}
           SHARDS: ${{ needs.plan.outputs.shards }}
           SHARD: ${{ matrix.shard }}
@@ -552,13 +607,13 @@ jobs:
   # shard was red or sent no report, or when the verdict against the list is red.
   scoreboard:
     name: Real-app journeys
-    needs: [plan, journeys]
+    needs: [touch, plan, journeys]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
-      JOURNEYS_TARGET: ${{ needs.plan.outputs.target }}
-      NOTHING: ${{ needs.plan.outputs.mode == 'none' }}
+      JOURNEYS_TARGET: ${{ needs.touch.outputs.target }}
+      NOTHING: ${{ needs.touch.outputs.mode == 'none' }}
     permissions:
       contents: read
       actions: read # to download this run's shard artifacts, and the reports the verdict reads
@@ -612,7 +667,7 @@ jobs:
         run: |
           report="$RUNNER_TEMP/journeys/report.json"
           if [ -n "$JOURNEYS_TARGET" ]; then
-            echo "**Targeted run:** only the journey files named in the manual run ran; every other journey counts as not run below. This run is not main's scoreboard." >> "$GITHUB_STEP_SUMMARY"
+            echo "**Targeted run:** only the journey files named in the manual run's input, or the pull request's own journey files, ran; every other journey counts as not run below. This run is not main's scoreboard." >> "$GITHUB_STEP_SUMMARY"
           fi
           if [ -f "$report" ]; then
             node tooling/scripts/roadmap.mjs --progress --results "$report" >> "$GITHUB_STEP_SUMMARY"

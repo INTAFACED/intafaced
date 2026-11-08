@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
@@ -341,26 +341,39 @@ test('--json --files-from: a pull request file list, judged against this checkou
   assert.deepEqual([files.mode, files.files], ['files', ['J-bank-13.pw.mjs']], 'a journey test file: only it');
   assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
   assert.equal(run(['apps/customer/tests/real-app/J-zzz-99.pw.mjs']).mode, 'none', 'a journey file the head removed runs nothing');
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {
   const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
-  assert.match(t, /\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n/);
-  // Every checkout tests the pull request's head (the seal reads runs by head), never GitHub's merge commit.
-  const checkouts = [...t.matchAll(/uses: actions\/checkout@[^\n]*\n {8}with:\n((?: {10}[^\n]*\n)+)/g)].map((m) => m[1]);
-  assert.equal(checkouts.length, 4);
-  for (const c of checkouts) assert.match(c, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
-  // The plan decides; a draft or a fork runs nothing; files that can't be read run the full suite.
-  assert.match(t, /node tooling\/ci\/journey-touch\.mjs --json --files-from/);
-  assert.match(t, /if \[ "\$DRAFT" = true \] \|\| \[ "\$SAME_REPO" != true \]/);
-  assert.match(t, /couldn't be read, so the full suite runs"\n {12}\{ echo "mode=run"; echo "target="; \}/);
-  // Nothing to run: no build, no shard, and an empty report that the seal reads as saying nothing.
+  assert.match(t, /\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review, converted_to_draft\]\n/);
+  // Every checkout tests the pull request's head (the seal reads runs by head), never GitHub's merge commit, except the
+  // default branch's copy of the rules the touch job judges with.
+  const checkouts = [...t.matchAll(/uses: actions\/checkout@[^\n]*\n((?: {8}[^\n]*\n)+)/g)].map((m) => m[1]);
+  assert.ok(checkouts.length >= 5);
+  for (const c of checkouts) if (!/path: \.base/.test(c)) assert.match(c, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.ok(checkouts.some((c) => /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/.test(c) && /path: \.base/.test(c)));
+  assert.match(t, /node "\$GITHUB_WORKSPACE\/\.base\/tooling\/ci\/journey-touch\.mjs" --json --files-from/);
+  // A pull request run keeps the ordinary limits, as a targeted run does.
   assert.match(
     t,
-    /build:\n {4}name: Build the stack once\n {4}needs: \[plan\]\n {4}if: \$\{\{ !cancelled\(\) && needs\.plan\.outputs\.mode != 'none' \}\}/,
+    /JOURNEY_FAIL_FAST: \$\{\{ env\.JOURNEYS_TARGET == '' && github\.event_name != 'schedule' && github\.event_name != 'pull_request'/,
   );
-  assert.match(t, /needs\.plan\.outputs\.mode != 'none' && !\(needs\.plan\.result == 'failure' && needs\.plan\.outputs\.target != ''\)/);
-  assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.plan\.outputs\.target \}\}/);
+  // A draft or a fork runs nothing; files that can't be read whole run the full suite; a manual input is names only.
+  assert.match(t, /if \[ "\$DRAFT" = true \] \|\| \[ "\$SAME_REPO" != true \]/);
+  assert.match(t, /\|\| full "this pull request's files couldn't be read"/);
+  assert.match(t, /-ge 3000 \]; then full /);
+  assert.match(t, /=~ \^\[A-Za-z0-9\._,\\ -\]\*\$ \]\]/);
+  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing.
+  for (const job of ['plan', 'build'])
+    assert.match(
+      t,
+      new RegExp(
+        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.touch\\.outputs\\.mode != 'none' \\}\\}`,
+      ),
+    );
+  assert.match(t, /needs\.touch\.outputs\.mode != 'none' && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
+  assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
 });
 
 test('an empty report (nothing to run) seals nothing and blocks nothing', async () => {

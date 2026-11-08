@@ -180,10 +180,12 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
     run_id: Math.random(),
     // pull_request runs on the merge ref; pull_request_target on the base branch.
     ref: event_name === 'pull_request' ? `refs/pull/${n}/merge` : 'refs/heads/main',
+    // GitHub sets the pull request's branch on both pull request events.
+    head_ref: `branch-${n}`,
     event: {
       action: extra.action ?? 'synchronize',
       changes: extra.changes ?? null,
-      pull_request: { number: n, head: { sha, repo: { full_name: REPO } }, base: { ref: 'main' } },
+      pull_request: { number: n, head: { sha, ref: `branch-${n}`, repo: { full_name: REPO } }, base: { ref: 'main' } },
     },
   },
   inputs: {},
@@ -242,6 +244,20 @@ export function journeysProblems(text) {
   if (branch('A.pw.mjs').group === branch('B.pw.mjs').group) problems.push('two journey selections on one branch share a group');
   if (branch('').group === resolve(text, journeysRun('workflow_dispatch', 'refs/heads/b2', '')).group)
     problems.push('two branches share a group');
+  // A pull request's run (U4 C3) shares its branch's group with a manual full run there, so either replaces the other.
+  const pr = resolve(text, {
+    github: {
+      workflow: 'Real-app journeys',
+      repository: REPO,
+      event_name: 'pull_request',
+      ref: 'refs/pull/7/merge',
+      head_ref: 'b1',
+      run_id: 1,
+    },
+    inputs: {},
+  });
+  if (pr.group !== branch('').group) problems.push("a pull request's run and a manual full run on its branch are in different groups");
+  if (!pr.cancel) problems.push('a newer pull request run does not cancel the superseded one');
   const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');
