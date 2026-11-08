@@ -573,24 +573,45 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
   await expect(alertForm.getByTestId('usage-hard-limit-state')).toHaveText(
     'The hard limit leaves 0.02 USDT this month: a run whose worst case is more than that is refused.',
   );
-  await ask.fill('TEST question within the limit');
-  await session(page).getByRole('button', { name: 'Run', exact: true }).click();
+  // Two runs at once against that room: the first is admitted and goes in flight, holding its worst case, which brings
+  // the month to its hard limit; the second is then refused with the hard limit's code before the engine. With the
+  // engine held, the refused run is recorded while the admitted one waits at the engine; let go, the run in flight
+  // finishes with its reply and is charged.
+  // "Run twice at once" is on the agent's Test page.
+  await pages(page).getByRole('button', { name: 'Test', exact: true }).click();
+  await session(page)
+    .getByRole('textbox', { name: /^Ask the agent/ })
+    .fill('TEST question within the limit');
+  await withEngineHeld(async (engineCalls) => {
+    await session(page).getByRole('button', { name: 'Run twice at once' }).click();
+    await expect.poll(engineCalls, { message: 'the admitted run reaches the engine' }).toBe(1);
+    await expect
+      .poll(async () => (await ownRuns('refused')).length, { message: 'the second run is refused while the first is in flight' })
+      .toBe(2);
+    await stillCalls(engineCalls, 1);
+    await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
+  });
+  await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  await expect(session(page).getByRole('alert').locator('code')).toHaveText('agents.usage.hard_limit_reached');
   await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(3);
   const within = await usageLimits();
   expect(toUnits(within.spent)).toBeGreaterThan(toUnits(afterAlert.spent));
   expect(toUnits(within.spent)).toBeLessThanOrEqual(toUnits(within.hardLimit));
 
-  // Read again from the service after a reload: one refused run, the hard limit's, at 0; the three runs charged; the
+  // Read again from the service after a reload: two refused runs, both the hard limit's, at 0; the three runs charged; the
   // month under the limit; the alert still the one record.
   await page.reload();
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
   const refusedRuns = await ownRuns('refused');
-  expect(refusedRuns).toHaveLength(1);
-  expect(refusedRuns[0].refusalCode).toBe('agents.usage.hard_limit_reached');
+  expect(refusedRuns).toHaveLength(2);
+  expect(refusedRuns.map((row) => [row.refusalCode, row.cost])).toEqual([
+    ['agents.usage.hard_limit_reached', '0'],
+    ['agents.usage.hard_limit_reached', '0'],
+  ]);
   expect(await ownRuns('executed')).toHaveLength(3);
-  const refusedRow = tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.usage.hard_limit_reached' });
-  await expect(refusedRow).toHaveCount(1);
-  await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
+  const refusedRows = tableIn(main(page), 'Runs').getByRole('row').filter({ hasText: 'agents.usage.hard_limit_reached' });
+  await expect(refusedRows).toHaveCount(2);
+  for (const refusedRow of await refusedRows.all()) await expect(refusedRow.getByTestId('run-cost')).toHaveText('0 USDT');
   expect(await usageLimits()).toMatchObject({ spent: within.spent, hardLimit: roomy, alert: crossed.alert });
   await expect(alertForm.getByTestId('usage-alert-state')).toHaveText(
     `This month’s alert was recorded once, at ${first} USDT. Runs go on.`,

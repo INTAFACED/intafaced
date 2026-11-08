@@ -29,6 +29,8 @@ export async function gh(method, path, body, accept = 'application/vnd.github+js
 }
 
 const SEAL = 'CI merge seal';
+const runOf = (url) => /\/actions\/runs\/(\d+)/.exec(url ?? '')?.[1];
+const sameRun = (a, b) => runOf(a) !== undefined && runOf(a) === runOf(b);
 const SEAL_POLL_MS = 20_000;
 const SEAL_POLLS = 12; // 4 minutes, inside ci-review.yml's job limit
 
@@ -50,13 +52,38 @@ export function sealStep(checkRuns, runStatus) {
 }
 
 /**
- * Re-run the CI merge seal if it already finished red on this head, so nobody re-runs it by hand. Throws when it
- * cannot find or re-run a red seal, which fails the CI review job's re-run step.
+ * The seal's check runs on a head grouped by the workflow run that holds each (ci.yml's and merge-seal.yml's, R3 C3
+ * piece 2), the newest per run. Every `CI merge seal` on a head must pass (probe #7547), so each is judged and re-run.
  */
-export async function rerunSeal(
+export function sealsByRun(checkRuns) {
+  const newest = new Map();
+  for (const c of (checkRuns ?? []).filter((x) => x?.name === SEAL)) {
+    const key = /\/actions\/runs\/(\d+)/.exec(c.details_url ?? '')?.[1] ?? `check-${c.id}`;
+    if (!newest.has(key) || newest.get(key).id < c.id) newest.set(key, c);
+  }
+  return [...newest.values()];
+}
+
+/**
+ * Re-run each CI merge seal that already finished red on this head (sealsByRun), so nobody re-runs one by hand.
+ * Throws when it cannot find or re-run a red seal, which fails the CI review job's re-run step.
+ */
+export async function rerunSeal(repo, sha, opts = {}) {
+  const { api = gh } = opts;
+  const c = await api('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
+  if (c.status !== 200) throw new Error(`could not read the seal's check runs: HTTP ${c.status}`);
+  const seals = sealsByRun(c.json?.check_runs);
+  if (seals.length <= 1) return rerunOneSeal(repo, sha, { ...opts, first: c });
+  const out = [];
+  for (const [i, seal] of seals.entries())
+    out.push(await rerunOneSeal(repo, sha, { ...opts, only: seal.details_url, first: i === 0 ? c : undefined }));
+  return out.join('; ');
+}
+
+async function rerunOneSeal(
   repo,
   sha,
-  { api = gh, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, number } = {},
+  { api = gh, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, only, first, number } = {},
 ) {
   // A re-run is a new attempt of its run and joins ci.yml's per-pull-request concurrency group, so re-running an old
   // head's seal cancels the new head's CI (8 Nov 2026: CI on 3dbe29e7 cancelled at 10:32 UTC by a re-run on e888920f).
@@ -70,13 +97,19 @@ export async function rerunSeal(
     return `not re-run: #${number} is ${p.json?.state} on ${String(p.json?.head?.sha).slice(0, 10)}, not on ${sha.slice(0, 10)}`;
   };
   for (let poll = 1; ; poll++) {
-    const c = await api('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
+    // The first read is rerunSeal's own; each poll after reads again.
+    const c =
+      poll === 1 && first
+        ? first
+        : await api('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
     if (c.status !== 200) throw new Error(`could not read the seal's check runs: HTTP ${c.status}`);
-    let step = sealStep(c.json?.check_runs, undefined);
+    // One seal's run when several seals are on the head (rerunSeal), else every seal check run, newest first (sealStep).
+    const pick = (runs) => (only ? sealsByRun(runs).filter((x) => sameRun(x.details_url, only)) : runs);
+    let step = sealStep(pick(c.json?.check_runs), undefined);
     if (step.act === 'run') {
       const r = await api('GET', `/repos/${repo}/actions/runs/${step.runId}`);
       if (r.status !== 200) throw new Error(`could not read CI run ${step.runId}: HTTP ${r.status}`);
-      step = sealStep(c.json.check_runs, r.json?.status);
+      step = sealStep(pick(c.json.check_runs), r.json?.status);
     }
     if (step.act === 'done') return step.msg;
     if (step.act === 'fail') throw new Error(step.msg);
