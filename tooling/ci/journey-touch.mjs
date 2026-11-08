@@ -57,6 +57,7 @@ export const JOURNEY_CI = [
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',
   'tooling/ci/test-judge.mjs',
+  'tooling/ci/judged-paths.mjs',
   'tooling/ci/test-judge/JUDGE.md',
 ];
 
