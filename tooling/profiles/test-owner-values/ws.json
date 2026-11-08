@@ -1,0 +1,75 @@
+{
+  "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
+  "values": {
+    "WS_DEPTH_LIMIT": {
+      "service": "ws",
+      "value": "50",
+      "note": "LOCAL TEST ONLY: levels per side on the depth snapshot and deltas, so the book channel opens on the test stack (J-developer-09 #3, #5)."
+    },
+    "WS_MARKETS_LIST_LIMIT": {
+      "service": "ws",
+      "value": "200",
+      "note": "LOCAL TEST ONLY: markets read from the listing per refresh."
+    },
+    "WS_HIGH_WATER_BYTES": {
+      "service": "ws",
+      "value": "1048576",
+      "note": "LOCAL TEST ONLY: 1 MiB outbound buffer per socket before a slow consumer is degraded."
+    },
+    "WS_MAX_LAG_TICKS": {
+      "service": "ws",
+      "value": "20",
+      "note": "LOCAL TEST ONLY: ticks a socket may stay over the buffer mark before it is closed."
+    },
+    "WS_MAX_CONNECTIONS": {
+      "service": "ws",
+      "value": "2000",
+      "note": "LOCAL TEST ONLY: sockets per hub, far above what one journeys shard opens."
+    },
+    "WS_MAX_NEW_CONNECTIONS_PER_MINUTE": {
+      "service": "ws",
+      "value": "6000",
+      "note": "LOCAL TEST ONLY: new sockets a minute, far above what one journeys shard opens."
+    },
+    "WS_PRIVATE_MAX_CONNECTIONS_PER_USER": {
+      "service": "ws",
+      "value": "8",
+      "note": "LOCAL TEST ONLY: private sockets one account may hold at once."
+    },
+    "WS_HEARTBEAT_MS": {
+      "service": "ws",
+      "value": "2000",
+      "note": "LOCAL TEST ONLY: a ping every 2 seconds, so a client that stops answering is ended within seconds (J-developer-09 #4). The code default stays 30 seconds."
+    },
+    "WS_TRADE_RECENT_LIMIT": {
+      "service": "ws",
+      "value": "50",
+      "note": "LOCAL TEST ONLY: recent prints a trades subscriber gets first."
+    },
+    "WS_DROP_COPY_RECENT_LIMIT": {
+      "service": "ws",
+      "value": "50",
+      "note": "LOCAL TEST ONLY: recent fills a drop-copy subscriber gets first."
+    },
+    "WS_MUX_MAX_SUBSCRIPTIONS": {
+      "service": "ws",
+      "value": "16",
+      "note": "LOCAL TEST ONLY: channels one multiplexed socket may hold."
+    },
+    "WS_MUX_MAX_OPS_PER_SECOND": {
+      "service": "ws",
+      "value": "20",
+      "note": "LOCAL TEST ONLY: operations a second one multiplexed socket may send."
+    },
+    "WS_MUX_MAX_SEATS": {
+      "service": "ws",
+      "value": "2000",
+      "note": "LOCAL TEST ONLY: multiplexed seats per hub."
+    },
+    "WS_MUX_IDLE_MS": {
+      "service": "ws",
+      "value": "60000",
+      "note": "LOCAL TEST ONLY: a multiplexed socket holding no channel is closed after a minute, so the multiplexed door starts on the test stack (J-developer-09 #3, #5)."
+    }
+  }
+}
