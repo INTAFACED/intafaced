@@ -27,8 +27,32 @@ export function localStackState(home = os.homedir(), env = process.env) {
 
 const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
 
-/** ps exposes seconds; launch records are written immediately after spawn, in milliseconds. */
-export function processStartMatches(startedAt, actual) {
+/**
+ * The kernel's own birth mark for a process on Linux: field 22 of /proc/<pid>/stat, clock ticks since boot. It never
+ * moves while the process lives, unlike ps's lstart, which Linux derives from a boot time rounded to whole seconds and
+ * which the runner's clock corrections move: on a loaded CI runner it drifted past the 2-second allowance below and the
+ * stack refused its own running service's port (#7488: trade in main run 42400147448; market in main run 42440617559).
+ * Elsewhere (macOS) it is null and the start time is checked as before. Read only; never the process environment.
+ */
+export function readKernelStart(pid, { platform = process.platform, read = fs.readFileSync } = {}) {
+  if (platform !== 'linux' || !Number.isSafeInteger(pid) || pid <= 0) return null;
+  try {
+    const stat = String(read(`/proc/${pid}/stat`, 'utf8'));
+    // The command name (field 2) sits in parentheses and may hold spaces or ')'; the fields after the last ')' start at 3.
+    const ticks = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[22 - 3];
+    return /^\d+$/.test(ticks ?? '') ? ticks : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ps exposes seconds; launch records are written immediately after spawn, in milliseconds. A record that carries the
+ * kernel's birth mark (readKernelStart, taken at spawn) is held to that mark exactly wherever the kernel reports one,
+ * which is stricter than the 2-second allowance and immune to clock drift.
+ */
+export function processStartMatches(startedAt, actual, kernelStart) {
+  if (typeof kernelStart === 'string' && kernelStart && typeof actual?.kernelStart === 'string') return actual.kernelStart === kernelStart;
   const recorded = typeof startedAt === 'number' ? startedAt : Date.parse(startedAt);
   return Number.isFinite(recorded) && Number.isFinite(actual?.startedAt) && Math.abs(actual.startedAt - recorded) <= 2000;
 }
@@ -42,7 +66,7 @@ export function processRecordMatches(record, actual) {
     record.argv.length > 0 &&
     record.argv.every((arg) => typeof arg === 'string') &&
     actual?.command === record.argv.join(' ') &&
-    processStartMatches(record.startedAt, actual),
+    processStartMatches(record.startedAt, actual, record.kernelStart),
   );
 }
 
@@ -55,7 +79,7 @@ export function readProcessIdentity(pid) {
   });
   if (ps.status !== 0) return null;
   const match = ps.stdout?.trim().match(/^(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
-  return match ? { startedAt: Date.parse(match[1]), command: match[2] } : null;
+  return match ? { startedAt: Date.parse(match[1]), command: match[2], kernelStart: readKernelStart(pid) } : null;
 }
 
 /** Match the whole -D value, so a sibling directory with the same prefix cannot pass. */
@@ -100,6 +124,7 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
       pid: record.pid,
       port: marker.ports[name],
       startedAt: Date.parse(record.startedAt),
+      kernelStart: record.kernelStart,
       matches: (actual) => actual.command === record.argv.join(' '),
     });
   }
@@ -107,7 +132,7 @@ export function assertStackOwnership({ stateDir, marker, records, postgres, proc
     const actual = processes.get(check.pid);
     if (!Number.isSafeInteger(check.pid) || check.pid <= 0 || !actual || !check.matches(actual)) refuse(`${check.name} process differs`);
     // ps reports seconds, while the stack records milliseconds immediately after spawning.
-    if (!processStartMatches(check.startedAt, actual)) refuse(`${check.name} process was replaced`);
+    if (!processStartMatches(check.startedAt, actual, check.kernelStart)) refuse(`${check.name} process was replaced`);
     if (!listeners.get(check.pid)?.has(`127.0.0.1:${check.port}`)) refuse(`${check.name} does not own its loopback port`);
   }
   return { stateDir, marker };
@@ -132,7 +157,12 @@ export function assertActiveLocalStack({ stateDir = localStackState(), services 
   const processes = new Map();
   for (const line of (ps.stdout ?? '').split('\n')) {
     const match = line.match(/^\s*(\d+)\s+(\w{3}\s+\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.*)$/);
-    if (match) processes.set(Number(match[1]), { startedAt: Date.parse(match[2]), command: match[3] });
+    if (match)
+      processes.set(Number(match[1]), {
+        startedAt: Date.parse(match[2]),
+        command: match[3],
+        kernelStart: readKernelStart(Number(match[1])),
+      });
   }
   const sockets = spawnSync(
     fs.existsSync('/usr/sbin/lsof') ? '/usr/sbin/lsof' : 'lsof',
