@@ -68,7 +68,6 @@ describe('assertSignerMaySign', () => {
       clientOrderKey: 'order:u:1',
       leverageBps: null,
       marginMode: null,
-      builderFee: null,
     },
     { kind: 'amend_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1', amount: 1n, price: 1n },
     { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:u:1' },
