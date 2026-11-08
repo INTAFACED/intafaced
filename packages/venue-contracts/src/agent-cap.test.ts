@@ -496,6 +496,29 @@ describe('council round 1 (#7577): the ways past the cap it found', () => {
     expect(raw).toHaveBeenCalledTimes(1);
   });
 
+  it("CI review: with no leverage read, a cut is judged from the position's own leverage, and an order counts at it", async () => {
+    const position: UserVenuePosition = {
+      symbol: 'BTC-PERP',
+      side: 'long',
+      size: A('0.05'),
+      entryPrice: A('60000'),
+      markPrice: A('60000'),
+      unrealisedPnl: A('0'),
+      marginMode: 'cross',
+      margin: A('150'),
+      leverageBps: 200_000,
+      liquidationPrice: { known: false },
+    };
+    const { raw, signer } = setup({ balances: rich, positions: [position] }, { withLeverage: false });
+    const cut = await refusal(
+      signer.sign(prepared({ kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 50_000, marginMode: 'cross' }), cap300),
+    );
+    expect(cut.code).toBe('agent_cap_exceeded'); // 3000 / 5x = 600 > 300
+    // A new order on that market counts at the venue's recorded 20x: 1200 / 20x = 60, room 150.
+    expect((await signer.sign(prepared(buy('BTC-PERP', '0.02', '60000', 'order:agent-1:ci:1')), cap300)).check.commitment).toBe(A('60'));
+    expect(raw).toHaveBeenCalledTimes(1);
+  });
+
   it('should 3: a reduce-only spot buy still spends quote and is counted', async () => {
     const { raw, signer } = setup({ balances: rich });
     expect(

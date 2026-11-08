@@ -52,8 +52,9 @@ import {
  *
  * What an order commits: a spot buy, its amount at its limit (or worst) price;
  * a perpetual, that notional divided by the account's leverage on the market
- * as the venue records it, or the whole notional (1x) when the venue reports
- * none; a spot sell and any reduce-only order, nothing. A cancel commits
+ * as the venue records it (its leverage read, else the leverage its open
+ * position on that market reports), or the whole notional (1x) when it reports
+ * neither; a spot sell and any reduce-only order, nothing. A cancel commits
  * nothing and is allowed even after the cap is revoked, so a revoke can cancel
  * the agent's resting orders before its key is dropped.
  *
@@ -238,7 +239,7 @@ function maxOf(values: readonly Amount[]): Amount {
  *     over the lowest leverage that may apply;
  *   · every other holding at its mark.
  * The lowest leverage that may apply on a perpetual is the least of the
- * venue's record (1x when it reports none) and every signed, unsettled
+ * venue's record (its leverage read, else its position's leverage, else 1x) and every signed, unsettled
  * leverage change, so a cut signed before or after an order is always counted.
  */
 export function checkAgentOrderWithinCap(
@@ -290,11 +291,15 @@ export function checkAgentOrderWithinCap(
   if (levCut && (!Number.isInteger(levCut.leverageBps) || levCut.leverageBps < ONE_X)) {
     refuse(account, 'agent_cap_unmeasured', `a leverage of ${levCut.leverageBps} bps is below 1x`);
   }
-  const leverageOf = (symbol: string): number => {
+  // The venue's record of the account's leverage on a market: its leverage read; else the
+  // leverage its open position there reports; else 1x. Every leverage judgement starts here.
+  const recordedLeverage = (symbol: string): number => {
     const venue = snapshot.leverage(symbol);
-    // The venue's leverage read; else the leverage its position on the market reports; else 1x.
     const position = snapshot.positions.find((p) => p.symbol === symbol);
-    let lev = venue.known ? venue.value : position ? position.leverageBps : ONE_X;
+    return venue.known ? venue.value : position ? position.leverageBps : ONE_X;
+  };
+  const leverageOf = (symbol: string): number => {
+    let lev = recordedLeverage(symbol);
     if (!Number.isInteger(lev) || lev < ONE_X)
       refuse(account, 'agent_cap_unmeasured', `the venue reports a leverage of ${lev} bps on ${symbol}, below 1x`);
     for (const p of pending.leverage) if (p.symbol === symbol && p.leverageBps < lev) lev = p.leverageBps;
@@ -333,8 +338,7 @@ export function checkAgentOrderWithinCap(
   } else {
     // A leverage change commits nothing itself; a cut is judged by what it does to everything in use below.
     marketOf(intent.symbol);
-    const venue = snapshot.leverage(intent.symbol);
-    const before = venue.known ? venue.value : ONE_X;
+    const before = recordedLeverage(intent.symbol);
     const lowestPending = pending.leverage.filter((p) => p.symbol === intent.symbol).reduce((m, p) => Math.min(m, p.leverageBps), before);
     if (intent.leverageBps >= lowestPending) return NOTHING;
   }
@@ -411,7 +415,7 @@ export interface AgentCapLeverageRead {
   leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<{ readonly leverageBps: number } | null>>;
 }
 
-/** The reads the signer takes from the venue. `leverage` is optional until every venue publishes it; without it a perpetual counts at 1x. */
+/** The reads the signer takes from the venue. `leverage` is optional until every venue publishes it; without it a perpetual counts at its position's leverage, else 1x. */
 export type AgentCapVenue = Pick<UserVenue, 'markets' | 'balances' | 'openOrders' | 'positions'> & Partial<AgentCapLeverageRead>;
 
 /** Signs a prepared action's digest with the agent key. Held privately by `CappedAgentSigner`. */
