@@ -186,7 +186,7 @@ test(`${J} #7 looks at the order types: market and limit as offered; resting typ
   const writes = [];
   page.on('request', (r) => r.method() !== 'GET' && new URL(r.url()).pathname.startsWith('/api/') && writes.push(r.url()));
   for (const name of ['Stop', 'Take profit', 'Trailing stop']) {
-    const button = types.getByRole('button', { name: `${name}: not offered by this venue` });
+    const button = types.getByRole('button', { name: `${name}: not offered by this venue`, exact: true });
     await expect(button).toBeDisabled();
     await button.click({ force: true });
   }
