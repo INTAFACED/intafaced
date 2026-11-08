@@ -1,7 +1,7 @@
-// World: none
+// World: market
 import { test, expect } from './journey.mjs';
 import { signUp } from './desk.mjs';
-import { EDGE, ORIGIN } from './stack.mjs';
+import { EDGE, ORIGIN, bestPrices, tool } from './stack.mjs';
 
 // J-charts-desk-09, in the running app (docs/roadmap/journeys.json): a person sets price alerts, manages them and reads
 // what fired. One test per step, titled "J-charts-desk-09 #<n>", run in order on one TEST account in one browser. The
@@ -13,6 +13,8 @@ const ALERTS = '/notifications?view=alerts';
 const SWEEP_MS = 60_000;
 
 test.describe.configure({ mode: 'serial' });
+// An action on a part that never becomes usable fails in 15 s, not at the step's time limit.
+test.use({ actionTimeout: 15_000 });
 
 let page;
 test.beforeAll(async ({ browser }) => {
@@ -85,9 +87,14 @@ const daysAhead = (days) =>
   }, days);
 
 /** Fills the form for BTC/USDT and saves it through the review. */
-async function createAlert({ condition, price, name, message, expires }) {
+async function createAlert({ condition, price, name, message, expires, repeat }) {
   await marketSelect().selectOption({ label: 'BTC/USDT' });
   await form().getByLabel('Notify me when the price is').selectOption({ label: condition });
+  if (repeat) {
+    // The page draws its own box over the input, so the person clicks the label.
+    await form().getByTestId('alerts-repeat').click();
+    await expect(form().getByTestId('alerts-repeat').getByRole('checkbox')).toBeChecked();
+  }
   await form().getByLabel('Price (USDT)').fill(price);
   await form()
     .getByLabel('Name (optional)')
@@ -206,6 +213,103 @@ test(`${J} #4 edits an alert from one price to another: the new price and a modi
   expect(muted.indexOf('Created')).toBeLessThan(muted.indexOf('Modified'));
 });
 
+const CHART = '/charts/BTC-USDT';
+const chartHost = () => page.getByTestId('cw').getByTestId('wc-host');
+
+/** The price pane's box on the page: the trading overlay names where it sits in the chart (a volume pane sits below it). */
+async function pricePaneBox() {
+  const box = await chartHost().boundingBox();
+  const overlay = page.getByTestId('cw').getByTestId('chart-trading-overlay');
+  const top = Number(await overlay.getAttribute('data-pane-top'));
+  const height = Number(await overlay.getAttribute('data-pane-height'));
+  expect(height).toBeGreaterThan(0);
+  return { x: box.x, y: box.y + top, width: box.width, height };
+}
+
+/** The price the chart names under the pointer at a fraction of the price pane's height, from the price-axis plus button. */
+async function axisPriceAt(fy) {
+  const box = await pricePaneBox();
+  const y = box.y + box.height * fy;
+  await page.mouse.move(box.x + box.width * 0.5, y - 1);
+  await page.mouse.move(box.x + box.width * 0.5, y);
+  const plus = page.getByTestId('chart-axis-plus');
+  await expect(plus).toBeVisible();
+  await expect.poll(async () => Math.abs((await plus.boundingBox()).y + (await plus.boundingBox()).height / 2 - y)).toBeLessThan(2);
+  return { y, price: Number(await plus.getAttribute('data-price')) };
+}
+
+/** The chart's own price-to-pixel line, from two readings of the price axis (the scale is linear). */
+async function chartScale() {
+  const a = await axisPriceAt(0.25);
+  const b = await axisPriceAt(0.75);
+  return {
+    yOf: (price) => a.y + ((Number(price) - a.price) * (b.y - a.y)) / (b.price - a.price),
+    perPixel: (a.price - b.price) / (b.y - a.y),
+  };
+}
+
+test(`${J} #5 sees the alert level on the chart and drags it: the level line moves and the alert updates once`, async () => {
+  // A level the chart shows: the price the chart's own axis names a third of the way down its price pane, on the tick.
+  await page.goto(CHART);
+  await expect(chartHost()).toBeVisible();
+  const level = fromCents(cents(String((await axisPriceAt(0.3)).price.toFixed(2))));
+  // An active alert that does not fire during the step: crossing towards the level from the other side of the market.
+  const above = cents(level) > cents(await lastText());
+  const condition = above ? 'Crossing down through' : 'Crossing up through';
+  await page.goto(ALERTS);
+  await expect(marketSelect()).toBeEnabled();
+  await createAlert({ condition, price: level, name: 'TEST on the chart' });
+  await page.goto(CHART);
+  await expect(chartHost()).toBeVisible();
+  // The level on the chart: its handle names the condition and the exact price, and sits at that price's pixel.
+  const line = page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${level} USDT` });
+  await expect(line).toHaveCount(1);
+  await expect(line).toHaveAttribute('data-price', level);
+  await expect(page.getByTestId('chart-alert-row').filter({ hasText: `Alert: ${condition} ${level} USDT` })).toHaveCount(1);
+  const scale = await chartScale();
+  const atLevel = await line.boundingBox();
+  expect(Math.abs(atLevel.y + atLevel.height / 2 - scale.yOf(level)), 'the handle sits at its price').toBeLessThan(3);
+
+  // Every edit this page sends from now on.
+  const edits = [];
+  page.on('request', (request) => {
+    if (/notify\.updateAlert\b/.test(request.url()) && request.method() === 'POST') edits.push(request.postData());
+  });
+  // Drag the handle up by 40 pixels: the chart names the price it is dropped at.
+  const from = atLevel.y + atLevel.height / 2;
+  const to = from - 40;
+  await page.mouse.move(atLevel.x + atLevel.width / 2, from);
+  await page.mouse.down();
+  await page.mouse.move(atLevel.x + atLevel.width / 2, to, { steps: 12 });
+  await page.mouse.up();
+  const note = page.getByTestId('chart-alerts-note');
+  await expect(note).toHaveAttribute('data-tone', 'good');
+  const moved = /^The alert now watches (\d+(?:\.\d+)?) USDT\.$/.exec(((await note.textContent()) ?? '').trim())?.[1];
+  expect(moved, 'the note names the price the service now holds').toBeTruthy();
+  // The new price is where the handle was dropped, within a few pixels' worth of price, and above the old one.
+  expect(cents(moved) > cents(level), `${moved} is above ${level}`).toBe(true);
+  expect(Math.abs(Number(moved) - (Number(level) + 40 * scale.perPixel)), 'dropped at its pixel').toBeLessThan(4 * scale.perPixel + 0.01);
+  // The line moved: one handle, at the new price and its pixel; none left at the old one.
+  const movedLine = page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${moved} USDT` });
+  await expect(movedLine).toHaveCount(1);
+  await expect(page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${level} USDT` })).toHaveCount(0);
+  const atMoved = await movedLine.boundingBox();
+  expect(Math.abs(atMoved.y + atMoved.height / 2 - scale.yOf(moved)), 'the handle sits at its new price').toBeLessThan(3);
+  // Once: one edit, at that price.
+  await page.waitForTimeout(2_000);
+  expect(edits, 'one edit was sent for one drag').toHaveLength(1);
+  expect(edits[0]).toContain(`"targetPrice":"${moved}"`);
+  // The service holds it: after a reload the chart and the alerts page both show the new price, with a modified time.
+  await page.reload();
+  await expect(page.getByTestId('chart-alert-line').filter({ hasText: `Alert: ${condition} ${moved} USDT` })).toHaveCount(1);
+  await page.goto(ALERTS);
+  await expect(marketSelect()).toBeEnabled();
+  const row = rowWith('TEST on the chart');
+  await expect(row.getByTestId('nf-body').first()).toHaveText(`${condition} ${moved} USDT`);
+  await expect(row).toHaveAttribute('data-status', 'active');
+  await expect(row.locator('.nf-muted')).toContainText('Modified');
+});
+
 test(`${J} #6 reads the trigger log: when it fired, at what price, in the person's time zone, for the retention window`, async () => {
   test.setTimeout(4 * SWEEP_MS);
   // At or below a level above the market: the next sweep reads a mark under it and fires.
@@ -322,9 +426,19 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   // 42187412745), so the tape is read newest first with no time cut, never only the last two sweeps.
   const tape = await (await fetch(`${EDGE}/api/v1/trades/${encodeURIComponent('BTC/USDT')}?limit=500`)).json();
   expect(Array.isArray(tape) && tape.length > 0, 'the TEST tape has trades').toBe(true);
-  const upTo = tape.filter((t) => t.timestamp <= onLast.at + 5_000).sort((a, b) => b.timestamp - a.timestamp);
-  // The latest print at the sweep, and any print in the few seconds around it (the read is a moment after the sweep's time).
-  const prints = upTo.filter((t, i) => i === 0 || t.timestamp >= onLast.at - 5_000).map((t) => fromCents(cents(String(t.price))));
+  // "Latest" is the tape's own order, the match sequence (a print's id), which is how the ticker picks its last
+  // (svc-trade publicTape: ORDER BY sequence DESC). Never re-sort by time.
+  for (const t of tape) expect(String(t.id), 'a tape print is identified by its match sequence').toMatch(/^\d+$/);
+  const bySequence = [...tape].sort((a, b) => Number(b.id) - Number(a.id));
+  // A trigger's time is when its sweep started; the sweep reads the ticker a moment later. So the alert fired on the
+  // latest print written by the sweep's start, or on one written in the few seconds before its read. A print after the
+  // read is not the one it saw, and must not stand in for it (main run 42447632070 and PR #7526's repeat 42451286997:
+  // the TEST maker sold at 65153.12 on its cycle 7, the sweep read the cycle-12 book, bid 65231.23 and ask 65309.57,
+  // with that print still its last, and the cycle-13 sale at 65152.95 landed within 5 s after the sweep's start;
+  // taking the latest print up to 5 s after the start as "the latest at the sweep" dropped the one the alert read).
+  const atStart = bySequence.find((t) => t.timestamp <= onLast.at);
+  const justAfter = bySequence.filter((t) => t.timestamp > onLast.at && t.timestamp <= onLast.at + 5_000);
+  const prints = [...(atStart ? [atStart] : []), ...justAfter].map((t) => fromCents(cents(String(t.price))));
   expect(prints, `the last-trade alert fired at ${onLast.price}, a print on the tape`).toContain(fromCents(cents(onLast.price)));
 
   // Conditions up to the owner's cap (the main one included), saved and read back.
@@ -369,4 +483,193 @@ test(`${J} #2 chooses the bid, the ask or the last trade as the source, adds con
   await expect(form().getByRole('button', { name: 'Review alert' })).toBeDisabled();
   await form().getByRole('combobox', { name: 'Alert on' }).selectOption({ label: 'The price' });
   await expect(form().getByTestId('alerts-kind-refused')).toHaveCount(0);
+});
+
+const watchlists = () => page.getByRole('region', { name: 'Watchlists' });
+/** Opens the chart with the person's account watchlists read, and adds a market to the selected list by search. */
+async function addToWatchlist(symbol) {
+  await page.goto(CHART);
+  await expect(watchlists()).toHaveAttribute('data-status', /^(ready|error)$/);
+  expect(await watchlists().getAttribute('data-status'), "the person's saved lists were read").toBe('ready');
+  const saved = page.waitForResponse((res) => /preferences/.test(res.url()) && res.request().method() !== 'GET' && res.ok());
+  await watchlists().getByRole('searchbox', { name: 'Add a market' }).fill(symbol.split('/')[0].toLowerCase());
+  await watchlists()
+    .getByRole('button', { name: `Add ${symbol}` })
+    .click();
+  await saved;
+  await expect(watchlists().locator(`tr[data-symbol="${symbol}"]`)).toBeVisible();
+}
+
+test(`${J} #7 creates one alert for every market in a watchlist; a market added later is picked up on the next sweep`, async () => {
+  test.setTimeout(5 * SWEEP_MS);
+  // A watchlist on the account, kept beside the chart: ETH/USDT, then BTC/USDT.
+  await addToWatchlist('ETH/USDT');
+  await addToWatchlist('BTC/USDT');
+  // Far above both markets, so no alert of this rule fires and leaves the list during the step.
+  const level = testPrice(300, await lastText());
+  const follow = page.getByTestId('alerts-follow');
+  await page.goto(ALERTS);
+  await expect(marketSelect()).toBeEnabled();
+  await follow.getByRole('combobox', { name: 'Watchlist' }).selectOption({ label: 'Watchlist' });
+  await expect(follow.getByTestId('alerts-follow-markets')).toHaveText('Markets on the list now: ETH/USDT, BTC/USDT');
+  await follow.getByRole('combobox', { name: 'Notify me when the price is' }).selectOption({ label: 'At or above' });
+  await follow.getByLabel('Price, the same for every market').fill(level);
+  await follow.getByRole('button', { name: 'Review list alert' }).click();
+  const review = follow.getByTestId('alerts-follow-review');
+  await expect(review).toContainText('ETH/USDT, BTC/USDT');
+  await expect(review).toContainText(`At or above ${level}`);
+  await review.getByRole('button', { name: 'Follow this list' }).click();
+  await expect(follow.getByTestId('alerts-follow-notice').getByRole('status')).toHaveText(
+    'You now follow Watchlist. Each of its markets has its own alert in your list.',
+  );
+  // One alert per market, each active with the rule, after a reload (the service holds them).
+  await page.reload();
+  const ruleRows = () => rows().filter({ hasText: `At or above ${level} USDT` });
+  const marketsOfRule = async () => (await ruleRows().getByTestId('nf-title').allTextContents()).sort();
+  await expect(ruleRows()).toHaveCount(2);
+  expect(await marketsOfRule()).toEqual(['BTC/USDT', 'ETH/USDT']);
+  for (const status of await ruleRows().evaluateAll((els) => els.map((el) => el.getAttribute('data-status'))))
+    expect(status).toBe('active');
+  const rule = follow.getByTestId('follow-rule').filter({ hasText: 'Watchlist' });
+  await expect(rule).toHaveCount(1);
+  await expect(rule).toHaveAttribute('data-status', 'active');
+  await expect(rule).toContainText(`At or above ${level} · ETH/USDT, BTC/USDT`);
+
+  // A market added to the list later: the next sweep gives it the same alert, once.
+  await addToWatchlist('IFC/USDT');
+  const addedAt = Date.now();
+  await page.goto(ALERTS);
+  await expect(async () => {
+    await page.reload();
+    await expect(ruleRows()).toHaveCount(3, { timeout: 2_000 });
+  }).toPass({ timeout: 2 * SWEEP_MS + 30_000, intervals: [5_000] });
+  expect(Date.now() - addedAt, 'picked up within one sweep interval and the page reload after it').toBeLessThan(2 * SWEEP_MS + 30_000);
+  expect(await marketsOfRule()).toEqual(['BTC/USDT', 'ETH/USDT', 'IFC/USDT']);
+  await expect(ruleRows().filter({ has: page.getByTestId('nf-title').getByText('IFC/USDT', { exact: true }) })).toHaveAttribute(
+    'data-status',
+    'active',
+  );
+  await expect(rule).toContainText(`At or above ${level} · ETH/USDT, BTC/USDT, IFC/USDT`);
+  await expect(rule.getByTestId('follow-rule-reason')).toHaveCount(0);
+  // The sweep after adds nothing more.
+  const sweptBefore = await lastSweepAt();
+  await expect.poll(lastSweepAt, { timeout: SWEEP_MS + 15_000, intervals: [2_000] }).not.toBe(sweptBefore);
+  await page.reload();
+  await expect(ruleRows()).toHaveCount(3);
+});
+
+/** A shift in basis points as the TEST market tool takes it: `+0.60%`, `-1.25%`. */
+const shiftText = (bps) => {
+  const abs = bps < 0n ? -bps : bps;
+  return `${bps < 0n ? '-' : '+'}${abs / 100n}.${String(abs % 100n).padStart(2, '0')}%`;
+};
+/** BTC/USDT's book mid now, in hundredths. */
+const midCents = async () => {
+  const { bid, ask } = await bestPrices();
+  return (cents(String(bid)) + cents(String(ask))) / 2n;
+};
+
+// Last in the file: it fills the account up to the quota, so a step after it could not save an alert.
+test(`${J} #8 hits the alert quota, and an alert that triggers too often is stopped with its stop reason`, async () => {
+  test.setTimeout(18 * SWEEP_MS);
+  // The owner's limits, as the service publishes them with the quota.
+  const quotaRead = page.waitForResponse((r) => /notify\.alertQuota\b/.test(r.url()) && r.ok());
+  await page.reload();
+  const published = await (await quotaRead).text();
+  const max = Number(/"max":\s*(\d+)/.exec(published)?.[1]);
+  const maxTriggers = Number(/"maxTriggers":\s*(\d+)/.exec(published)?.[1]);
+  const windowMinutes = Number(/"windowMinutes":\s*(\d+)/.exec(published)?.[1]);
+  expect(
+    max > 0 && maxTriggers > 0 && windowMinutes > 0,
+    `the quota and burst rule the service publishes (${published.slice(0, 300)})`,
+  ).toBe(true);
+  // Every trigger of the burst comes from its own sweep, one a minute, so the rule must be one this journey can reach.
+  expect(maxTriggers + 1, 'the burst fits inside its window at one trigger a sweep').toBeLessThan(windowMinutes);
+  const burstWords = `An alert that triggers more than ${maxTriggers} times in ${windowMinutes} minutes is stopped.`;
+
+  // The burst: a crossing alert that repeats, at the level the market stands at now. The TEST market maker's price is then
+  // moved to just under the level and over it again, sweep after sweep, so every sweep sees a real crossing.
+  const level = await midCents();
+  const levelText = fromCents(level);
+  await form().getByRole('combobox', { name: 'Price to watch' }).selectOption({ index: 0 });
+  await createAlert({ condition: 'Crossing, either way,', price: levelText, name: 'TEST bursts', repeat: true });
+  const row = rowWith('TEST bursts');
+  await expect(row.getByTestId('nf-body').first()).toHaveText(`Crossing, either way, ${levelText} USDT`);
+  await expect(row.getByTestId('alert-repeats')).toContainText('Triggered so far: 0');
+
+  let shift = 0n;
+  /** Moves the TEST price to 0.6% under (-1) or over (+1) the level, from the walk's own price now, and waits for the book. */
+  async function aim(sign) {
+    const unshifted = ((await midCents()) * 10_000n) / (10_000n + shift);
+    const target = (level * (10_000n + BigInt(sign) * 60n)) / 10_000n;
+    shift = ((target - unshifted) * 10_000n) / unshifted;
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', shiftText(shift));
+    await expect
+      .poll(async () => (sign < 0 ? level - (await midCents()) : (await midCents()) - level), {
+        timeout: 30_000,
+        intervals: [1_000],
+        message: `the book's mid moves ${sign < 0 ? 'under' : 'over'} ${levelText}`,
+      })
+      .toBeGreaterThan((level * 20n) / 10_000n);
+  }
+  /** Waits for a sweep that ran after the book got where it is now. */
+  async function nextSweep() {
+    const after = Date.now() + 3_000;
+    await expect
+      .poll(async () => Date.parse(await lastSweepAt()), { timeout: SWEEP_MS + 30_000, intervals: [2_000] })
+      .toBeGreaterThan(after);
+  }
+  const triggered = async () => {
+    await page.reload();
+    return Number(/Triggered so far: (\d+)/.exec((await row.getByTestId('alert-repeats').textContent()) ?? '')?.[1]);
+  };
+
+  try {
+    // First a sweep sees the price under the level, so the alert knows which side it is on.
+    await aim(-1);
+    await nextSweep();
+    expect(await triggered(), 'no trigger while the price stays on one side').toBe(0);
+    // Then one crossing a sweep, up and down, until one more than the rule allows.
+    for (let n = 1; n <= maxTriggers + 1; n += 1) {
+      await aim(n % 2 === 1 ? 1 : -1);
+      // A sweep that read the book a moment before it moved sees no crossing yet; the next one does.
+      await expect.poll(triggered, { timeout: 2 * SWEEP_MS + 30_000, intervals: [5_000], message: `trigger ${n}` }).toBe(n);
+      if (n <= maxTriggers) await expect(row).toHaveAttribute('data-status', 'active');
+    }
+    // The trigger past the rule stopped it, and the row says why.
+    await expect(row).toHaveAttribute('data-status', 'stopped');
+    await expect(row).toContainText('Stopped');
+    await expect(row.getByTestId('alert-stop-reason')).toHaveText('Stopped because it triggered too often. Resume it to watch again.');
+    // Stopped means stopped: the next crossing triggers nothing.
+    await aim(-1);
+    await nextSweep();
+    await nextSweep();
+    expect(await triggered(), 'a stopped alert does not trigger again').toBe(maxTriggers + 1);
+    await expect(row).toHaveAttribute('data-status', 'stopped');
+  } finally {
+    tool('local-test-market.mjs', 'move', 'BTC/USDT', '0%');
+  }
+
+  // The quota: the header names how many are in use and the limit, with the burst rule, as the service counts them.
+  const header = page.getByTestId('alerts-quota');
+  const usedText = /^(\d+) of (\d+) price alerts in use\./.exec(((await header.textContent()) ?? '').trim());
+  expect(usedText, 'the quota header names what is in use and the limit').toBeTruthy();
+  expect(Number(usedText[2])).toBe(max);
+  await expect(header).toContainText(burstWords);
+  // Fill every place left, far under the market so nothing fires and frees one.
+  const last = await lastText();
+  for (let k = Number(usedText[1]); k < max; k += 1) {
+    await createAlert({ condition: 'At or below', price: testPrice(30, last), name: `TEST fill ${k + 1}` });
+  }
+  await page.reload();
+  await expect(header).toHaveText(
+    `${max} of ${max} price alerts in use. You are at the limit. Cancel or delete an alert to make room. ${burstWords}`,
+  );
+  // At the limit the form is switched off, saying why, and nothing can go to review.
+  await expect(form().getByTestId('alerts-reason')).toHaveText(
+    'Switched off: you are at your limit of price alerts. Cancel or delete one to make room.',
+  );
+  await expect(form().getByRole('button', { name: 'Review alert' })).toBeDisabled();
+  // The service holds the same count after a reload: the list carries `max` open (active or stopped) alerts.
+  await expect(rows().and(page.locator('[data-status="active"], [data-status="stopped"]'))).toHaveCount(max);
 });

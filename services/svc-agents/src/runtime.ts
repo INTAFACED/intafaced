@@ -25,6 +25,7 @@ import type { SpendGate } from './spend/gate.js';
 import { publishPendingApprovalRequests } from './own/approval-notices.js';
 import { publishPendingUsageAlerts } from './own/usage-limits.js';
 import { UserSpendStore } from './spend/store.js';
+import { productKindOff } from './fleet/control.js';
 import { withEngineSpan } from './tracing.js';
 
 /**
@@ -309,6 +310,11 @@ export class AgentRuntime {
     }
     if (!definition.enabled) {
       throw new AgentError(`Agent "${input.agentId}" is disabled`, 'agents.agent_not_found', 'agents.error.engine_unavailable');
+    }
+    // An operator switched every product agent off in one action (AG-control-02): a new session refuses until two founders
+    // restore the kind. A restart reads the row again.
+    if (await productKindOff(this.sql)) {
+      throw new AgentError(`Agent "${input.agentId}" is disabled by kind`, 'agents.agent_not_found', 'agents.error.engine_unavailable');
     }
 
     return this.insertSession(input.userId, definition.guardrail, input.metered ?? true);

@@ -17,6 +17,11 @@ import {
   isSharedSetup,
   judgeFullRun,
   judgeSteps,
+  mainReference,
+  splitInherited,
+  rangeFromCommits,
+  areasOf,
+  RANGE_MAX,
   pullFilePaths,
   sharedPulls,
   SHARED_SETUP,
@@ -276,6 +281,7 @@ test('sealPull: the title and body come from the pull request now; a moved head 
     runs: async () => runs,
     reportOf: reports({ 1: green }),
     files: async () => ['services/svc-bank/src/cards.ts'],
+    verdictOf: async () => ({ red: [], failing: 0, missing: [] }), // product code: a clean full run (journey-touch.mjs)
   });
   const pull = { state: 'open', head: { sha: HEAD }, title: 'x (J-bank-13 #1 #2)', body: '' };
   assert.equal((await sealPull({ repo: REPO, number: 5, sha: HEAD, io: io(pull) })).ok, true);
@@ -559,7 +565,7 @@ test('shared setup: the list, and what is not on it', () => {
 
 const fullRep = { states: { 'J-a-01#1': 'passed' }, files: { 'J-a-01#1': 'J-a-01.pw.mjs', 'J-b-01#1': 'J-b-01.pw.mjs' } };
 const clean = { red: [], failing: 3, missing: [] };
-const dirty = { red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }], failing: 4, missing: [] };
+const dirty = { red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: false }], failing: 4, missing: [] };
 const targeted = { red: [], failing: 0, missing: ['J-b-01.pw.mjs'] };
 const partialRed = { red: [{ step: 'J-a-01#1', why: 'failing, not in the baseline' }], failing: 1, missing: ['J-b-01.pw.mjs'] };
 const full = (over) =>
@@ -643,13 +649,23 @@ test('sealPull: a shared-setup pull request needs the clean full run, whatever i
   assert.equal(dirtySeal.fullOk, false);
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared }) })).ok, true, 'with a clean one passes');
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, runs: [] }) })).ok, false, 'with none fails');
+  // Product code off the list can reach any journey and no recorded map says which (journey-touch.mjs), so it needs the
+  // same clean full run; a pull request touching nothing a journeys run reads needs none.
+  const product = (over) =>
+    sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'], ...over }) });
+  const none = await product({ runs: [] });
+  assert.equal(none.ok, false, 'planted: product code with no run on its head fails');
+  assert.equal(none.fullOk, false);
+  assert.match(none.lines.join('\n'), /it changes what can reach any journey \(services\/svc-support\/src\/chat\.ts: product code/);
+  assert.equal((await product({ verdict: dirty })).ok, false, 'product code with a dirty full run fails');
+  assert.equal((await product({})).ok, true, 'product code with a clean full run passes');
   const plain = await sealPull({
     repo: REPO,
     number: 7,
     sha: HEAD,
-    io: io({ files: ['services/svc-support/src/chat.ts'], verdict: dirty, runs: [] }),
+    io: io({ files: ['.github/workflows/ci.yml', 'services/svc-support/src/chat.test.ts'], verdict: dirty, runs: [] }),
   });
-  assert.equal(plain.ok, true, 'a pull request off the list is unaffected');
+  assert.equal(plain.ok, true, 'a pull request touching nothing a journeys run reads is unaffected');
   assert.deepEqual(plain.lines, [`#7 (${HEAD.slice(0, 10)}): the title names no journey step`]);
   // Named steps and shared setup together: both must hold.
   const both = (verdict) => ({
@@ -670,12 +686,14 @@ test('the recheck takes a shared-setup pull request whose title names no step', 
   const pulls = [p(1, 'stack: staff roster'), p(2, 'svc-support: chat'), p(3, 'x (J-bank-13 #1)')];
   const files = { 1: ['tooling/scripts/local-stack-services/identity.mjs'], 2: ['services/svc-support/src/chat.ts'], 3: [] };
   const asked = [];
+  pulls.push(p(4, 'ci: a check'));
+  files[4] = ['.github/workflows/ci.yml'];
   const shared = await sharedPulls({ pulls, sha: HEAD, repo: REPO, filesOf: async (n) => (asked.push(n), files[n]) });
-  assert.deepEqual([...shared], [1]);
-  assert.deepEqual(asked, [1, 2], 'a title that names steps is taken without reading its files');
+  assert.deepEqual([...shared], [1, 2], 'shared setup and product code both need a journeys run (journey-touch.mjs)');
+  assert.deepEqual(asked, [1, 2, 4], 'a title that names steps is taken without reading its files');
   assert.deepEqual(
     recheckPulls({ pulls, sha: HEAD, repo: REPO, shared }).map((x) => x.number),
-    [1, 3],
+    [1, 2, 3],
   );
 });
 
@@ -801,7 +819,11 @@ const touchedPull = async ({
     io: {
       pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: OLD }, title, body }),
       runs: async () => [run(1)],
-      reportOf: reports({ 1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' } } }),
+      reportOf: reports({
+        1: { states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-13#3': 'passed' }, ran: ['J-bank-13.pw.mjs'] },
+      }),
+      // The run on the head is clean by the journeys verdict, so these cases judge the step naming alone.
+      verdictOf: async () => ({ red: [], failing: 0, missing: [] }),
       files: async () => files,
       text: async (f, ref) => (ref === HEAD ? (text[f] ?? null) : null),
     },
@@ -1047,4 +1069,621 @@ test('a completed newest run on the current head, nothing else going: exactly on
   const r = await recheckWith({ runs: () => [ciRun(77)], jobs: () => [recheckSeal()], blocker: headFree });
   assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
   assert.equal(rerunBlocker({ sha: STALE_OLD, pulls: [pr7398()], headRuns: [] }), null);
+});
+
+test('fullVerdict: two journey files sharing one step id, both run, make a full run; one of them gone is short of it', () => {
+  // J-wallet-04 #7 is in J-wallet-04.pw.mjs ("the bank's half") and J-wallet-04-security-lock.pw.mjs ("identity's half").
+  // The step-to-file map keeps one file a step, so the seal read a clean full run as short of the other (#7492's seal,
+  // run 42419894849 attempt 2). The files each run ran decide it.
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const rep = (...specs) => readReport({ suites: [{ specs }] });
+  const both = () => [
+    spec('J-w-04 #1', 'expected', 'J-w-04.pw.mjs'),
+    spec("J-w-04 #7 (the bank's half)", 'expected', 'J-w-04.pw.mjs'),
+    spec("J-w-04 #7 (identity's half)", 'expected', 'J-w-04-lock.pw.mjs'),
+  ];
+  const named = rep(...both());
+  const inputs = {
+    baseline: { run: { number: 100, id: 1 }, steps: [] },
+    money: { 'J-w-04#1': false, 'J-w-04#7': false },
+    reports: new Map(),
+  };
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [] });
+  const v = (report, r = read) => fullVerdict({ repo: REPO, report, run: run(1), inputs, read: r });
+  assert.deepEqual(named.ran, ['J-w-04-lock.pw.mjs', 'J-w-04.pw.mjs'], 'the report lists both files it ran');
+  const full = v(rep(...both()));
+  assert.deepEqual([full.missing, full.red], [[], []], 'both files ran: a full run, clean');
+  const short = v(rep(...both().slice(0, 2)));
+  assert.deepEqual(short.missing, ['J-w-04-lock.pw.mjs'], 'the file left out is named, though its step id ran in the other');
+  const noList = v(rep(...both()), () => ({ named: { ...named, ran: undefined }, passedSince: {}, issues: {}, problems: [] }));
+  assert.deepEqual(
+    noList.red.map((r) => r.why),
+    ["the named run's report has no list of the files it ran"],
+    'a named run without its file list fails closed',
+  );
+});
+
+// ---- C1: reds inherited from main stop only their area (owner decision 180) ----
+
+const MAIN_SHA = 'c'.repeat(40);
+const PASS_SHA = 'd'.repeat(40);
+const mainRun = (id, over = {}) => run(id, { head_sha: MAIN_SHA, head_branch: 'main', event: 'push', ...over });
+const mainRef = (over = {}) => ({
+  run: mainRun(50),
+  red: new Map([['J-wallet-05#3', 'failing, not in the baseline']]),
+  lastPass: { 'J-wallet-05#3': PASS_SHA },
+  problems: [],
+  ...over,
+});
+const redW = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: false }];
+const area = (journeys = [], paths = []) => ({ journeys: new Set(journeys), paths: new Set(paths) });
+const range =
+  (files = ['services/svc-wallet/src/send.ts'], commits = 3) =>
+  async () => ({ files, commits, short: false });
+
+test('C1 planted: a red main already had, outside the pull request area, stops no one; inside it, it stops', async () => {
+  const out = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-support/src/chat.ts']),
+    rangeOf: range(),
+  });
+  assert.deepEqual(out.blocking, [], 'outside its journey and its break range: passed over');
+  assert.match(
+    out.passed[0].why,
+    /main's run 50 on cccccccccc has it red too; its area is J-wallet-05 and what 3 commit\(s\) in dddddddddd\.\.cccccccccc changed \(services\/svc-wallet\)/,
+  );
+  const byJourney = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area(['J-wallet-05']), rangeOf: range() });
+  assert.equal(byJourney.blocking.length, 1, 'a pull request touching its journey is stopped');
+  assert.match(byJourney.blocking[0].why, /inherited from main's run 50 .*touches J-wallet-05/);
+  const byCode = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-wallet/src/send.ts']),
+    rangeOf: range(),
+  });
+  assert.equal(byCode.blocking.length, 1, 'a pull request changing a file its break range changed is stopped');
+  assert.match(
+    byCode.blocking[0].why,
+    /changes services\/svc-wallet\/src\/send\.ts \(services\/svc-wallet\), which a commit in dddddddddd\.\.cccccccccc/,
+  );
+  const samePackage = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-wallet/src/other.ts']),
+    rangeOf: range(),
+  });
+  assert.equal(samePackage.blocking.length, 1, 'another file of a package its break range changed is in its area (AGENTS.md floor 5)');
+  const root = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['pnpm-lock.yaml']),
+    rangeOf: range(['pnpm-lock.yaml']),
+  });
+  assert.equal(root.blocking.length, 1, 'a root file is its own area');
+});
+
+test('C1 planted: a red new on the head always stops it, whatever main has', async () => {
+  const mine = [{ step: 'J-bank-13#1', why: 'failing, not in the baseline' }, ...redW];
+  const out = await splitInherited({ upTo: MAIN_SHA, red: mine, main: mainRef(), touches: area(), rangeOf: range() });
+  assert.deepEqual(
+    out.blocking.map((x) => x.step),
+    ['J-bank-13#1'],
+    'green on main, red here: this head broke it',
+  );
+  const input = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: '(input)', why: 'x' }],
+    main: mainRef(),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(input.blocking.length, 1, 'an unreadable input is never inherited');
+});
+
+test('C1 planted: a red that cannot be bounded stops every pull request', async () => {
+  const none = await splitInherited({ upTo: MAIN_SHA, red: redW, main: null, touches: area(), rangeOf: range() });
+  assert.equal(none.blocking.length, 1, 'no main run in the head history: every red counts');
+  const blind = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef({ problems: ['history unreadable'] }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(blind.blocking.length, 1, 'main run with an unreadable input: every red counts');
+  const wide = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area(), rangeOf: range(['a'], RANGE_MAX + 1) });
+  assert.match(wide.blocking[0]?.why ?? '', new RegExp(`can't be bounded \\(${RANGE_MAX + 1} commits`));
+  const err = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area(),
+    rangeOf: async () => Promise.reject(new Error('HTTP 404')),
+  });
+  assert.match(err.blocking[0]?.why ?? '', /can't be bounded \(HTTP 404\)/);
+  const short = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area(),
+    rangeOf: async () => ({ files: ['a'], commits: 2, short: true }),
+  });
+  assert.equal(short.blocking.length, 1, 'a file list GitHub cut short');
+  const noSha = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': '' } }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(noSha.blocking.length, 1, 'where it last passed is unreadable');
+  const never = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': null } }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(never.blocking.length, 1, 'council G1: a step that never passed on main has no break range, so it is unbounded');
+});
+
+test('C1: the main run compared with is the newest finished full one on main the head contains', async () => {
+  const reps = { 50: { ok: 1 }, 51: { ok: 1 }, 52: { ok: 1 }, 53: { ok: 1 }, 54: { error: 'gone' } };
+  const ref = (mainRuns, { contains = async () => true, verdicts = {} } = {}) =>
+    mainReference({
+      repo: REPO,
+      mainRuns,
+      contains,
+      reportOf: async (r) => reps[r.id],
+      verdictOf: async (_rep, r) =>
+        verdicts[r.id] ?? { red: [{ step: 'J-x-01#1', why: 'f' }], missing: [], lastPass: { 'J-x-01#1': null } },
+    });
+  const runs = [mainRun(50), mainRun(51), mainRun(52, { head_sha: OLD })];
+  assert.equal((await ref(runs, { contains: async (sha) => sha === MAIN_SHA }))?.run.id, 51, 'newest the head contains');
+  assert.equal((await ref([mainRun(50), mainRun(51, { head_sha: OLD })], { contains: async (sha) => sha === MAIN_SHA }))?.run.id, 50);
+  assert.equal(await ref(runs, { contains: async () => false }), null, 'none in the head history');
+  assert.equal(
+    (await ref([mainRun(50), mainRun(51, { head_branch: 'feature' }), mainRun(53, { event: 'pull_request' })]))?.run.id,
+    50,
+    'a branch run or a pull request run is not main',
+  );
+  assert.equal((await ref([mainRun(50), mainRun(51, { conclusion: 'cancelled' })]))?.run.id, 50, 'a cancelled run says nothing');
+  assert.equal(
+    (await ref([mainRun(50), mainRun(51)], { verdicts: { 51: { red: [], missing: ['J-b-01.pw.mjs'] } } }))?.run.id,
+    50,
+    'a run short of files is passed over',
+  );
+  await assert.rejects(ref([mainRun(50), mainRun(54)]), /report couldn't be read/, 'an unreadable main report fails closed');
+  const got = await ref([mainRun(50)]);
+  assert.deepEqual([...got.red.keys()], ['J-x-01#1']);
+});
+
+test('C1 sealPull planted: a product pull request on a red main seals outside the red area and not inside it', async () => {
+  const inheritedDirty = { ...dirty, lastPass: { 'J-wallet-05#3': PASS_SHA } };
+  const io = ({
+    files,
+    title = 'svc-support: chat keeps its draft',
+    mainVerdict = inheritedDirty,
+    rangeFiles = ['services/svc-wallet/src/send.ts'],
+  }) => ({
+    pull: async () => ({ state: 'open', head: { sha: HEAD }, base: { sha: MAIN_SHA }, title, body: '' }),
+    runs: async () => [run(1)],
+    reportOf: reports({ 1: { ...fullRep, ran: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs'] }, 50: fullRep }),
+    files: async () => files,
+    text: async () => 'test(`${J} #1 opens`, async () => {}); test(`${J} #3 sends`, async () => {});',
+    verdictOf: async (_rep, r) => (r.id === 50 ? mainVerdict : dirty),
+    mainRuns: async () => [mainRun(50)],
+    contains: async (sha, head) => sha === MAIN_SHA && head === HEAD,
+    mergeBase: async (base, head) => (base === MAIN_SHA && head === HEAD ? MAIN_SHA : null),
+    rangeOf: async () => ({ files: rangeFiles, commits: 2, short: false }),
+  });
+  const outside = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'] }) });
+  assert.equal(outside.ok, true, outside.lines.join('\n'));
+  assert.match(outside.lines.join('\n'), /J-wallet-05#3 is red on this head and inherited/);
+  const own = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: io({ files: ['services/svc-support/src/chat.ts'], mainVerdict: { ...clean, lastPass: {} } }),
+  });
+  assert.equal(own.ok, false, "planted: the same red with main green on it is this pull request's own");
+  const named = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: io({ files: ['services/svc-support/src/chat.ts'], title: 'svc-support: chat (J-wallet-05 #1)' }),
+  });
+  assert.equal(named.fullOk, false, 'a title naming a step of its journey is in its area');
+  const testFile = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: io({ files: ['services/svc-support/src/chat.ts', 'apps/customer/tests/real-app/J-wallet-05.pw.mjs'], title: 'x (J-wallet-05 #3)' }),
+  });
+  assert.equal(testFile.fullOk, false, 'its journey test file is in its area');
+  const code = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-wallet/src/fees.ts'] }) });
+  assert.equal(code.ok, false, 'a package its break range changed is in its area');
+  // A journey-test-only pull request run on the full suite: a red main had, in another journey, stops it no more.
+  const testOnly = (title, file) =>
+    sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: [`apps/customer/tests/real-app/${file}`], title }) });
+  assert.equal((await testOnly('x (J-bank-13 #1)', 'J-bank-13.pw.mjs')).fullOk, true, 'test-only, red elsewhere inherited: passes');
+  assert.equal((await testOnly('x (J-wallet-05 #3)', 'J-wallet-05.pw.mjs')).fullOk, false, 'test-only on the red journey: stopped');
+  const shared = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['tooling/scripts/local-test-world.mjs'] }) });
+  assert.equal(shared.ok, false, 'review R1: shared setup reaches every journey, so nothing inherited is passed over');
+  assert.match(shared.lines.join('\n'), /shared setup, which reaches every journey, so every red counts/);
+  const money = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), moneyCode: async (p) => p.includes('services/svc-support/src/chat.ts') },
+  });
+  assert.equal(money.ok, false, 'review R2: a pull request changing money code inherits nothing (AGENTS.md How work flows 8)');
+  const manifest = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts', 'services/svc-support/package.json'] }), moneyCode: async () => false },
+  });
+  assert.equal(
+    manifest.ok,
+    false,
+    "CI review: a changed package.json may add a ledger-client dependency the base can't see, so every red counts",
+  );
+  const notInHistory = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), contains: async () => false },
+  });
+  assert.equal(notInHistory.ok, false, 'no main run in the head history: every red counts');
+  const broken = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), mainRuns: async () => Promise.reject(new Error('HTTP 502')) },
+  });
+  assert.equal(broken.ok, false, 'an unreadable main fails closed');
+  assert.match(broken.lines.join('\n'), /couldn't be read \(HTTP 502\), so every red counts/);
+});
+
+test('C1: fullVerdict says where each red step last passed on main', () => {
+  const spec = (title, status, file) => ({ title, file, tests: [{ status }] });
+  const rep = (...specs) => readReport({ suites: [{ file: 'J-a-01.pw.mjs', specs }] });
+  const named = rep(
+    spec('J-a-01 #1', 'expected', 'J-a-01.pw.mjs'),
+    spec('J-a-01 #2', 'expected', 'J-a-01.pw.mjs'),
+    spec('J-a-01 #3', 'unexpected', 'J-a-01.pw.mjs'),
+  );
+  const inputs = { baseline: { run: { number: 100, id: 1, sha: PASS_SHA }, steps: [] }, money: {}, reports: new Map() };
+  const read = () => ({ named, passedSince: { 'J-a-01#2': 105 }, issues: {}, problems: [], shas: { 105: MAIN_SHA } });
+  const v = fullVerdict({
+    repo: REPO,
+    report: rep(
+      spec('J-a-01 #1', 'unexpected', 'J-a-01.pw.mjs'),
+      spec('J-a-01 #2', 'unexpected', 'J-a-01.pw.mjs'),
+      spec('J-a-01 #3', 'unexpected', 'J-a-01.pw.mjs'),
+    ),
+    run: run(1),
+    inputs,
+    read,
+  });
+  assert.deepEqual(v.lastPass, { 'J-a-01#1': PASS_SHA, 'J-a-01#2': MAIN_SHA, 'J-a-01#3': null });
+});
+
+test('C1 review round 0: a flake on one commit, a reason main lacks, a re-run of an older main run, and areas', async () => {
+  const flake = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': MAIN_SHA } }),
+    touches: area([], ['services/svc-wallet/src/send.ts']),
+    rangeOf: async () => assert.fail('no compare for an empty range'),
+  });
+  assert.equal(flake.blocking.length, 0, 'last passed on the commit it now fails on: no commit broke it, its journey is its area');
+  const other = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: 'J-wallet-05#3', why: 'the baseline says money false, the money rule at this commit says true' }],
+    main: mainRef(),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(other.blocking.length, 1, 'red for a reason main does not have: not inherited');
+  const numbers = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: 'J-wallet-05#3', why: 'called unbuilt, but passed on main in run 1990', money: false }],
+    main: mainRef({ red: new Map([['J-wallet-05#3', 'called unbuilt, but passed on main in run 1981']]) }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(numbers.blocking.length, 0, 'the same reason read from two runs differs only in run numbers');
+  const noTip = await splitInherited({ upTo: null, red: redW, main: mainRef(), touches: area(), rangeOf: range() });
+  assert.equal(noTip.blocking.length, 1, 'the newest main commit the head holds unreadable: unbounded');
+  const fixTried = await splitInherited({
+    upTo: 'e'.repeat(40),
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-fees/src/a.ts']),
+    rangeOf: async (from, to) => ({ files: to === 'e'.repeat(40) ? ['services/svc-fees/src/b.ts'] : [], commits: 4, short: false }),
+  });
+  assert.equal(fixTried.blocking.length, 1, 'the range runs to the newest main commit the head holds, past the reference run');
+  // Every path counts by its package, and a journey test file by its journey too (CI review on e288d257).
+  assert.deepEqual(areasOf('apps/customer/tests/real-app/J-bank-13.pw.mjs'), ['apps/customer', 'journey J-bank-13']);
+  assert.deepEqual(areasOf('apps/customer/src/features/more/Support.tsx'), ['apps/customer']);
+  assert.deepEqual(areasOf('services/svc-bank/src/a.test.ts'), ['services/svc-bank']);
+  assert.deepEqual(areasOf('pnpm-lock.yaml'), ['pnpm-lock.yaml']);
+  for (const rangeFile of ['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'apps/customer/src/x.test.ts']) {
+    const out = await splitInherited({
+      upTo: MAIN_SHA,
+      red: redW,
+      main: mainRef(),
+      touches: area([], ['apps/customer/src/features/more/Support.tsx']),
+      rangeOf: range([rangeFile]),
+    });
+    assert.equal(out.blocking.length, 1, `planted: ${rangeFile} in the break range puts apps/customer in the area`);
+  }
+  const elsewhere = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-support/src/chat.ts']),
+    rangeOf: range(['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'tooling/ci/why-red.mjs']),
+  });
+  assert.equal(elsewhere.blocking.length, 0, 'a pull request in none of the range packages still passes over the inherited red');
+  // A re-run attempt of an older main run started last is still older than a later run.
+  const reps = { 60: { ok: 1 }, 61: { ok: 1 } };
+  const ref = await mainReference({
+    repo: REPO,
+    mainRuns: [
+      mainRun(60, { run_number: 1700, created_at: '2026-11-06T01:00:00Z', run_started_at: '2026-11-06T09:00:00Z', run_attempt: 2 }),
+      mainRun(61, { run_number: 1720, created_at: '2026-11-06T05:00:00Z', run_started_at: '2026-11-06T05:00:00Z' }),
+    ],
+    contains: async () => true,
+    reportOf: async (r) => reps[r.id],
+    verdictOf: async () => ({ red: [], missing: [], lastPass: {} }),
+  });
+  assert.equal(ref.run.id, 61, 'by creation, not by the newest attempt start');
+});
+
+test('C1: a path a pull request names is printed with its control characters shown as ?, never written', async () => {
+  const evil = 'services/svc-wallet/x\n::error::forged.ts';
+  const out = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area([], [evil]), rangeOf: range() });
+  assert.equal(out.blocking.length, 1);
+  assert.doesNotMatch(out.blocking[0].why, /\n/);
+});
+
+test("C1 review round 1: the break range also runs to main's reference run when the base read is older (R4)", async () => {
+  const OLDER = 'f'.repeat(40);
+  const out = await splitInherited({
+    upTo: OLDER,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-wallet/src/fees.ts']),
+    rangeOf: async (from, to) => ({ files: to === MAIN_SHA ? ['services/svc-wallet/src/send.ts'] : [], commits: 2, short: false }),
+  });
+  assert.equal(out.blocking.length, 1, 'the commits up to the reference run count even when the newest main commit read is older');
+  const err = await splitInherited({
+    upTo: OLDER,
+    red: redW,
+    main: mainRef(),
+    touches: area(),
+    rangeOf: async (from, to) => (to === OLDER ? Promise.reject(new Error('behind')) : { files: [], commits: 1, short: false }),
+  });
+  assert.equal(err.blocking.length, 1, 'either end unreadable: unbounded');
+  assert.equal(
+    (await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: { ...area(), money: true }, rangeOf: range() })).blocking
+      .length,
+    1,
+    'money code: every red counts',
+  );
+});
+
+test("C1 council G2: the break range is every commit's own paths, so a package one commit broke and a later one restored counts", async () => {
+  const A = '1'.repeat(40);
+  const B = '2'.repeat(40);
+  const calls = [];
+  const get = async (p) => {
+    calls.push(p);
+    if (p.includes('/compare/'))
+      return { status: 'ahead', total_commits: 2, commits: [{ sha: A }, { sha: B }], files: [{ filename: 'services/svc-a/x.ts' }] };
+    if (p.endsWith(A))
+      return {
+        files: [{ filename: 'services/svc-a/x.ts' }, { filename: 'services/svc-b/y.ts', previous_filename: 'services/svc-c/y.ts' }],
+      };
+    if (p.endsWith(B)) return { files: [{ filename: 'services/svc-b/y.ts' }] };
+    throw new Error(p);
+  };
+  const r = await rangeFromCommits(get, REPO, PASS_SHA, MAIN_SHA);
+  assert.deepEqual(r.files.sort(), ['services/svc-a/x.ts', 'services/svc-b/y.ts', 'services/svc-c/y.ts']);
+  assert.equal(r.commits, 2);
+  assert.equal(r.short, false);
+  const out = await splitInherited({
+    upTo: MAIN_SHA,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-b/z.ts']),
+    rangeOf: async () => r,
+  });
+  assert.equal(out.blocking.length, 1, 'svc-b, restored by the net diff, is still in the area');
+  const wide = await rangeFromCommits(
+    async () => ({ status: 'ahead', total_commits: RANGE_MAX + 1, commits: [] }),
+    REPO,
+    PASS_SHA,
+    MAIN_SHA,
+  );
+  assert.equal(wide.short, true, 'too wide: no reads, and marked');
+  const cut = await rangeFromCommits(async () => ({ status: 'ahead', total_commits: 3, commits: [{ sha: A }] }), REPO, PASS_SHA, MAIN_SHA);
+  assert.equal(cut.short, true, 'a commit list shorter than the count is short');
+  assert.deepEqual(await rangeFromCommits(async () => ({ status: 'identical' }), REPO, MAIN_SHA, MAIN_SHA), {
+    files: [],
+    commits: 0,
+    short: false,
+  });
+  await assert.rejects(
+    rangeFromCommits(async () => ({ status: 'behind', total_commits: 0 }), REPO, MAIN_SHA, PASS_SHA),
+    /behind/,
+  );
+  await assert.rejects(
+    rangeFromCommits(
+      async (p) => (p.includes('/compare/') ? { status: 'ahead', total_commits: 1, commits: [{ sha: A }] } : {}),
+      REPO,
+      PASS_SHA,
+      MAIN_SHA,
+    ),
+    /files: not a list/,
+  );
+});
+
+test('CI review: a money step red on main too is never passed over, outside every area and as a same-commit flake', async () => {
+  const moneyRed = [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline', money: true }];
+  const outside = await splitInherited({
+    upTo: MAIN_SHA,
+    red: moneyRed,
+    main: mainRef(),
+    touches: area([], ['services/svc-support/src/chat.ts']),
+    rangeOf: range(),
+  });
+  assert.equal(outside.blocking.length, 1);
+  assert.match(outside.blocking[0].why, /money step, so it stops every pull request/);
+  const flake = await splitInherited({
+    upTo: MAIN_SHA,
+    red: moneyRed,
+    main: mainRef({ lastPass: { 'J-wallet-05#3': MAIN_SHA } }),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(flake.blocking.length, 1, 'the same-commit flake case does not clear a money step');
+  const unmarked = await splitInherited({
+    upTo: MAIN_SHA,
+    red: [{ step: 'J-wallet-05#3', why: 'failing, not in the baseline' }],
+    main: mainRef(),
+    touches: area(),
+    rangeOf: range(),
+  });
+  assert.equal(unmarked.blocking.length, 1, 'a red not marked non-money counts as money');
+});
+
+test('recheckTargets: after CI every open pull request on the head is re-sealed; after a journeys run only named ones (R3 C3 piece 2)', async () => {
+  const { recheckTargets } = await import('./journey-seal.mjs');
+  const sha = 'c'.repeat(40);
+  const pr = (number, title, over = {}) => ({
+    number,
+    title,
+    state: 'open',
+    head: { sha },
+    base: { repo: { full_name: 'o/r' } },
+    body: '',
+    ...over,
+  });
+  const pulls = [
+    pr(1, 'fix the copy'),
+    pr(2, 'J-bank-13 #1 pays'),
+    pr(3, 'other head', { head: { sha: 'd'.repeat(40) } }),
+    pr(4, 'closed', { state: 'closed' }),
+  ];
+  const filesOf = async () => ['services/svc-pay/src/a.test.ts']; // a change no journeys run judges (journey-touch none)
+  const ci = await recheckTargets({ finished: 'CI', pulls, sha, repo: 'o/r', filesOf });
+  assert.deepEqual(
+    ci.map((p) => p.number),
+    [1, 2],
+  );
+  const journeys = await recheckTargets({ finished: 'Real-app journeys', pulls, sha, repo: 'o/r', filesOf });
+  assert.deepEqual(
+    journeys.map((p) => p.number),
+    [2],
+    'a journeys run re-seals only what names or touches journeys',
+  );
+});
+
+test("rerunSealJob reads merge-seal.yml's pull_request_target runs when asked, and re-runs that seal", async () => {
+  const { SEAL_WORKFLOWS } = await import('./journey-seal.mjs');
+  assert.deepEqual(
+    SEAL_WORKFLOWS.map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+  );
+  const paths = [];
+  const get = async (path) => {
+    paths.push(path);
+    if (path.includes('/runs?'))
+      return {
+        workflow_runs: [
+          { id: 5, event: 'pull_request_target', status: 'completed' },
+          { id: 6, event: 'pull_request', status: 'completed' },
+        ],
+      };
+    return { jobs: [{ id: 50, name: SEAL, status: 'completed', conclusion: 'failure' }] };
+  };
+  let posted = '';
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get,
+    post: async (p) => ((posted = p), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: 'pull_request_target',
+  });
+  assert.match(paths[0], /workflows\/merge-seal\.yml\/runs\?head_sha=.*&event=pull_request_target/);
+  assert.match(posted, /jobs\/50\/rerun$/, msg);
+  assert.match(paths[1], /runs\/5\/jobs/, 'the pull_request_target run, not the ci.yml one');
+});
+
+test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-check re-runs it with the newest', async () => {
+  const runs = [
+    { id: 30, event: 'pull_request_target', status: 'completed' },
+    { id: 31, event: 'pull_request_target', status: 'completed' },
+    { id: 32, event: 'pull_request_target', status: 'completed' },
+  ];
+  const jobs = {
+    30: [{ id: 300, name: SEAL, status: 'completed', conclusion: 'failure' }],
+    31: [{ id: 310, name: SEAL, status: 'completed', conclusion: 'success' }],
+    32: [{ id: 320, name: SEAL, status: 'completed', conclusion: 'skipped' }],
+  };
+  const get = async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] });
+  const posted = [];
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get,
+    post: async (p) => (posted.push(/jobs\/(\d+)\/rerun/.exec(p)[1]), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: 'pull_request_target',
+  });
+  // The skipped seal (an edit) is passed over; the newest real one (31) is re-run, and so is the older red one (30).
+  assert.deepEqual(posted, ['310', '300'], msg);
+  // Planted: without otherSeals, run 30's red seal would stay and block the head.
+  assert.ok(!posted.includes('320'), 'a skipped seal is never re-run');
+});
+
+test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (edited, base change only)', () => {
+  const text = readFileSync(new URL('../../.github/workflows/merge-seal.yml', import.meta.url), 'utf8');
+  assert.match(text, /types: \[opened, synchronize, reopened, edited\]/);
+  // Review 7552-R6: never a skipped seal job (GitHub counts it as passing); every edit runs the whole seal.
+  assert.doesNotMatch(text.split('\njobs:')[1], /\n {4}if:/, 'the seal job has no if: that could skip it');
+  assert.match(text, /branches: \[main\]/);
+  // Planted: without `edited`, a retarget to main starts no seal run here.
+  assert.doesNotMatch(text.replace('reopened, edited', 'reopened'), /reopened, edited/);
+});
+
+test('after CI finished, only the default branch seal is re-run; re-running ci.yml would loop (CI review on 7a7eb9a0)', async () => {
+  const { sealsToRecheck } = await import('./journey-seal.mjs');
+  assert.deepEqual(
+    sealsToRecheck('CI').map((w) => w.workflow),
+    ['merge-seal.yml'],
+  );
+  assert.deepEqual(
+    sealsToRecheck('Real-app journeys').map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+  );
+  assert.deepEqual(
+    sealsToRecheck('').map((w) => w.workflow),
+    ['ci.yml', 'merge-seal.yml'],
+    'an edit re-runs both',
+  );
 });

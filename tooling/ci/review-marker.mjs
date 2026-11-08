@@ -28,9 +28,6 @@
  * same rule is applied to every pull request in the group, each against its own head, without waiting (sealMergeGroup).
  * The seal runs the default branch's copy of this file, so a pull request cannot change which of its files need the
  * review. A pull request that edits the workflow itself touches .github/workflows/, a gate file, which always needs the review.
- *
- * The comment and session helpers below (MARKER, sessionsForHead, commentSignoff, ...) stay exported for
- * review-signoff.mjs, which still runs until its retirement PR; nothing in the seal reads them any more.
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -42,113 +39,9 @@ import { judgeReason } from './test-judge.mjs';
 const REVIEW_WAIT_MS = 20 * 60_000;
 const REVIEW_POLL_MS = 60_000; // each poll reads the head's and the branch's lists, the tree index and its review runs
 
-/** The comment line the sign-off workflow accepts, on its own line. */
-export const MARKER = /^Independent review: PASS ([0-9a-f]{40})[ \t]*$/im;
-
+/** The status the retired sign-off workflow posted (review-signoff.yml, retired in U4 C5). Nothing counts it: the seal
+ *  reads only the CI review's Verdict (ci-review.test.mjs plants one to prove it). */
 export const STATUS_CONTEXT = 'Independent review';
-
-const SESSION_ID = /session_[A-Za-z0-9]+/g;
-/**
- * A commit's session trailer, the `<Tool>-Session: <link>` line AGENTS.md, "Where a mistake costs more" names. Any word before `-Session:`
- * counts, so a renamed trailer still names its author (more author sessions, never fewer).
- */
-const SESSION_TRAILER = /^[A-Za-z]+-Session:/i;
-
-/** The sessions that wrote a pull request: every session id on a session-trailer line of its commit messages. */
-export function commitSessions(messages) {
-  const out = new Set();
-  for (const msg of messages ?? []) {
-    for (const line of String(msg ?? '').split('\n')) {
-      if (SESSION_TRAILER.test(line.trim())) for (const id of line.match(SESSION_ID) ?? []) out.add(id);
-    }
-  }
-  return out;
-}
-
-/**
- * The author sessions of head `sha`, from the pull request's commit list (GitHub's /pulls/{n}/commits: at most 250,
- * ordered by date, not by parent). Null when the list may not be whole for this head: the head is not in it (a push
- * in between) or GitHub's cap of 250 was reached. One rule for the seal and the sign-off workflow.
- */
-export function sessionsForHead(commits, sha) {
-  const list = commits ?? [];
-  const want = String(sha).toLowerCase();
-  if (list.length >= 250 || !list.some((c) => String(c?.sha ?? '').toLowerCase() === want)) return null;
-  return commitSessions(list.map((c) => c?.commit?.message));
-}
-
-/** A `Reviewer session:` line whose first word is the session, bare or as a link (tooling/ci/ci-review/REVIEW.md). */
-const REVIEWER_LINE = /^Reviewer session:\s*<?(?:https?:\/\/[^\s>]*\/)?(session_[A-Za-z0-9]+)\b/i;
-
-/**
- * The sessions a PASS names as its reviewer: the session written first on each `Reviewer session:` line. The rest of
- * the line may name the author ("Reviewer session: session_R (author is session_A)") without making it the author's
- * PASS. A comment with no such line counts every session id in it, so any other phrasing errs towards refusing.
- */
-export function passSessions(body) {
-  const lines = String(body ?? '').split('\n');
-  const named = lines.map((l) => REVIEWER_LINE.exec(l.trim())?.[1]).filter(Boolean);
-  return new Set(named.length > 0 ? named : lines.flatMap((l) => l.match(SESSION_ID) ?? []));
-}
-
-/** The sessions a PASS names on its `Reviewer session:` lines, and only those. */
-export function reviewerLineSessions(body) {
-  return String(body ?? '')
-    .split('\n')
-    .map((l) => REVIEWER_LINE.exec(l.trim())?.[1])
-    .filter(Boolean);
-}
-
-/**
- * Why a PASS does not count for the session it names, or null when it does. A PASS must name its reviewing session on
- * a line of its own, `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more"; a gate since OWNER 138 (1)(a), 31 Oct): without
- * one, nothing shows another session reviewed. A PASS that names the PR's own session does not count either (owner
- * decision 2026-10-30, OWNER 124 (4)): a session on one of the PR's session-trailer commit lines. `authorSessions` is
- * that Set, or null when the commits could not be read whole; then no PASS counts.
- */
-export function sessionRefusal(body, authorSessions) {
-  if (reviewerLineSessions(body).length === 0)
-    return 'it names no reviewing session; add a line of its own `Reviewer session: session_…` (AGENTS.md, "Where a mistake costs more")';
-  if (!(authorSessions instanceof Set)) return "the pull request's commits could not be read whole, so its sessions are unknown";
-  for (const id of passSessions(body)) {
-    if (authorSessions.has(id)) return `it names the pull request's own session (${id}); another session must review`;
-  }
-  return null;
-}
-
-/** True when the newest status of the review context on this head is a success. */
-export function hasSignoff(statuses) {
-  const mine = statuses.filter((s) => s?.context === STATUS_CONTEXT);
-  return mine.length > 0 && mine[0].state === 'success'; // the API lists newest first
-}
-
-/**
- * A PASS marker for exactly this head by a listed reviewer (the session rule is separate: sessionRefusal). `reviewers`
- * are lower-case logins from the default branch's reviewers.json, `author` is the pull request author's login.
- */
-export function markerFits(c, { sha, reviewers, requireDistinctFromAuthor, author }) {
-  const login = String(c?.user?.login ?? '').toLowerCase();
-  const m = MARKER.exec(c?.body ?? '');
-  if (!m || m[1].toLowerCase() !== String(sha).toLowerCase() || !reviewers.includes(login)) return false;
-  return !(requireDistinctFromAuthor && login === String(author ?? '').toLowerCase());
-}
-
-/**
- * Does a PASS comment sign off this head? `comments` are issue comments; `authorSessions` the sessions on the PR's
- * session-trailer commit lines, or null (unknown: nothing counts). Returns { ok, refused }, where `refused` lists the
- * fitting PASSes the session rule turned down, with why.
- */
-export function commentSignoff({ comments, authorSessions = null, ...who }) {
-  const refused = [];
-  for (const c of (comments ?? []).filter((x) => markerFits(x, who))) {
-    const reason = sessionRefusal(c.body, authorSessions);
-    if (!reason) return { ok: true, refused };
-    refused.push({ id: c.id, reason });
-  }
-  return { ok: false, refused };
-}
-
-export const hasCommentSignoff = (args) => commentSignoff(args).ok;
 
 /** The one workflow, job and step whose result seals a head (AGENTS.md, "Where a mistake costs more"). */
 export const REVIEW_WORKFLOW = '.github/workflows/ci-review.yml';
@@ -430,151 +323,6 @@ export async function sealMergeGroup({ commits, headRef, io, dryRun = false }) {
 }
 
 async function selfTest() {
-  const ok = { context: STATUS_CONTEXT, state: 'success' };
-  const cases = [
-    [[ok], true],
-    [[], false],
-    [[{ context: 'other', state: 'success' }], false],
-    [[{ context: STATUS_CONTEXT, state: 'failure' }, ok], false],
-    [[{ context: STATUS_CONTEXT, state: 'pending' }], false],
-    [[ok, { context: STATUS_CONTEXT, state: 'failure' }], true],
-  ];
-  for (const [statuses, want] of cases) {
-    if (hasSignoff(statuses) !== want) {
-      console.error('review-marker self-test failed for', JSON.stringify(statuses));
-      process.exit(1);
-    }
-  }
-  const sha = 'a'.repeat(40);
-  const markers = [
-    [`Independent review: PASS ${sha}`, true],
-    [`notes\nIndependent review: PASS ${sha}\nmore`, true],
-    [`Independent review: PASS ${sha} but not really`, false],
-    [`Independent review: FAIL ${sha}`, false],
-    [`Independent review: PASS for head ${sha}`, false],
-    ['Independent review: PASS aaaaaaaaa', false],
-    [`Independent review: PASS ${sha.toUpperCase()}`, true],
-  ];
-  for (const [body, want] of markers) {
-    if (MARKER.test(body) !== want) {
-      console.error('review-marker self-test failed for', JSON.stringify(body));
-      process.exit(1);
-    }
-  }
-  const reviewers = ['nino'];
-  const pass = (login, body) => ({ user: { login }, body });
-  const input = (comments, extra = {}) => ({
-    comments,
-    sha,
-    reviewers,
-    requireDistinctFromAuthor: false,
-    author: 'nino',
-    authorSessions: new Set(),
-    ...extra,
-  });
-  const commentCases = [
-    [input([pass('Nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)]), true],
-    // OWNER 138 (1)(a), 31 Oct: a PASS that names no reviewing session on its own line never counts.
-    [input([pass('Nino', `Independent review: PASS ${sha}`)]), false],
-    [input([pass('Nino', `Independent review: PASS ${sha}\nreviewed in session_R9`)]), false],
-    [input([pass('eve', `Independent review: PASS ${sha}`)]), false],
-    [input([pass('nino', `Independent review: PASS ${'b'.repeat(40)}`)]), false],
-    [input([pass('nino', `Independent review: PASS ${sha} but not really`)]), false],
-    [input([]), false],
-    // The author's own login never counts when the PR asks for a distinct reviewer, even with a session named.
-    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)], { requireDistinctFromAuthor: true }), false],
-    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R9`)], { requireDistinctFromAuthor: false }), true],
-    [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: s`)]), false],
-    [input([pass('nino', `x\nIndependent review: PASS ${sha}\nReviewer session: session_R9`)]), true],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://example.test/code/session_R1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      true,
-    ],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: https://example.test/code/session_A1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [input([pass('nino', `Independent review: PASS ${sha}\nsession_A1 (review)`)], { authorSessions: new Set(['session_A1']) }), false],
-    [
-      input([pass('nino', `Asked by session_A1.\nIndependent review: PASS ${sha}\nReviewer session: session_R1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      true,
-    ],
-    [input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_R1`)], { authorSessions: null }), false],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: this thread\nRan in session_A1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [input([pass('nino', `Independent review: PASS ${sha}`)], { authorSessions: undefined }), false],
-    // #6849, 30 Oct: the reviewer's line also named the author; it is the reviewer's PASS.
-    [
-      input(
-        [pass('nino', `Independent review: PASS ${sha}\n\nReviewer session: session_R2 (INTAFACED R2 review; author is G, session_A1)`)],
-        { authorSessions: new Set(['session_A1']) },
-      ),
-      true,
-    ],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_A1 (and session_R2)`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: reviewing session_R1's notes, ran in session_A1`)], {
-        authorSessions: new Set(['session_A1']),
-      }),
-      false,
-    ],
-    [
-      input(
-        [pass('nino', `Independent review: PASS ${sha}\nReviewer session: <https://example.test/code/session_R2> (author session_A1)`)],
-        {
-          authorSessions: new Set(['session_A1']),
-        },
-      ),
-      true,
-    ],
-  ];
-  for (const [args, want] of commentCases) {
-    if (hasCommentSignoff(args) !== want) {
-      console.error('review-marker comment self-test failed for', JSON.stringify(args));
-      process.exit(1);
-    }
-  }
-  const cm = (sha, message) => ({ sha, commit: { message } });
-  const listed = [cm('h', 'b\nAgent-Session: session_A1'), cm('o', 'older but dated later')];
-  if (
-    sessionsForHead(listed, 'h')?.has('session_A1') !== true ||
-    sessionsForHead(listed, 'x') !== null ||
-    sessionsForHead(
-      Array.from({ length: 250 }, (_, i) => cm(i === 0 ? 'h' : `c${i}`, '')),
-      'h',
-    ) !== null ||
-    !commentSignoff(
-      input([pass('nino', `Independent review: PASS ${sha}\nReviewer session: session_A1`)], { authorSessions: new Set(['session_A1']) }),
-    ).refused[0]?.reason.includes('session_A1')
-  ) {
-    console.error('review-marker sessionsForHead / refusal self-test failed');
-    process.exit(1);
-  }
-  const msgs = [
-    'feat: x\n\nCo-Authored-By: an agent\nAgent-Session: https://example.test/code/session_A1',
-    'fix: y',
-    'z\ntool-session: session_B2 ',
-  ];
-  const got = [...commitSessions(msgs)].sort().join(',');
-  if (got !== 'session_A1,session_B2' || commitSessions(['see session_C3 in the body']).size !== 0) {
-    console.error('review-marker commit-session self-test failed:', got);
-    process.exit(1);
-  }
   // Gate files and look baselines need the review; money and security code alone no longer does
   // (2026-11-06). Every case the old rule had is kept, with its expected result under the new one.
   const reasonCases = [
@@ -618,7 +366,7 @@ async function selfTest() {
       process.exit(1);
     }
   }
-  await mergeGroupSelfTest(reviewers);
+  await mergeGroupSelfTest(['nino']); // a PASS comment from a reviewer login, which counts for nothing
   console.log('review-marker self-test ok');
 }
 
