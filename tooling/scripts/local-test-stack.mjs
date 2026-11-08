@@ -1469,22 +1469,29 @@ const screeningSet = () => Boolean(screeningEnv().INTAFACED_SANCTIONS_REGIONS);
 
 // ── Start / status / stop ───────────────────────────────────────────────────
 
+/** The last lines of a service's log, or why there are none, for a start that failed. */
+function logTail(name, lines = 20) {
+  const file = path.join(P.logs, `${name}.log`);
+  try {
+    return fs.readFileSync(file, 'utf8').split('\n').slice(-lines).join('\n');
+  } catch (err) {
+    return `(could not read ${file}: ${err.code ?? err.message})`;
+  }
+}
+
 async function waitHealthy(name, url, pid, timeoutMs = 90_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
-    if (!psCommand(pid)) {
-      const tail = fs
-        .readFileSync(path.join(P.logs, `${name}.log`), 'utf8')
-        .split('\n')
-        .slice(-20)
-        .join('\n');
-      fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${tail}`);
-    }
+    if (!psCommand(pid)) fail(`${name} exited during start. Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`);
     const r = await httpGet(url, 2000);
     if (r.status === 200) return;
     await sleep(500);
   }
-  fail(`${name} did not become healthy at ${url} within ${timeoutMs / 1000}s (see ${path.join(P.logs, `${name}.log`)})`);
+  // Still running but not answering: its log says how far it got. A Node service's logger writes asynchronously, so
+  // a process whose event loop is blocked can hold its last lines unwritten (#7554).
+  fail(
+    `${name} did not become healthy at ${url} within ${timeoutMs / 1000}s; it is still running (pid ${pid}). Log ${path.join(P.logs, `${name}.log`)}:\n${logTail(name)}`,
+  );
 }
 
 async function startNats() {
