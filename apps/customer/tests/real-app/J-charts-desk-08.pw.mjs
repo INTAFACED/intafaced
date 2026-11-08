@@ -70,21 +70,33 @@ test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on t
   const rowShare = (t) => t.rows[0] / (t.rows[0] + t.rows[2]);
   // Back exactly as before: every cell at its old width and height (2 px), filling its own column and row track, and the
   // rows in the same proportion. Only compared when no cell's status or banner changed in between.
-  const restored = (before, now) =>
+  const restored = (before, now, { heights }) =>
     Math.abs(rowShare(now.tracks) - rowShare(before.tracks)) < 0.005 &&
     now.sizes.every(
       ([w, h], i) =>
         Math.abs(w - before.sizes[i][0]) < 2 &&
-        Math.abs(h - before.sizes[i][1]) < 2 &&
+        (!heights || Math.abs(h - before.sizes[i][1]) < 2) &&
         Math.abs(w - now.tracks.cols[(i % 2) * 2]) < 2 &&
         Math.abs(h - now.tracks.rows[Math.floor(i / 2) * 2]) < 2,
     );
-  for (const i of [0, 1, 2, 3]) await expect(cell(page, i).getByTestId('chart-status')).toBeVisible();
-  // A cycle whose cells changed status or banner between the two readings has no height to compare with, so it runs
-  // again on fresh readings, up to three times. A cycle with the same content that doesn't come back fails at once.
+  const ready = async () => {
+    for (const i of [0, 1, 2, 3]) await expect(cell(page, i).getByTestId('chart-status')).toBeVisible();
+  };
+  await ready();
+  // The first reading is the reference for everything content can't move: widths and the rows' proportion, every cycle.
+  const original = await snapshot();
+  // A cycle whose cells changed status or banner between its two readings has no height to compare with. The next
+  // cycle opens the grid afresh, never from the layout just restored, and that fresh start must itself match the first
+  // reading (heights too, when its content is the same), so a broken restore can't become the next cycle's baseline.
+  // At most three cycles; a cycle with the same content that doesn't come back fails at once.
   let outcome = 'content changed';
   for (let cycle = 0; cycle < 3 && outcome === 'content changed'; cycle++) {
-    const before = await snapshot();
+    if (cycle > 0) {
+      await openGrid(page);
+      await ready();
+    }
+    const before = cycle === 0 ? original : await snapshot();
+    expect(restored(original, before, { heights: before.keys === original.keys }), 'the grid opens as it first did').toBe(true);
     await canvasOf(page, 1).focus();
     await page.keyboard.press('Alt+Enter');
     await expect(page.getByTestId('cg-area')).toHaveAttribute('data-maximised', '1');
@@ -97,7 +109,10 @@ test(`${J} #2 maximises one chart with Alt+Enter and brings the others back on t
     await expect
       .poll(async () => {
         const now = await snapshot();
-        outcome = now.keys !== before.keys ? 'content changed' : restored(before, now) ? 'restored' : 'not restored';
+        // Widths and proportion against the first reading whatever the content; heights against this cycle's own.
+        if (!restored(original, now, { heights: false })) outcome = 'not restored';
+        else if (now.keys !== before.keys) outcome = 'content changed';
+        else outcome = restored(before, now, { heights: true }) ? 'restored' : 'not restored';
         return outcome;
       })
       .not.toBe('not restored');
