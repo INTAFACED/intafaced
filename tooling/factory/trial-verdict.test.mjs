@@ -425,6 +425,54 @@ test('merges: three journeys in three services merged by a bot pass; a human mer
   assert.equal(journeyOf('factory/J-copy-bots-otc-30-r12'), 'J-copy-bots-otc-30');
 });
 
+test("merges: a user's login counts only when the builder run on its Handover-run line armed the auto-merge", async () => {
+  const bot = 'intafaced-factory[bot]';
+  const base = mergeRoutes([
+    { n: 1, ref: 'factory/J-identity-13', by: bot },
+    { n: 2, ref: 'factory/J-wallet-05', by: bot },
+    { n: 3, ref: 'factory/J-academy-04', by: 'factory-user' },
+  ]);
+  const pr3 = (body) => ({
+    merged_at: min(50),
+    merged_by: { login: 'factory-user' },
+    auto_merge: { enabled_by: { login: 'factory-user' } },
+    body,
+    number: 3,
+  });
+  const line = 'Handover-run: 555 ended x (done); head a; https://github.com/INTAFACED/intafaced/actions/runs/555';
+  const armedLog = zip({ 'build/18_Publish.txt': `${T0} #3: squash auto-merge armed\n` });
+  const ok = await run(['merges', '--since', T0], {
+    ...base,
+    [`${R}/pulls/3`]: pr3(line),
+    [`${R}/actions/runs/555/logs`]: armedLog,
+  });
+  assert.equal(ok.code, 0, ok.out);
+  assert.match(ok.out, /#3 J-academy-04: .* by factory-user \(no human click: auto-merge armed by builder run 555/);
+  // The same login, but the builder's log never armed #3 (a person armed it): it does not count.
+  const otherPr = await run(['merges', '--since', T0], {
+    ...base,
+    [`${R}/pulls/3`]: pr3(line),
+    [`${R}/actions/runs/555/logs`]: zip({ 'build/18_Publish.txt': `${T0} #31: squash auto-merge armed\n` }),
+  });
+  assert.equal(otherPr.code, 1);
+  assert.match(otherPr.out, /#3 J-academy-04: .* \(HUMAN, does not count/);
+  // No handover line, or no auto-merge: does not count.
+  assert.equal(
+    (await run(['merges', '--since', T0], { ...base, [`${R}/pulls/3`]: pr3('no line'), [`${R}/actions/runs/555/logs`]: armedLog })).code,
+    1,
+  );
+  assert.equal(
+    (
+      await run(['merges', '--since', T0], {
+        ...base,
+        [`${R}/pulls/3`]: { ...pr3(line), auto_merge: null },
+        [`${R}/actions/runs/555/logs`]: armedLog,
+      })
+    ).code,
+    1,
+  );
+});
+
 // ---------------------------------------------------------------------------------------------------------------------
 
 test('usage: per builder-hour per account, from the usage line and the Build step', async () => {
