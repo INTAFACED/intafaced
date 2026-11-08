@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  MONEY_SERVICES,
   MIN_RUNS,
   REACH_MAP_MODE,
   reportUnclean,
@@ -22,6 +23,12 @@ import {
 } from './journey-reach-map.mjs';
 import { journeyTouch } from './journey-touch.mjs';
 import { JOURNEYS_WORKFLOW, sealPull } from './journey-seal.mjs';
+import { manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
 
 const REPO = 'INTAFACED/intafaced';
 const HEAD = 'a'.repeat(40);
@@ -565,4 +572,22 @@ test('the harness: what tooling/scripts and the real-app files run in Node, foll
   ])
     assert.ok(h.includes(p), `${p} is part of the harness`);
   assert.equal(h.includes('services/svc-tax'), false, 'a service the harness does not import is not the harness');
+});
+
+test('the committed map’s money list is REVIEW.md’s money code: ledger-client, every workspace folder depending on it directly, the named services and svc-ledger (CI review on a50417c8)', () => {
+  const map = loadMap();
+  if (map?.mode !== 'reach') return; // a full map narrows nothing
+  const want = [...new Set([...moneyCodeDirs(manifestsAt(ROOT_DIR)), ...MONEY_SERVICES])].sort();
+  assert.deepEqual(map.money, want);
+  // apps/customer reaches ledger-client only through other packages (consumers follows dependencies through packages),
+  // so it is not money code by the definition; its money journeys run through the money services it calls.
+  const customer = JSON.parse(readFileSync(join(ROOT_DIR, 'apps/customer/package.json'), 'utf8'));
+  const direct = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some(
+    (k) => customer[k] && Object.hasOwn(customer[k], '@intafaced/ledger-client'),
+  );
+  assert.equal(
+    map.money.includes('apps/customer'),
+    direct,
+    'apps/customer is money code exactly when it depends on ledger-client directly',
+  );
 });
