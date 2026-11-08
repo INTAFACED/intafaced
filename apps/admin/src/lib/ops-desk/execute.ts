@@ -2,7 +2,8 @@ import 'server-only';
 import type { DeskRequest } from '@/lib/desk/approval-packet';
 import type { ExecuteFn } from '@/lib/desk/approval-steps';
 import type { ExecuteReply } from '@/lib/desk/approval-types';
-import { founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
+import { edgeCall, founderCall, type CallModule, type FounderCallContext, type FounderCallFailure } from '@/lib/desk/founder-call';
+import { treasuryTransport } from '@/lib/ledger/reconciliation-server';
 import { codeInText, explainRefusal, isKnownCode } from '@/lib/desk/refusal-copy';
 import { marketTargetId, poolTargetId } from '@intafaced/contracts/protocol-ops';
 import { normaliseCostAmount } from '@/lib/venue-economics/model';
@@ -327,8 +328,15 @@ export function opsExecute(ctx: FounderCallContext): ExecuteFn {
       };
     }
     if (request.kind === 'bank.card.funding') {
-      const result = await founderCall(
-        ctx,
+      // svc-bank asks for `admin:treasury`, which a founder session never carries, so the instruction goes on the console's
+      // treasury transport (`ADMIN_TREASURY_TOKEN`), as the posting freeze, the reconciliation run and staff holds do. The
+      // two founders' approval still binds it. A console without that credential sends nothing and names the setting.
+      const transport = treasuryTransport();
+      if ('reason' in transport) {
+        return { ok: false, refusal: { ...explainRefusal('admin.ledger_unconfigured', 503, false), body: transport.reason } };
+      }
+      const result = await edgeCall(
+        transport,
         'bank',
         'ops.requestCardProgrammeFunding',
         'POST',

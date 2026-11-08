@@ -548,7 +548,7 @@ export function CardFundingAction({
             blockedReason={null}
             formHold={amountOk && thresholdOk ? null : 'Enter a positive amount first (for example 1000 or 250.5).'}
             action={action}
-            consequence="The card partner moves the money under its own licence; nothing posts to INTAFACED’s ledger. Two different founders must agree, and identity checks both are current founders. The bank service needs the treasury permission on your session and a verified second factor. The approver signs the kind, the amount and the threshold; the reason is recorded with the instruction."
+            consequence="The card partner moves the money under its own licence; nothing posts to INTAFACED’s ledger. Two different founders must agree, and identity checks both are current founders. It goes to the bank service on this console’s treasury credential, as the posting freeze does. The approver signs the kind, the amount and the threshold; the reason is recorded with the instruction."
             blockedButtonLabel="Programme funding unavailable"
             onChanged={onChanged}
           />

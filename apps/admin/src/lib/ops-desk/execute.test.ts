@@ -403,3 +403,72 @@ describe('listing takedown', () => {
     expect(await opsExecute(ctx)(takedown, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
   });
 });
+
+describe('card programme funding (J-bank-26 #6)', () => {
+  const fund: DeskRequest = {
+    kind: 'bank.card.funding',
+    fundingKind: 'fund',
+    amount: '1000',
+    threshold: '',
+    reason: 'TEST top up for the month',
+  };
+  const answer = (over: Record<string, unknown> = {}) => ({
+    clientRequestId: 'op_1',
+    kind: 'fund',
+    assetId: 'USDC',
+    amount: '1000',
+    threshold: null,
+    partnerRef: 'TEST-card-sim-0123456789abcdef',
+    createdAt: '2026-11-08T00:00:00.000Z',
+    ...over,
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('goes on the treasury transport, never the founder session, with the approved fields and a replay key', async () => {
+    vi.stubEnv('EDGE_URL', 'http://edge:4000');
+    vi.stubEnv('ADMIN_TREASURY_TOKEN', 'treasury-token');
+    const fn = vi.fn(async (_u: string, _i?: RequestInit) => ok(answer()));
+    vi.stubGlobal('fetch', fn);
+    expect(await opsExecute(ctx)(fund, ids)).toMatchObject({ ok: true, detail: expect.stringContaining('TEST-card-sim-0123456789abcdef') });
+    const [url, init] = fn.mock.calls[0]!;
+    expect(url).toBe('http://edge:4000/api/bank/trpc/ops.requestCardProgrammeFunding');
+    expect(JSON.parse(String(init!.body))).toEqual({
+      kind: 'fund',
+      amount: '1000',
+      threshold: null,
+      reason: 'TEST top up for the month',
+      ...ids,
+      clientRequestId: 'op_1',
+    });
+    expect((init!.headers as Record<string, string>).authorization).toBe('Bearer treasury-token');
+  });
+
+  it('without the treasury credential sends nothing and says which setting is missing', async () => {
+    vi.stubEnv('EDGE_URL', 'http://edge:4000');
+    vi.stubEnv('ADMIN_TREASURY_TOKEN', '');
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    const reply = await opsExecute(ctx)(fund, ids);
+    expect(reply).toMatchObject({ ok: false });
+    expect(JSON.stringify(reply)).toContain('ADMIN_TREASURY_TOKEN');
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('counts as done only when the recorded instruction is the approved one, answered by the partner', async () => {
+    vi.stubEnv('EDGE_URL', 'http://edge:4000');
+    vi.stubEnv('ADMIN_TREASURY_TOKEN', 'treasury-token');
+    for (const over of [{ kind: 'defund' }, { amount: '1001' }, { threshold: '5' }, { partnerRef: '' }]) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ok(answer(over))),
+      );
+      expect(await opsExecute(ctx)(fund, ids)).toMatchObject({ ok: false, refusal: { changed: 'unknown' } });
+    }
+    // The same amount written another way is the same amount.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok(answer({ amount: '1000.0' }))),
+    );
+    expect(await opsExecute(ctx)(fund, ids)).toMatchObject({ ok: true });
+  });
+});
