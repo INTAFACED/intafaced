@@ -67,6 +67,10 @@ const release = () => tool('local-test-market.mjs', 'release', SYMBOL);
  * 20 s). Held, the ladder rests as it is while the order meets it; it is released before the step goes on.
  */
 async function openLong(me, tag) {
+  // A hold keeps the ladder the maker's last cycle left resting, so it is asked for only once that ladder has both
+  // sides: held before then, an empty book stays empty (main run 42468772049, a full run: "the BTC/USDT:USDT book has
+  // no bid or no ask" on both tries, after an earlier file in the shard left the perp unquoted).
+  await bestPrices(SYMBOL, 50, 60_000);
   // Timed from before the ask, as the hold's own lapse is (it is asked, then waits for a cycle to pass).
   const heldAt = Date.now();
   hold();
