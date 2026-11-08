@@ -277,6 +277,12 @@ test('verify: a map is exactly what the builder builds from the runs it names (r
   const r = verifyMap(mapText(edited), rebuild);
   assert.equal(r.ok, false);
   assert.match(r.why, /differs from the one built from main.s runs up to run 3 in: services$/);
+  // Planted: a key only the pull request's map holds is counted, never printed (review 7578-R1 #1).
+  const forged = { ...JSON.parse(good), 'x\n::warning::forged': 1 };
+  const f = verifyMap(mapText(forged), rebuild);
+  assert.equal(f.ok, false);
+  assert.doesNotMatch(f.why, /forged|::warning::/);
+  assert.match(f.why, /in: 1 key\(s\) main.s builder never writes$/);
   // Only what main's code holds differs: main moved since the build, and the message says to rebuild.
   const moved = JSON.parse(good);
   moved.consumers['packages/new'] = [];

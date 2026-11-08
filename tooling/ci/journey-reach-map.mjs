@@ -674,10 +674,15 @@ export function verifyMap(text, rebuild) {
   const keys = other
     ? [...new Set([...Object.keys(map), ...Object.keys(other)])].filter((k) => JSON.stringify(map[k]) !== JSON.stringify(other[k]))
     : [];
+  // Only key names main's builder writes reach the log: a key only the pull request's map holds is its own text, so it is
+  // counted, never printed (review 7578-R1 #1).
+  const named = keys.filter((k) => Object.hasOwn(other ?? {}, k));
+  const extra = keys.length - named.length;
+  const list = [...named, ...(extra ? [`${extra} key(s) main's builder never writes`] : [])].join(', ');
   return {
     ok: false,
     why: keys.length
-      ? `the map differs from the one built from main's runs up to run ${until} in: ${keys.join(', ')}${
+      ? `the map differs from the one built from main's runs up to run ${until} in: ${list}${
           keys.every((k) => WORKSPACE_KEYS.has(k)) ? " (only what main's code holds: main moved since it was built, so rebuild it)" : ''
         }`
       : `the map is not byte for byte the one built from main's runs up to run ${until} (its layout differs)`,
