@@ -156,12 +156,22 @@ export class NotificationDispatcher {
     private readonly options: DispatchOptions,
   ) {}
 
-  async dispatch(notification: Notification, opts: { outOfApp?: boolean } = {}): Promise<DispatchReport> {
+  /**
+   * `asked`: out-of-app channels the person chose for this one message (the agent spend alert's "Also by email",
+   * J-agents-02 #6). Like a critical message, such a channel gets a row even when it could not be used, so the person
+   * sees what happened to what they asked for: `channel.not_configured` when the platform has no sender for it (the
+   * binding cause: no address would have been sent to either), else `channel.no_target` or `channel.target_unverified`.
+   */
+  async dispatch(
+    notification: Notification,
+    opts: { outOfApp?: boolean; asked?: readonly OutOfAppChannel[] } = {},
+  ): Promise<DispatchReport> {
     return withNotifySpan(
       'notify.dispatch',
       { op: 'dispatch', kind: notification.kind, sourceSubject: notification.sourceSubject },
       async (span) => {
         const outOfApp = opts.outOfApp !== false;
+        const asked = new Set<ChannelId>(opts.asked ?? []);
         const verified = await this.targets.verified(notification.userId);
         const byChannel = new Map<ChannelId, ChannelTarget>(verified.map((t) => [t.channel, t]));
         const outcomes: ChannelOutcome[] = [];
@@ -171,7 +181,9 @@ export class NotificationDispatcher {
         // only a critical message needs to know WHY there was nothing to use. A
         // fill notification does not pay for this read.
         const unverified =
-          notification.severity === 'critical' ? new Set(await this.targets.unverifiedChannels(notification.userId)) : new Set<ChannelId>();
+          notification.severity === 'critical' || (outOfApp && asked.size > 0)
+            ? new Set(await this.targets.unverifiedChannels(notification.userId))
+            : new Set<ChannelId>();
 
         // The inbox row already exists — the notification IS the in-app delivery.
         // Recording it as a delivery keeps one shape for "what happened to this
@@ -199,7 +211,7 @@ export class NotificationDispatcher {
             // sending is off must not also be the one state where that goes
             // unwritten. `detail` keeps the second fact from being collapsed
             // into the first.
-            if (target || notification.severity === 'critical') {
+            if (target || notification.severity === 'critical' || asked.has(channel)) {
               outcomes.push(
                 await this.refuse(
                   notification,
@@ -245,7 +257,20 @@ export class NotificationDispatcher {
             // same argument `channel.ts` makes for keeping `target_unroutable`
             // separate. Recording both as `no_target` told somebody who was one
             // click from a margin-call SMS that they had no phone number.
-            if (notification.severity === 'critical') {
+            if (asked.has(channel) && this.channels.get(channel).unavailableReason === 'channel.not_configured') {
+              // The person asked for this channel and the platform has no sender for it: that is the binding cause.
+              // `detail` keeps the second fact.
+              outcomes.push(
+                await this.refuse(
+                  notification,
+                  channel,
+                  'channel.not_configured',
+                  unverified.has(channel) ? 'address registered but never confirmed' : 'no confirmed address on this channel',
+                ),
+              );
+              continue;
+            }
+            if (notification.severity === 'critical' || asked.has(channel)) {
               const code = unverified.has(channel) ? 'channel.target_unverified' : 'channel.no_target';
               outcomes.push(await this.refuse(notification, channel, code));
             }
