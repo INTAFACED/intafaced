@@ -17,6 +17,7 @@ import { SqlServiceRecordStore } from './service-records/store.js';
 import { SqlPublicSettingsBook } from './outreach/public-settings.js';
 import { createCapitalSources } from './capital/sources.js';
 import { SqlCapitalStore } from './capital/store.js';
+import { CAPITAL_EVALUATE_MS, CapitalDesk } from './capital/desk.js';
 import { createFeeRevenueClient } from './fee-revenue-client.js';
 import { createOutreachNotificationClient } from './outreach/notification-client.js';
 import { OutreachNotificationWorker } from './outreach/notification-worker.js';
@@ -170,6 +171,13 @@ const protocolReasonCodes = env.OPS_PROTOCOL_REASON_CODES
       .map((code) => code.trim())
       .filter(Boolean)
   : null;
+const capitalStore = crmSql ? new SqlCapitalStore(crmSql) : undefined;
+const capitalSources = createCapitalSources({
+  ledgerUrl: env.LEDGER_URL,
+  bankUrl: env.BANK_URL,
+  secret: env.INTERNAL_SERVICE_SECRET,
+  ...(s2sKey ? { s2s: s2sKey } : {}),
+});
 const appRouter = createOpsRouter(
   ops,
   {
@@ -212,13 +220,8 @@ const appRouter = createOpsRouter(
     alertHeartbeatMaxAgeSeconds: env.OPS_ALERT_HEARTBEAT_MAX_AGE_SECONDS ?? null,
     compliance: crmSql ? createPgComplianceStore(crmSql) : undefined,
     consoleMode: crmSql ? new SqlConsoleModeStore(crmSql) : undefined,
-    capital: crmSql ? new SqlCapitalStore(crmSql) : undefined,
-    capitalSources: createCapitalSources({
-      ledgerUrl: env.LEDGER_URL,
-      bankUrl: env.BANK_URL,
-      secret: env.INTERNAL_SERVICE_SECRET,
-      ...(s2sKey ? { s2s: s2sKey } : {}),
-    }),
+    capital: capitalStore,
+    capitalSources,
     announcements: crmSql ? new SqlAnnouncementStore(crmSql) : undefined,
     preferences: crmSql ? new SqlPreferenceStore(crmSql) : undefined,
     serviceRecords: crmSql ? new SqlServiceRecordStore(crmSql) : undefined,
@@ -328,6 +331,26 @@ const alertTimer = setInterval(() => {
     });
 }, 5000);
 alertTimer.unref();
+
+// The capital monitor evaluates on every open of the console room and on this tick, so a buffer below its minimum opens its
+// breach alert (one per asset and UTC day, by key) even when nobody has the room open. A source it cannot read opens none.
+const capitalDesk = capitalStore
+  ? new CapitalDesk({ store: capitalStore, sources: capitalSources, approvals: undefined, now: () => new Date() })
+  : null;
+let capitalRun: Promise<void> | null = null;
+const capitalTimer = setInterval(() => {
+  if (!capitalDesk || capitalRun) return;
+  capitalRun = capitalDesk
+    .snapshot()
+    .then(() => undefined)
+    .catch(() => {
+      app.log.warn({ code: 'ops.capital.evaluate_failed' }, 'Capital monitor evaluation will retry on the next tick');
+    })
+    .finally(() => {
+      capitalRun = null;
+    });
+}, CAPITAL_EVALUATE_MS);
+capitalTimer.unref();
 
 // Reconciliation alerts: read the ledger's settled evaluations from the stored cursor. A failed read is kept as the source
 // being unavailable, which every alert answer shows; the next tick reads the same rows again.

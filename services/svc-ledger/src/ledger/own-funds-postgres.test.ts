@@ -6,6 +6,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { createTestDb, rewriteSchemaSql, type TestDb } from '@intafaced/db';
 import {
   burnAccount,
+  futuresLossSink,
   formatAmount,
   houseFees,
   insuranceFund,
@@ -87,6 +88,9 @@ describe('PostgresLedger.ownFunds (J-ops-console-24 #1)', () => {
     await engine.post(move('own-funds-user', rail, userAvailable(PAYER, 'USDT'), '1000'));
     await engine.post(move('own-funds-merchant', rail, merchantClearing(MERCHANT, 'USDT'), '40'));
     await engine.post(move('own-funds-burn', rail, burnAccount('USDT'), '5'));
+    await engine.post(move('own-funds-held', rail, moduleAccount('ops', 'hold-confirm:test-held-funds', 'USDT'), '9'));
+    await engine.post(move('own-funds-reward', rail, moduleAccount('campaigns', 'lock:reward-1', 'USDT'), '3'));
+    await engine.post(move('own-funds-clearing', rail, futuresLossSink('USDT'), '11'));
     // INTAFACED's own: a fee pot, the insurance fund, the market maker's inventory and a module reserve.
     await engine.post(move('own-funds-fee', userAvailable(PAYER, 'USDT'), houseFees('trade', 'USDT'), '12.500000000000000001'));
     await engine.post(move('own-funds-insurance', rail, insuranceFund('USDT'), '77'));
@@ -116,6 +120,8 @@ describe('PostgresLedger.ownFunds (J-ops-console-24 #1)', () => {
     expect(owners).not.toContain(PAYER);
     expect(owners.some((o) => o.startsWith('pay:clearing:'))).toBe(false);
     expect(owners).not.toContain('burn');
+    expect(owners).not.toContain('futures-loss');
+    expect(owners.some((o) => o.startsWith('ops:hold-confirm:') || o.startsWith('campaigns:lock:'))).toBe(false);
     expect(rows.every((r) => r.ownerType === 'house' || r.ownerType === 'module')).toBe(true);
   });
 });

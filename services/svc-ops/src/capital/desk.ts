@@ -1,4 +1,5 @@
-import { compare, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
+import { createHash } from 'node:crypto';
+import { add, compare, formatAmount, mul, parseAmount, sub, type Amount } from '@intafaced/ledger-client';
 import {
   OPS_CAPITAL_ASSET,
   OPS_CAPITAL_CONTACT_MAX,
@@ -34,6 +35,9 @@ import { capitalFingerprint, type CapitalStore, type StoredThreshold } from './s
 
 const ALERT_LIST_LIMIT = 50;
 
+/** How often svc-ops evaluates the monitor with nobody watching. An engineering cadence, not a policy figure. */
+export const CAPITAL_EVALUATE_MS = 60_000;
+
 /** The UTC day a breach is counted in: one alert per asset per day. */
 export function breachDay(at: Date): string {
   return at.toISOString().slice(0, 10);
@@ -52,7 +56,7 @@ export function composeOwnFunds(read: SourceRead<LedgerOwnFunds>): OpsCapitalOwn
   const sums = new Map<string, { amount: Amount; accounts: number }>();
   for (const a of read.value.accounts) {
     const prior = sums.get(a.assetId) ?? { amount: 0n, accounts: 0 };
-    sums.set(a.assetId, { amount: prior.amount + parseAmount(a.balance), accounts: prior.accounts + 1 });
+    sums.set(a.assetId, { amount: add(prior.amount, parseAmount(a.balance)), accounts: prior.accounts + 1 });
   }
   return {
     status: 'read',
@@ -183,8 +187,11 @@ export class CapitalDesk {
       actionType: OPS_CAPITAL_THRESHOLD_ACTION,
       targetService: OPS_CAPITAL_TARGET_SERVICE,
       targetId: opsCapitalThresholdTargetId(fields.assetId),
-      fields: opsCapitalThresholdFields(fields.assetId, fields.minimum, fields.contact, fields.reason),
+      // Both founders signed the minimum as it was typed; the stored figure is its normalised form.
+      fields: opsCapitalThresholdFields(fields.assetId, fields.signedMinimum, fields.contact, fields.reason),
       requesterId,
+      // A retry after a crash between the spend and the write finds the spend again instead of being refused.
+      requestId: `capital-threshold:${createHash('sha256').update(key).digest('hex')}`,
     });
     const stored = await store.append({
       key,
@@ -258,7 +265,7 @@ export function parseThresholdChange(input: Pick<OpsCapitalThresholdSetInput, 'a
   if (reason.length < OPS_CAPITAL_REASON_MIN || reason.length > OPS_CAPITAL_REASON_MAX) {
     throw invalid(`The reason is ${OPS_CAPITAL_REASON_MIN} to ${OPS_CAPITAL_REASON_MAX} characters.`);
   }
-  return { assetId, minimum: minimum === '' ? '' : formatAmount(parseAmount(minimum)), contact, reason };
+  return { assetId, signedMinimum: minimum, minimum: minimum === '' ? '' : formatAmount(parseAmount(minimum)), contact, reason };
 }
 
 const DECIMAL = /^\d+(\.\d{1,18})?$/;

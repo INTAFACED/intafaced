@@ -257,6 +257,14 @@ describe('capital monitor (J-ops-console-24 #1)', () => {
     expect(b.ids.spent()).toBe(2);
   });
 
+  it('a minimum typed with trailing zeros is consumed as both founders signed it and stored normalised', async () => {
+    const b = build();
+    const c = await b.caller();
+    const typed = threshold(b.ids, 'USDT', '2500.50', 'TEST treasury on-call', 'capital-threshold-test-10');
+    expect(await c.capital.setThreshold(typed)).toMatchObject({ outcome: 'set', minimum: '2500.5' });
+    expect(b.ids.spent()).toBe(1);
+  });
+
   it('one founder alone cannot set a threshold, and read scope alone cannot write', async () => {
     const b = build();
     await expect(

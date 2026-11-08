@@ -6,8 +6,9 @@ import { z } from 'zod';
  * Four sources, each named on every figure, and none turned into a zero when it cannot be read:
  *   · INTAFACED's own funds, from svc-ledger's `ownFunds` read: house and module accounts only. Every account that holds a
  *     customer's money (`isCustomerBalanceAccount` in `packages/ledger-client/src/custody-layer.ts`) is left out in the
- *     ledger's query, so customer money is never counted as ours (OWNER 226). Treasury boundary accounts are the outside
- *     world's side of a rail, not funds, and the burn account holds tokens taken out of supply, so neither counts.
+ *     ledger's query, so customer money is never counted as ours (OWNER 226), and so are the pots holding someone else's
+ *     money outside that split (a confirmed staff hold, a locked campaign reward, the futures clearing pot). Treasury
+ *     boundary accounts are the outside world's side of a rail, not funds, and the burn account holds tokens out of supply.
  *   · The builder account at each venue, as the venue reports it with its as-of time, beside the venue's published minimum
  *     for collecting builder fees, or "not published". Until a venue adapter reports one to svc-ops, the part says
  *     `ops.capital.venue_not_connected`.

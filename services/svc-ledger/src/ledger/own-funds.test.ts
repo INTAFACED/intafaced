@@ -25,6 +25,9 @@ describe('serializeOwnFunds', () => {
     expect(() => serializeOwnFunds(AT, [row({ ownerType: 'module', ownerId: 'pay:clearing:m-1' })])).toThrow(OwnFundsCustomerRowError);
     expect(() => serializeOwnFunds(AT, [row({ ownerType: 'module', ownerId: 'pay:proceeds:m-1' })])).toThrow(OwnFundsCustomerRowError);
     expect(() => serializeOwnFunds(AT, [row({ ownerId: 'burn' })])).toThrow(OwnFundsCustomerRowError);
+    expect(() => serializeOwnFunds(AT, [row({ ownerId: 'futures-loss' })])).toThrow(OwnFundsCustomerRowError);
+    expect(() => serializeOwnFunds(AT, [row({ ownerType: 'module', ownerId: 'ops:hold-confirm:x' })])).toThrow(OwnFundsCustomerRowError);
+    expect(() => serializeOwnFunds(AT, [row({ ownerType: 'module', ownerId: 'campaigns:lock:r1' })])).toThrow(OwnFundsCustomerRowError);
   });
 
   it('drops an account at zero instead of answering a zero row', () => {
