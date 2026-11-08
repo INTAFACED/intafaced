@@ -251,6 +251,7 @@ function SideForm({
   const edit = (apply: () => void) => {
     if (busyRef.current) return;
     flattenPending.current = false;
+    reviewPending.current = null;
     apply();
     setReview(null);
     setFailure(null);
@@ -273,9 +274,31 @@ function SideForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestion?.nonce]);
 
+  // A click on the DOM ladder or a chart Buy/Sell (J-charts-desk-14): this side's ticket takes the price and amount and
+  // opens its own review once the order check allows it. It is the desk's own review and confirm, so the order holds
+  // exactly as one typed here, and nothing is sent until the person confirms.
+  // `armed` turns true on the first render after the click: the effects of the click's own render still see the
+  // ticket as it was before it, so they never judge the new draft.
+  const reviewPending = useRef<{ type: OrderType; armed: boolean } | null>(null);
+  useEffect(() => {
+    if (!suggestion?.review) return;
+    if (suggestion.side !== side) {
+      reviewPending.current = null;
+      return;
+    }
+    edit(() => {
+      if (suggestion.price) setPrice(padDecimals(suggestion.price, pricePlaces));
+      setTotalEdit(null);
+      const lots = suggestion.amount ? floorToLot(suggestion.amount, market.lotSize) : null;
+      setAmount(lots ?? '');
+      reviewPending.current = lots !== null ? { type: suggestion.type ?? 'limit', armed: false } : null;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestion?.nonce]);
+
   // A click in the book or the trades list fills the price (and the cumulative amount with Shift).
   useEffect(() => {
-    if (!suggestion || suggestion.flatten) return;
+    if (!suggestion || suggestion.flatten || suggestion.review) return;
     edit(() => {
       setPrice(padDecimals(suggestion.price, pricePlaces));
       setTotalEdit(null);
@@ -389,6 +412,19 @@ function SideForm({
     busy,
   });
   const canSend = gate.canSend && (tif !== 'GTD' || expireAt !== null);
+
+  useEffect(() => {
+    const wanted = reviewPending.current;
+    if (wanted === null || type !== wanted.type) return;
+    if (!wanted.armed) {
+      wanted.armed = true;
+      return;
+    }
+    if (canSend) {
+      reviewPending.current = null;
+      void startReview();
+    } else if (!tradable || !checked.ok || live.state === 'blocked' || live.state === 'error') reviewPending.current = null;
+  });
 
   useEffect(() => {
     if (!flattenPending.current || type !== 'market') return;
@@ -1269,7 +1305,7 @@ export const OrderPanel = memo(function OrderPanel({
   useEffect(() => {
     if (suggestion && suggestion.nonce !== lastSuggestion.current) {
       lastSuggestion.current = suggestion.nonce;
-      setType(suggestion.flatten ? 'market' : 'limit');
+      setType(suggestion.type ?? (suggestion.flatten ? 'market' : 'limit'));
     }
   }, [suggestion]);
 
