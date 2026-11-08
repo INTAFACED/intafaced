@@ -719,7 +719,7 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
   const reach = revertOf({ title: pull.title, body: pull.body, repo })
     ? { mode: 'none', full: [], files: [] }
     : journeyTouch(paths, (f) => atHead.get(f) ?? true);
-  const runs = titleSteps(pull.title).length || reach.mode !== 'none' ? await io.runs(head) : [];
+  const runs = titleSteps(pull.title).length || shared.length || reach.mode !== 'none' ? await io.runs(head) : [];
   const reports = new Map();
   const reportOf = (r) => {
     if (!reports.has(r.id)) reports.set(r.id, io.reportOf(r));

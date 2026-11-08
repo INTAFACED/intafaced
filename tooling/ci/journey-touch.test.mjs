@@ -306,6 +306,11 @@ test("GitHub's Revert form of a product change needs no run; a revert of shared 
   assert.equal((await seal({ ...revert, files: ['services/svc-bank/src/cards.ts'], runs: [], reports: {} })).ok, true);
   assert.equal((await seal({ ...revert, files: ['tooling/scripts/local-test-market.mjs'], runs: [], reports: {} })).ok, false);
   assert.equal(
+    (await seal({ ...revert, files: ['tooling/scripts/local-test-market.mjs'], runs: [run(1)], reports: { 1: fullRun } })).ok,
+    true,
+    'a revert of shared setup with its clean full run seals (its runs are read)',
+  );
+  assert.equal(
     (await seal({ title: 'Revert "svc-bank: cards"', body: 'undo', files: ['services/svc-bank/src/cards.ts'], runs: [], reports: {} })).ok,
     false,
     'a Revert title without GitHub’s body line is no revert',
