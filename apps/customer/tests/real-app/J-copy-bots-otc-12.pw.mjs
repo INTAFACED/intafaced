@@ -231,18 +231,20 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   run.reset({ tag, leader, leaderName, leaderRef, follower, paused: [] });
   await signIn(page, follower);
   const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
-  hold();
+  // Timed from before the ask, as the hold's own lapse is (it is asked, then waits for a cycle to pass).
   const heldAt = Date.now();
+  hold();
   await leadFill(leader, 'buy', '0.001', `${J}-1-a-${tag}`);
   await expect(async () => {
     await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(1, { timeout: 2_000 });
   }).toPass({ timeout: 60_000 });
   run.write({ followId });
   const holding = (await (await api(follower)).balances()).BTC.total;
-  expect(toUnits(holding), 'the copied buy is held').toBeGreaterThan(0n);
   // The hold lapses HOLD_MAX_MS after it was asked for; the lead fill, its mirror and the read must all fall inside it,
-  // or the maker's walk was back on and this proved nothing about the race it guards. Fail and say so.
+  // or the maker's walk was back on and this proved nothing about the race it guards. Checked first, so a lapse names
+  // itself even when the copy didn't fill.
   expect(Date.now() - heldAt, 'the BTC/USDT hold lapsed before the follower held the copy').toBeLessThan(HOLD_MAX_MS);
+  expect(toUnits(holding), 'the copied buy is held').toBeGreaterThan(0n);
   release();
 
   const { request } = await twoFounders(browser, pauseScope('lead', leaderRef));
