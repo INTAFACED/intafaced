@@ -24,12 +24,13 @@
 # .github/workflows/builder/settings.json, copied root-owned next to the pinned CLI.
 #
 # Secrets: all in the environment `factory`, whose deployment rule allows main alone, so a copy of this file on another
-# branch gets none. FACTORY_APP_KEY is a private key of the GitHub App intafaced-mac-agents (its client id below is not
-# a secret): each job mints its own installation token, narrowed to named repositories and permissions, valid an hour
-# at most. Never the workflows permission, so a commit that changes .github/workflows is refused at the push.
-# GITHUB_TOKEN is never used to write: GitHub runs no workflow on a push made with it. The CLI's own token, one per
-# account (CLAUDE_TOKEN_ACCT1, _ACCT3, _ACCT4, picked by the `account` input, so builders spread over accounts and never
-# draw on the CI review's), is the one secret the agent holds; that can't be avoided, and its owner can revoke it.
+# branch gets none. FACTORY_APP_KEY is a private key of the GitHub App intafaced-mac-agents: the two steps that need
+# GitHub (factory-builder.mjs `before` and `publish`) each mint their own installation token in memory, narrowed to
+# named repositories and permissions, and revoke it when they end, so no token is ever in a step's environment. Never
+# the workflows permission, so a commit that changes .github/workflows is refused at the push. GITHUB_TOKEN is never
+# used: GitHub runs no workflow on a push made with it. The CLI's own token, one per account (CLAUDE_TOKEN_ACCT1,
+# _ACCT3, _ACCT4; the `account` input picks one, so builders spread over accounts and never draw on the CI review's)
+# is the one secret the agent holds; that can't be avoided, and its owner can revoke it.
 #
 # Public-repo hygiene: anyone can read this repository's logs and download its artifacts. The CLI's output goes to
 # files inside the build job that no step prints or uploads. No step prints text from project-state or from the
@@ -51,7 +52,7 @@ on:
         required: true
         type: string
       account:
-        description: 'The Claude account whose token this builder uses (environment factory, secret CLAUDE_TOKEN_<ACCOUNT>)'
+        description: 'The account whose CLI token this builder uses (environment factory, secret CLAUDE_TOKEN_<ACCOUNT>)'
         required: true
         type: choice
         options: [acct1, acct3, acct4]
@@ -85,16 +86,24 @@ jobs:
             exit 1
           fi
 
-      # The account's token is picked by name from a fixed list, never built from the input.
+      # The account's token is picked from a fixed list, never named from the input.
       - name: The factory secrets are set
         env:
           FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
           ACCOUNT: ${{ inputs.account }}
-          CLAUDE_TOKEN: ${{ inputs.account == 'acct1' && secrets.CLAUDE_TOKEN_ACCT1 || inputs.account == 'acct3' && secrets.CLAUDE_TOKEN_ACCT3 || inputs.account == 'acct4' && secrets.CLAUDE_TOKEN_ACCT4 || '' }}
+          CLAUDE_TOKEN_ACCT1: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}
+          CLAUDE_TOKEN_ACCT3: ${{ secrets.CLAUDE_TOKEN_ACCT3 }}
+          CLAUDE_TOKEN_ACCT4: ${{ secrets.CLAUDE_TOKEN_ACCT4 }}
         run: |
+          case "$ACCOUNT" in
+            acct1) token="$CLAUDE_TOKEN_ACCT1" ;;
+            acct3) token="$CLAUDE_TOKEN_ACCT3" ;;
+            acct4) token="$CLAUDE_TOKEN_ACCT4" ;;
+            *) echo "::error title=Unknown account::the account is one of acct1, acct3, acct4"; exit 1 ;;
+          esac
           missing=""
           [ -n "$FACTORY_APP_KEY" ] || missing="$missing FACTORY_APP_KEY"
-          [ -n "$CLAUDE_TOKEN" ] || missing="$missing CLAUDE_TOKEN_$(echo "$ACCOUNT" | tr '[:lower:]' '[:upper:]')"
+          [ -n "$token" ] || missing="$missing CLAUDE_TOKEN_$(echo "$ACCOUNT" | tr '[:lower:]' '[:upper:]')"
           if [ -n "$missing" ]; then
             echo "::error title=Factory secret missing::the environment factory has no$missing (Settings, Environments, factory; deployment branches: main only), so no builder starts. FACTORY_APP_KEY mints the App tokens that push so CI runs; GITHUB_TOKEN can't stand in for it."
             exit 1
@@ -118,11 +127,11 @@ jobs:
           AREA: ${{ inputs.area }}
         run: node tooling/ci/factory-builder.mjs check
 
+      # No token: the repository is public.
       - name: Read the factory switch
         id: switch
         env:
           REPO: ${{ github.repository }}
-          GH_TOKEN: ${{ github.token }}
         run: node tooling/ci/factory-builder.mjs switch
 
   build:
@@ -220,49 +229,15 @@ jobs:
           sudo chmod -R a+rX,go-w /opt/factory-cli
           echo "CLAUDE_BIN=/opt/factory-cli/node_modules/.bin/claude" >> "$GITHUB_ENV"
 
-      # A read-only token for the three steps below, minted before any process of the agent exists and revoked
-      # before the agent starts (the action's own end-of-job revoke would run after the agent, so it is skipped).
-      - name: A read-only App token
-        id: read-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: Iv23lihKJK3UhiuiTgLa # intafaced-mac-agents
-          private-key: ${{ secrets.FACTORY_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: intafaced,project-state
-          permission-contents: read
-          permission-pull-requests: read
-          permission-actions: read
-          skip-token-revoke: true
-
-      - name: Pick the branch
+      # Before any process of the agent exists, one step reads GitHub: it mints a read-only App token in memory
+      # (intafaced and project-state; contents, pull requests and actions, read), picks the branch, writes the agent's CI
+      # status and its prompt, then revokes the token and checks that GitHub refuses it. Nothing it read is printed.
+      - name: Read GitHub before the agent
         id: branch
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
           RUN_NUMBER: ${{ github.run_number }}
-        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs branch'
-
-      - name: CI status for the agent
-        env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          RESUME: ${{ steps.branch.outputs.resume }}
-          PR: ${{ steps.branch.outputs.pr }}
-          HEAD: ${{ steps.branch.outputs.head }}
-        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs status'
-
-      - name: Write the prompt
-        env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
-          BRANCH: ${{ steps.branch.outputs.branch }}
-          RESUME: ${{ steps.branch.outputs.resume }}
-          PR: ${{ steps.branch.outputs.pr }}
-        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt'
-
-      # GitHub ends the token now, not in an hour; the check after the revoke fails the job unless GitHub refuses it.
-      - name: Revoke the read-only token
-        env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
-        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs revoke'
+        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs before'
 
       # Before the agent user exists: no directory on PATH (nor the tool-cache node's, nor any directory above them) may
       # be writable by group or others, and no program in them either. The runner image makes /usr/local/bin
@@ -344,13 +319,16 @@ jobs:
       # The CLI as the agent user, watched: the switch every 2 minutes (no token: the repository is public), the hard
       # stop at 320 minutes. Its stdout and stderr go to files in BUILDER_DIR. Opus at effort medium (every agent runs
       # at medium, owner decision 2026-11-07), both pinned; headless, so no permission prompt waits for a person. The
-      # step's environment holds no GitHub token, and the CLI's gets none.
+      # step's environment holds no GitHub token; the CLI's holds the account's token alone, as CLAUDE_CODE_OAUTH_TOKEN.
       - name: Build
         id: build
         shell: /usr/bin/bash -e {0}
         env:
           PATH: /usr/bin:/bin
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ inputs.account == 'acct1' && secrets.CLAUDE_TOKEN_ACCT1 || inputs.account == 'acct3' && secrets.CLAUDE_TOKEN_ACCT3 || inputs.account == 'acct4' && secrets.CLAUDE_TOKEN_ACCT4 || '' }}
+          ACCOUNT: ${{ inputs.account }}
+          CLAUDE_TOKEN_ACCT1: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}
+          CLAUDE_TOKEN_ACCT3: ${{ secrets.CLAUDE_TOKEN_ACCT3 }}
+          CLAUDE_TOKEN_ACCT4: ${{ secrets.CLAUDE_TOKEN_ACCT4 }}
           FACTORY_OUT: /home/factory-agent/out
           CLAUDE_ARGS: '["-p","--model","claude-opus-5-5","--effort","medium","--dangerously-skip-permissions","--setting-sources","","--settings","/opt/factory-cli/settings.json","--output-format","stream-json","--verbose"]'
         run: '"$NODE_BIN" tooling/ci/factory-builder.mjs run'
@@ -449,22 +427,11 @@ jobs:
           name: builder-output-${{ github.run_id }}
           path: ${{ runner.temp }}/builder
 
-      # intafaced only; no workflows permission, so a commit that changes .github/workflows is refused at the push.
-      - name: A write App token
-        id: write-token
-        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
-        with:
-          client-id: Iv23lihKJK3UhiuiTgLa # intafaced-mac-agents
-          private-key: ${{ secrets.FACTORY_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: intafaced
-          permission-contents: write
-          permission-pull-requests: write
-          permission-actions: write
-
+      # It mints its write token in memory (intafaced only; contents, pull requests and actions; never workflows) and
+      # revokes it when it ends.
       - name: Publish
         env:
-          GH_TOKEN: ${{ steps.write-token.outputs.token }}
+          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
           BRANCH: ${{ needs.build.outputs.branch }}
           BUILDER_DIR: ${{ runner.temp }}/builder
         run: node tooling/ci/factory-builder.mjs publish

@@ -29,7 +29,9 @@ test("a journey's area: its own, then --area, then its module", () => {
     { journey: 'J-identity-13', area: 'identity', account: 'acct1' },
     { journey: 'J-wallet-05', area: 'payments', account: 'acct3' },
   ]);
-  assert.deepEqual(plan(parseArgs(['--area', 'x', 'J-identity-13']), CATALOG).runs, [{ journey: 'J-identity-13', area: 'x', account: 'acct1' }]);
+  assert.deepEqual(plan(parseArgs(['--area', 'x', 'J-identity-13']), CATALOG).runs, [
+    { journey: 'J-identity-13', area: 'x', account: 'acct1' },
+  ]);
 });
 
 test("a journey's account: --account for all, else the accounts in turn, never the CI review's", () => {
@@ -118,5 +120,8 @@ test('--dry-run against the real journeys.json prints the commands and starts no
   const script = fileURLToPath(new URL('./dispatch.mjs', import.meta.url));
   const root = fileURLToPath(new URL('../..', import.meta.url));
   const out = execFileSync(process.execPath, [script, '--dry-run', 'J-identity-13'], { cwd: root, encoding: 'utf8' });
-  assert.equal(out, 'gh workflow run builder.yml -R INTAFACED/intafaced --ref main -f journey=J-identity-13 -f area=identity -f account=acct1\n');
+  assert.equal(
+    out,
+    'gh workflow run builder.yml -R INTAFACED/intafaced --ref main -f journey=J-identity-13 -f area=identity -f account=acct1\n',
+  );
 });

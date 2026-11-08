@@ -11,7 +11,7 @@
  *   node tooling/factory/dispatch.mjs --dry-run ...      (prints the commands, starts nothing)
  *
  * A journey's area is, in order: its own `=area`, then --area, then its module in docs/roadmap/journeys.json. Every
- * journey's Claude account is --account, else the accounts in turn (acct1, acct3, acct4, then acct1 again), so a
+ * journey's CLI account is --account, else the accounts in turn (acct1, acct3, acct4, then acct1 again), so a
  * batch spreads over them and never draws on the CI review's account. Every
  * journey is checked before any run starts: an unknown or parked journey, or a malformed id or area, starts none.
  * On a 403 or 429 from GitHub it stops and starts no more (AGENTS.md); the builder itself reads the factory switch.

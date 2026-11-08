@@ -6,24 +6,27 @@
  *
  *   check     the dispatched journey and area are well formed, the journey is in docs/roadmap/journeys.json and isn't
  *             parked; writes its module (the project-state folder of its step words) to GITHUB_OUTPUT.
- *   switch    reads the factory switch (factory-switch.mjs); `run=true` only when FACTORY on branch factory-switch says
- *             `run`. A pause ends the run cleanly; an unreadable switch fails it (closed).
+ *   switch    reads the factory switch (factory-switch.mjs), without a token (the repository is public); `run=true`
+ *             only when FACTORY on branch factory-switch says `run`. A pause ends the run cleanly; an unreadable switch
+ *             fails it (closed).
+ *   before    the one step that reads GitHub before the agent exists: mints a read-only App token in memory from
+ *             FACTORY_APP_KEY (READ_TOKEN), runs `branch`, `status` and `prompt` with it, then revokes it (`revokeToken`),
+ *             so no GitHub token is left on the agent's runner and none is ever in a step's environment.
  *   branch    the branch this run builds on: the journey's open PR's branch when there is one (a successor resumes it),
  *             else factory/<journey>, or factory/<journey>-r<run number> when that name is already taken.
  *   status    the resumed PR's head and its CI runs (names, states, links), for the agent, which can't read GitHub.
  *   prompt    fetches project-state BUILDER.md and the journey's section of its module's journeys.md with the read-only
  *             App token, and writes the agent's prompt to a file. Nothing from project-state is ever printed.
- *   revoke    ends the read-only App token before the agent starts (DELETE /installation/token), and fails unless GitHub
- *             then refuses it (401), so no live GitHub token is left on the agent's runner.
- *   run       runs the CLI headless with the prompt, as the agent user when AGENT_USER is set; everything it prints
+ *   run       runs the CLI headless with the prompt, as the agent user when AGENT_USER is set, with the dispatched
+ *             account's token (ACCOUNT picks one of CLAUDE_TOKEN_ACCT1, _ACCT3, _ACCT4) as its only secret; everything it prints
  *             goes to files in the job, never the log. Every POLL_MS it reads the switch (no token: the repo is public);
  *             a pause, three unreadable reads in a row or the hard stop ends it. However it ends, the agent's processes
  *             get SIGTERM, then after the grace SIGKILL, and the step exits only once none is left.
  *   publish   in the publish job, on a fresh runner: takes the agent's commits from a bundle into a fresh repository,
  *             pushes them to refs/heads/<the picked branch> only (never a force, never another ref), opens or updates
  *             the PR from the agent's PR text, adds the run's Handover-run line, and, if the agent asked, starts the
- *             journey's Real-app journeys run and arms squash auto-merge. Only this step holds a write token, and it
- *             never runs on the agent's runner.
+ *             journey's Real-app journeys run and arms squash auto-merge. With FACTORY_APP_KEY it mints its write token
+ *             in memory (WRITE_TOKEN: never workflows) and revokes it when it ends. It never runs on the agent's runner.
  *   stats     the run's usage, numbers only, from the CLI's final result event (the trial measures usage per hour).
  *
  * Public-repo hygiene: intafaced is public and anyone can read its logs. Nothing here prints text it fetched from
@@ -31,12 +34,28 @@
  * strict pattern, and quoted, shortened input (so input can't add lines or workflow commands to the log).
  */
 import { execFileSync, spawn } from 'node:child_process';
+import { createSign } from 'node:crypto';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { judgeSwitch, readSwitch, SWITCH_BRANCH, SWITCH_FILE } from './factory-switch.mjs';
 
 export const PROJECT_STATE = 'INTAFACED/project-state';
+/** The GitHub App intafaced-mac-agents (its client id is not a secret; the key is FACTORY_APP_KEY). */
+export const APP_CLIENT_ID = 'Iv23lihKJK3UhiuiTgLa';
+/** The token `before` reads with: read only, the two repositories it reads. */
+export const READ_TOKEN = {
+  repositories: ['intafaced', 'project-state'],
+  permissions: { contents: 'read', pull_requests: 'read', actions: 'read' },
+};
+/** The token `publish` writes with: intafaced only, and never workflows, so a commit that changes .github/workflows is
+ *  refused at the push. Actions write starts the journeys run. */
+export const WRITE_TOKEN = {
+  repositories: ['intafaced'],
+  permissions: { contents: 'write', pull_requests: 'write', actions: 'write' },
+};
+/** builder.yml's `account` choices; each has its own CLI token in the environment factory. */
+export const ACCOUNTS = ['acct1', 'acct3', 'acct4'];
 export const JOURNEY_RE = /^J-[a-z0-9]+(?:-[a-z0-9]+)*-\d{2,3}[a-z]?$/;
 export const AREA_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export const BRANCH_PREFIX = 'factory/';
@@ -373,6 +392,35 @@ function api(token) {
   };
 }
 
+/** The App's JWT (RS256, nine minutes, issued a minute back for clock drift), signed with its private key. */
+export function appJwt(pem, now = Date.now(), iss = APP_CLIENT_ID) {
+  const part = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const iat = Math.floor(now / 1000) - 60;
+  const data = `${part({ alg: 'RS256', typ: 'JWT' })}.${part({ iat, exp: iat + 540, iss })}`;
+  return `${data}.${createSign('RSA-SHA256').update(data).sign(pem, 'base64url')}`;
+}
+
+/** An installation token narrowed to `spec` (READ_TOKEN or WRITE_TOKEN), minted with the App's JWT; never printed. */
+export async function mintToken({ pem, repo, spec, now, apiFor = api }) {
+  const app = apiFor(appJwt(pem, now));
+  const inst = await app.json(`/repos/${repo}/installation`);
+  if (!Number.isInteger(inst?.id)) throw new Error('the App has no installation on the repository');
+  const t = await app.send('POST', `/app/installations/${inst.id}/access_tokens`, spec);
+  if (typeof t?.token !== 'string' || !t.token) throw new Error('GitHub returned no installation token');
+  for (const [k, v] of Object.entries(spec.permissions))
+    if (t.permissions?.[k] !== v) throw new Error(`the token's ${k} permission is ${t.permissions?.[k] ?? 'missing'}, not ${v}`);
+  if (Object.keys(t.permissions ?? {}).some((k) => !(k in spec.permissions) && k !== 'metadata'))
+    throw new Error('the token holds a permission it was not asked for');
+  return t.token;
+}
+
+/** The dispatched account's CLI token, picked from a fixed list; never a name built from the input. */
+export function accountToken(env) {
+  const i = ACCOUNTS.indexOf(env.ACCOUNT);
+  if (i < 0) throw new Error(`ACCOUNT is one of ${ACCOUNTS.join(', ')}`);
+  return [env.CLAUDE_TOKEN_ACCT1, env.CLAUDE_TOKEN_ACCT3, env.CLAUDE_TOKEN_ACCT4][i] || null;
+}
+
 /** Ends an installation token and proves it ended: GitHub must refuse it afterwards. `gh` is api(token)'s shape. */
 export async function revokeToken(gh, probe = `/repos/${PROJECT_STATE}`) {
   await gh.send('DELETE', '/installation/token');
@@ -411,7 +459,9 @@ function need(env, ...names) {
   if (missing.length) throw new Error(`factory-builder needs ${missing.join(', ')}`);
 }
 
+const outputs = {};
 function output(pairs) {
+  Object.assign(outputs, pairs);
   const file = process.env.GITHUB_OUTPUT;
   const text = Object.entries(pairs)
     .map(([k, v]) => `${k}=${v}\n`)
@@ -439,7 +489,28 @@ function gitIn(dir, args, extraEnv = {}) {
   }).trim();
 }
 
+/** Runs `cmd` with an App token minted for it in memory, then revokes the token however the command ended. */
+async function withAppToken(cmd, args, env, spec) {
+  need(env, 'REPO', 'FACTORY_APP_KEY');
+  const token = await mintToken({ pem: env.FACTORY_APP_KEY, repo: env.REPO, spec });
+  console.log(`::add-mask::${token}`);
+  try {
+    return await main(cmd, args, { ...env, FACTORY_APP_KEY: '', GH_TOKEN: token });
+  } finally {
+    await revokeToken(api(token));
+    console.log(`the ${cmd} token is revoked: GitHub now refuses it (401)`);
+  }
+}
+
 async function main(cmd, args, env) {
+  if (cmd === 'before' && !env.GH_TOKEN) return withAppToken(cmd, args, env, READ_TOKEN);
+  if (cmd === 'publish' && !env.GH_TOKEN && env.FACTORY_APP_KEY) return withAppToken(cmd, args, env, WRITE_TOKEN);
+  if (cmd === 'before') {
+    await main('branch', args, env);
+    const b = { BRANCH: outputs.branch, RESUME: outputs.resume, PR: outputs.pr, HEAD: outputs.head };
+    await main('status', args, { ...env, ...b });
+    return main('prompt', args, { ...env, ...b });
+  }
   if (cmd === 'check') {
     const journeys = JSON.parse(readFileSync('docs/roadmap/journeys.json', 'utf8'));
     const r = checkInputs(env.JOURNEY, env.AREA, journeys);
@@ -449,8 +520,13 @@ async function main(cmd, args, env) {
     return 0;
   }
   if (cmd === 'switch') {
-    need(env, 'REPO', 'GH_TOKEN');
-    const fetchImpl = (url, init) => fetch(String(url).replace('https://api.github.com', apiRoot()), timed(init));
+    need(env, 'REPO');
+    // No token (the repository is public): factory-switch.mjs's reader sends one, so its header is dropped here.
+    const fetchImpl = (url, init) => {
+      const headers = { ...(init?.headers ?? {}) };
+      if (!env.GH_TOKEN) delete headers.authorization;
+      return fetch(String(url).replace('https://api.github.com', apiRoot()), timed({ ...init, headers }));
+    };
     const v = judgeSwitch(await readSwitch({ repo: env.REPO, token: env.GH_TOKEN, fetchImpl })); // throws: fails closed
     output({ run: v.pass ? 'true' : 'false' });
     console.log(v.pass ? 'FACTORY=run: the builder starts' : `::notice title=Factory paused::${v.why}, so no builder starts`);
@@ -516,14 +592,11 @@ async function main(cmd, args, env) {
     );
     return 0;
   }
-  if (cmd === 'revoke') {
-    need(env, 'GH_TOKEN');
-    await revokeToken(api(env.GH_TOKEN));
-    console.log('the read-only token is revoked: GitHub now refuses it (401)');
-    return 0;
-  }
   if (cmd === 'run') {
-    need(env, 'REPO', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_BIN', 'STARTED_AT', 'BUILDER_DIR', 'WORK');
+    need(env, 'REPO', 'CLAUDE_BIN', 'STARTED_AT', 'BUILDER_DIR', 'WORK');
+    const cliToken = env.CLAUDE_CODE_OAUTH_TOKEN || accountToken(env);
+    if (!cliToken) throw new Error(`the environment factory has no CLI token for ${env.ACCOUNT}`);
+    env = { ...env, CLAUDE_TOKEN_ACCT1: '', CLAUDE_TOKEN_ACCT3: '', CLAUDE_TOKEN_ACCT4: '', CLAUDE_CODE_OAUTH_TOKEN: cliToken };
     const dir = env.BUILDER_DIR;
     const hardAt = Number(env.STARTED_AT) * 1000 + HARD_MIN * 60_000;
     const pollMs = Number(env.POLL_MS ?? POLL_MS);
