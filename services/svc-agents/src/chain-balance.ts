@@ -45,6 +45,7 @@ export function createChainBalance(
       let block: { number: bigint | null; timestamp: bigint };
       let units: bigint;
       let token: string;
+      let decimals: number;
       try {
         chainId = await rpc.getChainId();
       } catch {
@@ -61,11 +62,20 @@ export function createChainBalance(
           args: [method.address as `0x${string}`],
           blockNumber: block.number,
         });
+        decimals = await rpc.readContract({
+          address: config.tokenAddress,
+          abi: erc20Abi,
+          functionName: 'decimals',
+          blockNumber: block.number,
+        });
         token = await rpc.readContract({ address: config.tokenAddress, abi: erc20Abi, functionName: 'symbol', blockNumber: block.number });
       } catch {
         throw new FundsUnreadError(method, 'chain_unreachable');
       }
       if (typeof units !== 'bigint' || units < 0n) throw new FundsUnreadError(method, 'chain_unreachable');
+      // The token's own decimals, at the same block: a setting that disagrees with the chain would scale every figure
+      // wrong and look right, so it refuses instead.
+      if (Number(decimals) !== config.tokenDecimals) throw new FundsUnreadError(method, 'chain_mismatch');
       // A name the page can show as it is: letters, digits and a few marks, never markup or a blank.
       if (typeof token !== 'string' || !/^[A-Za-z0-9.$_-]{1,16}$/.test(token)) throw new FundsUnreadError(method, 'chain_unreachable');
       return {

@@ -140,6 +140,8 @@ if (!available) {
   let chainAnswer: Amount | FundsUnreadError;
   let chainReads: string[];
   let chainSet: boolean;
+  /** A chain node that never answers, for the reading's deadline. */
+  let chainHangs: boolean;
   let ledgerBalance: Amount;
   let ledgerReads: number;
   let calls: number;
@@ -154,6 +156,7 @@ if (!available) {
   const chain: ChainBalancePort = {
     async read(address): Promise<WalletBalanceReading> {
       chainReads.push(address);
+      if (chainHangs) return new Promise<never>(() => undefined);
       if (chainAnswer instanceof FundsUnreadError) throw chainAnswer;
       return {
         kind: 'wallet',
@@ -188,6 +191,7 @@ if (!available) {
         },
         wallets,
         chain: chainSet ? chain : null,
+        deadlineMs: 200,
       }),
     });
     return createAgentsRouter({ runtime, gateway, meter, feeAssetId: 'USDT', sql, ownLinkedWallets: wallets });
@@ -232,6 +236,7 @@ if (!available) {
     chainAnswer = 0n;
     chainReads = [];
     chainSet = true;
+    chainHangs = false;
     // The platform balance would cover the run many times over: a wallet refusal can only come from the wallet.
     ledgerBalance = 100n * 10n ** 18n;
     ledgerReads = 0;
@@ -328,7 +333,8 @@ if (!available) {
         });
         expect(calls).toBe(0);
         expect(chainReads).toEqual([LINKED]);
-        expect(ledgerReads).toBe(0);
+        // The platform balance the run would be billed to is read with the wallet; the wallet is the short one.
+        expect(ledgerReads).toBe(1);
         expect(await holds()).toEqual([]);
         expect(await usageRows()).toBe(0);
         expect(await ledger.balance(userAvailable(USER, 'USDT'))).toEqual(before);
@@ -349,14 +355,60 @@ if (!available) {
       },
     );
 
-    it('a wallet that covers the worst case runs, though only the wallet was read', async () => {
+    it('a wallet that covers the worst case runs when the platform balance it is billed to covers it too', async () => {
       chainAnswer = WORST;
-      ledgerBalance = 0n;
       const { caller, id, sessionId } = await withWallet();
       const ran = await caller.own.run({ id, sessionId, requestId: 'pm-ok-run', ask: ASK });
       expect(ran.text.length).toBeGreaterThan(0);
       expect(calls).toBe(1);
-      expect(ledgerReads).toBe(0);
+      expect(chainReads).toEqual([LINKED]);
+      expect(ledgerReads).toBe(1);
+    });
+
+    it.each([
+      ['under the spend gate', true],
+      ['without a spend gate', false],
+    ])(
+      '%s: a wallet that covers the run, with a platform balance that cannot pay its bill, refuses as today; engine never called, nothing held or billed',
+      async (_label, spendGate) => {
+        // Council finding 1 on #7585: the run is billed to the ledger, so a covered wallet alone would admit a run nobody
+        // pays for.
+        chainAnswer = WORST * 10n;
+        ledgerBalance = 0n;
+        const { caller, id, sessionId } = await withWallet({ spendGate });
+        const before = await ledger.balance(userAvailable(USER, 'USDT'));
+        await expect(caller.own.run({ id, sessionId, requestId: 'pm-unbilled-run', ask: ASK })).rejects.toMatchObject({
+          message: 'agents.funds_insufficient',
+        });
+        expect(calls).toBe(0);
+        expect(await holds()).toEqual([]);
+        expect(await usageRows()).toBe(0);
+        expect(await ledger.balance(userAvailable(USER, 'USDT'))).toEqual(before);
+        const [row] = await caller.own.runs({ id, limit: 10 });
+        expect(row).toMatchObject({ status: 'refused', refusalCode: 'agents.funds_insufficient', cost: '0' });
+        expect(row!.messageParams).toEqual({ worstCase: formatAmount(WORST), asset: 'USDT' });
+      },
+    );
+
+    it('a chain node that never answers is unread within the reading’s deadline, and the run does not start', async () => {
+      // Council finding 3 on #7585: the reading runs under the person's spend lock, so it is bounded as a whole.
+      chainHangs = true;
+      const { caller, id, sessionId } = await withWallet();
+      const started = Date.now();
+      await expect(caller.own.run({ id, sessionId, requestId: 'pm-hung-run', ask: ASK })).rejects.toMatchObject({
+        message: 'agents.funds_unread',
+      });
+      expect(Date.now() - started).toBeLessThan(5_000);
+      expect(calls).toBe(0);
+      expect(await holds()).toEqual([]);
+      const [row] = await caller.own.runs({ id, limit: 10 });
+      expect(row!.messageParams).toEqual({
+        worstCase: formatAmount(WORST),
+        asset: 'USDT',
+        method: 'wallet',
+        address: LINKED,
+        reason: 'chain_unreachable',
+      });
     });
 
     it.each([

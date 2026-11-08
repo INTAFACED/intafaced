@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FundsUnreadError, fundsRefusalParams, readFunds } from './funds.js';
+import { FundsUnreadError, fundsRefusalParams, fundsShortfall, readFunds } from './funds.js';
 
 const WALLET = '0x00000000000000000000000000000000000a11ce';
 const reading = {
@@ -63,5 +63,24 @@ describe('fundsRefusalParams', () => {
       asset: 'USDT',
       reason: 'method_unread',
     });
+  });
+});
+
+describe('fundsShortfall', () => {
+  const ledgerOf = (available: bigint) => ({ kind: 'ledger', available }) as const;
+  it('a ledger reading covers the run net of what is owed', () => {
+    expect(fundsShortfall(ledgerOf(10n), 3n, 7n)).toBeNull();
+    expect(fundsShortfall(ledgerOf(10n), 4n, 7n)).toEqual({ ok: true, reading: ledgerOf(10n) });
+  });
+  it('a short wallet is named, whatever the platform balance', () => {
+    const wallet = { ...reading, available: 6n, billed: 100n };
+    expect(fundsShortfall(wallet, 0n, 7n)).toEqual({ ok: true, reading: wallet });
+  });
+  it('a covered wallet still needs the platform balance its bill is charged to, net of what is owed', () => {
+    expect(fundsShortfall({ ...reading, available: 7n, billed: 10n }, 3n, 7n)).toBeNull();
+    expect(fundsShortfall({ ...reading, available: 7n, billed: 10n }, 4n, 7n)).toEqual({ ok: true, reading: ledgerOf(10n) });
+  });
+  it('a wallet reading with no platform balance never covers: unread, not admitted', () => {
+    expect(fundsShortfall({ ...reading, available: 100n }, 0n, 7n)).toEqual({ ok: false, method: null, reason: null });
   });
 });

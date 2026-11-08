@@ -2,7 +2,7 @@ import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import type { EventBus } from '@intafaced/events';
 import { formatAmount, InsufficientFundsError, parseAmount, type Amount } from '@intafaced/ledger-client';
-import { fundsRefusalParams, readFunds, type FundsPort } from './funds.js';
+import { fundsRefusalParams, fundsShortfall, readFunds, type FundsPort } from './funds.js';
 import { AgentError, MeteredReplayError } from './errors.js';
 import { AuditLog, type ActionKind, type AuditedAction } from './fleet/audit.js';
 import {
@@ -600,8 +600,9 @@ export class AgentRuntime {
     //      block it was read at and that block's time, or why it could not be read (J-agents-02 #4).
     if (!this.spend && this.funds && shouldMeter && worstCaseCost > 0n) {
       const funds = this.funds;
-      const outcome = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId));
-      if (!outcome.ok || outcome.reading.available < worstCaseCost) {
+      const read = await readFunds(() => funds.available(session.userId, this.feeAssetId, session.agentId));
+      const outcome = read.ok ? fundsShortfall(read.reading, 0n, worstCaseCost) : read;
+      if (outcome !== null) {
         throw await this.appendRefusal(
           session,
           {

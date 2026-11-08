@@ -24,6 +24,12 @@ export type FundsReading =
       readonly source: { readonly kind: 'chain'; readonly chainId: number; readonly block: bigint };
       /** ISO time of `source.block`, from the block itself. */
       readonly asOf: string;
+      /**
+       * The person's available balance on the platform, in the fee asset. A run is still billed there (its windows seal
+       * to the ledger), so a wallet run must be covered by both: the wallet the person chose and the balance the bill
+       * is charged to. Read with the wallet; absent only on a reading made before it is added (the chain adapter's own).
+       */
+      readonly billed?: Amount;
     };
 
 /** Why a wallet's amount could not be read. The page words each one. */
@@ -70,6 +76,21 @@ export async function readFunds(read: () => Promise<Amount | FundsReading>): Pro
       ? { ok: false, method: err.method, reason: err.reason }
       : { ok: false, method: null, reason: null };
   }
+}
+
+/**
+ * Whether a reading covers `amount` after `owed` (what the person already owes on the platform), and if not, the
+ * outcome the refusal names. A ledger reading: its balance net of what is owed. A wallet reading: the wallet's figure
+ * must cover the run (the refusal then names the wallet), and the platform balance the run is billed to must cover it
+ * net of what is owed (the refusal then names that balance, as today). A wallet reading with no billed balance never
+ * covers: a run nobody can be billed for does not start.
+ */
+export function fundsShortfall(reading: FundsReading, owed: Amount, amount: Amount): FundsOutcome | null {
+  if (reading.kind === 'ledger') return reading.available - owed < amount ? { ok: true, reading } : null;
+  if (reading.available < amount) return { ok: true, reading };
+  if (reading.billed === undefined) return { ok: false, method: null, reason: null };
+  if (reading.billed - owed < amount) return { ok: true, reading: { kind: 'ledger', available: reading.billed } };
+  return null;
 }
 
 type Params = Record<string, string | number>;

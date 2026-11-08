@@ -150,6 +150,8 @@ export function paymentMethodFunds(deps: {
   readonly ledger: (userId: string, assetId: string) => Promise<Amount>;
   readonly wallets: LinkedWalletsPort | null;
   readonly chain: ChainBalancePort | null;
+  /** The wallet reading's deadline; tests shorten it. */
+  readonly deadlineMs?: number;
 }): FundsPort {
   return {
     async available(userId, assetId, agentId): Promise<Amount | FundsReading> {
@@ -161,13 +163,37 @@ export function paymentMethodFunds(deps: {
         throw new FundsUnreadError(null, 'method_unread');
       }
       if (row === null) return deps.ledger(userId, assetId);
-      const method: FundsMethod = { kind: 'wallet', address: row.address };
-      if (deps.chain === null) throw new FundsUnreadError(method, 'payment_token_unset');
-      const linked = deps.wallets ? await deps.wallets.read(userId) : null;
-      if (linked === null) throw new FundsUnreadError(method, 'identity_unreachable');
-      if (linked.state === 'account_inactive') throw new FundsUnreadError(method, 'account_inactive');
-      if (!linked.wallets.some((wallet) => wallet.address === row.address)) throw new FundsUnreadError(method, 'wallet_unlinked');
-      return deps.chain.read(row.address);
+      const chosen = row;
+      const method: FundsMethod = { kind: 'wallet', address: chosen.address };
+      const chain = deps.chain;
+      if (chain === null) throw new FundsUnreadError(method, 'payment_token_unset');
+      const wallet = async (): Promise<FundsReading> => {
+        const linked = deps.wallets ? await deps.wallets.read(userId) : null;
+        if (linked === null) throw new FundsUnreadError(method, 'identity_unreachable');
+        if (linked.state === 'account_inactive') throw new FundsUnreadError(method, 'account_inactive');
+        if (!linked.wallets.some((w) => w.address === chosen.address)) throw new FundsUnreadError(method, 'wallet_unlinked');
+        const reading = await chain.read(chosen.address);
+        // The run is still billed to the platform balance, so that is read too: a run is admitted only when both cover
+        // it (funds.ts fundsShortfall). A failed read is an unread balance, as on the ledger path.
+        return { ...reading, billed: await deps.ledger(userId, assetId) };
+      };
+      return withDeadline(wallet(), deps.deadlineMs ?? FUNDS_READ_DEADLINE_MS, method);
     },
   };
+}
+
+/**
+ * One deadline over a whole wallet reading (identity, the chain node's calls, the platform balance). The reading runs
+ * under the person's spend lock (spend/store.ts), so a slow node must not hold it for the sum of every call's own
+ * timeout: past the deadline the wallet is unread (`chain_unreachable`), the run refuses and the lock is let go. The
+ * ledger path has its own client deadline and is untouched.
+ */
+export const FUNDS_READ_DEADLINE_MS = 5_000;
+
+function withDeadline<T>(work: Promise<T>, ms: number, method: FundsMethod): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new FundsUnreadError(method, 'chain_unreachable')), ms);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }

@@ -12,6 +12,7 @@ function node(answers: {
   block?: { number: bigint | null; timestamp: bigint } | Error;
   balance?: bigint | Error;
   symbol?: string | Error;
+  decimals?: number | Error;
 }) {
   const asked: Array<{ fn: string; args: unknown }> = [];
   const answer = <T>(value: T | Error | undefined, fallback: T): T => {
@@ -29,7 +30,9 @@ function node(answers: {
     },
     readContract: async (args: { functionName: string }) => {
       asked.push({ fn: 'readContract', args });
-      return args.functionName === 'symbol' ? answer(answers.symbol, 'TESTUSD') : answer(answers.balance, 0n);
+      if (args.functionName === 'symbol') return answer(answers.symbol, 'TESTUSD');
+      if (args.functionName === 'decimals') return answer(answers.decimals, 6);
+      return answer(answers.balance, 0n);
     },
   };
   return { client: client as never, asked };
@@ -59,8 +62,15 @@ describe('createChainBalance', () => {
     const calls = asked.filter((a) => a.fn === 'readContract').map((a) => a.args as Record<string, unknown>);
     expect(calls).toEqual([
       expect.objectContaining({ address: TOKEN, functionName: 'balanceOf', args: [WALLET.toLowerCase()], blockNumber: 1234n }),
+      expect.objectContaining({ address: TOKEN, functionName: 'decimals', blockNumber: 1234n }),
       expect.objectContaining({ address: TOKEN, functionName: 'symbol', blockNumber: 1234n }),
     ]);
+  });
+
+  it('a token whose decimals on the chain differ from the setting refuses chain_mismatch, never a rescaled figure', async () => {
+    // Council finding 2 on #7585.
+    const { client } = node({ balance: 4_000n, decimals: 18 });
+    await expect(createChainBalance(CONFIG, client).read(WALLET)).rejects.toMatchObject({ reason: 'chain_mismatch' });
   });
 
   it('a node for another chain refuses chain_mismatch and reads no balance', async () => {
@@ -75,6 +85,7 @@ describe('createChainBalance', () => {
     ['the latest block is pending', { block: { number: null, timestamp: 1n } }],
     ['the balance call fails', { balance: new Error('execution reverted') }],
     ['the symbol call fails', { symbol: new Error('execution reverted') }],
+    ['the decimals call fails', { decimals: new Error('execution reverted') }],
     ['the symbol is blank', { symbol: '' }],
     ['the symbol is markup', { symbol: '<b>USDT</b>' }],
   ])('%s: chain_unreachable, with the wallet named, never a figure', async (_label, answers) => {

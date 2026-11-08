@@ -3,7 +3,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { parseAmount, type Amount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
-import { fundsRefusalParams, readFunds, type FundsReading } from '../funds.js';
+import { fundsRefusalParams, fundsShortfall, readFunds, type FundsReading } from '../funds.js';
 import { windowCost, type UsageGroup } from '../metering/pricing.js';
 import type { SpendGate, SpendLimitView, SpendPeriod, SpendReservationView } from './gate.js';
 import { canonicalAmount, decideReservation, parseSpendAmount, parseSpendLimitInput, periodStart, type SpendScope } from './limits.js';
@@ -457,12 +457,16 @@ export class UserSpendStore implements SpendGate {
               fundsRefusalParams(canonicalAmount(amount), assetId, outcome),
             );
           }
-          if (outcome.reading.available - owed < amount) {
+          const short = fundsShortfall(outcome.reading, owed, amount);
+          if (short !== null) {
+            const unread = !short.ok;
             throw new AgentError(
-              `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
-              'agents.funds_insufficient',
-              'agents.refused.funds_insufficient',
-              fundsRefusalParams(canonicalAmount(amount), assetId, outcome),
+              unread
+                ? `Available balance could not be read to cover ${canonicalAmount(amount)} ${assetId}`
+                : `Available balance does not cover ${canonicalAmount(amount)} ${assetId} after ${canonicalAmount(owed)} owed`,
+              unread ? 'agents.funds_unread' : 'agents.funds_insufficient',
+              unread ? 'agents.refused.funds_unread' : 'agents.refused.funds_insufficient',
+              fundsRefusalParams(canonicalAmount(amount), assetId, short),
             );
           }
         }
