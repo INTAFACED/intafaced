@@ -140,14 +140,26 @@ describe('HttpUserVenue: a lost answer after send is never definite', () => {
 
   it('a refused connection on submit is the venue being down, never a definite refusal of the action', async () => {
     const { server, url } = await fakeVenue(() => undefined);
-    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 });
+    // A refused connection, raised the way undici raises it, on every call once `refuse` is set. Injected rather than
+    // produced by closing the server: how a closed loopback port fails (refused, or a reset pooled socket) differs by
+    // machine, and the code under test is the classification, not the kernel.
+    let refuse = false;
+    const refusing: typeof fetch = async (input, init) => {
+      if (refuse)
+        throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) });
+      return fetch(input, init);
+    };
+    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: refusing });
+    await closeServer(server);
+    refuse = true;
     await expect(venue.balances({ venueId: venue.venue.id, owner, subAccount: null })).rejects.toMatchObject({
       refusal: { code: 'venue_down' },
     });
-    await closeServer(server);
     // Nothing reached the venue on this attempt, but an earlier send of the same bytes may have: no answer about the action.
     await expect(venue.submit(somePrepared(venue.venue.id), someSignature)).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
-    await expect(HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+    await expect(HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: refusing })).rejects.toMatchObject({
+      refusal: { code: 'venue_down' },
+    });
   });
 });
 
