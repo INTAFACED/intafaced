@@ -40,7 +40,7 @@ function deps(over: Partial<VenueConnectionDeps> = {}): VenueConnectionDeps & { 
     store: new MemoryVenueConnectionStore(),
     session: () => SESSION,
     ttlSeconds: () => TTL,
-    sanctions: () => walletSanctionsFromSetting(LISTED.address),
+    sanctions: () => walletSanctionsFromSetting(LISTED.address, 'test'),
     ...over,
   } as VenueConnectionDeps & { store: MemoryVenueConnectionStore };
 }
@@ -62,15 +62,25 @@ async function signed(d: VenueConnectionDeps, account = WALLET, userId = ALICE, 
 
 describe('venue wallet connection owner settings', () => {
   it('a blank lifetime or sanctions list reads unset; `none` is a reviewed empty list; a bad entry or lifetime refuses to boot', () => {
-    expect(venueConnectionTtlFromSetting(undefined)).toBeNull();
-    expect(venueConnectionTtlFromSetting(60)).toBe(60);
-    expect(() => venueConnectionTtlFromSetting(5)).toThrow(/Refusing to boot/);
-    expect(walletSanctionsFromSetting(undefined)).toBeNull();
-    expect(walletSanctionsFromSetting('  ')).toBeNull();
-    expect(walletSanctionsFromSetting(' , ')).toBeNull();
-    expect(walletSanctionsFromSetting('none')?.addresses.size).toBe(0);
-    expect(walletSanctionsFromSetting(`${LISTED.address}, ${OTHER.address}`)?.addresses.has(OTHER.address.toLowerCase())).toBe(true);
-    expect(() => walletSanctionsFromSetting('0xnot-an-address')).toThrow(/Refusing to boot/);
+    expect(venueConnectionTtlFromSetting(undefined, 'test')).toBeNull();
+    expect(venueConnectionTtlFromSetting('60', 'production')).toBe(60);
+    expect(venueConnectionTtlFromSetting('TEST:60', 'test')).toBe(60);
+    // Council round 1 on #7579: a TEST value never stands in outside the local test stack (AGENTS.md floor 8).
+    expect(() => venueConnectionTtlFromSetting('TEST:60', 'production')).toThrow(/TEST value .* Refusing to boot/);
+    expect(() => venueConnectionTtlFromSetting('TEST:60', undefined)).toThrow(/TEST value .* Refusing to boot/);
+    expect(() => venueConnectionTtlFromSetting('sixty', 'test')).toThrow(/Refusing to boot/);
+    expect(walletSanctionsFromSetting(`TEST:${LISTED.address}`, 'dev')?.addresses.has(LISTED.address.toLowerCase())).toBe(true);
+    expect(() => walletSanctionsFromSetting(`TEST:${LISTED.address}`, 'staging')).toThrow(/TEST value .* Refusing to boot/);
+    expect(walletSanctionsFromSetting(LISTED.address, 'production')?.addresses.size).toBe(1);
+    expect(() => venueConnectionTtlFromSetting('5', 'test')).toThrow(/Refusing to boot/);
+    expect(walletSanctionsFromSetting(undefined, 'test')).toBeNull();
+    expect(walletSanctionsFromSetting('  ', 'test')).toBeNull();
+    expect(walletSanctionsFromSetting(' , ', 'test')).toBeNull();
+    expect(walletSanctionsFromSetting('none', 'test')?.addresses.size).toBe(0);
+    expect(walletSanctionsFromSetting(`${LISTED.address}, ${OTHER.address}`, 'test')?.addresses.has(OTHER.address.toLowerCase())).toBe(
+      true,
+    );
+    expect(() => walletSanctionsFromSetting('0xnot-an-address', 'test')).toThrow(/Refusing to boot/);
   });
 
   it('step 1 refuses by name while any owner setting is blank, before a message is written', async () => {
@@ -99,10 +109,10 @@ describe('connect (J-wallet-09 #1, #2)', () => {
   it('a wallet on the sanctions list is refused with its reason, at the message and again at the signature', async () => {
     expect(await refusal(() => signed(deps(), LISTED))).toBe('protocol.wallet_sanctioned');
     // Listed after the message was written: the signature does not connect it either.
-    let list = walletSanctionsFromSetting('none');
+    let list = walletSanctionsFromSetting('none', 'test');
     const d = deps({ sanctions: () => list });
     const s = await signed(d, OTHER);
-    list = walletSanctionsFromSetting(OTHER.address);
+    list = walletSanctionsFromSetting(OTHER.address, 'test');
     expect(await refusal(() => openVenueConnection(d, { userId: ALICE, ...s }, T0))).toBe('protocol.wallet_sanctioned');
     expect(d.store.rows.size).toBe(0);
   });
@@ -203,9 +213,9 @@ describe('expiry (J-wallet-09 #4)', () => {
     expect(await refusal(() => assertVenueConnectionLive(d, { userId: BOB, address: WALLET.address }, T0))).toBe(
       'protocol.venue_connection_none',
     );
-    let list = walletSanctionsFromSetting('none');
+    let list = walletSanctionsFromSetting('none', 'test');
     const listed = deps({ store: d.store, sanctions: () => list });
-    list = walletSanctionsFromSetting(WALLET.address);
+    list = walletSanctionsFromSetting(WALLET.address, 'test');
     expect(await refusal(() => assertVenueConnectionLive(listed, { userId: ALICE, address: WALLET.address }, T0))).toBe(
       'protocol.wallet_sanctioned',
     );
@@ -288,12 +298,12 @@ describe('venueWallet.* mounted', () => {
   });
 
   it('status reads a wallet listed since it connected as blocked, the same answer an action gets', async () => {
-    let list = walletSanctionsFromSetting('none');
+    let list = walletSanctionsFromSetting('none', 'test');
     const d = deps({ sanctions: () => list });
     const alice = caller(d);
     const issued = await alice.venueWallet.challenge({ address: WALLET.address, origin: ORIGIN });
     await alice.venueWallet.open({ challenge: issued.challenge, signature: await WALLET.signMessage({ message: issued.message }) });
-    list = walletSanctionsFromSetting(WALLET.address);
+    list = walletSanctionsFromSetting(WALLET.address, 'test');
     expect((await alice.venueWallet.status()).connections.map((c) => c.status)).toEqual(['blocked']);
     await expect(alice.venueWallet.authorize({ address: WALLET.address, action: 'deposit' })).rejects.toMatchObject({
       message: expect.stringMatching(/^protocol\.wallet_sanctioned:/),

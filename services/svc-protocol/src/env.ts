@@ -299,7 +299,7 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      *   refuses every connect with `protocol.wallet_sanctions_unset`; a listed wallet refuses `protocol.wallet_sanctioned`.
      * The message is sealed with the wallet session secret and written for its origins, above.
      */
-    PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: blankIsUnset(z.coerce.number().int().min(30).max(2_592_000).optional()),
+    PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: blankIsUnset(z.string().max(64).optional()),
     PROTOCOL_WALLET_SANCTIONS: blankIsUnset(z.string().max(100_000).optional()),
     /**
      * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner

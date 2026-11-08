@@ -55,10 +55,10 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       // Production stays blank and connecting refuses protocol.venue_connection_ttl_unset / protocol.wallet_sanctions_unset.
       // `LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS=off` on a start or restart leaves the list blank instead, so the blank-list
       // refusal can be seen too (J-wallet-09 #1).
-      PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: '60',
+      PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: 'TEST:60',
       ...(process.env.LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS === 'off'
         ? {}
-        : { PROTOCOL_WALLET_SANCTIONS: '0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83' }),
+        : { PROTOCOL_WALLET_SANCTIONS: 'TEST:0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83' }),
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',
       // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for

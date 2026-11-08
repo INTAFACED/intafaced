@@ -1,3 +1,4 @@
+import { isExplicitDevOrTest } from '@intafaced/config';
 import { getAddress as toChecksum, isAddress, verifyMessage, type Address, type Hex } from 'viem';
 import { createSiweMessage, generateSiweNonce } from 'viem/siwe';
 import type { VenueWalletAction } from '@intafaced/contracts/protocol-venue-wallet';
@@ -86,13 +87,27 @@ export interface WalletSanctionsList {
 }
 
 /**
+ * A `TEST:` owner value stands in only on the local test stack (AGENTS.md floor 8): with the prefix, boot refuses unless
+ * the RAW `APP_ENV` is exactly `dev` or `test`, so a TEST list or lifetime copied to staging never passes for a real one.
+ * Returns the value without its prefix.
+ */
+function testValueFor(name: string, value: string, rawAppEnv: string | undefined): string {
+  const test = /^TEST:/i.exec(value);
+  if (!test) return value;
+  if (!isExplicitDevOrTest(rawAppEnv))
+    throw new Error(`${name} is a TEST value but APP_ENV=${rawAppEnv ?? '(unset)'} is not the local test stack. Refusing to boot.`);
+  return value.slice(test[0].length).trim();
+}
+
+/**
  * `PROTOCOL_WALLET_SANCTIONS`, read once at boot: a comma-separated list of EVM addresses, or `none` for a list the owner
  * has reviewed and left empty. Blank is null, and every connect refuses `protocol.wallet_sanctions_unset`: a blank list is
  * not a screened-clean one. An entry that is not an address refuses to boot, so a mistyped entry never matches nothing.
  */
-export function walletSanctionsFromSetting(raw: string | undefined): WalletSanctionsList | null {
-  const text = raw?.trim() ?? '';
-  if (!text) return null;
+export function walletSanctionsFromSetting(raw: string | undefined, rawAppEnv: string | undefined): WalletSanctionsList | null {
+  const value = raw?.trim() ?? '';
+  if (!value) return null;
+  const text = testValueFor('PROTOCOL_WALLET_SANCTIONS', value, rawAppEnv);
   if (text.toLowerCase() === WALLET_SANCTIONS_REVIEWED_EMPTY) return { addresses: new Set() };
   const entries = text
     .split(',')
@@ -105,9 +120,14 @@ export function walletSanctionsFromSetting(raw: string | undefined): WalletSanct
   return { addresses: new Set(entries.map((entry) => entry.toLowerCase())) };
 }
 
-/** `PROTOCOL_VENUE_CONNECTION_TTL_SECONDS`, read once at boot. Undefined is null (refuses by name); out of range refuses to boot. */
-export function venueConnectionTtlFromSetting(seconds: number | undefined): number | null {
-  if (seconds === undefined) return null;
+/** `PROTOCOL_VENUE_CONNECTION_TTL_SECONDS`, read once at boot. Blank is null (refuses by name); malformed or out of range refuses to boot. */
+export function venueConnectionTtlFromSetting(raw: string | undefined, rawAppEnv: string | undefined): number | null {
+  const value = raw?.trim() ?? '';
+  if (!value) return null;
+  const digits = testValueFor('PROTOCOL_VENUE_CONNECTION_TTL_SECONDS', value, rawAppEnv);
+  if (!/^\d+$/.test(digits))
+    throw new Error(`PROTOCOL_VENUE_CONNECTION_TTL_SECONDS must be whole seconds, got "${value}". Refusing to boot.`);
+  const seconds = Number(digits);
   if (!Number.isInteger(seconds) || seconds < VENUE_CONNECTION_TTL_MIN_SECONDS || seconds > VENUE_CONNECTION_TTL_MAX_SECONDS)
     throw new Error(
       `PROTOCOL_VENUE_CONNECTION_TTL_SECONDS must be a whole number of seconds from ${VENUE_CONNECTION_TTL_MIN_SECONDS} to ${VENUE_CONNECTION_TTL_MAX_SECONDS}. Refusing to boot.`,
@@ -287,7 +307,7 @@ export function issueVenueChallenge(
   }
   if (!origin || !session.origins.includes(origin))
     throw new VenueConnectionRefusedError(WALLET_SESSION_ORIGIN_UNLISTED, 'Wallet messages are not written for this page’s origin.');
-  const address = toChecksum(input.address);
+  const address = toChecksum(input.address.toLowerCase() as Address);
   screenWallet(deps.sanctions(), address);
   const fields: ChallengeFields = {
     userId: input.userId,
@@ -316,7 +336,7 @@ function readChallenge(secret: string, token: string): ChallengeFields | null {
   const { u, a, c, o, n, i, e } = p;
   if (typeof u !== 'string' || typeof a !== 'string' || typeof c !== 'number' || typeof o !== 'string' || typeof n !== 'string')
     return null;
-  if (typeof i !== 'number' || typeof e !== 'number') return null;
+  if (typeof i !== 'number' || typeof e !== 'number' || e <= i) return null;
   return { userId: u, address: a as Address, chainId: c, origin: o, nonce: n, issuedAt: i, expiresAt: e };
 }
 
@@ -383,7 +403,7 @@ export async function assertVenueConnectionLive(
   input: { userId: string; address: string },
   now: Date = new Date(),
 ): Promise<VenueConnectionRecord> {
-  const address = toChecksum(input.address);
+  const address = toChecksum(input.address.toLowerCase() as Address);
   const row = await deps.store.find(input.userId, deps.chainId(), address);
   if (!row || row.revokedAt !== null)
     throw new VenueConnectionRefusedError(VENUE_CONNECTION_NONE, 'This wallet is not connected to your account. Connect it first.');

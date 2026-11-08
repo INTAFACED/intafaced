@@ -149,8 +149,9 @@ const walletSessionSetting = walletSessionFromSetting(
   process.env.APP_ENV,
 );
 // The venue wallet connection's lifetime and the wallet sanctions list: read once, malformed refuses to boot.
-const venueConnectionTtl = venueConnectionTtlFromSetting(env.PROTOCOL_VENUE_CONNECTION_TTL_SECONDS);
-const walletSanctions = walletSanctionsFromSetting(env.PROTOCOL_WALLET_SANCTIONS);
+// Raw APP_ENV: a `TEST:` value refuses to boot anywhere but the local test stack.
+const venueConnectionTtl = venueConnectionTtlFromSetting(env.PROTOCOL_VENUE_CONNECTION_TTL_SECONDS, process.env.APP_ENV);
+const walletSanctions = walletSanctionsFromSetting(env.PROTOCOL_WALLET_SANCTIONS, process.env.APP_ENV);
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 let badgeRestartable: boolean | undefined;

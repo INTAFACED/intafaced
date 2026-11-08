@@ -31,7 +31,7 @@ export class PostgresVenueConnectionStore implements VenueConnectionStore {
   constructor(private readonly sql: Sql) {}
 
   async open(input: NewVenueConnection): Promise<VenueConnectionRecord | null> {
-    const address = toChecksum(input.address);
+    const address = toChecksum(input.address.toLowerCase() as Address);
     return this.sql.begin(async (tx) => {
       const spent = await tx<Array<{ idempotency_key: string }>>`
         INSERT INTO protocol.venue_wallet_nonces (idempotency_key, user_id, address)

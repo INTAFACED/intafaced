@@ -9,7 +9,7 @@ import {
   protocolVenueWalletOpenInputSchema,
   protocolVenueWalletStatusOutputSchema,
 } from '@intafaced/contracts/protocol-venue-wallet';
-import { getAddress as toChecksum } from 'viem';
+import { getAddress as toChecksum, type Address } from 'viem';
 import { WALLET_SESSION_UNSET, WALLET_SIGNATURE_NOT_OWNER } from '../address-book/session.js';
 import {
   VENUE_CHALLENGE_USED,
@@ -117,7 +117,7 @@ export function createVenueWalletRouter(deps: VenueWalletRouterDeps) {
       .output(protocolVenueWalletDisconnectedOutputSchema)
       .mutation(({ ctx, input }) =>
         guarded(async () => {
-          const address = toChecksum(input.address);
+          const address = toChecksum(input.address.toLowerCase() as Address);
           // Disconnecting a wallet that is not connected answers the same: the end state is the one asked for.
           await deps.store.revoke(ctx.principal.userId, deps.chainId(), address, now());
           return { address, disconnected: true as const };

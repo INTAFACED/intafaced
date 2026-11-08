@@ -161,6 +161,16 @@ test(`${J} #2 signs with the wallet: it shows connected with its expiry; INTAFAC
   await expect(page.getByTestId('venue-connection-expires')).toHaveAttribute('datetime', expiresAt);
 });
 
+/** The room has read the connection back: it shows Connected, Connection expired, or Connect. Branch only after this. */
+async function roomSettled(page) {
+  await expect(
+    page
+      .getByRole('heading', { name: 'Connected' })
+      .or(page.getByRole('heading', { name: 'Connection expired' }))
+      .or(page.getByRole('button', { name: 'Connect to my account' })),
+  ).toBeVisible();
+}
+
 test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the venue credits it, with an as-of time; the ledger posts nothing`, async ({
   page,
 }) => {
@@ -169,6 +179,7 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the ven
   const ledgerBefore = await (await api(who)).balances();
   const wallet = await openVenue(page, who, walletKey);
   // The connection from #2 may have ended: sign again so this step starts connected.
+  await roomSettled(page);
   if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
   const signedBefore = wallet.requests.length;
   await page.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill(DEPOSIT, UNBUILT);
@@ -190,6 +201,7 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
   const { who, walletKey } = state();
   await openVenue(page, who, walletKey);
   // A connection that is live now, so this step watches it expire.
+  await roomSettled(page);
   if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
   if (await page.getByRole('button', { name: 'Connect to my account' }).isVisible()) await connectAndSign(page);
   const expiresAt = await page.getByTestId('venue-connection-expires').getAttribute('datetime');
@@ -223,6 +235,7 @@ test(`${J} #5 withdraws TEST USDC from the venue to the wallet: pending then don
 }) => {
   const { who, walletKey } = state();
   await openVenue(page, who, walletKey);
+  await roomSettled(page);
   if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
   await venueAction(page, 'Withdraw TEST USDC').click();
   // The user signs.
