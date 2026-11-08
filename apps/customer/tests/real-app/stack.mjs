@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LOCAL_TEST_DEVICE_KEY, localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
@@ -57,7 +57,6 @@ export const worldState = {
 /** Record that this journey file acts as TEST account `who` (an email or handle and its password), so its resting
  * orders come down before the next file. */
 export function actedAs(who) {
-  venueDoorLeftOnGuard();
   const identifier = who?.email ?? who?.identifier;
   if (!identifier || !who?.password) return;
   const state = worldState.read();
@@ -267,45 +266,6 @@ export function restartWithSetting(service, envKey, value) {
     if (before === undefined) delete process.env[envKey];
     else process.env[envKey] = before;
   }
-}
-
-/** The setting that points svc-trade's user-venue door at the stack's TEST venue (local-stack-services/trade.mjs). */
-export const VENUE_DOOR_SETTING = 'LOCAL_STACK_USER_VENUE';
-/** Written while a venue journey file holds the door on: the worker that switched it on. */
-const VENUE_DOOR_MARK = path.join(RUN, 'venue-door-on.json');
-
-/** A venue file switched the door on (`on`), or off again: the mark names this worker, so a crash before off is seen. */
-export function markVenueDoor(on) {
-  if (on) {
-    mkdirSync(RUN, { recursive: true });
-    writeFileSync(VENUE_DOOR_MARK, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
-  } else rmSync(VENUE_DOOR_MARK, { force: true });
-}
-
-const alive = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
-};
-
-/**
- * A venue file's worker that died before its afterAll left the door on for the next file in the shard. The next file's
- * first sign-in (`actedAs`) sees the mark of a worker that is gone and switches the door off before it goes on.
- */
-export function venueDoorLeftOnGuard() {
-  if (!existsSync(VENUE_DOOR_MARK)) return;
-  let pid = null;
-  try {
-    pid = JSON.parse(readFileSync(VENUE_DOOR_MARK, 'utf8')).pid;
-  } catch {
-    pid = null;
-  }
-  if (pid === process.pid || (Number.isInteger(pid) && alive(pid))) return;
-  restartWithSetting('trade', VENUE_DOOR_SETTING, 'off');
-  markVenueDoor(false);
 }
 
 /** Every LOCAL-TEST sign-up code the stack's identity service mailed to `email`, oldest first (its outbox file). */

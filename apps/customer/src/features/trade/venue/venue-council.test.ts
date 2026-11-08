@@ -84,8 +84,8 @@ describe('the spot page in venue mode', () => {
 
 describe('honest venue words', () => {
   const { t } = venueCopy.forLocale('en');
-  it('a read-back that finds nothing yet says so and claims nothing was placed only from a definite answer', () => {
-    expect(t('Read back missing')).toContain('not found yet');
+  it('a read-back that finds nothing so far says so and claims nothing was placed only from a definite answer', () => {
+    expect(t('Read back missing')).toContain('not found so far');
     expect(t('Read back missing')).not.toContain('nothing was placed');
   });
 
