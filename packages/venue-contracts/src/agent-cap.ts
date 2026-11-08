@@ -1,4 +1,4 @@
-import { add, compare, div, formatAmount, isNegative, mul, parseAmount, sub, sum, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { compare, div, formatAmount, isNegative, mul, parseAmount, sub, sum, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   assertSignatureMatches,
   assertSignerMaySign,
@@ -137,7 +137,8 @@ export function assertAgentFundingWithinCap(cap: AgentCap, movedIn: Amount, move
   if (compare(move, ZERO) <= 0) {
     throw new AgentCapError('agents.account_cap_invalid', `a move must be above zero, got ${formatAmount(move)} ${cap.asset}`);
   }
-  const net = sub(movedIn, movedOut);
+  // Net funding is floored at zero: taking profits out never makes room past the cap itself.
+  const net = isNegative(sub(movedIn, movedOut)) ? ZERO : sub(movedIn, movedOut);
   const room = isNegative(sub(cap.cap, net)) ? ZERO : sub(cap.cap, net);
   if (compare(move, room) > 0) {
     throw new AgentCapError(
@@ -149,7 +150,7 @@ export function assertAgentFundingWithinCap(cap: AgentCap, movedIn: Amount, move
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// THE ORDER CHECK — pure, on the venue's record
+// THE ORDER CHECK — pure, on the venue's record and what we signed
 // ════════════════════════════════════════════════════════════════════════════
 
 /** The venue's record the order check reads, each as the venue reported it. */
@@ -158,8 +159,25 @@ export interface AgentCapSnapshot {
   readonly balances: readonly UserVenueBalance[];
   readonly openOrders: readonly UserVenueOrder[];
   readonly positions: readonly UserVenuePosition[];
-  /** The account's leverage on the order's market, in bps of 1x; `known: false` when the venue reports none. */
-  readonly leverageBps: MaybeKnown<number>;
+  /** The account's leverage on a perpetual, in bps of 1x, as the venue records it; `known: false` when it reports none. */
+  readonly leverage: (symbol: string) => MaybeKnown<number>;
+}
+
+/** An order the agent key signed whose venue answer is not yet settled. */
+export interface PendingAgentOrder {
+  readonly symbol: string;
+  readonly side: 'buy' | 'sell';
+  readonly reduceOnly: boolean;
+  /** Amount × price as signed, in the cap's asset. */
+  readonly notional: Amount;
+}
+
+/** What the agent key signed that the venue's record may not show yet. */
+export interface AgentCapPending {
+  /** Signed orders and amends, by venue client order id. */
+  readonly orders: ReadonlyMap<string, PendingAgentOrder>;
+  /** Signed leverage changes not yet settled. Each may still land, so the lowest counts. */
+  readonly leverage: readonly { readonly symbol: string; readonly leverageBps: number }[];
 }
 
 /** The mark of one unit of `asset`, in the cap's asset. `known: false` when there is none. */
@@ -168,13 +186,15 @@ export type AgentCapMarks = (asset: string) => MaybeKnown<Amount>;
 export interface AgentCapCheck {
   /** What this action commits, in the cap's asset. */
   readonly commitment: Amount;
-  /** What the account already has in use, plus signed orders the venue has not yet answered; `null` when not measured (nothing to add). */
+  /** What the account has in use, with what was signed and not yet settled; `null` when not measured (nothing to add). */
   readonly inUse: Amount | null;
   /** `cap - inUse`, floored at zero; `null` when not measured. */
   readonly room: Amount | null;
 }
 
-const BPS_OF_1X = parseAmount('10000');
+const ONE_X = 10_000;
+const BPS_OF_1X = parseAmount(String(ONE_X));
+const NOTHING: AgentCapCheck = { commitment: ZERO, inUse: null, room: null };
 
 function refuse(
   account: UserVenueAccount,
@@ -194,21 +214,39 @@ function sameAccount(a: UserVenueAccount, b: UserVenueAccount): boolean {
   return a.venueId === b.venueId && a.owner.toLowerCase() === b.owner.toLowerCase() && (a.subAccount ?? null) === (b.subAccount ?? null);
 }
 
+function maxOf(values: readonly Amount[]): Amount {
+  return values.reduce((m, v) => (compare(v, m) > 0 ? v : m), ZERO);
+}
+
 /**
  * Refuse, before the agent key signs, an agent action the cap does not allow.
  * Returns the figures it judged on. Throws `VenueRefusalError`:
  *   · `agent_outside_capped_account` — not this cap's agent key, or not its sub-account;
  *   · `agent_cap_inactive` — revoked or expired (a cancel still passes);
- *   · `agent_cap_unmeasured` — the order adds commitment and "in use" can't be measured;
- *   · `agent_cap_exceeded` — the order's commitment is more than the room left.
+ *   · `agent_cap_unmeasured` — the action adds commitment and "in use" can't be measured;
+ *   · `agent_cap_exceeded` — the order's commitment is more than the room left, or a
+ *     leverage cut would raise what is in use past the cap;
+ *   · `unknown_order` — an amend of no resting order, or one naming another market.
  * Owner actions never come here: they are the person's own signatures.
+ *
+ * What is counted, all in the cap's asset:
+ *   · a resting order: the most of the venue's lock, the order's own commitment
+ *     at the lowest leverage that may apply, and our reservation for it (an
+ *     amend we signed may not have landed, and a venue may report no lock);
+ *   · a signed order the venue does not show: its reservation;
+ *   · a position: the most of its venue margin and its notional at the mark
+ *     over the lowest leverage that may apply;
+ *   · every other holding at its mark.
+ * The lowest leverage that may apply on a perpetual is the least of the
+ * venue's record (1x when it reports none) and every signed, unsettled
+ * leverage change, so a cut signed before or after an order is always counted.
  */
 export function checkAgentOrderWithinCap(
   prepared: PreparedVenueAction,
   cap: AgentCap,
   snapshot: AgentCapSnapshot,
   marks: AgentCapMarks,
-  reserved: Amount,
+  pending: AgentCapPending,
   now: Date,
 ): AgentCapCheck {
   const { account, signer, intent } = prepared;
@@ -228,72 +266,132 @@ export function checkAgentOrderWithinCap(
   }
   assertSignerMaySign(account, signer, intent);
 
-  if (intent.kind === 'cancel_order') return { commitment: ZERO, inUse: null, room: null };
+  if (intent.kind === 'cancel_order') return NOTHING;
 
   if (cap.revokedAt !== null)
     refuse(account, 'agent_cap_inactive', `the person revoked this agent at ${cap.revokedAt.toISOString()}; only cancels are allowed`);
   if (cap.validUntil !== null && now.getTime() >= cap.validUntil.getTime()) {
     refuse(account, 'agent_cap_inactive', `this agent's cap expired at ${cap.validUntil.toISOString()}; only cancels are allowed`);
   }
-
-  if (intent.kind === 'update_leverage') return { commitment: ZERO, inUse: null, room: null };
-  if (intent.kind !== 'place_order' && intent.kind !== 'amend_order') {
+  if (intent.kind !== 'place_order' && intent.kind !== 'amend_order' && intent.kind !== 'update_leverage') {
     // Withdrawals and approvals are owner-only; assertSignerMaySign refused them above.
     refuse(account, 'agent_outside_capped_account', `an agent key cannot sign ${intent.kind}`);
   }
 
-  const market = snapshot.markets.find((m) => m.symbol === intent.symbol);
-  if (!market) refuse(account, 'unknown_market', `${intent.symbol} is not listed for this account`);
-  if (market.quoteAsset !== cap.asset) {
-    refuse(account, 'agent_cap_unmeasured', `${intent.symbol} is quoted in ${market.quoteAsset}; this cap is counted in ${cap.asset}`);
-  }
+  const marketOf = (symbol: string): UserVenueMarket => {
+    const m = snapshot.markets.find((x) => x.symbol === symbol);
+    if (!m) refuse(account, 'unknown_market', `${symbol} is not listed for this account`);
+    if (m.quoteAsset !== cap.asset)
+      refuse(account, 'agent_cap_unmeasured', `${symbol} is quoted in ${m.quoteAsset}; this cap is counted in ${cap.asset}`);
+    return m;
+  };
 
+  const levCut = intent.kind === 'update_leverage' ? intent : null;
+  if (levCut && (!Number.isInteger(levCut.leverageBps) || levCut.leverageBps < ONE_X)) {
+    refuse(account, 'agent_cap_unmeasured', `a leverage of ${levCut.leverageBps} bps is below 1x`);
+  }
+  const leverageOf = (symbol: string): number => {
+    const venue = snapshot.leverage(symbol);
+    // The venue's leverage read; else the leverage its position on the market reports; else 1x.
+    const position = snapshot.positions.find((p) => p.symbol === symbol);
+    let lev = venue.known ? venue.value : position ? position.leverageBps : ONE_X;
+    if (!Number.isInteger(lev) || lev < ONE_X)
+      refuse(account, 'agent_cap_unmeasured', `the venue reports a leverage of ${lev} bps on ${symbol}, below 1x`);
+    for (const p of pending.leverage) if (p.symbol === symbol && p.leverageBps < lev) lev = p.leverageBps;
+    if (levCut && levCut.symbol === symbol && levCut.leverageBps < lev) lev = levCut.leverageBps;
+    return lev;
+  };
+  const commits = (o: { symbol: string; side: 'buy' | 'sell'; reduceOnly: boolean; notional: Amount }): Amount => {
+    const m = marketOf(o.symbol);
+    if (m.kind === 'spot') return o.side === 'buy' ? o.notional : ZERO; // reduce-only means nothing on spot: a buy spends quote
+    if (o.reduceOnly) return ZERO;
+    return div(mul(o.notional, BPS_OF_1X, 'ceil'), parseAmount(String(leverageOf(o.symbol))), 'ceil');
+  };
+
+  // ── what this action commits ───────────────────────────────────────────
+  let commitment = ZERO;
   let replaced: UserVenueOrder | null = null;
-  let side: 'buy' | 'sell';
-  let reduceOnly: boolean;
   if (intent.kind === 'amend_order') {
     const cloid = venueClientOrderId(account.venueId, intent.clientOrderKey);
     replaced = snapshot.openOrders.find((o) => o.venueClientOrderId === cloid) ?? null;
     if (!replaced) refuse(account, 'unknown_order', `no resting order with client id ${cloid} on this account`);
-    side = replaced.side;
-    reduceOnly = replaced.reduceOnly;
+    if (replaced.symbol !== intent.symbol)
+      refuse(account, 'unknown_order', `order ${cloid} rests on ${replaced.symbol}, not ${intent.symbol}`);
+    commitment = commits({
+      symbol: replaced.symbol,
+      side: replaced.side,
+      reduceOnly: replaced.reduceOnly,
+      notional: mul(intent.amount, intent.price, 'ceil'),
+    });
+  } else if (intent.kind === 'place_order') {
+    commitment = commits({
+      symbol: intent.symbol,
+      side: intent.side,
+      reduceOnly: intent.reduceOnly,
+      notional: mul(intent.amount, intent.price, 'ceil'),
+    });
   } else {
-    side = intent.side;
-    reduceOnly = intent.reduceOnly;
+    // A leverage change commits nothing itself; a cut is judged by what it does to everything in use below.
+    marketOf(intent.symbol);
+    const venue = snapshot.leverage(intent.symbol);
+    const before = venue.known ? venue.value : ONE_X;
+    const lowestPending = pending.leverage.filter((p) => p.symbol === intent.symbol).reduce((m, p) => Math.min(m, p.leverageBps), before);
+    if (intent.leverageBps >= lowestPending) return NOTHING;
   }
+  if (!levCut && compare(commitment, ZERO) === 0) return NOTHING;
 
-  const notional = mul(intent.amount, intent.price, 'ceil');
-  let commitment: Amount;
-  if (reduceOnly) commitment = ZERO;
-  else if (market.kind === 'spot') commitment = side === 'buy' ? notional : ZERO;
-  else {
-    const lev = snapshot.leverageBps.known ? snapshot.leverageBps.value : 10_000;
-    if (!Number.isInteger(lev) || lev < 10_000)
-      refuse(account, 'agent_cap_unmeasured', `the venue reports a leverage of ${lev} bps on ${intent.symbol}, below 1x`);
-    commitment = div(mul(notional, BPS_OF_1X, 'ceil'), parseAmount(String(lev)), 'ceil');
-  }
-  if (compare(commitment, ZERO) === 0) return { commitment, inUse: null, room: null };
-
-  const parts: Amount[] = [reserved];
+  // ── what is in use ─────────────────────────────────────────────────────
+  const self = prepared.venueClientOrderId;
+  const parts: Amount[] = [];
+  const live = new Set<string>();
   for (const o of snapshot.openOrders) {
-    if (replaced && o === replaced) continue; // an amend replaces this order's lock
-    if (o.lockedAsset === cap.asset) parts.push(o.locked);
+    if (o.venueClientOrderId !== null) live.add(o.venueClientOrderId);
+    if (o === replaced || (self !== null && o.venueClientOrderId === self)) continue; // this action replaces it
+    const lock = o.lockedAsset === cap.asset ? o.locked : ZERO;
+    const own = commits({ symbol: o.symbol, side: o.side, reduceOnly: o.reduceOnly, notional: mul(o.remaining, o.price, 'ceil') });
+    const res = o.venueClientOrderId !== null ? pending.orders.get(o.venueClientOrderId) : undefined;
+    parts.push(maxOf([lock, own, res ? commits(res) : ZERO]));
   }
-  for (const p of snapshot.positions) parts.push(p.margin);
+  for (const [id, res] of pending.orders) {
+    if (id !== self && !live.has(id)) parts.push(commits(res));
+  }
+  for (const p of snapshot.positions) {
+    const m = marketOf(p.symbol);
+    const atLev =
+      m.kind === 'perpetual'
+        ? div(
+            mul(mul(p.size, p.markPrice, 'ceil'), BPS_OF_1X, 'ceil'),
+            parseAmount(String(Math.min(p.leverageBps, leverageOf(p.symbol)))),
+            'ceil',
+          )
+        : ZERO;
+    parts.push(maxOf([p.margin, atLev]));
+  }
   for (const b of snapshot.balances) {
     if (b.asset === cap.asset || compare(b.total, ZERO) === 0) continue;
     const mark = marks(b.asset);
-    if (!mark.known)
+    if (!mark.known) {
       refuse(
         account,
         'agent_cap_unmeasured',
         `the account holds ${formatAmount(b.total)} ${b.asset} and its mark in ${cap.asset} is not known, so the room under the cap is not known`,
       );
+    }
     parts.push(mul(b.total, mark.value, 'ceil'));
   }
   const inUse = sum(parts);
   const left = sub(cap.cap, inUse);
   const room = isNegative(left) ? ZERO : left;
+  if (levCut) {
+    if (compare(inUse, cap.cap) > 0) {
+      refuse(
+        account,
+        'agent_cap_exceeded',
+        `at ${levCut.leverageBps / ONE_X}x on ${levCut.symbol} the account would have ${formatAmount(inUse)} ${cap.asset} in use, past the cap of ${formatAmount(cap.cap)} ${cap.asset}`,
+      );
+    }
+    return { commitment: ZERO, inUse, room };
+  }
   if (compare(commitment, room) > 0) {
     refuse(
       account,
@@ -329,8 +427,10 @@ export class CappedAgentSigner {
   readonly #venue: AgentCapVenue;
   readonly #marks: AgentCapMarks;
   readonly #now: () => Date;
-  /** Commitment of signed orders whose venue answer is not yet definite, by venue client order id. */
-  readonly #reserved = new Map<string, Amount>();
+  /** Signed orders not yet settled, by venue client order id. */
+  readonly #orders = new Map<string, PendingAgentOrder>();
+  /** Signed leverage changes not yet settled, by the action's nonce. */
+  readonly #leverage = new Map<string, { readonly symbol: string; readonly leverageBps: number }>();
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(opts: {
@@ -357,44 +457,68 @@ export class CappedAgentSigner {
   }
 
   /**
-   * Release an order's reservation once the venue's answer is definite (accepted,
-   * so the venue's record now carries it, or refused). Never after a
-   * `definite: false` answer: read back first.
+   * Release what a signed action reserved once the venue's answer is definite
+   * and its record shows the result (an order resting, filled or refused; a
+   * leverage change applied or refused). Key: the order's venue client order
+   * id, or a leverage change's nonce. Never after a `definite: false` answer:
+   * read back first. Until settled, a reservation counts, so a filled order is
+   * counted twice for a moment (more refused, never less).
    */
-  settle(venueClientOrderId: string): void {
-    this.#reserved.delete(venueClientOrderId);
+  settle(key: string): void {
+    this.#orders.delete(key);
+    this.#leverage.delete(key);
   }
 
   async #checkAndSign(prepared: PreparedVenueAction, cap: AgentCap) {
     const { account, intent } = prepared;
-    const symbol =
-      intent.kind === 'place_order' || intent.kind === 'amend_order' || intent.kind === 'update_leverage' ? intent.symbol : null;
-    const [markets, balances, openOrders, positions, leverage] = await Promise.all([
+    const [markets, balances, openOrders, positions] = await Promise.all([
       this.#venue.markets(account),
       this.#venue.balances(account),
       this.#venue.openOrders(account),
       this.#venue.positions(account),
-      symbol && this.#venue.leverage ? this.#venue.leverage(account, symbol) : Promise.resolve(null),
     ]);
-    const live = new Set(openOrders.value.map((o) => o.venueClientOrderId).filter((id): id is string => id !== null));
-    const cloid = prepared.venueClientOrderId;
-    let reserved = ZERO;
-    for (const [id, amount] of this.#reserved) {
-      // A reservation the venue now shows as resting is counted once, by the venue's lock.
-      if (id !== cloid && !live.has(id)) reserved = add(reserved, amount);
+    const perps = new Set(markets.value.filter((m) => m.kind === 'perpetual').map((m) => m.symbol));
+    const symbols = new Set<string>();
+    if (intent.kind === 'place_order' || intent.kind === 'amend_order' || intent.kind === 'update_leverage') symbols.add(intent.symbol);
+    for (const o of openOrders.value) symbols.add(o.symbol);
+    for (const p of positions.value) symbols.add(p.symbol);
+    for (const o of this.#orders.values()) symbols.add(o.symbol);
+    const levRead = this.#venue.leverage?.bind(this.#venue);
+    const levs = new Map<string, number>();
+    if (levRead) {
+      await Promise.all(
+        [...symbols]
+          .filter((s) => perps.has(s))
+          .map(async (s) => {
+            const r = await levRead(account, s);
+            if (r.value) levs.set(s, r.value.leverageBps);
+          }),
+      );
     }
-    const lev = leverage;
     const snapshot: AgentCapSnapshot = {
       markets: markets.value,
       balances: balances.value,
       openOrders: openOrders.value,
       positions: positions.value,
-      leverageBps: lev && lev.value ? { known: true, value: lev.value.leverageBps } : { known: false },
+      leverage: (s) => (levs.has(s) ? { known: true, value: levs.get(s)! } : { known: false }),
     };
-    const check = checkAgentOrderWithinCap(prepared, cap, snapshot, this.#marks, reserved, this.#now());
+    const pending: AgentCapPending = { orders: this.#orders, leverage: [...this.#leverage.values()] };
+    const check = checkAgentOrderWithinCap(prepared, cap, snapshot, this.#marks, pending, this.#now());
     const signature = await this.#signRaw(prepared);
     assertSignatureMatches(prepared, signature);
-    if (cloid !== null && compare(check.commitment, ZERO) > 0) this.#reserved.set(cloid, check.commitment);
+    if (intent.kind === 'update_leverage') {
+      this.#leverage.set(prepared.nonce, { symbol: intent.symbol, leverageBps: intent.leverageBps });
+    } else if ((intent.kind === 'place_order' || intent.kind === 'amend_order') && prepared.venueClientOrderId !== null) {
+      const resting = openOrders.value.find((o) => o.venueClientOrderId === prepared.venueClientOrderId);
+      const side = intent.kind === 'place_order' ? intent.side : resting!.side;
+      const reduceOnly = intent.kind === 'place_order' ? intent.reduceOnly : resting!.reduceOnly;
+      this.#orders.set(prepared.venueClientOrderId, {
+        symbol: intent.symbol,
+        side,
+        reduceOnly,
+        notional: mul(intent.amount, intent.price, 'ceil'),
+      });
+    }
     return { signature, check };
   }
 }

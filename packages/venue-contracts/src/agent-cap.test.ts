@@ -72,14 +72,14 @@ let nonce = 0;
 function prepared(intent: VenueIntent, opts: { account?: UserVenueAccount; signer?: VenueSigner } = {}): PreparedVenueAction {
   nonce += 1;
   const account = opts.account ?? sub;
-  const isOrder = intent.kind === 'place_order';
+  const cloid = 'clientOrderKey' in intent ? venueClientOrderId('test-sim', intent.clientOrderKey) : null;
   return {
     venueId: 'test-sim',
     account,
     signer: opts.signer ?? agent,
     intent,
     nonce: String(nonce),
-    venueClientOrderId: isOrder ? venueClientOrderId('test-sim', intent.clientOrderKey) : null,
+    venueClientOrderId: cloid,
     typedData: { nonce },
     digest: `0xdigest${nonce}`,
     builderFee: null,
@@ -405,6 +405,152 @@ describe('CappedAgentSigner: an agent order past the cap is refused before the k
   });
 });
 
+function restingOrder(
+  key: string,
+  symbol: string,
+  amount: string,
+  price: string,
+  locked: string,
+  extra: Partial<UserVenueOrder> = {},
+): UserVenueOrder {
+  return {
+    venueOrderId: `v-${key}`,
+    venueClientOrderId: venueClientOrderId('test-sim', key),
+    symbol,
+    side: 'buy',
+    type: 'limit',
+    timeInForce: 'GTC',
+    price: A(price),
+    amount: A(amount),
+    filled: A('0'),
+    remaining: A(amount),
+    averagePrice: null,
+    status: 'open',
+    locked: A(locked),
+    lockedAsset: 'USDC',
+    reduceOnly: false,
+    ...extra,
+  };
+}
+
+describe('council round 1 (#7577): the ways past the cap it found', () => {
+  const cap300: AgentCap = { ...cap, cap: A('300') };
+  const rich = [{ asset: 'USDC', free: A('10000'), locked: A('0'), total: A('10000') }];
+
+  it('blocker 1: an amend that raises a resting order is counted at its new size until settled, so a new order cannot use the old room', async () => {
+    const { raw, signer } = setup({ balances: rich, openOrders: [restingOrder('order:agent-1:r1:1', 'ETH-USDC', '0.05', '2000', '100')] });
+    await signer.sign(
+      prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: 'order:agent-1:r1:1', amount: A('0.1'), price: A('2000') }),
+      cap300,
+    );
+    const r = await refusal(signer.sign(prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:r1:2')), cap300));
+    expect(r.code).toBe('agent_cap_exceeded');
+    expect(r.detail).toContain('100 USDC of room');
+    expect(raw).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocker 2: a leverage cut signed after a perp order is judged with that order at the new leverage', async () => {
+    const { raw, signer } = setup({ balances: rich, leverageBps: 200_000 });
+    expect((await signer.sign(prepared(buy('BTC-PERP', '0.1', '60000', 'order:agent-1:l1:1')), cap300)).check.commitment).toBe(A('300'));
+    const cut = await refusal(
+      signer.sign(prepared({ kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 10_000, marginMode: 'isolated' }), cap300),
+    );
+    expect(cut.code).toBe('agent_cap_exceeded');
+    expect(cut.detail).toContain('6000 USDC in use');
+    // Raising leverage frees margin: it signs.
+    await signer.sign(prepared({ kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 250_000, marginMode: 'isolated' }), cap300);
+    expect(raw).toHaveBeenCalledTimes(2);
+  });
+
+  it('blocker 2: a leverage cut signed before a perp order makes the order count at the cut', async () => {
+    const { raw, signer } = setup({ balances: rich, leverageBps: 200_000 });
+    await signer.sign(prepared({ kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 10_000, marginMode: 'isolated' }), cap300);
+    expect((await refusal(signer.sign(prepared(buy('BTC-PERP', '0.1', '60000', 'order:agent-1:l2:1')), cap300))).code).toBe(
+      'agent_cap_exceeded',
+    );
+    expect(raw).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocker 2: a leverage cut raises what an open position counts', async () => {
+    const position: UserVenuePosition = {
+      symbol: 'BTC-PERP',
+      side: 'long',
+      size: A('0.05'),
+      entryPrice: A('60000'),
+      markPrice: A('60000'),
+      unrealisedPnl: A('0'),
+      marginMode: 'cross',
+      margin: A('150'),
+      leverageBps: 200_000,
+      liquidationPrice: { known: false },
+    };
+    const { raw, signer } = setup({ balances: rich, positions: [position], leverageBps: 200_000 });
+    expect(
+      (
+        await refusal(
+          signer.sign(prepared({ kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 50_000, marginMode: 'cross' }), cap300),
+        )
+      ).code,
+    ).toBe('agent_cap_exceeded');
+    await signer.sign(prepared({ kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'cross' }), cap300); // 3000 / 10x = 300
+    expect(raw).toHaveBeenCalledTimes(1);
+  });
+
+  it('should 3: a reduce-only spot buy still spends quote and is counted', async () => {
+    const { raw, signer } = setup({ balances: rich });
+    expect(
+      (await refusal(signer.sign(prepared(buy('ETH-USDC', '10', '2000', 'order:agent-1:ro:1', { reduceOnly: true })), cap300))).code,
+    ).toBe('agent_cap_exceeded');
+    expect(raw).not.toHaveBeenCalled();
+  });
+
+  it('should 4: an amend naming another market than the resting order is refused', async () => {
+    const { raw, signer } = setup({
+      balances: rich,
+      leverageBps: 500_000,
+      openOrders: [restingOrder('order:agent-1:am2:1', 'ETH-USDC', '0.02', '2000', '40')],
+    });
+    const r = await refusal(
+      signer.sign(
+        prepared({ kind: 'amend_order', symbol: 'BTC-PERP', clientOrderKey: 'order:agent-1:am2:1', amount: A('1'), price: A('2000') }),
+        cap300,
+      ),
+    );
+    expect(r.code).toBe('unknown_order');
+    expect(raw).not.toHaveBeenCalled();
+  });
+
+  it('should 5: a resting perp order the venue reports with no lock still counts its margin', async () => {
+    const { raw, signer } = setup({
+      balances: rich,
+      leverageBps: 100_000,
+      openOrders: [restingOrder('order:agent-1:z:1', 'BTC-PERP', '0.04', '60000', '0')],
+    }); // 2400 / 10x = 240
+    const r = await refusal(signer.sign(prepared(buy('BTC-PERP', '0.02', '60000', 'order:agent-1:z:2')), cap300)); // 120 > 60
+    expect(r.code).toBe('agent_cap_exceeded');
+    expect(r.detail).toContain('60 USDC of room');
+    expect(raw).not.toHaveBeenCalled();
+  });
+
+  it('nit 6: settle releases a filled order, whose fill the venue now shows', async () => {
+    const w: World = { balances: rich, openOrders: [], positions: [], leverageBps: null };
+    const signer = new CappedAgentSigner({
+      sign: async (p) => ({ digest: p.digest, signature: '0xs', signedBy: p.signer.address }),
+      venue: fakeVenue(w),
+      marks: (a) => (a === 'ETH' ? { known: true, value: A('2000') } : { known: false }),
+      now: () => T0,
+    });
+    const ioc = prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:ioc:1', { timeInForce: 'IOC' }));
+    await signer.sign(ioc, cap300);
+    w.balances = [...rich, { asset: 'ETH', free: A('0.1'), locked: A('0'), total: A('0.1') }]; // it filled
+    expect((await refusal(signer.sign(prepared(buy('ETH-USDC', '0.06', '2000', 'order:agent-1:ioc:2')), cap300))).code).toBe(
+      'agent_cap_exceeded',
+    ); // 200 held + 200 reserved
+    signer.settle(ioc.venueClientOrderId!);
+    expect((await signer.sign(prepared(buy('ETH-USDC', '0.05', '2000', 'order:agent-1:ioc:3')), cap300)).check.inUse).toBe(A('200'));
+  });
+});
+
 describe('the funding cap and the owner ceiling (J-agents-21 steps 1, 4, 5)', () => {
   function capError(fn: () => void): AgentCapError {
     try {
@@ -433,6 +579,9 @@ describe('the funding cap and the owner ceiling (J-agents-21 steps 1, 4, 5)', ()
     expect(e.detail).toContain('50 USDC of room');
     assertAgentFundingWithinCap(cap, A('150'), A('0'), A('50'));
     assertAgentFundingWithinCap(cap, A('150'), A('100'), A('150'));
+    // nit 7: profits taken out never make room past the cap itself.
+    const out = capError(() => assertAgentFundingWithinCap(cap, A('200'), A('1200'), A('201')));
+    expect(out.room).toBe(A('200'));
     expect(capError(() => assertAgentFundingWithinCap(cap, A('0'), A('0'), A('-1'))).code).toBe('agents.account_cap_invalid');
   });
 });
