@@ -219,17 +219,42 @@ test(`${J} #2 an agent the person is not eligible for shows the real reason (pla
       password: `TEST-${randomBytes(9).toString('base64url')}-9a`,
     });
     await page.goto('/agents');
-    const read = page.waitForResponse((r) => r.ok() && r.url().includes('/api/agents/trpc/agent.get'));
+    // Both columns' stored guardrails, each read as the page asks for it: each must say this person is left out and why.
+    const read = (agentId) =>
+      page.waitForResponse(
+        (r) =>
+          r.ok() &&
+          r.request().method() === 'GET' &&
+          r.url().includes('/api/agents/trpc/agent.get') &&
+          decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+        { timeout: 15_000 },
+      );
+    const reads = [read('navigator'), read('support')];
     await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
     await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
     await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
-    const guardrail = (await (await read).json())?.result?.data;
-    expect(guardrail, 'the stored guardrail states who may use the agent').toHaveProperty('eligibility');
+    const guardrails = await Promise.all(reads.map(async (answer) => (await (await answer).json())?.result?.data));
+    for (const [g, who] of [
+      [guardrails[0], 'navigator'],
+      [guardrails[1], 'support'],
+    ]) {
+      expect(g, `${who}'s stored guardrail states who may use the agent`).toHaveProperty('eligibility');
+      // The unverified person is not eligible, for a named rule, with the service's own refusal code.
+      expect(g.eligibility, `${who}: ${JSON.stringify(g.eligibility)}`).toMatchObject({ eligible: false });
+      expect(['plan', 'age', 'region'], `${who}'s reason`).toContain(g.eligibility.reason);
+      expect(g.eligibility.code, `${who}'s refusal code`).toMatch(/^agents\.[a-z_]+$/);
+    }
     const row = tableIn(main(page), 'Compare agents')
       .getByRole('row')
       .filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
     await expect(row).toHaveCount(1);
-    await expect(row).toContainText(/plan|age|region/i);
+    // Each column, not the row as a whole, says the person is left out and names the rule.
+    const cells = row.getByRole('cell');
+    await expect(cells).toHaveCount(3);
+    for (const i of [1, 2]) {
+      await expect(cells.nth(i)).toHaveText(/^Not\b.*\b(plan|age|region)\b/i);
+      await expect(cells.nth(i)).not.toHaveText(/you may use it|is one it is published for|no plan, age or region rule/i);
+    }
   } finally {
     await context.close();
   }
