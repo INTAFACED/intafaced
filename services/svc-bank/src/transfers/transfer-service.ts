@@ -19,7 +19,14 @@ import { RECIPIENT_CANNOT_RECEIVE_MESSAGE, accountForSpace, type SpaceService } 
 import { MAX_CATCH_UP_PER_PASS, dueOccurrence, lastOccurrenceBefore, planDue, occurrenceStart, type ScheduleCadence } from './schedule.js';
 import { withMoneySpan, withSpan } from '../tracing.js';
 import type { BillsPotService } from '../spaces/bills-pot.js';
-import { partnerAccountFor, partnerCustodyMismatch, reportedAmount, type PartnerBank, type PartnerMove } from '../partner/partner-bank.js';
+import {
+  partnerAccountFor,
+  partnerCustodyMismatch,
+  reportedAmount,
+  type PartnerAccountRef,
+  type PartnerBank,
+  type PartnerMove,
+} from '../partner/partner-bank.js';
 
 /**
  * TRANSFERS — the rails half of §8.1.
@@ -1204,6 +1211,17 @@ export class TransferService {
             const partner = this.spaces.custody.bankFor(schedule.userId);
             const priorMove = partner ? await partner.moveByKey(key) : null;
             if (priorMove) {
+              // Only this occurrence's own move settles it: the order's source and destination and the claimed amount.
+              const same = (a: PartnerAccountRef, b: PartnerAccountRef) =>
+                a.userId === b.userId && a.assetId === b.assetId && a.spaceId === b.spaceId;
+              const space = async (id: string) => partnerAccountFor(await this.spaces.get(id, tx));
+              if (
+                !same(priorMove.from, await space(schedule.fromSpaceId)) ||
+                !same(priorMove.to, await space(schedule.toSpaceId)) ||
+                priorMove.amount !== claimAmount
+              ) {
+                throw new BookedTransferConflict(schedule.id);
+              }
               await tx`
                 UPDATE bank.transfer_executions
                    SET status = 'settled', partner_move_id = ${priorMove.id}, settled_at = now()

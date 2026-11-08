@@ -11,7 +11,7 @@ import {
 import { transaction } from '@intafaced/db';
 import { BankError } from '../errors.js';
 import { assertSpacesListLimit } from '../owner-list-limit.js';
-import { custodialOnly, partnerAccountFor, reportedAmount, type PartnerCustody } from '../partner/partner-bank.js';
+import { custodialOnly, partnerAccountFor, reportedAmount, type PartnerBalance, type PartnerCustody } from '../partner/partner-bank.js';
 import {
   RecipientStateUnavailableError,
   unconfiguredRecipientState,
@@ -528,9 +528,13 @@ export class SpaceService {
     const spaces = await this.list(userId, assetId, limit);
     const views: SpaceView[] = [];
     const partner = this.custody.bankFor(userId);
+    // One partner read for every account it holds for the person; an account it has not listed is asked for by itself.
+    const reports = new Map<string, PartnerBalance>();
+    if (partner) for (const b of await partner.balances(userId)) reports.set(`${b.account.assetId}|${b.account.spaceId ?? ''}`, b);
     for (const space of spaces) {
       if (partner) {
-        const reported = await partner.balance(partnerAccountFor(space));
+        const account = partnerAccountFor(space);
+        const reported = reports.get(`${account.assetId}|${account.spaceId ?? ''}`) ?? (await partner.balance(account));
         views.push({
           ...space,
           balance: formatAmount(reportedAmount(reported)),

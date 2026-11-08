@@ -3,7 +3,7 @@ import { BankError } from '../errors.js';
 import type { PartnerAccountRef, PartnerBank, PartnerMove } from '../partner/partner-bank.js';
 import type { SpaceRecord } from '../spaces/space-service.js';
 import type { ActivityItem, ActivityPage, ActivityQuery } from './activity-service.js';
-import { ActivityNotFoundError, ActivityRangeError } from './activity-service.js';
+import { ActivityLookupBoundedError, ActivityNotFoundError, ActivityRangeError } from './activity-service.js';
 import { ActivityCursorInvalidError } from './activity-cursor.js';
 
 /**
@@ -107,8 +107,11 @@ export async function partnerActivityPage(
       ...(input.assetId ? { assetId: input.assetId } : {}),
     });
     for (const move of window) {
+      // Newest first: once a move is older than the range's start, nothing after it can match.
+      if (input.from && move.movedAt < new Date(input.from)) return { items, nextCursor: null };
       const lines = partnerLines(userId, move, names).filter((line) => keeps(line, line.direction === 'out' ? move.from : move.to, input));
-      // A page ends on a whole move, so a cursor never splits one move's two lines.
+      // A page ends on a whole move, so a cursor never splits one move's two lines. A page of one line can therefore hold
+      // the two lines of a move between the person's own spaces: the cursor is the partner's move reference.
       if (items.length > 0 && items.length + lines.length > limit) return { items, nextCursor: lastTaken ?? null };
       items.push(...lines);
       lastTaken = move.id;
@@ -140,5 +143,6 @@ export async function partnerActivityItem(
     if (window.length < SCAN_WINDOW) throw new ActivityNotFoundError();
     before = window[window.length - 1]!.id;
   }
-  throw new ActivityNotFoundError();
+  // The scan stopped before the partner's record ended, so "not found" would be a guess.
+  throw new ActivityLookupBoundedError();
 }

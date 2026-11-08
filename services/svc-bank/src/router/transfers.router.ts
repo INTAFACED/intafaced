@@ -1,4 +1,4 @@
-import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown, testPartnerCustody } from '../partner/test-partner.js';
+import { assertPartnerAnswering, assertPartnerOffers, partnerFeeKnown } from '../partner/test-partner.js';
 import { z } from 'zod';
 import {
   router,
@@ -227,7 +227,7 @@ export function createTransfersRouter(c: BankRouterContext) {
           };
           // The caller's money at the partner bank (OWNER 226): one partner move, nothing on the ledger. Otherwise the
           // custodial layer's transfer, exactly as before.
-          const partnerHeld = testPartnerCustody(bank.testPartner).bankFor(ctx.principal.userId) !== null;
+          const partnerHeld = (bank.spaces.custody?.bankFor(ctx.principal.userId) ?? null) !== null;
           const result = await (partnerHeld ? bank.transfers.moveBetweenSpaces(move) : bank.transfers.transfer(move)).catch(
             async (err: unknown) => {
               const shown = gate.mayDescribe ? err : hideDestinationDetail(err);

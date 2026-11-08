@@ -70,7 +70,7 @@ export function createTestPartnerRouter(bank: Pick<BankServices, 'testPartner'>,
      * partner account funded with TEST money"). It is the partner's figure, not a ledger post: nothing is posted.
      */
     fund: scopedProcedure('bank:write', { module: 'bank' })
-      .input(z.object({ fundId: z.string().min(8).max(64), assetId: z.string().min(1).max(16), amount: amountString }).strict())
+      .input(z.object({ fundId: z.string().min(8).max(64), assetId: z.string().regex(/^[A-Z0-9]{2,16}$/), amount: amountString }).strict())
       .output(z.object({ label: z.string(), assetId: z.string(), balance: z.string(), asOf: z.string().datetime() }))
       .mutation(({ ctx, input }) =>
         guard(async () => {

@@ -43,6 +43,13 @@ describe('the TEST partner bank book', () => {
     );
   });
 
+  it("one person's fund id never collides with another's", async () => {
+    const partner = testPartner();
+    partner.fund(ADA, { fundId: 'fund-0001', assetId: 'USDT', amount: amt('100') });
+    partner.fund(BOB, { fundId: 'fund-0001', assetId: 'USDT', amount: amt('7') });
+    expect((await partner.bank.balance(main(BOB))).amount).toBe(amt('7'));
+  });
+
   it('makes one move under one key: both balances change by exactly the amount, and a resend is the same move', async () => {
     const partner = testPartner();
     partner.fund(ADA, { fundId: 'fund-ada-1', assetId: 'USDT', amount: amt('100') });

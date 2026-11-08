@@ -239,16 +239,18 @@ export function testPartner(): TestPartner {
     bank,
     fund(userId, funding) {
       const account: PartnerAccountRef = { userId, assetId: funding.assetId, spaceId: null };
-      const prior = funds.get(funding.fundId);
+      // Per person: one person's fund id never collides with, or tells anything about, another's.
+      const fundKey = `${userId}|${funding.fundId}`;
+      const prior = funds.get(fundKey);
       if (prior) {
-        if (prior.userId !== userId || prior.assetId !== funding.assetId || prior.amount !== funding.amount) {
+        if (prior.assetId !== funding.assetId || prior.amount !== funding.amount) {
           throw moveConflict(funding.fundId);
         }
         return report(account);
       }
       if (switches(userId).down) throw partnerDown();
       if (funding.amount <= 0n) throw new BankError('TEST funding needs an amount above zero.', 'bank.partner_amount_invalid');
-      funds.set(funding.fundId, { userId, assetId: funding.assetId, amount: funding.amount });
+      funds.set(fundKey, { userId, assetId: funding.assetId, amount: funding.amount });
       held.set(accountKey(account), (held.get(accountKey(account)) ?? 0n) + funding.amount);
       return report(account);
     },

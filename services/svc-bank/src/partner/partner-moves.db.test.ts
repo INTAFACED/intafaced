@@ -244,6 +244,19 @@ describe('partner-held bank moves (OWNER 226)', () => {
     await expect(api.currencies.remove({ assetId: 'USDT' })).rejects.toSatisfy((err) => codeOf(err) === 'bank.currency_in_use');
   });
 
+  it('a partner-held person who still has money on the ledger in a currency cannot remove it', async () => {
+    const { api } = await partnerHeld(ADA);
+    await api.transfers.create({
+      transferId: 'empty-main-01',
+      fromSpaceId: (await mainOf(api)).id,
+      toSpaceId: (await byName(api, 'Trip TEST')).id,
+      amount: '100',
+    });
+    await api.spaces.archive({ spaceId: (await byName(api, 'Trip TEST')).id });
+    await ledger.post(recipes.deposit({ userId: ADA, assetId: 'USDT', amount: parseAmount('1'), rail: 'test', railRef: 'r-left' }));
+    await expect(api.currencies.remove({ assetId: 'USDT' })).rejects.toSatisfy((err) => codeOf(err) === 'bank.currency_in_use');
+  });
+
   it('J-bank-07 #3: a standing order between own spaces is one partner move per occurrence, recorded with its reference, nothing on the ledger', async () => {
     const { bank, trip, mainSpace } = await partnerHeld(ADA);
     const startsAt = new Date(Date.now() + DAY);

@@ -119,11 +119,13 @@ export class CurrencyService {
     // refuses this, or lands after and puts the currency back. Money that arrives after the check is not lost: the
     // next read of the account shows a funded currency again (`ensureHeldPrimaries`).
     return this.spaces.underSpaceLock(userId, async (tx) => {
-      // In use while anything the partner reports (partner-held), or any ledger account, in that asset is not zero.
+      // In use while any ledger account in that asset is not zero, or, for a person the partner holds money for, anything
+      // the partner reports in it. Both are read for a partner-held person: money left on the ledger is never hidden.
       const partner = this.spaces.custody.bankFor(userId);
-      const amounts = partner
-        ? (await partner.balances(userId)).filter((b) => b.account.assetId === id).map((b) => reportedAmount(b))
-        : (await this.ledger.balances('user', userId)).filter((b) => b.account.assetId === id).map((b) => b.amount);
+      const amounts = (await this.ledger.balances('user', userId)).filter((b) => b.account.assetId === id).map((b) => b.amount);
+      if (partner) {
+        for (const b of await partner.balances(userId)) if (b.account.assetId === id) amounts.push(reportedAmount(b));
+      }
       if (amounts.some((amount) => amount !== 0n)) throw inUse(id);
       const named = await tx<Array<{ id: string; archived: boolean }>>`
         SELECT id, archived_at IS NOT NULL AS archived FROM bank.spaces WHERE user_id = ${userId} AND asset_id = ${id} AND kind = 'named'
