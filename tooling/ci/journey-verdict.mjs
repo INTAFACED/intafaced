@@ -400,10 +400,10 @@ export function priorSetAside(runs, read, predates = () => false) {
 
 /**
  * Whether a verdict run is CI's on main: a full run (no target) that reads its list from main's own runs (--fetch) and
- * runs on refs/heads/main. An offline run (--prior-set-aside, a given file) is never on main, whatever GITHUB_REF says,
+ * runs on refs/heads/main. A run given a --prior-set-aside file is never on main, with --fetch or without, whatever GITHUB_REF says,
  * so no file a person supplies can feed the list or excuse a failure.
  */
-export const runIsOnMain = ({ target, fetch, ref }) => !target && Boolean(fetch) && ref === MAIN_REF;
+export const runIsOnMain = ({ target, fetch, ref, priorFile = false }) => !target && Boolean(fetch) && !priorFile && ref === MAIN_REF;
 
 /** The set-aside judge() may use: only on main, from a complete list. Off main (a branch or a targeted run) and when
  *  this run's list is incomplete it excuses nothing (CI review on #7363, 7a3b0af). */
@@ -659,7 +659,7 @@ function main() {
     problem(`the last run on main's set-aside list couldn't be read: ${e.message.split('\n')[0]}`);
   }
   // On main only (runIsOnMain): a branch run, a targeted run or an offline run neither adds to the list nor is excused.
-  const onMain = runIsOnMain({ target, fetch, ref: process.env.GITHUB_REF });
+  const onMain = runIsOnMain({ target, fetch, ref: process.env.GITHUB_REF, priorFile: Boolean(arg('--prior-set-aside')) });
   const setAside = newest
     ? setAsideSteps({ prior, priorIsPrevious, states: onMain ? newest.states : {}, money: guard, owners, run: thisRun })
     : {};

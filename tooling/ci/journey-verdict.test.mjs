@@ -619,6 +619,11 @@ test('off main the set-aside excuses nothing: a branch, targeted or offline run 
   assert.equal(runIsOnMain({ target: new Set(['J-a-01.pw.mjs']), fetch: true, ref: 'refs/heads/main' }), false, 'a targeted run');
   assert.equal(runIsOnMain({ target: null, fetch: false, ref: 'refs/heads/main' }), false, 'an offline run, GITHUB_REF or not');
   assert.equal(runIsOnMain({ target: null, fetch: true, ref: undefined }), false, 'no GITHUB_REF');
+  assert.equal(
+    runIsOnMain({ target: null, fetch: true, ref: 'refs/heads/main', priorFile: true }),
+    false,
+    'a given --prior-set-aside file, even with --fetch on main (review R1)',
+  );
   // The CLI offline: a given prior file excuses nothing, whatever GITHUB_REF says.
   for (const ref of ['refs/heads/main', 'refs/heads/feature', 'refs/pull/7363/merge', undefined])
     assert.equal(cli({ ref }), 1, `offline, ${ref ?? 'no ref'}`);
