@@ -85,9 +85,10 @@ describe('decide, without a database', () => {
   });
 
   it('an allow alone allows; a rule for another action does not touch this one', () => {
-    const rules = [{ id: A, effect: 'allow', action: 'place_order', scope: 'main' } as const];
+    const rule = { id: A, effect: 'allow', action: 'place_order', scope: 'main' } as const;
+    const rules = [rule];
     expect(decide(rules, true, 'place_order', 'main').outcome).toBe('allowed');
-    expect(decide([{ ...rules[0], effect: 'deny' }], false, 'cancel_order', 'main').outcome).toBe('no_rule');
+    expect(decide([{ ...rule, effect: 'deny' }], false, 'cancel_order', 'main').outcome).toBe('no_rule');
   });
 
   it('no matching rule refuses on an agent that requires rules, and is left to the other gates on one that does not', () => {
