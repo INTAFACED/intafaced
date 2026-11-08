@@ -410,6 +410,16 @@ export class CardDisputeService {
         'bank.card_dispute_partner_unset',
       );
     }
+    // No partner, or the simulator in a live deployment, refuses by name before anything is written.
+    if (this.options.issuer.programme.id === 'none') {
+      throw new BankError('No card issuer is configured — this deployment has no card partner to credit', 'bank.no_card_issuer');
+    }
+    if (this.options.issuer.mutationRefuse) {
+      throw new BankError(
+        'card-sim is not a live issuer — this deployment will not credit as if a partner exists',
+        this.options.issuer.mutationRefuse,
+      );
+    }
     // The ask is written under the case's lock, and only while no decision is under way: a decision then sees it and waits
     // for the partner's answer rather than closing past a credit in flight.
     const row = await transaction(this.sql, async (tx) => {
@@ -425,12 +435,26 @@ export class CardDisputeService {
       return r;
     });
     if (row.credit_partner_ref) return this.get(row.id);
-    const answer = await credit({
-      requestId: creditKey(row.id),
-      userId: row.user_id,
-      assetId: row.asset_id,
-      amount: formatAmount(parseAmount(row.amount)),
-    });
+    let answer: { partnerRef: string; amount: string };
+    try {
+      answer = await credit({
+        requestId: creditKey(row.id),
+        userId: row.user_id,
+        assetId: row.asset_id,
+        amount: formatAmount(parseAmount(row.amount)),
+      });
+    } catch (error) {
+      // A definite refusal by name (no partner, the simulator not live) means nothing was credited: the ask is taken back,
+      // so the case is not left waiting on an answer that will never come. Any other failure may have reached the partner,
+      // so the ask stays and a retry asks again under the same key.
+      if (error instanceof BankError) {
+        await this.sql`
+          UPDATE bank.card_disputes SET credit_requested_at = NULL, updated_at = now()
+           WHERE id = ${row.id} AND credit_partner_ref IS NULL
+        `;
+      }
+      throw error;
+    }
     if (!/^\d+(\.\d{1,18})?$/.test(answer.amount) || !answer.partnerRef) {
       throw new BankError(
         'The card partner answered the credit in a shape this service cannot record (bank.card_dispute_partner_unset)',

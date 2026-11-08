@@ -18,7 +18,7 @@ import { MemoryLedger, parseAmount as amt, recipes } from '@intafaced/ledger-cli
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CardService } from './card-service.js';
 import { CardDisputeService, parseDisputeCap, type DisputeCap } from './card-disputes.js';
-import { cardSim, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
+import { cardSim, cardSimNotLive, noCardIssuer, type CardIssuerAdapter } from './issuer.js';
 import { NOTHING_REPORTED, type CardPartnerTerms } from './partner-terms.js';
 import { BankError } from '../errors.js';
 
@@ -320,16 +320,28 @@ describe('card disputes (J-bank-27, PG-hard)', () => {
     expect(await issuer.cardholderBalances!({ userId })).toEqual({ USDT: '80' });
   });
 
-  it('with no card partner, a credit refuses by name and nothing is recorded', async () => {
+  it('with no card partner, or the simulator not live, a credit refuses by name, nothing is recorded and the case still closes', async () => {
     const { c } = await open('50');
     expect(await code(disputes(CAP, noCardIssuer).grantProvisionalCredit({ disputeId: c.id, actor: OPERATOR }))).toBe(
       'bank.no_card_issuer',
     );
-    const { provisionalCredit, ...rest } = await disputes().get(c.id);
-    void rest;
-    expect(provisionalCredit.partnerRef).toBeNull();
+    expect(await code(disputes(CAP, cardSimNotLive()).grantProvisionalCredit({ disputeId: c.id, actor: OPERATOR }))).toBe(
+      'bank.card_sim_not_live',
+    );
+    expect((await disputes().get(c.id)).provisionalCredit).toMatchObject({ state: 'none', amount: null, partnerRef: null });
+    // A partner that refuses by name after the ask is written takes nothing: the ask is taken back.
+    const refusing: CardIssuerAdapter = {
+      ...issuer,
+      provisionalCredit: async () => {
+        throw new BankError('TEST partner refuses', 'bank.card_dispute_partner_unset');
+      },
+    };
+    expect(await code(disputes(CAP, refusing).grantProvisionalCredit({ disputeId: c.id, actor: OPERATOR }))).toBe(
+      'bank.card_dispute_partner_unset',
+    );
+    expect((await disputes().get(c.id)).provisionalCredit.state).toBe('none');
+    expect((await disputes(CAP, noCardIssuer).decide({ disputeId: c.id, outcome: 'merchant', actor: OPERATOR })).state).toBe('closed');
   });
-
   it('a decision for the cardholder needs the partner’s credit first; once a decision is pinned no credit is asked and no other outcome is taken', async () => {
     const { c } = await open('50');
     expect(await code(disputes().decide({ disputeId: c.id, outcome: 'cardholder', actor: OPERATOR }))).toBe('bank.card_dispute_state');
