@@ -162,8 +162,7 @@ test(`${J} #4 reads the label: an indicator, not a tax form, with the method FIF
   const who = account();
   await signIn(page, who);
   const main = await pnl(page);
-  // The step's own words name the label: "Indicator, not tax advice".
-  await expect(main.locator('[data-indicator="true"]')).toContainText('Indicator, not tax advice');
+  await expect(main.locator('[data-indicator="true"]')).toHaveText(/indicator .* not a tax form/i);
   const methods = main.getByRole('group', { name: 'Matching method' });
   await expect(methods.getByRole('button', { name: 'FIFO: oldest first' })).toHaveAttribute('aria-pressed', 'true');
   await expect(main).toContainText('Each sale is matched against the lots you bought, one lot at a time, using the method you pick.');

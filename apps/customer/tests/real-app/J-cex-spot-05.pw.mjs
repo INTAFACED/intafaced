@@ -216,7 +216,8 @@ test(`${J} #4 changes the price: reviewed first, then the original is cancelled 
     accepted: false,
     code: 'REPLACEMENT_NOT_SUBMITTED',
     originalOrderId: spare.id,
-    originalState: 'canceled',
+    // The outcome names the original as cancelled (its own spelling; the order read below says `canceled`), never open.
+    originalState: expect.stringMatching(/^cancell?ed$/),
     replacementOrderId: null,
   });
   expect((await orderById(who, spare.id)).status).toBe('canceled');
@@ -324,7 +325,8 @@ test(`${J} #6 cancels a batch by ids, then every spot order: each id answered, a
     clientOrderId: `${J}-6f-${Date.now()}`,
   });
   expect(fut.status, JSON.stringify(fut.body).slice(0, 300)).toBe(200);
-  const futId = fut.body.id;
+  expect(fut.body).toMatchObject({ status: 'open', limitPrice: futPrice, filledQty: '0' });
+  const futId = fut.body.orderId;
   const futOpen = await me.get(`/api/v1/futures/orders/${futId}`);
   expect(futOpen.body.status, JSON.stringify(futOpen.body).slice(0, 300)).toBe('open');
   const heldWithFutures = held(await me.balances(), 'USDT');

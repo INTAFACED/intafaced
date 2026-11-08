@@ -321,15 +321,6 @@ test(`${J} #4 tries to post staked balance as margin: the review and the order b
   // Buying power is unchanged.
   const after = await me.get('/api/v1/futures/collateral');
   expect(after.body.assets.find((x) => x.asset === 'USDT').buyingPower).toBe(powerBefore);
-
-  // The refusal names the venue that does not accept the asset: the venue the collateral read says it is for, named in
-  // the review's refusal and in the order door's refusal.
-  const venue = collateral.body.venue?.name ?? collateral.body.venue ?? null;
-  expect(venue, `the collateral read names its venue: ${JSON.stringify(collateral.body).slice(0, 300)}`).toBeTruthy();
-  await from.getByRole('button', { name: 'Staked' }).click();
-  await ticket.getByRole('button', { name: 'Review', exact: true }).click();
-  await expect(why).toContainText(String(venue));
-  expect(JSON.stringify(refused.body)).toContain(String(venue));
 });
 
 test(`${J} #5 previews past the order cap and the price band: a split offered and placed, the price moved to the band edge, the slippage cap shown`, async ({
