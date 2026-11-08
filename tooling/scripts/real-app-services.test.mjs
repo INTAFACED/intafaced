@@ -80,11 +80,12 @@ const ok = { code: 0, timedOut: false, stdout: '', stderr: '' };
 }
 // The restore's budget: a restart file gets about 100 s for the start; one that also moves the market gets too little.
 {
-  const { RESTORE_MS, BOOK_RESERVE_MS, MAKER_QUOTING_MS } = await import('../../apps/customer/tests/real-app/world-restore.mjs');
+  const { RESTORE_MS, BOOK_RESERVE_MS } = await import('../../apps/customer/tests/real-app/world-restore.mjs');
+  const { MAKER_SETTLE_MS } = await import('../../apps/customer/tests/real-app/market.mjs');
   const { STATUS_MS, MIN_START_MS } = await import('../../apps/customer/tests/real-app/services.mjs');
   assert.ok(RESTORE_MS - BOOK_RESERVE_MS - 2 * STATUS_MS >= MIN_START_MS, 'a restart file can be healed');
   assert.ok(RESTORE_MS <= 150_000, "within journey.mjs's worldBetweenFiles time");
-  assert.ok(RESTORE_MS - MAKER_QUOTING_MS - BOOK_RESERVE_MS - 2 * STATUS_MS < MIN_START_MS, 'a restart and market file only says');
+  assert.ok(RESTORE_MS - MAKER_SETTLE_MS - BOOK_RESERVE_MS - 2 * STATUS_MS < MIN_START_MS, 'a restart and market file only says');
 }
 // Rows that aren't the status table's, or that name a credential, are never shown.
 assert.deepEqual(downRows('secret=abcdefghijklmnopqrstuvwxyz0123 DOWN\n  svc-ws 14510 - DOWN (0)'), ['svc-ws 14510 - DOWN (0)']);
