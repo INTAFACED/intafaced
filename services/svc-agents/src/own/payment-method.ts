@@ -185,7 +185,8 @@ export function paymentMethodFunds(deps: {
 /**
  * One deadline over a whole wallet reading (identity, the chain node's calls, the platform balance). The reading runs
  * under the person's spend lock (spend/store.ts), so a slow node must not hold it for the sum of every call's own
- * timeout: past the deadline the wallet is unread (`chain_unreachable`), the run refuses and the lock is let go. The
+ * timeout: past the deadline the wallet is unread (`method_unread`: which of its reads was slow is not known, so no one
+ * of them is blamed), the run refuses and the lock is let go. The
  * ledger path has its own client deadline and is untouched.
  */
 export const FUNDS_READ_DEADLINE_MS = 5_000;
@@ -193,7 +194,7 @@ export const FUNDS_READ_DEADLINE_MS = 5_000;
 function withDeadline<T>(work: Promise<T>, ms: number, method: FundsMethod): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new FundsUnreadError(method, 'chain_unreachable')), ms);
+    timer = setTimeout(() => reject(new FundsUnreadError(method, 'method_unread')), ms);
   });
   return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }

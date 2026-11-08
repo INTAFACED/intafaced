@@ -407,7 +407,7 @@ if (!available) {
         asset: 'USDT',
         method: 'wallet',
         address: LINKED,
-        reason: 'chain_unreachable',
+        reason: 'method_unread',
       });
     });
 
