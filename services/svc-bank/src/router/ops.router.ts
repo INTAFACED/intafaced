@@ -1000,7 +1000,11 @@ export function createOpsRouter(c: BankRouterContext) {
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
     /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */
-    onrampFeesNotKnown: onrampFeesNotKnownProcedure(() => bank.transferOps.sql, guard),
+    onrampFeesNotKnown: onrampFeesNotKnownProcedure(
+      () => bank.transferOps.sql,
+      () => bank.testPartner?.label ?? null,
+      guard,
+    ),
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),

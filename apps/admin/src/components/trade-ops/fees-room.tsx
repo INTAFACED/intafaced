@@ -709,8 +709,9 @@ function FiatBuyNotKnown({ view }: { view: FeesDeskView['onrampFeesNotKnown'] })
     <div data-fees="fiat-buy-not-known" className="flex flex-col gap-2">
       <p className="text-sm text-fg-2">
         The latest buys the partner gave no fee for. What the customer would pay is not known, never 0, and nothing was charged. Read only.
+        {view.data.testPartner ? ` TEST: the ${view.data.testPartner} stands in for a payment partner here.` : ''}
       </p>
-      {view.data.length === 0 ? (
+      {view.data.rows.length === 0 ? (
         <p className="text-sm text-fg-2">The partner has given a fee for every buy asked.</p>
       ) : (
         <table className={TABLE}>
@@ -720,13 +721,14 @@ function FiatBuyNotKnown({ view }: { view: FeesDeskView['onrampFeesNotKnown'] })
               <th scope="col">Customer</th>
               <th scope="col">Buys</th>
               <th scope="col">Way to pay</th>
+              <th scope="col">Country</th>
               <th scope="col">Pays</th>
               <th scope="col">Fee</th>
               <th scope="col">Rate</th>
             </tr>
           </thead>
           <tbody>
-            {view.data.map((r) => (
+            {view.data.rows.map((r) => (
               <tr key={r.requestId} data-onramp-request={r.requestId}>
                 <th scope="row" className="if-num">
                   {shownTime(r.createdAt)}
@@ -736,6 +738,7 @@ function FiatBuyNotKnown({ view }: { view: FeesDeskView['onrampFeesNotKnown'] })
                   {r.amount} {r.assetId}
                 </td>
                 <td>{r.method}</td>
+                <td>{r.country}</td>
                 <td>not known</td>
                 <td>not known</td>
                 <td>not known</td>

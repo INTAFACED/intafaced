@@ -102,7 +102,10 @@ const view = (over: Partial<FeesDeskView> = {}): FeesDeskView => ({
     AS_OF,
   ),
   onrampFeesNotKnown: ok(
-    [{ requestId: 'r-1', userId: 'u-2', assetId: 'USDT', amount: '20', method: 'bank_transfer', createdAt: AS_OF }],
+    {
+      testPartner: 'TEST partner bank',
+      rows: [{ requestId: 'r-1', userId: 'u-2', assetId: 'USDT', amount: '20', method: 'bank_transfer', country: 'NL', createdAt: AS_OF }],
+    },
     AS_OF,
   ),
   asOf: AS_OF,
@@ -186,11 +189,21 @@ describe('Fees and convert room', () => {
   });
 
   it('reads a buy the partner gave no fee for as "not known", never 0, and offers no control', () => {
-    expect(cells(html, 'data-onramp-request="r-1"')).toEqual(['u-2', '20 USDT', 'bank_transfer', 'not known', 'not known', 'not known']);
+    expect(cells(html, 'data-onramp-request="r-1"')).toEqual([
+      'u-2',
+      '20 USDT',
+      'bank_transfer',
+      'NL',
+      'not known',
+      'not known',
+      'not known',
+    ]);
+    expect(html).toContain('TEST: the TEST partner bank stands in for a payment partner here.');
     const list = html.match(/data-fees="fiat-buy-not-known"(.*?)<\/table>/)?.[1] ?? '';
     expect(list).not.toMatch(/<(input|button|select|textarea)/);
-    const none = renderToStaticMarkup(<FeesRoom initial={view({ onrampFeesNotKnown: ok([], AS_OF) })} />);
+    const none = renderToStaticMarkup(<FeesRoom initial={view({ onrampFeesNotKnown: ok({ testPartner: null, rows: [] }, AS_OF) })} />);
     expect(none).toContain('The partner has given a fee for every buy asked.');
+    expect(none).not.toContain('stands in for a payment partner here');
     const failed = renderToStaticMarkup(
       <FeesRoom initial={view({ onrampFeesNotKnown: refused('bank.onramp_quotes_limit_unset', 'TEST refusal', 400, null, AS_OF) })} />,
     );

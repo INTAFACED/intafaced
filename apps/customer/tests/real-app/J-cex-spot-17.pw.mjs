@@ -658,10 +658,13 @@ test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue se
       client.userId,
       `20 USDT`,
       way,
+      'NL',
       'not known',
       'not known',
       'not known',
     ]);
+    // The stack's partner is the TEST partner bank, and the list says so.
+    await expect(notKnown).toContainText('TEST: the TEST partner bank stands in for a payment partner here.');
     await expect(fiat.locator(`tr[data-onramp-request="${unknown.requestId}"]`)).toHaveCount(0);
     // A read only: no control on any list.
     await expect(sells.locator('input, button, select')).toHaveCount(0);

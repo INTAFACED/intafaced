@@ -16,7 +16,7 @@ import {
   type ConvertQuote,
   type ConvertSettings,
   type FeeNotice,
-  type OnrampFeeNotKnown,
+  type OnrampFeesNotKnown,
   type OnrampQuote,
   type SnapshotRun,
 } from './fees-desk-parse';
@@ -54,7 +54,7 @@ export const readOnrampQuotes = (ctx: TradeCtx): Promise<Outcome<OnrampQuote[]>>
   edgeCall(ctx, trpcSpec('bank', 'ops.onrampQuotes', 'query', { limit: FEES_DESK_ROWS }, parseOnrampQuotes));
 
 /** The buy asks the partner's ramp gave no fee for: "not known", never 0. */
-export const readOnrampFeesNotKnown = (ctx: TradeCtx): Promise<Outcome<OnrampFeeNotKnown[]>> =>
+export const readOnrampFeesNotKnown = (ctx: TradeCtx): Promise<Outcome<OnrampFeesNotKnown>> =>
   edgeCall(ctx, trpcSpec('bank', 'ops.onrampFeesNotKnown', 'query', { limit: FEES_DESK_ROWS }, parseOnrampFeesNotKnown));
 
 export interface FeesDeskView {
@@ -63,7 +63,7 @@ export interface FeesDeskView {
   readonly convert: Outcome<ConvertSettings>;
   readonly sellQuotes: Outcome<ConvertQuote[]>;
   readonly onrampQuotes: Outcome<OnrampQuote[]>;
-  readonly onrampFeesNotKnown: Outcome<OnrampFeeNotKnown[]>;
+  readonly onrampFeesNotKnown: Outcome<OnrampFeesNotKnown>;
   /** When the console read it all, so the room's "now" is the read's, not the browser's. */
   readonly asOf: string;
 }

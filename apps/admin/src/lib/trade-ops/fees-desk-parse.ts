@@ -213,22 +213,41 @@ export interface OnrampFeeNotKnown {
   readonly assetId: string;
   readonly amount: string;
   readonly method: string;
+  readonly country: string;
   readonly createdAt: string;
 }
 
-export const parseOnrampFeesNotKnown = (raw: unknown): OnrampFeeNotKnown[] | null =>
-  listOf(raw, (v) =>
+export interface OnrampFeesNotKnown {
+  /** The TEST partner's label when the local stack's TEST partner ramp gave no fee, or null. */
+  readonly testPartner: string | null;
+  readonly rows: OnrampFeeNotKnown[];
+}
+
+export const parseOnrampFeesNotKnown = (raw: unknown): OnrampFeesNotKnown | null => {
+  if (!rec(raw) || !(raw.testPartner === null || str(raw.testPartner))) return null;
+  const rows = listOf(raw.rows, (v) =>
     rec(v) &&
     str(v.requestId) &&
     str(v.userId) &&
     str(v.assetId) &&
     dec(v.amount) &&
     str(v.method) &&
+    str(v.country) &&
     v.refusalCode === 'bank.onramp_fee_not_known' &&
     str(v.createdAt)
-      ? { requestId: v.requestId, userId: v.userId, assetId: v.assetId, amount: v.amount, method: v.method, createdAt: v.createdAt }
+      ? {
+          requestId: v.requestId,
+          userId: v.userId,
+          assetId: v.assetId,
+          amount: v.amount,
+          method: v.method,
+          country: v.country,
+          createdAt: v.createdAt,
+        }
       : null,
   );
+  return rows ? { testPartner: raw.testPartner, rows } : null;
+};
 
 /** A notice row as svc-notify answers a draft: its id, kind and the time it takes effect. */
 export interface FeeNotice {
