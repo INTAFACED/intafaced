@@ -13,7 +13,7 @@ import { assertPermission, type MerchantCaller } from './roles.js';
  * `.shortfall:`, `.won:`, `.shortfall.recovered:`), and reports:
  *
  *   - takenAtOpening: what left the merchant's pots at `chargebackOpen`
- *     (clearing + settled legs, read from the posted tx meta). The money left
+ *     (clearing + settled legs, read from the booked entries; see `legs`). The money left
  *     then; it is not parked in a hold.
  *   - returned: what `chargebackWon` gave back (0 until it is booked).
  *   - shortfall: what the insurance fund covered; `null` ("not recorded")
@@ -49,15 +49,27 @@ export interface DisputeFundsTxs {
 const unavailable = () => new MerchantOpsError('pay.dispute_funds_unavailable', 'unavailable');
 const notFound = () => new MerchantOpsError('pay.dispute_not_found', 'not_found');
 
-/** A scaled-bigint leg the recipe wrote into meta. Anything else is a book we cannot read, not a zero. */
-function metaLeg(tx: LedgerTx, field: 'fromClearing' | 'fromMerchantBalance'): bigint {
+/** A scaled-bigint leg the recipe wrote into meta, or `null` when the meta did not come back. Anything else is a book we cannot read. */
+function metaLeg(tx: LedgerTx, field: 'fromClearing' | 'fromMerchantBalance'): bigint | null {
   const raw = tx.meta[field];
+  if (raw === undefined) return null;
   if (typeof raw !== 'string' || !/^\d+$/.test(raw)) throw unavailable();
   return BigInt(raw);
 }
 
-function legs(tx: LedgerTx): bigint {
-  return metaLeg(tx, 'fromClearing') + metaLeg(tx, 'fromMerchantBalance');
+/**
+ * What a chargeback opening took (`side: 'debit'`, the rail boundary's one debit) or a win gave back (`'credit'`, its one
+ * credit), read from the entries the ledger booked. The ledger's `txById` door does not carry meta, so the entries are
+ * the record; when the meta's two legs do come back they must add up to the same figure, or the book is unreadable.
+ */
+function legs(tx: LedgerTx, side: 'debit' | 'credit'): bigint {
+  const total = tx.entries.filter((e) => e.direction === side).reduce((sum, e) => sum + e.amount, 0n);
+  if (total <= 0n) throw unavailable();
+  const clearing = metaLeg(tx, 'fromClearing');
+  const balance = metaLeg(tx, 'fromMerchantBalance');
+  if ((clearing === null) !== (balance === null)) throw unavailable();
+  if (clearing !== null && balance !== null && clearing + balance !== total) throw unavailable();
+  return total;
 }
 
 /** A two-entry fund movement: both entries carry the same amount. */
@@ -70,9 +82,9 @@ function fundAmount(tx: LedgerTx): bigint {
 /** Pure: the funds card from the case and the transactions found under its keys. */
 export function disputeFunds(c: DisputeCase, txs: DisputeFundsTxs) {
   const disputed = parseAmount(c.amount);
-  const taken = txs.open ? legs(txs.open) : 0n;
+  const taken = txs.open ? legs(txs.open, 'debit') : 0n;
   const shortfall = txs.open ? (txs.shortfall ? fundAmount(txs.shortfall) : 0n) : null;
-  const returned = txs.won ? legs(txs.won) : 0n;
+  const returned = txs.won ? legs(txs.won, 'credit') : 0n;
   const recovered = txs.shortfallRecovered ? fundAmount(txs.shortfallRecovered) : 0n;
   const accounted = taken + (shortfall ?? 0n);
   const notYetTaken = disputed > accounted ? disputed - accounted : 0n;

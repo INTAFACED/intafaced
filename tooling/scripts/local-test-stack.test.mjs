@@ -1429,3 +1429,16 @@ console.log('local-test-stack: customer folder override checks passed');
   }
   console.log('local-test-stack: LOCAL_STACK_USER_VENUE reads the same in the stack and in trade env');
 }
+
+// No stack service listens on a port the test chain uses: the TEST venue first took 14533, the chain's second gate, and
+// every restart that started it refused with "in use by a process this script did not start" (journeys run 42524275189).
+{
+  const { CHAIN_PORTS } = await import('./local-test-chain.mjs');
+  const table = /const PORTS = \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? '';
+  const stackPorts = [...table.matchAll(/'?[\w-]+'?: (\d{4,5}),/g)].map((m) => Number(m[1]));
+  assert.ok(stackPorts.length > 20, 'the stack port table was read');
+  const clash = stackPorts.filter((port) => Object.values(CHAIN_PORTS).includes(port));
+  assert.deepEqual(clash, [], `stack ports also used by the test chain: ${clash.join(', ')}`);
+  assert.equal(new Set(stackPorts).size, stackPorts.length, 'every stack port is used once');
+  console.log('local-test-stack: no stack port collides with the test chain or with another stack port');
+}
