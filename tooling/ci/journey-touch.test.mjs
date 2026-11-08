@@ -2,11 +2,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { JOURNEY_CI, RUN_FILE, journeyTouch, pathKind } from './journey-touch.mjs';
-import { JOURNEYS_WORKFLOW, isSharedSetup, judgeTouchedRun, sealPull } from './journey-seal.mjs';
+import { JOURNEYS_WORKFLOW, fullVerdict, isSharedSetup, judgeFullRun, judgeTouchedRun, sealPull } from './journey-seal.mjs';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const REPO = 'INTAFACED/intafaced';
@@ -323,4 +323,142 @@ test("GitHub's Revert form of a product change needs no run; a revert of shared 
     false,
     'a Revert title without GitHub’s body line is no revert',
   );
+});
+
+// ---- U4 C3 piece 1: a pull request runs what it touches, with no dispatch ----
+
+test('--json --files-from: a pull request file list, judged against this checkout of its head', () => {
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  const run = (lines) => {
+    const f = join(dir, 'changed.txt');
+    execFileSync('sh', ['-c', `printf '%s' "$1" > "$2"`, 'sh', lines.join('\n') + '\n', f]);
+    return JSON.parse(
+      execFileSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', f], { cwd: ROOT, encoding: 'utf8' }),
+    );
+  };
+  assert.equal(run(['services/svc-bank/src/a.ts']).mode, 'full', 'product code: the full suite');
+  const files = run(['.github/workflows/ci.yml', 'apps/customer/tests/real-app/J-bank-13.pw.mjs']);
+  assert.deepEqual([files.mode, files.files], ['files', ['J-bank-13.pw.mjs']], 'a journey test file: only it');
+  assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
+  assert.equal(run(['apps/customer/tests/real-app/J-zzz-99.pw.mjs']).mode, 'none', 'a journey file the head removed runs nothing');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  assert.match(t, /\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n/);
+  // Every checkout tests the pull request's head (the seal reads runs by head), never GitHub's merge commit, except the
+  // default branch's copy of the rules the touch job judges with.
+  const checkouts = [...t.matchAll(/uses: actions\/checkout@[^\n]*\n((?: {8}[^\n]*\n)+)/g)].map((m) => m[1]);
+  assert.ok(checkouts.length >= 5);
+  for (const c of checkouts) if (!/path: \.base/.test(c)) assert.match(c, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  assert.ok(checkouts.some((c) => /ref: \$\{\{ github\.event\.repository\.default_branch \}\}/.test(c) && /path: \.base/.test(c)));
+  assert.match(t, /node "\$GITHUB_WORKSPACE\/\.base\/tooling\/ci\/journey-touch\.mjs" --json --files-from/);
+  // A pull request run keeps the ordinary limits, as a targeted run does.
+  assert.match(
+    t,
+    /JOURNEY_FAIL_FAST: \$\{\{ env\.JOURNEYS_TARGET == '' && github\.event_name != 'schedule' && github\.event_name != 'pull_request'/,
+  );
+  // A draft or a fork runs nothing; files that can't be read whole run the full suite; a manual input is names only.
+  assert.match(t, /if \[ "\$DRAFT" = true \] \|\| \[ "\$SAME_REPO" != true \]/);
+  assert.match(t, /\|\| full "this pull request's files couldn't be read"/);
+  assert.match(t, /-ge 3000 \]; then full /);
+  assert.match(t, /=~ \^\[A-Za-z0-9\._,\\ -\]\*\$ \]\]/);
+  // The steps the title names and no Left-or-replaced line leaves run too, by the seal's own readers (council R3/G1).
+  assert.match(t, /m\.exemptions\(process\.env\.BODY\)\.steps/);
+  assert.match(t, /m\.titleSteps\(process\.env\.TITLE\)/);
+  assert.match(t, /none\) if \[ -n "\$named" \]; then \{ echo "mode=run"; echo "target=\$named"; \}/);
+  // A failed touch job on a fork or a draft never falls through to the full suite (council R4).
+  assert.equal(
+    t.split('github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft').length - 1,
+    3,
+  );
+  // Nothing to run: no plan, no build, no shard, and an empty report that the seal reads as saying nothing.
+  for (const job of ['plan', 'build'])
+    assert.match(
+      t,
+      new RegExp(
+        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.touch\\.outputs\\.mode != 'none' && \\(github\\.event_name != 'pull_request'`,
+      ),
+    );
+  assert.match(t, /\.draft\)\) && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
+  assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.touch\.outputs\.target \}\}/);
+});
+
+test('an empty report (nothing to run) seals nothing and blocks nothing', async () => {
+  const { readReport } = await import('./journey-verdict.mjs');
+  const empty = readReport({ suites: [], errors: [], stats: { expected: 0, unexpected: 0 } });
+  assert.deepEqual([Object.keys(empty.states).length, [...(empty.ran ?? [])].length], [0, 0]);
+  const HEAD = 'a'.repeat(40);
+  const REPO = 'INTAFACED/intafaced';
+  const r = (id, over = {}) => ({
+    id,
+    head_sha: HEAD,
+    path: JOURNEYS_WORKFLOW,
+    status: 'completed',
+    conclusion: 'success',
+    created_at: `2026-11-08T0${id}:00:00Z`,
+    run_started_at: `2026-11-08T0${id}:00:00Z`,
+    head_repository: { full_name: REPO },
+    repository: { full_name: REPO },
+    ...over,
+  });
+  // A newer empty run never hides an older run's red, and never stands in for a run of the touched file.
+  const reports = { 1: { states: { 'J-a-01#1': 'failed' }, ran: ['J-a-01.pw.mjs'] }, 2: empty };
+  const v = await judgeTouchedRun({
+    sha: HEAD,
+    repo: REPO,
+    files: ['J-a-01.pw.mjs'],
+    runs: [r(1), r(2)],
+    reportOf: async (x) => reports[x.id],
+    verdictOf: async (rep) => ({ red: rep.states['J-a-01#1'] === 'failed' ? [{ step: 'J-a-01#1', why: 'failing' }] : [], missing: [] }),
+  });
+  assert.equal(v.ok, false);
+  const alone = await judgeTouchedRun({
+    sha: HEAD,
+    repo: REPO,
+    files: ['J-a-01.pw.mjs'],
+    runs: [r(2)],
+    reportOf: async () => empty,
+    verdictOf: async () => ({ red: [], missing: [] }),
+  });
+  assert.equal(alone.ok, false, 'an empty run does not prove a touched file');
+});
+
+test('CI review: an empty run (nothing to run, or a draft) never stands in for the full run product code needs', async () => {
+  const { readReport } = await import('./journey-verdict.mjs');
+  const spec = (title, file) => ({ title, file, tests: [{ status: 'expected' }] });
+  const named = readReport({
+    suites: [{ file: 'J-a-01.pw.mjs', specs: [spec('J-a-01 #1', 'J-a-01.pw.mjs'), spec('J-b-01 #1', 'J-b-01.pw.mjs')] }],
+  });
+  const empty = readReport({ suites: [], errors: [], stats: { expected: 0, unexpected: 0 } });
+  const inputs = { baseline: { run: { number: 100, id: 1, sha: 'c'.repeat(40) }, steps: [] }, money: {}, reports: new Map() };
+  const read = () => ({ named, passedSince: {}, issues: {}, problems: [], shas: {} });
+  const HEAD = 'a'.repeat(40);
+  const REPO = 'INTAFACED/intafaced';
+  const run = {
+    id: 9,
+    head_sha: HEAD,
+    path: JOURNEYS_WORKFLOW,
+    status: 'completed',
+    conclusion: 'success',
+    created_at: '2026-11-08T05:00:00Z',
+    run_started_at: '2026-11-08T05:00:00Z',
+    head_repository: { full_name: REPO },
+    repository: { full_name: REPO },
+  };
+  // The seal's own full-run rule, with its real verdict: a green run whose report ran no journey file is short of
+  // every file, so it is passed over, and with no full run the seal fails.
+  const v = await judgeFullRun({
+    sha: HEAD,
+    repo: REPO,
+    shared: [],
+    because: 'it changes product code',
+    runs: [run],
+    reportOf: async () => empty,
+    verdictOf: async (report, r) => fullVerdict({ repo: REPO, report, run: r, inputs, read }),
+  });
+  assert.equal(v.ok, false);
+  assert.match(v.lines.join('\n'), /none has finished/);
+  assert.match(v.lines.join('\n'), /not a full run \(no step from 2 journey file/);
 });
