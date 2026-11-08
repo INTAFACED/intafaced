@@ -362,12 +362,25 @@ export class UserVenueDoor {
       await assertSignatureRecovers(row.prepared, signature);
       signed = await this.deps.store.signOnce(principal.userId, key, signature, this.deps.now());
     }
-    const venue = await this.venue();
-    const answered = await venue.submit(signed.prepared, signed.signature as VenueSignature);
+    const p = signed.prepared;
+    const readBackOf = (o: VenueSubmitOutcome) =>
+      o.definite ? null : p.venueClientOrderId ? { venueClientOrderId: p.venueClientOrderId } : { nonce: p.nonce };
+    let answered: VenueSubmitOutcome;
+    try {
+      const venue = await this.venue();
+      answered = await venue.submit(signed.prepared, signed.signature as VenueSignature);
+    } catch (error) {
+      // The venue is down for this attempt. If these bytes were already sent once, the action may be live: answer with
+      // what is recorded (or "not definite") and the read-back, never a bare refusal that invites a new key.
+      const down = error instanceof VenueRefusalError && error.refusal.code === 'venue_down';
+      if (down && row.signature) {
+        const outcome: VenueSubmitOutcome = row.lastOutcome ?? { definite: false, reason: 'connection_lost' };
+        return { actionKey: key, outcome, readBack: readBackOf(outcome) };
+      }
+      throw error;
+    }
     // A definite outcome already recorded is never replaced by a not-definite one: that is the answer.
     const outcome = await this.deps.store.recordOutcome(principal.userId, key, answered, this.deps.now());
-    const p = signed.prepared;
-    const readBack = outcome.definite ? null : p.venueClientOrderId ? { venueClientOrderId: p.venueClientOrderId } : { nonce: p.nonce };
-    return { actionKey: key, outcome, readBack };
+    return { actionKey: key, outcome, readBack: readBackOf(outcome) };
   }
 }

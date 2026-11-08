@@ -5,7 +5,13 @@ import { privateKeyToAccount } from 'viem/accounts';
 import type { Principal } from '@intafaced/auth';
 import { StepUpCheckError, type StepUpCheck, type StepUpCheckRequest } from '@intafaced/contracts';
 import { parseAmount } from '@intafaced/ledger-client/money';
-import type { PlaceUserOrderIntent, PreparedVenueAction, VenueIntent, VenueSubmitOutcome } from '@intafaced/venue-contracts';
+import {
+  VenueRefusalError,
+  type PlaceUserOrderIntent,
+  type PreparedVenueAction,
+  type VenueIntent,
+  type VenueSubmitOutcome,
+} from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
 import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
@@ -132,16 +138,28 @@ describe('HttpUserVenue: a lost answer after send is never definite', () => {
     }
   });
 
-  it('a refused connection sent nothing: a definite venue_down refusal; a read that times out refuses venue_down', async () => {
+  it('a refused connection on submit is the venue being down, never a definite refusal of the action', async () => {
     const { server, url } = await fakeVenue(() => undefined);
-    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 });
+    // A refused connection, raised the way undici raises it, on every call once `refuse` is set. Injected rather than
+    // produced by closing the server: how a closed loopback port fails (refused, or a reset pooled socket) differs by
+    // machine, and the code under test is the classification, not the kernel.
+    let refuse = false;
+    const refusing: typeof fetch = async (input, init) => {
+      if (refuse)
+        throw new TypeError('fetch failed', { cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }) });
+      return fetch(input, init);
+    };
+    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: refusing });
+    await closeServer(server);
+    refuse = true;
     await expect(venue.balances({ venueId: venue.venue.id, owner, subAccount: null })).rejects.toMatchObject({
       refusal: { code: 'venue_down' },
     });
-    await closeServer(server);
-    const outcome = await venue.submit(somePrepared(venue.venue.id), someSignature);
-    expect(outcome).toMatchObject({ definite: true, accepted: false, refusal: { code: 'venue_down' } });
-    await expect(HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+    // Nothing reached the venue on this attempt, but an earlier send of the same bytes may have: no answer about the action.
+    await expect(venue.submit(somePrepared(venue.venue.id), someSignature)).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+    await expect(HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200, fetch: refusing })).rejects.toMatchObject({
+      refusal: { code: 'venue_down' },
+    });
   });
 });
 
@@ -225,6 +243,55 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
       (f) => f.venueClientOrderId === prepared.prepared.venueClientOrderId,
     );
     expect(fills.reduce((s, f) => s + f.builderFee, 0n)).toBe(a('0.00001'));
+  });
+
+  it('council round 1: a send that landed but lost its answer, then a resend that hits a refused connection, stays not definite with its read-back', async () => {
+    const store = new InMemoryPreparedActionStore();
+    let refuseNext = false;
+    const d = new UserVenueDoor({
+      connect: async () => {
+        const inner = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
+        // The same venue, except that the next submit meets a refused connection (as the client now reports it).
+        return Object.assign(Object.create(inner) as typeof inner, {
+          submit: async (prepared: PreparedVenueAction, signature: Parameters<typeof inner.submit>[1]) => {
+            if (refuseNext) throw new VenueRefusalError({ venueId: inner.venue.id, code: 'venue_down', detail: 'connection refused' });
+            return inner.submit(prepared, signature);
+          },
+        });
+      },
+      appEnv: 'test',
+      store,
+      stepUp: stepUp('approve').check,
+      builder: BUILDER,
+      now: () => new Date(),
+    });
+    const actionKey = `approve-builder:${USER}:council-r1`;
+    const prepared = await d.prepare(principal, {
+      owner,
+      signer,
+      intent: { kind: 'approve_builder_fee', builder: BUILDER.address, maxFeeBps: a('1') },
+      actionKey,
+    });
+    const signature = await sign(prepared.prepared);
+    sim.switches.loseAnswers = 1; // applied by the venue, then the answer is lost
+    const first = await d.submit(principal, actionKey, signature);
+    expect(first.outcome).toEqual({ definite: false, reason: 'timeout' });
+    expect(await sim.builderFeeApproval(await d.account(owner), BUILDER.address).then((r) => r.value)).toBe(a('1'));
+    refuseNext = true;
+    const second = await d.submit(principal, actionKey, signature);
+    expect(second.outcome).toEqual({ definite: false, reason: 'timeout' });
+    expect(second.readBack).toEqual({ nonce: prepared.prepared.nonce });
+    expect((await store.find(USER, actionKey))?.lastOutcome).toEqual({ definite: false, reason: 'timeout' });
+    // A first send that never reached the venue is still the venue being down: nothing was signed and sent before.
+    const fresh = await d.prepare(principal, {
+      owner,
+      signer,
+      intent: { kind: 'approve_builder_fee', builder: BUILDER.address, maxFeeBps: a('1') },
+      actionKey: `${actionKey}:b`,
+    });
+    await expect(d.submit(principal, `${actionKey}:b`, await sign(fresh.prepared))).rejects.toMatchObject({
+      refusal: { code: 'venue_down' },
+    });
   });
 
   it('one prepared action per business key: a second prepare returns the stored action; a resubmit re-sends the same bytes', async () => {

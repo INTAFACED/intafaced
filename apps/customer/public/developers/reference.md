@@ -145,6 +145,20 @@ No deposit or withdrawal route is on the trading API: withdrawals are never reac
 
 | Route                                          | Name                          | Permission              |
 | ---------------------------------------------- | ----------------------------- | ----------------------- |
+| `GET /api/v1/venue/status`                     | `venueStatus`                 | trade:read              |
+| `GET /api/v1/venue/markets`                    | `venueMarkets`                | trade:read              |
+| `GET /api/v1/venue/balances`                   | `venueBalances`               | trade:read              |
+| `GET /api/v1/venue/orders/open`                | `venueOpenOrders`             | trade:read              |
+| `GET /api/v1/venue/positions`                  | `venuePositions`              | trade:read              |
+| `GET /api/v1/venue/agents`                     | `venueAgents`                 | trade:read              |
+| `GET /api/v1/venue/orders/by-client-id`        | `venueOrderByClientId`        | trade:read              |
+| `GET /api/v1/venue/fills`                      | `venueFills`                  | trade:read              |
+| `GET /api/v1/venue/leverage`                   | `venueLeverage`               | trade:read              |
+| `GET /api/v1/venue/builder-fee-approval`       | `venueBuilderFeeApproval`     | trade:read              |
+| `GET /api/v1/venue/withdrawals/:nonce`         | `venueWithdrawal`             | trade:read              |
+| `POST /api/v1/venue/preview`                   | `venuePreview`                | trade:write             |
+| `POST /api/v1/venue/prepare`                   | `venuePrepare`                | trade:write             |
+| `POST /api/v1/venue/submit`                    | `venueSubmit`                 | trade:write             |
 | `GET /api/v1/account/balance`                  | `fetchBalance`                | trade:read              |
 | `GET /api/v1/account/fees`                     | `fetchTradingFees`            | trade:read              |
 | `GET /api/v1/account/trades`                   | `fetchMyTrades`               | trade:read              |
