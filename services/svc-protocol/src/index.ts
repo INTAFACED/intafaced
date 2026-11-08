@@ -26,6 +26,8 @@ import { PostgresRepresentationStore } from './representation/representation.pg.
 import { PostgresAddressRiskStore } from './address-risk/risk.pg.js';
 import { walletSessionFromSetting } from './address-book/session.js';
 import { PostgresAddressBookStore } from './address-book/book.pg.js';
+import { venueConnectionTtlFromSetting, walletSanctionsFromSetting } from './venue-wallet/connection.js';
+import { PostgresVenueConnectionStore } from './venue-wallet/connection.pg.js';
 import { challengeTtlFromSetting } from './listing/ownership.js';
 import { PostgresListingStore } from './listing/ownership.pg.js';
 import { badgeApprovalConsumer } from './nft/founding-badge-approval.js';
@@ -77,6 +79,8 @@ for (const tableName of [
   'address_labels',
   'address_label_history',
   'address_reports',
+  'venue_wallet_connections',
+  'venue_wallet_nonces',
 ]) {
   const [table] = await db.sql<Array<{ exists: boolean }>>`
     SELECT EXISTS (
@@ -144,6 +148,9 @@ const walletSessionSetting = walletSessionFromSetting(
   env.PROTOCOL_WALLET_SESSION_ORIGINS,
   process.env.APP_ENV,
 );
+// The venue wallet connection's lifetime and the wallet sanctions list: read once, malformed refuses to boot.
+const venueConnectionTtl = venueConnectionTtlFromSetting(env.PROTOCOL_VENUE_CONNECTION_TTL_SECONDS);
+const walletSanctions = walletSanctionsFromSetting(env.PROTOCOL_WALLET_SANCTIONS);
 const listingChallengeTtl = challengeTtlFromSetting(env.PROTOCOL_LISTING_CHALLENGE_TTL_SECONDS, process.env.APP_ENV);
 
 let badgeRestartable: boolean | undefined;
@@ -192,6 +199,12 @@ export const appRouter = createProtocolRouter({
     session: () => walletSessionSetting,
     maxContacts: () => env.PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS,
     maxGroups: () => env.PROTOCOL_WALLET_GROUPS_MAX,
+  },
+  venueWallet: {
+    store: new PostgresVenueConnectionStore(db.sql),
+    session: () => walletSessionSetting,
+    ttlSeconds: () => venueConnectionTtl,
+    sanctions: () => walletSanctions,
   },
   badge: {
     store: new PostgresBadgeStore(db.sql),

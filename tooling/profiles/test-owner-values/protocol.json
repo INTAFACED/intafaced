@@ -36,6 +36,16 @@
       "value": "http://127.0.0.1:3210,http://localhost:3210",
       "note": "TEST: the local stack's customer origins that wallet sign-in messages are written for. Blank in production refuses protocol.wallet_session_unset."
     },
+    "PROTOCOL_VENUE_CONNECTION_TTL_SECONDS": {
+      "service": "protocol",
+      "value": "60",
+      "note": "TEST lifetime of a venue wallet connection (J-wallet-09): one minute, so the journey's expiry step waits a minute. Blank in production refuses protocol.venue_connection_ttl_unset."
+    },
+    "PROTOCOL_WALLET_SANCTIONS": {
+      "service": "protocol",
+      "value": "0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83",
+      "note": "TEST wallet sanctions list: one TEST address, derived from the TEST seed 'INTAFACED LOCAL TEST sanctioned wallet (J-wallet-09)', so the journey can show a listed wallet refused. Not a real sanctions list. Blank in production refuses every connect with protocol.wallet_sanctions_unset."
+    },
     "PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS": {
       "service": "protocol",
       "value": "50",

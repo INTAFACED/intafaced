@@ -50,6 +50,11 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       PROTOCOL_WALLET_SESSION_SECRET: `TEST-${createHash('sha256').update(`protocol wallet session\0${secrets.internal}`).digest('hex')}`,
       PROTOCOL_WALLET_SESSION_TTL_SECONDS: '3600',
       PROTOCOL_WALLET_SESSION_ORIGINS: `${CUSTOMER_ORIGIN},${CUSTOMER_LOCALHOST_ORIGIN}`,
+      // LOCAL TEST only (same profile): the venue wallet connection (J-wallet-09). A one-minute lifetime, so the journey's
+      // expiry step waits a minute, and a wallet sanctions list of one TEST address the journey derives from a TEST seed.
+      // Production stays blank and connecting refuses protocol.venue_connection_ttl_unset / protocol.wallet_sanctions_unset.
+      PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: '60',
+      PROTOCOL_WALLET_SANCTIONS: '0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83',
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',
       // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for
