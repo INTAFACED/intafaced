@@ -50,6 +50,8 @@ function originationFee() {
  *   · `wallet_pull`: the same partner, but the card pulls from the person's own wallet (J-bank-29 in its second mode);
  *   · `reported`: the same partner, reporting TEST answers for loss liability, reserve and funder, so a journey can see
  *     the reported path beside the "not known" one;
+ *   · `narrow`: the same partner, spending from USDC and USD only, so an asset on the owner's list (BTC) reads "not
+ *     offered by the partner" (J-bank-29 #2 tells the partner's list from the owner's);
  *   · `off`: the partner reports nothing at all (every answer "not known").
  * Alongside, `LOCAL_STACK_BANK_CARD_SPEND_ASSETS=off` blanks the owner's spendable-asset list (J-bank-29 #1).
  */
@@ -64,6 +66,7 @@ function cardPartner() {
   if (asked === undefined || asked === '') return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify(partner) };
   if (asked === 'off') return out;
   if (asked === 'wallet_pull') return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify({ ...partner, custodyMode: 'wallet_pull' }) };
+  if (asked === 'narrow') return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify({ ...partner, spendFrom: ['USDC', 'USD'] }) };
   if (asked === 'reported') {
     // LOCAL TEST answers, made up for the stack: not a partner's terms.
     const reported = {
@@ -75,7 +78,7 @@ function cardPartner() {
     return { ...out, BANK_CARD_SIM_PARTNER_JSON: JSON.stringify(reported) };
   }
   throw new Error(
-    `LOCAL_STACK_BANK_CARD_PARTNER is "${asked}"; leave it unset for the TEST partner, or set it to wallet_pull, reported or off.`,
+    `LOCAL_STACK_BANK_CARD_PARTNER is "${asked}"; leave it unset for the TEST partner, or set it to wallet_pull, narrow, reported or off.`,
   );
 }
 

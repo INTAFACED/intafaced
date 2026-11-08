@@ -12,7 +12,9 @@ import { signIn, signUp, verify } from './desk.mjs';
 // spend from. Step 1 (BK-ccrypto-01): the owner's list switched off for one restart refuses Pay from by name. Step 2: Pay
 // from lists what the partner can spend from and reads "not offered by the partner" for the rest, in both of the partner's
 // modes: it holds the crypto, or (one restart with LOCAL_STACK_BANK_CARD_PARTNER=wallet_pull) the card pulls from the
-// person's own wallet. Not yet built, and not asserted here: each asset's partner balance, rate and rate time, the saved
+// person's own wallet. Two more restarts tell the partner's list from the owner's and show the unknown: a partner spending
+// from USDC and USD only (LOCAL_STACK_BANK_CARD_PARTNER=narrow) reads BTC, on the owner's list, "not offered by the partner";
+// a partner reporting nothing (=off) reads its mode and every owner-listed asset "not known". Not yet built, and not asserted here: each asset's partner balance, rate and rate time, the saved
 // order, the trading and agent accounts' line, and steps 3 to 8 (the authorisation path in each mode).
 const J = 'J-bank-29';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
@@ -141,6 +143,46 @@ test(`${J} #2 with the TEST list back, opens Pay from: the assets the partner ca
     await expect(page.getByTestId('card-pay-from-mode')).toContainText('The card pulls from your own wallet');
     await expect(assetRow(page, 'USDC')).toHaveAttribute('data-state', 'offered');
     await expect(assetRow(page, 'USDT')).toContainText('not offered by the partner');
+  } finally {
+    restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
+  }
+
+  // The partner's list, not the owner's, decides: a partner that spends only USDC and USD reads BTC (on the owner's list)
+  // "not offered by the partner".
+  restartBank('LOCAL_STACK_BANK_CARD_PARTNER', 'narrow');
+  try {
+    const narrow = await (await bank()).query('cards.payFrom');
+    expect(narrow.ok, JSON.stringify(narrow.body ?? {}).slice(0, 300)).toBe(true);
+    expect(narrow.data.assets.map((a) => [a.assetId, a.state])).toEqual([
+      ['USDC', 'offered'],
+      ['BTC', 'not_offered'],
+      ['USD', 'offered'],
+      ['USDT', 'not_offered'],
+    ]);
+    await signIn(page, who);
+    await page.goto('/bank/cards');
+    await expect(assetRow(page, 'BTC')).toHaveAttribute('data-state', 'not_offered');
+    await expect(assetRow(page, 'BTC')).toContainText('not offered by the partner');
+    await expect(assetRow(page, 'USDC')).toHaveAttribute('data-state', 'offered');
+  } finally {
+    restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
+  }
+
+  // A partner that reports nothing: how it spends and what it spends from are "not known", never guessed as offered.
+  restartBank('LOCAL_STACK_BANK_CARD_PARTNER', 'off');
+  try {
+    const silent = await (await bank()).query('cards.payFrom');
+    expect(silent.ok, JSON.stringify(silent.body ?? {}).slice(0, 300)).toBe(true);
+    expect(silent.data.custodyMode).toBeNull();
+    await signIn(page, who);
+    await page.goto('/bank/cards');
+    await expect(payFrom(page)).toHaveAttribute('data-mode', 'not_known');
+    await expect(page.getByTestId('card-pay-from-mode')).toContainText('not known');
+    for (const asset of ['USDC', 'BTC', 'USD']) {
+      await expect(assetRow(page, asset)).toHaveAttribute('data-state', 'not_known');
+      await expect(assetRow(page, asset)).toContainText('not known');
+      await expect(assetRow(page, asset)).not.toContainText('offered');
+    }
   } finally {
     restartBank('LOCAL_STACK_BANK_CARD_PARTNER', undefined);
   }
