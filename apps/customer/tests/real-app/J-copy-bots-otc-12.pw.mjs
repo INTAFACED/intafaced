@@ -5,6 +5,7 @@ import { api, bestPrices, journeyState, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
 import { copiedOrders, followOnScreen, leadFill, listLeader, openFollow } from './copy.mjs';
 import { tableIn, bodyRows } from './tables.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-copy-bots-otc-12, in the running app (docs/roadmap/journeys.json): two founders pause copy or bots by lead, bot type
 // or symbol on the console's /trade-ops/kill-switch, "Copy and bots" tab. One test per step, titled
@@ -231,6 +232,7 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   await signIn(page, follower);
   const followId = await followOnScreen(page, follower, leaderRef, { perOrder: '50', total: '300', fixed: '20' });
   hold();
+  const heldAt = Date.now();
   await leadFill(leader, 'buy', '0.001', `${J}-1-a-${tag}`);
   await expect(async () => {
     await expect(copiedOrders(await openFollow(page, leaderRef))).toHaveCount(1, { timeout: 2_000 });
@@ -238,6 +240,9 @@ test(`${J} #1 pauses one lead: the next mirror for that lead is refused as pause
   run.write({ followId });
   const holding = (await (await api(follower)).balances()).BTC.total;
   expect(toUnits(holding), 'the copied buy is held').toBeGreaterThan(0n);
+  // The hold lapses HOLD_MAX_MS after it was asked for; the lead fill, its mirror and the read must all fall inside it,
+  // or the maker's walk was back on and this proved nothing about the race it guards. Fail and say so.
+  expect(Date.now() - heldAt, 'the BTC/USDT hold lapsed before the follower held the copy').toBeLessThan(HOLD_MAX_MS);
   release();
 
   const { request } = await twoFounders(browser, pauseScope('lead', leaderRef));
