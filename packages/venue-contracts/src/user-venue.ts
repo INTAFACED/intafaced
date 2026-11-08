@@ -99,6 +99,13 @@ export interface PlaceUserOrderIntent {
   /** Leverage for a perpetual, in basis points of 1x. `null` on spot. */
   readonly leverageBps: number | null;
   readonly marginMode: VenueMarginMode | null;
+  /**
+   * Our builder fee on this order, from the owner's published value, or
+   * `null` for none. The app refuses `builder_fee_not_published` itself when
+   * the owner value is blank (floor 8); the venue refuses
+   * `builder_fee_not_approved` when the account approved less.
+   */
+  readonly builderFee: { readonly builder: string; /** Scaled decimal bps, as `maxFeeBps`. */ readonly feeBps: Amount } | null;
 }
 
 export interface AmendUserOrderIntent {
