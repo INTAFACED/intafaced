@@ -20,6 +20,11 @@ import {
   ownAgentHoldsSchema,
   ownAgentTestRunSchema,
   ownAgentRuleSchema,
+  OWN_AGENT_POLICY_ACTIONS,
+  OWN_AGENT_POLICY_EFFECTS,
+  OWN_AGENT_POLICY_SCOPES,
+  ownAgentPolicyDecisionSchema,
+  ownAgentPolicySchema,
   ownAgentToolCallSchema,
   ownAgentCatalogueSchema,
   ownAgentLimitsSchema,
@@ -58,6 +63,7 @@ import {
 import { formatAmount, parseAmount } from '@intafaced/ledger-client';
 import { AgentError } from '../errors.js';
 import { evaluateToolCall, parseGuardrail, type Guardrail } from '../fleet/guardrails.js';
+import { OwnPolicyStore } from './policy.js';
 import { executeProcedure } from '../procedures.js';
 import { AGENT_DISABLED, ownAgentSwitch } from '../fleet/control.js';
 import { BackgroundRunStore, ownBackgroundRunSchema, type BackgroundSettings } from './background.js';
@@ -569,6 +575,80 @@ export function ownRouter(
             checkRule(tooling.baseline, agent.tools, input.tool, input.choice);
             return new OwnRuleStore(sqlOf(sql)).save(ctx.principal.userId, agent.id, input.tool, input.choice);
           });
+        }),
+    }),
+
+    /**
+     * The person's allow and deny rules for what this agent may do, by action and account (AG-spend-02, J-agents-08 #1).
+     * A deny at any scope wins whatever order the rules were written in; with rules required, an action no rule allows
+     * is refused. Only the person writes them: an agent's token is refused, and the user comes from the signed principal.
+     */
+    policy: router({
+      get: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput)
+        .output(ownAgentPolicySchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            return new OwnPolicyStore(sqlOf(sql)).read(ctx.principal.userId, agent.id);
+          });
+        }),
+      add: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(
+          idInput.extend({
+            effect: z.enum(OWN_AGENT_POLICY_EFFECTS),
+            action: z.enum(OWN_AGENT_POLICY_ACTIONS),
+            scope: z.enum(OWN_AGENT_POLICY_SCOPES),
+          }),
+        )
+        .output(ownAgentPolicySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const store = new OwnPolicyStore(sqlOf(sql));
+            await store.add(ctx.principal.userId, agent.id, { effect: input.effect, action: input.action, scope: input.scope });
+            return store.read(ctx.principal.userId, agent.id);
+          });
+        }),
+      remove: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ ruleId: z.string().uuid() }))
+        .output(ownAgentPolicySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const store = new OwnPolicyStore(sqlOf(sql));
+            await store.remove(ctx.principal.userId, agent.id, input.ruleId);
+            return store.read(ctx.principal.userId, agent.id);
+          });
+        }),
+      require: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ rulesRequired: z.boolean() }))
+        .output(ownAgentPolicySchema)
+        .mutation(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(async () => {
+            const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+            const store = new OwnPolicyStore(sqlOf(sql));
+            await store.setRulesRequired(ctx.principal.userId, agent.id, input.rulesRequired);
+            return store.read(ctx.principal.userId, agent.id);
+          });
+        }),
+      /** The gate an agent action passes first: allowed, or refused `agents.policy_denied` / `agents.policy_no_match`. */
+      check: scopedProcedure('agents:read', { module: 'agents', person: true })
+        .input(idInput.extend({ action: z.enum(OWN_AGENT_POLICY_ACTIONS), account: z.literal('main') }))
+        .output(ownAgentPolicyDecisionSchema)
+        .query(({ ctx, input }) => {
+          assertPersonSetsLimits(ctx.principal);
+          return guard(
+            async () => {
+              const agent = await storeOf(sql).get(ctx.principal.userId, input.id);
+              return new OwnPolicyStore(sqlOf(sql)).assertAllows(ctx.principal.userId, agent.id, input.action, input.account);
+            },
+            (code) => (code === 'agents.policy_denied' || code === 'agents.policy_no_match' ? 'FORBIDDEN' : null),
+          );
         }),
     }),
 
