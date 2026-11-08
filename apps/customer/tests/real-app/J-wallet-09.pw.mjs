@@ -19,6 +19,8 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // (services/svc-protocol/src/venue-wallet/connection.test.ts). #3 and #5 need the TEST venue simulator.
 // Money: INTAFACED moves nothing and the ledger posts nothing in this journey; #3 reads the ledger before and after.
 const J = 'J-wallet-09';
+// #3 (deposit) and #5 (withdraw) need the TEST venue in the stack; their tests land with the venue PR, under the
+// passing/unbuilt rule (a step's test joins this file in the PR that makes it pass).
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** The TEST wallet on the stack's TEST wallet sanctions list (PROTOCOL_WALLET_SANCTIONS in the TEST profile). */
 const LISTED_KEY = keccak256(toHex('INTAFACED LOCAL TEST sanctioned wallet (J-wallet-09)'));
@@ -96,7 +98,7 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
     restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', false);
     await openVenue(blankPage, who, walletKey);
     await blankPage.getByRole('button', { name: 'Connect to my account' }).click();
-    await expect(blankPage.getByText('No wallet can be screened')).toBeVisible({ timeout: 20_000 });
+    await expect(blankPage.getByText('No wallet can be screened', { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(
       blankPage.getByText('The wallet sanctions list is not set, so no wallet can be screened or connected. Nothing was connected.'),
     ).toBeVisible();
@@ -171,31 +173,6 @@ async function roomSettled(page) {
   ).toBeVisible();
 }
 
-test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the venue credits it, with an as-of time; the ledger posts nothing`, async ({
-  page,
-}) => {
-  const { who, walletKey } = state();
-  // What the ledger holds for this person before the deposit: it must hold exactly this after.
-  const ledgerBefore = await (await api(who)).balances();
-  const wallet = await openVenue(page, who, walletKey);
-  // The connection from #2 may have ended: sign again so this step starts connected.
-  await roomSettled(page);
-  if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
-  const signedBefore = wallet.requests.length;
-  await page.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill(DEPOSIT, UNBUILT);
-  await venueAction(page, 'Deposit TEST USDC').click();
-  // The user signs in the wallet.
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click(UNBUILT);
-  expect(wallet.requests.length).toBeGreaterThan(signedBefore);
-  // The venue credits it: this new account's venue figure is exactly the deposit, with the venue's as-of time.
-  const figure = page.getByTestId('venue-balance');
-  await expect(figure).toHaveText(`${DEPOSIT} TEST USDC`, { timeout: 60_000 });
-  const asOf = await page.getByTestId('venue-balance-as-of').getAttribute('datetime', UNBUILT);
-  expect(Number.isNaN(Date.parse(asOf ?? ''))).toBe(false);
-  // The ledger posts nothing: the person's ledger balances are the same as before.
-  expect(await (await api(who)).balances()).toEqual(ledgerBefore);
-});
-
 test(`${J} #4 lets the connection expire: every signed action refuses until the wallet signs again`, async ({ page }) => {
   test.setTimeout(180_000);
   const { who, walletKey } = state();
@@ -228,23 +205,4 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
   await venueAction(page, 'Deposit TEST USDC').click();
   await expect(page.getByText('protocol.venue_connection_expired')).toHaveCount(0);
   expect((await recorded(who)).connections.map((c) => c.status)).toEqual(['live']);
-});
-
-test(`${J} #5 withdraws TEST USDC from the venue to the wallet: pending then done, with the venue's fee and the network fee`, async ({
-  page,
-}) => {
-  const { who, walletKey } = state();
-  await openVenue(page, who, walletKey);
-  await roomSettled(page);
-  if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
-  await venueAction(page, 'Withdraw TEST USDC').click();
-  // The user signs.
-  await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click(UNBUILT);
-  // The venue's withdrawal shows pending, then done.
-  const withdrawal = page.getByTestId('venue-withdrawal');
-  await expect(withdrawal).toContainText('Pending', UNBUILT);
-  await expect(withdrawal).toContainText('Done', { timeout: 60_000 });
-  // With the venue's fee and the network fee, each a figure or "not known".
-  await expect(withdrawal.getByTestId('venue-fee')).toHaveText(/TEST USDC|not known/, UNBUILT);
-  await expect(withdrawal.getByTestId('network-fee')).toHaveText(/\d|not known/, UNBUILT);
 });
