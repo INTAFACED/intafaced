@@ -87,7 +87,9 @@ export function judgeReason(files) {
 // ── The machine's set-aside (B8) ──────────────────────────────────────────────────────────────────────────────────
 
 /**
- * The owner's approved exception (owner decision 2026-11-07, B8; intafaced AGENTS.md rule 6): CI on main retries a
+ * The owner's approved exception (owner decision 2026-11-07, B8; the default branch's tooling/ci/ci-review/REVIEW.md
+ * item 3: "The machine's set-aside of flaky non-money journey steps ... is not a quarantine; a change that lets an agent
+ * set a step aside, sets a money step aside, or lengthens the set-aside is"; AGENTS.md rule 6): CI on main retries a
  * failed journey test once and sets aside, for a limited time with an owner, a step that failed and then passed on the
  * same commit, never a money step, and a set-aside step never counts as proven. The judge's one question stays; an entry
  * the judge says is weaker only through that set-aside may answer `set-aside`, and this code accepts it only in exactly
@@ -108,22 +110,31 @@ export const SET_ASIDE_CONDITIONS = {
  * its own SET_ASIDE_DAYS is the cap, so a pull request can shorten the set-aside but never lengthen it.
  */
 export const SET_ASIDE_MAX_DAYS = 7;
-/** The cap for a head: main's length when main has one (never above SET_ASIDE_MAX_DAYS), else SET_ASIDE_MAX_DAYS. */
+/**
+ * Main's set-aside length: its days, 'none' when main's SET_ASIDE_CODE never names SET_ASIDE_DAYS (no set-aside yet), or
+ * 'unreadable' when it names it in any form but the one setAsideDays reads, which refuses every set-aside (fail closed).
+ */
+export const mainSetAsideDays = (text) => (!/\bSET_ASIDE_DAYS\b/.test(String(text ?? '')) ? 'none' : (setAsideDays(text) ?? 'unreadable'));
+/** The cap for a head: main's length (never above SET_ASIDE_MAX_DAYS), SET_ASIDE_MAX_DAYS when main has none, else null. */
 export const setAsideCap = (mainDays) =>
-  Number.isInteger(mainDays) && mainDays >= 1 ? Math.min(mainDays, SET_ASIDE_MAX_DAYS) : SET_ASIDE_MAX_DAYS;
+  mainDays === 'none' ? SET_ASIDE_MAX_DAYS : Number.isInteger(mainDays) && mainDays >= 1 ? Math.min(mainDays, SET_ASIDE_MAX_DAYS) : null;
 
 /**
- * The retry in the head's Playwright config: exactly one `retries:` line, whose numbers are only 0 and 1 (at most one
- * retry). Returns null when it is so, else why not. Whether it runs only on main is the judge's `retryOnce` reading.
+ * The retry forms B8 allows, exactly: none, or one retry when the journeys workflow sets JOURNEY_RETRIES to '1'.
+ * Anything else (a number read from the environment, a second retry, a retry on every run) is refused.
+ */
+export const RETRY_FORMS = [/^\s*retries: 0,$/, /^\s*retries: process\.env\.JOURNEY_RETRIES === '1' \? 1 : 0,$/];
+/**
+ * The retry in the head's Playwright config: exactly one `retries:` line, in one of RETRY_FORMS. Returns null when it is
+ * so, else why not. Whether the workflow sets JOURNEY_RETRIES only on main is the judge's `retryOnce` reading.
  */
 export function retryProblem(text) {
   const lines = String(text ?? '')
     .split('\n')
     .filter((l) => /^\s*retries\s*:/.test(l));
   if (lines.length !== 1) return `the retry's file has ${lines.length} retries: lines, not one`;
-  const nums = lines[0].replace(/\/\/.*$/, '').match(/\b\d+(?:\.\d+)?\b/g) ?? [];
-  if (nums.some((n) => n !== '0' && n !== '1')) return `its retries: line allows more than one retry (${nums.join(', ')})`;
-  if (!/\?/.test(lines[0]) && !nums.includes('0')) return 'its retries: line retries every run';
+  if (!RETRY_FORMS.some((re) => re.test(lines[0].trimEnd())))
+    return "its retries: line is not one of B8's forms (none, or one when JOURNEY_RETRIES is '1')";
   return null;
 }
 /** The files whose change is the set-aside's retry (a change entry may answer `set-aside` only for these). */
@@ -193,8 +204,9 @@ export function setAsideRefusal(line, answer, rules) {
   if (!Number.isInteger(rules.days) || rules.days < 1)
     return `the head's ${SET_ASIDE_CODE} sets no end date (no single export const SET_ASIDE_DAYS = <n>;)`;
   const cap = setAsideCap(rules.mainDays);
+  if (cap === null) return `the default branch's ${SET_ASIDE_CODE} set-aside length can't be read (${rules.mainDays ?? 'not given'})`;
   if (rules.days > cap)
-    return `a set-aside of ${rules.days} days is longer than ${cap}${Number.isInteger(rules.mainDays) ? " (the default branch's length)" : ''}`;
+    return `a set-aside of ${rules.days} days is longer than ${cap}${rules.mainDays === 'none' ? '' : " (the default branch's length)"}`;
   if (rules.retry !== null) return `the retry is not B8's: ${rules.retry ?? 'unread'}`;
   if (answer?.used !== true) return 'the judge did not find the set-aside in the code';
   const failed = Object.keys(SET_ASIDE_CONDITIONS).filter((k) => answer?.[k]?.holds !== true);
@@ -559,7 +571,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     money: required.steps.filter((s) => isMoney(s)),
     own: judgedSteps,
     days: setAsideDays(setAsideText),
-    mainDays: setAsideDays(src.readGraph(SET_ASIDE_CODE)),
+    mainDays: mainSetAsideDays(src.readGraph(SET_ASIDE_CODE)),
     retry: retryProblem(await src.read(head, SET_ASIDE_FILES[0])),
     touches: files.some((f) => SET_ASIDE_FILES.includes(f.path) || SET_ASIDE_READERS.includes(f.path)),
   };
@@ -621,7 +633,7 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
       "\nSET-ASIDE FACTS (decided by the judge's code, from the default branch and the head; trusted)",
       `money steps among those listed (never set aside): ${setAside.money.join('; ') || '(none)'}`,
       `steps whose own test changed (never set aside): ${setAside.own.join('; ') || '(none)'}`,
-      `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays)}; the default branch's: ${setAside.mainDays ?? '(none)'})`,
+      `the head's ${SET_ASIDE_CODE} SET_ASIDE_DAYS: ${setAside.days ?? '(none)'} (at most ${setAsideCap(setAside.mainDays) ?? '(none: main is unreadable)'}; the default branch's: ${setAside.mainDays})`,
       `the retry's file: ${setAside.retry ?? 'one retries: line, at most one retry'}`,
       `a change may answer set-aside only for: ${SET_ASIDE_FILES.join(', ')}`,
     ].join('\n'),

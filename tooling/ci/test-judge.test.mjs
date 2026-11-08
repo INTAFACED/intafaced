@@ -24,6 +24,7 @@ import {
   setAsideDays,
   setAsideRefusal,
   retryProblem,
+  mainSetAsideDays,
   SET_ASIDE_CONDITIONS,
   SET_ASIDE_FILES,
 } from './test-judge.mjs';
@@ -238,7 +239,7 @@ test('fails closed (planted): an unanswered step or change, an error, or no stru
 const CONFIG = SET_ASIDE_FILES[0];
 const SA_REQ = { steps: ['J-x-01 #1', 'J-x-01 #2', 'J-m-01 #1'], changes: [CONFIG] };
 /** The facts buildInputs decides: J-m-01 #1 is money, J-x-01 #2's own test changed, the head sets aside for 7 days. */
-const RULES = { money: ['J-m-01 #1'], own: ['J-x-01 #2'], days: 7, mainDays: null, retry: null, touches: true };
+const RULES = { money: ['J-m-01 #1'], own: ['J-x-01 #2'], days: 7, mainDays: 'none', retry: null, touches: true };
 const held = (over = {}) => ({
   used: true,
   ...Object.fromEntries(Object.keys(SET_ASIDE_CONDITIONS).map((k) => [k, { holds: true, why: 'journey-verdict.mjs:1' }])),
@@ -307,16 +308,32 @@ test('B8 refuses (planted): a set-aside lengthened past the default branch, a re
   assert.equal(longer.verdict, 'FAIL');
   assert.match(longer.lines.find((l) => l.id === CONFIG).why, /longer than 3 \(the default branch's length\)/);
   assert.equal(verdictOf(b8(), { ...RULES, mainDays: 30, days: 8 }).verdict, 'FAIL', 'never past 7, whatever main says');
-  // The retry: exactly one retries: line, at most one retry, and not on every run.
+  // Main's length unreadable (named in a form setAsideDays doesn't read): every set-aside refused.
+  assert.equal(mainSetAsideDays('const SET_ASIDE_DAYS = 3;\n'), 'unreadable');
+  assert.equal(mainSetAsideDays('export const SET_ASIDE_DAYS = 3 * 1;\n'), 'unreadable');
+  assert.equal(mainSetAsideDays('export const SET_ASIDE_DAYS = 3;\n'), 3);
+  assert.equal(mainSetAsideDays('export const X = 1;\n'), 'none');
+  assert.equal(mainSetAsideDays(null), 'none');
+  const unreadable = verdictOf(b8(), { ...RULES, mainDays: 'unreadable', days: 3 });
+  assert.equal(unreadable.verdict, 'FAIL');
+  assert.match(unreadable.lines.find((l) => l.id === CONFIG).why, /set-aside length can't be read/);
+  assert.equal(verdictOf(b8(), { ...RULES, mainDays: undefined }).verdict, 'FAIL', 'not given: refused');
+  // The retry: exactly one retries: line, in one of B8's exact forms.
   assert.equal(retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,"), null);
   assert.equal(retryProblem('  retries: 0,'), null);
-  assert.match(retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,"), /more than one retry/);
-  assert.match(retryProblem('  retries: 1,'), /every run/);
+  for (const bad of [
+    "  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,",
+    '  retries: 1,',
+    '  retries: process.env.R ? Number(process.env.R) : 0,',
+    '  retries: Number(process.env.R ?? 0),',
+    "  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0, // plus",
+  ])
+    assert.match(retryProblem(bad), /not one of B8's forms/, bad);
   assert.match(retryProblem('  retries: 0,\n  retries: 3,'), /2 retries: lines/);
   assert.match(retryProblem(null), /0 retries: lines/);
   const twice = verdictOf(b8(), { ...RULES, retry: retryProblem("  retries: process.env.JOURNEY_RETRIES === '1' ? 2 : 0,") });
   assert.equal(twice.verdict, 'FAIL');
-  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: .*more than one retry/);
+  assert.match(twice.lines.find((l) => l.id === 'J-x-01 #1').why, /the retry is not B8's: .*not one of B8's forms/);
   assert.equal(verdictOf(b8(), { ...RULES, retry: undefined }).verdict, 'FAIL', 'an unread retry refuses');
   // A step reached only through another shared file can't be set aside on the judge's word alone.
   const untouched = verdictOf(b8({ change: 'still-proves' }), { ...RULES, touches: false });
@@ -419,7 +436,7 @@ test("B8: the input carries the code's set-aside facts and, when changed, the se
     money: ['J-x-01 #1'],
     own: ['J-x-01 #2'],
     days: 7,
-    mainDays: null,
+    mainDays: 'none',
     retry: "the retry's file has 0 retries: lines, not one",
     touches: true,
   });
