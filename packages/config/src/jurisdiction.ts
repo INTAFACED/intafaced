@@ -899,11 +899,25 @@ export interface ScreeningStatus {
    * that let a commercial block satisfy the boot guard, moved to the screen.
    */
   readonly businessBlockedRegions: readonly RegionCode[];
+  /**
+   * Where the list came from. IN-PROCESS ONLY: it holds the value of the
+   * `INTAFACED_SANCTIONS_LIST_SOURCE` secret, so it never goes in a log line,
+   * a probe or a response. Log `sourceSet` instead.
+   */
   readonly source: string;
+  /** Was an attributing source supplied in `INTAFACED_SANCTIONS_LIST_SOURCE`? Safe to log. */
+  readonly sourceSet: boolean;
   /** Counsel vs fixture vs unset — fixtures must not render as a clean tick. */
   readonly moneyGrade: ScreeningMoneyGrade;
   readonly readsAsScreenedClean: boolean;
-  /** One line an operator can read in a log or on a dashboard. */
+  /**
+   * One line an operator can read in a log or on a dashboard.
+   *
+   * VALUE-FREE ON PURPOSE. It names the state, the count and the variable
+   * names, never a screened region code or the source string: both are secret
+   * values, a log line reaches public CI job logs, and GitHub masks a secret
+   * only when it prints verbatim, so a re-joined region list prints unmasked.
+   */
   readonly summary: string;
 }
 
@@ -934,16 +948,22 @@ export function screeningStatus(
         `${BUSINESS_BLOCK_SOURCE} for commercial/licensing reasons — that is business configuration, not screening.)`;
 
   const moneyGrade = screeningMoneyGrade(screening);
+  // `listed` without a supplied source falls back to naming the variable; that
+  // is a name, not a value, and it means no attribution was supplied.
+  const sourceSet = screening.declaration !== 'unset' && screening.source !== `env:${SANCTIONS_REGIONS_ENV}`;
+  const sourceNote = sourceSet ? `source set in ${SANCTIONS_SOURCE_ENV}` : `no source set in ${SANCTIONS_SOURCE_ENV}`;
+  const valuesNote = 'Region codes and the source are not logged.';
   const summary =
     moneyGrade === 'fixture'
-      ? `sanctions screening: FIXTURE / TEST LIST — not counsel. Must not be read as screened clean. Source ${screening.source}.` +
+      ? `sanctions screening: FIXTURE / TEST LIST — not counsel. Must not be read as screened clean. ` +
+        `${blockedRegions.length} region(s) on the list from ${SANCTIONS_REGIONS_ENV}, ${sourceNote}. ${valuesNote}` +
         businessNote
       : screening.declaration === 'listed'
-        ? `sanctions screening: ${blockedRegions.length} region(s) blocked [${blockedRegions.join(', ')}] from ${screening.source}` +
+        ? `sanctions screening: ${blockedRegions.length} region(s) blocked from ${SANCTIONS_REGIONS_ENV}, ${sourceNote}. ${valuesNote}` +
           businessNote
         : screening.declaration === 'reviewed-empty'
           ? `sanctions screening: REVIEWED, DELIBERATELY EMPTY — 0 regions screened out, on the authority of ` +
-            `${screening.source}. This is a recorded decision, not an unset default.` +
+            `the record named in ${SANCTIONS_SOURCE_ENV}. This is a recorded decision, not an unset default. ${valuesNote}` +
             businessNote
           : `sanctions screening: NOT CONFIGURED — 0 regions blocked because no list was consulted. ` +
             `This is not "everywhere is clear"; nothing has been screened. Supply ${SANCTIONS_REGIONS_ENV}.` +
@@ -955,6 +975,7 @@ export function screeningStatus(
     blockedRegions,
     businessBlockedRegions,
     source: screening.source,
+    sourceSet,
     moneyGrade,
     readsAsScreenedClean: moneyGrade === 'counsel',
     summary,

@@ -182,7 +182,7 @@ if (!available) {
 
   beforeEach(async () => {
     await lockConn`select pg_advisory_lock(842671)`;
-    await sql`TRUNCATE agents.own_agent_tokens, agents.own_agents RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE agents.own_agent_background_runs, agents.own_agent_tokens, agents.own_agents RESTART IDENTITY CASCADE`;
   });
 
   afterEach(async () => {

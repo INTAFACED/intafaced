@@ -327,6 +327,11 @@ export type AcademyErrorCode =
   | 'academy.post_not_found'
   /** AC-rooms-01: the action belongs to someone else (only the asker marks the accepted answer). */
   | 'academy.permission_denied'
+  /** J-academy-14: a learner's access record has ended (or was revoked); staff reinstate it. */
+  | 'academy.grant_expired'
+  | 'academy.grant_not_found'
+  /** Reinstating an access record that has not ended. */
+  | 'academy.grant_active'
   /** AC-rooms-04: the owner has not set how long a message to the course team may be. */
   | 'academy.message_limit_unset'
   /** AC-rooms-04: a message longer than the owner's limit. */
@@ -543,6 +548,9 @@ export const ACADEMY_ERROR_CODES: readonly AcademyErrorCode[] = [
   'academy.attachment_type_refused',
   'academy.post_not_found',
   'academy.permission_denied',
+  'academy.grant_expired',
+  'academy.grant_not_found',
+  'academy.grant_active',
   'academy.message_limit_unset',
   'academy.message_too_long',
   'academy.conversation_not_found',
