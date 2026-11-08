@@ -102,7 +102,11 @@ export interface PlaceUserOrderIntent {
    * the owner value is blank (floor 8); `prepare` refuses
    * `builder_fee_not_approved` when the account approved less.
    */
-  readonly builderFee: { readonly builder: string; /** Scaled decimal bps, as `maxFeeBps`. */ readonly feeBps: Amount } | null;
+  readonly builderFee: {
+    readonly builder: string;
+    /** Basis points of notional as a scaled decimal (`parseAmount('0.5')` is half a bp), the same scale as `maxFeeBps`, so the two compare directly. */
+    readonly feeBps: Amount;
+  } | null;
 }
 
 /**
@@ -116,7 +120,18 @@ export interface PlaceUserOrderIntent {
 export interface UpdateLeverageIntent {
   readonly kind: 'update_leverage';
   readonly symbol: string;
-  /** Basis points of 1x: `100_000` is 10x. */
+  /**
+   * Basis points of 1x: `100_000` is 10x. A venue that takes only whole
+   * leverage (Hyperliquid) refuses a value that is not a multiple of `10_000`
+   * as `not_offered` at prepare.
+   */
+  readonly leverageBps: number;
+  readonly marginMode: VenueMarginMode;
+}
+
+/** An account's leverage setting on one perpetual market, as the venue records it. */
+export interface UserVenueLeverage {
+  readonly symbol: string;
   readonly leverageBps: number;
   readonly marginMode: VenueMarginMode;
 }
@@ -528,6 +543,13 @@ export interface UserVenue {
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
+  /**
+   * The account's leverage setting on `symbol`, or `null` when none is set
+   * (a venue with a default per market reports that default). What the Review
+   * screen's margin is computed from, and what an `update_leverage` answer
+   * that is not definite is read back by.
+   */
+  leverage(account: UserVenueAccount, symbol: string): Promise<AsOf<UserVenueLeverage | null>>;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
