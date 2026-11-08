@@ -1101,7 +1101,8 @@ export function recheckStep(runs, jobsByRun = new Map(), event = 'pull_request')
     const runId = String(run.id);
     if (!jobsByRun.has(runId)) return { act: 'jobs', runId, msg: `reading run ${runId}'s jobs` };
     const seal = (jobsByRun.get(runId) ?? []).filter((j) => j?.name === SEAL).sort((a, b) => b.id - a.id)[0];
-    // A skipped seal (merge-seal.yml on a title or body edit) holds no verdict: the run before it decides.
+    // A skipped seal holds no verdict, so the run before it decides (merge-seal.yml's job is never skipped; this guards an
+    // older run or a future skip).
     if (seal?.status === 'completed' && seal?.conclusion === 'skipped') continue;
     if (!seal || ['queued', 'waiting', 'pending', 'requested'].includes(seal.status)) {
       if (run.status === 'completed') continue;

@@ -10,9 +10,10 @@ name: CI merge seal
 # adds this file is sealed too (main had no merge-seal.yml to run for it), and so is the merge queue's commit, which
 # pull_request_target never reaches: its required check is ci.yml's, on a commit holding only pull requests this passed.
 #
-# One seal run per head: an older red run would block until re-run, so nothing starts a second one. journey-seal-recheck.yml
-# re-runs this job in place when CI or a Real-app journeys run on the head finishes, or the title or body is edited; the
-# CI review job re-runs it when its verdict lands (seal-rerun.mjs); the factory switch re-runs it on a flip.
+# A head can hold several runs of this seal (a push, a reopen, each edit), and an older red run blocks until re-run, so
+# every red one is re-run in place: journey-seal-recheck.yml when CI or a Real-app journeys run on the head finishes, or
+# the title or body is edited (otherSeals); the CI review job when its verdict lands (seal-rerun.mjs sealsByRun); the
+# factory switch on a flip.
 on:
   pull_request_target:
     branches: [main]
