@@ -1664,7 +1664,8 @@ test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-
 test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (edited, base change only)', () => {
   const text = readFileSync(new URL('../../.github/workflows/merge-seal.yml', import.meta.url), 'utf8');
   assert.match(text, /types: \[opened, synchronize, reopened, edited\]/);
-  assert.match(text, /\n {4}if: github\.event\.action != 'edited' \|\| github\.event\.changes\.base\n/);
+  // Review 7552-R6: never a skipped seal job (GitHub counts it as passing); every edit runs the whole seal.
+  assert.doesNotMatch(text.split('\njobs:')[1], /\n {4}if:/, 'the seal job has no if: that could skip it');
   assert.match(text, /branches: \[main\]/);
   // Planted: without `edited`, a retarget to main starts no seal run here.
   assert.doesNotMatch(text.replace('reopened, edited', 'reopened'), /reopened, edited/);

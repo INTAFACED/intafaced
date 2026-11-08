@@ -16,8 +16,9 @@ name: CI merge seal
 on:
   pull_request_target:
     branches: [main]
-    # `edited` for a base change only (the job's `if:`): a pull request retargeted to main gets this seal too, so its own
-    # ci.yml seal never decides alone (review 7552-R1). A skipped run on a title or body edit is skipped, not red.
+    # `edited`: a pull request retargeted to main gets this seal too, so its own ci.yml seal never decides alone (review
+    # 7552-R1). Every edit runs the whole seal, never a skipped job: GitHub counts a skipped job as passing a required
+    # check, so a skipped seal could stand in for one that never judged the head (review 7552-R6). Fails closed.
     types: [opened, synchronize, reopened, edited]
 
 permissions: {}
@@ -32,7 +33,6 @@ concurrency:
 jobs:
   seal:
     name: CI merge seal
-    if: github.event.action != 'edited' || github.event.changes.base
     runs-on: ubuntu-latest
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
