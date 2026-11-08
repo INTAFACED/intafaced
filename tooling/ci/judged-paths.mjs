@@ -41,3 +41,14 @@ export const judgedFile = (f) => !(UNIT_TEST.test(f) && SKIPPED_UNIT_TEST.test(f
  * harness, a config or a unit-test-shaped file is judged only when a journey reaches it, so the guard keeps those.
  */
 export const leftToJudge = (change, { judgeRuns }) => Boolean(judgeRuns) && change?.status !== 'D' && JOURNEY_FILE.test(change?.path ?? '');
+
+/**
+ * Whether ci-review.yml's `judge` job runs for a pull request, as its `if:` says: the head is this repository's own and
+ * the base is main (`JUDGE_JOB_CONDITIONS`). test-diff-guard.mjs reads it from CI's env; judged-paths.test.mjs holds the
+ * workflow's condition to exactly these two, so the guard can't leave a file to a judge that doesn't run.
+ */
+export const JUDGE_JOB_CONDITIONS = [
+  'github.event.pull_request.head.repo.full_name == github.repository',
+  "github.event.pull_request.base.ref == 'main'",
+];
+export const judgeRunsFor = ({ baseRef, headRepo, repo }) => baseRef === 'main' && Boolean(headRepo) && headRepo === repo;

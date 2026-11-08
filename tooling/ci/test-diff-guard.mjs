@@ -38,7 +38,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { leftToJudge } from './judged-paths.mjs';
+import { judgeRunsFor, leftToJudge } from './judged-paths.mjs';
 import { BASELINE, roomOf } from './look-baselines.mjs';
 
 const TEST_FILE = /(?:\.(?:test|spec)\.(?:[cm]?[jt]sx?)$|\.pw\.mjs$|\/__tests__\/)/;
@@ -373,10 +373,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       `  assertions ${d.path}: ${d.removed} removed, ${d.added} added (net ${d.added - d.removed >= 0 ? '+' : ''}${d.added - d.removed})`,
     );
   // ci-review.yml's judge job runs for a same-repository pull request into main (its `judge` job condition).
-  const judgeRuns =
-    process.env.GITHUB_BASE_REF === 'main' &&
-    Boolean(process.env.PR_HEAD_REPO) &&
-    process.env.PR_HEAD_REPO === process.env.GITHUB_REPOSITORY;
+  const judgeRuns = judgeRunsFor({
+    baseRef: process.env.GITHUB_BASE_REF,
+    headRepo: process.env.PR_HEAD_REPO,
+    repo: process.env.GITHUB_REPOSITORY,
+  });
   if (judgeRuns) console.log("journey step files (J-*.pw.mjs) changed here are the test judge's (its verdict is required by the seal)");
   const problems = judge(changes, { judgeRuns });
   const baselines = judgeBaselines(changes, body);
