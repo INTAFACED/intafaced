@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ROOT, journeyState, tool } from './stack.mjs';
+import { nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, payApiOf, signInWithCode, verifiedBusiness } from './merchant.mjs';
 
 // J-merchant-10, in the running app (docs/roadmap/journeys.json): hold several currencies, move between them, and get
@@ -65,6 +66,10 @@ test(`${J} #1 opens Currencies: a row per asset with available and held and an a
 
   // Currencies: one row per asset the business settles in, from the partner, with available and held in exact decimals
   // and the time the partner's figures are as of. A new business holds nothing yet, so each figure is the partner's zero.
+  // An asset the business does not settle in is refused by svc-pay, by name (the read does not exist yet, so this fails
+  // fast with the procedure not found).
+  await expect(api.query('merchantMetrics.currencies', { merchantId, assetCode: 'XTEST' })).rejects.toThrow(/pay\.asset_not_enabled/);
+  const listed = await api.query('merchantMetrics.currencies', { merchantId });
   await page.goto('/pay/currencies');
   await expect(page.getByRole('heading', { name: 'Currencies', level: 1 })).toBeVisible(UNBUILT);
   const rows = page.getByRole('region', { name: 'Currencies' }).getByRole('rowgroup').last().getByRole('row');
@@ -79,8 +84,10 @@ test(`${J} #1 opens Currencies: a row per asset with available and held and an a
   // The stablecoin filter keeps only the stablecoins.
   await page.getByRole('button', { name: 'Stablecoins' }).click(UNBUILT);
   await expect(page).toHaveURL(/[?&]kind=stablecoin\b/, UNBUILT);
-  // An asset the business does not settle in is refused by svc-pay, by name, and the room says so in words.
-  await expect(api.query('merchantMetrics.currencies', { merchantId, assetCode: 'XTEST' })).rejects.toThrow(/pay\.asset_not_enabled/);
+  const stablecoins = listed.rows.filter((r) => r.stablecoin).map((r) => r.assetCode);
+  expect(stablecoins.length, 'the business settles in a stablecoin and in something else').toBeGreaterThan(0);
+  expect(stablecoins.length).toBeLessThan(listed.rows.length);
+  await expect(rows.locator('td:first-child, th:first-child')).toHaveText(stablecoins, UNBUILT);
   await page.goto('/pay/currencies/XTEST');
   await expect(page.getByTestId('failure')).toContainText('not enabled', UNBUILT);
 });
@@ -113,12 +120,20 @@ test(`${J} #4 sends an instant payout: the partner's fee and net before confirmi
   await page.reload();
   await expect(line).toHaveText('Instant payout: partner’s fee 1.50 USDT');
 
-  // Sending one: the review before confirming shows the partner's fee and the net, step-up is asked for, and at or above
-  // the tier's approval threshold nothing is sent until a second person approves.
+  // Sending one, in the payout's own steps (J-merchant-07 #6 and #7): choose the instant rail, then "Confirm it's you"
+  // (step-up) with a fresh code, then the review shows the partner's fee and the net before confirming. Above the
+  // business's approval limit a second person must approve before anything is sent.
   await page.getByRole('radio', { name: /Instant payout/ }).check(UNBUILT);
-  const review = page.getByRole('dialog', { name: /Review/ });
-  await expect(review).toContainText('Partner’s fee', UNBUILT);
-  await expect(review).toContainText('Net', UNBUILT);
-  await expect(review.getByRole('textbox', { name: /code/i })).toBeVisible(UNBUILT);
+  await page.getByRole('button', { name: 'Pay out', exact: true }).click(UNBUILT);
+  const confirm = page.getByRole('dialog', { name: "Confirm it's you" });
+  const code = await nextCode(who.totp, who.secret, who.step);
+  kept(code.step);
+  await confirm.getByLabel('6-digit code from your authenticator app').fill(code.code, UNBUILT);
+  await confirm.getByRole('button', { name: 'Confirm', exact: true }).click(UNBUILT);
+  const review = page.getByRole('dialog', { name: 'Review: Pay out' });
+  await expect(review).toContainText('Partner’s fee 1.50 USDT', UNBUILT);
+  await expect(review).toContainText(/Net\s*\d/, UNBUILT);
+  await expect(review).toContainText('Above your approval limit, a second person on your team must approve before it is sent.', UNBUILT);
+  await review.getByRole('button', { name: 'Pay out', exact: true }).click(UNBUILT);
   await expect(page.getByText('Waiting for a second approver')).toBeVisible(UNBUILT);
 });

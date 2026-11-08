@@ -18,6 +18,7 @@ import { PartnerShortfallLine } from '../money/PartnerTerms';
 import { useRequestId } from './invoice-model';
 import { refusalText } from '../refusal';
 import type { DisputeFunds } from './dispute-funds-api';
+import { parseAmount } from '../../../../shared/money';
 import type { PortalApi } from '../api';
 import type { z } from 'zod';
 import { disputeStatuses, evidenceKinds, type Dispute, type DisputeDetail, type EvidenceKind } from '../schemas';
@@ -243,6 +244,16 @@ function DisputeFundsSection({ portal, disputeId, status }: { portal: PortalApi;
   return <DisputeFundsView funds={funds.resource} retry={funds.reload} test={useTestMode()} />;
 }
 
+const FUNDS_OUTCOME = {
+  open: 'fundsOutcome_pending',
+  contested: 'fundsOutcome_pending',
+  accepted: 'fundsOutcome_accepted',
+  won: 'fundsOutcome_won',
+  lost: 'fundsOutcome_lost',
+} as const satisfies Record<DisputeFunds['status'], string>;
+
+const isZeroAmount = (v: string) => parseAmount(v) === 0n;
+
 export function DisputeFundsView({ funds, retry, test }: { funds: Resource<DisputeFunds>; retry: () => void; test: boolean }) {
   const { t } = portalCopy.useCopy();
   return (
@@ -256,12 +267,19 @@ export function DisputeFundsView({ funds, retry, test }: { funds: Resource<Dispu
                 [t('fundsTaken'), <MoneyText value={f.takenAtOpening} asset={f.assetId} test={test} />],
                 [t('fundsReturned'), <MoneyText value={f.returned} asset={f.assetId} test={test} />],
                 [t('fundsNotYetTaken'), <MoneyText value={f.notYetTaken} asset={f.assetId} test={test} />],
+                // Only the cover's own `who: 'house'` path books one; shown so the figures always add up.
+                ...(f.shortfall !== null && !isZeroAmount(f.shortfall)
+                  ? [[t('fundsCovered'), <MoneyText value={f.shortfall} asset={f.assetId} test={test} />] as const]
+                  : []),
+                ...(!isZeroAmount(f.shortfallRecovered)
+                  ? [[t('fundsRecovered'), <MoneyText value={f.shortfallRecovered} asset={f.assetId} test={test} />] as const]
+                  : []),
                 [t('colStatus'), <Chip kind="dispute" value={f.status} />],
               ]}
             />
             {!f.openingBooked && <p className="muted">{t('fundsOpeningNotBooked')}</p>}
-            {f.openingBooked && !/^0(\.0+)?$/.test(f.notYetTaken) && <p className="muted">{t('fundsNotYetTakenNote')}</p>}
-            <p data-testid="dispute-funds-outcome">{t(`fundsOutcome_${f.status}` as 'fundsOutcome_open')}</p>
+            {f.openingBooked && f.status !== 'won' && !isZeroAmount(f.notYetTaken) && <p className="muted">{t('fundsNotYetTakenNote')}</p>}
+            <p data-testid="dispute-funds-outcome">{t(FUNDS_OUTCOME[f.status])}</p>
           </>
         )}
       </Gate>

@@ -3899,9 +3899,11 @@ async function cmdCardTerms(rawArgs) {
 async function cmdCardDispute(rawArgs) {
   const args = [...rawArgs];
   const at = args.indexOf('--amount');
+  if (at !== -1 && args[at + 1] === undefined) fail('--amount takes a decimal string', 2);
   const amount = at === -1 ? undefined : args[at + 1];
   if (at !== -1) args.splice(at, 2);
   const re = args.indexOf('--resend');
+  if (re !== -1 && args[re + 1] === undefined) fail('--resend takes a delivery number from 1', 2);
   const resend = re === -1 ? undefined : args[re + 1];
   if (re !== -1) args.splice(re, 2);
   const usage =

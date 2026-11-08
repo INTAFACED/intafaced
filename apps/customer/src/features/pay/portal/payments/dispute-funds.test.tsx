@@ -42,8 +42,9 @@ describe("a dispute's money on its case page (M-disp-01; J-merchant-18 #5)", () 
     expect(out).toContain('Taken at opening 40.00 USDT');
     expect(out).toContain('Returned 0.00 USDT');
     expect(out).toContain('Not yet taken 20.00 USDT');
-    expect(out).toContain('so the rest was not taken');
-    expect(out).toContain('Nothing more is taken for this dispute.');
+    expect(out).toContain('The rest of the disputed amount was not taken from your balance.');
+    expect(out).toContain('the loss is not taken twice');
+    expect(out).not.toContain('Covered by INTAFACED');
   });
 
   it('a won dispute returns what the opening took, and says nothing was left untaken', () => {
@@ -56,8 +57,17 @@ describe("a dispute's money on its case page (M-disp-01; J-merchant-18 #5)", () 
     );
     expect(out).toContain('Taken at opening 25.00 USDT');
     expect(out).toContain('Returned 25.00 USDT');
-    expect(out).not.toContain('so the rest was not taken');
+    expect(out).not.toContain('was not taken from your balance');
     expect(out).toContain('You won: what was taken at opening came back.');
+  });
+
+  it("a part the house covered under the partner's terms, and its recovery, are shown so the figures add up", () => {
+    const out = text(
+      <DisputeFundsView funds={funds({ notYetTaken: '0', shortfall: '20', shortfallRecovered: '5' })} retry={() => {}} test={false} />,
+    );
+    expect(out).toContain("Covered by INTAFACED, under the partner's terms 20.00 USDT");
+    expect(out).toContain('Covered part taken back after a win 5.00 USDT');
+    expect(out).not.toContain('was not taken from your balance');
   });
 
   it('an opening not booked yet says so; a read that fails is a refusal in words with no figure', () => {

@@ -83,6 +83,8 @@ test(`${J} #5 the case is won or lost: returned equals taken on a win, a loss is
   dispute(a.id, 'lost', lostId, '60.00', '--resend', '1');
   expect(await funds(lostId)).toEqual(lost);
   expect((await usdt()).total, 'a loss sent again takes nothing more').toBe(2500n);
+  // A wrong second take could land after that read. B's opening below takes B's whole 25.00 only if nothing was taken
+  // from it, and its own funds read and the poll to zero would both show any part a second loss took.
 
   // Dispute B: the partner disputes B's whole TEST 25.00, then the business wins. What comes back equals what the
   // opening took, as the partner reported both.
@@ -101,6 +103,13 @@ test(`${J} #5 the case is won or lost: returned equals taken on a win, a loss is
   dispute(b.id, 'won', wonId, '25.00', '--resend', '1');
   expect(await funds(wonId)).toEqual(won);
   expect((await usdt()).total, 'a win sent again gives nothing more').toBe(2500n);
+  // A wrong second return could land after that read: payment C's 10.00 then settles the balance at exactly 35.00, and
+  // a second 25.00 given back would leave it at 60.00 instead.
+  const c = await paidCardPayment(api, merchantId, { key: `${J}:payment:c:${merchantId}`, amount: '10.00' });
+  expect(c.status).toBe('captured');
+  await balanceIs(3500n, 'payment C brings in 10.00, and nothing was given back twice');
+  expect(await funds(lostId)).toEqual(lost);
+  expect(await funds(wonId)).toEqual(won);
 
   // Who covers the 20.00 shortfall: the TEST partner has not said, so the service answers "not known".
   expect((await api.query('merchantMetrics.partnerTerms', { merchantId })).shortfallCover).toEqual({ known: false });
@@ -121,9 +130,9 @@ test(`${J} #5 the case is won or lost: returned equals taken on a win, a loss is
   await page.goto(`/pay/disputes/${encodeURIComponent(lostId)}`);
   const lostMoney = section(page, 'Where the money is');
   await expect(lostMoney.getByRole('definition')).toHaveText(['60.00 USDT', '40.00 USDT', '0.00 USDT', '20.00 USDT', /lost/i]);
-  await expect(lostMoney).toContainText('Your balance held less than the dispute, so the rest was not taken.');
+  await expect(lostMoney).toContainText('The rest of the disputed amount was not taken from your balance.');
   await expect(lostMoney.getByTestId('dispute-funds-outcome')).toHaveText(
-    'You lost: what was taken at opening stays taken. Nothing more is taken for this dispute.',
+    'You lost: what was taken at opening stays taken, and the loss is not taken twice.',
   );
   const cover = section(page, 'If the dispute is lost');
   await expect(cover.getByTestId('partner-term')).toHaveText('Who covers a shortfall: not known');
