@@ -153,11 +153,8 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
     await go.click();
     // The re-check takes a moment; the notice from an earlier attempt may still be up while it runs.
     await page.waitForTimeout(1_000);
-    await expect
-      .poll(async () => answer !== null || ((await moved.isVisible()) && ((await go.isEnabled()) || (await tierCleared()))), {
-        timeout: 20_000,
-      })
-      .toBe(true);
+    const reCheckDone = async () => answer !== null || ((await moved.isVisible()) && ((await go.isEnabled()) || (await tierCleared())));
+    await expect.poll(reCheckDone, { timeout: 20_000 }).toBe(true);
   }
   expect(answer, 'the ticket sent the order').not.toBeNull();
   expect(answer.status(), await answer.text()).toBe(200);
