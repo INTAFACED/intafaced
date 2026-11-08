@@ -572,6 +572,31 @@ const BY_CODE: Readonly<Record<string, Entry>> = {
     body: 'The request you reviewed is not the one the approval was created for. Nothing was approved or used.',
     next: 'Ask the first founder to send a fresh request packet and review it again.',
   },
+  'action_approval.policy_unset': {
+    title: 'No approval policy is set for this action',
+    body: 'Its approval row is blank or unreadable, so identity refuses to ask, approve or apply it. Nothing was changed.',
+    next: 'Two founders set a whole row for it on Approval policy first.',
+  },
+  'action_approval.policy_changed': {
+    title: 'The approval policy changed after this was asked',
+    body: 'The request was made under a row that has since changed, so it is never judged by the new one. Nothing was applied.',
+    next: 'Start a new request under the current row.',
+  },
+  'identity.staff_invite_ttl_unset': {
+    title: 'Invites are not set up yet',
+    body: 'How long an invite link lasts is an owner setting, and it is blank, so identity refuses every invite. Nothing was changed.',
+    next: 'Set the invite lifetime in the deployment, then invite again.',
+  },
+  'identity.staff_already_invited': {
+    title: 'That person is already invited',
+    body: 'A staff record for this email already exists. Nothing was changed.',
+    next: 'Find them in the staff list.',
+  },
+  'identity.staff_invite_invalid': {
+    title: 'This invite link does not work',
+    body: 'It is unknown, already used or past its end. Nothing was changed.',
+    next: 'Ask a founder for a new invite.',
+  },
   'action_approval.not_pending': {
     title: 'This request is no longer waiting for a decision',
     body: 'It was already approved, rejected, withdrawn, used or has expired.',

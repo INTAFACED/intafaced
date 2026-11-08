@@ -91,7 +91,9 @@ export type MailPurpose =
   | 'support-recovery'
   | 'support-recovery-used'
   | 'appeal-decided'
-  | 'receive-contact-code';
+  | 'receive-contact-code'
+  /** A staff invite's first-connection link to the console (J-ops-console-09 #2). `code` is the one-time token. */
+  | 'staff-invite';
 
 export interface PasswordResetDeps {
   readonly sql: Sql;

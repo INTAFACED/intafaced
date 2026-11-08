@@ -514,6 +514,15 @@ const schema = serviceEnvSchema
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
       /**
+       * Owner-published life of a staff invite's first-connection link, in seconds (J-ops-console-09 #2). NO DEFAULT:
+       * blank / unset → inviting refuses `identity.staff_invite_ttl_unset`.
+       */
+      IDENTITY_STAFF_INVITE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(60).max(2_592_000).optional()),
+      /**
        * Owner setting (OPS-change-control-01 CR-1): the approval policy of each governed action type
        * (`POLICY_GOVERNED_ACTION_TYPES` in contracts), a JSON object keyed by action type:
        * `{"<type>": {"requiredApprovals", "approverAudience", "applier", "maxAgeSeconds"}}`. `requiredApprovals` counts
