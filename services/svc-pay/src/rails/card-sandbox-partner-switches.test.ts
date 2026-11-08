@@ -1,11 +1,12 @@
 import { parseAmount } from '@intafaced/ledger-client';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CardSandboxAdapter } from './card-sandbox.js';
 import { PARTNER_TERMS_NOT_KNOWN } from './rail-adapter.js';
 import { assertRailPosture, testAcquirerSwitchesAllowed, SandboxRailError } from './posture.js';
 import { RailRegistry } from './registry.js';
 import { readPartnerTerms } from '../partner-terms.js';
 import { MetricsError } from '../metrics/errors.js';
+import { shortfallCoverOf } from '../payment-service/chargebacks.js';
 
 /**
  * The TEST acquirer's switches (CUSTODY-DELTA §4 row "TEST acquirer"; §1.3 "Unknown, never zero"; OWNER 226): per
@@ -156,6 +157,23 @@ describe('production refuses the TEST acquirer and its switches (planted)', () =
     expect(() => readPartnerTerms([a], MERCHANT, prod)).toThrow('pay.partner_terms_unavailable');
     expect(testAcquirerSwitchesAllowed({ APP_ENV: 'test' })).toBe(true);
     expect(testAcquirerSwitchesAllowed({ APP_ENV: 'dev' })).toBe(true);
+  });
+
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("prod's chargeback path takes no cover from the TEST partner's terms, not even 'house' (planted)", () => {
+    const a = rail();
+    a.setPartnerTerms(MERCHANT, { shortfallCover: { known: true, who: 'house' } });
+    const svc = { rails: new RailRegistry([a]) };
+    vi.stubEnv('APP_ENV', 'test');
+    // On the TEST stack the terms are an answer: 'house' keeps the house fund's cover (null).
+    expect(shortfallCoverOf(svc, a.id, MERCHANT)).toBeNull();
+    vi.stubEnv('APP_ENV', 'prod');
+    vi.stubEnv('PAY_ALLOW_SANDBOX_RAILS', 'true');
+    vi.stubEnv('PAY_REGISTER_CARD_SANDBOX', 'true');
+    expect(shortfallCoverOf(svc, a.id, MERCHANT)).toBe('not_known');
+    vi.stubEnv('APP_ENV', 'staging');
+    expect(shortfallCoverOf(svc, a.id, MERCHANT)).toBe('not_known');
   });
 
   it('no acquiring partner registered: the read refuses, never "not known"', () => {
