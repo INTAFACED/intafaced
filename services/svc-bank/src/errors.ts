@@ -309,6 +309,15 @@ export type BankErrorCode =
   | 'bank.rank_unavailable'
   /** The owner has not published the card programme (countries, card limits, terms), so no card can be ordered. */
   | 'bank.card_eligibility_unset'
+  | 'bank.card_spend_assets_unset'
+  /** A pay-from order names an asset the card partner cannot spend from (J-bank-29 #2). */
+  | 'bank.card_pay_from_not_offered'
+  /** A pay-from order is empty or names an asset twice. */
+  | 'bank.card_pay_from_order_invalid'
+  /** The card partner does not offer this programme funding kind, or has not said (J-bank-26 #6). */
+  | 'bank.card_funding_not_offered'
+  /** A programme funding request needs a positive amount, and auto reload a positive threshold. */
+  | 'bank.card_funding_invalid'
   /** Cards are not offered to residents of the country given. */
   | 'bank.card_not_eligible'
   /** The person already holds as many active cards of this kind as the programme allows. */
