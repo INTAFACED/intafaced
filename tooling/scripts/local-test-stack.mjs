@@ -3891,25 +3891,30 @@ async function cmdCardTerms(rawArgs) {
 }
 
 /**
- * `card-dispute <paymentId> opened|won|lost <disputeId> [--amount <decimal>]`: the TEST card acquirer reports a dispute
- * on one card payment it captured, signed, to svc-pay's own `/webhooks/card-sandbox`. The event id comes from the dispute
- * and the outcome, so sending it again is the same delivery. svc-pay books what the dispute does on its own path.
+ * `card-dispute <paymentId> opened|won|lost <disputeId> [--amount <decimal>] [--resend <n>]`: the TEST card acquirer reports
+ * a dispute on one card payment it captured, signed, to svc-pay's own `/webhooks/card-sandbox`. The event id comes from
+ * the dispute and the outcome, so sending it again is the same delivery. `--resend <n>` is the partner sending the same
+ * outcome again under a new delivery id (`…:resend-<n>`), which svc-pay must not book twice.
  */
 async function cmdCardDispute(rawArgs) {
   const args = [...rawArgs];
   const at = args.indexOf('--amount');
   const amount = at === -1 ? undefined : args[at + 1];
   if (at !== -1) args.splice(at, 2);
+  const re = args.indexOf('--resend');
+  const resend = re === -1 ? undefined : args[re + 1];
+  if (re !== -1) args.splice(re, 2);
   const usage =
-    'usage: node tooling/scripts/local-test-stack.mjs card-dispute <paymentId> opened|won|lost <disputeId> [--amount <decimal>]';
+    'usage: node tooling/scripts/local-test-stack.mjs card-dispute <paymentId> opened|won|lost <disputeId> [--amount <decimal>] [--resend <n>]';
   const [paymentId, outcome, disputeId, ...extra] = args;
   if (!paymentId || !outcome || !disputeId || extra.length > 0) fail(usage, 2);
   if (!/^[0-9a-f-]{36}$/i.test(paymentId)) fail(`bad payment id: ${paymentId}`, 2);
   if (!['opened', 'won', 'lost'].includes(outcome)) fail(usage, 2);
   if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(disputeId)) fail(`bad dispute id: ${disputeId}`, 2);
   if (amount !== undefined && !/^\d+(\.\d+)?$/.test(amount)) fail('--amount takes a decimal string', 2);
+  if (resend !== undefined && !/^[1-9]\d{0,3}$/.test(resend)) fail('--resend takes a delivery number from 1', 2);
   const payload = {
-    id: `dispute:${disputeId}:${outcome}`,
+    id: `dispute:${disputeId}:${outcome}${resend ? `:resend-${resend}` : ''}`,
     type: `dispute.${outcome}`,
     ref: `ch_${paymentId}`,
     disputeId,

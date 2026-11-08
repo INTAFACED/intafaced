@@ -12,9 +12,12 @@ import { shortId } from '../model';
 import { useOptionalMerchantAccess } from '../access/MerchantAccess';
 import { WithAccount } from '../access/WithAccount';
 import { mc } from '../money/copy';
+import { useTestMode } from '../money/common';
+import { MoneyText } from '../ui/MoneyText';
 import { PartnerShortfallLine } from '../money/PartnerTerms';
 import { useRequestId } from './invoice-model';
 import { refusalText } from '../refusal';
+import type { DisputeFunds } from './dispute-funds-api';
 import type { PortalApi } from '../api';
 import type { z } from 'zod';
 import { disputeStatuses, evidenceKinds, type Dispute, type DisputeDetail, type EvidenceKind } from '../schemas';
@@ -218,11 +221,51 @@ export function DisputeDetailPage({ portal, disputeId }: { portal: PortalApi; di
   return (
     <>
       <DisputeDetailView portal={portal} dispute={dispute.resource} reload={dispute.reload} />
+      {/* The money only for a case that has loaded: a missing one has none. Read again when the case is. */}
+      {dispute.resource.status === 'ready' && (
+        <DisputeFundsSection portal={portal} disputeId={dispute.resource.data.disputeId} status={dispute.resource.data.status} />
+      )}
       {/* Only for a case that has loaded and is not won: a won case takes nothing, and a missing one has no cover. */}
       {dispute.resource.status === 'ready' && dispute.resource.data.status !== 'won' && (
         <WithAccount>{({ merchantId }) => <DisputeShortfallCover portal={portal} merchantId={merchantId} />}</WithAccount>
       )}
     </>
+  );
+}
+
+/**
+ * M-disp-01 (J-merchant-18 #2, #5): where the dispute's money is, as the acquiring partner reported each step and svc-pay
+ * booked it under the dispute's keys (`merchantOps.disputes.funds`): taken at opening, returned, and what was not taken
+ * because the business held less. A read that fails is a refusal in words, never a zero.
+ */
+function DisputeFundsSection({ portal, disputeId, status }: { portal: PortalApi; disputeId: string; status: string }) {
+  const funds = useResource((s) => portal.disputeFunds(disputeId, s), `portal:dispute-funds:${disputeId}:${status}`);
+  return <DisputeFundsView funds={funds.resource} retry={funds.reload} test={useTestMode()} />;
+}
+
+export function DisputeFundsView({ funds, retry, test }: { funds: Resource<DisputeFunds>; retry: () => void; test: boolean }) {
+  const { t } = portalCopy.useCopy();
+  return (
+    <PaySection title={t('fundsTitle')} description={t('fundsBody')}>
+      <Gate resource={funds} retry={retry} rows={4}>
+        {(f) => (
+          <>
+            <Facts
+              items={[
+                [t('fundsDisputed'), <MoneyText value={f.disputed} asset={f.assetId} test={test} />],
+                [t('fundsTaken'), <MoneyText value={f.takenAtOpening} asset={f.assetId} test={test} />],
+                [t('fundsReturned'), <MoneyText value={f.returned} asset={f.assetId} test={test} />],
+                [t('fundsNotYetTaken'), <MoneyText value={f.notYetTaken} asset={f.assetId} test={test} />],
+                [t('colStatus'), <Chip kind="dispute" value={f.status} />],
+              ]}
+            />
+            {!f.openingBooked && <p className="muted">{t('fundsOpeningNotBooked')}</p>}
+            {f.openingBooked && !/^0(\.0+)?$/.test(f.notYetTaken) && <p className="muted">{t('fundsNotYetTakenNote')}</p>}
+            <p data-testid="dispute-funds-outcome">{t(`fundsOutcome_${f.status}` as 'fundsOutcome_open')}</p>
+          </>
+        )}
+      </Gate>
+    </PaySection>
   );
 }
 

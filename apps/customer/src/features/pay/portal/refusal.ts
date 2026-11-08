@@ -29,6 +29,7 @@ const byCode: Record<string, PlainKey> = {
   'pay.team_email_invite_unconfigured': 'rEmailInviteUnconfigured',
   'pay.team_email_invite_rate_limited': 'rEmailInviteRateLimited',
   'pay.dispute_not_found': 'rDisputeNotFound',
+  'pay.dispute_funds_unavailable': 'rDisputeFundsUnavailable',
   'pay.dispute_closed': 'rDisputeClosed',
   'pay.dispute_invalid_transition': 'rDisputeTransition',
   'pay.dispute_evidence_required': 'rEvidenceRequired',
