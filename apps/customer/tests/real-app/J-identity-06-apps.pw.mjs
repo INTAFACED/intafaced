@@ -56,6 +56,7 @@ test(`J-identity-06 #6 Connected apps and API access lists both keys with prefix
       const row = table.getByRole('row', { name: new RegExp(name) });
       await expect(row).toHaveCount(1);
       const cells = row.getByRole('cell');
+      expect(record.prefix.length, `${name} shows its prefix`).toBeGreaterThan(0);
       await expect(cells.nth(0)).toHaveText(record.prefix);
       expect(key.startsWith(record.prefix), `${name}'s prefix is the start of its key`).toBe(true);
       expect(record.prefix.length, `${name} shows only a prefix, not the key`).toBeLessThan(key.length);
