@@ -408,6 +408,6 @@ export async function authorizeVenueAction(
   await assertVenueConnectionLive(deps, input, now);
   throw new VenueConnectionRefusedError(
     VENUE_UNWIRED,
-    `No venue is connected to this service yet, so the ${input.action} was not started and nothing was asked of your wallet.`,
+    `This build has no venue to take a ${input.action}, so it was not started and nothing was asked of your wallet.`,
   );
 }

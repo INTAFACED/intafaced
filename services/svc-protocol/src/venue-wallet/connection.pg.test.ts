@@ -53,9 +53,9 @@ describe('venue wallet connection store (Postgres)', () => {
       expiresAt: plus(150),
     });
     expect(renewed).toMatchObject({ address: WALLET, connectedAt: plus(90), expiresAt: plus(150), revokedAt: null });
-    const [{ count }] = await sql<{ count: number }[]>`
+    const rows = await sql<{ count: number }[]>`
       SELECT count(*)::int AS count FROM protocol.venue_wallet_connections WHERE user_id = ${PERSON}`;
-    expect(count).toBe(1);
+    expect(rows).toEqual([{ count: 1 }]);
     const spent = await sql<{ idempotency_key: string }[]>`
       SELECT idempotency_key FROM protocol.venue_wallet_nonces WHERE user_id = ${PERSON} ORDER BY idempotency_key`;
     expect(spent.map((r) => r.idempotency_key)).toEqual([

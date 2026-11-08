@@ -15,7 +15,7 @@ describe('venue room refusals', () => {
       body: 'This wallet is on the sanctions list, so it cannot be connected or used. Nothing was connected.',
       reference: 'protocol.wallet_sanctioned',
     });
-    expect(venueRefusal(failed('protocol.wallet_sanctions_unset'), t).title).toBe('Wallets can’t be screened yet');
+    expect(venueRefusal(failed('protocol.wallet_sanctions_unset'), t).title).toBe('No wallet can be screened');
   });
 
   it('a blocked region names its reason, the owner’s words on the per-country switch', () => {
@@ -30,7 +30,7 @@ describe('venue room refusals', () => {
       title: 'Your wallet must sign again',
       reference: 'protocol.venue_connection_expired',
     });
-    expect(venueRefusal(failed('protocol.venue_unwired'), t).title).toBe('No venue is connected yet');
+    expect(venueRefusal(failed('protocol.venue_unwired'), t).title).toBe('There is no venue in this build');
   });
 
   it('anything else says nothing went through, and an unreachable service says so', () => {

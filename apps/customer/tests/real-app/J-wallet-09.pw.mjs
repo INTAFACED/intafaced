@@ -1,10 +1,10 @@
-// World: none
+// World: restart
 import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, UNBUILT } from './dex.mjs';
 import { signIn, signUp } from './desk.mjs';
-import { api, journeyState } from './stack.mjs';
+import { api, journeyState, restartWith } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
 
 // J-wallet-09, in the running app (docs/roadmap/journeys.json): I connect my own wallet and fund my venue account from
@@ -12,15 +12,19 @@ import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs
 // (test-wallet.mjs, a fresh key kept in this run's state). The connection is svc-protocol's record (`venueWallet.*`):
 // an address and its expiry, never a key. The stack's labelled TEST owner values (tooling/profiles/test-owner-values/
 // protocol.json) give a one-minute connection, so #4 waits about a minute, and a wallet sanctions list of one TEST
-// address, the wallet #1 derives from the TEST seed below. Region refusal: the journeys stack names no trusted region
-// header, so a test cannot play a visitor from a blocked region here; svc-protocol's mounted test proves that refusal
+// address, the wallet #1 derives from the TEST seed below. #1 also restarts svc-protocol once with that list blank
+// (`LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS=off`, tooling/scripts/local-stack-services/protocol.mjs) and puts it back.
+// Region refusal: the journeys stack names no trusted region header, and its blocked regions are a repository secret, so
+// a test cannot play a visitor from a blocked region here; svc-protocol's mounted test proves that refusal
 // (services/svc-protocol/src/venue-wallet/connection.test.ts). #3 and #5 need the TEST venue simulator.
-// Money: INTAFACED moves nothing and the ledger posts nothing in this journey.
+// Money: INTAFACED moves nothing and the ledger posts nothing in this journey; #3 reads the ledger before and after.
 const J = 'J-wallet-09';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 /** The TEST wallet on the stack's TEST wallet sanctions list (PROTOCOL_WALLET_SANCTIONS in the TEST profile). */
 const LISTED_KEY = keccak256(toHex('INTAFACED LOCAL TEST sanctioned wallet (J-wallet-09)'));
 const LISTED = '0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83';
+/** The TEST USDC #3 deposits; the venue's figure for this new account must read exactly this after. */
+const DEPOSIT = '25';
 const NO_KEY = 'INTAFACED holds no key that can move this wallet’s funds. You sign every venue action in your own wallet.';
 
 test.describe.configure({ mode: 'default' });
@@ -60,9 +64,11 @@ async function connectAndSign(page, button = 'Connect to my account') {
   await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible();
 }
 
-test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on the sanctions list is refused with its reason`, async ({
+test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on the blank or set sanctions list is refused with its reason`, async ({
   page,
 }) => {
+  // Two restarts of svc-protocol (the blank list, then the set one back).
+  test.setTimeout(300_000);
   const who = await signUp(page, 'jwallet09');
   const walletKey = testWalletKey();
   run.reset({ who, walletKey });
@@ -82,6 +88,24 @@ test(`${J} #1 opens Wallet and presses Connect: a message to sign; a wallet on t
     await expect(sheet(listedPage)).toHaveCount(0);
   } finally {
     await listedPage.close();
+  }
+
+  // A blank wallet sanctions list refuses every wallet, the person's own included, with its reason (OWNER 88).
+  restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', false);
+  const blankPage = await page.context().newPage();
+  try {
+    await openVenue(blankPage, who, walletKey);
+    await blankPage.getByRole('button', { name: 'Connect to my account' }).click();
+    await expect(blankPage.getByText('No wallet can be screened')).toBeVisible({ timeout: 20_000 });
+    await expect(
+      blankPage.getByText('The wallet sanctions list is not set, so no wallet can be screened or connected. Nothing was connected.'),
+    ).toBeVisible();
+    await expect(blankPage.getByText('protocol.wallet_sanctions_unset')).toBeVisible();
+    await expect(blankPage.locator('[data-venue-message]')).toHaveCount(0);
+    await expect(sheet(blankPage)).toHaveCount(0);
+  } finally {
+    await blankPage.close();
+    restartWith('protocol', 'LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS', true);
   }
 
   // The person's own wallet: Connect shows the exact message to sign, naming INTAFACED, the address, the chain, a nonce
@@ -137,19 +161,28 @@ test(`${J} #2 signs with the wallet: it shows connected with its expiry; INTAFAC
   await expect(page.getByTestId('venue-connection-expires')).toHaveAttribute('datetime', expiresAt);
 });
 
-test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the venue credits it, with an as-of time`, async ({ page }) => {
+test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the venue credits it, with an as-of time; the ledger posts nothing`, async ({
+  page,
+}) => {
   const { who, walletKey } = state();
+  // What the ledger holds for this person before the deposit: it must hold exactly this after.
+  const ledgerBefore = await (await api(who)).balances();
   const wallet = await openVenue(page, who, walletKey);
   // The connection from #2 may have ended: sign again so this step starts connected.
   if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
+  const signedBefore = wallet.requests.length;
+  await page.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill(DEPOSIT, UNBUILT);
   await venueAction(page, 'Deposit TEST USDC').click();
   // The user signs in the wallet.
   await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click(UNBUILT);
-  expect(wallet.requests.length).toBeGreaterThan(1);
-  // The venue credits it, and the app shows the venue's figure with an as-of time; the ledger posts nothing.
+  expect(wallet.requests.length).toBeGreaterThan(signedBefore);
+  // The venue credits it: this new account's venue figure is exactly the deposit, with the venue's as-of time.
   const figure = page.getByTestId('venue-balance');
-  await expect(figure).toContainText('TEST USDC', UNBUILT);
-  await expect(page.getByTestId('venue-balance-as-of')).toHaveAttribute('datetime', /\d{4}-\d{2}-\d{2}T/, UNBUILT);
+  await expect(figure).toHaveText(`${DEPOSIT} TEST USDC`, { timeout: 60_000 });
+  const asOf = await page.getByTestId('venue-balance-as-of').getAttribute('datetime', UNBUILT);
+  expect(Number.isNaN(Date.parse(asOf ?? ''))).toBe(false);
+  // The ledger posts nothing: the person's ledger balances are the same as before.
+  expect(await (await api(who)).balances()).toEqual(ledgerBefore);
 });
 
 test(`${J} #4 lets the connection expire: every signed action refuses until the wallet signs again`, async ({ page }) => {
