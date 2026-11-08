@@ -1,0 +1,243 @@
+/*
+ * The desk's DOM, time and sales, depth chart and the chart's trade buttons (J-charts-desk-14). Role tokens only, sizes in
+ * rem, logical sides.
+ */
+@layer theme, base, components, utilities;
+@layer components {
+  .of-dom {
+    gap: var(--if-space-2);
+    padding: var(--if-space-3);
+    font: 400 var(--if-text-xs) / var(--if-leading-xs) var(--if-font-ui);
+  }
+  .of-title-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--if-space-2);
+  }
+  .of-title {
+    font: 600 var(--if-text-sm) / var(--if-leading-sm) var(--if-font-ui);
+    color: var(--if-fg);
+  }
+  .of-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--if-space-2);
+  }
+  .of-field,
+  .of-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--if-space-1);
+    color: var(--if-fg-2);
+  }
+  .of-field select,
+  .of-field input {
+    min-block-size: 1.75rem;
+    padding-inline: var(--if-space-2);
+    border: 0.0625rem solid var(--if-line-strong);
+    border-radius: var(--if-r-xs);
+    background: var(--if-field);
+    color: var(--if-fg);
+    font: inherit;
+  }
+  .of-field input {
+    inline-size: 6rem;
+  }
+  /* The app resets native inputs to appearance: none, which leaves a checkbox with no size: keep the browser's own. */
+  .of-check input {
+    appearance: auto;
+    flex: none;
+    inline-size: 0.875rem;
+    block-size: 0.875rem;
+    accent-color: var(--if-lime);
+  }
+  .of-field input[aria-invalid='true'] {
+    border-color: var(--if-error);
+  }
+  .of-close,
+  .of-cell button,
+  .of-trade button {
+    min-block-size: 1.75rem;
+    padding-inline: var(--if-space-2);
+    border: 0;
+    border-radius: var(--if-r-xs);
+    background: transparent;
+    color: var(--if-fg-2);
+    font: inherit;
+    cursor: pointer;
+  }
+  .of-close:hover,
+  .of-cell button:hover {
+    background: var(--if-hover);
+    color: var(--if-fg);
+  }
+  .of-note {
+    color: var(--if-fg-3);
+  }
+  .of-note--bad {
+    color: var(--if-error-text);
+  }
+  .of-note--warn {
+    color: var(--if-warn-text);
+  }
+  .of-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--if-space-3);
+  }
+  @media (max-width: 60rem) {
+    .of-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .of-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-3);
+    min-inline-size: 0;
+  }
+  .of-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--if-space-1-5);
+  }
+  .of-ladder {
+    max-block-size: 26rem;
+    overflow-y: auto;
+  }
+  .of-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    align-items: center;
+    min-block-size: 1.75rem;
+    text-align: end;
+  }
+  .of-row[data-columns='double'] {
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+  }
+  .of-row--head {
+    color: var(--if-fg-3);
+  }
+  .of-cell button {
+    inline-size: 100%;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+  .of-cell--bid button {
+    color: var(--if-up-text);
+  }
+  .of-cell--ask button {
+    color: var(--if-down-text);
+  }
+  .of-price {
+    color: var(--if-fg);
+    font-variant-numeric: tabular-nums;
+  }
+  .of-mine {
+    color: var(--if-warn-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .of-row[data-highlight='best-bid'] {
+    background: var(--if-up-bg-soft);
+  }
+  .of-row[data-highlight='best-ask'] {
+    background: var(--if-down-bg);
+  }
+  .of-row[data-highlight='mine'] {
+    background: var(--if-raised);
+  }
+  .of-tape {
+    display: flex;
+    flex-direction: column;
+    max-block-size: 16rem;
+    overflow-y: auto;
+  }
+  .of-tape-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    min-block-size: 1.5rem;
+    align-items: center;
+    text-align: end;
+    font-variant-numeric: tabular-nums;
+  }
+  .of-tape-bar {
+    position: absolute;
+    inset-block: 0.0625rem;
+    inset-inline-end: 0;
+    inline-size: calc(var(--of-bar, 0) / 1000 * 100%);
+    background: var(--if-hover);
+    pointer-events: none;
+  }
+  .of-tape-row > :not(.of-tape-bar) {
+    position: relative;
+  }
+  .of-tape-price[data-side='buy'] {
+    color: var(--if-up-text);
+  }
+  .of-tape-price[data-side='sell'] {
+    color: var(--if-down-text);
+  }
+  .of-prints {
+    color: var(--if-fg-3);
+  }
+  .of-depth {
+    inline-size: 100%;
+    block-size: 9rem;
+    background: var(--if-panel);
+    border-radius: var(--if-r-xs);
+  }
+  .of-depth-bid {
+    fill: var(--if-up-bg-soft);
+    stroke: var(--if-up);
+    stroke-width: 1;
+  }
+  .of-depth-ask {
+    fill: var(--if-down-bg);
+    stroke: var(--if-down);
+    stroke-width: 1;
+  }
+  .of-depth-cursor {
+    stroke: var(--if-fg-3);
+    stroke-dasharray: 2 2;
+  }
+
+  /* Buy and Sell on the chart, with the spread between them. */
+  .of-trade {
+    position: absolute;
+    inset-block-start: var(--if-space-2);
+    inset-inline-start: var(--if-space-2);
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--if-space-1);
+    padding: var(--if-space-1);
+    border: 0.0625rem solid var(--if-line);
+    border-radius: var(--if-r-sm);
+    background: var(--if-panel);
+    font: 400 var(--if-text-xs) / var(--if-leading-xs) var(--if-font-ui);
+  }
+  .of-trade .of-buy {
+    background: var(--if-up);
+    color: var(--if-on-up);
+  }
+  .of-trade .of-sell {
+    background: var(--if-down);
+    color: var(--if-on-down);
+  }
+  .of-trade .of-spread {
+    color: var(--if-fg-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .of-trade-note {
+    flex-basis: 100%;
+    color: var(--if-fg-2);
+  }
+  .of-trade-note[data-tone='bad'] {
+    color: var(--if-error-text);
+  }
+}

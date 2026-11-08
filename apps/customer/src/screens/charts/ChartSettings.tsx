@@ -1,7 +1,7 @@
 /**
  * Chart settings: one dialog with six sections (Symbol, Status line, Scales, Canvas, Trading, Alerts). The options are
  * saved on this device as they change. Trading and Alerts only link to the controls that place orders and set alerts:
- * the chart itself places no order and sets no alert.
+ * the dialog itself places no order and sets no alert.
  */
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from './deps';

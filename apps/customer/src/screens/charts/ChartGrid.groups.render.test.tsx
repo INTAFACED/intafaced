@@ -19,7 +19,10 @@ vi.mock('../../shared/preferences', async (original) => {
   return { ...real, usePreferences: () => real.currentPreferences() };
 });
 vi.mock('../../features/session/session', () => ({
-  useSession: () => ({ userId: 'u1', api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}) } }),
+  useSession: () => ({
+    userId: 'u1',
+    api: { query: () => new Promise(() => {}), mutate: () => new Promise(() => {}), rest: () => new Promise(() => {}) },
+  }),
 }));
 // The chart's own order controls read open orders through the desk's data; these tests place none.
 vi.mock('../trade/desk/data', () => ({
