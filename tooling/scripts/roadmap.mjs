@@ -758,8 +758,9 @@ export async function compose(slices, journeys = [], existing = existsSync(OUTPU
 
 /**
  * Journey steps that passed in a Playwright JSON report, as "J-<module>-NN#<step>". Test titles start "J-x-NN #n".
- * A step passes only when every test under every spec with its key ran and ended expected or flaky: Playwright marks
- * a skipped spec `ok`, and a failing duplicate title must not hide behind a passing one.
+ * A step passes only when every test under every spec with its key ran and ended expected: Playwright marks a skipped
+ * spec `ok`, a failing duplicate title must not hide behind a passing one, and a test that passed only on its retry
+ * ("flaky", on main since JOURNEY_RETRIES) is not a pass (CI review on #7363, 1fbf031).
  */
 export function passedSteps(report) {
   const seen = new Set();
@@ -771,7 +772,7 @@ export function passedSteps(report) {
       const key = `${m[1]}#${Number(m[2])}`;
       seen.add(key);
       const tests = spec.tests ?? [];
-      if (!tests.length || !tests.every((t) => t.status === 'expected' || t.status === 'flaky')) failed.add(key);
+      if (!tests.length || !tests.every((t) => t.status === 'expected')) failed.add(key);
     }
     for (const child of suite.suites ?? []) walk(child);
   };

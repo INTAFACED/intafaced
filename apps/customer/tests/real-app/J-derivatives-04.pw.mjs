@@ -144,13 +144,17 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
     if (r.url().endsWith('/api/v1/futures/orders') && r.request().method() === 'POST') answer = r;
   });
   const moved = confirm.getByText('The numbers moved since you reviewed');
+  const tier = confirm.getByRole('region', { name: 'New margin tier' }).getByRole('checkbox');
+  // The re-check is done when the confirm can be pressed again, or when it is held back only by a tier box the re-check
+  // cleared, which the next attempt ticks (run 42446058427, shard 14: the box was cleared and the old wait never ended).
+  const tierCleared = async () => (await tier.count()) > 0 && !(await tier.isChecked());
   for (let attempt = 0; attempt < 6 && !answer; attempt += 1) {
-    const tier = confirm.getByRole('region', { name: 'New margin tier' }).getByRole('checkbox');
-    if ((await tier.count()) > 0 && !(await tier.isChecked())) await tier.check();
+    if (await tierCleared()) await tier.check();
     await go.click();
     // The re-check takes a moment; the notice from an earlier attempt may still be up while it runs.
     await page.waitForTimeout(1_000);
-    await expect.poll(async () => answer !== null || ((await moved.isVisible()) && (await go.isEnabled())), { timeout: 20_000 }).toBe(true);
+    const reCheckDone = async () => answer !== null || ((await moved.isVisible()) && ((await go.isEnabled()) || (await tierCleared())));
+    await expect.poll(reCheckDone, { timeout: 20_000 }).toBe(true);
   }
   expect(answer, 'the ticket sent the order').not.toBeNull();
   expect(answer.status(), await answer.text()).toBe(200);
