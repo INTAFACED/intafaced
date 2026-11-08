@@ -378,7 +378,13 @@ test("B8: the input carries the code's set-aside facts and, when changed, the se
   const src = {
     ...base,
     read: async (sha, p) =>
-      p === verdictFile ? (sha === HEAD ? 'export const SET_ASIDE_DAYS = 7;\n' : 'export const X = 1;\n') : base.read(sha, p),
+      p === verdictFile
+        ? sha === HEAD
+          ? 'export const SET_ASIDE_DAYS = 7;\n'
+          : 'export const X = 1;\n'
+        : p === 'tooling/ci/post-merge-trust.mjs'
+          ? 'export const stepStates = 1; // the unchanged reader\n'
+          : base.read(sha, p),
     money: async () => (s) => s.startsWith('J-x-01 #1'),
   };
   const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
@@ -386,6 +392,11 @@ test("B8: the input carries the code's set-aside facts and, when changed, the se
   assert.deepEqual(got.setAside, { money: ['J-x-01 #1'], own: ['J-x-01 #2'], days: 7 });
   assert.match(got.prompt, /SET-ASIDE FACTS[^]*money steps among those listed \(never set aside\): J-x-01 #1/);
   assert.match(got.prompt, new RegExp(`BEGIN UNTRUSTED FILE after \\(head [0-9a-f]{10}\\) ${verdictFile}`));
+  // An unchanged reader is read whole too: a line left as main has it never shows in the diff.
+  assert.match(
+    got.prompt,
+    /BEGIN UNTRUSTED FILE after \(head [0-9a-f]{10}\) tooling\/ci\/post-merge-trust\.mjs\nexport const stepStates = 1;/,
+  );
   // No money source: every step counts as money.
   const closed = await buildInputs({ src: fakeSrc(), base: BASE, head: HEAD, pr: 1, brief: 'B', loadWords });
   assert.deepEqual(closed.setAside.money, closed.required.steps);

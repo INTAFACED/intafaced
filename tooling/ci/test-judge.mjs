@@ -104,8 +104,14 @@ export const SET_ASIDE_CONDITIONS = {
 export const SET_ASIDE_MAX_DAYS = 7;
 /** The files whose change is the set-aside's retry (a change entry may answer `set-aside` only for these). */
 export const SET_ASIDE_FILES = ['apps/customer/tests/real-app/real-app.playwright.config.mjs'];
-/** Where the set-aside lives; the judge reads it whole when the pull request changes it. */
+/** Where the set-aside lives. */
 export const SET_ASIDE_CODE = 'tooling/ci/journey-verdict.mjs';
+/**
+ * The set-aside and the readers that decide whether a journeys report's pass counts: the judge reads each whole, at
+ * the head, whenever the head sets anything aside or the pull request changes one of them, since a line the pull
+ * request leaves as main has it (a reader counting a pass only on the retry) never shows in the diff.
+ */
+export const SET_ASIDE_READERS = [SET_ASIDE_CODE, 'tooling/ci/post-merge-trust.mjs', 'tooling/scripts/roadmap.mjs'];
 
 /** The head's set-aside length in days (`export const SET_ASIDE_DAYS = <n>;` in SET_ASIDE_CODE), or null. */
 export function setAsideDays(text) {
@@ -596,9 +602,12 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     if (b != null) add(fileBlock(`before (merge base ${mergeBase.slice(0, 10)})`, f.oldPath, b), { label: `${f.path} before`, must });
     if (a != null) add(fileBlock(`after (head ${head.slice(0, 10)})`, f.newPath, a), { label: `${f.path} after`, must });
   }
-  // The set-aside's code, whole, when the pull request changes it: the judge reads its conditions there.
-  if (setAsideText != null && files.some((f) => f.path === SET_ASIDE_CODE))
-    add(fileBlock(`after (head ${head.slice(0, 10)})`, SET_ASIDE_CODE, setAsideText), { must: true });
+  // The set-aside and its readers, whole: the judge reads its conditions there.
+  if (/\bSET_ASIDE_DAYS\b/.test(setAsideText ?? '') || files.some((f) => SET_ASIDE_READERS.includes(f.path)))
+    for (const r of SET_ASIDE_READERS) {
+      const t = r === SET_ASIDE_CODE ? setAsideText : await src.read(head, r);
+      if (t != null) add(fileBlock(`after (head ${head.slice(0, 10)})`, r, t), { must: true });
+    }
   for (const h of HARNESS) {
     if (after.has(h)) continue;
     const t = await src.read(head, h);
