@@ -24,6 +24,7 @@ import {
   buildPrompt,
   checkInputs,
   childEnv,
+  deleteArtifact,
   handoverLine,
   journeySection,
   mintToken,
@@ -1312,4 +1313,27 @@ test('switch: read without a token (the repository is public)', async () => {
   } finally {
     server.close();
   }
+});
+
+test("publish deletes the build's artifact by its exact name; a failed delete only warns", async () => {
+  const calls = [];
+  const gh = {
+    json: async (path) => {
+      calls.push(`GET ${path}`);
+      return {
+        artifacts: [
+          { id: 11, name: 'builder-output-5-1' },
+          { id: 12, name: 'builder-output-5-10' },
+        ],
+      };
+    },
+    send: async (method, path) => calls.push(`${method} ${path}`),
+  };
+  assert.equal(await deleteArtifact(gh, 'o/r', '5', 'builder-output-5-1'), 1);
+  assert.deepEqual(calls, [
+    'GET /repos/o/r/actions/runs/5/artifacts?name=builder-output-5-1&per_page=10',
+    'DELETE /repos/o/r/actions/artifacts/11',
+  ]);
+  const broken = { json: async () => Promise.reject(new Error('GET: HTTP 403')), send: async () => null };
+  assert.equal(await deleteArtifact(broken, 'o/r', '5', 'builder-output-5-1'), 0);
 });

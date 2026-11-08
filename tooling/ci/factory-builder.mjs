@@ -459,9 +459,7 @@ function need(env, ...names) {
   if (missing.length) throw new Error(`factory-builder needs ${missing.join(', ')}`);
 }
 
-const outputs = {};
 function output(pairs) {
-  Object.assign(outputs, pairs);
   const file = process.env.GITHUB_OUTPUT;
   const text = Object.entries(pairs)
     .map(([k, v]) => `${k}=${v}\n`)
@@ -489,25 +487,78 @@ function gitIn(dir, args, extraEnv = {}) {
   }).trim();
 }
 
-/** Runs `cmd` with an App token minted for it in memory, then revokes the token however the command ended. */
+/** Deletes the build job's artifact once publish has it on disk: the agent's output is then public only on GitHub's
+ *  pages publish writes to. A failed delete warns (the artifact expires in a day) and never stops the publish. */
+export async function deleteArtifact(gh, repo, runId, name) {
+  try {
+    const list = await gh.json(`/repos/${repo}/actions/runs/${runId}/artifacts?name=${encodeURIComponent(name)}&per_page=10`);
+    const ids = (list?.artifacts ?? []).filter((a) => a?.name === name && Number.isInteger(a.id)).map((a) => a.id);
+    for (const id of ids) await gh.send('DELETE', `/repos/${repo}/actions/artifacts/${id}`);
+    console.log(`the build's artifact is deleted (${ids.length})`);
+    return ids.length;
+  } catch (e) {
+    console.log(
+      `::warning title=Artifact kept::${String(e.message)
+        .replace(/[\r\n]+/g, ' ')
+        .slice(0, 200)}; it expires in a day`,
+    );
+    return 0;
+  }
+}
+
+/** The branch this run builds on (see `branch`); read with the token in env.GH_TOKEN. */
+async function branchStep(env) {
+  need(env, 'REPO', 'GH_TOKEN', 'JOURNEY', 'RUN_NUMBER');
+  if (!JOURNEY_RE.test(env.JOURNEY)) throw new Error('JOURNEY is not a journey id');
+  const gh = api(env.GH_TOKEN);
+  const pulls = await openPulls(gh, env.REPO);
+  const plain = `${BRANCH_PREFIX}${env.JOURNEY}`;
+  const st = await gh.status(`/repos/${env.REPO}/branches/${encodeURIComponent(plain)}`);
+  if (st !== 200 && st !== 404) throw new Error(`GET branch ${plain}: HTTP ${st}`);
+  const b = pickBranch({ journey: env.JOURNEY, runNumber: env.RUN_NUMBER, openPulls: pulls, repo: env.REPO, taken: st === 200 });
+  pushRef(b.branch, env.JOURNEY);
+  return b;
+}
+
+/** Runs `cmd` with an App token minted for it in memory, then revokes the token however the command ended. A failed
+ *  revoke fails the step, but never hides how the command itself ended: both are reported. */
 async function withAppToken(cmd, args, env, spec) {
   need(env, 'REPO', 'FACTORY_APP_KEY');
   const token = await mintToken({ pem: env.FACTORY_APP_KEY, repo: env.REPO, spec });
   console.log(`::add-mask::${token}`);
+  let result;
+  let failure = null;
   try {
-    return await main(cmd, args, { ...env, FACTORY_APP_KEY: '', GH_TOKEN: token });
-  } finally {
+    result = await main(cmd, args, { ...env, FACTORY_APP_KEY: '', GH_TOKEN: token });
+  } catch (e) {
+    failure = e;
+  }
+  try {
     await revokeToken(api(token));
     console.log(`the ${cmd} token is revoked: GitHub now refuses it (401)`);
+  } catch (e) {
+    console.log(
+      `::error title=Token not revoked::${String(e.message)
+        .replace(/[\r\n]+/g, ' ')
+        .slice(0, 200)}`,
+    );
+    if (!failure) {
+      console.log(`${cmd} itself ended with exit ${result}; the step fails because its token may still be live (an hour at most)`);
+      return 1;
+    }
   }
+  if (failure) throw failure;
+  return result;
 }
 
 async function main(cmd, args, env) {
   if (cmd === 'before' && !env.GH_TOKEN) return withAppToken(cmd, args, env, READ_TOKEN);
   if (cmd === 'publish' && !env.GH_TOKEN && env.FACTORY_APP_KEY) return withAppToken(cmd, args, env, WRITE_TOKEN);
   if (cmd === 'before') {
-    await main('branch', args, env);
-    const b = { BRANCH: outputs.branch, RESUME: outputs.resume, PR: outputs.pr, HEAD: outputs.head };
+    const r = await branchStep(env);
+    output({ branch: r.branch, resume: String(r.resume), pr: r.pr ?? '', head: r.head ?? '' });
+    console.log(r.resume ? `resuming #${r.pr} on ${r.branch}` : `new branch ${r.branch} from origin/main`);
+    const b = { BRANCH: r.branch, RESUME: String(r.resume), PR: r.pr ?? '', HEAD: r.head ?? '' };
     await main('status', args, { ...env, ...b });
     return main('prompt', args, { ...env, ...b });
   }
@@ -521,27 +572,14 @@ async function main(cmd, args, env) {
   }
   if (cmd === 'switch') {
     need(env, 'REPO');
-    // No token (the repository is public): factory-switch.mjs's reader sends one, so its header is dropped here.
-    const fetchImpl = (url, init) => {
-      const headers = { ...(init?.headers ?? {}) };
-      if (!env.GH_TOKEN) delete headers.authorization;
-      return fetch(String(url).replace('https://api.github.com', apiRoot()), timed({ ...init, headers }));
-    };
+    const fetchImpl = (url, init) => fetch(String(url).replace('https://api.github.com', apiRoot()), timed(init));
     const v = judgeSwitch(await readSwitch({ repo: env.REPO, token: env.GH_TOKEN, fetchImpl })); // throws: fails closed
     output({ run: v.pass ? 'true' : 'false' });
     console.log(v.pass ? 'FACTORY=run: the builder starts' : `::notice title=Factory paused::${v.why}, so no builder starts`);
     return 0;
   }
   if (cmd === 'branch') {
-    need(env, 'REPO', 'GH_TOKEN', 'JOURNEY', 'RUN_NUMBER');
-    if (!JOURNEY_RE.test(env.JOURNEY)) throw new Error('JOURNEY is not a journey id');
-    const gh = api(env.GH_TOKEN);
-    const pulls = await openPulls(gh, env.REPO);
-    const plain = `${BRANCH_PREFIX}${env.JOURNEY}`;
-    const st = await gh.status(`/repos/${env.REPO}/branches/${encodeURIComponent(plain)}`);
-    if (st !== 200 && st !== 404) throw new Error(`GET branch ${plain}: HTTP ${st}`);
-    const b = pickBranch({ journey: env.JOURNEY, runNumber: env.RUN_NUMBER, openPulls: pulls, repo: env.REPO, taken: st === 200 });
-    pushRef(b.branch, env.JOURNEY);
+    const b = await branchStep(env);
     output({ branch: b.branch, resume: String(b.resume), pr: b.pr ?? '', head: b.head ?? '' });
     console.log(b.resume ? `resuming #${b.pr} on ${b.branch}` : `new branch ${b.branch} from origin/main`);
     return 0;
@@ -658,18 +696,15 @@ async function main(cmd, args, env) {
     const gh = api(env.GH_TOKEN);
     const end = readIf(join(dir, 'end.json')) ? JSON.parse(readIf(join(dir, 'end.json'))) : null;
     let reason = end?.reason ?? 'ended before the builder ran';
+    if (env.ARTIFACT) await deleteArtifact(gh, env.REPO, env.RUN_ID, env.ARTIFACT);
     // A fresh repository, filled only from the agent's bundle (data, not a repository whose config or hooks could run)
     // and from GitHub. The token is in git's environment for the push alone, never in a command line.
     const repoDir = join(dir, 'publish');
     mkdirSync(repoDir, { recursive: true });
     gitIn(repoDir, ['init', '-q']);
     const url = `${env.GITHUB_SERVER_URL || 'https://github.com'}/${env.REPO}.git`;
-    const bundle = join(dir, 'branch.bundle');
-    let newHead = null;
-    if (existsSync(bundle)) {
-      gitIn(repoDir, ['fetch', '-q', '--no-tags', bundle, 'HEAD:refs/factory/new']);
-      newHead = gitIn(repoDir, ['rev-parse', 'refs/factory/new']);
-    }
+    // GitHub first: the bundle is thin (the agent's commits beyond main), so its prerequisites come from main or the
+    // branch already on GitHub.
     gitIn(repoDir, ['fetch', '-q', '--no-tags', url, 'refs/heads/main:refs/remotes/origin/main']);
     const mainHead = gitIn(repoDir, ['rev-parse', 'refs/remotes/origin/main']);
     const st = await gh.status(`/repos/${env.REPO}/branches/${encodeURIComponent(env.BRANCH)}`);
@@ -678,6 +713,12 @@ async function main(cmd, args, env) {
     if (st === 200) {
       gitIn(repoDir, ['fetch', '-q', '--no-tags', url, `${ref}:refs/remotes/origin/branch`]);
       remoteHead = gitIn(repoDir, ['rev-parse', 'refs/remotes/origin/branch']);
+    }
+    const bundle = join(dir, 'branch.bundle');
+    let newHead = null;
+    if (existsSync(bundle)) {
+      gitIn(repoDir, ['fetch', '-q', '--no-tags', bundle, 'HEAD:refs/factory/new']);
+      newHead = gitIn(repoDir, ['rev-parse', 'refs/factory/new']);
     }
     const isAncestor = (a, b) => {
       try {

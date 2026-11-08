@@ -34,8 +34,11 @@
 #
 # Public-repo hygiene: anyone can read this repository's logs and download its artifacts. The CLI's output goes to
 # files inside the build job that no step prints or uploads. No step prints text from project-state or from the
-# agent's PR text. The artifact holds only what publish puts on GitHub anyway (the agent's commits and PR text) and the
-# end record, for a day; the trial's marker check (tooling/factory/trial-verdict.mjs) searches it with the logs.
+# agent's PR text. The artifact holds the agent's commits beyond main, its PR text, its asks and the end record: what
+# publish puts on GitHub, unless publish refuses it (a rewritten history, a workflow change). Publish deletes it once
+# read; a run that never publishes leaves it a day. Written limit: from its upload to that delete (about a minute), or
+# for that day, a refused commit or PR text can be downloaded; the Actions trial's marker check searches artifacts with
+# the logs for text from project-state.
 #
 # The steps' logic is tooling/ci/factory-builder.mjs, with its planted cases in factory-builder.test.mjs.
 name: Builder
@@ -242,7 +245,9 @@ jobs:
       # Before the agent user exists: no directory on PATH (nor the tool-cache node's, nor any directory above them) may
       # be writable by group or others, and no program in them either. The runner image makes /usr/local/bin
       # world-writable, and it sits ahead of /usr/bin, so the agent could otherwise plant a fake `git` or `sudo` that a
-      # later step runs with the factory token. (Found by review round 2 on #7386, with a planted fake `git`.)
+      # later step runs as the runner. Since the split no later step here holds a GitHub token, so this guards the
+      # runner's own artifact token. (Found by review round 2 on #7386 with a planted fake `git`; #7448's chain and loop
+      # gaps remain, bounded by the split.)
       - name: Close every directory on PATH
         shell: /usr/bin/bash -e {0}
         run: |
@@ -353,7 +358,7 @@ jobs:
         env:
           PATH: /usr/bin:/bin
         run: |
-          /usr/bin/sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "$WORK" PATH=/usr/bin:/bin /usr/bin/git bundle create -q "$OUT/branch.bundle" HEAD || true
+          /usr/bin/sudo -n -u "$AGENT_USER" -H -- /usr/bin/env -C "$WORK" PATH=/usr/bin:/bin /usr/bin/git bundle create -q "$OUT/branch.bundle" HEAD ^origin/main || true
           /usr/bin/sudo /usr/bin/pkill -KILL -u "$AGENT_USER" || true
           /usr/bin/sleep 1
           if /usr/bin/pgrep -u "$AGENT_USER" > /dev/null; then echo "::error::processes of the agent are still running"; exit 1; fi
@@ -368,7 +373,7 @@ jobs:
         if: always() && steps.take.outcome == 'success'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: builder-output-${{ github.run_id }}
+          name: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ env.BUILDER_DIR }}/branch.bundle
             ${{ env.BUILDER_DIR }}/pr.md
@@ -424,7 +429,7 @@ jobs:
       - name: The agent's output
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: builder-output-${{ github.run_id }}
+          name: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/builder
 
       # It mints its write token in memory (intafaced only; contents, pull requests and actions; never workflows) and
@@ -433,5 +438,6 @@ jobs:
         env:
           FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
           BRANCH: ${{ needs.build.outputs.branch }}
+          ARTIFACT: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
           BUILDER_DIR: ${{ runner.temp }}/builder
         run: node tooling/ci/factory-builder.mjs publish

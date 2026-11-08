@@ -11,20 +11,19 @@
  *   node tooling/factory/dispatch.mjs --dry-run ...      (prints the commands, starts nothing)
  *
  * A journey's area is, in order: its own `=area`, then --area, then its module in docs/roadmap/journeys.json. Every
- * journey's CLI account is --account, else the accounts in turn (acct1, acct3, acct4, then acct1 again), so a
- * batch spreads over them and never draws on the CI review's account. Every
+ * journey's CLI account is --account, else, in a batch of two or more, the accounts in turn (acct1, acct3, acct4,
+ * then acct1 again), so the batch spreads over them and never draws on the CI review's account. A lone journey names
+ * its account: a rotation of one would always start every successor on acct1. Every
  * journey is checked before any run starts: an unknown or parked journey, or a malformed id or area, starts none.
  * On a 403 or 429 from GitHub it stops and starts no more (AGENTS.md); the builder itself reads the factory switch.
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { checkInputs } from '../ci/factory-builder.mjs';
+import { ACCOUNTS, checkInputs } from '../ci/factory-builder.mjs';
 
 export const REPO = 'INTAFACED/intafaced';
 export const WORKFLOW = 'builder.yml';
-/** builder.yml's `account` choices, each with its own CLI token in the environment factory (CLAUDE_TOKEN_<ACCOUNT>). */
-export const ACCOUNTS = ['acct1', 'acct3', 'acct4'];
 
 /** The parsed command line: { journeys: [{ journey, area? }], area?, dryRun, repo } or { error }. */
 export function parseArgs(argv) {
@@ -45,6 +44,8 @@ export function parseArgs(argv) {
   }
   if (!out.journeys.length) return { error: 'name at least one journey, e.g. J-identity-13' };
   if (out.account !== null && !ACCOUNTS.includes(out.account)) return { error: `--account is one of ${ACCOUNTS.join(', ')}` };
+  if (out.account === null && out.journeys.length === 1)
+    return { error: `name the account of a lone journey: --account ${ACCOUNTS.join('|')}` };
   return out;
 }
 
