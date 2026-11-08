@@ -366,31 +366,8 @@ export class PostgresAlertStore implements AlertStore {
   }
 
   async createMany(inputs: readonly CreatePriceAlertInput[], maxOpen: number): Promise<readonly PriceAlert[]> {
-    const first = inputs[0];
-    if (!first) return [];
-    const sources = inputs.map((input) => assertCreate(input).source);
-    // One transaction under the same per-person lock a single create takes, so the batch is all in or all out.
-    return this.sql.begin(async (tx) => {
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`notify.alert_quota:${first.userId}`}, 0))`;
-      const [counted] = await tx<{ n: number }[]>`
-        SELECT count(*)::int AS n FROM notify.price_alerts
-        WHERE user_id = ${first.userId} AND kind = 'price' AND status IN ('active', 'stopped')
-      `;
-      const held = counted?.n ?? 0;
-      if (held + inputs.length > maxOpen) throw new AlertQuotaReachedError(maxOpen, held, inputs.length);
-      const rows: PriceAlert[] = [];
-      for (const [i, input] of inputs.entries()) {
-        const [row] = await tx<AlertRow[]>`
-          INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source)
-          VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
-            ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)},
-            ${input.frequency ?? 'once'}, ${sources[i]!})
-          RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
-        `;
-        rows.push(mapRow(row!));
-      }
-      return rows;
-    });
+    if (inputs.length === 0) return [];
+    return this.sql.begin((tx) => insertPriceAlerts(tx as unknown as Sql, inputs, maxOpen));
   }
 
   async countOpen(userId: string, kind: SourcedAlertKind): Promise<number> {
@@ -610,4 +587,38 @@ function mapRow(r: AlertRow): PriceAlert {
 function storedSource(r: AlertRow): AlertPriceSource {
   if (isAlertPriceSource(r.source)) return r.source;
   throw new Error(`notify.price_alerts ${r.id} has an unknown source ${String(r.source)} — refuse rather than evaluate it on the mark`);
+}
+
+/**
+ * Insert several price alerts for one person inside the caller's transaction: all of them or none. Takes the per-person quota
+ * lock a single create takes, counts the open price alerts and refuses with `AlertQuotaReachedError` when these would pass
+ * `maxOpen`. Shared by `createMany` and the watchlist rules, which write their own row in the same transaction.
+ */
+export async function insertPriceAlerts(
+  tx: Sql,
+  inputs: readonly CreatePriceAlertInput[],
+  maxOpen: number,
+): Promise<readonly PriceAlert[]> {
+  const first = inputs[0];
+  if (!first) return [];
+  const sources = inputs.map((input) => assertCreate(input).source);
+  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${`notify.alert_quota:${first.userId}`}, 0))`;
+  const [counted] = await tx<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM notify.price_alerts
+    WHERE user_id = ${first.userId} AND kind = 'price' AND status IN ('active', 'stopped')
+  `;
+  const held = counted?.n ?? 0;
+  if (held + inputs.length > maxOpen) throw new AlertQuotaReachedError(maxOpen, held, inputs.length);
+  const rows: PriceAlert[] = [];
+  for (const [i, input] of inputs.entries()) {
+    const [row] = await tx<AlertRow[]>`
+      INSERT INTO notify.price_alerts (id, user_id, market_id, kind, direction, target_price, status, condition, name, message, expires_at, extra_conditions, frequency, source)
+      VALUES (${randomUUID()}, ${input.userId}, ${input.marketId.trim()}, 'price', ${directionOf(input)}, ${input.targetPrice.trim()}, 'active',
+        ${conditionOf(input)}, ${input.name ?? null}, ${input.message ?? null}, ${input.expiresAt ?? null}, ${tx.json((input.extras ?? []) as never)},
+        ${input.frequency ?? 'once'}, ${sources[i]!})
+      RETURNING id, user_id, market_id, kind, direction, target_price, status, fired_at, created_at, condition, name, message, expires_at, last_side, extra_conditions, updated_at, frequency, fire_count, last_fired_at, stop_reason, burst_started_at, burst_count, source
+    `;
+    rows.push(mapRow(row!));
+  }
+  return rows;
 }

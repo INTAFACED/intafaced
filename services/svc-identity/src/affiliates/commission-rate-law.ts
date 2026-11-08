@@ -2,7 +2,7 @@
  * Affiliate commission accrual rate law (DIRECTION §8).
  *
  * Fee-share / IB tier rates are owner-only. Blank / unpublished → refuse-closed
- * at accrual — never invent 10/5/2% (or any other percentage) as a platform
+ * at accrual — never invent any percentage as a platform
  * default. Mirrors services/svc-trade/src/copy/fee-share-law.ts.
  *
  * Payout already refused; the invent hole was accrual writing durable rows
@@ -66,7 +66,7 @@ function assertTierShape(raw: unknown, path: string): TierRate {
  *
  * Shape:
  *   { "published": false }
- *   { "published": true, "tiers": [{ "hop": 0, "rate": "0.10" }, ...] }
+ *   { "published": true, "tiers": [{ "hop": 0, "rate": "<decimal 0..1>" }, ...] }
  */
 export function parseAccrualTierLawJson(raw: string | null | undefined): AccrualTierLaw {
   const trimmed = (raw ?? '').trim();

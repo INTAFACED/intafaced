@@ -68,6 +68,7 @@ const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUT
 
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   idempotencyConflict: idempotencyConflictMode,
   reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
   clockSkewBoundMs,
@@ -78,6 +79,9 @@ const ledger = new LedgerService(sql, bus, {
 // LEDGER_POSTING_ENABLED=false becomes a durable freeze that also reaches the
 // replicas nobody reconfigured. See LedgerService.applyStartupPolicy — the
 // flag can freeze, and can never thaw.
+// The custody switch's boot guard: with the layer off, a book still holding customer balances refuses to start rather
+// than strand them in holds no post could release (OWNER 226; README "LEDGER_CUSTODY_LAYER").
+await ledger.assertCustodyLayerBootable();
 const freezeAtBoot = await ledger.applyStartupPolicy();
 
 const actionApprovals = env.IDENTITY_URL
