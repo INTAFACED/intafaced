@@ -276,7 +276,14 @@ test('verify: a map is exactly what the builder builds from the runs it names (r
   edited.services['services/svc-bank'] = edited.services['services/svc-bank'].slice(1);
   const r = verifyMap(mapText(edited), rebuild);
   assert.equal(r.ok, false);
-  assert.match(r.why, /differs from the one built from main's runs up to run 3 in: services$/);
+  assert.match(r.why, /differs from the one built from main.s runs up to run 3 in: services$/);
+  // Only what main's code holds differs: main moved since the build, and the message says to rebuild.
+  const moved = JSON.parse(good);
+  moved.consumers['packages/new'] = [];
+  assert.match(
+    verifyMap(mapText(moved), rebuild).why,
+    /in: consumers \(only what main.s code holds: main moved since it was built, so rebuild it\)$/,
+  );
   // Planted: a hand-picked map (an older run in place of the newest whole one) fails: the rebuild reads every run up to
   // the newest it names, so the run left out comes back.
   const picked = mapText(build([RUNS[0], RUNS[2]], { minRuns: 2 }));

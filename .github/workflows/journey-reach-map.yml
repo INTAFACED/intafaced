@@ -40,7 +40,7 @@ jobs:
        github.event.workflow_run.head_repository.full_name == github.repository &&
        contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event))
     runs-on: ubuntu-latest
-    timeout-minutes: 30 # healthy run: a few minutes, most of it downloading three reports twice (build, then verify)
+    timeout-minutes: 30 # healthy run: a few minutes, most of it downloading the newest whole runs' reports twice (build, then verify)
     permissions:
       contents: read
       actions: read # main's Real-app journeys runs and their report artifacts
@@ -74,14 +74,23 @@ jobs:
         run: |
           map="$RUNNER_TEMP/reach-map/journey-reach-map.json"
           node tooling/ci/journey-reach-map.mjs verify --map "$map"
-          node -e 'const fs=require("fs");const m=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));m.skipped=[...(m.skipped??[]),"0: planted"];fs.writeFileSync(process.argv[2],JSON.stringify(m)+"\n")' "$map" "$RUNNER_TEMP/planted.json"
-          if node tooling/ci/journey-reach-map.mjs verify --map "$RUNNER_TEMP/planted.json"; then
-            echo "::error::verify passed a planted edit"
-            exit 1
-          fi
-          echo "verify failed the planted edit, as it must"
+          # The planted edit is judged against the map just built (no second download): verify's comparison must fail it.
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            import { pathToFileURL } from "node:url";
+            const { verifyMap, mapText } = await import(pathToFileURL("tooling/ci/journey-reach-map.mjs").href);
+            const built = readFileSync(process.argv[1], "utf8");
+            const planted = JSON.parse(built);
+            planted.skipped = [...(planted.skipped ?? []), "0: planted"];
+            const r = verifyMap(mapText(planted), () => built);
+            if (r.ok) { console.log("::error::verify passed a planted edit"); process.exit(1); }
+            console.log("verify failed the planted edit, as it must: " + r.why);
+          ' "$map"
 
+      # Kept even when the verify step fails (a refusal that found no whole run writes a map naming none, which verify
+      # cannot rebuild), so the map the builder wrote can be read.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
         with:
           name: journey-reach-map
           path: ${{ runner.temp }}/reach-map/journey-reach-map.json

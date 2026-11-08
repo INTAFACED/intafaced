@@ -168,10 +168,11 @@ jobs:
       # tooling/ci/journey-reach-map.json has it rebuilt from main's Real-app journeys runs up to the newest run it names,
       # by main's copy of the builder in a worktree of main, and compared byte for byte, so a hand-edited map, or one built
       # from hand-picked runs, fails (`verify`, tooling/ci/journey-reach-map.mjs; the Touched-journeys map workflow builds
-      # one). A manual CI run checks the committed map the same way. It does nothing when the pull request leaves the map
-      # alone. Falls back to the PR copy only while main's builder has no `verify` (the PR that introduces it).
+      # one). A manual CI run on a branch checks its committed map the same way (never on main, where a map built before
+      # main last moved would turn a manual run red). It does nothing when the pull request leaves the map alone. Falls
+      # back to the PR copy only while main's builder has no `verify` (the PR that introduces it).
       - name: Touched-journeys map rebuild (builder from main)
-        if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && !cancelled()
+        if: (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')) && !cancelled()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT: ${{ github.event_name }}

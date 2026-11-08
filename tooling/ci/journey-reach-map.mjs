@@ -599,6 +599,9 @@ function downloadReport(id) {
   }
 }
 
+/** The map's keys read from the checkout's code rather than from the runs. */
+const WORKSPACE_KEYS = new Set(['consumers', 'dependents', 'harness', 'subscribers', 'money']);
+
 /** The map as the builder writes it: one line of JSON and a newline. */
 export const mapText = (map) => `${JSON.stringify(map)}\n`;
 
@@ -607,6 +610,7 @@ function buildFromMain({ ids, until } = {}) {
   const ws = workspace();
   const services = new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d)));
   const runs = [];
+  let whole = 0;
   for (const r of mainCandidates(ids, until)) {
     let files;
     try {
@@ -622,7 +626,11 @@ function buildFromMain({ ids, until } = {}) {
       continue;
     }
     runs.push({ id: r.id, head: r.head_sha, created: r.created_at, report, files });
-    if (reportRecords(report).length === 0) break; // older runs come before the recorder
+    const records = reportRecords(report).length;
+    if (records === 0) break; // older runs come before the recorder
+    // buildMap reads no further than MIN_RUNS whole runs, so nothing older needs downloading (its test of whole).
+    const ran = reportFiles(report);
+    if ([...files].every((f) => ran.has(f)) && ++whole === MIN_RUNS) break;
   }
   return buildMap({
     runs,
@@ -669,7 +677,9 @@ export function verifyMap(text, rebuild) {
   return {
     ok: false,
     why: keys.length
-      ? `the map differs from the one built from main's runs up to run ${until} in: ${keys.join(', ')}`
+      ? `the map differs from the one built from main's runs up to run ${until} in: ${keys.join(', ')}${
+          keys.every((k) => WORKSPACE_KEYS.has(k)) ? " (only what main's code holds: main moved since it was built, so rebuild it)" : ''
+        }`
       : `the map is not byte for byte the one built from main's runs up to run ${until} (its layout differs)`,
   };
 }
