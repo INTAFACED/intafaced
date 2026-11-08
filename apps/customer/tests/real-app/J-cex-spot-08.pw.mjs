@@ -375,6 +375,9 @@ test(`${J} #7 a partial fill on the take-profit leg keeps the rest held for the 
   // sized from. Unheld, the maker re-places its ladder every 8 s cycle, new asks first, and its taker crosses the best
   // level: an ask that lands under the take-profit between the book read and the buy is taken first and can use the whole
   // buy, so the leg reads filled 0 (full run 42508481674, #7576). Timed from before the ask, as the hold's own lapse is.
+  // A hold keeps the ladder the maker's last cycle left resting, so it is asked for only once that ladder has both sides:
+  // held before then, an empty book stays empty (J-derivatives-04, main run 42468772049, #7555).
+  await bestPrices(SYMBOL, 50, 60_000);
   const heldAt = Date.now();
   tool('local-test-market.mjs', 'hold', SYMBOL);
   const { takeProfit, stopLoss } = await ocoPrices();
