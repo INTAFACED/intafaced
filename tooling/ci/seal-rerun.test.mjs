@@ -79,3 +79,30 @@ test('sealStep and rerunSeal: wait out a running seal, re-run a red one once, fa
     'a green seal: one read, nothing else',
   );
 });
+
+test("a pull request whose head moved is not re-sealed: a re-run would cancel the new head's CI (8 Nov, 3dbe29e7)", async () => {
+  const old = 'e'.repeat(40);
+  const posted = [];
+  const api = async (method, path) => {
+    if (path.endsWith('/pulls/7')) return { status: 200, json: { state: 'open', head: { sha: 'f'.repeat(40) } } };
+    if (path.includes('/check-runs'))
+      return {
+        status: 200,
+        json: {
+          check_runs: [
+            { id: 1, name: 'CI merge seal', status: 'completed', conclusion: 'failure', details_url: 'https://x/actions/runs/9/job/1' },
+          ],
+        },
+      };
+    if (method === 'POST') return (posted.push(path), { status: 201 });
+    return { status: 200, json: { status: 'completed' } };
+  };
+  const msg = await rerunSeal('o/r', old, { api, number: 7, sleep: async () => {}, log: () => {} });
+  assert.match(msg, /^not re-run: #7 is open on f{10}/);
+  assert.deepEqual(posted, [], 'nothing re-run');
+  // Planted: the same head still on the pull request is re-run.
+  const same = async (method, path) =>
+    path.endsWith('/pulls/7') ? { status: 200, json: { state: 'open', head: { sha: old } } } : api(method, path);
+  await rerunSeal('o/r', old, { api: same, number: 7, sleep: async () => {}, log: () => {} });
+  assert.equal(posted.length, 1);
+});

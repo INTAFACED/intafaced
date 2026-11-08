@@ -53,7 +53,20 @@ export function sealStep(checkRuns, runStatus) {
  * Re-run the CI merge seal if it already finished red on this head, so nobody re-runs it by hand. Throws when it
  * cannot find or re-run a red seal, which fails the CI review job's re-run step.
  */
-export async function rerunSeal(repo, sha, { api = gh, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log } = {}) {
+export async function rerunSeal(
+  repo,
+  sha,
+  { api = gh, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = console.log, number } = {},
+) {
+  // A re-run is a new attempt of its run and joins ci.yml's per-pull-request concurrency group, so re-running an old
+  // head's seal cancels the new head's CI (8 Nov 2026: CI on 3dbe29e7 cancelled at 10:32 UTC by a re-run on e888920f).
+  // Only a pull request still open on this head is re-sealed; a moved head gets its own seal.
+  if (number !== undefined) {
+    const p = await api('GET', `/repos/${repo}/pulls/${number}`);
+    if (p.status !== 200) throw new Error(`could not read #${number}: HTTP ${p.status}`);
+    if (p.json?.state !== 'open' || p.json?.head?.sha !== sha)
+      return `not re-run: #${number} is ${p.json?.state} on ${String(p.json?.head?.sha).slice(0, 10)}, not on ${sha.slice(0, 10)}`;
+  }
   for (let poll = 1; ; poll++) {
     const c = await api('GET', `/repos/${repo}/commits/${sha}/check-runs?check_name=${encodeURIComponent(SEAL)}&filter=all&per_page=100`);
     if (c.status !== 200) throw new Error(`could not read the seal's check runs: HTTP ${c.status}`);
