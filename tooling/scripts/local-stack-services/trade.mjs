@@ -221,5 +221,17 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, P, TEST_FUTURES_LADDER_POLICY
     ...(process.env.LOCAL_STACK_TRADE_DEVELOPER_DATA_TERMS === 'off'
       ? {}
       : { TRADE_DEVELOPER_DATA_TERMS: testValue('TRADE_DEVELOPER_DATA_TERMS') }),
+    // B1 user-venue door: on only with LOCAL_STACK_USER_VENUE=on (the stack validates it and starts the TEST venue,
+    // local-test-venue.mjs). Off, trade gets no TRADE_USER_VENUE_URL and nothing changes. The builder address and fee are
+    // the labelled LOCAL TEST values; `LOCAL_STACK_USER_VENUE_BUILDER_FEE=off` leaves the fee blank, so every venue order
+    // refuses builder_fee_not_published.
+    ...(process.env.LOCAL_STACK_USER_VENUE === 'on'
+      ? {
+          TRADE_USER_VENUE_URL: urlOf('test-venue'),
+          TRADE_USER_VENUE_BUILDER_ADDRESS: testValue('TRADE_USER_VENUE_BUILDER_ADDRESS'),
+          TRADE_USER_VENUE_BUILDER_FEE_BPS:
+            process.env.LOCAL_STACK_USER_VENUE_BUILDER_FEE === 'off' ? '' : testValue('TRADE_USER_VENUE_BUILDER_FEE_BPS'),
+        }
+      : {}),
   }),
 });

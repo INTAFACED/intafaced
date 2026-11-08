@@ -13,11 +13,24 @@ import type { UserVenueAccount, VenueIntent, VenueSigner } from '@intafaced/venu
  */
 export const TEST_VENUE_CHAIN_ID = 1_337_000;
 
-export const TEST_VENUE_DOMAIN = {
-  name: 'INTAFACED TEST venue simulator',
-  version: '1',
-  chainId: TEST_VENUE_CHAIN_ID,
-} as const;
+export interface TestVenueDomain {
+  readonly name: 'INTAFACED TEST venue simulator';
+  readonly version: '1';
+  readonly chainId: number;
+}
+
+/**
+ * The domain for one chain id. The simulator's default is `TEST_VENUE_CHAIN_ID`; a
+ * stack may name its own TEST app chain (Base Sepolia, 84532) so the customer's
+ * wallet signs on the network it is already on. The domain's `name` still names
+ * the simulator, so the signature is good on nothing but the simulator.
+ */
+export function testVenueDomain(chainId: number = TEST_VENUE_CHAIN_ID): TestVenueDomain {
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) throw new Error(`TEST venue chain id must be a positive integer, got ${chainId}`);
+  return { name: 'INTAFACED TEST venue simulator', version: '1', chainId };
+}
+
+export const TEST_VENUE_DOMAIN: TestVenueDomain = testVenueDomain();
 
 export const TEST_VENUE_TYPES = {
   Action: [
@@ -33,7 +46,7 @@ export const TEST_VENUE_TYPES = {
 } as const;
 
 export interface TestVenueTypedData {
-  readonly domain: typeof TEST_VENUE_DOMAIN;
+  readonly domain: TestVenueDomain;
   readonly types: typeof TEST_VENUE_TYPES;
   readonly primaryType: 'Action';
   readonly message: {
@@ -67,9 +80,10 @@ export function buildTypedData(
   signer: VenueSigner,
   intent: VenueIntent,
   nonce: string,
+  chainId: number = TEST_VENUE_CHAIN_ID,
 ): TestVenueTypedData {
   return {
-    domain: TEST_VENUE_DOMAIN,
+    domain: testVenueDomain(chainId),
     types: TEST_VENUE_TYPES,
     primaryType: 'Action',
     message: {

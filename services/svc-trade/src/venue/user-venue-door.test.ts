@@ -1,0 +1,340 @@
+import http from 'node:http';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import type { Principal } from '@intafaced/auth';
+import { StepUpCheckError, type StepUpCheck, type StepUpCheckRequest } from '@intafaced/contracts';
+import { parseAmount } from '@intafaced/ledger-client/money';
+import type { PlaceUserOrderIntent, PreparedVenueAction, VenueIntent } from '@intafaced/venue-contracts';
+import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
+import { HttpUserVenue } from './http-user-venue.js';
+import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
+import { UserVenueDoor, parseBuilderFee, type BuilderFeeValue } from './user-venue-door.js';
+
+const a = parseAmount;
+const USER = '11111111-1111-4111-8111-1111111111a1';
+const principal = {
+  sub: USER,
+  userId: USER,
+  sid: '33333333-3333-4333-8333-3333333333a3',
+  scopes: ['trade:read', 'trade:write'],
+  tier: 'basic',
+  mfa: false,
+  expiresAt: new Date(Date.now() + 600_000),
+} as Principal;
+
+/** A TEST wallet with a fixed key, so every run signs the same bytes. */
+const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade venue door')));
+const owner = key.address.toLowerCase();
+const signer = { role: 'owner' as const, address: owner };
+async function sign(prepared: PreparedVenueAction) {
+  const t = prepared.typedData as TestVenueTypedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  return { digest: prepared.digest, signature, signedBy: owner };
+}
+
+const BUILDER: BuilderFeeValue = { address: '0x00000000000000000000000000000000000000b1', feeBps: a('1') };
+
+/** A step-up that records what it was asked and answers as told. */
+function stepUp(answer: 'approve' | 'required') {
+  const calls: StepUpCheckRequest[] = [];
+  const check: StepUpCheck = {
+    async require(req) {
+      calls.push(req);
+      if (answer === 'required') throw new StepUpCheckError('confirm first', 'identity.step_up_required');
+      return { stepUpEventId: 'step-up-test', consumedAt: null, replayed: false };
+    },
+  };
+  return { check, calls };
+}
+
+function closeServer(server: http.Server) {
+  return new Promise<void>((resolve) => {
+    server.closeAllConnections();
+    server.close(() => resolve());
+  });
+}
+
+/** A loopback server that answers each request as `handle` says (or never). */
+async function fakeVenue(handle: (req: http.IncomingMessage, res: http.ServerResponse) => void) {
+  const server = http.createServer((req, res) => {
+    if (req.url === '/venue') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          venue: { id: 'fake', displayName: 'fake TEST venue', kind: 'external-dex', sequencedDepth: true, proofLevel: 'simulator' },
+          chainId: 84532,
+        }),
+      );
+      return;
+    }
+    req.resume();
+    req.on('end', () => handle(req, res));
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const port = (server.address() as { port: number }).port;
+  return { server, url: `http://127.0.0.1:${port}` };
+}
+
+const somePrepared = (venueId: string): PreparedVenueAction => ({
+  venueId,
+  account: { venueId, owner, subAccount: null },
+  signer,
+  intent: { kind: 'revoke_agent', agentAddress: owner },
+  nonce: '1',
+  venueClientOrderId: null,
+  typedData: {},
+  digest: '0xabc',
+  builderFee: null,
+  preparedAt: new Date(),
+});
+const someSignature = { digest: '0xabc', signature: '0x00', signedBy: owner };
+
+describe('HttpUserVenue: a lost answer after send is never definite', () => {
+  it('a submit that times out after the request was sent is definite:false timeout', async () => {
+    const { server, url } = await fakeVenue(() => undefined); // receives the body, never answers
+    try {
+      const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 });
+      expect(venue.chainId).toBe(84532);
+      expect(await venue.submit(somePrepared(venue.venue.id), someSignature)).toEqual({ definite: false, reason: 'timeout' });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('a connection dropped after the request was sent is definite:false connection_lost', async () => {
+    const { server, url } = await fakeVenue((req) => req.socket.destroy());
+    try {
+      const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
+      expect(await venue.submit(somePrepared(venue.venue.id), someSignature)).toEqual({ definite: false, reason: 'connection_lost' });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('a 5xx or an answer that does not parse after send is definite:false venue_error_after_send', async () => {
+    let mode: '500' | 'garbage' | 'shape' = '500';
+    const { server, url } = await fakeVenue((_req, res) => {
+      res.writeHead(mode === '500' ? 500 : 200, { 'content-type': 'application/json' });
+      res.end(mode === 'garbage' ? '{not json' : mode === 'shape' ? '{"accepted":true}' : '{"error":"boom"}');
+    });
+    try {
+      const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
+      for (const m of ['500', 'garbage', 'shape'] as const) {
+        mode = m;
+        expect(await venue.submit(somePrepared(venue.venue.id), someSignature)).toEqual({
+          definite: false,
+          reason: 'venue_error_after_send',
+        });
+      }
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it('a refused connection sent nothing: a definite venue_down refusal; a read that times out refuses venue_down', async () => {
+    const { server, url } = await fakeVenue(() => undefined);
+    const venue = await HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 });
+    await expect(venue.balances({ venueId: venue.venue.id, owner, subAccount: null })).rejects.toMatchObject({
+      refusal: { code: 'venue_down' },
+    });
+    await closeServer(server);
+    const outcome = await venue.submit(somePrepared(venue.venue.id), someSignature);
+    expect(outcome).toMatchObject({ definite: true, accepted: false, refusal: { code: 'venue_down' } });
+    await expect(HttpUserVenue.connect({ baseUrl: url, timeoutMs: 200 })).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
+  });
+});
+
+describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
+  let server: http.Server;
+  let sim: TestVenueSimulator;
+  let url: string;
+
+  beforeAll(async () => {
+    ({ server, sim, url } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532 }));
+    const { seedTestVenue } = await import('@intafaced/venue-sim');
+    await seedTestVenue(sim);
+    sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'USDC', a('200000'), 'deposit:test:1');
+  });
+  afterAll(async () => closeServer(server));
+
+  function door(opts: { store?: PreparedActionStore; builder?: BuilderFeeValue | null; stepUp?: StepUpCheck; appEnv?: string } = {}) {
+    const store = opts.store ?? new InMemoryPreparedActionStore();
+    let connects = 0;
+    const d = new UserVenueDoor({
+      connect: async () => {
+        connects += 1;
+        return HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 });
+      },
+      appEnv: opts.appEnv ?? 'test',
+      store,
+      stepUp: opts.stepUp ?? stepUp('approve').check,
+      builder: opts.builder === undefined ? BUILDER : opts.builder,
+      now: () => new Date(),
+    });
+    return { d, store, connects: () => connects };
+  }
+
+  const order = (n: number, over: Partial<PlaceUserOrderIntent> = {}): PlaceUserOrderIntent => ({
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: a('0.1'),
+    price: a('60010'),
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `order:${USER}:door-test:${n}`,
+    builderFee: null,
+    ...over,
+  });
+
+  it('prepare → sign (viem, fixed key) → submit → read, with our builder fee from the owner value', async () => {
+    const { d } = door();
+    const status = await d.status();
+    expect(status).toMatchObject({ enabled: true, available: true, test: true, label: 'TEST', chainId: 84532 });
+
+    // The builder fee approval first (owner-signed), keyed by the caller's own business key.
+    const approve = await d.prepare(principal, {
+      owner,
+      signer,
+      intent: { kind: 'approve_builder_fee', builder: BUILDER.address, maxFeeBps: a('1') },
+      actionKey: `approve-builder:${USER}:1`,
+    });
+    expect((await d.submit(principal, approve.actionKey, await sign(approve.prepared))).outcome).toMatchObject({
+      definite: true,
+      accepted: true,
+    });
+
+    const preview = await d.preview(principal, owner, order(1));
+    expect(preview.value.role).toBe('taker');
+    expect(preview.value.builderFee).toEqual({ known: true, value: { asset: 'BTC', amount: a('0.00001') } });
+
+    // The request's own builder fee is replaced by the owner value.
+    const prepared = await d.prepare(principal, { owner, signer, intent: order(1, { builderFee: { builder: owner, feeBps: a('0') } }) });
+    expect(prepared.prepared.builderFee).toEqual({ builder: BUILDER.address, feeBps: a('1') });
+    expect((prepared.prepared.typedData as TestVenueTypedData).domain.chainId).toBe(84532);
+    const submitted = await d.submit(principal, prepared.actionKey, await sign(prepared.prepared));
+    expect(submitted.outcome).toMatchObject({ definite: true, accepted: true, order: { status: 'filled' } });
+
+    const venue = await d.venue();
+    const account = await d.account(owner);
+    const read = await venue.orderByClientId(account, prepared.prepared.venueClientOrderId as string);
+    expect(read.value).toMatchObject({ status: 'filled', filled: a('0.1') });
+    const fills = (await venue.fills(account, new Date(0))).value.filter(
+      (f) => f.venueClientOrderId === prepared.prepared.venueClientOrderId,
+    );
+    expect(fills.reduce((s, f) => s + f.builderFee, 0n)).toBe(a('0.00001'));
+  });
+
+  it('one prepared action per business key: a second prepare returns the stored action; a resubmit re-sends the same bytes', async () => {
+    const { d, store } = door();
+    const first = await d.prepare(principal, { owner, signer, intent: order(2, { price: a('59000') }) });
+    const second = await d.prepare(principal, { owner, signer, intent: order(2, { price: a('59000') }) });
+    expect(second.reused).toBe(true);
+    expect(second.prepared.digest).toBe(first.prepared.digest);
+    expect(second.prepared.nonce).toBe(first.prepared.nonce);
+
+    // The same key for another intent is refused, never a second action.
+    await expect(d.prepare(principal, { owner, signer, intent: order(2, { price: a('58000') }) })).rejects.toMatchObject({
+      code: 'trade.venue_action_key_reused',
+    });
+
+    const signature = await sign(first.prepared);
+    const sent = await d.submit(principal, first.actionKey, signature);
+    expect(sent.outcome).toMatchObject({ definite: true, accepted: true, order: { status: 'open' } });
+    // A later submit with other bytes still sends the stored signature: the venue answers its first answer, one order.
+    const again = await d.submit(principal, first.actionKey, { ...signature, signature: `${signature.signature.slice(0, -2)}00` });
+    expect(again.outcome).toEqual(sent.outcome);
+    expect((await store.find(USER, first.actionKey))?.signature?.signature).toBe(signature.signature);
+    const open = (await (await d.venue()).openOrders(await d.account(owner))).value.filter(
+      (o) => o.venueClientOrderId === first.prepared.venueClientOrderId,
+    );
+    expect(open).toHaveLength(1);
+  });
+
+  it('a lost submit answer is definite:false with where to read back; the re-send of the stored bytes is one order', async () => {
+    const { d } = door();
+    const p = await d.prepare(principal, { owner, signer, intent: order(3, { price: a('58500') }) });
+    sim.switches.loseAnswers = 1;
+    const lost = await d.submit(principal, p.actionKey, await sign(p.prepared));
+    expect(lost.outcome).toEqual({ definite: false, reason: 'timeout' });
+    expect(lost.readBack).toEqual({ venueClientOrderId: p.prepared.venueClientOrderId });
+    const resent = await d.submit(principal, p.actionKey, await sign(p.prepared));
+    expect(resent.outcome).toMatchObject({ definite: true, accepted: true });
+    const open = (await (await d.venue()).openOrders(await d.account(owner))).value.filter(
+      (o) => o.venueClientOrderId === p.prepared.venueClientOrderId,
+    );
+    expect(open).toHaveLength(1);
+  });
+
+  it('blank builder fee: every order refuses builder_fee_not_published before the venue is asked', async () => {
+    const { d, store } = door({ builder: null });
+    await expect(d.prepare(principal, { owner, signer, intent: order(4) })).rejects.toMatchObject({
+      refusal: { code: 'builder_fee_not_published' },
+    });
+    await expect(d.preview(principal, owner, order(4))).rejects.toMatchObject({ refusal: { code: 'builder_fee_not_published' } });
+    expect(await store.find(USER, order(4).clientOrderKey)).toBeNull();
+    expect(parseBuilderFee('', '1')).toBeNull();
+    expect(parseBuilderFee(BUILDER.address, '  ')).toBeNull();
+    expect(parseBuilderFee(BUILDER.address.toUpperCase().replace('0X', '0x'), '0.5')).toEqual({
+      address: BUILDER.address,
+      feeBps: a('0.5'),
+    });
+    expect(() => parseBuilderFee('not-an-address', '1')).toThrow(/0x address/);
+  });
+
+  it('a withdrawal spends the step-up first: refused, nothing is prepared, stored or asked of the venue', async () => {
+    const refused = stepUp('required');
+    const { d, store, connects } = door({ stepUp: refused.check });
+    const withdraw: VenueIntent = {
+      kind: 'withdraw',
+      asset: 'USDC',
+      amount: a('10.50'),
+      destination: owner,
+      withdrawalKey: `withdraw:${USER}:1`,
+    };
+    await expect(d.prepare(principal, { owner, signer, intent: withdraw, stepUpApprovalId: 'appr-1' })).rejects.toMatchObject({
+      code: 'identity.step_up_required',
+    });
+    expect(connects()).toBe(0);
+    expect(await store.find(USER, `withdraw:${USER}:1`)).toBeNull();
+    expect(refused.calls[0]).toEqual({
+      scope: 'trade.step_up.venue.withdraw',
+      userId: USER,
+      sessionId: principal.sid,
+      approvalId: 'appr-1',
+      fields: { withdrawalKey: `withdraw:${USER}:1`, asset: 'USDC', amount: '10.5', destination: owner },
+      requestId: `venue.withdraw:withdraw:${USER}:1`,
+    });
+
+    // Approved, it prepares, signs and lands; a lost answer reads back by nonce.
+    const ok = door();
+    const p = await ok.d.prepare(principal, { owner, signer, intent: withdraw, stepUpApprovalId: 'appr-1' });
+    const out = await ok.d.submit(principal, p.actionKey, await sign(p.prepared));
+    expect(out.outcome).toMatchObject({ definite: true, accepted: true });
+    const read = await (await ok.d.venue()).withdrawal(await ok.d.account(owner), p.prepared.nonce);
+    expect(read.value).toMatchObject({ status: 'pending', amount: a('10.5') });
+  });
+
+  it('refuses a TEST venue outside APP_ENV dev or test, and keys that are not business keys', async () => {
+    for (const appEnv of ['prod', '', 'staging']) {
+      const { d } = door({ appEnv });
+      await expect(d.venue()).rejects.toMatchObject({ refusal: { code: 'test_venue_outside_test' } });
+      expect(await d.status()).toMatchObject({ enabled: true, available: false, refusal: { code: 'test_venue_outside_test' } });
+    }
+    const { d } = door();
+    await expect(
+      d.prepare(principal, { owner, signer, intent: order(5, { clientOrderKey: '6f1c1a8e-9d0b-4c43-8e8e-0e9c3b1f2a10' }) }),
+    ).rejects.toMatchObject({
+      code: 'trade.venue_action_key_invalid',
+    });
+    await expect(
+      d.prepare(principal, {
+        owner,
+        signer,
+        intent: { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'isolated' },
+      }),
+    ).rejects.toMatchObject({ code: 'trade.venue_action_key_invalid' });
+  });
+});

@@ -104,6 +104,10 @@ import { registerSpotOrderPreviewRest } from './spot/order-preview-rest.js';
 import { registerFeeTierRest } from './spot/fee-tier-rest.js';
 import { registerVipRest } from './spot/vip-rest.js';
 import { installRouteInventory } from './route-inventory.js';
+import { HttpUserVenue } from './venue/http-user-venue.js';
+import { SqlPreparedActionStore } from './venue/prepared-action-store.js';
+import { UserVenueDoor, parseBuilderFee } from './venue/user-venue-door.js';
+import { VenueRefusalError } from '@intafaced/venue-contracts';
 import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
 import { VipApplicationStore, parseVipProofKey } from './spot/vip-applications.js';
 import { assertMakerRebatesPayable, parseFeeScheduleJson } from './spot/fee-schedule.js';
@@ -433,6 +437,29 @@ const stepUp = createStepUpCheck({
       })
     : null,
 });
+// The B1 user-venue door (src/venue/): off unless TRADE_USER_VENUE_URL is set. A TEST venue is refused unless the RAW
+// APP_ENV is exactly dev or test; checked here at boot when the venue answers, and again whenever the door reconnects.
+const userVenueUrl = env.TRADE_USER_VENUE_URL.trim();
+const userVenue = userVenueUrl
+  ? new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: userVenueUrl, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS }),
+      appEnv: process.env.APP_ENV,
+      store: new SqlPreparedActionStore(sql),
+      stepUp,
+      builder: parseBuilderFee(env.TRADE_USER_VENUE_BUILDER_ADDRESS, env.TRADE_USER_VENUE_BUILDER_FEE_BPS),
+      now: () => new Date(),
+    })
+  : null;
+if (userVenue) {
+  try {
+    await userVenue.venue();
+  } catch (err) {
+    if (err instanceof VenueRefusalError && err.refusal.code === 'test_venue_outside_test') throw err;
+    process.stderr.write(
+      `${JSON.stringify({ level: 'warn', msg: 'trade.user_venue.unreachable_at_boot', message: err instanceof Error ? err.message : String(err) })}\n`,
+    );
+  }
+}
 // The copy and bots kill switch (CB-ops-03): two founders pause or resume a lead, a bot type or a symbol. Copy mirrors,
 // grid bots and algo bots read its active pauses; the approvals book is the trade ops desk's (bound below).
 const platformPauses = new PlatformPauseDesk({
@@ -1531,6 +1558,7 @@ registerPrivateRest(app, {
   convert: trade,
   copyExport: (principal, query) => copy.exportMirrorTrail(principal, query),
   grid,
+  userVenue,
   algo: trade,
   rfqExport: (principal, query) => trade.rfqExport(principal, query),
   statements: { ledger: ledgerPages, exports: new StatementExports(sql, ledgerPages) },

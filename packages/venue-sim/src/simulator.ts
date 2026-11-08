@@ -19,14 +19,16 @@ import {
   type UserVenueOrder,
   type UserVenuePosition,
   type UserVenueWithdrawal,
+  type VenueAssetAmount,
   type VenueIntent,
+  type VenueOrderPreview,
   type VenueMarginMode,
   type VenueRefusalCode,
   type VenueSignature,
   type VenueSigner,
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
-import { buildTypedData, digestOf, recoverSigner } from './signing.js';
+import { TEST_VENUE_CHAIN_ID, buildTypedData, digestOf, recoverSigner, testVenueDomain } from './signing.js';
 
 /**
  * THE TEST VENUE SIMULATOR — a deterministic venue the customer's own wallet signs on.
@@ -89,6 +91,8 @@ export interface SimOptions {
   readonly clock: () => Date;
   readonly markets: readonly SimMarketConfig[];
   readonly switches?: Partial<SimSwitches>;
+  /** The EIP-712 domain's chain id (signing.ts). Default `TEST_VENUE_CHAIN_ID`. */
+  readonly chainId?: number;
 }
 
 interface AccountState {
@@ -141,6 +145,8 @@ function accountKey(account: UserVenueAccount): string {
 export class TestVenueSimulator implements UserVenue {
   readonly venue: UserVenueDescriptor;
   readonly switches: SimSwitches;
+  /** The chain id every action's EIP-712 domain names. */
+  readonly chainId: number;
   private readonly clock: () => Date;
   private readonly marketsBySymbol = new Map<string, SimMarketConfig>();
   private readonly marks = new Map<string, Amount>();
@@ -162,6 +168,7 @@ export class TestVenueSimulator implements UserVenue {
       proofLevel: 'simulator',
     };
     this.clock = options.clock;
+    this.chainId = testVenueDomain(options.chainId ?? TEST_VENUE_CHAIN_ID).chainId;
     this.switches = {
       venueDown: false,
       withdrawalFee: { known: true, value: parseAmount('1') },
@@ -232,6 +239,107 @@ export class TestVenueSimulator implements UserVenue {
     return this.asOf(list);
   }
 
+  async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
+    this.up();
+    if (account.venueId !== this.venue.id)
+      refuse(this.venue.id, 'venue_rejected', `account is on ${account.venueId}, not ${this.venue.id}`);
+    const state = this.account(account);
+    this.checkOrderOnItsFace(state, intent);
+    const market = this.market(intent.symbol);
+    const perp = market.kind === 'perpetual';
+    const setting = perp ? state.leverage.get(market.symbol) : undefined;
+    const builderFee = intent.builderFee ? { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps } : null;
+    const { lockAsset, lockAmount } = this.orderLock(market, intent, setting, builderFee);
+
+    // Walk the contra book as `place` matches it: other accounts' resting orders that cross, best price first, then
+    // time (this account's own crossing orders are cancelled first by self-trade prevention, so they are not met).
+    const crosses = (o: OrderState) =>
+      intent.side === 'buy' ? compare(o.order.price, intent.price) <= 0 : compare(o.order.price, intent.price) >= 0;
+    const met = this.bookOf(market.symbol)
+      .filter((o) => o.order.side !== intent.side && o.account !== state && crosses(o))
+      .sort(
+        (a, b) => (intent.side === 'buy' ? compare(a.order.price, b.order.price) : compare(b.order.price, a.order.price)) || a.seq - b.seq,
+      );
+    const takes: Array<{ qty: Amount; price: Amount }> = [];
+    let left = intent.amount;
+    for (const maker of met) {
+      if (left === ZERO) break;
+      const qty = min(left, maker.order.remaining);
+      takes.push({ qty, price: maker.order.price });
+      left = sub(left, qty);
+    }
+    const immediate = intent.type === 'market' || intent.timeInForce === 'IOC';
+    const rests = left !== ZERO && !immediate ? left : ZERO;
+    const role: 'maker' | 'taker' = takes.length > 0 || immediate ? 'taker' : 'maker';
+
+    // Fees exactly as `fill` charges them: a spot buy pays in the base it receives, everything else in the quote.
+    const feeInBase = market.kind === 'spot' && intent.side === 'buy';
+    const feeAsset = feeInBase ? market.baseAsset : market.quoteAsset;
+    const basisOf = (qty: Amount, price: Amount) => (feeInBase ? qty : mul(price, qty, QUOTE_ROUND));
+    const line = (rate: (role: 'maker' | 'taker') => MaybeKnown<Amount>): MaybeKnown<VenueAssetAmount> => {
+      let total = ZERO;
+      for (const t of takes) {
+        const r = rate('taker');
+        if (!r.known) return { known: false };
+        total = add(total, this.feeOn(basisOf(t.qty, t.price), r.value));
+      }
+      if (rests !== ZERO) {
+        const r = rate('maker');
+        if (!r.known) return { known: false };
+        total = add(total, this.feeOn(basisOf(rests, intent.price), r.value));
+      }
+      return { known: true, value: { asset: feeAsset, amount: total } };
+    };
+    const venueFee = line((r) => (r === 'maker' ? market.makerFeeBps : market.takerFeeBps));
+    const zeroFee: MaybeKnown<Amount> = { known: true, value: ZERO };
+    const builderLine = line(() => (builderFee ? { known: true, value: builderFee.feeBps } : zeroFee));
+
+    let perpetual: VenueOrderPreview['perpetual'] = null;
+    if (perp && setting) {
+      const initialMargin = mul(this.marginPerUnit(intent, setting), intent.amount, QUOTE_ROUND);
+      const held = state.positions.get(market.symbol);
+      let after: PositionState | null;
+      if (intent.reduceOnly) {
+        // A partial close releases margin pro rata (`settle`), so the rest keeps its liquidation price.
+        after = held && compare(held.size, intent.amount) > 0 ? { ...held, size: sub(held.size, intent.amount) } : null;
+      } else if (held && held.size !== ZERO) {
+        const size = add(held.size, intent.amount);
+        after = {
+          ...held,
+          size,
+          entryPrice: div(add(mul(held.entryPrice, held.size), mul(intent.price, intent.amount)), size, QUOTE_ROUND),
+          margin: add(held.margin, initialMargin),
+        };
+      } else {
+        after = {
+          side: intent.side === 'buy' ? 'long' : 'short',
+          size: intent.amount,
+          entryPrice: intent.price,
+          margin: initialMargin,
+          leverageBps: setting.leverageBps,
+          marginMode: setting.marginMode,
+        };
+      }
+      perpetual = {
+        leverageBps: setting.leverageBps,
+        marginMode: setting.marginMode,
+        initialMargin: { known: true, value: initialMargin },
+        // No position left after a full close: there is no liquidation price to publish.
+        liquidationPrice: after ? this.liquidationPrice(market, after) : { known: false },
+      };
+    }
+
+    return this.asOf({
+      symbol: market.symbol,
+      kind: market.kind,
+      lock: { asset: lockAsset, amount: lockAmount },
+      role,
+      venueFee,
+      builderFee: builderLine,
+      perpetual,
+    });
+  }
+
   // ── UserVenue: signed actions ──────────────────────────────────────────
 
   async prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction> {
@@ -272,7 +380,7 @@ export class TestVenueSimulator implements UserVenue {
     // Strictly increasing, and near the clock in microseconds, as a venue's nonce window expects.
     this.lastNonce = Math.max(this.lastNonce + 1, this.clock().getTime() * 1000);
     const nonce = String(this.lastNonce);
-    const typedData = buildTypedData(this.venue.id, account, signer, intent, nonce);
+    const typedData = buildTypedData(this.venue.id, account, signer, intent, nonce, this.chainId);
     return {
       venueId: this.venue.id,
       account,
@@ -291,7 +399,7 @@ export class TestVenueSimulator implements UserVenue {
     this.up();
     assertSignatureMatches(prepared, signature);
     // Recompute: the prepared action may have been edited after prepare.
-    const typedData = buildTypedData(this.venue.id, prepared.account, prepared.signer, prepared.intent, prepared.nonce);
+    const typedData = buildTypedData(this.venue.id, prepared.account, prepared.signer, prepared.intent, prepared.nonce, this.chainId);
     const digest = digestOf(typedData);
     if (digest.toLowerCase() !== prepared.digest.toLowerCase()) {
       refuse(this.venue.id, 'signature_mismatch', 'the prepared action does not match its own digest');
@@ -636,23 +744,7 @@ export class TestVenueSimulator implements UserVenue {
     if (intent.timeInForce === 'ALO' && contra().some(crossesPrice))
       return refused('venue_rejected', 'post-only order would take liquidity');
 
-    // What the venue locks for this order. A perp order also locks the most it can pay in fees.
-    const maxFeeBps = add(market.takerFeeBps.known ? market.takerFeeBps.value : ZERO, builderFee?.feeBps ?? ZERO);
-    const feeBuffer = (notional: Amount) => div(mul(notional, maxFeeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
-    let lockAsset: string;
-    let lockPerUnit: Amount;
-    if (perp) {
-      lockAsset = market.quoteAsset;
-      const margin = intent.reduceOnly ? ZERO : div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
-      lockPerUnit = add(margin, feeBuffer(intent.price));
-    } else if (intent.side === 'buy') {
-      lockAsset = market.quoteAsset;
-      lockPerUnit = intent.price;
-    } else {
-      lockAsset = market.baseAsset;
-      lockPerUnit = parseAmount('1');
-    }
-    const lockAmount = mul(lockPerUnit, intent.amount, QUOTE_ROUND);
+    const { lockAsset, lockPerUnit, lockAmount } = this.orderLock(market, intent, setting, builderFee);
     const balance = this.balance(state, lockAsset);
     if (compare(balance.free, lockAmount) < 0)
       return refused('insufficient_balance', `free ${lockAsset} does not cover what this order locks`);
@@ -709,6 +801,43 @@ export class TestVenueSimulator implements UserVenue {
       }
     }
     return accepted(order.order.venueOrderId, order.order);
+  }
+
+  /**
+   * What the venue locks for an order: the quote notional (spot buy), the base (spot sell), or, on a perpetual, the
+   * margin at the limit price plus the most the order can pay in fees. `place` and `preview` share it.
+   */
+  private orderLock(
+    market: SimMarketConfig,
+    intent: PlaceUserOrderIntent,
+    setting: { leverageBps: number } | undefined,
+    builderFee: PreparedVenueAction['builderFee'],
+  ): { lockAsset: string; lockPerUnit: Amount; lockAmount: Amount } {
+    const maxFeeBps = add(market.takerFeeBps.known ? market.takerFeeBps.value : ZERO, builderFee?.feeBps ?? ZERO);
+    const feeBuffer = (notional: Amount) => div(mul(notional, maxFeeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
+    let lockAsset: string;
+    let lockPerUnit: Amount;
+    if (market.kind === 'perpetual') {
+      lockAsset = market.quoteAsset;
+      lockPerUnit = add(this.marginPerUnit(intent, setting), feeBuffer(intent.price));
+    } else if (intent.side === 'buy') {
+      lockAsset = market.quoteAsset;
+      lockPerUnit = intent.price;
+    } else {
+      lockAsset = market.baseAsset;
+      lockPerUnit = parseAmount('1');
+    }
+    return { lockAsset, lockPerUnit, lockAmount: mul(lockPerUnit, intent.amount, QUOTE_ROUND) };
+  }
+
+  private marginPerUnit(intent: PlaceUserOrderIntent, setting: { leverageBps: number } | undefined): Amount {
+    if (intent.reduceOnly) return ZERO;
+    return div(mul(intent.price, BPS), parseAmount(String(setting!.leverageBps)), QUOTE_ROUND);
+  }
+
+  /** One fee line on `basis`, the same rounding `fill` charges. */
+  private feeOn(basis: Amount, feeBps: Amount): Amount {
+    return div(mul(basis, feeBps, QUOTE_ROUND), BPS, QUOTE_ROUND);
   }
 
   private bookOf(symbol: string): OrderState[] {

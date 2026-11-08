@@ -466,6 +466,46 @@ export interface UserVenueMarket {
   readonly takerFeeBps: MaybeKnown<Amount>;
 }
 
+/** One figure of a preview: an amount in a named asset. */
+export interface VenueAssetAmount {
+  readonly asset: string;
+  readonly amount: Amount;
+}
+
+/**
+ * What an order would do, as the venue would compute it now, without sending
+ * anything (the Review screen's figures). Every line is the venue's, never
+ * ours: a figure the venue does not publish is `known: false`, never zero.
+ */
+export interface VenueOrderPreview {
+  readonly symbol: string;
+  readonly kind: 'spot' | 'perpetual';
+  /** What the venue locks for this order when it is accepted, and in which asset. */
+  readonly lock: VenueAssetAmount;
+  /**
+   * The role the order's first fill takes: `taker` when it meets resting
+   * liquidity now (or is IOC/market), `maker` when it would rest.
+   */
+  readonly role: 'maker' | 'taker';
+  /**
+   * The venue's own fee if the order fills in full: the part that meets the
+   * book now at the taker rate and its fill prices, the rest (a resting order)
+   * at the maker rate and the limit price. An IOC's unfilled rest pays nothing.
+   */
+  readonly venueFee: MaybeKnown<VenueAssetAmount>;
+  /** Our builder fee on the same basis; known zero when the order carries none. */
+  readonly builderFee: MaybeKnown<VenueAssetAmount>;
+  /** Perpetuals only; `null` on spot. */
+  readonly perpetual: {
+    readonly leverageBps: number;
+    readonly marginMode: VenueMarginMode;
+    /** Margin the order posts at its limit price (zero for reduce-only). */
+    readonly initialMargin: MaybeKnown<Amount>;
+    /** Of the position after the order fills in full; `known: false` where the venue publishes none. */
+    readonly liquidationPrice: MaybeKnown<Amount>;
+  } | null;
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // THE INTERFACE
 // ════════════════════════════════════════════════════════════════════════════
@@ -491,6 +531,15 @@ export interface UserVenue {
   // ── market reads, no account ───────────────────────────────────────────
   /** Markets this venue lists for this account and region. Throws `VenueRefusalError('venue_down')` when down. */
   markets(account: UserVenueAccount | null): Promise<AsOf<readonly UserVenueMarket[]>>;
+
+  /**
+   * What `intent` would lock and cost on `account` now, from the same rules
+   * `submit` applies, with nothing prepared, signed or sent. Refuses what
+   * `prepare` refuses on its face (`unknown_market`, `not_offered`,
+   * `leverage_not_set`, ...). A preview is not a quote: the book can move
+   * before the order lands.
+   */
+  preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>>;
 
   // ── signed actions ─────────────────────────────────────────────────────
   /**
