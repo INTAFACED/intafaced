@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { test } from '@playwright/test';
+import { test } from './journey.mjs';
 import path from 'node:path';
 import { founderStepRefused, founderTotp, makeContext, signInOnceMore } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
