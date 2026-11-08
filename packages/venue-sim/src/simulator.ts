@@ -101,6 +101,7 @@ interface AccountState {
   readonly builderApprovals: Map<string, Amount>;
   readonly agents: Map<string, UserVenueAgent>;
   readonly deposits: Set<string>;
+  readonly leverage: Map<string, { leverageBps: number; marginMode: VenueMarginMode }>;
 }
 
 interface OrderState {
@@ -245,7 +246,7 @@ export class TestVenueSimulator implements UserVenue {
     let cloid: string | null = null;
     let builderFee: PreparedVenueAction['builderFee'] = null;
     if (intent.kind === 'place_order') {
-      this.checkOrderOnItsFace(intent);
+      this.checkOrderOnItsFace(state, intent);
       cloid = venueClientOrderId(this.venue.id, intent.clientOrderKey);
       if (intent.builderFee) {
         const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
@@ -258,6 +259,10 @@ export class TestVenueSimulator implements UserVenue {
         }
         builderFee = { builder: intent.builderFee.builder.toLowerCase(), feeBps: intent.builderFee.feeBps };
       }
+    } else if (intent.kind === 'update_leverage') {
+      this.checkLeverageOnItsFace(intent.symbol, intent.leverageBps, intent.marginMode);
+    } else if (intent.kind === 'withdraw' && account.subAccount !== null) {
+      refuse(this.venue.id, 'not_offered', 'a withdrawal from a sub-account is not offered: move the funds to the main account first');
     } else if (intent.kind === 'amend_order' || intent.kind === 'cancel_order') {
       this.market(intent.symbol);
       cloid = venueClientOrderId(this.venue.id, intent.clientOrderKey);
@@ -411,6 +416,7 @@ export class TestVenueSimulator implements UserVenue {
         builderApprovals: new Map(),
         agents: new Map(),
         deposits: new Set(),
+        leverage: new Map(),
       };
       this.accounts.set(key, state);
     }
@@ -432,7 +438,7 @@ export class TestVenueSimulator implements UserVenue {
     return market;
   }
 
-  private checkOrderOnItsFace(intent: PlaceUserOrderIntent): void {
+  private checkOrderOnItsFace(state: AccountState, intent: PlaceUserOrderIntent): void {
     const market = this.market(intent.symbol);
     if (!market.orderTypes.includes(intent.type))
       refuse(this.venue.id, 'not_offered', `${intent.type} orders are not offered on ${market.symbol}`);
@@ -448,19 +454,23 @@ export class TestVenueSimulator implements UserVenue {
     if (intent.price % market.tickSize !== ZERO)
       refuse(this.venue.id, 'venue_rejected', `price is not a multiple of the tick size on ${market.symbol}`);
     if (market.kind === 'perpetual') {
-      if (intent.marginMode === null || !market.marginModes.includes(intent.marginMode)) {
-        refuse(this.venue.id, 'not_offered', `margin mode ${intent.marginMode ?? 'unset'} is not offered on ${market.symbol}`);
+      if (!state.leverage.has(market.symbol)) {
+        refuse(this.venue.id, 'leverage_not_set', `no leverage is set on ${market.symbol} for this account: set it first`);
       }
-      if (
-        intent.leverageBps === null ||
-        intent.leverageBps < 10_000 ||
-        (market.maxLeverageBps !== null && intent.leverageBps > market.maxLeverageBps)
-      ) {
-        refuse(this.venue.id, 'not_offered', `leverage ${intent.leverageBps ?? 'unset'} bps is outside what ${market.symbol} offers`);
-      }
-    } else if (intent.leverageBps !== null || intent.marginMode !== null || intent.reduceOnly) {
-      refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no leverage, margin mode or reduce-only`);
+    } else if (intent.reduceOnly) {
+      refuse(this.venue.id, 'not_offered', `${market.symbol} is cash spot: no reduce-only`);
     }
+  }
+
+  private checkLeverageOnItsFace(symbol: string, leverageBps: number, marginMode: VenueMarginMode): SimMarketConfig {
+    const market = this.market(symbol);
+    if (market.kind !== 'perpetual') refuse(this.venue.id, 'not_offered', `${symbol} is cash spot: no leverage or margin mode`);
+    if (!market.marginModes.includes(marginMode))
+      refuse(this.venue.id, 'not_offered', `margin mode ${marginMode} is not offered on ${symbol}`);
+    if (!Number.isInteger(leverageBps) || leverageBps < 10_000 || (market.maxLeverageBps !== null && leverageBps > market.maxLeverageBps)) {
+      refuse(this.venue.id, 'not_offered', `leverage ${leverageBps} bps is outside what ${symbol} offers`);
+    }
+    return market;
   }
 
   private apply(prepared: PreparedVenueAction): VenueSubmitOutcome {
@@ -532,6 +542,15 @@ export class TestVenueSimulator implements UserVenue {
         state.withdrawals.set(prepared.nonce, withdrawal);
         return accepted(prepared.nonce, null);
       }
+      case 'update_leverage': {
+        const position = state.positions.get(intent.symbol);
+        const current = state.leverage.get(intent.symbol);
+        if (position && position.size !== ZERO && current && current.marginMode !== intent.marginMode) {
+          return refused('venue_rejected', 'the margin mode cannot change while a position is open');
+        }
+        state.leverage.set(intent.symbol, { leverageBps: intent.leverageBps, marginMode: intent.marginMode });
+        return accepted(null, null);
+      }
       case 'approve_builder_fee':
         state.builderApprovals.set(intent.builder.toLowerCase(), intent.maxFeeBps);
         return accepted(null, null);
@@ -539,7 +558,7 @@ export class TestVenueSimulator implements UserVenue {
         state.agents.set(intent.agentAddress.toLowerCase(), {
           address: intent.agentAddress.toLowerCase(),
           name: intent.agentName,
-          validUntil: null,
+          validUntil: intent.validUntil,
         });
         return accepted(null, null);
       case 'revoke_agent':
@@ -566,7 +585,9 @@ export class TestVenueSimulator implements UserVenue {
     if (intent.timeInForce === 'ALO' && contra.some(crosses)) return refused('venue_rejected', 'post-only order would take liquidity');
 
     // What the venue locks for this order.
-    const marginPerUnit = perp ? div(mul(intent.price, BPS), parseAmount(String(intent.leverageBps)), QUOTE_ROUND) : ZERO;
+    const setting = perp ? state.leverage.get(market.symbol) : undefined;
+    if (perp && !setting) return refused('leverage_not_set', `no leverage is set on ${market.symbol} for this account`);
+    const marginPerUnit = setting ? div(mul(intent.price, BPS), parseAmount(String(setting.leverageBps)), QUOTE_ROUND) : ZERO;
     const position = perp ? state.positions.get(market.symbol) : undefined;
     const closing = perp && position !== undefined && position.size !== ZERO && (position.side === 'long') !== (intent.side === 'buy');
     if (intent.reduceOnly && !closing) return refused('venue_rejected', 'reduce-only order would open or grow a position');
@@ -594,8 +615,8 @@ export class TestVenueSimulator implements UserVenue {
       account: state,
       seq: this.seqCounter,
       builderFee,
-      leverageBps: intent.leverageBps,
-      marginMode: intent.marginMode,
+      leverageBps: setting?.leverageBps ?? null,
+      marginMode: setting?.marginMode ?? null,
       marginPerUnit,
       order: {
         venueOrderId: `sim-${this.venueOrderCounter}`,

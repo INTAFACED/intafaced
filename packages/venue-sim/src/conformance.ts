@@ -71,8 +71,6 @@ function limit(symbol: string, side: 'buy' | 'sell', price: Amount, amount: Amou
     timeInForce: 'GTC',
     reduceOnly: false,
     clientOrderKey: key,
-    leverageBps: null,
-    marginMode: null,
     builderFee: null,
   };
 }
@@ -218,6 +216,7 @@ export function defineUserVenueConformance(harness: ConformanceHarness, t: { des
         kind: 'approve_agent',
         agentAddress: h.trader.agent.signer.address,
         agentName: 'TEST bot',
+        validUntil: null,
       });
       const placed = await signAndSubmit(
         h.venue,

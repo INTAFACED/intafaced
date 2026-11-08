@@ -103,8 +103,6 @@ function order(
     timeInForce: 'GTC',
     reduceOnly: false,
     clientOrderKey: key,
-    leverageBps: null,
-    marginMode: null,
     builderFee: null,
     ...extra,
   };
@@ -242,6 +240,23 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
     expect((await w.sim.withdrawal(w.trader, second.prepared.nonce)).value?.fee).toEqual({ known: false });
   });
 
+  it('a withdrawal from a sub-account is refused before signing', async () => {
+    const w = world();
+    const sub = { ...w.trader, subAccount: 'agent-1' };
+    w.sim.deposit(sub, 'USDC', a('100'), 'chain:t:sub');
+    expect(
+      await refusal(
+        w.sim.prepare(sub, w.wallet.signer, {
+          kind: 'withdraw',
+          asset: 'USDC',
+          amount: a('10'),
+          destination: w.wallet.address,
+          withdrawalKey: 'withdraw:t:sub',
+        }),
+      ),
+    ).toBe('not_offered');
+  });
+
   it('a lost withdrawal answer is re-sent as the same signed bytes and withdraws once', async () => {
     const w = world();
     w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:13');
@@ -263,15 +278,23 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
 
 describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
   const perpOrder = (side: 'buy' | 'sell', price: string, size: string, key: string, extra: Partial<PlaceUserOrderIntent> = {}) =>
-    order('BTC-PERP', side, price, size, key, { leverageBps: 100_000, marginMode: 'isolated', ...extra });
+    order('BTC-PERP', side, price, size, key, extra);
+  const tenX = { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'isolated' } as const;
 
   it('#5 a margin mode the venue does not offer is refused, and nothing changes', async () => {
     const w = world();
     w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:d5');
-    expect(
-      await refusal(w.sim.prepare(w.trader, w.wallet.signer, perpOrder('buy', '60000', '0.01', 'order:t:d5', { marginMode: 'cross' }))),
-    ).toBe('not_offered');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, marginMode: 'cross' }))).toBe('not_offered');
     expect(balanceOf((await w.sim.balances(w.trader)).value, 'USDC')).toMatchObject({ free: a('1000'), locked: ZERO });
+  });
+
+  it('#6 a perp order before any leverage is set is refused leverage_not_set, before signing', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:d6');
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, perpOrder('buy', '60000', '0.01', 'order:t:d6')))).toBe(
+      'leverage_not_set',
+    );
+    expect(await refusal(w.sim.prepare(w.trader, w.wallet.signer, { ...tenX, leverageBps: 250_000 }))).toBe('not_offered');
   });
 
   it('#7 a time in force the venue does not offer is refused with no network write', async () => {
@@ -285,6 +308,8 @@ describe('TEST venue simulator: J-derivatives-01 at the venue', () => {
     const w = world();
     w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:d8');
     w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:d8');
+    await w.run(w.wallet, w.trader, tenX);
+    await w.run(w.otherWallet, w.other, tenX);
     await w.run(w.otherWallet, w.other, perpOrder('sell', '60000', '0.1', 'order:maker:d8'));
     // A double press: the same intent twice is one order.
     const open = perpOrder('buy', '60000', '0.1', 'order:t:d8:open');
@@ -358,7 +383,7 @@ describe('TEST venue simulator: switches and labels', () => {
     w.sim.deposit(w.trader, 'USDC', a('1000'), 'chain:t:ag');
     const intent = order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:ag');
     expect(await refusal(w.sim.prepare(w.trader, w.agent.signer, intent))).toBe('signer_not_authorised');
-    await w.run(w.wallet, w.trader, { kind: 'approve_agent', agentAddress: w.agent.address, agentName: 'TEST bot' });
+    await w.run(w.wallet, w.trader, { kind: 'approve_agent', agentAddress: w.agent.address, agentName: 'TEST bot', validUntil: null });
     await w.run(w.agent, w.trader, intent);
     await w.run(w.wallet, w.trader, { kind: 'revoke_agent', agentAddress: w.agent.address });
     expect(await refusal(w.sim.prepare(w.trader, w.agent.signer, order('BTC-USDC', 'buy', '50000', '0.01', 'order:t:ag2')))).toBe(
