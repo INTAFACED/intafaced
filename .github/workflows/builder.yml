@@ -10,12 +10,12 @@
 #
 # Two jobs, so no GitHub write token is ever on the agent's runner. `build` mints a read-only App token, reads GitHub
 # and project-state with it before any process of the agent exists, and revokes it before the agent starts; from then
-# on the runner holds no GitHub token but the job's own read-only GITHUB_TOKEN and the runner's artifact token. The
+# on no step's environment holds a GitHub token, though the runner process keeps the job's secrets (see the PATH check). The
 # agent's commits and PR text leave that runner only as data (an artifact). `publish` runs on a fresh runner, mints a
 # write token, and treats that data as untrusted. (Failure it prevents: on one runner, the steps after the agent held
 # the factory token, so anything the agent could plant on that runner, such as a fake `git` reached through a chain of
 # links in a world-writable directory, ran with it. Review round 1 on #7448 found two such holes in the PATH check
-# this file still keeps, which now guards only the runner's artifact token.)
+# this file still keeps; they stay open, see that check.)
 #
 # Trust: every step runs main's code from the job's checkout of main ($GITHUB_WORKSPACE, owned by the runner user).
 # The journey's branch is only the agent's working tree, /home/factory-agent/work, cloned and installed by the agent
@@ -42,6 +42,8 @@
 #
 # The steps' logic is tooling/ci/factory-builder.mjs, with its planted cases in factory-builder.test.mjs.
 name: Builder
+# The run title names the journey and the account, so the trial reads usage per account from the runs list alone.
+run-name: Builder ${{ inputs.journey }} (${{ inputs.account }})
 
 on:
   workflow_dispatch:
@@ -245,9 +247,12 @@ jobs:
       # Before the agent user exists: no directory on PATH (nor the tool-cache node's, nor any directory above them) may
       # be writable by group or others, and no program in them either. The runner image makes /usr/local/bin
       # world-writable, and it sits ahead of /usr/bin, so the agent could otherwise plant a fake `git` or `sudo` that a
-      # later step runs as the runner. Since the split no later step here holds a GitHub token, so this guards the
-      # runner's own artifact token. (Found by review round 2 on #7386 with a planted fake `git`; #7448's chain and loop
-      # gaps remain, bounded by the split.)
+      # later step runs as the runner. Since the split no later step here holds a GitHub token in its environment, but
+      # the runner process itself holds every secret this job references (the App key and the CLI tokens) for the whole
+      # job, and the runner can sudo: code run as the runner can still reach them. So this check still guards the App
+      # key, not only the artifact token. (Found by review round 2 on #7386 with a planted fake `git`; #7448's chain and
+      # loop gaps remain open, written limit: no such chain is known on a hosted runner, and closing them, or moving
+      # the key out of this job, comes before the trial relies on it.)
       - name: Close every directory on PATH
         shell: /usr/bin/bash -e {0}
         run: |
