@@ -400,7 +400,7 @@ export class TestVenueSimulator implements UserVenue {
     switch (intent.kind) {
       case 'place_order': {
         this.checkOrderOnItsFace(state, intent);
-        venueClientOrderId(this.venue.id, intent.clientOrderKey);
+        venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
         if (intent.builderFee) {
           if (compare(intent.builderFee.feeBps, ZERO) < 0) refuse(this.venue.id, 'venue_rejected', 'a builder fee cannot be negative');
           const approved = state.builderApprovals.get(intent.builderFee.builder.toLowerCase()) ?? ZERO;
@@ -431,7 +431,7 @@ export class TestVenueSimulator implements UserVenue {
       // falls through: refuse never returns
       case 'cancel_order':
         this.market(intent.symbol);
-        venueClientOrderId(this.venue.id, intent.clientOrderKey);
+        venueClientOrderId(this.venue.id, intent.clientOrderKey); // refuses a key that is not a business key
         return;
       case 'approve_agent':
       case 'revoke_agent':
@@ -688,6 +688,17 @@ export class TestVenueSimulator implements UserVenue {
     // Every check runs again here, at submit, on the signed fields only: the prepared object is the caller's and may
     // have been edited or hand-built. Who signed (recovered from the bytes) must own the account or be its live agent.
     try {
+      // A re-send of an order this account already placed answers with that order, after the signer's authority is
+      // checked and before the face checks: a rule that changed since (a lowered builder approval) must not turn a
+      // live order into a definite refusal.
+      if (intent.kind === 'place_order') {
+        assertSignerMaySign(prepared.account, prepared.signer, intent);
+        if (prepared.signer.role === 'agent' && !this.agentLive(state, prepared.signer.address)) {
+          return refused('signer_not_authorised', 'the agent key is not approved on this account, or has expired');
+        }
+        const placed = state.orders.get(venueClientOrderId(this.venue.id, intent.clientOrderKey));
+        if (placed) return accepted(placed.order.venueOrderId, placed.order);
+      }
       this.validate(prepared.account, prepared.signer, intent);
     } catch (error) {
       if (error instanceof VenueRefusalError) return refused(error.refusal.code, error.refusal.detail);
