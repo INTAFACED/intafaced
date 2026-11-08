@@ -101,6 +101,16 @@ export const touchRoot = (t) =>
 export const dependsOnLedgerClient = (m) =>
   ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'].some((k) => m?.[k] && Object.hasOwn(m[k], LEDGER_CLIENT));
 const isMoneyPackage = (m) => m?.name === LEDGER_CLIENT || dependsOnLedgerClient(m);
+/** The money code AGENTS.md "How work flows" 8 names: packages/ledger-client, every package that depends on it directly,
+ *  and svc-edge, svc-ops, svc-protocol and svc-fix. `manifests` is manifestsAt(root). Their folders, e.g. `services/svc-bank`. */
+export const moneyCodeDirs = (manifests) =>
+  new Set([
+    ...[...manifests].filter(([, m]) => isMoneyPackage(m)).map(([dir]) => dir),
+    'services/svc-edge',
+    'services/svc-ops',
+    'services/svc-protocol',
+    'services/svc-fix',
+  ]);
 export function moneyRule({ journeys, slices, manifests }) {
   const money = new Set([...manifests].filter(([, m]) => isMoneyPackage(m)).map(([root]) => root));
   const bySlice = new Map(slices.map((s) => [s.id, s]));

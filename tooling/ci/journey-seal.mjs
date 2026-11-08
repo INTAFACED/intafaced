@@ -71,7 +71,16 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { JOURNEYS_ARTIFACT, fetchInputs, isMainRun, judge, readReport, rootInputs } from './journey-verdict.mjs';
+import {
+  JOURNEYS_ARTIFACT,
+  fetchInputs,
+  isMainRun,
+  judge,
+  manifestsAt,
+  moneyCodeDirs,
+  readReport,
+  rootInputs,
+} from './journey-verdict.mjs';
 import { RUN_FILE, journeyTouch, pathKind, printable } from './journey-touch.mjs';
 import { groupPulls } from './review-marker.mjs';
 
@@ -618,6 +627,11 @@ export function makeIo(repo, token) {
       return res.text();
     },
     verdictOf: (report, run) => fullVerdict({ repo, report, run, inputs: baseInputs() }),
+    // Whether a path is in money code, by the default branch's manifests (the base's copy this script runs from).
+    moneyCode: async (paths) => {
+      const dirs = moneyCodeDirs(manifestsAt(BASE_ROOT));
+      return paths.some((f) => dirs.has(packageOf(f)));
+    },
   };
 }
 
@@ -803,13 +817,17 @@ export async function mainReference({ repo, mainRuns, contains, reportOf, verdic
 
 /**
  * Which of a head's red steps (`red`: [{ step, why }]) stop this pull request. A red step is inherited when main's
- * reference run (mainReference) is red on it too, for the same reason. An inherited red stops only a pull request in
+ * reference run (mainReference) is red on it too, with the same verdict line (run numbers aside: the verdict names the
+ * kind of red, "failing, not in the baseline", not the failure itself). An inherited red stops only a pull request in
  * its area (owner decision 180: "the failing steps' journeys and the code paths the bisected PR touched"):
  *   - one that touches its journey: a journey test file of it, or a step of it in the title or on a Left-or-replaced
  *     line (`touches.journeys`);
  *   - one whose paths share an area (areaOf) with a commit on main from where the step last passed to the newest main
  *     commit the head holds (`upTo`): the commits one of which broke it, and any that tried to fix it since
  *     (`rangeOf(from, to)` → { files, commits } from GitHub's compare).
+ * A pull request that changes the journey stack's shared setup (`touches.shared`: it reaches every journey) or money
+ * code (`touches.money`: AGENTS.md "How work flows" 8, "a red in a package your PR changes always blocks the merge, even
+ * when main shares it") is in every red's area, so nothing it inherited is passed over.
  * A red that can't be bounded stops every pull request it reaches: an unreadable input, main's reference run with an
  * input problem, no reference run, or a break range that can't be read, is wider than RANGE_MAX commits or lists files
  * short. A step that never passed on main broke through no commit, so its journey is its whole area; so is one that
@@ -821,6 +839,14 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
   const at = `main's run ${main.run.id} on ${String(main.run.head_sha).slice(0, 10)}`;
   if (main.problems.length)
     return { blocking: red, passed: [], notes: [`${at} has unreadable inputs (${main.problems[0]}), so every red counts`] };
+  if (touches.shared || touches.money)
+    return {
+      blocking: red,
+      passed: [],
+      notes: [
+        `this pull request changes ${touches.shared ? "the journey stack's shared setup, which reaches every journey" : 'money code (AGENTS.md "How work flows" 8)'}, so every red counts, inherited or not`,
+      ],
+    };
   const mine = new Set([...touches.paths].map(areaOf).filter(Boolean));
   const blocking = [];
   const passed = [];
@@ -852,18 +878,34 @@ export async function splitInherited({ red, main, touches, upTo, rangeOf }) {
       stop(`but the newest main commit this head holds can't be read, so it can't be bounded`);
       continue;
     }
-    const key = `${from}...${upTo}`;
-    if (!ranges.has(key))
-      ranges.set(
-        key,
-        from === upTo
-          ? Promise.resolve({ files: [], commits: 0, short: false })
-          : Promise.resolve()
-              .then(() => rangeOf(from, upTo))
-              .catch((e) => ({ error: e.message })),
-      );
-    const range = await ranges.get(key);
-    const span = `${from.slice(0, 10)}..${upTo.slice(0, 10)}`;
+    // The commits from where it last passed to main's reference run (one of them broke it), and on to the newest main
+    // commit the head holds (any fix tried since); the base read for the latter may be older than the run, so both.
+    const one = (to) => {
+      const key = `${from}...${to}`;
+      if (!ranges.has(key))
+        ranges.set(
+          key,
+          from === to
+            ? Promise.resolve({ files: [], commits: 0, short: false })
+            : Promise.resolve()
+                .then(() => rangeOf(from, to))
+                .catch((e) => ({ error: e.message })),
+        );
+      return ranges.get(key);
+    };
+    const ends = [...new Set([main.run.head_sha, upTo])];
+    const parts = await Promise.all(ends.map(one));
+    const bad = parts.find((r) => r?.error || !Array.isArray(r?.files) || !Number.isSafeInteger(r?.commits));
+    const range = bad
+      ? bad.error
+        ? bad
+        : {}
+      : {
+          files: [...new Set(parts.flatMap((r) => r.files))],
+          commits: Math.max(...parts.map((r) => r.commits)),
+          short: parts.some((r) => r.short),
+        };
+    const span = `${from.slice(0, 10)}..${ends.map((e) => e.slice(0, 10)).join('/')}`;
     const wide =
       range?.error ??
       (!Array.isArray(range?.files) || !Number.isSafeInteger(range?.commits)
@@ -945,6 +987,8 @@ export async function sealPull({ repo, number, sha, io, requireOpen = true, wait
       ...[...titleSteps(pull.title), ...exemptions(pull.body).steps].map(journeyOf),
     ]),
     paths: new Set(paths),
+    shared: shared.length > 0,
+    money: io.moneyCode ? await io.moneyCode(paths) : false,
   };
   let main;
   let upTo;

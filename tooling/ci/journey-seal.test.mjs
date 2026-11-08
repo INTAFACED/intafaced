@@ -1313,7 +1313,15 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
   assert.equal((await testOnly('x (J-bank-13 #1)', 'J-bank-13.pw.mjs')).fullOk, true, 'test-only, red elsewhere inherited: passes');
   assert.equal((await testOnly('x (J-wallet-05 #3)', 'J-wallet-05.pw.mjs')).fullOk, false, 'test-only on the red journey: stopped');
   const shared = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['tooling/scripts/local-test-world.mjs'] }) });
-  assert.equal(shared.ok, true, 'shared setup outside its break range: the inherited red is passed over too');
+  assert.equal(shared.ok, false, 'review R1: shared setup reaches every journey, so nothing inherited is passed over');
+  assert.match(shared.lines.join('\n'), /shared setup, which reaches every journey, so every red counts/);
+  const money = await sealPull({
+    repo: REPO,
+    number: 7,
+    sha: HEAD,
+    io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), moneyCode: async (p) => p.includes('services/svc-support/src/chat.ts') },
+  });
+  assert.equal(money.ok, false, 'review R2: a pull request changing money code inherits nothing (AGENTS.md How work flows 8)');
   const notInHistory = await sealPull({
     repo: REPO,
     number: 7,
@@ -1424,4 +1432,30 @@ test('C1: a path a pull request names is printed with its control characters sho
   const out = await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: area([], [evil]), rangeOf: range() });
   assert.equal(out.blocking.length, 1);
   assert.doesNotMatch(out.blocking[0].why, /\n/);
+});
+
+test("C1 review round 1: the break range also runs to main's reference run when the base read is older (R4)", async () => {
+  const OLDER = 'f'.repeat(40);
+  const out = await splitInherited({
+    upTo: OLDER,
+    red: redW,
+    main: mainRef(),
+    touches: area([], ['services/svc-wallet/src/fees.ts']),
+    rangeOf: async (from, to) => ({ files: to === MAIN_SHA ? ['services/svc-wallet/src/send.ts'] : [], commits: 2, short: false }),
+  });
+  assert.equal(out.blocking.length, 1, 'the commits up to the reference run count even when the newest main commit read is older');
+  const err = await splitInherited({
+    upTo: OLDER,
+    red: redW,
+    main: mainRef(),
+    touches: area(),
+    rangeOf: async (from, to) => (to === OLDER ? Promise.reject(new Error('behind')) : { files: [], commits: 1, short: false }),
+  });
+  assert.equal(err.blocking.length, 1, 'either end unreadable: unbounded');
+  assert.equal(
+    (await splitInherited({ upTo: MAIN_SHA, red: redW, main: mainRef(), touches: { ...area(), money: true }, rangeOf: range() })).blocking
+      .length,
+    1,
+    'money code: every red counts',
+  );
 });
