@@ -28,8 +28,7 @@ const en = {
   deadlineLimit: '{days} calendar days from the acknowledgement',
   deadlineLabel: 'Final response deadline',
   deadlineNotSet: 'not set',
-  deadlineNotSetBody:
-    'The platform has not published its response limit yet, so no deadline is given. Your complaint is still taken and worked.',
+  deadlineNotSetBody: 'The platform has no published response limit, so no deadline is given. Your complaint is still taken and worked.',
   yourComplaints: 'Your complaints',
   noComplaints: 'You have made no complaints.',
 
