@@ -589,14 +589,16 @@ test(`${J} #6 sets a soft alert and a hard limit for the month: one inbox row at
       .poll(async () => (await ownRuns('refused')).length, { message: 'the second run is refused while the first is in flight' })
       .toBe(2);
     await stillCalls(engineCalls, 1);
+    await expect(session(page).getByRole('region', { name: 'Reply' })).toHaveCount(0);
   });
   await expect(session(page).getByRole('region', { name: 'Reply' })).toBeVisible();
+  await expect(session(page).getByRole('alert').locator('code')).toHaveText('agents.usage.hard_limit_reached');
   await expect.poll(async () => (await ownRuns('executed')).length, { timeout: 20_000 }).toBe(3);
   const within = await usageLimits();
   expect(toUnits(within.spent)).toBeGreaterThan(toUnits(afterAlert.spent));
   expect(toUnits(within.spent)).toBeLessThanOrEqual(toUnits(within.hardLimit));
 
-  // Read again from the service after a reload: one refused run, the hard limit's, at 0; the three runs charged; the
+  // Read again from the service after a reload: two refused runs, both the hard limit's, at 0; the three runs charged; the
   // month under the limit; the alert still the one record.
   await page.reload();
   await pages(page).getByRole('button', { name: 'Limits', exact: true }).click();
