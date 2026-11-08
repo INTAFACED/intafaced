@@ -1,3 +1,4 @@
+import { keyRateLimitSchema } from '@intafaced/contracts/api-rate-limits';
 import { SecurityLockError } from './auth/security-lock.js';
 import { SignInChallengeError, type SignInAdmission, type SignInChallengeService } from './auth/signin-challenge.js';
 import { createKycLevelsRouter } from './kyc/levels-router.js';
@@ -3206,6 +3207,7 @@ export function createIdentityRouter(
             requireSignature: z.boolean().optional(),
             requireNonEmptyIpAllowlist: z.boolean().optional(),
             ipAllowlist: z.array(z.string()).optional(),
+            rateLimit: keyRateLimitSchema.nullable().optional(),
           }),
         )
         .mutation(async ({ input, ctx }) => {
@@ -3225,6 +3227,7 @@ export function createIdentityRouter(
               ...(result.requireSignature === undefined ? {} : { requireSignature: result.requireSignature }),
               ...(result.requireNonEmptyIpAllowlist === undefined ? {} : { requireNonEmptyIpAllowlist: result.requireNonEmptyIpAllowlist }),
               ...(result.ipAllowlist === undefined ? {} : { ipAllowlist: result.ipAllowlist }),
+              ...(result.rateLimit === undefined ? {} : { rateLimit: result.rateLimit }),
             };
           } catch (err) {
             throw toTrpcError(err);
