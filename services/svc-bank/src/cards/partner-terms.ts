@@ -166,7 +166,7 @@ export function parseSpendAssets(raw: string | undefined | null): readonly strin
 export function requireSpendAssets(list: readonly string[] | null): readonly string[] {
   if (!list) {
     throw new BankError(
-      'The list of assets a card may pay from is not published: it is the owner’s to set.',
+      'The list of assets a card may pay from is not published: it is the owner’s to set (bank.card_spend_assets_unset).',
       'bank.card_spend_assets_unset',
     );
   }

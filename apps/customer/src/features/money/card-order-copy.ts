@@ -128,7 +128,6 @@ const en = {
   payFromNotOffered: 'not offered by the partner',
   payFromNotKnown: 'not known',
   payFromNotListed: 'not on the spendable list',
-  payFromUnset: 'The list of assets a card may pay from is not published yet.',
 } as const;
 
 export const cardOrderCopy = defineCopy('customer.money.card-order', en);

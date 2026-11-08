@@ -22,7 +22,6 @@ type Failed = Extract<ApiResult<unknown>, { ok: false }>;
 const SAY: Record<string, (t: Copy) => string> = {
   'bank.card_address_locked': (t) => t('addressLocked'),
   'bank.step_up_unavailable': (t) => t('stepUpOff'),
-  'bank.card_spend_assets_unset': (t) => t('payFromUnset'),
 };
 
 export function Refusal({ failure }: { failure: Failed }) {

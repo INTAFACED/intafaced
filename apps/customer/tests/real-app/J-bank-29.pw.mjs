@@ -82,13 +82,15 @@ test(`${J} #1 with the owner's spendable-asset list switched off for one restart
 
   restartBank('LOCAL_STACK_BANK_CARD_SPEND_ASSETS', 'off');
   try {
+    // svc-bank names its refusal in the message (router/errors.ts: the wire carries the message, not the cause).
     const refused = await (await bank()).query('cards.payFrom');
-    expect(refused).toMatchObject({ ok: false, code: 'bank.card_spend_assets_unset' });
+    expect(refused).toMatchObject({ ok: false, status: 412 });
+    expect(refused.body?.error?.message).toContain('bank.card_spend_assets_unset');
     await signIn(page, who);
     await page.goto('/bank/cards');
     const panel = payFrom(page);
-    await expect(panel.getByRole('alert')).toHaveAttribute('data-code', 'bank.card_spend_assets_unset');
-    await expect(panel).toContainText('The list of assets a card may pay from is not published yet.');
+    await expect(panel.getByRole('alert')).toContainText('The list of assets a card may pay from is not published');
+    await expect(panel.getByRole('alert')).toContainText('bank.card_spend_assets_unset');
     // Nothing to order: no asset row is listed while the list is unset.
     await expect(panel.locator('[data-testid^="card-pay-from-"][data-state]')).toHaveCount(0);
   } finally {
