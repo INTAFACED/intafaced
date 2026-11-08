@@ -19,6 +19,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS }) => ({
     ...c('svc-ledger', PORTS.ledger),
     DATABASE_URL: dbUrl('svc_ledger', secrets),
     LEDGER_POSTING_ENABLED: 'true',
+    // The TEST stack runs the custodial layer for the journeys marked Later (OWNER 226 keeps it built, switched off at launch).
+    LEDGER_CUSTODY_LAYER: 'on',
     // LOCAL TEST bound, not an owner decision: this process's clock may drift this far from the database's before a post
     // refuses, and a joint-restore cut-off must be this far past before the ledger fixes its position as of it.
     LEDGER_CLOCK_SKEW_BOUND_MS: '1000',
