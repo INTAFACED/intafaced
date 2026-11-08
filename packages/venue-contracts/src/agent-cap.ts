@@ -1,4 +1,4 @@
-import { compare, div, formatAmount, isNegative, mul, parseAmount, sub, sum, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { add, compare, div, formatAmount, isNegative, mul, parseAmount, sub, sum, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   assertSignatureMatches,
   assertSignerMaySign,
@@ -175,8 +175,11 @@ export interface PendingAgentOrder {
 
 /** What the agent key signed that the venue's record may not show yet. */
 export interface AgentCapPending {
-  /** Signed orders and amends, by venue client order id. */
-  readonly orders: ReadonlyMap<string, PendingAgentOrder>;
+  /**
+   * Signed orders and amends, by venue client order id: every signature not yet settled. Any of them may be the
+   * one that lands, so a key counts at the largest.
+   */
+  readonly orders: ReadonlyMap<string, readonly PendingAgentOrder[]>;
   /** Signed leverage changes not yet settled. Each may still land, so the lowest counts. */
   readonly leverage: readonly { readonly symbol: string; readonly leverageBps: number }[];
 }
@@ -345,19 +348,23 @@ export function checkAgentOrderWithinCap(
   if (!levCut && compare(commitment, ZERO) === 0) return NOTHING;
 
   // ── what is in use ─────────────────────────────────────────────────────
-  const self = prepared.venueClientOrderId;
+  // This action's own key: what it already holds (its resting order, and every earlier signature under it not
+  // yet settled) is set apart, because whichever lands, the key holds at most the largest of them and this one.
+  const self = prepared.venueClientOrderId ?? replaced?.venueClientOrderId ?? null;
+  const reservedFor = (id: string | null): Amount => (id === null ? ZERO : maxOf((pending.orders.get(id) ?? []).map(commits)));
   const parts: Amount[] = [];
   const live = new Set<string>();
+  let selfHeld = reservedFor(self);
   for (const o of snapshot.openOrders) {
     if (o.venueClientOrderId !== null) live.add(o.venueClientOrderId);
-    if (o === replaced || (self !== null && o.venueClientOrderId === self)) continue; // this action replaces it
     const lock = o.lockedAsset === cap.asset ? o.locked : ZERO;
     const own = commits({ symbol: o.symbol, side: o.side, reduceOnly: o.reduceOnly, notional: mul(o.remaining, o.price, 'ceil') });
-    const res = o.venueClientOrderId !== null ? pending.orders.get(o.venueClientOrderId) : undefined;
-    parts.push(maxOf([lock, own, res ? commits(res) : ZERO]));
+    const held = maxOf([lock, own, reservedFor(o.venueClientOrderId)]);
+    if (o === replaced || (self !== null && o.venueClientOrderId === self)) selfHeld = maxOf([selfHeld, held]);
+    else parts.push(held);
   }
-  for (const [id, res] of pending.orders) {
-    if (id !== self && !live.has(id)) parts.push(commits(res));
+  for (const id of pending.orders.keys()) {
+    if (id !== self && !live.has(id)) parts.push(reservedFor(id));
   }
   for (const p of snapshot.positions) {
     const m = marketOf(p.symbol);
@@ -383,7 +390,8 @@ export function checkAgentOrderWithinCap(
     }
     parts.push(mul(b.total, mark.value, 'ceil'));
   }
-  const inUse = sum(parts);
+  const others = sum(parts);
+  const inUse = add(others, selfHeld);
   const left = sub(cap.cap, inUse);
   const room = isNegative(left) ? ZERO : left;
   if (levCut) {
@@ -396,11 +404,14 @@ export function checkAgentOrderWithinCap(
     }
     return { commitment: ZERO, inUse, room };
   }
-  if (compare(commitment, room) > 0) {
+  // No larger than what its key already holds: the worst case doesn't grow, so it signs (an amend down always can).
+  if (compare(commitment, selfHeld) <= 0) return { commitment, inUse, room };
+  const roomForKey = isNegative(sub(cap.cap, others)) ? ZERO : sub(cap.cap, others);
+  if (compare(commitment, roomForKey) > 0) {
     refuse(
       account,
       'agent_cap_exceeded',
-      `this order commits ${formatAmount(commitment)} ${cap.asset}; the cap is ${formatAmount(cap.cap)} ${cap.asset} and ${formatAmount(room)} ${cap.asset} of room is left`,
+      `this order commits ${formatAmount(commitment)} ${cap.asset}; the cap is ${formatAmount(cap.cap)} ${cap.asset} and ${formatAmount(roomForKey)} ${cap.asset} of room is left`,
     );
   }
   return { commitment, inUse, room };
@@ -432,7 +443,7 @@ export class CappedAgentSigner {
   readonly #marks: AgentCapMarks;
   readonly #now: () => Date;
   /** Signed orders not yet settled, by venue client order id. */
-  readonly #orders = new Map<string, PendingAgentOrder>();
+  readonly #orders = new Map<string, PendingAgentOrder[]>();
   /** Signed leverage changes not yet settled, by the action's nonce. */
   readonly #leverage = new Map<string, { readonly symbol: string; readonly leverageBps: number }>();
   #queue: Promise<unknown> = Promise.resolve();
@@ -486,7 +497,7 @@ export class CappedAgentSigner {
     if (intent.kind === 'place_order' || intent.kind === 'amend_order' || intent.kind === 'update_leverage') symbols.add(intent.symbol);
     for (const o of openOrders.value) symbols.add(o.symbol);
     for (const p of positions.value) symbols.add(p.symbol);
-    for (const o of this.#orders.values()) symbols.add(o.symbol);
+    for (const list of this.#orders.values()) for (const o of list) symbols.add(o.symbol);
     const levRead = this.#venue.leverage?.bind(this.#venue);
     const levs = new Map<string, number>();
     if (levRead) {
@@ -516,12 +527,9 @@ export class CappedAgentSigner {
       const resting = openOrders.value.find((o) => o.venueClientOrderId === prepared.venueClientOrderId);
       const side = intent.kind === 'place_order' ? intent.side : resting!.side;
       const reduceOnly = intent.kind === 'place_order' ? intent.reduceOnly : resting!.reduceOnly;
-      this.#orders.set(prepared.venueClientOrderId, {
-        symbol: intent.symbol,
-        side,
-        reduceOnly,
-        notional: mul(intent.amount, intent.price, 'ceil'),
-      });
+      const list = this.#orders.get(prepared.venueClientOrderId) ?? [];
+      list.push({ symbol: intent.symbol, side, reduceOnly, notional: mul(intent.amount, intent.price, 'ceil') });
+      this.#orders.set(prepared.venueClientOrderId, list);
     }
     return { signature, check };
   }

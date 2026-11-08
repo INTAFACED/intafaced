@@ -519,6 +519,37 @@ describe('council round 1 (#7577): the ways past the cap it found', () => {
     expect(raw).toHaveBeenCalledTimes(1);
   });
 
+  it('CI review (90f331273): two unsettled signatures under one key count at the larger, so a smaller second one frees no room', async () => {
+    const key = 'order:agent-1:two:1';
+    const { raw, signer } = setup({ balances: rich, openOrders: [restingOrder(key, 'ETH-USDC', '0.05', '2000', '100')] });
+    await signer.sign(
+      prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: key, amount: A('0.1'), price: A('2000') }),
+      cap300,
+    ); // 200
+    await signer.sign(
+      prepared({ kind: 'amend_order', symbol: 'ETH-USDC', clientOrderKey: key, amount: A('0.01'), price: A('2000') }),
+      cap300,
+    ); // 20: an amend down signs
+    const r = await refusal(signer.sign(prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:two:2')), cap300)); // 200 more
+    expect(r.code).toBe('agent_cap_exceeded');
+    expect(r.detail).toContain('100 USDC of room');
+    expect(raw).toHaveBeenCalledTimes(2);
+  });
+
+  it('CI review (90f331273): a place re-signed smaller under a pending key keeps the larger reservation', async () => {
+    const { raw, signer } = setup({ balances: rich });
+    await signer.sign(prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:re:1')), cap300); // 200, pending
+    await signer.sign(prepared(buy('ETH-USDC', '0.01', '2000', 'order:agent-1:re:1')), cap300); // 20, same key
+    expect((await refusal(signer.sign(prepared(buy('ETH-USDC', '0.1', '2000', 'order:agent-1:re:2')), cap300))).code).toBe(
+      'agent_cap_exceeded',
+    );
+    // An amend up past the cap under the same key is still refused: the larger of the two counts.
+    expect((await refusal(signer.sign(prepared(buy('ETH-USDC', '0.16', '2000', 'order:agent-1:re:1')), cap300))).code).toBe(
+      'agent_cap_exceeded',
+    );
+    expect(raw).toHaveBeenCalledTimes(2);
+  });
+
   it('should 3: a reduce-only spot buy still spends quote and is counted', async () => {
     const { raw, signer } = setup({ balances: rich });
     expect(
