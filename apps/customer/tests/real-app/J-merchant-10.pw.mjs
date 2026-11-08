@@ -29,7 +29,12 @@ async function owner() {
   if (!state.owner?.secret) throw new Error(`${J} #1 made no business, so this step has no owner to act as`);
   const { totp } = await import(path.join(ROOT, 'services/svc-identity/dist/auth/totp.js'));
   const who = { ...state.owner, totp };
-  return { who, merchantId: state.merchantId, kept: (step) => run.write({ owner: { ...saved(who), step } }) };
+  // The code's time step is kept on `who` too, so a sign-in after an API call never reuses a spent code.
+  const kept = (step) => {
+    who.step = step;
+    run.write({ owner: saved(who) });
+  };
+  return { who, merchantId: state.merchantId, kept };
 }
 
 /** A section of a pay room by its heading. */
