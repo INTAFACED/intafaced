@@ -26,7 +26,7 @@ import { createEarnPoolProcedure, setEarnPoolRateProcedure, setEarnPoolStatusPro
 import { publishTransferTermsProcedure } from '../transfers/transfer-terms.js';
 import { DestinationFraudList, destinationFraudListProcedure, setDestinationFraudListingProcedure } from '../ramps/fraud-list.js';
 import { rampHealthProcedure } from '../ops/ramp-health.js';
-import { onrampQuotesProcedure } from '../ops/onramp-quotes.js';
+import { onrampFeesNotKnownProcedure, onrampQuotesProcedure } from '../ops/onramp-quotes.js';
 import { transferHealthProcedure } from '../ops/transfer-health.js';
 import { failedTransfersProcedure } from '../ops/failed-transfers.js';
 import { customerBalanceEntriesProcedure, customerBalancesProcedure } from '../ops/customer-balances.js';
@@ -999,6 +999,8 @@ export function createOpsRouter(c: BankRouterContext) {
     rampHealth: rampHealthProcedure(bank, guard),
     /** J-cex-spot-17 #8: the fiat buy prices customers were given, with their exact fees. Read only. */
     onrampQuotes: onrampQuotesProcedure(() => bank.transferOps.sql, guard),
+    /** J-cex-spot-17 #8: the buy asks the partner's ramp gave no fee for, read as "not known". Read only. */
+    onrampFeesNotKnown: onrampFeesNotKnownProcedure(() => bank.transferOps.sql, guard),
     transferHealth: transferHealthProcedure(bank, guard),
     failedTransfers: failedTransfersProcedure(bank, guard),
     transferDetail: transferDetailProcedure(bank, guard),

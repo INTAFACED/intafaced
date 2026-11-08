@@ -1,6 +1,6 @@
 /**
  * Parsers for the Fees and convert room's finance reads (J-cex-spot-17 #4, #7, #8): svc-trade's snapshot runs, Convert's
- * owner values and quotes, and svc-bank's fiat buy quotes. Each returns null for a body that is not the expected shape, so
+ * owner values and quotes, and svc-bank's fiat buy quotes and the buy fees its partner did not give. Each returns null for a body that is not the expected shape, so
  * the room refuses it rather than half-show it. Amounts stay the decimal strings the services sent. No network, no clock.
  */
 
@@ -200,6 +200,33 @@ export const parseOnrampQuotes = (raw: unknown): OnrampQuote[] | null =>
           simulated: v.simulated,
           createdAt: v.createdAt,
         }
+      : null,
+  );
+
+/**
+ * A buy ask the partner's ramp gave no fee for (svc-bank `ops.onrampFeesNotKnown`): no fee, pay amount or rate was quoted,
+ * so the room shows "not known", never 0.
+ */
+export interface OnrampFeeNotKnown {
+  readonly requestId: string;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly method: string;
+  readonly createdAt: string;
+}
+
+export const parseOnrampFeesNotKnown = (raw: unknown): OnrampFeeNotKnown[] | null =>
+  listOf(raw, (v) =>
+    rec(v) &&
+    str(v.requestId) &&
+    str(v.userId) &&
+    str(v.assetId) &&
+    dec(v.amount) &&
+    str(v.method) &&
+    v.refusalCode === 'bank.onramp_fee_not_known' &&
+    str(v.createdAt)
+      ? { requestId: v.requestId, userId: v.userId, assetId: v.assetId, amount: v.amount, method: v.method, createdAt: v.createdAt }
       : null,
   );
 

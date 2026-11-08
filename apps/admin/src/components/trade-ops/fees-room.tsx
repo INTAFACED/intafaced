@@ -603,7 +603,7 @@ function ConvertLimits({ view }: { view: FeesDeskView['convert'] }) {
   );
 }
 
-// ── #8 sell quotes and fiat buy fees ──
+// ── #8 sell quotes and the partner's buy fees, or "not known" ──
 
 function SellQuotes({ view }: { view: FeesDeskView['sellQuotes'] }) {
   if (view.kind !== 'ok') return <Problem outcome={view} title="The sell quotes could not be read" />;
@@ -658,7 +658,7 @@ function FiatBuy({ view }: { view: FeesDeskView['onrampQuotes'] }) {
   return (
     <div data-fees="fiat-buy" className="flex flex-col gap-2">
       <p className="text-sm text-fg-2">
-        The latest prices customers were given to buy with money, each with its fee, exactly as quoted. Read only.
+        The latest prices customers were given to buy with money, each with the partner's fee exactly as the partner reported it. Read only.
         {standIn ? ' TEST: these prices come from a stand-in, not a payment partner.' : ''}
       </p>
       {view.data.length === 0 ? (
@@ -694,6 +694,51 @@ function FiatBuy({ view }: { view: FeesDeskView['onrampQuotes'] }) {
                   {q.fee} {q.payCurrency}
                 </td>
                 <td className="if-num">{q.rate}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function FiatBuyNotKnown({ view }: { view: FeesDeskView['onrampFeesNotKnown'] }) {
+  if (view.kind !== 'ok') return <Problem outcome={view} title="The buy fees the partner did not give could not be read" />;
+  return (
+    <div data-fees="fiat-buy-not-known" className="flex flex-col gap-2">
+      <p className="text-sm text-fg-2">
+        The latest buys the partner gave no fee for. What the customer would pay is not known, never 0, and nothing was charged. Read only.
+      </p>
+      {view.data.length === 0 ? (
+        <p className="text-sm text-fg-2">The partner has given a fee for every buy asked.</p>
+      ) : (
+        <table className={TABLE}>
+          <thead>
+            <tr>
+              <th scope="col">Asked at</th>
+              <th scope="col">Customer</th>
+              <th scope="col">Buys</th>
+              <th scope="col">Way to pay</th>
+              <th scope="col">Pays</th>
+              <th scope="col">Fee</th>
+              <th scope="col">Rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {view.data.map((r) => (
+              <tr key={r.requestId} data-onramp-request={r.requestId}>
+                <th scope="row" className="if-num">
+                  {shownTime(r.createdAt)}
+                </th>
+                <td className="if-num">{r.userId}</td>
+                <td className="if-num">
+                  {r.amount} {r.assetId}
+                </td>
+                <td>{r.method}</td>
+                <td>not known</td>
+                <td>not known</td>
+                <td>not known</td>
               </tr>
             ))}
           </tbody>
@@ -768,8 +813,9 @@ export function FeesRoom({ initial }: { initial: FeesDeskView }) {
       <PageSection title="Sell quotes">
         <SellQuotes view={view.sellQuotes} />
       </PageSection>
-      <PageSection title="Fiat buy fees">
+      <PageSection title="Partner buy fees">
         <FiatBuy view={view.onrampQuotes} />
+        <FiatBuyNotKnown view={view.onrampFeesNotKnown} />
       </PageSection>
     </div>
   );

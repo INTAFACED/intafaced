@@ -22,7 +22,7 @@ import {
 
 /**
  * Fees and convert room (J-cex-spot-17), through svc-trade `admin.fees.*` / `admin.convertDesk.*`, svc-bank
- * `ops.onrampQuotes`, svc-notify's notice board and identity's approvals.
+ * `ops.onrampQuotes` / `ops.onrampFeesNotKnown`, svc-notify's notice board and identity's approvals.
  *
  *   POST { action: 'read' }                                              every read of the room
  *   POST { action: 'propose', basisVersion, draft, reason }              file the two-person request for a new version

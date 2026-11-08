@@ -1,9 +1,11 @@
 // World: book, gates
+import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, otherTrader, times, toUnits } from './stack.mjs';
 import { fundedTrader, openOrders } from './desk.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
+import { withPartner } from './partner.mjs';
 
 // J-cex-spot-17, in the running app (docs/roadmap/journeys.json): finance publishes and versions fees, VIP tiers and
 // convert limits in the founder console's Fees and convert room (/trade-ops/fees). One test per step, titled
@@ -579,7 +581,10 @@ test(`${J} #7 reads convert maintenance and limits: the state and per-asset maxi
   }
 });
 
-test(`${J} #8 reads sell quotes and fiat buy fees: a finance read of quotes and fees with exact amounts`, async ({ page, browser }) => {
+test(`${J} #8 reads sell quotes and partner buy fees: a finance read of venue sell prices with exact amounts, and the partner's buy fees as the partner reports them, or "not known"`, async ({
+  page,
+  browser,
+}) => {
   test.setTimeout(150_000);
   // A customer asks for a sell quote on Convert and a price to buy USDT with money, as the screens do.
   const who = await fundedTrader(page, 'js17q', '10');
@@ -596,6 +601,29 @@ test(`${J} #8 reads sell quotes and fiat buy fees: a finance read of quotes and 
   expect(ways.status, JSON.stringify(ways.body).slice(0, 300)).toBe(200);
   const priced = ways.body.result.data.methods.filter((m) => m.quote);
   expect(priced.length, JSON.stringify(ways.body.result.data.methods).slice(0, 300)).toBeGreaterThan(0);
+
+  // The TEST partner's ramp gives no fee (its `fee unknown` switch, this customer's only): every way it priced reads
+  // "not known", never 0, and the buy the customer asks for anyway is refused bank.onramp_fee_not_known and kept refused.
+  const way = priced[0].method;
+  const unknown = await withPartner(who, { rampFee: 'unknown' }, async () => {
+    const none = await client.get(
+      `/api/bank/trpc/addMoney.methods?input=${encodeURIComponent(JSON.stringify({ assetId: 'USDT', amount: '20', country: 'NL' }))}`,
+    );
+    expect(none.status, JSON.stringify(none.body).slice(0, 300)).toBe(200);
+    for (const m of none.body.result.data.methods.filter((x) => priced.some((p) => p.method === x.method))) {
+      expect(m, JSON.stringify(m)).toMatchObject({ quote: null, blocker: 'bank.onramp_fee_not_known' });
+    }
+    const started = await client.post('/api/bank/trpc/addMoney.start', {
+      requestId: randomUUID(), // a new ask, as the screen makes one
+      assetId: 'USDT',
+      amount: '20',
+      method: way,
+      country: 'NL',
+    });
+    expect(started.status, JSON.stringify(started.body).slice(0, 300)).toBe(200);
+    return started.body.result.data;
+  });
+  expect(unknown, JSON.stringify(unknown)).toMatchObject({ status: 'refused', refusalCode: 'bank.onramp_fee_not_known', onramp: null });
 
   const a = await room(browser, 'a');
   try {
@@ -623,9 +651,22 @@ test(`${J} #8 reads sell quotes and fiat buy fees: a finance read of quotes and 
         q.rate,
       ]);
     }
-    // A read only: no control on either list.
+    // The buy the partner gave no fee for: the customer and what they asked to buy, and its pay amount, fee and rate
+    // "not known", never 0 and never a price; it is not among the priced fees.
+    const notKnown = a.page.locator('[data-fees=fiat-buy-not-known]');
+    await expect(notKnown.locator(`tr[data-onramp-request="${unknown.requestId}"] td`)).toHaveText([
+      client.userId,
+      `20 USDT`,
+      way,
+      'not known',
+      'not known',
+      'not known',
+    ]);
+    await expect(fiat.locator(`tr[data-onramp-request="${unknown.requestId}"]`)).toHaveCount(0);
+    // A read only: no control on any list.
     await expect(sells.locator('input, button, select')).toHaveCount(0);
     await expect(fiat.locator('input, button, select')).toHaveCount(0);
+    await expect(notKnown.locator('input, button, select')).toHaveCount(0);
   } finally {
     await a.close();
   }

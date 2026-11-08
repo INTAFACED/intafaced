@@ -298,6 +298,7 @@ BANK_SEND_FIELD_RULES_JSON=    # owner-published purpose / source-of-funds / ref
 | `ops.fundCashbackPot`      | `admin:treasury` | Sweep bank revenue into the pot cashback is paid from                                                                                                                     |
 | `ops.creditOnramp`         | `admin:treasury` | Crypto ledger-half on-ramp credit (never user-callable)                                                                                                                   |
 | `ops.onrampQuotes`         | `admin:read`     | Read only: the fiat buy prices customers were given, newest first, with exact fee, pay amount and rate (`limit` 1-100, required)                                          |
+| `ops.onrampFeesNotKnown`   | `admin:read`     | Read only: the buys the partner's ramp gave no fee for (refused `bank.onramp_fee_not_known`), newest first: "not known", never 0 (`limit` 1-100, required)                |
 | `ops.runAutoInvest`        | `admin:treasury` | Fire due auto-invest rules (threshold sweeps; DCA when convert wired)                                                                                                     |
 
 These jobs are deliberately **not user-callable**: a user who can trigger "run every due transfer" or the risk sweep chooses when other people's money moves (or when their collateral is sold). `admin:treasury` is interactive-only (§4.1), so it can never be held by a long-lived API key.

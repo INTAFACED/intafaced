@@ -70,7 +70,7 @@ describe('operator fiat buy quotes', () => {
   });
 
   beforeEach(async () => {
-    await sql`TRUNCATE bank.ramp_onramp_quotes RESTART IDENTITY CASCADE`;
+    await sql`TRUNCATE bank.add_money_requests, bank.ramp_onramp_quotes RESTART IDENTITY CASCADE`;
   });
 
   const services = (): BankServices => {
@@ -119,5 +119,47 @@ describe('operator fiat buy quotes', () => {
       ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('bank.onramp_quotes_limit_unset') });
     }
     await expect(caller(services(), ADA, ['bank:read']).ops.onrampQuotes({ limit: 10 })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  async function asked(userId: string, createdAt: string, refusal: string | null, quoteId: string | null = null): Promise<string> {
+    const id = randomUUID();
+    await sql`
+      INSERT INTO bank.add_money_requests (id, user_id, asset_id, amount, method, country, rail, status, refusal_code, quote_id, created_at)
+      VALUES (${id}, ${userId}, 'USDT', '20.000000000000000001', 'bank_transfer', 'NL', 'rail.bank',
+              ${refusal ? 'refused' : 'opening'}, ${refusal}, ${quoteId}, ${createdAt})`;
+    return id;
+  }
+
+  it('lists the buys the partner gave no fee for, newest first, as "not known": no fee, pay amount or rate is read', async () => {
+    const older = await asked(ADA, '2026-11-06T09:00:00.000Z', 'bank.onramp_fee_not_known');
+    const newer = await asked(BOB, '2026-11-06T09:30:00.000Z', 'bank.onramp_fee_not_known');
+    // Refused for another reason, or quoted and opening: neither is a fee the partner did not give.
+    await asked(ADA, '2026-11-06T09:40:00.000Z', 'bank.onramp_rate_unset');
+    await asked(ADA, '2026-11-06T09:50:00.000Z', null, await quote(ADA, '2026-11-06T09:50:00.000Z', '1'));
+    const rows = await caller(services(), OPERATOR, ['admin:read']).ops.onrampFeesNotKnown({ limit: 10 });
+    expect(rows.map((r) => r.requestId)).toEqual([newer, older]);
+    expect(rows[0]).toEqual({
+      requestId: newer,
+      userId: BOB,
+      assetId: 'USDT',
+      amount: '20.000000000000000001',
+      method: 'bank_transfer',
+      country: 'NL',
+      refusalCode: 'bank.onramp_fee_not_known',
+      createdAt: '2026-11-06T09:30:00.000Z',
+    });
+    expect(rows[0]).not.toHaveProperty('fee');
+    expect(await caller(services(), OPERATOR, ['admin:read']).ops.onrampFeesNotKnown({ limit: 1 })).toHaveLength(1);
+  });
+
+  it('refuses a not-known read with no page size, and a caller who is not an operator', async () => {
+    for (const limit of [undefined, 0, 101]) {
+      await expect(
+        caller(services(), OPERATOR, ['admin:read']).ops.onrampFeesNotKnown(limit === undefined ? {} : { limit }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST', message: expect.stringContaining('bank.onramp_quotes_limit_unset') });
+    }
+    await expect(caller(services(), ADA, ['bank:read']).ops.onrampFeesNotKnown({ limit: 10 })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
   });
 });

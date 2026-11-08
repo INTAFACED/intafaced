@@ -106,3 +106,70 @@ export function onrampQuotesProcedure(sql: () => Sql, guard: Guard) {
     )
     .query(({ input }) => guard(async () => readOnrampQuotes(sql(), assertQuotesLimit(input.limit))));
 }
+
+/**
+ * The partner's buy fees it did not give (J-cex-spot-17 #8, "or 'not known'"): each add-money request the partner's ramp
+ * gave no fee for, so it was refused `bank.onramp_fee_not_known` and kept as refused. No fee, pay amount or rate was
+ * quoted, so none is read: finance sees "not known", never 0. Read only, newest first.
+ */
+export const ONRAMP_FEE_NOT_KNOWN = 'bank.onramp_fee_not_known' as const;
+
+export interface OnrampFeeNotKnownRow {
+  readonly requestId: string;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly method: string;
+  readonly country: string;
+  readonly refusalCode: typeof ONRAMP_FEE_NOT_KNOWN;
+  readonly createdAt: string;
+}
+
+interface NotKnownRow {
+  id: string;
+  user_id: string;
+  asset_id: string;
+  amount: string;
+  method: string;
+  country: string;
+  created_at: Date;
+}
+
+export async function readOnrampFeesNotKnown(sql: Sql, limit: number): Promise<OnrampFeeNotKnownRow[]> {
+  const rows = await sql<NotKnownRow[]>`
+    SELECT id::text, user_id, asset_id, amount::text, method, country, created_at
+      FROM bank.add_money_requests
+     WHERE status = 'refused' AND refusal_code = ${ONRAMP_FEE_NOT_KNOWN}
+     ORDER BY created_at DESC, id
+     LIMIT ${assertQuotesLimit(limit)}`;
+  return rows.map((row) => ({
+    requestId: row.id,
+    userId: row.user_id,
+    assetId: row.asset_id,
+    amount: decimal(row.amount),
+    method: row.method,
+    country: row.country,
+    refusalCode: ONRAMP_FEE_NOT_KNOWN,
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
+export function onrampFeesNotKnownProcedure(sql: () => Sql, guard: Guard) {
+  return scopedProcedure('admin:read')
+    .input(z.object({ limit: z.number().int().optional() }).strict())
+    .output(
+      z.array(
+        z.object({
+          requestId: z.string(),
+          userId: z.string(),
+          assetId: z.string(),
+          amount: z.string(),
+          method: z.string(),
+          country: z.string(),
+          refusalCode: z.literal(ONRAMP_FEE_NOT_KNOWN),
+          createdAt: z.string(),
+        }),
+      ),
+    )
+    .query(({ input }) => guard(async () => readOnrampFeesNotKnown(sql(), assertQuotesLimit(input.limit))));
+}

@@ -10,11 +10,13 @@ import {
   parseConvertSettings,
   parseFeeNotice,
   parseNoticeProposal,
+  parseOnrampFeesNotKnown,
   parseOnrampQuotes,
   parseSnapshotRuns,
   type ConvertQuote,
   type ConvertSettings,
   type FeeNotice,
+  type OnrampFeeNotKnown,
   type OnrampQuote,
   type SnapshotRun,
 } from './fees-desk-parse';
@@ -29,7 +31,7 @@ import {
 
 /**
  * The calls behind the Fees and convert room (J-cex-spot-17). Server only: each is a real call through svc-edge with the
- * signed-in founder's own token, to svc-trade (`admin.fees.*`, `admin.convertDesk.*`), svc-bank (`ops.onrampQuotes`),
+ * signed-in founder's own token, to svc-trade (`admin.fees.*`, `admin.convertDesk.*`), svc-bank (`ops.onrampQuotes`, `ops.onrampFeesNotKnown`),
  * svc-notify (the fee-change notice) or svc-identity (the second founder's approval). Nothing is cached or retried.
  */
 
@@ -51,26 +53,32 @@ export const readSellQuotes = (ctx: TradeCtx): Promise<Outcome<ConvertQuote[]>> 
 export const readOnrampQuotes = (ctx: TradeCtx): Promise<Outcome<OnrampQuote[]>> =>
   edgeCall(ctx, trpcSpec('bank', 'ops.onrampQuotes', 'query', { limit: FEES_DESK_ROWS }, parseOnrampQuotes));
 
+/** The buy asks the partner's ramp gave no fee for: "not known", never 0. */
+export const readOnrampFeesNotKnown = (ctx: TradeCtx): Promise<Outcome<OnrampFeeNotKnown[]>> =>
+  edgeCall(ctx, trpcSpec('bank', 'ops.onrampFeesNotKnown', 'query', { limit: FEES_DESK_ROWS }, parseOnrampFeesNotKnown));
+
 export interface FeesDeskView {
   readonly fees: Outcome<FeeHistory>;
   readonly snapshots: Outcome<SnapshotRun[]>;
   readonly convert: Outcome<ConvertSettings>;
   readonly sellQuotes: Outcome<ConvertQuote[]>;
   readonly onrampQuotes: Outcome<OnrampQuote[]>;
+  readonly onrampFeesNotKnown: Outcome<OnrampFeeNotKnown[]>;
   /** When the console read it all, so the room's "now" is the read's, not the browser's. */
   readonly asOf: string;
 }
 
 /** Every read of the room at once. A read that fails says so in its own section and hides no other. */
 export async function loadFeesDesk(ctx: TradeCtx): Promise<FeesDeskView> {
-  const [fees, snapshots, convert, sellQuotes, onrampQuotes] = await Promise.all([
+  const [fees, snapshots, convert, sellQuotes, onrampQuotes, onrampFeesNotKnown] = await Promise.all([
     readFeeHistory(ctx),
     readSnapshotRuns(ctx),
     readConvertSettings(ctx),
     readSellQuotes(ctx),
     readOnrampQuotes(ctx),
+    readOnrampFeesNotKnown(ctx),
   ]);
-  return { fees, snapshots, convert, sellQuotes, onrampQuotes, asOf: new Date().toISOString() };
+  return { fees, snapshots, convert, sellQuotes, onrampQuotes, onrampFeesNotKnown, asOf: new Date().toISOString() };
 }
 
 /** identity actionApproval.propose for one fee schedule version, bound to the hash of exactly what will be written. */
