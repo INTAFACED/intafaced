@@ -2,7 +2,7 @@
 import { test, expect } from './journey.mjs';
 import { createPublicClient, createWalletClient, defineChain, erc20Abi, http, maxUint256 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { TOKEN_A, TOKEN_B, UNBUILT, acceptRepresentation, connectWallet, dexRun, fundOnTestChain, walletSection } from './dex.mjs';
 import { testWalletKey } from './test-wallet.mjs';
 import { bodyRows, tableIn } from './tables.mjs';

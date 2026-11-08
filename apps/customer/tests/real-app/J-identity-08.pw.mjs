@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { chromium, test, expect } from './journey.mjs';
-import { localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
 import { confirm, deskPath, free, fundedTrader, held, openDesk, openOrders, reviewLimit } from './desk.mjs';
 import { api, signUpInBrowser, tool } from './stack.mjs';

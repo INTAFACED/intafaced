@@ -17,7 +17,7 @@ import {
 } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { TOKEN_A, TOKEN_B, acceptRepresentation, fundOnTestChain, testChain } from './dex.mjs';
-import { chainRecordPath } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { chainRecordPath } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 
 // J-dex-protocol-09, in the running app (docs/roadmap/journeys.json): explore the chain signed out: blocks,

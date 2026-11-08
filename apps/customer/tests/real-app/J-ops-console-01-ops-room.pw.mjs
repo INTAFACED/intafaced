@@ -3,7 +3,7 @@ import { expect, test } from './journey.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
-import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { FOUNDER_VAULT_NAME } from '../../../../tooling/scripts/local-test-founders.mjs';
 import { signUp } from './desk.mjs';
 
 // J-ops-console-01 step #2: the customer app's /ops room asks identity whether the signed-in account is a founder. A founder

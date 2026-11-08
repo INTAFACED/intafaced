@@ -5,7 +5,7 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { createPublicClient, getAddress, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-facts.mjs';
+import { chainRecordPath, GATE_URL, TEST_CHAIN_ID } from '../../../../tooling/scripts/local-test-chain.mjs';
 import { signIn, signUp } from './desk.mjs';
 import { acceptRepresentation, CHAIN_ID, fundOnTestChain, testChain, TOKEN_A, TOKEN_B } from './dex.mjs';
 import { api, fromUnits, ORIGIN, ROOT, toUnits } from './stack.mjs';
