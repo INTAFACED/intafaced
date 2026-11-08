@@ -6,6 +6,7 @@ import { Chip } from '@/components/chip';
 import {
   AmbassadorActions,
   AppointAmbassadorAction,
+  CardFundingAction,
   CardStatusAction,
   DisputeActions,
   ListingActions,
@@ -377,6 +378,9 @@ export function SectionView({
       )}
       {section.sectionAction === 'academy.ambassador.appoint' && <AppointAmbassadorAction userId={ctx.userId} onChanged={ctx.onChanged} />}
       {section.sectionAction === 'bank.card.status' && <CardStatusAction userId={ctx.userId} onChanged={ctx.onChanged} />}
+      {section.sectionAction === 'bank.card.funding' && (
+        <CardFundingAction userId={ctx.userId} onChanged={ctx.onChanged} offers={view?.reads['bank.card-funding-offers']} />
+      )}
       {section.sectionAction === 'pay.transfer.lookup' && <TransferLookup />}
       {section.sectionAction === 'bank.customer.balances' && <CustomerBalances />}
       {section.disabledActions.length > 0 && (
