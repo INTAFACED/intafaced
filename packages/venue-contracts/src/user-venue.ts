@@ -121,7 +121,7 @@ export interface WithdrawIntent {
   readonly amount: Amount;
   /** Lowercase destination address. The customer's own wallet. */
   readonly destination: string;
-  /** Business key of this withdrawal, so a retry is the same request. */
+  /** Business key of this withdrawal: what the caller stores the prepared, signed action under (see `prepare`). */
   readonly withdrawalKey: string;
 }
 
@@ -129,7 +129,12 @@ export interface ApproveBuilderFeeIntent {
   readonly kind: 'approve_builder_fee';
   /** Our builder address on this venue. */
   readonly builder: string;
-  /** The most the customer lets us charge, in basis points of notional. */
+  /**
+   * The most the customer lets us charge, in basis points of notional, as a
+   * scaled decimal (`parseAmount('0.5')` is half a basis point). Every `...Bps:
+   * Amount` in this file has this scale, so fractional fees (Hyperliquid sets
+   * builder fees in tenths of a basis point) compare exactly.
+   */
   readonly maxFeeBps: Amount;
 }
 
@@ -195,7 +200,7 @@ export interface PreparedVenueAction {
   /** Hex digest of `typedData`. What the wallet must sign, and what `submit` checks. */
   readonly digest: string;
   /** Builder fee attached to an order, as the venue will charge it; `null` when none. */
-  readonly builderFee: { readonly builder: string; readonly feeBps: Amount } | null;
+  readonly builderFee: { readonly builder: string; /** Scaled decimal bps, as `maxFeeBps`. */ readonly feeBps: Amount } | null;
   readonly preparedAt: Date;
 }
 
@@ -254,6 +259,8 @@ export type VenueRefusalCode =
   | 'agent_not_permitted'
   /** The signer is not the account's owner or an approved agent. */
   | 'signer_not_authorised'
+  /** The signature is over a different payload, or from a different key, than the one prepared. */
+  | 'signature_mismatch'
   /** The venue's free balance does not cover the lock or the withdrawal. */
   | 'insufficient_balance'
   /** The market is not listed on this venue. */
@@ -320,7 +327,12 @@ export interface UserVenueFill {
 
 export interface UserVenueOrder {
   readonly venueOrderId: string | null;
-  readonly venueClientOrderId: string;
+  /**
+   * `null` for an order the customer placed on the venue directly, without a
+   * client id: it still locks funds, so it is listed, never dropped or given
+   * an invented id.
+   */
+  readonly venueClientOrderId: string | null;
   readonly symbol: string;
   readonly side: 'buy' | 'sell';
   readonly type: VenueOrderType;
@@ -354,7 +366,8 @@ export interface UserVenuePosition {
 export type UserVenueWithdrawalStatus = 'pending' | 'done' | 'failed';
 
 export interface UserVenueWithdrawal {
-  readonly withdrawalKey: string;
+  /** The nonce of the signed withdrawal. Our `withdrawalKey` lives in our own records, not the venue's. */
+  readonly nonce: string;
   readonly asset: string;
   readonly amount: Amount;
   readonly destination: string;
@@ -401,14 +414,17 @@ export interface UserVenueMarket {
 
 export interface UserVenueDescriptor extends VenueDescriptor {
   /**
-   * True for anything that is not a live venue with real funds: the TEST
-   * simulator, a testnet. Every figure from it is labelled TEST, and
+   * Which proof level its results count as (R5 §3.2). Anything but `live` is
+   * a TEST venue (`isTestVenue`): every figure from it is labelled TEST, and
    * `refuseTestVenueOutsideTest` refuses it outside APP_ENV dev or test
-   * (AGENTS.md floor 8).
+   * (AGENTS.md floor 8). One field, so the two can never disagree.
    */
-  readonly test: boolean;
-  /** Which proof level its results count as (R5 §3.2): simulator, partner sandbox, or live. */
   readonly proofLevel: 'simulator' | 'partner-sandbox' | 'live';
+}
+
+/** True for the TEST simulator and any testnet or partner sandbox. */
+export function isTestVenue(venue: UserVenueDescriptor): boolean {
+  return venue.proofLevel !== 'live';
 }
 
 export interface UserVenue {
@@ -427,15 +443,26 @@ export interface UserVenue {
    * `agent_not_permitted` — so the wallet is never asked to sign an action
    * that cannot succeed. Balance checks are the venue's, at submit.
    *
-   * The same intent prepared twice yields the same `venueClientOrderId`; the
-   * nonce may differ, and the venue's client-id check is what makes the second
-   * submit place no second order.
+   * The same order intent prepared twice yields the same `venueClientOrderId`,
+   * and the venue's client-id check is what makes a second submit place no
+   * second order.
+   *
+   * A withdrawal or an approval has no client id on the venue; its only
+   * anti-replay is the signed `nonce`. So the caller stores the prepared action
+   * and its signature under the intent's business key BEFORE `submit`, and
+   * after a `definite: false` answer it re-submits those same signed bytes
+   * (the venue refuses a reused nonce, so this is one action) or reads back by
+   * nonce. It never prepares that intent again: a fresh nonce is a second
+   * withdrawal.
    */
   prepare(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): Promise<PreparedVenueAction>;
 
   /**
-   * Send a signed action. Refuses with nothing sent when the signature's digest
-   * or signer does not match the prepared action (`assertSignatureMatches`).
+   * Send a signed action. Refuses `signature_mismatch` with nothing sent when
+   * the signature's digest or signer does not match the prepared action
+   * (`assertSignatureMatches`), and must verify the signature bytes
+   * themselves against `prepared.signer.address` — the wallet's `signedBy` is
+   * a claim, not proof.
    * Re-submitting the same signed action returns the venue's answer for it,
    * never a second action.
    */
@@ -448,8 +475,8 @@ export interface UserVenue {
   orderByClientId(account: UserVenueAccount, venueClientOrderId: string): Promise<AsOf<UserVenueOrder | null>>;
   fills(account: UserVenueAccount, since: Date): Promise<AsOf<readonly UserVenueFill[]>>;
   positions(account: UserVenueAccount): Promise<AsOf<readonly UserVenuePosition[]>>;
-  /** `null` is a confirmed miss. */
-  withdrawal(account: UserVenueAccount, withdrawalKey: string): Promise<AsOf<UserVenueWithdrawal | null>>;
+  /** By the signed action's nonce, the only id the venue knows it by. `null` is a confirmed miss. */
+  withdrawal(account: UserVenueAccount, nonce: string): Promise<AsOf<UserVenueWithdrawal | null>>;
   /** The most the account has approved for `builder`, in bps; zero when never approved. */
   builderFeeApproval(account: UserVenueAccount, builder: string): Promise<AsOf<Amount>>;
   agents(account: UserVenueAccount): Promise<AsOf<readonly UserVenueAgent[]>>;
@@ -466,8 +493,11 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Hyperliquid's `cloid` format), deterministically: the same key always gives
  * the same id, so a retried intent can only ever name the same venue order.
  *
- * Refuses a blank key and a bare UUID: a random id is not a business key
- * (AGENTS.md floor 3), and accepting one here would make every retry a new order.
+ * Refuses a blank key, a bare UUID and a key without a `<kind>:` prefix. That
+ * catches the obvious mistakes only: `order:${randomUUID()}` passes, because a
+ * real key may hold a user's UUID. What makes a key a business key (AGENTS.md
+ * floor 3) is that the caller derives it from the intent, and the caller's own
+ * retry test proves it is stable.
  */
 export function venueClientOrderId(venueId: string, clientOrderKey: string): string {
   const key = clientOrderKey.trim();
@@ -482,8 +512,21 @@ export function venueClientOrderId(venueId: string, clientOrderKey: string): str
   return `0x${hex}`;
 }
 
-/** Refuse an owner-only intent from an agent key, before anything is signed. */
-export function assertSignerMaySign(venueId: string, signer: VenueSigner, intent: VenueIntent): void {
+/**
+ * Refuse, before anything is signed: an `owner` signer whose address is not
+ * the account's owner, and an owner-only intent from an agent key. Whether an
+ * agent key is approved on the account is the venue's record (`agents()`),
+ * which `prepare` reads; this guard needs no venue.
+ */
+export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSigner, intent: VenueIntent): void {
+  const venueId = account.venueId;
+  if (signer.role === 'owner' && signer.address.toLowerCase() !== account.owner.toLowerCase()) {
+    throw new VenueRefusalError({
+      venueId,
+      code: 'signer_not_authorised',
+      detail: `${signer.address.toLowerCase()} is not the owner of this account (${account.owner.toLowerCase()})`,
+    });
+  }
   if (signer.role === 'agent' && OWNER_ONLY_INTENTS.has(intent.kind)) {
     throw new VenueRefusalError({
       venueId,
@@ -493,31 +536,40 @@ export function assertSignerMaySign(venueId: string, signer: VenueSigner, intent
   }
 }
 
-/** Refuse a signature that does not belong to the prepared action. Nothing is sent. */
+/**
+ * Refuse a signature that does not belong to the prepared action. Nothing is sent.
+ *
+ * A cheap pre-check on what the wallet claims, NOT verification: `signedBy` is
+ * the wallet's own report. Every `submit` must also verify the signature
+ * bytes against the prepared signer (a real venue does so itself; the TEST
+ * simulator must recover the signer the same way).
+ */
 export function assertSignatureMatches(prepared: PreparedVenueAction, signature: VenueSignature): void {
   if (signature.digest.toLowerCase() !== prepared.digest.toLowerCase()) {
     throw new VenueRefusalError({
       venueId: prepared.venueId,
-      code: 'signer_not_authorised',
+      code: 'signature_mismatch',
       detail: 'the signature is for a different payload than the one prepared',
     });
   }
   if (signature.signedBy.toLowerCase() !== prepared.signer.address.toLowerCase()) {
     throw new VenueRefusalError({
       venueId: prepared.venueId,
-      code: 'signer_not_authorised',
+      code: 'signature_mismatch',
       detail: `signed by ${signature.signedBy.toLowerCase()}, prepared for ${prepared.signer.address.toLowerCase()}`,
     });
   }
 }
 
 /**
- * A TEST venue (simulator, testnet) is refused unless `APP_ENV` is exactly
- * `dev` or `test` — fail closed, as svc-pay's TEST settings are (posture.ts):
- * an unset or unknown environment counts as live.
+ * A TEST venue (simulator, testnet, partner sandbox) is refused unless
+ * `appEnv` is exactly `dev` or `test` — the same rule as `isExplicitDevOrTest`
+ * (packages/config/src/app-env.ts), restated here so this package keeps no
+ * config dependency. Pass the RAW `process.env.APP_ENV`, never a parsed config
+ * value that defaults to `dev`: unset, blank and anything else count as live.
  */
-export function refuseTestVenueOutsideTest(venue: UserVenueDescriptor, appEnv: string | undefined): void {
-  if (venue.test && appEnv !== 'dev' && appEnv !== 'test') {
+export function refuseTestVenueOutsideTest(venue: UserVenueDescriptor, appEnv: string | null | undefined): void {
+  if (isTestVenue(venue) && appEnv !== 'dev' && appEnv !== 'test') {
     throw new VenueRefusalError({
       venueId: venue.id,
       code: 'test_venue_outside_test',

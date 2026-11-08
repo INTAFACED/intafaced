@@ -7,6 +7,8 @@ import {
   refuseTestVenueOutsideTest,
   venueClientOrderId,
   type PreparedVenueAction,
+  isTestVenue,
+  type UserVenueAccount,
   type UserVenueDescriptor,
   type VenueIntent,
   type VenueSigner,
@@ -14,6 +16,7 @@ import {
 
 const owner: VenueSigner = { role: 'owner', address: '0xowner' };
 const agent: VenueSigner = { role: 'agent', address: '0xagent' };
+const account: UserVenueAccount = { venueId: 'test-sim', owner: '0xOWNER', subAccount: null };
 
 function refusalCode(fn: () => unknown): string {
   try {
@@ -37,6 +40,10 @@ describe('venueClientOrderId', () => {
     const a = venueClientOrderId('test-sim', 'order:user-1:desk-7:1');
     expect(venueClientOrderId('test-sim', 'order:user-1:desk-7:2')).not.toBe(a);
     expect(venueClientOrderId('hyperliquid-testnet', 'order:user-1:desk-7:1')).not.toBe(a);
+  });
+
+  it('accepts a business key that holds a user UUID (only the obvious mistakes are refused)', () => {
+    expect(venueClientOrderId('test-sim', 'order:3f2b8c1e-9d4a-4b7e-8f6a-1c2d3e4f5a6b:desk-7:1')).toMatch(/^0x[0-9a-f]{32}$/);
   });
 
   it('refuses a blank key, a bare UUID and a key with no business shape', () => {
@@ -71,17 +78,25 @@ describe('assertSignerMaySign', () => {
   ];
 
   it.each(intents.map((intent) => [intent.kind, intent] as const))('the owner may sign %s', (_kind, intent) => {
-    expect(() => assertSignerMaySign('test-sim', owner, intent)).not.toThrow();
+    expect(() => assertSignerMaySign(account, owner, intent)).not.toThrow();
   });
 
   it.each(intents.map((intent) => [intent.kind, intent] as const))(
     'an agent signing %s is refused only when it is owner-only',
     (kind, intent) => {
       if (OWNER_ONLY_INTENTS.has(kind)) {
-        expect(refusalCode(() => assertSignerMaySign('test-sim', agent, intent))).toBe('agent_not_permitted');
+        expect(refusalCode(() => assertSignerMaySign(account, agent, intent))).toBe('agent_not_permitted');
       } else {
-        expect(() => assertSignerMaySign('test-sim', agent, intent)).not.toThrow();
+        expect(() => assertSignerMaySign(account, agent, intent)).not.toThrow();
       }
+    },
+  );
+
+  it.each(intents.map((intent) => [intent.kind, intent] as const))(
+    'a key claiming the owner role with another address is refused for %s',
+    (_kind, intent) => {
+      const impostor: VenueSigner = { role: 'owner', address: '0xagent' };
+      expect(refusalCode(() => assertSignerMaySign(account, impostor, intent))).toBe('signer_not_authorised');
     },
   );
 
@@ -110,13 +125,13 @@ describe('assertSignatureMatches', () => {
 
   it('refuses a signature over a different payload', () => {
     expect(refusalCode(() => assertSignatureMatches(prepared, { digest: '0xabce', signature: '0x01', signedBy: '0xowner' }))).toBe(
-      'signer_not_authorised',
+      'signature_mismatch',
     );
   });
 
   it('refuses a signature from another key', () => {
     expect(refusalCode(() => assertSignatureMatches(prepared, { digest: '0xabcd', signature: '0x01', signedBy: '0xagent' }))).toBe(
-      'signer_not_authorised',
+      'signature_mismatch',
     );
   });
 });
@@ -127,10 +142,9 @@ describe('refuseTestVenueOutsideTest', () => {
     displayName: 'TEST venue simulator',
     kind: 'external-dex',
     sequencedDepth: true,
-    test: true,
     proofLevel: 'simulator',
   };
-  const live: UserVenueDescriptor = { ...sim, id: 'live', displayName: 'Live', test: false, proofLevel: 'live' };
+  const live: UserVenueDescriptor = { ...sim, id: 'live', displayName: 'Live', proofLevel: 'live' };
 
   it.each(['dev', 'test'])('allows a TEST venue in APP_ENV %s', (env) => {
     expect(() => refuseTestVenueOutsideTest(sim, env)).not.toThrow();
@@ -138,6 +152,15 @@ describe('refuseTestVenueOutsideTest', () => {
 
   it.each([['prod'], ['staging'], [''], ['TEST'], [undefined]])('refuses a TEST venue in APP_ENV %j', (env) => {
     expect(refusalCode(() => refuseTestVenueOutsideTest(sim, env))).toBe('test_venue_outside_test');
+  });
+
+  it('counts every proof level but live as TEST', () => {
+    expect(isTestVenue(sim)).toBe(true);
+    expect(isTestVenue({ ...sim, proofLevel: 'partner-sandbox' })).toBe(true);
+    expect(isTestVenue(live)).toBe(false);
+    expect(refusalCode(() => refuseTestVenueOutsideTest({ ...sim, proofLevel: 'partner-sandbox' }, 'prod'))).toBe(
+      'test_venue_outside_test',
+    );
   });
 
   it('never refuses a live venue on these grounds', () => {
