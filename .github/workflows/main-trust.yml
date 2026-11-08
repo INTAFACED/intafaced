@@ -9,7 +9,9 @@ name: Main trust
 #   green after re-run   open one "Flaky on main: <test file>" issue per test that failed first
 #   green                move the `last-green` branch forward, close the "Main is red" issue it settles
 #
-# No test is skipped, disabled or quarantined. See tooling/ci/main-trust.mjs.
+# No test is skipped, disabled or quarantined. See tooling/ci/main-trust.mjs. The one set-aside is the machine's own, in
+# the Real-app journeys verdict (tooling/ci/journey-verdict.mjs): a journey step that failed, then passed on its retry, on
+# main, for a limited time, and never a money step. No agent sets anything aside.
 #
 # After a post-merge check on main finishes (Order-path CX-8, Customer Money browser checks, Real-app journeys, and
 # PR checks, whose Dependency audit holds main to the full advisory ratchet), it

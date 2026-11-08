@@ -141,6 +141,7 @@ import type { ProfileService } from './profile/profile-service.js';
 import { createProfileRouter } from './profile/profile-router.js';
 import type { AccountChange } from './account/account-router.js';
 import { createAccountRouter } from './account/account-router.js';
+import { createCompromiseRouter } from './account/compromise-router.js';
 import { createAccountClosureRouter } from './closure/closure-router.js';
 import type { AccountClosureService } from './closure/closure-service.js';
 import { createSubAccountFeatureProcedures } from './sub-accounts/sub-account-features-router.js';
@@ -504,6 +505,7 @@ export function toTrpcError(err: unknown): TRPCError {
       return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
     case 'auth.session_invalid':
     case 'auth.session_reused':
+    case 'auth.session_idle':
       return new TRPCError({ code: 'UNAUTHORIZED', message, cause: err });
     case 'auth.handle_taken':
     case 'auth.email_taken':
@@ -931,7 +933,7 @@ export function createIdentityRouter(
     /**
      * Owner-published commission tier law (DIRECTION §8).
      * Blank / unpublished → accrue refuses when the request omits tiers.
-     * Default unpublished — never invent 10/5/2%.
+     * Default unpublished — never invent a rate.
      */
     accrualTierLaw?: AccrualTierLaw;
     /**
@@ -1226,7 +1228,7 @@ export function createIdentityRouter(
     }),
 
     profile: createProfileRouter(options.profile, options.antiPhishing),
-    account: createAccountRouter(options.account),
+    account: createAccountRouter(options.account, createCompromiseRouter(auth, privilegedUserIds)),
     accountClosure: createAccountClosureRouter(options.closure),
 
     users: router({
@@ -1853,11 +1855,19 @@ export function createIdentityRouter(
         }),
 
       refresh: publicProcedure
-        .input(z.object({ refreshToken: z.string().min(1).optional() }).optional())
+        .input(
+          z
+            .object({
+              refreshToken: z.string().min(1).optional(),
+              /** The app saw no use since its last refresh (an unused tab's timer): the idle sign-out keeps counting. */
+              idle: z.boolean().optional(),
+            })
+            .optional(),
+        )
         .output(sessionOutput)
         .mutation(async ({ input, ctx }) => {
           try {
-            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken));
+            const session = await auth.refresh(presentedRefreshToken(ctx, input?.refreshToken), input?.idle === true ? { idle: true } : {});
             return sessionWire(ctx, session);
           } catch (err) {
             if (

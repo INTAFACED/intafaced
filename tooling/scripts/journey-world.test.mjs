@@ -36,19 +36,19 @@ test('every real journey file declares at least what it changes, and the CLI pas
   assert.equal(cli.status, 0, cli.stderr);
 });
 
-test('planted: the run-1247 leak. J-copy-bots-otc-30 rests a bid and J-ops-console-08 restarts the maker; undeclared, both fail', () => {
+test('planted: the run-1247 leak. J-copy-bots-otc-30 rests a bid and holds the maker (#7539), J-ops-console-08 restarts the maker; undeclared, both fail', () => {
   const dir = plant({
     'J-copy-bots-otc-30.pw.mjs': withLine(real('J-copy-bots-otc-30.pw.mjs'), '// World: none'),
     'J-ops-console-08.pw.mjs': withLine(real('J-ops-console-08.pw.mjs'), '// World: freeze'),
     'J-portfolio-04.pw.mjs': real('J-portfolio-04.pw.mjs'),
   });
   const rows = Object.fromEntries(scan(dir).map((r) => [r.file, r]));
-  assert.deepEqual(rows['J-copy-bots-otc-30.pw.mjs'].missing, ['book']);
+  assert.deepEqual(rows['J-copy-bots-otc-30.pw.mjs'].missing.sort(), ['book', 'market']);
   assert.deepEqual(rows['J-ops-console-08.pw.mjs'].missing.sort(), ['market', 'restart']);
   assert.deepEqual(rows['J-portfolio-04.pw.mjs'].missing, []);
   const cli = run(dir);
   assert.equal(cli.status, 1);
-  assert.match(cli.stderr, /J-copy-bots-otc-30\.pw\.mjs: changes book but does not declare it/);
+  assert.match(cli.stderr, /J-copy-bots-otc-30\.pw\.mjs: changes book, market but does not declare it/);
   assert.match(cli.stderr, /J-ops-console-08\.pw\.mjs: changes .*market.*restart|J-ops-console-08\.pw\.mjs: changes .*restart.*market/);
   // Declared as the real files are, the same three pass.
   const fixed = plant({

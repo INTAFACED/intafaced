@@ -123,6 +123,7 @@ const READS_NO_REQUEST = [
   'deskPolicy',
   'kbPolicy',
   'categories',
+  'officialChannels',
   'create',
   'listKb',
   'searchKb',
