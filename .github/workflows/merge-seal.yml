@@ -1,0 +1,93 @@
+name: CI merge seal
+
+# The required `CI merge seal` check (R3 C3 piece 2, OWNER 242). It runs on pull_request_target, so this file and every
+# script it runs are the default branch's: a pull request can't change, drop or replace the check that judges it. It never
+# checks out, builds or runs a pull request's code; it reads the pull request, and the runs on its head, through the API.
+#
+# Until 8 Nov 2026 the seal was a job in ci.yml, which a pull request runs in its own version, so a pull request could
+# edit its own seal step. Every Actions job named `CI merge seal` on a head must pass (probe #7547: a red one blocked the
+# merge though a green one finished after it), so a pull request's own job of that name can't outrank this one, and a
+# pull request still on an older ci.yml carries both seals until it merges main.
+#
+# One seal run per head: an older red run would block until re-run, so nothing starts a second one. journey-seal-recheck.yml
+# re-runs this job in place when CI or a Real-app journeys run on the head finishes, or the title or body is edited; the
+# CI review job re-runs it when its verdict lands (seal-rerun.mjs); the factory switch re-runs it on a flip.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  # The merge queue's commit (OWNER 154 point 8): a required check must report on it. Its workflow file is the queue
+  # commit's, which holds only pull requests whose seals passed; its scripts are still read from the default branch.
+  merge_group:
+
+permissions: {}
+
+# A group of its own per run, never cancelled: a cancelled seal is a red required check that would block its head until
+# re-run, and GitHub cancels a pending run whenever a newer one queues in the same group. An older head's seal finishes
+# on its own head and never blocks the newer one (workflow-concurrency.test.mjs PR_EXCEPTIONS).
+concurrency:
+  group: merge-seal-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  seal:
+    name: CI merge seal
+    runs-on: ubuntu-latest
+    # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
+    timeout-minutes: 25
+    permissions:
+      contents: read # the default branch's scripts
+      actions: read # CI's, the CI review's and the journeys' runs and jobs on the head
+      pull-requests: read # the changed files, title and body
+      issues: read # the regression issues the journeys baseline names
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      # CI's jobs on this exact head (ci-jobs-seal.mjs): what ci.yml's seal read from `needs:`, now through the API, with
+      # the default branch deciding which jobs the change needs. Red while CI is still running; re-run when it finishes.
+      - name: Require CI's jobs on this exact head
+        id: needed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: node tooling/ci/ci-jobs-seal.mjs
+      # Named journey steps, the journeys a change touches, and journey test naming (journey-seal.mjs). It runs when CI's
+      # jobs are red too, so every verdict shows on one seal run.
+      - name: Require the named journey steps on this exact head
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          REPO: ${{ github.repository }}
+        run: node tooling/ci/journey-seal.mjs
+      # The CI review (and the test judge) on this exact head (review-marker.mjs). Only once CI's jobs are green, as before:
+      # it may wait up to 20 minutes for the review.
+      - name: Require the CI review on this exact head
+        if: ${{ !cancelled() && steps.needed.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_GROUP_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          REPO: ${{ github.repository }}
+        run: node tooling/ci/review-marker.mjs
+      # The factory switch (owner decision 2026-11-07, factory-switch.mjs): only `run` lets a pull request or a merge
+      # queue's commit through. It runs after the other verdicts so they still show.
+      - name: The factory switch says run
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: node tooling/ci/factory-switch.mjs

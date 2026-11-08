@@ -34,7 +34,7 @@
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { CI_WORKFLOW, recheckStep, SEAL } from './journey-seal.mjs';
+import { recheckStep, SEAL, SEAL_EVENT, SEAL_WORKFLOW } from './journey-seal.mjs';
 
 export const SWITCH_BRANCH = 'factory-switch';
 export const SWITCH_FILE = 'FACTORY';
@@ -85,9 +85,9 @@ export function sweepWants(paused, seal) {
 /** One open pull request's head on a flip: wait out a running seal, then re-run it if sweepWants says so. */
 export async function sweepHead({ repo, sha, paused, get, post, sleep, polls = 75, pollMs = 20_000 }) {
   for (let poll = 1; ; poll++) {
-    const runs = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&event=pull_request&per_page=100`))
+    const runs = (await get(`/repos/${repo}/actions/workflows/${SEAL_WORKFLOW}/runs?head_sha=${sha}&event=${SEAL_EVENT}&per_page=100`))
       ?.workflow_runs;
-    if (!Array.isArray(runs)) throw new Error(`${CI_WORKFLOW} runs on ${sha}: not a list`);
+    if (!Array.isArray(runs)) throw new Error(`${SEAL_WORKFLOW} runs on ${sha}: not a list`);
     const jobsByRun = new Map();
     let step = recheckStep(runs, jobsByRun);
     while (step.act === 'jobs') {

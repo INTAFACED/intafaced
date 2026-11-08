@@ -15,7 +15,13 @@ const green = (tests = ['Tests (changed)']) => [
 const product = ['services/svc-pay/src/a.ts'];
 
 test('the newest ci.yml run of the event on the head decides; other workflows, events and heads never do', () => {
-  const runs = [run(5), run(9, { path: '.github/workflows/fake.yml' }), run(8, { event: 'pull_request_target' }), run(7, { head_sha: 'b'.repeat(40) }), run(6)];
+  const runs = [
+    run(5),
+    run(9, { path: '.github/workflows/fake.yml' }),
+    run(8, { event: 'pull_request_target' }),
+    run(7, { head_sha: 'b'.repeat(40) }),
+    run(6),
+  ];
   assert.equal(ciRunFor(runs, { sha: SHA, event: 'pull_request' }).id, 6);
   assert.equal(ciRunFor([], { sha: SHA, event: 'pull_request' }), null);
 });
@@ -35,7 +41,10 @@ test('a run still going, or none, waits (red), and says the seal re-runs', () =>
 });
 
 test('planted: a red or missing required job fails', () => {
-  assert.equal(judgeCiJobs({ run: run(1), jobs: green().map((j) => (j.name === 'Format' ? { ...j, conclusion: 'failure' } : j)), files: product }).ok, false);
+  assert.equal(
+    judgeCiJobs({ run: run(1), jobs: green().map((j) => (j.name === 'Format' ? { ...j, conclusion: 'failure' } : j)), files: product }).ok,
+    false,
+  );
   assert.equal(judgeCiJobs({ run: run(1), jobs: green().filter((j) => j.name !== 'Doctrine gates'), files: product }).ok, false);
 });
 
@@ -43,7 +52,11 @@ test('planted: a pull request whose own ci.yml skips the tests its change needs 
   const v = judgeCiJobs({ run: run(1), jobs: green([]), files: product });
   assert.equal(v.ok, false);
   assert.match(v.lines.join('\n'), /tests-full was missing/);
-  const skipped = judgeCiJobs({ run: run(1), jobs: green(['Tests (changed)']).map((j) => (j.name.startsWith('Tests') ? { ...j, conclusion: 'skipped' } : j)), files: product });
+  const skipped = judgeCiJobs({
+    run: run(1),
+    jobs: green(['Tests (changed)']).map((j) => (j.name.startsWith('Tests') ? { ...j, conclusion: 'skipped' } : j)),
+    files: product,
+  });
   assert.equal(skipped.ok, false);
 });
 

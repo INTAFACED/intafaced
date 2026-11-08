@@ -28,9 +28,8 @@ export const TEST_JOB = /^Tests \(.+\)$/;
 /** The ci.yml run that decides on `sha` for `event`: the newest by id. null when CI hasn't run there. */
 export function ciRunFor(runs, { sha, event }) {
   return (
-    (runs ?? [])
-      .filter((r) => r?.head_sha === sha && r?.event === event && r?.path === CI_WORKFLOW_PATH)
-      .sort((a, b) => b.id - a.id)[0] ?? null
+    (runs ?? []).filter((r) => r?.head_sha === sha && r?.event === event && r?.path === CI_WORKFLOW_PATH).sort((a, b) => b.id - a.id)[0] ??
+    null
   );
 }
 

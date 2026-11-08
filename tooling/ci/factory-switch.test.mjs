@@ -60,7 +60,7 @@ function fakeApi({ runStatus = 'completed', job, rerunStatus = 201 }) {
     get: async (path) => {
       if (path.includes('/runs?head_sha=')) {
         reads++;
-        return { workflow_runs: [{ id: 7, event: 'pull_request', status: reads > 1 ? 'completed' : runStatus }] };
+        return { workflow_runs: [{ id: 7, event: 'pull_request_target', status: reads > 1 ? 'completed' : runStatus }] };
       }
       if (path.includes('/runs/7/jobs')) return { jobs: [job] };
       throw new Error(`unexpected ${path}`);
