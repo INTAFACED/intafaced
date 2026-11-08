@@ -76,8 +76,35 @@ test(`${J} starts: a verified TEST account funded with TEST USDT, opening Agents
 test(`${J} #1 opens Agents: the catalogue from the stored list with filters, sort and status; a disabled agent stays visible with its open button off`, async ({
   page,
 }) => {
+  // The catalogue is the stored list: the cards are exactly the agents svc-agents answers the page (agent.catalogue),
+  // no more and no fewer, each with its stored status. A card for an agent the stored list does not hold would be a
+  // sample card, which the step's words rule out (with none published, the empty state shows no card at all).
+  const catalogue = page.waitForResponse((r) => r.ok() && new URL(r.url()).pathname.endsWith('/api/agents/trpc/agent.catalogue'));
   await openAgents(page, agents);
   await expect(main(page).getByRole('heading', { name: 'Agent catalogue' })).toBeVisible();
+  const storedList = (await (await catalogue).json())?.result?.data ?? [];
+  expect(storedList.length, 'the stack publishes agents').toBeGreaterThan(0);
+  const LABEL = {
+    navigator: 'Navigator',
+    support: 'Support helper',
+    scanner: 'Market scanner',
+    merchant: 'Merchant watcher',
+    'copy-intel': 'Copy intelligence',
+    coach: 'Curriculum coach',
+    launch: 'Launch check',
+    growth: 'Growth drafts',
+    portfolio: 'Portfolio planner',
+    'risk-compliance': 'Risk and compliance',
+  };
+  const storedNames = storedList.map((row) => LABEL[row.agentId] ?? row.name ?? row.agentId).sort((a, b) => a.localeCompare(b));
+  const cardNames = (await main(page).getByRole('article').getByRole('heading', { level: 3 }).allInnerTexts()).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  expect(cardNames, 'every card is a stored agent and every stored agent has a card').toEqual(storedNames);
+  for (const row of storedList)
+    await expect(agentCard(page, LABEL[row.agentId] ?? row.name ?? row.agentId).getByTestId('agent-status')).toHaveText(
+      row.enabled ? 'Enabled' : 'Disabled',
+    );
   // The stored list: the five session agents the stack registers, each a card.
   for (const name of ['Navigator', 'Support helper', 'Market scanner', 'Merchant watcher', 'Copy intelligence']) {
     await expect(agentCard(page, name)).toBeVisible();
@@ -160,6 +187,76 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
         .filter({ has: page.getByRole('cell', { name: row, exact: true }) })
         .getByRole('cell'),
     ).toHaveText([row, of(navigator), of(support)]);
+  }
+  // Eligibility, from the stored guardrail: each agent states who may use it, and the table says per column whether
+  // this person may, naming the real reason (plan, age or region) when not.
+  for (const [g, who] of [
+    [navigator, 'navigator'],
+    [support, 'support'],
+  ])
+    expect(g, `${who}'s stored guardrail states who may use it`).toHaveProperty('eligibility');
+  const eligibility = compare.getByRole('row').filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
+  await expect(eligibility).toHaveCount(1);
+  const verdicts = eligibility.getByRole('cell');
+  await expect(verdicts).toHaveCount(3);
+  for (const i of [1, 2]) await expect(verdicts.nth(i)).toHaveText(/you may use it|plan|age|region/i);
+});
+
+test(`${J} #2 an agent the person is not eligible for shows the real reason (plan, age or region) in the comparison`, async ({
+  browser,
+}) => {
+  // A second person, signed up for this step only, who is not verified: an agent whose stored eligibility asks for more
+  // than this person has must say which rule (plan, age or region) leaves them out, in the comparison's own row.
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const { signUpInBrowser } = await import('./stack.mjs');
+    const { randomBytes } = await import('node:crypto');
+    const handle = `ag01e${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+    await signUpInBrowser(page, {
+      handle,
+      email: `${handle}@local-test.invalid`,
+      password: `TEST-${randomBytes(9).toString('base64url')}-9a`,
+    });
+    await page.goto('/agents');
+    // Both columns' stored guardrails, each read as the page asks for it: each must say this person is left out and why.
+    const read = (agentId) =>
+      page.waitForResponse(
+        (r) =>
+          r.ok() &&
+          r.request().method() === 'GET' &&
+          r.url().includes('/api/agents/trpc/agent.get') &&
+          decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+        { timeout: 15_000 },
+      );
+    const reads = [read('navigator'), read('support')];
+    await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
+    await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
+    await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
+    const guardrails = await Promise.all(reads.map(async (answer) => (await (await answer).json())?.result?.data));
+    for (const [g, who] of [
+      [guardrails[0], 'navigator'],
+      [guardrails[1], 'support'],
+    ]) {
+      expect(g, `${who}'s stored guardrail states who may use the agent`).toHaveProperty('eligibility');
+      // The unverified person is not eligible, for a named rule, with the service's own refusal code.
+      expect(g.eligibility, `${who}: ${JSON.stringify(g.eligibility)}`).toMatchObject({ eligible: false });
+      expect(['plan', 'age', 'region'], `${who}'s reason`).toContain(g.eligibility.reason);
+      expect(g.eligibility.code, `${who}'s refusal code`).toMatch(/^agents\.[a-z_]+$/);
+    }
+    const row = tableIn(main(page), 'Compare agents')
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
+    await expect(row).toHaveCount(1);
+    // Each column, not the row as a whole, says the person is left out and names the rule.
+    const cells = row.getByRole('cell');
+    await expect(cells).toHaveCount(3);
+    for (const i of [1, 2]) {
+      await expect(cells.nth(i)).toHaveText(/^Not\b.*\b(plan|age|region)\b/i);
+      await expect(cells.nth(i)).not.toHaveText(/you may use it|is one it is published for|no plan, age or region rule/i);
+    }
+  } finally {
+    await context.close();
   }
 });
 
