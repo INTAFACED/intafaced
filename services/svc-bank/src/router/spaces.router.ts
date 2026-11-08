@@ -103,6 +103,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ archived: z.literal(true) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
           await bank.spaces.archive(input.spaceId);
@@ -115,6 +116,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ archived: z.literal(false) }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'spaces');
           const space = await bank.spaces.get(input.spaceId);
           assertSelf(ctx.principal.userId, space.userId);
           await bank.spaces.unarchiveWithinLimit(input.spaceId);
@@ -177,6 +179,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(potStateOutput)
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           const now = new Date();
           const pot = await bank.spaces.cancelUnlock(input.spaceId, ctx.principal.userId, now);
           return { id: pot.id, ...potState(pot, now) };
@@ -206,6 +209,7 @@ export function createSpacesRouter(c: BankRouterContext) {
       .output(z.object({ spaceId: z.string(), billsPot: z.null() }))
       .mutation(async ({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
           await bank.billsPots.clear(ctx.principal.userId, input.spaceId);
           return { spaceId: input.spaceId, billsPot: null };
         }),

@@ -288,7 +288,7 @@ export async function createOnramp(
        WHERE id = ${quote.id}::uuid AND user_id = ${input.userId}
        FOR UPDATE
     `;
-    if (!again[0] || again[0].expires_at.getTime() <= Date.now()) {
+    if (!again[0] || again[0].expires_at.getTime() <= Date.now() || rampQuoteExpired(deps.testRamp, input.userId)) {
       throw new BankError('On-ramp quote has expired', 'bank.onramp_quote_expired');
     }
     const prior = await tx<CustomerOnrampRow[]>`

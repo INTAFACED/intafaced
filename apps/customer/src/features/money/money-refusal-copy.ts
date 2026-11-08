@@ -158,7 +158,7 @@ const es = {
   unlockRuleUnset:
     'El banco no ha fijado cuánto espera un desbloqueo anticipado, así que no se crea ningún bloqueo nuevo y un espacio bloqueado sigue así hasta su fecha. No se cambió nada.',
   spaceNotLocked: 'Este espacio no está bloqueado ahora, así que no hay bloqueo que terminar antes. No se cambió nada.',
-  notOfferedByPartner: 'El banco asociado no lo ofrece, así que no se envió ni se cambió nada.',
+  notOfferedByPartner: 'No lo ofrece el socio. Tu banco asociado no ofrece esto, así que no se envió ni se cambió nada.',
   partnerDown: 'Tu banco asociado no responde. No se envió ni se cambió nada. Inténtalo más tarde.',
   roundUpTarget: 'Un redondeo va a uno de tus espacios o a un fondo, y nunca de vuelta a la cuenta de la que sale. No se configuró nada.',
   sorterTermsUnset:

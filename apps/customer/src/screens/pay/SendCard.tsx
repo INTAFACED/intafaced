@@ -1070,6 +1070,7 @@ function SendForm({
                     {parseAmount(review.terms.fee) === 0n
                       ? personal.t('termsNoFee')
                       : `${fmtAmount(review.terms.fee, { places: 18 })} ${review.source.asset}`}
+                    {review.terms.networkFeeUnknown ? `. ${personal.t('termsNetworkFeeUnknown')}` : null}
                   </dd>
                 </div>
                 <div data-testid="pay-review-allowance">

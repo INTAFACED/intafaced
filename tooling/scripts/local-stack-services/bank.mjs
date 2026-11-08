@@ -179,13 +179,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     BANK_GLOBAL_PARTNER: 'global-sim',
     BANK_GLOBAL_SIM_JSON: testValue('BANK_GLOBAL_SIM_JSON'),
     BANK_SEND_FIELD_RULES_JSON: testValue('BANK_SEND_FIELD_RULES_JSON'),
-    // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
-    // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
-    // through the pay-in stand-in below.
     // LOCAL TEST partner bank and ramp (CUSTODY-DELTA §4; holds no money, refused at boot outside dev/test): per-person
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
+    // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
+    // through the pay-in stand-in below.
     BANK_ONRAMP_RATES: 'ramp-sim',
     BANK_ONRAMP_SIM_JSON: testValue('BANK_ONRAMP_SIM_JSON'),
     // LOCAL TEST pay-in stand-in for add money (J-bank-02 #3, #5; takes no money, refused under live posture): for the

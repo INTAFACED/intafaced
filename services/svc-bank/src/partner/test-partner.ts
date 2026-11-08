@@ -35,7 +35,11 @@ export interface TestPartnerSwitches {
   readonly fee: 'known' | 'unknown';
   /** `required`: the partner requires a reserve of us, and does not say how much; it reads "not known", never 0. */
   readonly reserve: 'none' | 'required';
-  /** The partner is not answering: every partner-held door refuses `bank.partner_unavailable`, nothing written. */
+  /**
+   * The partner is not answering: every write to a currency account, space, pot or joint account refuses
+   * `bank.partner_unavailable`, nothing written. Freezing a shared pot's card stays open (it only protects), and reads
+   * still show what was last read.
+   */
   readonly down: boolean;
   /** `expired`: the ramp says any quote it gave has expired when it is accepted. */
   readonly rampQuote: 'live' | 'expired';

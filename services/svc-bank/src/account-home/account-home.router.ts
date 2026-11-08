@@ -88,6 +88,7 @@ export function createCurrenciesRouter(
       .output(z.object({ assetId: z.string(), removed: z.literal(true) }))
       .mutation(({ ctx, input }) =>
         guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'currencies');
           await bank.profiles.personalOnly(ctx.principal.userId, input.profile);
           return bank.currencies.remove(ctx.principal.userId, input.assetId);
         }),

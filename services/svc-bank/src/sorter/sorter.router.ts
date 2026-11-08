@@ -147,6 +147,11 @@ export function createSorterRouter(bank: BankServices, guard: Guard) {
     cancel: scopedProcedure('bank:write', { module: 'bank' })
       .input(z.object({ sorterId: z.string().guid() }).strict())
       .output(sorterView)
-      .mutation(({ ctx, input }) => guard(async () => viewOf(await bank.sorter.cancel(ctx.principal.userId, input.sorterId)))),
+      .mutation(({ ctx, input }) =>
+        guard(async () => {
+          assertPartnerOffers(bank.testPartner, ctx.principal.userId, 'pots');
+          return viewOf(await bank.sorter.cancel(ctx.principal.userId, input.sorterId));
+        }),
+      ),
   });
 }

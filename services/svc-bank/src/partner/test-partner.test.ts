@@ -191,13 +191,26 @@ describe('the partner-held doors refuse before any service is reached', () => {
       ['pots', () => caller.sorter.create({ sorterId: SPACE, assetId: 'USDT', legs: [{ spaceId: SPACE, shareBp: 10_000 }] })],
       ['joint', () => caller.sharedPots.invite({ inviteId: SPACE, spaceId: SPACE, handle: 'bob', role: 'viewer' })],
       ['joint', () => caller.sharedPots.accept({ inviteId: SPACE })],
+      ['currencies', () => caller.currencies.remove({ assetId: 'USDC' })],
+      ['spaces', () => caller.spaces.archive({ spaceId: SPACE })],
+      ['spaces', () => caller.spaces.unarchive({ spaceId: SPACE })],
+      ['pots', () => caller.spaces.cancelUnlock({ spaceId: SPACE })],
+      ['pots', () => caller.spaces.clearBillsPot({ spaceId: SPACE })],
+      ['pots', () => caller.sorter.cancel({ sorterId: SPACE })],
+      ['joint', () => caller.sharedPots.cancelInvite({ inviteId: SPACE })],
+      ['joint', () => caller.sharedPots.decline({ inviteId: SPACE })],
+      ['joint', () => caller.sharedPots.leave({ spaceId: SPACE })],
+      ['joint', () => caller.sharedPots.remove({ spaceId: SPACE, userId: BOB })],
+      ['joint', () => caller.sharedPots.linkCard({ spaceId: SPACE, cardId: SPACE })],
+      ['joint', () => caller.sharedPots.unlinkCard({ spaceId: SPACE })],
     ] as const;
 
   it('each door refuses bank.not_offered_by_partner when its feature is switched off', async () => {
     const partner = testPartner();
-    partner.set(ADA, { notOffered: ['currencies', 'spaces', 'pots', 'joint'] });
-    for (const [, door] of doors(as(unreachableBank(partner)))) {
-      expect(await refusal(door())).toEqual({ code: 'PRECONDITION_FAILED', bank: 'bank.not_offered_by_partner' });
+    for (const [feature, door] of doors(as(unreachableBank(partner)))) {
+      // Only this door's own feature is switched, so a door wired to the wrong feature fails here.
+      partner.set(ADA, { notOffered: [feature] });
+      expect(await refusal(door()), feature).toEqual({ code: 'PRECONDITION_FAILED', bank: 'bank.not_offered_by_partner' });
     }
   });
 
