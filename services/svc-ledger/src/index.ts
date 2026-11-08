@@ -68,6 +68,7 @@ const reconciliationSources = reconciliationSourcesFrom(env.LEDGER_RECONCILE_OUT
 
 const ledger = new LedgerService(sql, bus, {
   postingEnabled: env.LEDGER_POSTING_ENABLED,
+  custodyLayer: env.LEDGER_CUSTODY_LAYER,
   idempotencyConflict: idempotencyConflictMode,
   reconcileStatementTimeoutMs: env.LEDGER_RECONCILE_STATEMENT_TIMEOUT_MS,
   clockSkewBoundMs,

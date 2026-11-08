@@ -19,7 +19,11 @@ import {
 import { toWriteBlockError } from './ledger/write-block.js';
 import { assessClockSkew, readDatabaseNow, sampleClocks, type ClockSkewView } from './ledger/clock-skew.js';
 import {
+  CUSTODY_LAYER_OFF_CODE,
+  CustodyLayerOffError,
   LedgerError,
+  movesCustomerBalance,
+  type CustodyLayerState,
   type AccountRef,
   type IdempotencyConflictOptions,
   type Balance,
@@ -93,6 +97,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
   private readonly engine: PostgresLedger;
   private readonly bootPostingEnabled: boolean;
+  readonly custodyLayer: CustodyLayerState;
   private readonly reconcileStatementTimeoutMs: number;
   private readonly clockSkewBoundMs: number | null;
   private readonly now: () => Date;
@@ -104,6 +109,11 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     private readonly bus: EventBus,
     options: {
       postingEnabled?: boolean;
+      /**
+       * The custody switch (OWNER 226). Omitted means OFF: a post that moves a customer balance is refused with
+       * `ledger.custody_layer_off`. The TEST journey stack sets `LEDGER_CUSTODY_LAYER=on` to run the custodial layer.
+       */
+      custodyLayer?: CustodyLayerState;
       reconcileStatementTimeoutMs?: number;
       /** Null or omitted: the owner has not set a bound. Not zero. */
       clockSkewBoundMs?: number | null;
@@ -114,6 +124,7 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
     } & IdempotencyConflictOptions = {},
   ) {
     this.bootPostingEnabled = options.postingEnabled ?? true;
+    this.custodyLayer = options.custodyLayer ?? 'off';
     this.reconcileStatementTimeoutMs = options.reconcileStatementTimeoutMs ?? DEFAULT_RECONCILE_STATEMENT_TIMEOUT_MS;
     this.clockSkewBoundMs = options.clockSkewBoundMs ?? null;
     this.now = options.now ?? (() => new Date());
@@ -153,6 +164,17 @@ export class LedgerService implements LedgerClient, ScheduledReconcileLedger {
         entryCount: request.entries.length,
       },
       async (span) => {
+        // The custody switch, before anything is written. A key already booked (while the layer was on) still goes
+        // to the engine, which replays it or refuses a different body: a caller retrying a committed post must learn
+        // it committed, never be told it was refused. Only a NEW customer-balance post is refused, and with the layer
+        // off none can commit, so there is no race between this read and the engine's insert.
+        if (this.custodyLayer === 'off' && movesCustomerBalance(request.entries)) {
+          const booked = await this.engine.getTxByKey(request.idempotencyKey);
+          if (!booked) {
+            span.setAttribute('intafaced.refused', CUSTODY_LAYER_OFF_CODE);
+            throw new CustodyLayerOffError(request.module, request.reason);
+          }
+        }
         let tx: LedgerTx;
         try {
           tx = await this.engine.post(request);

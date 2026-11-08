@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { reconciliationRailSchema } from '@intafaced/contracts/ledger-reconciliation';
 import { parseClockSkewBoundMs } from './ledger/clock-skew.js';
 import { resolveIdempotencyConflictMode } from './idempotency-conflict-mode.js';
@@ -106,6 +107,24 @@ const schema = serviceEnvSchema
        * module is frozen rather than allowed to keep writing to a book we no
        * longer trust.
        */
+      /**
+       * The custody switch (OWNER 226: no customer money held at launch). `off` (the default, and what unset or blank
+       * means) refuses every post that moves a customer balance with `ledger.custody_layer_off`; `on` runs the
+       * custodial layer, kept built for the journeys marked Later. Any other value refuses boot, so a typo cannot turn
+       * custody on. `tooling/ci/custody-scan.mjs` check 4 reads this default and fails if it is not `off`.
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((v, ctx) => {
+          try {
+            return parseCustodyLayer(v);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: (err as Error).message });
+            return z.NEVER;
+          }
+        }),
+
       LEDGER_POSTING_ENABLED: z
         .union([z.boolean(), z.string()])
         .default(true)

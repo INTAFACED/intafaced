@@ -189,6 +189,9 @@ services:
       # reaches the container. Do not default posting OFF — that would halt the
       # money plane on a clean clone.
       LEDGER_POSTING_ENABLED: ${LEDGER_POSTING_ENABLED:-true}
+      # The custody switch (OWNER 226). This compose file is the TEST stack, which runs the custodial layer kept for the
+      # journeys marked Later; svc-ledger's own default, and production's, is off.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-on}
       # Owner-published reconcile cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 60 explicitly. Never invent 60.
       RECONCILE_CRON_MINUTES: ${RECONCILE_CRON_MINUTES:-}

@@ -34,7 +34,7 @@ afterAll(async () => {
 });
 
 it('a real scheduled PostgreSQL statement timeout must not durably freeze posting and a later tick retries successfully', async () => {
-  const ledger = new LedgerService(pool, new MemoryEventBus('timeout-regression'));
+  const ledger = new LedgerService(pool, new MemoryEventBus('timeout-regression'), { custodyLayer: 'on' });
   await ledger.post(
     recipes.deposit({
       userId: '55555555-5555-4555-8555-555555555555',
