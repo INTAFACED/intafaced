@@ -18,7 +18,6 @@ import {
   READ_TOKEN,
   SOFT_MIN,
   WRITE_TOKEN,
-  accountToken,
   agentCommand,
   appJwt,
   buildPrompt,
@@ -447,27 +446,30 @@ export function workflowProblems(wf) {
   const gate = wf.slice(gi, bi);
   const build = wf.slice(bi, pi);
   const publish = wf.slice(pi);
-  // The secrets come from the environment `factory` (main only): every job that reads one names it.
+  // The secrets come from environments that allow main only: `factory` for the gate and the publish (the App key), the
+  // account's own `factory-<account>` for the build (its CLI token, and nothing else).
   for (const [name, job] of [
     ['gate', gate],
-    ['build', build],
     ['publish', publish],
   ])
     if (/secrets\./.test(job) && !/\n    environment: factory\n/.test(job))
       p.push(`the ${name} job takes its secrets from the environment factory`);
+  if (!/\n    environment: factory-\$\{\{ inputs\.account \}\}\n/.test(build))
+    p.push("the build job runs in the account's own environment");
+  if ((build.match(/secrets\.[A-Za-z_]+/g) ?? []).some((r) => r !== 'secrets.CLAUDE_FACTORY_TOKEN'))
+    p.push("the build job references no secret but the account's CLI token");
   const gs = steps(gate);
   if (gs[0]?.name !== 'Only from main' || !/"\$REF" != "refs\/heads\/main"[\s\S]*exit 1/.test(gs[0].text))
     p.push('the first step refuses any ref but main');
   const sec = stepOf(gate, 'The factory secrets are set');
   if (
     gs[1]?.name !== 'The factory secrets are set' ||
-    !/\[ -n "\$FACTORY_APP_KEY" \]/.test(sec) ||
-    !/\[ -n "\$token" \]/.test(sec) ||
-    !['1', '3', '4'].every((n) => sec.includes(`            acct${n}) token="$CLAUDE_TOKEN_ACCT${n}" ;;\n`)) ||
-    !/\n            \*\) echo "::error[^\n]*; exit 1 ;;\n/.test(sec) ||
-    !/exit 1\n          fi\n/.test(sec)
+    !/if \[ -z "\$FACTORY_APP_KEY" \]; then\n[^\n]*\n            exit 1\n          fi\n/.test(sec)
   )
-    p.push("the App key and the account's CLI token are checked before anything else runs, and a missing one fails");
+    p.push('the App key is checked before anything else runs, and a missing one fails');
+  const cliCheck = stepOf(build, "The account's CLI token is set");
+  if (!/if \[ -z "\$CLAUDE_FACTORY_TOKEN" \]; then\n[^\n]*\n            exit 1\n          fi\n/.test(cliCheck))
+    p.push("the account's CLI token is checked, and a missing one fails");
   if (!/factory-builder\.mjs switch/.test(stepOf(gate, 'Read the factory switch'))) p.push('the gate reads the switch');
   if (!/\n    needs: gate\n    if: needs\.gate\.outputs\.run == 'true'\n/.test(build))
     p.push('the build runs only when the switch says run');
@@ -484,21 +486,31 @@ export function workflowProblems(wf) {
     .filter((s) => /FACTORY_APP_KEY/.test(s.text))
     .map((s) => s.name)
     .join();
-  if (keySteps !== 'The factory secrets are set,Read GitHub before the agent,Publish')
-    p.push('the App key reaches only the two GitHub steps');
+  if (keySteps !== 'The factory secrets are set,Read GitHub before the agent,Publish' || /FACTORY_APP_KEY/.test(build))
+    p.push('the App key reaches only the two GitHub steps, never the build job');
   if ((wf.match(/FACTORY_APP_KEY: (.*)\n/g) ?? []).some((l) => l !== 'FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n'))
     p.push('the App key is the secret itself');
   const bnames = steps(build).map((s) => s.name);
   const at = (n) => bnames.indexOf(n);
+  // GitHub is read in the gate, on a runner the agent never uses; the prompt reaches the build as data.
+  const before = stepOf(gate, 'Read GitHub before the agent');
   if (
-    stepOf(build, 'Read GitHub before the agent')
-      .match(/\n        run: (.*)\n/)?.[1]
-      ?.trim() !== `'"$NODE_BIN" tooling/ci/factory-builder.mjs before'` ||
-    !(at('Read GitHub before the agent') >= 0 && at('Read GitHub before the agent') < at('Close every directory on PATH'))
+    before.match(/\n        run: (.*)\n/)?.[1]?.trim() !== 'node tooling/ci/factory-builder.mjs before' ||
+    !/\n        if: steps\.switch\.outputs\.run == 'true'\n/.test(before) ||
+    !/\n      prompt: \$\{\{ steps\.before\.outputs\.prompt \}\}\n/.test(gate)
   )
-    p.push('GitHub is read, and its token revoked, before the agent user exists');
-  if (/factory-builder\.mjs publish/.test(build) || /factory-builder\.mjs (before|run)\b/.test(publish))
-    p.push("the publish never runs on the agent's runner");
+    p.push('the gate reads GitHub and hands the prompt on, only when the switch says run');
+  const promptIn = stepOf(build, 'Write the prompt');
+  if (
+    !/\n          PROMPT_B64: \$\{\{ needs\.gate\.outputs\.prompt \}\}\n/.test(promptIn) ||
+    !/factory-builder\.mjs prompt-in/.test(promptIn) ||
+    !(at('Write the prompt') >= 0 && at('Write the prompt') < at('The agent user and its working tree'))
+  )
+    p.push("the build writes the gate's prompt before the agent user exists");
+  if (!/\n          GATE_STARTED_AT: \$\{\{ needs\.gate\.outputs\.started_at \}\}\n/.test(stepOf(build, 'Start the clock')))
+    p.push("the deadlines count from the gate's read");
+  if (/factory-builder\.mjs (publish|before)\b/.test(build) || /factory-builder\.mjs (before|run)\b/.test(publish))
+    p.push("GitHub is never read or written from the agent's runner");
   if (/\n          token: /.test(wf)) p.push('no checkout holds a token');
   for (const m of wf.matchAll(/persist-credentials: (\w+)/g)) if (m[1] !== 'false') p.push('no checkout keeps a credential');
   if ((wf.match(/actions\/checkout@/g) ?? []).length !== (wf.match(/persist-credentials: false/g) ?? []).length)
@@ -507,21 +519,18 @@ export function workflowProblems(wf) {
   const mainCode = stepOf(build, "Main's code");
   if (!/\n          SHA: \$\{\{ github\.sha \}\}\n/.test(mainCode) || !/test "\$\(git rev-parse HEAD\)" = "\$SHA"/.test(mainCode))
     p.push('the build job fetches the dispatched commit of main and checks it');
-  // The CLI tokens: each by its own name, only in the secrets check and the Build step, picked there by the script.
+  // The CLI token: the build environment's one secret, only in its check and the Build step.
   const cliSteps = steps(wf)
-    .filter((s) => /CLAUDE_TOKEN_ACCT/.test(s.text))
+    .filter((s) => /secrets\.CLAUDE_FACTORY_TOKEN|CLAUDE_CODE_OAUTH_TOKEN: /.test(s.text))
     .map((s) => s.name)
     .join();
-  const refs = ['1', '3', '4'].map((n) => `          CLAUDE_TOKEN_ACCT${n}: \${{ secrets.CLAUDE_TOKEN_ACCT${n} }}\n`).join('');
   if (
-    cliSteps !== 'The factory secrets are set,Build' ||
-    !stepOf(gate, 'The factory secrets are set').includes(`          ACCOUNT: \${{ inputs.account }}\n${refs}`) ||
-    !stepOf(build, 'Build').includes(`          ACCOUNT: \${{ inputs.account }}\n${refs}`) ||
-    (wf.match(/secrets\.CLAUDE_TOKEN_ACCT/g) ?? []).length !== 6 ||
-    /CLAUDE_CODE_OAUTH_TOKEN:|secrets\[/.test(wf)
+    cliSteps !== "The account's CLI token is set,Build" ||
+    !stepOf(build, 'Build').includes('          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n') ||
+    (wf.match(/secrets\.CLAUDE_FACTORY_TOKEN/g) ?? []).length !== 2 ||
+    /secrets\.CLAUDE_CODE_OAUTH_TOKEN|secrets\[/.test(wf)
   )
-    p.push("the account's CLI token reaches only the secrets check and the Build step");
-  if (/CLAUDE_TOKEN/.test(publish)) p.push('the publish job holds no CLI token');
+    p.push("the account's CLI token reaches only its check and the Build step");
   // Trust: the job's steps run main's code only. Its checkouts are of the dispatched commit on main; nothing runs in
   // the agent's tree except as the agent user; the job's own scripts run from the job's checkout with its pinned node.
   for (const m of wf.matchAll(/\n          ref: (.*)\n/g))
@@ -534,7 +543,7 @@ export function workflowProblems(wf) {
       if (/\$WORK|\$\{WORK\}|\/home\/factory-agent/.test(line) && !/sudo -n -u "\$AGENT_USER"|as_agent /.test(line))
         p.push(`step ${s.name} touches the agent's tree as the runner`);
       if (/\b(cd|pushd)\b/.test(line)) p.push(`step ${s.name} changes directory`);
-      if (/factory-builder\.mjs/.test(line) && !/^'?"\$NODE_BIN" tooling\/ci\/factory-builder\.mjs \w+'?$/.test(line.trim()))
+      if (/factory-builder\.mjs/.test(line) && !/^'?"\$NODE_BIN" tooling\/ci\/factory-builder\.mjs [\w-]+'?$/.test(line.trim()))
         p.push(`step ${s.name} runs the builder's script other than from main's checkout with the pinned node`);
     }
   }
@@ -624,7 +633,7 @@ test('each planted fault in the workflow is caught', () => {
   };
   const GATE_CHECKOUT =
     '          persist-credentials: false\n          sparse-checkout: |\n            tooling/ci\n            docs/roadmap\n';
-  const CLI_TOKEN = '          ACCOUNT: ${{ inputs.account }}\n          CLAUDE_TOKEN_ACCT1: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}\n';
+  const CLI_TOKEN = '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n';
   const USAGE =
     "      - name: Usage (numbers only)\n        if: always() && steps.build.outcome != 'skipped'\n        shell: /usr/bin/bash -e {0}\n";
   const AGENT_ENV = '          FACTORY_OUT: /home/factory-agent/out\n';
@@ -635,39 +644,12 @@ test('each planted fault in the workflow is caught', () => {
       '            exit 1\n          fi\n\n      - uses: actions/checkout',
       '            exit 0\n          fi\n\n      - uses: actions/checkout',
     ),
-    'the CLI secret unchecked': plant('[ -n "$token" ] || missing=', 'true || missing='),
-    'an unknown account passes': plant(
-      '            *) echo "::error title=Unknown account::the account is one of acct1, acct3, acct4"; exit 1 ;;\n',
-      '',
-    ),
-    'the wrong account picked': plant(
-      '            acct3) token="$CLAUDE_TOKEN_ACCT3" ;;\n',
-      '            acct3) token="$CLAUDE_TOKEN_ACCT1" ;;\n',
-    ),
-    'the App key unchecked': plant('[ -n "$FACTORY_APP_KEY" ] || missing="$missing FACTORY_APP_KEY"\n', ''),
+    'the App key unchecked': plant('          if [ -z "$FACTORY_APP_KEY" ]; then\n', '          if false; then\n'),
     'the account optional': WF.replace(/(      account:\n(?:        .*\n)*?        required: )true/, '$1false'),
     'a free-text account': plant('        type: choice\n        options: [acct1, acct3, acct4]\n', '        type: string\n'),
-    'the token named from the input': plant(
-      CLI_TOKEN,
-      "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets[format('CLAUDE_TOKEN_{0}', inputs.account)] }}\n",
-    ),
-    'one account for every builder': plant(CLI_TOKEN, CLI_TOKEN.replace('${{ inputs.account }}', 'acct1')),
-    'one account for every build step': WF.replace(
-      new RegExp(`${CLI_TOKEN.replace(/[$.*+?^{}()|[\]\\]/g, '\\$&')}(?![\\s\\S]*${CLI_TOKEN.replace(/[$.*+?^{}()|[\]\\]/g, '\\$&')})`),
-      CLI_TOKEN.replace('${{ inputs.account }}', 'acct1'),
-    ),
-    'the CI review token': plant(CLI_TOKEN, `${CLI_TOKEN}          CLAUDE_CODE_OAUTH_TOKEN: \${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n`),
-    'a CLI token in the publish': plant(
-      '          BRANCH: ${{ needs.build.outputs.branch }}\n',
-      '          BRANCH: ${{ needs.build.outputs.branch }}\n          CLAUDE_TOKEN_ACCT1: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}\n',
-    ),
     'the gate off the environment': plant(
       '    timeout-minutes: 10 # healthy run: under a minute\n    environment: factory\n',
       '    timeout-minutes: 10 # healthy run: under a minute\n',
-    ),
-    'the build off the environment': plant(
-      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n    environment: factory\n',
-      '    timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360\n',
     ),
     'the publish off the environment': plant(
       '    timeout-minutes: 15 # healthy run: under two minutes\n    environment: factory\n',
@@ -695,11 +677,6 @@ test('each planted fault in the workflow is caught', () => {
       '      - name: Read GitHub before the agent\n',
       '      - uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510\n      - name: Read GitHub before the agent\n',
     ),
-    'GitHub read after the agent exists': (() => {
-      const read = stepOf(WF, 'Read GitHub before the agent');
-      const close = stepOf(WF, 'Close every directory on PATH');
-      return WF.replace(read, '').replace(close, `${close}${read}`);
-    })(),
     'the publish on the agent runner': plant(
       `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs stats'`,
       `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs publish'`,
@@ -715,10 +692,6 @@ test('each planted fault in the workflow is caught', () => {
       "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n          ref: ${{ github.sha }}\n          persist-credentials: false\n      - name: Main's code\n",
     ),
     "main's code unchecked": plant('          test "$(git rev-parse HEAD)" = "$SHA"\n', ''),
-    "the branch's script run": plant(
-      `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs before'`,
-      `run: '"$NODE_BIN" "$WORK/tooling/ci/factory-builder.mjs" before'`,
-    ),
     'a step entering the agent tree': plant(
       '      - name: Publish\n',
       '      - name: Publish\n        working-directory: /home/factory-agent/work\n',
@@ -773,7 +746,38 @@ test('each planted fault in the workflow is caught', () => {
     'the area optional': WF.replace(/(      area:\n(?:        .*\n)*?        required: )true/, '$1false'),
     'an unpinned model': WF.replace(/"--model","[a-z0-9-]+"/, '"--model","sonnet"'),
     'another effort': plant('"--effort","medium"', '"--effort","high"'),
+    'the CLI secret unchecked': plant('          if [ -z "$CLAUDE_FACTORY_TOKEN" ]; then\n', '          if false; then\n'),
+    'the build in the shared environment': plant('    environment: factory-${{ inputs.account }}\n', '    environment: factory\n'),
+    'one account for every builder': plant('    environment: factory-${{ inputs.account }}\n', '    environment: factory-acct1\n'),
+    'the build off any environment': plant('    environment: factory-${{ inputs.account }}\n', ''),
+    'the CI review token': plant(CLI_TOKEN, '          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}\n'),
+    'another secret on the agent runner': plant(CLI_TOKEN, `${CLI_TOKEN}          OTHER: \${{ secrets.CLAUDE_TOKEN_ACCT1 }}\n`),
+    'the token named from the input': plant(
+      CLI_TOKEN,
+      "          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets[format('CLAUDE_TOKEN_{0}', inputs.account)] }}\n",
+    ),
+    'a CLI token in the publish': plant(
+      '          BRANCH: ${{ needs.gate.outputs.branch }}\n          ARTIFACT:',
+      '          BRANCH: ${{ needs.gate.outputs.branch }}\n          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}\n          ARTIFACT:',
+    ),
+    'GitHub read on the agent runner': plant(
+      '      - name: Write the prompt\n',
+      '      - name: Read again\n        env:\n          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}\n        run: \'"$NODE_BIN" tooling/ci/factory-builder.mjs before\'\n      - name: Write the prompt\n',
+    ),
+    'the prompt not handed on': plant('      prompt: ${{ steps.before.outputs.prompt }}\n', ''),
+    'the read run while paused': plant("        if: steps.switch.outputs.run == 'true'\n", ''),
+    'the prompt written after the agent exists': (() => {
+      const w = stepOf(WF, 'Write the prompt');
+      const close = stepOf(WF, 'The agent user and its working tree');
+      return WF.replace(w, '').replace(close, `${close}${w}`);
+    })(),
+    'a late clock': plant('          GATE_STARTED_AT: ${{ needs.gate.outputs.started_at }}\n', '          GATE_STARTED_AT: 0\n'),
+    "the branch's script run": plant(
+      `run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt-in'`,
+      `run: '"$NODE_BIN" "$WORK/tooling/ci/factory-builder.mjs" prompt-in'`,
+    ),
   };
+
   for (const [name, wf] of Object.entries(faults)) {
     assert.notEqual(wf, WF, name);
     assert.ok(workflowProblems(wf).length > 0, `${name} is caught`);
@@ -1168,16 +1172,6 @@ test('a minted token is refused unless GitHub grants exactly what was asked (met
   );
 });
 
-test("the account's CLI token is picked from the fixed list, never by a name from the input", () => {
-  const env = { CLAUDE_TOKEN_ACCT1: 'one', CLAUDE_TOKEN_ACCT3: 'three', CLAUDE_TOKEN_ACCT4: 'four' };
-  assert.deepEqual(ACCOUNTS, ['acct1', 'acct3', 'acct4']);
-  assert.equal(accountToken({ ...env, ACCOUNT: 'acct3' }), 'three');
-  assert.equal(accountToken({ ...env, ACCOUNT: 'acct4' }), 'four');
-  assert.equal(accountToken({ ACCOUNT: 'acct1' }), null, 'a missing secret is no token');
-  for (const bad of ['ACCT1', 'acct2', 'desktop', '', undefined, 'CLAUDE_CODE_OAUTH_TOKEN'])
-    assert.throws(() => accountToken({ ...env, ACCOUNT: bad, CLAUDE_CODE_OAUTH_TOKEN: 'review' }), /ACCOUNT is one of/, String(bad));
-});
-
 /** A fake GitHub for `before`: the App's installation, its token, the reads, and the revoke. */
 function appServer(state) {
   const server = createServer((req, res) => {
@@ -1256,7 +1250,15 @@ test('before: one read-only token, minted from the key, reads, writes the prompt
       assert.equal(state.calls.at(-2), 'DELETE /installation/token');
       assert.equal(state.calls.at(-1), 'GET /repos/INTAFACED/project-state', 'the probe after the revoke');
       assert.match(readFileSync(join(dir, 'prompt.txt'), 'utf8'), /THE BRIEF[\s\S]*\| 1 \| step \|/);
-      assert.match(readFileSync(join(dir, 'out'), 'utf8'), /^branch=factory\/J-identity-13$/m);
+      const outs = readFileSync(join(dir, 'out'), 'utf8');
+      assert.match(outs, /^branch=factory\/J-identity-13$/m);
+      assert.match(outs, /^started_at=\d{10}$/m);
+      const b64 = /^prompt=([A-Za-z0-9+/]+=*)$/m.exec(outs)?.[1];
+      assert.equal(
+        Buffer.from(b64, 'base64').toString(),
+        readFileSync(join(dir, 'prompt.txt'), 'utf8'),
+        'the prompt handed on is the one written',
+      );
       // The runner swallows its own ::add-mask:: line (it masks the token in every later line, and isn't shown).
       const shown = out
         .split('\n')
@@ -1266,34 +1268,6 @@ test('before: one read-only token, minted from the key, reads, writes the prompt
     } finally {
       server.close();
     }
-  }
-});
-
-test("run: the dispatched account picks the CLI token, and the other accounts' tokens never reach the CLI", async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'builder-'));
-  writeFileSync(join(dir, 'prompt.txt'), 'P');
-  const server = await switchServer({ value: 'run' });
-  try {
-    const env = runEnv(dir, server, {
-      cli: fakeCli(dir, { mode: 'done' }),
-      ACCOUNT: 'acct3',
-      CLAUDE_TOKEN_ACCT1: 'one',
-      CLAUDE_TOKEN_ACCT3: 'three',
-      CLAUDE_TOKEN_ACCT4: 'four',
-    });
-    delete env.CLAUDE_CODE_OAUTH_TOKEN;
-    const { code, out } = await runStep('run', env);
-    assert.equal(code, 0, out);
-    const seen = JSON.parse(readFileSync(join(dir, 'seen.json'), 'utf8'));
-    assert.deepEqual(seen.tokens, ['CLAUDE_CODE_OAUTH_TOKEN']);
-    assert.equal(seen.cli, 'three');
-    const none = runEnv(dir, server, { cli: fakeCli(dir, { mode: 'done' }), ACCOUNT: 'acct4' });
-    delete none.CLAUDE_CODE_OAUTH_TOKEN;
-    const r = await runStep('run', none);
-    assert.notEqual(r.code, 0, 'no token for the account: the CLI never starts');
-    assert.match(r.out, /no CLI token for acct4/);
-  } finally {
-    server.close();
   }
 });
 
@@ -1336,4 +1310,15 @@ test("publish deletes the build's artifact by its exact name; a failed delete on
   ]);
   const broken = { json: async () => Promise.reject(new Error('GET: HTTP 403')), send: async () => null };
   assert.equal(await deleteArtifact(broken, 'o/r', '5', 'builder-output-5-1'), 0);
+});
+
+test("prompt-in writes the gate's prompt, and refuses anything that isn't one", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'prompt-in-'));
+  const text = 'THE PROMPT\nline two';
+  const ok = await runStep('prompt-in', { PROMPT_B64: Buffer.from(text).toString('base64'), BUILDER_DIR: dir });
+  assert.equal(ok.code, 0, ok.out);
+  assert.equal(readFileSync(join(dir, 'prompt.txt'), 'utf8'), text);
+  assert.doesNotMatch(ok.out, /THE PROMPT/);
+  for (const bad of ['', 'not base64!', 'abc\n::error::x'])
+    assert.notEqual((await runStep('prompt-in', { PROMPT_B64: bad, BUILDER_DIR: dir })).code, 0, JSON.stringify(bad));
 });

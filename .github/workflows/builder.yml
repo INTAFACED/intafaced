@@ -8,14 +8,15 @@
 # by a script and waited on his clicks; the Mac's builders hit its memory ceiling. Round 3 B's recommendation, adopted
 # by the system design's section 4.)
 #
-# Two jobs, so no GitHub write token is ever on the agent's runner. `build` mints a read-only App token, reads GitHub
-# and project-state with it before any process of the agent exists, and revokes it before the agent starts; from then
-# on no step's environment holds a GitHub token, though the runner process keeps the job's secrets (see the PATH check). The
-# agent's commits and PR text leave that runner only as data (an artifact). `publish` runs on a fresh runner, mints a
-# write token, and treats that data as untrusted. (Failure it prevents: on one runner, the steps after the agent held
-# the factory token, so anything the agent could plant on that runner, such as a fake `git` reached through a chain of
-# links in a world-writable directory, ran with it. Review round 1 on #7448 found two such holes in the PATH check
-# this file still keeps; they stay open, see that check.)
+# Three jobs, so the agent's runner holds no GitHub credential at all. `gate` mints a read-only App token in memory,
+# picks the branch, writes the agent's CI status and prompt, and revokes the token; it hands the branch and the prompt
+# to `build` as job outputs (data). `build` runs the agent in the account's own environment, whose one secret is that
+# account's CLI token: the App key and the other accounts' tokens are never referenced there, so they never reach its
+# runner. The agent's commits and PR text leave that runner only as data (an artifact). `publish` runs on a fresh
+# runner, mints a write token, and treats that data as untrusted. (Failure it prevents: on one runner, the steps after
+# the agent held the factory token, so anything the agent could plant on that runner, such as a fake `git` reached
+# through a chain of links in a world-writable directory, ran with it; review round 1 on #7448 found two such holes in
+# the PATH check this file still keeps. And the CI review on #7560: the App key on the agent's runner would be worse.)
 #
 # Trust: every step runs main's code from the job's checkout of main ($GITHUB_WORKSPACE, owned by the runner user).
 # The journey's branch is only the agent's working tree, /home/factory-agent/work, cloned and installed by the agent
@@ -23,14 +24,17 @@
 # runner by the probe on #7386). The CLI loads no settings from the branch: `--setting-sources ""` and main's
 # .github/workflows/builder/settings.json, copied root-owned next to the pinned CLI.
 #
-# Secrets: all in the environment `factory`, whose deployment rule allows main alone, so a copy of this file on another
-# branch gets none. FACTORY_APP_KEY is a private key of the GitHub App intafaced-mac-agents: the two steps that need
-# GitHub (factory-builder.mjs `before` and `publish`) each mint their own installation token in memory, narrowed to
-# named repositories and permissions, and revoke it when they end, so no token is ever in a step's environment. Never
-# the workflows permission, so a commit that changes .github/workflows is refused at the push. GITHUB_TOKEN is never
-# used: GitHub runs no workflow on a push made with it. The CLI's own token, one per account (CLAUDE_TOKEN_ACCT1,
-# _ACCT3, _ACCT4; the `account` input picks one, so builders spread over accounts and never draw on the CI review's)
-# is the one secret the agent holds; that can't be avoided, and its owner can revoke it.
+# Secrets, in environments whose deployment rule allows main alone, so a copy of this file on another branch gets none:
+#   `factory`: FACTORY_APP_KEY, a private key of the GitHub App intafaced-mac-agents, referenced only by `gate` and
+#     `publish`. Each of their GitHub steps (factory-builder.mjs `before` and `publish`) mints its own installation
+#     token in memory, narrowed to named repositories and permissions, and revokes it when it ends, so no token is ever
+#     in a step's environment. Never the workflows permission, so a commit that changes .github/workflows is refused.
+#   `factory-acct1`, `factory-acct3`, `factory-acct4`: CLAUDE_FACTORY_TOKEN, that account's CLI token, the one secret
+#     the agent holds (it can't be avoided, and its owner can revoke it). The `account` input picks the environment, so
+#     builders spread over accounts and never draw on the CI review's.
+# GITHUB_TOKEN is never used: GitHub runs no workflow on a push made with it. The prompt (private: project-state's brief
+# and the journey's step words) passes from `gate` to `build` as a job output, which GitHub keeps with the run and
+# shows in no log or page (my inference, 8 Nov: no REST endpoint returns job outputs); `before` prints only its size.
 #
 # Public-repo hygiene: anyone can read this repository's logs and download its artifacts. The CLI's output goes to
 # files inside the build job that no step prints or uploads. No step prints text from project-state or from the
@@ -57,7 +61,7 @@ on:
         required: true
         type: string
       account:
-        description: 'The account whose CLI token this builder uses (environment factory, secret CLAUDE_TOKEN_<ACCOUNT>)'
+        description: 'The account whose CLI token this builder uses (its environment factory-<account>, secret CLAUDE_FACTORY_TOKEN)'
         required: true
         type: choice
         options: [acct1, acct3, acct4]
@@ -80,7 +84,10 @@ jobs:
       contents: read
     outputs:
       run: ${{ steps.switch.outputs.run }}
-      module: ${{ steps.check.outputs.module }}
+      branch: ${{ steps.before.outputs.branch }}
+      resume: ${{ steps.before.outputs.resume }}
+      started_at: ${{ steps.before.outputs.started_at }}
+      prompt: ${{ steps.before.outputs.prompt }}
     steps:
       - name: Only from main
         env:
@@ -91,26 +98,12 @@ jobs:
             exit 1
           fi
 
-      # The account's token is picked from a fixed list, never named from the input.
       - name: The factory secrets are set
         env:
           FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
-          ACCOUNT: ${{ inputs.account }}
-          CLAUDE_TOKEN_ACCT1: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}
-          CLAUDE_TOKEN_ACCT3: ${{ secrets.CLAUDE_TOKEN_ACCT3 }}
-          CLAUDE_TOKEN_ACCT4: ${{ secrets.CLAUDE_TOKEN_ACCT4 }}
         run: |
-          case "$ACCOUNT" in
-            acct1) token="$CLAUDE_TOKEN_ACCT1" ;;
-            acct3) token="$CLAUDE_TOKEN_ACCT3" ;;
-            acct4) token="$CLAUDE_TOKEN_ACCT4" ;;
-            *) echo "::error title=Unknown account::the account is one of acct1, acct3, acct4"; exit 1 ;;
-          esac
-          missing=""
-          [ -n "$FACTORY_APP_KEY" ] || missing="$missing FACTORY_APP_KEY"
-          [ -n "$token" ] || missing="$missing CLAUDE_TOKEN_$(echo "$ACCOUNT" | tr '[:lower:]' '[:upper:]')"
-          if [ -n "$missing" ]; then
-            echo "::error title=Factory secret missing::the environment factory has no$missing (Settings, Environments, factory; deployment branches: main only), so no builder starts. FACTORY_APP_KEY mints the App tokens that push so CI runs; GITHUB_TOKEN can't stand in for it."
+          if [ -z "$FACTORY_APP_KEY" ]; then
+            echo "::error title=Factory secret missing::the environment factory has no FACTORY_APP_KEY (Settings, Environments, factory; deployment branches: main only), so no builder starts. It mints the App tokens that push so CI runs; GITHUB_TOKEN can't stand in for it."
             exit 1
           fi
 
@@ -121,6 +114,7 @@ jobs:
           sparse-checkout: |
             tooling/ci
             docs/roadmap
+            .github/workflows/builder
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
@@ -139,17 +133,34 @@ jobs:
           REPO: ${{ github.repository }}
         run: node tooling/ci/factory-builder.mjs switch
 
+      # The only step that reads GitHub before the agent exists, on a runner the agent never uses: a read-only App token
+      # minted in memory (intafaced and project-state; contents, pull requests and actions, read), the branch, the
+      # agent's CI status and its prompt, then the token revoked and checked refused. The deadlines count from here.
+      - name: Read GitHub before the agent
+        id: before
+        if: steps.switch.outputs.run == 'true'
+        env:
+          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
+          REPO: ${{ github.repository }}
+          JOURNEY: ${{ inputs.journey }}
+          AREA: ${{ inputs.area }}
+          MODULE: ${{ steps.check.outputs.module }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORK: /home/factory-agent/work
+          OUT: /home/factory-agent/out
+        run: node tooling/ci/factory-builder.mjs before
+
   build:
     name: Build ${{ inputs.journey }}
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 340 # the CLI is stopped at 320 minutes; GitHub ends any job at 360
-    environment: factory
+    environment: factory-${{ inputs.account }}
     permissions:
       contents: read
     outputs:
-      branch: ${{ steps.branch.outputs.branch }}
       took: ${{ steps.take.outcome == 'success' }}
 
     # The same databases CI's Tests job declares (ci.yml), for .github/actions/test-infra below.
@@ -179,7 +190,6 @@ jobs:
       REPO: ${{ github.repository }}
       JOURNEY: ${{ inputs.journey }}
       AREA: ${{ inputs.area }}
-      MODULE: ${{ needs.gate.outputs.module }}
       RUN_ID: ${{ github.run_id }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       AGENT_USER: factory-agent
@@ -188,13 +198,27 @@ jobs:
       TURBO_TELEMETRY_DISABLED: 1
 
     steps:
-      # The deadlines count from here. BUILDER_DIR (the prompt, the CLI's files, the bundle) is under the runner's temp
-      # folder, which the agent user can't open.
+      # The deadlines count from the gate's read (the prompt states them), so they fall early, never late. BUILDER_DIR
+      # (the prompt, the CLI's files, the bundle) is under the runner's temp folder, which the agent user can't open.
       - name: Start the clock
+        env:
+          GATE_STARTED_AT: ${{ needs.gate.outputs.started_at }}
         run: |
-          echo "STARTED_AT=$(date -u +%s)" >> "$GITHUB_ENV"
+          case "$GATE_STARTED_AT" in ''|*[!0-9]*) echo "::error::the gate gave no start time"; exit 1 ;; esac
+          echo "STARTED_AT=$GATE_STARTED_AT" >> "$GITHUB_ENV"
           echo "BUILDER_DIR=$RUNNER_TEMP/builder" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/builder"
+
+      # This environment's one secret, checked before anything else is set up.
+      - name: The account's CLI token is set
+        env:
+          CLAUDE_FACTORY_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
+          ACCOUNT: ${{ inputs.account }}
+        run: |
+          if [ -z "$CLAUDE_FACTORY_TOKEN" ]; then
+            echo "::error title=Factory secret missing::the environment factory-$ACCOUNT has no CLAUDE_FACTORY_TOKEN (Settings, Environments, factory-$ACCOUNT; deployment branches: main only), so no builder starts"
+            exit 1
+          fi
 
       # Main's code, the only code the job's own steps run, fetched without a credential (the repository is public).
       # Plain git rather than actions/checkout, whose post step would run `git` from PATH after the agent has run.
@@ -234,25 +258,19 @@ jobs:
           sudo chmod -R a+rX,go-w /opt/factory-cli
           echo "CLAUDE_BIN=/opt/factory-cli/node_modules/.bin/claude" >> "$GITHUB_ENV"
 
-      # Before any process of the agent exists, one step reads GitHub: it mints a read-only App token in memory
-      # (intafaced and project-state; contents, pull requests and actions, read), picks the branch, writes the agent's CI
-      # status and its prompt, then revokes the token and checks that GitHub refuses it. Nothing it read is printed.
-      - name: Read GitHub before the agent
-        id: branch
+      # The prompt the gate wrote, from its job output (data), into BUILDER_DIR; nothing of it is printed.
+      - name: Write the prompt
         env:
-          FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
-          RUN_NUMBER: ${{ github.run_number }}
-        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs before'
+          PROMPT_B64: ${{ needs.gate.outputs.prompt }}
+        run: '"$NODE_BIN" tooling/ci/factory-builder.mjs prompt-in'
 
       # Before the agent user exists: no directory on PATH (nor the tool-cache node's, nor any directory above them) may
       # be writable by group or others, and no program in them either. The runner image makes /usr/local/bin
       # world-writable, and it sits ahead of /usr/bin, so the agent could otherwise plant a fake `git` or `sudo` that a
-      # later step runs as the runner. Since the split no later step here holds a GitHub token in its environment, but
-      # the runner process itself holds every secret this job references (the App key and the CLI tokens) for the whole
-      # job, and the runner can sudo: code run as the runner can still reach them. So this check still guards the App
-      # key, not only the artifact token. (Found by review round 2 on #7386 with a planted fake `git`; #7448's chain and
-      # loop gaps remain open, written limit: no such chain is known on a hosted runner, and closing them, or moving
-      # the key out of this job, comes before the trial relies on it.)
+      # later step runs as the runner. This job references one secret, the account's CLI token, which the agent holds
+      # anyway; no GitHub credential is on this runner. So this check now guards the runner's own artifact token.
+      # (Found by review round 2 on #7386 with a planted fake `git`; #7448's chain and loop gaps remain open, bounded by
+      # the split.)
       - name: Close every directory on PATH
         shell: /usr/bin/bash -e {0}
         run: |
@@ -298,8 +316,8 @@ jobs:
         shell: /usr/bin/bash -e {0}
         env:
           PATH: /usr/bin:/bin
-          BRANCH: ${{ steps.branch.outputs.branch }}
-          RESUME: ${{ steps.branch.outputs.resume }}
+          BRANCH: ${{ needs.gate.outputs.branch }}
+          RESUME: ${{ needs.gate.outputs.resume }}
           SERVER: ${{ github.server_url }}
         run: |
           /usr/bin/sudo /usr/sbin/useradd --create-home --shell /bin/bash "$AGENT_USER"
@@ -335,10 +353,7 @@ jobs:
         shell: /usr/bin/bash -e {0}
         env:
           PATH: /usr/bin:/bin
-          ACCOUNT: ${{ inputs.account }}
-          CLAUDE_TOKEN_ACCT1: ${{ secrets.CLAUDE_TOKEN_ACCT1 }}
-          CLAUDE_TOKEN_ACCT3: ${{ secrets.CLAUDE_TOKEN_ACCT3 }}
-          CLAUDE_TOKEN_ACCT4: ${{ secrets.CLAUDE_TOKEN_ACCT4 }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_FACTORY_TOKEN }}
           FACTORY_OUT: /home/factory-agent/out
           CLAUDE_ARGS: '["-p","--model","claude-opus-5-5","--effort","medium","--dangerously-skip-permissions","--setting-sources","","--settings","/opt/factory-cli/settings.json","--output-format","stream-json","--verbose"]'
         run: '"$NODE_BIN" tooling/ci/factory-builder.mjs run'
@@ -442,7 +457,7 @@ jobs:
       - name: Publish
         env:
           FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
-          BRANCH: ${{ needs.build.outputs.branch }}
+          BRANCH: ${{ needs.gate.outputs.branch }}
           ARTIFACT: builder-output-${{ github.run_id }}-${{ github.run_attempt }}
           BUILDER_DIR: ${{ runner.temp }}/builder
         run: node tooling/ci/factory-builder.mjs publish

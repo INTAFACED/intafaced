@@ -9,16 +9,18 @@
  *   switch    reads the factory switch (factory-switch.mjs), without a token (the repository is public); `run=true`
  *             only when FACTORY on branch factory-switch says `run`. A pause ends the run cleanly; an unreadable switch
  *             fails it (closed).
- *   before    the one step that reads GitHub before the agent exists: mints a read-only App token in memory from
- *             FACTORY_APP_KEY (READ_TOKEN), runs `branch`, `status` and `prompt` with it, then revokes it (`revokeToken`),
- *             so no GitHub token is left on the agent's runner and none is ever in a step's environment.
+ *   before    in the gate job, the one step that reads GitHub: mints a read-only App token in memory from
+ *             FACTORY_APP_KEY (READ_TOKEN), runs `branch`, `status` and `prompt` with it, then revokes it (`revokeToken`).
+ *             Its outputs hand the branch, the start time and the prompt (base64) to the build job, which never holds the
+ *             App key. Only sizes are printed.
+ *   prompt-in in the build job: writes the gate's prompt (PROMPT_B64) to BUILDER_DIR/prompt.txt.
  *   branch    the branch this run builds on: the journey's open PR's branch when there is one (a successor resumes it),
  *             else factory/<journey>, or factory/<journey>-r<run number> when that name is already taken.
  *   status    the resumed PR's head and its CI runs (names, states, links), for the agent, which can't read GitHub.
  *   prompt    fetches project-state BUILDER.md and the journey's section of its module's journeys.md with the read-only
  *             App token, and writes the agent's prompt to a file. Nothing from project-state is ever printed.
- *   run       runs the CLI headless with the prompt, as the agent user when AGENT_USER is set, with the dispatched
- *             account's token (ACCOUNT picks one of CLAUDE_TOKEN_ACCT1, _ACCT3, _ACCT4) as its only secret; everything it prints
+ *   run       runs the CLI headless with the prompt, as the agent user when AGENT_USER is set, with the account's
+ *             CLI token (its environment's one secret) as its only secret; everything it prints
  *             goes to files in the job, never the log. Every POLL_MS it reads the switch (no token: the repo is public);
  *             a pause, three unreadable reads in a row or the hard stop ends it. However it ends, the agent's processes
  *             get SIGTERM, then after the grace SIGKILL, and the step exits only once none is left.
@@ -54,7 +56,7 @@ export const WRITE_TOKEN = {
   repositories: ['intafaced'],
   permissions: { contents: 'write', pull_requests: 'write', actions: 'write' },
 };
-/** builder.yml's `account` choices; each has its own CLI token in the environment factory. */
+/** builder.yml's `account` choices; each is an environment factory-<account> holding that account's CLI token. */
 export const ACCOUNTS = ['acct1', 'acct3', 'acct4'];
 export const JOURNEY_RE = /^J-[a-z0-9]+(?:-[a-z0-9]+)*-\d{2,3}[a-z]?$/;
 export const AREA_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -414,12 +416,9 @@ export async function mintToken({ pem, repo, spec, now, apiFor = api }) {
   return t.token;
 }
 
-/** The dispatched account's CLI token, picked from a fixed list; never a name built from the input. */
-export function accountToken(env) {
-  const i = ACCOUNTS.indexOf(env.ACCOUNT);
-  if (i < 0) throw new Error(`ACCOUNT is one of ${ACCOUNTS.join(', ')}`);
-  return [env.CLAUDE_TOKEN_ACCT1, env.CLAUDE_TOKEN_ACCT3, env.CLAUDE_TOKEN_ACCT4][i] || null;
-}
+/** The largest prompt the gate hands on: it travels base64 in one environment variable of the build job's step (Linux
+ *  refuses a single variable over 128 KiB). Today's prompts are a few KB. */
+export const MAX_PROMPT_B64 = 120_000;
 
 /** Ends an installation token and proves it ended: GitHub must refuse it afterwards. `gh` is api(token)'s shape. */
 export async function revokeToken(gh, probe = `/repos/${PROJECT_STATE}`) {
@@ -555,12 +554,26 @@ async function main(cmd, args, env) {
   if (cmd === 'before' && !env.GH_TOKEN) return withAppToken(cmd, args, env, READ_TOKEN);
   if (cmd === 'publish' && !env.GH_TOKEN && env.FACTORY_APP_KEY) return withAppToken(cmd, args, env, WRITE_TOKEN);
   if (cmd === 'before') {
+    const dir = env.BUILDER_DIR || join(env.RUNNER_TEMP || '.', 'builder');
+    mkdirSync(dir, { recursive: true });
+    const startedAt = String(Math.floor(Date.now() / 1000));
     const r = await branchStep(env);
-    output({ branch: r.branch, resume: String(r.resume), pr: r.pr ?? '', head: r.head ?? '' });
     console.log(r.resume ? `resuming #${r.pr} on ${r.branch}` : `new branch ${r.branch} from origin/main`);
-    const b = { BRANCH: r.branch, RESUME: String(r.resume), PR: r.pr ?? '', HEAD: r.head ?? '' };
+    const b = { BRANCH: r.branch, RESUME: String(r.resume), PR: r.pr ?? '', HEAD: r.head ?? '', BUILDER_DIR: dir, STARTED_AT: startedAt };
     await main('status', args, { ...env, ...b });
-    return main('prompt', args, { ...env, ...b });
+    await main('prompt', args, { ...env, ...b });
+    const prompt = readFileSync(join(dir, 'prompt.txt')).toString('base64');
+    if (prompt.length > MAX_PROMPT_B64) throw new Error(`the prompt is ${prompt.length} bytes as base64, over ${MAX_PROMPT_B64}`);
+    output({ branch: r.branch, resume: String(r.resume), started_at: startedAt, prompt });
+    return 0;
+  }
+  if (cmd === 'prompt-in') {
+    need(env, 'PROMPT_B64', 'BUILDER_DIR');
+    if (!/^[A-Za-z0-9+/]+=*$/.test(env.PROMPT_B64)) throw new Error('the gate handed no prompt');
+    const text = Buffer.from(env.PROMPT_B64, 'base64');
+    writeFileSync(join(env.BUILDER_DIR, 'prompt.txt'), text);
+    console.log(`prompt written: ${text.length} bytes`);
+    return 0;
   }
   if (cmd === 'check') {
     const journeys = JSON.parse(readFileSync('docs/roadmap/journeys.json', 'utf8'));
@@ -631,10 +644,7 @@ async function main(cmd, args, env) {
     return 0;
   }
   if (cmd === 'run') {
-    need(env, 'REPO', 'CLAUDE_BIN', 'STARTED_AT', 'BUILDER_DIR', 'WORK');
-    const cliToken = env.CLAUDE_CODE_OAUTH_TOKEN || accountToken(env);
-    if (!cliToken) throw new Error(`the environment factory has no CLI token for ${env.ACCOUNT}`);
-    env = { ...env, CLAUDE_TOKEN_ACCT1: '', CLAUDE_TOKEN_ACCT3: '', CLAUDE_TOKEN_ACCT4: '', CLAUDE_CODE_OAUTH_TOKEN: cliToken };
+    need(env, 'REPO', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_BIN', 'STARTED_AT', 'BUILDER_DIR', 'WORK');
     const dir = env.BUILDER_DIR;
     const hardAt = Number(env.STARTED_AT) * 1000 + HARD_MIN * 60_000;
     const pollMs = Number(env.POLL_MS ?? POLL_MS);
