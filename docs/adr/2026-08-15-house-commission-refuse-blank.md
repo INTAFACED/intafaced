@@ -25,7 +25,7 @@ Packet §P0-10 asked two questions: where authority lives, and whether blank ref
 
 Tip already answers both in `market.commerce` (tracker row on main: blank `MARKET_HOUSE_COMMISSION_BPS` refuses `market.commission_not_configured`; never invents free commission; `0` only when the owner sets it). The first P0-10 ADR (#1790) sealed that mechanism.
 
-A later paragraph on that ADR treated `.env.example` `MARKET_HOUSE_COMMISSION_BPS=0` as **this** mountain’s number click. That is P0-02 magnitude, not P0-10 law. P0-10’s done bar is authority + refuse-blank. Publishing `0` (or any other bps) is a different mountain. This ADR restores that split.
+A later paragraph on that ADR treated an owner-set `MARKET_HOUSE_COMMISSION_BPS` value as **this** mountain’s number click. That is P0-02 magnitude, not P0-10 law. P0-10’s done bar is authority + refuse-blank. Publishing any bps is a different mountain (the owner's value is in the private records). This ADR restores that split.
 
 Same pattern as copy fee-share residual: unset is refuse-closed and named, not a source seed.
 
@@ -48,7 +48,7 @@ Same pattern as copy fee-share residual: unset is refuse-closed and named, not a
 ## What remains P0-02 (not this row)
 
 - The actual bps, including whether production ever takes a cut.
-- Whether any host `.env` / example file carries a published `0`.
+- What value any host `.env` carries (set by the owner; see the private records).
 - Ranking / featured catalogue (DIRECTION §8).
 
 Until P0-02 publishes a number (or an explicit launch-closed forever), commerce that needs a rate stays refuse-closed. `market.commerce` C1+C2 **done** means the **mechanism** is done, not that a rate exists.

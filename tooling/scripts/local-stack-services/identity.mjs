@@ -72,6 +72,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // test accounts; "LOCAL TEST — not a real approval".
     IDENTITY_ACTION_APPROVAL_TTL_SECONDS: '600',
     IDENTITY_ACTION_APPROVAL_POLICIES: testValue('IDENTITY_ACTION_APPROVAL_POLICIES'),
+    // LOCAL TEST life of a staff invite's first-connection link (J-ops-console-09 #2), labelled TEST in the same profile,
+    // never an owner decision. Blank refuses every invite (identity.staff_invite_ttl_unset).
+    IDENTITY_STAFF_INVITE_TTL_SECONDS: testValue('IDENTITY_STAFF_INVITE_TTL_SECONDS'),
     // LOCAL TEST ONLY. The identity service refuses email confirmation until a mail
     // transport, a lifetime, and a rate budget are published. local-outbox is refused
     // at boot unless APP_ENV is exactly dev or test. These numbers are for this stack,
@@ -222,6 +225,12 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     // LOCAL TEST idle period for API keys (J-developer-03 #9), labelled in the same profile, never an owner decision: the
     // key detail shows it; no dormant sweep is built, so it ends no key. Blank shows `not set`.
     IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: testValue('IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS'),
+    // LOCAL TEST idle sign-out and signed-in device limit (I-signin-sessions-06, J-identity-06 #4), labelled in the same
+    // profile, never an owner decision. Off on a normal start, so every other journey signs in with no device limit;
+    // `LOCAL_STACK_IDENTITY_SESSION_LIMITS=on` on a restart sets both for J-identity-06 #4, which restarts without it after.
+    ...(process.env.LOCAL_STACK_IDENTITY_SESSION_LIMITS === 'on'
+      ? { SESSION_IDLE_SECONDS: testValue('SESSION_IDLE_SECONDS'), SESSION_MAX_CONCURRENT: testValue('SESSION_MAX_CONCURRENT') }
+      : {}),
     // LOCAL TEST account tiers (J-ops-console-04 #11), labelled TEST, never an owner decision: the owner has published no
     // tiers (blank refuses every move with identity.account_tiers_unset). TEST Premier leaves its monthly fee blank on
     // purpose, so the console shows a tier that cannot be assigned (identity.tier_terms_unset).

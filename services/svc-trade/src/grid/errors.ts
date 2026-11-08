@@ -8,6 +8,7 @@
  */
 
 export type GridErrorCode =
+  | 'trade.bots_paused_by_platform'
   | 'trade.grid_request_key_invalid'
   | 'trade.grid_request_conflict'
   | 'trade.grid_market_not_found'

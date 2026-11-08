@@ -40,6 +40,7 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
  * `auth.mfa_required` already aliases a catalog row.
  */
 const LOCAL_COPY: Readonly<Record<string, string>> = {
+  'auth.session_idle': 'You were signed out because this device was idle for longer than your idle sign-out. Sign in again.',
   'auth.password_unchanged': 'Choose a new password that is different from your current one.',
   'auth.password_policy': 'Choose a password of at least 12 characters and at most 72 bytes, and not one character repeated.',
   'auth.password_breached': 'That password is known from a data breach. Choose a different one.',
@@ -50,6 +51,7 @@ const LOCAL_COPY: Readonly<Record<string, string>> = {
   'auth.challenge_expired': 'That sign-in check ran out of time. Sign in again to get a new one.',
   'auth.challenge_used': 'That sign-in check was already used. Sign in again to get a new one.',
   'identity.challenge_unconfigured': 'Sign-in needs a check whose settings the owner has not set yet, so signing in is closed for now.',
+  'identity.compromise_no_case': 'There is no open case for a compromised account. Secure your account first.',
   'auth.email_confirm_invalid': 'That confirmation link is not valid. Request a new one.',
   'auth.email_confirm_unwired': 'Email confirmation is not available yet.',
   'auth.email_confirm_rate_limited': 'Too many confirmation emails. Try again later.',

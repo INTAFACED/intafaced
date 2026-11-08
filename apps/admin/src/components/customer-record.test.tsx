@@ -55,7 +55,46 @@ describe('CustomerRecord', () => {
     expect(html).toContain('One-time sends allowed');
     expect(html).toContain('Payments sent and received: no source');
   });
-  it('says why cards and tickets cannot be read for one account, with the code', () => {
+  it('shows a closed card on the cards tab by its id and status', () => {
+    const plan = tabPlan('cards', USER);
+    const [read] = plan.reads;
+    const cardId = '3c1d2e3f-4a5b-4c6d-8e7f-8091a2b3c4d5';
+    const html = renderToStaticMarkup(
+      <CustomerRecord
+        userId={USER}
+        founderId={USER}
+        tab="cards"
+        reads={plan.reads}
+        unwired={plan.unwired}
+        outcomes={{
+          [read!.id]: {
+            id: read!.id,
+            asOf: AS_OF,
+            part: {
+              kind: 'ok',
+              data: {
+                shape: 'list',
+                pageFull: false,
+                rows: [
+                  {
+                    id: cardId,
+                    cells: [
+                      { key: 'id', label: 'Card id', kind: 'text', detail: false, value: cardId },
+                      { key: 'status', label: 'Status', kind: 'text', detail: false, value: 'closed', words: 'Closed' },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        }}
+      />,
+    );
+    expect(html).toContain('data-testid="read-cards.list"');
+    expect(html).toMatch(new RegExp(`<tr>.*${cardId}.*Closed.*</tr>`));
+    expect(html).toContain('Card payments of this account: no source');
+  });
+  it('says why card payments and tickets cannot be read for one account, with the code', () => {
     for (const tab of ['cards', 'tickets'] as const) {
       const plan = tabPlan(tab, USER);
       const html = renderToStaticMarkup(

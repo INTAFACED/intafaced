@@ -31,6 +31,10 @@ export default ({
       // host at 127.0.0.1, so J-developer-02 can call one key at both and see env.mismatch at the live one.
       EDGE_SANDBOX_HOSTS: `localhost:${PORTS.edge}`,
       EDGE_KILL_STATE_PATH: path.join(P.data, 'edge-kill-state.json'),
+      // Edge's other state files, in the stack's state folder too: their defaults are relative to the service's folder in
+      // the checkout, which the build stamp reads as source (#7463).
+      EDGE_COMPLIANCE_QUEUE_PATH: path.join(P.data, 'edge-compliance-queue.json'),
+      EDGE_RECONCILE_LAST_PATH: path.join(P.data, 'edge-reconcile-last.json'),
       // The FIX and SBE adapters' own status for the founder console (J-cex-spot-20 #3), each with its own read key.
       FIX_STATUS_URL: urlOf('fix'),
       FIX_STATUS_READ_SECRET: secrets.fixStatusRead,
