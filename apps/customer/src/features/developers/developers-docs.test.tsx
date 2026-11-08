@@ -40,7 +40,9 @@ describe('developer portal home', () => {
   });
   it('a section without a page names the slice it waits for', () => {
     expect(text(html('/developers/websocket'))).toContain('It waits for DV-websocket-01');
-    expect(text(html('/developers/rate-limits'))).toContain('It waits for DV-limits-01');
+    // DV-limits-01 is built: the section is its written page, never the waits-for notice.
+    expect(text(html('/developers/rate-limits'))).toContain('Rate-limit tiers');
+    expect(text(html('/developers/rate-limits'))).not.toContain('It waits for DV-limits-01');
   });
   it('search finds pages by title or route, and finds nothing for an unknown topic', () => {
     const title = (id: string) => developersCopy.forLocale('en').t(`section_${id.replace(/-/g, '_')}` as 'section_rest');

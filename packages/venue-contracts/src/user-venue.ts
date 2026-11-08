@@ -331,7 +331,15 @@ export type VenueRefusalCode =
   /** The client order key is not a business key (blank, or a random id). */
   | 'invalid_client_order_key'
   /** The venue refused for its own stated reason; the text is in `detail`. */
-  | 'venue_rejected';
+  | 'venue_rejected'
+  /** An agent order would commit more than the room left under the person's cap (agent-cap.ts). Nothing signed. */
+  | 'agent_cap_exceeded'
+  /** The agent's cap is revoked or expired: only cancels are signed. */
+  | 'agent_cap_inactive'
+  /** The room under the cap can't be measured (a holding with no known mark, a market in another quote). Nothing signed. */
+  | 'agent_cap_unmeasured'
+  /** Not the cap's agent key, or not the agent's own sub-account. */
+  | 'agent_outside_capped_account';
 
 export interface VenueRefusal {
   readonly venueId: string;

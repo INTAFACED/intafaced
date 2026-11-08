@@ -98,7 +98,16 @@ describe('M-disp-01 merchantOps.disputes.funds (Postgres)', () => {
       postedAt: new Date(),
       hash: 'h',
       previousHash: null,
-      entries: [],
+      // The entries the recipe books, as the ledger returns them: the funds read takes the opening from these.
+      entries: r.entries.map((e, i) => ({
+        id: `e-open-${i}`,
+        txId: 'tx-open',
+        accountId: `acct-${i}`,
+        assetId: e.account.assetId,
+        direction: e.direction,
+        amount: e.amount,
+        balanceAfter: 0n,
+      })),
     };
   };
   const reads: string[] = [];

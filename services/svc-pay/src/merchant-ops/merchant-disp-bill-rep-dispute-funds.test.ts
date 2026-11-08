@@ -193,6 +193,31 @@ describe('M-disp-01 dispute funds (read only)', () => {
     expect((await refusal(() => readDisputeFunds(caller(), store, ledger, 'dp-7'))).code).toBe('pay.dispute_funds_unavailable');
   });
 
+  it("the ledger door carries no meta (the HTTP client's txById): the figures come from the booked entries", async () => {
+    const store = storeWith('dp-http', '60');
+    store.markWon('dp-http');
+    const bare = (r: PostRequest): PostRequest => ({ ...r, meta: {} });
+    const ledger = ledgerOf([
+      bare(recipes.chargebackOpen(legs('dp-http', '25', '15'))),
+      bare(recipes.chargebackWon(legs('dp-http', '25', '15'))),
+    ]);
+    const funds = await readDisputeFunds(caller(), store, ledger, 'dp-http');
+    expect(funds).toMatchObject({ takenAtOpening: '40', returned: '40', notYetTaken: '20', openingBooked: true });
+  });
+
+  it('meta legs that disagree with the booked entries, or only one of the two, are refused, never a figure', async () => {
+    const open = recipes.chargebackOpen(legs('dp-9', '25', '15'));
+    for (const meta of [
+      { ...open.meta, fromClearing: '26' },
+      { ...open.meta, fromMerchantBalance: undefined },
+    ]) {
+      const ledger = ledgerOf([{ ...open, meta: meta as PostRequest['meta'] }]);
+      expect((await refusal(() => readDisputeFunds(caller(), storeWith('dp-9'), ledger, 'dp-9'))).code).toBe(
+        'pay.dispute_funds_unavailable',
+      );
+    }
+  });
+
   it("another merchant's dispute answers exactly like a missing one", async () => {
     const store = storeWith('dp-8', '100', otherMerchant);
     const ledger = ledgerOf([recipes.chargebackOpen(legs('dp-8', '0', '100'))]);
