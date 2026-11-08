@@ -16,6 +16,11 @@
  * record for each. A journey whose record is incomplete (a reason code, or an afterAll record that never came) or that
  * has no record in a run where it existed reaches everything: it runs for every product change. With fewer than
  * MIN_RUNS whole runs the builder refuses: it writes a map whose mode is 'full', and nothing narrows.
+ * A journey's reach comes only from the runs where every one of its tests passed (a failed step stops it short); with
+ * no such run it reaches everything. Open edge, not covered: a service that publishes an event from background work
+ * without logging while a journey runs is not tied to the journey that sees the subscriber's effect (review 7561-R1 #3;
+ * subscribers are full). Before the first 'reach' map merges, CI should rebuild it from the run ids it names and
+ * compare it byte for byte (review 7561-R1 #2, with the rebuild follow-up).
  *
  * What a product path selects (reachSelect), else the full suite:
  *   - services/svc-x/…: the journeys whose stack log shows svc-x served or logged while they ran. Full when no journey
@@ -135,6 +140,29 @@ export function reportFiles(report) {
   };
   for (const s of report?.suites ?? []) walk(s, s.file);
   return ran;
+}
+
+/**
+ * The journey files a report ran that did not pass whole: a test with no result, or whose last result is not `passed`
+ * (failed, timedOut, interrupted, skipped). A failed step stops its journey, so its record holds less than the journey
+ * reaches (review 7561-R1): buildMap takes a file's reach only from runs where it passed whole. Returns a Set of names.
+ */
+export function reportUnclean(report) {
+  const bad = new Set();
+  const walk = (s, file) => {
+    const here = s.file ?? file;
+    for (const sp of s.specs ?? []) {
+      const f = String(sp.file ?? here ?? '')
+        .split('/')
+        .pop();
+      if (!JOURNEY_FILE.test(f)) continue;
+      const tests = sp.tests ?? [];
+      if (!tests.length || tests.some((t) => (t.results ?? []).at(-1)?.status !== 'passed')) bad.add(f);
+    }
+    for (const c of s.suites ?? []) walk(c, here);
+  };
+  for (const s of report?.suites ?? []) walk(s, s.file);
+  return bad;
 }
 
 /**
@@ -297,7 +325,7 @@ export function buildMap({ runs, services, consumers, harness, subscribers: subs
     const lost = [...r.files].filter((f) => !ran.has(f));
     if (!records.length) skipped.push(`${r.id}: no journey-reach records (before the recorder)`);
     else if (lost.length) skipped.push(`${r.id}: its report lacks ${lost.length} journey file(s) at its head (a lost shard)`);
-    else whole.push({ ...r, ran, records });
+    else whole.push({ ...r, ran, records, unclean: reportUnclean(r.report) });
     if (whole.length === minRuns) break;
   }
   const base = { v: MAP_VERSION, runs: whole.map(({ id, head, created }) => ({ id, head, created })), skipped };
@@ -316,14 +344,21 @@ export function buildMap({ runs, services, consumers, harness, subscribers: subs
   const customer = {};
   for (const f of journeys) {
     let why = null;
+    let clean = 0;
     const union = { services: new Set(), packages: new Set(), customer: new Set() };
     whole.forEach((r, i) => {
       if (why || !r.files.has(f)) return;
       const x = reach[i][f];
       if (!x) why = `run ${r.id} holds no record of it`;
       else if (x.full) why = `run ${r.id}: ${x.full}`;
-      else for (const k of Object.keys(union)) for (const v of x[k]) union[k].add(v);
+      else if (r.unclean.has(f))
+        return; // a step that didn't pass stopped the journey short: this run can't speak for it
+      else {
+        clean += 1;
+        for (const k of Object.keys(union)) for (const v of x[k]) union[k].add(v);
+      }
     });
+    if (!why && !clean) why = 'no run the map is built from passed every one of its tests';
     if (why) {
       full[f] = why;
       continue;

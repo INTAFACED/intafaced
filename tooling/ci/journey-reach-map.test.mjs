@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import {
   MIN_RUNS,
   REACH_MAP_MODE,
+  reportUnclean,
   STALE_RUNS,
   buildMap,
   harnessImports,
@@ -39,7 +40,7 @@ const rec = (file, over = {}) => ({
   ...over,
 });
 /** A Playwright JSON report: one spec per journey file, its records attached to its first test. */
-const report = (records, files = [...new Set(records.map((r) => r.file))]) => ({
+const report = (records, files = [...new Set(records.map((r) => r.file))], failing = new Set()) => ({
   suites: files.map((f) => ({
     file: f,
     specs: [
@@ -50,6 +51,7 @@ const report = (records, files = [...new Set(records.map((r) => r.file))]) => ({
           {
             results: [
               {
+                status: failing.has(f) ? 'failed' : 'passed',
                 attachments: records
                   .filter((r) => r.file === f)
                   .map((r) => ({ name: 'journey-reach', contentType: 'application/json', body: b64(r) })),
@@ -83,7 +85,13 @@ const records = (popup = ['popup']) => [
   rec(BOTH, { served: ['bank GET', 'support GET'], active: ['edge', 'bank', 'trade-2'] }),
   rec(POPUP, { served: ['edge GET'], active: ['edge'], incomplete: popup }),
 ];
-const run = (id, created, recs = records(), files = FILES) => ({ id, head: HEAD, created, report: report(recs, [...files]), files });
+const run = (id, created, recs = records(), files = FILES, failing = new Set()) => ({
+  id,
+  head: HEAD,
+  created,
+  report: report(recs, [...files], failing),
+  files,
+});
 const RUNS = [run(3, '2026-11-08T15:00:00Z'), run(2, '2026-11-08T14:00:00Z'), run(1, '2026-11-08T13:00:00Z')];
 const CONSUMERS = {
   'packages/ui': ['apps/admin', 'apps/customer'],
@@ -157,6 +165,36 @@ test('journeyTouch with the map: product code joins the files list; any other fu
   assert.equal(journeyTouch(['tooling/ci/journey-reach-map.json'], () => true, reach).mode, 'full', 'the map itself');
   assert.equal(journeyTouch(['services/svc-tax/src/rates.ts']).mode, 'full', 'no map given: product code is full');
   assert.equal(journeyTouch(['services/svc-tax/src/rates.test.ts'], () => true, reach).mode, 'none', 'a unit test runs nothing');
+});
+
+test('planted: reach is taken only from runs where the journey passed whole (review 7561-R1)', () => {
+  // TAX fails in the newest run, whose record would miss what its later steps reach: that run adds nothing for it.
+  const short = rec(TAX, { served: ['edge GET /api/tax'], active: ['edge'] });
+  const failedOnce = build([
+    run(3, '2026-11-08T15:00:00Z', [...records().filter((r) => r.file !== TAX), short], FILES, new Set([TAX])),
+    run(2, '2026-11-08T14:00:00Z'),
+    run(1, '2026-11-08T13:00:00Z'),
+  ]);
+  assert.equal(failedOnce.mode, 'reach');
+  assert.deepEqual(
+    (failedOnce.services['services/svc-tax'] ?? []).map((i) => failedOnce.journeys[i]),
+    [TAX],
+    'from the clean runs',
+  );
+  // Planted: TAX fails in every run, so no run speaks for it, and it runs with every change.
+  const allFailed = build(
+    [3, 2, 1].map((id) =>
+      run(id, `2026-11-08T1${id + 2}:00:00Z`, [...records().filter((r) => r.file !== TAX), short], FILES, new Set([TAX])),
+    ),
+  );
+  assert.match(allFailed.full[TAX], /no run the map is built from passed every one of its tests/);
+  const sel = reachSelect({ map: allFailed, paths: ['services/svc-support/src/x.ts'], behind: 0, atHead: FILES, mode: 'reach' });
+  assert.deepEqual(sel.files, [BOTH, POPUP, TAX], 'an unproven journey joins every selection');
+  // A test with no result, or whose last result is skipped or timedOut, is not clean.
+  const r = report(records(), [...FILES]);
+  r.suites[0].specs[0].tests[0].results[0].status = 'timedOut';
+  r.suites[1].specs[0].tests[0].results = [];
+  assert.deepEqual([...reportUnclean(r)].sort(), [BANK, TAX].sort());
 });
 
 test('planted: money code never narrows (the CI review on b26447ca)', () => {
