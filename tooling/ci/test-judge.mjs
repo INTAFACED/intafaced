@@ -350,16 +350,25 @@ const TEST_CALL = /^(\s*)test(?:\.(?:skip|fixme|only|fail|slow))?\(\s*[`'"](?:\$
  *  words its tests are judged against (review R1 on #7544). */
 export const journeyOfFile = (path) =>
   /\/(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)(?:-[a-z0-9-]+)?\.pw\.mjs$/.exec(String(path ?? ''))?.[1] ?? null;
-/** Every top-level `const J = '…'` a journey file declares (at the start of a line, the way each journey file does). */
-const J_DECLS = /^const J = ['"`]([^'"`\n]*)['"`]/gm;
-/** Why a journey file's `const J` disagrees with the journey its name gives, or null: its `${J}` steps would run under
- *  one id while the seal and this judge name them by another, so the judge refuses rather than guess. */
+/** Every declaration of J a journey file holds, however written (`const`, `let`, `var`, `export`, any spacing), and
+ *  every later assignment to it (review R6 on #7544). */
+const J_DECLS = /^\s*(?:export\s+)?(?:const|let|var)\s+J\s*=\s*(.*)$/gm;
+const J_ASSIGN = /^\s*J\s*=(?!=)/m;
+const J_LITERAL = /^(['"`])(J-[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-\d+)\1\s*;?\s*(?:\/\/.*)?$/;
+/** Why a journey file's J disagrees with the journey its name gives, or null: its `${J}` steps would run and report
+ *  under one id while the seal and this judge name them by another, so the judge refuses rather than guess. Only a
+ *  file whose step titles use `${J}`: one that writes its ids out (J-ops-console-04-holds.pw.mjs) is named by them. */
 export function declarationProblem(text, journey) {
-  // Only a file whose step titles use `${J}`: one that writes its ids out (J-ops-console-04-holds.pw.mjs) is named by them.
-  if (!/^\s*test(?:\.[a-z]+)?\(\s*`\$\{J\} #\d/m.test(String(text ?? ''))) return null;
-  const declared = [...String(text ?? '').matchAll(J_DECLS)].map((m) => m[1]);
-  const off = declared.find((d) => d !== journey);
-  return off !== undefined ? `declares const J = '${off}', but its file name gives journey ${journey}` : null;
+  const t = String(text ?? '');
+  if (!/^\s*test(?:\.[a-z]+)?\(\s*`\$\{J\} #\d/m.test(t)) return null;
+  if (J_ASSIGN.test(t)) return `assigns J after declaring it, so its \${J} steps' id can't be read from the file name ${journey}`;
+  for (const m of t.matchAll(J_DECLS)) {
+    const lit = J_LITERAL.exec(m[1].trim());
+    if (!lit)
+      return `declares J as \`${m[1].trim().slice(0, 60)}\`, not a journey id in quotes, so it may differ from its file name's ${journey}`;
+    if (lit[2] !== journey) return `declares J = '${lit[2]}', but its file name gives journey ${journey}`;
+  }
+  return null;
 }
 
 /**

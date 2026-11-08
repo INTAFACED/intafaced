@@ -744,6 +744,19 @@ test('a split journey file: `${J}` steps are the journey its file name gives, ne
   // A top-level const J that disagrees with the file name, in a file whose titles use ${J}: the judge refuses.
   assert.equal(declarationProblem(JFILE, 'J-x-01'), null);
   assert.match(declarationProblem(JFILE.replace("const J = 'J-x-01';", "const J = 'J-y-02';"), 'J-x-01') ?? '', /J-y-02.*J-x-01/);
+  // Review R6: every way of declaring or reassigning J is read, not only `const J = '…'` at column 0.
+  for (const decl of [
+    "const J='J-bank-01';",
+    "export const J = 'J-bank-01';",
+    "let J = 'J-bank-01';",
+    '  var J = "J-bank-01";',
+    'const J = `J-bank-01`;',
+    "const J = 'J-x-01';\nJ = 'J-bank-01';",
+    'const J = makeId();',
+  ])
+    assert.ok(declarationProblem(JFILE.replace("const J = 'J-x-01';", decl), 'J-x-01'), `refused: ${decl}`);
+  assert.equal(declarationProblem(JFILE.replace("const J = 'J-x-01';", "const J = 'J-x-01'; // the journey"), 'J-x-01'), null);
+  assert.equal(declarationProblem(JFILE + "\nif (J === 'J-x-01') {}\n", 'J-x-01'), null, 'a comparison is not an assignment');
   assert.equal(
     declarationProblem("const J = 'J-ops-console-04-holds';\ntest('J-ops-console-04 #1 x', async () => {\n});\n", 'J-ops-console-04'),
     null,
@@ -799,7 +812,7 @@ test('review R1/R5 on #7544: a split file whose const J disagrees with its name 
     brief: 'B',
     loadWords: async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) }),
   });
-  assert.match(got.deterministic.map((d) => d.line).join(' '), /declares const J = 'J-bank-01', but its file name gives journey J-x-01/);
+  assert.match(got.deterministic.map((d) => d.line).join(' '), /declares J = 'J-bank-01', but its file name gives journey J-x-01/);
   assert.ok(
     got.required.steps.every((s) => !s.startsWith('J-bank-01')),
     'the decoy journey names no step',
