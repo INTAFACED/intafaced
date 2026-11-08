@@ -197,11 +197,9 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
  * Workflows a pull request triggers that don't cancel the older run, and why. Each keeps a bounded number of runs.
  *  - ci-review.yml: a change to the review job can't pass its own review and waits for the owner (intafaced AGENTS.md);
  *    its group is one per head, so an older head's review finishes but a newer one never waits for it.
- *  - review-signoff.yml: GitHub keeps one pending run per group, so a group would drop a queued sign-off; one run per
- *    push or sign-off comment, seconds each.
  *  - journey-seal-recheck.yml: rule 4 below.
  */
-export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'review-signoff.yml', 'journey-seal-recheck.yml']);
+export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'journey-seal-recheck.yml']);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
