@@ -324,3 +324,81 @@ test("GitHub's Revert form of a product change needs no run; a revert of shared 
     'a Revert title without GitHub’s body line is no revert',
   );
 });
+
+// ---- U4 C3 piece 1: a pull request runs what it touches, with no dispatch ----
+
+test('--json --files-from: a pull request file list, judged against this checkout of its head', () => {
+  const dir = execFileSync('mktemp', ['-d'], { encoding: 'utf8' }).trim();
+  const run = (lines) => {
+    const f = join(dir, 'changed.txt');
+    execFileSync('sh', ['-c', `printf '%s' "$1" > "$2"`, 'sh', lines.join('\n') + '\n', f]);
+    return JSON.parse(
+      execFileSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', f], { cwd: ROOT, encoding: 'utf8' }),
+    );
+  };
+  assert.equal(run(['services/svc-bank/src/a.ts']).mode, 'full', 'product code: the full suite');
+  const files = run(['.github/workflows/ci.yml', 'apps/customer/tests/real-app/J-bank-13.pw.mjs']);
+  assert.deepEqual([files.mode, files.files], ['files', ['J-bank-13.pw.mjs']], 'a journey test file: only it');
+  assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
+  assert.equal(run(['apps/customer/tests/real-app/J-zzz-99.pw.mjs']).mode, 'none', 'a journey file the head removed runs nothing');
+});
+
+test('real-app-journeys.yml runs on ready pull requests, tests their head, and an empty plan says nothing', () => {
+  const t = readFileSync(join(ROOT, '.github/workflows/real-app-journeys.yml'), 'utf8');
+  assert.match(t, /\n  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]\n/);
+  // Every checkout tests the pull request's head (the seal reads runs by head), never GitHub's merge commit.
+  const checkouts = [...t.matchAll(/uses: actions\/checkout@[^\n]*\n {8}with:\n((?: {10}[^\n]*\n)+)/g)].map((m) => m[1]);
+  assert.equal(checkouts.length, 4);
+  for (const c of checkouts) assert.match(c, /ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}/);
+  // The plan decides; a draft or a fork runs nothing; files that can't be read run the full suite.
+  assert.match(t, /node tooling\/ci\/journey-touch\.mjs --json --files-from/);
+  assert.match(t, /if \[ "\$DRAFT" = true \] \|\| \[ "\$SAME_REPO" != true \]/);
+  assert.match(t, /couldn't be read, so the full suite runs"\n {12}\{ echo "mode=run"; echo "target="; \}/);
+  // Nothing to run: no build, no shard, and an empty report that the seal reads as saying nothing.
+  assert.match(
+    t,
+    /build:\n {4}name: Build the stack once\n {4}needs: \[plan\]\n {4}if: \$\{\{ !cancelled\(\) && needs\.plan\.outputs\.mode != 'none' \}\}/,
+  );
+  assert.match(t, /needs\.plan\.outputs\.mode != 'none' && !\(needs\.plan\.result == 'failure' && needs\.plan\.outputs\.target != ''\)/);
+  assert.match(t, /JOURNEYS_TARGET: \$\{\{ needs\.plan\.outputs\.target \}\}/);
+});
+
+test('an empty report (nothing to run) seals nothing and blocks nothing', async () => {
+  const { readReport } = await import('./journey-verdict.mjs');
+  const empty = readReport({ suites: [], errors: [], stats: { expected: 0, unexpected: 0 } });
+  assert.deepEqual([Object.keys(empty.states).length, [...(empty.ran ?? [])].length], [0, 0]);
+  const HEAD = 'a'.repeat(40);
+  const REPO = 'INTAFACED/intafaced';
+  const r = (id, over = {}) => ({
+    id,
+    head_sha: HEAD,
+    path: JOURNEYS_WORKFLOW,
+    status: 'completed',
+    conclusion: 'success',
+    created_at: `2026-11-08T0${id}:00:00Z`,
+    run_started_at: `2026-11-08T0${id}:00:00Z`,
+    head_repository: { full_name: REPO },
+    repository: { full_name: REPO },
+    ...over,
+  });
+  // A newer empty run never hides an older run's red, and never stands in for a run of the touched file.
+  const reports = { 1: { states: { 'J-a-01#1': 'failed' }, ran: ['J-a-01.pw.mjs'] }, 2: empty };
+  const v = await judgeTouchedRun({
+    sha: HEAD,
+    repo: REPO,
+    files: ['J-a-01.pw.mjs'],
+    runs: [r(1), r(2)],
+    reportOf: async (x) => reports[x.id],
+    verdictOf: async (rep) => ({ red: rep.states['J-a-01#1'] === 'failed' ? [{ step: 'J-a-01#1', why: 'failing' }] : [], missing: [] }),
+  });
+  assert.equal(v.ok, false);
+  const alone = await judgeTouchedRun({
+    sha: HEAD,
+    repo: REPO,
+    files: ['J-a-01.pw.mjs'],
+    runs: [r(2)],
+    reportOf: async () => empty,
+    verdictOf: async () => ({ red: [], missing: [] }),
+  });
+  assert.equal(alone.ok, false, 'an empty run does not prove a touched file');
+});
