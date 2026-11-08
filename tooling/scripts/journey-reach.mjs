@@ -9,6 +9,12 @@
  *   - http: every request a journey's Node code or its browser pages sent, and every WebSocket they opened, as
  *     `<port> <METHOD> <path template>` (ids, hashes, addresses and numbers in the path read `:id`; no query, no host,
  *     no body), so a port names a service of the stack and a path an Edge route;
+ *   - served: what each service of the stack logged that it served while the file ran, as `<service> <METHOD> <path
+ *     template>`, read from the stack's own logs (`<state>/logs/<service>.log`, Fastify's `incoming request` lines at
+ *     the stack's LOG_LEVEL info), so a call from one service to another counts too. A line goes to the journey file
+ *     that was running at the line's own time, so a write that lands late still counts for the right file. Background
+ *     work (the TEST market maker, pollers) counts for whichever file runs: more reach, never less;
+ *   - active: the services that logged anything at all while the file ran (an event handler that serves no request);
  *   - chunks: the customer app's scripts each page ran, by their path in the build (`/assets/index-1a2b.js`);
  *   - sources: for each source file of the customer app (and the packages it bundles), the line ranges of the functions
  *     that ran at least once, read from Chromium's precise coverage and mapped back through the build's hidden source
@@ -25,7 +31,7 @@
  *     treats an incomplete journey as reaching every source.
  * Recording never changes a request or a page, and never fails a test.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 export const REACH_ATTACHMENT = 'journey-reach';
@@ -208,6 +214,86 @@ export function mergeRanges(ranges) {
   return out;
 }
 
+// ---- The stack's own logs ----
+
+/**
+ * A reader of the stack's service logs that returns, on each read, the lines written since the last one, parsed:
+ * [{ service, time (ms, or null), method, url }] (method and url only on an `incoming request` line). It starts at the
+ * logs' current ends, so the stack's start is nobody's. A log that shrank (a restart that truncated it) is read again
+ * from its start. A partial last line waits for the next read.
+ */
+export function makeLogReader(logsDir) {
+  const at = new Map();
+  const rest = new Map();
+  const list = () => {
+    try {
+      return readdirSync(logsDir).filter((f) => f.endsWith('.log'));
+    } catch {
+      return [];
+    }
+  };
+  for (const f of list()) {
+    try {
+      at.set(f, statSync(path.join(logsDir, f)).size);
+    } catch {
+      /* gone */
+    }
+  }
+  return {
+    read() {
+      const out = [];
+      for (const f of list()) {
+        const file = path.join(logsDir, f);
+        let size;
+        try {
+          size = statSync(file).size;
+        } catch {
+          continue;
+        }
+        let from = at.get(f) ?? 0;
+        if (size < from) {
+          from = 0;
+          rest.delete(f);
+        }
+        if (size === from) continue;
+        const buf = Buffer.alloc(Math.min(size - from, 64 * 2 ** 20));
+        let fd;
+        try {
+          fd = openSync(file, 'r');
+          readSync(fd, buf, 0, buf.length, from);
+        } catch {
+          continue;
+        } finally {
+          if (fd !== undefined) closeSync(fd);
+        }
+        at.set(f, from + buf.length);
+        const text = (rest.get(f) ?? '') + buf.toString('utf8');
+        const lines = text.split('\n');
+        rest.set(f, lines.pop() ?? '');
+        const service = f.replace(/\.log$/, '');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let o = null;
+          if (line.startsWith('{'))
+            try {
+              o = JSON.parse(line);
+            } catch {
+              o = null;
+            }
+          const req = o?.msg === 'incoming request' ? o.req : null;
+          out.push({
+            service,
+            time: Number.isFinite(o?.time) ? o.time : null,
+            method: req?.method ?? null,
+            url: typeof req?.url === 'string' ? req.url : null,
+          });
+        }
+      }
+      return out;
+    },
+  };
+}
+
 // ---- The recorder ----
 
 /**
@@ -219,12 +305,15 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
   const scripts = new Map(); // scriptPath -> loadScript result
   const tabled = new Set(); // chunks whose source table this worker already attached
   const noMapSeen = new Set(); // scripts with no map this worker already named
+  const timeline = []; // [time, file]: which journey file was running from when
   const sent = new Map(); // file -> { http:Set, chunks:Set, ranges: Map(source -> Set("a-b")) }
   const pending = new Map(); // file -> { http:Set, chunks:Set, ranges: Map(source -> ranges[]), incomplete:Set, table:{} }
   const slot = (file) => {
     if (!pending.has(file))
       pending.set(file, {
         http: new Set(),
+        served: new Set(),
+        active: new Set(),
         chunks: new Set(),
         ranges: new Map(),
         incomplete: new Set(),
@@ -235,13 +324,38 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
     return pending.get(file);
   };
   const seen = (file) => {
-    if (!sent.has(file)) sent.set(file, { http: new Set(), chunks: new Set(), ranges: new Map() });
+    if (!sent.has(file)) sent.set(file, { http: new Set(), served: new Set(), active: new Set(), chunks: new Set(), ranges: new Map() });
     return sent.get(file);
   };
   return {
     request(file, url, method) {
       const k = requestKey(url, method);
       if (k && !seen(file).http.has(k)) slot(file).http.add(k);
+    },
+    /** From `time` on, `file` is the journey file running (log lines are placed by their own time). */
+    enter(file, time = Date.now()) {
+      if (timeline.at(-1)?.[1] !== file) timeline.push([time, file]);
+    },
+    /** Log lines (makeLogReader().read()), each to the file that ran at its time; a line with no time to `now`. */
+    served(lines, now) {
+      const fileAt = (t) => {
+        let f = null;
+        for (const [at, file] of timeline) {
+          if (at <= t) f = file;
+          else break;
+        }
+        return f ?? timeline[0]?.[1] ?? null;
+      };
+      for (const l of lines ?? []) {
+        const file = l.time === null ? now : fileAt(l.time);
+        if (!file) continue;
+        const s = seen(file);
+        if (!s.active.has(l.service)) slot(file).active.add(l.service);
+        if (l.url !== null) {
+          const k = `${l.service} ${String(l.method ?? 'GET').toUpperCase()} ${pathTemplate(l.url.split('?')[0])}`;
+          if (!s.served.has(k)) slot(file).served.add(k);
+        }
+      }
     },
     /** The file's afterAll hooks have run: their requests are in this file's next record, attached by a later test. */
     afterAll(file) {
@@ -317,11 +431,15 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
         sources[src] = fresh;
       }
       for (const k of p.http) s.http.add(k);
+      for (const k of p.served) s.served.add(k);
+      for (const k of p.active) s.active.add(k);
       for (const c of p.chunks) s.chunks.add(c);
       const record = {
         v: REACH_VERSION,
         file: path.basename(String(file)),
         http: [...p.http].sort(),
+        served: [...p.served].sort(),
+        active: [...p.active].sort(),
         chunks: [...p.chunks].sort(),
         sources,
         table: p.table,
@@ -331,6 +449,8 @@ export function makeRecorder({ root, customerPort = '3210', distDir }) {
       };
       const empty =
         !record.http.length &&
+        !record.served.length &&
+        !record.active.length &&
         !record.chunks.length &&
         !Object.keys(sources).length &&
         !Object.keys(p.table).length &&

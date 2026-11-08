@@ -1,7 +1,7 @@
 // node --test tooling/scripts/journey-reach.test.mjs
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -9,6 +9,7 @@ import {
   decodeMappings,
   executedRanges,
   loadScript,
+  makeLogReader,
   makeRecorder,
   mergeRanges,
   originalAt,
@@ -145,6 +146,8 @@ test('the recorder: per file, only what was not attached yet; an unmappable or f
     v: 1,
     file: 'J-bank-13.pw.mjs',
     http: ['14509 GET /accounts/:id'],
+    served: [],
+    active: [],
     chunks: ['/assets/index-1a2b.js'],
     sources: { 'apps/customer/src/a.ts': [[10, 12]] },
     table: { '/assets/index-1a2b.js': ['apps/customer/src/a.ts', 'packages/ui/src/b.ts'] },
@@ -181,4 +184,34 @@ test('the recorder: per file, only what was not attached yet; an unmappable or f
   assert.equal(rec.take(F).afterAll, true);
   rec.incomplete(F, 'a page closed before its coverage was read');
   assert.deepEqual(rec.take(F).incomplete, ['a page closed before its coverage was read']);
+});
+
+test("the stack's logs: what each service served, placed by each line's own time in the file that ran then", () => {
+  const logs = path.join(ROOT, 'logs');
+  mkdirSync(logs, { recursive: true });
+  const line = (time, url, method = 'GET') =>
+    JSON.stringify({ level: 30, time, reqId: 'req-1', req: { method, url, remoteAddress: '127.0.0.1' }, msg: 'incoming request' }) + '\n';
+  writeFileSync(path.join(logs, 'bank.log'), line(1, '/before-the-run'));
+  writeFileSync(path.join(logs, 'postgres.log'), 'LOG:  started\n');
+  const reader = makeLogReader(logs);
+  assert.deepEqual(reader.read(), [], "what was written before the reader started is nobody's");
+  const rec = makeRecorder({ root: ROOT, distDir: DIST });
+  rec.enter('A', 100);
+  rec.enter('B', 200);
+  appendFileSync(path.join(logs, 'bank.log'), line(150, '/accounts/42/cards?x=1') + line(250, '/accounts/43/cards', 'post') + '{"half":');
+  appendFileSync(path.join(logs, 'ledger.log'), JSON.stringify({ level: 30, time: 260, msg: 'event handled' }) + '\n');
+  appendFileSync(path.join(logs, 'postgres.log'), 'LOG:  checkpoint\n');
+  rec.served(reader.read(), 'B');
+  const a = rec.take('A');
+  const b = rec.take('B');
+  assert.deepEqual(
+    [a.served, a.active],
+    [['bank GET /accounts/:id/cards'], ['bank']],
+    "a line written while A ran is A's, even read later",
+  );
+  assert.deepEqual([b.served, b.active], [['bank POST /accounts/:id/cards'], ['bank', 'ledger', 'postgres']]);
+  appendFileSync(path.join(logs, 'bank.log'), '"done"}\n');
+  assert.deepEqual(reader.read().length, 1, 'a partial last line is read once it ends');
+  writeFileSync(path.join(logs, 'bank.log'), line(300, '/again'));
+  assert.equal(reader.read()[0].url, '/again', 'a log that shrank is read from its start');
 });

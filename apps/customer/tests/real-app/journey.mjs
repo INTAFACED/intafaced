@@ -4,7 +4,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { guardPostingFreeze, postingFromHealth } from '../../../../tooling/scripts/journey-freeze-guard.mjs';
 import { FAIL_FAST, failFastSteps, failsFast } from '../../../../tooling/scripts/journey-fail-fast.mjs';
-import { REACH_ATTACHMENT, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
+import { REACH_ATTACHMENT, makeLogReader, makeRecorder } from '../../../../tooling/scripts/journey-reach.mjs';
+import { localStackState } from '../../../../tooling/scripts/local-test-state.mjs';
 import { LEDGER, ROOT, recordSignIn } from './stack.mjs';
 import { enterFile } from './world-restore.mjs';
 
@@ -62,6 +63,13 @@ export const expect = new Proxy(baseExpect, {
 // file running now owns what is recorded; a file's own beforeAll and afterAll hooks enter it first (below).
 const reach = makeRecorder({ root: ROOT, distDir: path.join(ROOT, 'apps', 'customer', 'dist') });
 let reachFile = 'outside-any-file';
+// What the stack's services logged they served, read from their own logs at each read below (journey-reach.mjs).
+const stackLogs = makeLogReader(path.join(localStackState(), 'logs'));
+const enterReach = (file) => {
+  reachFile = file;
+  reach.enter(file);
+};
+const readLogs = () => noted(() => reach.served(stackLogs.read(), reachFile));
 const noted = (fn) => {
   try {
     fn();
@@ -222,7 +230,7 @@ const extended = base.extend({
   // and its TEST price moves are cleared, before the next file's first step (world-restore.mjs, journey-world.mjs).
   worldBetweenFiles: [
     async ({}, use, testInfo) => {
-      reachFile = testInfo.file;
+      enterReach(testInfo.file);
       await enterFile(testInfo.file);
       await use();
     },
@@ -238,6 +246,7 @@ const extended = base.extend({
       await use();
       try {
         await readAll([...covered.keys()]);
+        readLogs();
         for (const file of reach.files()) {
           const record = reach.take(file);
           if (record) await testInfo.attach(REACH_ATTACHMENT, { body: JSON.stringify(record), contentType: 'application/json' });
@@ -286,7 +295,7 @@ extended.beforeAll = (...args) => {
   const entered = async (fixtures, testInfo) => {
     // The restore gets its own time on top of the hook's, as the worldBetweenFiles fixture does.
     if (testInfo.timeout > 0) testInfo.setTimeout(testInfo.timeout + 150_000);
-    reachFile = testInfo.file;
+    enterReach(testInfo.file);
     await enterFile(testInfo.file);
     return hook(fixtures, testInfo);
   };
@@ -300,11 +309,12 @@ const afterAll = extended.afterAll;
 extended.afterAll = (...args) => {
   const hook = args.pop();
   const after = async (fixtures, testInfo) => {
-    reachFile = testInfo.file;
+    enterReach(testInfo.file);
     try {
       return await hook(fixtures, testInfo);
     } finally {
       await readAll([...covered.keys()]).catch(() => {});
+      readLogs();
       reach.afterAll(testInfo.file);
     }
   };
