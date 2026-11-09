@@ -1,4 +1,4 @@
-// World: book, freeze, gates, stack
+// World: book, freeze, gates, restart, stack
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import {
@@ -14,7 +14,7 @@ import {
   signUp,
   verify,
 } from './desk.mjs';
-import { api, fromUnits, fund, signOutBrowser, toUnits, tool } from './stack.mjs';
+import { api, fromUnits, fund, restartWithSetting, signOutBrowser, toUnits, tool } from './stack.mjs';
 import { METHOD, p2p, readyTaker, testInstrument, testPasskey } from './p2p.mjs';
 
 // J-home-ia-05, in the running app (docs/roadmap/journeys.json): I read my notifications and allow them on this device.
@@ -348,6 +348,40 @@ test(`${J} #4 Allow notifications on this device asks the browser only on the pr
   const stored = await (await api(who)).get('/api/notify/trpc/notify.targets');
   expect(stored.body.result.data.filter((row) => row.channel === 'push')).toEqual([]);
   await context.close();
+
+  // Granted, with the push gateway's key set: svc-notify restarted with the stack's LOCAL TEST push gateway on. One device
+  // row is registered and a confirmation is sent to it; pressing again keeps one row. The gateway goes off again after,
+  // for #5.
+  const session = await api(who);
+  restartWithSetting('notify', 'LOCAL_STACK_PUSH_GATEWAY', 'on');
+  try {
+    const key = await session.get('/api/notify/trpc/notify.pushKey');
+    expect(key.body?.result?.data?.publicKey, `notify.pushKey answered ${JSON.stringify(key.body)}`).toEqual(expect.any(String));
+    const granted = await browser.newContext();
+    await granted.grantPermissions(['notifications']);
+    const allowed = await granted.newPage();
+    await signIn(allowed, who);
+    await allowed.goto('/notifications?view=settings');
+    const push = pushCard(allowed);
+    await push.getByRole('button', { name: 'Allow notifications on this device' }).click();
+    await expect(push.getByTestId('nf-push__state')).toHaveText('Allowed and registered on this device.');
+    const pushRows = async () =>
+      (await session.get('/api/notify/trpc/notify.targets')).body.result.data.filter((row) => row.channel === 'push');
+    await expect.poll(async () => (await pushRows()).length, { timeout: 20_000 }).toBe(1);
+    const [device] = await pushRows();
+    // A confirmation was sent to that device: svc-notify's own delivery record for it, on the push channel, sent.
+    await expect.poll(async () => (await pushRows())[0]?.confirmationSentAt ?? null, { timeout: 30_000 }).not.toBeNull();
+    await expect(push).toContainText('A confirmation was sent to this device.');
+    // Pressing again keeps one row: the same device, not a second registration.
+    await push.getByRole('button', { name: 'Allow notifications on this device' }).click();
+    await expect(push.getByTestId('nf-push__state')).toHaveText('Allowed and registered on this device.');
+    const again = await pushRows();
+    expect(again).toHaveLength(1);
+    expect(again[0].id).toBe(device.id);
+    await granted.close();
+  } finally {
+    restartWithSetting('notify', 'LOCAL_STACK_PUSH_GATEWAY', null);
+  }
 });
 
 test(`${J} #5 allowed while the push gateway is not configured: the service-off sentence with vendor.push, nothing registered, and an empty inbox stays an empty state`, async ({
