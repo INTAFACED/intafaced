@@ -17,7 +17,7 @@ import type { Fetcher } from '../../../data/poll';
 import type { BalanceEntry } from '../../../data/derive';
 import type { Loadable } from '../../../data/types';
 import { useSession } from '../../../features/session/session';
-import { createTradeApi, type Order, type TradeApi } from '../../../features/trade/trade-api';
+import { createTradeApi, type Order, type QueuePosition, type TradeApi } from '../../../features/trade/trade-api';
 import { decimalSchema } from '../../../shared/money';
 import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import { deskListingSchema, toDeskMarkets, type DeskMarket } from './market';
@@ -27,6 +27,8 @@ export const DESK_INTERVALS = {
   markets: 300_000,
   book: 2_000,
   tape: 3_000,
+  /** My place in the queue for each of my resting orders in the DOM. */
+  queue: 3_000,
   ticker: 5_000,
   panelTickers: 10_000,
   openOrders: 10_000,
@@ -88,6 +90,18 @@ export function useTape(symbol: string, enabled: boolean): Loadable<Trade[]> {
           ? env.poller.source<Trade[]>(`desk-tape:${symbol}`, (signal) => api.tape(symbol, signal), { intervalMs: DESK_INTERVALS.tape })
           : constantSource<Trade[]>(OFF),
       [env, api, symbol, enabled],
+    ),
+  );
+}
+
+/** My place in the queue for one of my resting orders, while the DOM shows it. */
+export function useQueuePosition(orderId: string): Loadable<QueuePosition> {
+  const env = useDataEnv();
+  const api = useDeskApi();
+  return useSource(
+    useMemo(
+      () => privateSource<QueuePosition>(env, `desk-queue:${orderId}`, (signal) => api.queue(orderId, signal), DESK_INTERVALS.queue),
+      [env, api, orderId],
     ),
   );
 }
