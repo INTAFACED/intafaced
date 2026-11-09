@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS trade.venue_listings (
   PRIMARY KEY (venue_id, symbol, version),
   CONSTRAINT venue_listings_delists_after_open_ck CHECK (delists_at IS NULL OR delists_at > opens_at),
   -- Two people, except the stack's own LOCAL TEST seed (APP_ENV dev or test only, src/venue/venue-listing.ts).
-  CONSTRAINT venue_listings_two_people_ck CHECK (proposer_id <> approver_id OR approval_id LIKE 'local-test-seed:%')
+  CONSTRAINT venue_listings_two_people_ck CHECK (proposer_id <> approver_id OR approval_id LIKE 'test-stack-listing:%')
 );
 
 -- Our largest order per (venue, symbol), versioned. Each version keeps the venue's own largest order it was checked

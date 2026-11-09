@@ -363,7 +363,7 @@ export function listedTestStore(
       opensAt,
       delistsAt: null,
       routing: 'show',
-      approvalId: `local-test-seed:${venueId}:${symbol}`,
+      approvalId: `test-stack-listing:${venueId}:${symbol}`,
       proposerId: 'TEST fixture',
       approverId: 'TEST fixture',
       executorId: 'TEST fixture',

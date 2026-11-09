@@ -157,7 +157,7 @@ export function assertTestListingsAllowed(symbols: readonly string[], appEnv: st
 
 /**
  * List `symbols` on a TEST venue as a LOCAL TEST seed, so the stack's other venue journeys see their markets: version 1
- * of each listing, routing `show`, open from now, recorded under `local-test-seed:<venueId>:<symbol>` with the operator
+ * of each listing, routing `show`, open from now, recorded under `test-stack-listing:<venueId>:<symbol>` with the operator
  * `LOCAL TEST seed`. A market already listed (seeded or approved) is left as it is; a symbol the venue does not list is
  * skipped. Refused on a venue that is not a TEST venue and outside APP_ENV dev or test. Returns the symbols it wrote.
  */
@@ -183,7 +183,7 @@ export async function seedTestListings(
       opensAt: now,
       delistsAt: null,
       routing: 'show',
-      approvalId: `local-test-seed:${venue.venue.id}:${symbol}`,
+      approvalId: `test-stack-listing:${venue.venue.id}:${symbol}`,
       proposerId: LOCAL_TEST_SEED_OPERATOR,
       approverId: LOCAL_TEST_SEED_OPERATOR,
       executorId: LOCAL_TEST_SEED_OPERATOR,

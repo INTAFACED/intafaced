@@ -631,8 +631,8 @@ describe('the LOCAL TEST listing seed', () => {
     expect(await seedTestListings(store, sim(), ['BTC-USDC', 'BTC-PERP'], 'test', at)).toEqual([]);
     const rows = await store.listingVersions(VENUE);
     expect(rows.map((r) => [r.symbol, r.version, r.routing, r.approvalId, r.proposerId])).toEqual([
-      ['BTC-PERP', 1, 'show', `local-test-seed:${VENUE}:BTC-PERP`, LOCAL_TEST_SEED_OPERATOR],
-      ['BTC-USDC', 1, 'show', `local-test-seed:${VENUE}:BTC-USDC`, LOCAL_TEST_SEED_OPERATOR],
+      ['BTC-PERP', 1, 'show', `test-stack-listing:${VENUE}:BTC-PERP`, LOCAL_TEST_SEED_OPERATOR],
+      ['BTC-USDC', 1, 'show', `test-stack-listing:${VENUE}:BTC-USDC`, LOCAL_TEST_SEED_OPERATOR],
     ]);
     expect(await store.latestListing(VENUE, 'ETH-USDC')).toBeNull();
   });
