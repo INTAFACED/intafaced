@@ -1167,8 +1167,8 @@ export const SEAL_WORKFLOWS = [
  * attempt is the verdict. Before this, the seal was red from every push until a re-run (375 of 510 runs in a day).
  *
  * A pull request could add its own job named `CI merge seal` and pass it while the real seal waits. So the first attempt
- * seals at once, as before, whenever the change touches `.github/` or its head's ci.yml still names its seal job
- * `CI merge seal` on a pull request (sealNow); on a pull request ci.yml's job is named `CI jobs` (CI_JOBS_NAME).
+ * seals at once, as before, whenever the change touches `.github/` or a CI run on its head already has a job named
+ * `CI merge seal` (sealNow, readCiSeal); on a pull request ci.yml's job is named `CI jobs` (CI_JOBS_NAME).
  */
 export const CI_JOBS_NAME = "${{ github.event_name == 'merge_group' && 'CI merge seal' || 'CI jobs' }}";
 
@@ -1203,18 +1203,23 @@ export const needsJourneys = (pull, files) => namesSteps(pull?.title ?? '') || j
 
 /**
  * Whether merge-seal.yml's first attempt seals at once rather than waiting for its inputs (see CI_JOBS_NAME), with why.
- * `files` are the change's paths; `headCi` the text of ci.yml at the head (null when it has none); `going` what
- * inputsGoing returns. Pure.
+ * `files` are the change's paths; `ciSeal` whether a CI run on the head has a job named `CI merge seal` (readCiSeal);
+ * `going` what inputsGoing returns. Pure.
+ *
+ * CI on a pull request runs the ci.yml of its merge with main, never the head's own (GitHub's `pull_request` event), so
+ * a change that leaves `.github/` alone runs main's ci.yml, whose job there is `CI jobs`. Reading the head's own ci.yml
+ * instead sealed at once every branch cut before 9 Nov 13:50 UTC, red while CI was still queued: each of the 7 red
+ * first attempts from 13:51 to 14:44 UTC logged that reason, though the two read (CI runs 42634159026 and 42630198720)
+ * named their job `CI jobs`. What could stand in for the seal is a job named `CI merge seal`, so that is what is read.
  */
-export function sealNow({ files, headCi, going, verdict = false }) {
+export function sealNow({ files, ciSeal, going, verdict = false }) {
   const gh = (files ?? []).filter((f) => f.startsWith('.github/'));
   if (gh.length)
     return {
       now: true,
       why: `the change touches ${gh[0]}${gh.length > 1 ? ` and ${gh.length - 1} more under .github/` : ''}, which could add its own seal`,
     };
-  if (!String(headCi ?? '').includes(`name: ${CI_JOBS_NAME}`))
-    return { now: true, why: "the head's ci.yml still names its seal job `CI merge seal` on a pull request" };
+  if (ciSeal) return { now: true, why: 'a CI run on this head already has a job named `CI merge seal`, which could pass the check alone' };
   if (!going.length) return { now: true, why: 'every input on this head has finished' };
   // A verdict already on the head (an edit, a reopen): judge again at once, so the old verdict never stands while an
   // input is re-running (CI review on e1ba6699: an edit naming a red step must never merge on the earlier green).
@@ -1513,6 +1518,26 @@ export async function readGoing({ get, repo, sha, pulls }) {
 }
 
 /**
+ * Whether a CI run on `sha` (ci.yml, any event, any attempt) has a job named `CI merge seal`: a ci.yml from before
+ * 9 Nov 2026 13:50 UTC gave its job that name off a merge queue, and every job of that name on a head must pass (probe
+ * #7547), so while one is there merge-seal.yml's seal must be there too. A pull_request run whose jobs are not listed
+ * yet runs main's ci.yml (sealNow), so its job will be `CI jobs`. Left open: a branch cut before 13:50 whose own ci.yml
+ * is dispatched by hand after this read gets a `CI merge seal` from that ci.yml, which is main's own from before
+ * 13:50 (the branch left `.github/` alone, or sealNow sealed at once) and judges CI's jobs, the named steps and the CI
+ * review on the head; it goes as those branches merge main.
+ */
+export async function readCiSeal({ get, repo, sha }) {
+  const runs = (await get(`/repos/${repo}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${sha}&per_page=100`))?.workflow_runs;
+  if (!Array.isArray(runs)) throw new Error(`${CI_WORKFLOW} runs on ${sha}: not a list`);
+  for (const r of runs.filter((x) => x?.head_sha === sha)) {
+    const jobs = (await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=all&per_page=100`))?.jobs;
+    if (!Array.isArray(jobs)) throw new Error(`run ${r.id}'s jobs: not a list`);
+    if (jobs.some((j) => j?.name === SEAL)) return true;
+  }
+  return false;
+}
+
+/**
  * merge-seal.yml's first job: whether this attempt seals now or waits for its inputs (sealNow), written to
  * GITHUB_OUTPUT as `now=true|false`. Only a first attempt asks; any error fails this job, and the seal then runs at once.
  */
@@ -1522,15 +1547,9 @@ async function sealNowStep({ repo, token }) {
   const get = (path) => api(path, token);
   const pull = await get(`/repos/${repo}/pulls/${PR_NUMBER}`);
   const files = await pullFiles(get, repo, Number(PR_NUMBER));
-  let headCi = null;
-  try {
-    const c = await get(`/repos/${repo}/contents/.github/workflows/ci.yml?ref=${HEAD_SHA}`);
-    headCi = Buffer.from(String(c?.content ?? ''), 'base64').toString('utf8');
-  } catch (e) {
-    if (!/HTTP 404/.test(e.message)) throw e;
-  }
+  const ciSeal = await readCiSeal({ get, repo, sha: HEAD_SHA });
   const going = await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull] });
-  const v = sealNow({ files, headCi, going, verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false });
+  const v = sealNow({ files, ciSeal, going, verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false });
   console.log(`${v.now ? 'seals now' : 'waits'}: ${v.why}`);
   if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `now=${v.now}\n`, { flag: 'a' });
 }

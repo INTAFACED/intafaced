@@ -1868,25 +1868,43 @@ const PR_READ_STEPS_LIST = ['Require the named journey steps on this exact head'
 
 test('#1574 sealNow: a first attempt waits only when nothing could stand in for the seal and an input is still going', async () => {
   const { sealNow, CI_JOBS_NAME } = await import('./journey-seal.mjs');
-  const newCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
   const going = ['CI run 1 (in_progress)'];
-  assert.deepEqual(sealNow({ files: ['services/a.ts'], headCi: newCi, going }).now, false, 'waits');
+  assert.deepEqual(sealNow({ files: ['services/a.ts'], ciSeal: false, going }).now, false, 'waits');
   // Planted, each seals at once (red while waiting, as before), since a pass of its own could stand in for the seal:
-  assert.equal(sealNow({ files: ['.github/workflows/x.yml'], headCi: newCi, going }).now, true, 'a workflow change');
-  assert.equal(sealNow({ files: ['.github/actions/a/action.yml'], headCi: newCi, going }).now, true, 'an action change');
-  assert.equal(
-    sealNow({ files: ['services/a.ts'], headCi: 'jobs:\n  merge-seal:\n    name: CI merge seal\n', going }).now,
-    true,
-    'an old ci.yml',
-  );
-  assert.equal(sealNow({ files: ['services/a.ts'], headCi: null, going }).now, true, 'no ci.yml at the head');
+  assert.equal(sealNow({ files: ['.github/workflows/x.yml'], ciSeal: false, going }).now, true, 'a workflow change');
+  assert.equal(sealNow({ files: ['.github/actions/a/action.yml'], ciSeal: false, going }).now, true, 'an action change');
+  assert.equal(sealNow({ files: ['services/a.ts'], ciSeal: true, going }).now, true, 'a CI job named CI merge seal on the head');
   // Every input already finished (the first attempt got its runner late): seal now, since no re-check is coming.
-  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going: [] }).now, true);
-  // The name sealNow looks for is the one main's ci.yml gives its job.
+  assert.equal(sealNow({ files: ['services/a.ts'], ciSeal: false, going: [] }).now, true);
+  // The name main's ci.yml gives its job on a pull request, which is the ci.yml every pull request's CI runs.
   assert.match(
     readFileSync('.github/workflows/ci.yml', 'utf8'),
     new RegExp(`\\n    name: ${CI_JOBS_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`),
   );
+});
+
+test('#1574 readCiSeal: a branch cut before the change waits too, since its CI runs main ci.yml; a job named the seal still seals now', async () => {
+  const { readCiSeal } = await import('./journey-seal.mjs');
+  const HEAD = 'a'.repeat(40);
+  const io = (jobs) => async (path) =>
+    path.includes('/workflows/ci.yml/runs')
+      ? {
+          workflow_runs: [
+            { id: 7, head_sha: HEAD, event: 'pull_request' },
+            { id: 8, head_sha: 'b'.repeat(40) },
+          ],
+        }
+      : { jobs: jobs[path.match(/runs\/(\d+)\/jobs/)[1]] ?? [] };
+  // Run 42634159026's shape (9 Nov 14:23 UTC): an old branch's CI, whose job was `CI jobs`. It waits.
+  assert.equal(await readCiSeal({ get: io({ 7: [{ name: 'gates' }, { name: 'CI jobs' }] }), repo: 'o/r', sha: HEAD }), false);
+  // A run whose jobs are not listed yet runs main's ci.yml: no stand-in.
+  assert.equal(await readCiSeal({ get: io({}), repo: 'o/r', sha: HEAD }), false);
+  // Planted: a CI run on the head with a job named `CI merge seal` (a ci.yml from before 13:50 UTC) seals now.
+  assert.equal(await readCiSeal({ get: io({ 7: [{ name: 'gates' }, { name: 'CI merge seal' }] }), repo: 'o/r', sha: HEAD }), true);
+  // Planted: a job on another head's run is not this head's.
+  assert.equal(await readCiSeal({ get: io({ 8: [{ name: 'CI merge seal' }] }), repo: 'o/r', sha: HEAD }), false);
+  // Planted: an unreadable list fails the step (the seal then runs at once), never reads as no stand-in.
+  await assert.rejects(readCiSeal({ get: async () => ({}), repo: 'o/r', sha: HEAD }), /not a list/);
 });
 
 test('#1574 inputsGoing: CI and the review always count; journeys only when the change needs them', async () => {
@@ -1990,13 +2008,12 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
 });
 
 test('CI review on e1ba6699: a green verdict never stands while its inputs change; an edit re-judges at once', async () => {
-  const { sealNow, whileGoing, readVerdicts, CI_JOBS_NAME } = await import('./journey-seal.mjs');
-  const newCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
+  const { sealNow, whileGoing, readVerdicts } = await import('./journey-seal.mjs');
   const going = ['the CI review run 2 (in_progress)'];
   // An edit (or reopen) on a head that already has a verdict: seal now, so the old green can't stand for the new title.
-  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going, verdict: true }).now, true);
+  assert.equal(sealNow({ files: ['services/a.ts'], ciSeal: false, going, verdict: true }).now, true);
   // Planted: the first push of a head, no verdict yet, still waits.
-  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going, verdict: false }).now, false);
+  assert.equal(sealNow({ files: ['services/a.ts'], ciSeal: false, going, verdict: false }).now, false);
   // The re-check: an input still going and a green verdict on the head: re-run it now (it then waits or goes red).
   assert.equal(whileGoing({ going, green: true }), 'rerun-green');
   // A red verdict already blocks, and no verdict is no check: leave both until the last input ends.
