@@ -85,21 +85,38 @@ export function creditDepositLogs(
 
 /** What the payer needs from a chain: send one token transfer from the deposit address, and read its receipt. */
 export interface WithdrawalPayer {
+  /** The chain's latest block, read before a payment is sent. */
+  head(): Promise<bigint>;
   send(to: string, units: bigint): Promise<string>;
   /** `true` succeeded, `false` reverted, `null` not mined yet. */
   receipt(hash: string): Promise<boolean | null>;
+  /** The hash of a transfer of exactly `units` from the deposit address to `to` since `fromBlock`, or null when none. */
+  find(to: string, units: bigint, fromBlock: bigint): Promise<string | null>;
+}
+
+/**
+ * One payment, recorded BEFORE it is sent: where it goes, how much, and the block the chain was at. `hash` is null
+ * while the send has no answer (it threw, or timed out, and may have landed): the payment is then looked up on chain by
+ * those facts, and never sent again.
+ */
+export interface WithdrawalPayment {
+  readonly to: string;
+  readonly units: bigint;
+  readonly fromBlock: bigint;
+  hash: string | null;
 }
 
 /**
  * Pay every pending withdrawal older than `settleAfterMs` once, and settle each `done` when its payment's receipt
- * succeeds, `failed` (the venue returns amount and fee) when it reverts. `paid` holds the hash per withdrawal across
- * calls, set BEFORE the receipt is awaited, so a withdrawal is never paid twice by this process.
+ * succeeds, `failed` (the venue returns amount and fee) when it reverts. `paid` holds each payment across calls,
+ * recorded BEFORE it is sent, so a withdrawal is never paid twice by this process: a send that threw is looked up on
+ * chain, and the withdrawal stays pending until it is found.
  */
 export async function payPendingWithdrawals(
   sim: TestVenueSimulator,
   route: UserVenueDepositRoute,
   payer: WithdrawalPayer,
-  paid: Map<string, string>,
+  paid: Map<string, WithdrawalPayment>,
   now: Date,
   settleAfterMs: number,
 ): Promise<{ done: string[]; failed: string[] }> {
@@ -109,22 +126,28 @@ export async function payPendingWithdrawals(
     if (pending.withdrawal.asset !== route.asset) continue;
     if (now.getTime() - pending.submittedAt.getTime() < settleAfterMs) continue;
     const key = `${pending.account.owner}/${pending.account.subAccount ?? ''}#${pending.nonce}`;
-    let hash = paid.get(key);
-    if (!hash) {
+    let payment = paid.get(key);
+    if (!payment) {
       const units = amountToTokenUnits(pending.arrives, route.tokenDecimals);
       const destination = pending.withdrawal.destination;
       if (!destination || units <= 0n) {
         // Nothing can arrive (no destination, or the fee takes it all): the venue returns it.
-        sim.settleWithdrawal(pending.account, pending.nonce, 'failed');
-        failed.push(pending.nonce);
+        if (sim.settleWithdrawal(pending.account, pending.nonce, 'failed')) failed.push(pending.nonce);
         continue;
       }
-      hash = await payer.send(destination, units);
-      paid.set(key, hash);
+      // Recorded before the send: if it throws after the node took it, the next pass finds it instead of paying again.
+      payment = { to: destination, units, fromBlock: await payer.head(), hash: null };
+      paid.set(key, payment);
+      payment.hash = await payer.send(destination, units);
     }
-    const ok = await payer.receipt(hash);
+    if (payment.hash === null) {
+      payment.hash = await payer.find(payment.to, payment.units, payment.fromBlock);
+      if (payment.hash === null) continue;
+    }
+    const ok = await payer.receipt(payment.hash);
     if (ok === null) continue;
-    sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed');
+    // Settled elsewhere meanwhile (a TEST control): this pass reports nothing for it.
+    if (!sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed')) continue;
     (ok ? done : failed).push(pending.nonce);
   }
   return { done, failed };
@@ -150,16 +173,30 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
   }
   const transport = http(opts.rpcUrl);
   const client = createPublicClient({ transport }) as PublicClient;
-  const chainId = await client.getChainId();
-  if (chainId !== opts.route.chainId) throw new Error(`the TEST chain at ${opts.rpcUrl} is chain ${chainId}, not ${opts.route.chainId}`);
-  const version = String(await client.request({ method: 'web3_clientVersion' } as never));
-  if (!/anvil/i.test(version)) throw new Error(`the TEST venue pays from an impersonated address on anvil only, not ${version}`);
   const depositAddress = opts.route.address as Address;
-  // The deposit address pays network gas in TEST ETH; it has no key, so anvil sends for it.
-  await client.request({ method: 'anvil_impersonateAccount', params: [depositAddress] } as never);
-  await client.request({ method: 'anvil_setBalance', params: [depositAddress, toHex(10n ** 20n)] } as never);
+  /** Checks the node is the stack's anvil on the route's chain, and lets the deposit address send there. */
+  const prepareChain = async () => {
+    const chainId = await client.getChainId();
+    if (chainId !== opts.route.chainId) throw new Error(`the TEST chain at ${opts.rpcUrl} is chain ${chainId}, not ${opts.route.chainId}`);
+    const version = String(await client.request({ method: 'web3_clientVersion' } as never));
+    if (!/anvil/i.test(version)) throw new Error(`the TEST venue pays from an impersonated address on anvil only, not ${version}`);
+    // The deposit address pays network gas in TEST ETH; it has no key, so anvil sends for it.
+    await client.request({ method: 'anvil_impersonateAccount', params: [depositAddress] } as never);
+    await client.request({ method: 'anvil_setBalance', params: [depositAddress, toHex(10n ** 20n)] } as never);
+  };
+  let chainReady = false;
   const wallet = createWalletClient({ transport, account: depositAddress });
   const payer: WithdrawalPayer = {
+    head: () => client.getBlockNumber(),
+    async find(to, units, from) {
+      const logs = await client.getLogs({
+        address: opts.route.token as Address,
+        event: TRANSFER,
+        args: { from: depositAddress, to: to as Address },
+        fromBlock: from,
+      });
+      return logs.find((l) => l.args.value === units && !l.removed)?.transactionHash ?? null;
+    },
     async send(to, units) {
       return wallet.sendTransaction({
         chain: null,
@@ -178,7 +215,7 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
   };
   const clock = opts.clock ?? (() => new Date());
   const log = opts.log ?? (() => undefined);
-  const paid = new Map<string, string>();
+  const paid = new Map<string, WithdrawalPayment>();
   // From the start of this chain: a fresh anvil per stack, and the ref makes a re-read credit nothing.
   let fromBlock = 0n;
   let running = false;
@@ -186,6 +223,11 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
     if (running) return;
     running = true;
     try {
+      // The chain may still be starting, or restart: it is checked on the first pass that reaches it, never at boot.
+      if (!chainReady) {
+        await prepareChain();
+        chainReady = true;
+      }
       const head = await client.getBlockNumber();
       if (head >= fromBlock) {
         const logs = await client.getLogs({

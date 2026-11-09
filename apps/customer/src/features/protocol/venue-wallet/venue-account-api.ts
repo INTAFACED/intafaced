@@ -161,6 +161,14 @@ export function canonicalAmount(amount: string): string | null {
   return frac === '' ? whole : `${whole}.${frac}`;
 }
 
+/** A venue decimal string as a scaled bigint (18 places), to compare two figures exactly; null when it is not a decimal. */
+export function scaledDecimal(value: string): bigint | null {
+  const match = /^(-?)([0-9]+)(?:\.([0-9]{1,18}))?$/.exec(value.trim());
+  if (!match) return null;
+  const units = BigInt(match[2]!) * 10n ** 18n + BigInt((match[3] ?? '').padEnd(18, '0') || '0');
+  return match[1] === '-' ? -units : units;
+}
+
 /** A typed amount (`12.5`) in token base units, or null when it is not a positive decimal within the token's decimals. */
 export function toTokenUnits(amount: string, decimals: number): bigint | null {
   const text = amount.trim();

@@ -17,6 +17,7 @@ import {
   canonicalAmount,
   createVenueAccountApi,
   plainDecimal,
+  scaledDecimal,
   toTokenUnits,
   venueWithdrawalKey,
   withDomainTypes,
@@ -264,6 +265,9 @@ export function VenueWalletRoom() {
   // ── the person's venue account (svc-trade's user-venue door) ──────────────────────────────────────────────────────
   const account = useMemo(() => createVenueAccountApi(api), [api]);
   const live = connection !== null && !expired && !blocked;
+  /** A withdrawal the venue has not settled (or whose answer is not known): no second one starts until it is read back. */
+  const [unsettledNonce, setUnsettledNonce] = useState<string | null>(null);
+  const unsettled = unsettledNonce !== null;
   const owner = address ? address.toLowerCase() : null;
   const door = useResource(
     (signal) => (userId ? account.status(signal) : Promise.resolve({ ok: true as const, data: { enabled: false as const } })),
@@ -327,16 +331,19 @@ export function VenueWalletRoom() {
     return checked.ok;
   }
 
-  /** Reads the venue's figure until it moves from `before` (the venue credited the deposit), or the wait ends. */
-  async function followDeposit(before: string | null) {
+  /** Reads the venue's figure until it holds the deposit on top of `before` (the venue credited it), or the wait ends. */
+  async function followDeposit(before: string, sent: string) {
     if (!owner) return;
+    const from = scaledDecimal(before);
+    const added = scaledDecimal(sent);
     const until = Date.now() + FOLLOW_MS;
-    while (mounted.current && Date.now() < until) {
+    while (mounted.current && Date.now() < until && from !== null && added !== null) {
       await pause(FOLLOW_EVERY_MS);
       const next = await readVenueFigure(account, owner);
       if (!mounted.current) return;
       if (next) setFigure(next);
-      if (next && next.free !== before) {
+      const now = next ? scaledDecimal(next.free) : null;
+      if (now !== null && now >= from + added) {
         setDepositNote((note) => (note ? { ...note, credited: true } : note));
         return;
       }
@@ -350,11 +357,14 @@ export function VenueWalletRoom() {
       const closed = doorRefusal();
       if (closed) return setRefusal(closed);
       if (!route) return setRefusal({ variant: 'refused', title: t('noDepositTitle'), body: t('noDepositBody') });
-      if (route.chainId !== APP_CHAIN_ID) return setRefusal({ variant: 'refused', title: t('networkTitle'), body: t('networkBody') });
+      // A route on another network than the app's is no deposit this room can make (the wallet itself is held to the app's).
+      if (route.chainId !== APP_CHAIN_ID) return setRefusal({ variant: 'refused', title: t('noDepositTitle'), body: t('noDepositBody') });
       const units = toTokenUnits(amount, route.tokenDecimals);
       const sentAmount = canonicalAmount(amount);
       if (units === null || sentAmount === null) return setRefusal(amountRefusal(route.tokenDecimals));
+      // The figure before, so a credit is known by the venue's own record: unread, nothing is asked of the wallet.
       const before = await readVenueFigure(account, owner);
+      if (!before) return setRefusal({ variant: 'unreachable', title: t('venueDownTitle'), body: t('venueDownBody') });
       // The person's own transfer, from their wallet to the venue's deposit address. INTAFACED sends nothing.
       const sent = await wallet.sign({ kind: 'transaction', to: route.token, data: transferCalldata(route.address, units) });
       if (sent.status === 'rejected' || sent.status === 'failed') {
@@ -362,7 +372,7 @@ export function VenueWalletRoom() {
       }
       if (sent.status !== 'sent') return setRefusal(walletRefusal('failed', 'wallet_error'));
       setDepositNote({ amount: sentAmount, hash: sent.hash, credited: null });
-      void followDeposit(before ? before.free : null);
+      void followDeposit(before.free, sentAmount);
     });
 
   /** Reads the withdrawal by its nonce until the venue settles it, or the wait ends. */
@@ -376,6 +386,7 @@ export function VenueWalletRoom() {
         const record = read.data.value;
         setWithdrawal({ amount: withdrawn, record });
         if (record.status !== 'pending') {
+          setUnsettledNonce(null);
           const next = await readVenueFigure(account, owner);
           if (mounted.current && next) setFigure(next);
           return;
@@ -442,6 +453,7 @@ export function VenueWalletRoom() {
       }
       // Accepted, or not definite: either way the venue's record, read by the nonce, is the answer.
       setWithdrawal({ amount: ask.amount, record: null });
+      setUnsettledNonce(prepared.data.prepared.nonce);
       void followWithdrawal(prepared.data.prepared.nonce, ask.amount);
     });
 
@@ -577,7 +589,7 @@ export function VenueWalletRoom() {
                 <Button disabled={busy} onClick={() => void deposit()}>
                   {t('deposit')}
                 </Button>{' '}
-                <Button disabled={busy || withdrawAsk !== null} onClick={() => void withdraw()}>
+                <Button disabled={busy || withdrawAsk !== null || unsettled} onClick={() => void withdraw()}>
                   {t('withdraw')}
                 </Button>
                 {depositNote ? (

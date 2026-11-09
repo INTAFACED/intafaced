@@ -66,8 +66,6 @@ const en = {
   amountHint: 'TEST USDC',
   amountTitle: 'Enter an amount',
   amountBody: 'Enter a positive amount of TEST USDC, with at most {decimals} decimal places. Nothing was asked of your wallet.',
-  networkTitle: 'Your wallet is on another network',
-  networkBody: 'Switch the wallet to the venue’s network and try again. Nothing was signed or sent.',
   venueBalance: 'On the venue',
   venueBalanceValue: '{amount} TEST USDC',
   venueBalanceAsOf: 'The venue’s figure as of',
@@ -75,7 +73,8 @@ const en = {
   venueTest: 'TEST venue: every figure here is TEST.',
   depositSent: 'Your wallet sent {amount} TEST USDC to the venue. Waiting for the venue to credit it.',
   depositCredited: 'The venue credited {amount} TEST USDC.',
-  depositUncredited: 'Your transfer is on chain: {hash}. The venue had not credited it when this page stopped waiting; the figure above is the venue’s own.',
+  depositUncredited:
+    'Your transfer is on chain: {hash}. The venue had not credited it when this page stopped waiting; the figure above is the venue’s own.',
   withdrawalTitle: 'Withdrawal of {amount} TEST USDC',
   withdrawalStatus: 'Status',
   withdrawalPending: 'Pending',

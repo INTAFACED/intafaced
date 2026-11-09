@@ -12,6 +12,7 @@ import {
   tokenUnitsToAmount,
   type DepositLog,
   type WithdrawalPayer,
+  type WithdrawalPayment,
 } from './chain-deposits.js';
 import type { TestVenueTypedData } from './signing.js';
 
@@ -71,18 +72,36 @@ function world() {
 function fakePayer() {
   const sent: Array<{ to: string; units: bigint; hash: string }> = [];
   const receipts = new Map<string, boolean | null>();
+  let throwNext = false;
   const payer: WithdrawalPayer = {
+    head: async () => 7n,
     async send(to, units) {
       const h = hash(1000 + sent.length);
       sent.push({ to, units, hash: h });
       receipts.set(h, null);
+      if (throwNext) {
+        throwNext = false;
+        // The node took the transfer, and the answer was lost.
+        throw new Error('timeout');
+      }
       return h;
     },
     async receipt(h) {
       return receipts.get(h) ?? null;
     },
+    async find(to, units, fromBlock) {
+      expect(fromBlock).toBe(7n);
+      return sent.find((p) => p.to === to && p.units === units)?.hash ?? null;
+    },
   };
-  return { payer, sent, mine: (h: string, ok = true) => receipts.set(h, ok) };
+  return {
+    payer,
+    sent,
+    mine: (h: string, ok = true) => receipts.set(h, ok),
+    loseNextAnswer: () => {
+      throwNext = true;
+    },
+  };
 }
 
 describe('TEST venue deposits from the chain (J-wallet-09 #3)', () => {
@@ -135,7 +154,7 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     // The venue takes the amount and its fee from free; the network fee comes out of what arrives.
     expect(await w.free()).toBe(a('14'));
     const chain = fakePayer();
-    const paid = new Map<string, string>();
+    const paid = new Map<string, WithdrawalPayment>();
     // Before the venue's delay nothing is paid.
     expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [], failed: [] });
     expect(chain.sent).toEqual([]);
@@ -152,6 +171,38 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000);
     expect(chain.sent).toHaveLength(1);
     expect(await w.free()).toBe(a('14'));
+  });
+
+  it('a payment whose answer was lost is found on chain and never sent again', async () => {
+    const w = world();
+    creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
+    const nonce = await w.withdraw('10', 4);
+    const chain = fakePayer();
+    const paid = new Map<string, WithdrawalPayment>();
+    w.advance(5000);
+    chain.loseNextAnswer();
+    await expect(payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).rejects.toThrow('timeout');
+    chain.mine(hash(1000));
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [nonce], failed: [] });
+    expect(chain.sent).toHaveLength(1);
+  });
+
+  it('a withdrawal settled elsewhere meanwhile is not reported again', async () => {
+    const w = world();
+    creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
+    await w.withdraw('10', 5);
+    const chain = fakePayer();
+    const paid = new Map<string, WithdrawalPayment>();
+    w.advance(5000);
+    // A TEST control settles it while the payment's receipt is awaited.
+    const settledMeanwhile: WithdrawalPayer = {
+      ...chain.payer,
+      receipt: async () => {
+        w.sim.settleWithdrawals('failed');
+        return true;
+      },
+    };
+    expect(await payPendingWithdrawals(w.sim, ROUTE, settledMeanwhile, paid, w.now(), 4000)).toEqual({ done: [], failed: [] });
   });
 
   it('a network fee the venue does not publish is "not known", never 0, and is still taken from what arrives', async () => {
@@ -171,7 +222,7 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
     const nonce = await w.withdraw('10', 3);
     const chain = fakePayer();
-    const paid = new Map<string, string>();
+    const paid = new Map<string, WithdrawalPayment>();
     w.advance(5000);
     await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000);
     chain.mine(hash(1000), false);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { WithdrawalView, readFailedState, venueRefusal } from './VenueWalletRoom';
-import { canonicalAmount, plainDecimal, toTokenUnits, venueWithdrawalKey, withDomainTypes } from './venue-account-api';
+import { canonicalAmount, plainDecimal, scaledDecimal, toTokenUnits, venueWithdrawalKey, withDomainTypes } from './venue-account-api';
 import { venueWalletCopy } from './venue-wallet-copy';
 
 /** J-wallet-09: every refusal the venue room can meet reads in the room's own words, with its code as the reference. */
@@ -82,6 +82,10 @@ describe('the venue account (J-wallet-09 #3, #5)', () => {
     expect(plainDecimal('25.000000')).toBe('25');
     expect(plainDecimal('14.75')).toBe('14.75');
     expect(plainDecimal('0')).toBe('0');
+    // A credit is known by comparing the venue's figures exactly, never as floating point.
+    expect(scaledDecimal('25.000000000000000001')! - scaledDecimal('25')!).toBe(1n);
+    expect(scaledDecimal('-1.5')).toBe(-1_500_000_000_000_000_000n);
+    expect(scaledDecimal('1e3')).toBeNull();
   });
 
   it('one withdrawal is one business key: the owner and the moment it was asked, never a random id', () => {

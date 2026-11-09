@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest';
  * no ledger recipe, no ledger client and no event bus: the only thing they take from the ledger package is the
  * `Amount` type and its pure decimal helpers (`@intafaced/ledger-client/money`). A later change that wires a posting
  * into a deposit or withdrawal fails here first. (The running app's check is the journey's: the person's ledger
- * balances read the same before and after #3 and #5.)
+ * balances read the same before and after #3 and #5.) It reads each guarded file's own imports, not what they import in
+ * turn: the journey's before-and-after ledger read is the check that covers everything reached.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const roots = [here, path.resolve(here, '../../../../packages/venue-sim/src')];
@@ -38,7 +39,7 @@ describe('the venue door and the TEST venue post nothing to the ledger (J-wallet
   it('imports no ledger client, recipe or event bus: only the Amount type and its pure helpers', () => {
     const reached = sources.flatMap((s) =>
       imports(s.text)
-        .filter((m) => !LEDGER_ALLOWED.has(m) && POSTS.some((re) => re.test(m)))
+        .filter((m) => !m.startsWith('node:') && !LEDGER_ALLOWED.has(m) && POSTS.some((re) => re.test(m)))
         .map((m) => `${path.basename(s.file)} → ${m}`),
     );
     expect(reached).toEqual([]);

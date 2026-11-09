@@ -60,13 +60,22 @@ export const TEST_VENUE_DEPOSIT_ADDRESS = '0x00000000000000000000000000000000de9
 export const TEST_VENUE_DEPOSIT_ASSET = 'USDC';
 const TEST_USD_DECIMALS = 6;
 
-/** The deposit route for this venue, or null when the TEST chain or its token is not given. */
-export function testVenueDepositRoute({ rpcUrl, token, chainId }) {
+/**
+ * The deposit route for this venue, or null when the TEST chain or its token is not given. Its chain is the stack's TEST
+ * chain (anvil, TEST_APP_CHAIN_ID), whatever chain the venue's signing domain names (TEST_VENUE_CHAIN_ID).
+ */
+export function testVenueDepositRoute({ rpcUrl, token }) {
   const r = (rpcUrl ?? '').trim();
   const t = (token ?? '').trim().toLowerCase();
   if (r === '' || t === '') return null;
   if (!/^0x[0-9a-f]{40}$/.test(t)) throw new Error(`TEST_VENUE_DEPOSIT_TOKEN must be a 0x address, got ${JSON.stringify(token)}`);
-  return { chainId, token: t, tokenDecimals: TEST_USD_DECIMALS, address: TEST_VENUE_DEPOSIT_ADDRESS, asset: TEST_VENUE_DEPOSIT_ASSET };
+  return {
+    chainId: TEST_APP_CHAIN_ID,
+    token: t,
+    tokenDecimals: TEST_USD_DECIMALS,
+    address: TEST_VENUE_DEPOSIT_ADDRESS,
+    asset: TEST_VENUE_DEPOSIT_ASSET,
+  };
 }
 
 /** Start the TEST venue and seed it, and, with a TEST chain, its deposit watcher. Resolves with the server and its URL. */
@@ -75,7 +84,7 @@ export async function serveTestVenue({ host, port, appEnv, chainId, rpcUrl = '',
     throw new Error(`${path.relative(REPO, VENUE_SIM_DIST)} is not built: pnpm --filter @intafaced/venue-sim... build`);
   }
   const sim = await import(pathToFileURL(VENUE_SIM_DIST).href);
-  const deposit = testVenueDepositRoute({ rpcUrl, token: depositToken, chainId });
+  const deposit = testVenueDepositRoute({ rpcUrl, token: depositToken });
   const started = await sim.startTestVenueServer({ host, port, appEnv, chainId, deposit });
   const seeded = await sim.seedTestVenue(started.sim);
   const log = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
