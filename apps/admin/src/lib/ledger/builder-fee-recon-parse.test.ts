@@ -7,6 +7,7 @@ const line = {
   assetId: 'USDC',
   venueAmount: '0.25',
   ledgerAmount: null,
+  ledgerAssetId: null,
   filledAt: '2026-11-09T10:00:00.000Z',
   status: 'not_in_ledger',
   refusalCode: null,

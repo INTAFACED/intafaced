@@ -30,8 +30,9 @@ export interface BuilderFeeAccount {
 
 export interface BuilderFeeStore {
   /**
-   * Our users' accounts on `venueId` that sent an order carrying our builder fee, each with the time to read fills
-   * from: a minute before the latest fill already recorded for it, else its first such order.
+   * Our users' accounts on `venueId` that sent an order carrying our builder fee, once per venue account (under the user
+   * who sent its first such order), each with the time to read fills from: a minute before the latest fill already
+   * recorded for it, else its first such order.
    */
   accounts(venueId: string): Promise<BuilderFeeAccount[]>;
   /** Record a fill's outcome. A posted fill stays posted; a refused one is replaced by the next outcome. */
@@ -94,12 +95,18 @@ export class SqlBuilderFeeStore implements BuilderFeeStore {
              (SELECT max(f.filled_at) FROM trade.venue_builder_fees f
                WHERE f.venue_id = ${venueId} AND f.owner = a.owner AND f.sub_account IS NOT DISTINCT FROM a.sub_account) AS latest_fill
       FROM (
-        SELECT user_id, prepared->'account'->>'owner' AS owner, prepared->'account'->>'subAccount' AS sub_account,
-               min(created_at) AS first_at
-        FROM trade.user_venue_actions
-        WHERE venue_id = ${venueId} AND kind = 'place_order' AND signature IS NOT NULL
-          AND prepared->'builderFee' IS NOT NULL AND jsonb_typeof(prepared->'builderFee') = 'object'
-        GROUP BY 1, 2, 3
+        -- One row per venue account: a wallet that sent orders under two of our users is read once, under the user who
+        -- sent its first one, so each fill posts under one key with one user.
+        SELECT DISTINCT ON (owner, sub_account) user_id, owner, sub_account, first_at
+        FROM (
+          SELECT user_id, prepared->'account'->>'owner' AS owner, prepared->'account'->>'subAccount' AS sub_account,
+                 min(created_at) AS first_at
+          FROM trade.user_venue_actions
+          WHERE venue_id = ${venueId} AND kind = 'place_order' AND signature IS NOT NULL
+            AND prepared->'builderFee' IS NOT NULL AND jsonb_typeof(prepared->'builderFee') = 'object'
+          GROUP BY 1, 2, 3
+        ) per_user
+        ORDER BY owner, sub_account, first_at, user_id
       ) a
       ORDER BY a.first_at, a.owner`;
     return rows.map((r) => ({

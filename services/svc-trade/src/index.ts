@@ -785,15 +785,21 @@ const stopTriggers = sqlStopTrigger(sql);
 const subscriptions = await subscribeMatchingEvents(bus, trade, undefined, matchedFuturesFills, stopTriggers);
 // While TRADE_FUTURES_MATCHING_ENABLED is on, a liquidation works its tranche in the book instead of at the mark.
 matchedLiquidation.current = positions.matchedLiquidation;
-// Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
-// orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
-// around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.
+// Our builder fee on our users' venue fills, posted once per fill while the door is on (D-venue-07).
 if (userVenue && env.TRADE_BUILDER_FEE_POSTER === 'on') {
   futuresJobs.host.every('venue.builder_fees', env.TRADE_BUILDER_FEE_POSTER_INTERVAL_MS, async () => {
     const run = await postBuilderFees({ venue: () => userVenue.venue(), ledger, store: builderFeeStore, now: () => new Date() });
-    if (run.refused > 0) app.log.error({ job: 'venue.builder_fees', ...run }, 'builder fees the ledger refused stay unposted');
+    if (run.refused > 0 || run.unread.length > 0) {
+      app.log.error(
+        { job: 'venue.builder_fees', ...run },
+        'builder fees the ledger refused, or accounts the venue would not read, stay unposted',
+      );
+    }
   });
 }
+// Matched-order upkeep on the liquidation cadence. Both run whatever TRADE_FUTURES_JOBS_ENABLED says, because resting
+// orders and waiting fills exist whenever matched orders have been placed: resting orders whose limit has left the band
+// around the mark come off the book, and fills that arrived while a position was busy are settled once it is free.
 futuresJobs.host.every('futures.order_band', env.TRADE_FUTURES_LIQ_INTERVAL_MS, async () => {
   const sweep = await positions.cancelMatchedOrdersOutsideBand();
   for (const item of sweep.skipped) {

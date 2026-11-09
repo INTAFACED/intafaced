@@ -118,7 +118,7 @@ describe('the builder-fee poster', () => {
     const first = await postBuilderFees(deps());
     const again = await postBuilderFees(deps());
     expect(first).toMatchObject({ venueId: sim.venue.id, accounts: 1, posted: fills.length, refused: 0 });
-    expect(again.posted).toBe(fills.length); // the same transactions, under the same keys
+    expect(again.posted).toBe(0); // already posted: nothing is sent again
     const asset = fills[0]!.feeAsset;
     const sum = fills.filter((f) => f.feeAsset === asset).reduce((s, f) => s + f.builderFee, 0n);
     // Invariant: house builder-fee revenue equals the venue's builder fees on our users' fills, and what the venue owes
@@ -252,5 +252,91 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
       code: 'trade.builder_fee_recon_venue_not_connected',
     });
     expect((await builderFeeRecon(deps(), from, to)).periodOpen).toBe(true);
+  });
+});
+
+describe('review fixes: what stops a run, what is skipped, and what is a break', () => {
+  it('the posting freeze or an idempotency conflict stops the run; it is never recorded against a fill', async () => {
+    for (const code of ['ledger.frozen', 'ledger.idempotency_conflict']) {
+      const refusing = { post: async () => Promise.reject(Object.assign(new Error(code), { code })) };
+      await expect(postBuilderFees({ ...deps(), ledger: refusing as unknown as MemoryLedger })).rejects.toThrow(code);
+    }
+    expect(store.rows.size).toBe(0);
+  });
+
+  it('an account the venue refuses to read is skipped and named; the other accounts are still posted', async () => {
+    const stranger = { venueId: sim.venue.id, owner: '0x00000000000000000000000000000000000000c7', subAccount: 'gone' };
+    const two = new InMemoryBuilderFeeStore(() => [{ userId: USER, account: stranger, since: start }, account()]);
+    const real = await venue();
+    const picky: UserVenue = Object.assign(Object.create(real) as UserVenue, {
+      venue: real.venue,
+      fills: async (acc: typeof stranger, since: Date) => {
+        if (acc.owner === stranger.owner) {
+          throw new VenueRefusalError({ venueId: real.venue.id, code: 'not_offered', detail: 'TEST: no such sub-account' } as never);
+        }
+        return real.fills(acc, since);
+      },
+    });
+    const run = await postBuilderFees({ ...deps(), store: two, venue: async () => picky });
+    expect(run.unread).toEqual([{ owner: stranger.owner, subAccount: 'gone', code: 'venue.not_offered' }]);
+    expect(run.posted).toBe((await venueFees()).length);
+  });
+
+  it('a fill already recorded as posted is not sent to the ledger again', async () => {
+    await postBuilderFees(deps());
+    let posts = 0;
+    const counting = { post: async (r: Parameters<MemoryLedger['post']>[0]) => ((posts += 1), ledger.post(r)) };
+    const again = await postBuilderFees({ ...deps(), ledger: counting as unknown as MemoryLedger });
+    expect(posts).toBe(0);
+    expect(again.posted).toBe(0);
+  });
+
+  it('the same amount in another asset is a break, and each side counts in its own asset', async () => {
+    const [fill] = await venueFees();
+    const other = fill!.feeAsset === 'USDC' ? 'USDT' : 'USDC';
+    const tx = await ledger.post(
+      recipes.builderFeeEarn({ venueId: sim.venue.id, fillId: fill!.fillId, assetId: other, amount: fill!.builderFee, userId: USER }),
+    );
+    await store.record(
+      {
+        venueId: sim.venue.id,
+        fillId: fill!.fillId,
+        userId: USER,
+        account: account().account,
+        assetId: other,
+        amount: fill!.builderFee,
+        filledAt: fill!.filledAt,
+        status: 'posted',
+        refusalCode: null,
+        ledgerTxId: tx.id,
+      },
+      new Date(),
+    );
+    const v = (await builderFeeRecon(deps(), ...period())).venues[0]!;
+    if (v.state !== 'read') throw new Error('venue not read');
+    expect(v.lines.find((l) => l.fillId === fill!.fillId)).toMatchObject({ status: 'amounts_differ', ledgerAssetId: other });
+    expect(v.totals.find((t) => t.assetId === other)).toMatchObject({ venueTotal: '0', matched: false });
+  });
+
+  it('a fill recorded as posted whose transaction the ledger does not have, and the venue no longer reports, is listed', async () => {
+    await store.record(
+      {
+        venueId: sim.venue.id,
+        fillId: 'lost-1',
+        userId: USER,
+        account: account().account,
+        assetId: 'USDC',
+        amount: a('0.1'),
+        filledAt: new Date(),
+        status: 'posted',
+        refusalCode: null,
+        ledgerTxId: 'tx-gone',
+      },
+      new Date(),
+    );
+    const v = (await builderFeeRecon(deps(), ...period())).venues[0]!;
+    if (v.state !== 'read') throw new Error('venue not read');
+    expect(v.matched).toBe(false);
+    expect(v.lines.find((l) => l.fillId === 'lost-1')).toMatchObject({ status: 'ledger_missing', venueAmount: null, ledgerAmount: null });
   });
 });

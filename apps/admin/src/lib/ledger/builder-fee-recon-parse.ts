@@ -2,7 +2,8 @@
  * The shape of svc-trade's builder-fee recon (services/svc-trade/src/venue/builder-fee-recon.ts), read strictly: a field
  * of the wrong type makes the whole answer invalid, never a guessed zero. Amounts stay decimal strings.
  */
-export type BuilderFeeLineStatus = 'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused';
+export type BuilderFeeLineStatus =
+  'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing';
 
 export interface BuilderFeeReconLine {
   readonly fillId: string;
@@ -10,6 +11,7 @@ export interface BuilderFeeReconLine {
   readonly assetId: string;
   readonly venueAmount: string | null;
   readonly ledgerAmount: string | null;
+  readonly ledgerAssetId: string | null;
   readonly filledAt: string;
   readonly status: BuilderFeeLineStatus;
   readonly refusalCode: string | null;
@@ -49,7 +51,14 @@ export interface BuilderFeeRecon {
 }
 
 const DEC = /^-?\d+(\.\d+)?$/;
-const STATUSES: readonly BuilderFeeLineStatus[] = ['matched', 'not_in_ledger', 'not_reported_by_venue', 'amounts_differ', 'ledger_refused'];
+const STATUSES: readonly BuilderFeeLineStatus[] = [
+  'matched',
+  'not_in_ledger',
+  'not_reported_by_venue',
+  'amounts_differ',
+  'ledger_refused',
+  'ledger_missing',
+];
 const rec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
 const dec = (v: unknown): v is string => typeof v === 'string' && DEC.test(v);
@@ -58,7 +67,8 @@ const strOrNull = (v: unknown): v is string | null => v === null || str(v);
 
 function line(raw: unknown): BuilderFeeReconLine | null {
   if (!rec(raw) || !str(raw.fillId) || !strOrNull(raw.userId) || !str(raw.assetId) || !str(raw.filledAt)) return null;
-  if (!decOrNull(raw.venueAmount) || !decOrNull(raw.ledgerAmount) || !strOrNull(raw.refusalCode)) return null;
+  if (!decOrNull(raw.venueAmount) || !decOrNull(raw.ledgerAmount) || !strOrNull(raw.ledgerAssetId) || !strOrNull(raw.refusalCode))
+    return null;
   if (!STATUSES.includes(raw.status as BuilderFeeLineStatus)) return null;
   return {
     fillId: raw.fillId,
@@ -66,6 +76,7 @@ function line(raw: unknown): BuilderFeeReconLine | null {
     assetId: raw.assetId,
     venueAmount: raw.venueAmount,
     ledgerAmount: raw.ledgerAmount,
+    ledgerAssetId: raw.ledgerAssetId,
     filledAt: raw.filledAt,
     status: raw.status as BuilderFeeLineStatus,
     refusalCode: raw.refusalCode,
@@ -112,8 +123,9 @@ export const LINE_WORDS: Readonly<Record<BuilderFeeLineStatus, string>> = {
   matched: 'Matched',
   not_in_ledger: 'Break: the venue reports this fee, the ledger has none',
   not_reported_by_venue: 'Break: the ledger has this fee, the venue does not report it',
-  amounts_differ: 'Break: the venue and the ledger differ',
+  amounts_differ: 'Break: the venue and the ledger differ in amount or asset',
   ledger_refused: 'Break: the ledger refused this fee',
+  ledger_missing: 'Break: recorded as posted, but the ledger has no such transaction',
 };
 
 /** The period a page opens on: `from` and `to` as given when both are ISO times, else the last 7 days up to now. */

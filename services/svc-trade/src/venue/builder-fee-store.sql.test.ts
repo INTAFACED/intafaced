@@ -84,6 +84,12 @@ describe('SqlBuilderFeeStore on Postgres (trade.venue_builder_fees)', () => {
     await actions.signOnce(USER, `order:${USER}:sql:1`, { digest: '0xdigest100', signature: '0xsig', signedBy: OWNER }, created);
     expect(await store.accounts('test-venue-sim')).toEqual([{ userId: USER, account, since: created }]);
     expect(await store.accounts('another-venue')).toEqual([]);
+    // The same wallet under a second user is still one venue account, under the user who sent its first order.
+    const later = new Date('2026-11-09T10:01:00.000Z');
+    const OTHER = '22222222-2222-4222-8222-2222222222b2';
+    await actions.insertOnce(OTHER, `order:${OTHER}:sql:1`, prepared('102', '60000'), later);
+    await actions.signOnce(OTHER, `order:${OTHER}:sql:1`, { digest: '0xdigest102', signature: '0xsig', signedBy: OWNER }, later);
+    expect(await store.accounts('test-venue-sim')).toEqual([{ userId: USER, account, since: created }]);
     await store.record(fee('f1', '2026-11-09T10:05:00.000Z', 'posted'), new Date());
     expect((await store.accounts('test-venue-sim'))[0]?.since).toEqual(
       new Date(Date.parse('2026-11-09T10:05:00.000Z') - BUILDER_FEE_READ_OVERLAP_MS),

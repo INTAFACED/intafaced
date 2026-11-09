@@ -86,7 +86,10 @@ function Venue({ venue }: { venue: BuilderFeeReconVenue }) {
               <td>{l.userId ?? 'not known'}</td>
               <td>{l.assetId}</td>
               <td>{l.venueAmount ?? 'none'}</td>
-              <td>{l.ledgerAmount ?? 'none'}</td>
+              <td>
+                {l.ledgerAmount ?? 'none'}
+                {l.ledgerAssetId && l.ledgerAssetId !== l.assetId ? ` ${l.ledgerAssetId}` : ''}
+              </td>
               <td>
                 {LINE_WORDS[l.status]}
                 {l.refusalCode ? ` (${l.refusalCode})` : ''}

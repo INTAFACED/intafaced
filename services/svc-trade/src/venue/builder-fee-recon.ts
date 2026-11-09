@@ -14,7 +14,8 @@ import type { BuilderFeeStore, LoggedBuilderFee } from './builder-fee-store.js';
  *   fill the poster recorded in the period (so a fee the ledger holds and the venue no longer reports is listed too).
  * - A venue that can't be read is `unknown` with its reason, never a zero; a ledger that can't be read fails the read.
  */
-export type BuilderFeeLineStatus = 'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused';
+export type BuilderFeeLineStatus =
+  'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing';
 
 export interface BuilderFeeReconLine {
   readonly fillId: string;
@@ -24,6 +25,8 @@ export interface BuilderFeeReconLine {
   readonly venueAmount: string | null;
   /** The fee the ledger records as earned under the fill's key, or null when it records none. */
   readonly ledgerAmount: string | null;
+  /** The asset of the ledger's transaction, or null when it records none. A different asset than the venue's is a break. */
+  readonly ledgerAssetId: string | null;
   readonly filledAt: string;
   readonly status: BuilderFeeLineStatus;
   /** The ledger's refusal, for a fill the poster could not post. */
@@ -83,12 +86,20 @@ export class BuilderFeeReconError extends Error {
   }
 }
 
+/** How many ledger reads the recon has in flight at once. */
+const LEDGER_READS_AT_ONCE = 8;
+
 /** The longest period one read covers, so a read stays bounded. */
 export const BUILDER_FEE_RECON_MAX_DAYS = 31;
 
 /** The fee the ledger records as earned in a `builderFeeEarn` transaction: its one debit, to house builder-fee revenue. */
 export function earnedAmount(tx: LedgerTx): Amount {
   return tx.entries.filter((e) => e.direction === 'debit').reduce((sum, e) => sum + e.amount, 0n);
+}
+
+/** The asset of a `builderFeeEarn` transaction: its debit's. */
+export function earnedAsset(tx: LedgerTx): string | null {
+  return tx.entries.find((e) => e.direction === 'debit')?.assetId ?? null;
 }
 
 export function assertReconPeriod(from: Date, to: Date): void {
@@ -149,32 +160,43 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
 
   const lines: BuilderFeeReconLine[] = [];
   const totals = new Map<string, { venue: Amount; ledger: Amount }>();
-  for (const [fillId, side] of sides) {
-    const tx = await deps.ledger.getTxByKey(earnedBuilderFeeKey(venueId, fillId));
-    const ledgerAmount = tx ? earnedAmount(tx) : null;
-    const assetId = side.venue?.feeAsset ?? side.logged!.assetId;
-    const venueAmount = side.venue ? side.venue.builderFee : null;
-    const status: BuilderFeeLineStatus =
-      venueAmount === null
-        ? ledgerAmount === null
-          ? 'ledger_refused'
-          : 'not_reported_by_venue'
-        : ledgerAmount === null
-          ? side.logged?.status === 'refused'
-            ? 'ledger_refused'
-            : 'not_in_ledger'
-          : ledgerAmount === venueAmount
-            ? 'matched'
-            : 'amounts_differ';
-    if (venueAmount === null && ledgerAmount === null) continue; // a refused fill the venue no longer reports: nothing on either side
+  // The ledger's transaction under each fill's key, read a few at a time so a long period stays bounded.
+  const entries = [...sides.entries()];
+  const txs = new Map<string, LedgerTx | null>();
+  for (let i = 0; i < entries.length; i += LEDGER_READS_AT_ONCE) {
+    const batch = entries.slice(i, i + LEDGER_READS_AT_ONCE);
+    const read = await Promise.all(batch.map(([fillId]) => deps.ledger.getTxByKey(earnedBuilderFeeKey(venueId, fillId))));
+    batch.forEach(([fillId], j) => txs.set(fillId, read[j] ?? null));
+  }
+  const add = (assetId: string, venue: Amount, ledger: Amount) => {
     const sum = totals.get(assetId) ?? { venue: 0n, ledger: 0n };
-    totals.set(assetId, { venue: sum.venue + (venueAmount ?? 0n), ledger: sum.ledger + (ledgerAmount ?? 0n) });
+    totals.set(assetId, { venue: sum.venue + venue, ledger: sum.ledger + ledger });
+  };
+  for (const [fillId, side] of entries) {
+    const tx = txs.get(fillId) ?? null;
+    const ledgerAmount = tx ? earnedAmount(tx) : null;
+    const ledgerAsset = tx ? earnedAsset(tx) : null;
+    const venueAmount = side.venue ? side.venue.builderFee : null;
+    const assetId = side.venue?.feeAsset ?? ledgerAsset ?? side.logged!.assetId;
+    let status: BuilderFeeLineStatus;
+    if (venueAmount === null && ledgerAmount === null) {
+      // Neither side has it. A refused fill the venue no longer reports is nothing on either side; a fill recorded as
+      // posted whose transaction the ledger no longer has is a break in our own records, listed, never hidden.
+      if (side.logged?.status !== 'posted') continue;
+      status = 'ledger_missing';
+    } else if (venueAmount === null) status = 'not_reported_by_venue';
+    else if (ledgerAmount === null) status = side.logged?.status === 'refused' ? 'ledger_refused' : 'not_in_ledger';
+    else status = ledgerAmount === venueAmount && ledgerAsset === side.venue!.feeAsset ? 'matched' : 'amounts_differ';
+    // Each side's amount counts in its own asset, so two assets never net against each other.
+    if (venueAmount !== null) add(side.venue!.feeAsset, venueAmount, 0n);
+    if (ledgerAmount !== null) add(ledgerAsset ?? assetId, 0n, ledgerAmount);
     lines.push({
       fillId,
       userId: side.venue?.userId ?? side.logged?.userId ?? null,
       assetId,
       venueAmount: venueAmount === null ? null : formatAmount(venueAmount),
       ledgerAmount: ledgerAmount === null ? null : formatAmount(ledgerAmount),
+      ledgerAssetId: ledgerAsset,
       filledAt: (side.venue?.filledAt ?? side.logged!.filledAt).toISOString(),
       status,
       refusalCode: status === 'ledger_refused' ? (side.logged?.refusalCode ?? null) : null,
