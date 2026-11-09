@@ -3352,15 +3352,28 @@ export class CardService {
         await this.reverse({ cardId: card.id, authorizationRef: row.authorization_ref });
         continue;
       }
-      // A partner-held hold is the partner's: closing a lost or stolen card never waits on its answer. A refusal is
-      // recorded on the claim (`rejected`), anything else leaves it pending for the recovery job, and the partner gives an
-      // uncaptured hold back on its own hold time either way.
+      // A partner-held hold is the partner's: closing a lost or stolen card never waits on the partner's answer. Once the
+      // release is claimed (a sequence-0 row), a refusal is recorded on it (`rejected`) and anything else leaves it
+      // `pending` for the recovery job, so the error is not rethrown. An error before the claim (no partner wired, the
+      // claim's own transaction failing) left no trace that anything would re-drive: it is rethrown, the card stays
+      // frozen and open, and the retried report (same replacement id) asks again.
       try {
         await this.reverse({ cardId: card.id, authorizationRef: row.authorization_ref });
-      } catch {
-        // Deliberately not rethrown: see above.
+      } catch (err) {
+        if (!(await this.releaseClaimed(row.authorization_ref, card.id))) throw err;
       }
     }
+  }
+
+  /** Whether a sequence-0 claim (capture or release, any status) exists on this authorisation: a durable trace of the ask. */
+  private async releaseClaimed(authorizationRef: string, cardId: string): Promise<boolean> {
+    const [row] = await this.sql<Array<{ n: number }>>`
+      SELECT count(*)::int AS n
+        FROM bank.card_settlements s
+        JOIN bank.card_authorizations a ON a.id = s.authorization_id
+       WHERE a.card_id = ${cardId} AND a.authorization_ref = ${authorizationRef} AND s.sequence = 0
+    `;
+    return Number(row?.n ?? 0) > 0;
   }
 
   /** Activate a card that has not been activated (BK-cissue-04). Once is enough: activating again changes nothing. */

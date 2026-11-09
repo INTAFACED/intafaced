@@ -401,6 +401,28 @@ describe('partner-held card authorisations (PG)', () => {
       expect(ledger.journal()).toHaveLength(0);
     });
 
+    it('a stolen card whose release fails before it is claimed stays frozen and open, and the retried report releases it', async () => {
+      const card = await issue();
+      const auth = await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-unclaimed', amount: amt('10') });
+      // The same rows, read by a programme with no partner wired: the release fails in `requirePartnerHolds`, before any
+      // claim row exists, so nothing would ever re-drive it if the error were dropped.
+      const unwired = new CardService(sql, ledger, { issuer: cardSim({ partner: terms }), heldBy: () => 'partner' });
+      const replacementId = randomUUID();
+      expect(await codeOf(unwired.replace({ cardId: card.id, userId: ADA, replacementId, reason: 'stolen' }))).toBe(
+        'bank.card_partner_holds_unset',
+      );
+      expect((await cards.card(card.id)).status).toBe('frozen');
+      expect(await sql`SELECT 1 FROM bank.card_settlements WHERE authorization_id = ${auth.id}`).toHaveLength(0);
+      // The retried report, with the partner wired, releases the hold and closes the card.
+      await cards.replace({ cardId: card.id, userId: ADA, replacementId, reason: 'stolen' });
+      expect((await cards.card(card.id)).status).toBe('closed');
+      const [claim] = await sql<Array<{ kind: string; status: string }>>`
+        SELECT kind, status FROM bank.card_settlements WHERE authorization_id = ${auth.id} AND sequence = 0
+      `;
+      expect(claim).toMatchObject({ kind: 'reversal', status: 'settled' });
+      expect(ledger.journal()).toHaveLength(0);
+    });
+
     it('a refund replayed returns the partner’s reference, and no figures it did not read', async () => {
       const card = await issue();
       await cards.authorize({ cardId: card.id, authorizationRef: 'jb14-replay', amount: amt('10') });
