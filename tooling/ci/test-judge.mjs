@@ -928,8 +928,29 @@ async function getText(path, accept, token) {
   });
   const text = await res.text();
   if (res.status === 403 || res.status === 429)
-    throw new Error(`GitHub ${res.status} on GET ${path.split('?')[0]}: stopping, not retrying`);
+    throw new Error(`GitHub ${res.status} on GET ${path.split('?')[0]}: ${refusal(res, text)}; stopping, not retrying`);
   return { status: res.status, text };
+}
+
+/**
+ * What a 403 or 429 says, so a failed run tells a spent rate limit from a refusal (project-state #1571, 9 Nov: 9 of 10
+ * failed reviews stopped on a 403 whose body was dropped). GitHub's own `message` (cut to 200 characters) and the
+ * rate-limit headers only: an error body holds no step words, and no token is ever in it.
+ */
+export function refusal(res, text) {
+  let msg;
+  try {
+    msg = JSON.parse(text)?.message;
+  } catch {
+    msg = undefined;
+  }
+  const h = (k) => res.headers?.get?.(k);
+  const parts = [`"${String(msg ?? text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)}"`];
+  if (h('x-ratelimit-remaining') != null) parts.push(`rate limit ${h('x-ratelimit-remaining')} of ${h('x-ratelimit-limit') ?? '?'} left`);
+  const reset = Number(h('x-ratelimit-reset'));
+  if (reset > 0) parts.push(`resets ${new Date(reset * 1000).toISOString()}`);
+  if (h('retry-after') != null) parts.push(`retry after ${h('retry-after')} s`);
+  return parts.join(', ');
 }
 
 /** The step words of every module, from project-state's default branch, with the commit they were read at. */
