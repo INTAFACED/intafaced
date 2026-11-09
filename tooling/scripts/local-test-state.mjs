@@ -14,16 +14,10 @@ export function localPgOsUser(env = process.env, uid = process.getuid?.()) {
   return uid === 0 ? env.LOCAL_STACK_PG_USER || 'postgres' : null;
 }
 
-/**
- * One state root for the stack and every helper. Never silently fall back after a typo. As root, set it outside root's
- * home (for example /var/lib/intafaced/local-test-stack): the database's OS user (localPgOsUser) cannot enter /root.
- */
-export function localStackState(home = os.homedir(), env = process.env) {
-  if (env.LOCAL_STACK_STATE === undefined) return path.join(home, '.intafaced', 'local-test-stack');
-  const state = env.LOCAL_STACK_STATE;
-  if (!state.trim() || !path.isAbsolute(state)) throw new Error('LOCAL_STACK_STATE must be an absolute folder path');
-  return path.resolve(state);
-}
+// The state folder rule lives in local-test-facts.mjs, so the journeys read it without this script.
+import { localStackState } from './local-test-facts.mjs';
+
+export { localStackState };
 
 const DEFAULT_SERVICES = ['edge', 'identity', 'trade', 'matching', 'ledger', 'customer'];
 
