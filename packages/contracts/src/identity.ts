@@ -365,6 +365,26 @@ export const walletSignatureVerifySchema = z.discriminatedUnion('state', [
   z.object({ state: z.literal('invalid') }).strict(),
 ]);
 export type WalletSignatureVerify = z.infer<typeof walletSignatureVerifySchema>;
+
+/**
+ * The wallets an account linked by their own signature (`wallet_identities`), for a service that lets the person choose
+ * one of them as a payment method (svc-agents, J-agents-02 #4). Only the services identity lists may ask. Addresses are
+ * lower-case, oldest link first. `account_inactive`: the account is not active or is under a security lock, so none of
+ * its wallets may be used.
+ */
+export const LINKED_WALLETS_PATH = '/internal/linked-wallets' as const;
+export const linkedWalletsRequestSchema = z.object({ userId: z.string().guid() }).strict();
+export type LinkedWalletsRequest = z.infer<typeof linkedWalletsRequestSchema>;
+export const linkedWalletsSchema = z.discriminatedUnion('state', [
+  z
+    .object({
+      state: z.literal('usable'),
+      wallets: z.array(z.object({ address: z.string().regex(/^0x[0-9a-f]{40}$/), linkedAt: z.string().datetime() }).strict()),
+    })
+    .strict(),
+  z.object({ state: z.literal('account_inactive') }).strict(),
+]);
+export type LinkedWallets = z.infer<typeof linkedWalletsSchema>;
 /** The step-up door for an unlock request (see `CUSTOMER_STEP_UP_DOORS`). Locking needs none: it only takes power away. */
 export const SECURITY_LOCK_UNLOCK_STEP_UP_SCOPE = 'identity.step_up.security_lock_unlock' as const;
 export const SECURITY_LOCK_UNLOCK_STEP_UP_PURPOSE = 'account.securityLock.unlock' as const;
