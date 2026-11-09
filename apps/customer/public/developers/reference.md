@@ -139,7 +139,7 @@ Every trading REST route and WebSocket stream, under its product, with the permi
 
 ## Funding
 
-No deposit or withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app.
+No deposit or custodial withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app. POST /api/v1/venue/prepare and /submit take a venue withdrawal, a builder-fee approval or an agent approval only from your signed-in session: a key or a sub-account is refused with scope.interactive_only, so a key can trade on the venue but never send funds out or hand the account over.
 
 ## Accounts
 

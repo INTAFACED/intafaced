@@ -46,7 +46,7 @@ export const docsCopy = defineCopy(
     privateStream: 'your own data; {scope}',
     publicStream: 'public',
     fundingNone:
-      'No deposit or withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app.',
+      'No deposit or custodial withdrawal route is on the trading API: withdrawals are never reachable with a key, and deposits are made from the signed-in app. POST /api/v1/venue/prepare and /submit take a venue withdrawal, a builder-fee approval or an agent approval only from your signed-in session: a key or a sub-account is refused with scope.interactive_only, so a key can trade on the venue but never send funds out or hand the account over.',
     referenceMore:
       'This table lists every trading REST route, each once. The live inventory, GET /api/v1/routes, lists the same routes with who may call each and the scopes a key needs; a route marked as needing futures matching is mounted only while futures orders go through matching.',
     // Permissions
@@ -55,7 +55,8 @@ export const docsCopy = defineCopy(
     permissionsTable: 'Permissions and endpoints',
     colScope: 'Permission',
     colEndpoints: 'Endpoints',
-    neverOnKey: 'Never on a key: withdrawing is interactive only and no route takes it.',
+    neverOnKey:
+      'Never on a key: withdrawing is interactive only. No route takes it from a key; a venue withdrawal through POST /api/v1/venue/prepare and /submit is refused from a key with scope.interactive_only.',
     neverOnKeyStaff: 'Never on a key: only a staff session holds it, so a key is refused on these staff routes.',
     // OpenAPI and collection
     openapiLead:
