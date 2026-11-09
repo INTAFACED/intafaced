@@ -9,6 +9,7 @@ import { kycCapabilitiesOutputSchema, kycCapabilitySchema } from '@intafaced/con
 import { KycCapabilityError } from './kyc/capabilities.js';
 import { KycAttemptsError } from './kyc/attempts.js';
 import { KycProfileError, type KycProfileDesk } from './kyc/profile.js';
+import { TradingCheckError, type TradingChecksDesk } from './kyc/trading-checks.js';
 import { KycPoaError, type KycPoaDesk } from './kyc/proof-of-address.js';
 import { KycSelfieError, type KycSelfieDesk } from './kyc/selfie.js';
 import {
@@ -38,6 +39,11 @@ import {
   kycProfileUploadInputSchema,
 } from '@intafaced/contracts/identity-kyc-profile';
 import { kycAttemptsSchema } from '@intafaced/contracts/identity-kyc-attempts';
+import {
+  kycTradingChecksResultSchema,
+  kycTradingChecksRunInputSchema,
+  kycTradingChecksSchema,
+} from '@intafaced/contracts/identity-kyc-trading-checks';
 import { z } from 'zod';
 import { router, publicProcedure, protectedProcedure, scopedProcedure, serviceProcedure, TRPCError } from '@intafaced/contracts';
 import { staffTestStatusSchema } from '@intafaced/contracts/identity-staff';
@@ -251,6 +257,22 @@ export function toTrpcError(err: unknown): TRPCError {
         return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
       case 'kyc.poa_pending':
         return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      default:
+        return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
+    }
+  }
+
+  // The trading checks (J-cex-spot-01 #3): a blank owner list or an unset key is the deployment's, never the person's.
+  if (err instanceof TradingCheckError) {
+    switch (err.code) {
+      case 'kyc.screening_list_unset':
+      case 'kyc.trading_checks_unconfigured':
+      case 'kyc.date_of_birth_unknown':
+        return new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
+      case 'kyc.level_held':
+        return new TRPCError({ code: 'CONFLICT', message: err.message, cause: err });
+      case 'kyc.region_blocked':
+        return new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
       default:
         return new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
     }
@@ -905,6 +927,8 @@ export function createIdentityRouter(
     kycCapabilityReasons?: KycRejectReasons;
     /** Guided verification (I-kyc-compliance-08). Absent: every `kyc.profile.*` door refuses `kyc.profile_unconfigured`. */
     kycProfile?: KycProfileDesk;
+    /** The trading checks (J-cex-spot-01 #3). Absent: every `kyc.tradingChecks.*` door refuses `kyc.trading_checks_unconfigured`. */
+    tradingChecks?: TradingChecksDesk;
     /** Proof of address (I-kyc-compliance-11). Absent: every `kyc.proofOfAddress.*` door refuses `kyc.poa_unconfigured`. */
     kycPoa?: KycPoaDesk;
     /** Selfie (I-kyc-compliance-09). Absent: every `kyc.selfie.*` door refuses `kyc.selfie_unconfigured`. */
@@ -1118,6 +1142,11 @@ export function createIdentityRouter(
   function requireKycPoa(): KycPoaDesk {
     if (!options.kycPoa) throw new KycPoaError('Proof of address is not configured', 'kyc.poa_unconfigured');
     return options.kycPoa;
+  }
+
+  function requireTradingChecks(): TradingChecksDesk {
+    if (!options.tradingChecks) throw new TradingCheckError('The trading checks are not configured', 'kyc.trading_checks_unconfigured');
+    return options.tradingChecks;
   }
 
   function requireKycProfile(): KycProfileDesk {
@@ -2472,10 +2501,18 @@ export function createIdentityRouter(
       /** The caller's own records, and the tier they currently add up to. Limit required — omit never dumps records. */
       status: scopedProcedure('identity:read')
         .input(z.object({ limit: z.number().int().min(1).max(200) }))
-        .output(z.object({ tier: z.enum(['none', 'basic', 'full', 'institutional']), records: z.array(kycRecordOutput) }))
+        .output(
+          z.object({
+            tier: z.enum(['none', 'basic', 'full', 'institutional']),
+            /** True when the level held was cleared by the trading checks alone (no ID checked): it is for trading. */
+            tradingOnly: z.boolean(),
+            records: z.array(kycRecordOutput),
+          }),
+        )
         .query(async ({ ctx, input }) => {
           try {
             return {
+              tradingOnly: await auth.kycTradingOnly(ctx.principal.userId),
               // Read from the same function the token issuer uses, rather than
               // re-deriving "highest approved, unexpired" here. Two implementations
               // of that rule would eventually disagree, and the one the user is
@@ -2783,6 +2820,33 @@ export function createIdentityRouter(
        * it resumes where it was left. No `userId` input on any door. The fields are sealed under the KYC document key;
        * the ID photo goes to the vault under the owner's caps. `submit` opens the request through `kyc.submit`'s path.
        */
+      /**
+       * The trading checks (J-cex-spot-01 #3, OWNER 258 (4)): legal name and the country confirmed, screened with the
+       * sign-up date of birth against the owner's sanctions list. A clear grants level basic for trading; a match holds
+       * the account for a person to review and answers only `held`. No ID document, selfie or ID vendor.
+       */
+      tradingChecks: router({
+        read: scopedProcedure('identity:read')
+          .output(kycTradingChecksSchema)
+          .query(async ({ ctx }) => {
+            try {
+              return await requireTradingChecks().read(ctx.principal.userId);
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+        run: scopedProcedure('identity:write')
+          .input(kycTradingChecksRunInputSchema)
+          .output(kycTradingChecksResultSchema)
+          .mutation(async ({ ctx, input }) => {
+            try {
+              const result = await requireTradingChecks().run(ctx.principal.userId, input);
+              return { state: result.outcome };
+            } catch (err) {
+              throw toTrpcError(err);
+            }
+          }),
+      }),
       profile: router({
         read: scopedProcedure('identity:read')
           .output(kycProfileSchema)

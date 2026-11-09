@@ -9,6 +9,7 @@ import { MemoryEventBus } from '@intafaced/events';
 import { createTestDb } from '../fixture-truncate.testkit.js';
 import { AuthService } from './auth-service.js';
 import { ageOn, countryCode } from './sign-up.js';
+import { openBirthDate } from '../kyc/birth-date.js';
 import { stubActionApprovals } from './privileged-dual-control.js';
 import { createIdentityRouter } from '../router.js';
 import { RankService } from '../rank/rank-service.js';
@@ -194,6 +195,27 @@ if (!available) {
       // The date of birth is checked, not kept.
       expect(JSON.stringify(await db.sql`SELECT * FROM profiles`)).not.toContain('1990-05-01');
       await expect(anon().auth.login({ identifier: input.email, password: PASSWORD })).resolves.toMatchObject({ userId: session.userId });
+    });
+
+    it('with the KYC document key set, keeps the date of birth only sealed, for the trading checks (J-cex-spot-01 #3)', async () => {
+      const key = randomBytes(32);
+      auth.useSignUpPolicy({ ...POLICY, birthDateKey: key });
+      const input = form({ dateOfBirth: '1970-01-01' });
+      const answer = await anon().auth.signUpStart(input);
+      // Sealed in the draft, never in plaintext.
+      expect(JSON.stringify(await db.sql`SELECT * FROM signup_drafts`)).not.toContain('1970-01-01');
+      const session = await anon().auth.signUpConfirm({ flowId: answer.flowId, code: sent[0]!.code });
+      const rows = await db.sql<Array<{ ciphertext: Buffer; nonce: Buffer }>>`SELECT ciphertext, nonce FROM birth_dates WHERE user_id = ${session.userId}`;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.ciphertext.toString('utf8')).not.toContain('1970');
+      expect(openBirthDate(key, rows[0]!)).toBe('1970-01-01');
+      expect(await count('signup_drafts')).toBe(0);
+    });
+
+    it('with the KYC document key unset, keeps no date of birth at all', async () => {
+      const answer = await anon().auth.signUpStart(form());
+      const session = await anon().auth.signUpConfirm({ flowId: answer.flowId, code: sent[0]!.code });
+      expect(await db.sql`SELECT user_id FROM birth_dates WHERE user_id = ${session.userId}`).toEqual([]);
     });
 
     it('answers a known address exactly like a new one, mails its owner a notice, and no code can finish it', async () => {
