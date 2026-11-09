@@ -2,7 +2,8 @@
  * The planted cases of journey-list-guard.mjs: main's own journey list passes; a dropped journey, a dropped step, a step
  * taken out of the live count, an unknown slice id, a stale ROADMAP.md and a retirement line without an OWNER number each
  * fail; a regenerated ROADMAP.md hides no drop; a strict `Journey-retired:` line with an OWNER number passes, and one in
- * code or a comment does not. The last two run the script itself against a scratch git repository.
+ * code or a comment does not. Two tests run the script itself against a scratch git repository: one on its own, one on
+ * a merge built on an older main after main added a journey (judged against the main it was built on).
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -226,9 +227,13 @@ test('the script: judges against the main the checkout was built on, so main add
     put('pr.txt', 'the pull request');
     git('add', '.');
     git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'pull request');
+    // GitHub's merge for the pull request: first parent the older main, second the pull request's head.
+    git('checkout', '-q', '--detach', 'main');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'merge', '-q', '--no-ff', '-m', 'merge', 'pr');
+    const merge = git('rev-parse', 'HEAD').toString().trim();
     git('checkout', '-q', 'main');
     await commit(JOURNEYS, `main adds ${target.id}`);
-    git('checkout', '-q', 'pr');
+    git('checkout', '-q', '--detach', merge);
     const run = () =>
       spawnSync(process.execPath, [SCRIPT, '--base-ref', 'main'], {
         cwd: dir,

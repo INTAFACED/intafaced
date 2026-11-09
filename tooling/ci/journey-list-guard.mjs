@@ -44,6 +44,7 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compose, finishLineProblems, liveJourneys } from '../scripts/roadmap.mjs';
+import { diffBase } from './ci-affected.mjs';
 import { linesOutsideCode } from './journey-seal.mjs';
 
 export const JOURNEYS_PATH = 'docs/roadmap/journeys.json';
@@ -226,27 +227,17 @@ async function bodyFromEnv() {
   return (await res.json()).body ?? '';
 }
 
-/**
- * The base is the commit of `ref` this checkout is built on (their merge base), not `ref`'s tip. A pull request's CI
- * checks out the merge GitHub made when the pull request last changed, and the queue can start it hours later, after
- * main has added journeys; judged against main's tip, every such pull request "removed" journeys it never saw
- * (intafaced#7686 at 11:18 UTC 9 Nov: merge on dbf18372b, main at fc33cdb13 after #7648). What the pull request drops
- * is what its tree lacks against the main it was built on. A ref with no common history is used as given.
- */
-export function forkPoint(ref, cwd) {
-  try {
-    return execFileSync('git', ['merge-base', ref, 'HEAD'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return ref;
-  }
-}
-
 async function main(argv) {
   const at = argv.indexOf('--base-ref');
   const ref = at === -1 ? 'origin/main' : argv[at + 1];
   const cwd = process.cwd();
   const read = (p) => readFileSync(join(cwd, p), 'utf8');
-  const baseRef = forkPoint(ref, cwd);
+  // The base is the main this checkout was built on (merge base with `ref`), not `ref`'s tip. CI checks out the merge
+  // GitHub made when the pull request last changed, and the queue can start the job hours later, after main has added
+  // journeys; against the tip, the pull request "removed" them (intafaced#7686, 9 Nov: merge on dbf18372b, main at
+  // fc33cdb13 after #7648). What the pull request drops is what its tree lacks against that main.
+  const baseRef = diffBase((args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }), ref);
+  if (baseRef === ref) console.error(`journey-list-guard: no merge base with ${ref}; judging against its tip`);
   let baseText;
   try {
     baseText = execFileSync('git', ['show', `${baseRef}:${JOURNEYS_PATH}`], { cwd, encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
@@ -262,7 +253,8 @@ async function main(argv) {
   const roadmapFresh = shapeProblems(head).length ? false : (await compose(slices, head, roadmap)) === roadmap;
   const v = await judge({ base, head, slices, roadmapFresh, body: bodyFromEnv });
   for (const l of v.lines) console.error(`journey-list-guard: ${l}`);
-  if (v.ok) console.log(`journey-list-guard: ok (${head.length} journeys against ${ref} at ${baseRef.slice(0, 12)}: ${base.length})`);
+  if (v.ok)
+    console.log(`journey-list-guard: ok (${head.length} journeys; the base, ${ref} at ${baseRef.slice(0, 12)}, has ${base.length})`);
   return v.ok ? 0 : 1;
 }
 
