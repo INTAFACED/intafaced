@@ -15,6 +15,9 @@ import {
   laneFor,
   liveJourneys,
   isLaterStep,
+  isLaterJourney,
+  pullLaterDepsForward,
+  finishLineLines,
   parkedJourneys,
   parseJourneys,
   sliceIdCandidates,
@@ -557,13 +560,61 @@ test('a step whose cell starts "Later (OWNER 226):" is a later step: live, out o
   assert.equal(order.get('SP-ops-01'), 1);
 });
 
-test('planted: a step that starts with "Later" in any other form is refused', () => {
-  for (const does of ['Later: Proposes a trade bust', 'later (OWNER 226): Proposes', 'Later (OWNER 223): Proposes'])
+test('planted: a step that starts with "Later" in any other form is refused; plain words that start with "Later" are not', () => {
+  for (const does of [
+    'Later: Proposes a trade bust',
+    'later (OWNER 226): Proposes',
+    'Later (OWNER 223): Proposes',
+    '**Later (OWNER 226):** Proposes',
+  ])
     assert.throws(
       () => parseJourneys(laterStepMap(does), 'cex-spot'),
       /J-cex-spot-18 #2 starts with "Later" but not "Later \(OWNER 226\):"/,
       does,
     );
+  const [j] = parseJourneys(laterStepMap('Later that day, opens the alert'), 'cex-spot');
+  assert.equal(j.steps[1].later, undefined);
+});
+
+test('review fixes: later steps share no launch work, totals say what is later, a bad step flag or an all-later Order 1 is refused', () => {
+  const [j] = parseJourneys(laterStepMap(), 'cex-spot');
+  const other = { id: 'J-cex-spot-30', persona: 'retail', order: 1, steps: [{ n: 1, slices: ['SP-ops-03'] }] };
+  assert.equal(finishLine([j, other]).find((e) => e.j.id === 'J-cex-spot-18').unblocks, 0, 'SP-ops-03 is shared only through a later step');
+  assert.equal(finishLine([j, other]).find((e) => e.j.id === 'J-cex-spot-30').unblocks, 0, 'nor does J-cex-spot-30 unblock it');
+  assert.match(
+    finishLineLines(finishLine([j]), null).join('\n'),
+    /J-cex-spot-18 .*\(2 steps \(\+1 later\);/,
+    'the total is launch steps, the later ones named apart',
+  );
+  const all = { ...j, steps: j.steps.map((st) => ({ ...st, later: 'custody' })) };
+  assert.equal(isLaterJourney(all), true);
+  assert.deepEqual(finishLineProblems([all]), [
+    'J-cex-spot-18 is at Order 1 with every live step later; Order 1 is the launch wedge, so give it Order 2 or 3',
+  ]);
+  assert.equal(finishLine([{ ...all, order: 2 }, other]).at(-1).j.id, 'J-cex-spot-18', 'an all-later journey ranks with the later ones');
+  const odd = structuredClone(j);
+  odd.steps[1].later = 'someday';
+  assert.match(finishLineProblems([odd]).join('\n'), /J-cex-spot-18 #2 is later for "someday"/);
+});
+
+test("review fix: a slice queued later that a launch slice depends on takes the launch slice's Order", () => {
+  const slices = [
+    { id: 'A-01', order: 1, depends: ['B-01'] },
+    { id: 'C-01', order: 2, depends: ['B-01'] },
+    { id: 'B-01', order: 4, depends: ['D-01'] },
+    { id: 'D-01', order: 4, depends: [] },
+    { id: 'E-01', order: 4, depends: [] },
+  ];
+  assert.deepEqual(
+    pullLaterDepsForward(slices).map((s) => [s.id, s.order]),
+    [
+      ['A-01', 1],
+      ['C-01', 2],
+      ['B-01', 1],
+      ['D-01', 1],
+      ['E-01', 4],
+    ],
+  );
 });
 
 test('planted: a later journey at Order 1, or a later reason other than custody, is refused', () => {

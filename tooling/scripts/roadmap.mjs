@@ -205,7 +205,8 @@ export function parseJourneys(text, module, known = null) {
       // An empty cell names nothing to build either, so it counts as a step no slice covers yet.
       const step = { n: Number(row[1]), slices, noSlice: /\bNO-SLICE\b/.test(sliceCell) || !slices.length };
       if (LATER_STEP.test(does)) step.later = 'custody';
-      else if (/^later\b/i.test(does)) throw new Error(`roadmap: ${cur.id} #${row[1]} starts with "Later" but not "Later (OWNER 226):"`);
+      else if (LOOKS_LATER_STEP.test(does))
+        throw new Error(`roadmap: ${cur.id} #${row[1]} starts with "Later" but not "Later (OWNER 226):"`);
       if (/\bDEFERRED\b/.test(sliceCell)) step.deferred = true;
       if (/\bPARKED\b/.test(sliceCell)) {
         if (!/\bPARKED until\s+\S/.test(sliceCell)) throw new Error(`roadmap: ${cur.id} #${row[1]} says PARKED with no "until <when>"`);
@@ -249,6 +250,12 @@ export const isLater = (j) => LATER_REASONS.includes(j.later);
 export const LATER_STEP = /^Later \(OWNER 226\):/;
 /** A later step: the custodial branch inside a launch journey. Live and in "finished", never in the launch count. */
 export const isLaterStep = (st) => LATER_REASONS.includes(st.later);
+/** A cell that looks like a later mark but isn't LATER_STEP ("Later:", "Later (OWNER 223):", "**Later (...):**"). */
+const LOOKS_LATER_STEP = /^\W*later\s*[(:]/i;
+/** A journey's launch steps: all of them for a later journey, else the steps that aren't later steps. */
+export const launchSteps = (j) => (isLater(j) ? j.steps : j.steps.filter((st) => !isLaterStep(st)));
+/** Later as a whole: marked `Later: custody`, or every live step a later step (no launch work left in it). */
+export const isLaterJourney = (j) => isLater(j) || (j.steps.length > 0 && j.steps.every(isLaterStep));
 
 /**
  * Why the finish line's order is wrong: a `later` that isn't a known reason, or a later journey at Order 1. Order 1 is
@@ -259,6 +266,12 @@ export const isLaterStep = (st) => LATER_REASONS.includes(st.later);
 export function finishLineProblems(journeys) {
   const out = [];
   for (const j of journeys) {
+    for (const st of j?.steps ?? [])
+      if (st?.later !== undefined && !LATER_REASONS.includes(st.later))
+        out.push(`${j.id} #${st.n} is later for ${JSON.stringify(st.later)}; the only later reason is "custody"`);
+    const live = (j?.steps ?? []).filter(isLiveStep);
+    if (j?.later === undefined && j?.order === 1 && live.length && live.every(isLaterStep))
+      out.push(`${j.id} is at Order 1 with every live step later; Order 1 is the launch wedge, so give it Order 2 or 3`);
     if (j?.later === undefined) continue;
     if (!LATER_REASONS.includes(j.later)) out.push(`${j.id} is later for ${JSON.stringify(j.later)}; the only later reason is "custody"`);
     else if (j.order === 1) out.push(`${j.id} is later (custody) at Order 1; Order 1 is the launch wedge, so give it Order 2 or 3`);
@@ -274,23 +287,24 @@ export function finishLineProblems(journeys) {
  */
 export function finishLine(journeys, passed = null) {
   const live = liveJourneys(journeys);
-  const launch = live.filter((j) => !isLater(j));
+  const launch = live.filter((j) => !isLaterJourney(j));
   const users = new Map();
+  // Only launch steps share launch work: a slice two journeys need only in later steps unblocks nothing at launch.
   for (const j of launch)
-    for (const id of new Set(j.steps.flatMap((st) => st.slices))) {
+    for (const id of new Set(launchSteps(j).flatMap((st) => st.slices))) {
       if (!users.has(id)) users.set(id, new Set());
       users.get(id).add(j.id);
     }
   const unblocks = (j) => {
     const others = new Set();
-    for (const id of new Set(j.steps.flatMap((st) => st.slices))) for (const o of users.get(id) ?? []) if (o !== j.id) others.add(o);
+    for (const id of new Set(launchSteps(j).flatMap((st) => st.slices))) for (const o of users.get(id) ?? []) if (o !== j.id) others.add(o);
     return others.size;
   };
   // A launch journey's later steps aren't its launch work, so they don't count as open.
-  const open = (j) => j.steps.filter((st) => (isLater(j) || !isLaterStep(st)) && !passed?.has(`${j.id}#${st.n}`)).length;
+  const open = (j) => (isLaterJourney(j) ? j.steps : launchSteps(j)).filter((st) => !passed?.has(`${j.id}#${st.n}`)).length;
   const operator = (j) => (String(j.persona).startsWith('operator') ? 1 : 0);
   return live
-    .map((j) => ({ j, later: isLater(j), unblocks: unblocks(j), open: open(j) }))
+    .map((j) => ({ j, later: isLaterJourney(j), unblocks: unblocks(j), open: open(j) }))
     .sort(
       (a, b) =>
         a.later - b.later ||
@@ -303,17 +317,20 @@ export function finishLine(journeys, passed = null) {
     .map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
-function finishLineLines(entries, passed) {
+export function finishLineLines(entries, passed) {
   const lines = [];
   let section = null;
   for (const e of entries) {
-    const head = e.later ? `Later (${e.j.later}, OWNER 226): built when the custodial layer is switched on` : `Launch, Order ${e.j.order}`;
+    const head = e.later ? 'Later (custody, OWNER 226): built when the custodial layer is switched on' : `Launch, Order ${e.j.order}`;
     if (head !== section) {
       if (section) lines.push('');
       lines.push(`## ${head}`);
       section = head;
     }
-    const steps = passed ? `${e.open} of ${e.j.steps.length} steps not passing` : `${e.j.steps.length} steps`;
+    const own = e.later ? e.j.steps.length : launchSteps(e.j).length;
+    const laterSteps = e.j.steps.length - own;
+    const tail = laterSteps ? ` (+${laterSteps} later)` : '';
+    const steps = passed ? `${e.open} of ${own} steps not passing${tail}` : `${own} steps${tail}`;
     lines.push(`${e.rank}. ${e.j.id} ${e.j.title} (${steps}; shares slices with ${e.unblocks} launch journeys; ${e.j.persona})`);
   }
   return lines;
@@ -471,7 +488,7 @@ export function buildIndex(
       order: order.get(s.id) ?? 0,
     });
   }
-  return keepParkedNeeds(untangle(slices), journeys);
+  return keepParkedNeeds(untangle(pullLaterDepsForward(slices)), journeys);
 }
 
 /**
@@ -519,6 +536,29 @@ export function keepParkedNeeds(slices, journeys) {
  * the other moves to `later`, so the builder knows the spec named it and refuses with a typed code where it is
  * reached. Longer loops are left alone and listed as "untangle first".
  */
+/**
+ * A slice queued later (LATER_ORDER: only later journeys or later steps name it) that an earlier slice depends on takes
+ * that slice's Order, so a launch slice never waits on a prerequisite queued after every launch Order.
+ */
+export function pullLaterDepsForward(slices) {
+  const byId = new Map(slices.map((s) => [s.id, s]));
+  const queuedLater = new Set(slices.filter((s) => s.order === LATER_ORDER).map((s) => s.id));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const s of slices) {
+      if (!s.order || s.order >= LATER_ORDER) continue;
+      for (const id of s.depends) {
+        const d = byId.get(id);
+        if (d && queuedLater.has(id) && d.order > s.order) {
+          d.order = s.order;
+          changed = true;
+        }
+      }
+    }
+  }
+  return slices;
+}
+
 export function untangle(slices) {
   const byId = new Map(slices.map((s) => [s.id, s]));
   const pos = new Map(slices.map((s, i) => [s.id, i]));
