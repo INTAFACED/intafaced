@@ -92,6 +92,8 @@ const activityItem = z.object({
   dispute: z.object({ id: z.string().guid(), status: z.literal('open'), reason: z.string().max(500) }).optional(),
   /** The crypto address a withdrawal went to, when one was recorded. Omitted on every other line. */
   address: z.string().min(1).max(256).optional(),
+  /** Set on a line the partner bank reports (OWNER 226): whose record it is, TEST on the TEST partner. */
+  heldAt: z.object({ label: z.string() }).optional(),
 });
 
 const activityListOutput = z.object({ items: z.array(activityItem), nextCursor: z.string().nullable() });
