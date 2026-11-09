@@ -2302,7 +2302,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "LOAN-02",
@@ -2317,7 +2317,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4,
+    "order": 2,
     "later": ["LOAN-04"]
   },
   {
@@ -2333,7 +2333,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "LOAN-04",
@@ -2348,7 +2348,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "LOAN-05",
@@ -2363,7 +2363,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "LOAN-06",
@@ -3213,7 +3213,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 3,
+    "order": 2,
     "later": ["BK-earn-03"]
   },
   {
@@ -3229,7 +3229,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 4
+    "order": 2
   },
   {
     "id": "BK-earn-04",
@@ -3244,7 +3244,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 3
+    "order": 4
   },
   {
     "id": "BK-earn-05",
@@ -3274,7 +3274,7 @@
     "outside": "",
     "size": "L",
     "families": 5,
-    "order": 4
+    "order": 3
   },
   {
     "id": "BK-loan-02",
@@ -3349,7 +3349,7 @@
     "outside": "",
     "size": "M",
     "families": 3,
-    "order": 4
+    "order": 2
   },
   {
     "id": "BK-loan-07",
@@ -3484,7 +3484,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 3
+    "order": 4
   },
   {
     "id": "BK-ord-01",
@@ -4506,7 +4506,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-cex-spot-02",
@@ -6441,7 +6441,7 @@
     "outside": "",
     "size": "L",
     "families": 3,
-    "order": 4
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-05",
@@ -6486,7 +6486,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 4
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-08",
@@ -6501,7 +6501,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 4
+    "order": 2
   },
   {
     "id": "CB-copy-pro-share-09",
@@ -7387,7 +7387,7 @@
     "outside": "",
     "size": "L",
     "families": 2,
-    "order": 4
+    "order": 2
   },
   {
     "id": "CB-otc-11",
@@ -8228,7 +8228,7 @@
     "outside": "`owner.decision` (named: the futures payout model, which account pays winners, PR #5016)",
     "size": "L",
     "families": 2,
-    "order": 4,
+    "order": 1,
     "later": ["D-ops-05", "D-orders-11"]
   },
   {
@@ -8259,7 +8259,7 @@
     "outside": "`feed.market` (named: the options quote feed)",
     "size": "L",
     "families": 3,
-    "order": 4,
+    "order": 1,
     "later": ["D-instruments-07"]
   },
   {
@@ -8275,7 +8275,7 @@
     "outside": "`owner.decision` (named: the options collateral model)",
     "size": "L",
     "families": 2,
-    "order": 4
+    "order": 1
   },
   {
     "id": "D-instruments-08",
@@ -8427,7 +8427,7 @@
     "outside": "`owner.decision` (the margin lending source and rate table)",
     "size": "L",
     "families": 5,
-    "order": 4,
+    "order": 3,
     "later": ["D-margin-10", "D-margin-11"]
   },
   {
@@ -8443,7 +8443,7 @@
     "outside": "`owner.decision`",
     "size": "L",
     "families": 5,
-    "order": 4
+    "order": 3
   },
   {
     "id": "D-margin-11",
@@ -8458,7 +8458,7 @@
     "outside": "`owner.decision`",
     "size": "M",
     "families": 2,
-    "order": 2
+    "order": 3
   },
   {
     "id": "D-margin-12",
@@ -8578,7 +8578,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 1
   },
   {
     "id": "D-ops-04",
@@ -8593,7 +8593,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 1
   },
   {
     "id": "D-ops-05",
@@ -8608,7 +8608,7 @@
     "outside": "`owner.decision` (named: the futures payout model, PR #5016)",
     "size": "L",
     "families": 1,
-    "order": 4
+    "order": 1
   },
   {
     "id": "D-ops-06",
@@ -8623,7 +8623,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 1
   },
   {
     "id": "D-ops-07",
@@ -8638,7 +8638,7 @@
     "outside": "`owner.decision` (named: RFQ allocation and block settlement law)",
     "size": "L",
     "families": 3,
-    "order": 4
+    "order": 2
   },
   {
     "id": "D-ops-08",
@@ -8653,7 +8653,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 2
+    "order": 1
   },
   {
     "id": "D-orders-01",
@@ -8820,7 +8820,172 @@
     "outside": "",
     "size": "M",
     "families": 2,
+    "order": 1
+  },
+  {
+    "id": "D-venue-01",
+    "title": "Venue list on the ticket: every venue that lists the market, its price, depth and fee, and whether the person can sign there",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "customer: trade"],
+    "depends": [],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-02",
+    "title": "Routing preview: the venue chosen for this order, its expected fill and fee, and why",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-adapter", "customer: trade"],
+    "depends": ["D-venue-01"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-03",
+    "title": "The routed order: signed once, sent once to the chosen venue, the same client order id on every retry",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts"],
+    "depends": ["D-venue-02", "D-venue-06"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-04",
+    "title": "A venue that goes down: marked down, left out of the next preview, or no order and the reason",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-sim"],
+    "depends": ["D-venue-01", "D-venue-02"],
+    "journeys": [],
+    "outside": "",
+    "size": "S",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-05",
+    "title": "The operator's routing view: our users' routed volume and builder fees by venue, house exposure \"none: routed\"",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts"],
+    "depends": ["D-venue-03", "D-venue-07"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-06",
+    "title": "Our builder fee, approved by the customer's own signature before the first order on a venue that carries one",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-sim", "packages/venue-hyperliquid"],
+    "depends": ["D-venue-01"],
+    "journeys": [],
+    "outside": "`owner.decision` (our builder fee per venue is the owner's number; blank refuses)",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-07",
+    "title": "The builder fee in our ledger: earned once per venue fill, received when the venue pays, reconciled against the venue",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "ledger",
+    "touches": ["svc-ledger", "packages/venue-contracts", "packages/ledger-client"],
+    "depends": ["D-venue-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-08",
+    "title": "Later (OWNER 226): our own book as one more venue, with outside depth beside it and the house's hedge on the ops desk",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-matching",
+    "touches": ["svc-matching", "packages/venue-contracts"],
+    "depends": ["D-venue-02"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
     "order": 4
+  },
+  {
+    "id": "D-venue-09",
+    "title": "The session key: one approval per session for a key that trades and never withdraws",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "packages/venue-sim", "customer: trade"],
+    "depends": ["D-venue-03"],
+    "journeys": [],
+    "outside": "`vendor.wallet` (the embedded-wallet provider, J-wallet-22)",
+    "size": "M",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-10",
+    "title": "A HIP-3 market: its own margin account, the deployer's open-interest cap, and a halt that settles at mark",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-hyperliquid", "packages/venue-contracts", "customer: trade"],
+    "depends": ["D-venue-03"],
+    "journeys": [],
+    "outside": "",
+    "size": "L",
+    "families": 0,
+    "order": 1
+  },
+  {
+    "id": "D-venue-11",
+    "title": "Money into the venue account: the person's own wallet sends USDC, by CCTP first",
+    "module": "derivatives",
+    "group": "deriv-venue",
+    "spec": "modules/derivatives/specs/deriv-venue.md",
+    "lane": "svc-trade futures",
+    "touches": ["svc-trade", "packages/venue-contracts", "customer: money"],
+    "depends": ["D-venue-01"],
+    "journeys": [],
+    "outside": "",
+    "size": "M",
+    "families": 0,
+    "order": 1
   },
   {
     "id": "RC-derivatives-01",
@@ -10497,7 +10662,7 @@
     "outside": "`owner.decision` (ladder, ADL policy), `feed.market`",
     "size": "M",
     "families": 4,
-    "order": 2
+    "order": 4
   },
   {
     "id": "D-perps-05",
@@ -11116,7 +11281,7 @@
     "outside": "`owner.decision` (buyback rate blank)",
     "size": "S",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "RC-dex-protocol-14",
@@ -11221,7 +11386,7 @@
     "outside": "`owner.decision` (plans or ladder unpublished)",
     "size": "M",
     "families": 0,
-    "order": 2
+    "order": 3
   },
   {
     "id": "HM-dashboard-01",
@@ -15231,7 +15396,7 @@
     "outside": "`chain.go` (the vesting contract and any on-chain claim)",
     "size": "M",
     "families": 1,
-    "order": 4
+    "order": 3
   },
   {
     "id": "MC-market-01",
@@ -15961,7 +16126,7 @@
     "outside": "`rail.bank` for a mailed cheque; `owner.decision` for the loss-cover account.",
     "size": "L",
     "families": 2,
-    "order": 2,
+    "order": 1,
     "later": ["OPS-accounts-desk-02", "OPS-payments-desk-03"]
   },
   {
@@ -16597,7 +16762,7 @@
     "outside": "`rail.bank` and `rail.crypto` are the only codes: a deposit arrives only from a configured rail; with no rail the queue is empty and says so. The queue and attr",
     "size": "L",
     "families": 2,
-    "order": 2,
+    "order": 1,
     "later": ["OPS-payments-desk-03"]
   },
   {
@@ -16748,7 +16913,7 @@
     "outside": "`rail.bank`: provider balance pulls and the capability probe refuse with this code until a partner is connected. The desk, pools and settings are built.",
     "size": "L",
     "families": 3,
-    "order": 4,
+    "order": 1,
     "later": ["OPS-reconciliation-01"]
   },
   {
@@ -16773,7 +16938,7 @@
     "outside": "`rail.bank` for rail choice, beneficiary registration and the partner call; `owner.decision` for the funding account until the owner records it.",
     "size": "L",
     "families": 3,
-    "order": 4
+    "order": 1
   },
   {
     "id": "OPS-payments-desk-04",
@@ -16788,7 +16953,7 @@
     "outside": "`rail.bank` for statement feeds and clearing reports.",
     "size": "L",
     "families": 2,
-    "order": 4
+    "order": 2
   },
   {
     "id": "OPS-reconciliation-01",
@@ -17917,7 +18082,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-ads-merchant-14",
@@ -17948,7 +18113,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-ads-merchant-16",
@@ -18084,7 +18249,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-disputes-security-02",
@@ -18099,7 +18264,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-disputes-security-03",
@@ -18144,7 +18309,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-disputes-security-06",
@@ -18159,7 +18324,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-disputes-security-07",
@@ -18219,7 +18384,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-disputes-security-11",
@@ -18325,7 +18490,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "P-disputes-security-18",
@@ -18355,7 +18520,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4,
+    "order": 2,
     "later": ["P-order-02"]
   },
   {
@@ -18371,7 +18536,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-order-03",
@@ -18386,7 +18551,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4,
+    "order": 2,
     "later": ["P-ads-merchant-01"]
   },
   {
@@ -18402,7 +18567,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-trade-orders-02",
@@ -18417,7 +18582,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-trade-orders-03",
@@ -18477,7 +18642,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 3
   },
   {
     "id": "P-trade-orders-07",
@@ -18492,7 +18657,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "P-trade-orders-08",
@@ -18567,7 +18732,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4,
+    "order": 2,
     "later": ["P-order-01"]
   },
   {
@@ -18734,7 +18899,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "RC-p2p-01",
@@ -18856,7 +19021,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "PP-disputes-safety-06",
@@ -18886,7 +19051,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2,
+    "order": 4,
     "later": ["PP-money-balance-02"]
   },
   {
@@ -18918,7 +19083,7 @@
     "outside": "",
     "size": "M",
     "families": 0,
-    "order": 4,
+    "order": 3,
     "later": ["PP-send-request-02"]
   },
   {
@@ -19010,7 +19175,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 2
+    "order": 4
   },
   {
     "id": "PP-money-balance-03",
@@ -19072,7 +19237,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 2
   },
   {
     "id": "PP-order-02",
@@ -19223,7 +19388,7 @@
     "outside": "",
     "size": "L",
     "families": 0,
-    "order": 4
+    "order": 1
   },
   {
     "id": "PP-send-request-09",
@@ -21352,7 +21517,7 @@
     "outside": "rail.crypto",
     "size": "L",
     "families": 2,
-    "order": 4
+    "order": 2
   },
   {
     "id": "W-custody-ops-05",
@@ -21367,7 +21532,7 @@
     "outside": "rail.crypto",
     "size": "L",
     "families": 2,
-    "order": 4
+    "order": 2
   },
   {
     "id": "W-custody-ops-06",
@@ -21503,7 +21668,7 @@
     "outside": "rail.crypto",
     "size": "L",
     "families": 3,
-    "order": 4,
+    "order": 1,
     "later": ["W-deposit-11"]
   },
   {
@@ -21580,7 +21745,7 @@
     "outside": "",
     "size": "L",
     "families": 1,
-    "order": 4
+    "order": 1
   },
   {
     "id": "W-deposit-07",
@@ -21610,7 +21775,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 2
+    "order": 4
   },
   {
     "id": "W-deposit-09",
@@ -21655,7 +21820,7 @@
     "outside": "rail.crypto",
     "size": "M",
     "families": 0,
-    "order": 4
+    "order": 1
   },
   {
     "id": "W-security-accounts-01",
@@ -21790,7 +21955,7 @@
     "outside": "",
     "size": "L",
     "families": 4,
-    "order": 4
+    "order": 1
   },
   {
     "id": "W-withdraw-03",
@@ -21866,7 +22031,7 @@
     "outside": "",
     "size": "M",
     "families": 1,
-    "order": 4
+    "order": 1
   },
   {
     "id": "W-withdraw-08",
@@ -21881,7 +22046,7 @@
     "outside": "",
     "size": "M",
     "families": 4,
-    "order": 4,
+    "order": 1,
     "later": ["W-withdraw-09"]
   },
   {
@@ -21897,7 +22062,7 @@
     "outside": "vendor.email",
     "size": "L",
     "families": 3,
-    "order": 4
+    "order": 1
   },
   {
     "id": "W-withdraw-10",
