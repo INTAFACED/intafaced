@@ -429,10 +429,24 @@ test(`${J} #3 reads a deposit: valued at the time it arrived, with the price sou
     await expect(reward.locator('[data-col="source"]')).toHaveText('Reward');
     await expect(reward.locator('[data-col="qty"]')).toHaveText(REWARD);
     await expect(reward.locator('[data-col="price-source"]')).toContainText('at the ETH/USDT price, one-minute candle from');
-    const rewardValues = valuesAt(REWARD, await closesAround('ETH/USDT', paidAt, paidBy));
+    const rewardCloses = await closesAround('ETH/USDT', paidAt, paidBy);
+    const rewardValues = valuesAt(REWARD, rewardCloses);
     expect(rewardValues.length).toBeGreaterThan(0);
     const rewardShown = (await reward.locator('[data-col="arrival"]').innerText()).split('\n')[0].trim();
     expect(rewardValues).toContain(rewardShown.split(' ')[0]);
+
+    // Under the TEST owner policy ("customer") the reward, like the deposit, has no cost until the person gives one. The
+    // person enters the price it arrived at, so the BTC deposit is the one lot without a cost that steps 6 and 7 work on.
+    await expect(reward.locator('[data-col="cost"]')).toHaveText('Cost unknown');
+    const rewardLot = await reward.getAttribute('data-lot');
+    const item = page.getByRole('region', { name: 'Missing cost' }).locator(`li[data-missing-lot="${rewardLot}"]`);
+    await item.getByRole('button', { name: 'Enter a cost' }).click();
+    const form = item.getByRole('form', { name: 'Enter a cost for this lot' });
+    await form.getByLabel('Price you paid per ETH, in USD').fill(rewardCloses[rewardValues.indexOf(rewardShown.split(' ')[0])]);
+    await form.getByLabel('Where this price comes from').fill('TEST the ETH/USDT price when the reward arrived');
+    await form.getByRole('button', { name: 'Save price' }).click();
+    await expect(page.getByTestId('basis-notice')).toHaveText('Price saved. The figures use it, marked customer-entered.');
+    await expect(item).toHaveCount(0);
   } finally {
     // The run's pool closes to new savings, so pools of earlier runs never crowd the bank's list.
     const reason = 'TEST closing the run pool';
