@@ -36,6 +36,7 @@ import type { TestVenueSimulator } from './simulator.js';
 
 const TRANSFER = parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 value)');
 const TRANSFER_FN = parseAbiItem('function transfer(address to, uint256 value) returns (bool)');
+const BALANCE_OF_FN = parseAbiItem('function balanceOf(address owner) view returns (uint256)');
 
 /** One token `Transfer` log, as the watcher reads it. */
 export interface DepositLog {
@@ -119,6 +120,8 @@ export function completeLogs<L extends RawLog>(
 export interface WithdrawalPayer {
   /** The chain's latest block, read before a payment is sent. */
   head(): Promise<bigint>;
+  /** How many token units the deposit address holds on the chain now: a payment it can't cover is never sent. */
+  holds(): Promise<bigint>;
   send(to: string, units: bigint): Promise<string>;
   /** `true` succeeded, `false` reverted, `null` not mined yet. */
   receipt(hash: string): Promise<boolean | null>;
@@ -179,6 +182,10 @@ export async function payPendingWithdrawals(
           if (sim.settleWithdrawal(pending.account, pending.nonce, 'failed')) failed.push(pending.nonce);
           continue;
         }
+        // The deposit address holds only what reached it on chain. A venue balance credited another way (the TEST
+        // venue's deposit control) has no tokens behind it here: such a withdrawal is not sent, and stays pending for
+        // the venue's own settle control, instead of a send that can't go through being given up as failed.
+        if ((await payer.holds()) < units) continue;
         // Recorded before the send: if it throws after the node took it, the next pass finds it instead of paying again.
         payment = { to: destination, units, fromBlock: await payer.head(), sentAt: now, hash: null };
         paid.set(key, payment);
@@ -244,6 +251,13 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
   const wallet = createWalletClient({ transport, account: depositAddress });
   const payer: WithdrawalPayer = {
     head: () => client.getBlockNumber(),
+    holds: () =>
+      client.readContract({
+        address: opts.route.token as Address,
+        abi: [BALANCE_OF_FN],
+        functionName: 'balanceOf',
+        args: [depositAddress],
+      }),
     async find(to, units, from) {
       const logs = await client.getLogs({
         address: opts.route.token as Address,

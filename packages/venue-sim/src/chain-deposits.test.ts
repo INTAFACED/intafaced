@@ -77,8 +77,10 @@ function fakePayer() {
   const loseAnswerOf = new Set<number>();
   let rejectNext = false;
   let sends = 0;
+  let holds = 10n ** 12n;
   const payer: WithdrawalPayer = {
     head: async () => 7n,
+    holds: async () => holds,
     async send(to, units) {
       sends += 1;
       if (rejectNext) {
@@ -111,6 +113,10 @@ function fakePayer() {
       rejectNext = true;
     },
     mine: (h: string, ok = true) => receipts.set(h, ok),
+    /** What the deposit address holds on the chain. */
+    setHolds: (units: bigint) => {
+      holds = units;
+    },
     loseNextAnswer: () => {
       loseAnswerOf.add(sent.length);
     },
@@ -321,6 +327,34 @@ describe('TEST venue withdrawals paid on the chain (J-wallet-09 #5)', () => {
     expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [], failed: [nonce] });
     expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('failed');
     expect(await w.free()).toBe(a('25'));
+  });
+
+  it('a withdrawal the deposit address cannot cover on chain is never sent and stays pending; the TEST settle control still ends it done', async () => {
+    const w = world();
+    // Credited by the TEST venue's deposit control, not on chain: the deposit address holds less than the payment.
+    creditDepositLogs(w.sim, ROUTE, [w.deposit(25_000_000n, 1)]);
+    const nonce = await w.withdraw('10', 6);
+    const chain = fakePayer();
+    chain.setHolds(9_749_999n);
+    const paid = new Map<string, WithdrawalPayment>();
+    w.advance(5000);
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [], failed: [] });
+    // Long past LOST_PAYMENT_AFTER_MS it is still not sent, and not given up as failed.
+    w.advance(LOST_PAYMENT_AFTER_MS * 2);
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [], failed: [] });
+    expect(chain.sends()).toBe(0);
+    expect(paid.size).toBe(0);
+    expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('pending');
+    expect(w.sim.settleWithdrawals()).toBe(1);
+    expect((await w.sim.withdrawal(w.account, nonce)).value?.status).toBe('done');
+    // Covered exactly (the amount less the 0.25 network fee), the next one is paid.
+    const next = await w.withdraw('1', 7);
+    chain.setHolds(750_000n);
+    w.advance(5000);
+    await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000);
+    expect(chain.sent.map((p) => p.units)).toEqual([750_000n]);
+    chain.mine(hash(1000));
+    expect(await payPendingWithdrawals(w.sim, ROUTE, chain.payer, paid, w.now(), 4000)).toEqual({ done: [next], failed: [] });
   });
 
   it('a withdrawal above the free balance is refused, and nothing is pending', async () => {
