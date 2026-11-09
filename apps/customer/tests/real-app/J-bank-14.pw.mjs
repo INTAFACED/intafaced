@@ -1,8 +1,8 @@
-// World: book
+// World: book, restart
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { test, expect } from './journey.mjs';
-import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, json } from './stack.mjs';
+import { DEVICE_KEY, EDGE, ORIGIN, ROOT, fund, journeyState, json, tool } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 
@@ -13,9 +13,14 @@ import { addAuthenticator, nextCode } from './identity-factors.mjs';
 // #1 (BK-cctl-01): blocks by category, merchant and country, each declining with a plain reason in the feed and
 // nothing held, and the temporary lock (the freeze) with its history. #2 (BK-cctl-02): the per-purchase cap is an exact
 // figure above zero, the other caps may be blank but never zero, and a purchase over a cap declines naming it.
-// #3 to #7 are not built: card details, PIN and mobile wallets need a TEST issuer path, and 3D Secure, the decline
-// guide, recurring payments, refunds and fraud reports are not built; an approved purchase's hold moves to the partner
-// with B3's partner-held card authorisations (project-state #1790). Their tests come with them.
+// #3 (BK-cctl-03): the TEST card partner (the stack's partner switches say `secrets: "test"`) shows a TEST card number,
+// expiry and security code after a fresh authenticator code, drops them from the screen when svc-bank's 60 seconds are
+// up, and asks again for the next reveal; a TEST PIN is set and viewed the same way, and wrong PINs typed at a terminal
+// block it at the owner's TEST count of 3 (BANK_CARD_PIN_TRY_LIMIT). The owner's step-up rule is on for #3 only, by a
+// bank restart (World: restart), which also forgets the TEST partner's PINs. #4 (BK-cctl-04): the card goes into a phone
+// wallet as one token row in state added, shown paused while the card is frozen.
+// #5 to #7 are not built: 3D Secure, the decline guide, recurring payments, refunds and fraud reports; an approved
+// purchase's hold moves to the partner with B3's partner-held card authorisations (project-state #1790).
 const J = 'J-bank-14';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
@@ -99,6 +104,21 @@ async function signInPerson(page) {
   await page.fill('input[name=password]', who.password);
   await page.getByRole('button', { name: /^sign in$/i }).click();
   await expect(page).not.toHaveURL(/\/login/);
+}
+
+/** The owner's step-up rule on or off, by a bank restart (as J-bank-13 does). A restart forgets the TEST partner's PINs. */
+function stepUpRule(required) {
+  const key = 'LOCAL_STACK_BANK_STEP_UP_MONEY_OUT';
+  const before = process.env[key];
+  if (required) process.env[key] = 'required';
+  else delete process.env[key];
+  try {
+    tool('local-test-stack.mjs', 'restart', 'bank');
+  } finally {
+    if (before === undefined) delete process.env[key];
+    else process.env[key] = before;
+  }
+  kept.clear();
 }
 
 let gatesCtx;
@@ -374,4 +394,133 @@ test(`${J} #2 sets a per-purchase cap and other limits: an exact figure above ze
     'Over this card’s per-purchase limit',
   );
   await expect(decision(page, refOf(overDay.authorizationId)).getByTestId('decline-reason')).toContainText('Over this card’s daily limit');
+});
+
+const cardPanel = (page, name) => page.locator(`[data-card="${cardId()}"]`).getByRole('region', { name, exact: true });
+/** The fresh confirmation inside a panel: a new authenticator code each time. */
+async function confirmIn(region) {
+  await region.getByLabel('Authenticator code').fill(await code());
+  await region.getByRole('button', { name: 'Confirm', exact: true }).click();
+}
+
+test(`${J} #3 reveals card details and sets a PIN: details clear after 60 seconds and a second reveal needs a new step-up; wrong-PIN block at the owner's count`, async ({
+  page,
+}) => {
+  test.setTimeout(420_000);
+  expect((await cardOf(cardId())).status).toBe('active');
+  stepUpRule(true);
+  try {
+    // Without a fresh confirmation the bank refuses, and shows nothing.
+    const bare = await (await bank()).mutate('cards.reveal', { cardId: cardId(), revealId: randomUUID() });
+    expect(bare).toMatchObject({ ok: false, code: 'bank.step_up_required' });
+    expect(await (await bank()).query('cards.secretsOffered')).toMatchObject({
+      ok: true,
+      data: { details: true, pin: true, wallet: true, test: true },
+    });
+
+    await openCards(page);
+    const details = cardPanel(page, 'Card details');
+    const show = details.getByRole('button', { name: 'Show card number and security code' });
+    await show.click();
+    await confirmIn(details);
+    const pan = details.getByTestId('card-pan');
+    await expect(pan).toHaveText(/^999999\d{10}$/);
+    await expect(details.getByTestId('card-expiry')).toHaveText(/^(0[1-9]|1[0-2])\/\d{2}$/);
+    await expect(details.getByTestId('card-cvv')).toHaveText(/^\d{3}$/);
+    await expect(details).toContainText('TEST card details from a stand-in card partner');
+    const shownAt = Date.now();
+    const number = await pan.textContent();
+    // svc-bank's 60 seconds: still shown a little before, gone after.
+    await page.waitForTimeout(Math.max(0, 50_000 - (Date.now() - shownAt)));
+    await expect(pan).toBeVisible();
+    await expect(pan).toHaveCount(0, { timeout: 20_000 });
+    expect(Date.now() - shownAt).toBeGreaterThanOrEqual(55_000);
+    // The next reveal asks again: the button opens a new confirmation, and only a new code shows the number.
+    await show.click();
+    await expect(details.getByLabel('Authenticator code')).toBeVisible();
+    await expect(pan).toHaveCount(0);
+    await confirmIn(details);
+    await expect(pan).toHaveText(number);
+
+    // A TEST PIN, set and viewed, each after its own confirmation.
+    const pinPanel = cardPanel(page, 'PIN');
+    await pinPanel.getByLabel('New PIN (4 to 12 digits)').fill('2468');
+    await pinPanel.getByRole('button', { name: 'Set this PIN' }).click();
+    await confirmIn(pinPanel);
+    await expect(pinPanel).toContainText('PIN set.');
+    await pinPanel.getByRole('button', { name: 'View PIN' }).click();
+    await confirmIn(pinPanel);
+    await expect(pinPanel.getByTestId('card-pin-shown')).toHaveText('2468');
+    await expect(pinPanel).toContainText('TEST PIN kept by a stand-in card partner');
+
+    // At a terminal: the right PIN goes through; wrong PINs block at the owner's TEST count of 3, and then even the right
+    // PIN declines. Nothing is held for a decline.
+    expect(await buy(cardId(), '0.01', { pin: '2468' })).toMatchObject({ decision: 'approved' });
+    const before = await (await bank()).usdt();
+    const first = await buy(cardId(), '0.01', { pin: '1111' });
+    expect(first).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    expect(await buy(cardId(), '0.01', { pin: '1111' })).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_wrong' });
+    const third = await buy(cardId(), '0.01', { pin: '1111' });
+    expect(third).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    expect(await buy(cardId(), '0.01', { pin: '2468' })).toMatchObject({ decision: 'declined', declineCode: 'bank.card_pin_blocked' });
+    expect(await (await bank()).usdt()).toEqual(before);
+    await page.reload();
+    await showCard(page);
+    const rows = await feed();
+    const refOf = (id) => rows.find((row) => row.id === id).authorizationRef;
+    await expect(decision(page, refOf(first.authorizationId)).getByTestId('decline-reason')).toContainText('Wrong PIN.');
+    await expect(decision(page, refOf(third.authorizationId)).getByTestId('decline-reason')).toContainText('The PIN is blocked');
+  } finally {
+    stepUpRule(false);
+  }
+});
+
+test(`${J} #4 adds the card to a mobile wallet: one token row in state added; a frozen card shows its tokens paused`, async ({ page }) => {
+  test.setTimeout(240_000);
+  const api = await bank();
+  expect((await cardOf(cardId())).status).toBe('active');
+  await openCards(page);
+  const wallets = cardPanel(page, 'Phone wallets');
+  await expect(wallets).toContainText('This card is in no phone wallet.');
+  await wallets.getByRole('button', { name: 'Add to Apple Wallet' }).click();
+  const apple = wallets.locator('li[data-wallet="apple"]');
+  await expect(apple).toHaveText('Apple Wallet: Added');
+  await expect(wallets).toContainText('TEST wallet tokens from a stand-in card partner');
+  // The same wallet again is the same token: once the second add is answered (the buttons free again), still one row.
+  const addApple = wallets.getByRole('button', { name: 'Add to Apple Wallet' });
+  const second = page.waitForResponse((res) => res.url().includes('cards.walletProvision') && res.request().method() === 'POST');
+  await addApple.click();
+  expect((await second).ok()).toBe(true);
+  await expect(addApple).toBeEnabled();
+  await page.reload();
+  await showCard(page);
+  await expect(apple).toHaveCount(1);
+  const added = await api.query('cards.walletTokens', { cardId: cardId() });
+  expect(added).toMatchObject({ ok: true, data: { test: true } });
+  expect(added.data.tokens).toEqual([expect.objectContaining({ wallet: 'apple', state: 'added' })]);
+
+  // Frozen: the token shows paused, and no wallet takes the card.
+  expect(await api.mutate('cards.setStatus', { cardId: cardId(), status: 'frozen' })).toMatchObject({ ok: true });
+  try {
+    expect((await api.query('cards.walletTokens', { cardId: cardId() })).data.tokens).toEqual([
+      expect.objectContaining({ wallet: 'apple', state: 'paused' }),
+    ]);
+    const refused = await api.mutate('cards.walletProvision', {
+      cardId: cardId(),
+      provisionId: randomUUID(),
+      wallet: 'google',
+      nonce: randomUUID(),
+    });
+    expect(refused).toMatchObject({ ok: false, code: 'bank.card_not_active' });
+    await page.reload();
+    await showCard(page);
+    await expect(apple).toHaveText('Apple Wallet: Paused while the card is frozen');
+    await expect(wallets.getByRole('button', { name: 'Add to Google Wallet' })).toHaveCount(0);
+    await expect(wallets).toContainText('A frozen or closed card cannot be added to a phone wallet.');
+  } finally {
+    expect(await api.mutate('cards.setStatus', { cardId: cardId(), status: 'active' })).toMatchObject({ ok: true });
+  }
+  expect((await api.query('cards.walletTokens', { cardId: cardId() })).data.tokens).toEqual([
+    expect.objectContaining({ wallet: 'apple', state: 'added' }),
+  ]);
 });

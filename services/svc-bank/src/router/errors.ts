@@ -427,6 +427,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.rewards_asset_ambiguous': 'PRECONDITION_FAILED',
   'bank.card_pan_issuer_unset': 'PRECONDITION_FAILED',
   'bank.card_pin_issuer_unset': 'PRECONDITION_FAILED',
+  'bank.card_pin_not_set': 'PRECONDITION_FAILED',
+  'bank.card_pin_try_limit_unset': 'PRECONDITION_FAILED',
   'bank.card_wallet_issuer_unset': 'PRECONDITION_FAILED',
   'bank.no_ramp_rail': 'PRECONDITION_FAILED',
   'bank.live_ramp_unset': 'PRECONDITION_FAILED',

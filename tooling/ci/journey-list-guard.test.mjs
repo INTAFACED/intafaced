@@ -2,7 +2,8 @@
  * The planted cases of journey-list-guard.mjs: main's own journey list passes; a dropped journey, a dropped step, a step
  * taken out of the live count, an unknown slice id, a stale ROADMAP.md and a retirement line without an OWNER number each
  * fail; a regenerated ROADMAP.md hides no drop; a strict `Journey-retired:` line with an OWNER number passes, and one in
- * code or a comment does not. The last two run the script itself against a scratch git repository.
+ * code or a comment does not. Two tests run the script itself against a scratch git repository: one on its own, one on
+ * a merge built on an older main after main added a journey (judged against the main it was built on).
  */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -197,6 +198,59 @@ test('the script: passes the base unchanged, refuses a dropped journey with a re
     assert.equal(noOwner.status, 1);
     const missingRef = spawnSync(process.execPath, [SCRIPT, '--base-ref', 'nope'], { cwd: dir, encoding: 'utf8' });
     assert.equal(missingRef.status, 1, 'a base ref that does not exist fails rather than read an empty base');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the script: judges against the main the checkout was built on, so main adding a journey later is not a drop', async () => {
+  // intafaced#7686, 9 Nov: CI checked out GitHub's merge made on an older main, then fetched main after #7648 had added
+  // journeys, and the guard said the pull request removed them.
+  const dir = mkdtempSync(join(tmpdir(), 'journey-list-guard-'));
+  try {
+    const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+    const put = (p, text) => {
+      mkdirSync(dirname(join(dir, p)), { recursive: true });
+      writeFileSync(join(dir, p), text);
+    };
+    const commit = async (journeys, msg) => {
+      put('docs/roadmap/journeys.json', JSON.stringify(journeys));
+      put('docs/roadmap/slices.json', JSON.stringify(SLICES));
+      put('docs/ROADMAP.md', await compose(SLICES, journeys, ROADMAP));
+      git('add', '.');
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', msg);
+    };
+    git('init', '-q', '-b', 'main');
+    const older = withoutJourney();
+    await commit(older, 'older main');
+    git('checkout', '-q', '-b', 'pr');
+    put('pr.txt', 'the pull request');
+    git('add', '.');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'pull request');
+    // GitHub's merge for the pull request: first parent the older main, second the pull request's head.
+    git('checkout', '-q', '--detach', 'main');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'merge', '-q', '--no-ff', '-m', 'merge', 'pr');
+    const merge = git('rev-parse', 'HEAD').toString().trim();
+    git('checkout', '-q', 'main');
+    await commit(JOURNEYS, `main adds ${target.id}`);
+    git('checkout', '-q', '--detach', merge);
+    const run = () =>
+      spawnSync(process.execPath, [SCRIPT, '--base-ref', 'main'], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, PR_BODY: '' },
+      });
+    const behind = run();
+    assert.equal(behind.status, 0, behind.stderr);
+    assert.doesNotMatch(behind.stderr, new RegExp(target.id));
+    // Planted: the same stale checkout that really drops a journey its own base had still fails.
+    const dropped = older.filter((j) => j.id !== older[0].id);
+    put('docs/roadmap/journeys.json', JSON.stringify(dropped));
+    put('docs/ROADMAP.md', await compose(SLICES, dropped, ROADMAP));
+    const refused = run();
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, new RegExp(`${older[0].id} is on the base and this pull request removes it`));
+    assert.doesNotMatch(refused.stderr, new RegExp(`${target.id} is on the base`));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

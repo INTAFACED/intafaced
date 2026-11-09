@@ -34,11 +34,42 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
     makerBps: '10',
     takerBps: '20',
   }),
+  // J-cex-spot-14 #1: the markets list shows an upcoming listing and a dated delisting next to the open markets. Both are
+  // TEST rows no order can reach: a pending listing and a delisted one are never orderable (svc-trade
+  // `orderableForListedMarket`), so neither gets a book or a quote.
+  Object.freeze({
+    symbol: 'TNEW/USDT',
+    baseAsset: 'TNEW',
+    quoteAsset: 'USDT',
+    displayName: 'TEST upcoming listing',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+    status: 'pending',
+  }),
+  Object.freeze({
+    symbol: 'TOLD/USDT',
+    baseAsset: 'TOLD',
+    quoteAsset: 'USDT',
+    displayName: 'TEST delisting',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+    status: 'delisted',
+    /** Days from the seed to the date it leaves the board. */
+    delistsInDays: 7,
+  }),
 ]);
 
 /** TEST listings the market maker never quotes, so their book holds only what a journey rests on it (J-copy-bots-otc-23
  * step 7 needs a book with one side empty and a known size on the other). Every other listing is quoted. */
-export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC']);
+export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'TNEW/USDT', 'TOLD/USDT']);
 
 /** The url back, or a refusal when its database is not obviously local or test. */
 export function localTestDatabaseUrl(url, env = process.env) {
@@ -52,14 +83,17 @@ export async function insertSpotTestListing(sql, l) {
   // `markets_test_fixture_ck`: a TEST row keeps the explicit values it was seeded with. A re-seed writes the grid and
   // fees again with the fixture, so the row and its fixture never disagree.
   const fixture = { kind: 'spot', label: 'LOCAL TEST', ...l };
+  const status = l.status ?? 'active';
+  // A delisting is dated from the seed, so it stays in the future on every run.
+  const delistsAt = status === 'delisted' && l.delistsInDays ? new Date(Date.now() + l.delistsInDays * 86_400_000) : null;
   const rows = await sql`
     INSERT INTO trade.markets (
       symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
-      maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture
+      maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture, delists_at
     ) VALUES (
       ${l.symbol}, ${l.baseAsset}, ${l.quoteAsset}, 'spot', ${l.tickSize}::numeric, ${l.lotSize}::numeric,
       ${l.minQty}::numeric, ${l.minNotional}::numeric, ${l.makerBps}::numeric, ${l.takerBps}::numeric,
-      'active', ${l.displayName}, now(), true, ${sql.json(fixture)}
+      ${status}, ${l.displayName}, now(), true, ${sql.json(fixture)}, ${delistsAt}
     )
     ON CONFLICT (symbol) DO UPDATE SET
       display_name = EXCLUDED.display_name,
@@ -70,6 +104,8 @@ export async function insertSpotTestListing(sql, l) {
       maker_bps = EXCLUDED.maker_bps,
       taker_bps = EXCLUDED.taker_bps,
       test_fixture = EXCLUDED.test_fixture,
+      status = EXCLUDED.status,
+      delists_at = EXCLUDED.delists_at,
       updated_at = now()
     WHERE trade.markets."test" = true
     RETURNING id, symbol
