@@ -1,7 +1,8 @@
-// World: book, restart, gates
+// World: book, market, restart, gates
 import { test, expect } from './journey.mjs';
 import { api, bestPrices, fromUnits, fund, journeyState, restartWith, toUnits, tool } from './stack.mjs';
 import { fundedTrader, signIn } from './desk.mjs';
+import { HOLD_MAX_MS } from '../../../../tooling/scripts/local-test-market.mjs';
 
 // J-derivatives-02, in the running app (docs/roadmap/journeys.json): size a trade and check its risk before opening it.
 // One test per step, titled "J-derivatives-02 #<n>", run in order on one TEST account. The contract is the TEST
@@ -751,6 +752,20 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
 
   try {
     tool('local-test-gates.mjs', 'risk', SYMBOL, ...RANGE);
+    // Each preview prices the band at the mark it reads then (BTC/USDT's mid, svc-trade position-preview-rest.ts) times
+    // the fraction the band job last worked out from that mark and the perp book's mid. The TEST maker walks both books
+    // up to 12 bps every 8 s cycle, and 12 bps of the mark is far more than the 0.25 USDT between the usual edge and the
+    // wider one, so a limit priced from one preview could sit past the next preview's edge (#7527: run 42548554237 on
+    // bea69aa44, and run 42447302349). Held, both ladders rest as they are and nothing crosses them, so every preview
+    // below reads one mark and one premium. A hold keeps the ladder the maker's last cycle left, so it is asked for only
+    // once each book has both sides; it is timed from before the ask, as the hold's own lapse is.
+    await bestPrices('BTC/USDT', 50, 60_000);
+    await bestPrices(SYMBOL, 50, 60_000);
+    const heldAt = Date.now();
+    tool('local-test-market.mjs', 'hold', 'BTC/USDT');
+    tool('local-test-market.mjs', 'hold', SYMBOL);
+    await bestPrices('BTC/USDT', 50, 60_000);
+    await bestPrices(SYMBOL, 50, 60_000);
     // While the bid rests the band in force is the static band plus the premium. Each check below reads one preview,
     // so its band and its verdict belong together.
     const dynamic = async (body) => {
@@ -784,6 +799,8 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
     const check = await dynamic({ type: 'limit', limitPrice: between });
     expect(toUnits(between) > usualHigh && toUnits(between) <= toUnits(check.band.high)).toBe(true);
     expect(check.refusals.map((r) => r.code)).not.toContain('trade.futures_price_outside_band');
+    // Past HOLD_MAX_MS the hold lapses and the walk is back on, so the previews above were not proven on one price.
+    expect(Date.now() - heldAt, 'the BTC/USDT and perp holds lapsed before the band was checked').toBeLessThan(HOLD_MAX_MS);
 
     // The review shows the band at its current width, and says it is wider than usual and why.
     await desk(page);
@@ -857,4 +874,11 @@ test(`${J} #8 previews while the dynamic price range is wider than usual: the ba
   }
   // With the range cleared, the static band is in force again.
   await expect.poll(async () => (await preview()).body.band?.reason).toBe('price_range_unset');
+});
+
+// Held for #8 only, passed or not: the next step's BTC/USDT and perp books are quoted again.
+test.afterEach(() => {
+  if (!test.info().title.startsWith(`${J} #8 `)) return;
+  tool('local-test-market.mjs', 'release', 'BTC/USDT');
+  tool('local-test-market.mjs', 'release', SYMBOL);
 });
