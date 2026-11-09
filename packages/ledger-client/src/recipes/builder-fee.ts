@@ -52,13 +52,15 @@ function requireVenue(venueId: string): void {
   if (!VENUE_ID.test(venueId)) throw new InvalidEntryError(`venueId must be a lower-case venue id, got ${JSON.stringify(venueId)}`);
 }
 function requireRef(label: string, ref: string): void {
-  if (!VENUE_REF.test(ref)) throw new InvalidEntryError(`${label} must be the venue's own id, with no spaces or colons, got ${JSON.stringify(ref)}`);
+  if (!VENUE_REF.test(ref))
+    throw new InvalidEntryError(`${label} must be the venue's own id, with no spaces or colons, got ${JSON.stringify(ref)}`);
 }
 function requireAsset(assetId: string): void {
   if (!assetId?.trim() || assetId.trim() !== assetId) throw new InvalidEntryError('assetId is required, with no surrounding spaces');
 }
 function requireAmount(label: string, amount: Amount): void {
-  if (typeof amount !== 'bigint' || amount <= 0n) throw new InvalidEntryError(`${label} must be above zero; a fill with no builder fee posts nothing`);
+  if (typeof amount !== 'bigint' || amount <= 0n)
+    throw new InvalidEntryError(`${label} must be above zero; a fill with no builder fee posts nothing`);
 }
 
 export function earnedBuilderFeeKey(venueId: string, fillId: string): string {

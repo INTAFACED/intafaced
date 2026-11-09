@@ -58,7 +58,7 @@ export class InMemoryBuilderFeeStore implements BuilderFeeStore {
       });
   }
 
-  async record(row: LoggedBuilderFee): Promise<void> {
+  async record(row: LoggedBuilderFee, _at?: Date): Promise<void> {
     const id = `${row.venueId}\u0000${row.fillId}`;
     if (this.rows.get(id)?.status === 'posted') return;
     this.rows.set(id, row);

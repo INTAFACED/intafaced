@@ -18,19 +18,17 @@ export function builderFeeAdminRouter(reader?: BuilderFeeReconReader) {
   const operator = scopedProcedure('admin:read');
   return router({
     builderFees: router({
-      recon: operator
-        .input(z.object({ from: iso, to: iso }).strict())
-        .query(async ({ input }) => {
-          if (!reader) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'builder_fee_recon_unconfigured' });
-          try {
-            return await reader.recon(new Date(input.from), new Date(input.to));
-          } catch (error) {
-            if (error instanceof BuilderFeeReconError) {
-              throw new TRPCError({ code: 'BAD_REQUEST', message: `${error.message} [${error.code}]`, cause: error });
-            }
-            throw error;
+      recon: operator.input(z.object({ from: iso, to: iso }).strict()).query(async ({ input }) => {
+        if (!reader) throw new TRPCError({ code: 'SERVICE_UNAVAILABLE', message: 'builder_fee_recon_unconfigured' });
+        try {
+          return await reader.recon(new Date(input.from), new Date(input.to));
+        } catch (error) {
+          if (error instanceof BuilderFeeReconError) {
+            throw new TRPCError({ code: 'BAD_REQUEST', message: `${error.message} [${error.code}]`, cause: error });
           }
-        }),
+          throw error;
+        }
+      }),
     }),
   });
 }

@@ -34,7 +34,11 @@ const key = privateKeyToAccount(keccak256(toHex('intafaced TEST wallet svc-trade
 const owner = key.address.toLowerCase();
 const signer = { role: 'owner' as const, address: owner };
 const BUILDER: BuilderFeeValue = { address: '0x00000000000000000000000000000000000000b7', feeBps: a('1') };
-const approveStepUp: StepUpCheck = { async require() { return { stepUpEventId: 'step-up-test', consumedAt: null, replayed: false }; } };
+const approveStepUp: StepUpCheck = {
+  async require() {
+    return { stepUpEventId: 'step-up-test', consumedAt: null, replayed: false };
+  },
+};
 
 async function sign(prepared: PreparedVenueAction) {
   const t = prepared.typedData as TestVenueTypedData;
@@ -165,7 +169,11 @@ describe('the builder-fee poster', () => {
   });
 
   it('any failure that is not a ledger refusal stops the run, posting nothing more', async () => {
-    const down = { post: async () => { throw new Error('ledger unreachable'); } };
+    const down = {
+      post: async () => {
+        throw new Error('ledger unreachable');
+      },
+    };
     await expect(postBuilderFees({ ...deps(), ledger: down as unknown as MemoryLedger })).rejects.toThrow('ledger unreachable');
     expect(store.rows.size).toBe(0);
   });
@@ -182,7 +190,12 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
     expect(v.lines.map((l) => l.fillId).sort()).toEqual(fills.map((f) => f.fillId).sort());
     for (const l of v.lines) {
       const f = fills.find((x) => x.fillId === l.fillId)!;
-      expect(l).toMatchObject({ status: 'matched', venueAmount: formatAmount(f.builderFee), ledgerAmount: formatAmount(f.builderFee), userId: USER });
+      expect(l).toMatchObject({
+        status: 'matched',
+        venueAmount: formatAmount(f.builderFee),
+        ledgerAmount: formatAmount(f.builderFee),
+        userId: USER,
+      });
     }
     expect(v.totals.every((t) => t.matched && t.venueTotal === t.ledgerTotal)).toBe(true);
   });
@@ -217,7 +230,11 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
     const v = (await builderFeeRecon(deps(), ...period())).venues[0]!;
     if (v.state !== 'read') throw new Error('venue not read');
     expect(v.matched).toBe(false);
-    expect(v.lines.find((l) => l.fillId === 'ghost-1')).toMatchObject({ status: 'not_reported_by_venue', venueAmount: null, ledgerAmount: '0.3' });
+    expect(v.lines.find((l) => l.fillId === 'ghost-1')).toMatchObject({
+      status: 'not_reported_by_venue',
+      venueAmount: null,
+      ledgerAmount: '0.3',
+    });
     const usdc = v.totals.find((t) => t.assetId === 'USDC');
     if (usdc) expect(usdc.matched).toBe(false);
   });

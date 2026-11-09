@@ -25,7 +25,11 @@ const recon = { from: '2026-11-02T10:00:00.000Z', to: '2026-11-09T10:00:00.000Z'
 
 describe('parseBuilderFeeRecon', () => {
   it('reads a recon with a break, keeping amounts as decimal strings', () => {
-    expect(parseBuilderFeeRecon(recon)?.venues[0]).toMatchObject({ state: 'read', matched: false, lines: [{ status: 'not_in_ledger', venueAmount: '0.25' }] });
+    expect(parseBuilderFeeRecon(recon)?.venues[0]).toMatchObject({
+      state: 'read',
+      matched: false,
+      lines: [{ status: 'not_in_ledger', venueAmount: '0.25' }],
+    });
   });
   it('reads an unknown venue', () => {
     const unknown = { state: 'unknown', venueId: null, displayName: null, code: 'venue.venue_down', message: 'down' };

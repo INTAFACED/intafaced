@@ -75,7 +75,10 @@ async function venueFills(since) {
 }
 
 /** A decimal string without trailing zeros, so the venue's "0.0000100" and the console's "0.00001" compare equal. */
-const dec = (s) => String(s).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+const dec = (s) =>
+  String(s)
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '');
 
 let trader;
 /** One action through svc-trade's user-venue door as the trader: prepare, sign with the TEST key, submit. */
@@ -150,7 +153,10 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   expect(funded.status, JSON.stringify(funded.body)).toBe(200);
   const builder = (await (await api(trader)).get('/api/v1/venue/status')).body;
   expect(builder, JSON.stringify(builder).slice(0, 300)).toMatchObject({ enabled: true, test: true });
-  await door({ kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: builder.builder.feeBps }, `approve-builder:${owner}:${J}`);
+  await door(
+    { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: builder.builder.feeBps },
+    `approve-builder:${owner}:${J}`,
+  );
   await buy();
   await buy();
   const fills = await venueFills(start);

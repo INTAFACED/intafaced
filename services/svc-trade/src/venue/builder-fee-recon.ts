@@ -96,10 +96,7 @@ export function assertReconPeriod(from: Date, to: Date): void {
     throw new BuilderFeeReconError('The period must start before it ends', 'trade.builder_fee_recon_period_invalid');
   }
   if (to.getTime() - from.getTime() > BUILDER_FEE_RECON_MAX_DAYS * 86_400_000) {
-    throw new BuilderFeeReconError(
-      `A recon covers at most ${BUILDER_FEE_RECON_MAX_DAYS} days`,
-      'trade.builder_fee_recon_period_invalid',
-    );
+    throw new BuilderFeeReconError(`A recon covers at most ${BUILDER_FEE_RECON_MAX_DAYS} days`, 'trade.builder_fee_recon_period_invalid');
   }
 }
 
@@ -113,7 +110,10 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   const now = deps.now();
   const head = { from: from.toISOString(), to: to.toISOString(), periodOpen: to > now };
   if (!deps.venue) {
-    throw new BuilderFeeReconError('No venue is connected, so there is nothing to reconcile', 'trade.builder_fee_recon_venue_not_connected');
+    throw new BuilderFeeReconError(
+      'No venue is connected, so there is nothing to reconcile',
+      'trade.builder_fee_recon_venue_not_connected',
+    );
   }
 
   let venue: UserVenue;
@@ -132,7 +132,9 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
     if (!(error instanceof VenueRefusalError)) throw error;
     return {
       ...head,
-      venues: [{ venueId: null, displayName: null, test: null, state: 'unknown', code: `venue.${error.refusal.code}`, message: error.message }],
+      venues: [
+        { venueId: null, displayName: null, test: null, state: 'unknown', code: `venue.${error.refusal.code}`, message: error.message },
+      ],
     };
   }
 
@@ -182,7 +184,12 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
 
   const totalRows = [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([assetId, t]) => ({ assetId, venueTotal: formatAmount(t.venue), ledgerTotal: formatAmount(t.ledger), matched: t.venue === t.ledger }));
+    .map(([assetId, t]) => ({
+      assetId,
+      venueTotal: formatAmount(t.venue),
+      ledgerTotal: formatAmount(t.ledger),
+      matched: t.venue === t.ledger,
+    }));
   return {
     ...head,
     venues: [

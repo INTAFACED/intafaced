@@ -46,7 +46,15 @@ export async function postBuilderFees(deps: BuilderFeePosterDeps): Promise<Build
     const fills = (await venue.fills(account, since)).value;
     for (const fill of fills) {
       if (fill.builderFee <= 0n) continue;
-      const base = { venueId, fillId: fill.fillId, userId, account, assetId: fill.feeAsset, amount: fill.builderFee, filledAt: fill.filledAt };
+      const base = {
+        venueId,
+        fillId: fill.fillId,
+        userId,
+        account,
+        assetId: fill.feeAsset,
+        amount: fill.builderFee,
+        filledAt: fill.filledAt,
+      };
       try {
         const tx = await deps.ledger.post(
           recipes.builderFeeEarn({ venueId, fillId: fill.fillId, assetId: fill.feeAsset, amount: fill.builderFee, userId }),

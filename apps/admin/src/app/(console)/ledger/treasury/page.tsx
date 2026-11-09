@@ -20,14 +20,17 @@ function Venue({ venue }: { venue: BuilderFeeReconVenue }) {
     return (
       <section className="dk-panel" data-testid="builder-fee-venue" data-state="unknown">
         <h2>{venue.displayName ?? 'Venue'}: not known</h2>
-        <p>
-          The venue could not be read, so its builder fees are not known ({venue.code}). Nothing is shown as zero.
-        </p>
+        <p>The venue could not be read, so its builder fees are not known ({venue.code}). Nothing is shown as zero.</p>
       </section>
     );
   }
   return (
-    <section className="dk-panel" data-testid="builder-fee-venue" data-venue-id={venue.venueId} data-state={venue.matched ? 'green' : 'break'}>
+    <section
+      className="dk-panel"
+      data-testid="builder-fee-venue"
+      data-venue-id={venue.venueId}
+      data-state={venue.matched ? 'green' : 'break'}
+    >
       <h2>
         {venue.displayName} {venue.test ? <span data-testid="builder-fee-test">TEST</span> : null}
       </h2>
@@ -109,8 +112,8 @@ export default async function TreasuryPage({ searchParams }: { searchParams: Pro
       </p>
       <h1>Builder-fee recon</h1>
       <p>
-        The builder fees each venue reports on our users&apos; fills, against the builder fees the ledger records as earned.
-        Read only: a break is listed for a person to look at, and nothing is posted to make the two agree.
+        The builder fees each venue reports on our users&apos; fills, against the builder fees the ledger records as earned. Read only: a
+        break is listed for a person to look at, and nothing is posted to make the two agree.
       </p>
       <form method="get" className="dk-row">
         <label>
