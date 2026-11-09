@@ -131,7 +131,7 @@ export function memberGate(
 
 /** One plain sentence for the signed-in person's own scope, as svc-support reports it. */
 export function scopeSentence(scope: DeskScopeView): string {
-  if (!scope.restricted) return 'No groups are set up, so the whole desk sees every ticket.';
+  if (!scope.restricted) return 'Visibility is not restricted: no groups are set up, so the whole desk sees every ticket.';
   if (scope.seesAllGroups) return 'Groups are set up, and your role is set to see every group’s tickets.';
   return scope.groups.length === 0
     ? 'Groups are set up and you are in none, so you see the tickets assigned to you (and ungrouped ones if you are a lead).'
