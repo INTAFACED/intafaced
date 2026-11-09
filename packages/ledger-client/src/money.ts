@@ -237,7 +237,7 @@ export function proRata(total: Amount, weights: readonly Amount[]): Amount[] {
   const magnitude = (r: bigint) => (r < 0n ? -r : r);
   remainders.sort((a, b) => {
     const [ma, mb] = [magnitude(a.remainder), magnitude(b.remainder)];
-    return ma === mb ? a.index - b.index : mb > ma ? 1 : -1;
+    return ma === mb ? a.index - b.index : mb > ma ? -1 : 1;
   });
 
   for (const { index } of remainders) {
