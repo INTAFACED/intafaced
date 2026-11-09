@@ -102,7 +102,7 @@ test(`${J} #1 the markets list shows open, upcoming and delisting markets with l
   expect(spot.filter((m) => m.orderable).every((m) => m.listing === 'open')).toBe(true);
 
   await page.goto('/trade');
-  const list = page.getByRole('table').first();
+  const list = page.getByRole('grid', { name: 'Markets' });
   await expect(list).toBeVisible();
   const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
   const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
@@ -278,7 +278,7 @@ test(`${J} #5 a market with scheduled maintenance an hour away says "Maintenance
     await expect(ticket).toContainText('End time not set');
     // The markets list flags it on that market's row.
     await page.goto('/trade');
-    const row = page.getByRole('table').first().getByRole('row').filter({ hasText: LIMITED });
+    const row = page.getByRole('grid', { name: 'Markets' }).getByRole('row').filter({ hasText: LIMITED });
     await expect(row.getByTestId('mkt-maintenance')).toHaveText('Maintenance in 1 hour');
     // /status lists it on the market's row, and its blank end reads "End time not set".
     await page.goto('/status');
@@ -307,7 +307,7 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
   const shut = markets.find((m) => m.sessionOpen === false && m.lifecycle && m.lifecycle.state !== 'REFUSED');
   expect(shut, 'a session market with a published lifecycle whose session is shut now').toBeTruthy();
   await page.goto('/trade');
-  await expect(page.getByRole('table').first().getByRole('row').filter({ hasText: shut.base })).toContainText(/Closed.*Opens/, {
+  await expect(page.getByRole('grid', { name: 'Markets' }).getByRole('row').filter({ hasText: shut.base })).toContainText(/Closed.*Opens/, {
     timeout: UNBUILT_MS,
   });
   const before = await client.balances();
@@ -385,7 +385,7 @@ test(`${J} #10 a USD-quoted pair and an equity-class market: the quote label rea
   // The markets list labels that pair's quote USD too. A USD pair whose session or settlement is not open is a paused
   // row, so the list is asked to include paused markets first.
   await page.getByRole('button', { name: 'Include paused' }).click();
-  const list = page.getByRole('table').first();
+  const list = page.getByRole('grid', { name: 'Markets' });
   const usdRows = list.getByRole('row').filter({ has: page.getByTestId('mkt-name__quote').getByText('/USD', { exact: true }) });
   await expect(usdRows.first()).toBeVisible();
   await expect(page.getByTestId('mkt-not-offered-equity')).toContainText('Tokenized equities');
