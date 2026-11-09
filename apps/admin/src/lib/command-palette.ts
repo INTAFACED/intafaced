@@ -46,6 +46,7 @@ const SUB_PAGES: readonly { readonly href: string; readonly label: string; reado
   { href: '/more-ops/predict', label: 'Predict desk', keywords: ['prediction'] },
   { href: '/more-ops/agents', label: 'Agent fleet', keywords: ['agents', 'registry', 'quarantine', 'kill', 'owner'] },
   { href: '/more-ops/agents/log', label: 'Agent action log', keywords: ['agents', 'refused', 'transcript', 'audit'] },
+  { href: '/more-ops/capital', label: 'Capital monitor', keywords: ['buffer', 'threshold', 'reserve'] },
   { href: '/more-ops/venue-economics', label: 'Venue unit economics', keywords: ['cost'] },
   { href: '/more-ops/campaigns', label: 'Campaigns desk', keywords: ['campaign', 'builder', 'promotion', 'calendar'] },
   { href: '/more-ops/campaigns/waves', label: 'Waitlist waves', keywords: ['waitlist', 'campaigns', 'invite'] },

@@ -62,6 +62,11 @@ import { createAlertDeskRoutes } from './alerts/overview.js';
 import type { AlertDeskStore } from './alerts/desk-store.js';
 import { ConsoleModeDesk } from './console-mode/desk.js';
 import { createConsoleModeRouter } from './console-mode/router.js';
+import { CapitalDesk } from './capital/desk.js';
+import { createCapitalRouter } from './capital/router.js';
+import { createCapitalSources, type CapitalSources } from './capital/sources.js';
+import type { CapitalStore } from './capital/store.js';
+import type { OpsCapitalVenues } from '@intafaced/contracts';
 import type { ConsoleModeStore } from './console-mode/store.js';
 import { AnnouncementDesk } from './console-announcements/desk.js';
 import { createAnnouncementsRouter } from './console-announcements/router.js';
@@ -262,6 +267,12 @@ export interface OperatorDeskConfig {
   readonly staffHolds?: StaffHoldDesk;
   /** Home's owner values for the public `home.config` read. Absent means every value is blank. */
   readonly homeConfig?: HomeConfig;
+  /** The capital monitor's thresholds and breach alerts. Absent means every capital call refuses `ops.capital.storage_unconfigured`. */
+  readonly capital?: CapitalStore;
+  /** The capital monitor's ledger and bank reads. Absent reads every source as not wired ("unknown"). */
+  readonly capitalSources?: CapitalSources;
+  /** The capital monitor's venue reads (`capital/venues.ts`). Absent says `ops.capital.venue_not_connected`. */
+  readonly capitalVenues?: () => Promise<OpsCapitalVenues>;
 }
 
 export function createOpsRouter(
@@ -845,6 +856,16 @@ export function createOpsRouter(
     alertRules: createAlertRulesRouter(desks.alertRules, desks.alertState),
 
     compliance: createComplianceRouter(desks.compliance, now),
+
+    capital: createCapitalRouter(
+      new CapitalDesk({
+        store: desks.capital,
+        sources: desks.capitalSources ?? createCapitalSources({}),
+        approvals: desks.approvals,
+        ...(desks.capitalVenues ? { venues: desks.capitalVenues } : {}),
+        now: () => new Date(now()),
+      }),
+    ),
 
     consoleMode: createConsoleModeRouter(new ConsoleModeDesk({ store: desks.consoleMode, approvals: desks.approvals, now })),
 
