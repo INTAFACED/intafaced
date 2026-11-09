@@ -173,6 +173,32 @@ const schema = serviceEnvSchema
        */
       SUPPORT_OFFICIAL_CHANNELS: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(2).optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * Live chat (SP-chat-01). The customer messages one chat may send per window and the window, and how long a signed
+       * identity claim for an embedding page works. Each blank refuses by name (support.chat_rate_limit_unset,
+       * support.chat_identity_ttl_unset). Never defaulted.
+       */
+      SUPPORT_CHAT_RATE_LIMIT: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_CHAT_RATE_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      SUPPORT_CHAT_IDENTITY_TTL_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
+      /**
+       * The pre-chat fields a guest is asked for, comma separated (name, email). Blank asks for a free-text first message
+       * only. A guest's address is sealed with SUPPORT_GUEST_ADDRESS_KEY and kept for SUPPORT_GUEST_RETENTION_DAYS.
+       */
+      SUPPORT_CHAT_PRECHAT_FIELDS: z
+        .string()
+        .optional()
+        .transform((v) => [
+          ...new Set(
+            (v ?? '')
+              .split(',')
+              .map((f) => f.trim())
+              .filter(Boolean),
+          ),
+        ])
+        .pipe(z.array(z.enum(['name', 'email']))),
+      /** How often the routing worker re-selects waiting requests (SP-routing-01). Blank: no sweep; routing runs on desk actions only. */
+      SUPPORT_ROUTING_SWEEP_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
     }),
   );
 

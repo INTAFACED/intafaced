@@ -109,6 +109,9 @@ const en = {
   potCardForbidden: 'You can see this shared pot, but only its owner and contributors can freeze its card. Nothing was changed.',
   potCardMissing: 'No card is linked to this pot any more. Nothing was changed.',
   potCardTaken: 'This pot already has a linked card, or that card is linked to another pot. Unlink it first. Nothing was changed.',
+  cardControlInvalid:
+    'Block a category from the list, a merchant by a name of 1 to 64 characters, or a country by its two-letter code. Nothing was changed.',
+  cardControlGone: 'That block is no longer on this card. Refresh the card. Nothing was changed.',
 } as const;
 const es = {
   cardNotFound: 'No se encontró esa tarjeta. Actualiza tus tarjetas e inténtalo de nuevo.',
@@ -216,6 +219,9 @@ const es = {
   potCardMissing: 'Esta hucha ya no tiene ninguna tarjeta vinculada. No se cambió nada.',
   potCardTaken:
     'Esta hucha ya tiene una tarjeta vinculada, o esa tarjeta está vinculada a otra hucha. Desvincúlala primero. No se cambió nada.',
+  cardControlInvalid:
+    'Bloquea una categoría de la lista, un comercio por un nombre de 1 a 64 caracteres o un país por su código de dos letras. No se cambió nada.',
+  cardControlGone: 'Ese bloqueo ya no está en esta tarjeta. Actualiza la tarjeta. No se cambió nada.',
 } satisfies Record<keyof typeof en, string>;
 const fr = {
   cardNotFound: 'Cette carte est introuvable. Actualisez vos cartes et réessayez.',
@@ -327,6 +333,9 @@ const fr = {
   potCardMissing: 'Aucune carte n’est plus liée à cette cagnotte. Rien n’a été modifié.',
   potCardTaken:
     'Cette cagnotte a déjà une carte liée, ou cette carte est liée à une autre cagnotte. Délie-la d’abord. Rien n’a été modifié.',
+  cardControlInvalid:
+    'Bloquez une catégorie de la liste, un commerçant par un nom de 1 à 64 caractères ou un pays par son code à deux lettres. Rien n’a été modifié.',
+  cardControlGone: 'Ce blocage n’est plus sur cette carte. Actualisez la carte. Rien n’a été modifié.',
 } satisfies Record<keyof typeof en, string>;
 
 export const moneyRefusalCopy = defineCopy('customer.money.refusals', en, { es, fr });
@@ -339,6 +348,8 @@ const WORDS: Readonly<Record<string, Key>> = {
   'bank.card_shipping_address_required': 'cardAddressRequired',
   'bank.card_issue_conflict': 'cardIssueConflict',
   'bank.card_command_conflict': 'cardCommandConflict',
+  'bank.card_control_invalid': 'cardControlInvalid',
+  'bank.card_control_not_found': 'cardControlGone',
   'bank.card_operator_frozen': 'cardOperatorFrozen',
   'bank.cards_disabled': 'cardsOff',
   'bank.no_card_issuer': 'noIssuer',
@@ -440,6 +451,9 @@ export const REFUSAL_CHECKED_WRITES: ReadonlySet<string> = new Set([
   'cards.setChannels',
   'cards.issue',
   'cards.setStatus',
+  // A card block is one insert and a lift one update, each after its checks: a refusal changes nothing.
+  'cards.controls.block',
+  'cards.controls.lift',
   'business.runPayroll',
   'business.setMemberRole',
   'business.removeMember',

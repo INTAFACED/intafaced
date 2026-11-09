@@ -2,6 +2,7 @@ import { useSession } from '../session/session';
 import { useSupportContact } from '../more/support-contact';
 import { supportMailto } from '../more/support-desk';
 import { contactCopy } from './contact-copy';
+import { chatCopy } from '../more/support-chat-copy';
 import './public-pages.css';
 
 /**
@@ -29,6 +30,11 @@ export function ContactSupport({ context = 'general' }: { context?: 'general' | 
     <aside data-testid="contact-card" className="contact-card" aria-labelledby="contact-title">
       <h2 id="contact-title">{copy.t(context === 'recovery' ? 'titleRecovery' : 'titleSignedOut')}</h2>
       <p className="muted">{copy.t(context === 'recovery' ? 'bodyRecovery' : 'bodySignedOut')}</p>
+      <p data-testid="support-chat-link">
+        <a className="text-link" href="/support/chat">
+          <chatCopy.Copy k="openChat" />
+        </a>
+      </p>
       <h3>{copy.t('includeHeading')}</h3>
       <ul>
         <li>{copy.t('includeHandle')}</li>

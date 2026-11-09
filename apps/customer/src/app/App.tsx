@@ -144,9 +144,9 @@ export function App() {
     !isAcademyPath(path) &&
     !isLaunchCataloguePath(path) &&
     !isQuantPreviewPath(path);
-  // Someone signed out who opens a new support request gets the same form with an email field (SP-tickets-01), in the
-  // public frame, once the boot refresh says there is no session.
-  const guestRequest = path === '/support/new' && !session && !restoring && !restoreFailed;
+  // Someone signed out who opens a new support request gets the same form with an email field (SP-tickets-01), and live chat
+  // as a guest (SP-chat-01), in the public frame, once the boot refresh says there is no session.
+  const guestRequest = (path === '/support/new' || path === '/support/chat') && !session && !restoring && !restoreFailed;
   // Start downloading the room's code before it can render: a signed-in room waits for the boot refresh, and the
   // Web3 frame and its rooms are two chunks that would otherwise load one after the other. A signed-out visitor to
   // a private room only sees "Sign in", so nothing is fetched for it.
