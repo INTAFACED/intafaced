@@ -181,6 +181,8 @@ const BANK_ERROR_STATUS: Record<BankErrorCode, TRPCError['code']> = {
   'bank.partner_amount_invalid': 'BAD_REQUEST',
   'bank.partner_path_not_built': 'PRECONDITION_FAILED',
   'bank.partner_history_filter_unsupported': 'BAD_REQUEST',
+  'bank.card_control_invalid': 'BAD_REQUEST',
+  'bank.card_control_not_found': 'NOT_FOUND',
   'bank.schedule_inactive': 'CONFLICT',
   'bank.pool_closed': 'CONFLICT',
   'bank.pool_conflict': 'CONFLICT',

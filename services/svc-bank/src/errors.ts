@@ -1064,7 +1064,12 @@ export type BankErrorCode =
   /** This payment's partner path is not built yet; nothing was sent. */
   | 'bank.partner_path_not_built'
   /** The partner's history cannot answer this filter here; nothing is silently ignored. */
-  | 'bank.partner_history_filter_unsupported';
+  | 'bank.partner_history_filter_unsupported'
+  // ── Card controls (BK-cctl-01, J-bank-14 #1) ───────
+  /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
+  | 'bank.card_control_invalid'
+  /** The control to lift is not a live control of this card. */
+  | 'bank.card_control_not_found';
 
 export class BankError extends Error {
   constructor(
