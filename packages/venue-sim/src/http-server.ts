@@ -13,6 +13,7 @@ import {
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenueAccount,
+  type UserVenueMarketStatus,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
@@ -38,12 +39,18 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,withdrawalFee?}       withdrawalFee: MaybeKnown<Amount>
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
- *        /test/seed                                       TEST makers rest a two-sided ladder on every market
+ *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC and BTC-PERP
+ *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
+ *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
 
-/** The stack's TEST markets: BTC-USDC cash spot and the BTC-PERP perpetual, isolated margin only. Figures are TEST. */
+/**
+ * The stack's TEST markets: BTC-USDC cash spot, the BTC-PERP perpetual (isolated margin only), and ETH-USDC cash spot
+ * with no ladder (a market the venue lists that INTAFACED has not reviewed: J-cex-spot-16). Every market starts
+ * `trading` with a TEST largest order. Figures are TEST.
+ */
 export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
   {
     symbol: 'BTC-USDC',
@@ -58,6 +65,9 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     lotSize: parseAmount('0.0001'),
     makerFeeBps: { known: true, value: parseAmount('1') },
     takerFeeBps: { known: true, value: parseAmount('3.5') },
+    status: 'trading',
+    maxOrderQty: parseAmount('50'),
+    maxOrderNotional: parseAmount('5000000'),
   },
   {
     symbol: 'BTC-PERP',
@@ -74,8 +84,32 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     takerFeeBps: { known: true, value: parseAmount('4.5') },
     maintenanceMarginRate: parseAmount('0.005'),
     markPrice: parseAmount('60000'),
+    status: 'trading',
+    maxOrderQty: parseAmount('50'),
+    maxOrderNotional: parseAmount('5000000'),
+  },
+  {
+    symbol: 'ETH-USDC',
+    kind: 'spot',
+    baseAsset: 'ETH',
+    quoteAsset: 'USDC',
+    orderTypes: ['limit', 'market'],
+    timeInForce: ['GTC', 'IOC', 'ALO'],
+    marginModes: [],
+    maxLeverageBps: null,
+    tickSize: parseAmount('0.1'),
+    lotSize: parseAmount('0.001'),
+    makerFeeBps: { known: true, value: parseAmount('1') },
+    takerFeeBps: { known: true, value: parseAmount('3.5') },
+    status: 'trading',
+    maxOrderQty: parseAmount('500'),
+    maxOrderNotional: parseAmount('2000000'),
   },
 ];
+
+/** The markets `seed` rests a ladder on (its prices are around a BTC mid). */
+const LADDER_SYMBOLS: ReadonlySet<string> = new Set(['BTC-USDC', 'BTC-PERP']);
+const MARKET_STATUSES: ReadonlySet<string> = new Set(['trading', 'halted', 'cancel_only', 'delisted']);
 
 /** The ladder `seed` rests: around 60000, five levels a side, 10 apart, 1 BTC each. TEST. */
 const SEED_MID = 60_000;
@@ -140,6 +174,7 @@ export async function seedTestVenue(sim: TestVenueSimulator): Promise<{ makers: 
     sim.deposit(acct, 'USDC', parseAmount('100000000'), `seed:${name}:USDC`);
     sim.deposit(acct, 'BTC', parseAmount('1000'), `seed:${name}:BTC`);
     for (const market of TEST_VENUE_MARKETS) {
+      if (!LADDER_SYMBOLS.has(market.symbol)) continue;
       if (market.kind === 'perpetual') {
         const lev = await sim.leverage(acct, market.symbol);
         if (!lev.value)
@@ -244,6 +279,23 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/test/seed':
       return { ...(await seedTestVenue(sim)), label: 'TEST' };
+    case '/test/market-status': {
+      const status = body.status;
+      if (status !== null && (typeof status !== 'string' || !MARKET_STATUSES.has(status)))
+        throw new VenueWireError('status is trading, halted, cancel_only, delisted or null');
+      sim.setMarketStatus(str(body, 'symbol'), status as UserVenueMarketStatus | null);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/market-limits': {
+      const limit = (k: string): Amount | null => {
+        const v = body[k];
+        if (v === null) return null;
+        if (typeof v !== 'bigint') throw new VenueWireError(`${k} is a decimal string or null`);
+        return v as Amount;
+      };
+      sim.setMarketLimits(str(body, 'symbol'), { maxOrderQty: limit('maxOrderQty'), maxOrderNotional: limit('maxOrderNotional') });
+      return { ok: true, label: 'TEST' };
+    }
     default:
       return undefined;
   }

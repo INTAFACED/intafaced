@@ -141,7 +141,9 @@ describe('preview', () => {
 
   it('refuses what prepare refuses on its face', async () => {
     const { sim, account } = world();
-    await expect(sim.preview(account, order({ symbol: 'ETH-USDC' }))).rejects.toBeInstanceOf(VenueRefusalError);
+    // A market the TEST venue does not list (ETH-USDC is listed since J-cex-spot-16).
+    await expect(sim.preview(account, order({ symbol: 'SOL-USDC' }))).rejects.toBeInstanceOf(VenueRefusalError);
+    await expect(sim.preview(account, order({ symbol: 'SOL-USDC' }))).rejects.toMatchObject({ refusal: { code: 'unknown_market' } });
     sim.switches.venueDown = true;
     await expect(sim.preview(account, order({}))).rejects.toMatchObject({ refusal: { code: 'venue_down' } });
   });
@@ -186,6 +188,59 @@ describe('HTTP answers', () => {
     const down = await call('/balances', { account });
     expect(down.status).toBe(422);
     expect(down.raw.refusal.code).toBe('venue_down');
+  });
+
+  it("reports each market's own state and largest order, and refuses a new order its state or size does not admit (TEST controls)", async () => {
+    const { sim, w, account, run } = world(84532);
+    const call = async (path: string, body: unknown) => {
+      const [status, out] = await answerTestVenue(sim, 'POST', path, JSON.stringify(encodeVenueWire(body)));
+      return { status, out: decodeVenueWire<any>(JSON.parse(JSON.stringify(out))), raw: out as any };
+    };
+    await call('/test/seed', {});
+    sim.deposit(account, 'USDC', a('10000000'), 'dep:status');
+    const markets = await call('/markets', { account: null });
+    const eth = markets.raw.value.find((m: any) => m.symbol === 'ETH-USDC');
+    expect(eth).toMatchObject({ status: 'trading', maxOrderQty: '500', maxOrderNotional: '2000000' });
+    expect(markets.raw.value.map((m: any) => m.symbol)).toEqual(['BTC-USDC', 'BTC-PERP', 'ETH-USDC']);
+
+    // A resting order placed while trading stays as it is through every state change.
+    const resting = await run(order({ price: a('59000'), amount: a('0.1'), clientOrderKey: 'order:preview-trader:rest' }));
+    expect(resting).toMatchObject({ definite: true, accepted: true });
+    for (const [status, code] of [
+      ['halted', 'market_halted'],
+      ['cancel_only', 'market_cancel_only'],
+      ['delisted', 'market_delisted'],
+    ] as const) {
+      expect((await call('/test/market-status', { symbol: 'BTC-USDC', status })).status).toBe(200);
+      await expect(sim.prepare(account, w.signer, order({ clientOrderKey: `order:preview-trader:${status}` }))).rejects.toMatchObject({
+        refusal: { code },
+      });
+      expect((await sim.openOrders(account)).value.map((o) => o.venueClientOrderId)).toHaveLength(1);
+    }
+    // Not reported: null on the read, and the venue applies no state of its own.
+    await call('/test/market-status', { symbol: 'BTC-USDC', status: null });
+    expect((await call('/markets', { account: null })).raw.value[0].status).toBeNull();
+    expect((await call('/test/market-status', { symbol: 'BTC-USDC', status: 'paused' })).status).toBe(400);
+    // Cancels pass whatever the state.
+    await call('/test/market-status', { symbol: 'BTC-USDC', status: 'cancel_only' });
+    const cancel = await run({ kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: 'order:preview-trader:rest' });
+    expect(cancel).toMatchObject({ definite: true, accepted: true });
+    await call('/test/market-status', { symbol: 'BTC-USDC', status: 'trading' });
+
+    // Largest order: size, then notional; null is not reported and no cap is applied.
+    await call('/test/market-limits', { symbol: 'BTC-USDC', maxOrderQty: a('0.2'), maxOrderNotional: a('6000') });
+    await expect(
+      sim.prepare(account, w.signer, order({ amount: a('0.3'), clientOrderKey: 'order:preview-trader:big' })),
+    ).rejects.toMatchObject({
+      refusal: { code: 'order_above_venue_max' },
+    });
+    await expect(
+      sim.prepare(account, w.signer, order({ amount: a('0.1'), price: a('60020'), clientOrderKey: 'order:preview-trader:notional' })),
+    ).rejects.toMatchObject({ refusal: { code: 'order_above_venue_max' } });
+    await call('/test/market-limits', { symbol: 'BTC-USDC', maxOrderQty: null, maxOrderNotional: null });
+    const read = (await call('/markets', { account: null })).raw.value[0];
+    expect(read).toMatchObject({ maxOrderQty: null, maxOrderNotional: null });
+    expect((await call('/test/market-limits', { symbol: 'BTC-USDC', maxOrderQty: 5, maxOrderNotional: null })).status).toBe(400);
   });
 
   it('refuses to start unless APP_ENV is exactly dev or test, and off loopback', async () => {

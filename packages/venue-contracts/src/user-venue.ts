@@ -340,6 +340,14 @@ export type VenueRefusalCode =
   | 'venue_rejected'
   /** An agent order would commit more than the room left under the person's cap (agent-cap.ts). Nothing signed. */
   | 'agent_cap_exceeded'
+  /** The venue's market is halted: it takes no new order. */
+  | 'market_halted'
+  /** The venue's market takes cancels only. */
+  | 'market_cancel_only'
+  /** The venue delisted the market. */
+  | 'market_delisted'
+  /** The order is larger than the venue's own largest order size or notional for the market. */
+  | 'order_above_venue_max'
   /** The agent's cap is revoked or expired: only cancels are signed. */
   | 'agent_cap_inactive'
   /** The room under the cap can't be measured (a holding with no known mark, a market in another quote). Nothing signed. */
@@ -483,7 +491,24 @@ export interface UserVenueMarket {
   /** The venue's published fee for this account, or `known: false`. */
   readonly makerFeeBps: MaybeKnown<Amount>;
   readonly takerFeeBps: MaybeKnown<Amount>;
+  /**
+   * The venue's own trading state for this market, as it reports it, or `null` when the venue does not report one.
+   * Ours (a listing, a routing state) is never written here: this is the venue's word, shown beside ours.
+   */
+  readonly status: UserVenueMarketStatus | null;
+  /** The venue's largest order size in base units, or `null` when it does not report one (never a guessed cap). */
+  readonly maxOrderQty: Amount | null;
+  /** The venue's largest order notional in the quote asset, or `null` when it does not report one. */
+  readonly maxOrderNotional: Amount | null;
 }
+
+/**
+ * A venue market's own state: `trading` takes orders; `halted` takes no new order; `cancel_only` takes cancels only;
+ * `delisted` is gone from the venue. The venue refuses an order its state does not admit (`market_halted`,
+ * `market_cancel_only`, `market_delisted`).
+ */
+export type UserVenueMarketStatus = 'trading' | 'halted' | 'cancel_only' | 'delisted';
+export const USER_VENUE_MARKET_STATUSES: readonly UserVenueMarketStatus[] = ['trading', 'halted', 'cancel_only', 'delisted'];
 
 /** One figure of a preview: an amount in a named asset. */
 export interface VenueAssetAmount {
