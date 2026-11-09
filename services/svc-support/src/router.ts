@@ -1,6 +1,8 @@
 import { routingProcedures } from './desk-routing-router.js';
 import type { DeskRouting } from './desk-routing.js';
 import { TRPCError } from '@trpc/server';
+import { WithdrawalFreezes, WITHDRAWAL_FREEZE_UNAVAILABLE } from './withdrawal-freeze.js';
+import { withdrawalFreezeProcedures } from './withdrawal-freeze-router.js';
 import { MemoryLinkBook, TicketLinks } from './ticket-links.js';
 import { ticketLinkProcedures } from './ticket-links-router.js';
 import { guestProcedures } from './guest-router.js';
@@ -196,6 +198,7 @@ export function mapError(err: unknown): never {
       err.code === 'support.guest_delivery_unknown' ||
       err.code === 'support.category_unknown' ||
       err.code === 'vendor.email' ||
+      err.code === WITHDRAWAL_FREEZE_UNAVAILABLE ||
       err.code.startsWith('guest.')
     ) {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
@@ -275,12 +278,15 @@ export function createSupportRouter(
   chat?: SupportChat,
   /** Routing, capacity and skills (SP-routing-01). Left out, no routing procedure is mounted and nothing routes. */
   routing?: DeskRouting,
+  /** Withdrawal freezes asked from a request (J-support-public-20 #7). Left out, no identity is wired and each ask refuses. */
+  freezes: WithdrawalFreezes = new WithdrawalFreezes(support, null),
   /** A request's links to the customer's own records (J-support-public-20 #1). Left out, every link refuses unverifiable. */
   links: TicketLinks = new TicketLinks(new MemoryLinkBook(), support, null, null),
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
     ...chatProcedures(chat, mapError),
+    ...withdrawalFreezeProcedures(freezes, mapError),
     ...macroProcedures(macros),
     ...(routing ? routingProcedures(routing, support) : {}),
     ...contactProcedures(contact, support),

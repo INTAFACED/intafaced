@@ -16,11 +16,13 @@ import {
   isRegionResolved,
   regionFailClosedFromEnv,
   ruleFor,
+  screeningStatus,
+  SHIPPED_BUSINESS_BLOCKS,
   UnreviewedJurisdictionError,
   tierSatisfies,
 } from './jurisdiction.js';
 import { MODULES } from './modules.js';
-import type { ScreeningList } from './screening.js';
+import { UNSET_SCREENING_LIST, type ScreeningList } from './screening.js';
 
 /**
  * Unset screening refuses. These tests observe sovereignty and region rules,
@@ -41,7 +43,7 @@ afterEach(() => {
 
 describe('§22 sovereignty law — zero-KYC follows custody', () => {
   it('grants permissionless access to non-custodial protocol modules regardless of tier', () => {
-    const d = checkAccess({ module: 'protocol', region: 'US', plane: 'protocol', kycTier: 'none' });
+    const d = checkAccess({ module: 'protocol', region: 'CA', plane: 'protocol', kycTier: 'none' });
     expect(d.allowed).toBe(true);
     expect(d.code).toBe('allowed.permissionless');
     expect(d.regionResolved).toBe(true);
@@ -71,10 +73,14 @@ describe('§22 sovereignty law — zero-KYC follows custody', () => {
     expect(d.limitMultiplier).toBe(1);
   });
 
-  it('honours per-region module blocks', () => {
+  // The US used to block `launch` and `bank` module by module. OWNER 237 (8 Nov 2026): "US block: the US is blocked
+  // at launch as well as sanctioned countries, on the existing per-country switch." So the whole region refuses now,
+  // before any module rule is read, and the refusal is the business's.
+  it('refuses US launch on the per-country switch, ahead of any module rule (OWNER 237)', () => {
     const d = checkAccess({ module: 'launch', region: 'US', plane: 'fiat', kycTier: 'institutional' });
     expect(d.allowed).toBe(false);
-    expect(d.code).toBe('denied.module_blocked');
+    expect(d.code).toBe('denied.region_blocked');
+    expect(d.blockedBy).toBe('business');
   });
 
   it('denies a plane the module does not operate on', () => {
@@ -170,7 +176,7 @@ describe('unresolved region is distinguishable — and can fail closed', () => {
     expect(isRegionResolved('DE')).toBe(true);
     expect(isRegionResolved('US')).toBe(true);
     expect(ruleFor('trade', 'GB').status).toBe('restricted');
-    expect(ruleFor('launch', 'US').status).toBe('blocked');
+    expect(businessBlockFor('US')?.authority).toBe('business');
   });
 
   it('marks regionResolved false on an ALLOWED decision for XX (default fail-open)', () => {
@@ -330,6 +336,61 @@ describe('TEST business blocks (INTAFACED_TEST_BUSINESS_BLOCKS)', () => {
     expect(checkAccess({ ...q, region: 'DE' }).allowed).toBe(true);
     delete process.env[TEST_BUSINESS_BLOCKS_ENV];
     expect(checkAccess({ ...q, region: 'AA' }).allowed).toBe(true);
-    expect(activeBusinessBlocks()).toEqual(businessBlocksFrom([]));
+    expect(activeBusinessBlocks()).toEqual(SHIPPED_BUSINESS_BLOCKS);
+    expect(activeBusinessBlocks().map((b) => b.region)).not.toContain('AA');
+  });
+});
+
+/**
+ * OWNER 237 (8 Nov 2026): "US block: the US is blocked at launch as well as sanctioned countries, on the existing
+ * per-country switch." The switch is the matrix's `blocked: true`: it refuses the region on every module and every
+ * plane, protocol included, and records the business as the authority, never screening.
+ */
+describe('the US is blocked at launch on the per-country switch (OWNER 237)', () => {
+  const CLEAR: ScreeningList = { regions: [], declaration: 'reviewed-empty', configured: true, source: 'TEST fixture' };
+  const everyModuleAndPlane = Object.values(MODULES).flatMap((m) => m.planes.map((plane) => ({ module: m.id, plane })));
+
+  it('ships the US as a business block with a reason naming launch', () => {
+    const us = businessBlockFor('US');
+    expect(us).toMatchObject({ region: 'US', authority: 'business', reason: 'The United States is not served at launch.' });
+    expect(us?.reason).toMatch(/launch/);
+    expect(SHIPPED_BUSINESS_BLOCKS.map((b) => b.region)).toContain('US');
+  });
+
+  it('refuses the US denied.region_blocked on every module and plane, at every tier, blocked by the business', () => {
+    expect(everyModuleAndPlane.some((q) => q.plane === 'protocol')).toBe(true);
+    for (const q of everyModuleAndPlane) {
+      for (const region of ['US', 'us', ' US ']) {
+        for (const kycTier of ['none', 'institutional'] as const) {
+          const d = checkAccess({ ...q, region, kycTier, screening: CLEAR, screeningFailClosed: false });
+          const at = `${q.module}/${q.plane} ${JSON.stringify(region)} ${kycTier}`;
+          expect(d.allowed, at).toBe(false);
+          expect(d.code, at).toBe('denied.region_blocked');
+          expect(d.blockedBy, at).toBe('business');
+          expect(d.reason, at).toBe('The United States is not served at launch.');
+          expect(d.limitMultiplier, at).toBe(0);
+        }
+      }
+    }
+    expect(isRegionBlocked('US', CLEAR)).toBe(true);
+  });
+
+  it('serves the neighbours: CA and MX are allowed on every module and plane', () => {
+    for (const region of ['CA', 'MX']) {
+      expect(businessBlockFor(region), region).toBeUndefined();
+      expect(isRegionBlocked(region, CLEAR), region).toBe(false);
+      for (const q of everyModuleAndPlane) {
+        const d = checkAccess({ ...q, region, kycTier: 'institutional', screening: CLEAR, screeningFailClosed: false });
+        expect(d.allowed, `${q.module}/${q.plane} ${region}`).toBe(true);
+        expect(d.blockedBy, `${q.module}/${q.plane} ${region}`).toBeUndefined();
+      }
+    }
+  });
+
+  it('is a business block, so it never satisfies the sanctions screening guard', () => {
+    const status = screeningStatus(UNSET_SCREENING_LIST);
+    expect(status.businessBlockedRegions).toContain('US');
+    expect(status.blockedRegions).not.toContain('US');
+    expect(status.configured).toBe(false);
   });
 });
