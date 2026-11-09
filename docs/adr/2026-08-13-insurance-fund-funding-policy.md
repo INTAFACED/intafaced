@@ -1,5 +1,7 @@
 # ADR: insurance fund funding policy — empty fund, no live perps
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted — 2026-08-13 (D26-P0-17 sealed).** Addendum **2026-08-15**: list gate is an existing-recipe path only.  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-17 — Insurance fund funding policy (futures list gate).  

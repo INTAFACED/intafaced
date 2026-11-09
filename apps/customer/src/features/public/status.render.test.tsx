@@ -44,6 +44,26 @@ describe('/status', () => {
     expect(html).toContain('Not reported');
     expect(html).not.toContain('>Open<');
   });
+  it("names a market's maintenance window on its row, with a blank end as End time not set (J-cex-spot-14 #5)", () => {
+    load = {
+      status: 'ready',
+      asOf: 1,
+      data: [
+        {
+          symbol: 'BTC/USDC',
+          state: 'OPEN',
+          reasonCode: null,
+          observedAt: '2026-11-06T09:00:00.000Z',
+          maintenance: { status: 'scheduled', startsAt: Date.parse('2026-11-06T10:00:00.000Z'), endsAt: null },
+        },
+        { symbol: 'ETH/USDC', state: 'OPEN', reasonCode: null, observedAt: '2026-11-06T09:00:00.000Z', maintenance: null },
+      ],
+    };
+    const html = renderToString(<StatusPage />);
+    expect(html).toContain('Maintenance<!-- --> <!-- -->2026-11-06 10:00 UTC<!-- --> <!-- -->to<!-- --> <!-- -->End time not set');
+    expect(html).toContain('data-testid="status-maintenance-BTC/USDC"');
+    expect(html).not.toContain('data-testid="status-maintenance-ETH/USDC"');
+  });
   it('a failed read says so and never reads as all open', () => {
     load = { status: 'error', retry: () => undefined };
     const html = renderToString(<StatusPage />);
@@ -59,7 +79,7 @@ describe('/status', () => {
     const html = renderToString(<StatusPage />);
     expect(html).toContain('Matching upgrade');
     expect(html).toContain('2026-11-01 02:00 UTC');
-    expect(html).toContain('time not set');
+    expect(html).toContain('to<!-- --> <!-- -->End time not set');
   });
   it('says no window is published when the feed lists none, and a failed read says so', () => {
     maintenanceLoad = { status: 'ready', asOf: 1, data: [] };

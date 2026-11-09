@@ -103,7 +103,8 @@ describe('catalog — the key set is closed and complete', () => {
     // A new device approved and signed in (I-signin-sessions-08, J-identity-06 #7) adds a title and a body key.
     // A copy skipped because the platform paused its lead or halted its market (J-copy-bots-otc-12 #1 #3) adds one reason body.
     // The ledger's custody-switch refusal, a money movement INTAFACED does not hold customer money for (OWNER 226), adds one error key.
-    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(314);
+    // A trader you follow posting a new ad (J-p2p-12 #4) adds a title and a body key.
+    expect(MESSAGE_KEYS.length).toBeLessThanOrEqual(316);
 
     for (const surface of ['common.', 'auth.', 'trade.', 'wallet.', 'p2p.', 'notify.', 'error.', 'support.', 'agents.', 'admin.']) {
       expect(

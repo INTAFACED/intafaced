@@ -152,6 +152,26 @@ async function serverAnswer(procedure, act) {
   return { status: response.status(), body: await response.json() };
 }
 
+/** The pay service's own answer to one sandbox funds call (`sandboxFunds.<procedure>`) the page sends while `act` runs. */
+async function fundsAnswer(procedure, act) {
+  const [response] = await Promise.all([
+    page.waitForResponse((res) => res.request().method() === 'POST' && new URL(res.url()).pathname.endsWith(`/sandboxFunds.${procedure}`)),
+    act(),
+  ]);
+  return { status: response.status(), body: await response.json() };
+}
+
+/** The open sandbox's id, from its address (`/developers/sandbox/<id>`). */
+const openSandboxId = () => new URL(page.url()).pathname.split('/').at(-1);
+
+/** What the pay service's sandbox store holds for one sandbox, read through the edge as the account (not from the page). */
+async function storedFunds(who, sandboxId) {
+  const input = encodeURIComponent(JSON.stringify({ sandboxId }));
+  const res = await (await account(who)).get(`/api/pay/trpc/sandboxFunds.balance?input=${input}`);
+  expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+  return res.body.result.data;
+}
+
 test(`${J} #2 creates a sandbox with a name: listed, a second named sandbox works, and with the sandbox cap blank the second refuses`, async () => {
   test.setTimeout(240_000);
   const { who } = run.read();
@@ -255,10 +275,18 @@ test(`${J} #3 creates a sandbox key: shown once with the sandbox base URL, sandb
 test(`${J} #4 presses Fund while the owner decision is unset: a typed refusal naming the decision, nothing written`, async () => {
   // A stack an earlier run left with TEST values set starts blank again.
   tool('local-test-gates.mjs', 'sandbox-funds', 'unset');
+  const { who } = run.read();
   await openSandbox('development');
+  const sandboxId = openSandboxId();
+  const stored = await storedFunds(who, sandboxId);
   const before = await sandboxBalance();
-  await page.getByRole('button', { name: 'Fund with TEST money' }).click();
+  const refused = await fundsAnswer('fund', () => page.getByRole('button', { name: 'Fund with TEST money' }).click());
+  // A typed refusal naming the owner's decision: the pay service refuses with its code, and the page says it in words.
+  expect(refused.status, JSON.stringify(refused.body)).toBe(412);
+  expect(refused.body.error.message, JSON.stringify(refused.body)).toContain('[pay.sandbox_funds_unset]');
   await expect(page.getByRole('alert')).toContainText('The owner has not set sandbox test funds. Nothing was added.');
+  // Nothing written: the store holds the same amount and no new change (its version counts every change), read from the server.
+  expect(await storedFunds(who, sandboxId)).toEqual(stored);
   expect(await sandboxBalance()).toBe(before);
 });
 
@@ -404,19 +432,33 @@ test(`${J} #8 triggers a simulated decline and resets the balance: the payment e
   expect(read.body, JSON.stringify(read.body)).toMatchObject({ status: 'failed', mode: 'sandbox', failure: { code: 'card.declined' } });
 
   await openSandbox('development');
+  const sandboxId = openSandboxId();
   const funds = page.getByRole('region', { name: 'TEST funds' });
   const reset = funds.getByRole('button', { name: 'Reset balances' });
-  // "reset works": a TEST fund, then a reset brings the sandbox balance back to zero.
+  // "reset works": a TEST fund, then a reset brings the sandbox balance back to zero, in the store and on the page.
   await funds.getByRole('button', { name: 'Fund with TEST money' }).click();
   await expect.poll(sandboxBalance).toBeGreaterThan(0n);
-  await reset.click();
-  await expect(funds.getByRole('status')).toContainText('back to zero');
-  await expect.poll(sandboxBalance).toBe(0n);
-  for (let i = 0; i < 50; i += 1) {
-    await reset.click();
-    const said = funds.getByRole('status').or(funds.getByRole('alert'));
-    await expect(said).toBeVisible();
-    if (/daily reset limit/i.test((await said.textContent()) ?? '')) return;
+  const start = await storedFunds(who, sandboxId);
+  const cap = start.resetsPerDay;
+  expect(cap, "the stack's TEST resets per day are set (#5)").toEqual(expect.any(Number));
+  expect(start.resetsToday).toBeLessThan(cap);
+  // "until the daily cap": every reset up to the cap succeeds, each one counted by the store.
+  for (let used = start.resetsToday + 1; used <= cap; used += 1) {
+    const done = await fundsAnswer('reset', () => reset.click());
+    expect(done.status, `reset ${used} of ${cap}: ${JSON.stringify(done.body)}`).toBe(200);
+    expect(done.body.result.data).toMatchObject({ sandboxId, amount: '0', resetsToday: used, resetsPerDay: cap, replayed: false });
+    await expect(funds.getByRole('status')).toContainText('back to zero');
+    await expect.poll(sandboxBalance).toBe(0n);
+    await expect(funds.getByTestId('sandbox-resets')).toContainText(String(used));
   }
-  throw new Error('fifty resets in a day were all accepted: no daily cap');
+  // "then a typed refusal": the next reset is refused by the store with its code, said in words, and nothing changed.
+  const atCap = await storedFunds(who, sandboxId);
+  expect(atCap.resetsToday).toBe(cap);
+  const refused = await fundsAnswer('reset', () => reset.click());
+  expect(refused.status, JSON.stringify(refused.body)).toBe(429);
+  expect(refused.body.error.message, JSON.stringify(refused.body)).toContain('[pay.sandbox_reset_cap_reached]');
+  await expect(funds.getByRole('alert')).toContainText(
+    'This sandbox has used its daily reset limit. Resets start again at midnight UTC. Nothing was changed.',
+  );
+  expect(await storedFunds(who, sandboxId)).toEqual(atCap);
 });

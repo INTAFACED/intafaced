@@ -62,6 +62,12 @@ const schema = serviceEnvSchema
       /** Dedicated trading decision key; blank disables new exposure, never founder/read auth. */
       IDENTITY_ADMISSION_SECRET: z.string().default(''),
 
+      /**
+       * svc-notify's address, for the market maintenance windows on the lifecycle read (J-cex-spot-14 #5). Blank: the
+       * read says maintenance is unavailable, never that there is none.
+       */
+      NOTIFY_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+
       /** svc-matching — the book. This service never runs one of its own. */
       MATCHING_URL: z.string().url().default('http://localhost:4005'),
 
@@ -846,6 +852,16 @@ const schema = serviceEnvSchema
        * the rule waits for the owner. Longer than 1000 characters refuses boot. The text is owner content.
        */
       TRADE_DEVELOPER_REGIONAL_RULE: z.string().default(''),
+
+      /**
+       * The bot policy the developer portal publishes (developer-portal-rest.ts; J-cex-spot-15 #3): plain text, what
+       * automated trading through the API the platform permits and on what terms.
+       *
+       * NO DEFAULT. Empty → GET /developer-portal/bot-policy refuses trade.developer_bot_policy_unset and the page reads
+       * "Bot policy: not yet published"; nothing claims a bot is permitted. Longer than 4000 characters refuses boot.
+       * The text is owner content.
+       */
+      TRADE_DEVELOPER_BOT_POLICY: z.string().default(''),
 
       /** svc-token — stakeOf for OTC staked-tier gate. */
       TOKEN_URL: z.string().url().default('http://localhost:4003'),

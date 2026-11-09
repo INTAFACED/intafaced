@@ -50,6 +50,14 @@
           }
         },
         {
+          "name": "fetchOrderTypes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/order-types", "host": ["{{baseUrl}}"], "path": ["api", "v1", "order-types"] }
+          }
+        },
+        {
           "name": "fetchTicker",
           "request": {
             "method": "GET",
@@ -68,6 +76,27 @@
             "method": "GET",
             "header": [],
             "url": { "raw": "{{baseUrl}}/api/v1/tickers", "host": ["{{baseUrl}}"], "path": ["api", "v1", "tickers"] }
+          }
+        },
+        {
+          "name": "fetchSpreads",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/api/v1/spreads", "host": ["{{baseUrl}}"], "path": ["api", "v1", "spreads"] }
+          }
+        },
+        {
+          "name": "fetchMarketAnalytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/analytics/:symbol",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "analytics", ":symbol"],
+              "variable": [{ "key": "symbol", "value": "" }]
+            }
           }
         },
         {

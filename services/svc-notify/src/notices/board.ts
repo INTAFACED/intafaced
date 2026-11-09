@@ -5,7 +5,13 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import type { ActionApproval, ActionApprovalConsumeInput, NoticeCategory } from '@intafaced/contracts';
+import {
+  MARKET_COMPONENT_PATTERN,
+  type ActionApproval,
+  type ActionApprovalConsumeInput,
+  type MarketMaintenanceRead,
+  type NoticeCategory,
+} from '@intafaced/contracts';
 import type { CommandLog } from '../preferences/account.js';
 import {
   ChangelogError,
@@ -26,6 +32,7 @@ import {
   type MemberAudience,
   type NoticeAudience,
 } from './audiences.js';
+import { inLanguage, translationsField, translationsForHash, type NoticeTranslations } from './translations.js';
 import { buildStatusFeed, clampStatusDays, openIncidentRoots, STATUS_FEED_ROWS_MAX, type StatusFeed } from './status-feed.js';
 
 /**
@@ -78,6 +85,7 @@ export type NoticeCode =
   | 'notify.notice_incident_resolved'
   | 'notify.notice_reminders_invalid'
   | 'notify.notice_audience_invalid'
+  | 'notify.notice_translation_invalid'
   | 'notify.notice_audience_unavailable'
   | 'notify.notice_effective_invalid'
   | 'notify.notice_effective_passed'
@@ -149,6 +157,8 @@ export type NoticeRow = {
   reminderOffsets?: readonly number[];
   /** Who it is for; absent on rows written before this field, which are for everyone. Only an announcement names another. */
   audience?: NoticeAudience;
+  /** The operator's own title and body per other language (translations.ts). Empty, or absent on older rows, for none. */
+  translations?: NoticeTranslations;
   authorId: string;
   clientRequestId: string;
   publishClientRequestId: string | null;
@@ -285,6 +295,14 @@ export function toNoticeWire(row: NoticeRow): NoticeWire {
   };
 }
 
+/** A notice as a signed-out reader in one language sees it: its text in that language or the source, and which it is. */
+export type LocalizedNotice = NoticeWire & { readonly language: string };
+
+export function toLocalizedNotice(row: NoticeRow, language: string | null | undefined): LocalizedNotice {
+  const text = inLanguage({ title: row.title, body: row.body }, row.translations, language);
+  return { ...toNoticeWire(row), title: text.title, body: text.body, language: text.language };
+}
+
 /** For the public board: signed-out reads, the announcement slot and status subscribers. */
 const forEveryone = (row: NoticeRow): boolean => (row.audience ?? 'everyone') === 'everyone';
 
@@ -326,6 +344,8 @@ function payloadHash(row: NoticeRow): string {
     ...(row.reminderOffsets?.length ? { reminders: row.reminderOffsets } : {}),
     ...(row.category ? { category: row.category } : {}),
     ...(row.audience && row.audience !== 'everyone' ? { audience: row.audience } : {}),
+    // The other-language text is approved with the source text; a notice without any hashes as before.
+    ...(translationsForHash(row.translations).length ? { translations: translationsForHash(row.translations) } : {}),
     // A fee change is approved with the time it takes effect.
     ...(row.kind === 'fee_change' ? { effectiveAt: row.startsAt?.toISOString() ?? null } : {}),
   });
@@ -557,6 +577,7 @@ export class NoticeBoard {
       reminderOffsets?: readonly number[] | null;
       category?: string | null;
       audience?: string | null;
+      translations?: Readonly<Record<string, { title: string; body: string }>> | null;
       clientRequestId: string;
     },
   ): Promise<NoticeWire> {
@@ -578,6 +599,7 @@ export class NoticeBoard {
     const reminderOffsets = reminderFields(input.kind, input.reminderOffsets, startsAt);
     const category = await this.categoryField(input.kind, input.category);
     const audience = audienceField(input.kind, input.audience);
+    const translations = translationsField(input.translations);
     // A notice for an audience whose members cannot be told apart here would be published to no one.
     if (audience !== 'everyone' && !this.membership) throw new NoticeError('notify.notice_audience_unavailable');
     const row: NoticeRow = {
@@ -595,6 +617,7 @@ export class NoticeBoard {
       reminderOffsets,
       category,
       audience,
+      translations,
       authorId,
       clientRequestId: input.clientRequestId,
       publishClientRequestId: null,
@@ -640,10 +663,13 @@ export class NoticeBoard {
     const incident = input.kind === 'incident';
     if (!incident && (impact !== null || parentId !== null || resolves)) throw new NoticeError('notify.notice_incident_fields_invalid');
     if (!incident && input.kind !== 'maintenance' && components.length > 0) throw new NoticeError('notify.notice_incident_fields_invalid');
-    if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c))) {
+    // A maintenance window may name a market (`market-btc-usdc`, J-cex-spot-14 #5) without the status page defining it;
+    // svc-trade puts it on that market's lifecycle read. An incident never names a market this way.
+    const named = (c: string) =>
+      (STATUS_COMPONENTS as readonly string[]).includes(c) || (input.kind === 'maintenance' && MARKET_COMPONENT_PATTERN.test(c));
+    if (components.some((c) => !named(c))) {
       const defined = new Set(await this.pageComponents());
-      if (components.some((c) => !(STATUS_COMPONENTS as readonly string[]).includes(c) && !defined.has(c)))
-        throw new NoticeError('notify.notice_component_unknown');
+      if (components.some((c) => !named(c) && !defined.has(c))) throw new NoticeError('notify.notice_component_unknown');
     }
     if (impact !== null && !(INCIDENT_IMPACTS as readonly string[]).includes(impact))
       throw new NoticeError('notify.notice_incident_fields_invalid');
@@ -805,23 +831,38 @@ export class NoticeBoard {
     return (await this.store.listOpenForAudiences([...audiences], at, limit)).map(toNoticeWire);
   }
 
-  /** Published changelog entries, newest first, optionally narrowed to one area or to breaking entries. */
-  async changelog(input: { area?: string | null; breaking?: boolean | null; limit: number }): Promise<readonly NoticeWire[]> {
+  /**
+   * Published changelog entries, newest first, optionally narrowed to one area or to breaking entries. With `language`,
+   * each entry's title and body are in that language when the operator wrote them, and `language` names the language
+   * each one is in (translations.ts).
+   */
+  async changelog(input: {
+    area?: string | null;
+    breaking?: boolean | null;
+    limit: number;
+    language?: string | null;
+  }): Promise<readonly LocalizedNotice[]> {
     const limit = Math.min(clampNoticeLimit(input.limit), CHANGELOG_LIST_MAX);
     const area = input.area == null || input.area === '' ? null : input.area;
     const rows = await this.store.listPublished('changelog', CHANGELOG_ROWS_MAX);
     return rows
-      .map(toNoticeWire)
-      .filter(
-        (entry) => (area === null || entry.changelog?.area === area) && (input.breaking !== true || entry.changelog?.breaking === true),
-      )
-      .slice(0, limit);
+      .filter((row) => (area === null || row.changelog?.area === area) && (input.breaking !== true || row.changelog?.breaking === true))
+      .slice(0, limit)
+      .map((row) => toLocalizedNotice(row, input.language));
   }
 
-  /** Breaking entries not yet in effect, soonest first, and every endpoint a published entry retires. */
-  async upcomingChanges(at: Date = this.now()): Promise<{ upcoming: readonly NoticeWire[]; retired: readonly RetiredEndpoint[] }> {
-    const entries = (await this.store.listPublished('changelog', CHANGELOG_ROWS_MAX)).map(toNoticeWire);
-    return { upcoming: upcomingEntries(entries, at), retired: retiredEndpoints(entries) };
+  /** Breaking entries not yet in effect, soonest first, and every endpoint a published entry retires; with `language` as above. */
+  async upcomingChanges(
+    at: Date = this.now(),
+    language?: string | null,
+  ): Promise<{ upcoming: readonly LocalizedNotice[]; retired: readonly RetiredEndpoint[] }> {
+    const rows = await this.store.listPublished('changelog', CHANGELOG_ROWS_MAX);
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    const entries = rows.map(toNoticeWire);
+    return {
+      upcoming: upcomingEntries(entries, at).map((entry) => toLocalizedNotice(byId.get(entry.id)!, language)),
+      retired: retiredEndpoints(rows.map((row) => toLocalizedNotice(row, language))),
+    };
   }
 
   async noticeStatus(at: Date = this.now()): Promise<NoticeStatusRead> {
@@ -831,6 +872,34 @@ export class NoticeBoard {
       incidents: openIncidentRoots(published, at).map(toNoticeWire),
       maintenance: published.filter((row) => row.kind === 'maintenance' && noticeIsOpen(row, at)).map(toNoticeWire),
     };
+  }
+
+  /**
+   * Published maintenance windows that name a market and have not ended (J-cex-spot-14 #5): scheduled ones too, so a
+   * market's ticket can say "Maintenance in 1 hour". A completed or cancelled window is left out. Signed-out.
+   */
+  async marketMaintenance(at: Date = this.now()): Promise<MarketMaintenanceRead> {
+    const published = await this.publishedForStatus();
+    const windows = published
+      .filter((row) => row.kind === 'maintenance' && row.status === 'published')
+      .filter((row) => row.endsAt === null || row.endsAt.getTime() > at.getTime())
+      .map((row) => ({ row, markets: row.components.filter((c) => MARKET_COMPONENT_PATTERN.test(c)) }))
+      .filter(({ markets }) => markets.length > 0)
+      // Nearest start first; a window with no start is under way, so it leads. The id breaks a tie, so the order
+      // never rests on publish times that can match.
+      .sort(
+        (a, b) =>
+          (a.row.startsAt?.getTime() ?? Number.NEGATIVE_INFINITY) - (b.row.startsAt?.getTime() ?? Number.NEGATIVE_INFINITY) ||
+          a.row.id.localeCompare(b.row.id),
+      )
+      .map(({ row, markets }) => ({
+        id: row.id,
+        title: row.title,
+        markets,
+        startsAt: row.startsAt?.toISOString() ?? null,
+        endsAt: row.endsAt?.toISOString() ?? null,
+      }));
+    return { windows };
   }
 
   /**

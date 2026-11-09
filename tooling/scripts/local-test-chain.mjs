@@ -17,6 +17,7 @@
 //   node tooling/scripts/local-test-chain.mjs fund <address>    TEST ETH for gas + TEST Token A and B (stack.mjs tool())
 //   node tooling/scripts/local-test-chain.mjs fund <address> stable   TEST USD only and no TEST ETH (J-dex-protocol-02 #11)
 //   node tooling/scripts/local-test-chain.mjs fund <address> spam     TEST Airdrop sent unasked (J-dex-protocol-04 #7)
+//   node tooling/scripts/local-test-chain.mjs fund <address> plain    TEST Token C, the token with no permit (J-dex-protocol-03)
 //
 // `serve` also runs the TEST network-fee relayer (RC-dex-protocol-02) on RELAY_URL: a stand-in for the relay a person's
 // signed fee-token swap is handed to. It takes one call for the seeded FeeTokenRelay's swap(), sends it from the seeded
@@ -28,16 +29,13 @@ import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { localStackState } from './local-test-state.mjs';
+import { CHAIN_HOST, CHAIN_PORTS, GATE_URL, TEST_CHAIN_ID, chainRecordPath } from './local-test-facts.mjs';
 
-const HOST = '127.0.0.1';
+const HOST = CHAIN_HOST;
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PROTOCOL_DIR = path.join(REPO, 'services', 'svc-protocol');
-/** The app's network id (apps/customer/src/features/protocol/wallet/eip1193.ts APP_CHAIN_ID). */
-export const TEST_CHAIN_ID = 84532;
-/** Every port the chains hold, the second network's included, so the stack's in-use check covers them all. */
-export const CHAIN_PORTS = { gate: 14530, anvil: 14531, control: 14532, secondGate: 14533, secondAnvil: 14534, relay: 14535 };
-export const GATE_URL = `http://${HOST}:${CHAIN_PORTS.gate}`;
+// The chain's id, ports, gate and record file live in local-test-facts.mjs, so the journeys read them without this script.
+export { CHAIN_PORTS, GATE_URL, TEST_CHAIN_ID, chainRecordPath };
 /** The TEST network-fee relayer's submit URL (svc-protocol's PROTOCOL_FEE_RELAY_URL on the stack). */
 export const RELAY_URL = `http://${HOST}:${CHAIN_PORTS.relay}/relay`;
 /** FeeTokenRelay.swap's selector: the one call the TEST relayer sends. */
@@ -49,8 +47,6 @@ export const RELAY_SWAP_SELECTOR = '0xff292559';
 export const SECOND_CHAIN_ID = 31337;
 export const SECOND_CHAIN_PORTS = { gate: CHAIN_PORTS.secondGate, anvil: CHAIN_PORTS.secondAnvil };
 export const SECOND_GATE_URL = `http://${HOST}:${SECOND_CHAIN_PORTS.gate}`;
-/** What the seed put on the chain (addresses), written by `serve`'s seed step; absent when no chain runs. */
-export const chainRecordPath = (state = localStackState()) => path.join(state, 'test-chain.json');
 
 /** The anvil to run: LOCAL_STACK_ANVIL_BIN when set (CI), else `anvil` on PATH, else null (no TEST chain). */
 export function anvilBin(env = process.env) {
@@ -265,8 +261,8 @@ async function cmdGate(state, network) {
 }
 
 async function cmdFund(address, kind) {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam'].includes(kind))
-    throw new Error('usage: fund <0x address> [stable|spam]');
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address ?? '') || ![undefined, 'stable', 'spam', 'plain'].includes(kind))
+    throw new Error('usage: fund <0x address> [stable|spam|plain]');
   const status = await chainStatus();
   if (status.chain !== 'running') {
     console.error('local-test-chain.no_chain: this stack runs no TEST chain (no anvil binary), so nothing can be funded');
@@ -289,7 +285,7 @@ if (runningAsCli) {
   else if (command === 'gate') await cmdGate(arg, extra);
   else if (command === 'fund') await cmdFund(arg, extra);
   else {
-    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam]');
+    console.error('usage: local-test-chain.mjs serve | status | gate open|closed [second] | fund <address> [stable|spam|plain]');
     process.exit(2);
   }
 }
