@@ -551,17 +551,17 @@ describe('the process-wide list is read from the environment', () => {
  * guard from "refuse to start" to "satisfied", with the sanctions list still
  * empty and nobody in counsel having supplied a thing. Business configuration,
  * edited in ordinary PRs by ordinary contributors, silently arming a legal
- * control. Latent only because the shipped matrix happens to contain no
- * `blocked: true` entry; live the first time anybody adds one.
+ * control. Latent only while the shipped matrix contained no `blocked: true`
+ * entry; live the first time anybody added one (the US did, OWNER 237).
  *
- * These tests use a SYNTHETIC matrix, because the shipped one has no blocked
- * entry and a rule about the blocked case that can only be exercised once
- * somebody adds one is a rule with no test.
+ * These tests use a SYNTHETIC matrix, because a rule about the blocked case
+ * that can only be exercised through whatever the shipped matrix holds (today
+ * the US alone) is a rule with no test of its own.
  *
  * ── AND THAT IS NOT A STYLE POINT ────────────────────────────────────────────
  *
- * `SHIPPED_BUSINESS_BLOCKS` is EMPTY — asserted below, and asserted again under
- * "what ships". So any test in this file that exercises the business authority
+ * `SHIPPED_BUSINESS_BLOCKS` holds only the US — asserted below, and asserted again
+ * under "what ships". It never holds the staged QQ. So any test in this file that exercises the business authority
  * WITHOUT passing a staged set is not testing the business authority. It is
  * asserting that nothing fails to satisfy a guard, which was true of the
  * merged-authority code this change replaced: it would have passed identically
@@ -595,8 +595,9 @@ describe('a business block cannot satisfy the screening guard', () => {
    * baseline — rather than the tests below quietly starting to pass for the
    * wrong reason.
    */
-  it('the shipped matrix stages nothing, so an unstaged test would prove nothing', () => {
-    expect(SHIPPED_BUSINESS_BLOCKS).toEqual([]);
+  it('the shipped matrix stages only the US (OWNER 237), never the staged QQ, so an unstaged test would prove nothing about QQ', () => {
+    expect(SHIPPED_BUSINESS_BLOCKS.map((b) => b.region)).toEqual(['US']);
+    expect(businessBlockFor('QQ', SHIPPED_BUSINESS_BLOCKS)).toBeUndefined();
     expect(COMMERCIAL_BLOCKS).toHaveLength(1);
   });
 
@@ -715,9 +716,10 @@ describe('a business block cannot satisfy the screening guard', () => {
    * get the shipped matrix, exactly as before it existed.
    */
   it('production callers pass nothing and get the shipped matrix', () => {
-    expect(businessBlockedRegions()).toEqual([]);
+    expect(businessBlockedRegions()).toEqual(['US']);
     expect(businessBlockFor('QQ')).toBeUndefined();
-    expect(screeningStatus(UNSET_SCREENING_LIST).businessBlockedRegions).toEqual([]);
+    expect(screeningStatus(UNSET_SCREENING_LIST).businessBlockedRegions).toEqual(['US']);
+    // The shipped US block (OWNER 237) is a real business block in front of the guard, and the guard still refuses.
     expect(() => assertScreeningConfigured({ APP_ENV: 'prod' })).toThrow(UnscreenedJurisdictionError);
   });
 });
@@ -1027,12 +1029,15 @@ describe('what ships', () => {
   });
 
   /**
-   * And ships no business block either. If this fails, somebody added
-   * `blocked: true` to the matrix — which is allowed, and is a commercial
-   * decision — and this test is where they confirm they meant a commercial
-   * block and not a sanctions one, which belongs in `screening.ts`.
+   * And ships one business block, the US (OWNER 237). If this fails, somebody
+   * changed `blocked: true` in the matrix — which is allowed, and is a
+   * commercial decision — and this test is where they confirm they meant a
+   * commercial block and not a sanctions one, which belongs in `screening.ts`.
    */
-  it('ships no business block — and if one lands, it is a commercial decision, not a legal one', () => {
-    expect(screeningStatus(UNSET_SCREENING_LIST).businessBlockedRegions).toEqual([]);
+  it('ships the US business block only (OWNER 237) — a commercial decision, not a legal one', () => {
+    const status = screeningStatus(UNSET_SCREENING_LIST);
+    expect(status.businessBlockedRegions).toEqual(['US']);
+    expect(status.blockedRegions).toEqual([]);
+    expect(status.configured).toBe(false);
   });
 });

@@ -69,7 +69,7 @@ export type ScreeningDraftInput = {
   readonly writeReviewedBy?: boolean;
   /** Test seam. Production door uses `envScreeningList()`. */
   readonly screening?: ScreeningList;
-  /** Test seam. Production door uses shipped matrix blocks (currently none). */
+  /** Test seam. Production door uses shipped matrix blocks (today the US alone, OWNER 237). */
   readonly businessBlocks?: readonly BusinessBlock[];
 };
 

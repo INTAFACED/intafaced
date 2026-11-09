@@ -71,7 +71,9 @@ describe('kyc.levels.describe: the ladder (I-kyc-compliance-04)', () => {
     }
   });
 
-  it('a region where trade needs more than the floor names that level; a module the region does not offer is blocked at every level', () => {
+  // OWNER 237 (8 Nov 2026): "US block: the US is blocked at launch as well as sanctioned countries, on the existing
+  // per-country switch." The US used to block only some modules; now every feature reads blocked by region.
+  it('a region where trade needs more than the floor names that level; a region not served is blocked on every feature at every level', () => {
     const gb = ladder('basic', 'GB').levels.find((r) => r.level === 'basic')!;
     expect(gb.features.find((f) => f.feature === 'trade')).toEqual({
       feature: 'trade',
@@ -79,13 +81,17 @@ describe('kyc.levels.describe: the ladder (I-kyc-compliance-04)', () => {
       level: 'full',
       perOffer: false,
     });
-    for (const rung of ladder('institutional', 'US').levels) {
+    const us = ladder('institutional', 'US').levels;
+    expect(us.length).toBeGreaterThan(0);
+    for (const rung of us) {
       expect(rung.features.find((f) => f.feature === 'card')).toEqual({
         feature: 'card',
         state: 'blocked',
-        code: 'denied.module_blocked',
+        code: 'denied.region_blocked',
         perOffer: false,
       });
+      expect(rung.features.length).toBeGreaterThan(0);
+      for (const f of rung.features) expect(f, f.feature).toMatchObject({ state: 'blocked', code: 'denied.region_blocked' });
     }
   });
 

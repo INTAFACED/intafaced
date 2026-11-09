@@ -120,8 +120,8 @@ describe('risk-compliance screening drafts', () => {
     expect(inventedBlockedTrueList({ blocked: [{ region: 'XX', blocked: true }] })).toBe(true);
   });
 
-  it('does not invent JURISDICTION_MATRIX blocked:true from the shipped empty set', () => {
-    const result = draftScreeningSupport({ subjectId: 'user-1', region: 'US', screening: listed });
+  it('does not invent JURISDICTION_MATRIX blocked:true for a region the shipped matrix does not block', () => {
+    const result = draftScreeningSupport({ subjectId: 'user-1', region: 'CA', screening: listed });
     expect(result.status).toBe('draft');
     if (result.status !== 'draft') return;
     expect(result.businessHitCount).toBe(0);

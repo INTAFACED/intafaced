@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkAccess, KYC_TIERS, MODULES, regionsWithEntries, UNSET_SCREENING_LIST } from '@intafaced/config';
+import { businessBlockFor, checkAccess, KYC_TIERS, MODULES, regionsWithEntries, UNSET_SCREENING_LIST } from '@intafaced/config';
 
 /**
  * §22 AND §16.10, ASSERTED FROM INSIDE THE SERVICE.
@@ -52,8 +52,10 @@ describe('svc-indexer · §22 — permissionless by architecture', () => {
     expect(MODULES.indexer).toMatchObject({ service: 'svc-indexer', custodial: false, planes: ['protocol'] });
   });
 
-  it('returns allowed.permissionless for every region and every tier', () => {
-    const regions = [...regionsWithEntries(), 'DE', 'XX', 'JP', 'NG'];
+  it('returns allowed.permissionless for every served region and every tier', () => {
+    // A whole-region business block (the US, OWNER 237) is not served; it is asserted refused below.
+    const regions = [...regionsWithEntries(), 'DE', 'XX', 'JP', 'NG'].filter((r) => businessBlockFor(r) === undefined);
+    expect(regions).toEqual(expect.arrayContaining(['GB', 'DE', 'XX', 'JP', 'NG']));
     for (const region of regions) {
       for (const kycTier of KYC_TIERS) {
         const decision = checkAccess({
@@ -67,6 +69,25 @@ describe('svc-indexer · §22 — permissionless by architecture', () => {
         expect(decision.code, `${region}/${kycTier}`).toBe('allowed.permissionless');
         expect(decision.allowed).toBe(true);
       }
+    }
+  });
+
+  // OWNER 237 (8 Nov 2026): "US block: the US is blocked at launch as well as sanctioned countries, on the existing
+  // per-country switch." Zero-KYC never makes a blocked region served, and the refusal never asks for KYC.
+  it('refuses the US denied.region_blocked at every tier, blocked by the business, never asking for KYC', () => {
+    for (const kycTier of KYC_TIERS) {
+      const decision = checkAccess({
+        module: 'indexer',
+        plane: 'protocol',
+        region: 'US',
+        kycTier,
+        regionFailClosed: false,
+        screeningFailClosed: false,
+      });
+      expect(decision.allowed, kycTier).toBe(false);
+      expect(decision.code, kycTier).toBe('denied.region_blocked');
+      expect(decision.blockedBy, kycTier).toBe('business');
+      expect(decision.requiredTier, kycTier).toBeUndefined();
     }
   });
 

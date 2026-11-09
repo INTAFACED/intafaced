@@ -179,10 +179,10 @@ describe('a fully verified session (tier: full)', () => {
 
 describe('the three refusals a 403 used to hide', () => {
   it('tells "wrong region" apart from "not verified" — same status, different cause', async () => {
-    // `bank` is BLOCKED in US, at every tier. A user who verifies to full and
-    // is still refused must not be told to verify again.
+    // The US is blocked at launch on the per-country switch, at every tier (OWNER 237). A user who verifies to full
+    // and is still refused must not be told to verify again.
     const blockedRegion = await failed((await call('full', 'US')).bankRead());
-    expect(blockedRegion.code).toBe('denied.module_blocked');
+    expect(blockedRegion.code).toBe('denied.region_blocked');
     expect(blockedRegion.requiredTier).toBeUndefined();
 
     const unverified = await failed((await call('none', 'DE')).bankRead());

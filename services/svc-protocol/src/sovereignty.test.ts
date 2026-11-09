@@ -2,7 +2,15 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { checkAccess, MODULES, KYC_TIERS, regionsWithEntries, SCREENING_FAIL_CLOSED_ENV, UNSET_SCREENING_LIST } from '@intafaced/config';
+import {
+  businessBlockFor,
+  checkAccess,
+  MODULES,
+  KYC_TIERS,
+  regionsWithEntries,
+  SCREENING_FAIL_CLOSED_ENV,
+  UNSET_SCREENING_LIST,
+} from '@intafaced/config';
 import { SCOPES } from '@intafaced/auth';
 
 /**
@@ -20,7 +28,11 @@ import { SCOPES } from '@intafaced/auth';
 const here = dirname(fileURLToPath(import.meta.url));
 const serviceRoot = join(here, '..');
 
-const REGIONS = ['*', 'GB', 'US', 'DE', 'NG', 'IN', 'BR', 'JP', 'AE', 'ZA', 'ZZ', 'gb', 'us', ...regionsWithEntries()];
+const ALL_REGIONS = ['*', 'GB', 'US', 'DE', 'NG', 'IN', 'BR', 'JP', 'AE', 'ZA', 'ZZ', 'gb', 'us', ...regionsWithEntries()];
+/** Served regions. A whole-region business block (the US, OWNER 237) refuses the hosted front on every plane. */
+const REGIONS = ALL_REGIONS.filter((r) => businessBlockFor(r) === undefined);
+/** OWNER 237 (8 Nov 2026): "US block: the US is blocked at launch as well as sanctioned countries, on the existing per-country switch." */
+const BUSINESS_BLOCKED = ALL_REGIONS.filter((r) => businessBlockFor(r) !== undefined);
 
 // Structural custody/plane queries isolate §22 from deployment screening and
 // region policy. Ordinary requests keep the defaults; the control below proves
@@ -42,6 +54,30 @@ describe('§22 — zero KYC on the Protocol Plane, by architecture', () => {
     // is a different and much weaker promise.
     expect(decision.code).toBe('allowed.permissionless');
     expect(decision.requiredTier).toBeUndefined();
+  });
+
+  it('the filter keeps served regions and drops only the business-blocked US', () => {
+    expect(REGIONS).toEqual(expect.arrayContaining(['*', 'GB', 'DE', 'NG', 'ZZ', 'gb']));
+    expect([...new Set(BUSINESS_BLOCKED.map((r) => r.toUpperCase()))]).toEqual(['US']);
+  });
+
+  // §22 makes the protocol zero-KYC; it never makes a blocked region served. A business-blocked region is refused
+  // `denied.region_blocked` before the permissionless return, and is never told to verify.
+  it.each(BUSINESS_BLOCKED)('refuses %s denied.region_blocked at every tier, never asking for KYC', (region) => {
+    for (const kycTier of KYC_TIERS) {
+      const decision = checkAccess({
+        module: 'protocol',
+        plane: 'protocol',
+        kycTier,
+        region,
+        regionFailClosed: false,
+        screeningFailClosed: false,
+      });
+      expect(decision.allowed, kycTier).toBe(false);
+      expect(decision.code, kycTier).toBe('denied.region_blocked');
+      expect(decision.blockedBy, kycTier).toBe('business');
+      expect(decision.requiredTier, kycTier).toBeUndefined();
+    }
   });
 
   it.each([...KYC_TIERS])('is indifferent to verification tier "%s"', (tier) => {
