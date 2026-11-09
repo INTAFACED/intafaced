@@ -1,6 +1,6 @@
 import { earnedBuilderFeeKey, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
 import { formatAmount, type Amount } from '@intafaced/ledger-client/money';
-import { VenueRefusalError, type UserVenue, type UserVenueFill } from '@intafaced/venue-contracts';
+import { isTestVenue, VenueRefusalError, type UserVenue, type UserVenueFill } from '@intafaced/venue-contracts';
 import type { BuilderFeeStore, LoggedBuilderFee } from './builder-fee-store.js';
 
 /**
@@ -189,7 +189,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       {
         venueId,
         displayName: venue.venue.displayName,
-        test: venue.venue.proofLevel !== 'live',
+        test: isTestVenue(venue.venue),
         state: 'read',
         asOf: asOf.toISOString(),
         matched: lines.every((l) => l.status === 'matched'),
