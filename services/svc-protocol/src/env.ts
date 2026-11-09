@@ -293,6 +293,15 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
     PROTOCOL_WALLET_SESSION_TTL_SECONDS: blankIsUnset(z.coerce.number().int().min(60).max(86_400).optional()),
     PROTOCOL_WALLET_SESSION_ORIGINS: blankIsUnset(z.string().max(2000).optional()),
     /**
+     * The venue wallet connection (J-wallet-09, src/venue-wallet/connection.ts). Owner settings, NO DEFAULT:
+     * - how long a connection lasts, in seconds (30 to 2592000); blank refuses `protocol.venue_connection_ttl_unset`;
+     * - the wallet sanctions list: comma-separated EVM addresses, or `none` for a list reviewed and left empty. Blank
+     *   refuses every connect with `protocol.wallet_sanctions_unset`; a listed wallet refuses `protocol.wallet_sanctioned`.
+     * The message is sealed with the wallet session secret and written for its origins, above.
+     */
+    PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: blankIsUnset(z.string().max(64).optional()),
+    PROTOCOL_WALLET_SANCTIONS: blankIsUnset(z.string().max(100_000).optional()),
+    /**
      * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner
      * settings, NO DEFAULT: blank refuses `protocol.address_book_max_contacts_unset` / `protocol.wallet_groups_max_unset`.
      */

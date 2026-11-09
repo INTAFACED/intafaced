@@ -175,6 +175,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
 
   'trade.order_not_found': 'orderGone',
   'trade.order_not_open': 'orderGone',
+  'trade.queue_unavailable': 'tryAgain',
   'trade.convert_price_moved': 'priceMoved',
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
