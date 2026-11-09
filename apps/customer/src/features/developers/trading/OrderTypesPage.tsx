@@ -1,23 +1,22 @@
 import { StateBlock } from '@intafaced/ui';
-import { SPOT_ORDER_TYPES_PATH, spotOrderTypesSchema } from '@intafaced/contracts/spot-order-types';
+import { spotOrderTypesSchema } from '@intafaced/contracts/spot-order-types';
 import { useSession } from '../../session/session';
 import { deskCopy } from '../../../screens/trade/desk/copy';
-import { TYPE_TAB_KEY } from '../../../screens/trade/desk/OrderOptions';
 import { useRead } from '../use-read';
+import { acceptedCells, refusedName } from './order-types-view';
 import { tradingApiCopy } from './trading-api-copy';
-
-const V1 = '/api/v1';
 
 /**
  * /developers/order-types (J-cex-spot-15 #4): the spot order types the API accepts, read from svc-trade's
- * GET /api/v1/order-types and named as the trading ticket names its tabs. The ticket draws its tabs from the same
- * shared list, so the two cannot differ. A listed type the API refuses is shown with its code.
+ * GET /api/v1/order-types (`SPOT_ORDER_TYPES_PATH`; the client adds the /api/v1 base) and named as the trading ticket
+ * names its tabs. The ticket draws its tabs from the same shared list, so the two cannot differ. Each type shows one
+ * whole example body; a listed type the API refuses is shown with its code.
  */
 export function OrderTypesPage({ title }: { title: string }) {
   const { t } = tradingApiCopy.useCopy();
   const desk = deskCopy.useCopy();
   const { api } = useSession();
-  const { read, reload } = useRead((signal) => api.rest(SPOT_ORDER_TYPES_PATH.slice(V1.length), spotOrderTypesSchema, { signal }), [api]);
+  const { read, reload } = useRead((signal) => api.rest('/order-types', spotOrderTypesSchema, { signal }), [api]);
   return (
     <div className="pub-page" data-testid="developers-order-types">
       <header className="pub-heading">
@@ -40,19 +39,30 @@ export function OrderTypesPage({ title }: { title: string }) {
                     <th scope="col">{t('colBodyType')}</th>
                     <th scope="col">{t('colFields')}</th>
                     <th scope="col">{t('colTif')}</th>
+                    <th scope="col">{t('colNote')}</th>
+                    <th scope="col">{t('colExample')}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {read.data.accepted.map((row) => (
-                    <tr key={row.id} data-type={row.id}>
-                      <th scope="row">{desk.t(TYPE_TAB_KEY[row.id])}</th>
-                      <td>
-                        <code>{row.send.type.join(' | ')}</code>
-                      </td>
-                      <td>{row.send.fields.length ? <code>{row.send.fields.join(', ')}</code> : t('noFields')}</td>
-                      <td>{row.timeInForce.join(', ')}</td>
-                    </tr>
-                  ))}
+                  {read.data.accepted.map((row) => {
+                    const cells = acceptedCells(row, t, desk.t);
+                    return (
+                      <tr key={row.id} data-type={row.id}>
+                        <th scope="row">{cells.name}</th>
+                        <td>
+                          <code>{cells.bodyType}</code>
+                        </td>
+                        <td>{cells.fields ? <code>{cells.fields}</code> : t('noFields')}</td>
+                        <td>{cells.timeInForce}</td>
+                        <td>{cells.note}</td>
+                        <td>
+                          <pre>
+                            <code>{cells.example}</code>
+                          </pre>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -70,7 +80,7 @@ export function OrderTypesPage({ title }: { title: string }) {
               <tbody>
                 {read.data.refused.map((row) => (
                   <tr key={row.id} data-type={row.id}>
-                    <th scope="row">{t(`refused_${row.id}` as const)}</th>
+                    <th scope="row">{refusedName(row, desk.t)}</th>
                     <td>
                       <code>{row.code}</code>
                     </td>

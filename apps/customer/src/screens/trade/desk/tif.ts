@@ -68,6 +68,26 @@ const REFUSED_KEY = { trailing_stop: 'trailingStop' } as const;
 export const UNSUPPORTED_TYPES = SPOT_REFUSED_ORDER_TYPES.map((id) => REFUSED_KEY[id]);
 export type UnsupportedType = (typeof REFUSED_KEY)[keyof typeof REFUSED_KEY];
 
+/** The ticket's name for each type tab, in the shared list's order (`SPOT_TICKET_ORDER_TYPES`): desk copy keys. */
+export const TYPE_TAB_KEY = {
+  limit: 'Limit',
+  stop_limit: 'Order type stopLimit',
+  stop_market: 'Order type stopMarket',
+  oco: 'Order type oco',
+  bracket: 'Order type bracket',
+  oto: 'Order type oto',
+  market: 'Market',
+} as const satisfies Record<OrderType, string>;
+
+/** The ticket's name for each kind it lists as unavailable (desk copy keys), by the ticket's own id. */
+export const REFUSED_TAB_KEY = { trailingStop: 'Order type trailingStop' } as const satisfies Record<UnsupportedType, string>;
+
+/** The same names by the shared list's id, so the portal names a refused kind exactly as the ticket does. */
+export const REFUSED_NAME_KEY = Object.fromEntries(SPOT_REFUSED_ORDER_TYPES.map((id) => [id, REFUSED_TAB_KEY[REFUSED_KEY[id]]])) as Record<
+  (typeof SPOT_REFUSED_ORDER_TYPES)[number],
+  (typeof REFUSED_TAB_KEY)[UnsupportedType]
+>;
+
 /** What the order itself says it is, for the tables: nothing for a plain limit or market, a short tag otherwise. */
 export function orderTag(order: Pick<Order, 'timeInForce' | 'postOnly'>): 'PO' | 'IOC' | 'FOK' | 'GTD' | 'GTT' | null {
   if (order.postOnly || order.timeInForce === 'PO') return 'PO';

@@ -33,7 +33,7 @@ import {
   type Loadable,
 } from './deps';
 import { SPOT_TICKET_ORDER_TYPES } from '@intafaced/contracts/spot-order-types';
-import { MoreOrderTypes, TYPE_TAB_KEY, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
+import { MoreOrderTypes, SelfTradeSelect, TagField, TifSelect } from './OrderOptions';
 import { useLivePreview } from './live-preview';
 import type { DeskMarket } from './market';
 import {
@@ -78,7 +78,7 @@ import { placesOf } from './text';
 import { problemText } from './problem-text';
 import { draftOf } from './draft-of';
 import { reviewIdFor } from './review-id';
-import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, type Tif } from './tif';
+import { expiryIsFuture, expiryOf, outcomeOf, tifLabelKey, tifOfDraft, tifFor, TYPE_TAB_KEY, type Tif } from './tif';
 
 const PERCENTS = [25, 50, 75, 100] as const;
 

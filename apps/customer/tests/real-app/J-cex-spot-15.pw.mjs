@@ -63,10 +63,11 @@ test(`${J} #3 reads the bot policy: "Bot policy: not yet published" until it is,
   const CLAIM = /\b(?:bots? (?:are|is) (?:allowed|permitted)|you may (?:run|use) a bot|permission to run a bot is granted)\b/i;
   await expect(page.getByRole('main')).not.toContainText(CLAIM);
   await expect(page.getByRole('main')).toContainText('Nothing on this site grants permission to run a bot.');
+  // The machine-readable variant is static, so it states no policy either way: it names the live read instead.
   const markdown = await page.request.get('/developers/bot-policy.md');
   expect(markdown.status()).toBe(200);
   const text = await markdown.text();
-  expect(text).toContain('Bot policy: not yet published');
+  expect(text).toContain('GET /api/trade/developer-portal/bot-policy');
   expect(text).not.toMatch(CLAIM);
 });
 
@@ -88,6 +89,9 @@ test(`${J} #4 reads which order types the API accepts: the same list the ticket 
     published.accepted.map((row) => row.id),
   );
   const docNames = (await accepted.locator('th').allInnerTexts()).map((name) => name.trim());
+  // Each row shows the API's own example body for that type, whole.
+  const examples = await accepted.locator('pre').allInnerTexts();
+  expect(examples.map((text) => JSON.parse(text))).toEqual(published.accepted.map((row) => row.send.example));
   const refused = page.getByTestId('order-types-refused').locator('tbody tr');
   await expect(refused).toHaveCount(published.refused.length);
   const docRefused = (await refused.locator('th').allInnerTexts()).map((name) => name.trim());

@@ -9,7 +9,7 @@ import { AUTH_ERRORS_PATH } from '@intafaced/contracts/auth-errors';
 import { TRADE_ERROR_CATALOGUE } from '@intafaced/contracts/trade-errors';
 import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import { deskCopy } from '../../screens/trade/desk/copy';
-import { TYPE_TAB_KEY } from '../../screens/trade/desk/OrderOptions';
+import { acceptedCells, refusedName } from './trading/order-types-view';
 import { tradingApiCopy } from './trading/trading-api-copy';
 import { developersCopy } from './developers-copy';
 import { rateLimitsCopy } from './rate-limits/rate-limits-copy';
@@ -312,24 +312,28 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     summary: trading('typesLead'),
     body: () => {
       const types = spotOrderTypes();
+      const rows = types.accepted.map((row) => ({ row, cells: acceptedCells(row, trading, desk) }));
       return [
         trading('typesLead'),
         trading('typesStaticNote'),
         `## ${trading('typesTitle')}`,
         table(
-          [trading('colType'), trading('colBodyType'), trading('colFields'), trading('colTif')],
-          types.accepted.map((row) => [
-            desk(TYPE_TAB_KEY[row.id]),
-            code(row.send.type.join(' | ')),
-            row.send.fields.length ? code(row.send.fields.join(', ')) : trading('noFields'),
-            row.timeInForce.join(', '),
+          [trading('colType'), trading('colBodyType'), trading('colFields'), trading('colTif'), trading('colNote')],
+          rows.map(({ cells }) => [
+            cells.name,
+            code(cells.bodyType),
+            cells.fields ? code(cells.fields) : trading('noFields'),
+            cells.timeInForce,
+            cells.note,
           ]),
         ),
+        `## ${trading('exampleTitle')}`,
+        ...rows.map(({ cells }) => `### ${cells.name}\n\n\`\`\`json\n${cells.example}\n\`\`\``),
         `## ${trading('refusedTitle')}`,
         trading('refusedLead'),
         table(
           [trading('colType'), trading('colCode')],
-          types.refused.map((row) => [trading(`refused_${row.id}`), code(row.code)]),
+          types.refused.map((row) => [refusedName(row, desk), code(row.code)]),
         ),
       ].join('\n\n');
     },
@@ -338,8 +342,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     slug: 'bot-policy',
     title: sectionTitle('bot-policy'),
     summary: trading('botLead'),
-    body: () =>
-      [trading('botLead'), trading('botStaticNote'), `**${trading('botUnpublished')}**`, trading('botUnpublishedBody')].join('\n\n'),
+    body: () => [trading('botLead'), trading('botStaticNote')].join('\n\n'),
   },
 ];
 
