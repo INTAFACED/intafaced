@@ -1078,3 +1078,34 @@ test('U4 review fix (planted): a review finding that quotes the step words is wi
   assert.match(log, /finding withheld/);
   for (const secret of ['deposit exactly', 'private balance', 'hidden page']) assert.ok(!log.includes(secret), secret);
 });
+
+test('a 403 from project-state says why: GitHub message and rate-limit headers, no body beyond the message (#1571)', async () => {
+  const { readWordsApi } = await import('./test-judge.mjs');
+  const realFetch = globalThis.fetch;
+  const reset = 1762682400;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ message: 'API rate limit exceeded for user ID 1.', documentation_url: 'https://docs.github.com/x' }), {
+      status: 403,
+      headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-limit': '5000', 'x-ratelimit-reset': String(reset) },
+    });
+  try {
+    await assert.rejects(readWordsApi('t'), (e) => {
+      assert.match(e.message, /^GitHub 403 on GET \/repos\/INTAFACED\/project-state\/commits\/main: /);
+      assert.match(e.message, /"API rate limit exceeded for user ID 1\."/);
+      assert.match(e.message, /rate limit 0 of 5000 left/);
+      assert.match(e.message, new RegExp(`resets ${new Date(reset * 1000).toISOString()}`));
+      assert.doesNotMatch(e.message, /documentation_url|docs\.github/);
+      assert.match(e.message, /stopping, not retrying$/);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test('a 403 whose body is not JSON keeps 200 characters of it, on one line', async () => {
+  const { refusal } = await import('./test-judge.mjs');
+  const text = 'blocked\n' + 'x'.repeat(500);
+  const out = refusal({ headers: new Headers() }, text);
+  assert.equal(out, `"blocked ${'x'.repeat(192)}"`);
+});
