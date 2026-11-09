@@ -13,8 +13,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE }) => ({
     // The clocks below have no default and the service will not boot without them; they are LOCAL TEST
     // values (the figures the service's own messages name), not owner decisions.
     // LOCAL_TEST_KMS is this service only. The key file is written under the stack state dir on first boot.
-    LOCAL_TEST_KMS: '1',
-    LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms'),
+    // `LOCAL_STACK_P2P_KEY_STORE=off` on a start or restart leaves it out, as production is until the owner switches a key
+    // store on, so the add control's owner-decision notice can be seen (J-p2p-04 #3).
+    ...(process.env.LOCAL_STACK_P2P_KEY_STORE === 'off' ? {} : { LOCAL_TEST_KMS: '1', LOCAL_TEST_KMS_DIR: path.join(STATE, 'p2p-kms') }),
     P2P_FEE_BPS: '0',
     P2P_ESCROW_DEADLINE_SECONDS: '120',
     // 180, not the 900 a person would get: the order-history journey waits for a real payment timeout.

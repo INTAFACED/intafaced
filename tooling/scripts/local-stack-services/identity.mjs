@@ -130,7 +130,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_LOCALHOST_ORI
     IDENTITY_NEW_DEVICE_CHECK: testValue('IDENTITY_NEW_DEVICE_CHECK'),
     IDENTITY_NEW_DEVICE_TTL_SECONDS: testValue('IDENTITY_NEW_DEVICE_TTL_SECONDS'),
     IDENTITY_NEW_DEVICE_MAX_ATTEMPTS: testValue('IDENTITY_NEW_DEVICE_MAX_ATTEMPTS'),
-    IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS'),
+    // `LOCAL_STACK_IDENTITY_MFA_RESET_WAIT=off` on a start or restart leaves the reset's waiting time blank, as production is
+    // until the owner sets it, so its refusal pointing to Support can be seen (J-identity-05 #2).
+    ...(process.env.LOCAL_STACK_IDENTITY_MFA_RESET_WAIT === 'off'
+      ? {}
+      : { IDENTITY_MFA_RESET_WAIT_SECONDS: testValue('IDENTITY_MFA_RESET_WAIT_SECONDS') }),
     IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS: testValue('IDENTITY_SELF_FREEZE_LIFT_WAIT_SECONDS'),
     // LOCAL TEST: a trade-ops operator may restrict one account's trading with a second person's approval (J-identity-08 #7).
     // Off by default, where identity keeps refusing the change with operator.denied.
