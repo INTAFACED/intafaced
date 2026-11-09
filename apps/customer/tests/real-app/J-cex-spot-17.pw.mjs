@@ -1,4 +1,4 @@
-// World: book, gates
+// World: book, gates, restart
 import { test, expect } from './journey.mjs';
 import { approverSessions, makeContext, setFeeSchedule } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { EDGE, api, bestPrices, fromUnits, fund, otherTrader, times, toUnits } from './stack.mjs';
@@ -173,123 +173,252 @@ async function proposeApproveWrite({ a, b, edit, reason }) {
   return { version, effectiveAt: await written.getAttribute('data-effective-at'), text: await written.innerText() };
 }
 
-// ── helpers for an order that rests across a version change (as J-cex-spot-10 #10 places and fills one) ──
+// ── the TEST venue (J-cex-spot-17 #1 #3, adapted: we hold no customer money, so our fee is the builder fee the customer's
+// own order carries on an outside venue, reached through svc-trade's user-venue door) ──
 
-/** The account's own fills of order `id`, once the service has settled at least one. */
-async function fillsOf(client, symbol, id) {
+import { keccak256, toHex } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { tool } from './stack.mjs';
+
+/** The stack's TEST venue simulator, on loopback (local-test-stack.mjs PORTS['test-venue']), for its TEST controls only. */
+const TEST_VENUE = 'http://127.0.0.1:14560';
+/** The setting that turns svc-trade's user-venue door on and starts the TEST venue (local-stack-services/trade.mjs). */
+const VENUE_SWITCH = 'LOCAL_STACK_USER_VENUE';
+/** The market our TEST builder-fee versions put in a group of its own. Every other market of the venue takes the default group. */
+const VENUE_SPOT = 'BTC-USDC';
+const BUILDER_SPOT = 'test-builder-spot';
+const BUILDER_ALL = 'test-builder-all';
+
+/** Trade restarted with the door switched `value` (on or off); this process's environment is put back as it was. */
+function restartTradeWithVenue(value) {
+  const before = process.env[VENUE_SWITCH];
+  process.env[VENUE_SWITCH] = value;
+  try {
+    tool('local-test-stack.mjs', 'restart', 'trade');
+  } finally {
+    if (before === undefined) delete process.env[VENUE_SWITCH];
+    else process.env[VENUE_SWITCH] = before;
+  }
+}
+
+// The door is on for this file and off after it, so every other file in the shard sees it as it was. A worker that exits
+// before afterAll switches it off on its way out; one killed outright (SIGKILL, out of memory) runs no handler.
+let venueOn = false;
+const venueOffOnExit = () => {
+  if (!venueOn) return;
+  venueOn = false;
+  try {
+    restartTradeWithVenue('off');
+  } catch {
+    /* the worker is exiting: a failed switch-off has no one left to report to */
+  }
+};
+test.beforeAll(() => {
+  test.setTimeout(240_000);
+  venueOn = true;
+  process.once('exit', venueOffOnExit);
+  restartTradeWithVenue('on');
+});
+test.afterAll(() => {
+  test.setTimeout(240_000);
+  restartTradeWithVenue('off');
+  venueOn = false;
+  process.off('exit', venueOffOnExit);
+});
+
+/** One TEST control call on the TEST venue itself (a deposit, or an outside participant's own signed action). */
+async function testVenue(path, body) {
+  const res = await fetch(`${TEST_VENUE}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  expect(res.status, JSON.stringify(json).slice(0, 300)).toBe(200);
+  return json;
+}
+
+/** A TEST wallet key derived from a public name: it holds nothing outside the TEST venue's memory. */
+function testWallet(name) {
+  const key = privateKeyToAccount(keccak256(toHex(`intafaced TEST ${J} wallet ${name}`)));
+  const address = key.address.toLowerCase();
+  const sign = async (typed) =>
+    key.signTypedData({ domain: typed.domain, types: typed.types, primaryType: typed.primaryType, message: typed.message });
+  return { address, signer: { role: 'owner', address }, sign };
+}
+
+/** The door's status for a signed-in customer: on, the TEST venue it reaches, and our builder address. */
+async function venueDoor(client) {
+  const { status, body } = await client.get('/api/v1/venue/status');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  expect(body).toMatchObject({ enabled: true, available: true, test: true, label: 'TEST' });
+  expect(body.builder?.address, 'our builder address (LOCAL TEST owner value)').toMatch(/^0x[0-9a-f]{40}$/);
+  return { venueId: body.venue.id, builder: body.builder.address };
+}
+
+/** The venue's own builder-fee cap on `symbol`, as the venue publishes it, read through the door. */
+async function venueCap(client, symbol) {
+  const { status, body } = await client.get('/api/v1/venue/markets');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const market = body.value.find((m) => m.symbol === symbol);
+  expect(market?.builderFeeCapBps, `${symbol}'s cap as the venue publishes it`).toMatchObject({ known: true });
+  return market.builderFeeCapBps.value;
+}
+
+/** SCHEDULE with TEST builder fees on `venueId`: BTC-USDC in a group at `spotBps`, every other market at 0.5 bps. */
+const withBuilderFees = (venueId, spotBps) => ({
+  ...SCHEDULE,
+  builderFees: {
+    [venueId]: {
+      defaultGroup: BUILDER_ALL,
+      marketGroups: { [VENUE_SPOT]: BUILDER_SPOT },
+      groups: { [BUILDER_ALL]: '0.5', [BUILDER_SPOT]: spotBps },
+    },
+  },
+});
+
+/** A builder-fee line in the room: venue, group and version. */
+const builderRow = (page, venueId, group, version) =>
+  page.locator(
+    `[data-fees=builder-versions] [data-builder-venue="${venueId}"] [data-builder-group="${group}"] tr[data-version="v${version}"]`,
+  );
+
+/** A post-only sell of `amount` BTC at `price` on BTC-USDC, keyed by its business key. */
+const venueSell = (owner, price, amount, n) => ({
+  kind: 'place_order',
+  symbol: VENUE_SPOT,
+  side: 'sell',
+  type: 'limit',
+  amount,
+  price,
+  timeInForce: 'ALO',
+  reduceOnly: false,
+  clientOrderKey: `order:${owner}:js17-${n}`,
+  builderFee: null,
+});
+
+/** The customer prepares `intent` through the door, their wallet signs exactly what was prepared, and the door sends it. */
+async function signAndSend(client, wallet, intent, actionKey) {
+  const prepared = await client.post('/api/v1/venue/prepare', {
+    owner: wallet.address,
+    signer: wallet.signer,
+    intent,
+    ...(actionKey ? { actionKey } : {}),
+  });
+  expect(prepared.status, JSON.stringify(prepared.body).slice(0, 400)).toBe(200);
+  const p = prepared.body.prepared;
+  const sent = await client.post('/api/v1/venue/submit', {
+    actionKey: prepared.body.actionKey,
+    signature: { digest: p.digest, signature: await wallet.sign(p.typedData), signedBy: wallet.address },
+  });
+  expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
+  expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
+  return { prepared: p, outcome: sent.body.outcome };
+}
+
+/** What the venue would charge for `intent` on the customer's account now, as the venue previews it through the door. */
+async function venuePreview(client, owner, intent) {
+  const { status, body } = await client.post('/api/v1/venue/preview', { owner, intent });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.value;
+}
+
+/** An outside TEST trader buys `amount` BTC at `price` with an IOC on the TEST venue directly, signing their own order. */
+async function outsideBuy(venueId, price, amount, n) {
+  const trader = testWallet(`outside buyer ${n}`);
+  const account = { venueId, owner: trader.address, subAccount: null };
+  await testVenue('/test/deposit', { account, asset: 'USDC', amount: '2000', depositRef: `84532:js17-outside-${n}:0` });
+  const intent = { ...venueSell(trader.address, price, amount, `outside-${n}`), side: 'buy', timeInForce: 'IOC' };
+  const prepared = await testVenue('/prepare', { account, signer: trader.signer, intent });
+  const signature = await trader.sign(prepared.typedData);
+  const sent = await testVenue('/submit', { prepared, signature: { digest: prepared.digest, signature, signedBy: trader.address } });
+  expect(sent, JSON.stringify(sent).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+}
+
+/** The venue's fills of the customer's order (by its venue client id), as the venue reports them through the door. */
+async function venueFillsOf(client, owner, venueClientOrderId, since) {
   let fills = [];
   await expect
     .poll(
       async () => {
-        const { status, body } = await client.get(`/api/v1/account/trades?symbol=${encodeURIComponent(symbol)}&limit=100`);
-        expect(status).toBe(200);
-        fills = (Array.isArray(body) ? body : (body.trades ?? [])).filter((f) => f.order === id);
+        const { status, body } = await client.get(`/api/v1/venue/fills?owner=${owner}&since=${encodeURIComponent(since)}`);
+        expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+        fills = body.value.filter((f) => f.venueClientOrderId === venueClientOrderId);
         return fills.length;
       },
-      { timeout: 30_000 },
+      { timeout: 15_000 },
     )
     .toBeGreaterThan(0);
   return fills;
 }
 
-/**
- * A post-only IFC/USDT buy 3% under the best bid, below the house ladder, so it rests until sold into. `who` is first
- * funded with the order's own cost at that price plus 5% (whole USDT, rounded up), so the hold never depends on a guessed balance.
- */
-async function restingIfcBuy(who, client, amount, clientOrderId) {
-  const { bid } = await bestPrices('IFC/USDT');
-  const price = fromUnits(((toUnits(bid) * 97n) / 100n / 10n ** 14n) * 10n ** 14n);
-  const cost = times(price, amount);
-  // Whole USDT, rounded up: the cost plus 5%, so any fill price at or under the limit stays covered.
-  const one = toUnits('1');
-  fund(who.email, 'USDT', fromUnits(((cost * 105n) / 100n / one + 1n) * one));
-  const placed = await client.post('/api/v1/orders', {
-    symbol: 'IFC/USDT',
-    side: 'buy',
-    type: 'limit',
-    amount,
-    price,
-    timeInForce: 'PO',
-    clientOrderId,
-  });
-  expect(placed.status, JSON.stringify(placed.body).slice(0, 300)).toBeLessThan(300);
-  return { id: placed.body.id, price, amount };
+/** price × amount × bps / 10000, exactly (the figures here are chosen so no rounding is needed). */
+function builderFeeOn(price, amount, bps) {
+  const scaled = times(price, amount) * toUnits(bps);
+  const per = toUnits('1') * 10_000n;
+  expect(scaled % per, 'a TEST figure that needs no rounding').toBe(0n);
+  return fromUnits(scaled / per);
 }
 
-/**
- * Another TEST trader sells into `who`'s resting IFC/USDT buy with an IOC, through any house bids at or above its price,
- * until nothing of `who`'s rests. An IOC that stops short while the buy rests at its price is a matching fault.
- */
-async function sellInto(who, { id, price }, clientOrderId) {
-  const until = Date.now() + 30_000;
-  for (let round = 1; ; round += 1) {
-    const resting = (await openOrders(who, 'IFC/USDT')).find((o) => o.id === id);
-    if (!resting || Date.now() >= until) break;
-    const { body } = await bestPrices('IFC/USDT');
-    const ahead = body.bids.filter(([p]) => toUnits(p) >= toUnits(price)).reduce((sum, [, size]) => sum + toUnits(size), 0n);
-    const size = fromUnits(ahead + toUnits(resting.remaining));
-    const seller = otherTrader();
-    fund(seller.email, 'IFC', size);
-    const sell = await (
-      await api(seller)
-    ).post('/api/v1/orders', {
-      symbol: 'IFC/USDT',
-      side: 'sell',
-      type: 'limit',
-      amount: size,
-      price,
-      timeInForce: 'IOC',
-      clientOrderId: round === 1 ? clientOrderId : `${clientOrderId}-${round}`,
-    });
-    expect(sell.status, JSON.stringify(sell.body).slice(0, 300)).toBeLessThan(300);
-    const still = (await openOrders(who, 'IFC/USDT')).find((o) => o.id === id);
-    const whole = toUnits(sell.body.filled) === toUnits(size);
-    expect(!still || whole, `IOC round ${round} left ${id} resting: ${JSON.stringify(sell.body).slice(0, 300)}`).toBe(true);
-  }
-  await expect.poll(async () => (await openOrders(who, 'IFC/USDT')).length, { timeout: 30_000 }).toBe(0);
-}
+/** The same decimal, whatever its trailing zeros. */
+const sameAmount = (x, y) => toUnits(String(x)) === toUnits(String(y));
 
 // ── the steps ──
 
-test(`${J} #1 opens fee versions by pair group: current and previous versions with effective times, exact rates`, async ({ browser }) => {
+test(`${J} #1 opens builder-fee versions by venue and market group: current and previous versions with effective times, exact rates`, async ({
+  page,
+  browser,
+}) => {
   test.setTimeout(180_000);
-  // Two TEST versions, one after the other: IFC/USDT's group at maker 0.05%, then at 0.04%.
-  const previous = await publish(changeTo('5'), 'IFC/USDT maker 0.05%, the previous version', { after: await latestEffective() });
-  const current = await publish(changeTo('4'), 'IFC/USDT maker 0.04%, the current version', { after: previous.effectiveAt });
+  // The venue the door reaches, and the cap it publishes on BTC-USDC, as a signed-in customer reads them through the door.
+  const who = await fundedTrader(page, 'js17b', '1');
+  const client = await api(who);
+  const { venueId } = await venueDoor(client);
+  const cap = await venueCap(client, VENUE_SPOT);
+  // Two TEST builder-fee versions on that venue, one after the other: BTC-USDC's group at 1.5 bps, then at 2 bps.
+  const previous = await publish(withBuilderFees(venueId, '1.5'), 'TEST builder fee 1.5 bps, the previous version', {
+    after: await latestEffective(),
+  });
+  const current = await publish(withBuilderFees(venueId, '2'), 'TEST builder fee 2 bps, the current version', {
+    after: previous.effectiveAt,
+  });
   const a = await room(browser, 'a');
   try {
-    const versions = a.page.locator('[data-fees=versions]');
-    await expect(versions.locator(`[data-pair-group="${GROUP}"]`)).toContainText('IFC/USDT');
+    // The venue's own cap, beside the versions: the figure the venue publishes, read from it, labelled TEST.
+    const caps = a.page.locator('[data-fees=builder-caps]');
+    await expect(caps).toHaveAttribute('data-venue', venueId);
+    await expect(caps).toContainText('TEST');
+    expect(cap).toBe('100');
+    await expect(caps.locator(`tr[data-builder-cap="${VENUE_SPOT}"] td`)).toHaveText(['spot', '1.00% (100 bps)']);
 
-    // The test group: the current version and the one before it, each with its effective time and exact rates.
-    const now = versionRow(a.page, GROUP, current.version);
+    // BTC-USDC's group on that venue: the current version and the one before it, each with its effective time and exact rate.
+    await expect(a.page.locator(`[data-builder-venue="${venueId}"] [data-builder-group="${BUILDER_SPOT}"]`)).toContainText(
+      `Markets: ${VENUE_SPOT}`,
+    );
+    const now = builderRow(a.page, venueId, BUILDER_SPOT, current.version);
     await expect(now).toHaveAttribute('data-state', 'current');
-    await expect(now.locator('td')).toHaveText(['Current', shown(current.effectiveAt), 'regular', rate(4), rate(10), 'not set', 'none']);
-    const before = versionRow(a.page, GROUP, previous.version);
+    await expect(now.locator('td')).toHaveText(['Current', shown(current.effectiveAt), '0.02% (2 bps)']);
+    const before = builderRow(a.page, venueId, BUILDER_SPOT, previous.version);
     await expect(before).toHaveAttribute('data-state', 'previous');
-    await expect(before.locator('td')).toHaveText([
-      'Previous',
-      shown(previous.effectiveAt),
-      'regular',
-      rate(5),
-      rate(10),
-      'not set',
-      'none',
-    ]);
-
-    // Every other market's group in the same version, its regular and TEST VIP rows at their exact rates.
-    await expect(versionRow(a.page, 'all-others', current.version).locator('td')).toHaveText([
+    await expect(before.locator('td')).toHaveText(['Previous', shown(previous.effectiveAt), '0.015% (1.5 bps)']);
+    // Every other market of the venue, in the default group of the same version, at its exact rate.
+    await expect(builderRow(a.page, venueId, BUILDER_ALL, current.version).locator('td')).toHaveText([
       'Current',
       shown(current.effectiveAt),
-      'regular',
-      rate(8),
-      rate(10),
-      'not set',
-      'none',
+      '0.005% (0.5 bps)',
     ]);
-    await expect(versionRow(a.page, 'all-others', current.version, 'test-vip-1').locator('td').nth(3)).toHaveText(rate(6));
-    // What the room calls current is what customers are charged now.
-    expect((await published()).body.version).toBe(`v${current.version}`);
+
+    // What the room calls current is what an order on the venue carries now: the venue's own preview of a resting
+    // BTC-USDC sell (0.01 at 90000, far above any bid) prices our builder fee at 2 bps of its notional.
+    const preview = await venuePreview(
+      client,
+      testWallet(`preview ${who.handle}`).address,
+      venueSell('preview', '90000', '0.01', 'preview'),
+    );
+    expect(preview.role).toBe('maker');
+    expect(preview.builderFee.known).toBe(true);
+    expect(preview.builderFee.value.asset).toBe('USDC');
+    expect(sameAmount(preview.builderFee.value.amount, builderFeeOn('90000', '0.01', '2'))).toBe(true);
   } finally {
     await a.close();
   }
@@ -327,80 +456,138 @@ test(`${J} #2 proposes a new version with a blank taker fee: refused with a type
   }
 });
 
-test(`${J} #3 proposes a complete version, a second operator approves: written with an effective time, and an open order keeps its placement version`, async ({
+test(`${J} #3 proposes a complete builder-fee version; a second operator approves: effective from its time, never above the venue's cap; open orders keep the fee they were signed with`, async ({
   page,
   browser,
 }) => {
-  // A resting order, a four-eyes write two minutes ahead, a wait until it takes effect, and a fill after it.
-  test.setTimeout(360_000);
+  // A resting venue order, a refused proposal above the cap, a four-eyes write two minutes ahead, a wait until it takes
+  // effect, and two fills after it: the order signed before, and one signed after.
+  test.setTimeout(420_000);
   const tag = Date.now().toString(36);
-  const placedUnder = await publish(changeTo('4'), 'IFC/USDT maker 0.04%, before the change', { after: await latestEffective() });
-  const who = await fundedTrader(page, 'js17', '100');
+  const who = await fundedTrader(page, 'js17v', '1');
   const client = await api(who);
+  const { venueId, builder } = await venueDoor(client);
+  const cap = await venueCap(client, VENUE_SPOT);
+  const placedUnder = await publish(withBuilderFees(venueId, '2'), 'TEST builder fee 2 bps, before the change', {
+    after: await latestEffective(),
+  });
+
+  // The customer's own wallet account on the venue: TEST-funded with BTC, and our builder approved up to 5 bps.
+  const wallet = testWallet(`customer ${who.handle}`);
+  await testVenue('/test/deposit', {
+    account: { venueId, owner: wallet.address, subAccount: null },
+    asset: 'BTC',
+    amount: '0.02',
+    depositRef: `84532:js17-${tag}:0`,
+  });
+  await signAndSend(
+    client,
+    wallet,
+    { kind: 'approve_builder_fee', builder, maxFeeBps: '5' },
+    `approve-builder:${wallet.address}:js17-${tag}`,
+  );
+
+  // A sell inside the spread (no other bid at or above it, no other ask at or under it), so it rests until bought, and an
+  // outside buyer at its price meets only it.
+  const PRICE = '60007';
+  const AMOUNT = '0.01';
+  expect((await venuePreview(client, wallet.address, venueSell(wallet.address, PRICE, AMOUNT, 'check'))).role).toBe('maker');
+  const ahead = await venuePreview(client, wallet.address, {
+    ...venueSell(wallet.address, PRICE, AMOUNT, 'check'),
+    side: 'buy',
+    timeInForce: 'IOC',
+  });
+  expect(sameAmount(ahead.venueFee.value.amount, '0'), `another ask rests at or under ${PRICE}`).toBe(true);
+
   const a = await room(browser, 'a');
   const b = await room(browser, 'b');
   try {
-    // A customer's order placed now, under the version in force (maker 0.04%), resting across the change.
-    const order = await restingIfcBuy(who, client, '200', `js17-before-${tag}`);
-    expect((await openOrders(who, 'IFC/USDT')).map((o) => o.id)).toContain(order.id);
+    // The order, signed now under the version in force: the venue rests it with the 2 bps it was signed with.
+    const first = await signAndSend(client, wallet, venueSell(wallet.address, PRICE, AMOUNT, `${tag}-1`));
+    expect(first.prepared.builderFee.builder).toBe(builder);
+    expect(sameAmount(first.prepared.builderFee.feeBps, '2')).toBe(true);
+    const venueOrderId = first.outcome.venueRef;
+    expect(venueOrderId).toBeTruthy();
+    const open = await client.get(`/api/v1/venue/orders/open?owner=${wallet.address}`);
+    expect(open.body.value.map((o) => o.venueOrderId)).toContain(venueOrderId);
 
-    // A proposes IFC/USDT's group at maker 0.02% from a stated time; B approves; A writes it.
+    // Never above the venue's cap: a version at 1 bp over the cap the venue publishes is refused on the page, by its code,
+    // and nothing is sent.
+    const form = a.page.locator('[data-fees=propose]');
+    await expect(form).toContainText(`Starts from v${placedUnder.version}`);
+    const sent = [];
+    const watch = (req) => req.method() !== 'GET' && sent.push(`${req.method()} ${new URL(req.url()).pathname}`);
+    a.page.on('request', watch);
+    const over = fromUnits(toUnits(cap) + toUnits('1'));
+    await form.getByLabel(`Builder fee bps, ${venueId} / ${BUILDER_SPOT}`).fill(over);
+    await form.getByLabel('Takes effect at (UTC)').fill(typed(Date.now() + 3_600_000));
+    await form.getByLabel('Reason (12 to 500 characters, kept in the audit)').fill(`LOCAL TEST ${J}: a builder fee above the cap`);
+    await form.getByRole('button', { name: 'Ask a second founder to approve' }).click();
+    const refusal = a.page.locator('[data-fees=refused]');
+    await expect(refusal).toContainText('trade.builder_fee_above_venue_cap');
+    await expect(refusal).toContainText(`is ${over} bps, above the venue's cap of ${cap} bps on ${VENUE_SPOT}`);
+    await expect(refusal).toContainText('Nothing was sent.');
+    await a.page.waitForTimeout(1_500);
+    expect(sent).toEqual([]);
+    a.page.off('request', watch);
+
+    // A complete version, BTC-USDC's group at 3 bps from a stated time; B approves; A writes it.
     const effectiveMs = Math.ceil((Date.now() + 120_000) / 1_000) * 1_000;
     await a.page.reload();
     const written = await proposeApproveWrite({
       a: a.page,
       b: b.page,
-      reason: `LOCAL TEST ${J}: IFC/USDT maker 0.02% from a stated time`,
-      edit: async (form) => {
-        await expect(form).toContainText(`Starts from v${placedUnder.version}`);
-        await form.getByLabel(`Maker bps, ${GROUP} / regular`).fill('2');
-        await form.getByLabel('Takes effect at (UTC)').fill(typed(effectiveMs));
+      reason: `LOCAL TEST ${J}: builder fee 3 bps from a stated time`,
+      edit: async (f) => {
+        await expect(f).toContainText(`Starts from v${placedUnder.version}`);
+        await f.getByLabel(`Builder fee bps, ${venueId} / ${BUILDER_SPOT}`).fill('3');
+        await f.getByLabel('Takes effect at (UTC)').fill(typed(effectiveMs));
       },
     });
     expect(written.effectiveAt).toBe(new Date(effectiveMs).toISOString());
-    expect(written.text).toContain(`Written: v${written.version}, takes effect ${shown(effectiveMs)}.`);
     expect(Date.now()).toBeLessThan(effectiveMs);
 
-    // The room lists it as scheduled, with its time and rates, beside the version in force.
+    // Scheduled, beside the version in force; and before its time the venue still prices a new order at 2 bps.
     await a.page.reload();
-    const next = versionRow(a.page, GROUP, written.version);
+    const next = builderRow(a.page, venueId, BUILDER_SPOT, written.version);
     await expect(next).toHaveAttribute('data-state', 'scheduled');
-    await expect(next.locator('td')).toHaveText(['Scheduled', shown(effectiveMs), 'regular', rate(2), rate(10), 'not set', 'none']);
-    await expect(versionRow(a.page, GROUP, placedUnder.version)).toHaveAttribute('data-state', 'current');
-    // Writing a schedule moved nothing: the order still rests, unfilled.
-    expect((await openOrders(who, 'IFC/USDT')).map((o) => o.id)).toContain(order.id);
+    await expect(next.locator('td')).toHaveText(['Scheduled', shown(effectiveMs), '0.03% (3 bps)']);
+    await expect(builderRow(a.page, venueId, BUILDER_SPOT, placedUnder.version)).toHaveAttribute('data-state', 'current');
+    const early = await venuePreview(client, wallet.address, venueSell(wallet.address, PRICE, AMOUNT, 'early'));
+    expect(sameAmount(early.builderFee.value.amount, builderFeeOn(PRICE, AMOUNT, '2'))).toBe(true);
+    // Writing a version moved nothing: the order still rests, unfilled.
+    expect((await client.get(`/api/v1/venue/orders/open?owner=${wallet.address}`)).body.value.map((o) => o.venueOrderId)).toContain(
+      venueOrderId,
+    );
 
-    // It takes effect at the stated time, and the room then calls it current.
+    // Effective from its time: once it has passed, the room calls it current and the venue prices a new order at 3 bps.
     await expect
       .poll(async () => (await published()).body.version, { timeout: effectiveMs - Date.now() + 30_000 })
       .toBe(`v${written.version}`);
     expect(Date.now()).toBeGreaterThanOrEqual(effectiveMs);
     await a.page.reload();
-    await expect(versionRow(a.page, GROUP, written.version)).toHaveAttribute('data-state', 'current');
-    await expect(versionRow(a.page, GROUP, placedUnder.version)).toHaveAttribute('data-state', 'previous');
+    await expect(builderRow(a.page, venueId, BUILDER_SPOT, written.version)).toHaveAttribute('data-state', 'current');
+    await expect(builderRow(a.page, venueId, BUILDER_SPOT, placedUnder.version)).toHaveAttribute('data-state', 'previous');
+    const late = await venuePreview(client, wallet.address, venueSell(wallet.address, PRICE, AMOUNT, 'late'));
+    expect(sameAmount(late.builderFee.value.amount, builderFeeOn(PRICE, AMOUNT, '3'))).toBe(true);
 
-    // The order placed before then fills after it, and pays the maker rate of the version it was placed under.
-    await sellInto(who, order, `${J}-3-${order.id}`);
-    const fills = await fillsOf(client, 'IFC/USDT', order.id);
-    for (const fill of fills) {
-      expect(fill.takerOrMaker).toBe('maker');
-      expect(fill.fee).toMatchObject({ currency: 'IFC', rate: '0.0004' });
-    }
-    // A new order is checked at the new version's rate.
-    const check = await client.post('/api/v1/orders/preview', {
-      symbol: 'IFC/USDT',
-      side: 'buy',
-      type: 'limit',
-      amount: order.amount,
-      price: order.price,
-      timeInForce: 'PO',
-    });
-    expect(check.status, JSON.stringify(check.body).slice(0, 300)).toBe(200);
-    expect(check.body).toMatchObject({ feeRole: 'maker', feeBps: 2, feeScheduleVersion: `v${written.version}` });
+    // The order signed before the change fills after it, and the venue charges it the 2 bps it was signed with.
+    const since = new Date(Date.now() - 60_000).toISOString();
+    await outsideBuy(venueId, PRICE, AMOUNT, `${tag}-1`);
+    const [kept] = await venueFillsOf(client, wallet.address, first.prepared.venueClientOrderId, since);
+    expect(kept.role).toBe('maker');
+    expect(sameAmount(kept.builderFee, builderFeeOn(PRICE, AMOUNT, '2'))).toBe(true);
+
+    // An order signed after the effective time carries the new builder fee, and so does its fill.
+    const second = await signAndSend(client, wallet, venueSell(wallet.address, PRICE, AMOUNT, `${tag}-2`));
+    expect(sameAmount(second.prepared.builderFee.feeBps, '3')).toBe(true);
+    await outsideBuy(venueId, PRICE, AMOUNT, `${tag}-2`);
+    const [fresh] = await venueFillsOf(client, wallet.address, second.prepared.venueClientOrderId, since);
+    expect(sameAmount(fresh.builderFee, builderFeeOn(PRICE, AMOUNT, '3'))).toBe(true);
   } finally {
     await a.close();
     await b.close();
-    await restore('IFC/USDT back in the default pair group');
+    await restore('the stack schedule back, without TEST builder fees');
   }
 });
 

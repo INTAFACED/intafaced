@@ -15,6 +15,7 @@ import {
   loadFeesDesk,
   proposeFeeSchedule,
   publishFeeNotice,
+  readBuilderCaps,
   readFeeHistory,
   requestFeeNoticePublish,
   writeFeeSchedule,
@@ -63,7 +64,10 @@ async function proposalBody(ctx: TradeCtx, body: Record<string, unknown>): Promi
     );
   if (basis !== read.data.version)
     return refused('fee_schedule_stale', `The versions changed since you read them (now v${read.data.version}). Read them again.`, 409);
-  const check = buildProposal(base, draft, str(body.reason), new Date());
+  // A version that sets builder fees is checked against the venue's own cap, read now through svc-trade's door; a cap
+  // that cannot be read refuses it (buildProposal), and svc-trade checks it again when it writes.
+  const caps = 'builderFees' in base.schedule || (draft.builderFees ?? []).length > 0 ? await readBuilderCaps(ctx) : null;
+  const check = buildProposal(base, draft, str(body.reason), new Date(), caps?.kind === 'ok' ? caps.data : null);
   if (!check.ok) return bad(check.code, check.message);
   return ok({
     schedule: check.schedule,

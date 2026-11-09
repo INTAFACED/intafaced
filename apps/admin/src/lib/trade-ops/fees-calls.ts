@@ -5,6 +5,7 @@ import { parseApproval } from './approvals-parse';
 import { edgeCall, trpcSpec, type TradeCtx } from './edge';
 import { ok, type Outcome } from './outcome';
 import { parseFeeHistory, type FeeHistory, type FeeVersionRow } from './fees-versions-model';
+import { parseBuilderCaps, type BuilderCaps } from './builder-fees-model';
 import {
   parseConvertQuotes,
   parseConvertSettings,
@@ -170,3 +171,10 @@ export function publishFeeNotice(
     ),
   );
 }
+
+/**
+ * svc-trade `admin.fees.builderCaps`: the venue's own cap on a builder fee per market, read from the venue through the
+ * user-venue door (J-cex-spot-17 #3). Refused (`trade.user_venue_off`) when the door is off.
+ */
+export const readBuilderCaps = (ctx: TradeCtx): Promise<Outcome<BuilderCaps>> =>
+  edgeCall(ctx, trpcSpec('trade', 'admin.fees.builderCaps', 'query', undefined, parseBuilderCaps));
