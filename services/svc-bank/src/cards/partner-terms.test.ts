@@ -209,7 +209,9 @@ describe('the TEST partner card details, PIN and wallet switch (J-bank-14 #3, #4
     expect(withSecrets.revealCredentials && withSecrets.setPin && withSecrets.verifyPin && withSecrets.provisionWallet).toBeTruthy();
     const without = cardSim({ partner: cardSimPartnerFor(json({}), DEV) });
     expect(without.testSecrets).toBeUndefined();
-    expect(without.revealCredentials ?? without.revealPin ?? without.setPin ?? without.verifyPin ?? without.provisionWallet).toBeUndefined();
+    expect(
+      without.revealCredentials ?? without.revealPin ?? without.setPin ?? without.verifyPin ?? without.provisionWallet,
+    ).toBeUndefined();
   });
 
   it('refuses any other secrets value, and the switch outside dev or test', () => {
