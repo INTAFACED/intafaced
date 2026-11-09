@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -14,12 +14,15 @@ import type { CardIssuerAdapter } from './issuer.js';
  * wrong codes locks the challenge, and no authorisation is made. The right code approves it, and the purchase's
  * authorisation is driven once, under the business key `3ds:<challenge ref>`: a second answer, a retry after a crash
  * between the approval and the authorisation, or two answers at once all reach the same authorisation (`authorize` is
- * idempotent on its reference, and the row is locked while it is answered). Money moves only inside `authorize`, on
- * whichever book holds this person's card money (OWNER 226); nothing here posts.
+ * idempotent on its reference, and the row is locked while it is answered). An approved challenge whose authorisation
+ * was never written (a crash, or `authorize` refusing) is finished by `answer` with no code. The authorisation's own
+ * decision is shown with the challenge: an approved code is not a purchase that went through. Money moves only inside
+ * `authorize`, on whichever book holds this person's card money (OWNER 226); nothing here posts.
  *
- * A fraud report is the cardholder saying they did not make one card payment. Filing it freezes the card, as the person's
- * own lock, and opens one case for that payment; filing again returns the same case. Nothing here moves money: what the
- * partner does with the payment is a dispute, which support works (`card-disputes.ts`).
+ * A fraud report is the cardholder saying they did not make one approved card payment. Filing it freezes the card, as
+ * the person's own lock, and opens one case for that payment: the payment is the business key, so filing again returns
+ * the same case. Nothing here moves money: what the partner does with the payment is a dispute, which support works
+ * (`card-disputes.ts`).
  */
 
 export type ThreeDSState = 'open' | 'approved' | 'locked';
@@ -33,10 +36,13 @@ export interface ThreeDSChallengeView {
   readonly merchant: string | null;
   readonly merchantCountry: string | null;
   readonly state: ThreeDSState;
-  /** Wrong codes left before the challenge locks; 0 once it is locked. */
-  readonly triesLeft: number;
+  /** Wrong codes left before the challenge locks; 0 once it is decided; null while the owner has not set the count. */
+  readonly triesLeft: number | null;
   /** The authorisation this challenge completed, once approved. */
   readonly authorizationId: string | null;
+  /** That authorisation's decision: an approved code can still meet a declined purchase (a limit, a block, the balance). */
+  readonly decision: 'approved' | 'declined' | null;
+  readonly declineCode: string | null;
   readonly createdAt: string;
   /**
    * The TEST partner's code for this challenge, while it is open, so the TEST stack can be answered: a real partner sends
@@ -82,6 +88,8 @@ function sameCode(typed: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+const notFound = () => new BankError('No such 3D Secure challenge on this card', 'bank.card_3ds_not_found');
+
 export interface CardSafetyDeps {
   readonly sql: Sql;
   readonly issuer: CardIssuerAdapter;
@@ -89,7 +97,9 @@ export interface CardSafetyDeps {
   readonly tryLimit: number | null;
   /** The card, read as this person's (`bank.card_not_found` otherwise). */
   readonly ownedCard: (cardId: string, userId: string) => Promise<{ id: string; userId: string; issuerRef: string; status: string }>;
-  readonly card: (cardId: string) => Promise<{ id: string; userId: string; issuerRef: string }>;
+  readonly card: (cardId: string) => Promise<{ id: string; userId: string; issuerRef: string; status: string }>;
+  /** Whether the card can authorise now (active, activated, uses left). */
+  readonly usable: (card: { id: string; status: string }) => Promise<boolean>;
   /** `CardService.authorize`, idempotent on its reference. */
   readonly authorize: (input: {
     cardId: string;
@@ -100,7 +110,9 @@ export interface CardSafetyDeps {
     merchantCategory?: string;
     channel: 'online';
   }) => Promise<{ id: string }>;
-  readonly authorizationCard: (authorizationId: string) => Promise<string | null>;
+  readonly authorization: (
+    authorizationId: string,
+  ) => Promise<{ cardId: string; decision: 'approved' | 'declined'; declineCode: string | null } | null>;
   /** `CardService.setStatus(cardId, 'frozen', userId)`: the person's own lock. */
   readonly freeze: (cardId: string, userId: string) => Promise<void>;
 }
@@ -115,11 +127,12 @@ export class CardSafety {
   }
 
   private async view(row: ChallengeRow, issuerRef: string): Promise<ThreeDSChallengeView> {
-    const limit = this.deps.tryLimit ?? 0;
+    const limit = this.deps.tryLimit;
     const testCode =
       row.state === 'open' && this.deps.issuer.testSecrets && this.deps.issuer.threeDSCode
         ? (await this.deps.issuer.threeDSCode({ cardId: row.card_id, issuerRef, challengeId: row.id })).code
         : null;
+    const authorization = row.authorization_id ? await this.deps.authorization(row.authorization_id) : null;
     return {
       id: row.id,
       cardId: row.card_id,
@@ -128,16 +141,27 @@ export class CardSafety {
       merchant: row.merchant,
       merchantCountry: row.merchant_country,
       state: row.state,
-      triesLeft: row.state === 'open' ? Math.max(limit - row.wrong_codes, 0) : 0,
+      triesLeft: row.state !== 'open' ? 0 : limit === null ? null : Math.max(limit - row.wrong_codes, 0),
       authorizationId: row.authorization_id,
+      decision: authorization?.decision ?? null,
+      declineCode: authorization?.declineCode ?? null,
       createdAt: new Date(row.created_at).toISOString(),
       testCode,
     };
   }
 
+  private async row(sql: Sql, challengeId: string, cardId: string, lock = false): Promise<ChallengeRow | undefined> {
+    const rows = await sql.unsafe<ChallengeRow[]>(
+      `SELECT ${CHALLENGE_COLUMNS} FROM bank.card_3ds_challenges WHERE id = $1 AND card_id = $2${lock ? ' FOR UPDATE' : ''}`,
+      [challengeId, cardId],
+    );
+    return rows[0];
+  }
+
   /**
    * THE ISSUER'S SIDE: the partner asks the cardholder to confirm an online purchase. One challenge per card and
-   * reference; the same reference again returns it, and with different terms refuses `bank.card_3ds_conflict`.
+   * reference; the same reference again returns it, and with different terms, or a challenge id already used for another
+   * purchase, refuses `bank.card_3ds_conflict`. A card that cannot authorise now is not asked (`bank.card_not_active`).
    */
   async open(input: {
     challengeId: string;
@@ -154,18 +178,26 @@ export class CardSafety {
     const merchant = input.merchant ?? null;
     const country = input.merchantCountry?.toUpperCase() ?? null;
     const category = input.merchantCategory ?? null;
+    const conflict = () => new BankError('This challenge was already opened for a different purchase', 'bank.card_3ds_conflict');
+    const existing = await this.deps.sql.unsafe<ChallengeRow[]>(
+      `SELECT ${CHALLENGE_COLUMNS} FROM bank.card_3ds_challenges WHERE card_id = $1 AND challenge_ref = $2`,
+      [card.id, input.challengeRef],
+    );
+    if (!existing[0] && !(await this.deps.usable(card))) throw new BankError('This card is not active', 'bank.card_not_active');
     await this.deps.sql`
       INSERT INTO bank.card_3ds_challenges (id, card_id, user_id, challenge_ref, amount, merchant, merchant_country, merchant_category)
       VALUES (${input.challengeId}, ${card.id}, ${card.userId}, ${input.challengeRef}, ${amount}, ${merchant}, ${country}, ${category})
-      ON CONFLICT (card_id, challenge_ref) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
     const rows = await this.deps.sql.unsafe<ChallengeRow[]>(
       `SELECT ${CHALLENGE_COLUMNS} FROM bank.card_3ds_challenges WHERE card_id = $1 AND challenge_ref = $2`,
       [card.id, input.challengeRef],
     );
-    const row = rows[0]!;
+    const row = rows[0];
+    // No row under this reference: the challenge id was already taken by another purchase.
+    if (!row) throw conflict();
     if (row.amount !== amount || row.merchant !== merchant || row.merchant_country !== country || row.merchant_category !== category) {
-      throw new BankError('This challenge reference was already opened for a different purchase', 'bank.card_3ds_conflict');
+      throw conflict();
     }
     return this.view(row, card.issuerRef);
   }
@@ -181,51 +213,53 @@ export class CardSafety {
   }
 
   /**
-   * The person answers a challenge. A wrong code counts once and, at the owner's count, locks it; a locked challenge
-   * checks no more codes. The right code approves it and completes the purchase's authorisation once.
+   * The person answers a challenge. A wrong code counts once and, at the owner's count, locks it; a decided challenge
+   * checks no more codes. The right code approves it and completes the purchase's authorisation once. With no code, an
+   * approved challenge whose authorisation was never written is finished; an open one refuses `bank.card_3ds_code_missing`.
    */
-  async answer(input: { cardId: string; userId: string; challengeId: string; code: string }): Promise<ThreeDSChallengeView> {
+  async answer(input: { cardId: string; userId: string; challengeId: string; code?: string }): Promise<ThreeDSChallengeView> {
     const card = await this.deps.ownedCard(input.cardId, input.userId);
-    const source = this.codeSource();
-    const limit = this.deps.tryLimit;
-    if (limit === null) {
-      throw new BankError(
-        'The owner has not set how many wrong 3D Secure codes lock a challenge (BANK_CARD_3DS_TRY_LIMIT)',
-        'bank.card_3ds_try_limit_unset',
-      );
-    }
-    const { code: expected } = await source({ cardId: card.id, issuerRef: card.issuerRef, challengeId: input.challengeId });
+    const seen = await this.row(this.deps.sql, input.challengeId, card.id);
+    if (!seen) throw notFound();
 
-    const decided = await transaction(this.deps.sql, async (tx) => {
-      const rows = await tx.unsafe<ChallengeRow[]>(
-        `SELECT ${CHALLENGE_COLUMNS} FROM bank.card_3ds_challenges WHERE id = $1 AND card_id = $2 FOR UPDATE`,
-        [input.challengeId, card.id],
-      );
-      const row = rows[0];
-      if (!row) throw new BankError('No such 3D Secure challenge on this card', 'bank.card_3ds_not_found');
-      if (row.state !== 'open') return row;
-      if (sameCode(input.code, expected)) {
-        const [approved] = await tx.unsafe<ChallengeRow[]>(
-          `UPDATE bank.card_3ds_challenges SET state = 'approved', decided_at = now() WHERE id = $1 RETURNING ${CHALLENGE_COLUMNS}`,
-          [row.id],
+    let decided = seen;
+    if (seen.state === 'open') {
+      const limit = this.deps.tryLimit;
+      if (limit === null) {
+        throw new BankError(
+          'The owner has not set how many wrong 3D Secure codes lock a challenge (BANK_CARD_3DS_TRY_LIMIT)',
+          'bank.card_3ds_try_limit_unset',
         );
-        return approved!;
       }
-      const wrong = row.wrong_codes + 1;
-      const [counted] = await tx.unsafe<ChallengeRow[]>(
-        `UPDATE bank.card_3ds_challenges
-            SET wrong_codes = $2, state = $3, decided_at = CASE WHEN $3 = 'locked' THEN now() ELSE decided_at END
-          WHERE id = $1 RETURNING ${CHALLENGE_COLUMNS}`,
-        [row.id, wrong, wrong >= limit ? 'locked' : 'open'],
-      );
-      return counted!;
-    });
+      if (input.code === undefined) throw new BankError('Enter the code the card partner sent you', 'bank.card_3ds_code_missing');
+      const typed = input.code;
+      const { code: expected } = await this.codeSource()({ cardId: card.id, issuerRef: card.issuerRef, challengeId: seen.id });
+      decided = await transaction(this.deps.sql, async (tx) => {
+        const row = await this.row(tx, seen.id, card.id, true);
+        if (!row) throw notFound();
+        if (row.state !== 'open') return row;
+        if (sameCode(typed, expected)) {
+          const [approved] = await tx.unsafe<ChallengeRow[]>(
+            `UPDATE bank.card_3ds_challenges SET state = 'approved', decided_at = now() WHERE id = $1 RETURNING ${CHALLENGE_COLUMNS}`,
+            [row.id],
+          );
+          return approved!;
+        }
+        const wrong = row.wrong_codes + 1;
+        const [counted] = await tx.unsafe<ChallengeRow[]>(
+          `UPDATE bank.card_3ds_challenges
+              SET wrong_codes = $2, state = $3, decided_at = CASE WHEN $3 = 'locked' THEN now() ELSE decided_at END
+            WHERE id = $1 RETURNING ${CHALLENGE_COLUMNS}`,
+          [row.id, wrong, wrong >= limit ? 'locked' : 'open'],
+        );
+        return counted!;
+      });
+    }
 
     if (decided.state !== 'approved' || decided.authorization_id !== null) return this.view(decided, card.issuerRef);
 
-    // Approved and not yet authorised: drive the purchase's authorisation, once, under the challenge's business key. A
-    // crash between the approval above and the write below is finished by the next answer, which reaches the same
-    // authorisation.
+    // Approved and not yet authorised: drive the purchase's authorisation, once, under the challenge's business key. If
+    // it throws, the challenge stays approved with no authorisation, and the next answer (with no code) finishes it.
     const authorization = await this.deps.authorize({
       cardId: card.id,
       authorizationRef: threeDSAuthorizationRef(decided.challenge_ref),
@@ -243,16 +277,20 @@ export class CardSafety {
   }
 
   /**
-   * The person reports a card payment they did not make: the card is frozen as their own lock and one case opens for
-   * that payment. Filing again for the same payment returns the same case (and freezes again if it was unfrozen).
+   * The person reports an approved card payment they did not make: the card is frozen as their own lock and one case
+   * opens for that payment. Reporting the same payment again returns the same case (and freezes again if it was unfrozen).
+   * A declined payment moved nothing and is not reported (`bank.card_authorization_declined`).
    */
-  async reportFraud(input: { cardId: string; userId: string; authorizationId: string; reportId: string }): Promise<FraudReportView> {
+  async reportFraud(input: { cardId: string; userId: string; authorizationId: string }): Promise<FraudReportView> {
     const card = await this.deps.ownedCard(input.cardId, input.userId);
-    const onCard = await this.deps.authorizationCard(input.authorizationId);
-    if (onCard !== card.id) throw new BankError('No such card payment on this card', 'bank.card_authorization_not_found');
+    const payment = await this.deps.authorization(input.authorizationId);
+    if (payment?.cardId !== card.id) throw new BankError('No such card payment on this card', 'bank.card_authorization_not_found');
+    if (payment.decision !== 'approved') {
+      throw new BankError('A declined payment moved nothing, so there is no fraud to report on it', 'bank.card_authorization_declined');
+    }
     await this.deps.sql`
       INSERT INTO bank.card_fraud_reports (id, card_id, user_id, authorization_id)
-      VALUES (${input.reportId}, ${card.id}, ${input.userId}, ${input.authorizationId})
+      VALUES (${randomUUID()}, ${card.id}, ${input.userId}, ${input.authorizationId})
       ON CONFLICT (authorization_id) DO NOTHING
     `;
     if (card.status === 'active') await this.deps.freeze(card.id, input.userId);

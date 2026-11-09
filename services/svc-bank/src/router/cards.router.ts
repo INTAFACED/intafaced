@@ -46,8 +46,12 @@ const threeDSChallengeOutput = z.object({
   merchant: z.string().nullable(),
   merchantCountry: z.string().nullable(),
   state: z.enum(['open', 'approved', 'locked']),
-  triesLeft: z.number().int(),
+  /** Null while the owner has not set the count (answering refuses `bank.card_3ds_try_limit_unset`). */
+  triesLeft: z.number().int().nullable(),
   authorizationId: z.string().nullable(),
+  /** The completed authorisation's own decision: an approved code can still meet a declined purchase. */
+  decision: z.enum(['approved', 'declined']).nullable(),
+  declineCode: z.string().nullable(),
   createdAt: z.string(),
   testCode: z.string().nullable(),
 });
@@ -655,7 +659,11 @@ export function createCardsRouter(c: BankRouterContext) {
           z.object({
             cardId: z.string().guid(),
             challengeId: z.string().guid(),
-            code: z.string().regex(/^\d{4,8}$/),
+            /** Omitted only to finish an approved challenge whose authorisation was never written. */
+            code: z
+              .string()
+              .regex(/^\d{4,8}$/)
+              .optional(),
           }),
         )
         .output(threeDSChallengeOutput)
@@ -665,19 +673,19 @@ export function createCardsRouter(c: BankRouterContext) {
               cardId: input.cardId,
               userId: ctx.principal.userId,
               challengeId: input.challengeId,
-              code: input.code,
+              ...(input.code === undefined ? {} : { code: input.code }),
             }),
           ),
         ),
     }),
 
     /**
-     * Report fraud on a card payment (J-bank-14 #7): the card is frozen as the person's own lock and one case opens for
-     * that payment. `reportId` is the idempotency key; the same payment reported again returns its case.
+     * Report fraud on an approved card payment (J-bank-14 #7): the card is frozen as the person's own lock and one case
+     * opens for that payment. The payment is the business key: reported again, it returns its case.
      */
     fraud: router({
       report: scopedProcedure('bank:write', { module: 'bank' })
-        .input(z.object({ cardId: z.string().guid(), authorizationId: z.string().guid(), reportId: z.string().guid() }))
+        .input(z.object({ cardId: z.string().guid(), authorizationId: z.string().guid() }))
         .output(fraudReportOutput)
         .mutation(async ({ ctx, input }) =>
           guard(async () =>
@@ -685,7 +693,6 @@ export function createCardsRouter(c: BankRouterContext) {
               cardId: input.cardId,
               userId: ctx.principal.userId,
               authorizationId: input.authorizationId,
-              reportId: input.reportId,
             }),
           ),
         ),

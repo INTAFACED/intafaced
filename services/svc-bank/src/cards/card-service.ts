@@ -630,7 +630,14 @@ export class CardService {
       ownedCard: (cardId, userId) => this.ownedCard(cardId, userId),
       card: (cardId) => this.card(cardId),
       authorize: (input) => this.authorize(input),
-      authorizationCard: async (authorizationId) => (await this.authorizationById(authorizationId))?.cardId ?? null,
+      usable: async (card) => {
+        const record = await this.card(card.id);
+        return record.status === 'active' && !cardInactive(record);
+      },
+      authorization: async (authorizationId) => {
+        const found = await this.authorizationById(authorizationId);
+        return found ? { cardId: found.cardId, decision: found.decision, declineCode: found.declineCode } : null;
+      },
       freeze: async (cardId, userId) => {
         await this.setStatus(cardId, 'frozen', userId);
       },

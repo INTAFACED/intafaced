@@ -1065,8 +1065,12 @@ export const cardThreeDSChallengeSchema = z.object({
   merchant: z.string().nullable(),
   merchantCountry: z.string().nullable(),
   state: z.enum(['open', 'approved', 'locked']),
-  triesLeft: z.number().int(),
+  /** Null while the owner has not set the count. */
+  triesLeft: z.number().int().nullable(),
   authorizationId: z.string().nullable(),
+  /** The completed authorisation's own decision: an approved code can still meet a declined purchase. */
+  decision: z.enum(['approved', 'declined']).nullable(),
+  declineCode: z.string().nullable(),
   createdAt: z.string(),
   testCode: z.string().nullable(),
 });

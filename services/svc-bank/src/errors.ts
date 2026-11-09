@@ -382,6 +382,8 @@ export type BankErrorCode =
   | 'bank.card_3ds_not_found'
   /** This challenge reference was already opened for a different purchase. Nothing changed. */
   | 'bank.card_3ds_conflict'
+  /** An open challenge was answered with no code. Nothing was counted. */
+  | 'bank.card_3ds_code_missing'
   /**
    * No live issuer can push a card into Apple Pay or Google Pay.
    * The missing piece is `socket.live-issuer`.

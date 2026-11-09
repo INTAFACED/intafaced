@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { z } from 'zod';
 import type { ApiResult } from '../../shared/api';
 import { Button, Field } from '../../shared/ui';
@@ -7,6 +7,7 @@ import { ResourceView, useBankRead } from './components';
 import { bankWrites, type cardSchema, type CardThreeDSChallenge } from './contracts';
 import { DepthPanel } from './DepthParts';
 import { Refusal } from './CardJourney';
+import { DeclineReason } from './CardBlocks';
 import { cardSafetyCopy } from './card-safety-copy';
 import { withPlainRefusal } from './money-refusal-copy';
 
@@ -58,16 +59,14 @@ function ThreeDSChallenge({ card, challenge, reload }: { card: CardRecord; chall
     merchant: challenge.merchant ?? t('threeDSAnyMerchant'),
   });
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!/^\d{4,8}$/.test(code)) return setInvalid(true);
-    setInvalid(false);
+  /** With a code, the answer; with none, finishing an approved check whose purchase did not go through. */
+  async function send(typed: string | null) {
     setBusy(true);
     setFailure(null);
     const done = await api.mutate(
       'bank',
       'cards.threeDS.answer',
-      { cardId: card.id, challengeId: challenge.id, code },
+      { cardId: card.id, challengeId: challenge.id, ...(typed === null ? {} : { code: typed }) },
       bankWrites['cards.threeDS.answer'],
     );
     setBusy(false);
@@ -76,13 +75,36 @@ function ThreeDSChallenge({ card, challenge, reload }: { card: CardRecord; chall
     setWrong(done.data.state === 'open' ? done.data.triesLeft : null);
     reload();
   }
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!/^\d{4,8}$/.test(code)) return setInvalid(true);
+    setInvalid(false);
+    await send(code);
+  }
 
   return (
     <li data-challenge={challenge.challengeRef} data-state={challenge.state}>
       <p>{at}</p>
-      {challenge.state === 'approved' && <p role="status">{t('threeDSApproved')}</p>}
+      {challenge.state === 'approved' && challenge.decision === 'approved' && <p role="status">{t('threeDSApproved')}</p>}
+      {challenge.state === 'approved' && challenge.decision === 'declined' && (
+        <>
+          <p role="status">{t('threeDSDeclined')}</p>
+          {challenge.declineCode && <DeclineReason code={challenge.declineCode} />}
+        </>
+      )}
+      {challenge.state === 'approved' && challenge.authorizationId === null && (
+        <>
+          <p role="status">{t('threeDSUnfinished')}</p>
+          <div className="actions">
+            <Button disabled={busy} onClick={() => void send(null)}>
+              {t('threeDSFinish')}
+            </Button>
+          </div>
+        </>
+      )}
+      {challenge.state === 'open' && challenge.triesLeft === null && <p role="status">{t('threeDSLimitUnset')}</p>}
       {challenge.state === 'locked' && <p role="status">{t('threeDSLocked')}</p>}
-      {challenge.state === 'open' && (
+      {challenge.state === 'open' && challenge.triesLeft !== null && (
         <form className="form-stack" onSubmit={(event) => void submit(event)}>
           {challenge.testCode && <p className="money-caption">{t('threeDSTestCode', { code: challenge.testCode })}</p>}
           <p className="money-caption" role="status">
@@ -116,16 +138,13 @@ export function CardFraudPanel({ card }: { card: CardRecord }) {
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
   const [locked, setLocked] = useState(false);
+  // A report locks the card here at once; once the card's own status is read again, that status speaks instead.
+  useEffect(() => setLocked(false), [card.status]);
 
   async function report(authorizationId: string) {
     setBusy(true);
     setFailure(null);
-    const done = await api.mutate(
-      'bank',
-      'cards.fraud.report',
-      { cardId: card.id, authorizationId, reportId: crypto.randomUUID() },
-      bankWrites['cards.fraud.report'],
-    );
+    const done = await api.mutate('bank', 'cards.fraud.report', { cardId: card.id, authorizationId }, bankWrites['cards.fraud.report']);
     setBusy(false);
     if (!done.ok) return setFailure(withPlainRefusal(done));
     setLocked(true);
@@ -140,7 +159,7 @@ export function CardFraudPanel({ card }: { card: CardRecord }) {
             const reported = new Map(open.map((r) => [r.authorizationId, r]));
             return (
               <>
-                {(locked || (open.length > 0 && card.status !== 'active')) && <p role="status">{t('fraudLocked')}</p>}
+                {(locked || (open.length > 0 && card.status === 'frozen')) && <p role="status">{t('fraudLocked')}</p>}
                 {open.length > 0 && (
                   <ul aria-label={t('fraudCases')}>
                     {open.map((r) => (

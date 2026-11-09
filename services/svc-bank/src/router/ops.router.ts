@@ -705,10 +705,15 @@ export function createOpsRouter(c: BankRouterContext) {
       .output(z.object({ challengeId: z.string(), state: z.enum(['open', 'approved', 'locked']), confirmOperatorId: z.string() }))
       .mutation(async ({ input }) =>
         guard(async () => {
+          // The founders' approval binds the whole purchase the cardholder will be asked about: the merchant parts too.
           const confirmOperatorId = await consumeOpsApproval(input, 'bank.card_3ds_challenge', {
             cardId: input.cardId,
+            challengeId: input.challengeId,
             challengeRef: input.challengeRef,
             amount: input.amount,
+            ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
           });
           const challenge = await bank.cards.safety.open({
             challengeId: input.challengeId,

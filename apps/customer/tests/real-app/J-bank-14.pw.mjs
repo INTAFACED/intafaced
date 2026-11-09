@@ -530,13 +530,16 @@ test(`${J} #4 adds the card to a mobile wallet: one token row in state added; a 
 
 /** The issuer's 3D Secure request for an online purchase, through the ops door with the founders' approval. */
 function challengeFor(amount, merchant) {
-  const bound = { cardId: cardId(), challengeRef: `jb14-3ds-${randomUUID()}`, amount };
-  return cardEvent(
-    'bank.card_3ds_challenge',
-    'ops.cardThreeDSChallenge',
-    { ...bound, challengeId: randomUUID(), merchant, merchantCountry: 'DE' },
-    bound,
-  ).then((opened) => ({ ...opened, ref: bound.challengeRef }));
+  // The founders' approval binds the whole purchase the cardholder is asked about, merchant parts too.
+  const bound = {
+    cardId: cardId(),
+    challengeId: randomUUID(),
+    challengeRef: `jb14-3ds-${randomUUID()}`,
+    amount,
+    merchant,
+    merchantCountry: 'DE',
+  };
+  return cardEvent('bank.card_3ds_challenge', 'ops.cardThreeDSChallenge', bound).then((opened) => ({ ...opened, ref: bound.challengeRef }));
 }
 /** The TEST partner's code for one challenge, as the card room shows it. */
 async function testCodeIn(item) {
@@ -621,7 +624,7 @@ test(`${J} #7 reports fraud on a card payment: the card is locked, a fraud case 
   const listed = await api.query('cards.fraud.list', { cardId: cardId() });
   expect(listed).toMatchObject({ ok: true });
   expect(listed.data.reports).toEqual([expect.objectContaining({ authorizationId: paid.id, state: 'open' })]);
-  const again = await api.mutate('cards.fraud.report', { cardId: cardId(), authorizationId: paid.id, reportId: randomUUID() });
+  const again = await api.mutate('cards.fraud.report', { cardId: cardId(), authorizationId: paid.id });
   expect(again).toMatchObject({ ok: true, data: { id: listed.data.reports[0].id } });
   expect(await buy(cardId(), '1')).toMatchObject({ decision: 'declined' });
   await page.reload();

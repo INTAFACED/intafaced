@@ -797,6 +797,18 @@ describe('customer card procedures (PG-hard)', () => {
     expect((await challenge('3ds-ok')).challengeId).toBe(opened.challengeId);
     await expect(challenge('3ds-ok', '8')).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.card_3ds_conflict' }) });
 
+    // A challenge id already used for another purchase refuses by name, and opens nothing.
+    await expect(
+      ops.ops.cardThreeDSChallenge({
+        cardId,
+        challengeId: opened.challengeId,
+        challengeRef: '3ds-other',
+        amount: '7',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.card_3ds_conflict' }) });
+
     const [listed] = (await user.cards.threeDS.list({ cardId })).challenges;
     expect(listed).toMatchObject({
       id: opened.challengeId,
@@ -813,8 +825,7 @@ describe('customer card procedures (PG-hard)', () => {
     const once = await user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: wrong });
     expect(once).toMatchObject({ state: 'open', triesLeft: 2, authorizationId: null });
     const approved = await user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: right });
-    expect(approved.state).toBe('approved');
-    expect(approved.testCode).toBeNull();
+    expect(approved).toMatchObject({ state: 'approved', decision: 'approved', declineCode: null, testCode: null });
     // Answered again, or at once by two answers, it is the same one authorisation and one hold.
     const [again, racing] = await Promise.all([
       user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: right }),
@@ -875,10 +886,54 @@ describe('customer card procedures (PG-hard)', () => {
     // A crash between the approval and the authorisation: the row says approved and holds no authorisation.
     await sql`UPDATE bank.card_3ds_challenges SET state = 'approved' WHERE id = ${opened.challengeId}`;
     expect(await bank.cards.authorizationsOf(cardId, 50)).toHaveLength(0);
-    const finished = await user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId, code: '000000' });
-    expect(finished.state).toBe('approved');
+    const finished = await user.cards.threeDS.answer({ cardId, challengeId: opened.challengeId });
+    expect(finished).toMatchObject({ state: 'approved', decision: 'approved' });
     expect(finished.authorizationId).not.toBeNull();
-    expect(await bank.cards.authorizationsOf(cardId, 50)).toHaveLength(1);
+
+    // A right code on a purchase the card then declines (over the per-purchase cap) shows the decline, not success.
+    const big = await ops.ops.cardThreeDSChallenge({
+      cardId,
+      challengeId: randomUUID(),
+      challengeRef: '3ds-over-cap',
+      amount: '150',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    const bigCode = (await user.cards.threeDS.list({ cardId })).challenges.find((c) => c.id === big.challengeId)!.testCode!;
+    expect(await user.cards.threeDS.answer({ cardId, challengeId: big.challengeId, code: bigCode })).toMatchObject({
+      state: 'approved',
+      decision: 'declined',
+      declineCode: 'bank.card_limit_exceeded',
+    });
+    // An open challenge answered with no code refuses by name and counts nothing.
+    const blank = await ops.ops.cardThreeDSChallenge({
+      cardId,
+      challengeId: randomUUID(),
+      challengeRef: '3ds-blank',
+      amount: '1',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
+    });
+    await expect(user.cards.threeDS.answer({ cardId, challengeId: blank.challengeId })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_3ds_code_missing' }),
+    });
+    // A frozen card is not asked to confirm a purchase.
+    await user.cards.setStatus({ cardId, status: 'frozen' });
+    await expect(
+      ops.ops.cardThreeDSChallenge({
+        cardId,
+        challengeId: randomUUID(),
+        challengeRef: '3ds-frozen',
+        amount: '1',
+        confirmOperatorId: CONFIRM,
+        ...APPROVAL,
+      }),
+    ).rejects.toMatchObject({ cause: expect.objectContaining({ code: 'bank.card_not_active' }) });
+    // The finished purchase and the declined one: nothing for the challenge left open or the one refused.
+    expect((await bank.cards.authorizationsOf(cardId, 50)).map((a) => a.authorizationRef).sort()).toEqual([
+      '3ds:3ds-crash',
+      '3ds:3ds-over-cap',
+    ]);
 
     // The owner has not set the count: answering refuses by name, and nothing is counted.
     const unset = await testSecretsSim(3, null);
@@ -895,7 +950,7 @@ describe('customer card procedures (PG-hard)', () => {
     await expect(unset.user.cards.threeDS.answer({ cardId: card2, challengeId: open2.challengeId, code: '000000' })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'bank.card_3ds_try_limit_unset' }),
     });
-    expect((await unset.user.cards.threeDS.list({ cardId: card2 })).challenges[0]).toMatchObject({ state: 'open' });
+    expect((await unset.user.cards.threeDS.list({ cardId: card2 })).challenges[0]).toMatchObject({ state: 'open', triesLeft: null });
 
     // card-sim without the TEST secrets switch has no partner to send a code: the issuer's request refuses by name.
     const { bank: plain, ops: plainOps } = await freshSim();
@@ -921,28 +976,33 @@ describe('customer card procedures (PG-hard)', () => {
     const paid = await ops.ops.cardAuthorize({ cardId, authorizationRef: 'fraud-1', amount: '4', confirmOperatorId: CONFIRM, ...APPROVAL });
     const before = (await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount.toString();
 
-    const report = await user.cards.fraud.report({ cardId, authorizationId: paid.authorizationId, reportId: randomUUID() });
+    const report = await user.cards.fraud.report({ cardId, authorizationId: paid.authorizationId });
     expect(report).toMatchObject({ cardId, authorizationId: paid.authorizationId, state: 'open' });
     expect((await bank.cards.card(cardId)).status).toBe('frozen');
     // The same payment again is the same case.
-    const again = await user.cards.fraud.report({ cardId, authorizationId: paid.authorizationId, reportId: randomUUID() });
+    const again = await user.cards.fraud.report({ cardId, authorizationId: paid.authorizationId });
     expect(again.id).toBe(report.id);
     expect((await user.cards.fraud.list({ cardId })).reports).toHaveLength(1);
     // Nothing moved.
     expect((await ledger.balance(userAvailable(HOLDER, 'USDT'))).amount.toString()).toBe(before);
-    // A frozen card declines the next purchase.
-    expect(
-      await ops.ops.cardAuthorize({ cardId, authorizationRef: 'fraud-2', amount: '1', confirmOperatorId: CONFIRM, ...APPROVAL }),
-    ).toMatchObject({
-      decision: 'declined',
+    // A frozen card declines the next purchase, and a declined payment is not reported.
+    const declined = await ops.ops.cardAuthorize({
+      cardId,
+      authorizationRef: 'fraud-2',
+      amount: '1',
+      confirmOperatorId: CONFIRM,
+      ...APPROVAL,
     });
+    expect(declined).toMatchObject({ decision: 'declined' });
+    await expect(user.cards.fraud.report({ cardId, authorizationId: declined.authorizationId })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'bank.card_authorization_declined' }),
+    });
+    expect((await user.cards.fraud.list({ cardId })).reports).toHaveLength(1);
 
     // A payment on another card is not this card's to report.
     const other = randomUUID();
     await bank.cards.issue({ cardId: other, userId: HOLDER, assetId: 'USDT', perAuthorizationLimit: amt('100') });
-    await expect(
-      user.cards.fraud.report({ cardId: other, authorizationId: paid.authorizationId, reportId: randomUUID() }),
-    ).rejects.toMatchObject({
+    await expect(user.cards.fraud.report({ cardId: other, authorizationId: paid.authorizationId })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'bank.card_authorization_not_found' }),
     });
     // Another person's card is not found.
@@ -953,9 +1013,7 @@ describe('customer card procedures (PG-hard)', () => {
       assetId: 'USDT',
       perAuthorizationLimit: amt('100'),
     });
-    await expect(
-      user.cards.fraud.report({ cardId: stranger, authorizationId: paid.authorizationId, reportId: randomUUID() }),
-    ).rejects.toMatchObject({
+    await expect(user.cards.fraud.report({ cardId: stranger, authorizationId: paid.authorizationId })).rejects.toMatchObject({
       cause: expect.objectContaining({ code: 'bank.card_not_found' }),
     });
     await expect(user.cards.threeDS.list({ cardId: stranger })).rejects.toMatchObject({
