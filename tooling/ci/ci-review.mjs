@@ -43,17 +43,24 @@ const SHA40 = /^[0-9a-f]{40}$/;
  * readable anyway. The summary lists every entry added, removed or changed, at every depth, so the reviewer reads the
  * whole change (a money-list entry dropped, a journey narrowed). Each file's `readable` turns the stored form into the
  * one the summary compares: the map stores journeys as indices into its `journeys` list, which shift whenever a journey
- * is added, so they are compared by file name (#7624: 52762 changed indices, 3272 changed names). Nothing is left out:
+ * is added, so they are compared by file name (#7624: 52762 changed indices, 3272 changed names), and only when every
+ * index is a whole number inside a `journeys` list of distinct names. Nothing is left out:
  * a section that is not exactly one old and one new JSON line, or whose summary is no smaller, stays whole.
  */
 const byJourneyName = (map) => {
-  if (!map || typeof map !== 'object' || !Array.isArray(map.journeys)) return map;
+  if (map === null) return map; // a new or deleted map: compared whole
+  if (!map || typeof map !== 'object' || Array.isArray(map) || !Array.isArray(map.journeys)) return undefined;
+  const names = map.journeys;
+  if (!names.every((n) => typeof n === 'string') || new Set(names).size !== names.length) return undefined;
+  const index = (i) => Number.isInteger(i) && i >= 0 && i < names.length;
   const out = { ...map };
-  for (const k of ['services', 'packages', 'customer'])
-    if (map[k] && typeof map[k] === 'object')
-      out[k] = Object.fromEntries(
-        Object.entries(map[k]).map(([p, ix]) => [p, Array.isArray(ix) ? ix.map((i) => map.journeys[i] ?? `(index ${show(i)})`) : ix]),
-      );
+  for (const k of ['services', 'packages', 'customer']) {
+    if (map[k] === undefined) continue;
+    if (!map[k] || typeof map[k] !== 'object' || Array.isArray(map[k])) return undefined;
+    const lists = Object.values(map[k]);
+    if (!lists.every((ix) => Array.isArray(ix) && ix.every(index))) return undefined;
+    out[k] = Object.fromEntries(Object.entries(map[k]).map(([p, ix]) => [p, ix.map((i) => names[i])]));
+  }
   return out;
 };
 export const GENERATED_JSON = {
@@ -75,7 +82,10 @@ export function jsonChanges(before, after, path = '') {
     const now = new Set(after.map(show));
     const out = [...now].filter((v) => !was.has(v)).map((v) => `+ ${at}[] ${v}`);
     out.push(...[...was].filter((v) => !now.has(v)).map((v) => `- ${at}[] ${v}`));
-    if (!out.length) out.push(`~ ${at}: ${show(before)} -> ${show(after)}`); // order or repeats only
+    // The entries both sides keep, in order and with repeats: any difference there is reported too.
+    const keptBefore = before.map(show).filter((v) => now.has(v));
+    const keptAfter = after.map(show).filter((v) => was.has(v));
+    if (keptBefore.join('\n') !== keptAfter.join('\n')) out.push(`~ ${at}: order or repeats ${show(before)} -> ${show(after)}`);
     return out;
   }
   const obj = (v) => v && typeof v === 'object' && !Array.isArray(v);
@@ -120,7 +130,9 @@ export function summarizeGenerated(diff) {
         return part;
       }
       const { readable, how } = GENERATED_JSON[m[1]];
-      const changes = jsonChanges(readable(before), readable(after));
+      const [was, now] = [readable(before), readable(after)];
+      if (was === undefined || now === undefined) return part; // not in the form `readable` can translate: whole
+      const changes = jsonChanges(was, now);
       const head = lines.slice(1, at).filter((l) => !/^(--- |\+\+\+ )/.test(l));
       const out = [
         `diff --git a/${m[1]} b/${m[1]}`,

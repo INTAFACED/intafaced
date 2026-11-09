@@ -1103,18 +1103,21 @@ test('a fork pull request is no in-repo review', () => {
 
 test('the generated map reaches the reviewer as every entry it adds, removes or changes; everything else stays whole (#7624: 648976 bytes)', () => {
   const MAP = 'tooling/ci/journey-reach-map.json';
-  const big = Object.fromEntries(Array.from({ length: 6000 }, (_, i) => [`/assets/chunk-${i}.js`, [`apps/customer/src/f${i}.tsx`]]));
+  // The map's real shape: journeys is a list, and services, packages and customer hold indices into it.
+  const files = (ix) => Object.fromEntries(Array.from({ length: 6000 }, (_, i) => [`apps/customer/src/f${i}.tsx`, ix]));
+  const big = files([0]);
   const old = {
     v: 1,
     money: ['packages/ledger-client', 'services/svc-ops'],
-    journeys: { 'J-a.pw.mjs': ['services/svc-bank'] },
+    journeys: ['J-a.pw.mjs', 'J-b.pw.mjs'],
+    services: { 'services/svc-bank': [0] },
     customer: big,
   };
   const now = {
     ...old,
     money: ['packages/ledger-client', 'packages/venue-hyperliquid', 'services/svc-ops'],
-    journeys: { 'J-a.pw.mjs': [], 'J-b.pw.mjs': ['services/svc-tax'] },
-    customer: { ...big, '/assets/chunk-7.js': ['apps/customer/src/other.tsx'] },
+    services: { 'services/svc-bank': [], 'services/svc-tax': [1] },
+    customer: { ...big, 'apps/customer/src/f7.tsx': [1] },
   };
   const section = (a, b, before, after) =>
     `diff --git a/${a} b/${b}\nindex 1..2 100644\n--- a/${a}\n+++ b/${b}\n@@ -1 +1 @@\n-${JSON.stringify(before)}\n\\ No newline at end of file\n+${JSON.stringify(after)}\n\\ No newline at end of file\n`;
@@ -1129,10 +1132,10 @@ test('the generated map reaches the reviewer as every entry it adds, removes or 
   for (const line of [
     'index 1..2 100644',
     '+ "money"[] "packages/venue-hyperliquid"',
-    '- "journeys"."J-a.pw.mjs"[] "services/svc-bank"',
-    '+ "journeys"."J-b.pw.mjs" ["services/svc-tax"]',
-    '+ "customer"."/assets/chunk-7.js"[] "apps/customer/src/other.tsx"',
-    '- "customer"."/assets/chunk-7.js"[] "apps/customer/src/f7.tsx"',
+    '- "services"."services/svc-bank"[] "J-a.pw.mjs"',
+    '+ "services"."services/svc-tax" ["J-b.pw.mjs"]',
+    '+ "customer"."apps/customer/src/f7.tsx"[] "J-b.pw.mjs"',
+    '- "customer"."apps/customer/src/f7.tsx"[] "J-a.pw.mjs"',
   ])
     assert.ok(out.split('\n').includes(line), line);
   assert.match(
@@ -1169,10 +1172,37 @@ test('the generated map reaches the reviewer as every entry it adds, removes or 
   assert.equal(summarizeGenerated(tiny), tiny);
   // Journeys are compared by name: a journey added at the front shifts every index, yet only real changes show.
   const named = { v: 1, journeys: ['J-b.pw.mjs'], services: { 'services/svc-bank': [0] }, customer: big };
-  const shifted = { v: 1, journeys: ['J-a.pw.mjs', 'J-b.pw.mjs'], services: { 'services/svc-bank': [1] }, customer: big };
-  const moved = summarizeGenerated(section(MAP, MAP, named, shifted));
-  assert.ok(moved.split('\n').includes('+ "journeys"[] "J-a.pw.mjs"'));
-  assert.equal(moved.includes('svc-bank'), false, 'svc-bank still reaches J-b only');
+  const shifted = { v: 1, journeys: ['J-a.pw.mjs', 'J-b.pw.mjs'], services: { 'services/svc-bank': [1] }, customer: files([1]) };
+  const moved = summarizeGenerated(section(MAP, MAP, named, shifted)).split('\n');
+  assert.ok(moved.includes('+ "journeys"[] "J-a.pw.mjs"'));
+  assert.equal(moved.filter((l) => /^[+~-] /.test(l)).length, 1, 'only the added journey: svc-bank and every file still reach J-b');
+  // Planted (CI review on aac2749d, finding 1): an order change shows even when an entry is also added.
+  const reordered = summarizeGenerated(
+    section(MAP, MAP, old, {
+      ...old,
+      journeys: ['J-b.pw.mjs', 'J-a.pw.mjs', 'J-c.pw.mjs'],
+      customer: files([1]),
+      services: { 'services/svc-bank': [1] },
+    }),
+  ).split('\n');
+  assert.ok(reordered.includes('+ "journeys"[] "J-c.pw.mjs"'));
+  assert.ok(
+    reordered.some((l) => l.startsWith('~ "journeys": order or repeats ')),
+    'the reorder is shown',
+  );
+  assert.deepEqual(jsonChanges(['a', 'b'], ['b', 'a', 'c']), ['+ (root)[] "c"', '~ (root): order or repeats ["a","b"] -> ["b","a","c"]']);
+  assert.deepEqual(jsonChanges(['a'], ['a', 'a', 'c']), ['+ (root)[] "c"', '~ (root): order or repeats ["a"] -> ["a","a","c"]']);
+  // Planted (finding 2): an index that isn't a whole number in range, or a journeys list with a repeated name, keeps the
+  // map whole: "0" and 0 never read as the same journey.
+  for (const odd of [
+    { ...now, services: { 'services/svc-tax': ['1'] } },
+    { ...now, services: { 'services/svc-tax': [2] } },
+    { ...now, services: { 'services/svc-tax': [-1] } },
+    { ...now, journeys: ['J-a.pw.mjs', 'J-a.pw.mjs'] },
+  ]) {
+    const d = section(MAP, MAP, old, odd);
+    assert.equal(summarizeGenerated(d), d, JSON.stringify(odd.services ?? odd.journeys));
+  }
   // A new or deleted map shows whole: its summary would be the whole file again, never smaller.
   const small = section(MAP, MAP, { v: 1 }, { v: 1, money: ['services/svc-ops'] });
   const created = small.replace(/\n-\{.*\n\\ No newline at end of file/, '');
