@@ -121,9 +121,9 @@ describe('D26-P2-11 recipe matrix inventory (live path closure)', () => {
     expect(inventory.live.length + inventory.sockets.length).toBe(inventory.recipes.length);
   });
 
-  it('pins live vs §13 socket counts on tip (88 = 79 live + 9 socket)', () => {
+  it('pins live vs §13 socket counts on tip (90 = 80 live + 10 socket)', () => {
     const counts = countByKind(inventory);
-    expect(counts).toEqual({ live: 79, socket: 9 });
+    expect(counts).toEqual({ live: 80, socket: 10 });
     expect(inventory.recipes).toHaveLength(88);
     expect(liveRecipeKeys(inventory)).toHaveLength(79);
     expect(socketRecipeKeys(inventory)).toEqual(PINNED_SOCKETS.map((s) => s.name).sort());
