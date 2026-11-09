@@ -75,6 +75,8 @@ export interface Market {
   readonly makerBps: number;
   readonly takerBps: number;
   readonly listedAt: Date | null;
+  /** The date a delisted market leaves the board (J-cex-spot-14 #1); null when none is set or the read did not load it. */
+  readonly delistsAt?: Date | null;
   readonly assetClass: AssetClass;
   /**
    * When this market accepts orders.

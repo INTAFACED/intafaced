@@ -24,10 +24,10 @@ import {
   type SortState,
   type TableColumn,
 } from './deps';
-import { isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
+import { isAnnounced, isPaused, marketTarget, priceText, spreadRatio, spreadText, volumeText, type Entry, type Mode } from './select';
 import { opensLabel, rowStatus, type ListingStatusMap } from './listing-status';
 import { maintenanceWhen, type MaintenanceWindowSoon } from '../../../shared/market-maintenance';
-import { partialWindowStart, sinceLabel } from './window';
+import { ianaZone, partialWindowStart, sinceLabel } from './window';
 import { usePreferences } from '../../../shared/preferences';
 import type { Density } from './view-state';
 import type { FavoriteControl } from './MarketRow';
@@ -106,6 +106,39 @@ function MaintenanceFlag({ window }: { window: MaintenanceWindowSoon }) {
       {text}
     </span>
   );
+}
+
+/** "16 Nov 2026" in the person's zone: the day a delisting market leaves the board. */
+function delistingDate(iso: string, zone: Parameters<typeof ianaZone>[0]): string {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: ianaZone(zone) }).format(
+    Date.parse(iso),
+  );
+}
+
+/** An upcoming or delisting listing's state on its row, with the delisting's date (J-cex-spot-14 #1). */
+function ListingState({ market, dense }: { market: MarketData; dense: boolean }) {
+  const { t } = marketsCopy.useCopy();
+  const { timeZone } = usePreferences();
+  if (market.listing === 'upcoming')
+    return (
+      <span data-testid="mkt-listing" data-listing="upcoming" className="mkt-stack" data-start="">
+        <Badge tone="neutral" density={dense ? 'dense' : 'comfortable'}>
+          {t('Upcoming')}
+        </Badge>
+      </span>
+    );
+  if (market.listing === 'delisting')
+    return (
+      <span data-testid="mkt-listing" data-listing="delisting" className="mkt-stack" data-start="">
+        <Badge tone="warn" density={dense ? 'dense' : 'comfortable'}>
+          {t('Delisting')}
+        </Badge>
+        {market.delistsAt ? (
+          <span className="mkt-since">{t('Leaves the board on {date}', { date: delistingDate(market.delistsAt, timeZone) })}</span>
+        ) : null}
+      </span>
+    );
+  return null;
 }
 
 function SparkCell({ symbol, height, trend }: { symbol: string; height: number; trend: 'up' | 'down' | 'flat' }) {
@@ -214,6 +247,7 @@ export function MarketsList({
                 </span>
               ) : null}
             </span>
+            <ListingState market={market} dense={dense} />
           </span>
         );
       },
@@ -348,6 +382,20 @@ export function MarketsList({
             {more}
           </span>
         );
+        if (isAnnounced(market))
+          // An upcoming or delisting listing is never a tradeable row: the button says why, and nothing links to a desk.
+          return wrap(
+            <Button
+              variant="secondary"
+              size={size}
+              disabled
+              focusableWhenDisabled
+              aria-label={aria}
+              title={market.listing === 'upcoming' ? t('Not open for trading yet') : t('This market is being delisted')}
+            >
+              {text}
+            </Button>,
+          );
         if (isPaused(entry))
           // Disabled but still reachable by keyboard, so the reason can be read (title for the pointer, aria-describedby for readers).
           return wrap(
@@ -415,7 +463,9 @@ export function MarketsList({
         onSortChange={(next) =>
           onSortChange(sort && sort.columnId === next.columnId && sort.direction !== firstDirection(next.columnId) ? null : next)
         }
-        onRowActivate={(entry) => navigate(marketTarget(entry.market, mode, isHiddenPath, signedIn))}
+        onRowActivate={(entry) => {
+          if (!isAnnounced(entry.market)) navigate(marketTarget(entry.market, mode, isHiddenPath, signedIn));
+        }}
         minWidth={pro ? PRO_MIN_WIDTH : SIMPLE_MIN_WIDTH}
         labels={{ loading: t('Loading') }}
       />

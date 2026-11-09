@@ -67,6 +67,12 @@ export function entriesFor(markets: readonly MarketData[], tickers: TickerMap, o
 /** The service lists this market but does not take orders on it right now. */
 export const isPaused = (entry: Entry) => !entry.market.orderable;
 
+/**
+ * A listing the list shows although it does not trade (J-cex-spot-14 #1): one that is upcoming, or being delisted on a date.
+ * Its row names the state and is never a tradeable row: only an open market is.
+ */
+export const isAnnounced = (market: MarketData) => market.listing === 'upcoming' || market.listing === 'delisting';
+
 /** Quote currencies present, USDT and USDC first. */
 export function quotesOf(markets: readonly MarketData[]): string[] {
   const rank = (quote: string) => ['USDT', 'USDC'].indexOf(quote);

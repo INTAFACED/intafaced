@@ -359,6 +359,26 @@ export function sessionStateForMarket(
 export const OPEN_POSITION_GATES_NOTE =
   'caller price 400 · cross margin 400 · leverage required 400 (no silent 1x) · unnamed profit pot 403 NotSupported';
 
+/**
+ * A market's listing status in the words the markets list shows (J-cex-spot-14 #1, SP-markets-data-02): `open` (listed and
+ * live), `upcoming` (listed but not yet trading), `delisting` (being delisted, with the date it leaves the board),
+ * `delisted` (being delisted with no date set) or `halted`. Only an `open` market can be orderable.
+ */
+export type ListingStatus = 'open' | 'upcoming' | 'delisting' | 'delisted' | 'halted';
+
+export function listingStatusOf(market: Pick<Market, 'status' | 'delistsAt'>): ListingStatus {
+  switch (market.status) {
+    case 'active':
+      return 'open';
+    case 'pending':
+      return 'upcoming';
+    case 'halted':
+      return 'halted';
+    case 'delisted':
+      return market.delistsAt instanceof Date && !Number.isNaN(market.delistsAt.getTime()) ? 'delisting' : 'delisted';
+  }
+}
+
 /** Listing status vs kill-switch. Paper options are orderable; live options are not. */
 export function orderableForListedMarket(market: Market, futuresOrderable: boolean, nowMs: number = Date.now()): boolean {
   if (market.status !== 'active') return false;
@@ -448,6 +468,10 @@ export function presentCcxtMarket(
     /** TRUE = a futures market still in prelaunch (`pending`): shown to customers as "Pre-market"; orders refuse. */
     premarket: isPremarket(market),
     active: market.status === 'active',
+    /** The listing status in words: open, upcoming, delisting (dated), delisted or halted (J-cex-spot-14 #1). */
+    listing: listingStatusOf(market),
+    /** The date a delisting market leaves the board, or null when none is set. */
+    delistsAt: market.status === 'delisted' && market.delistsAt instanceof Date ? market.delistsAt.toISOString() : (null as string | null),
     /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
@@ -1165,6 +1189,7 @@ export function fakeMarket(partial: {
   paper?: boolean;
   schedule?: Market['schedule'];
   assetClass?: Market['assetClass'];
+  delistsAt?: Date | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1184,6 +1209,7 @@ export function fakeMarket(partial: {
     assetClass: partial.assetClass ?? 'crypto',
     schedule: partial.schedule ?? 'crypto-24x7',
     paper: partial.paper ?? false,
+    ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
   };
 }
 

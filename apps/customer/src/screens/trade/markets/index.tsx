@@ -28,7 +28,7 @@ import { MarketsList } from './MarketsList';
 import type { FavoriteControl } from './MarketRow';
 import { TopCards, TopCardsSkeleton } from './TopCards';
 import { TradeAccess } from './TradeAccess';
-import { anyListed, entriesFor, isPaused, quotesOf, topCards, visibleEntries, type CardId, type Chip } from './select';
+import { anyListed, entriesFor, isAnnounced, isPaused, quotesOf, topCards, visibleEntries, type CardId, type Chip } from './select';
 import {
   applyAddress,
   browserStorage,
@@ -102,7 +102,8 @@ export default function TradeMarketsScreen({ path, search }: ScreenProps) {
         : [],
     [markets, tickerMap, statuses],
   );
-  const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry)), [everyEntry]);
+  // Upcoming and delisting listings stay on the list with their state named (J-cex-spot-14 #1); they never trade.
+  const openEntries = useMemo(() => everyEntry.filter((entry) => !isPaused(entry) || isAnnounced(entry.market)), [everyEntry]);
   const hasPaused = openEntries.length < everyEntry.length;
   const pool = view.status === 'open' ? openEntries : everyEntry;
   const quotes = useMemo(() => quotesOf(pool.map((entry) => entry.market)), [pool]);

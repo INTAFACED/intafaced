@@ -206,6 +206,8 @@ export const markets = trade.table(
     makerBps: bps('maker_bps').notNull(),
     takerBps: bps('taker_bps').notNull(),
     listedAt: tstz('listed_at'),
+    /** The date a delisted market leaves the board (J-cex-spot-14 #1). Only a delisted listing carries one. */
+    delistsAt: tstz('delists_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

@@ -88,17 +88,41 @@ const orderSends = (sent) => sent.filter((body) => body?.symbol === LIMITED || b
 test(`${J} #1 the markets list shows open, upcoming and delisting markets with listing status and dated delisting; only open real markets are tradeable`, async ({
   page,
 }) => {
+  // The service's own listing read: each market carries its listing status, and a delisting carries its date. Upcoming and
+  // delisting markets are TEST listings the stack seeds (`seed-spot-test-listing.mjs`), as operators would set them.
+  const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
+  const spot = markets.filter((m) => m.spot && !m.paper);
+  const upcoming = spot.find((m) => m.listing === 'upcoming');
+  const delisting = spot.find((m) => m.listing === 'delisting');
+  expect(upcoming, 'an upcoming spot listing on the read').toBeTruthy();
+  expect(delisting, 'a delisting spot listing on the read').toBeTruthy();
+  expect(Date.parse(delisting.delistsAt)).toBeGreaterThan(Date.now());
+  // Only an open market is orderable.
+  for (const m of [upcoming, delisting]) expect(m.orderable, `${m.symbol} is not orderable`).toBe(false);
+  expect(spot.filter((m) => m.orderable).every((m) => m.listing === 'open')).toBe(true);
+
   await page.goto('/trade');
   const list = page.getByRole('table').first();
   await expect(list).toBeVisible();
-  // Every row says its listing status in words.
-  const rows = list.getByRole('row');
-  await expect(rows.first()).toBeVisible();
-  await expect(list.getByText(/^Upcoming$/).first()).toBeVisible({ timeout: UNBUILT_MS });
-  const delisting = list.getByRole('row').filter({ hasText: /Delisting/ });
-  await expect(delisting.first()).toBeVisible({ timeout: UNBUILT_MS });
-  // The delisting is dated.
-  await expect(delisting.first()).toContainText(/\d{1,2} [A-Z][a-z]{2}|[A-Z][a-z]{2} \d{1,2}/, { timeout: UNBUILT_MS });
+  const pair = (m) => new RegExp(`^${m.base}/${m.quote}$`);
+  const rowOf = (m) => list.getByRole('row').filter({ has: page.getByTestId('mkt-name__ticker').filter({ hasText: pair(m) }) });
+  // Open markets: an open row trades.
+  const open = list.getByRole('row').filter({ has: page.getByRole('link', { name: /^(Trade|Buy) / }) });
+  await expect(open.first()).toBeVisible();
+  // The upcoming listing: named Upcoming, and not a tradeable row.
+  const upRow = rowOf(upcoming);
+  await expect(upRow.getByTestId('mkt-listing')).toHaveText('Upcoming', { timeout: UNBUILT_MS });
+  await expect(upRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
+  await expect(upRow.getByRole('link', { name: /^(Trade|Buy) / })).toHaveCount(0);
+  // The delisting: named Delisting, with the date it leaves the board, and not a tradeable row.
+  const downRow = rowOf(delisting);
+  await expect(downRow.getByTestId('mkt-listing')).toContainText('Delisting', { timeout: UNBUILT_MS });
+  await expect(downRow.getByTestId('mkt-listing')).toContainText(/Leaves the board on \d{1,2} [A-Z][a-z]{2} \d{4}/);
+  await expect(downRow.getByRole('button', { name: /^(Trade|Buy) / })).toBeDisabled();
+  await expect(downRow.getByRole('link', { name: /^(Trade|Buy) / })).toHaveCount(0);
+  // Activating a row that does not trade opens no desk.
+  await upRow.click();
+  await expect(page).toHaveURL(/\/trade(\?.*)?$/);
 });
 
 test(`${J} #2 /status shows each market's trading mode and the platform status, with the time they are as of`, async ({ page }) => {

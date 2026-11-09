@@ -17,6 +17,8 @@ import type { MarketRow, Timeframe } from './types';
 const marketListingSchema = listingSchema.extend({
   lifecycle: z.object({ state: z.string() }).passthrough().nullish(),
   listedAt: z.string().nullish(),
+  listing: z.enum(['open', 'upcoming', 'delisting', 'delisted', 'halted']).nullish().catch(null),
+  delistsAt: z.string().nullish().catch(null),
 });
 
 const rawTickerSchema = tickerSchema.extend({ sparkline: z.array(z.string()).nullish(), windowStart: z.number().nullish() });
@@ -44,6 +46,8 @@ export function marketsFetcher(api: ApiClient): Fetcher<MarketRow[]> {
           lotSize: m.precision.amount,
           minAmount: m.limits.amount.min,
           listedAt: m.listedAt ?? null,
+          ...(m.listing ? { listing: m.listing } : {}),
+          delistsAt: m.delistsAt ?? null,
         })),
     );
 }
