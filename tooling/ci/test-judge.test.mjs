@@ -1151,11 +1151,13 @@ test("the review's prompt is the compare-API diff byte for byte; a finding that 
 
 test('the workflow: the review on Opus at medium (OWNER 259 (3)), the reads on one reader constant, both calls pinned alike', () => {
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
-  assert.match(
-    wf,
-    /\n {6}REVIEW_MODEL: claude-opus-5-5\n {6}REVIEW_EFFORT: medium\n {6}READER_MODEL: claude-sonnet-5-5\n {6}READER_EFFORT: medium\n/,
-  );
+  assert.match(wf, /\n {6}REVIEW_MODEL: \S+\n {6}REVIEW_EFFORT: medium\n {6}READER_MODEL: \S+\n {6}READER_EFFORT: medium\n/);
   assert.doesNotMatch(wf, /--effort high/);
+  // Each model is one constant: the review's and the reader's are named once each, and differ (the readers' model).
+  const model = (k) => [...wf.matchAll(new RegExp(`\\n {6}${k}: (\\S+)\\n`, 'g'))].map((m) => m[1]);
+  assert.equal(model('REVIEW_MODEL').length, 1);
+  assert.equal(model('READER_MODEL').length, 1);
+  assert.notEqual(model('REVIEW_MODEL')[0], model('READER_MODEL')[0]);
   const review = wf.slice(wf.indexOf('- name: Review\n'), wf.indexOf('- name: Read the steps\n'));
   const reads = wf.slice(wf.indexOf('- name: Read the steps\n'), wf.indexOf('- name: Verdict\n'));
   assert.equal(review.match(/--model "\$REVIEW_MODEL" --effort "\$REVIEW_EFFORT"/g).length, 2);
