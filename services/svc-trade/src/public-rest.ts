@@ -1,6 +1,14 @@
 import { spotOrderTypes } from '@intafaced/contracts/spot-order-types';
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { isScheduleKey, isScheduleOpen, nextScheduleTransition, TRADING_SCHEDULES, type TradingSchedule } from '@intafaced/contracts';
+import {
+  isScheduleKey,
+  isScheduleOpen,
+  nextScheduleTransition,
+  TRADING_SCHEDULES,
+  upcomingMaintenanceFor,
+  type TradingSchedule,
+  type UpcomingMaintenance,
+} from '@intafaced/contracts';
 import { TIMEFRAMES, timeframeSchema, RATE_LIMITS, type Timeframe } from '@intafaced/exchange-contract';
 import type { MarketStateSnapshot } from '@intafaced/exchange-contract';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
@@ -16,10 +24,12 @@ import { fxNamedDegrade, isFxProduct } from './spot/fx-product.js';
 import { percentageOf, type TickerStats24h } from './spot/ticker-stats.js';
 import type { Candle, Market, PublicTapePrint } from './spot/types.js';
 import { publicMarketLifecycle } from './public-market-lifecycle.js';
+import type { MarketMaintenanceBoard } from './market-maintenance-read.js';
 import type { PairHalt, PairRisk, PairRules } from './spot/pair-rules.js';
 import { logRefusalSpec } from './refusal-spec-log.js';
 import type { ChartOwnerValuesPublicReader } from './admin/chart-owner-values.js';
 import { publicRead } from './route-inventory.js';
+import { registerMarketAnalyticsRoute } from './spot/market-analytics.js';
 
 /**
  * Public CCXT-style REST slice (trade.ccxt-api — market data).
@@ -29,6 +39,8 @@ import { publicRead } from './route-inventory.js';
  *   GET /api/v1/orderbook/:symbol?limit=
  *   GET /api/v1/ticker/:symbol
  *   GET /api/v1/tickers?limit=
+ *   GET /api/v1/spreads?limit=
+ *   GET /api/v1/analytics/:symbol?window=
  *   GET /api/v1/trades/:symbol?limit=&since=
  *   GET /api/v1/ohlcv/:symbol?timeframe=&since=&limit=
  *   GET /api/v1/funding-rate/:symbol
@@ -67,6 +79,11 @@ export interface PublicRestDeps {
   rulebook?(which: 'current' | 'versions'): Promise<unknown>;
   /** Optional PX-S01 snapshot; absent means this bounded mount has no authority publisher. */
   lifecycleForMarket?(market: Market): MarketStateSnapshot | null | Promise<MarketStateSnapshot | null>;
+  /**
+   * svc-notify's market maintenance windows (J-cex-spot-14 #5). Absent, or answering null, the lifecycle read and the
+   * markets list say `upcomingMaintenance: { status: 'unavailable' }`, never "no maintenance".
+   */
+  maintenanceBoard?: MarketMaintenanceBoard;
   /**
    * The matching book's halt for one market and for the whole venue, read from matching's board. Absent, or throwing,
    * answers 503 (trade.book_halt_unavailable): a halt that cannot be read is never read as open. It also passes on when
@@ -343,6 +360,26 @@ export function sessionStateForMarket(
 export const OPEN_POSITION_GATES_NOTE =
   'caller price 400 · cross margin 400 · leverage required 400 (no silent 1x) · unnamed profit pot 403 NotSupported';
 
+/**
+ * A market's listing status in the words the markets list shows (J-cex-spot-14 #1, SP-markets-data-02): `open` (listed and
+ * live), `upcoming` (listed but not yet trading), `delisting` (being delisted, with the date it leaves the board),
+ * `delisted` (being delisted with no date set) or `halted`. Only an `open` market can be orderable.
+ */
+export type ListingStatus = 'open' | 'upcoming' | 'delisting' | 'delisted' | 'halted';
+
+export function listingStatusOf(market: Pick<Market, 'status' | 'delistsAt'>): ListingStatus {
+  switch (market.status) {
+    case 'active':
+      return 'open';
+    case 'pending':
+      return 'upcoming';
+    case 'halted':
+      return 'halted';
+    case 'delisted':
+      return market.delistsAt instanceof Date && !Number.isNaN(market.delistsAt.getTime()) ? 'delisting' : 'delisted';
+  }
+}
+
 /** Listing status vs kill-switch. Paper options are orderable; live options are not. */
 export function orderableForListedMarket(market: Market, futuresOrderable: boolean, nowMs: number = Date.now()): boolean {
   if (market.status !== 'active') return false;
@@ -382,6 +419,7 @@ export function presentCcxtMarket(
     readonly lifecycle?: MarketStateSnapshot | null;
     readonly pairRules?: PairRules | null;
     readonly pairHalt?: PairHalt | null;
+    readonly maintenance?: UpcomingMaintenance;
   } = {},
 ) {
   const tick = formatAmount(market.tickSize);
@@ -431,6 +469,10 @@ export function presentCcxtMarket(
     /** TRUE = a futures market still in prelaunch (`pending`): shown to customers as "Pre-market"; orders refuse. */
     premarket: isPremarket(market),
     active: market.status === 'active',
+    /** The listing status in words: open, upcoming, delisting (dated), delisted or halted (J-cex-spot-14 #1). */
+    listing: listingStatusOf(market),
+    /** The date a delisting market leaves the board, or null when none is set. */
+    delistsAt: market.status === 'delisted' && market.delistsAt instanceof Date ? market.delistsAt.toISOString() : (null as string | null),
     /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
@@ -479,6 +521,8 @@ export function presentCcxtMarket(
     /** PX-S01 authority state; null is explicit when this mount has no publisher. */
     lifecycle: publicMarketLifecycle(flags.lifecycle),
     lifecycleReasonCode: flags.lifecycle?.reasonCode ?? null,
+    /** The nearest maintenance window svc-notify publishes for this market (J-cex-spot-14 #5). */
+    upcomingMaintenance: flags.maintenance ?? ({ status: 'unavailable' } as const),
     /** SP-order-entry-03 pair rules in words; null when this mount has no risk reader. */
     pairRules: flags.pairRules ?? null,
     /** Operator circuit-breaker state; null when unread. `refusesAllOrders` true means no order is accepted. */
@@ -552,6 +596,12 @@ export function presentOrderBook(symbol: string, depth: EngineDepth, nowMs: numb
  * null if it never traded) and, on `/tickers` only, `sparkline`: up to 24 hourly
  * closes, oldest first, silent hours repeat the previous real close, never null.
  */
+/** Best ask minus best bid, exact: never a rounded or guessed figure, and null when either side is empty. */
+export function spreadOf(bid: readonly [string, string] | null, ask: readonly [string, string] | null): string | null {
+  if (!bid || !ask) return null;
+  return formatAmount(parseAmount(ask[0]) - parseAmount(bid[0]));
+}
+
 export function presentTicker(
   symbol: string,
   depth: EngineDepth,
@@ -588,6 +638,8 @@ export function presentTicker(
     average: null as string | null,
     baseVolume: dec(stats?.baseVolume),
     quoteVolume: dec(stats?.quoteVolume),
+    /** Not stock CCXT: best ask minus best bid from the book, exact in decimal; null without both sides. */
+    spread: spreadOf(bestBid, bestAsk),
     /** Not stock CCXT: where the 24 h stats really begin (ms), null if never traded. */
     windowStart: stats?.windowStart ?? (null as number | null),
     ...(opts.sparkline ? { sparkline: (stats?.sparkline ?? []).map((v) => formatAmount(v)) } : {}),
@@ -807,9 +859,11 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
         return null;
       }
     };
+    const board = deps.maintenanceBoard ? await deps.maintenanceBoard() : null;
     const presented = await Promise.all(
       markets.map(async (m) =>
         presentCcxtMarket(m, ts, {
+          maintenance: upcomingMaintenanceFor(m.symbol, board, new Date(ts)),
           futuresOrderable,
           futuresMaxLeverage: deps.futures?.maxLeverage ?? null,
           lifecycle: deps.lifecycleForMarket ? await deps.lifecycleForMarket(m) : null,
@@ -878,7 +932,8 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
         recovery: { required: true, evidenceRefs: [] },
       });
     }
-    return reply.code(200).send(snapshot);
+    const board = deps.maintenanceBoard ? await deps.maintenanceBoard() : null;
+    return reply.code(200).send({ ...snapshot, upcomingMaintenance: upcomingMaintenanceFor(market.symbol, board, new Date(now())) });
   });
 
   app.get<{ Params: { symbol: string }; Querystring: { limit?: string } }>('/api/v1/orderbook/:symbol', publicRead, async (req, reply) => {
@@ -963,6 +1018,36 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       }),
     );
 
+    return reply.code(200).send(out);
+  });
+
+  /**
+   * GET /api/v1/spreads?limit= — the top-of-book spread per listed market, read from each book (SP-markets-data-01 d).
+   * A market whose book is down or has no book is left out, never shown as a zero spread. Limit is required.
+   */
+  app.get<{ Querystring: { limit?: string } }>('/api/v1/spreads', publicRead, async (req, reply) => {
+    const limit = parsePublicRestLimit(req.query.limit, MAX_MARKETS);
+    if (limit === undefined) {
+      return sendCcxt(reply, badRequest('spreads limit is unset — refuse to invent one', 'trade.spreads_limit_unset'));
+    }
+    const markets = await deps.markets(limit);
+    const ts = now();
+    const out: Array<{ symbol: string; bid: string | null; ask: string | null; spread: string | null; timestamp: number }> = [];
+    await Promise.all(
+      markets.map(async (market) => {
+        let depth: EngineDepth;
+        try {
+          depth = await deps.depth(market.id, 1);
+        } catch (err) {
+          if (err instanceof MatchingUnavailableError || err instanceof MatchingNoBookError) return;
+          throw err;
+        }
+        const bid = depth.bids[0] ?? null;
+        const ask = depth.asks[0] ?? null;
+        out.push({ symbol: market.symbol, bid: bid ? bid[0] : null, ask: ask ? ask[0] : null, spread: spreadOf(bid, ask), timestamp: ts });
+      }),
+    );
+    out.sort((a, b) => a.symbol.localeCompare(b.symbol));
     return reply.code(200).send(out);
   });
 
@@ -1085,6 +1170,13 @@ export function registerPublicRest(app: FastifyInstance, deps: PublicRestDeps): 
       nextFundingTimestamp: quote.nextFundingTimestamp,
     });
   });
+
+  // Market analytics read from the same public tape (SP-markets-data-03 b; J-cex-spot-14 #9).
+  registerMarketAnalyticsRoute(app, {
+    marketBySymbol: (symbol) => deps.marketBySymbol(symbol),
+    publicTape: (marketId, limit, sinceMs) => deps.publicTape(marketId, limit, sinceMs),
+    now: () => new Date(now()),
+  });
 }
 
 /** Test helper — build a minimal Market without a DB. */
@@ -1105,6 +1197,7 @@ export function fakeMarket(partial: {
   paper?: boolean;
   schedule?: Market['schedule'];
   assetClass?: Market['assetClass'];
+  delistsAt?: Date | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1124,6 +1217,7 @@ export function fakeMarket(partial: {
     assetClass: partial.assetClass ?? 'crypto',
     schedule: partial.schedule ?? 'crypto-24x7',
     paper: partial.paper ?? false,
+    ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
   };
 }
 

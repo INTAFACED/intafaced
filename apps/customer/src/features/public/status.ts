@@ -17,6 +17,7 @@ import {
   type StatusChallenge,
 } from '@intafaced/contracts/status-subscriptions';
 import { readStatusFeed, type StatusFeed } from '../developers/developers-api';
+import { maintenanceOf, upcomingMaintenanceSchema, type MaintenanceWindowSoon } from '../../shared/market-maintenance';
 import { contractProcedure, readContract, type ContractData } from '../../shared/contract-call';
 
 export type MaintenanceWindow = StatusFeed['maintenance'][number];
@@ -36,10 +37,13 @@ export interface MarketMode {
   reasonCode: string | null;
   /** When the service observed that mode (the lifecycle read's own time), or null when it reported none. */
   observedAt: string | null;
+  /** A maintenance window scheduled or under way for the market (J-cex-spot-14 #5), or null. */
+  maintenance?: MaintenanceWindowSoon | null;
 }
 
 const statusListingSchema = marketSchema.pick({ symbol: true, spot: true, paper: true }).extend({
   lifecycle: z.object({ state: z.string(), reasonCode: z.string().nullish(), observedAt: z.string().nullish() }).passthrough().nullish(),
+  upcomingMaintenance: upcomingMaintenanceSchema,
 });
 
 /** The public markets read, kept to the fields /status shows. Spot, real (not paper) markets only. */
@@ -56,6 +60,7 @@ export function marketModesFetcher(api: ApiClient): Fetcher<MarketMode[]> {
           state: m.lifecycle?.state ?? null,
           reasonCode: m.lifecycle?.reasonCode ?? null,
           observedAt: m.lifecycle?.observedAt ?? null,
+          maintenance: maintenanceOf(m.upcomingMaintenance),
         })),
     };
   };
