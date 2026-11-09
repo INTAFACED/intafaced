@@ -112,6 +112,7 @@ const messages = {
   subaccount: 'Sub-account',
   subaccountNone: 'None: a key for this account',
   subaccountHint: 'A key for a sub-account reaches only that sub-account. It can read its balance and nothing of this account.',
+  subaccountUnread: 'Your sub-accounts could not be read just now, so this key is for this account. Reload to choose a sub-account.',
   colAccount: 'Account',
   agentKey: 'This key is for an AI agent',
   agentKeyHint:

@@ -21,7 +21,8 @@ import {
   type Preset,
 } from './developer-keys-api';
 
-type Ready = { keys: ApiKeyList['keys']; scopes: ApiKeyScopeEntry[]; subaccounts: Subaccount[] };
+/** `subaccounts` null: they could not be read, so the form makes a key for this account only and says so. */
+type Ready = { keys: ApiKeyList['keys']; scopes: ApiKeyScopeEntry[]; subaccounts: Subaccount[] | null };
 
 async function readForm(api: ReturnType<typeof useSession>['api'], signal: AbortSignal): Promise<ApiResult<Ready>> {
   const [keys, scopes, subaccounts] = await Promise.all([
@@ -31,8 +32,8 @@ async function readForm(api: ReturnType<typeof useSession>['api'], signal: Abort
   ]);
   if (!keys.ok) return keys;
   if (!scopes.ok) return scopes;
-  if (!subaccounts.ok) return subaccounts;
-  return { ok: true, data: { keys: keys.data.keys, scopes: scopes.data.scopes, subaccounts: subaccounts.data } };
+  // Choosing a sub-account is optional: a failed read leaves the form open for a key of this account.
+  return { ok: true, data: { keys: keys.data.keys, scopes: scopes.data.scopes, subaccounts: subaccounts.ok ? subaccounts.data : null } };
 }
 
 /** The key, once: copy, download as an environment file, and a box to tick before the panel can close. */
@@ -206,16 +207,16 @@ export function ApiKeyCreate() {
         <Field label={t('name')} hint={t('nameHint')} name="name" autoComplete="off" maxLength={64} />
         <label className="field">
           <span>{t('subaccount')}</span>
-          <select name="accountId" defaultValue="" aria-describedby="api-key-subaccount-hint">
+          <select name="accountId" defaultValue="" aria-describedby="api-key-subaccount-hint" disabled={subaccounts === null}>
             <option value="">{t('subaccountNone')}</option>
-            {subaccounts.map((row) => (
+            {(subaccounts ?? []).map((row) => (
               <option key={row.id} value={row.id}>
                 {row.nickname ?? row.label}
               </option>
             ))}
           </select>
           <small id="api-key-subaccount-hint" className="muted">
-            {t('subaccountHint')}
+            {t(subaccounts === null ? 'subaccountUnread' : 'subaccountHint')}
           </small>
         </label>
         <label className="api-keys__stored">

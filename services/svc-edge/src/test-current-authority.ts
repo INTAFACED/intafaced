@@ -41,7 +41,8 @@ export function currentAuthorityTestReply(
       kind: subject.credential.kind,
       ownership: { id: state.expectedCredentialId, userId: state.expectedUserId, revoked: false },
     },
-    subAccount: null,
+    // A sub-account subject gets the live sub-account it names, owned by the expected user.
+    subAccount: subject.subAccountId === undefined ? null : { id: subject.subAccountId, parentUserId: state.expectedUserId, revoked: false },
     version: '0',
   });
   return Response.json({ result: { data: proof } });

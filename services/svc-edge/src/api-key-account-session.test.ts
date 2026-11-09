@@ -25,19 +25,23 @@ const options = {
   identityOwnershipSecret: 'edge-test-identity-authority-secret-32',
 };
 
-async function accessToken(): Promise<string> {
-  const issued = await issueAccessToken({ userId: USER, sessionId: SESSION, scopes: ['trade:read'], tier: 'basic', mfa: false }, tokens);
+async function accessToken(subAccountId?: string): Promise<string> {
+  const issued = await issueAccessToken(
+    { userId: USER, sessionId: SESSION, scopes: ['trade:read'], tier: 'basic', mfa: false, ...(subAccountId ? { subAccountId } : {}) },
+    tokens,
+  );
   return issued.token;
 }
 
-function fetchOk(opts: { accountId?: string; expectPath?: string; expectAccount?: string }): typeof fetch {
+/** `accountId` is what identity's account exchange echoes; the token carries it as `sub_account` unless `unbound`. */
+function fetchOk(opts: { accountId?: string; expectPath?: string; expectAccount?: string; unbound?: boolean }): typeof fetch {
   return async (input, init) => {
     const authority = currentAuthorityTestReply(input, init, { expectedUserId: USER, expectedCredentialId: SESSION });
     if (authority) return authority;
     if (opts.expectPath) expect(String(input)).toContain(opts.expectPath);
     const body = JSON.parse(String(init?.body)) as { key?: string; accountId?: string };
     if (opts.expectAccount !== undefined) expect(body.accountId).toBe(opts.expectAccount);
-    const token = await accessToken();
+    const token = await accessToken(opts.unbound ? undefined : opts.accountId);
     const json: Record<string, unknown> = { accessToken: token };
     if (opts.accountId) json.accountId = opts.accountId;
     return new Response(JSON.stringify({ result: { data: { json } } }), {
@@ -73,6 +77,15 @@ describe('API key account bind at the session door', () => {
       expect(result.principal).toBeNull();
       expect(result.headers[EDGE_PRINCIPAL_HEADER]).toBeUndefined();
     }
+  });
+
+  it('an unbound key that sends an account header is not held to the sub-account routes (identity echoes the header)', async () => {
+    const result = await exchangePrincipal(
+      { authorization: 'Bearer ifc_open', 'x-account-id': ACC },
+      { ...options, request: { method: 'GET', path: '/api/v1/orders/open' }, fetch: fetchOk({ accountId: ACC, unbound: true }) },
+    );
+    expect(result.rejected).toBeNull();
+    expect(result.principal?.userId).toBe(USER);
   });
 
   it('bound key + a different account refuses', async () => {

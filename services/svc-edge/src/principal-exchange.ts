@@ -464,9 +464,6 @@ export async function exchangePrincipal(
     try {
       assertKeyNotExpired(exchanged.expiresAt, now);
       assertApiKeyAccount(exchanged.accountId, presentedAccountId);
-      if (exchanged.accountId !== undefined && !subAccountKeyRouteAllowed(options.request)) {
-        throw new KeyAccountError('This key reaches only its sub-account', 'auth.account_mismatch');
-      }
       assertUserNotFrozen(exchanged.status);
       assertApiKeyOrigin(exchanged.originAllowlist, origin);
       assertApiKeyIp(exchanged.ipAllowlist, clientIp);
@@ -502,6 +499,12 @@ export async function exchangePrincipal(
 
   if (principal.expiresAt.getTime() <= now.getTime()) {
     return { headers: forward, principal: null, rejected: 'expired', ...keyRefused };
+  }
+
+  // A key bound to a sub-account (its token carries `sub_account`, set by identity from the key's own record, never
+  // from what the caller sent) reaches only the routes that answer for that sub-account (DV-sub-accounts-01).
+  if (presentedApiKey && principal.sub_account !== undefined && !subAccountKeyRouteAllowed(options.request)) {
+    return { headers: forward, principal: null, rejected: 'invalid', apiKeyRefusal: API_KEY_DENIED };
   }
 
   const read = await readEdgeAuthority(principal, {

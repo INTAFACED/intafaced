@@ -44,10 +44,18 @@ export type ApiKeyKind = (typeof API_KEY_KINDS)[number];
 
 /**
  * The permissions an agent key never holds (DV-keys-05: "cannot hold refund, payout or configuration scopes"): refunds,
- * payouts and withdrawals move money off the account, and the identity and merchant write scopes change its settings.
+ * payouts, withdrawals and bank writes (loan repayments, transfers, address changes) move money off the account or
+ * change where it goes, and the identity and merchant write scopes change its settings.
  * Asking for one on an agent key refuses `identity.agent_scope_forbidden` at create.
  */
-export const AGENT_KEY_FORBIDDEN_SCOPES = ['pay:refund', 'pay:payout', 'trade:withdraw', 'identity:write', 'pay:write'] as const;
+export const AGENT_KEY_FORBIDDEN_SCOPES = [
+  'pay:refund',
+  'pay:payout',
+  'trade:withdraw',
+  'bank:write',
+  'identity:write',
+  'pay:write',
+] as const;
 
 const isoInstant = z.string().refine((value) => {
   const time = Date.parse(value);
