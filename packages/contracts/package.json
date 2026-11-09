@@ -78,6 +78,10 @@
       "types": "./dist/protocol-address-risk.d.ts",
       "default": "./dist/protocol-address-risk.js"
     },
+    "./protocol-venue-wallet": {
+      "types": "./dist/protocol-venue-wallet.d.ts",
+      "default": "./dist/protocol-venue-wallet.js"
+    },
     "./protocol-wallet-tx": {
       "types": "./dist/protocol-wallet-tx.d.ts",
       "default": "./dist/protocol-wallet-tx.js"
@@ -85,6 +89,10 @@
     "./outcome-markets": {
       "types": "./dist/outcome-markets.d.ts",
       "default": "./dist/outcome-markets.js"
+    },
+    "./ops-capital": {
+      "types": "./dist/ops-capital.d.ts",
+      "default": "./dist/ops-capital.js"
     },
     "./ops-console-mode": {
       "types": "./dist/ops-console-mode.d.ts",
@@ -158,6 +166,10 @@
       "types": "./dist/ops-console-services.d.ts",
       "default": "./dist/ops-console-services.js"
     },
+    "./ops-incidents": {
+      "types": "./dist/ops-incidents.d.ts",
+      "default": "./dist/ops-incidents.js"
+    },
     "./instruments": {
       "types": "./dist/instruments.d.ts",
       "default": "./dist/instruments.js"
@@ -209,6 +221,10 @@
     "./support-contact": {
       "types": "./dist/support-contact.d.ts",
       "default": "./dist/support-contact.js"
+    },
+    "./support-chat": {
+      "types": "./dist/support-chat.d.ts",
+      "default": "./dist/support-chat.js"
     },
     "./support-kb-library": {
       "types": "./dist/support-kb-library.d.ts",

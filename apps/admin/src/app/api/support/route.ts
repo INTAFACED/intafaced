@@ -4,6 +4,7 @@ import { readAdminJson } from '@/lib/admin-json';
 import { AdminSessionError, adminSessionErrorResponse } from '@/lib/founder-session';
 import { explainRefusal } from '@/lib/desk/refusal-copy';
 import { bulkSummary, type BulkRow } from '@/lib/support/bulk';
+import { modeWords, outcomeWords, type RequiredSkillResult, type SetModeResult } from '@/lib/support/routing';
 import { isTicketId, readActionRequest, type SupportActionRequest } from '@/lib/support/model';
 import { readQueueQuery } from '@/lib/support/queue-query';
 import { SUPPORT_OPS_FORBIDDEN, SUPPORT_OPS_FORBIDDEN_BODY, explainSupportFailure } from '@/lib/support/refusal';
@@ -17,7 +18,10 @@ import {
   loadTicket,
   loadTicketExtras,
   loadGroups,
+  loadGroupLog,
+  loadRoutingWaiting,
   loadStaff,
+  loadTicketRouting,
   loadRatingSummary,
   loadCustomerCard,
   loadTicketLifecycle,
@@ -89,6 +93,17 @@ export async function GET(request: Request) {
   if (url.searchParams.get('view') === 'bulk') return Response.json(await loadBulkPolicy(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'groups') return Response.json(await loadGroups(session), { headers: NO_STORE });
   if (url.searchParams.get('view') === 'staff') return Response.json(await loadStaff(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'group_log') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_group_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadGroupLog(session, id), { headers: NO_STORE });
+  }
+  if (url.searchParams.get('view') === 'routing_waiting') return Response.json(await loadRoutingWaiting(session), { headers: NO_STORE });
+  if (url.searchParams.get('view') === 'ticket_routing') {
+    const id = url.searchParams.get('id');
+    if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
+    return Response.json(await loadTicketRouting(session, id), { headers: NO_STORE });
+  }
   if (url.searchParams.get('view') === 'properties') {
     const id = url.searchParams.get('id');
     if (!isTicketId(id)) return Response.json({ code: 'admin.support_ticket_id' }, { status: 400, headers: NO_STORE });
@@ -207,19 +222,21 @@ const targetOf = (request: SupportActionRequest) =>
       ? 'self'
       : request.action === 'group_save'
         ? (request.groupId ?? 'new')
-        : request.action === 'group_member'
+        : request.action === 'group_member' || request.action === 'routing_mode'
           ? request.groupId
-          : request.action === 'bulk'
-            ? request.batchKey
-            : request.action === 'view_save'
-              ? `view:${request.name}`
-              : request.action === 'merge' || request.action === 'assign'
-                ? `${request.ticketId}->${request.action === 'merge' ? request.survivorId : request.assigneeId}`
-                : request.action === 'claim_next'
-                  ? 'queue'
-                  : 'ticketId' in request
-                    ? request.ticketId
-                    : request.id;
+          : request.action === 'staff_routing'
+            ? request.userId
+            : request.action === 'bulk'
+              ? request.batchKey
+              : request.action === 'view_save'
+                ? `view:${request.name}`
+                : request.action === 'merge' || request.action === 'assign'
+                  ? `${request.ticketId}->${request.action === 'merge' ? request.survivorId : request.assigneeId}`
+                  : request.action === 'claim_next'
+                    ? 'queue'
+                    : 'ticketId' in request
+                      ? request.ticketId
+                      : request.id;
 
 function statusOf(failure: FounderCallFailure<unknown>): number {
   if (failure.kind === 'forbidden') return failure.refusal.status === 401 ? 401 : 403;
@@ -292,6 +309,20 @@ function summaryOf(request: SupportActionRequest, data: unknown): string {
       return `svc-support says the group now has ${Array.isArray(d.memberIds) ? d.memberIds.length : 'an unknown number of'} members.`;
     case 'staff_availability':
       return `svc-support says the person is now ${String(d.availability)}.`;
+    case 'routing_mode': {
+      const r = data as SetModeResult;
+      const placed = r.routed.filter((o) => o.status === 'assigned').length;
+      const waiting = r.routed.filter((o) => o.status === 'queued').length;
+      return `svc-support says the group's routing is now ${modeWords(r.routing.mode)}. It assigned ${placed} waiting request${placed === 1 ? '' : 's'}; ${waiting} still wait${waiting === 1 ? 's' : ''} for an agent.`;
+    }
+    case 'staff_routing': {
+      const skills = Array.isArray(d.skills) ? (d.skills as string[]) : [];
+      return `svc-support saved the person's routing: capacity ${d.capacity === null ? 'not set (never assigned automatically)' : String(d.capacity)}, skills ${skills.length === 0 ? 'none' : skills.join(', ')}.`;
+    }
+    case 'ticket_skill': {
+      const r = data as RequiredSkillResult;
+      return `svc-support says the request now needs ${r.requiredSkill === null ? 'no skill' : r.requiredSkill}, and ${outcomeWords(r.outcome)}.`;
+    }
     case 'bulk':
       return Array.isArray(data) ? bulkSummary(data as BulkRow[]) : 'svc-support answered the bulk change.';
     case 'properties':
