@@ -65,11 +65,27 @@ export const TEST_SPOT_LISTINGS = Object.freeze([
     /** Days from the seed to the date it leaves the board. */
     delistsInDays: 7,
   }),
+  // J-cex-spot-14 #7: a TEST market inside its opening window. It trades, but a market order is refused with the window's
+  // reason until the window ends, and a limit order rests. Unquoted, so its book holds only what a journey rests on it.
+  Object.freeze({
+    symbol: 'TOPEN/USDC',
+    baseAsset: 'TOPEN',
+    quoteAsset: 'USDC',
+    displayName: 'TEST opening window',
+    tickSize: '0.0001',
+    lotSize: '0.01',
+    minQty: '0.01',
+    minNotional: '1',
+    makerBps: '10',
+    takerBps: '20',
+    /** Days from the seed to the end of its opening window. */
+    openingWindowInDays: 7,
+  }),
 ]);
 
 /** TEST listings the market maker never quotes, so their book holds only what a journey rests on it (J-copy-bots-otc-23
  * step 7 needs a book with one side empty and a known size on the other). Every other listing is quoted. */
-export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'TNEW/USDT', 'TOLD/USDT']);
+export const UNQUOTED_TEST_SPOT = Object.freeze(['IFC/USDC', 'TNEW/USDT', 'TOLD/USDT', 'TOPEN/USDC']);
 
 /** The url back, or a refusal when its database is not obviously local or test. */
 export function localTestDatabaseUrl(url, env = process.env) {
@@ -86,14 +102,17 @@ export async function insertSpotTestListing(sql, l) {
   const status = l.status ?? 'active';
   // A delisting is dated from the seed, so it stays in the future on every run.
   const delistsAt = status === 'delisted' && l.delistsInDays ? new Date(Date.now() + l.delistsInDays * 86_400_000) : null;
+  // An opening window is dated from the seed too, so it is open on every run.
+  const openingWindowEndsAt =
+    status === 'active' && l.openingWindowInDays ? new Date(Date.now() + l.openingWindowInDays * 86_400_000) : null;
   const rows = await sql`
     INSERT INTO trade.markets (
       symbol, base_asset, quote_asset, kind, tick_size, lot_size, min_qty, min_notional,
-      maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture, delists_at
+      maker_bps, taker_bps, status, display_name, listed_at, "test", test_fixture, delists_at, opening_window_ends_at
     ) VALUES (
       ${l.symbol}, ${l.baseAsset}, ${l.quoteAsset}, 'spot', ${l.tickSize}::numeric, ${l.lotSize}::numeric,
       ${l.minQty}::numeric, ${l.minNotional}::numeric, ${l.makerBps}::numeric, ${l.takerBps}::numeric,
-      ${status}, ${l.displayName}, now(), true, ${sql.json(fixture)}, ${delistsAt}
+      ${status}, ${l.displayName}, now(), true, ${sql.json(fixture)}, ${delistsAt}, ${openingWindowEndsAt}
     )
     ON CONFLICT (symbol) DO UPDATE SET
       display_name = EXCLUDED.display_name,
@@ -106,6 +125,7 @@ export async function insertSpotTestListing(sql, l) {
       test_fixture = EXCLUDED.test_fixture,
       status = EXCLUDED.status,
       delists_at = EXCLUDED.delists_at,
+      opening_window_ends_at = EXCLUDED.opening_window_ends_at,
       updated_at = now()
     WHERE trade.markets."test" = true
     RETURNING id, symbol

@@ -384,6 +384,23 @@ describe('POST /api/v1/orders/preview', () => {
     await app.close();
   });
 
+  it('opening window (J-cex-spot-14 #7): a market order previews as refused with trade.opening_window, a limit order does not', async () => {
+    const ends = new Date(READY_MARKET_NOW().getTime() + 86_400_000);
+    const { app } = appWith({ market: { ...MARKET, openingWindowEndsAt: ends } });
+    const market = await app.inject({
+      method: 'POST',
+      url: SPOT_ORDER_PREVIEW_PATH,
+      headers: headers(),
+      payload: { ...limitBuy, type: 'market', price: undefined },
+    });
+    const refusal = market.json().refusals.find((row: { code: string }) => row.code === 'trade.opening_window');
+    expect(refusal, market.body).toMatchObject({ field: 'type' });
+    expect(refusal.message).toContain(ends.toISOString());
+    const limit = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, headers: headers(), payload: limitBuy });
+    expect(limit.json().refusals.map((row: { code: string }) => row.code)).not.toContain('trade.opening_window');
+    await app.close();
+  });
+
   it('refuses unauthenticated callers', async () => {
     const { app } = appWith({});
     const response = await app.inject({ method: 'POST', url: SPOT_ORDER_PREVIEW_PATH, payload: limitBuy });

@@ -233,6 +233,8 @@ const messages = {
   'Maintenance in minutes': 'Maintenance in {n} minutes',
   'Maintenance end not set': 'End time not set',
   'Maintenance until': 'Until {time}',
+  'Opening window': 'Opening window',
+  'Opening window until': 'Limit orders only until {time}',
   'Price improvement': 'Retail price improvement',
   'Price improvement not available': 'Not available: priority class not specified',
   'Trading mode value': 'Cash spot · {state}',

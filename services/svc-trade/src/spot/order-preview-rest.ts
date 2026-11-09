@@ -7,6 +7,7 @@ import type { MarketAction } from '@intafaced/exchange-contract';
 import type { MarketLifecyclePort } from '../market-lifecycle.js';
 import {
   assertMarketOpen,
+  assertOpeningWindow,
   assertNotional,
   assertPrice,
   assertQty,
@@ -381,6 +382,13 @@ export function registerSpotOrderPreviewRest(app: FastifyInstance, deps: SpotOrd
       assertMarketOpen(market, deps.now());
     } catch (error) {
       pushError(refusals, error, 'symbol');
+    }
+    if (orderType !== null) {
+      try {
+        assertOpeningWindow(market, orderType, deps.now());
+      } catch (error) {
+        pushError(refusals, error, 'type');
+      }
     }
 
     const halt = deps.matchingHalt ? await deps.matchingHalt(market.id).catch(() => null) : null;

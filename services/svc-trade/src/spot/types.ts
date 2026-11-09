@@ -77,6 +77,8 @@ export interface Market {
   readonly listedAt: Date | null;
   /** The date a delisted market leaves the board (J-cex-spot-14 #1); null when none is set or the read did not load it. */
   readonly delistsAt?: Date | null;
+  /** The end of the market's opening window (J-cex-spot-14 #7); null or absent when it has none. */
+  readonly openingWindowEndsAt?: Date | null;
   readonly assetClass: AssetClass;
   /**
    * When this market accepts orders.
@@ -315,6 +317,7 @@ export type TradeErrorCode =
   | 'trade.mode_limit_only'
   /** The retail price improvement layer has no priority class (SP-markets-data-04): an order asking for it is refused. */
   | 'trade.rpi_unavailable'
+  | 'trade.opening_window'
   /** Cancel-only mode: a new order is refused; cancel works. */
   | 'trade.mode_cancel_only'
   /** Post-only mode: an order that would take liquidity is refused. */

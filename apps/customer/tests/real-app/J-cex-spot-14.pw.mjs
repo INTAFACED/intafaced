@@ -322,15 +322,63 @@ test(`${J} #6 an order while the market session is closed: the closed-market rul
 test(`${J} #7 a market inside its opening window or the higher-risk zone shows a badge; a market order is refused with the window reason and a limit is accepted`, async ({
   page,
 }) => {
+  // The TEST listing TOPEN/USDC is seeded inside a seven-day opening window (tooling/scripts/seed-spot-test-listing.mjs).
   const markets = await (await fetch(`${EDGE}/api/v1/markets?limit=500`)).json();
-  const windowed = markets.find((m) => m.listing?.openingWindowEndsAt || m.listing?.zone);
-  expect(windowed, 'a market inside its opening window or in the higher-risk zone').toBeTruthy();
+  const windowed = markets.find((m) => m.symbol === 'TOPEN/USDC');
+  expect(windowed, 'the TEST market inside its opening window').toBeTruthy();
+  const ends = Date.parse(windowed.openingWindowEndsAt ?? '');
+  expect(ends, 'the listing names when its opening window ends').toBeGreaterThan(Date.now());
   const who = await account(page);
-  await openDesk(page, who, windowed.symbol);
-  await expect(page.getByTestId('dk-ticker')).toContainText(/Opening window|Higher-risk zone/, { timeout: UNBUILT_MS });
   const client = await api(who);
-  const res = await client.post('/api/v1/orders', { symbol: windowed.symbol, side: 'buy', type: 'market', amount: '0.001' });
-  expect(JSON.stringify(res.body)).toContain('trade.opening_window');
+  const before = held(await client.balances(), 'USDC');
+
+  // The ticket shows the badge, and the desk's own preview says why a market order is refused before Confirm.
+  await openDesk(page, who, windowed.symbol);
+  const badge = page.getByTestId('dk-opening-window');
+  await expect(badge).toContainText('Opening window', { timeout: UNBUILT_MS });
+  await expect(badge).toContainText('Limit orders only until');
+  const sent = placements(page);
+  await page.locator('[role=tab]', { hasText: /^Market$/ }).click();
+  await page.getByRole('textbox', { name: 'Amount' }).first().fill('100');
+  const form = page.locator('form[data-testid="dk-form"][data-side="buy"]');
+  await expect(form).toContainText('Market orders open after the opening window');
+  await expect(form).toContainText('Place a limit order instead');
+  await expect(form).not.toContainText(/[a-z]+\.[a-z_]+_[a-z_]+/); // no raw code
+  await expect(page.getByRole('button', { name: 'Buy TOPEN' })).toBeDisabled();
+  await page.waitForTimeout(1000);
+  expect(sent.filter((body) => body?.symbol === windowed.symbol)).toHaveLength(0);
+
+  // The door refuses the market order with the window's reason, before any hold.
+  const market = await client.post('/api/v1/orders', {
+    symbol: windowed.symbol,
+    side: 'buy',
+    type: 'market',
+    amount: '100',
+    clientOrderId: `${J}-7m-${who.handle}`,
+  });
+  expect(market.status).toBe(400);
+  expect(JSON.stringify(market.body)).toContain('trade.opening_window');
+  expect(JSON.stringify(market.body)).toContain('opening window until');
+  expect(held(await client.balances(), 'USDC')).toBe(before);
+
+  // A limit buy is accepted and rests, holding exactly its price x amount; it is cancelled again so the book stays empty.
+  const limit = await client.post('/api/v1/orders', {
+    symbol: windowed.symbol,
+    side: 'buy',
+    type: 'limit',
+    amount: '100',
+    price: '0.01',
+    clientOrderId: `${J}-7-${who.handle}`,
+  });
+  expect(limit.status, JSON.stringify(limit.body).slice(0, 300)).toBeLessThan(300);
+  try {
+    expect((await openOrders(who, windowed.symbol)).find((o) => o.id === limit.body.id)).toBeTruthy();
+    expect(held(await client.balances(), 'USDC') - before).toBe(toUnits('1'));
+  } finally {
+    const cancel = await client.delete(`/api/v1/orders/${limit.body.id}`);
+    expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeLessThan(300);
+  }
+  await expect.poll(async () => held(await client.balances(), 'USDC')).toBe(before);
 });
 
 test(`${J} #8 public depth, tickers, candles and spreads: a snapshot then ordered updates, and a reconnect resumes from the last sequence`, async () => {

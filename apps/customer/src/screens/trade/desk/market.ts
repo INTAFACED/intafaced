@@ -11,6 +11,8 @@ export const deskListingSchema = listingSchema.extend({
   lifecycle: z.object({ state: z.string() }).passthrough().nullish(),
   /** The nearest maintenance window svc-notify publishes for this market (J-cex-spot-14 #5). */
   upcomingMaintenance: upcomingMaintenanceSchema,
+  /** While a new market's opening window lasts, its end: market orders are refused until then (J-cex-spot-14 #7). */
+  openingWindowEndsAt: z.string().nullish().catch(null),
   // The operator limits as published for the pair; "not set" where the owner published none.
   pairRules: z
     .object({ protection: z.object({ collar: z.string(), openOrdersPerMarket: z.string() }).passthrough() })
@@ -43,10 +45,18 @@ export interface DeskMarket {
   band?: string | null;
   /** How many orders one account may have open here; null when none is published. */
   openOrderCap?: string | null;
+  /** When the market's opening window ends (epoch ms), while it lasts; null when the market has none. */
+  openingWindowEndsAt?: number | null;
 }
 
 /** A published operator value, or null for "not set" (or no rules read at all): never a default. */
 const published = (value: string | undefined): string | null => (value && value !== 'not set' ? value : null);
+
+/** A published window end as epoch ms, or null when absent or unreadable. */
+function windowEnd(value: string | null | undefined): number | null {
+  const at = value ? Date.parse(value) : Number.NaN;
+  return Number.isFinite(at) ? at : null;
+}
 
 export function toDeskMarket(listing: DeskListing): DeskMarket {
   const stateOpen = listing.lifecycle ? (DESK_MODES as readonly string[]).includes(listing.lifecycle.state) : true;
@@ -63,6 +73,7 @@ export function toDeskMarket(listing: DeskListing): DeskMarket {
     maintenance: maintenanceOf(listing.upcomingMaintenance),
     band: published(listing.pairRules?.protection.collar),
     openOrderCap: published(listing.pairRules?.protection.openOrdersPerMarket),
+    openingWindowEndsAt: windowEnd(listing.openingWindowEndsAt),
   };
 }
 

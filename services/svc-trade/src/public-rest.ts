@@ -472,6 +472,11 @@ export function presentCcxtMarket(
     listing: listingStatusOf(market),
     /** The date a delisting market leaves the board, or null when none is set. */
     delistsAt: market.status === 'delisted' && market.delistsAt instanceof Date ? market.delistsAt.toISOString() : (null as string | null),
+    /** The end of an open market's opening window, while it lasts: market orders are refused until then (J-cex-spot-14 #7). */
+    openingWindowEndsAt:
+      market.status === 'active' && market.openingWindowEndsAt instanceof Date && market.openingWindowEndsAt.getTime() > nowMs
+        ? market.openingWindowEndsAt.toISOString()
+        : (null as string | null),
     /**
      * TRUE = the order path will accept a new order/open here (subject to
      * session, paper, risk). FALSE = listed but refused — futures kill-switch
@@ -1190,6 +1195,7 @@ export function fakeMarket(partial: {
   schedule?: Market['schedule'];
   assetClass?: Market['assetClass'];
   delistsAt?: Date | null;
+  openingWindowEndsAt?: Date | null;
 }): Market {
   return {
     id: partial.id ?? '00000000-0000-4000-8000-000000000001',
@@ -1210,6 +1216,7 @@ export function fakeMarket(partial: {
     schedule: partial.schedule ?? 'crypto-24x7',
     paper: partial.paper ?? false,
     ...(partial.delistsAt !== undefined ? { delistsAt: partial.delistsAt } : {}),
+    ...(partial.openingWindowEndsAt !== undefined ? { openingWindowEndsAt: partial.openingWindowEndsAt } : {}),
   };
 }
 

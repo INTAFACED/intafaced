@@ -98,6 +98,7 @@ const SETTLED_KINDS: ReadonlySet<RefusalKind> = new Set([
   'noPermission',
   'orderTypeUnsupported',
   'marketLimitOnly',
+  'marketOpeningWindow',
   'marketCancelOnly',
   'marketPostOnly',
   'optionUnsupported',

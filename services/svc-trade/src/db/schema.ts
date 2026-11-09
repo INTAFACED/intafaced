@@ -208,6 +208,8 @@ export const markets = trade.table(
     listedAt: tstz('listed_at'),
     /** The date a delisted market leaves the board (J-cex-spot-14 #1). Only a delisted listing carries one. */
     delistsAt: tstz('delists_at'),
+    /** The end of a new market's opening window (J-cex-spot-14 #7): until then a market order is refused, a limit accepted. */
+    openingWindowEndsAt: tstz('opening_window_ends_at'),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

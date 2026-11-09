@@ -370,3 +370,17 @@ export function sellProtectionPriceFor(market: Market, bestBid: Amount | null, s
   const remainder = slipped % market.tickSize;
   return remainder === 0n ? slipped : slipped + (market.tickSize - remainder);
 }
+
+/**
+ * A new market's opening window (J-cex-spot-14 #7, SP-markets-data-02): until the listing's `openingWindowEndsAt`, a
+ * market order is refused with the window's reason and a limit order is accepted. Pure: the caller passes the clock.
+ */
+export function assertOpeningWindow(market: Pick<Market, 'symbol' | 'openingWindowEndsAt'>, orderType: string, at: Date): void {
+  const ends = market.openingWindowEndsAt;
+  if (!(ends instanceof Date) || Number.isNaN(ends.getTime()) || ends.getTime() <= at.getTime()) return;
+  if (orderType !== 'market') return;
+  throw new TradeError(
+    `${market.symbol} is in its opening window until ${ends.toISOString()}: market orders are refused until then, and a limit order is accepted`,
+    'trade.opening_window',
+  );
+}

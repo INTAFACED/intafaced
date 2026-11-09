@@ -45,6 +45,7 @@ export type RefusalKind =
   | 'selfTrade'
   | 'orderTypeUnsupported'
   | 'marketLimitOnly'
+  | 'marketOpeningWindow'
   | 'marketCancelOnly'
   | 'marketPostOnly'
   | 'optionUnsupported'
@@ -210,6 +211,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
   'trade.mode_limit_only': 'marketLimitOnly',
+  'trade.opening_window': 'marketOpeningWindow',
   'trade.rpi_unavailable': 'optionUnsupported',
   'trade.mode_cancel_only': 'marketCancelOnly',
   'trade.mode_post_only': 'marketPostOnly',
