@@ -54,7 +54,14 @@ export type TicketOrderReadResult =
   | { kind: 'order'; order: SupportOrderSnapshot }
   | { kind: 'unknown'; reason: TicketOrderUnknownReason }
   /** svc-trade answered, signed, that it holds no order with this id (404 `trade.order_not_found`). */
-  | { kind: 'missing' };
+  | { kind: 'missing' }
+  /** svc-trade holds the order, but its fees were charged in more than one asset (409 `trade.order_fee_mixed`): owner and status only. */
+  | { kind: 'fee_mixed'; owner: SupportOrderOwner };
+
+const supportOrderOwnerSchema = z
+  .object({ orderId: z.string().guid(), userId: z.string().guid(), status: z.enum(SUPPORT_ORDER_STATUSES) })
+  .strip();
+export type SupportOrderOwner = z.infer<typeof supportOrderOwnerSchema>;
 
 export interface TicketOrderSource {
   read(orderId: string): Promise<TicketOrderReadResult>;
@@ -125,6 +132,8 @@ export function createTicketOrderClient(
             // No content-type is sent on this read, so none is signed: the signature commits to the headers as they go out.
             ...sign('', { method: 'GET', url: new URL(target), contentType: '' }),
           },
+          // A trade that stalls is a trade that gave no answer, so a desk action waiting on it never hangs.
+          signal: AbortSignal.timeout(5_000),
         });
       } catch {
         return { kind: 'unknown', reason: 'trade_silent' };
@@ -143,6 +152,10 @@ export function createTicketOrderClient(
         const code = typeof body === 'object' && body !== null && 'code' in body ? (body as { code?: unknown }).code : undefined;
         if (code === 'matcher_down') return { kind: 'unknown', reason: 'matcher_down' };
         if (response.status === 404 && code === 'trade.order_not_found') return { kind: 'missing' };
+        if (response.status === 409 && code === 'trade.order_fee_mixed') {
+          const owner = supportOrderOwnerSchema.safeParse(body);
+          if (owner.success && owner.data.orderId === orderId) return { kind: 'fee_mixed', owner: owner.data };
+        }
         return { kind: 'unknown', reason: 'trade_silent' };
       }
 

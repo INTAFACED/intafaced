@@ -98,9 +98,33 @@ describe('support order read', () => {
     await a.close();
   });
 
+  it('answers 409 with the owner and status, and no fee figure, when fills charged fees in two assets', async () => {
+    const id = await order('open', '2');
+    for (const [seq, asset] of [
+      [1, 'USDT'],
+      [2, 'BTC'],
+    ] as const)
+      await db.sql`INSERT INTO trade.fills (
+        id, order_id, counter_order_id, market_id, user_id, side, liquidity, price, qty, quote_amount, fee_asset, fee_amount, fee_bps, sequence
+      ) VALUES (${randomUUID()}, ${id}, ${randomUUID()}, ${spot}, ${ALICE}, 'buy', 'taker', 49000, 1, 49000, ${asset}, 1, 10, ${seq})`;
+    const a = await app();
+    const res = await a.inject(get(id));
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({
+      error: 'fees were charged in more than one asset',
+      code: 'trade.order_fee_mixed',
+      orderId: id,
+      userId: ALICE,
+      status: 'open',
+    });
+    await a.close();
+  });
+
   it('is 404 for an id with no order and 503 when the read fails, never an invented order', async () => {
     const a = await app();
     expect((await a.inject(get(randomUUID()))).statusCode).toBe(404);
+    // A well-formed id outside the RFC version and variant is looked up too, so it is 404 like any other id with no order.
+    expect((await a.inject(get('00000000-0000-0000-0000-000000000000'))).json().code).toBe('trade.order_not_found');
     failRead = true;
     const down = await a.inject(get(randomUUID()));
     failRead = false;

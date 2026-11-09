@@ -289,7 +289,7 @@ export function createSupportRouter(
     ...guestProcedures(guests, mapError),
     ...kbSegmentProcedures(kbSegmentCap),
     ...verificationCheckProcedures(checks),
-    ...ticketLinkProcedures(links),
+    ...ticketLinkProcedures(links, mapError),
     ...officialChannelProcedures(officialChannels),
     safety: safetyRouter(safety),
 

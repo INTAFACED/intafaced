@@ -26,8 +26,10 @@ export async function recordOwned(sql: Sql, input: SupportRecordOwnershipInput):
     input.kind === 'withdrawal'
       ? await sql<Array<{ n: number }>>`
           SELECT count(*)::int AS n FROM pay.withdrawals WHERE id = ${input.recordId} AND user_id = ${input.userId}`
-      : await sql<Array<{ n: number }>>`
-          SELECT count(*)::int AS n FROM pay.deposits WHERE id = ${input.recordId} AND user_id = ${input.userId}`;
+      : // A deposit is a bank or card deposit (pay.deposits) or a crypto deposit to the customer's issued address (pay.custody_deposits).
+        await sql<Array<{ n: number }>>`
+          SELECT (SELECT count(*) FROM pay.deposits WHERE id = ${input.recordId} AND user_id = ${input.userId})::int
+               + (SELECT count(*) FROM pay.custody_deposits WHERE id = ${input.recordId} AND user_id = ${input.userId})::int AS n`;
   return (rows[0]?.n ?? 0) > 0;
 }
 

@@ -1028,8 +1028,8 @@ export class SupportService implements SupportContract {
 
       span.setAttribute('intafaced.support.ticket_id', ticket.id);
       const result = await this.orders.read(input.orderId);
-      // No such order reads as it always has: unknown, nothing cancelled.
-      if (result.kind === 'missing') {
+      // No such order, and an order whose fees are in more than one asset (no one fee figure), read as unknown: nothing cancelled.
+      if (result.kind === 'missing' || result.kind === 'fee_mixed') {
         span.setAttribute('intafaced.support.order_read', 'unknown');
         return { outcome: 'unknown', orderId: input.orderId, reason: 'trade_silent', cancelled: false };
       }

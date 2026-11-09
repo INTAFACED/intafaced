@@ -69,8 +69,8 @@ export function assertOperatorQueueLimit(limit: number | undefined): number {
 }
 
 /**
- * A request linked to an order svc-trade reports as `recovery_required` (J-support-public-20 #1): its hold is still
- * encumbered with an unknown outcome, so it is read before a withdrawal request of the same age.
+ * A request linked to an order svc-trade reports as `recovery_required` or `hold_unknown` (J-support-public-20 #1): its
+ * hold is still encumbered with an unknown outcome, so it is read before a withdrawal request of the same age.
  */
 export const RECOVERY_LINK_WEIGHT = 80;
 

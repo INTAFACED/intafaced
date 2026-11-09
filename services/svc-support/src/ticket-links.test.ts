@@ -120,3 +120,73 @@ describe('the queue ranks a recovery-required order first', () => {
     expect(rankOperatorQueue([withdrawal, stuck], NOW, new Set([stuck.id])).map((e) => e.ticketId)).toEqual([stuck.id, withdrawal.id]);
   });
 });
+
+describe('the queue reads each linked order from svc-trade as it ranks', () => {
+  const T1 = '11111111-0000-4000-8000-0000000000a1';
+  const T2 = '11111111-0000-4000-8000-0000000000a2';
+  const T3 = '11111111-0000-4000-8000-0000000000a3';
+  const O1 = 'aaaaaaaa-0000-4000-8000-0000000000b1';
+  const O2 = 'aaaaaaaa-0000-4000-8000-0000000000b2';
+  const O3 = 'aaaaaaaa-0000-4000-8000-0000000000b3';
+  const link = (ticketId: string, recordId: string, recoveryRequired: boolean) => ({
+    ticketId,
+    kind: 'order' as const,
+    recordId,
+    recoveryRequired,
+    linkedBy: OPERATOR,
+    linkedAt: NOW.toISOString(),
+  });
+  const snap = (orderId: string, status: string): TicketOrderReadResult => ({
+    kind: 'order',
+    order: {
+      orderId,
+      userId: CUSTOMER,
+      status,
+      symbol: 'BTC/USDT',
+      side: 'buy',
+      filledQuantity: '0',
+      feeAsset: 'USDT',
+      feeAmount: '0',
+    } as never,
+  });
+
+  it('a hold resolved since the link stops ranking first, one now unresolved starts, and a silent read keeps the link-time status', async () => {
+    const book = new MemoryLinkBook();
+    await book.put(link(T1, O1, true)); // recovery_required at link time, filled now
+    await book.put(link(T2, O2, false)); // open at link time, hold_unknown now
+    await book.put(link(T3, O3, true)); // recovery_required at link time, svc-trade silent now
+    const now: TicketOrderSource = {
+      async read(id) {
+        if (id === O1) return snap(O1, 'filled');
+        if (id === O2) return snap(O2, 'hold_unknown');
+        return { kind: 'unknown', reason: 'trade_silent' };
+      },
+    };
+    const desk = new TicketLinks(book, { getTicket: async () => ticket() }, now, null, () => NOW);
+    expect([...(await desk.recoveryTickets())].sort()).toEqual([T2, T3]);
+  });
+
+  it('with svc-trade not wired, every link ranks by its link-time status', async () => {
+    const book = new MemoryLinkBook();
+    await book.put(link(T1, O1, true));
+    await book.put(link(T2, O2, false));
+    expect([...(await new TicketLinks(book, { getTicket: async () => ticket() }, null, null, () => NOW).recoveryTickets())]).toEqual([T1]);
+  });
+});
+
+describe('an order whose fees were charged in more than one asset', () => {
+  it('links on its owner and status alone, and refuses it for another customer', async () => {
+    const mixed = (userId: string, status: string): TicketOrderSource => ({
+      read: async (orderId) => ({ kind: 'fee_mixed', owner: { orderId, userId, status } as never }),
+    });
+    expect(
+      await links(ticket(), mixed(CUSTOMER, 'hold_unknown')).links.link(OPERATOR, { ticketId: ticket().id, kind: 'order', recordId: MINE }),
+    ).toMatchObject({
+      kind: 'order',
+      recoveryRequired: true,
+    });
+    expect(
+      await code(links(ticket(), mixed(OTHER, 'open')).links.link(OPERATOR, { ticketId: ticket().id, kind: 'order', recordId: MINE })),
+    ).toBe('support.link_record_not_owned');
+  });
+});

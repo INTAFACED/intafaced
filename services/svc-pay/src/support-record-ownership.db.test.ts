@@ -50,7 +50,7 @@ describe('support record ownership (real Postgres)', () => {
   }, 30_000);
   beforeEach(async () => {
     failRead = false;
-    await db.sql`TRUNCATE pay.withdrawals, pay.deposits RESTART IDENTITY CASCADE`;
+    await db.sql`TRUNCATE pay.withdrawals, pay.deposits, pay.custody_deposits RESTART IDENTITY CASCADE`;
   }, 30_000);
 
   let n = 0;
@@ -70,6 +70,23 @@ describe('support record ownership (real Postgres)', () => {
       RETURNING id`;
     return row!.id;
   }
+
+  async function cryptoDeposit(userId = USER): Promise<string> {
+    n += 1;
+    const [row] = await db.sql<Array<{ id: string }>>`
+      INSERT INTO pay.custody_deposits (user_id, asset_id, network_id, address, tx_hash, output_index, amount)
+      VALUES (${userId}, 'USDT', 'TEST', 'TEST-address', ${`0xtest${n}`}, 0, '5')
+      RETURNING id`;
+    return row!.id;
+  }
+
+  it("answers owned for the customer's own crypto deposit (pay.custody_deposits) and not for another customer's", async () => {
+    const mine = await cryptoDeposit();
+    const theirs = await cryptoDeposit(OTHER);
+    expect(await recordOwned(db.sql, { kind: 'deposit', recordId: mine, userId: USER })).toBe(true);
+    expect(await recordOwned(db.sql, { kind: 'deposit', recordId: theirs, userId: USER })).toBe(false);
+    expect(await recordOwned(db.sql, { kind: 'withdrawal', recordId: mine, userId: USER })).toBe(false);
+  });
 
   it("answers owned only for the customer's own record of that kind", async () => {
     const mine = await withdrawal();

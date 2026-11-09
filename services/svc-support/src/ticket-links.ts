@@ -23,8 +23,11 @@ import { identitySecretSet } from './identity-grounding-honesty.js';
  * attempt tells the desk nothing about an id that isn't the customer's. An owner that gives no answer (not wired, down)
  * refuses `support.link_record_unverifiable` and links nothing. Linking again is the same link.
  *
- * A request linked to an order that svc-trade reports as `recovery_required` ranks above a withdrawal request of the same
- * age in the desk's queue (`RECOVERY_LINK_WEIGHT`). Nothing here moves, posts or reads money.
+ * A request linked to an order whose hold is unresolved (`recovery_required` or `hold_unknown` in svc-trade) ranks above a
+ * withdrawal request of the same age in the desk's queue (`RECOVERY_LINK_WEIGHT`). The queue reads each open request's
+ * linked orders from svc-trade as it ranks, so a hold resolved since the link stops ranking first and one that became
+ * unresolved starts; the status read at link time stands in only when svc-trade gives no answer. Nothing here moves,
+ * posts or reads money.
  */
 
 export const TICKET_LINK_KINDS = ['order', 'withdrawal', 'deposit'] as const;
@@ -37,7 +40,7 @@ export interface TicketLink {
   readonly ticketId: string;
   readonly kind: TicketLinkKind;
   readonly recordId: string;
-  /** The order's status as svc-trade read it when it was linked; false for a withdrawal or a deposit. */
+  /** svc-trade read the order's hold as unresolved when it was linked; false for a withdrawal or a deposit. */
   readonly recoveryRequired: boolean;
   readonly linkedBy: string;
   readonly linkedAt: string;
@@ -53,13 +56,19 @@ export interface LinkBook {
   list(ticketId: string): Promise<TicketLink[]>;
   /** Writes the link once per (ticket, kind, record); the same link again returns the first. */
   put(link: TicketLink): Promise<TicketLink>;
-  /** The requests that hold a link to a `recovery_required` order. */
-  recoveryTickets(): Promise<Set<string>>;
+  /** The order links of requests that are not closed. */
+  openOrderLinks(): Promise<Array<Pick<TicketLink, 'ticketId' | 'recordId' | 'recoveryRequired'>>>;
 }
 
 type TicketReader = {
   getTicket(input: { userId: string; ticketId: string; asOperator?: boolean }): Promise<SupportTicket>;
 };
+
+/** Order statuses whose hold has an outcome nobody knows yet. */
+export const UNRESOLVED_HOLD_STATUSES: ReadonlySet<string> = new Set(['recovery_required', 'hold_unknown']);
+
+/** At most this many linked orders are read live per queue ranking; any beyond it rank by their link-time status. */
+export const RECOVERY_LIVE_READS_MAX = 50;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -89,8 +98,9 @@ export class TicketLinks {
       // An id svc-trade holds no order for refuses as another customer's order does; a trade that gave no answer links nothing.
       if (read.kind === 'missing') throw notOwned();
       if (read.kind === 'unknown') throw unverifiable('svc-trade');
-      if (read.order.orderId !== recordId || read.order.userId !== ticket.userId) throw notOwned();
-      recoveryRequired = read.order.status === 'recovery_required';
+      const owner = read.kind === 'order' ? read.order : read.owner;
+      if (owner.orderId !== recordId || owner.userId !== ticket.userId) throw notOwned();
+      recoveryRequired = UNRESOLVED_HOLD_STATUSES.has(owner.status);
     } else {
       if (!this.pay) throw unverifiable('svc-pay');
       const owned = await this.pay.owned({ kind: input.kind, recordId, userId: ticket.userId });
@@ -107,8 +117,20 @@ export class TicketLinks {
     });
   }
 
-  recoveryTickets(): Promise<Set<string>> {
-    return this.book.recoveryTickets();
+  /** The open requests linked to an order whose hold is unresolved now, read from svc-trade as the queue ranks. */
+  async recoveryTickets(): Promise<Set<string>> {
+    const links = await this.book.openOrderLinks();
+    const live = links.slice(0, RECOVERY_LIVE_READS_MAX);
+    const statuses = this.orders
+      ? await Promise.all(live.map((link) => this.orders!.read(link.recordId).catch(() => null)))
+      : live.map(() => null);
+    const out = new Set<string>();
+    links.forEach((link, i) => {
+      const read = statuses[i] ?? null;
+      const status = read?.kind === 'order' ? read.order.status : read?.kind === 'fee_mixed' ? read.owner.status : null;
+      if (status === null ? link.recoveryRequired : UNRESOLVED_HOLD_STATUSES.has(status)) out.add(link.ticketId);
+    });
+    return out;
   }
 }
 
@@ -160,9 +182,14 @@ export class SqlLinkBook implements LinkBook {
     return fromRow(rows[0]!);
   }
 
-  async recoveryTickets(): Promise<Set<string>> {
-    const rows = await this.sql<{ ticket_id: string }[]>`SELECT DISTINCT ticket_id FROM support.ticket_links WHERE recovery_required`;
-    return new Set(rows.map((row) => row.ticket_id));
+  async openOrderLinks(): Promise<Array<Pick<TicketLink, 'ticketId' | 'recordId' | 'recoveryRequired'>>> {
+    const rows = await this.sql<{ ticket_id: string; record_id: string; recovery_required: boolean }[]>`
+      SELECT l.ticket_id, l.record_id, l.recovery_required FROM support.ticket_links l
+        JOIN support.tickets t ON t.id = l.ticket_id
+       WHERE l.kind = 'order' AND t.status <> 'closed'
+       ORDER BY l.recovery_required DESC, l.linked_at
+    `;
+    return rows.map((row) => ({ ticketId: row.ticket_id, recordId: row.record_id, recoveryRequired: row.recovery_required }));
   }
 }
 
@@ -178,8 +205,9 @@ export class MemoryLinkBook implements LinkBook {
     this.rows.set(key, link);
     return link;
   }
-  async recoveryTickets(): Promise<Set<string>> {
-    return new Set([...this.rows.values()].filter((row) => row.recoveryRequired).map((row) => row.ticketId));
+  /** Memory has no tickets table, so every order link counts as open. */
+  async openOrderLinks(): Promise<Array<Pick<TicketLink, 'ticketId' | 'recordId' | 'recoveryRequired'>>> {
+    return [...this.rows.values()].filter((row) => row.kind === 'order');
   }
 }
 
