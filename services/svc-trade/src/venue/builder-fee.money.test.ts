@@ -11,7 +11,7 @@ import { HttpUserVenue } from './http-user-venue.js';
 import { InMemoryPreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, type BuilderFeeValue } from './user-venue-door.js';
 import { postBuilderFees } from './builder-fee-poster.js';
-import { builderFeeRecon, BuilderFeeReconError } from './builder-fee-recon.js';
+import { builderFeeRecon, BuilderFeeReconError, expectedBuilderFee } from './builder-fee-recon.js';
 import { InMemoryBuilderFeeStore, type BuilderFeeAccount } from './builder-fee-store.js';
 
 /**
@@ -50,6 +50,7 @@ let server: http.Server;
 let sim: TestVenueSimulator;
 let url: string;
 let door: UserVenueDoor;
+const actions = new InMemoryPreparedActionStore();
 const start = new Date(Date.now() - 60_000);
 
 beforeAll(async () => {
@@ -60,7 +61,7 @@ beforeAll(async () => {
   door = new UserVenueDoor({
     connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
     appEnv: 'test',
-    store: new InMemoryPreparedActionStore(),
+    store: actions,
     stepUp: approveStepUp,
     builder: BUILDER,
     now: () => new Date(),
@@ -107,7 +108,8 @@ beforeEach(() => {
   store = new InMemoryBuilderFeeStore(() => [account()]);
 });
 const venue = () => door.venue();
-const deps = () => ({ venue, ledger, store, now: () => new Date() });
+const routedOrders = (venueId: string, ids: readonly string[]) => actions.builderFeeOrders(venueId, ids);
+const deps = () => ({ venue, ledger, store, routedOrders, now: () => new Date() });
 const period = () => [start, new Date(Date.now() + 60_000)] as const;
 const venueFees = async () => (await (await venue()).fills(account().account, start)).value.filter((f) => f.builderFee > 0n);
 
@@ -252,6 +254,89 @@ describe('the builder-fee recon (J-derivatives-17 #1 #2)', () => {
       code: 'trade.builder_fee_recon_venue_not_connected',
     });
     expect((await builderFeeRecon(deps(), from, to)).periodOpen).toBe(true);
+  });
+});
+
+describe('the builder-fee recon (J-derivatives-17 #3 #4 #5)', () => {
+  const read = async (d = deps()) => {
+    const v = (await builderFeeRecon(d, ...period())).venues[0]!;
+    if (v.state !== 'read') throw new Error('venue not read');
+    return v;
+  };
+
+  it('#3: fees earned and not yet paid out are owed by the venue, from the ledger; a payout received lowers it', async () => {
+    expect((await read()).owed).toEqual([]);
+    await postBuilderFees(deps());
+    const fills = await venueFees();
+    const asset = fills[0]!.feeAsset;
+    const earned = fills.reduce((s, f) => s + f.builderFee, 0n);
+    expect((await read()).owed).toEqual([{ assetId: asset, amount: formatAmount(earned) }]);
+    expect((await ledger.balance(venueBuilderFeeReceivable(sim.venue.id, asset))).amount).toBe(-earned);
+    // A payout the venue makes (the socket recipe; no production writer yet) is what brings the owed figure down.
+    const part = earned / 2n;
+    await ledger.post(recipes.builderFeeReceive({ venueId: sim.venue.id, payoutId: 'payout-1', assetId: asset, amount: part }));
+    expect((await read()).owed).toEqual([{ assetId: asset, amount: formatAmount(earned - part) }]);
+    // The owed figure is the ledger's: the recon posted nothing to reach it.
+    expect(ledger.journal().filter((t) => t.reason !== 'trade.builder_fee.earned' && t.reason !== 'trade.builder_fee.received')).toEqual(
+      [],
+    );
+  });
+
+  it('#4: the routed volume by venue against the builder fees, no gap when each fill carries its order rate', async () => {
+    const fills = (await (await venue()).fills(account().account, start)).value;
+    const routed = fills.filter((f) => f.builderFee > 0n);
+    const v = await read();
+    expect(v.volumeGaps).toEqual([]);
+    expect(v.volume).toHaveLength(1);
+    const row = v.volume[0]!;
+    const notional = routed.reduce((s, f) => s + (f.price * f.amount) / a('1'), 0n);
+    expect(row).toMatchObject({
+      assetId: routed[0]!.feeAsset,
+      quoteAsset: 'USDC',
+      fills: routed.length,
+      volume: formatAmount(notional),
+      expectedFee: formatAmount(routed.reduce((s, f) => s + f.builderFee, 0n)),
+      chargedFee: formatAmount(routed.reduce((s, f) => s + f.builderFee, 0n)),
+      gap: '0',
+      matched: true,
+    });
+    for (const f of routed) expect(expectedBuilderFee(f, BUILDER.feeBps)).toBe(f.builderFee);
+  });
+
+  it('#4: a fill charged other than its order rate, or charged with no routed order of ours, is a named gap', async () => {
+    const routed = (await venueFees()).sort((x, y) => x.filledAt.getTime() - y.filledAt.getTime() || x.fillId.localeCompare(y.fillId));
+    const higher = async (venueId: string, ids: readonly string[]) =>
+      new Map([...(await routedOrders(venueId, ids))].map(([id]) => [id, a('2')] as const));
+    const v = await read({ ...deps(), routedOrders: higher });
+    expect(v.volume[0]).toMatchObject({ matched: false });
+    expect(v.volumeGaps.map((g) => [g.fillId, g.reason, g.feeBps])).toEqual(routed.map((f) => [f.fillId, 'fee_differs', '2']));
+    for (const g of v.volumeGaps) {
+      const f = routed.find((x) => x.fillId === g.fillId)!;
+      const expected = expectedBuilderFee(f, a('2'));
+      expect(g).toMatchObject({
+        expectedFee: formatAmount(expected),
+        chargedFee: formatAmount(f.builderFee),
+        gap: formatAmount(f.builderFee - expected),
+      });
+    }
+    const none = await read({ ...deps(), routedOrders: async () => new Map() });
+    expect(none.volumeGaps.map((g) => g.reason)).toEqual(routed.map(() => 'not_a_routed_order'));
+    expect(none.volume[0]).toMatchObject({ expectedFee: '0', matched: false });
+  });
+
+  it('#5: the export rows are the ledger builder-fee transactions for the period, one per posted fill', async () => {
+    expect((await read()).ledgerRecords).toEqual([]);
+    await postBuilderFees(deps());
+    const fills = await venueFees();
+    const v = await read();
+    expect(v.ledgerRecords.map((r) => r.fillId).sort()).toEqual(fills.map((f) => f.fillId).sort());
+    for (const r of v.ledgerRecords) {
+      const tx = await ledger.getTxByKey(r.idempotencyKey);
+      expect(tx).not.toBeNull();
+      expect(r).toMatchObject({ ledgerTxId: tx!.id, userId: USER, postedAt: tx!.postedAt.toISOString() });
+      expect(r.idempotencyKey).toBe(`builder-fee:${sim.venue.id}:${r.fillId}`);
+      expect(r.amount).toBe(formatAmount(fills.find((f) => f.fillId === r.fillId)!.builderFee));
+    }
   });
 });
 

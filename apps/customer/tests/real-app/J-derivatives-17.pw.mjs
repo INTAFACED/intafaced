@@ -3,7 +3,7 @@ import { keccak256, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { ADMIN } from './admin.mjs';
-import { api, tool } from './stack.mjs';
+import { api, fromUnits, toUnits, tool } from './stack.mjs';
 import { signUp, verify, signIn } from './desk.mjs';
 import { staffSignIn } from './staff.mjs';
 
@@ -119,12 +119,42 @@ async function recon(from, to) {
     const gates = await import('../../../../tooling/scripts/local-test-gates.mjs');
     const ctx = await gates.makeContext({ log: () => {} });
     const sessions = await gates.approverSessions(ctx);
-    return { ctx, token: await sessions.a.tradeOpsToken() };
+    return { ctx, sessions, token: await sessions.a.tradeOpsToken() };
   })();
   const { ctx, token } = await staffDoor;
   const res = await ctx.edge.query('trade', 'admin.builderFees.recon', { from: from.toISOString(), to: to.toISOString() }, token);
   expect(res.status, res.text.slice(0, 300)).toBe(200);
   return JSON.parse(res.text).result.data;
+}
+
+/** One read of svc-ledger's own operator door, as the stack's TEST founder a with admin:treasury reads it. */
+async function ledgerRead(path) {
+  if (!staffDoor) await recon(new Date(Date.now() - 60_000), new Date());
+  const { ctx, sessions } = await staffDoor;
+  const res = await fetch(`${ctx.url('ledger')}${path}`, { headers: { authorization: `Bearer ${await sessions.a.treasuryToken()}` } });
+  const text = await res.text();
+  expect(res.status, text.slice(0, 300)).toBe(200);
+  return JSON.parse(text);
+}
+
+/** What the venue owes us in builder fees, per asset, from the ledger's own receivable accounts (debits less credits, negated). */
+async function ledgerOwed(id) {
+  const page = await ledgerRead(`/operator/accounts?prefix=${encodeURIComponent(`treasury:venue-builder-fee:${id}`)}`);
+  expect(page.nextCursor).toBeNull();
+  return new Map(
+    page.accounts
+      .filter((a) => a.ownerId === `venue-builder-fee:${id}` && a.kind === 'available')
+      .map((a) => [a.assetId, -toUnits(a.balance)]),
+  );
+}
+
+/** Our builder fee on a fill at `feeBps`, worked out here from the venue's own fill: base quantity when charged in the base asset, else notional; rounded up. */
+const ceilDiv = (a, b) => (a + b - 1n) / b;
+const ONE = toUnits('1');
+function feeAt(fill, feeBps) {
+  const notional = ceilDiv(toUnits(fill.price) * toUnits(fill.amount), ONE);
+  const basis = fill.feeAsset === fill.symbol.split(/[-/]/)[0] ? toUnits(fill.amount) : notional;
+  return { notional, fee: ceilDiv(ceilDiv(basis * toUnits(feeBps), ONE) * ONE, toUnits('10000')) };
 }
 
 /** The finance operator opens the treasury recon for the period and sees the venue section. */
@@ -224,4 +254,150 @@ test(`${J} #2 a builder fee is in one record but not the other: the break with i
   await expect.poll(async () => (await recon(from, to)).venues[0]?.matched ?? null, { timeout: 60_000 }).toBe(true);
   await page.reload();
   await expect(page.getByTestId('builder-fee-venue')).toHaveAttribute('data-state', 'green', { timeout: 60_000 });
+});
+
+test(`${J} #3 a venue payout of builder fees is not yet received: shown as owed by that venue, with the amount`, async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  const id = await venueId();
+  const to = new Date(Date.now() + 10 * 60_000);
+  await expect.poll(async () => (await recon(start, to)).venues[0]?.matched ?? null, { timeout: 60_000 }).toBe(true);
+  // No payout has been received from the venue (no payout is read until the owner sets the payout model), so every fee
+  // the ledger records as earned there is owed. The ledger's own receivable is the figure; the console shows it.
+  const before = await ledgerOwed(id);
+  expect(before.size, 'the ledger holds a builder-fee receivable for the venue').toBeGreaterThan(0);
+  await staffSignIn(page, browser, 'finance');
+  const venue = await openRecon(page, start, to);
+  const owed = venue.getByTestId('builder-fee-owed');
+  await expect(owed).toContainText('not yet received');
+  for (const [asset, units] of before) {
+    expect(units > 0n, `${asset} is owed, not paid ahead`).toBe(true);
+    expect(dec(await owed.locator(`tr[data-asset="${asset}"] td`).nth(1).innerText())).toBe(dec(fromUnits(units)));
+  }
+
+  // One more fill: its fee is earned and not received, so what the venue owes grows by exactly that fee.
+  const from = new Date(Date.now() - 1000);
+  await buy();
+  const [fill] = await venueFills(from);
+  expect(fill, 'the new fill carries our builder fee').toBeTruthy();
+  const want = (before.get(fill.feeAsset) ?? 0n) + toUnits(fill.builderFee);
+  await expect.poll(async () => (await ledgerOwed(id)).get(fill.feeAsset) ?? 0n, { timeout: 60_000 }).toBe(want);
+  const cell = page.getByTestId('builder-fee-venue').getByTestId('builder-fee-owed').locator(`tr[data-asset="${fill.feeAsset}"] td`).nth(1);
+  await expect
+    .poll(
+      async () => {
+        await page.reload();
+        return dec(await cell.innerText());
+      },
+      { timeout: 60_000 },
+    )
+    .toBe(dec(fromUnits(want)));
+});
+
+test(`${J} #4 opens the routed-volume recon: volume by venue against the builder fees, with any gap named`, async ({ page, browser }) => {
+  test.setTimeout(300_000);
+  const to = new Date(Date.now() + 10 * 60_000);
+  const status = (await (await api(trader)).get('/api/v1/venue/status')).body;
+  const feeBps = status.builder.feeBps;
+  const fills = await venueFills(start);
+  // Every fill so far is on an order routed through our door at our rate: worked out here from the venue's own fills.
+  let volume = 0n;
+  let charged = 0n;
+  for (const f of fills) {
+    const { notional, fee } = feeAt(f, feeBps);
+    expect(fromUnits(fee), `fill ${f.fillId} carries our rate`).toBe(fromUnits(toUnits(f.builderFee)));
+    volume += notional;
+    charged += toUnits(f.builderFee);
+  }
+  await staffSignIn(page, browser, 'finance');
+  let venue = await openRecon(page, start, to);
+  let block = venue.getByTestId('builder-fee-volume');
+  await expect(block).toHaveAttribute('data-state', 'green');
+  const asset = fills[0].feeAsset;
+  const row = block.locator(`tbody tr[data-asset="${asset}"]`);
+  await expect(row).toHaveAttribute('data-state', 'green');
+  const cells = await row.locator('td').allInnerTexts();
+  expect(Number(cells[1])).toBe(fills.length);
+  expect(dec(cells[2].split(' ')[0])).toBe(dec(fromUnits(volume)));
+  expect(dec(cells[3])).toBe(dec(fromUnits(charged)));
+  expect(dec(cells[4])).toBe(dec(fromUnits(charged)));
+  expect(dec(cells[5])).toBe('0');
+  await expect(venue.getByTestId('builder-fee-volume-gaps')).toHaveCount(0);
+
+  // An order with our builder fee placed on the venue directly, not routed by us: the venue charges our fee on volume we
+  // did not route, and the recon names it as a gap with its fill id and amount.
+  const from = new Date(Date.now() - 1000);
+  const intent = {
+    kind: 'place_order',
+    symbol: 'BTC-USDC',
+    side: 'buy',
+    type: 'limit',
+    amount: '0.01',
+    price: '60010',
+    timeInForce: 'GTC',
+    reduceOnly: false,
+    clientOrderKey: `direct:${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}`,
+    builderFee: { builder: status.builder.address, feeBps },
+  };
+  const prep = await testVenue('/prepare', { account: await account(), signer, intent });
+  expect(prep.status, JSON.stringify(prep.body).slice(0, 300)).toBe(200);
+  const t = prep.body.typedData;
+  const signature = await key.signTypedData({ domain: t.domain, types: t.types, primaryType: t.primaryType, message: t.message });
+  const sent = await testVenue('/submit', { prepared: prep.body, signature: { digest: prep.body.digest, signature, signedBy: owner } });
+  expect(sent.body, JSON.stringify(sent.body).slice(0, 300)).toMatchObject({ definite: true, accepted: true });
+  const [direct] = await venueFills(from);
+  expect(direct, 'the direct order filled with our builder fee').toBeTruthy();
+
+  await page.reload();
+  venue = page.getByTestId('builder-fee-venue');
+  block = venue.getByTestId('builder-fee-volume');
+  await expect(block).toHaveAttribute('data-state', 'gap', { timeout: 30_000 });
+  const gap = venue.getByTestId('builder-fee-volume-gaps').locator(`tr[data-fill-id="${direct.fillId}"]`);
+  await expect(gap).toHaveAttribute('data-reason', 'not_a_routed_order');
+  const g = await gap.locator('td').allInnerTexts();
+  expect(g[0]).toBe(direct.fillId);
+  expect(g[3]).toBe('none');
+  expect(dec(g[4])).toBe('0');
+  expect(dec(g[5])).toBe(dec(direct.builderFee));
+  expect(dec(g[6].split(' ')[0])).toBe(dec(direct.builderFee));
+  expect(g[7]).toBe('Gap: the venue charged our builder fee on a fill of no order we routed');
+  const total = await block.locator(`tbody tr[data-asset="${direct.feeAsset}"] td`).allInnerTexts();
+  expect(dec(total[5])).toBe(dec(direct.builderFee));
+  expect(total[6]).toBe('Gap');
+});
+
+test(`${J} #5 exports for the period: a file whose rows match the ledger's builder-fee records`, async ({ page, browser }) => {
+  test.setTimeout(300_000);
+  const id = await venueId();
+  const to = new Date(Date.now() + 10 * 60_000);
+  await expect.poll(async () => (await recon(start, to)).venues[0]?.matched ?? null, { timeout: 60_000 }).toBe(true);
+  const fills = await venueFills(start);
+
+  await staffSignIn(page, browser, 'finance');
+  const venue = await openRecon(page, start, to);
+  const download = page.waitForEvent('download');
+  await venue
+    .getByTestId('builder-fee-export')
+    .getByRole('button', { name: /Export CSV/ })
+    .click();
+  const file = await download;
+  const text = await (await import('node:fs/promises')).readFile(await file.path(), 'utf8');
+  const [header, ...rows] = text.trim().split('\n');
+  expect(header).toBe('ledger_tx_id,idempotency_key,venue_id,fill_id,user_id,asset,amount,posted_at');
+  // One row per fill the venue charged our fee on in the period, each read back from svc-ledger itself.
+  const byFill = new Map(rows.map((r) => r.split(',')).map((c) => [c[3], c]));
+  expect([...byFill.keys()].sort()).toEqual(fills.map((f) => f.fillId).sort());
+  for (const f of fills) {
+    const [txId, key, venueCol, , , asset, amount, postedAt] = byFill.get(f.fillId);
+    expect(venueCol).toBe(id);
+    expect(key).toBe(`builder-fee:${id}:${f.fillId}`);
+    const tx = await ledgerRead(`/operator/transactions/${encodeURIComponent(txId)}`);
+    expect(tx).toMatchObject({ txId, businessKey: key, reason: 'trade.builder_fee.earned', postedAt });
+    const debit = tx.postings.find((p) => p.direction === 'debit');
+    expect(debit.assetId).toBe(asset);
+    expect(dec(debit.amount)).toBe(dec(amount));
+    expect(dec(amount)).toBe(dec(f.builderFee));
+  }
 });

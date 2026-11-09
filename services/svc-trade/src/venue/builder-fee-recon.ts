@@ -1,5 +1,5 @@
-import { earnedBuilderFeeKey, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
-import { formatAmount, type Amount } from '@intafaced/ledger-client/money';
+import { earnedBuilderFeeKey, venueBuilderFeeReceivable, type LedgerClient, type LedgerTx } from '@intafaced/ledger-client';
+import { div, formatAmount, mul, parseAmount, type Amount } from '@intafaced/ledger-client/money';
 import { isTestVenue, VenueRefusalError, type UserVenue, type UserVenueFill } from '@intafaced/venue-contracts';
 import type { BuilderFeeStore, LoggedBuilderFee } from './builder-fee-store.js';
 
@@ -13,6 +13,14 @@ import type { BuilderFeeStore, LoggedBuilderFee } from './builder-fee-store.js';
  * - The ledger's side is the ledger's own transaction under each key: for every fill the venue reports, and for every
  *   fill the poster recorded in the period (so a fee the ledger holds and the venue no longer reports is listed too).
  * - A venue that can't be read is `unknown` with its reason, never a zero; a ledger that can't be read fails the read.
+ *
+ * Alongside (J-derivatives-17 #3 #4 #5):
+ * - `owed`: what the venue owes us now, the ledger's own balance of `venueBuilderFeeReceivable` for the venue: every builder
+ *   fee earned there less every payout received (`builderFeeReceive`). It is the whole book, not the period.
+ * - `volume` and `volumeGaps`: the routed volume, the notional of the period's fills on orders we sent with our builder
+ *   fee, against the builder fee the venue charged on them. The fee each fill should carry is its order's rate on the
+ *   venue's fee basis; a fill whose charged fee differs, or a fee charged on a fill of no routed order, is a gap, named.
+ * - `ledgerRecords`: the ledger's builder-fee transactions for the period's fills, as the export file lists them.
  */
 export type BuilderFeeLineStatus =
   'matched' | 'not_in_ledger' | 'not_reported_by_venue' | 'amounts_differ' | 'ledger_refused' | 'ledger_missing';
@@ -40,6 +48,54 @@ export interface BuilderFeeReconTotal {
   readonly matched: boolean;
 }
 
+/** What a venue owes us in builder fees now, per asset (the receivable's balance, as a positive amount). */
+export interface BuilderFeeOwed {
+  readonly assetId: string;
+  readonly amount: string;
+}
+
+/** The routed volume and its builder fees, per fee asset and quote asset. */
+export interface BuilderFeeVolumeRow {
+  readonly assetId: string;
+  readonly quoteAsset: string;
+  readonly fills: number;
+  /** The notional of the routed fills, in the quote asset. */
+  readonly volume: string;
+  /** The builder fee the routed fills should carry at their orders' rates. */
+  readonly expectedFee: string;
+  /** The builder fee the venue charged on those fills. */
+  readonly chargedFee: string;
+  /** Charged less expected: zero when the two agree. */
+  readonly gap: string;
+  readonly matched: boolean;
+}
+
+export type BuilderFeeVolumeGapReason = 'fee_differs' | 'not_a_routed_order';
+
+export interface BuilderFeeVolumeGap {
+  readonly fillId: string;
+  readonly symbol: string;
+  readonly assetId: string;
+  readonly volume: string;
+  /** The rate on the order we sent, or null for a fill of no order of ours. */
+  readonly feeBps: string | null;
+  readonly expectedFee: string;
+  readonly chargedFee: string;
+  readonly gap: string;
+  readonly reason: BuilderFeeVolumeGapReason;
+}
+
+/** One ledger builder-fee transaction, as the export file lists it. */
+export interface BuilderFeeLedgerRecord {
+  readonly ledgerTxId: string;
+  readonly idempotencyKey: string;
+  readonly fillId: string;
+  readonly userId: string | null;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly postedAt: string;
+}
+
 export type BuilderFeeReconVenue =
   | {
       readonly venueId: string;
@@ -50,6 +106,10 @@ export type BuilderFeeReconVenue =
       readonly matched: boolean;
       readonly totals: readonly BuilderFeeReconTotal[];
       readonly lines: readonly BuilderFeeReconLine[];
+      readonly owed: readonly BuilderFeeOwed[];
+      readonly volume: readonly BuilderFeeVolumeRow[];
+      readonly volumeGaps: readonly BuilderFeeVolumeGap[];
+      readonly ledgerRecords: readonly BuilderFeeLedgerRecord[];
     }
   | {
       readonly venueId: string | null;
@@ -71,8 +131,10 @@ export interface BuilderFeeRecon {
 export interface BuilderFeeReconDeps {
   /** The venues we route to. Today one, through the user-venue door; null when the door is off. */
   readonly venue: (() => Promise<UserVenue>) | null;
-  readonly ledger: Pick<LedgerClient, 'getTxByKey'>;
+  readonly ledger: Pick<LedgerClient, 'getTxByKey' | 'balances'>;
   readonly store: BuilderFeeStore;
+  /** The orders we sent with our builder fee, among these venue client order ids, each with its rate (prepared-action-store.ts). */
+  readonly routedOrders: (venueId: string, venueClientOrderIds: readonly string[]) => Promise<ReadonlyMap<string, Amount>>;
   readonly now: () => Date;
 }
 
@@ -102,6 +164,21 @@ export function earnedAsset(tx: LedgerTx): string | null {
   return tx.entries.find((e) => e.direction === 'debit')?.assetId ?? null;
 }
 
+const BPS = parseAmount('10000');
+
+/**
+ * The builder fee a fill should carry at `feeBps`, on the venue's fee basis: the quantity when the fee is charged in the
+ * symbol's base asset (a spot buy pays in what it receives), else the notional. Rounded up, as a fee is.
+ */
+export function expectedBuilderFee(fill: UserVenueFill, feeBps: Amount): Amount {
+  const basis = fill.feeAsset === baseAsset(fill.symbol) ? fill.amount : notional(fill);
+  return div(mul(basis, feeBps, 'ceil'), BPS, 'ceil');
+}
+
+const baseAsset = (symbol: string) => symbol.split(/[-/]/)[0] ?? symbol;
+const quoteAsset = (symbol: string) => symbol.split(/[-/]/)[1] ?? symbol;
+const notional = (fill: UserVenueFill) => mul(fill.price, fill.amount, 'ceil');
+
 export function assertReconPeriod(from: Date, to: Date): void {
   if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
     throw new BuilderFeeReconError('The period must start before it ends', 'trade.builder_fee_recon_period_invalid');
@@ -129,6 +206,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
 
   let venue: UserVenue;
   let reported: (UserVenueFill & { userId: string })[] = [];
+  const inPeriod: UserVenueFill[] = [];
   let asOf = now;
   try {
     venue = await deps.venue();
@@ -136,7 +214,9 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       const fills = await venue.fills(account, from);
       if (fills.asOf < asOf) asOf = fills.asOf;
       for (const fill of fills.value) {
-        if (fill.builderFee > 0n && fill.filledAt >= from && fill.filledAt < to) reported.push({ ...fill, userId });
+        if (fill.filledAt < from || fill.filledAt >= to) continue;
+        inPeriod.push(fill);
+        if (fill.builderFee > 0n) reported.push({ ...fill, userId });
       }
     }
   } catch (error) {
@@ -159,6 +239,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   }
 
   const lines: BuilderFeeReconLine[] = [];
+  const ledgerRecords: BuilderFeeLedgerRecord[] = [];
   const totals = new Map<string, { venue: Amount; ledger: Amount }>();
   // The ledger's transaction under each fill's key, read a few at a time so a long period stays bounded.
   const entries = [...sides.entries()];
@@ -190,6 +271,17 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
     // Each side's amount counts in its own asset, so two assets never net against each other.
     if (venueAmount !== null) add(side.venue!.feeAsset, venueAmount, 0n);
     if (ledgerAmount !== null) add(ledgerAsset ?? assetId, 0n, ledgerAmount);
+    if (tx && ledgerAmount !== null) {
+      ledgerRecords.push({
+        ledgerTxId: tx.id,
+        idempotencyKey: tx.idempotencyKey,
+        fillId,
+        userId: typeof tx.meta.userId === 'string' ? tx.meta.userId : null,
+        assetId: ledgerAsset ?? assetId,
+        amount: formatAmount(ledgerAmount),
+        postedAt: tx.postedAt.toISOString(),
+      });
+    }
     lines.push({
       fillId,
       userId: side.venue?.userId ?? side.logged?.userId ?? null,
@@ -203,6 +295,62 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
     });
   }
   lines.sort((a, b) => a.filledAt.localeCompare(b.filledAt) || a.fillId.localeCompare(b.fillId));
+  ledgerRecords.sort((a, b) => a.postedAt.localeCompare(b.postedAt) || a.fillId.localeCompare(b.fillId));
+
+  // What the venue owes us now: the receivable's own balance, negative while fees are earned and not yet paid out.
+  const owed = (await deps.ledger.balances('treasury', venueBuilderFeeReceivable(venueId, '').ownerId))
+    .filter((b) => b.account.kind === 'available' && b.amount !== 0n)
+    .map((b) => ({ assetId: b.account.assetId, amount: formatAmount(-b.amount) }))
+    .sort((a, b) => a.assetId.localeCompare(b.assetId));
+
+  // The routed volume: fills of the orders we sent with our builder fee, and any fill the venue charged our fee on.
+  const ids = [...new Set(inPeriod.map((f) => f.venueClientOrderId).filter((id): id is string => id !== null))];
+  const rates = await deps.routedOrders(venueId, ids);
+  const volumeSums = new Map<
+    string,
+    { assetId: string; quoteAsset: string; fills: number; volume: Amount; expected: Amount; charged: Amount }
+  >();
+  const volumeGaps: BuilderFeeVolumeGap[] = [];
+  for (const fill of [...inPeriod].sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime() || a.fillId.localeCompare(b.fillId))) {
+    const rate = fill.venueClientOrderId === null ? undefined : rates.get(fill.venueClientOrderId);
+    if (rate === undefined && fill.builderFee <= 0n) continue;
+    const expected = rate === undefined ? 0n : expectedBuilderFee(fill, rate);
+    const quote = quoteAsset(fill.symbol);
+    const id = `${fill.feeAsset}\u0000${quote}`;
+    const sum = volumeSums.get(id) ?? { assetId: fill.feeAsset, quoteAsset: quote, fills: 0, volume: 0n, expected: 0n, charged: 0n };
+    volumeSums.set(id, {
+      ...sum,
+      fills: sum.fills + 1,
+      volume: sum.volume + notional(fill),
+      expected: sum.expected + expected,
+      charged: sum.charged + fill.builderFee,
+    });
+    if (fill.builderFee !== expected) {
+      volumeGaps.push({
+        fillId: fill.fillId,
+        symbol: fill.symbol,
+        assetId: fill.feeAsset,
+        volume: formatAmount(notional(fill)),
+        feeBps: rate === undefined ? null : formatAmount(rate),
+        expectedFee: formatAmount(expected),
+        chargedFee: formatAmount(fill.builderFee),
+        gap: formatAmount(fill.builderFee - expected),
+        reason: rate === undefined ? 'not_a_routed_order' : 'fee_differs',
+      });
+    }
+  }
+  const volume = [...volumeSums.values()]
+    .sort((a, b) => a.assetId.localeCompare(b.assetId) || a.quoteAsset.localeCompare(b.quoteAsset))
+    .map((v) => ({
+      assetId: v.assetId,
+      quoteAsset: v.quoteAsset,
+      fills: v.fills,
+      volume: formatAmount(v.volume),
+      expectedFee: formatAmount(v.expected),
+      chargedFee: formatAmount(v.charged),
+      gap: formatAmount(v.charged - v.expected),
+      matched: v.charged === v.expected,
+    }));
 
   const totalRows = [...totals.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -224,6 +372,10 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
         matched: lines.every((l) => l.status === 'matched'),
         totals: totalRows,
         lines,
+        owed,
+        volume,
+        volumeGaps,
+        ledgerRecords,
       },
     ],
   };

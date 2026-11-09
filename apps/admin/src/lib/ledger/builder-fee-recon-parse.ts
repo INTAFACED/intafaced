@@ -24,6 +24,46 @@ export interface BuilderFeeReconTotal {
   readonly matched: boolean;
 }
 
+export interface BuilderFeeOwed {
+  readonly assetId: string;
+  readonly amount: string;
+}
+
+export interface BuilderFeeVolumeRow {
+  readonly assetId: string;
+  readonly quoteAsset: string;
+  readonly fills: number;
+  readonly volume: string;
+  readonly expectedFee: string;
+  readonly chargedFee: string;
+  readonly gap: string;
+  readonly matched: boolean;
+}
+
+export type BuilderFeeVolumeGapReason = 'fee_differs' | 'not_a_routed_order';
+
+export interface BuilderFeeVolumeGap {
+  readonly fillId: string;
+  readonly symbol: string;
+  readonly assetId: string;
+  readonly volume: string;
+  readonly feeBps: string | null;
+  readonly expectedFee: string;
+  readonly chargedFee: string;
+  readonly gap: string;
+  readonly reason: BuilderFeeVolumeGapReason;
+}
+
+export interface BuilderFeeLedgerRecord {
+  readonly ledgerTxId: string;
+  readonly idempotencyKey: string;
+  readonly fillId: string;
+  readonly userId: string | null;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly postedAt: string;
+}
+
 export type BuilderFeeReconVenue =
   | {
       readonly state: 'read';
@@ -34,6 +74,10 @@ export type BuilderFeeReconVenue =
       readonly matched: boolean;
       readonly totals: readonly BuilderFeeReconTotal[];
       readonly lines: readonly BuilderFeeReconLine[];
+      readonly owed: readonly BuilderFeeOwed[];
+      readonly volume: readonly BuilderFeeVolumeRow[];
+      readonly volumeGaps: readonly BuilderFeeVolumeGap[];
+      readonly ledgerRecords: readonly BuilderFeeLedgerRecord[];
     }
   | {
       readonly state: 'unknown';
@@ -88,6 +132,64 @@ function total(raw: unknown): BuilderFeeReconTotal | null {
   return { assetId: raw.assetId, venueTotal: raw.venueTotal, ledgerTotal: raw.ledgerTotal, matched: raw.matched };
 }
 
+function owed(raw: unknown): BuilderFeeOwed | null {
+  if (!rec(raw) || !str(raw.assetId) || !dec(raw.amount)) return null;
+  return { assetId: raw.assetId, amount: raw.amount };
+}
+
+function volumeRow(raw: unknown): BuilderFeeVolumeRow | null {
+  if (!rec(raw) || !str(raw.assetId) || !str(raw.quoteAsset) || !Number.isSafeInteger(raw.fills) || (raw.fills as number) < 0) return null;
+  if (!dec(raw.volume) || !dec(raw.expectedFee) || !dec(raw.chargedFee) || !dec(raw.gap) || typeof raw.matched !== 'boolean') return null;
+  return {
+    assetId: raw.assetId,
+    quoteAsset: raw.quoteAsset,
+    fills: raw.fills as number,
+    volume: raw.volume,
+    expectedFee: raw.expectedFee,
+    chargedFee: raw.chargedFee,
+    gap: raw.gap,
+    matched: raw.matched,
+  };
+}
+
+function volumeGap(raw: unknown): BuilderFeeVolumeGap | null {
+  if (!rec(raw) || !str(raw.fillId) || !str(raw.symbol) || !str(raw.assetId) || !dec(raw.volume) || !decOrNull(raw.feeBps)) return null;
+  if (!dec(raw.expectedFee) || !dec(raw.chargedFee) || !dec(raw.gap)) return null;
+  if (raw.reason !== 'fee_differs' && raw.reason !== 'not_a_routed_order') return null;
+  return {
+    fillId: raw.fillId,
+    symbol: raw.symbol,
+    assetId: raw.assetId,
+    volume: raw.volume,
+    feeBps: raw.feeBps,
+    expectedFee: raw.expectedFee,
+    chargedFee: raw.chargedFee,
+    gap: raw.gap,
+    reason: raw.reason,
+  };
+}
+
+function ledgerRecord(raw: unknown): BuilderFeeLedgerRecord | null {
+  if (!rec(raw) || !str(raw.ledgerTxId) || !str(raw.idempotencyKey) || !str(raw.fillId) || !strOrNull(raw.userId)) return null;
+  if (!str(raw.assetId) || !dec(raw.amount) || !str(raw.postedAt)) return null;
+  return {
+    ledgerTxId: raw.ledgerTxId,
+    idempotencyKey: raw.idempotencyKey,
+    fillId: raw.fillId,
+    userId: raw.userId,
+    assetId: raw.assetId,
+    amount: raw.amount,
+    postedAt: raw.postedAt,
+  };
+}
+
+/** Every item parsed, or null when any one is invalid. */
+function all<T>(raw: unknown, parse: (v: unknown) => T | null): T[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw.map(parse);
+  return out.some((v) => v === null) ? null : (out as T[]);
+}
+
 function venue(raw: unknown): BuilderFeeReconVenue | null {
   if (!rec(raw)) return null;
   if (raw.state === 'unknown') {
@@ -99,6 +201,11 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
   const totals = raw.totals.map(total);
   const lines = raw.lines.map(line);
   if (totals.some((t) => t === null) || lines.some((l) => l === null)) return null;
+  const owedRows = all(raw.owed, owed);
+  const volume = all(raw.volume, volumeRow);
+  const volumeGaps = all(raw.volumeGaps, volumeGap);
+  const ledgerRecords = all(raw.ledgerRecords, ledgerRecord);
+  if (!owedRows || !volume || !volumeGaps || !ledgerRecords) return null;
   return {
     state: 'read',
     venueId: raw.venueId,
@@ -108,6 +215,10 @@ function venue(raw: unknown): BuilderFeeReconVenue | null {
     matched: raw.matched,
     totals: totals as BuilderFeeReconTotal[],
     lines: lines as BuilderFeeReconLine[],
+    owed: owedRows,
+    volume,
+    volumeGaps,
+    ledgerRecords,
   };
 }
 
@@ -133,4 +244,23 @@ export function reconPeriod(from: unknown, to: unknown, now: Date): { from: stri
   const ok = (v: unknown): v is string => typeof v === 'string' && !Number.isNaN(Date.parse(v)) && /T/.test(v);
   if (ok(from) && ok(to)) return { from: new Date(from).toISOString(), to: new Date(to).toISOString() };
   return { from: new Date(now.getTime() - 7 * 86_400_000).toISOString(), to: now.toISOString() };
+}
+
+/** The words a finance operator reads for each routed-volume gap. */
+export const GAP_WORDS: Readonly<Record<BuilderFeeVolumeGapReason, string>> = {
+  fee_differs: 'Gap: the venue charged a builder fee other than the order rate on this volume',
+  not_a_routed_order: 'Gap: the venue charged our builder fee on a fill of no order we routed',
+};
+
+const CSV_HEADER = ['ledger_tx_id', 'idempotency_key', 'venue_id', 'fill_id', 'user_id', 'asset', 'amount', 'posted_at'];
+
+/** One CSV field, quoted when it holds a comma, a quote or a line break. */
+function field(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/** The export for one venue and period (J-derivatives-17 #5): one row per ledger builder-fee transaction, as the ledger holds it. */
+export function builderFeeCsv(venueId: string, records: readonly BuilderFeeLedgerRecord[]): string {
+  const rows = records.map((r) => [r.ledgerTxId, r.idempotencyKey, venueId, r.fillId, r.userId ?? '', r.assetId, r.amount, r.postedAt]);
+  return [CSV_HEADER, ...rows].map((row) => row.map(field).join(',')).join('\n') + '\n';
 }

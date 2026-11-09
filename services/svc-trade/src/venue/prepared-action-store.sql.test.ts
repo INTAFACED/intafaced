@@ -95,4 +95,29 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
       SELECT prepared #>> '{intent,amount}' AS amount FROM trade.user_venue_actions WHERE business_key = ${key}`;
     expect(row?.amount).toBe('0.123456789012345678');
   });
+
+  it('reads the builder fee rate of the orders we prepared, by venue client order id (J-derivatives-17 #4)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const order = (n: string, cloid: string, fee: PreparedVenueAction['builderFee']): PreparedVenueAction => ({
+      ...prepared(n, '60000'),
+      venueClientOrderId: cloid,
+      builderFee: fee,
+    });
+    await store.insertOnce(
+      USER,
+      `order:${USER}:sql:fee-1`,
+      order('301', '0x0301', { builder: OWNER, feeBps: parseAmount('0.5') }),
+      new Date(),
+    );
+    await store.insertOnce(USER, `order:${USER}:sql:fee-2`, order('302', '0x0302', null), new Date());
+    await store.insertOnce(
+      USER,
+      `order:${USER}:sql:fee-3`,
+      { ...order('303', '0x0303', { builder: OWNER, feeBps: parseAmount('1') }), venueId: 'other-venue' },
+      new Date(),
+    );
+    const rates = await store.builderFeeOrders('test-venue-sim', ['0x0301', '0x0302', '0x0303', '0x0999']);
+    expect([...rates]).toEqual([['0x0301', parseAmount('0.5')]]);
+    expect((await store.builderFeeOrders('test-venue-sim', [])).size).toBe(0);
+  });
 });

@@ -467,9 +467,20 @@ if (userVenue) {
 // Our builder fee on our users' venue fills (D-venue-07; J-derivatives-17): the poster posts `builderFeeEarn` once per
 // fill (scheduled with the futures jobs below), and the founder console's recon reads the venue against the ledger.
 const builderFeeStore = new SqlBuilderFeeStore(sql);
+const venueActions = new SqlPreparedActionStore(sql);
 const builderFees = {
   recon: (from: Date, to: Date) =>
-    builderFeeRecon({ venue: userVenue ? () => userVenue.venue() : null, ledger, store: builderFeeStore, now: () => new Date() }, from, to),
+    builderFeeRecon(
+      {
+        venue: userVenue ? () => userVenue.venue() : null,
+        ledger,
+        store: builderFeeStore,
+        routedOrders: (venueId, ids) => venueActions.builderFeeOrders(venueId, ids),
+        now: () => new Date(),
+      },
+      from,
+      to,
+    ),
 };
 // The copy and bots kill switch (CB-ops-03): two founders pause or resume a lead, a bot type or a symbol. Copy mirrors,
 // grid bots and algo bots read its active pauses; the approvals book is the trade ops desk's (bound below).

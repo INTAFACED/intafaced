@@ -1,4 +1,5 @@
 import type { Sql } from 'postgres';
+import type { Amount } from '@intafaced/ledger-client/money';
 import {
   decodeVenueWire,
   encodeVenueWire,
@@ -31,6 +32,18 @@ export interface PreparedActionStore {
    * outcome now stored (the earlier definite one when it was kept).
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
+  /**
+   * The orders we prepared on `venueId` with our builder fee attached, among `venueClientOrderIds`: each venue client
+   * order id with the fee rate it carried (scaled decimal bps). The routed-volume recon reads it (J-derivatives-17 #4).
+   */
+  builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]): Promise<ReadonlyMap<string, Amount>>;
+}
+
+/** The builder fee rate a prepared order carried, or null for an action that is not an order with our fee. */
+function builderFeeRate(prepared: PreparedVenueAction): Amount | null {
+  return prepared.intent.kind === 'place_order' && prepared.venueClientOrderId !== null && prepared.builderFee
+    ? prepared.builderFee.feeBps
+    : null;
 }
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
@@ -76,6 +89,17 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const next = { ...row, lastOutcome: wire(outcome) };
     this.rows.set(id, next);
     return next.lastOutcome;
+  }
+
+  async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
+    const wanted = new Set(venueClientOrderIds);
+    const out = new Map<string, Amount>();
+    for (const { prepared } of this.rows.values()) {
+      const rate = builderFeeRate(prepared);
+      if (prepared.venueId === venueId && rate !== null && wanted.has(prepared.venueClientOrderId!))
+        out.set(prepared.venueClientOrderId!, rate);
+    }
+    return out;
   }
 }
 
@@ -137,5 +161,20 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     const stored = await this.find(userId, businessKey);
     if (!stored?.lastOutcome) throw new Error(`no prepared venue action under ${businessKey}`);
     return stored.lastOutcome;
+  }
+
+  async builderFeeOrders(venueId: string, venueClientOrderIds: readonly string[]) {
+    const out = new Map<string, Amount>();
+    if (venueClientOrderIds.length === 0) return out;
+    const rows = await this.sql<{ prepared: unknown }[]>`
+      SELECT prepared FROM trade.user_venue_actions
+      WHERE venue_id = ${venueId} AND kind = 'place_order'
+        AND prepared->>'venueClientOrderId' = ANY(${this.sql.array([...venueClientOrderIds])})`;
+    for (const row of rows) {
+      const prepared = decodeVenueWire<PreparedVenueAction>(row.prepared);
+      const rate = builderFeeRate(prepared);
+      if (rate !== null) out.set(prepared.venueClientOrderId!, rate);
+    }
+    return out;
   }
 }

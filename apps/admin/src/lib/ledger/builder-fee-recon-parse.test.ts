@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseBuilderFeeRecon, reconPeriod } from './builder-fee-recon-parse';
+import { builderFeeCsv, parseBuilderFeeRecon, reconPeriod } from './builder-fee-recon-parse';
 
 const line = {
   fillId: 'f1',
@@ -21,6 +21,43 @@ const venue = {
   matched: false,
   totals: [{ assetId: 'USDC', venueTotal: '0.25', ledgerTotal: '0', matched: false }],
   lines: [line],
+  owed: [{ assetId: 'USDC', amount: '0.25' }],
+  volume: [
+    {
+      assetId: 'USDC',
+      quoteAsset: 'USDC',
+      fills: 1,
+      volume: '600.1',
+      expectedFee: '0.06',
+      chargedFee: '0.25',
+      gap: '0.19',
+      matched: false,
+    },
+  ],
+  volumeGaps: [
+    {
+      fillId: 'f1',
+      symbol: 'BTC-USDC',
+      assetId: 'USDC',
+      volume: '600.1',
+      feeBps: '1',
+      expectedFee: '0.06',
+      chargedFee: '0.25',
+      gap: '0.19',
+      reason: 'fee_differs',
+    },
+  ],
+  ledgerRecords: [
+    {
+      ledgerTxId: 'tx-1',
+      idempotencyKey: 'builder-fee:test-venue-sim:f1',
+      fillId: 'f1',
+      userId: 'u1',
+      assetId: 'USDC',
+      amount: '0.25',
+      postedAt: '2026-11-09T10:00:02.000Z',
+    },
+  ],
 };
 const recon = { from: '2026-11-02T10:00:00.000Z', to: '2026-11-09T10:00:00.000Z', periodOpen: false, venues: [venue] };
 
@@ -40,6 +77,30 @@ describe('parseBuilderFeeRecon', () => {
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, lines: [{ ...line, venueAmount: 0.25 }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, lines: [{ ...line, status: 'fine' }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, totals: [{ assetId: 'USDC' }] }] })).toBeNull();
+  });
+});
+
+describe('owed, routed volume and the export (J-derivatives-17 #3 #4 #5)', () => {
+  it('reads them, and refuses the whole answer when one of them is wrong', () => {
+    expect(parseBuilderFeeRecon(recon)?.venues[0]).toMatchObject({
+      owed: [{ assetId: 'USDC', amount: '0.25' }],
+      volume: [{ gap: '0.19', matched: false }],
+      volumeGaps: [{ reason: 'fee_differs', feeBps: '1' }],
+      ledgerRecords: [{ ledgerTxId: 'tx-1' }],
+    });
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, owed: [{ assetId: 'USDC', amount: 0.25 }] }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, volume: undefined }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, volumeGaps: [{ ...venue.volumeGaps[0], reason: 'odd' }] }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, ledgerRecords: [{ ledgerTxId: 'tx-1' }] }] })).toBeNull();
+  });
+  it('the export has one row per ledger record, fields quoted only when they must be', () => {
+    expect(builderFeeCsv('test-venue-sim', venue.ledgerRecords)).toBe(
+      'ledger_tx_id,idempotency_key,venue_id,fill_id,user_id,asset,amount,posted_at\n' +
+        'tx-1,builder-fee:test-venue-sim:f1,test-venue-sim,f1,u1,USDC,0.25,2026-11-09T10:00:02.000Z\n',
+    );
+    expect(builderFeeCsv('v', [{ ...venue.ledgerRecords[0]!, fillId: 'a,"b"', userId: null }]).split('\n')[1]).toBe(
+      'tx-1,builder-fee:test-venue-sim:f1,v,"a,""b""",,USDC,0.25,2026-11-09T10:00:02.000Z',
+    );
   });
 });
 
