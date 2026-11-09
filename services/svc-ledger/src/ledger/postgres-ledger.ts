@@ -39,6 +39,7 @@ import {
 } from './history.js';
 import { assertScaledBigintAmounts, parseStoredAmount } from './live-money.js';
 import type { FeeRevenueRow } from './fee-revenue.js';
+import { OWN_FUNDS_EXCLUDED_HOUSE, OWN_FUNDS_EXCLUDED_MODULE_PREFIXES, type OwnFundsRow } from './own-funds.js';
 import { LEDGER_HOLDINGS_HISTORY_MAX_ROWS, LEDGER_HOLDINGS_HISTORY_TOO_LARGE } from '@intafaced/contracts';
 import type { HoldingsHistory, HoldingsHistoryInput } from './holdings-history.js';
 
@@ -511,6 +512,48 @@ export class PostgresLedger implements LedgerClient {
       collected: parseStoredAmount(r.collected, 'ledger_entries.amount'),
       returned: parseStoredAmount(r.returned, 'ledger_entries.amount'),
     }));
+  }
+
+  /**
+   * INTAFACED's own funds now (see `own-funds.ts`): every house and module account with a balance above zero, merchant money
+   * and the burn account left out, with the database's clock at the same statement. A READ: no lock, no write, no path into
+   * `post()`. One statement, so the balances are one snapshot.
+   */
+  async ownFunds(): Promise<{ asOf: Date; rows: OwnFundsRow[] }> {
+    const modulePatterns = OWN_FUNDS_EXCLUDED_MODULE_PREFIXES.map((p) => `${p}%`);
+    const rows = await this.sql<
+      Array<{
+        owner_type: 'house' | 'module';
+        owner_id: string;
+        asset_id: string;
+        kind: string;
+        purpose: string;
+        balance: string;
+        now: Date;
+      }>
+    >`
+      SELECT a.owner_type::text AS owner_type, a.owner_id, a.asset_id, a.kind::text AS kind, a.purpose, a.balance::text AS balance,
+             now() AS now
+        FROM accounts a
+       WHERE a.balance > 0
+         AND (
+           (a.owner_type = 'house'::owner_type AND a.owner_id <> ALL(${[...OWN_FUNDS_EXCLUDED_HOUSE]}::text[]))
+           OR (a.owner_type = 'module'::owner_type AND NOT (a.owner_id LIKE ANY(${modulePatterns}::text[])))
+         )
+       ORDER BY a.asset_id, a.owner_type::text, a.owner_id, a.kind::text, a.purpose
+    `;
+    const clock = rows[0]?.now ?? (await this.sql<Array<{ now: Date }>>`SELECT now() AS now`)[0]!.now;
+    return {
+      asOf: new Date(clock),
+      rows: rows.map((r) => ({
+        ownerType: r.owner_type,
+        ownerId: r.owner_id,
+        assetId: r.asset_id,
+        kind: r.kind,
+        purpose: r.purpose,
+        balance: parseStoredAmount(r.balance, 'accounts.balance'),
+      })),
+    };
   }
 
   /**

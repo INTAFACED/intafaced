@@ -498,6 +498,29 @@ const script = resolve(here, 'local-test-stack.mjs');
   console.log('local-test-stack: agents TEST Coach route comes from the agents profile, and its off switch drops it');
 }
 
+// The capital monitor's TEST venues answer on this stack with the ops profile's TEST builder account, and
+// LOCAL_STACK_OPS_TEST_VENUE_READ=off switches them down (every venue read fails) without blanking the account.
+{
+  const { localTestServiceEnvs } = await import('./local-test-stack.mjs');
+  const { loadProfile } = await import('./owner-settings.mjs');
+  const account = loadProfile().values.OPS_TEST_VENUE_BUILDER_ACCOUNT;
+  assert.equal(account.service, 'ops');
+  assert.match(account.value, /^TEST-/);
+  const opsEnv = () => localTestServiceEnvs().find((service) => service.name === 'ops').env;
+  assert.equal(opsEnv().OPS_TEST_VENUE, 'test');
+  assert.equal(opsEnv().OPS_TEST_VENUE_BUILDER_ACCOUNT, account.value);
+  const before = process.env.LOCAL_STACK_OPS_TEST_VENUE_READ;
+  process.env.LOCAL_STACK_OPS_TEST_VENUE_READ = 'off';
+  try {
+    assert.equal(opsEnv().OPS_TEST_VENUE, 'down');
+    assert.equal(opsEnv().OPS_TEST_VENUE_BUILDER_ACCOUNT, account.value);
+  } finally {
+    if (before === undefined) delete process.env.LOCAL_STACK_OPS_TEST_VENUE_READ;
+    else process.env.LOCAL_STACK_OPS_TEST_VENUE_READ = before;
+  }
+  console.log('local-test-stack: ops TEST venues answer with the profile builder account, and the read switch takes them down');
+}
+
 // The global-send stand-in is chosen on this stack only, and its TEST catalogue and send-field rules come from the bank
 // profile verbatim, so no corridor, rate or reference length is typed anywhere else.
 {
