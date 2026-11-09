@@ -5,6 +5,7 @@ import {
   type ReconciliationLifecycle,
 } from '@intafaced/contracts/ledger-reconciliation';
 import { COST_AMOUNT, COST_ASSET, PERIOD, isCategory, type CostCategory } from '@/lib/venue-economics/model';
+import { OPS_CAPITAL_ASSET, OPS_CAPITAL_CONTACT_MAX, OPS_CAPITAL_MINIMUM } from '@intafaced/contracts/ops-capital';
 import { METADATA_KEY } from '@/lib/ledger/account-metadata';
 import { GOVERNANCE_ROLES, MS, ROLE_USER, durationWords, type GovernanceRole } from '@/lib/token-governance/model';
 import {
@@ -238,6 +239,18 @@ export type DeskRequest =
    * The note is `reason`. A blank one parses so the route can refuse it by name before identity is asked.
    */
   | { readonly kind: 'ops.reconciliation_alert.accept'; readonly alertId: string; readonly evidenceHash: string; readonly reason: string }
+  /**
+   * Set or clear one asset's minimum buffer on the capital monitor (svc-ops `capital.setThreshold`, J-ops-console-24 #1).
+   * `minimum` blank clears it (the asset is not monitored again) and then `contact` is blank too. Both founders sign the
+   * asset, the minimum, the contact a breach is escalated to and the reason.
+   */
+  | {
+      readonly kind: 'ops.capital.threshold.set';
+      readonly assetId: string;
+      readonly minimum: string;
+      readonly contact: string;
+      readonly reason: string;
+    }
   /** One venue cost note (svc-ops `recordVenueCost`). `reason` is the source note the service stores and the approver signs. */
   | {
       readonly kind: 'ops.venue_cost.record';
@@ -692,6 +705,15 @@ export function readDeskRequest(raw: unknown): DeskRequest | null {
     if (raw.reason !== '' && !validReason(raw.reason)) return null;
     return { kind: 'ops.reconciliation_alert.accept', alertId: raw.alertId, evidenceHash: raw.evidenceHash, reason: raw.reason as string };
   }
+  // svc-ops binds the asset, minimum, contact and reason to the approval: a changed figure is a different request.
+  if (raw.kind === 'ops.capital.threshold.set') {
+    if (keys !== 'assetId,contact,kind,minimum,reason') return null;
+    if (typeof raw.assetId !== 'string' || !OPS_CAPITAL_ASSET.test(raw.assetId)) return null;
+    if (typeof raw.minimum !== 'string' || (raw.minimum !== '' && !OPS_CAPITAL_MINIMUM.test(raw.minimum))) return null;
+    if (typeof raw.contact !== 'string' || raw.contact.trim() !== raw.contact || raw.contact.length > OPS_CAPITAL_CONTACT_MAX) return null;
+    if ((raw.minimum === '') !== (raw.contact === '') || !validReason(raw.reason)) return null;
+    return { kind: 'ops.capital.threshold.set', assetId: raw.assetId, minimum: raw.minimum, contact: raw.contact, reason: raw.reason };
+  }
   // svc-ops binds the month, line, amount, asset and source note to the approval: a changed figure is a different request.
   if (raw.kind === 'ops.venue_cost.record') {
     if (keys !== 'amount,asset,category,kind,period,reason') return null;
@@ -895,6 +917,8 @@ export function confirmPhrase(request: DeskRequest): string {
       return `RAISE LIMIT ${request.userId.slice(0, 8)}`;
     case 'ops.venue_cost.record':
       return `RECORD COST ${request.category} ${request.period}`;
+    case 'ops.capital.threshold.set':
+      return request.minimum === '' ? `CLEAR THRESHOLD ${request.assetId}` : `SET THRESHOLD ${request.assetId}`;
     case 'ops.hold.release':
       return `RELEASE HOLD ${request.holdNo}`;
     case 'ops.hold.confirm':
@@ -1026,6 +1050,10 @@ export function describeRequest(request: DeskRequest): string {
       return `Confirm staff hold ${request.holdNo} on customer ${request.userId} ("${request.reason}"): whatever ${request.assetId} is still held when it runs moves out of the customer's balance to the owner-named account. It cannot be undone from this console. svc-ops refuses while the owner has named no such account (owner.decision).`;
     case 'ops.reconciliation_alert.accept':
       return `Accept the discrepancy on reconciliation alert ${request.alertId} ("${request.reason}"). The alert closes as accepted and its evidence is frozen at hash ${request.evidenceHash}: a later failure with the same figures changes nothing, and different figures open a new alert. svc-ops refuses if the evidence no longer has that hash. No balance or freeze changes, and nothing is posted to the ledger.`;
+    case 'ops.capital.threshold.set':
+      return request.minimum === ''
+        ? `Clear the minimum buffer for ${request.assetId} ("${request.reason}"): the capital monitor shows it as not monitored again, and no breach alert opens for it. No money moves.`
+        : `Set the minimum buffer for ${request.assetId} to ${request.minimum} ("${request.reason}"): while INTAFACED's own funds in ${request.assetId} in the ledger are below it, the capital monitor opens one breach alert per day, escalated to ${request.contact}. No money moves.`;
     case 'ops.venue_cost.record':
       return `Record a venue cost for ${request.period}: ${request.category.replace(/_/g, ' ')} is ${request.amount} ${request.asset}, from "${request.reason}". It becomes the figure the unit-economics report uses for that line; an earlier figure stays in the history. No money moves.`;
     case 'protocol.pool.hide':

@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import { EDGE, ORIGIN, DEVICE_KEY, json, tool, worldState } from './stack.mjs';
-import { declaredWorld } from '../../../../tooling/scripts/journey-world.mjs';
+import { declaredWorld } from './world-line.mjs';
 import { MAKER_SETTLE_MS, makerEmails, makerRecordArgs, makerSettled } from './market.mjs';
 
 /**
- * Putting the shared world back between journey files (tooling/scripts/journey-world.mjs). Each file declares, in its
+ * Putting the shared world back between journey files (world-line.mjs, held by tooling/scripts/journey-world.mjs). Each file declares, in its
  * `// World:` line, what it changes; before the next file's first step this takes down what the last file left:
  *
  * - book: every open order, running algo and running grid bot of the TEST accounts the file signed up or acted as;
