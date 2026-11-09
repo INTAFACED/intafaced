@@ -1,13 +1,16 @@
-// World: book
+// World: book, restart
 import { test, expect } from './journey.mjs';
 import { api, journeyState, toUnits } from './stack.mjs';
-import { fundedTrader, signIn } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
+import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
+import { CHAIN_ID } from './dex.mjs';
+import { testVenue, venueBalance, venueFills, venueOff, venueOn, venuePositions, venueRead, venueStatus, VENUE_PERP } from './venue.mjs';
 
 // J-derivatives-01, in the running app (docs/roadmap/journeys.json): open a first futures position with isolated
 // margin, watch it, close 40 percent and then the rest. One test per step, titled "J-derivatives-01 #<n>", run in order
-// on one TEST account. The contract is the TEST perpetual `local-test-gates.mjs futures` lists; no agreement, knowledge
-// check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack, read back
-// through the customer's own API.
+// on one TEST account. The venue steps open the position in the person's own venue account on the LOCAL TEST venue's
+// BTC-PERP and read every figure from the venue (venue.mjs), never from our ledger or engine. No agreement, knowledge
+// check or notice gates it (owner decision 2026-10-27). Every number is a TEST number on the local stack.
 const J = 'J-derivatives-01';
 const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
@@ -16,6 +19,11 @@ const LEVERAGE = '5';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
+
+// The venue's own figures need the user-venue door on, in front of the LOCAL TEST venue (venue.mjs); it is put back
+// off after the file, as every other journey expects it.
+test.beforeAll(() => venueOn());
+test.afterAll(() => venueOff());
 
 function account() {
   const who = run.read().account;
@@ -37,27 +45,6 @@ async function positionsOf(who) {
   return body;
 }
 
-/** Fills land through the matching events, so a position read waits for the book to settle. */
-async function until(read, ok, what, waitMs = 20_000) {
-  const end = Date.now() + waitMs;
-  let last;
-  while (Date.now() < end) {
-    last = await read();
-    if (ok(last)) return last;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`${what}: still ${JSON.stringify(last).slice(0, 400)}`);
-}
-
-/**
- * The stack's TEST perpetual taker fee on a fill: 5 bps (local-test-stack.mjs TRADE_FEE_SCHEDULE `perpetual`; a new TEST
- * account has no rank discount) of size × price, rounded up to the unit once (svc-trade `fillFee`).
- */
-function takerFee(size, price) {
-  const denominator = 10n ** 18n * 10_000n;
-  return (toUnits(size) * toUnits(price) * 5n + denominator - 1n) / denominator;
-}
-
 /** Every write the page sends from now on (the steps that must send nothing read it back). */
 function writes(page) {
   const sent = [];
@@ -67,18 +54,95 @@ function writes(page) {
   return sent;
 }
 
-test(`${J} #1 opens /trade/futures and sees the whole desk`, async ({ page }) => {
-  const who = await fundedTrader(page, 'jd', '1000');
-  run.reset({ account: who });
-  await desk(page);
-  await expect(page.getByRole('combobox', { name: 'Choose a contract' })).toContainText(SYMBOL);
-  await expect(page.getByRole('region', { name: 'Order ticket' })).toBeVisible();
-  for (const tab of ['Positions', 'Orders', 'History', 'Funding', 'ADL and liquidations', 'Margin calls']) {
-    await expect(page.getByRole('tab', { name: tab })).toBeVisible();
+/** The person's TEST wallet in `page`: one TEST key for the whole run, kept in the run file (mode 600). */
+async function personWallet(page) {
+  let { walletKey } = run.read();
+  if (!walletKey) {
+    walletKey = testWalletKey();
+    run.write({ walletKey });
   }
+  return installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey });
+}
+
+/** The futures desk with the person's TEST wallet connected to their venue account. */
+async function venueDesk(page) {
+  const wallet = await personWallet(page);
+  await signIn(page, account());
+  await page.goto(DESK);
+  const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  if (await connect.isVisible()) await connect.click();
+  await expect(page.getByText(`${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`).first()).toBeVisible();
+  return { wallet, owner: wallet.address.toLowerCase() };
+}
+
+/** The figure a review or row lists next to `label` (its dt/dd pair). */
+const listed = (scope, label) =>
+  scope
+    .locator('div', { has: scope.page().locator('dt', { hasText: label }) })
+    .locator('dd')
+    .first();
+
+/** A number as the desk draws it, as scaled units. */
+function shownUnits(text) {
+  const found = /[+−-]?[\d,]+(\.\d+)?/.exec(text.replace(/\$/g, ''));
+  if (!found) throw new Error(`no number in "${text}"`);
+  return toUnits(found[0].replace(/,/g, '').replace('−', '-').replace('+', ''));
+}
+
+const units = (value) => {
+  if (typeof value !== 'string') throw new Error(`not a decimal string on the wire: ${JSON.stringify(value)}`);
+  return toUnits(value);
+};
+
+test(`${J} #1 opens /trade/futures: the full desk with the contracts each venue lists for this account and region, each with its venue named`, async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const who = await signUp(page, 'jd');
+  await verify(page, who);
+  run.reset({ account: who });
+  const status = await venueStatus(who);
+  // The person's own venue account holds TEST 1000 USDC (the Starts line), credited by the venue's own TEST deposit
+  // control, never through our ledger.
+  const { owner } = await venueDesk(page);
+  run.write({ owner });
+  const credited = await testVenue('/test/deposit', {
+    account: { venueId: status.venue.id, owner, subAccount: null },
+    asset: 'USDC',
+    amount: '1000',
+    depositRef: `test-start:${owner}:1000`,
+  });
+  expect(credited.status, JSON.stringify(credited.body)).toBe(200);
+  expect(toUnits((await venueBalance(who, owner, 'USDC')).free)).toBe(toUnits('1000'));
+  // The full desk.
+  await expect(page.getByRole('region', { name: 'Order ticket' })).toBeVisible();
+  for (const tab of ['Positions', 'Orders', 'History']) await expect(page.getByRole('tab', { name: tab })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Chart' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Risk' }).getByText('Free balance')).toBeVisible();
-  await expect(access(page)).toBeVisible();
+  // The contracts the venue lists for this account, each with its venue named.
+  const { status: read, body: markets } = await (await api(who)).get('/api/v1/venue/markets');
+  expect(read, JSON.stringify(markets).slice(0, 300)).toBe(200);
+  const perps = markets.value.filter((m) => m.kind === 'perpetual');
+  expect(perps.map((m) => m.symbol)).toContain(VENUE_PERP);
+  const picker = page.getByRole('combobox', { name: 'Choose a contract' });
+  await picker.click();
+  for (const m of perps) {
+    const option = page.getByRole('option', { name: new RegExp(m.symbol) });
+    await expect(option).toBeVisible();
+    await expect(option).toContainText(status.venue.displayName);
+  }
+  await page.keyboard.press('Escape');
+  // A venue that is down is named, and its controls give a typed refusal.
+  const down = await testVenue('/test/switches', { venueDown: true });
+  expect(down.status).toBe(200);
+  try {
+    await page.reload();
+    await expect(page.getByText(new RegExp(`${status.venue.displayName}.*(down|unavailable|not answering)`, 'i')).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.locator('[data-code="trade.venue.venue_down"]').first()).toBeVisible();
+  } finally {
+    await testVenue('/test/switches', { venueDown: false });
+  }
 });
 
 // The legal and suitability reasons the list used to carry. None of them is a reason any more (owner decision 2026-10-27).
@@ -159,25 +223,24 @@ test(`${J} #4 picks the contract and reads its strip: family, settle asset, cont
   expect([listed.family, listed.settleAsset, listed.contractSize]).toEqual(['linear', 'USDT', '0.001']);
 });
 
-test(`${J} #5 chooses the margin mode: isolated is live, cross and portfolio refuse and nothing changes`, async ({ page }) => {
-  await desk(page);
+test(`${J} #5 chooses the margin mode: the modes the venue offers, the others "not offered by this venue", nothing changes`, async ({
+  page,
+}) => {
+  const who = account();
+  const { owner } = run.read();
+  await venueDesk(page);
   const sent = writes(page);
+  const { body: markets } = await (await api(who)).get('/api/v1/venue/markets');
+  const perp = markets.value.find((m) => m.symbol === VENUE_PERP);
+  expect(perp.marginModes).toEqual(['isolated']);
   const mode = page.getByRole('group', { name: 'Margin mode' });
-  const isolated = mode.getByRole('button', { name: 'Isolated' });
-  await expect(isolated).toHaveAttribute('aria-pressed', 'true');
+  await expect(mode.getByRole('button', { name: 'Isolated' })).toHaveAttribute('aria-pressed', 'true');
   await mode.getByRole('button', { name: 'Cross' }).click();
-  // A typed refusal (its data-code) that names the model decision, not only the title.
-  const cross = page.locator('[data-code="trade.cross_margin_unsupported"]');
-  await expect(cross).toContainText('Cross margin is not offered');
-  await expect(cross).toContainText('Every futures position is isolated: it can lose only the margin you put into it.');
-  await expect(cross).toContainText('A shared pool across positions is not offered.');
-  await expect(isolated).toHaveAttribute('aria-pressed', 'true');
-  await mode.getByRole('button', { name: 'Portfolio' }).click();
-  const portfolio = page.locator('[data-code="trade.portfolio_margin_unset"]');
-  await expect(portfolio).toContainText('Portfolio margin is not offered');
-  await expect(portfolio).toContainText('Portfolio margin has no published rules, so it is switched off. Futures margin stays isolated.');
-  await expect(isolated).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('not offered by this venue').first()).toBeVisible();
+  await expect(mode.getByRole('button', { name: 'Isolated' })).toHaveAttribute('aria-pressed', 'true');
   expect(sent).toEqual([]);
+  // Nothing changes on the venue.
+  expect((await venueRead(who, 'leverage', owner, { symbol: VENUE_PERP })).value).toBeNull();
 });
 
 async function fillTicket(page) {
@@ -188,19 +251,41 @@ async function fillTicket(page) {
   return ticket;
 }
 
-test(`${J} #6 types a TEST size and leverage and reviews: margin, fee, liquidation price and total from the preview`, async ({ page }) => {
-  await desk(page);
+test(`${J} #6 types a TEST size and leverage and reviews: initial margin, the venue's fee, our builder fee, liquidation price and total to commit, from the venue's figures`, async ({
+  page,
+}) => {
+  const who = account();
+  const { owner } = run.read();
+  await venueDesk(page);
+  const previews = [];
+  page.on('response', async (r) => {
+    if (r.request().method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/preview')
+      previews.push({ sent: r.request().postDataJSON(), answer: await r.json().catch(() => null) });
+  });
   const ticket = await fillTicket(page);
-  for (const row of ['Initial margin', 'Liquidation price', 'Total to commit now']) {
-    await expect(ticket.getByText(row, { exact: true })).toBeVisible();
-  }
-  await expect(ticket.getByText(/fee/i).first()).toBeVisible();
-  const preview = await (
-    await api(account())
-  ).post('/api/v1/positions/preview', { symbol: SYMBOL, side: 'long', size: SIZE, leverage: LEVERAGE });
-  expect(preview.status).toBe(200);
-  expect(preview.body.liquidationPrice).toMatch(/^\d+(\.\d+)?$/);
-  expect(toUnits(preview.body.liquidationPrice)).toBeLessThan(toUnits(preview.body.markPrice));
+  await expect.poll(() => previews.length, { timeout: 15_000 }).toBeGreaterThan(0);
+  const { sent } = previews.at(-1);
+  expect(sent.owner).toBe(owner);
+  expect(sent.intent).toMatchObject({ kind: 'place_order', symbol: VENUE_PERP, side: 'buy' });
+  expect(toUnits(sent.intent.amount)).toBe(toUnits(SIZE));
+  const { status, body } = await (await api(who)).post('/api/v1/venue/preview', sent);
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const p = body.value;
+  expect(p.perpetual.marginMode).toBe('isolated');
+  expect(p.perpetual.leverageBps).toBe(Number(LEVERAGE) * 10_000);
+  expect(p.perpetual.initialMargin.known).toBe(true);
+  expect(shownUnits(await listed(ticket, 'Initial margin').innerText())).toBe(units(p.perpetual.initialMargin.value));
+  expect(p.venueFee.known).toBe(true);
+  expect(shownUnits(await listed(ticket, /venue.?s fee/i).innerText())).toBe(units(p.venueFee.value.amount));
+  expect(p.builderFee.known).toBe(true);
+  expect(shownUnits(await listed(ticket, /builder fee/i).innerText())).toBe(units(p.builderFee.value.amount));
+  expect(p.perpetual.liquidationPrice.known).toBe(true);
+  expect(shownUnits(await listed(ticket, 'Liquidation price').innerText())).toBe(units(p.perpetual.liquidationPrice.value));
+  const total = units(p.perpetual.initialMargin.value) + units(p.venueFee.value.amount) + units(p.builderFee.value.amount);
+  expect(shownUnits(await listed(ticket, 'Total to commit now').innerText())).toBe(total);
+  // A margin-currency mismatch is refused with both assets named.
+  await page.getByRole('combobox', { name: /margin (asset|currency)/i }).selectOption({ label: 'BTC' });
+  await expect(ticket.locator('[data-code]').filter({ hasText: /BTC.*USDC|USDC.*BTC/ })).toBeVisible();
 });
 
 test(`${J} #7 looks at the order types: market and limit offered, the rest listed with the reason and nothing sent`, async ({ page }) => {
@@ -220,141 +305,141 @@ test(`${J} #7 looks at the order types: market and limit offered, the rest liste
   expect(sent).toEqual([]);
 });
 
-test(`${J} #8 confirms "Open long": one position opens and its margin is locked`, async ({ page }) => {
+test(`${J} #8 confirms "Open long" and signs: the venue opens one position; a double press asks for one signature and sends one order`, async ({
+  page,
+}) => {
   const who = account();
-  const before = (await (await api(who)).balances()).USDT;
-  await desk(page);
-  await expect(access(page).getByText('Open for your account')).toBeVisible();
-  const ticket = await fillTicket(page);
-  await expect(ticket.getByText('Total to commit now', { exact: true })).toBeVisible();
+  const { owner } = run.read();
+  const { wallet } = await venueDesk(page);
+  const submits = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/submit') submits.push(r.postDataJSON());
+  });
+  await fillTicket(page);
+  const asked = wallet.requests.length;
   await page.getByRole('button', { name: 'Open long' }).click();
   const confirm = page.getByRole('alertdialog');
-  // 0.01 BTC sits above the first margin tier on the TEST book's depth, so the confirm names the tier it opens in
-  // (J-derivatives-02 #6) and the trader accepts it first.
-  await expect(confirm).toBeVisible();
-  const tier = confirm.getByRole('region', { name: 'New margin tier' });
-  if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-  // A double press sends one order: the request id holds until the numbers change.
   await confirm.getByRole('button', { name: 'Confirm open long' }).dblclick();
-  // The confirm re-checks the numbers; a mark that moved meanwhile shows the new figures, and the tier is ticked again.
-  const filled = page.getByText('Order filled');
-  await expect(filled.or(confirm.getByText('The numbers moved since you reviewed'))).toBeVisible({ timeout: 20_000 });
-  if (!(await filled.isVisible())) {
-    if ((await tier.count()) > 0) await tier.getByRole('checkbox').click();
-    await confirm.getByRole('button', { name: 'Confirm open long' }).click();
-  }
-  await expect(filled).toBeVisible({ timeout: 20_000 });
-  const positions = await until(
-    () => positionsOf(who),
-    (list) => list.length === 1 && list[0].contracts === SIZE,
-    'one position of the TEST size',
-  );
-  expect(positions[0]).toMatchObject({ symbol: SYMBOL, side: 'long', marginMode: 'isolated', status: 'open' });
-  const after = (await (await api(who)).balances()).USDT;
-  // The opening fill took from the book, so it paid the TEST schedule's perpetual taker fee (5 bps of its notional, rounded up
-  // once), and paid it once: the free balance fell by the margin and that one fee, and the rest of the hold came back.
-  const fee = takerFee(SIZE, positions[0].entryPrice);
-  expect(fee).toBeGreaterThan(0n);
-  expect(toUnits(positions[0].fees)).toBe(fee);
-  expect(toUnits(before.free) - toUnits(after.free)).toBe(toUnits(positions[0].initialMargin) + fee);
-  const { body: orders } = await (await api(who)).get('/api/v1/futures/orders?scope=all&limit=100');
-  expect(orders.filter((o) => !o.reduceOnly && o.status !== 'refused')).toHaveLength(1);
+  await expect.poll(async () => (await venuePositions(who, owner)).length, { timeout: 20_000 }).toBe(1);
+  // One signature for the order (the leverage setting, where the venue needs it first, is its own signed action).
+  const orderSignatures = wallet.requests.slice(asked).filter((r) => JSON.stringify(r.params).includes('place_order'));
+  expect(orderSignatures).toHaveLength(1);
+  expect(new Set(submits.map((s) => s.actionKey)).size).toBe(submits.length);
+  const [position] = await venuePositions(who, owner);
+  expect(position).toMatchObject({ symbol: VENUE_PERP, side: 'long', marginMode: 'isolated' });
+  expect(toUnits(position.size)).toBe(toUnits(SIZE));
+  expect(position.leverageBps).toBe(Number(LEVERAGE) * 10_000);
+  // The venue locked the margin out of free.
+  const usdc = await venueBalance(who, owner, 'USDC');
+  expect(units(usdc.locked)).toBe(units(position.margin));
 });
 
-test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price`, async ({ page }) => {
+test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, leverage and liquidation price as exact decimals as the venue reports them, with an as-of time`, async ({
+  page,
+}) => {
   const who = account();
-  await desk(page);
-  const [position] = await positionsOf(who);
-  expect(position.liquidationPrice).toMatch(/^\d+(\.\d+)?$/);
-  const row = page.getByRole('row').filter({ hasText: SYMBOL }).first();
+  const { owner } = run.read();
+  await venueDesk(page);
+  await page.getByRole('tab', { name: 'Positions' }).click();
+  const read = await venueRead(who, 'positions', owner);
+  const [position] = read.value;
+  expect(position, 'one position on the venue').toBeTruthy();
+  const row = page.getByRole('row').filter({ hasText: VENUE_PERP }).first();
   await expect(row).toContainText(`Long ${LEVERAGE}x`);
-  await expect(row).toContainText(SIZE);
-  for (const field of ['entryPrice', 'markPrice', 'collateral', 'liquidationPrice']) {
-    expect(position[field], field).toMatch(/^\d+(\.\d+)?$/);
-  }
-  expect(position.unrealizedPnl).toMatch(/^-?\d+(\.\d+)?$/);
-  // Shown as the service's decimal to eight places, with the whole number grouped (the positions room's fmtPrice with no
-  // tick: at most eight places, half up; screens/trade/futures/PositionsTable.tsx, data/format.ts): sent
-  // with eight places or fewer it is shown digit for digit (52685.6 → 52,685.6, run 42446058427 shard 17; the old pad to
-  // two places failed on it); longer, it is shown rounded half up at the eighth (52754.49696969696969697 → 52,754.49696970,
-  // run 42448935569). Exact in bigint, never a float.
-  const [whole, fraction = ''] = position.liquidationPrice.split('.');
-  let shownWhole = BigInt(whole);
-  let shownFraction = fraction;
-  if (fraction.length > 8) {
-    let eight = BigInt(fraction.slice(0, 8)) + (fraction[8] >= '5' ? 1n : 0n);
-    if (eight === 10n ** 8n) [shownWhole, eight] = [shownWhole + 1n, 0n];
-    shownFraction = eight.toString().padStart(8, '0');
-  }
-  const grouped = shownWhole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  await expect(row).toContainText(`${grouped}${shownFraction ? `.${shownFraction}` : ''}`);
+  const heads = (await page.getByRole('row').first().getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
+  const cells = await row.getByRole('cell').allInnerTexts();
+  const col = (name) => {
+    const i = heads.findIndex((h) => name.test(h));
+    expect(i, `${name} in ${heads.join(' | ')}`).toBeGreaterThanOrEqual(0);
+    return cells[i];
+  };
+  // Exact decimals: the venue's figure, digit for digit (grouped), never rounded to a shorter form.
+  const exact = (v) => {
+    const [whole, fraction] = v.replace(/^-/, '').split('.');
+    return `${v.startsWith('-') ? '[-−]' : '\\+?'}${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction ? `\\.${fraction}` : ''}`;
+  };
+  expect(col(/^Entry/)).toMatch(new RegExp(exact(position.entryPrice)));
+  expect(col(/^Mark/)).toMatch(new RegExp(exact(position.markPrice)));
+  expect(col(/unrealised|unrealized/i)).toMatch(new RegExp(exact(position.unrealisedPnl)));
+  expect(col(/^Margin/)).toMatch(new RegExp(exact(position.margin)));
+  expect(position.liquidationPrice.known).toBe(true);
+  expect(col(/liquidation/i)).toMatch(new RegExp(exact(position.liquidationPrice.value)));
+  await expect(page.getByText(/as of \d{1,2}:\d{2}/i).first()).toBeVisible();
 });
 
-test(`${J} #10 closes 40 percent, then the rest`, async ({ page }) => {
+test(`${J} #10 closes 40 percent, then the rest: the venue's split results sum to the full close; a repeated close id is sent and answered once; our ledger posts only our builder fee`, async ({
+  page,
+}) => {
   const who = account();
-  await desk(page);
-  const [position] = await positionsOf(who);
+  const { owner } = run.read();
+  const ledgerBefore = await (await api(who)).balances();
+  const since = new Date(Date.now() - 1_000);
+  const { wallet } = await venueDesk(page);
+  const submits = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/v1/venue/submit') submits.push(r.postDataJSON());
+  });
+  const [position] = await venuePositions(who, owner);
   const part = '0.004';
-  const row = page.getByRole('row').filter({ hasText: SYMBOL }).first();
-  await row.getByRole('button', { name: `Close, ${SYMBOL}` }).click();
+  const row = page.getByRole('row').filter({ hasText: VENUE_PERP }).first();
+  await row.getByRole('button', { name: `Close, ${VENUE_PERP}` }).click();
   let dialog = page.getByRole('alertdialog').or(page.getByRole('dialog')).first();
   await dialog.getByRole('textbox', { name: 'Size to close' }).fill(part);
   await dialog.getByRole('button', { name: 'Close this size' }).click();
-  const smaller = await until(
-    () => positionsOf(who),
-    (list) => list.length === 1 && list[0].contracts === '0.006',
-    'the position after closing 40 percent',
-  );
-  expect(smaller[0].id).toBe(position.id);
-
+  await expect.poll(async () => (await venuePositions(who, owner))[0]?.size, { timeout: 20_000 }).toMatch(/^0\.006(0*)$/);
+  // The same close id sent again (a replay of the first close's signed action) is answered once: nothing more closes.
+  const firstClose = submits.at(-1);
+  expect(firstClose, 'the close was submitted to the venue').toBeTruthy();
+  const replay = await (await api(who)).post('/api/v1/venue/submit', firstClose);
+  expect(replay.status, JSON.stringify(replay.body).slice(0, 300)).toBe(200);
+  expect(toUnits((await venuePositions(who, owner))[0].size)).toBe(toUnits('0.006'));
   await page.reload();
-  await row.getByRole('button', { name: `Close, ${SYMBOL}` }).click();
+  await row.getByRole('button', { name: `Close, ${VENUE_PERP}` }).click();
   dialog = page.getByRole('alertdialog').or(page.getByRole('dialog')).first();
   await dialog.getByRole('button', { name: 'Close position' }).click();
-  await until(
-    () => positionsOf(who),
-    (list) => list.length === 0,
-    'no open position after the full close',
-  );
-  const { body: closed } = await (await api(who)).get('/api/v1/positions/closed?limit=5');
-  expect(closed[0]).toMatchObject({ id: position.id, status: 'closed' });
-  expect(closed[0].realizedPnl).toMatch(/^-?\d+(\.\d+)?$/);
-  // Both closes are reduce-only orders through the book; together they are the whole position.
-  const { body: orders } = await (await api(who)).get('/api/v1/futures/orders?scope=all&limit=100');
-  const reduces = orders.filter((o) => o.reduceOnly && o.status === 'filled');
-  expect(reduces.map((o) => o.filledQty).sort()).toEqual(['0.004', '0.006']);
-  // Nothing stays held: the free balance is the whole USDT balance again.
-  const usdt = (await (await api(who)).balances()).USDT;
-  expect(toUnits(usdt.used ?? '0')).toBe(0n);
+  await expect.poll(async () => (await venuePositions(who, owner)).length, { timeout: 20_000 }).toBe(0);
+  // The venue's split results sum to the full close.
+  const closes = (await venueFills(who, owner, since)).filter((f) => f.side === 'sell');
+  expect(closes.reduce((s, f) => s + units(f.amount), 0n)).toBe(toUnits(SIZE));
+  expect(closes.every((f) => f.realisedPnl !== null)).toBe(true);
+  const realised = closes.reduce((s, f) => s + units(f.realisedPnl), 0n);
+  run.write({ realised: String(realised), closeFills: closes.map((f) => f.fillId), positionEntry: position.entryPrice });
+  // Our ledger posts only our builder fee: one posting per fill, the fee the venue charged.
+  const builderFees = closes.reduce((s, f) => s + units(f.builderFee), 0n);
+  expect(builderFees).toBeGreaterThan(0n);
+  const { status, body } = await (await api(who)).get('/api/v1/venue/builder-fees?limit=50');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const posted = (body.items ?? body).filter((e) => closes.some((f) => f.fillId === e.fillId));
+  expect(posted).toHaveLength(closes.length);
+  expect(posted.reduce((s, e) => s + units(e.amount), 0n)).toBe(builderFees);
+  // Nothing of the person's money moves on our ledger.
+  expect(await (await api(who)).balances()).toEqual(ledgerBefore);
+  expect(wallet.requests.length).toBeGreaterThan(0);
 });
 
-test(`${J} #11 opens History and sees the closed position with its realised result`, async ({ page }) => {
+test(`${J} #11 opens History: the closed position with its realised result, the venue's fee and our builder fee, from the venue`, async ({
+  page,
+}) => {
   const who = account();
-  const { body: closed } = await (await api(who)).get('/api/v1/positions/closed?limit=5');
-  await desk(page);
+  const { owner, realised } = run.read();
+  expect(realised, '#10 closed the position').toBeDefined();
+  const fills = await venueFills(who, owner, new Date(Date.now() - 3_600_000));
+  const venueFees = fills.reduce((s, f) => s + units(f.venueFee), 0n);
+  const builderFees = fills.reduce((s, f) => s + units(f.builderFee), 0n);
+  await venueDesk(page);
   await page.getByRole('tab', { name: 'History' }).click();
   const table = page.getByRole('table', { name: 'Position history' });
-  const row = table.getByRole('row').filter({ hasText: SYMBOL }).first();
+  const row = table.getByRole('row').filter({ hasText: VENUE_PERP }).first();
   await expect(row).toContainText('Closed');
-  // The whole size it closed, across both reduces, not the last remainder.
-  expect(closed[0].contracts).toBe(SIZE);
   await expect(row).toContainText(SIZE);
-  // The realised result, in its own column, with its sign: "+" and up for a profit, "-" and down for a loss, equal to
-  // the service's figure at the four places the column draws.
-  const pnl = toUnits(closed[0].realizedPnl);
   const headers = (await table.getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
-  const at = headers.indexOf('Realised PnL');
-  expect(at, headers.join(' | ')).toBeGreaterThanOrEqual(0);
-  const figure = row.getByRole('cell').nth(at).locator('[data-slot=change-text]');
-  await expect(figure).toHaveAttribute('data-direction', pnl > 0n ? 'up' : pnl < 0n ? 'down' : 'flat');
-  const shown = (/[+−-]?[\d,]+(\.\d+)?/.exec(await figure.innerText())?.[0] ?? '').replace(/,/g, '').replace('−', '-');
-  expect(shown, 'the sign is drawn').toMatch(pnl > 0n ? /^\+/ : pnl < 0n ? /^-/ : /^\d/);
-  const drawn = toUnits(shown.replace(/^\+/, ''));
-  const halfStep = toUnits('0.00005');
-  expect(drawn - pnl <= halfStep && pnl - drawn <= halfStep, `drawn ${shown}, service ${closed[0].realizedPnl}`).toBe(true);
-  // Its fees: the opening fill's and both closing fills', every one through the book at the taker rate.
-  const fees = toUnits(closed[0].fees);
-  expect(fees).toBeGreaterThan(takerFee(SIZE, closed[0].entryPrice));
-  await expect(table.getByRole('columnheader', { name: 'Fees paid' })).toBeVisible();
-  await expect(row).toContainText(Number(closed[0].fees).toFixed(8).replace(/0+$/, '').replace(/\.$/, ''));
+  const cells = await row.getByRole('cell').allInnerTexts();
+  const col = (name) => {
+    const i = headers.findIndex((h) => name.test(h));
+    expect(i, `${name} in ${headers.join(' | ')}`).toBeGreaterThanOrEqual(0);
+    return cells[i];
+  };
+  expect(shownUnits(col(/realised/i))).toBe(BigInt(realised));
+  expect(shownUnits(col(/venue.?s fee/i))).toBe(venueFees);
+  expect(shownUnits(col(/builder fee/i))).toBe(builderFees);
 });
