@@ -110,6 +110,7 @@ function AppealStatus({ appeal }: { appeal: CompletionAppeal }) {
 function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }) {
   const { t, requestedLocale } = completionCopy.useCopy();
   const formId = useId();
+  const orderLabelId = useId();
   // The orders an appeal can name: cancelled or disputed after escrow (the ones the rate counts against the person).
   const orders = useResource(
     async (signal): Promise<ApiResult<Trade[]>> => {
@@ -146,10 +147,7 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
         ) : (
           <form
             className="form-stack"
-            // Named twice on purpose: the heading by id, and the same words directly, so the form keeps its name even when
-            // the id reference doesn't resolve (J-p2p-12 #2 found the form unnamed in a CI build).
             aria-labelledby={formId}
-            aria-label={t('appealForm')}
             onSubmit={(event) => {
               event.preventDefault();
               void send();
@@ -158,8 +156,9 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
             <h3 id={formId}>{t('appealForm')}</h3>
             <p className="muted">{t('appealOnce')}</p>
             <label className="field">
-              <span>{t('appealOrder')}</span>
-              <select value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
+              <span id={orderLabelId}>{t('appealOrder')}</span>
+              {/* Named by its own word only: a wrapping label's text also holds every option's text. */}
+              <select aria-labelledby={orderLabelId} value={tradeId} onChange={(event) => setTradeId(event.target.value)} required>
                 <option value="">{t('appealPick')}</option>
                 {list.map((trade) => (
                   <option key={trade.id} value={trade.id}>
