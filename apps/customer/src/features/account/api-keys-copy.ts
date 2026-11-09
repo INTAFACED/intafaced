@@ -102,6 +102,18 @@ const messages = {
   'refused.identity.key_request_conflict': 'This request was already used for a different key. Reload the page and try again.',
   'refused.auth.passkey_missing': 'Add a passkey on Security first. Only an account with a passkey can hold API keys. Nothing was created.',
   'refused.auth.passkey_verify_unavailable': 'Use your passkey once to sign in or confirm, then make the key. Nothing was created.',
+  'refused.identity.key_account_required': 'An organisation key must name the account it reaches. Nothing was created.',
+  'refused.identity.key_account_denied': 'That account is not one of your live sub-accounts. Nothing was created.',
+  'refused.identity.key_org_denied': 'Only an admin of this organisation may make its keys. Nothing was created.',
+  'refused.identity.portfolio_key_cap_unset':
+    'The number of keys a sub-account may hold is not set, so sub-account keys are refused. Nothing was created.',
+  'refused.identity.portfolio_key_cap_reached':
+    'This sub-account holds as many keys as it may. Revoke one of its keys to make another. Nothing was created.',
+  subaccount: 'Sub-account',
+  subaccountNone: 'None: a key for this account',
+  subaccountHint: 'A key for a sub-account reaches only that sub-account. It can read its balance and nothing of this account.',
+  colAccount: 'Account',
+  accountOwn: 'This account',
   'refused.identity.delegated_refused': 'Sign in on this device. An API key or a sub-account cannot make keys.',
   colActions: 'Actions',
   revoke: 'Revoke',

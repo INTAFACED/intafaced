@@ -124,10 +124,45 @@ describe('the key list', () => {
   });
 
   it('shows every column, links each name to its detail, and a revoked key says why with no Revoke', async () => {
-    world.queries['developerKeys.list'] = [list([live, frozen, { ...frozen, id: KEY.replace('0b', '0c'), name: 'old', revokedBy: null }])];
+    const SUB = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    world.queries['developerKeys.list'] = [
+      list([live, frozen, { ...frozen, id: KEY.replace('0b', '0c'), name: 'old', revokedBy: null, accountId: SUB }]),
+    ];
+    world.queries['subAccounts.list'] = [
+      {
+        ok: true,
+        data: [
+          {
+            id: SUB,
+            label: 'Sub B',
+            purpose: null,
+            revoked: false,
+            frozen: false,
+            kind: 'standard',
+            nickname: null,
+            createdAt: '2026-11-01T00:00:00.000Z',
+          },
+        ],
+      },
+    ];
     await render(<ApiKeys />);
     const headers = [...host.querySelectorAll('thead th')].map((th) => th.textContent);
-    expect(headers).toEqual(['Name', 'Prefix', 'Mode', 'Permissions', 'IP addresses', 'Created', 'Ends', 'Last used', 'State', 'Actions']);
+    expect(headers).toEqual([
+      'Name',
+      'Prefix',
+      'Mode',
+      'Account',
+      'Permissions',
+      'IP addresses',
+      'Created',
+      'Ends',
+      'Last used',
+      'State',
+      'Actions',
+    ]);
+    // J-developer-15 #1: a key bound to a sub-account names it on the list; the account's own keys say so.
+    const accounts = [...host.querySelectorAll('[data-testid="api-keys__account"]')].map((td) => td.textContent);
+    expect(accounts).toEqual(['This account', 'This account', 'Sub-account: Sub B']);
     const rows = [...host.querySelectorAll('tbody tr')];
     expect(rows[0]!.querySelector('a')!.getAttribute('href')).toBe(`/uc/safe/api-keys/${KEY}`);
     expect(buttons(/Revoke/, rows[0]!)).toHaveLength(1);

@@ -6,6 +6,7 @@ import { Button, Failure, Field, Loading } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { apiKeysCopy as copy, type ApiKeysCopyKey, type ApiKeysPlainKey } from './api-keys-copy';
 import { KeySafety } from './ApiKeys';
+import type { Subaccount } from './subaccount-guards';
 import {
   createDeveloperKey,
   createRefusal,
@@ -15,17 +16,23 @@ import {
   presetScopes,
   readDeveloperKeys,
   readKeyScopes,
+  readKeySubaccounts,
   type Factor,
   type Preset,
 } from './developer-keys-api';
 
-type Ready = { keys: ApiKeyList['keys']; scopes: ApiKeyScopeEntry[] };
+type Ready = { keys: ApiKeyList['keys']; scopes: ApiKeyScopeEntry[]; subaccounts: Subaccount[] };
 
 async function readForm(api: ReturnType<typeof useSession>['api'], signal: AbortSignal): Promise<ApiResult<Ready>> {
-  const [keys, scopes] = await Promise.all([readDeveloperKeys(api, signal), readKeyScopes(api, signal)]);
+  const [keys, scopes, subaccounts] = await Promise.all([
+    readDeveloperKeys(api, signal),
+    readKeyScopes(api, signal),
+    readKeySubaccounts(api, signal),
+  ]);
   if (!keys.ok) return keys;
   if (!scopes.ok) return scopes;
-  return { ok: true, data: { keys: keys.data.keys, scopes: scopes.data.scopes } };
+  if (!subaccounts.ok) return subaccounts;
+  return { ok: true, data: { keys: keys.data.keys, scopes: scopes.data.scopes, subaccounts: subaccounts.data } };
 }
 
 /** The key, once: copy, download as an environment file, and a box to tick before the panel can close. */
@@ -127,7 +134,7 @@ export function ApiKeyCreate() {
         <ShownOnce made={made} onDone={() => window.location.assign('/uc/safe/api-keys')} />
       </div>
     );
-  const { keys, scopes } = resource.data;
+  const { keys, scopes, subaccounts } = resource.data;
   const offered = scopes.filter((entry) => entry.onKey);
   const blocked = scopes.filter((entry) => !entry.onKey);
 
@@ -143,11 +150,13 @@ export function ApiKeyCreate() {
     const ends = String(data.get('ends') ?? '');
     const expiresAt = ends ? endOfDayUtc(ends) : undefined;
     const ips = ipLines(String(data.get('ips') ?? ''));
+    const accountId = String(data.get('accountId') ?? '');
     const asked = {
       name: String(data.get('name') ?? ''),
       scopes: [...ticked],
       ...(ips.length > 0 ? { ips } : {}),
       ...(expiresAt ? { expiresAt } : {}),
+      ...(accountId ? { accountId } : {}),
     };
     const factor: Factor = how === 'passkey' ? { passkey: true } : code ? { code } : null;
     setBusy(true);
@@ -193,6 +202,20 @@ export function ApiKeyCreate() {
         }}
       >
         <Field label={t('name')} hint={t('nameHint')} name="name" autoComplete="off" maxLength={64} />
+        <label className="field">
+          <span>{t('subaccount')}</span>
+          <select name="accountId" defaultValue="" aria-describedby="api-key-subaccount-hint">
+            <option value="">{t('subaccountNone')}</option>
+            {subaccounts.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.nickname ?? row.label}
+              </option>
+            ))}
+          </select>
+          <small id="api-key-subaccount-hint" className="muted">
+            {t('subaccountHint')}
+          </small>
+        </label>
         <fieldset className="api-keys__scopes">
           <legend>{t('permissions')}</legend>
           <div className="api-keys__presets" role="radiogroup" aria-label={t('permissions')}>

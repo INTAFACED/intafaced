@@ -5,7 +5,7 @@ import { useSession } from '../session/session';
 import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
-import { changeRefusal, readDeveloperKeys, revokeDeveloperKey } from './developer-keys-api';
+import { changeRefusal, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
 import './security.css';
 import './api-keys.css';
 
@@ -122,6 +122,12 @@ export function ApiKeys() {
   const { t, languageFor, requestedLocale } = copy.useCopy();
   const { api, userId } = useSession();
   const { resource, reload } = useResource((signal) => readDeveloperKeys(api, signal), `developer-keys:${userId}`);
+  // The names of the sub-accounts keys are bound to; a key whose sub-account is not listed shows its id instead.
+  const { resource: subaccounts } = useResource((signal) => readKeySubaccounts(api, signal), `developer-key-subaccounts:${userId}`);
+  const labels = useMemo(
+    () => new Map(subaccounts.status === 'ready' ? subaccounts.data.map((row) => [row.id, row.nickname ?? row.label]) : []),
+    [subaccounts],
+  );
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [notice, setNotice] = useState<ApiKeysPlainKey | null>(null);
   const sending = useRef(false);
@@ -198,6 +204,7 @@ export function ApiKeys() {
                     <th scope="col">{t('colName')}</th>
                     <th scope="col">{t('colPrefix')}</th>
                     <th scope="col">{t('colMode')}</th>
+                    <th scope="col">{t('colAccount')}</th>
                     <th scope="col">{t('colScopes')}</th>
                     <th scope="col">{t('colIps')}</th>
                     <th scope="col">{t('colCreated')}</th>
@@ -221,6 +228,15 @@ export function ApiKeys() {
                           <code lang="und">{key.prefix}</code>
                         </td>
                         <td>{t(key.mode === 'live' ? 'modeLive' : 'modeSandbox')}</td>
+                        <td data-testid="api-keys__account">
+                          {key.accountId === null ? (
+                            t('accountOwn')
+                          ) : (
+                            <>
+                              {t('subaccount')}: <bdi lang="und">{labels.get(key.accountId) ?? key.accountId}</bdi>
+                            </>
+                          )}
+                        </td>
                         <td>
                           <bdi lang="und">{key.scopes.join(', ')}</bdi>
                         </td>

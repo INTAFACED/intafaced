@@ -19,6 +19,7 @@ import {
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session/webauthn';
 import type { ApiKeysCopyKey } from './api-keys-copy';
+import { subaccountsIn, type Subaccount } from './subaccount-guards';
 
 /** The most keys the room reads at once; the owner's cap is far below it. */
 const LIST_LIMIT = 200;
@@ -29,6 +30,18 @@ export function readDeveloperKeys(api: ApiClient, signal: AbortSignal): Promise<
 
 export function readKeyScopes(api: ApiClient, signal: AbortSignal): Promise<ApiResult<{ scopes: ApiKeyScopeEntry[] }>> {
   return api.query('identity', 'developerKeys.scopes', undefined, apiKeyScopesOutputSchema, { signal });
+}
+
+/** The most sub-accounts the key form offers at once; the owner's sub-account cap is far below it. */
+const SUBACCOUNT_LIMIT = 50;
+
+/**
+ * The master's live sub-accounts, offered on the create form so a key can be bound to one (DV-sub-accounts-01). A
+ * revoked one is left out: identity refuses a key for it (`identity.key_account_denied`).
+ */
+export async function readKeySubaccounts(api: ApiClient, signal: AbortSignal): Promise<ApiResult<Subaccount[]>> {
+  const rows = await api.query('identity', 'subAccounts.list', { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
+  return rows.ok ? { ok: true, data: rows.data.filter((row) => !row.revoked) } : rows;
 }
 
 export type Preset = 'read' | 'trade' | 'custom';
@@ -183,6 +196,11 @@ const REFUSALS = new Set<string>([
   'identity.key_signing_unset',
   'identity.key_cap_reached',
   'identity.key_request_conflict',
+  'identity.key_account_required',
+  'identity.key_account_denied',
+  'identity.key_org_denied',
+  'identity.portfolio_key_cap_unset',
+  'identity.portfolio_key_cap_reached',
   'identity.delegated_refused',
   'auth.passkey_missing',
   'auth.passkey_verify_unavailable',
