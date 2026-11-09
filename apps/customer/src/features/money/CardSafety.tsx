@@ -27,6 +27,8 @@ const timeOf = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { ho
 export function CardThreeDSPanel({ card }: { card: CardRecord }) {
   const { t } = cardSafetyCopy.useCopy();
   const read = useBankRead('cards.threeDS.list', { cardId: card.id });
+  // A wrong code's count lives here, outside the list: the reload after an answer remounts each challenge.
+  const [wrong, setWrong] = useState<Record<string, number>>({});
   return (
     <DepthPanel title={t('threeDSTitle')} lead={t('threeDSLead')}>
       <ResourceView resource={read.resource} reload={read.reload}>
@@ -34,7 +36,19 @@ export function CardThreeDSPanel({ card }: { card: CardRecord }) {
           challenges.length ? (
             <ul aria-label={t('threeDSList')} className="form-stack">
               {challenges.map((challenge) => (
-                <ThreeDSChallenge key={challenge.id} card={card} challenge={challenge} reload={read.reload} />
+                <ThreeDSChallenge
+                  key={challenge.id}
+                  card={card}
+                  challenge={challenge}
+                  reload={read.reload}
+                  wrong={wrong[challenge.id] ?? null}
+                  onWrong={(left) =>
+                    setWrong((all) => {
+                      const rest = Object.fromEntries(Object.entries(all).filter(([id]) => id !== challenge.id));
+                      return left === null ? rest : { ...rest, [challenge.id]: left };
+                    })
+                  }
+                />
               ))}
             </ul>
           ) : (
@@ -46,13 +60,24 @@ export function CardThreeDSPanel({ card }: { card: CardRecord }) {
   );
 }
 
-function ThreeDSChallenge({ card, challenge, reload }: { card: CardRecord; challenge: CardThreeDSChallenge; reload: () => void }) {
+function ThreeDSChallenge({
+  card,
+  challenge,
+  reload,
+  wrong,
+  onWrong,
+}: {
+  card: CardRecord;
+  challenge: CardThreeDSChallenge;
+  reload: () => void;
+  wrong: number | null;
+  onWrong: (left: number | null) => void;
+}) {
   const { api } = useSession();
   const { t } = cardSafetyCopy.useCopy();
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<Failed | null>(null);
-  const [wrong, setWrong] = useState<number | null>(null);
   const [invalid, setInvalid] = useState(false);
   const at = t('threeDSAt', {
     amount: `${challenge.amount} ${card.assetId}`,
@@ -72,7 +97,7 @@ function ThreeDSChallenge({ card, challenge, reload }: { card: CardRecord; chall
     setBusy(false);
     setCode('');
     if (!done.ok) return setFailure(withPlainRefusal(done));
-    setWrong(done.data.state === 'open' ? done.data.triesLeft : null);
+    onWrong(done.data.state === 'open' ? done.data.triesLeft : null);
     reload();
   }
   async function submit(event: FormEvent) {
