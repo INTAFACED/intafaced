@@ -13,6 +13,9 @@ const DESK = '/trade/futures';
 const SYMBOL = 'BTC/USDT:USDT';
 const SIZE = '0.01';
 const LEVERAGE = '5';
+/** How a protection resting on the venue is labelled, and one running on our engine under the agent permission. */
+const VENUE_LABEL = 'Rests on the venue as its trigger order';
+const ENGINE_LABEL = 'Runs on our engine under your agent permission';
 const run = journeyState(`${J}-${process.env.JOURNEY_RUN_ID ?? 'local'}`);
 
 test.describe.configure({ mode: 'default' });
@@ -97,7 +100,7 @@ async function protection(page) {
   return dialog;
 }
 
-test(`${J} #1 sets a take profit and a stop loss for the whole position: both shown armed with their trigger and its source`, async ({
+test(`${J} #1 sets a take profit and a stop loss for the whole position: both rest on the venue as its trigger orders, shown armed with their trigger and its source`, async ({
   page,
 }) => {
   const who = await fundedTrader(page, 'jd3', '1000');
@@ -138,6 +141,16 @@ test(`${J} #1 sets a take profit and a stop loss for the whole position: both sh
   expect(toUnits(armed.find((o) => o.attachment === 'take_profit').triggerPrice)).toBe(toUnits(tp));
   expect(toUnits(armed.find((o) => o.attachment === 'stop_loss').triggerPrice)).toBe(toUnits(sl));
   run.write({ positionId: position.id });
+
+  // Both rest on the venue as its trigger orders: each leg names the venue as where it rests and carries the venue's
+  // own order reference, one per leg, and the dialog says so beside each.
+  for (const leg of armed) {
+    expect(leg.restsOn, `${leg.attachment}: ${JSON.stringify(leg)}`).toBe('venue');
+    expect(leg.venueOrderId, `${leg.attachment}: ${JSON.stringify(leg)}`).toEqual(expect.any(String));
+  }
+  expect(new Set(armed.map((o) => o.venueOrderId)).size).toBe(2);
+  await expect(current.locator('[data-leg="take_profit"]')).toContainText(VENUE_LABEL);
+  await expect(current.locator('[data-leg="stop_loss"]')).toContainText(VENUE_LABEL);
 });
 
 test(`${J} #2 sets a take profit on the wrong side of the mark: refused in words, and the armed pair is unchanged`, async ({ page }) => {
@@ -279,7 +292,7 @@ async function stopDialog(page) {
   return dialog;
 }
 
-test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on the last trade or the mark: armed and listed; the index, a field a kind does not take and an exit that would enlarge are refused`, async ({
+test(`${J} #5 places a stop market, a stop limit and a trailing stop on the last trade, the mark or the index: the kinds the venue offers rest there, the trailing stop runs on our engine under the agent permission, labelled so; a field a kind does not take and an exit that would enlarge are refused`, async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -332,12 +345,22 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
   await expect(listed.locator('[data-stop="stop_limit"]')).toContainText('judged on the mark price');
   await expect(listed.locator('[data-stop="trailing_stop"]')).toContainText(`Trailing stop for ${PART}: Armed`);
 
-  // The index is not published here: the choice says so, and the service refuses it by name.
-  await dialog.getByRole('button', { name: 'Index', exact: true }).click();
-  await expect(dialog.getByText('The index price is not published on this exchange')).toBeVisible();
-  await dialog.getByRole('button', { name: 'Arm stop' }).click();
-  await expect(dialog.getByText('The index price is not published here', { exact: true })).toBeVisible();
-  await expect(dialog.getByText('trade.trigger_source_unset')).toBeVisible();
+  // The index is a trigger source too: a stop market judged on the index arms like the others.
+  const index = await arm('Stop market', 'Index', [[/^Trigger price/, away(mark, -400)]]);
+  expect(index.status(), await index.text()).toBe(201);
+  expect(index.request().postDataJSON()).toMatchObject({ kind: 'stop_market', triggerSource: 'index' });
+  await expect(listed.locator('[data-stop="stop_market"]').filter({ hasText: 'judged on the index price' })).toContainText(
+    `Stop market for ${PART}: Armed`,
+  );
+
+  // Where each rests: a stop market and a stop limit are kinds the venue offers, so they rest there as its trigger
+  // orders, each with the venue's own reference; the venue has no trailing stop, so it runs on our engine under the
+  // person's agent permission. Each says so in the list.
+  for (const kind of ['stop_market', 'stop_limit']) {
+    for (const row of await listed.locator(`[data-stop="${kind}"]`).all()) await expect(row).toContainText(VENUE_LABEL);
+  }
+  await expect(listed.locator('[data-stop="trailing_stop"]')).toContainText(ENGINE_LABEL);
+  await expect(listed.locator('[data-stop="trailing_stop"]')).not.toContainText(VENUE_LABEL);
 
   // More than the position holds is refused in the field, before anything is sent.
   await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
@@ -383,29 +406,85 @@ test(`${J} #5 places a stop market, a stop limit and a trailing stop judged on t
   // The three stops, as the service has them; then they are cancelled so the next step's pair is the only protection.
   const { body } = await me.get('/api/v1/futures/conditional-orders');
   const stops = body.orders.filter((o) => o.positionId === positionId && o.attachment === null && o.status === 'armed');
-  expect(stops.map((o) => [o.kind, o.triggerSource, o.quantity]).sort()).toEqual([
-    ['stop_limit', 'mark', PART],
-    ['stop_market', 'last', PART],
-    ['trailing_stop', 'mark', PART],
+  expect(stops.map((o) => [o.kind, o.triggerSource, o.quantity, o.restsOn]).sort()).toEqual([
+    ['stop_limit', 'mark', PART, 'venue'],
+    ['stop_market', 'index', PART, 'venue'],
+    ['stop_market', 'last', PART, 'venue'],
+    ['trailing_stop', 'mark', PART, 'engine'],
   ]);
+  for (const stop of stops.filter((o) => o.restsOn === 'venue'))
+    expect(stop.venueOrderId, JSON.stringify(stop)).toEqual(expect.any(String));
+  const trail = stops.find((o) => o.kind === 'trailing_stop');
+  expect(trail.venueOrderId, JSON.stringify(trail)).toBeNull();
+  // The agent permission it runs under is the person's own, named on the order.
+  expect(trail.agentPermissionId, JSON.stringify(trail)).toEqual(expect.any(String));
   for (const stop of stops) expect((await me.delete(`/api/v1/futures/conditional-orders/${stop.id}`)).status).toBe(200);
 });
 
-test(`${J} #6 the mark crosses a trigger: armed, triggered, filled through a reduce-only order in the book, once (one fill, one ledger posting); the other leg cancelled`, async ({
+test(`${J} #6 the mark crosses the trigger: the venue fires it once and the position closes on the venue; a stop on our engine is sent once, even with two workers`, async ({
   page,
 }) => {
-  test.setTimeout(300_000);
+  test.setTimeout(480_000);
   const me = await api(account());
-  // Two trade workers run the conditional job against the same stack for this whole step; the trigger must fire once.
+  // The venue's pair first: it rests on the venue, the venue fires it, and the position closes there.
+  await venueFiresOnce(page, me);
+  // Then a trailing stop, the kind the venue lacks, on our engine, with two trade workers running the conditional job
+  // against the same stack for the whole of it: it is sent once.
   tool('local-test-stack.mjs', 'second-worker', 'trade', 'start');
   try {
-    await firesOnceWithTwoWorkers(page, me);
+    await engineSendsOnce(page, me);
   } finally {
     tool('local-test-stack.mjs', 'second-worker', 'trade', 'stop');
   }
 });
 
-async function firesOnceWithTwoWorkers(page, me) {
+/** Every status each leg is seen in, read through the service every 300 ms while `body` runs. */
+async function watchLegs(me, positionId, ids, body) {
+  const seen = Object.fromEntries(ids.map((id) => [id, ['armed']]));
+  const refused = [];
+  let watching = true;
+  const watcher = (async () => {
+    while (watching) {
+      try {
+        const { body: list } = await me.get('/api/v1/futures/conditional-orders');
+        for (const o of list.orders.filter((x) => x.positionId === positionId)) {
+          const statuses = seen[o.id];
+          if (statuses && statuses.at(-1) !== o.status) statuses.push(o.status);
+        }
+      } catch (err) {
+        refused.push(String(err).split('\n')[0]);
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  })();
+  try {
+    await body();
+  } finally {
+    watching = false;
+    await watcher;
+  }
+  // Every read through the service answered while the legs moved.
+  expect(refused).toEqual([]);
+  return seen;
+}
+
+/** The ledger lines the account has, by id, so a close's own postings can be told apart. */
+const ledgerIds = async (me) => new Set((await me.get('/api/v1/ledger?limit=200')).body.entries.map((e) => e.id));
+
+/** One margin release posted once for the close, and nothing posted twice. */
+async function postedOnce(me, before) {
+  const { body: ledger } = await me.get('/api/v1/ledger?limit=200');
+  const posted = ledger.entries.filter((e) => !before.has(e.id) && e.module === 'trade');
+  const types = posted.map((e) => e.type);
+  expect(
+    types.filter((t) => t === 'futures.margin.release'),
+    JSON.stringify(posted),
+  ).toHaveLength(1);
+  expect(new Set(types).size, JSON.stringify(posted)).toBe(types.length);
+  expect(new Set(posted.map((e) => e.referenceId)).size, JSON.stringify(posted)).toBe(posted.length);
+}
+
+async function venueFiresOnce(page, me) {
   const { positionId } = run.read();
   // The size as it stands: #4 added to it.
   const size = (await me.get('/api/v1/positions')).body.find((p) => p.id === positionId).contracts;
@@ -435,89 +514,104 @@ async function firesOnceWithTwoWorkers(page, me) {
   await expect(current.locator('[data-leg="stop_loss"]')).toContainText('Stop loss: Armed');
   const pair = (await legs(me, positionId)).filter((o) => o.status === 'armed');
   expect(pair).toHaveLength(2);
-  // The ledger lines already there, so the close's own postings can be told apart.
-  const ledgerIds = async () => new Set((await me.get('/api/v1/ledger?limit=200')).body.entries.map((e) => e.id));
-  const postedBefore = await ledgerIds();
-  // Every status each leg is seen in from now on, read through the service as often as it answers.
-  const seen = Object.fromEntries(pair.map((o) => [o.id, ['armed']]));
-  const refused = [];
-  let watching = true;
+  // Both rest on the venue as its trigger orders.
+  for (const leg of pair) {
+    expect(leg.restsOn, JSON.stringify(leg)).toBe('venue');
+    expect(leg.venueOrderId, JSON.stringify(leg)).toEqual(expect.any(String));
+  }
+  const postedBefore = await ledgerIds(me);
   let fired;
   let other;
-  const watcher = (async () => {
-    while (watching) {
-      try {
-        for (const o of await legs(me, positionId)) {
-          const list = seen[o.id];
-          if (list && list.at(-1) !== o.status) list.push(o.status);
-        }
-      } catch (err) {
-        refused.push(String(err).split('\n')[0]);
-      }
-      await new Promise((r) => setTimeout(r, 300));
-    }
-  })();
-  try {
-    // The pair is listed with every stop on the Orders tab, which keeps a fired one after its position has gone.
-    await expect(dialog.getByRole('button', { name: 'Close dialog' }).first()).toBeInViewport();
-    await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
-    await page.getByRole('tab', { name: 'Orders' }).click();
-    const triggers = page.getByRole('region', { name: 'Take-profit, stop-loss and stop orders' });
-    const rows = triggers.getByRole('row');
-    // Both listed; at 3 bps the walk can cross one before the tab is read, so a leg may already be on its way out.
-    await expect(rows.filter({ hasText: 'judged on the mark price' }).first()).toBeVisible();
+  const seen = await watchLegs(
+    me,
+    positionId,
+    pair.map((o) => o.id),
+    async () => {
+      await dialog.getByRole('button', { name: 'Close dialog' }).first().click();
+      await page.getByRole('tab', { name: 'Orders' }).click();
+      const rows = page.getByRole('region', { name: 'Take-profit, stop-loss and stop orders' }).getByRole('row');
+      // The walk crosses one: the venue fires it, it shows filled on the venue, and the other is cancelled because the
+      // position closed.
+      const filled = rows.filter({ hasText: 'Filled' });
+      await expect(filled).toHaveCount(1, { timeout: 180_000 });
+      await expect(filled).toContainText(`Fired for ${size}; ${size} closed so far`);
+      await expect(filled).toContainText('Closed on the venue');
+      await expect(rows.filter({ hasText: 'The position closed, so this one is no longer needed.' })).toHaveCount(1);
+      await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(0);
+      await page.getByRole('tab', { name: 'Positions' }).click();
+      await expect(page.getByText('No open futures positions')).toBeVisible();
 
-    // The walk crosses one: it shows filled, with what it closed and through which order, and the other cancelled
-    // because the position closed.
-    const filled = rows.filter({ hasText: 'Filled' });
-    await expect(filled).toHaveCount(1, { timeout: 180_000 });
-    await expect(filled).toContainText(`Fired for ${size}; ${size} closed so far`);
-    await expect(filled).toContainText('Close order ');
-    await expect(rows.filter({ hasText: 'The position closed, so this one is no longer needed.' })).toHaveCount(1);
-    await expect(rows.filter({ hasText: 'Armed' })).toHaveCount(0);
-    await page.getByRole('tab', { name: 'Positions' }).click();
-    await expect(page.getByText('No open futures positions')).toBeVisible();
-
-    // Through the API: one leg filled, the other cancelled position_closed, the position gone.
-    const done = await legs(me, positionId);
-    const live = done.filter((o) => pair.some((p) => p.id === o.id));
-    fired = live.find((o) => o.status === 'filled');
-    other = live.find((o) => o.id !== fired.id);
-    expect(other).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
-    expect(fired).toMatchObject({ firedQuantity: size, closedQuantity: size, triggerSource: 'mark' });
-  } finally {
-    watching = false;
-    await watcher;
-  }
-  // Every read through the service answered while the legs moved.
-  expect(refused).toEqual([]);
-  // The fired leg went armed to filled, at most through triggered (closing through the book, which a 300 ms read can
-  // miss), never back and never twice; the other armed, then cancelled.
+      const live = (await legs(me, positionId)).filter((o) => pair.some((p) => p.id === o.id));
+      fired = live.find((o) => o.status === 'filled');
+      other = live.find((o) => o.id !== fired.id);
+    },
+  );
+  expect(other).toMatchObject({ status: 'cancelled', cancelReason: 'position_closed' });
+  // Fired on the venue on its trigger source, once, for the whole position, and closed there.
+  expect(fired).toMatchObject({ restsOn: 'venue', firedQuantity: size, closedQuantity: size, triggerSource: 'mark', closedOn: 'venue' });
   expect(['armed,filled', 'armed,triggered,filled'], JSON.stringify(seen)).toContain(seen[fired.id].join(','));
   expect(seen[other.id].at(-1)).toBe('cancelled');
   expect((await me.get('/api/v1/positions')).body.filter((p) => p.id === positionId)).toEqual([]);
 
-  // It closed through the book: one reduce-only sell for the whole size, on the fired leg's own client id, filled.
-  // A few more conditional ticks later there is still only that one.
+  // The position closed on the venue by the venue's own trigger order: one close execution for the whole size, on the
+  // fired leg's venue order, and none from our book for either leg. A few seconds later there is still only that one.
+  await new Promise((r) => setTimeout(r, 6_000));
+  const { body: executions } = await me.get(`/api/v1/futures/executions?limit=50&symbol=${encodeURIComponent(SYMBOL)}`);
+  const closes = (executions.executions ?? executions).filter((e) => e.positionId === positionId && e.kind === 'close');
+  expect(closes.map((e) => [e.side, e.qty, e.venueOrderId])).toEqual([['sell', size, fired.venueOrderId]]);
+  const { body } = await me.get('/api/v1/futures/orders?scope=all&limit=50');
+  const orders = body.orders ?? body;
+  expect(orders.filter((o) => pair.some((p) => (o.clientOrderId ?? '').startsWith(`cond:${p.id}`)))).toEqual([]);
+  await postedOnce(me, postedBefore);
+}
+
+async function engineSendsOnce(page, me) {
+  // #6's first half closed the position: a new one, protected by a trailing stop 3 bps behind the mark for all of it.
+  const position = await openPosition(me);
+  const size = position.contracts;
+  run.write({ positionId: position.id });
+  const mark = await markOf(me);
+  const distance = fromUnits(((mark * 3n) / 10_000n / 10n ** 18n + 1n) * 10n ** 18n);
+  await desk(page);
+  const dialog = await stopDialog(page);
+  await dialog.getByRole('button', { name: 'Trailing stop', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Mark', exact: true }).click();
+  await dialog.getByLabel('Size to close').fill(size);
+  await dialog.getByLabel(/^Trailing distance/).fill(distance);
+  const sent = page.waitForResponse((r) => r.url().endsWith('/futures/conditional-orders') && r.request().method() === 'POST');
+  await dialog.getByRole('button', { name: 'Arm stop' }).click();
+  const answer = await sent;
+  expect(answer.status(), await answer.text()).toBe(201);
+  const trail = (await answer.json()).id;
+  const listed = dialog.getByRole('region', { name: 'Stops working on this position' });
+  await expect(listed.locator('[data-stop="trailing_stop"]')).toContainText(ENGINE_LABEL);
+  const armed = (await me.get('/api/v1/futures/conditional-orders')).body.orders.find((o) => o.id === trail);
+  expect(armed).toMatchObject({ kind: 'trailing_stop', status: 'armed', restsOn: 'engine', venueOrderId: null });
+
+  const postedBefore = await ledgerIds(me);
+  let fired;
+  const seen = await watchLegs(me, position.id, [trail], async () => {
+    fired = await until(
+      async () => (await me.get('/api/v1/futures/conditional-orders')).body.orders.find((o) => o.id === trail),
+      (o) => o?.status === 'filled',
+      'the trailing stop, fired',
+      240_000,
+    );
+  });
+  expect(fired).toMatchObject({ restsOn: 'engine', firedQuantity: size, closedQuantity: size, triggerSource: 'mark' });
+  expect(['armed,filled', 'armed,triggered,filled'], JSON.stringify(seen)).toContain(seen[trail].join(','));
+  expect((await me.get('/api/v1/positions')).body.filter((p) => p.id === position.id && p.status === 'open')).toEqual([]);
+
+  // Sent once: one reduce-only sell for the whole size on the stop's own client id, filled; a few conditional ticks
+  // later there is still only that one, and one margin release.
   await new Promise((r) => setTimeout(r, 6_000));
   const { body } = await me.get('/api/v1/futures/orders?scope=all&limit=50');
   const orders = body.orders ?? body;
-  const closes = orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${fired.id}`));
+  const closes = orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${trail}`));
   expect(closes.map((o) => [o.orderId, o.side, o.reduceOnly, o.status, o.filledQty])).toEqual([
     [fired.closeOrderId, 'sell', true, 'filled', size],
   ]);
-  expect(orders.filter((o) => (o.clientOrderId ?? '').startsWith(`cond:${other.id}`))).toEqual([]);
-  // And one ledger posting for it: the close released the position's margin once, and nothing was posted twice
-  // (a realised profit, when the take profit fired, is its own line, also once).
-  const { body: ledger } = await me.get('/api/v1/ledger?limit=200');
-  const posted = ledger.entries.filter((e) => !postedBefore.has(e.id) && e.module === 'trade');
-  const types = posted.map((e) => e.type);
-  expect(
-    types.filter((t) => t === 'futures.margin.release'),
-    JSON.stringify(posted),
-  ).toHaveLength(1);
-  expect(new Set(types).size, JSON.stringify(posted)).toBe(types.length);
-  expect(new Set(posted.map((e) => e.referenceId)).size, JSON.stringify(posted)).toBe(posted.length);
+  await postedOnce(me, postedBefore);
 }
 
 test(`${J} #7 a fired stop fails: the reason in words and what happened to the position`, async ({ page }) => {
