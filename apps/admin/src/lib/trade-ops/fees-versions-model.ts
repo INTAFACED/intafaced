@@ -5,6 +5,7 @@
  * float. A proposal is checked here before anything is sent: a blank rate refuses with svc-trade's own typed code
  * (`trade.fee_schedule_blank`) and no request leaves the page. No network and no clock of its own: safe in tests.
  */
+import { applyBuilderDraft, builderDraftFrom, parseBuilderDraft, type BuilderCaps, type BuilderDraftLine } from './builder-fees-model';
 
 export interface FeeVersionRow {
   readonly version: string;
@@ -255,6 +256,8 @@ export interface ProposalDraft {
   readonly snapshotTimeUtc: string | null;
   /** "2026-11-06T10:30:00Z" as typed. */
   readonly effectiveAt: string;
+  /** One editable builder fee per (venue, market group) the base version sets (builder-fees-model.ts); absent is none. */
+  readonly builderFees?: readonly BuilderDraftLine[];
 }
 
 /** The form a founder starts from: the latest stored version's rates and programme, and no time. */
@@ -267,6 +270,7 @@ export function draftFrom(base: FeeVersionRow): ProposalDraft {
     thresholds: program ? program.thresholds.map((t) => ({ ...t })) : null,
     snapshotTimeUtc: program?.snapshotTimeUtc ?? null,
     effectiveAt: '',
+    builderFees: builderDraftFrom(base.schedule),
   };
 }
 
@@ -295,7 +299,14 @@ function scaled(value: string): bigint {
  * with svc-trade's own code (`trade.fee_schedule_blank`), a time that is not a UTC time or is not after `now`, and a
  * short reason. The same draft and base always give the same schedule, so the approval's hash can be worked out again.
  */
-export function buildProposal(base: FeeVersionRow, draft: ProposalDraft, reason: string, now: Date): ProposalCheck {
+export function buildProposal(
+  base: FeeVersionRow,
+  draft: ProposalDraft,
+  reason: string,
+  now: Date,
+  /** The venue's own builder-fee caps, read through svc-trade (`admin.fees.builderCaps`); null when they could not be read. */
+  caps: BuilderCaps | null = null,
+): ProposalCheck {
   const schedule = JSON.parse(JSON.stringify(base.schedule)) as Record<string, unknown>;
   for (const line of draft.rates) {
     const where = `${line.pairGroup} / ${line.tierId}`;
@@ -344,6 +355,9 @@ export function buildProposal(base: FeeVersionRow, draft: ProposalDraft, reason:
       return refuse('trade.fee_schedule_blank', 'The snapshot time must be HH:MM in UTC, such as 00:00 or 16:30, or blank for none.');
     program.snapshotTimeUtc = at === '' ? null : at;
   }
+  // Builder fees (J-cex-spot-17 #3): complete, and never above the venue's own cap, as svc-trade checks when it writes.
+  const builder = applyBuilderDraft(schedule, draft.builderFees ?? [], caps, base.schedule.builderFees);
+  if (!builder.ok) return refuse(builder.code, builder.message);
   const typed = draft.effectiveAt.trim();
   if (!TYPED_TIME.test(typed) || Number.isNaN(Date.parse(typed)))
     return refuse('trade_ops.fee_effective_invalid', 'Write when it takes effect as a UTC time, such as 2026-11-06T16:00:00Z.');
@@ -380,10 +394,13 @@ export function parseDraft(raw: unknown): ProposalDraft | null {
     thresholds = parsed as Array<{ tierId: string; minVolume30d: string }>;
   }
   if (raw.snapshotTimeUtc !== null && !str(raw.snapshotTimeUtc)) return null;
+  const builderFees = parseBuilderDraft(raw.builderFees);
+  if (builderFees === null) return null;
   return {
     rates: rates as Array<{ pairGroup: string; tierId: string; makerBps: string; takerBps: string }>,
     thresholds,
     snapshotTimeUtc: raw.snapshotTimeUtc as string | null,
     effectiveAt: raw.effectiveAt,
+    builderFees,
   };
 }

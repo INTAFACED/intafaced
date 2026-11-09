@@ -5,8 +5,6 @@ dist
 coverage
 pnpm-lock.yaml
 drizzle
-# Written by `coverage-check.mjs --write-index`, which compares it byte for byte.
-tooling/coverage-law-index.json
 # Written by `node tooling/ci/journey-reach-map.mjs build` (the touched-journeys map), one line, as the builder writes it.
 tooling/ci/journey-reach-map.json
 

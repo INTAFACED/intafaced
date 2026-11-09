@@ -140,6 +140,8 @@ library SessionKeyLib {
     bytes4 internal constant SEL_ROUTER_V2_EXACT_OUT = 0x083c696d; // exactOut((address[],address[],uint256,uint256,uint256[],address,uint256,uint8,bool))
     bytes4 internal constant SEL_ROUTER_V2_SELF_PERMIT = 0x53f2c956; // selfPermit(address,uint256,uint256,uint8,bytes32,bytes32,bool)
     bytes4 internal constant SEL_ROUTER_V2_STANDING_PERMIT = 0xdfc0aacf; // standingPermit(address,uint160,uint48,uint48,uint256,bytes)
+    // multicall delegatecalls any of the router's own functions, exactIn and exactOut included, so it is refused with them.
+    bytes4 internal constant SEL_ROUTER_V2_MULTICALL = 0xac9650d8; // multicall(bytes[])
     bytes4 internal constant SEL_SOVEREIGN_PERMIT_ALLOWANCE = 0x0c9c8e22; // permit(address,address,address,uint160,uint48,uint48,uint256,bytes)
     bytes4 internal constant SEL_SOVEREIGN_PERMIT_TRANSFER = 0xcd280ab8; // permitTransferFrom(address,uint256,uint256,uint256,address,address,uint256,bytes)
 
@@ -304,6 +306,7 @@ library SessionKeyLib {
             selector == SEL_ROUTER_V2_EXACT_OUT ||
             selector == SEL_ROUTER_V2_SELF_PERMIT ||
             selector == SEL_ROUTER_V2_STANDING_PERMIT ||
+            selector == SEL_ROUTER_V2_MULTICALL ||
             selector == SEL_SOVEREIGN_PERMIT_ALLOWANCE ||
             selector == SEL_SOVEREIGN_PERMIT_TRANSFER ||
             selector == SEL_UPGRADE_TO_AND_CALL;

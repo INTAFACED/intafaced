@@ -228,6 +228,8 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // LOCAL TEST card programme from the bank profile (J-bank-13): eligible countries, count limits, TEST cardholder terms,
     // designs and delivery speeds. Unset, the card room refuses bank.card_eligibility_unset and no card can be ordered there.
     BANK_CARD_PROGRAMME_JSON: testValue('BANK_CARD_PROGRAMME_JSON'),
+    // LOCAL TEST count of wrong PIN tries that block a card's PIN (J-bank-14 #3).
+    BANK_CARD_PIN_TRY_LIMIT: testValue('BANK_CARD_PIN_TRY_LIMIT'),
     // LOCAL TEST cashback by rank card tier (J-bank-13 #7): the profile's TEST rates in IFC, and the card simulator's
     // cashback stand-in (refused at boot outside dev/test), so a TEST card spend can be paid cashback from the one reward
     // pot. Without the stand-in a simulated card pays none (bank.rewards_issuer_unset).
@@ -264,6 +266,11 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, STATE, CUSTOMER_ORIGIN }) => 
     // switches a journey sets through its own `testPartner.set` (a feature not offered by the partner, a fee not known, a
     // reserve required, the partner down, a ramp quote expired, a ramp fee not known). Every switch starts off.
     BANK_TEST_PARTNER: 'test',
+    // The custody switch as svc-bank reads it, pinned as svc-ledger's is: the TEST stack runs the custodial layer for the
+    // journeys marked Later. A journey puts its own person's money at the TEST partner with `testPartner.set({ custody:
+    // 'off' })`, and then nothing of theirs is posted to the ledger and their card money is
+    // partner-held (OWNER 226).
+    LEDGER_CUSTODY_LAYER: 'on',
     // LOCAL TEST rate stand-in for add money (J-bank-02 #3 to #5; prices nothing real, opens no payment, refused under live
     // posture): it quotes only the asks its TEST catalogue lists, so a price can be shown, run out and be refused, or paid
     // through the pay-in stand-in below.

@@ -292,6 +292,9 @@ describe('every function with an address input in the compiled contracts is clas
   const format = (p: Param): string =>
     p.type.startsWith('tuple') ? `(${(p.components ?? []).map(format).join(',')})${p.type.slice(5)}` : p.type;
   const hasAddress = (p: Param): boolean => p.type.startsWith('address') || (p.components ?? []).some(hasAddress);
+  // A batch of calls (`multicall(bytes[])`) can carry any of the contract's own functions, including the forbidden ones,
+  // with no address in its own signature, so it is swept too (the CI review's finding on #7712: router v2's multicall).
+  const hasCallBatch = (p: Param): boolean => p.type === 'bytes[]' || (p.components ?? []).some(hasCallBatch);
 
   /**
    * Functions with an address input that a session may still be given, and why
@@ -352,7 +355,7 @@ describe('every function with an address input in the compiled contracts is clas
       return artifact.abi
         .filter((e): e is AbiFunction => e.type === 'function')
         .filter((fn) => fn.stateMutability !== 'view' && fn.stateMutability !== 'pure')
-        .filter((fn) => (fn.inputs as readonly Param[]).some(hasAddress))
+        .filter((fn) => (fn.inputs as readonly Param[]).some((p) => hasAddress(p) || hasCallBatch(p)))
         .map((fn) => {
           const signature = `${fn.name}(${(fn.inputs as readonly Param[]).map(format).join(',')})`;
           return { contract: artifact.contractName, fn, signature, selector: toFunctionSelector(signature).toLowerCase() as Hex };
@@ -364,6 +367,7 @@ describe('every function with an address input in the compiled contracts is clas
     expect(functions.map((f) => f.signature)).toContain('swapExactIn(address,address,uint256,uint256,address)');
     expect(functions.map((f) => f.signature)).toContain('setHeirs(address[],uint16[])'); // address[]
     expect(functions.map((f) => f.signature)).toContain('createToken(bytes32,(string,string,uint8,uint256,address))'); // tuple component
+    expect(functions.map((f) => f.signature)).toContain('multicall(bytes[])'); // a batch of calls, no address
   });
 
   it('leaves none unclassified', () => {

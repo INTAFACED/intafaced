@@ -1,5 +1,6 @@
 import { TEST_PARTNER_SETTINGS } from './partner/test-partner.js';
 import { z } from 'zod';
+import { parseCustodyLayer } from '@intafaced/ledger-client';
 import { CARD_SIM_CASHBACK_SETTINGS } from './cards/card-programme.js';
 import { edgeEnvSchema, loadEnv, serviceEnvSchema, internalServiceEnvSchema, s2sEnvSchema } from '@intafaced/config';
 import { CARD_ISSUER_SETTINGS } from './cards/issuer.js';
@@ -248,6 +249,26 @@ const schema = serviceEnvSchema
        * Refused at boot outside APP_ENV=dev or test, or under NODE_ENV=production (`partner/test-partner.ts`).
        */
       BANK_TEST_PARTNER: z.enum(TEST_PARTNER_SETTINGS).default('off'),
+
+      /**
+       * THE CUSTODY SWITCH (OWNER 226), the same value svc-ledger reads, with its parser: unset or blank is `off`, any
+       * value but `on` or `off` refuses to start. Off: INTAFACED holds no customer money, so svc-bank posts no customer
+       * balance and refuses `bank.no_partner_bank` by name before svc-ledger would refuse `ledger.custody_layer_off`, and a card
+       * authorisation for a person whose money no partner holds refuses `bank.partner_unset`. A
+       * person the TEST partner holds money for (`custody: 'off'`) is read and moved at the partner either way. The local
+       * TEST stack pins `on`, as it does for svc-ledger, so the custodial journeys marked Later still run.
+       */
+      LEDGER_CUSTODY_LAYER: z
+        .string()
+        .optional()
+        .transform((raw, ctx) => {
+          try {
+            return parseCustodyLayer(raw);
+          } catch (err) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: err instanceof Error ? err.message : String(err) });
+            return z.NEVER;
+          }
+        }),
 
       /**
        * WHO PRICES ADD MONEY ON A TEST STACK. `none` (default) | `ramp-sim` (J-bank-02 #4).
@@ -513,6 +534,12 @@ const schema = serviceEnvSchema
        * malformed → Pay from refuses `bank.card_spend_assets_unset`.
        */
       BANK_CARD_SPEND_ASSETS: z.string().optional(),
+
+      /**
+       * The owner's count of wrong PIN tries in a row that block a card's PIN (J-bank-14 #3), a whole number from 1 to 10.
+       * NO DEFAULT. Blank or malformed → an authorisation that carries a PIN declines `bank.card_pin_try_limit_unset`.
+       */
+      BANK_CARD_PIN_TRY_LIMIT: z.string().optional(),
 
       /**
        * The owner's card dispute cap per asset as JSON (J-bank-27 #4): `{ "USDC": "100.00" }`, the most one dispute may be

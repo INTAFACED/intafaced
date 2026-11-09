@@ -1,4 +1,4 @@
-import { useEffect, useId, useReducer, useRef, type FormEvent } from 'react';
+import { useEffect, useId, useReducer, useRef, useState, type FormEvent } from 'react';
 import { Button, Field } from '../../shared/ui';
 import { useSession } from '../session/session';
 import { navigate } from '../../app/location';
@@ -11,11 +11,15 @@ import {
   clearsCode,
   completedSchema,
   initialRecovery,
+  limitsSchema,
+  linkRecovery,
   recoveryReducer,
   requestedSchema,
   stepStates,
   validEmail,
+  windowWords,
   type RecoveryStep,
+  type ResetLimits,
 } from './password-recovery';
 import { recoveryCopy } from './password-recovery-copy';
 import './public-pages.css';
@@ -28,12 +32,26 @@ const BODY = { request: 'step1Body', reset: 'step2Body', done: 'step3Body' } as 
  * (`auth.requestPasswordReset`, `auth.completePasswordReset`) and shows exactly what it answers: when reset is
  * switched off on the server the page says so and sends nothing further. Passwords and codes are read from the
  * form when it is sent and cleared; they are never kept in state, storage or logs.
+ *
+ * /completePasswordReset?code=… is the mailed link (J-identity-03 #2): the page opens on the code step with the code in
+ * its field and asks only for the new password; the service finds the reset from the code alone.
+ * The owner's request cap (`auth.passwordResetLimits`) is named on the page before it is reached, and a request past it
+ * is refused with the cap named. With mail switched off the page names it (`vendor.email`) and opens no code step.
  */
-export function PasswordRecovery() {
+export function PasswordRecovery({ linkCode }: { linkCode?: string } = {}) {
   const copy = recoveryCopy.useCopy();
   const { t: pw } = passwordCopy.useCopy();
   const { api } = useSession();
-  const [state, dispatch] = useReducer(recoveryReducer, initialRecovery);
+  const [state, dispatch] = useReducer(recoveryReducer, linkCode ? linkRecovery : initialRecovery);
+  const [limits, setLimits] = useState<ResetLimits>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api.query('identity', 'auth.passwordResetLimits', undefined, limitsSchema, { signal: controller.signal }).then((result) => {
+      if (!controller.signal.aborted && result.ok) setLimits(result.data);
+    });
+    return () => controller.abort();
+  }, [api]);
+  const limitLine = limits ? copy.t('limitLine', { n: limits.requestMax, window: windowWords(limits.windowSeconds) }) : null;
   const flight = useRef(singleFlight()).current;
   const form = useRef<HTMLFormElement | null>(null);
   const mounted = useRef(true);
@@ -98,7 +116,8 @@ export function PasswordRecovery() {
       const result = await api.mutate(
         'identity',
         'auth.completePasswordReset',
-        { email: state.email, code, newPassword: password },
+        // From the mailed link the code alone names the reset; typed on the page, the address goes with it.
+        state.fromLink ? { code, newPassword: password } : { email: state.email, code, newPassword: password },
         completedSchema,
         { signal: controller.signal },
       );
@@ -111,7 +130,15 @@ export function PasswordRecovery() {
   }
 
   const problem = state.problem;
-  const problemText = problem ? (problem === 'invalidEmail' || problem === 'codeMissing' ? copy.t(problem) : pw(problem)) : null;
+  const problemText = problem
+    ? problem === 'invalidEmail' || problem === 'codeMissing' || problem === 'mailOff'
+      ? copy.t(problem)
+      : problem === 'resetLimit'
+        ? limits
+          ? copy.t('resetLimit', { n: limits.requestMax, window: windowWords(limits.windowSeconds) })
+          : copy.t('resetLimitUnnamed')
+        : pw(problem)
+    : null;
   return (
     <div className="pub-page">
       <a className="text-link" href="/login">
@@ -134,6 +161,8 @@ export function PasswordRecovery() {
                 busy={state.busy}
                 email={state.email}
                 codeAsked={state.codeAsked}
+                linkCode={state.fromLink ? linkCode : undefined}
+                limitLine={limitLine}
                 onAsk={askCode}
                 onFinish={finish}
                 describedBy={problemText ? problemId : undefined}
@@ -146,6 +175,12 @@ export function PasswordRecovery() {
       {problemText && (
         <p id={problemId} className="pub-notice" role="alert">
           {problemText}
+          {problem === 'mailOff' ? (
+            <>
+              {' '}
+              <small lang="zxx">vendor.email</small>
+            </>
+          ) : null}
         </p>
       )}
       <HandleRecovery />
@@ -163,6 +198,8 @@ function StepBody({
   busy,
   email,
   codeAsked,
+  linkCode,
+  limitLine,
   onAsk,
   onFinish,
   onRestart,
@@ -173,6 +210,10 @@ function StepBody({
   busy: boolean;
   email: string;
   codeAsked: boolean;
+  /** The code the mailed link carried, put in its field. */
+  linkCode: string | undefined;
+  /** The owner's request cap in words, or null when none is published. */
+  limitLine: string | null;
   onAsk: (event: FormEvent<HTMLFormElement>) => void;
   onFinish: (event: FormEvent<HTMLFormElement>) => void;
   onRestart: () => void;
@@ -205,6 +246,7 @@ function StepBody({
         <Button type="submit" disabled={busy}>
           {busy ? copy.t('sending') : copy.t('sendCode')}
         </Button>
+        {limitLine ? <p className="muted">{limitLine}</p> : null}
       </form>
     );
   }
@@ -215,9 +257,15 @@ function StepBody({
           {copy.t('codeOnItsWay')}
         </p>
       )}
+      {limitLine ? (
+        <p className="muted" data-testid="reset-limit">
+          {limitLine}
+        </p>
+      ) : null}
       <Field
         label={copy.t('codeField')}
         name="code"
+        defaultValue={linkCode}
         autoComplete="one-time-code"
         autoCapitalize="none"
         spellCheck={false}
