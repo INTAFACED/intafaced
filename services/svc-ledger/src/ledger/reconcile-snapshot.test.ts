@@ -76,7 +76,7 @@ describe('reconciliation snapshot runner — real book', () => {
     return sql;
   }
   const service = (sql: Sql, options: { reconcileStatementTimeoutMs?: number } = {}) =>
-    new LedgerService(sql, new MemoryEventBus('snap'), options);
+    new LedgerService(sql, new MemoryEventBus('snap'), { custodyLayer: 'on', ...options });
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL?.trim();

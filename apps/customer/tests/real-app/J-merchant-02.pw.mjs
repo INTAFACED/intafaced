@@ -125,8 +125,16 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
   // off, and the service refuses a create sent straight to it with its code. No account exists afterwards.
   try {
     payStarterFee(false);
-    // The owner's own token, taken from a pay call the room itself makes.
-    const own = page.waitForRequest((r) => r.url().includes('/api/pay/trpc/') && Boolean(r.headers().authorization));
+    // The owner's own token, taken from a pay call the room itself makes once it has loaded. A call the page before it
+    // made (it retries while pay restarts) carries that page's token, and this page's own session check rotates the
+    // session and revokes it, so a write sent with it is refused as signed out.
+    const own = page.waitForRequest(
+      (r) =>
+        r.url().includes('/api/pay/trpc/') &&
+        Boolean(r.headers().authorization) &&
+        !r.serviceWorker() &&
+        new URL(r.frame().url()).pathname === '/pay/onboarding/business',
+    );
     await page.goto('/pay/onboarding/business');
     const authorization = (await own).headers().authorization;
     const payCall = async (procedure, input) => {

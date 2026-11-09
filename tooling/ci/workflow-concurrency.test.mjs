@@ -180,10 +180,12 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
     run_id: Math.random(),
     // pull_request runs on the merge ref; pull_request_target on the base branch.
     ref: event_name === 'pull_request' ? `refs/pull/${n}/merge` : 'refs/heads/main',
+    // GitHub sets the pull request's branch on both pull request events.
+    head_ref: `branch-${n}`,
     event: {
       action: extra.action ?? 'synchronize',
       changes: extra.changes ?? null,
-      pull_request: { number: n, head: { sha, repo: { full_name: REPO } }, base: { ref: 'main' } },
+      pull_request: { number: n, head: { sha, ref: `branch-${n}`, repo: { full_name: REPO } }, base: { ref: 'main' } },
     },
   },
   inputs: {},
@@ -195,11 +197,12 @@ const prEvent = (event_name, n, sha, extra = {}) => ({
  * Workflows a pull request triggers that don't cancel the older run, and why. Each keeps a bounded number of runs.
  *  - ci-review.yml: a change to the review job can't pass its own review and waits for the owner (intafaced AGENTS.md);
  *    its group is one per head, so an older head's review finishes but a newer one never waits for it.
- *  - review-signoff.yml: GitHub keeps one pending run per group, so a group would drop a queued sign-off; one run per
- *    push or sign-off comment, seconds each.
  *  - journey-seal-recheck.yml: rule 4 below.
+ *  - merge-seal.yml: a cancelled seal is a red required check, and every `CI merge seal` run on a head must pass (probe
+ *    #7547), so a cancel would block its head until someone re-ran it. Its group is its own run's, so nothing cancels it, even
+ *    a pending one; an older head's seal finishes on its own head and never blocks the newer one.
  */
-export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'review-signoff.yml', 'journey-seal-recheck.yml']);
+export const PR_EXCEPTIONS = new Set(['ci-review.yml', 'journey-seal-recheck.yml', 'merge-seal.yml']);
 
 /** Problems with rule 1 in one workflow's text, or []. */
 export function prProblems(file, text) {
@@ -242,6 +245,41 @@ export function journeysProblems(text) {
   if (branch('A.pw.mjs').group === branch('B.pw.mjs').group) problems.push('two journey selections on one branch share a group');
   if (branch('').group === resolve(text, journeysRun('workflow_dispatch', 'refs/heads/b2', '')).group)
     problems.push('two branches share a group');
+  // A pull request's run (U4 C3) shares its branch's group with a manual full run there, so either replaces the other.
+  const pr = resolve(text, {
+    github: {
+      workflow: 'Real-app journeys',
+      repository: REPO,
+      event_name: 'pull_request',
+      ref: 'refs/pull/7/merge',
+      head_ref: 'b1',
+      run_id: 1,
+      event: { pull_request: { draft: false, head: { repo: { full_name: REPO } } } },
+    },
+    inputs: {},
+  });
+  if (pr.group !== branch('').group) problems.push("a pull request's run and a manual full run on its branch are in different groups");
+  if (!pr.cancel) problems.push('a newer pull request run does not cancel the superseded one');
+  // A fork's pull request or a draft runs nothing, in a group of its own, so it never cancels a branch's run (council
+  // R1, R2/G2): a fork branch named like this repository's, or a draft push racing a manual run.
+  for (const pull of [
+    { draft: false, head: { repo: { full_name: 'someone/fork' } } },
+    { draft: true, head: { repo: { full_name: REPO } } },
+  ]) {
+    const other = resolve(text, {
+      github: {
+        workflow: 'Real-app journeys',
+        repository: REPO,
+        event_name: 'pull_request',
+        ref: 'refs/pull/8/merge',
+        head_ref: 'b1',
+        run_id: 2,
+        event: { pull_request: pull },
+      },
+      inputs: {},
+    });
+    if (other.group === branch('').group) problems.push(`a ${pull.draft ? 'draft' : "fork's"} pull request run shares a branch's group`);
+  }
   const run = (ref, j) => resolve(text, journeysRun('workflow_dispatch', ref, j)).group;
   if (run('refs/heads/x', 'J-a') === run('refs/heads/x-J', 'a'))
     problems.push('branch `x` with `J-a` and branch `x-J` with `a` share a group: nothing splits the branch from the selection');

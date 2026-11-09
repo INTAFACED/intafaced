@@ -251,6 +251,14 @@ const schema = serviceEnvSchema
        */
       IDENTITY_API_KEY_IDLE_EXPIRY_SECONDS: z.string().optional(),
       /**
+       * Owner setting: API rate tiers for keys and the most a reviewer may grant one key (DV-limits-01, J-developer-06).
+       * JSON `{"tiers":[{"id":"base"|"sandbox","burst":n,"refillPerMinute":n}],"grantCeilingPerMinute":n|null}`. NO
+       * DEFAULT. Blank: no tier is set, so the key exchange hands the edge no limit and the edge refuses every key call
+       * (`edge.limits_unset`), the limits page shows the not-set banner and every limit request refuses
+       * `identity.rate_limits_unset`. Parsed at start by `parseRatePolicy`; a value that does not parse stops the service.
+       */
+      IDENTITY_API_RATE_LIMITS: z.string().optional(),
+      /**
        * Owner setting: the most seconds a sign-in may go without a refresh before its next refresh is refused
        * (`auth.session_idle`, I-signin-sessions-06). NO DEFAULT. Blank: no idle sign-out; a sign-in still ends at its
        * absolute lifetime. A person may choose a shorter one in Security. Parsed at start by `parseSessionLimits`.
@@ -513,6 +521,15 @@ const schema = serviceEnvSchema
         if (typeof v === 'string' && v.trim() === '') return undefined;
         return v;
       }, z.coerce.number().int().min(1).max(10_000_000).optional()),
+      /**
+       * Owner-published life of a staff invite's first-connection link, in seconds (J-ops-console-09 #2). NO DEFAULT:
+       * blank / unset → inviting refuses `identity.staff_invite_ttl_unset`.
+       */
+      IDENTITY_STAFF_INVITE_TTL_SECONDS: z.preprocess((v) => {
+        if (v === undefined || v === null) return undefined;
+        if (typeof v === 'string' && v.trim() === '') return undefined;
+        return v;
+      }, z.coerce.number().int().min(60).max(2_592_000).optional()),
       /**
        * Owner setting (OPS-change-control-01 CR-1): the approval policy of each governed action type
        * (`POLICY_GOVERNED_ACTION_TYPES` in contracts), a JSON object keyed by action type:

@@ -20,11 +20,24 @@ describe('termsVerdict', () => {
     expect(termsVerdict({ kind: 'ready', quote: quote() }, '25')).toEqual({
       kind: 'ok',
       fee: '0',
+      networkFeeUnknown: false,
       perTransfer: '1000',
       daily: '5000',
       left: '4900',
       leftAfter: '4875',
     });
+  });
+
+  it('reads the partner network fee as not known only when the bank says the partner gave none (null), never as 0', () => {
+    expect(termsVerdict({ kind: 'ready', quote: quote({ networkFee: null }) }, '25')).toMatchObject({
+      kind: 'ok',
+      networkFeeUnknown: true,
+    });
+    expect(termsVerdict({ kind: 'ready', quote: quote({ networkFee: '0.1' }) }, '25')).toMatchObject({
+      kind: 'ok',
+      networkFeeUnknown: false,
+    });
+    expect(termsVerdict({ kind: 'ready', quote: quote() }, '25')).toMatchObject({ kind: 'ok', networkFeeUnknown: false });
   });
 
   it('reads nothing for a blank amount, and waits while a check is on its way', () => {

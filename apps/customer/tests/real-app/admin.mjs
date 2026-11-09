@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
+import { test } from './journey.mjs';
 import path from 'node:path';
-import { founderTotp, makeContext } from '../../../../tooling/scripts/local-test-gates.mjs';
+import { founderStepRefused, founderTotp, makeContext, signInOnceMore } from '../../../../tooling/scripts/local-test-gates.mjs';
 import { FOUNDER_VAULT_NAME, localTestAdminDeviceCookie } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // The founder console (apps/admin) for operator journeys. It runs beside the stack against the same Edge, and the founders
@@ -25,13 +26,51 @@ export async function founderSignIn(page, key = 'a') {
   const { ctx, founder } = await founderEntry(key);
   // The console signs in as the stack's one TEST browser, so identity's new-device check does not stop a founder here.
   await page.context().addCookies([localTestAdminDeviceCookie(ADMIN)]);
+  // A code the console refuses is tried once more at a step after any identity can hold, as the gates' own sign-in does.
+  await signInOnceMore({
+    attempt: () => consoleSignIn(page, founder, () => founderTotp(ctx, key, founder.totpSecret)),
+    onRefused: () => founderStepRefused(ctx, key),
+    log: (line) => retryNoted(key, line),
+  });
+  return { userId: founder.userId, handle: founder.handle };
+}
+
+/**
+ * A retry that fired, made visible with both steps: a `founder-totp-retry` annotation on the running test (in the
+ * report, so how often it fires is counted) and a log line. If it fires on most runs, the cause is elsewhere.
+ */
+function retryNoted(key, line) {
+  const description = `founder ${key}: ${line}`;
+  console.log(`founder sign-in retry: ${description}`);
+  try {
+    test.info().annotations.push({ type: 'founder-totp-retry', description });
+  } catch {
+    // Outside a running test (a script), the log line is the record.
+  }
+}
+
+/**
+ * One sign-in on the console's login page: 'in' once it leaves /login, 'refused' when it shows its refusal. The page is
+ * loaded fresh each time, so a refusal still shown from an earlier try is never read as this one's.
+ */
+async function consoleSignIn(page, founder, code) {
   await page.goto(`${ADMIN}/login`);
   await page.getByLabel('Email or handle').fill(founder.handle ?? founder.email);
   await page.getByLabel('Password').fill(founder.password);
-  await page.getByLabel('Authenticator or recovery code').fill(await founderTotp(ctx, key, founder.totpSecret));
+  await page.getByLabel('Authenticator or recovery code').fill(await code());
   await page.locator('button[type=submit]').click();
-  await page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 });
-  return { userId: founder.userId, handle: founder.handle };
+  const signedIn = page.waitForURL((url) => !url.pathname.startsWith('/login'), { timeout: 30_000 }).then(() => 'in');
+  const refused = page
+    .getByRole('alert')
+    .filter({ hasText: 'Sign-in was refused' })
+    .waitFor({ state: 'visible', timeout: 30_000 })
+    .then(() => 'refused');
+  try {
+    return await Promise.any([signedIn, refused]);
+  } catch (error) {
+    // Neither within 30 s: the sign-in's own timeout, as before.
+    throw error.errors?.[0] ?? error;
+  }
 }
 
 /**

@@ -298,6 +298,9 @@ export type OwnRefusalCode =
   | 'agents.consent_not_granted'
   | 'agents.rule_invalid'
   | 'agents.rule_hand_off'
+  | 'agents.policy_denied'
+  | 'agents.policy_no_match'
+  | 'agents.policy_rule_not_found'
   | 'agents.baseline_value_unset'
   | 'agents.baseline_loosen_refused'
   | 'agents.request_id_replay'
@@ -323,7 +326,10 @@ export type OwnRefusalCode =
   | 'agents.test.run_not_found'
   | 'agents.test.no_approval_waiting'
   | 'agents.output.schema_invalid'
-  | 'agents.output.schema_unsupported';
+  | 'agents.output.schema_unsupported'
+  | 'agents.payment_method.wallet_not_linked'
+  | 'agents.payment_method.account_inactive'
+  | 'agents.payment_method.wallets_unread';
 
 export class OwnAgentRefusal extends Error {
   constructor(
