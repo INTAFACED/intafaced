@@ -211,19 +211,10 @@ test(`${J} #1 opens /money/activity: every kind of movement in one list, in plai
 
   // A TEST withdrawal of 10 USDT, held: sending out is switched off on this stack, so the stack books the hold through the
   // ledger's own recipe exactly as svc-pay's withdraw does (local-test-stack.mjs seed-withdrawal, as J-wallet-06 does).
-  const seeded = tool(
-    'local-test-stack.mjs',
-    'seed-withdrawal',
-    who.email,
-    'USDT',
-    WITHDRAWN,
-    '--state',
-    'held',
-    '--ref',
-    `${J}-${Date.now()}`,
-  );
+  const withdrawalRef = `${J}-${Date.now()}`;
+  const seeded = tool('local-test-stack.mjs', 'seed-withdrawal', who.email, 'USDT', WITHDRAWN, '--state', 'held', '--ref', withdrawalRef);
   expect(seeded).toMatch(/withdrawal\s+[0-9a-f-]{36}/);
-  run.write({ resting: resting.id, cancelled: cancelled.id, space: space.id });
+  run.write({ resting: resting.id, cancelled: cancelled.id, space: space.id, withdrawalRef });
 
   // The bank's lines add up to the ledger: per coin, what came in less what went out is what the main account holds.
   const lines = await allLines(who);
@@ -623,4 +614,46 @@ test(`${J} #8 opens activity when it is empty, fails or is refused: a way forwar
   }
   await activity(page).getByRole('button', { name: 'Try again' }).click();
   await expect(rows(page)).toHaveCount(all, { timeout: 30_000 });
+
+  // A failed Load more keeps the rows. More lines than one page (50): TEST moves of 0.01 USDT from the main account to
+  // the person's own space and back, made through the bank's own transfer, two lines each.
+  const { space } = run.read();
+  const spaces = (await bankRead(who, 'spaces.list', { limit: 50 })).data;
+  const main = spaces.find((s) => s.kind === 'primary' && s.assetId === 'USDT');
+  const me = await api(who);
+  const batch = Date.now();
+  for (let i = 0; (await allLines(who)).length <= 60; i += 1) {
+    expect(i, 'the moves made more than a page of lines').toBeLessThan(40);
+    const [fromSpaceId, toSpaceId] = i % 2 === 0 ? [main.id, space] : [space, main.id];
+    const moved = await me.post('/api/bank/trpc/transfers.create', {
+      transferId: `${J}-more-${batch}-${i}`,
+      fromSpaceId,
+      toSpaceId,
+      amount: '0.01',
+    });
+    expect(moved.status, `transfers.create: ${JSON.stringify(moved.body).slice(0, 300)}`).toBe(200);
+  }
+  const lineCount = (await allLines(who)).length;
+  await openActivity(page);
+  const more = activity(page).getByRole('button', { name: 'Load more' });
+  await expect(more).toBeVisible();
+  const firstPage = await rows(page).count();
+  expect(firstPage).toBeGreaterThan(0);
+  const shown = await rows(page).allInnerTexts();
+  try {
+    tool('local-test-stack.mjs', 'stop', 'bank');
+    await more.click();
+    await expect(activity(page).getByTestId('money-more__note')).toHaveText('Couldn’t load more.', { timeout: 30_000 });
+    // The rows already on screen stay, every one as it was.
+    await expect(rows(page)).toHaveCount(firstPage);
+    expect(await rows(page).allInnerTexts()).toEqual(shown);
+    await expect(activity(page).locator('[data-slot="state-block"][data-kind="error"]')).toHaveCount(0);
+  } finally {
+    tool('local-test-stack.mjs', 'start', '--only', 'bank');
+  }
+  // Back up, Try again loads the next page under the rows that stayed.
+  await activity(page).locator('.money-more').getByRole('button', { name: 'Try again' }).click();
+  await expect.poll(async () => rows(page).count(), { timeout: 30_000 }).toBeGreaterThan(firstPage);
+  expect((await rows(page).allInnerTexts()).slice(0, firstPage)).toEqual(shown);
+  expect(lineCount).toBeGreaterThan(50);
 });
