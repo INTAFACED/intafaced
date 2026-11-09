@@ -232,7 +232,12 @@ test(`${J} #7 a withdrawal freeze asked from the request is recorded by the iden
 
   // Moving the request through pending, on hold and closed never lifts it (a deposit or withdrawal request can't be
   // marked resolved: that would claim a payout, #4), and a closed request takes no new freeze.
-  for (const status of ['pending', 'on_hold', 'closed']) {
+  // The walk starts from wherever the request stands now (a new request may already be pending), since asking for the
+  // status it already has is refused as no change.
+  const walk = ['pending', 'on_hold', 'closed'];
+  const now = (await lead('query', 'get', { ticketId: ticket.id })).status;
+  expect(['open', ...walk.slice(0, -1)]).toContain(now);
+  for (const status of walk.slice(walk.indexOf(now) + 1)) {
     const note = status === 'on_hold' ? `TEST ${J} #7 waiting on the customer's identity check` : undefined;
     expect((await lead('mutation', 'setStatus', { ticketId: ticket.id, status, ...(note ? { note } : {}) })).status).toBe(status);
     expect(await lockOf()).toMatchObject({ locked: true, setBy: 'support' });
