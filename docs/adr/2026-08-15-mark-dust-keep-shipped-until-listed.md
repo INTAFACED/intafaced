@@ -1,5 +1,7 @@
 # ADR: mark dust floors stay shipped until listing evidence (D26-P0-14)
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** **Accepted — 2026-08-15 (D26-P0-14).** Shipped constants stay until a market lists with observed depth.  
 **Decision owner:** repo owner (Denon). **Written by:** Denon.  
 **Board:** D26-P0-14 — `DEFAULT_MIN_BEST_LEVEL_NOTIONAL` + mark dust floor.  
