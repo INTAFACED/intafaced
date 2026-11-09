@@ -746,7 +746,7 @@ export const appRouter = mergeRouters(
   createApiKeyRequestSignRouter(sql, auth, signingEncKey, env.API_KEY_SIGNING_OPTIONAL.trim() === 'true'),
   createRequestSigningPolicyRouter(requestSignWindowSeconds),
   createApiKeyOriginRouter(sql, auth, auth),
-  createApiKeyAccountRouter(sql, auth, auth),
+  createApiKeyAccountRouter(sql, auth, auth, parsePortfolioKeyCap(env.IDENTITY_PORTFOLIO_KEYS_MAX)),
   createApiKeyRotateRouter(sql, auth, auth, signingEncKey),
   createApiKeyExpireRouter(sql, auth),
   createApiKeyRevokeAllRouter(sql),

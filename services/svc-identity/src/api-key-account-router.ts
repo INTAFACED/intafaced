@@ -5,7 +5,7 @@ import type { Sql } from 'postgres';
 import { ApiKeyAccountError } from './auth/api-key-account.js';
 import { AuthError, assertDelegateCannotGrant } from './auth/auth-service.js';
 import { optionalFactorProof, guardedApiKeyAction, type ApiKeyFactorGate } from './auth/api-key-fresh-factor.js';
-import { assertApiKeyAccount, bindApiKeyAccount, requestAccountAls } from './auth/bind-api-key-account.js';
+import { assertApiKeyAccount, assertPortfolioKeyRoom, bindApiKeyAccount, requestAccountAls } from './auth/bind-api-key-account.js';
 import { assertEdgeSignedRequest, requestSignAls, requestSignWireSchema } from './auth/api-key-request-sign.js';
 import { mintApiKeyBoundToAccount } from './auth/mint-api-key-account.js';
 import type { ApiKeyMinter } from './auth/mint-api-key-ip.js';
@@ -37,6 +37,9 @@ function toAccountTrpc(err: unknown): never {
     }
     if (err.code === 'auth.account_mismatch' || err.code === 'auth.account_denied' || err.code === 'auth.account_revoked') {
       throw new TRPCError({ code: 'FORBIDDEN', message: err.message, cause: err });
+    }
+    if (err.code === 'identity.portfolio_key_cap_unset' || err.code === 'identity.portfolio_key_cap_reached') {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message, cause: err });
     }
     throw new TRPCError({ code: 'BAD_REQUEST', message: err.message, cause: err });
   }
@@ -75,7 +78,13 @@ function toAccountTrpc(err: unknown): never {
  * so mergeRouters cannot replace apiKeys.exchange. identity:write except the
  * public named-account exchange. Empty account id refuses.
  */
-export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, gate: ApiKeyFactorGate) {
+export function createApiKeyAccountRouter(
+  sql: Sql,
+  minter: AccountExchanger,
+  gate: ApiKeyFactorGate,
+  /** The owner's `IDENTITY_PORTFOLIO_KEYS_MAX`: these doors bind keys to a sub-account too, so they keep its cap. */
+  portfolioKeyCap: number | null,
+) {
   return router({
     bindApiKeyAccount: scopedProcedure('identity:write')
       .input(z.object({ keyId: z.string().guid(), accountId: z.string().guid() }))
@@ -83,6 +92,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
       .mutation(async ({ ctx, input }) => {
         try {
           assertDelegateCannotGrant(ctx.principal.kid);
+          await assertPortfolioKeyRoom(sql, ctx.principal.userId, input.accountId, portfolioKeyCap, input.keyId);
           return await bindApiKeyAccount(sql, ctx.principal.userId, input.keyId, input.accountId);
         } catch (err) {
           toAccountTrpc(err);
@@ -121,6 +131,7 @@ export function createApiKeyAccountRouter(sql: Sql, minter: AccountExchanger, ga
               accountId: input.accountId,
               domainWhitelist: input.domainWhitelist,
               mode: input.mode,
+              portfolioKeyCap,
             }),
           );
         } catch (err) {

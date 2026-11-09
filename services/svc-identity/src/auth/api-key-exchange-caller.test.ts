@@ -115,7 +115,7 @@ describe('exchange routes accept request material only from svc-edge', () => {
     };
     const sql = (async () => []) as unknown as Sql;
     const product = createApiKeyProductRouter(sql, minter, {} as ApiKeyFactorGate);
-    const account = createApiKeyAccountRouter(sql, minter, {} as ApiKeyFactorGate);
+    const account = createApiKeyAccountRouter(sql, minter, {} as ApiKeyFactorGate, 2);
     const anonymous = { principal: null, service: null, region: 'DE', requestId: 'r' };
     const edge = { ...anonymous, service: 'svc-edge' };
     await expect(
