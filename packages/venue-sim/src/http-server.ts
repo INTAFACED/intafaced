@@ -42,6 +42,8 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *        /test/seed                                       TEST makers rest a two-sided ladder on BTC-USDC and BTC-PERP
  *        /test/market-status {symbol,status}             the market's own state: trading|halted|cancel_only|delisted|null
  *        /test/market-limits {symbol,maxOrderQty,maxOrderNotional}   decimal strings, or null for "not reported"
+ *        /test/market-add {symbol,baseAsset,quoteAsset,maxOrderQty,maxOrderNotional}   one more TEST cash spot market,
+ *                                                         tick 0.1, lot 0.001, no ladder; refused if already listed
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
  */
@@ -295,6 +297,39 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       };
       sim.setMarketLimits(str(body, 'symbol'), { maxOrderQty: limit('maxOrderQty'), maxOrderNotional: limit('maxOrderNotional') });
       return { ok: true, label: 'TEST' };
+    }
+    case '/test/market-add': {
+      const symbol = str(body, 'symbol');
+      const asset = (k: string): string => {
+        const v = str(body, k);
+        if (!/^[A-Z0-9]{2,20}$/.test(v)) throw new VenueWireError(`${k} is an asset code (A-Z, 0-9)`);
+        return v;
+      };
+      if (!/^[A-Z0-9][A-Z0-9/._-]{0,63}$/.test(symbol)) throw new VenueWireError('symbol is a venue symbol (A-Z, 0-9, / . _ -)');
+      const cap = (k: string): Amount | null => {
+        const v = body[k];
+        if (v === null) return null;
+        if (typeof v !== 'bigint' || v <= 0n) throw new VenueWireError(`${k} is a decimal string above zero, or null`);
+        return v as Amount;
+      };
+      sim.addMarket({
+        symbol,
+        kind: 'spot',
+        baseAsset: asset('baseAsset'),
+        quoteAsset: asset('quoteAsset'),
+        orderTypes: ['limit', 'market'],
+        timeInForce: ['GTC', 'IOC', 'ALO'],
+        marginModes: [],
+        maxLeverageBps: null,
+        tickSize: parseAmount('0.1'),
+        lotSize: parseAmount('0.001'),
+        makerFeeBps: { known: true, value: parseAmount('1') },
+        takerFeeBps: { known: true, value: parseAmount('3.5') },
+        status: 'trading',
+        maxOrderQty: cap('maxOrderQty'),
+        maxOrderNotional: cap('maxOrderNotional'),
+      });
+      return { ok: true, symbol, label: 'TEST' };
     }
     default:
       return undefined;

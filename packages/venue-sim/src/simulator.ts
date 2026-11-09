@@ -211,6 +211,24 @@ export class TestVenueSimulator implements UserVenue {
     }
   }
 
+  /**
+   * TEST control: list one more market on the venue, so a journey can review a market nobody else trades. Refused when the
+   * symbol is already listed (a market's config is never replaced under its orders). Starts `trading` unless told.
+   */
+  addMarket(market: SimMarketConfig): void {
+    if (this.marketsBySymbol.has(market.symbol)) {
+      refuse(this.venue.id, 'not_offered', `${market.symbol} is already listed on ${this.venue.displayName}`);
+    }
+    this.marketsBySymbol.set(market.symbol, market);
+    this.book.set(market.symbol, []);
+    if (market.markPrice !== undefined) this.marks.set(market.symbol, market.markPrice);
+    this.marketState.set(market.symbol, {
+      status: market.status === undefined ? 'trading' : market.status,
+      maxOrderQty: market.maxOrderQty ?? null,
+      maxOrderNotional: market.maxOrderNotional ?? null,
+    });
+  }
+
   /** TEST control: the market's own state (`null`: the venue reports none). Changes no order. */
   setMarketStatus(symbol: string, status: UserVenueMarketStatus | null): void {
     this.market(symbol);

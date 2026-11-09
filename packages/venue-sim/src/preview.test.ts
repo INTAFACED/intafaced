@@ -243,6 +243,38 @@ describe('HTTP answers', () => {
     expect((await call('/test/market-limits', { symbol: 'BTC-USDC', maxOrderQty: 5, maxOrderNotional: null })).status).toBe(400);
   });
 
+  it('adds a fresh TEST spot market by its TEST control, tradable at once, and never replaces a listed one', async () => {
+    const { sim, w, account, run } = world();
+    const call = async (path: string, body: unknown) => {
+      const [status, out] = await answerTestVenue(sim, 'POST', path, JSON.stringify(encodeVenueWire(body)));
+      return { status, raw: out as any };
+    };
+    const add = { symbol: 'T16AB-USDC', baseAsset: 'T16AB', quoteAsset: 'USDC', maxOrderQty: a('10'), maxOrderNotional: a('1000') };
+    expect(await call('/test/market-add', add)).toMatchObject({ status: 200, raw: { ok: true, symbol: 'T16AB-USDC', label: 'TEST' } });
+    const listed = (await call('/markets', { account: null })).raw.value.find((m: any) => m.symbol === 'T16AB-USDC');
+    expect(listed).toMatchObject({ kind: 'spot', baseAsset: 'T16AB', status: 'trading', maxOrderQty: '10', maxOrderNotional: '1000' });
+    // A second add of the same symbol is refused, and the market keeps its own figures.
+    expect((await call('/test/market-add', { ...add, maxOrderQty: a('99') })).status).toBe(422);
+    expect((await call('/markets', { account: null })).raw.value.filter((m: any) => m.symbol === 'T16AB-USDC')).toHaveLength(1);
+    // Malformed input is refused by name.
+    expect((await call('/test/market-add', { ...add, symbol: 'T16AC-USDC', baseAsset: 'bad asset' })).status).toBe(400);
+    expect((await call('/test/market-add', { ...add, symbol: 'T16AD-USDC', maxOrderQty: 5 })).status).toBe(400);
+    expect((await call('/test/market-add', { ...add, symbol: 'T16AE-USDC', maxOrderQty: a('0') })).status).toBe(400);
+    // An order rests on it at once, and its own largest order applies.
+    sim.deposit(account, 'USDC', a('1000'), 'dep:added');
+    const resting = await run(
+      order({ symbol: 'T16AB-USDC', price: a('10'), amount: a('2'), clientOrderKey: 'order:preview-trader:added' }),
+    );
+    expect(resting).toMatchObject({ definite: true, accepted: true });
+    await expect(
+      sim.prepare(
+        account,
+        w.signer,
+        order({ symbol: 'T16AB-USDC', price: a('10'), amount: a('11'), clientOrderKey: 'order:preview-trader:added-big' }),
+      ),
+    ).rejects.toMatchObject({ refusal: { code: 'order_above_venue_max' } });
+  });
+
   it('refuses to start unless APP_ENV is exactly dev or test, and off loopback', async () => {
     for (const appEnv of [undefined, '', 'prod', 'staging', 'DEV', ' dev']) {
       await expect(startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv })).rejects.toMatchObject({
