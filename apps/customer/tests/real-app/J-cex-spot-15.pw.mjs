@@ -57,8 +57,10 @@ test(`${J} #2 reads the error format and the changelog: each code with its sever
   ]) {
     await page.goto(path);
     const table = page.getByTestId(id);
-    const head = (await table.locator('thead th').allInnerTexts()).map((text) => text.trim());
-    expect(head.slice(3, 5), `${path} has severity and category columns`).toEqual(['Severity', 'Category']);
+    // Web-first: the route draws the table after it loads, so wait for the columns rather than read them once.
+    const head = table.locator('thead th');
+    await expect(head.nth(3), `${path} has a severity column`).toHaveText('Severity');
+    await expect(head.nth(4), `${path} has a category column`).toHaveText('Category');
     const rows = table.locator('tbody tr');
     expect(await rows.count()).toBeGreaterThan(0);
     for (const row of await rows.all()) {
