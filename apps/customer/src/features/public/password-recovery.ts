@@ -11,6 +11,18 @@ export const RECOVERY_STEPS = ['request', 'reset', 'done'] as const;
 export type RecoveryStep = (typeof RECOVERY_STEPS)[number];
 
 export const requestedSchema = z.object({ accepted: z.literal(true) });
+/** The owner's request cap (`auth.passwordResetLimits`), or null while the reset is unwired: then no number is named. */
+export const limitsSchema = z.object({ requestMax: z.number().int().positive(), windowSeconds: z.number().int().positive() }).nullable();
+export type ResetLimits = z.infer<typeof limitsSchema>;
+
+/** A window in words, as the service names it: "an hour", "2 hours", "15 minutes", "30 seconds". */
+export function windowWords(seconds: number): string {
+  if (seconds === 3_600) return 'an hour';
+  if (seconds % 3_600 === 0) return `${seconds / 3_600} hours`;
+  if (seconds === 60) return 'a minute';
+  if (seconds % 60 === 0) return `${seconds / 60} minutes`;
+  return `${seconds} seconds`;
+}
 export const completedSchema = z.object({ ok: z.literal(true) });
 
 export type StepState = 'current' | 'upcoming' | 'done';
@@ -23,7 +35,12 @@ export function stepStates(current: RecoveryStep): Record<RecoveryStep, StepStat
   ) as Record<RecoveryStep, StepState>;
 }
 
-export type RecoveryProblem = PasswordProblem | PasswordIssue | 'invalidEmail' | 'codeMissing';
+/**
+ * `mailOff`: the build has no mail transport, so no code can be sent (`vendor.email`, J-identity-03 #1). `resetLimit`: the
+ * address asked for the owner's cap of codes inside the window (`auth.reset_limit`, J-identity-03 #2). Both are the same
+ * for every address, so neither says whether an account exists.
+ */
+export type RecoveryProblem = PasswordProblem | PasswordIssue | 'invalidEmail' | 'codeMissing' | 'mailOff' | 'resetLimit';
 export interface RecoveryState {
   step: RecoveryStep;
   /** The address the code was asked for. An email address is not a secret; it is needed again to finish. */
@@ -32,9 +49,20 @@ export interface RecoveryState {
   busy: boolean;
   /** The "if an account uses this email" notice, shown on the reset step. */
   codeAsked: boolean;
+  /** Opened from the mailed link (J-identity-03 #2): the code came with it and no address is asked for. */
+  fromLink: boolean;
   problem: RecoveryProblem | null;
 }
-export const initialRecovery: RecoveryState = { step: 'request', email: '', busy: false, codeAsked: false, problem: null };
+export const initialRecovery: RecoveryState = {
+  step: 'request',
+  email: '',
+  busy: false,
+  codeAsked: false,
+  fromLink: false,
+  problem: null,
+};
+/** The page as the mailed link opens it: straight on the code step, the code already in its field. */
+export const linkRecovery: RecoveryState = { ...initialRecovery, step: 'reset', fromLink: true };
 
 export type RecoveryEvent =
   | { type: 'askCode'; email: string }
@@ -60,6 +88,8 @@ const ENUMERATING = new Set(['auth.not_found', 'auth.account_frozen', 'auth.emai
  */
 export function requestProblem(result: ApiResult<unknown>): RecoveryProblem | null {
   if (result.ok || (result.code && ENUMERATING.has(result.code))) return null;
+  if (result.code === 'vendor.email') return 'mailOff';
+  if (result.code === 'auth.reset_limit') return 'resetLimit';
   const problem = passwordProblem(result);
   return problem === 'invalidInput' ? 'invalidEmail' : problem === 'unconfirmed' ? 'requestUnconfirmed' : problem;
 }
