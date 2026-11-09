@@ -14,6 +14,7 @@ import type { Sql } from 'postgres';
 import { SUPPORTED_LOCALES } from '@intafaced/i18n/locales';
 import { uiViewPreferenceSchema } from '@intafaced/contracts/ui-view-preferences';
 import { homeTilesPreferenceSchema } from '@intafaced/contracts/home-tiles-preferences';
+import { tradeInstantPreferenceSchema } from '@intafaced/contracts/trade-instant-preferences';
 import {
   savedScreensPreferenceSchema,
   WATCHLISTS_NAMESPACE,
@@ -47,6 +48,7 @@ const preference = z.union([
   accountDisplayPreference,
   uiViewPreferenceSchema,
   homeTilesPreferenceSchema,
+  tradeInstantPreferenceSchema,
   watchlistsPreferenceSchema,
   savedScreensPreferenceSchema,
   tokenWatchlistPreferenceSchema,
@@ -58,6 +60,7 @@ const storedPreference = z.union([
   accountDisplayPreference.extend({ outcome: stored }).strict(),
   uiViewPreferenceSchema.extend({ outcome: stored }).strict(),
   homeTilesPreferenceSchema.extend({ outcome: stored }).strict(),
+  tradeInstantPreferenceSchema.extend({ outcome: stored }).strict(),
   watchlistsPreferenceSchema.extend({ outcome: stored }).strict(),
   savedScreensPreferenceSchema.extend({ outcome: stored }).strict(),
   tokenWatchlistPreferenceSchema.extend({ outcome: stored }).strict(),

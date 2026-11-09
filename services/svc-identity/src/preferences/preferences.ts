@@ -14,6 +14,7 @@ import type { Context } from '@intafaced/contracts';
 import { ACCOUNT_DISPLAY_NAMESPACE, parseAccountDisplay, type AccountDisplayValue } from './account-display.js';
 import { UI_VIEW_NAMESPACE, parseUiView, type UiViewValue } from './ui-view.js';
 import { HOME_TILES_NAMESPACE, parseHomeTiles, type HomeTilesValue } from './home-tiles.js';
+import { TRADE_INSTANT_NAMESPACE, parseTradeInstant, type TradeInstantValue } from './trade-instant.js';
 import {
   ADDRESS_WATCHES_NAMESPACE,
   TOKEN_WATCHLIST_NAMESPACE,
@@ -54,6 +55,7 @@ export type PreferenceNamespace =
   | typeof ACCOUNT_DISPLAY_NAMESPACE
   | typeof UI_VIEW_NAMESPACE
   | typeof HOME_TILES_NAMESPACE
+  | typeof TRADE_INSTANT_NAMESPACE
   | typeof WATCHLISTS_NAMESPACE
   | typeof SAVED_SCREENS_NAMESPACE
   | typeof TOKEN_WATCHLIST_NAMESPACE
@@ -63,6 +65,7 @@ export type PreferenceValue =
   | AccountDisplayValue
   | UiViewValue
   | HomeTilesValue
+  | TradeInstantValue
   | WatchlistsValue
   | SavedScreensValue
   | TokenWatchlistValue
@@ -93,6 +96,7 @@ export type PreferenceView =
   | { readonly namespace: typeof ACCOUNT_DISPLAY_NAMESPACE; readonly version: number; readonly value: AccountDisplayValue | null }
   | { readonly namespace: typeof UI_VIEW_NAMESPACE; readonly version: number; readonly value: UiViewValue | null }
   | { readonly namespace: typeof HOME_TILES_NAMESPACE; readonly version: number; readonly value: HomeTilesValue | null }
+  | { readonly namespace: typeof TRADE_INSTANT_NAMESPACE; readonly version: number; readonly value: TradeInstantValue | null }
   | { readonly namespace: typeof WATCHLISTS_NAMESPACE; readonly version: number; readonly value: WatchlistsValue | null }
   | { readonly namespace: typeof SAVED_SCREENS_NAMESPACE; readonly version: number; readonly value: SavedScreensValue | null }
   | { readonly namespace: typeof TOKEN_WATCHLIST_NAMESPACE; readonly version: number; readonly value: TokenWatchlistValue | null }
@@ -130,6 +134,7 @@ const NAMESPACES: Readonly<Record<PreferenceNamespace, Namespace>> = {
   [ACCOUNT_DISPLAY_NAMESPACE]: { shape: (value, settings) => parseAccountDisplay(value, settings.displayCurrencies) },
   [UI_VIEW_NAMESPACE]: { shape: (value) => parseUiView(value) },
   [HOME_TILES_NAMESPACE]: { shape: (value) => parseHomeTiles(value) },
+  [TRADE_INSTANT_NAMESPACE]: { shape: (value) => parseTradeInstant(value) },
   [WATCHLISTS_NAMESPACE]: {
     shape: (value) => parseWatchlistsShape(value),
     growth: (next, stored, settings) =>

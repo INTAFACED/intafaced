@@ -50,6 +50,11 @@ export interface BookPick {
   review?: true;
   side?: 'buy' | 'sell';
   type?: 'limit' | 'market';
+  /**
+   * Instant placement is on (J-charts-desk-14 #6 and #7): the ticket sends once the order check and its preview allow it,
+   * with no review sheet. Set only from the account's own `trade.instant` record.
+   */
+  instant?: true;
 }
 
 const Row = memo(function Row({

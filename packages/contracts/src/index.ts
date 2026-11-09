@@ -80,6 +80,7 @@ export * from './pay-halts.js';
 export * from './protocol-blockers.js';
 export * from './ui-view-preferences.js';
 export * from './home-tiles-preferences.js';
+export * from './trade-instant-preferences.js';
 export * from './tax-lot-book.js';
 export * from './bank-value-history.js';
 export * from './agents-own.js';
