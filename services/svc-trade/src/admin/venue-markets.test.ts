@@ -23,6 +23,7 @@ import {
   LOCAL_TEST_SEED_APPROVER,
   LOCAL_TEST_SEED_OPERATOR,
   StoreVenueRoutingGate,
+  TestListingSeed,
   assertTestListingsAllowed,
   parseTestListings,
   publishPendingDelistingNotices,
@@ -660,6 +661,58 @@ describe('venue markets desk (J-cex-spot-16)', () => {
       expect(imports.every((i) => i === '@intafaced/ledger-client/money')).toBe(true);
       expect(src).not.toMatch(/recipes|ledger\.post|cancelOrder/);
     }
+  });
+
+  it('a LOCAL TEST seed that fails never breaks the door connect or a cancel; it is retried until it lands, once per process', async () => {
+    await list();
+    let failing = true;
+    let appends = 0;
+    const flaky = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === 'appendListing') {
+          return async (...args: Parameters<MemoryVenueListingStore['appendListing']>) => {
+            appends += 1;
+            if (failing) throw new Error('TEST store down');
+            return target.appendListing(...args);
+          };
+        }
+        const v = Reflect.get(target, prop, receiver) as unknown;
+        return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+      },
+    });
+    const logged: unknown[] = [];
+    const seed = new TestListingSeed({ store: flaky, symbols: ['BTC-USDC'], appEnv: 'test', now: () => now, log: (e) => logged.push(e) });
+    let connects = 0;
+    door = new UserVenueDoor({
+      connect: async () => {
+        connects += 1;
+        seed.connected(sim);
+        return sim;
+      },
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: { require: async () => ({ stepUpEventId: 'x', consumedAt: null, replayed: false }) },
+      builder: BUILDER,
+      now: () => now,
+      listings: new StoreVenueRoutingGate(store),
+    });
+    const resting = order({ price: a('1900') });
+    expect(await place(resting)).toMatchObject({ outcome: { accepted: true } });
+    expect(await cancel('ETH-USDC', resting.clientOrderKey)).toMatchObject({ outcome: { accepted: true } });
+    await seed.retry();
+    expect(connects).toBe(1);
+    expect(logged.length).toBeGreaterThanOrEqual(1);
+    expect(String(logged[0])).toMatch(/TEST store down/);
+    expect(await store.latestListing(VENUE, 'BTC-USDC')).toBeNull();
+
+    failing = false;
+    await seed.retry();
+    expect(await store.latestListing(VENUE, 'BTC-USDC')).toMatchObject({ version: 1, proposerId: LOCAL_TEST_SEED_OPERATOR });
+    const after = appends;
+    await seed.retry();
+    seed.connected(sim);
+    await seed.retry();
+    expect(appends).toBe(after);
   });
 
   it('every door refuses trade.user_venue_off when the venue door is off', async () => {

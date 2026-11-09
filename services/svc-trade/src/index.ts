@@ -117,7 +117,7 @@ import {
   busVenueDelistingNotices,
   parseTestListings,
   publishPendingDelistingNotices,
-  seedTestListings,
+  TestListingSeed,
 } from './venue/venue-listing.js';
 import { VenueRefusalError } from '@intafaced/venue-contracts';
 import { parseDataTerms, parseDeveloperHosts, parseRegionalRule, registerDeveloperPortalRest } from './developer-portal-rest.js';
@@ -459,11 +459,23 @@ const venueListings = new SqlVenueListingStore(sql);
 const venueDelistingNotices = busVenueDelistingNotices(bus);
 const testListings = parseTestListings(env.TRADE_USER_VENUE_TEST_LISTINGS);
 assertTestListingsAllowed(testListings, process.env.APP_ENV);
+// Seeded once per process after the door first connects, never inside connect: a seed failure is logged and retried by
+// the sweep below, and the door (cancels included) keeps working.
+const testListingSeed = new TestListingSeed({
+  store: venueListings,
+  symbols: testListings,
+  appEnv: process.env.APP_ENV,
+  now: () => new Date(),
+  log: (err) =>
+    process.stderr.write(
+      `${JSON.stringify({ level: 'warn', msg: 'trade.venue_listings.test_seed_failed', message: err instanceof Error ? err.message : String(err) })}\n`,
+    ),
+});
 const userVenue = userVenueUrl
   ? new UserVenueDoor({
       connect: async () => {
         const venue = await HttpUserVenue.connect({ baseUrl: userVenueUrl, timeoutMs: env.TRADE_USER_VENUE_TIMEOUT_MS });
-        await seedTestListings(venueListings, venue, testListings, process.env.APP_ENV, new Date());
+        testListingSeed.connected(venue);
         return venue;
       },
       listings: new StoreVenueRoutingGate(venueListings),
@@ -476,6 +488,7 @@ const userVenue = userVenueUrl
   : null;
 // A delisting notice the bus did not take when it was written is sent again (the consumer files it once).
 setInterval(() => {
+  void testListingSeed.retry();
   publishPendingDelistingNotices(venueListings, venueDelistingNotices, () => new Date()).catch((err: unknown) =>
     process.stderr.write(`${JSON.stringify({ level: 'warn', msg: 'trade.venue_delisting.notice_sweep_failed', message: String(err) })}\n`),
   );

@@ -196,6 +196,52 @@ export async function seedTestListings(
   return written;
 }
 
+/**
+ * The LOCAL TEST seed, run once per process and apart from the door's connect: `connected` starts it (never waiting,
+ * never throwing), so a seed that fails never breaks a connect and cancels keep working. A failed attempt is logged and
+ * tried again by `retry` (the background sweep) or the next connect, until one succeeds.
+ */
+export class TestListingSeed {
+  private done = false;
+  private running: Promise<void> | null = null;
+  private venue: UserVenue | null = null;
+
+  constructor(
+    private readonly deps: {
+      readonly store: VenueListingStore;
+      readonly symbols: readonly string[];
+      readonly appEnv: string | undefined;
+      readonly now: () => Date;
+      readonly log: (err: unknown) => void;
+    },
+  ) {}
+
+  /** The door connected to `venue`: seed in the background if no attempt has succeeded yet. */
+  connected(venue: UserVenue): void {
+    this.venue = venue;
+    void this.retry();
+  }
+
+  /** One attempt, unless one already succeeded, one is running, or the door has not connected yet. Never rejects. */
+  retry(): Promise<void> {
+    if (this.done || this.deps.symbols.length === 0 || !this.venue) return Promise.resolve();
+    if (!this.running) {
+      const venue = this.venue;
+      this.running = (async () => {
+        try {
+          await seedTestListings(this.deps.store, venue, this.deps.symbols, this.deps.appEnv, this.deps.now());
+          this.done = true;
+        } catch (err) {
+          this.deps.log(err);
+        } finally {
+          this.running = null;
+        }
+      })();
+    }
+    return this.running;
+  }
+}
+
 // ── The dated delisting notice ──────────────────────────────────────────────
 
 export interface VenueDelistingNotices {
