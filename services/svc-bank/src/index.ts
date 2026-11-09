@@ -346,6 +346,7 @@ const bank = createBankServices(sql, ledger, history, {
   accountTerms: env.BANK_ACCOUNT_TERMS_JSON,
   /** The staking risk wording (BK-earn-04): the owner's, blank refuses. */
   earnRiskWording: env.BANK_EARN_RISK_WORDING_JSON,
+  blockedRegionNotice: env.BANK_BLOCKED_REGION_NOTICE,
   accountCurrencies: env.BANK_ACCOUNT_CURRENCIES,
   spaceLimit: env.BANK_SPACE_LIMIT,
   spaceUnlockWaitHours: env.BANK_SPACE_UNLOCK_WAIT_HOURS,

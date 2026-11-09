@@ -77,6 +77,8 @@ import { emptyBillPorts, emptyGlobalPorts, type BillPorts, type GlobalPorts } fr
  */
 
 export interface BankServices {
+  /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
+  readonly blockedRegionNotice?: string | undefined;
   /** The TEST partner bank and ramp with their switches (CUSTODY-DELTA §4), on a dev or test stack only; null elsewhere. */
   readonly testPartner: TestPartner | null;
   readonly spaces: SpaceService;
@@ -225,6 +227,8 @@ export interface BankServiceOptions {
   accountTerms?: string | undefined;
   /** Owner-published staking risk wording as JSON (`BANK_EARN_RISK_WORDING_JSON`, BK-earn-04). No default: blank refuses. */
   earnRiskWording?: string | undefined;
+  /** The owner's notice for a blocked region (`BANK_BLOCKED_REGION_NOTICE`, BK-safe-01). No default: blank reads "not published". */
+  blockedRegionNotice?: string | undefined;
   /** Owner-published currencies an account may hold (`BANK_ACCOUNT_CURRENCIES`). No default: blank refuses an add. */
   accountCurrencies?: string | undefined;
   /** Owner-published number of live named spaces per account (`BANK_SPACE_LIMIT`). No default: blank refuses a create. */
@@ -451,6 +455,7 @@ export function createBankServices(sql: Sql, ledger: LedgerClient, history: Ledg
   const recovery = new RecoveryClaimService(sql, ledger, spaces, options.identityRecovery ?? unconfiguredIdentityRecovery());
 
   return {
+    blockedRegionNotice: options.blockedRegionNotice,
     testPartner: options.testPartner ?? null,
     spaces,
     sorter,

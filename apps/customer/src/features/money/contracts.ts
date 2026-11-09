@@ -882,6 +882,17 @@ export const cashOutReceiptSchema = z.object({
 export type CashOutReceipt = z.infer<typeof cashOutReceiptSchema>;
 /** svc-bank `bank.railSends.*` (J-bank-04 #1): send to a bank account over a bank rail, each rail with its own form. */
 export const BANK_RAILS = ['ach', 'wire', 'instant', 'sepa', 'proxy'] as const;
+/** `bank.safety.regionNotice` (BK-safe-01, J-bank-18 #1): why a transfer refuses from a blocked region. */
+export const regionNoticeSchema = z.object({
+  region: z.string(),
+  blocked: z.boolean(),
+  code: z.string().nullable(),
+  restriction: z.string().nullable(),
+  blockedBy: z.string().nullable(),
+  wording: z.string().nullable(),
+});
+export type RegionNotice = z.infer<typeof regionNoticeSchema>;
+
 export const railRequirementsSchema = z.object({
   rails: z.array(
     z.object({
@@ -920,6 +931,8 @@ export const railPayeeSchema = z.object({
   verificationRail: z.string(),
   addedAt: z.string(),
   cooling: z.object({ state: z.enum(['unset', 'active', 'open']), endsAt: z.string().nullable() }),
+  /** The first-time payee scam warning (J-bank-18 #2): unread until the person reads it for this recipient. */
+  scamWarning: z.object({ state: z.enum(['unread', 'read']), readAt: z.string().nullable() }),
 });
 export type RailPayee = z.infer<typeof railPayeeSchema>;
 export const railPayeeRemovedSchema = z.object({ payeeId: z.string(), removed: z.literal(true) });
@@ -1058,6 +1071,7 @@ export const bankReads = {
   'transfers.quote': transferQuoteSchema,
   'cashOut.requests': z.array(cashOutRequestSchema),
   'railSends.requirements': railRequirementsSchema,
+  'safety.regionNotice': regionNoticeSchema,
   'railSends.list': z.array(railSendSchema),
   'railSends.payees': z.array(railPayeeSchema),
   'activity.list': z.object({ items: z.array(incomingLineSchema), nextCursor: z.string().nullable() }),
