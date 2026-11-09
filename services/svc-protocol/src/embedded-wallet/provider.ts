@@ -37,6 +37,17 @@ export interface EmbeddedWalletProviderAdapter {
   getWallet(walletId: string): Promise<ProviderWallet | null>;
 }
 
+/** The provider answered, and refused to make the wallet with what it was given (a 4xx): not down, and retrying won't help. */
+export class ProviderRefusedError extends Error {
+  constructor(
+    readonly providerName: string,
+    readonly status: number,
+  ) {
+    super(`${providerName}: refused (${status})`);
+    this.name = 'ProviderRefusedError';
+  }
+}
+
 /** The provider did not answer, or answered with an error. The message never carries the provider's body. */
 export class ProviderUnavailableError extends Error {
   constructor(
@@ -119,7 +130,7 @@ function readWallet(body: unknown): ProviderWallet | null {
 
 /**
  * The labelled TEST provider's server-side adapter. It speaks to the TEST provider process's `/server/*` routes over
- * loopback. The process holds every TEST key in its own memory, never in a svc-* database or log.
+ * loopback. The process holds every TEST key itself (memory and its own state file), never in a svc-* database or log.
  */
 export function testProviderAdapter(origin: string, fetcher: typeof fetch = fetch): EmbeddedWalletProviderAdapter {
   const info: ProtocolEmbeddedWalletProvider = {
@@ -152,8 +163,9 @@ export function testProviderAdapter(origin: string, fetcher: typeof fetch = fetc
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(input),
       });
+      if (status >= 400) throw new ProviderRefusedError(info.displayName, status);
       const wallet = status === 200 ? readWallet(body) : null;
-      if (!wallet) throw new ProviderUnavailableError(info.displayName, `refused to make the wallet (${status})`);
+      if (!wallet) throw new ProviderUnavailableError(info.displayName, `answered ${status} with no wallet`);
       return wallet;
     },
     async getWallet(walletId) {

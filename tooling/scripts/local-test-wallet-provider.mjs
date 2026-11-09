@@ -1,7 +1,7 @@
 /**
  * LOCAL TEST embedded-wallet provider (J-wallet-22, OWNER 237): the labelled TEST stand-in for the owner's provider
- * (Turnkey or Privy, picked after the testnet trial). It is its own process, so its keys live only in its own memory:
- * never in a svc-* database, never in a log, and gone when it stops. Every wallet it makes is TEST.
+ * (Turnkey or Privy, picked after the testnet trial). It is its own process, so its keys live only in it and in its own
+ * state file in the TEST stack's state folder (mode 0600): never in a svc-* database, never in a log. Every wallet it makes is TEST.
  *
  * It behaves as the real providers do where it matters:
  *   - svc-protocol (the server side, loopback only, `/server/*`) asks it for the person's one wallet bound to their
@@ -14,9 +14,10 @@
  *
  * It refuses to start unless APP_ENV is exactly `dev` or `test`. Never part of a real environment.
  *
- *   node tooling/scripts/local-test-wallet-provider.mjs   (TEST_WALLET_PROVIDER_HOST, _PORT, _ORIGINS, APP_ENV)
+ *   node tooling/scripts/local-test-wallet-provider.mjs   (TEST_WALLET_PROVIDER_HOST, _PORT, _ORIGINS, _STATE_FILE, APP_ENV)
  */
 import { createHash, createPublicKey, randomBytes, verify as verifySignature } from 'node:crypto';
+import fs from 'node:fs';
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -52,11 +53,21 @@ export const payloadHash = (action, payload) => b64url(sha256(JSON.stringify([ac
  * The provider's state and rules, with no HTTP. `origins` are the page origins a passkey assertion may come from; the
  * relying party is each origin's host name (WebAuthn: `localhost` on the TEST stack).
  */
-export function createTestWalletProvider({ origins, accounts, now = () => Date.now(), random = randomBytes }) {
+export function createTestWalletProvider({
+  origins,
+  accounts,
+  now = () => Date.now(),
+  random = randomBytes,
+  saved = null,
+  onChange = () => {},
+}) {
   const allowed = new Set(origins);
-  const wallets = new Map(); // walletId -> { walletId, ownerRef, privateKey, address, passkeys: Map(credentialId -> KeyObject) }
+  // walletId -> { walletId, ownerRef, privateKey, address, passkeys: Map(credentialId -> { spki, key: KeyObject }) }
+  const wallets = new Map();
   const byOwner = new Map();
   const challenges = new Map(); // challenge -> { walletId, action, hash, expiresAt }
+  /** At most this many open challenges per wallet: an unanswered one never piles up. */
+  const OPEN_PER_WALLET = 8;
 
   const publicWallet = (w) => ({ walletId: w.walletId, address: w.address, ownerRef: w.ownerRef, label: 'TEST' });
 
@@ -85,10 +96,11 @@ export function createTestWalletProvider({ origins, accounts, now = () => Date.n
       ownerRef,
       privateKey,
       address: accounts.privateKeyToAccount(privateKey).address,
-      passkeys: new Map([[passkey.credentialId, key]]),
+      passkeys: new Map([[passkey.credentialId, { spki: passkey.publicKey, key }]]),
     };
     wallets.set(wallet.walletId, wallet);
     byOwner.set(ownerRef, wallet.walletId);
+    onChange();
     return { status: 200, body: publicWallet(wallet) };
   }
 
@@ -102,6 +114,11 @@ export function createTestWalletProvider({ origins, accounts, now = () => Date.n
     const w = wallets.get(walletId);
     if (!w) return { status: 404, body: { error: 'not_found' } };
     if (!ACTIONS.has(action)) return { status: 400, body: { error: 'bad_request' } };
+    // Expired challenges go, and the oldest open ones for this wallet beyond the cap.
+    const t = now();
+    for (const [k, c] of challenges) if (c.expiresAt <= t) challenges.delete(k);
+    const open = [...challenges].filter(([, c]) => c.walletId === walletId);
+    for (const [k] of open.slice(0, Math.max(0, open.length - OPEN_PER_WALLET + 1))) challenges.delete(k);
     const value = b64url(random(32));
     challenges.set(value, { walletId, action, hash: payloadHash(action, payload), expiresAt: now() + CHALLENGE_TTL_MS });
     return { status: 200, body: { challenge: value, allowCredentials: [...w.passkeys.keys()] } };
@@ -127,7 +144,7 @@ export function createTestWalletProvider({ origins, accounts, now = () => Date.n
       !isB64url(assertion.signature, 400)
     )
       return 'assertion_invalid';
-    const key = w.passkeys.get(assertion.credentialId);
+    const key = w.passkeys.get(assertion.credentialId)?.key;
     if (!key) return 'passkey_unknown';
     let client;
     try {
@@ -167,11 +184,36 @@ export function createTestWalletProvider({ origins, accounts, now = () => Date.n
     // recovery: a second passkey the person registered, added only with an assertion from a passkey already bound.
     const key = importPasskey(payload?.passkey);
     if (!key) return { status: 400, body: { error: 'passkey_invalid' } };
-    w.passkeys.set(payload.passkey.credentialId, key);
+    w.passkeys.set(payload.passkey.credentialId, { spki: payload.passkey.publicKey, key });
+    onChange();
     return { status: 200, body: { added: true, passkeys: w.passkeys.size } };
   }
 
-  return { createWallet, getWallet, challenge, act, wallets };
+  /** The provider's whole state, for its own state file: the TEST keys and the passkeys' PUBLIC keys. */
+  function snapshot() {
+    return {
+      label: 'TEST',
+      wallets: [...wallets.values()].map((w) => ({
+        walletId: w.walletId,
+        ownerRef: w.ownerRef,
+        privateKey: w.privateKey,
+        passkeys: [...w.passkeys].map(([credentialId, p]) => ({ credentialId, publicKey: p.spki })),
+      })),
+    };
+  }
+
+  for (const w of saved?.wallets ?? []) {
+    const passkeys = new Map();
+    for (const p of w.passkeys ?? []) {
+      const key = importPasskey({ ...p, algorithm: -7 });
+      if (key) passkeys.set(p.credentialId, { spki: p.publicKey, key });
+    }
+    const address = accounts.privateKeyToAccount(w.privateKey).address;
+    wallets.set(w.walletId, { walletId: w.walletId, ownerRef: w.ownerRef, privateKey: w.privateKey, address, passkeys });
+    byOwner.set(w.ownerRef, w.walletId);
+  }
+
+  return { createWallet, getWallet, challenge, act, wallets, challenges, snapshot };
 }
 
 async function readJson(req) {
@@ -186,9 +228,23 @@ async function readJson(req) {
 }
 
 /** The provider behind loopback HTTP. Nothing it answers or logs carries a key, except `export` to the person. */
-export async function serveTestWalletProvider({ host, port, appEnv, origins, accounts }) {
+export async function serveTestWalletProvider({ host, port, appEnv, origins, accounts, stateFile }) {
   refuseTestProviderOutsideTest(appEnv);
-  const provider = createTestWalletProvider({ origins, accounts: accounts ?? (await loadViemAccounts()) });
+  // Its state lives in its own file in the TEST stack's state folder (mode 0600), so a restart keeps every TEST wallet
+  // svc-protocol has recorded. Never a svc-* database, never a log.
+  let saved = null;
+  if (stateFile && fs.existsSync(stateFile)) saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  const provider = createTestWalletProvider({
+    origins,
+    accounts: accounts ?? (await loadViemAccounts()),
+    saved,
+    onChange: () => {
+      if (!stateFile) return;
+      fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+      fs.writeFileSync(`${stateFile}.tmp`, JSON.stringify(provider.snapshot()), { mode: 0o600 });
+      fs.renameSync(`${stateFile}.tmp`, stateFile);
+    },
+  });
   const server = http.createServer(async (req, res) => {
     const send = (status, body) => {
       res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -236,6 +292,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     port: Number(process.env.TEST_WALLET_PROVIDER_PORT ?? '14561'),
     appEnv: process.env.APP_ENV,
     origins: (process.env.TEST_WALLET_PROVIDER_ORIGINS ?? 'http://localhost:3210').split(',').map((o) => o.trim()),
+    stateFile: process.env.TEST_WALLET_PROVIDER_STATE_FILE || undefined,
   }).catch((err) => {
     process.stderr.write(`test-wallet-provider: ${err instanceof Error ? err.message : String(err)}\n`);
     process.exit(1);

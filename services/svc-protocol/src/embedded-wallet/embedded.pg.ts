@@ -1,7 +1,7 @@
 import type { Sql } from 'postgres';
 import type { EmbeddedWalletProviderId } from '@intafaced/contracts/protocol-embedded-wallet';
 import { getAddress } from 'viem';
-import type { EmbeddedWalletRow, EmbeddedWalletStore } from './embedded.js';
+import { EMBEDDED_WALLET_MISMATCH, EmbeddedWalletRefusedError, type EmbeddedWalletRow, type EmbeddedWalletStore } from './embedded.js';
 
 /**
  * Postgres `EmbeddedWalletStore` over `protocol.embedded_wallets` (20261109084145). The business key
@@ -39,12 +39,24 @@ export class PostgresEmbeddedWalletStore implements EmbeddedWalletStore {
   }
 
   async insert(input: EmbeddedWalletRow): Promise<{ row: EmbeddedWalletRow; created: boolean }> {
-    const [inserted] = await this.sql<Row[]>`
+    // Only the person's own key is a replay. The same provider wallet already recorded for someone else is a unique
+    // violation on (provider, provider_wallet_id), refused by name: it is never another person's wallet to record.
+    let inserted: Row | undefined;
+    try {
+      [inserted] = await this.sql<Row[]>`
       INSERT INTO protocol.embedded_wallets (idempotency_key, user_id, provider, provider_wallet_id, address, test, created_at)
       VALUES (${input.idempotencyKey}, ${input.userId}, ${input.provider}, ${input.providerWalletId}, ${getAddress(input.address)},
               ${input.test}, ${input.createdAt.toISOString()})
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (idempotency_key) DO NOTHING
       RETURNING user_id, idempotency_key, provider, provider_wallet_id, address, test, created_at`;
+    } catch (err) {
+      if ((err as { code?: string; constraint_name?: string }).constraint_name === 'embedded_wallets_provider_wallet_idx')
+        throw new EmbeddedWalletRefusedError(
+          EMBEDDED_WALLET_MISMATCH,
+          'Your wallet provider returned a wallet already recorded for someone else, so nothing was recorded.',
+        );
+      throw err;
+    }
     if (inserted) return { row: toRow(inserted), created: true };
     const existing = await this.find(input.userId);
     if (!existing) throw new Error('protocol.embedded_wallets refused the row but holds none for this person');

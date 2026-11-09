@@ -151,6 +151,15 @@ describe('create (J-wallet-22 #1, #2, #3, #7)', () => {
     expect(d.store.rows.size).toBe(0);
   });
 
+  it('a provider that refuses the passkey (4xx) is a refusal by name, not the provider down', async () => {
+    const adapter = testProviderAdapter(URL, async () => new Response(JSON.stringify({ error: 'passkey_invalid' }), { status: 400 }));
+    const d = deps({ kind: 'ready', adapter });
+    const r = await refusal(() => createEmbeddedWallet(d, { userId: ALICE, passkey: PASSKEY }, T0));
+    expect(r.code).toBe('wallet.embedded_wallet_mismatch');
+    expect(r.message).toContain('TEST wallet provider');
+    expect(d.store.rows.size).toBe(0);
+  });
+
   it('a wallet the provider bound to someone else is never recorded', async () => {
     const { adapter } = fakeProvider({ createWallet: async () => ({ walletId: 'w-x', address: ADDRESS, ownerRef: BOB }) });
     const d = deps({ kind: 'ready', adapter });
@@ -181,7 +190,6 @@ describe('the TEST provider adapter over HTTP', () => {
       answer(503, {}),
       async () => new Response('<html>', { status: 200 }),
       answer(200, { walletId: 'x', address: 'not-an-address', ownerRef: ALICE }),
-      answer(400, { error: 'passkey_invalid' }),
     ];
     for (const fetcher of down) {
       const adapter = testProviderAdapter(URL, fetcher);

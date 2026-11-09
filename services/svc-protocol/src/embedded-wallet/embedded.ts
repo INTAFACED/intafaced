@@ -6,7 +6,7 @@ import {
   type ProtocolEmbeddedWalletRefusal,
 } from '@intafaced/contracts/protocol-embedded-wallet';
 import { getAddress, type Address } from 'viem';
-import { ProviderUnavailableError, type EmbeddedWalletSetting } from './provider.js';
+import { ProviderRefusedError, ProviderUnavailableError, type EmbeddedWalletSetting } from './provider.js';
 
 /**
  * THE EMBEDDED SELF-CUSTODY WALLET (J-wallet-22, OWNER 237): one wallet per person, made with a passkey and no seed
@@ -117,6 +117,11 @@ export async function createEmbeddedWallet(
   try {
     wallet = await adapter.createWallet({ ownerRef: input.userId, idempotencyKey, passkey: input.passkey });
   } catch (err) {
+    if (err instanceof ProviderRefusedError)
+      throw new EmbeddedWalletRefusedError(
+        EMBEDDED_WALLET_MISMATCH,
+        `Your wallet provider (${err.providerName}) would not make a wallet with this passkey, so nothing was made or recorded. Try again with a new passkey.`,
+      );
     if (err instanceof ProviderUnavailableError)
       throw new EmbeddedWalletRefusedError(
         EMBEDDED_PROVIDER_DOWN,

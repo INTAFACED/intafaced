@@ -8,7 +8,7 @@ import { PASSKEY_ORIGIN, virtualAuthenticator } from './identity-factors.mjs';
 
 // J-wallet-22, in the running app: I get my own wallet when I sign up, without a seed phrase. One test per step, titled
 // "J-wallet-22 #<n>", run in order by one signed-up TEST person. The provider is the stack's labelled TEST embedded-wallet
-// provider (tooling/scripts/local-test-wallet-provider.mjs), its own process: it keeps the TEST keys in its own memory and
+// provider (tooling/scripts/local-test-wallet-provider.mjs), its own process: it keeps the TEST keys in itself and its own state file, never in a svc-* database, and
 // signs only after a WebAuthn assertion from a passkey bound to the wallet. Passkeys belong to the stack's relying party
 // `localhost`, so this file uses the customer app at http://localhost:3210 and Chromium's virtual authenticator for the
 // person's device. The passkey is carried between steps (and to the "new device" of #6) as the authenticator's own

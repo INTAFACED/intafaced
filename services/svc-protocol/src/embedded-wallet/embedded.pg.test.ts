@@ -54,6 +54,14 @@ describe('embedded wallet store (Postgres)', () => {
     expect(count?.n).toBe(1);
   });
 
+  it('the same provider wallet already recorded for someone else is refused by name, never recorded twice', async () => {
+    const store = new PostgresEmbeddedWalletStore(sql);
+    await expect(store.insert(row(OTHER, 'testw_pg_1', '0x00000000000000000000000000000000000000a1'))).rejects.toMatchObject({
+      code: 'wallet.embedded_wallet_mismatch',
+    });
+    expect(await store.find(OTHER)).toBeNull();
+  });
+
   it('the table refuses a key that is not the person’s and has no column that could hold key material', async () => {
     await expect(
       sql`INSERT INTO protocol.embedded_wallets (idempotency_key, user_id, provider, provider_wallet_id, address, test, created_at)

@@ -216,3 +216,31 @@ test('over HTTP: health, the server routes, and the client routes', async () => 
     server.close();
   }
 });
+
+test('its state survives a restart through its own file, and unanswered challenges never pile up', async () => {
+  const { mkdtempSync, readFileSync, statSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'test-wallet-provider-'));
+  const stateFile = join(dir, 'state.json');
+  try {
+    const first = await serveTestWalletProvider({ host: '127.0.0.1', port: 0, appEnv: 'test', origins: [ORIGIN], accounts, stateFile });
+    const pk = passkey();
+    const made = first.provider.createWallet({ ownerRef: 'p', idempotencyKey: 'wallet:embedded:p', passkey: pk.wire }).body;
+    first.server.close();
+    assert.equal(statSync(stateFile).mode & 0o777, 0o600);
+    assert.equal(JSON.parse(readFileSync(stateFile, 'utf8')).label, 'TEST');
+    const again = await serveTestWalletProvider({ host: '127.0.0.1', port: 0, appEnv: 'test', origins: [ORIGIN], accounts, stateFile });
+    try {
+      assert.deepEqual(again.provider.getWallet(made.walletId).body, made);
+      // The same passkey still signs for it after the restart.
+      assert.equal((await signWithPasskey(again.provider, made, pk, 'after restart')).status, 200);
+      for (let i = 0; i < 50; i++) again.provider.challenge({ walletId: made.walletId, action: 'export' });
+      assert.ok(again.provider.challenges.size <= 8);
+    } finally {
+      again.server.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

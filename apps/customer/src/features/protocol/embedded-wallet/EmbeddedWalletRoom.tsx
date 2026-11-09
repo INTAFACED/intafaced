@@ -1,9 +1,13 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@intafaced/ui';
 import { Tag } from '@intafaced/ui/lit';
 import { FlowTemplate } from '@intafaced/ui/lit/templates';
 import type { Refusal, RoomState } from '@intafaced/ui/lit/templates';
-import type { ProtocolEmbeddedWalletProvider, ProtocolEmbeddedWalletRecord } from '@intafaced/contracts/protocol-embedded-wallet';
+import type {
+  EmbeddedWalletPasskey,
+  ProtocolEmbeddedWalletProvider,
+  ProtocolEmbeddedWalletRecord,
+} from '@intafaced/contracts/protocol-embedded-wallet';
 import type { ApiResult } from '../../../shared/api';
 import { useResource } from '../../../shared/resource';
 import { useSession } from '../../session/session';
@@ -104,6 +108,9 @@ export function EmbeddedWalletRoom() {
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  // The passkey made on this device for a create that was then refused (provider down): a retry uses it again, so no
+  // second passkey is left on the device for one wallet.
+  const pendingPasskey = useRef<EmbeddedWalletPasskey | null>(null);
 
   const read = status.resource.status === 'ready' ? status.resource.data : null;
   const provider = read?.provider ?? null;
@@ -113,7 +120,18 @@ export function EmbeddedWalletRoom() {
   const listed = connections.resource.status === 'ready' ? connections.resource.data.connections : [];
   const fromServer = wallet ? listed.find((c) => c.address.toLowerCase() === wallet.address.toLowerCase()) : undefined;
   const connection = opened && wallet && opened.address === wallet.address ? opened : (fromServer ?? null);
-  const live = connection !== null && connection.status === 'live' && Date.parse(connection.expiresAt) > Date.now();
+  // The page's clock moves on when the connection's expiry passes, so the room shows it expired and offers Sign again;
+  // the service refuses on its own either way.
+  const [clock, setClock] = useState(() => Date.now());
+  const expiresAt = connection ? Date.parse(connection.expiresAt) : null;
+  useEffect(() => {
+    if (expiresAt === null) return;
+    const left = expiresAt - clock;
+    if (left <= 0) return;
+    const timer = setTimeout(() => setClock(Date.now()), Math.min(left + 250, 2_000_000_000));
+    return () => clearTimeout(timer);
+  }, [expiresAt, clock]);
+  const live = connection !== null && connection.status === 'live' && expiresAt !== null && expiresAt > clock;
 
   /** One flight at a time: a second press while the first has no answer does nothing. */
   async function once(work: () => Promise<void>) {
@@ -155,10 +173,19 @@ export function EmbeddedWalletRoom() {
             t,
           ),
         );
-      const passkey = await latestClient.createPasskey();
-      if (!passkey.ok) return setRefusal(clientRefusal(passkey.failure, latest.data.provider, t));
-      const result = await embedded.create(passkey.data);
-      if (!result.ok) return setRefusal(embeddedRefusal(result, latest.data.provider, t));
+      let passkey = pendingPasskey.current;
+      if (!passkey) {
+        const made = await latestClient.createPasskey();
+        if (!made.ok) return setRefusal(clientRefusal(made.failure, latest.data.provider, t));
+        passkey = pendingPasskey.current = made.data;
+      }
+      const result = await embedded.create(passkey);
+      if (!result.ok) {
+        // A passkey the provider would not take is never offered again; any other refusal keeps it for the retry.
+        if (codeOf(result) === 'wallet.embedded_wallet_mismatch') pendingPasskey.current = null;
+        return setRefusal(embeddedRefusal(result, latest.data.provider, t));
+      }
+      pendingPasskey.current = null;
       setMade(result.data.wallet);
     });
 
@@ -172,6 +199,7 @@ export function EmbeddedWalletRoom() {
       const result = await venue.open({ challenge: challenge.data.challenge, signature: signed.data.signature });
       if (!result.ok) return setRefusal(venueRefusal(result, venueCopy.t));
       setOpened(result.data);
+      setClock(Date.now());
     });
 
   const exportKey = () =>

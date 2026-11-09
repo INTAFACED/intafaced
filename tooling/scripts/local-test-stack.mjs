@@ -206,7 +206,7 @@ const PORTS = {
   // LOCAL_STACK_USER_VENUE=on (userVenueOn).
   'test-venue': 14560,
   // The LOCAL TEST embedded-wallet provider (local-test-wallet-provider.mjs, J-wallet-22): svc-protocol's provider on
-  // this stack. It holds its TEST keys in its own memory, never in a svc-* database. Always started with protocol.
+  // this stack. It holds its TEST keys in its own state file, never in a svc-* database. Always started with protocol.
   'test-wallet-provider': 14561,
   // The FIX adapter (svc-fix, Java): its HTTP listener (health, drop-copy ingest, the adapter status). Its two FIX
   // sockets are FIX_SOCKET_PORTS, kept out of this table: one key here is one service (the marker's inventory).
@@ -1854,7 +1854,7 @@ async function startRailStatements() {
 
 /**
  * The LOCAL TEST embedded-wallet provider (local-test-wallet-provider.mjs, J-wallet-22). Every wallet it makes is TEST,
- * its keys live only in its own memory, and passkey assertions are accepted only from the Customer app's own origins.
+ * its keys live only in it and its own state file (test-wallet-provider.json, mode 0600), and passkey assertions are accepted only from the Customer app's own origins.
  */
 async function startTestWalletProvider() {
   const procs = readProcs();
@@ -2169,7 +2169,17 @@ function onlyFlag(flags) {
   const at = flags.indexOf('--only');
   if (at === -1) return null;
   const names = (flags[at + 1] ?? '').split(',').filter(Boolean);
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  const known = [
+    ...serviceNames(),
+    'video-store',
+    'rail-statements',
+    'test-wallet-provider',
+    'customer',
+    'invitation',
+    'apex',
+    'admin',
+    'team-tls',
+  ];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`--only needs a comma list of: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -2448,7 +2458,17 @@ function cmdPlan(flags) {
 
 /** Stop the named services (plain stop, leaves Postgres and the rest alone), then start whatever is not running. */
 async function cmdRestart(names) {
-  const known = [...serviceNames(), 'video-store', 'rail-statements', 'customer', 'invitation', 'apex', 'admin', 'team-tls'];
+  const known = [
+    ...serviceNames(),
+    'video-store',
+    'rail-statements',
+    'test-wallet-provider',
+    'customer',
+    'invitation',
+    'apex',
+    'admin',
+    'team-tls',
+  ];
   const bad = names.filter((n) => !known.includes(n));
   if (names.length === 0 || bad.length)
     fail(`restart needs service names from: ${known.join(', ')}${bad.length ? ` (unknown: ${bad.join(', ')})` : ''}`, 2);
@@ -4092,6 +4112,7 @@ async function runCli() {
       port: PORTS['test-wallet-provider'],
       appEnv: process.env.APP_ENV,
       origins: [CUSTOMER_ORIGIN, CUSTOMER_LOCALHOST_ORIGIN],
+      stateFile: path.join(STATE, 'test-wallet-provider.json'),
     });
   else if (cmd === '__serve-test-venue')
     await serveTestVenue({

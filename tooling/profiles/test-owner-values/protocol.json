@@ -49,7 +49,7 @@
     "PROTOCOL_EMBEDDED_WALLET_PROVIDER": {
       "service": "protocol",
       "value": "TEST:test",
-      "note": "TEST embedded-wallet provider (J-wallet-22): the labelled TEST provider the local stack runs (tooling/scripts/local-test-wallet-provider.mjs), which keeps its TEST keys in its own memory. Not the owner's pick (OWNER 237: Turnkey or Privy after the testnet trial). Refused at boot outside APP_ENV dev or test. Blank in production refuses wallet.embedded_provider_unset."
+      "note": "TEST embedded-wallet provider (J-wallet-22): the labelled TEST provider the local stack runs (tooling/scripts/local-test-wallet-provider.mjs), which keeps its TEST keys in its own process and state file, never in a svc-* database. Not the owner's pick (OWNER 237: Turnkey or Privy after the testnet trial). Refused at boot outside APP_ENV dev or test. Blank in production refuses wallet.embedded_provider_unset."
     },
     "PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS": {
       "service": "protocol",
