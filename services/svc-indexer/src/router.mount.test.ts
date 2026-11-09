@@ -216,12 +216,22 @@ describe('svc-indexer mount — §22 permissionless reads', () => {
     }
   });
 
-  it('answers identically for every region, because there is nothing to gate', async () => {
+  it('answers identically for every served region, because there is nothing to gate', async () => {
     const router = await seeded();
-    for (const region of ['DE', 'US', 'GB', 'XX', 'IR']) {
+    for (const region of ['DE', 'CA', 'GB', 'XX', 'IR']) {
       const view = await router.createCaller(anonymous(region)).book({ market: 'IFC-USD', depth: 10 });
       expect(view.bids).toEqual([['100', '5']]);
     }
+  });
+
+  // OWNER 237 (8 Nov 2026): "US block: the US is blocked at launch as well as sanctioned countries, on the existing
+  // per-country switch." The hosted front refuses the US on the protocol plane too.
+  it('refuses the US at the hosted front, with the reason naming launch', async () => {
+    const router = await seeded();
+    await expect(router.createCaller(anonymous('US')).book({ market: 'IFC-USD', depth: 10 })).rejects.toMatchObject({
+      message: 'The United States is not served at launch.',
+      cause: { decision: { code: 'denied.region_blocked', blockedBy: 'business' } },
+    });
   });
 
   it('a forged principal changes nothing, because it confers nothing', async () => {

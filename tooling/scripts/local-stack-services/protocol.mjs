@@ -64,6 +64,16 @@ export default ({ c, secrets, dbUrl, PORTS, UNUSED, testChain, CUSTOMER_ORIGIN, 
       ...(process.env.LOCAL_STACK_PROTOCOL_WALLET_SANCTIONS === 'off'
         ? {}
         : { PROTOCOL_WALLET_SANCTIONS: 'TEST:0xe6d1aB28c0f3477FdBdAC2df19743CEae59e8A83' }),
+      // LOCAL TEST only (same profile): the embedded self-custody wallet's provider (J-wallet-22) is the labelled TEST
+      // provider this stack runs (local-test-wallet-provider.mjs), on loopback. Production stays blank and Create my wallet
+      // refuses wallet.embedded_provider_unset. `LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET=off` on a restart leaves it blank, so
+      // that refusal can be seen too (J-wallet-22 #1).
+      ...(process.env.LOCAL_STACK_PROTOCOL_EMBEDDED_WALLET === 'off'
+        ? {}
+        : {
+            PROTOCOL_EMBEDDED_WALLET_PROVIDER: 'TEST:test',
+            PROTOCOL_EMBEDDED_WALLET_TEST_URL: `http://127.0.0.1:${PORTS['test-wallet-provider']}`,
+          }),
       PROTOCOL_ADDRESS_BOOK_MAX_CONTACTS: '50',
       PROTOCOL_WALLET_GROUPS_MAX: '10',
       // LOCAL TEST network fee settings, labelled in the same file: the percentiles of the last blocks' priority fees for

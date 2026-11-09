@@ -8,42 +8,19 @@
  * (`trade.order_type_unsupported`), so the ticket shows it disabled (`UNSUPPORTED_TYPES`).
  */
 import type { Draft, Order } from '../../../features/trade/trade-api';
+import { SPOT_ORDER_TYPE_SEND, SPOT_REFUSED_ORDER_TYPES, type SpotTimeInForce } from '@intafaced/contracts/spot-order-types';
 import { scaled, type OrderType } from './order-math';
 
-export type Tif = 'GTC' | 'GTD' | 'PO' | 'IOC' | 'FOK';
-
-const LIMIT_TIFS: readonly Tif[] = ['GTC', 'GTD', 'PO', 'IOC', 'FOK'];
-/** A market order never rests, so "good till cancelled" and "post only" do not apply. Standard = the engine's immediate rule. */
-const MARKET_TIFS: readonly Tif[] = ['GTC', 'FOK'];
-
-/** A stop-limit rests until it triggers, so only good-till-cancelled applies. */
-const STOP_TIFS: readonly Tif[] = ['GTC'];
-
-/** An OCO rests its take-profit leg until the pair ends, so it is good till cancelled only. */
-const OCO_TIFS: readonly Tif[] = ['GTC'];
+export type Tif = SpotTimeInForce;
 
 /**
- * A bracket's buy entry either resolves inside the request (IOC, FOK) or, with an entry price and good-till-cancelled,
- * rests on the book. A resting entry lives only as long as the login that placed it, and has no stop loss while it is
- * partly filled; the exit is placed shortly after the entry ends.
+ * The times in force the ticket offers per type: the shared list the API publishes (`@intafaced/contracts/spot-order-types`),
+ * so the ticket and `GET /api/v1/order-types` never differ. A limit takes all five; a market order never rests, so
+ * "good till cancelled" there is the engine's immediate rule and fill-or-kill its other pick; a stop and an OCO rest until
+ * they trigger or end (GTC); a bracket entry resolves inside the request (IOC, FOK) or rests with an entry price (GTC); an
+ * OTO entry rests until it fills (GTC, the default) or resolves inside the request.
  */
-const BRACKET_TIFS: readonly Tif[] = ['IOC', 'FOK', 'GTC'];
-
-/** An OTO buy rests until it fills (GTC, the default) or resolves inside the request (IOC, FOK); its close is placed when it ends. */
-const OTO_TIFS: readonly Tif[] = ['GTC', 'IOC', 'FOK'];
-
-export const tifsFor = (type: OrderType): readonly Tif[] =>
-  type === 'limit'
-    ? LIMIT_TIFS
-    : type === 'stop_limit' || type === 'stop_market'
-      ? STOP_TIFS
-      : type === 'oco'
-        ? OCO_TIFS
-        : type === 'bracket'
-          ? BRACKET_TIFS
-          : type === 'oto'
-            ? OTO_TIFS
-            : MARKET_TIFS;
+export const tifsFor = (type: OrderType): readonly Tif[] => SPOT_ORDER_TYPE_SEND[type].timeInForce;
 
 /** Keep the pick when the new order type still allows it, otherwise fall back to the standard one (a bracket's is IOC). */
 export const tifFor = (type: OrderType, tif: Tif): Tif => (tifsFor(type).includes(tif) ? tif : (tifsFor(type)[0] ?? 'GTC'));
@@ -83,9 +60,33 @@ export function tifLabelKey(type: OrderType, tif: Tif): TifLabelKey {
 export const tifOfDraft = (draft: Pick<Draft, 'timeInForce' | 'postOnly'>): Tif =>
   draft.postOnly || draft.timeInForce === 'PO' ? 'PO' : draft.timeInForce;
 
-/** Order kinds the service refuses on spot today. They are listed, disabled, with one shared reason. */
-export const UNSUPPORTED_TYPES = ['trailingStop'] as const;
-export type UnsupportedType = (typeof UNSUPPORTED_TYPES)[number];
+/**
+ * Order kinds the service refuses on spot today, from the shared list (`SPOT_REFUSED_ORDER_TYPES`). They are listed,
+ * disabled, with one shared reason.
+ */
+const REFUSED_KEY = { trailing_stop: 'trailingStop' } as const;
+export const UNSUPPORTED_TYPES = SPOT_REFUSED_ORDER_TYPES.map((id) => REFUSED_KEY[id]);
+export type UnsupportedType = (typeof REFUSED_KEY)[keyof typeof REFUSED_KEY];
+
+/** The ticket's name for each type tab, in the shared list's order (`SPOT_TICKET_ORDER_TYPES`): desk copy keys. */
+export const TYPE_TAB_KEY = {
+  limit: 'Limit',
+  stop_limit: 'Order type stopLimit',
+  stop_market: 'Order type stopMarket',
+  oco: 'Order type oco',
+  bracket: 'Order type bracket',
+  oto: 'Order type oto',
+  market: 'Market',
+} as const satisfies Record<OrderType, string>;
+
+/** The ticket's name for each kind it lists as unavailable (desk copy keys), by the ticket's own id. */
+export const REFUSED_TAB_KEY = { trailingStop: 'Order type trailingStop' } as const satisfies Record<UnsupportedType, string>;
+
+/** The same names by the shared list's id, so the portal names a refused kind exactly as the ticket does. */
+export const REFUSED_NAME_KEY = Object.fromEntries(SPOT_REFUSED_ORDER_TYPES.map((id) => [id, REFUSED_TAB_KEY[REFUSED_KEY[id]]])) as Record<
+  (typeof SPOT_REFUSED_ORDER_TYPES)[number],
+  (typeof REFUSED_TAB_KEY)[UnsupportedType]
+>;
 
 /** What the order itself says it is, for the tables: nothing for a plain limit or market, a short tag otherwise. */
 export function orderTag(order: Pick<Order, 'timeInForce' | 'postOnly'>): 'PO' | 'IOC' | 'FOK' | 'GTD' | 'GTT' | null {
