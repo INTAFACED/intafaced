@@ -516,7 +516,7 @@ export function redact(why, set, n = 5) {
 // ── The prompt ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 // Inside an untrusted block, a line that opens or closes a block (untrusted, or the trusted step words) is marked as quoted.
-const fence = (s) =>
+export const fence = (s) =>
   String(s)
     .replace(/^(BEGIN|END) UNTRUSTED/gm, '$1 UNTRUSTED (quoted by the author)')
     .replace(/^(BEGIN|END) STEP WORDS/gm, '$1 STEP WORDS (quoted by the author)');
@@ -530,7 +530,7 @@ const stable = (s, salt) => createHash('sha256').update(`${salt}|${s}`).digest('
  * `loadWords`, so the tests run offline.
  * Returns { applicable, why, prompt?, required?, schema?, deterministic: [{ step, line }], facts, shingleTexts }.
  */
-export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
+export async function buildInputs({ src, base, head, pr, brief, loadWords, lead = '', reviewDiff }) {
   const { diff, mergeBase } = await src.diff(base, head);
   const files = parseDiff(diff);
   const judged = files.filter((f) => judgedFile(f.path) || (f.oldPath && judgedFile(f.oldPath)));
@@ -680,6 +680,8 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     size += b;
     return true;
   };
+  // `lead` (the CI review's brief and its own diff, ci-review.mjs) heads the one prompt and counts toward its size.
+  if (lead) add(lead, { must: true });
   add(brief.trim(), { must: true });
   add(`\nPull request #${pr}, merge base ${mergeBase}, head ${head}. Step words from project-state at ${wordsRef}.`, { must: true });
   const wordLines = (s, tag) => {
@@ -719,7 +721,11 @@ export async function buildInputs({ src, base, head, pr, brief, loadWords }) {
     ].join('\n'),
     { must: true },
   );
-  add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
+  // When the review already gave the very same diff, it is not repeated; a different one is given apart, never dropped.
+  if (reviewDiff === diff) add("\nThe diff is the review's UNTRUSTED DIFF block above (the same compare diff, untrusted).", { must: true });
+  else if (reviewDiff != null)
+    add(`\nThe test part's diff follows (untrusted).\nBEGIN UNTRUSTED TEST DIFF\n${fence(diff)}\nEND UNTRUSTED TEST DIFF`, { must: true });
+  else add(`\nThe diff follows (untrusted).\nBEGIN UNTRUSTED DIFF\n${fence(diff)}\nEND UNTRUSTED DIFF`, { must: true });
   const fileBlock = (when, path, text) => `\nBEGIN UNTRUSTED FILE ${when} ${path}\n${fence(text)}\nEND UNTRUSTED FILE`;
   const sharedFirst = [...judged].sort((a, b) => Number(Boolean(JOURNEY_FILE.test(a.path))) - Number(Boolean(JOURNEY_FILE.test(b.path))));
   const ownFiles = new Set([...own].map((s) => `${REAL_APP}/${s.split(' #')[0]}.pw.mjs`));
@@ -1052,11 +1058,11 @@ export const JUDGE_BRIEF = new URL('./test-judge/JUDGE.md', import.meta.url);
  * `skip-judge`), so only a `prompt.txt` asks the model. `brief` is what heads the prompt: the CI review gives its own
  * brief and then this one (ci-review.mjs).
  */
-export async function writeInputs(dir, { src, base, head, pr, loadWords, brief = readFileSync(JUDGE_BRIEF, 'utf8') }) {
+export async function writeInputs(dir, { src, base, head, pr, loadWords, brief = readFileSync(JUDGE_BRIEF, 'utf8'), lead, reviewDiff }) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'head.txt'), head);
   // The words are read only when a step needs judging, so a PR that changes no test needs no project-state token.
-  const got = await buildInputs({ src, base, head, pr, brief, loadWords });
+  const got = await buildInputs({ src, base, head, pr, brief, loadWords, lead, reviewDiff });
   const done = (verdict, extra) => {
     writeFileSync(join(dir, 'verdict.json'), JSON.stringify({ head, verdict, lines: [], ...extra }));
     writeFileSync(join(dir, 'skip-judge'), '1');

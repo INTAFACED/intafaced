@@ -957,3 +957,86 @@ test('U4: a change no test part applies to is the review alone; one too large fa
   assert.equal(JSON.parse(readFileSync(join(large, 'verdict.json'), 'utf8')).verdict, 'FAIL');
   assert.equal(JSON.parse(readFileSync(join(large, 'tests', 'verdict.json'), 'utf8')).verdict, 'FAIL');
 });
+
+/** The review part's UNTRUSTED DIFF block of a prompt, as the bytes between its fence lines. */
+const reviewDiffBlock = (prompt) => {
+  const open = '\nBEGIN UNTRUSTED DIFF\n';
+  const at = prompt.indexOf(open);
+  assert.ok(at > 0, 'the prompt has the review diff block');
+  const end = prompt.indexOf('\nEND UNTRUSTED DIFF', at + open.length);
+  return prompt.slice(at + open.length, end);
+};
+
+test("U4 review fix: the combined prompt's review diff is the compare-API diff, byte for byte", async () => {
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
+  // The test part reads the same diff: it is given once, the review's, and the test part points to it.
+  const dir = tmp();
+  await writeReviewInputs(dir, { diff: DIFF, base: BASE, head: HEAD, pr: 7, src: fakeSrc(), loadWords, ...realBriefs() });
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.ok(existsSync(join(dir, 'combined')));
+  assert.equal(Buffer.compare(Buffer.from(reviewDiffBlock(prompt)), Buffer.from(DIFF)), 0);
+  assert.ok(
+    prompt.indexOf('\nBEGIN UNTRUSTED DIFF\n') < prompt.indexOf("## The test judge's brief"),
+    'the review diff comes with the review',
+  );
+  assert.match(prompt, /The diff is the review's UNTRUSTED DIFF block above/);
+  assert.doesNotMatch(prompt, /BEGIN UNTRUSTED TEST DIFF/);
+  // The review-only prompt carries the same bytes.
+  const docs = 'diff --git a/docs/x.md b/docs/x.md\n--- a/docs/x.md\n+++ b/docs/x.md\n@@ -1 +1 @@\n-a\n+b\n';
+  const alone = tmp();
+  await writeReviewInputs(alone, { diff: docs, base: BASE, head: HEAD, pr: 7, src: fakeSrc(docs), loadWords, ...realBriefs() });
+  assert.equal(reviewDiffBlock(readFileSync(join(alone, 'prompt.txt'), 'utf8')), docs);
+  // Planted: the test part's own source reads another diff (a push in between). The review still gets the compare
+  // diff whole, and the test part's diff is given apart, never put in the review's place.
+  const other = tmp();
+  const reviewDiff = `${DIFF}diff --git a/docs/y.md b/docs/y.md\n--- a/docs/y.md\n+++ b/docs/y.md\n@@ -1 +1 @@\n-a\n+b\n`;
+  await writeReviewInputs(other, { diff: reviewDiff, base: BASE, head: HEAD, pr: 7, src: fakeSrc(DIFF), loadWords, ...realBriefs() });
+  const p2 = readFileSync(join(other, 'prompt.txt'), 'utf8');
+  assert.equal(Buffer.compare(Buffer.from(reviewDiffBlock(p2)), Buffer.from(reviewDiff)), 0);
+  assert.equal(p2.match(/^BEGIN UNTRUSTED TEST DIFF$/gm).length, 1);
+});
+
+test('U4 review fix (planted): a review finding that quotes the step words is withheld from verdict.json and the log', async () => {
+  const dir = tmp();
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
+  await writeReviewInputs(dir, { diff: DIFF, base: BASE, head: HEAD, pr: 7, src: fakeSrc(), loadWords, ...realBriefs() });
+  // The combined brief tells the model never to repeat them, findings included.
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.match(prompt, /never quote, paraphrase or\nsummarise the step words[^]*the\nreview's `findings` included/);
+  const leak = 'J-x-01.pw.mjs:8: item 3: the test no longer checks that the balance equals the deposit exactly';
+  const leakNote = 'note: it reads the private balance on the hidden page';
+  const kept = 'J-x-01.pw.mjs:8: item 3: toBe(1) became toBeTruthy()';
+  const tests = {
+    verdict: 'PASS',
+    steps: ['J-x-01 #1', 'J-x-01 #2'].map((step) => ({ step, verdict: 'still-proves', why: 'unchanged matcher' })),
+    changes: [{ file: 'apps/customer/tests/real-app/stack.mjs', verdict: 'still-proves', why: 'unchanged' }],
+    setAside: NO_SET_ASIDE,
+  };
+  writeFileSync(join(dir, 'answer.json'), answerText({ verdict: 'FAIL', findings: [leak, leakNote, kept], tests }));
+  assert.equal(readVerdicts(dir).ok, true);
+  const v = JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8'));
+  assert.equal(v.verdict, 'FAIL', 'a withheld finding still blocks');
+  assert.deepEqual(v.findings, [
+    '(finding withheld: it repeated the step words)',
+    'note: (finding withheld: it repeated the step words)',
+    kept,
+  ]);
+  const raw = readFileSync(join(dir, 'verdict.json'), 'utf8');
+  for (const secret of ['deposit exactly', 'private balance', 'hidden page']) assert.ok(!raw.includes(secret), secret);
+  // The Verdict step prints only verdict.json, so the log carries no step words either, and it fails on the FAIL.
+  let log = '';
+  let status = 0;
+  try {
+    execFileSync(process.execPath, [new URL('./ci-review.mjs', import.meta.url).pathname, 'judge', dir], {
+      encoding: 'utf8',
+      env: { ...process.env, GITHUB_STEP_SUMMARY: '' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    status = e.status;
+    log = `${e.stdout}${e.stderr}`;
+  }
+  assert.equal(status, 1);
+  assert.match(log, /finding withheld/);
+  for (const secret of ['deposit exactly', 'private balance', 'hidden page']) assert.ok(!log.includes(secret), secret);
+});
