@@ -16,11 +16,13 @@ import { VerificationSelfie } from './VerificationSelfie';
 import { VerificationTradingChecks } from './VerificationTradingChecks';
 import { verificationTradingCopy } from './verification-trading-copy';
 import { KYC_LADDER_LEVELS } from '@intafaced/contracts/identity-kyc-levels';
+import { kycProfileSchema } from '@intafaced/contracts/identity-kyc-profile';
 import {
   finishVerification,
   readVerification,
   requestedTier,
   saveVerification,
+  bankStepsOpen,
   verificationBlocked,
   verificationKey,
   verificationLock,
@@ -53,7 +55,7 @@ type Problem = 'storage' | 'locks' | 'another' | 'changed' | 'invalidCountry';
 /**
  * Whether the ID and selfie steps show before the person asks for the bank's verification. They do not: trading asks for
  * no ID document or selfie (J-cex-spot-01 #3, OWNER 258 (4)), so /verification leads with the trading checks and the
- * bank's steps open on "Start verification for the bank". J-identity-08 #2 and #3 (not changed here) need that click.
+ * bank's steps open on "Start verification for the bank".
  */
 const BANK_ROUTE_OPEN = false;
 const emptyJournal: VerificationJournal = { records: [], failed: false };
@@ -71,6 +73,16 @@ export function Verification() {
   // The ID and selfie steps are for the bank, never for trading (OWNER 258 (4)).
   const [bankRoute, setBankRoute] = useState(BANK_ROUTE_OPEN);
   const trading = verificationTradingCopy.useCopy();
+  // A guided draft the person left (J-identity-08 #2): its steps open on their own when they return.
+  const guidedDraft = useResource(
+    (signal) =>
+      userId
+        ? api.query('identity', 'kyc.profile.read', undefined, kycProfileSchema, { signal })
+        : Promise.resolve({ ok: true as const, data: null }),
+    `verification-bank-draft:${userId}`,
+  );
+  const [openedSearch] = useState(() => window.location.search);
+  const bankOpen = bankStepsOpen(bankRoute, openedSearch, guidedDraft.resource.status === 'ready' ? guidedDraft.resource.data : null);
   const [problem, setProblem] = useState<Problem | null>(null),
     [selected, setSelected] = useState<VerificationRecord | null>(null);
   // At the owner's limit on rejected requests the form holds until the lockout ends (I-kyc-compliance-10).
@@ -659,7 +671,7 @@ export function Verification() {
           <Loading />
         ) : (
           <>
-            {bankRoute ? (
+            {bankOpen ? (
               <>
                 {offeredTiers.length > 0 && <VerificationGuided tier={chosenTier} disabled={blocked} onSent={reload} />}
                 {/* Not the request form's hold either: a selfie is part of the request, so a lockout does not stop it. */}

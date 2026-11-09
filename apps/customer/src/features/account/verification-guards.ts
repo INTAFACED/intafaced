@@ -117,3 +117,14 @@ export function verificationRefused(answer: ApiResult<unknown>) {
   if (answer.status === 409 && answer.code === 'kyc.capability_inactive') return true;
   return answer.status === 404 && answer.reason === 'not_mounted' && answer.code === 'auth.not_found' && !answer.messageCopy;
 }
+
+/**
+ * The bank's steps are open when the person asked for them, and also when they are already in them: a page opened from a
+ * selfie hand-off link (`/verification?handoff=…`, a used or cut one included), or a guided draft on the service not yet
+ * sent, so a person who leaves and returns resumes at the step they left (J-identity-08 #2, #3).
+ */
+export function bankStepsOpen(pressed: boolean, search: string, profile: { draft: { recordId?: string | null } | null } | null): boolean {
+  if (pressed) return true;
+  if (new URLSearchParams(search).has('handoff')) return true;
+  return Boolean(profile?.draft && !profile.draft.recordId);
+}
