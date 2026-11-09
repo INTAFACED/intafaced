@@ -152,6 +152,8 @@ export function ApiKeyCreate() {
     const expiresAt = ends ? endOfDayUtc(ends) : undefined;
     const ips = ipLines(String(data.get('ips') ?? ''));
     const accountId = String(data.get('accountId') ?? '');
+    // A key for an organisation (DV-console-01): opened from that organisation's area on the key page.
+    const orgId = new URLSearchParams(window.location.search).get('org') ?? '';
     const agent = data.get('agent') === 'on';
     const asked = {
       name: String(data.get('name') ?? ''),
@@ -159,6 +161,7 @@ export function ApiKeyCreate() {
       ...(ips.length > 0 ? { ips } : {}),
       ...(expiresAt ? { expiresAt } : {}),
       ...(accountId ? { accountId } : {}),
+      ...(orgId ? { orgId } : {}),
       ...(agent ? { kind: 'agent' as const } : {}),
     };
     const factor: Factor = how === 'passkey' ? { passkey: true } : code ? { code } : null;

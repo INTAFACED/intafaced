@@ -6,6 +6,7 @@ import { useResource } from '../../shared/resource';
 import { Button, Dialog, Failure, Field, Loading } from '../../shared/ui';
 import { apiKeysCopy as copy, type ApiKeysPlainKey } from './api-keys-copy';
 import { changeRefusal, readAgentApprovals, readDeveloperKeys, readKeySubaccounts, revokeDeveloperKey } from './developer-keys-api';
+import { OrgKeys } from './OrgKeys';
 import './security.css';
 import './api-keys.css';
 
@@ -65,7 +66,7 @@ export function RevokedReason({ apiKey }: { apiKey: ApiKeyRecord }) {
   );
 }
 
-type Sheet = {
+export type Sheet = {
   key: ApiKeyRecord;
   busy: boolean;
   refusal: ApiKeysPlainKey | null;
@@ -76,7 +77,7 @@ type Sheet = {
  * The revoke sheet: what happens, an optional reason, and one Revoke. No second factor, so a key can always be
  * switched off; the service records the person and their reason, and the list then shows it on the row.
  */
-function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClose: () => void; onSubmit: (reason: string) => void }) {
+export function RevokeSheet({ sheet, onClose, onSubmit }: { sheet: Sheet; onClose: () => void; onSubmit: (reason: string) => void }) {
   const { t } = copy.useCopy();
   return (
     <Dialog title={t('revokeTitle')} onClose={onClose}>
@@ -323,6 +324,7 @@ export function ApiKeys() {
           )}
         </>
       )}
+      <OrgKeys at={at} />
       <AgentApprovals at={at} />
       <ConnectedApps />
       {sheet && <RevokeSheet sheet={sheet} onClose={() => !sheet.busy && setSheet(null)} onSubmit={(reason) => void revoke(reason)} />}

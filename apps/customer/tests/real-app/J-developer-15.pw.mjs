@@ -3,6 +3,8 @@ import path from 'node:path';
 import { test, expect } from './journey.mjs';
 import { ROOT, api, fund, restartWith } from './stack.mjs';
 import { codeOf, keyHolder, withKey } from './developer.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
+import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 
 // J-developer-15, in the running app (docs/roadmap/journeys.json): run keys for sub-accounts, teams and agents. One
 // test per step, titled "J-developer-15 #<n>", each checking the step's own words. The person is a TEST master account
@@ -154,6 +156,109 @@ test(`${J} #3 deleting a sub-account key: it stops verifying at once`, async () 
   expect(codeOf(after.body)).toBe('edge.api_key_revoked');
   await page.reload();
   await expect(row.getByRole('button', { name: 'Revoke', exact: true })).toHaveCount(0);
+});
+
+test(`${J} #4 a member with a read role opens the key page: create and revoke are disabled with the reason; the owner changes the role; with roles not published the page says roles not set`, async ({
+  browser,
+}) => {
+  test.setTimeout(360_000);
+  // The business team: an organisation the master owns, with a key made for it (bound to sub-account A) on the form.
+  const made = await me.post('/api/identity/trpc/createOrg', { name: `TEST team ${Date.now().toString(36)}` });
+  expect(made.status, JSON.stringify(made.body).slice(0, 300)).toBe(200);
+  const orgId = made.body.result.data.id;
+  await page.goto(`/uc/safe/api-keys/new?org=${orgId}`);
+  await page.getByLabel('Key name').fill('team-reader');
+  await page.getByLabel('Sub-account', { exact: true }).selectOption({ label: 'Sub A' });
+  await page.getByLabel('Read', { exact: true }).check();
+  await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
+  await takeShownKey();
+
+  // A member of the team, given the developer role "Read keys" by the owner on the key page.
+  const memberPage = await (await browser.newContext({ baseURL: PASSKEY_ORIGIN })).newPage();
+  const memberWho = await signUp(memberPage, 'jd15m');
+  await verify(memberPage, memberWho);
+  await signIn(memberPage, memberWho);
+  const member = await api(memberWho);
+  const added = await me.post('/api/identity/trpc/addOrgMember', { orgId, memberId: member.userId, role: 'trader' });
+  expect(added.status, JSON.stringify(added.body).slice(0, 300)).toBe(200);
+  const ownerArea = () => page.locator(`[data-testid="api-keys__org"][data-org-id="${orgId}"]`);
+  const memberArea = () => memberPage.locator(`[data-testid="api-keys__org"][data-org-id="${orgId}"]`);
+  async function ownerSetsRole(label) {
+    await page.goto('/uc/safe/api-keys');
+    const row = ownerArea().locator(`[data-member-id="${member.userId}"]`);
+    await row.getByLabel('Developer role').selectOption({ label });
+    await row.getByRole('button', { name: 'Save role' }).click();
+    await expect(ownerArea().getByRole('status').filter({ hasText: 'The role is saved.' })).toBeVisible();
+    await expect(row.getByLabel('Developer role')).toHaveValue(label === 'Read keys' ? 'keys_read' : 'keys_admin');
+  }
+  try {
+    await expect(ownerArea().getByTestId('api-keys__my-role')).toHaveText('Your developer role: Owner: you manage keys and roles');
+    await ownerSetsRole('Read keys');
+
+    // The member opens the key page: the team's key is listed, and Create and Revoke are disabled with the reason.
+    await memberPage.goto('/uc/safe/api-keys');
+    const reason = 'You can’t create or revoke keys here: your role only reads keys.';
+    await expect(memberArea().getByTestId('api-keys__my-role')).toHaveText(
+      'Your developer role: Read keys: you see keys but cannot change them',
+    );
+    await expect(memberArea().getByTestId('api-keys__manage-reason')).toHaveText(reason);
+    const create = memberArea().getByTestId('api-keys__org-create');
+    await expect(create).toBeDisabled();
+    await expect(create).toHaveAccessibleDescription(reason);
+    const keyRowM = memberArea()
+      .locator('tbody tr')
+      .filter({ has: memberPage.getByRole('rowheader', { name: 'team-reader', exact: true }) });
+    await expect(keyRowM).toHaveCount(1);
+    const revoke = keyRowM.getByRole('button', { name: 'Revoke', exact: true });
+    await expect(revoke).toBeDisabled();
+    await expect(revoke).toHaveAccessibleDescription(reason);
+    // The service holds the same line: the member's revoke and create for the team are refused, and the key still works.
+    const keyId = await keyRowM.getAttribute('data-key-id');
+    const revoked = await member.post('/api/identity/trpc/developerKeys.revoke', { keyId, orgId });
+    expect(revoked.status, JSON.stringify(revoked.body).slice(0, 300)).toBe(403);
+    expect(revoked.body?.error?.data?.cause?.code ?? codeOf(revoked.body)).toMatch(/identity\.developer_role_read_only/);
+    // A member never raises a role, theirs included.
+    const raised = await member.post('/api/identity/trpc/developerKeys.setTeamRole', {
+      orgId,
+      userId: member.userId,
+      role: 'keys_admin',
+      requestId: `jd15-raise-${Date.now()}`,
+    });
+    expect(raised.status, JSON.stringify(raised.body).slice(0, 300)).toBe(403);
+    expect(JSON.stringify(raised.body)).toContain('identity.developer_role_denied');
+
+    // The owner can change the role: as a key admin the member's Create and Revoke are enabled.
+    await ownerSetsRole('Key admin');
+    await memberPage.goto('/uc/safe/api-keys');
+    await expect(memberArea().getByTestId('api-keys__my-role')).toHaveText('Your developer role: Key admin: you create and revoke keys');
+    await expect(memberArea().getByTestId('api-keys__manage-reason')).toHaveCount(0);
+    await expect(memberArea().getByTestId('api-keys__org-create')).toHaveAttribute('href', `/uc/safe/api-keys/new?org=${orgId}`);
+    await expect(keyRowM.getByRole('button', { name: 'Revoke', exact: true })).toBeEnabled();
+
+    // With the owner's roles not published, the page says roles not set, and the owner's role change is refused.
+    restartWith('identity', 'LOCAL_STACK_IDENTITY_DEVELOPER_ROLES', false);
+    try {
+      await memberPage.goto('/uc/safe/api-keys');
+      await expect(memberArea().getByTestId('api-keys__roles-unset')).toContainText('Roles not set.');
+      await expect(memberArea().getByTestId('api-keys__org-create')).toBeDisabled();
+      await expect(memberArea().getByTestId('api-keys__manage-reason')).toHaveText('You can’t create or revoke keys here: roles not set.');
+      const ownerChange = await me.post('/api/identity/trpc/developerKeys.setTeamRole', {
+        orgId,
+        userId: member.userId,
+        role: 'keys_read',
+        requestId: `jd15-unset-${Date.now()}`,
+      });
+      expect(ownerChange.status, JSON.stringify(ownerChange.body).slice(0, 300)).toBe(412);
+      expect(JSON.stringify(ownerChange.body)).toContain('identity.developer_roles_unset');
+      await page.goto('/uc/safe/api-keys');
+      await expect(ownerArea().getByTestId('api-keys__roles-unset')).toContainText('Roles not set.');
+      await expect(ownerArea().locator(`[data-member-id="${member.userId}"]`).getByLabel('Developer role')).toBeDisabled();
+    } finally {
+      restartWith('identity', 'LOCAL_STACK_IDENTITY_DEVELOPER_ROLES', true);
+    }
+  } finally {
+    await memberPage.context().close();
+  }
 });
 
 test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden scope is refused at create`, async () => {

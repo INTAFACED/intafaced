@@ -9,7 +9,11 @@ import {
   apiKeyScopesOutputSchema,
   apiKeySetExpiryOutputSchema,
   agentKeyApprovalListOutputSchema,
+  developerSetRoleOutputSchema,
+  developerTeamSchema,
   type AgentKeyApprovalList,
+  type DeveloperRole,
+  type DeveloperTeam,
   type ApiKeyCreateInput,
   type ApiKeyCreateOutput,
   type ApiKeyDetail,
@@ -18,6 +22,7 @@ import {
   type ApiKeyRevokeOutput,
   type ApiKeyScopeEntry,
 } from '@intafaced/contracts/api-keys';
+import { z } from 'zod';
 import type { ApiClient, ApiResult } from '../../shared/api';
 import { requestPasskeyAssertion } from '../session/webauthn';
 import type { ApiKeysCopyKey } from './api-keys-copy';
@@ -52,6 +57,37 @@ const SUBACCOUNT_LIMIT = 50;
 export async function readKeySubaccounts(api: ApiClient, signal: AbortSignal): Promise<ApiResult<Subaccount[]>> {
   const rows = await api.query('identity', 'subAccounts.list', { limit: SUBACCOUNT_LIMIT }, subaccountsIn(SUBACCOUNT_LIMIT), { signal });
   return rows.ok ? { ok: true, data: rows.data.filter((row) => !row.revoked) } : rows;
+}
+
+/** The organisations the person belongs to; the key page shows each one's developer area (DV-console-01). */
+const orgsOut = z.object({ orgs: z.array(z.object({ id: z.string(), name: z.string(), role: z.string() })) });
+export function readMyOrgs(api: ApiClient, signal: AbortSignal): Promise<ApiResult<z.infer<typeof orgsOut>>> {
+  return api.query('identity', 'listOrgs', undefined, orgsOut, { signal });
+}
+
+/** One organisation's developer area as the person sees it: their role, why they may not manage keys, and its keys. */
+export function readDeveloperTeam(api: ApiClient, orgId: string, signal: AbortSignal): Promise<ApiResult<DeveloperTeam>> {
+  return api.query('identity', 'developerKeys.team', { orgId }, developerTeamSchema, { signal });
+}
+
+/** The owner gives a member a developer role, or takes it away. The request id is new per press; a repeat changes nothing. */
+export function setDeveloperRole(api: ApiClient, orgId: string, userId: string, role: DeveloperRole | null, requestId: string) {
+  return api.mutate('identity', 'developerKeys.setTeamRole', { orgId, userId, role, requestId }, developerSetRoleOutputSchema);
+}
+
+/** Revokes an organisation's key; only its owner or a key admin may, and the service decides. */
+export function revokeOrgKey(api: ApiClient, orgId: string, keyId: string, reason: string): Promise<ApiResult<ApiKeyRevokeOutput>> {
+  const trimmed = reason.trim();
+  if ([...trimmed].length > API_KEY_REVOKE_REASON_MAX) {
+    const code = 'identity.key_revoke_reason_invalid';
+    return Promise.resolve({ ok: false, reason: 'error', code, message: code });
+  }
+  return api.mutate(
+    'identity',
+    'developerKeys.revoke',
+    { keyId, orgId, ...(trimmed ? { reason: trimmed } : {}) },
+    apiKeyRevokeOutputSchema,
+  );
 }
 
 export type Preset = 'read' | 'trade' | 'custom';
@@ -212,6 +248,9 @@ const REFUSALS = new Set<string>([
   'identity.portfolio_key_cap_unset',
   'identity.portfolio_key_cap_reached',
   'identity.agent_scope_forbidden',
+  'identity.developer_roles_unset',
+  'identity.developer_role_read_only',
+  'identity.developer_role_none',
   'identity.delegated_refused',
   'auth.passkey_missing',
   'auth.passkey_verify_unavailable',
