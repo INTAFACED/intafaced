@@ -105,7 +105,7 @@ test(`${J} #1 opens /academy-ops/grants: grants and revokes newest first, each w
 
   // 1. Staff grant the learner access to a course, with a reason.
   const accessReason = `TEST ${J}: staff access for the audit`;
-  await staff('admin.grantAccess', { userId: learnerId, pathSlug: ACCESS_PATH, reason: accessReason });
+  await staff('admin.grantAccess', { userId: learnerId, pathSlug: ACCESS_PATH, reason: accessReason, expiresAt: null });
   // 2. The learner finishes the course and the certificate is issued by the rule (no person, so no actor).
   await setIssueRule('automatic');
   let publicId;
