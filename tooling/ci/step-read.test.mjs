@@ -171,6 +171,7 @@ test('fails closed: an unanswered step, a bad verdict, an errored call or a miss
     ['bad verdict', answer([{ ...ok[0], verdict: 'FINE' }, ok[1]])],
     ['errored', JSON.stringify({ type: 'result', subtype: 'error_max_turns', is_error: true })],
     ['not JSON', 'oops'],
+    ['answered twice', answer([ok[0], ok[1], { ...ok[1], step: 'J-wallet-01#1', verdict: 'WEAK' }])],
   ]) {
     writeFileSync(join(dir, 'answer.json'), text);
     assert.equal(cmdRead(dir, env).ok, false, why);
@@ -199,23 +200,22 @@ test("planted: a journey file can't close its fence or pose as the step words", 
   assert.equal(got.prompt.match(/^BEGIN STEP WORDS \(trusted/gm).length, 1);
 });
 
-test('the workflow: the read comes after every verdict, never fails a step, blocks nothing, and the review is as before', () => {
+test("the workflow: the read is a job of its own after the review, never fails a step, and the review job is main's", () => {
   const wf = readFileSync(new URL('../../.github/workflows/ci-review.yml', import.meta.url), 'utf8');
-  const at = (n) => wf.indexOf(`- name: ${n}\n`);
-  for (const n of ['Verdict', 'Test verdict', 'Re-run a red seal on this head'])
-    assert.ok(at(n) > 0 && at(n) < at('Read the steps (proof v2)'), n);
-  const reads = wf.slice(at('Read the steps (proof v2)'), at('Post the proof read status'));
-  assert.equal([...wf.matchAll(/\n {6}READER_MODEL: (\S+)\n {6}READER_EFFORT: medium\n/g)].length, 1);
-  assert.equal(reads.match(/--model "\$READER_MODEL" --effort "\$READER_EFFORT"/g).length, 1);
-  assert.match(reads, /--tools "" --setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
-  // Every failure is a warning and an exit 0, so review-marker.mjs never finds a failed step besides the verdicts.
-  for (const cmd of reads.match(/^ {10}node .*$|^ {14}< .*$/gm)) assert.match(cmd, /\|\| no "/, cmd);
-  assert.match(reads, /\n {8}continue-on-error: true\n/);
-  // The verdicts read nothing of the read.
-  assert.doesNotMatch(wf.slice(at('Verdict'), wf.indexOf('# The proof read, a check')), /step-read|steps\.reads/);
-  assert.match(wf, /\n {6}statuses: write #/);
+  const review = wf.slice(wf.indexOf('\n  review:\n'), wf.indexOf('\n  # The proof read, a check'));
+  const job = wf.slice(wf.indexOf('\n  read:\n'));
+  assert.ok(review.length > 0 && job.length > 0);
+  assert.doesNotMatch(review, /step-read|READER_|proof v2 read|statuses: write/, 'the review job knows nothing of the read');
+  assert.match(job, /\n {4}name: Proof read\n {4}needs: review\n/);
+  assert.match(job, /\n {6}READER_MODEL: (\S+)\n {6}READER_EFFORT: medium\n/);
+  assert.equal(job.match(/--model "\$READER_MODEL" --effort "\$READER_EFFORT"/g).length, 1);
+  assert.match(job, /--tools "" --setting-sources "" --strict-mcp-config --mcp-config '\{"mcpServers":\{\}\}'/);
+  // Every failure is a warning and an exit 0, so the job never reads as a red check.
+  const reads = job.slice(job.indexOf('- name: Read the steps (proof v2)'), job.indexOf('- name: Post the proof read status'));
+  for (const cmd of reads.match(/^ {10}(node|had=|for pid) .*$/gm)) assert.match(cmd, /\|\| no "/, cmd);
+  assert.match(job, /\|\| echo "::warning::the proof read status wasn't posted"/);
   // The review's two calls keep their pinned model at high, and the reader's model is another.
-  const review = [...wf.matchAll(/--model (\S+) --effort high/g)].map((m) => m[1]);
-  assert.equal(review.length, 2);
-  assert.notEqual(review[0], /\n {6}READER_MODEL: (\S+)\n/.exec(wf)[1]);
+  const models = [...review.matchAll(/--model (\S+) --effort high/g)].map((m) => m[1]);
+  assert.equal(models.length, 2);
+  assert.notEqual(models[0], /\n {6}READER_MODEL: (\S+)\n/.exec(job)[1]);
 });

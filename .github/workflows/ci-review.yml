@@ -43,16 +43,10 @@ jobs:
     # re-run below waits up to 4 minutes for a running seal.
     timeout-minutes: 30
     environment: ci-review
-    # The proof reader's model (OWNER 250 (2): cheaper models run proof readers) at medium; switching it is this one line.
-    # It reads only for the count of record and blocks nothing (step-read.mjs).
-    env:
-      READER_MODEL: claude-sonnet-5-5
-      READER_EFFORT: medium
     permissions:
       contents: read # the default branch's checkout, the compare diff, and the base and head as text for the test part
       checks: read # find the seal's check run on the head
       actions: write # re-run a red seal once the review passes; read this run's tree index
-      statuses: write # the `proof v2 read` commit status on the head, which no required check reads
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -175,18 +169,49 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node tooling/ci/ci-review.mjs rerun-seal
 
-      # The proof read, a check on the pull request that blocks nothing (project-state OWNER.md items 251 (3) and 250
-      # (2); OWNER 257: nothing new may block a merge). After the verdicts, so it never delays or changes them. For each
-      # step the title claims (less a `Left-or-replaced:` step) and each step whose own test changed, the proof reader's
-      # question (step-read.mjs, its brief tooling/ci/test-judge/READ.md, project-state READER.md step 3) on the readers'
-      # model, and a second, blind call for the steps the count needs one for. Its answer becomes the step's read in the
-      # count of record, so no builder starts a read by hand; a WEAK or MISMATCH leaves the step unproven there. The
-      # step words are read as in the diff step and written only to the prompt files.
+  # The proof read, a check on the pull request that blocks nothing (project-state OWNER.md items 251 (3) and 250 (2);
+  # OWNER 257: nothing new may block a merge). A job of its own after the review, so the review job the seal reads
+  # (REVIEW_JOB) neither waits for it nor changes with it, and no required check reads it. For each step the title
+  # claims (less a `Left-or-replaced:` step) and each step whose own test changed, the proof reader's question
+  # (step-read.mjs, its brief tooling/ci/test-judge/READ.md, project-state READER.md step 3) on the readers' model, and
+  # a second, blind call for the steps the count needs one for. Its answer becomes the step's read in the count of
+  # record, so no builder starts a read by hand; a WEAK or MISMATCH leaves the step unproven there. The step words are
+  # read as in the review's diff step and written only to the prompt files.
+  read:
+    name: Proof read
+    needs: review
+    if: ${{ !cancelled() && needs.review.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: ci-review
+    # The proof reader's model (OWNER 250 (2): cheaper models run proof readers) at medium; switching it is this one line.
+    env:
+      READER_MODEL: claude-sonnet-5-5
+      READER_EFFORT: medium
+    permissions:
+      contents: read # the default branch's checkout, the compare diff, and the base and head as text
+      actions: read # this run's artifacts, so a re-run attempt never reads a head twice
+      statuses: write # the `proof v2 read` commit status on the head, which no required check reads
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+
+      # The reviewer CLI at the version and tarball hashes in .github/workflows/ci-review/package-lock.json (npm ci refuses any
+      # other bytes), installed outside the checkout so the repository's .npmrc and workspace play no part.
+      - name: Install the pinned reviewer
+        run: |
+          mkdir -p "$RUNNER_TEMP/reviewer"
+          cp .github/workflows/ci-review/package.json .github/workflows/ci-review/package-lock.json "$RUNNER_TEMP/reviewer/"
+          npm ci --prefix "$RUNNER_TEMP/reviewer" --no-audit --no-fund
+
       - name: Read the steps (proof v2)
         id: reads
-        if: ${{ !cancelled() }}
-        # It never fails, so no verdict step's result is ever weighed against it (review-marker.mjs reads each step's
-        # conclusion): every failure is a warning, and the head is left unread.
+        # It never fails: every failure is a warning, and the head is left unread.
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -203,6 +228,8 @@ jobs:
           if [ -f "$dir/skip.txt" ]; then echo "no read: $(cat "$dir/skip.txt")"; exit 0; fi
           [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || no "no CLAUDE_CODE_OAUTH_TOKEN"
           mkdir -p "$RUNNER_TEMP/empty-read" && cd "$RUNNER_TEMP/empty-read"
+          # The first and the second, blind call answer apart, so they run side by side.
+          pids=()
           for d in "$dir" "$dir/second"; do
             [ -f "$d/prompt.txt" ] || continue
             "$RUNNER_TEMP/reviewer/node_modules/.bin/claude" -p \
@@ -210,8 +237,10 @@ jobs:
               --tools "" --setting-sources "" --strict-mcp-config --mcp-config '{"mcpServers":{}}' \
               --no-session-persistence --output-format json --json-schema "$(cat "$d/schema.json")" \
               "Read the steps in the input against the brief at its top. Answer with the structured reads only." \
-              < "$d/prompt.txt" > "$d/answer.json" || no "a reader call failed"
+              < "$d/prompt.txt" > "$d/answer.json" &
+            pids+=("$!")
           done
+          for pid in "${pids[@]}"; do wait "$pid" || no "a reader call failed"; done
           node "$GITHUB_WORKSPACE/tooling/ci/step-read.mjs" read "$dir" || no "the answer can't be read"
           echo "read=1" >> "$GITHUB_OUTPUT"
 

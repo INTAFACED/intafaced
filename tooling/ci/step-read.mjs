@@ -231,7 +231,12 @@ export function readAnswer(path, required) {
   const good = (e) =>
     e && typeof e.step === 'string' && READ_VERDICTS.includes(e.verdict) && typeof e.refusal === 'boolean' && typeof e.note === 'string';
   if (!Array.isArray(given) || !given.every(good)) return { ok: false, why: 'the reads are not well-formed' };
-  const by = new Map(given.map((e) => [norm(e.step), e]));
+  const by = new Map();
+  for (const e of given) {
+    // A step answered twice has no one answer: no read, rather than whichever came last.
+    if (by.has(norm(e.step))) return { ok: false, why: `the reader answered ${e.step} twice` };
+    by.set(norm(e.step), e);
+  }
   const lines = [];
   for (const s of required) {
     const e = by.get(norm(s));
