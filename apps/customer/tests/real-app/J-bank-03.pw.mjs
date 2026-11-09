@@ -356,7 +356,7 @@ test(`${J} #4 watches the transfer tracker: processing to completed as the partn
     ledgerTxId: null,
     payoutRef: `TEST-PAYOUT-${taken.requestId}`,
   });
-  expect(taken.partnerMoveId).toMatch(/^test-partner-move-\d+$/);
+  expect(taken.partnerMoveId).toMatch(/^test-partner-move-[0-9a-f]{12}-\d{12}$/);
   expect(await usdt(api)).toBe('30');
 
   // The partner says it was paid: completed, once, with nothing posted to the ledger.
@@ -480,6 +480,6 @@ test(`${J} #5 sees a failed and a returned payout: the partner's reason in plain
   const receipt = (await api.query('cashOut.receipt', { requestId: completed.requestId })).data;
   expect(receipt.text).toContain('Came back: 5 USDT (bank.payout_returned_by_bank)');
   expect(receipt.text).toContain('Stays paid out: 15 USDT');
-  expect(receipt.text).toMatch(/Partner return: test-partner-move-\d+/);
+  expect(receipt.text).toMatch(/Partner return: test-partner-move-[0-9a-f]{12}-\d{12}\b/);
   expect(receipt.signature).toBe(await expectedSignature(receipt.text));
 });
