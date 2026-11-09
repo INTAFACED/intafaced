@@ -101,18 +101,64 @@ test(`${J} #4 signed out, Learning shows the published catalogue with no progres
   await expect(page.getByText('No course matches “zz no such course zz”.')).toBeVisible();
 });
 
-test(`${J} #6 a lesson opens in the reader by its address, with related items; a tab name opens the tab, never a lesson`, async ({
+/** The how-to steps in a lesson body, as the reader numbers them: every numbered list, its entries in order, in words. */
+function howToSteps(body) {
+  const plain = (text) =>
+    text
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+  return body
+    .split(/\n\s*\n/)
+    .map((block) => block.split('\n'))
+    .filter((lines) => /^\d+\. /.test(lines[0] ?? ''))
+    .map((lines) => {
+      const steps = [];
+      for (const line of lines) {
+        if (/^(?:\d+\.|[-*]) /.test(line)) steps.push(line.replace(/^(?:\d+\.|[-*]) /, ''));
+        else steps[steps.length - 1] += ` ${line}`;
+      }
+      return steps.map(plain);
+    });
+}
+
+test(`${J} #6 a lesson opens in the reader by its address, with its how-to steps, no date it lacks, and related items; a tab name opens the tab, never a lesson`, async ({
   page,
 }) => {
-  const [first] = await published({ limit: 1 });
-  await page.goto(`/academy/${first.slug}`);
-  await expect(page.getByRole('heading', { name: first.title, level: 2 })).toBeVisible();
-  await expect(page.locator('article[data-testid="more-body"]')).not.toBeEmpty();
+  // A published lesson with how-to steps, as the service hands it to a signed-out reader: the first whose body numbers them.
+  let lesson = null;
+  for (const row of await published({ limit: 50 })) {
+    // A lesson the signed-out reader refuses is not one this visitor can open; the next is tried.
+    const res = await fetch(
+      `${EDGE}/api/academy/trpc/publicCurriculumItem?input=${encodeURIComponent(JSON.stringify({ slug: row.slug }))}`,
+      {
+        headers: { origin: ORIGIN },
+      },
+    );
+    if (res.status !== 200) continue;
+    const item = (await res.json()).result.data;
+    if (howToSteps(item.body).length > 0) {
+      lesson = item;
+      break;
+    }
+  }
+  expect(lesson, 'a published lesson whose body numbers how-to steps').not.toBeNull();
+  const lists = howToSteps(lesson.body);
+  await page.goto(`/academy/${lesson.slug}`);
+  await expect(page).toHaveURL(`/academy/${lesson.slug}`);
+  const reader = page.locator('article[data-testid="more-body"]');
+  await expect(page.getByRole('heading', { name: lesson.title, level: 2 })).toBeVisible();
   await expect(pressed(page, 'Learning')).toHaveAttribute('aria-pressed', 'true');
-  // Lessons carry no published or updated date in this build, so no date is shown.
-  await expect(page.locator('article[data-testid="more-body"] time')).toHaveCount(0);
+  // The how-to steps: each numbered list of the lesson, in the reader as a numbered list, step by step, in order.
+  await expect(reader.locator('ol')).toHaveCount(lists.length);
+  for (const [i, steps] of lists.entries()) await expect(reader.locator('ol').nth(i).getByRole('listitem')).toHaveText(steps);
+  // Dates only if they exist: the lesson the service hands out carries no published or updated date, so none is shown.
+  expect(Object.keys(lesson).filter((key) => /date|At$/i.test(key))).toEqual([]);
+  await expect(reader.locator('time')).toHaveCount(0);
+  await expect(page.locator('[data-academy-visitor="true"] time')).toHaveCount(0);
   // Related items are the ones the service names for this lesson, each a link to its own address; none means no block.
-  const named = await door('publicCurriculumRelated', { slug: first.slug, limit: 5 });
+  const named = await door('publicCurriculumRelated', { slug: lesson.slug, limit: 5 });
   const related = panelOf(page, 'Related');
   if (named.length === 0) await expect(related).toHaveCount(0);
   else {
@@ -124,6 +170,7 @@ test(`${J} #6 a lesson opens in the reader by its address, with related items; a
 
   for (const [name, slug] of TABS) {
     await page.goto(`/academy/${slug}`);
+    await expect(page).toHaveURL(`/academy/${slug}`);
     await expect(pressed(page, name)).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('article[data-testid="more-body"]')).toHaveCount(0);
   }
