@@ -256,13 +256,13 @@ test(`${J} #1 opens /money/activity: every movement from the wallet, venues and 
   await expect(moved).toHaveCount(2);
   await expect(
     moved
-      .filter({ hasText: `In account ${SPACE}` })
+      .filter({ hasText: `Account: ${SPACE}` })
       .locator('td')
       .nth(2),
   ).toHaveText('+20 USDT');
   await expect(
     moved
-      .filter({ hasNotText: `In account ${SPACE}` })
+      .filter({ hasNotText: `Account: ${SPACE}` })
       .locator('td')
       .nth(2),
   ).toHaveText('−20 USDT');
