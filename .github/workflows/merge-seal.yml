@@ -24,12 +24,23 @@ on:
 
 permissions: {}
 
-# A group of its own per run, never cancelled: a cancelled seal is a red required check that would block its head until
-# re-run, and GitHub cancels a pending run whenever a newer one queues in the same group. An older head's seal finishes
-# on its own head and never blocks the newer one (workflow-concurrency.test.mjs PR_EXCEPTIONS).
+# One group per pull request (INTAFACED/project-state#1574 item 2; the OG at 03:13 UTC on 9 Nov 2026: on one head the
+# seal piled up 2 or 3 queued runs per pull request while its group was per run). In that group:
+#   - a push (`synchronize`) or an open (`opened`) cancels the run there, which is an older head's: every `synchronize`
+#     is a new head and `opened` the first run. That seal's verdict is on a head nobody can merge, so nobody reads it;
+#   - an edit or a reopen never cancels (cancel-in-progress false): it runs on the head being merged, and a running seal
+#     cancelled there is a red required check that blocks it until re-run (every `CI merge seal` on a head must pass,
+#     probe #7547; pr-checks.yml dropped `edited` for this). GitHub keeps one waiting run per group, so a newer event
+#     replaces a waiting one; a replaced run never started a job, so it leaves no check run, red or green, on the head,
+#     and the run that replaced it seals the same head with the newer title and body.
+#   - a re-run (run_attempt above 1: journey-seal-recheck.yml, the CI review's seal re-run, the factory switch) keeps a
+#     group of its own: it is never cancelled or replaced, and re-running an old head's seal never cancels the new
+#     head's. A re-run is posted only while the pull request is still on that head (journey-seal.mjs rerunBlocker,
+#     seal-rerun.mjs moved), and re-running the newest seal and then an older red one on one head cancels neither.
+# Main is never touched: this runs on pull requests only. workflow-concurrency.test.mjs holds this.
 concurrency:
-  group: merge-seal-${{ github.run_id }}
-  cancel-in-progress: false
+  group: ${{ github.run_attempt == '1' && format('merge-seal-pr-{0}', github.event.pull_request.number) || format('merge-seal-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened') }}
 
 jobs:
   seal:
