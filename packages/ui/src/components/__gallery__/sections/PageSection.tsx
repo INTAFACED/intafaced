@@ -83,7 +83,7 @@ export function PageSection() {
       </div>
 
       <div>
-        <Caption>Breadcrumbs: links, then the current page (aria-current), long label truncated with its full text in title.</Caption>
+        <Caption>Breadcrumbs: links, then the current page (aria-current), a long label wraps onto a second line, never cut off.</Caption>
         <Breadcrumbs
           items={[
             ...crumbs.slice(0, 2),

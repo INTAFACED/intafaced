@@ -72,7 +72,7 @@ export function Breadcrumbs({ items, label = 'Breadcrumb', className, ...props }
       <ol className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
         {items.map((item, i) => {
           const last = i === items.length - 1;
-          const text = 'block max-w-[24ch] truncate';
+          const text = 'block max-w-[24ch] break-words';
           return (
             <li key={`${i}-${item.label}`} className="flex min-w-0 items-center gap-1.5">
               {item.href && !last ? (

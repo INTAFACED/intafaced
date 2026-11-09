@@ -208,14 +208,14 @@ export function AmountInput({
         />
         {unit ? <span className={cn('shrink-0 text-fg-2', hero ? 'text-md' : 'text-base font-medium')}>{unit}</span> : null}
         {showSteppers ? (
-          <span className="flex shrink-0 flex-col">
+          <span className="flex shrink-0 flex-row gap-1">
             <button
               type="button"
               tabIndex={-1}
               aria-label={stepLabels.up}
               disabled={disabled}
               onClick={() => step(1)}
-              className={cn('flex h-4 w-5 items-center justify-center rounded-xs text-fg-2 hover:text-fg', focusRing)}
+              className={cn('flex size-6 items-center justify-center rounded-xs text-fg-2 hover:text-fg', focusRing)}
             >
               <ChevronUp size={12} strokeWidth={2} aria-hidden="true" />
             </button>
@@ -225,7 +225,7 @@ export function AmountInput({
               aria-label={stepLabels.down}
               disabled={disabled}
               onClick={() => step(-1)}
-              className={cn('flex h-4 w-5 items-center justify-center rounded-xs text-fg-2 hover:text-fg', focusRing)}
+              className={cn('flex size-6 items-center justify-center rounded-xs text-fg-2 hover:text-fg', focusRing)}
             >
               <ChevronDown size={12} strokeWidth={2} aria-hidden="true" />
             </button>

@@ -98,10 +98,12 @@ describe('Breadcrumbs', () => {
     expect(count(out, /data-slot="breadcrumbs-separator" aria-hidden="true"/g)).toBe(2);
   });
 
-  it('truncates long labels and keeps the full text in title', () => {
+  it('wraps long labels instead of cutting them off, and keeps the full text in title', () => {
     const long = 'A very long account name that would otherwise break the line';
     const o = html(<Breadcrumbs items={[{ label: long, href: '/a' }, { label: 'x' }]} />);
-    expect(o).toContain('truncate');
+    expect(o).toContain('break-words');
+    expect(o).not.toContain('truncate');
+    expect(o).toContain(`>${long}</a>`);
     expect(o).toContain(`title="${long}"`);
   });
 });
