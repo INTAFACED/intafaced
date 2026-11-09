@@ -32,7 +32,7 @@ import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
-import { testPartnerFor } from './partner/test-partner.js';
+import { testPartnerAccountDetails, testPartnerFor } from './partner/test-partner.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
@@ -358,6 +358,8 @@ const bank = createBankServices(sql, ledger, history, {
   accountDetails: {
     currencies: env.BANK_ACCOUNT_DETAILS_CURRENCIES,
     eligibilityJson: env.BANK_ELIGIBILITY_JSON,
+    // The TEST partner issues TEST details to a person who switched it on (J-bank-01 #6); otherwise none (`rail.bank`).
+    ...(testPartner ? { partnerFor: testPartnerAccountDetails(testPartner) } : {}),
   },
   /**
    * RAMPS — same missing-wiring shape as cards.

@@ -52,6 +52,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...(process.env.LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS === 'off'
       ? {}
       : { SUPPORT_OFFICIAL_CHANNELS: loadProfile().values.SUPPORT_OFFICIAL_CHANNELS.value }),
+    // LOCAL TEST only, labelled in the same file: a complaint's final-response limit in calendar days (J-bank-18 #5).
+    // Production stays blank: complaints are still acknowledged and every deadline reads "not set" until the owner sets it.
+    SUPPORT_COMPLAINT_RESPONSE_DAYS: '14',
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
     // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',

@@ -85,6 +85,14 @@ const schema = serviceEnvSchema
        */
       SUPPORT_VERIFICATION_ATTEMPTS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
+       * A complaint's final-response limit, in calendar days from its acknowledgement (BK-safe-03, J-bank-18 #5). Blank is an
+       * owner value left unset: complaints are still taken and acknowledged, and each deadline reads "not set". Never defaulted.
+       */
+      SUPPORT_COMPLAINT_RESPONSE_DAYS: z.preprocess(
+        (v) => (v === '' ? undefined : v),
+        z.coerce.number().int().positive().max(366).optional(),
+      ),
+      /**
        * How many personal views one person may save, and how many shared views the desk may keep.
        * Blank is unset: a save refuses support.view_cap_unset and names the setting. Never defaulted.
        */

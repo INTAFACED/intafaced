@@ -19,6 +19,7 @@ const switches = z
     rampFee: z.enum(['known', 'unknown']),
     custody: z.enum(['on', 'off']),
     cardHold: z.enum(['live', 'expired']),
+    accountDetails: z.enum(['none', 'issued']),
   })
   .strict();
 

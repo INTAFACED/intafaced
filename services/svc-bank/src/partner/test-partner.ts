@@ -1,5 +1,6 @@
 import { isExplicitDevOrTest } from '@intafaced/config';
 import { BankError } from '../errors.js';
+import type { AccountDetailSet, AccountDetailsPartner } from '../account-details/account-details.js';
 
 /**
  * THE TEST PARTNER BANK AND THE TEST RAMP, AND THEY ARE TEST FIXTURES (CUSTODY-DELTA §4; OWNER 226).
@@ -58,6 +59,11 @@ export interface TestPartnerSwitches {
    * releases it, as a partner does when a merchant never captures. `live` (the default): a hold runs its TEST hold time.
    */
   readonly cardHold: 'live' | 'expired';
+  /**
+   * `issued`: the partner has issued this person TEST account details, labelled TEST (J-bank-01 #6). `none`, the default,
+   * is a stack with no banking partner for account details: every currency answers `rail.bank` and no number is shown.
+   */
+  readonly accountDetails: 'none' | 'issued';
 }
 
 export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
@@ -69,6 +75,7 @@ export const SWITCHES_OFF: TestPartnerSwitches = Object.freeze({
   rampFee: 'known',
   custody: 'on',
   cardHold: 'live',
+  accountDetails: 'none',
 });
 
 /** The partner's reserve as it reports it. An amount it has not told us is null, read as "not known", never 0. */
@@ -209,4 +216,31 @@ export function assertRampFeeKnown(partner: TestPartner | null | undefined, user
       'bank.onramp_fee_not_known',
     );
   }
+}
+
+/**
+ * The TEST partner's account details for one person, or none: with `accountDetails: 'issued'` the TEST partner answers
+ * as a banking partner would, with one set per currency labelled TEST (its bank is the TEST partner bank, and every value
+ * says TEST, so nothing reads as a real account); otherwise there is no partner and the service answers `rail.bank`.
+ */
+export function testPartnerAccountDetails(partner: TestPartner): (userId: string) => AccountDetailsPartner | undefined {
+  const details = (userId: string, currency: string): AccountDetailSet => ({
+    id: `test-partner:${userId}:${currency}`,
+    accountNumber: `TEST-${currency}-${userId.replace(/-/g, '').toUpperCase()}`,
+    sortCode: null,
+    routingNumber: null,
+    bsb: null,
+    iban: null,
+    bic: null,
+    partnerBank: partner.label,
+    restrictions: ['TEST details: no real account exists and nothing can be received'],
+  });
+  const issued = { state: 'done' as const };
+  // The partner down answers nothing, as at every other partner-held door.
+  const answer = async (userId: string, currency: string) => {
+    assertPartnerAnswering(partner, userId);
+    return { ...issued, sets: [details(userId, currency)] };
+  };
+  const issuer: AccountDetailsPartner = { detailsFor: answer, request: answer };
+  return (userId) => (partner.switches(userId).accountDetails === 'issued' ? issuer : undefined);
 }
