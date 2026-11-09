@@ -829,6 +829,15 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   assert.equal(shiftQuotedIn(rec, { ...at, bps: 0n, since: 0 }), true, 'asking for the shift already quoted does not wait forever');
   assert.equal(shiftQuotedIn(held, { ...at, bps: 0n, since: 0 }), false, 'a held market quoted nothing');
   assert.equal(shiftQuotedIn(shifted, { ...at, pid: 42, bps: -30n, since: 0 }), false, 'another run');
+  const bare = { ...rec, markets: { ...rec.markets, 'BTC/USDT': quoted('-30', 0) } };
+  assert.equal(shiftQuotedIn(bare, { ...at, bps: -30n, since: 0 }), false, 'chosen but nothing rests at it');
+  const { shiftQuoted: waitShift } = harness;
+  await assert.rejects(waitShift('BTC/USDT', null, 0, { what: '1.234%' }), /BTC\/USDT: 1\.234% is not a TEST price shift/);
+  await assert.rejects(
+    waitShift('BTC/USDT', -30n, 0, { ms: 5, pause: 1, read: () => rec, pid: () => 41, what: '-0.30%' }),
+    /never quoted BTC\/USDT -0\.30% within 0\.005 s of the move/,
+  );
+  await waitShift('BTC/USDT', -30n, 0, { pause: 1, read: () => shifted, pid: () => 41 });
 
   // The journeys' parseShift is the maker's rule.
   for (const t of ['+2%', '-6%', '0.5%', '0%', '-50%', '-51%', '101%', '100%', '2', '1.234%', ' -0.30% ', '-1.25%', '', undefined])
