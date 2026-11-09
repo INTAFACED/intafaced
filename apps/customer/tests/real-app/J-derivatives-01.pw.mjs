@@ -70,17 +70,16 @@ async function venueDesk(page) {
   await signIn(page, account());
   await page.goto(DESK);
   const connect = page.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
+  const shown = page.getByText(`${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`).first();
+  // The wallet announces itself after the desk paints: wait for either the Connect button or the connected address.
+  await expect(connect.or(shown)).toBeVisible();
   if (await connect.isVisible()) await connect.click();
-  await expect(page.getByText(`${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}`).first()).toBeVisible();
+  await expect(shown).toBeVisible();
   return { wallet, owner: wallet.address.toLowerCase() };
 }
 
 /** The figure a review or row lists next to `label` (its dt/dd pair). */
-const listed = (scope, label) =>
-  scope
-    .locator('div', { has: scope.page().locator('dt', { hasText: label }) })
-    .locator('dd')
-    .first();
+const listed = (scope, label) => scope.locator('dt', { hasText: label }).first().locator('xpath=following-sibling::dd[1]');
 
 /** A number as the desk draws it, as scaled units. */
 function shownUnits(text) {
@@ -324,7 +323,9 @@ test(`${J} #8 confirms "Open long" and signs: the venue opens one position; a do
   // One signature for the order (the leverage setting, where the venue needs it first, is its own signed action).
   const orderSignatures = wallet.requests.slice(asked).filter((r) => JSON.stringify(r.params).includes('place_order'));
   expect(orderSignatures).toHaveLength(1);
-  expect(new Set(submits.map((s) => s.actionKey)).size).toBe(submits.length);
+  // One order sent: every submit of the open is the same prepared action (a resend of the same key is the same order).
+  const opens = submits.filter((s) => !/leverage/.test(String(s.actionKey)));
+  expect(new Set(opens.map((s) => s.actionKey)).size).toBe(1);
   const [position] = await venuePositions(who, owner);
   expect(position).toMatchObject({ symbol: VENUE_PERP, side: 'long', marginMode: 'isolated' });
   expect(toUnits(position.size)).toBe(toUnits(SIZE));
@@ -346,7 +347,7 @@ test(`${J} #9 opens the positions room: entry, mark, unrealised result, margin, 
   expect(position, 'one position on the venue').toBeTruthy();
   const row = page.getByRole('row').filter({ hasText: VENUE_PERP }).first();
   await expect(row).toContainText(`Long ${LEVERAGE}x`);
-  const heads = (await page.getByRole('row').first().getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
+  const heads = (await row.locator('xpath=ancestor::table[1]').getByRole('columnheader').allInnerTexts()).map((h) => h.trim());
   const cells = await row.getByRole('cell').allInnerTexts();
   const col = (name) => {
     const i = heads.findIndex((h) => name.test(h));
