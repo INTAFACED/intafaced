@@ -233,7 +233,15 @@ describe('a withdrawal confirms it’s you before the wallet is asked', () => {
     expect(shortAddress(OWNER)).toBe('0x1234…abcd');
     const pending = renderToStaticMarkup(
       <WithdrawalLine
-        withdrawal={{ nonce: '1731', asset: 'USDC', amount: '10', destination: OWNER, status: 'pending', fee: { known: false } }}
+        withdrawal={{
+          nonce: '1731',
+          asset: 'USDC',
+          amount: '10',
+          destination: OWNER,
+          status: 'pending',
+          fee: { known: false },
+          networkFee: { known: false },
+        }}
         asOf="2026-11-09T10:00:00.000Z"
       />,
     );
