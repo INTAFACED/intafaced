@@ -670,9 +670,69 @@ test(`${J} #8 opens Charts and Orders and trades and presses Download CSV: the e
 
   // Charts: the equity curve, with a marker on the bar of each fill and the same side.
   await result.getByRole('button', { name: 'Charts' }).click();
-  await expect(result.getByTestId('quant-bar-equity-chart').locator('polyline')).toHaveCount(1);
-  const markers = await result.getByTestId('quant-bar-marker').evaluateAll((dots) => dots.map((dot) => [dot.dataset.ts, dot.dataset.side]));
-  expect(markers).toEqual(shown);
+  const chart = result.getByTestId('quant-bar-equity-chart');
+  await expect(chart.locator('polyline')).toHaveCount(1);
+  // The curve's table is the stored run's equity, point for point, one per bar.
+  const table = await result.getByTestId('quant-bar-equity').evaluateAll((rows) => rows.map((row) => row.dataset.equity));
+  expect(table).toEqual(stored.equity.map((point) => point.equity));
+  expect(stored.equity.length, 'a curve needs at least two points').toBeGreaterThanOrEqual(2);
+  const barOf = new Map(stored.equity.map((point, i) => [Date.parse(point.ts), i]));
+  expect(barOf.size, 'one equity point per bar time').toBe(stored.equity.length);
+  // The drawing box, from the chart's own viewBox (its padding is the negative min-x and min-y).
+  const viewBox = await chart.getAttribute('viewBox');
+  expect(viewBox, 'the equity chart has a viewBox').toMatch(/^-?\d+ -?\d+ \d+ \d+$/);
+  const [minX, minY, boxW, boxH] = viewBox.split(' ').map(Number);
+  const W = boxW + 2 * minX;
+  const H = boxH + 2 * minY;
+  const pointsOf = (text, what) => {
+    expect(text, `${what} has points`).toMatch(/\d/);
+    return text
+      .trim()
+      .split(/\s+/)
+      .map((pair) => pair.split(',').map(Number));
+  };
+  const drawn = pointsOf(await chart.locator('polyline').getAttribute('points'), 'the curve');
+  // One drawn point per stored point, left to right in bar order, spanning the box from its left edge to its right.
+  expect(drawn).toHaveLength(stored.equity.length);
+  expect(drawn[0][0]).toBe(0);
+  expect(drawn.at(-1)[0]).toBe(W);
+  drawn.slice(1).forEach(([x], i) => expect(x).toBeGreaterThan(drawn[i][0]));
+  // Height follows equity: the highest equity at the top edge, the lowest at the bottom, and every point placed by its
+  // equity between them (within one unit of rounding), so a rise in equity draws higher and a fall draws lower.
+  const values = stored.equity.map((point) => toUnits(point.equity));
+  const top = values.reduce((a, b) => (b > a ? b : a));
+  const bottom = values.reduce((a, b) => (b < a ? b : a));
+  expect(top, 'the curve moves with the trades, not flat').toBeGreaterThan(bottom);
+  values.forEach((value, i) => {
+    const expectedY = H - Number(((value - bottom) * BigInt(H) * 1000n) / (top - bottom)) / 1000;
+    expect(Math.abs(drawn[i][1] - expectedY), `y of point ${i} (equity ${stored.equity[i].equity})`).toBeLessThanOrEqual(1);
+    if (value === top) expect(drawn[i][1]).toBe(0);
+    if (value === bottom) expect(drawn[i][1]).toBe(H);
+  });
+  // One marker per fill, in order, with its side, on the curve's point for the bar it filled on: a triangle whose tip
+  // (the vertex off the other two's line) sits straight above that point for a buy and straight below it for a sell.
+  const markers = await result
+    .getByTestId('quant-bar-marker')
+    .evaluateAll((dots) => dots.map((dot) => [dot.dataset.ts, dot.dataset.side, dot.getAttribute('points')]));
+  expect(markers.map(([ts, side]) => [ts, side])).toEqual(shown);
+  for (const [ts, side, points] of markers) {
+    const i = barOf.get(Date.parse(ts));
+    expect(i, `the fill at ${ts} falls on a bar of the curve`).toBeDefined();
+    const [x, y] = drawn[i];
+    const corners = pointsOf(points, `the ${side} marker at ${ts}`);
+    expect(corners).toHaveLength(3);
+    const tip = corners.find(([, cy]) => corners.filter(([, oy]) => oy === cy).length === 1);
+    expect(tip, `the ${side} marker at ${ts} has a tip`).toBeDefined();
+    const base = corners.filter((corner) => corner !== tip);
+    expect(tip[0], `the ${side} marker at ${ts} is centred on its bar`).toBe(x);
+    expect((base[0][0] + base[1][0]) / 2).toBe(x);
+    const baseY = base[0][1];
+    if (side === 'buy') expect(tip[1]).toBeLessThan(baseY);
+    else expect(tip[1]).toBeGreaterThan(baseY);
+    // The triangle straddles the curve's point for that bar.
+    expect(Math.min(tip[1], baseY)).toBeLessThanOrEqual(y);
+    expect(Math.max(tip[1], baseY)).toBeGreaterThanOrEqual(y);
+  }
   await expect(result.getByText(/^Equity by bar\. A triangle pointing up marks a buy/)).toBeVisible();
 
   // Formula cells are neutralised in the file this screen saves: the run's reply is read again with one TEST cell

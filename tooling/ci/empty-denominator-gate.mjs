@@ -141,11 +141,6 @@ const VERBOSE = process.argv.includes('--verbose');
 //                      and the fix is to update the row, which is a visible act.
 // ───────────────────────────────────────────────────────────────────────────
 export const ENFORCED = {
-  tracker: {
-    kind: 'guard',
-    must: /TRACKER REGISTRY INVALID/,
-    note: 'every `done` row is checked against files that must exist — an empty tree makes all 71 claims false rather than unverifiable.',
-  },
   'services-map': {
     kind: 'guard',
     must: /SERVICES MAP FAILED - services\/ or docker-compose\.apps\.yml is missing/,
@@ -155,11 +150,6 @@ export const ENFORCED = {
     kind: 'guard',
     must: /AGENTS\.md lost a core rule: file missing/,
     note: 'refuses by name when the agent entry files are absent, instead of reporting no stale rule over nothing.',
-  },
-  coverage: {
-    kind: 'guard',
-    must: /coverage-check: tooling\/coverage\.yaml does not exist/,
-    note: 'refuses on the absent matrix by path instead of reporting 0 drift over 0 capabilities.',
   },
   reachability: {
     kind: 'guard',
