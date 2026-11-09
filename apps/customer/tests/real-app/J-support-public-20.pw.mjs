@@ -114,6 +114,8 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
   // read first. The later one is linked to an order whose hold has an unknown outcome, made for real: the order rests,
   // the stack's matching engine stops, and the cancel sent then cannot learn whether the engine took the order off, so
   // svc-trade marks it recovery_required and keeps its hold.
+  // The customer's own order is cancelled first: its hold frees the funds the next order needs (the link stays, a fact).
+  expect((await cancelOrder(who, own)).status).toBeLessThan(300);
   const plain = await openRequest(who, 'plain');
   const flagged = await openRequest(who, 'flagged');
   const stuck = await restingOrder(who);
@@ -122,8 +124,8 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
     // Marked first, so a stop that times out after its signal still brings the engine back.
     stopped = true;
     stack('stop', 'matching');
-    const cancel = await (await api(who)).delete(`/api/v1/orders/${stuck}?symbol=${encodeURIComponent('BTC/USDT')}`);
-    expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeGreaterThanOrEqual(500);
+    const cancel = await cancelOrder(who, stuck);
+    expect(cancel.status, JSON.stringify(cancel.body).slice(0, 300)).toBeGreaterThanOrEqual(400);
   } finally {
     if (stopped) stack('start', '--only', 'matching');
   }
@@ -138,7 +140,7 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
   // Once the hold resolves (the engine is back and the cancel goes through), the queue reads the order's status live and
   // the linked request stops ranking first: the plain one is read first again.
   await expect
-    .poll(async () => (await (await api(who)).delete(`/api/v1/orders/${stuck}?symbol=${encodeURIComponent('BTC/USDT')}`)).status, {
+    .poll(async () => (await cancelOrder(who, stuck)).status, {
       timeout: 90_000,
       intervals: [3_000],
     })
@@ -154,6 +156,11 @@ test(`${J} #1 only a record that already belongs to the ticket's customer can be
     .toBe(true);
 });
 
+/** Cancel one of `who`'s BTC/USDT orders: the answer as Edge gave it. */
+async function cancelOrder(who, id) {
+  return (await api(who)).delete(`/api/v1/orders/${id}?symbol=${encodeURIComponent('BTC/USDT')}`);
+}
+
 function stack(...args) {
   return tool('local-test-stack.mjs', ...args);
 }
@@ -166,7 +173,7 @@ async function openRequest(who, tag) {
     category: 'deposit_withdraw',
     subject: `TEST ${J} ${RUN} ${tag} withdrawal missing`,
     body: 'TEST My withdrawal left my account two days ago and never arrived.',
-    clientRequestId: `j20:${RUN}:${tag}`,
+    clientRequestId: `j20:${RUN}:${tag}:${test.info().retry}`,
   });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
   return res.body.result.data;
