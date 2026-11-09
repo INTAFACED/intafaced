@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { WithdrawalView, readFailedState, venueRefusal } from './VenueWalletRoom';
 import { canonicalAmount, plainDecimal, scaledDecimal, toTokenUnits, venueWithdrawalKey, withDomainTypes } from './venue-account-api';
 import { venueWalletCopy } from './venue-wallet-copy';
+import { createVenueWalletApi } from './venue-wallet-api';
+import type { ApiClient } from '../../../shared/api';
 
 /** J-wallet-09: every refusal the venue room can meet reads in the room's own words, with its code as the reference. */
 const { t } = venueWalletCopy.forLocale('en');
@@ -134,5 +136,24 @@ describe('the venue account (J-wallet-09 #3, #5)', () => {
     expect(done).toContain('Done');
     expect(done).toMatch(/data-testid="network-fee">0.25 TEST USDC</);
     expect(renderToStaticMarkup(<WithdrawalView amount="10" record={null} t={t} />)).toContain('Not known: the venue is checking it');
+  });
+});
+
+describe('the connection check before a signed venue action', () => {
+  /** An ApiClient whose mutate answers `body` through the call's own schema, as the real client parses an answer. */
+  const answering = (body: unknown) =>
+    ({
+      mutate: async (_module: string, _procedure: string, _input: unknown, schema: { safeParse: (v: unknown) => { success: boolean } }) =>
+        schema.safeParse(body).success ? { ok: true, data: body } : { ok: false, reason: 'uncertain', message: 'unparsed' },
+    }) as unknown as ApiClient;
+
+  it('takes svc-protocol’s live answer (J-wallet-09 #3: a never-schema read every live answer as uncertain)', async () => {
+    const live = { address: '0x' + 'a'.repeat(40), action: 'deposit', live: true, expiresAt: '2026-11-09T14:50:13.000Z' };
+    expect(await createVenueWalletApi(answering(live)).authorize(live.address, 'deposit')).toEqual({ ok: true, data: live });
+  });
+
+  it('an answer that is not live is not taken as live', async () => {
+    const odd = { address: '0x' + 'a'.repeat(40), action: 'deposit', live: false, expiresAt: '2026-11-09T14:50:13.000Z' };
+    expect((await createVenueWalletApi(answering(odd)).authorize(odd.address, 'deposit')).ok).toBe(false);
   });
 });
