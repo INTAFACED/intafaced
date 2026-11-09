@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { WithdrawalView, readFailedState, venueRefusal } from './VenueWalletRoom';
-import { canonicalAmount, plainDecimal, scaledDecimal, toTokenUnits, venueWithdrawalKey, withDomainTypes } from './venue-account-api';
+import {
+  canonicalAmount,
+  outcomeUnknown,
+  plainDecimal,
+  scaledDecimal,
+  toTokenUnits,
+  venueWithdrawalKey,
+  withDomainTypes,
+  withdrawalAfter,
+} from './venue-account-api';
 import { venueWalletCopy } from './venue-wallet-copy';
 import { createVenueWalletApi } from './venue-wallet-api';
 import type { ApiClient } from '../../../shared/api';
@@ -57,6 +66,24 @@ describe('venue room refusals', () => {
 });
 
 describe('the venue account (J-wallet-09 #3, #5)', () => {
+  it("keeps a withdrawal's key until the venue answers definitely, so a retry is never a second withdrawal", () => {
+    // Before anything signed reaches the venue: an unknown answer, or a wallet that did not sign, keeps the same key.
+    expect(withdrawalAfter({ at: 'prepare', failed: 'unreachable' })).toBe('retry');
+    expect(withdrawalAfter({ at: 'prepare', failed: 'uncertain' })).toBe('retry');
+    expect(withdrawalAfter({ at: 'sign', signed: false })).toBe('retry');
+    // A submit whose answer was lost may have reached the venue: its record decides, then the same key comes back.
+    expect(withdrawalAfter({ at: 'submit', failed: 'unreachable' })).toBe('follow-then-retry');
+    expect(withdrawalAfter({ at: 'submit', failed: 'aborted' })).toBe('follow-then-retry');
+    expect(withdrawalAfter({ at: 'submit', definite: false, accepted: false })).toBe('follow');
+    expect(withdrawalAfter({ at: 'submit', definite: true, accepted: true })).toBe('follow');
+    // Only a definite no makes the next withdrawal a new key.
+    expect(withdrawalAfter({ at: 'prepare', failed: 'error' })).toBe('new');
+    expect(withdrawalAfter({ at: 'submit', failed: 'forbidden' })).toBe('new');
+    expect(withdrawalAfter({ at: 'submit', definite: true, accepted: false })).toBe('new');
+    expect(['unreachable', 'uncertain', 'aborted', 'invalid_response'].every((r) => outcomeUnknown(r as 'unreachable'))).toBe(true);
+    expect(['error', 'unauthorized', 'forbidden', 'not_mounted', 'not_supported'].some((r) => outcomeUnknown(r as 'error'))).toBe(false);
+  });
+
   it('a refused withdrawal, a signature that does not match, and a missing step-up each say nothing was sent', () => {
     expect(venueRefusal(failed('trade.venue.insufficient_balance'), t)).toMatchObject({
       title: 'Not enough on the venue',

@@ -20,6 +20,7 @@ import {
   scaledDecimal,
   toTokenUnits,
   venueWithdrawalKey,
+  withdrawalAfter,
   withDomainTypes,
   type VenueDepositRoute,
   type VenueWithdrawal,
@@ -280,6 +281,8 @@ export function VenueWalletRoom() {
   const [figure, setFigure] = useState<VenueFigure | 'unread' | null>(null);
   const [depositNote, setDepositNote] = useState<{ amount: string; hash: string; credited: boolean | null } | null>(null);
   const [withdrawAsk, setWithdrawAsk] = useState<{ key: string; amount: string } | null>(null);
+  /** Bumped when the same ask is tried again, so its step-up asks afresh for the SAME key. */
+  const [withdrawTry, setWithdrawTry] = useState(0);
   const [withdrawal, setWithdrawal] = useState<{ amount: string; record: VenueWithdrawal | null } | null>(null);
   // Follows stop when the room goes away, so nothing keeps reading for a page that is gone.
   const mounted = useRef(true);
@@ -375,14 +378,20 @@ export function VenueWalletRoom() {
       void followDeposit(before.free, sentAmount);
     });
 
-  /** Reads the withdrawal by its nonce until the venue settles it, or the wait ends. */
-  async function followWithdrawal(nonce: string, withdrawn: string) {
+  /**
+   * Reads the withdrawal by its nonce until the venue settles it, or the wait ends. With `retry` (a submit whose answer
+   * was lost): if the venue never shows the record, the ask comes back with its SAME key, so trying again can't make a
+   * second withdrawal; while the record is unknown, no new withdrawal starts.
+   */
+  async function followWithdrawal(nonce: string, withdrawn: string, retry?: { key: string; amount: string }) {
     if (!owner) return;
     const until = Date.now() + FOLLOW_MS;
+    let seen = false;
     while (mounted.current && Date.now() < until) {
       const read = await account.withdrawal(owner, nonce);
       if (!mounted.current) return;
       if (read.ok && read.data.value) {
+        seen = true;
         const record = read.data.value;
         setWithdrawal({ amount: withdrawn, record });
         if (record.status !== 'pending') {
@@ -393,6 +402,12 @@ export function VenueWalletRoom() {
         }
       }
       await pause(FOLLOW_EVERY_MS);
+    }
+    if (retry && !seen && mounted.current) {
+      setUnsettledNonce(null);
+      setWithdrawal(null);
+      setWithdrawAsk(retry);
+      setWithdrawTry((n) => n + 1);
     }
   }
 
@@ -422,7 +437,8 @@ export function VenueWalletRoom() {
     once(async () => {
       const ask = withdrawAsk;
       if (!ask || !owner) return;
-      setWithdrawAsk(null);
+      // The ask, and its key, stay until the venue answers definitely (withdrawalAfter): a retry is the same withdrawal.
+      const again = () => setWithdrawTry((n) => n + 1);
       const prepared = await account.prepareWithdrawal({
         owner,
         asset: ASSET,
@@ -431,21 +447,43 @@ export function VenueWalletRoom() {
         withdrawalKey: ask.key,
         stepUpApprovalId,
       });
-      if (!prepared.ok) return setRefusal(venueRefusal(prepared, t));
+      if (!prepared.ok) {
+        if (withdrawalAfter({ at: 'prepare', failed: prepared.reason }) === 'retry') again();
+        else setWithdrawAsk(null);
+        return setRefusal(venueRefusal(prepared, t));
+      }
       // The venue's own payload, signed in the person's wallet: INTAFACED holds no key that can sign it.
       const typedData = withDomainTypes(prepared.data.prepared.typedData) as unknown as TypedDataDocument;
       const signed = await wallet.sign({ kind: 'typedData', typedData });
-      if (signed.status === 'rejected' || signed.status === 'failed') {
-        return setRefusal(walletRefusal(signed.status, signed.status === 'failed' ? signed.reason : undefined));
+      if (signed.status !== 'signed') {
+        // Nothing signed reached the venue: the same key is tried again.
+        if (withdrawalAfter({ at: 'sign', signed: false }) === 'retry') again();
+        if (signed.status === 'rejected' || signed.status === 'failed') {
+          return setRefusal(walletRefusal(signed.status, signed.status === 'failed' ? signed.reason : undefined));
+        }
+        return setRefusal(walletRefusal('failed', 'wallet_error'));
       }
-      if (signed.status !== 'signed') return setRefusal(walletRefusal('failed', 'wallet_error'));
       const submitted = await account.submit(prepared.data.actionKey, {
         digest: prepared.data.prepared.digest,
         signature: signed.signature,
         signedBy: owner,
       });
-      if (!submitted.ok) return setRefusal(venueRefusal(submitted, t));
+      const nonce = prepared.data.prepared.nonce;
+      if (!submitted.ok) {
+        if (withdrawalAfter({ at: 'submit', failed: submitted.reason }) === 'new') {
+          setWithdrawAsk(null);
+          return setRefusal(venueRefusal(submitted, t));
+        }
+        // The submit may have reached the venue: its record, read by the nonce, decides; no new withdrawal meanwhile.
+        setWithdrawAsk(null);
+        setWithdrawal({ amount: ask.amount, record: null });
+        setUnsettledNonce(nonce);
+        setRefusal(venueRefusal(submitted, t));
+        return void followWithdrawal(nonce, ask.amount, ask);
+      }
       const outcome = submitted.data.outcome;
+      setWithdrawAsk(null);
+      // A definite refusal: this withdrawal won't happen, so the next one is a new key (withdrawalAfter: 'new').
       if (outcome.definite && !outcome.accepted) {
         return setRefusal(
           venueRefusal({ ok: false, reason: 'error', message: outcome.refusal.detail, code: `trade.venue.${outcome.refusal.code}` }, t),
@@ -453,8 +491,8 @@ export function VenueWalletRoom() {
       }
       // Accepted, or not definite: either way the venue's record, read by the nonce, is the answer.
       setWithdrawal({ amount: ask.amount, record: null });
-      setUnsettledNonce(prepared.data.prepared.nonce);
-      void followWithdrawal(prepared.data.prepared.nonce, ask.amount);
+      setUnsettledNonce(nonce);
+      void followWithdrawal(nonce, ask.amount);
     });
 
   const disconnect = () =>
@@ -604,6 +642,7 @@ export function VenueWalletRoom() {
                 {withdrawAsk ? (
                   <div data-venue-step-up>
                     <StepUpConfirm
+                      key={`${withdrawAsk.key}#${withdrawTry}`}
                       request={() => withdrawStepUp(withdrawAsk)}
                       words={{
                         why: t('stepUpWhy'),
