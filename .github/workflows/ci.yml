@@ -273,6 +273,8 @@ jobs:
       - run: node tooling/ci/post-merge-trust.mjs --self-test
       - run: node --test tooling/ci/journey-verdict.test.mjs
       - run: node tooling/ci/bisect-main.mjs --self-test
+      - run: node tooling/ci/journeys-revert.mjs --self-test
+      - run: node tooling/ci/journeys-revert-probe.mjs --self-test
       - run: node tooling/ci/test-shards.mjs --self-test
       - run: node tooling/ci/test-diff-guard.mjs --self-test
       - run: node tooling/ci/look-drift.mjs --self-test
