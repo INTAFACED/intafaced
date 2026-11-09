@@ -625,21 +625,13 @@ test(`${J} #8 opens the launch liquidity plan record and the maker incentive pro
   await expect(member.locator('[data-col=status]')).toHaveText('active');
   await expect(member.locator('[data-col=conflict]')).toHaveText(`TEST ${RUN}: none`);
 
-  // "Clawback records": the founder sees the programme's clawback records, each with its member and state. The payments
-  // section names its blocker by its code while settlement is not connected.
+  // Clawback records: nothing creates one (period settlement and clawback posting are not connected), so the list
+  // is empty and says so; the payments section names that blocker.
   const clawbacks = programme.getByRole('region', { name: 'Clawback records' });
   await expect(clawbacks).toBeVisible();
-  await expect(programme.getByRole('region', { name: 'Periods and payments' }).locator('[data-blocker]')).toHaveAttribute(
-    'data-blocker',
-    'maker_settlement_unbuilt',
-  );
-  await expect(clawbacks.locator('[data-clawbacks]')).toHaveAttribute('data-clawbacks', 'list');
-  const records = clawbacks.locator('tr[data-clawback]');
-  expect(await records.count(), 'at least one clawback record is shown').toBeGreaterThan(0);
-  for (const r of await records.all()) {
-    await expect(r).toHaveAttribute('data-clawback', /\S/);
-    await expect(r).toHaveAttribute('data-state', /\S/);
-  }
+  await expect(clawbacks.locator('tr[data-clawback]')).toHaveCount(0);
+  await expect(clawbacks).toContainText('No clawback recorded');
+  await expect(programme.getByRole('region', { name: 'Periods and payments' })).toContainText('Not connected');
 
   // ── The launch-liquidity plan record: one record per market. ──
   await page.goto(`${ADMIN}/trade-ops/launch-liquidity`);
