@@ -651,6 +651,8 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(questions.getByRole('status')).toHaveText('Saved. This part is done.');
 
   const docs = app.getByRole('region', { name: 'Documents', exact: true });
+  // A sole trader is asked for proof of identity and proof of address, never a certificate of incorporation.
+  await expect(documentRows(docs)).toHaveText([/^Test proof of identity/, /^Test proof of address/]);
   await expect(docs).toContainText('Files up to 1.0 MB. Accepted: PDF, PNG.');
   await expect(docs).toContainText('The automatic document check isn’t connected');
   const identity = docs.getByRole('row', { name: /Test proof of identity/ });
@@ -730,7 +732,25 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(reviewed.locator('input[type=file]')).toHaveCount(0);
   expect(uploads).toHaveLength(3);
   expect(refused).toEqual([]);
+
+  // "a sole trader is asked different documents from a company": another new owner starts a company's application, and
+  // the documents asked for are the company's (a certificate of incorporation and proof of address), not the sole trader's.
+  const other = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const companyPage = await other.newPage();
+    const companyOwner = await businessReadyPerson(companyPage, 'mdk', '/pay/onboarding');
+    await openBusiness(companyPage, companyOwner, 'TEST Company Documents Ltd');
+    const companyApp = await startApplication(companyPage, 'Private company');
+    const companyDocs = companyApp.getByRole('region', { name: 'Documents', exact: true });
+    await expect(documentRows(companyDocs)).toHaveText([/^Test certificate of incorporation/, /^Test proof of address/]);
+    await expect(companyDocs.getByRole('row', { name: /Test proof of identity/ })).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
 });
+
+/** The document rows a Documents region asks for, one per document, in the order shown. */
+const documentRows = (docs) => docs.getByRole('row').filter({ has: docs.page().locator('td') });
 
 test(`${J} #4 the owner answers an information request from the reviewer: a banner when one is past due, an infected file refused, and a closed request shows who closed it`, async ({
   page,

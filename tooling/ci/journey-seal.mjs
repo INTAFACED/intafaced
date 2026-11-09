@@ -556,8 +556,36 @@ export function currentReportArtifact(run, artifacts) {
 
 // ---- GitHub reads (GET only; a refusal or an unreadable list fails the seal closed) ----
 
+/** Statuses a GET is tried again on: GitHub's own short outages, never a refusal (a 403 or 429 stops at once). */
+const TRANSIENT = new Set([502, 503, 504]);
+
+/**
+ * One GET, tried up to `tries` times when the request itself fails (Node's "fetch failed": a reset or a timeout on the
+ * way) or GitHub answers 502, 503 or 504, `waitMs` apart, then the last answer or error as it is, so the seal still fails
+ * closed. A thrown error keeps its cause's code, which Node's "fetch failed" alone hides (intafaced#7707, seal run
+ * 42698308612: "which reds main already had couldn't be read (fetch failed)" on two attempts in a row).
+ */
+export async function getTried(
+  url,
+  init,
+  { fetchImpl = fetch, tries = 3, waitMs = 3000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {},
+) {
+  for (let n = 1; ; n++) {
+    try {
+      const res = await fetchImpl(url, init);
+      if (!TRANSIENT.has(res.status) || n >= tries) return res;
+    } catch (e) {
+      if (n >= tries) {
+        const code = e?.cause?.code ?? e?.cause?.message;
+        throw new Error(`${e?.message ?? e}${code ? ` (${code})` : ''} after ${n} tries`, { cause: e });
+      }
+    }
+    await sleep(waitMs * n);
+  }
+}
+
 async function api(path, token, { raw = false } = {}) {
-  const res = await fetch(`https://api.github.com${path}`, {
+  const res = await getTried(`https://api.github.com${path}`, {
     headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
     redirect: 'follow',
   });
@@ -635,7 +663,7 @@ export function makeIo(repo, token) {
     },
     async text(path, ref) {
       const url = `/repos/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`;
-      const res = await fetch(`https://api.github.com${url}`, {
+      const res = await getTried(`https://api.github.com${url}`, {
         headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github.raw+json' },
         redirect: 'follow',
       });
