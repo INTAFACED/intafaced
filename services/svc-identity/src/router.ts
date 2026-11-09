@@ -1454,7 +1454,10 @@ export function createIdentityRouter(
             phone: z.string().trim().max(20).optional(),
             password: z.string().max(200),
             country: z.string().trim().length(2),
-            nationality: z.string().trim().length(2).optional(),
+            /** ISO 3166-2 subdivision of residence (`CA-QC`); asked for where a subdivision is blocked on its own. */
+            subdivision: z.string().trim().min(4).max(6).optional(),
+            /** Country of citizenship (ISO 3166-1 alpha-2) or an ISO 3166-2 subdivision. */
+            nationality: z.string().trim().min(2).max(6).optional(),
             dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date of birth must be YYYY-MM-DD'),
             accountType: z.enum(ACCOUNT_TYPES),
             referrerId: z.string().guid().optional(),

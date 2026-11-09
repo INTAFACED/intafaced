@@ -9,6 +9,8 @@ import {
   activeBusinessBlocks,
   businessBlocksFrom,
   checkAccess,
+  checkCitizenship,
+  hasSubdivisionRows,
   testBusinessBlocksFromEnv,
   TEST_BUSINESS_BLOCK_REASON,
   TEST_BUSINESS_BLOCKS_ENV,
@@ -22,7 +24,7 @@ import {
   tierSatisfies,
 } from './jurisdiction.js';
 import { MODULES } from './modules.js';
-import { UNSET_SCREENING_LIST, type ScreeningList } from './screening.js';
+import { UNSET_SCREENING_LIST, parseScreeningList, regionCodeChain, type ScreeningList } from './screening.js';
 
 /**
  * Unset screening refuses. These tests observe sovereignty and region rules,
@@ -392,5 +394,101 @@ describe('the US is blocked at launch on the per-country switch (OWNER 237)', ()
     expect(status.businessBlockedRegions).toContain('US');
     expect(status.blockedRegions).not.toContain('US');
     expect(status.configured).toBe(false);
+  });
+});
+
+/**
+ * OWNER 258 (1), "All like you recommend": the launch default for blocked places is Hyperliquid's own restricted list,
+ * terms clause 1.6 (https://app.hyperliquid.xyz/terms, "Last updated on June 15, 2026", read 9 Nov 2026): (a) residence
+ * or location in the US or Ontario, Canada; (b) sanctioned territories; (c) citizens of sanctioned territories,
+ * regardless of their location. Sub-country rows are ISO 3166-2 codes on the same per-country switch.
+ */
+describe('sub-country rows and citizenship (Hyperliquid terms 1.6, OWNER 258)', () => {
+  const CLEAR: ScreeningList = { regions: [], declaration: 'reviewed-empty', configured: true, source: 'TEST fixture' };
+  // Placeholder subdivision codes in user-assigned country space (AA, QM-QZ): this repo names no sanctioned region.
+  const SUB_LISTED = parseScreeningList('QM-01:TEST subdivision row,QN:TEST country row', 'counsel-memo-TEST');
+  const q = { module: 'trade' as const, plane: 'fiat' as const, kycTier: 'institutional' as const, screeningFailClosed: false };
+
+  it('reads a subdivision as itself, then its country', () => {
+    expect(regionCodeChain('ca-on')).toEqual(['CA-ON', 'CA']);
+    expect(regionCodeChain('UA-43')).toEqual(['UA-43', 'UA']);
+    expect(regionCodeChain('CA')).toEqual(['CA']);
+  });
+
+  it('refuses Ontario (CA-ON) as a business block on every module and plane, and never as screening', () => {
+    expect(businessBlockFor('CA-ON')).toMatchObject({ region: 'CA-ON', authority: 'business', reason: 'Ontario, Canada is not served at launch.' });
+    for (const m of Object.values(MODULES)) {
+      for (const plane of m.planes) {
+        const d = checkAccess({ ...q, module: m.id, plane, region: 'ca-on', screening: CLEAR });
+        expect(d.allowed, `${m.id}/${plane}`).toBe(false);
+        expect(d.code, `${m.id}/${plane}`).toBe('denied.region_blocked');
+        expect(d.blockedBy, `${m.id}/${plane}`).toBe('business');
+      }
+    }
+    const status = screeningStatus(UNSET_SCREENING_LIST);
+    expect(status.businessBlockedRegions).toContain('CA-ON');
+    expect(status.blockedRegions).not.toContain('CA-ON');
+    expect(status.configured).toBe(false);
+  });
+
+  it('serves the rest of Canada: CA-QC, CA-BC and bare CA are allowed', () => {
+    for (const region of ['CA-QC', 'CA-BC', 'CA']) {
+      expect(businessBlockFor(region), region).toBeUndefined();
+      expect(isRegionBlocked(region, CLEAR), region).toBe(false);
+      expect(checkAccess({ ...q, region, screening: CLEAR }).allowed, region).toBe(true);
+    }
+  });
+
+  it('a country block still covers its subdivisions (US-CA is the US)', () => {
+    const d = checkAccess({ ...q, region: 'US-CA', screening: CLEAR });
+    expect(d.code).toBe('denied.region_blocked');
+    expect(d.blockedBy).toBe('business');
+  });
+
+  it('knows when a country needs its subdivision asked, from either authority, naming no region', () => {
+    expect(hasSubdivisionRows('CA', CLEAR)).toBe(true);
+    expect(hasSubdivisionRows('ca', CLEAR)).toBe(true);
+    expect(hasSubdivisionRows('DE', CLEAR)).toBe(false);
+    expect(hasSubdivisionRows('US', CLEAR)).toBe(false);
+    expect(hasSubdivisionRows('QM', SUB_LISTED)).toBe(true);
+    expect(hasSubdivisionRows('QN', SUB_LISTED)).toBe(false);
+    expect(hasSubdivisionRows('QM', CLEAR)).toBe(false);
+  });
+
+  it('a subdivision row in the screening list refuses that region, not the rest of its country', () => {
+    const hit = checkAccess({ ...q, region: 'QM-01', screening: SUB_LISTED });
+    expect(hit.code).toBe('denied.region_blocked');
+    expect(hit.blockedBy).toBe('screening');
+    expect(hit.reason).toBe('TEST subdivision row');
+    expect(checkAccess({ ...q, region: 'QM-02', screening: SUB_LISTED }).allowed).toBe(true);
+    expect(checkAccess({ ...q, region: 'QM', screening: SUB_LISTED }).allowed).toBe(true);
+    expect(checkAccess({ ...q, region: 'QN-07', screening: SUB_LISTED }).blockedBy).toBe('screening');
+  });
+
+  it('refuses citizens of a screened region wherever they live, and their subdivision when listed', () => {
+    for (const citizenship of ['QM-01', 'qn', 'QN-07']) {
+      const d = checkCitizenship({ citizenship, screening: SUB_LISTED, screeningFailClosed: true });
+      expect(d.allowed, citizenship).toBe(false);
+      expect(d.code, citizenship).toBe('denied.region_blocked');
+      expect(d.blockedBy, citizenship).toBe('screening');
+    }
+    expect(checkCitizenship({ citizenship: 'QM', screening: SUB_LISTED, screeningFailClosed: true }).allowed).toBe(true);
+    expect(checkCitizenship({ citizenship: 'DE', screening: SUB_LISTED, screeningFailClosed: true }).allowed).toBe(true);
+  });
+
+  it('does not refuse a US citizen, or an Ontario one, for citizenship: (c) is sanctioned territories only', () => {
+    for (const citizenship of ['US', 'CA-ON', 'CA']) {
+      const d = checkCitizenship({ citizenship, screening: SUB_LISTED, screeningFailClosed: true });
+      expect(d.allowed, citizenship).toBe(true);
+      expect(d.blockedBy, citizenship).toBeUndefined();
+    }
+  });
+
+  it('a blank screening list refuses citizenship with its typed error, never as clear', () => {
+    const d = checkCitizenship({ citizenship: 'US', screening: UNSET_SCREENING_LIST, screeningFailClosed: true });
+    expect(d.allowed).toBe(false);
+    expect(d.code).toBe('denied.screening_unconfigured');
+    const fixture = parseScreeningList('QM:placeholder', 'TEST fixture');
+    expect(checkCitizenship({ citizenship: 'DE', screening: fixture, screeningFailClosed: true }).code).toBe('denied.screening_fixture');
   });
 });
