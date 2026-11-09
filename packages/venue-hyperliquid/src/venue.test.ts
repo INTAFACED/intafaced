@@ -408,6 +408,79 @@ describe('prepare builds exactly what the wallet signs', () => {
   });
 });
 
+describe('preview reads the venue and sends nothing', () => {
+  const FEES = { userCrossRate: '0.00045', userAddRate: '0.00015', userSpotCrossRate: '0.0007', userSpotAddRate: '0.0004' };
+  const book = (bids: Array<[string, string]>, asks: Array<[string, string]>) => () => ({
+    coin: 'X',
+    time: NOW,
+    levels: [bids.map(([px, sz]) => ({ px, sz, n: 1 })), asks.map(([px, sz]) => ({ px, sz, n: 1 }))],
+  });
+
+  it('a resting perp buy: maker, its margin at the account leverage, the maker fee and our builder fee; no liquidation price', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => FEES;
+    fake.info.l2Book = book([['1990', '3']], [['2010', '3']]);
+    const p = (await venueWith(fake).preview(account, order({ builderFee: { builder: BUILDER, feeBps: a('0.5') } }))).value;
+    expect(p.role).toBe('maker');
+    expect(p.lock).toEqual({ asset: 'USDC-PERP', amount: a('100') });
+    expect(p.venueFee).toEqual({ known: true, value: { asset: 'USDC-PERP', amount: a('0.15') } });
+    expect(p.builderFee).toEqual({ known: true, value: { asset: 'USDC-PERP', amount: a('0.05') } });
+    expect(p.perpetual).toEqual({
+      leverageBps: 100_000,
+      marginMode: 'cross',
+      initialMargin: { known: true, value: a('100') },
+      liquidationPrice: { known: false },
+    });
+    expect(fake.exchangeBodies).toHaveLength(0);
+  });
+
+  it('a perp buy that crosses: taker, the met part at the taker rate and its fill prices, the rest at the maker rate', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => FEES;
+    // The bids side would be met by a sell, never by this buy.
+    fake.info.l2Book = book(
+      [['2005', '5']],
+      [
+        ['1999', '0.2'],
+        ['2001', '1'],
+      ],
+    );
+    const p = (await venueWith(fake).preview(account, order())).value;
+    expect(p.role).toBe('taker');
+    // 0.2 × 1999 = 399.8 at 4.5 bps = 0.17991; 0.3 × 2000 = 600 at 1.5 bps = 0.09.
+    expect(p.venueFee).toEqual({ known: true, value: { asset: 'USDC-PERP', amount: a('0.26991') } });
+    expect(p.builderFee).toEqual({ known: true, value: { asset: 'USDC-PERP', amount: a('0') } });
+  });
+
+  it('a spot buy locks its quote notional and pays the fee in the base it receives; an unpublished rate is not known', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => ({});
+    fake.info.l2Book = book([], [['0.21', '1000']]);
+    const spot = order({ symbol: 'PURR-USDC', amount: a('100'), price: a('0.2') });
+    const p = (await venueWith(fake).preview(account, spot)).value;
+    expect(p.kind).toBe('spot');
+    expect(p.role).toBe('maker');
+    expect(p.lock).toEqual({ asset: 'USDC', amount: a('20') });
+    expect(p.venueFee).toEqual({ known: false });
+    expect(p.perpetual).toBeNull();
+    fake.info.userFees = () => FEES;
+    const known = (await venueWith(fake).preview(account, spot)).value;
+    expect(known.venueFee).toEqual({ known: true, value: { asset: 'PURR', amount: a('0.04') } });
+  });
+
+  it('refuses on its face what prepare refuses, before any book is read', async () => {
+    const fake = fakeVenue();
+    fake.info.userFees = () => FEES;
+    fake.info.l2Book = book([], []);
+    const v = venueWith(fake);
+    await refusedWith(v.preview(account, order({ amount: a('0.12345') })), 'venue_rejected');
+    await refusedWith(v.preview(account, order({ symbol: 'PURR-USDC', amount: a('1'), price: a('0.2'), reduceOnly: true })), 'not_offered');
+    await refusedWith(v.preview(account, order({ symbol: 'NOPE-PERP' })), 'unknown_market');
+    expect(fake.infoTypes).not.toContain('l2Book');
+    expect(fake.exchangeBodies).toHaveLength(0);
+  });
+});
+
 describe('submit verifies before anything is sent', () => {
   it('a signature from another key, an edited intent, or a relabelled signer sends nothing', async () => {
     const fake = fakeVenue();

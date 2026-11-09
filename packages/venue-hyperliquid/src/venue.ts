@@ -1,4 +1,4 @@
-import { abs, compare, div, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
+import { abs, add, compare, div, min, mul, parseAmount, sub, ZERO, type Amount } from '@intafaced/ledger-client/money';
 import {
   VenueRefusalError,
   assertSignatureMatches,
@@ -20,7 +20,9 @@ import {
   type UserVenueOrder,
   type UserVenuePosition,
   type UserVenueWithdrawal,
+  type VenueAssetAmount,
   type VenueIntent,
+  type VenueOrderPreview,
   type VenueOrderStatus,
   type VenueRefusalCode,
   type VenueSignature,
@@ -480,6 +482,110 @@ export class HyperliquidTestnetUserVenue implements UserVenue {
       takerFeeBps: fee(m.kind === 'spot' ? 'userSpotCrossRate' : 'userCrossRate'),
     }));
     return this.asOf(list);
+  }
+
+  /**
+   * What an order would lock and cost now, read from the venue (its book, the account's fee rates and leverage) with
+   * nothing signed or sent. Refuses what `prepare` refuses on its face (lot and tick, post-only market).
+   *
+   * Our readings of the venue's rules, each to be confirmed on the live testnet run (project-state #1789):
+   * - the lock: a spot buy holds its quote notional, a spot sell its base, a perp order its notional over the
+   *   account's leverage (zero for reduce-only), as `openOrders` reports a resting order's lock;
+   * - the fee asset: spot fees in the asset received, perp fees in the perp collateral; our builder fee in the same;
+   * - the role: taker when the order meets the book's resting levels now or is IOC/market, maker otherwise.
+   * The venue publishes no pre-trade liquidation price, so it is `known: false`.
+   */
+  async preview(account: UserVenueAccount, intent: PlaceUserOrderIntent): Promise<AsOf<VenueOrderPreview>> {
+    this.checkAccount(account);
+    const venueId = this.venue.id;
+    if (intent?.kind !== 'place_order') throw refusal(venueId, 'not_offered', 'preview takes an order intent');
+    const m = await this.market(intent.symbol);
+    this.orderWire(m, intent);
+    const perp = m.kind === 'perpetual';
+    if (!perp && intent.reduceOnly) throw refusal(venueId, 'not_offered', 'reduce-only is for perpetuals');
+
+    const user = this.user(account);
+    const [book, fees, assetData] = await Promise.all([
+      this.info({ type: 'l2Book', coin: m.coin }),
+      this.info({ type: 'userFees', user }),
+      perp ? this.info({ type: 'activeAssetData', user, coin: m.coin }) : Promise.resolve(null),
+    ]);
+
+    // Walk the contra side's resting levels that cross the limit, best price first.
+    const levels = arr(obj(book, 'l2Book').levels, 'l2Book levels');
+    const contra = arr(levels[intent.side === 'buy' ? 1 : 0], 'l2Book side');
+    const takes: Array<{ qty: Amount; price: Amount }> = [];
+    let left = intent.amount;
+    for (const raw of contra) {
+      if (left === ZERO) break;
+      const level = obj(raw, 'l2Book level');
+      const price = amt(level.px, 'level px');
+      const crosses = intent.side === 'buy' ? compare(price, intent.price) <= 0 : compare(price, intent.price) >= 0;
+      if (!crosses) break;
+      const qty = min(left, amt(level.sz, 'level sz'));
+      takes.push({ qty, price });
+      left = sub(left, qty);
+    }
+    const immediate = intent.type === 'market' || intent.timeInForce === 'IOC';
+    const rests = left !== ZERO && !immediate ? left : ZERO;
+    const role: 'maker' | 'taker' = takes.length > 0 || immediate ? 'taker' : 'maker';
+
+    const feeRates = obj(fees, 'userFees');
+    const rate = (field: string): MaybeKnown<Amount> =>
+      typeof feeRates[field] === 'string' ? { known: true, value: rateToBps(feeRates[field]) } : { known: false };
+    const taker = rate(perp ? 'userCrossRate' : 'userSpotCrossRate');
+    const maker = rate(perp ? 'userAddRate' : 'userSpotAddRate');
+    const feeInBase = !perp && intent.side === 'buy';
+    const feeAsset = perp ? PERP_COLLATERAL_ASSET : feeInBase ? m.base : m.quote;
+    const basisOf = (qty: Amount, price: Amount) => (feeInBase ? qty : mul(price, qty, 'ceil'));
+    const bps = parseAmount(String(BPS_PER_X));
+    const feeOn = (basis: Amount, rateBps: Amount) => div(mul(basis, rateBps, 'ceil'), bps, 'ceil');
+    const line = (takerRate: MaybeKnown<Amount>, makerRate: MaybeKnown<Amount>): MaybeKnown<VenueAssetAmount> => {
+      let total = ZERO;
+      for (const t of takes) {
+        if (!takerRate.known) return { known: false };
+        total = add(total, feeOn(basisOf(t.qty, t.price), takerRate.value));
+      }
+      if (rests !== ZERO) {
+        if (!makerRate.known) return { known: false };
+        total = add(total, feeOn(basisOf(rests, intent.price), makerRate.value));
+      }
+      return { known: true, value: { asset: feeAsset, amount: total } };
+    };
+    const builderRate: MaybeKnown<Amount> = { known: true, value: intent.builderFee ? intent.builderFee.feeBps : ZERO };
+
+    let lock: VenueAssetAmount;
+    let perpetual: VenueOrderPreview['perpetual'] = null;
+    if (perp) {
+      const data = obj(assetData, 'activeAssetData');
+      if (!data.leverage) throw refusal(venueId, 'leverage_not_set', `${m.symbol}: the venue reports no leverage for this account`);
+      const lev = obj(data.leverage, 'leverage');
+      const leverageX = int(lev.value, 'leverage value');
+      const initialMargin = intent.reduceOnly
+        ? ZERO
+        : div(mul(intent.price, intent.amount, 'ceil'), parseAmount(String(leverageX)), 'ceil');
+      lock = { asset: PERP_COLLATERAL_ASSET, amount: initialMargin };
+      perpetual = {
+        leverageBps: leverageX * BPS_PER_X,
+        marginMode: lev.type === 'isolated' ? 'isolated' : 'cross',
+        initialMargin: { known: true, value: initialMargin },
+        liquidationPrice: { known: false },
+      };
+    } else {
+      lock =
+        intent.side === 'buy'
+          ? { asset: m.quote, amount: mul(intent.price, intent.amount, 'ceil') }
+          : { asset: m.base, amount: intent.amount };
+    }
+    return this.asOf({
+      symbol: m.symbol,
+      kind: m.kind,
+      lock,
+      role,
+      venueFee: line(taker, maker),
+      builderFee: line(builderRate, builderRate),
+      perpetual,
+    });
   }
 
   // ── prepare ────────────────────────────────────────────────────────────
