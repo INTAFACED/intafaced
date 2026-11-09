@@ -116,7 +116,7 @@ describe('finishing the reset', () => {
 
   it('keeps no password or code anywhere in its state', () => {
     const states = [asked(), atReset(), recoveryReducer(atReset(), { type: 'reset', issue: null })];
-    for (const state of states) expect(Object.keys(state).sort()).toEqual(['busy', 'codeAsked', 'email', 'problem', 'step']);
+    for (const state of states) expect(Object.keys(state).sort()).toEqual(['busy', 'codeAsked', 'email', 'fromLink', 'problem', 'step']);
   });
 
   it('lets the person ask for a new code, keeping the address', () => {
