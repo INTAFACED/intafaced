@@ -241,6 +241,7 @@ jobs:
           REPO: ${{ github.repository }}
           DISPATCH_FULL: ${{ github.event_name == 'workflow_dispatch' && env.JOURNEYS_TARGET == '' }}
           RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }} # a re-run the release let go doesn't wait for main again
         run: |
           script=.base/tooling/ci/main-first.mjs
           [ -f "$script" ] || script=tooling/ci/main-first.mjs
@@ -282,8 +283,9 @@ jobs:
 
   release-after-dispatch:
     name: Let deferred runs go after this full run
-    needs: [journeys]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.journeys == '' }}
+    needs: [touch, journeys]
+    # Only after a full run that ran: a deferred one ran nothing, and letting runs go from it would loop deferred runs.
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' && inputs.journeys == '' && needs.touch.outputs.mode != 'none' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5 # seconds
     permissions:

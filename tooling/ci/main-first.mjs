@@ -134,6 +134,17 @@ async function api(repo, path, token, method = 'GET') {
 const get = (repo, path, token) => api(repo, path, token);
 
 /** Whether this run is deferred, once: { defer, why }. Never throws; an unreadable API lets the run go on. */
+/**
+ * Why this run defers, or null. `main()` is why main is waiting (mainWaiting), `cap()` why the dispatch cap is full
+ * (dispatchBusy), or null when this is not a hand-dispatched full run. A re-run (`attempt` past 1) is one the release let
+ * go once main's shards were queued, and main's shards are then exactly the jobs still waiting, so it doesn't wait for
+ * main again (it would defer every time, and nothing would release it until the next main run). The cap still holds.
+ */
+export async function deferWhy({ attempt = 1, main, cap = null }) {
+  const why = Number(attempt) > 1 ? null : await main();
+  return why || (cap ? await cap() : null);
+}
+
 export async function decide(read) {
   try {
     const why = await read();
@@ -233,6 +244,13 @@ async function selfTest() {
     throw new Error('HTTP 502');
   });
   if (broken.defer || !/could not be read/.test(broken.why)) fail('deferred on an unreadable API', broken);
+  // A re-run the release let go doesn't wait for main's queued shards again; the cap still holds, and a first attempt waits.
+  let mainRead = 0;
+  const mainBusy = async () => (mainRead++, "main's run 1 has 44 job(s) waiting for a runner");
+  if ((await deferWhy({ attempt: '2', main: mainBusy })) !== null || mainRead) fail('a released re-run deferred for main again');
+  if (!(await deferWhy({ attempt: '2', main: mainBusy, cap: async () => 'the cap is full' }))) fail('a released dispatch skipped the cap');
+  if (!(await deferWhy({ attempt: '1', main: mainBusy }))) fail("a first attempt didn't wait for main");
+  if (await deferWhy({ attempt: '1', main: async () => null })) fail('deferred with nothing waiting');
   // The release: the newest deferred run per branch and event, completed, recent; never main, never a superseded one.
   const now = Date.parse('2026-11-09T11:00:00Z');
   const at = (m) => new Date(now - m * 60_000).toISOString();
@@ -272,7 +290,7 @@ async function selfTest() {
 
 async function main() {
   if (process.argv.includes('--self-test')) return selfTest();
-  const { GH_TOKEN, REPO, DISPATCH_FULL, RUN_ID, GITHUB_OUTPUT } = process.env;
+  const { GH_TOKEN, REPO, DISPATCH_FULL, RUN_ID, RUN_ATTEMPT, GITHUB_OUTPUT } = process.env;
   if (!GH_TOKEN || !REPO) return console.log('::notice::main-first has no GH_TOKEN or REPO; going on');
   const jobsOf = async (id) => (await get(REPO, `/actions/runs/${id}/jobs?filter=latest&per_page=100`, GH_TOKEN))?.jobs;
   if (process.argv.includes('--release')) {
@@ -281,22 +299,32 @@ async function main() {
     for (const id of ids) console.log(`re-run deferred run ${id}: HTTP ${await api(REPO, `/actions/runs/${id}/rerun`, GH_TOKEN, 'POST')}`);
     return console.log(`${ids.length} deferred run(s) let go`);
   }
-  const read = async () => {
-    const lists = await Promise.all(
-      ['queued', 'in_progress'].map((s) => get(REPO, `/actions/workflows/${WORKFLOW}/runs?branch=main&status=${s}&per_page=20`, GH_TOKEN)),
-    );
-    const why = await mainWaiting(
-      lists.flatMap((l) => l?.workflow_runs ?? []),
-      jobsOf,
-    );
-    if (why || DISPATCH_FULL !== 'true') return why;
-    const dispatched = await get(
-      REPO,
-      `/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&status=in_progress&per_page=50`,
-      GH_TOKEN,
-    );
-    return dispatchBusy(dispatched?.workflow_runs, jobsOf, RUN_ID);
-  };
+  const read = () =>
+    deferWhy({
+      attempt: RUN_ATTEMPT,
+      main: async () => {
+        const lists = await Promise.all(
+          ['queued', 'in_progress'].map((s) =>
+            get(REPO, `/actions/workflows/${WORKFLOW}/runs?branch=main&status=${s}&per_page=20`, GH_TOKEN),
+          ),
+        );
+        return mainWaiting(
+          lists.flatMap((l) => l?.workflow_runs ?? []),
+          jobsOf,
+        );
+      },
+      cap:
+        DISPATCH_FULL === 'true'
+          ? async () => {
+              const dispatched = await get(
+                REPO,
+                `/actions/workflows/${WORKFLOW}/runs?event=workflow_dispatch&status=in_progress&per_page=50`,
+                GH_TOKEN,
+              );
+              return dispatchBusy(dispatched?.workflow_runs, jobsOf, RUN_ID);
+            }
+          : null,
+    });
   const { defer, why } = await decide(read);
   console.log(defer ? `::notice::deferred: ${why}; this run runs nothing now, and is re-run when main's shards are queued` : why);
   if (GITHUB_OUTPUT) (await import('node:fs')).appendFileSync(GITHUB_OUTPUT, `deferred=${defer}\n`);

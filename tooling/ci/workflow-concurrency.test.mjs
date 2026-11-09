@@ -455,6 +455,13 @@ export function mainFirstProblems(text) {
     !relIf.includes("github.ref == 'refs/heads/main'")
   )
     problems.push('no `release` job lets deferred runs go on main once its shards are queued, so a deferred run never runs');
+  // A released re-run must not wait for main's queued shards again, or it defers every time.
+  if (!/\n {10}RUN_ATTEMPT: \$\{\{ github\.run_attempt \}\}/.test(step(touch, "Main's journeys first")))
+    problems.push("main-first doesn't get RUN_ATTEMPT, so a run the release let go defers again behind main's queued shards");
+  // After a hand-dispatched full run, release only from one that ran: deferred dispatch runs would re-run each other.
+  const after = job(text, 'release-after-dispatch');
+  if (!after || !/\n {4}needs: \[touch, journeys\]\n/.test(after) || !after.includes("needs.touch.outputs.mode != 'none'"))
+    problems.push('release-after-dispatch runs after a deferred run too, so deferred dispatch runs re-run each other');
   // The cap on hand-dispatched full runs: the mark main-first.mjs counts, main's copy of the script, and the flag.
   const mark = step(touch, DISPATCH_MARK);
   const markIf = /\n {8}if: (.*)\n/.exec(mark)?.[1] ?? '';
@@ -661,6 +668,12 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
   assert.notEqual(noRelease, t);
   assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));
+  const noAttempt = t.replace(/\n {10}RUN_ATTEMPT: .*/, '');
+  assert.notEqual(noAttempt, t);
+  assert.ok(mainFirstProblems(noAttempt).some((p) => /defers again/.test(p)));
+  const afterDeferred = t.replace(" && needs.touch.outputs.mode != 'none' }}", ' }}');
+  assert.notEqual(afterDeferred, t);
+  assert.ok(mainFirstProblems(afterDeferred).some((p) => /re-run each other/.test(p)));
   const noMark = t.replace(`- name: ${DISPATCH_MARK}\n`, '- name: Something\n');
   assert.notEqual(noMark, t);
   assert.ok(mainFirstProblems(noMark).some((p) => /can't count them/.test(p)));
