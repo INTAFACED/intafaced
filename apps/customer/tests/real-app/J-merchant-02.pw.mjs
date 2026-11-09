@@ -120,6 +120,12 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     await page.getByLabel('Contact email *').fill(owner.email);
   };
   const createButton = page.locator('form').getByRole('button', { name: 'Create my account' });
+  const expectBusinessDraft = async () => {
+    await expect(page.getByLabel('Legal business name *')).toHaveValue('TEST Draft Ltd');
+    await expect(page.getByLabel('Country code *')).toHaveValue('DE');
+    await expect(page.getByLabel('Type of business *')).toHaveValue('online shop');
+    await expect(page.getByLabel('Contact email *')).toHaveValue(owner.email);
+  };
 
   // With no starting fee published, the first step refuses to open an account: the room says why and the button stays
   // off, and the service refuses a create sent straight to it with its code. No account exists afterwards.
@@ -157,18 +163,27 @@ test(`${J} #1 starts onboarding and fills the business step: a saved draft that 
     expect(create.status).toBe(412);
     expect(create.typed).toBe('pay.starter_fee_unpublished');
     expect((await payCall('merchant.me')).data).toBeNull();
-    // The room asks before a reload drops what was typed; the owner leaves anyway, and the cleared form shows the reload ran.
+    // Leaving and coming back: what was typed on the business step is still there, and the step still refuses.
     page.once('dialog', (dialog) => dialog.accept());
     await page.reload();
-    await expect(page.getByLabel('Legal business name *')).toHaveValue('');
+    await expectBusinessDraft();
     await expect(page.getByText('Opening new accounts isn’t possible here. INTAFACED has not set the starting fee')).toBeVisible();
     await expect(page.getByText('Your merchant account exists.')).toHaveCount(0);
   } finally {
     payStarterFee(true);
   }
 
-  // The stack's TEST starting fee published again: the same step opens the account.
+  // "A saved draft that survives leaving": the business step, filled and left (the personal home, then a sign-out with the
+  // browser's storage cleared and a fresh sign-in), opens again with what was typed, before any account exists.
   await page.goto('/pay/onboarding/business');
+  await fillBusiness();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.goto('/home');
+  await forgetSession(page);
+  await signInWithCode(page, owner, '/pay/onboarding/business');
+  await expectBusinessDraft();
+
+  // The stack's TEST starting fee published again: the same step opens the account.
   await fillBusiness();
   await expect(page.getByText('Opening new accounts isn’t possible here')).toHaveCount(0);
   const created = page.waitForResponse((r) => r.url().includes('merchant.create') && r.request().method() === 'POST');
@@ -651,6 +666,8 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(questions.getByRole('status')).toHaveText('Saved. This part is done.');
 
   const docs = app.getByRole('region', { name: 'Documents', exact: true });
+  // A sole trader is asked for proof of identity and proof of address, never a certificate of incorporation.
+  await expect(documentRows(docs)).toHaveText([/^Test proof of identity/, /^Test proof of address/]);
   await expect(docs).toContainText('Files up to 1.0 MB. Accepted: PDF, PNG.');
   await expect(docs).toContainText('The automatic document check isn’t connected');
   const identity = docs.getByRole('row', { name: /Test proof of identity/ });
@@ -730,7 +747,25 @@ test(`${J} #3 the owner adds the people and documents a sole trader is asked for
   await expect(reviewed.locator('input[type=file]')).toHaveCount(0);
   expect(uploads).toHaveLength(3);
   expect(refused).toEqual([]);
+
+  // "a sole trader is asked different documents from a company": another new owner starts a company's application, and
+  // the documents asked for are the company's (a certificate of incorporation and proof of address), not the sole trader's.
+  const other = await browser.newContext({ baseURL: new URL(page.url()).origin });
+  try {
+    const companyPage = await other.newPage();
+    const companyOwner = await businessReadyPerson(companyPage, 'mdk', '/pay/onboarding');
+    await openBusiness(companyPage, companyOwner, 'TEST Company Documents Ltd');
+    const companyApp = await startApplication(companyPage, 'Private company');
+    const companyDocs = companyApp.getByRole('region', { name: 'Documents', exact: true });
+    await expect(documentRows(companyDocs)).toHaveText([/^Test certificate of incorporation/, /^Test proof of address/]);
+    await expect(companyDocs.getByRole('row', { name: /Test proof of identity/ })).toHaveCount(0);
+  } finally {
+    await other.close();
+  }
 });
+
+/** The document rows a Documents region asks for, one per document, in the order shown. */
+const documentRows = (docs) => docs.getByRole('row').filter({ has: docs.page().locator('td') });
 
 test(`${J} #4 the owner answers an information request from the reviewer: a banner when one is past due, an infected file refused, and a closed request shows who closed it`, async ({
   page,

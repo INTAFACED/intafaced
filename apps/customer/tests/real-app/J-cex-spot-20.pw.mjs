@@ -436,6 +436,7 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
   await expect.poll(async () => (fills = await customerFills(customer, order.id)).length, { timeout: 30_000 }).toBeGreaterThan(0);
   const fees = {};
   for (const f of fills) fees[f.fee.currency] = (fees[f.fee.currency] ?? 0n) + toUnits(f.fee.cost);
+  // Fees are taken in the asset each side receives, so the buyer's fee asset moves by this fill alone: exactly its fee.
   for (const [asset, fee] of Object.entries(fees)) {
     expect(fee).toBeGreaterThan(0n);
     await expect
@@ -446,21 +447,63 @@ test(`${J} #7 opens the venue unit economics report: revenue and cost lines from
         },
         { timeout: 60_000 },
       )
-      .toBeGreaterThanOrEqual(fee);
+      .toBe(fee);
+  }
+  // Each fee line is the ledger's own: what it kept is what it collected less what it returned, as decimal strings.
+  const feeRows = page.locator('[data-testid=fees-table] tbody tr');
+  expect(await feeRows.count()).toBeGreaterThan(0);
+  for (const row of await feeRows.all()) {
+    const cell = async (col) => (await row.locator(`[data-col=${col}]`).textContent()).trim();
+    const [c, r, k] = [await cell('collected'), await cell('returned'), await cell('kept')];
+    for (const v of [c, r, k]) expect(v).toMatch(/^-?\d+(\.\d+)?$/);
+    expect(toUnits(k), `${await row.getAttribute('data-asset')}: kept = collected - returned`).toBe(toUnits(c) - toUnits(r));
   }
 
-  // Every other line is a figure or a named blocker, never a blank and never a zero standing in for a missing read.
+  // The warehouse revenue: exactly one answer, and it is a figure or a named blocker, never a blank.
   const revenue = page.locator('[data-testid=revenue-table], [data-testid=revenue-empty], [data-testid=revenue-unavailable]');
   await expect(revenue).toHaveCount(1);
-  if ((await page.getByTestId('revenue-unavailable').count()) > 0)
-    await expect(page.getByTestId('revenue-unavailable')).toContainText(/Code: [a-z_.]+/i);
-  for (const category of ['liquidity', 'insurance_default_capital', 'custody', 'data', 'support', 'compliance', 'infrastructure']) {
-    await expect(page.getByTestId(`cost-${category}`)).toContainText(/Not entered|\d/);
+  if ((await page.getByTestId('revenue-unavailable').count()) > 0) {
+    await expect(page.getByTestId('revenue-unavailable')).toContainText('Revenue not available');
+    await expect(page.getByTestId('revenue-unavailable')).toContainText(/Code: [a-z][a-z0-9_.]*\. /);
+  } else if ((await page.getByTestId('revenue-table').count()) > 0) {
+    for (const value of await page.locator('[data-testid=revenue-table] tbody tr td:nth-child(3)').allTextContents())
+      expect(value.trim()).toMatch(/^-?\d+(\.\d+)?$/);
+  } else {
+    await expect(page.getByTestId('revenue-empty')).toHaveText(
+      'The analytics warehouse has no revenue to report. That is shown as empty, not as zero.',
+    );
   }
-  const net = page.locator('[data-testid=net-table], [data-testid=net-unavailable]');
-  await expect(net).toHaveCount(1);
-  if ((await page.getByTestId('net-unavailable').count()) > 0) {
-    await expect(page.getByTestId('net-unavailable')).toContainText(/costs_incomplete|revenue_unavailable|revenue_asset_unknown/);
+
+  // Each of the seven cost lines: an entered figure with its asset, or exactly "Not entered", which the incomplete
+  // notice then names; a line nobody entered is never a zero.
+  const labels = {
+    liquidity: 'Liquidity',
+    insurance_default_capital: 'Insurance and default capital',
+    custody: 'Custody',
+    data: 'Data',
+    support: 'Support',
+    compliance: 'Compliance',
+    infrastructure: 'Infrastructure',
+  };
+  const missing = [];
+  for (const [category, label] of Object.entries(labels)) {
+    const cells = (await page.getByTestId(`cost-${category}`).locator('td').allTextContents()).map((t) => t.trim());
+    expect(cells[0]).toBe(label);
+    if (cells[1] === 'Not entered') missing.push(label);
+    else expect(cells[1], `${label} is an entered figure`).toMatch(/^\d+(\.\d+)? [A-Z0-9]{2,12}$/);
+  }
+  // Net: a figure only when every line is entered; otherwise the named blocker for exactly that.
+  if (missing.length > 0) {
+    await expect(page.getByTestId('incomplete')).toContainText(`Not entered: ${missing.join(', ')}.`);
+    await expect(page.getByTestId('net-table')).toHaveCount(0);
+    await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', 'costs_incomplete');
+    await expect(page.getByTestId('net-unavailable')).toContainText('Code: costs_incomplete.');
+  } else {
+    await expect(page.getByTestId('incomplete')).toHaveCount(0);
+    const net = page.locator('[data-testid=net-table], [data-testid=net-unavailable]');
+    await expect(net).toHaveCount(1);
+    if ((await page.getByTestId('net-unavailable').count()) > 0)
+      await expect(page.getByTestId('net-unavailable')).toHaveAttribute('data-reason', /^(revenue_unavailable|revenue_asset_unknown)$/);
   }
 });
 
@@ -582,13 +625,21 @@ test(`${J} #8 opens the launch liquidity plan record and the maker incentive pro
   await expect(member.locator('[data-col=status]')).toHaveText('active');
   await expect(member.locator('[data-col=conflict]')).toHaveText(`TEST ${RUN}: none`);
 
-  // Clawback records: nothing creates one (period settlement and clawback posting are not connected), so the list
-  // is empty and says so; the payments section names that blocker.
+  // "Clawback records": the founder sees the programme's clawback records, each with its member and state. The payments
+  // section names its blocker by its code while settlement is not connected.
   const clawbacks = programme.getByRole('region', { name: 'Clawback records' });
   await expect(clawbacks).toBeVisible();
-  await expect(clawbacks.locator('tr[data-clawback]')).toHaveCount(0);
-  await expect(clawbacks).toContainText('No clawback recorded');
-  await expect(programme.getByRole('region', { name: 'Periods and payments' })).toContainText('Not connected');
+  await expect(programme.getByRole('region', { name: 'Periods and payments' }).locator('[data-blocker]')).toHaveAttribute(
+    'data-blocker',
+    'maker_settlement_unbuilt',
+  );
+  await expect(clawbacks.locator('[data-clawbacks]')).toHaveAttribute('data-clawbacks', 'list');
+  const records = clawbacks.locator('tr[data-clawback]');
+  expect(await records.count(), 'at least one clawback record is shown').toBeGreaterThan(0);
+  for (const r of await records.all()) {
+    await expect(r).toHaveAttribute('data-clawback', /\S/);
+    await expect(r).toHaveAttribute('data-state', /\S/);
+  }
 
   // ── The launch-liquidity plan record: one record per market. ──
   await page.goto(`${ADMIN}/trade-ops/launch-liquidity`);
