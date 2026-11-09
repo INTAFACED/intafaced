@@ -1,3 +1,12 @@
+import {
+  blockedBy,
+  CardControlStore,
+  noteStatusEvent,
+  type AuthorizationMerchant,
+  type CardControl,
+  type CardControlKind,
+  type CardStatusEvent,
+} from './card-controls.js';
 import { createHash } from 'node:crypto';
 import type { PendingQuery, Row, Sql } from 'postgres';
 import { transaction } from '@intafaced/db';
@@ -383,6 +392,9 @@ export interface AuthorizationRecord {
   /** WHAT MOVES, in the card's FUNDING asset. Not the merchant's number on a converted card. */
   amount: Amount;
   merchantCategory: string | null;
+  /** The merchant and its country as the issuer named them, or null when it named none (J-bank-14 #1). */
+  merchant: string | null;
+  merchantCountry: string | null;
   channel: CardChannel;
   decision: 'approved' | 'declined';
   declineCode: string | null;
@@ -882,6 +894,23 @@ export class CardService {
    * `actorUserId` is who asked: the owner by default, or a holder of a shared pot the card is linked to, whose freeze is
    * recorded as `holder`. When the status really changes, `onStatusChanged` hears it in the row's own transaction.
    */
+  /** The card's live controls and its lock history (J-bank-14 #1). The caller has already read the card as the person's. */
+  async controls(cardId: string): Promise<{ controls: CardControl[]; history: CardStatusEvent[] }> {
+    const store = new CardControlStore(this.sql);
+    const [controls, history] = await Promise.all([store.list(cardId), store.history(cardId)]);
+    return { controls, history };
+  }
+
+  async blockControl(cardId: string, kind: CardControlKind, value: string): Promise<CardControl> {
+    const card = await this.card(cardId);
+    if (card.status === 'closed') throw new BankError('A closed card takes no controls (bank.card_not_active)', 'bank.card_not_active');
+    return new CardControlStore(this.sql).block(cardId, kind, value);
+  }
+
+  async liftControl(cardId: string, controlId: string): Promise<void> {
+    return new CardControlStore(this.sql).lift(cardId, controlId);
+  }
+
   async setStatus(cardId: string, status: CardRecord['status'], actorUserId?: string): Promise<CardRecord> {
     const card = await this.card(cardId);
     if (card.status === 'closed' && status !== 'closed') {
@@ -900,6 +929,7 @@ export class CardService {
     const frozenBy = status === 'frozen' ? (actor === card.userId ? 'owner' : 'holder') : null;
     await transaction(this.sql, async (tx) => {
       const changed = await this.updateStatus(tx, cardId, tx`status = ${status}, frozen_by = ${frozenBy}`, status);
+      if (changed) await noteStatusEvent(tx, cardId, status, actor === card.userId ? 'owner' : 'holder');
       if (changed && this.onStatusChanged) {
         await this.onStatusChanged(tx, { cardId, ownerUserId: card.userId, actor: { userId: actor }, status });
       }
@@ -950,6 +980,7 @@ export class CardService {
       const frozenBy = input.status === 'frozen' ? 'operator' : null;
       await tx`UPDATE bank.cards SET status = ${input.status}, frozen_by = ${frozenBy}, updated_at = now() WHERE id = ${card.id}`;
       // The row is locked above, so this is the status it had.
+      if (card.status !== input.status) await noteStatusEvent(tx, card.id, input.status, 'operator');
       if (card.status !== input.status && this.onStatusChanged) {
         await this.onStatusChanged(tx, { cardId: card.id, ownerUserId: card.userId, actor: 'operator', status: input.status });
       }
@@ -1396,6 +1427,9 @@ export class CardService {
     /** THE MERCHANT'S NUMBER, in the card's SETTLEMENT asset. */
     amount: Amount;
     merchantCategory?: string;
+    /** The merchant and its two-letter country as the issuer names them; a blocked one declines (J-bank-14 #1). */
+    merchant?: string;
+    merchantCountry?: string;
     /** Omitted means card-present (chip or swipe at home), which the four switches do not gate. */
     channel?: CardChannel;
   }): Promise<AuthorizationRecord> {
@@ -1434,7 +1468,7 @@ export class CardService {
         span.setAttribute('intafaced.card_funding_amount', formatAmount(fundingAmount));
         span.setAttribute('intafaced.card_channel', channel);
 
-        const declineCode = await this.declineReason(card, fundingAmount, channel);
+        const declineCode = await this.declineReason(card, fundingAmount, channel, input);
 
         if (declineCode) {
           span.setAttribute('intafaced.card_decision', 'declined');
@@ -1564,8 +1598,17 @@ export class CardService {
    * top of the daily and monthly ones. Card-present (chip or swipe at home) is
    * not one of the four switches.
    */
-  private async declineReason(card: CardRecord, fundingAmount: Amount, channel: CardChannel): Promise<string | null> {
+  private async declineReason(
+    card: CardRecord,
+    fundingAmount: Amount,
+    channel: CardChannel,
+    at: AuthorizationMerchant,
+  ): Promise<string | null> {
     if (card.status !== 'active' || cardInactive(card)) return 'bank.card_not_active';
+    // The person's own blocks (J-bank-14 #1): a blocked category, merchant or country declines before any limit or
+    // balance is read, so nothing is held for it.
+    const blocked = blockedBy(await new CardControlStore(this.sql).list(card.id), at);
+    if (blocked) return blocked;
     // THE CEILING IS IN THE FUNDING ASSET, and it is checked against the
     // CONVERTED amount. A limit denominated in the asset the card draws on is a
     // limit on what may leave the user's balance, which is the thing a ceiling
@@ -2248,7 +2291,7 @@ export class CardService {
   async authorizationsOf(cardId: string, limit?: number): Promise<AuthorizationRecord[]> {
     const page = assertCardAuthorizationsListLimit(limit);
     const rows = await this.sql<AuthorizationRow[]>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
@@ -2263,7 +2306,7 @@ export class CardService {
   /** One authorisation by id, for the operator read (BK-cops-01). Null when there is none; never writes. */
   async authorizationById(authorizationId: string): Promise<(AuthorizationRecord & { userId: string; assetId: string }) | null> {
     const rows = await this.sql<Array<AuthorizationRow & { user_id: string; card_asset_id: string }>>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of,
              k.user_id, k.asset_id AS card_asset_id
@@ -2296,7 +2339,7 @@ export class CardService {
 
   private async authorizationByRef(cardId: string, authorizationRef: string): Promise<AuthorizationRecord | null> {
     const rows = await this.sql<AuthorizationRow[]>`
-      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.channel, a.decision, a.decline_code, a.status,
+      SELECT a.id, a.card_id, a.authorization_ref, a.amount, a.merchant_category, a.merchant, a.merchant_country, a.channel, a.decision, a.decline_code, a.status,
              a.hold_ledger_tx_id, a.decided_at,
              c.settlement_asset_id, c.settlement_amount, c.funding_asset_id, c.funding_amount, c.rate, c.rate_quality, c.rate_as_of
         FROM bank.card_authorizations a
@@ -2384,7 +2427,7 @@ export class CardService {
    */
   private async recordDecision(input: {
     card: CardRecord;
-    input: { authorizationRef: string; merchantCategory?: string; channel: CardChannel };
+    input: { authorizationRef: string; merchantCategory?: string; merchant?: string; merchantCountry?: string; channel: CardChannel };
     fundingAmount: Amount;
     quote: ConversionQuote | null;
     decision: 'approved' | 'declined';
@@ -2417,10 +2460,10 @@ export class CardService {
           }
         }
         const claimed = await tx<Array<{ id: string }>>`
-          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, channel, decision, decline_code, status)
+          INSERT INTO bank.card_authorizations (card_id, authorization_ref, amount, merchant_category, merchant, merchant_country, channel, decision, decline_code, status)
           VALUES (
             ${input.card.id}, ${input.input.authorizationRef}, ${formatAmount(input.fundingAmount)}::numeric,
-            ${input.input.merchantCategory ?? null}, ${input.input.channel}, ${decision}, ${declineCode},
+            ${input.input.merchantCategory ?? null}, ${input.input.merchant?.trim() || null}, ${input.input.merchantCountry?.trim().toUpperCase() || null}, ${input.input.channel}, ${decision}, ${declineCode},
             ${decision === 'approved' ? 'pending' : 'rejected'}
           )
           ON CONFLICT (card_id, authorization_ref) DO NOTHING
@@ -2755,6 +2798,8 @@ export class CardService {
     await this.issuer.setStatus({ cardId: current.id, issuerRef: current.issuerRef, status: 'closed' });
     await transaction(this.sql, async (tx) => {
       const changed = await this.updateStatus(tx, current.id, tx`status = 'closed', frozen_by = NULL`, 'closed');
+      // A single-use card closes itself after its last use: the card's own rule, not a person's.
+      if (changed) await noteStatusEvent(tx, current.id, 'closed', 'system');
       if (changed && this.onStatusChanged) {
         await this.onStatusChanged(tx, {
           cardId: current.id,
@@ -2832,6 +2877,7 @@ export class CardService {
         tx`status = 'closed', replaced_by_card_id = ${replacementId}, replace_reason = ${reason}, frozen_by = NULL`,
         'closed',
       );
+      if (changed) await noteStatusEvent(tx, current.id, 'closed', 'owner');
       if (changed && this.onStatusChanged) {
         await this.onStatusChanged(tx, {
           cardId: current.id,
@@ -2899,6 +2945,8 @@ interface AuthorizationRow {
   authorization_ref: string;
   amount: string;
   merchant_category: string | null;
+  merchant?: string | null;
+  merchant_country?: string | null;
   channel: string;
   decision: 'approved' | 'declined';
   decline_code: string | null;
@@ -3041,6 +3089,8 @@ function toAuthorization(row: AuthorizationRow): AuthorizationRecord {
     authorizationRef: row.authorization_ref,
     amount: parseAmount(row.amount),
     merchantCategory: row.merchant_category,
+    merchant: row.merchant ?? null,
+    merchantCountry: row.merchant_country ?? null,
     channel: parseChannel(row.channel),
     decision: row.decision,
     declineCode: row.decline_code,

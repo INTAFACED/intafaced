@@ -51,6 +51,7 @@ export * from './identity-staff.js';
 export * from './ops-console-announcements.js';
 export * from './ops-console-preferences.js';
 export * from './ops-console-services.js';
+export * from './ops-incidents.js';
 export * from './ops-restore-watermarks.js';
 export * from './openapi-from-zod.js';
 export * from './action-approval.js';
