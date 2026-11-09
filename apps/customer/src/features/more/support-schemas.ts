@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { supportTicketCategorySchema } from '@intafaced/contracts/support-categories';
+import { SUPPORT_GUIDED_CATEGORIES, supportTicketCategorySchema } from '@intafaced/contracts/support-categories';
 
 /** What the support service returns, as this app checks it. Kept in one place so the list, the detail and the form agree. */
 export const ticketSchema = z.object({
@@ -40,7 +40,10 @@ export type Ticket = z.infer<typeof ticketSchema>;
 export type Comment = z.infer<typeof commentSchema>;
 export type KbArticle = z.infer<typeof kbSchema>;
 
-export const CATEGORY_VALUES = supportTicketCategorySchema.options;
+/** The categories the general request form offers: a complaint and a bereavement report have their own forms (BK-safe-03). */
+export const CATEGORY_VALUES = supportTicketCategorySchema.options.filter(
+  (value) => !(SUPPORT_GUIDED_CATEGORIES as readonly string[]).includes(value),
+);
 
 /** The desk's priority and type the owner lets a customer read (SP-tickets-04); null when not shown. */
 export const myTicketPropertiesSchema = z.discriminatedUnion('status', [
