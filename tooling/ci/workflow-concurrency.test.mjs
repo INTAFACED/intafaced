@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DISPATCH_MARK, MAX_WAIT_MS, PLAN_JOB } from './main-first.mjs';
+import { DEFER_MARK, DISPATCH_MARK, PLAN_JOB } from './main-first.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -426,12 +426,35 @@ export function mainFirstProblems(text) {
   if (!/node "\$script"/.test(wait) || !/script=\.base\/tooling\/ci\/main-first\.mjs/.test(wait))
     problems.push("the main-first step does not run the default branch's main-first.mjs");
   if (!/\n {8}continue-on-error: true\n/.test(wait)) problems.push("the main-first step's wait can fail the run");
+  // It never holds a runner while it waits (the guide's CI audit, 9 Nov 2026): one read, then a deferred run runs nothing.
   const stepLimit = Number(/\n {8}timeout-minutes: (\d+)/.exec(wait)?.[1]);
   const jobLimit = Number(/\n {4}timeout-minutes: (\d+)/.exec(touch)?.[1]);
-  if (!(stepLimit > MAX_WAIT_MS / 60_000 && jobLimit > stepLimit + 1))
-    problems.push(
-      `the touch job's limit (${jobLimit} min) or the step's (${stepLimit} min) can end the wait before main-first.mjs's own ${MAX_WAIT_MS / 60_000} min, so it gives up on main`,
-    );
+  if (!(stepLimit <= 5 && jobLimit <= 15))
+    problems.push(`the touch job's limit (${jobLimit} min) or the step's (${stepLimit} min) lets a wait hold a runner`);
+  if (!/\n {8}id: first\n/.test(wait)) problems.push('the main-first step has no id `first`, so its decision reaches nothing');
+  if (!/\n {6}mode: \$\{\{ steps\.first\.outputs\.deferred == 'true' && 'none' \|\| steps\.touch\.outputs\.mode \}\}\n/.test(touch))
+    problems.push("a deferred run's mode is not `none`, so it would still queue its shards ahead of main's");
+  const defer = step(touch, `"${DEFER_MARK}"`);
+  if (!defer || !/\n {8}if: steps\.first\.outputs\.deferred == 'true'\n/.test(defer))
+    problems.push(`the touch job has no step "${DEFER_MARK}" run exactly when deferred, so the release can't find deferred runs`);
+  // Main skips this job, so it queues twice, not three times.
+  const touchIf = /\n {4}if: (.*)\n/.exec(touch)?.[1] ?? '';
+  if (!touchIf || evaluate(touchIf, { github: { ref: MAIN } }) || !evaluate(touchIf, { github: { ref: 'refs/heads/b1' } }))
+    problems.push("the touch job runs on main, so main's run queues for runners three times");
+  for (const key of ['plan', 'build', 'journeys'])
+    if (!/\n {4}if: \$\{\{ !cancelled\(\) && /.test(job(text, key)))
+      problems.push(`the ${key} job doesn't run on a skipped touch job (\`!cancelled()\`), so main would run nothing`);
+  // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
+  const release = job(text, 'release');
+  const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
+  if (
+    !release ||
+    !/\n {4}needs: \[plan\]\n/.test(release) ||
+    !/\n {6}actions: write/.test(release) ||
+    !/main-first\.mjs --release/.test(release) ||
+    !relIf.includes("github.ref == 'refs/heads/main'")
+  )
+    problems.push('no `release` job lets deferred runs go on main once its shards are queued, so a deferred run never runs');
   // The cap on hand-dispatched full runs: the mark main-first.mjs counts, main's copy of the script, and the flag.
   const mark = step(touch, DISPATCH_MARK);
   const markIf = /\n {8}if: (.*)\n/.exec(mark)?.[1] ?? '';
@@ -613,12 +636,31 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   const hard = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*?) {8}continue-on-error: true\n/, '$1');
   assert.notEqual(hard, t);
   assert.ok(mainFirstProblems(hard).some((p) => /can fail the run/.test(p)));
-  const short = t.replace(/(\n  touch:\n(?: {4}.*\n)*? {4})timeout-minutes: \d+/, '$1timeout-minutes: 5');
-  assert.notEqual(short, t);
-  assert.ok(mainFirstProblems(short).some((p) => /can end the wait/.test(p)));
-  const gives = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*? {8})timeout-minutes: \d+/, '$1timeout-minutes: 32');
-  assert.notEqual(gives, t);
-  assert.ok(mainFirstProblems(gives).some((p) => /gives up on main/.test(p)));
+  // A wait that holds a runner (the old 30- or 175-minute step) fails: main-first reads once and defers.
+  const holds = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*? {8})timeout-minutes: \d+/, '$1timeout-minutes: 175');
+  assert.notEqual(holds, t);
+  assert.ok(mainFirstProblems(holds).some((p) => /lets a wait hold a runner/.test(p)));
+  const longJob = t.replace(/(\n  touch:\n(?: {4}.*\n)*? {4})timeout-minutes: \d+/, '$1timeout-minutes: 180');
+  assert.notEqual(longJob, t);
+  assert.ok(mainFirstProblems(longJob).some((p) => /lets a wait hold a runner/.test(p)));
+  const runsDeferred = t.replace(
+    "mode: ${{ steps.first.outputs.deferred == 'true' && 'none' || steps.touch.outputs.mode }}",
+    'mode: ${{ steps.touch.outputs.mode }}',
+  );
+  assert.notEqual(runsDeferred, t);
+  assert.ok(mainFirstProblems(runsDeferred).some((p) => /still queue its shards/.test(p)));
+  const noDefer = t.replace(`- name: "${DEFER_MARK}"`, '- name: Something');
+  assert.notEqual(noDefer, t);
+  assert.ok(mainFirstProblems(noDefer).some((p) => /release can't find/.test(p)));
+  const touchOnMain = t.replace(
+    "    name: What this run runs\n    if: github.ref != 'refs/heads/main'\n",
+    '    name: What this run runs\n',
+  );
+  assert.notEqual(touchOnMain, t);
+  assert.ok(mainFirstProblems(touchOnMain).some((p) => /three times/.test(p)));
+  const noRelease = t.replace('run: node .base/tooling/ci/main-first.mjs --release', 'run: node .base/tooling/ci/main-first.mjs');
+  assert.notEqual(noRelease, t);
+  assert.ok(mainFirstProblems(noRelease).some((p) => /never runs/.test(p)));
   const noMark = t.replace(`- name: ${DISPATCH_MARK}\n`, '- name: Something\n');
   assert.notEqual(noMark, t);
   assert.ok(mainFirstProblems(noMark).some((p) => /can't count them/.test(p)));
