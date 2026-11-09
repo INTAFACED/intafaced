@@ -183,6 +183,95 @@ export interface CardIssuerAdapter {
    * CardService does not store the payload. Absent means `bank.card_wallet_issuer_unset`.
    */
   provisionWallet?(input: { cardId: string; issuerRef: string; wallet: 'apple' | 'google'; nonce: string }): Promise<{ payload: string }>;
+
+  /**
+   * Check a PIN entered at a terminal against the issuer's PIN (J-bank-14 #3). `tryLimit` is the owner's count of wrong
+   * tries (`BANK_CARD_PIN_TRY_LIMIT`): the issuer answers `blocked` once that many wrong tries in a row are reached, and
+   * keeps answering it until a new PIN is set. `unset` is a card with no PIN. The PIN is never stored by CardService.
+   * `authorizationRef` is the purchase's own reference: the same purchase delivered again gets the same answer and is
+   * never counted as a second wrong try.
+   */
+  verifyPin?(input: {
+    cardId: string;
+    issuerRef: string;
+    authorizationRef: string;
+    pin: string;
+    tryLimit: number;
+  }): Promise<'ok' | 'wrong' | 'blocked' | 'unset'>;
+
+  /**
+   * TRUE ONLY ON THE TEST PARTNER ADAPTER WITH `secrets: "test"`: its card details, PIN and wallet tokens are TEST
+   * stand-ins, so CardService lets the secret calls run on a simulated programme and every answer says TEST. A live
+   * issuer never sets it.
+   */
+  readonly testSecrets?: true;
+}
+
+/** A TEST card number: the 999999 prefix (no scheme issues it), nine digits from the card id, and a Luhn check digit. */
+export function testCardNumber(cardId: string): string {
+  const body = `999999${(BigInt(`0x${createHash('sha256').update(`pan:${cardId}`).digest('hex').slice(0, 15)}`) % 1_000_000_000n)
+    .toString()
+    .padStart(9, '0')}`;
+  let sum = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    // Doubling starts at the digit next to the check digit, which is the last digit of the body.
+    let d = Number(body[body.length - 1 - i]);
+    if (i % 2 === 0) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+  }
+  return `${body}${(10 - (sum % 10)) % 10}`;
+}
+
+/** The TEST partner's card details, PIN and wallet calls (`secrets: "test"`). Held in this process only; a restart forgets PINs. */
+function testSecretMethods(): Pick<CardIssuerAdapter, 'revealCredentials' | 'revealPin' | 'setPin' | 'verifyPin' | 'provisionWallet'> {
+  const pins = new Map<string, { pin: string; wrongInARow: number }>();
+  // One answer per purchase, so a redelivered purchase (even one racing the first) is never a second wrong try.
+  const answered = new Map<string, 'ok' | 'wrong' | 'blocked' | 'unset'>();
+  const digest = (label: string, cardId: string) => createHash('sha256').update(`${label}:${cardId}`).digest('hex');
+  return {
+    revealCredentials: async ({ cardId }) => {
+      const h = digest('details', cardId);
+      const month = (parseInt(h.slice(0, 2), 16) % 12) + 1;
+      return {
+        pan: testCardNumber(cardId),
+        expiry: `${String(month).padStart(2, '0')}/${30 + (parseInt(h.slice(2, 4), 16) % 5)}`,
+        cvv: (parseInt(h.slice(4, 10), 16) % 1000).toString().padStart(3, '0'),
+      };
+    },
+    revealPin: async ({ cardId }) => {
+      const held = pins.get(cardId);
+      if (!held) throw new BankError('This card has no PIN yet. Set one first.', 'bank.card_pin_not_set');
+      return { pin: held.pin };
+    },
+    setPin: async ({ cardId, pin }) => {
+      // A new PIN also clears the wrong tries, so a blocked PIN is unblocked by setting a new one.
+      pins.set(cardId, { pin, wrongInARow: 0 });
+    },
+    verifyPin: async ({ cardId, authorizationRef, pin, tryLimit }) => {
+      const key = `${cardId}:${authorizationRef}`;
+      const before = answered.get(key);
+      if (before) return before;
+      const verdict = ((): 'ok' | 'wrong' | 'blocked' | 'unset' => {
+        const held = pins.get(cardId);
+        if (!held) return 'unset';
+        if (held.wrongInARow >= tryLimit) return 'blocked';
+        if (held.pin === pin) {
+          held.wrongInARow = 0;
+          return 'ok';
+        }
+        held.wrongInARow += 1;
+        return held.wrongInARow >= tryLimit ? 'blocked' : 'wrong';
+      })();
+      answered.set(key, verdict);
+      return verdict;
+    },
+    provisionWallet: async ({ cardId, wallet, nonce }) => ({
+      payload: `TEST-wallet-${wallet}-${createHash('sha256').update(`${cardId}:${wallet}:${nonce}`).digest('hex').slice(0, 24)}`,
+    }),
+  };
 }
 
 /**
@@ -262,6 +351,8 @@ export function cardSim(options: { displayName?: string; partner?: CardPartnerTe
     respondToAuthorization: async () => undefined,
     setStatus: async () => undefined,
     partnerTerms: () => partner,
+    // The TEST partner's card details, PIN and wallet tokens, only when its switches say `secrets: "test"`.
+    ...(partner.secrets === 'test' ? { ...testSecretMethods(), testSecrets: true as const } : {}),
     // The TEST partner's figures: the same TEST balances for every cardholder, as its switches set them, plus any
     // provisional dispute credit it has given that cardholder and not reversed (J-bank-27 #3).
     cardholderBalances: async ({ userId }) => withCredits(partner.balances, userId, credits),

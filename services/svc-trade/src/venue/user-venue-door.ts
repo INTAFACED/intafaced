@@ -19,6 +19,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import type { PreparedActionStore, StoredVenueAction } from './prepared-action-store.js';
+import { BuilderFeeVersionError, builderFeeOf, type BuilderFeeBook } from './builder-fee-versions.js';
 
 /**
  * THE USER-VENUE DOOR (B1; project-state #1789 item 2): the signed-in customer's own account on a user-signed venue,
@@ -31,8 +32,10 @@ import type { PreparedActionStore, StoredVenueAction } from './prepared-action-s
  *     action (one wallet prompt). A re-submit re-sends the stored bytes. After `definite: false` the caller reads back
  *     (`readBack`) and never prepares a new key for the same intent.
  *   · Withdrawal: identity's step-up (`trade.step_up.venue.withdraw`) is spent before the venue is asked to prepare it.
- *   · Our builder fee comes from the owner value, never from the request. Blank, every order refuses
- *     `builder_fee_not_published` before the venue is asked (AGENTS.md floor 8).
+ *   · Our builder fee comes from the owner's values, never from the request: the builder-fee version in force when the
+ *     order is prepared for signing (by venue and market group, builder-fee-versions.ts), else the boot owner value.
+ *     Blank, every order refuses `builder_fee_not_published` before the venue is asked (AGENTS.md floor 8). The prepared
+ *     order keeps that fee: a version that takes effect later never changes an order already prepared or signed.
  *   · The ledger posts nothing and no event is sent: the venue is the record of balances, locks, fills and withdrawals.
  */
 
@@ -114,6 +117,8 @@ export interface UserVenueDoorDeps {
   readonly store: PreparedActionStore;
   readonly stepUp: StepUpCheck;
   readonly builder: BuilderFeeValue | null;
+  /** The builder-fee book of the fee schedule version in force at `at` (null: none, the boot `builder` fee applies). */
+  readonly builderFeesAt?: (at: Date) => Promise<BuilderFeeBook | null>;
   readonly now: () => Date;
 }
 
@@ -252,24 +257,43 @@ export class UserVenueDoor {
     return kind;
   }
 
+  /** Our builder address on the venue: the owner value, or null when it is blank. */
+  private builderAddress(): string | null {
+    return this.deps.builder?.address ?? null;
+  }
+
   /**
-   * Our builder fee on an order, from the owner value; blank refuses before the venue is asked to prepare. A spot buy
-   * carries none and so never needs it published or approved: the venue charges builder fees only on a spot sell and
-   * on both sides of a perp ("builder codes do not apply to the buying side of spot trades", Hyperliquid's
-   * builder-codes page, read 9 Nov 2026; project-state #1888).
+   * An order with our builder fee: the builder-fee version in force now for its venue and market group, else the boot
+   * owner value. Blank refuses before the venue is asked. A spot buy carries none and so never needs it published or
+   * approved: the venue charges builder fees only on a spot sell and on both sides of a perp ("builder codes do not
+   * apply to the buying side of spot trades", Hyperliquid's builder-codes page, read 9 Nov 2026; project-state #1888).
    */
   private async withBuilderFee(venue: UserVenue, intent: PlaceUserOrderIntent): Promise<PlaceUserOrderIntent> {
+    const venueId = venue.venue.id;
     const kind = await this.marketKind(venue, intent.symbol);
     if (kind === 'spot' && intent.side === 'buy') return { ...intent, builderFee: null };
-    const builder = this.deps.builder;
-    if (!builder) {
+    const address = this.builderAddress();
+    let feeBps: Amount | null = this.deps.builder?.feeBps ?? null;
+    try {
+      const versioned = builderFeeOf((await this.deps.builderFeesAt?.(this.deps.now())) ?? null, venueId, intent?.symbol ?? '');
+      if (versioned) feeBps = versioned.feeBps;
+    } catch (err) {
+      if (!(err instanceof BuilderFeeVersionError)) throw err;
+      // A stored builder-fee version this door cannot read is never replaced by a guess: no order is prepared.
+      throw new VenueRefusalError({
+        venueId,
+        code: 'builder_fee_not_published',
+        detail: `the builder-fee version in force cannot be read (${err.code}: ${err.message}), so no order is prepared`,
+      });
+    }
+    if (!address || feeBps === null) {
       throw new VenueRefusalError({
         venueId: venue.venue.id,
         code: 'builder_fee_not_published',
         detail: 'our builder fee is not published (owner value blank), so no order is prepared',
       });
     }
-    return { ...intent, builderFee: { builder: builder.address, feeBps: builder.feeBps } };
+    return { ...intent, builderFee: { builder: address, feeBps } };
   }
 
   async preview(_principal: Principal, owner: string, intent: VenueIntent) {
@@ -341,7 +365,7 @@ export class UserVenueDoor {
     let finalIntent: VenueIntent = intent;
     if (intent.kind === 'place_order') finalIntent = await this.withBuilderFee(venue, intent);
     if (intent.kind === 'approve_builder_fee') {
-      const builder = this.deps.builder;
+      const builder = this.builderAddress();
       if (!builder) {
         throw new VenueRefusalError({
           venueId: venue.venue.id,
@@ -349,7 +373,7 @@ export class UserVenueDoor {
           detail: 'our builder is not published (owner value blank)',
         });
       }
-      if (intent.builder.toLowerCase() !== builder.address) invalid(`the builder to approve is ours, ${builder.address}`);
+      if (intent.builder.toLowerCase() !== builder) invalid(`the builder to approve is ours, ${builder}`);
     }
 
     const existing = await this.deps.store.find(principal.userId, key);

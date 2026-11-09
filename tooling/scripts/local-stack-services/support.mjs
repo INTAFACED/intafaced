@@ -22,6 +22,10 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...c('svc-support', PORTS.support),
     DATABASE_URL: supportCatalogueOff() ? onEmptyCatalogueDb(dbUrl('svc_support', secrets)) : dbUrl('svc_support', secrets),
     IDENTITY_URL: urlOf('identity'),
+    // A request's links to the customer's own records (J-support-public-20 #1): svc-trade says whose an order is, svc-pay
+    // whose a withdrawal or deposit is.
+    TRADE_URL: urlOf('trade'),
+    PAY_URL: urlOf('pay'),
     // LOCAL TEST only, the labelled value in tooling/profiles/test-owner-values/support.json: how many comments a
     // requester may add to one request. Production stays blank and every requester comment refuses
     // (support.comment_cap_unset) until the owner sets it. `LOCAL_STACK_SUPPORT_COMMENT_CAP=off` on a start or restart
