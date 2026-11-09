@@ -1,6 +1,11 @@
 {
   "label": "TEST: CX-8 rig and local test stack only. Not an owner decision and not a product default.",
   "values": {
+    "OPS_INCIDENT_SEVERITIES": {
+      "service": "ops",
+      "value": "critical,major,minor",
+      "note": "TEST incident severities for the local and test stacks, not an owner decision: three names so an incident can be assessed, and a name outside them refused ops.severity_unknown (J-ops-console-19 #10). Blank leaves every incident pending."
+    },
     "OPS_RESTORE_TARGET": {
       "service": "ops",
       "value": "test-restore-area",
@@ -45,6 +50,11 @@
       "service": "ops",
       "value": "5",
       "note": "TEST seconds before a repeat reconciliation failure sends another in-console notice. Not an owner decision; short so J-ops-console-07 #8 can see a repeat land inside a snooze on the test stack."
+    },
+    "OPS_TEST_VENUE_BUILDER_ACCOUNT": {
+      "service": "ops",
+      "value": "TEST-builder-account",
+      "note": "TEST builder account the capital monitor's TEST venues report (J-ops-console-24 #1). Not INTAFACED's real builder account at any venue, and not a key."
     }
   }
 }

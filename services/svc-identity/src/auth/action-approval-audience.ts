@@ -88,6 +88,8 @@ export const FOUNDER_ACTION_TYPES: readonly string[] = [
   'affiliates.payout',
   'identity.auth_key_rotate',
   'identity.auth_key_remove_old',
+  // Setting a governed type's approval row in the console (J-ops-console-09 #1): only founders change who approves what.
+  'identity.approval_policy.set',
 ];
 
 /**

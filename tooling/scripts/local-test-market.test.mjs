@@ -777,3 +777,70 @@ assert.equal(shiftedMid(toScaled('1'), undefined, toScaled('0.0001')), toScaled(
   assert.doesNotMatch(stop, /return console\.log\(`pid \$\{pid\} is still cancelling/, 'no exit-0 line while it runs');
   console.log('local-test-market: a stop that times out exits non-zero by name');
 }
+
+// The cycle record (writeCycleRecord) and the journeys' reader of it (apps/customer/tests/real-app/market.mjs): what the
+// world restore and J-derivatives-04 wait on in place of the log's wording (docs/runbooks/harness-rewrite-plan.md, piece 1).
+{
+  const { writeCycleRecord, parseShift: makerParse } = await import('./local-test-market.mjs');
+  const harness = await import('../../apps/customer/tests/real-app/market.mjs');
+  const { unsettled, shiftQuotedIn, parseShift: journeyParse, makerSettled } = harness;
+
+  // Written whole: a reader sees the old record or the new one, never part of one.
+  const dir = mkdtempSync(join(tmpdir(), 'ltm-cycle-'));
+  const p = { runDir: join(dir, 'run'), cycleFile: join(dir, 'run', 'market-cycle.json') };
+  const quoted = (shiftBps = '0', resting = 6) => ({ held: false, resting, ladder: 6, shiftBps });
+  const rec = {
+    pid: 41,
+    runId: 'abc',
+    cycle: 3,
+    startedAt: 2_000,
+    endedAt: 2_500,
+    markets: { 'BTC/USDT': quoted(), 'BTC/USDT:USDT': quoted(null) },
+  };
+  writeCycleRecord(p, rec);
+  assert.deepEqual(JSON.parse(readFileSync(p.cycleFile, 'utf8')), rec);
+  assert.equal(existsSync(`${p.cycleFile}.${process.pid}.tmp`), false, 'no temporary file left');
+  rmSync(dir, { recursive: true, force: true });
+
+  // Settled: the running maker's whole cycle, started at or after `since`, with every market quoting, unheld, unshifted.
+  assert.deepEqual(unsettled(rec, { since: 2_000, pid: 41 }), []);
+  assert.deepEqual(unsettled(null, { since: 0, pid: 41 }), ['no whole cycle of the running maker yet']);
+  assert.deepEqual(unsettled(rec, { since: 0, pid: 42 }), ['no whole cycle of the running maker yet'], 'an earlier run');
+  assert.match(unsettled(rec, { since: 2_001, pid: 41 })[0], /^no cycle started since /, 'a cycle from before the restore');
+  const shifted = { ...rec, markets: { ...rec.markets, 'BTC/USDT': quoted('-30') } };
+  assert.deepEqual(unsettled(shifted, { since: 0, pid: 41 }), ['BTC/USDT still shifted -30 bps']);
+  const held = { ...rec, markets: { ...rec.markets, 'BTC/USDT': { held: true } } };
+  assert.deepEqual(unsettled(held, { since: 0, pid: 41 }), ['BTC/USDT held']);
+  const empty = { ...rec, markets: { ...rec.markets, 'BTC/USDT:USDT': quoted(null, 0) } };
+  assert.deepEqual(unsettled(empty, { since: 0, pid: 41 }), ['BTC/USDT:USDT not quoting']);
+  assert.deepEqual(unsettled({ ...rec, markets: {} }, { since: 0, pid: 41 }), ['no market in its newest cycle']);
+
+  // The wait returns as soon as a settled cycle is read, and says what was left when its time runs out.
+  const seq = [shifted, rec];
+  assert.deepEqual(await makerSettled({ since: 0, pause: 1, read: () => seq.shift() ?? rec, pid: () => 41 }), []);
+  assert.deepEqual(await makerSettled({ since: 0, ms: 5, pause: 1, read: () => held, pid: () => 41 }), ['BTC/USDT held']);
+
+  // A shift is quoted once a cycle that started at or after the move quoted it; a Date works as ms does.
+  const at = { symbol: 'BTC/USDT', pid: 41 };
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: -30n, since: 2_000 }), true);
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: -30n, since: new Date(2_000) }), true);
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: -30n, since: 2_001 }), false, 'quoted before the move was asked');
+  assert.equal(shiftQuotedIn(shifted, { ...at, bps: 0n, since: 0 }), false, 'another shift');
+  assert.equal(shiftQuotedIn(rec, { ...at, bps: 0n, since: 0 }), true, 'asking for the shift already quoted does not wait forever');
+  assert.equal(shiftQuotedIn(held, { ...at, bps: 0n, since: 0 }), false, 'a held market quoted nothing');
+  assert.equal(shiftQuotedIn(shifted, { ...at, pid: 42, bps: -30n, since: 0 }), false, 'another run');
+  const bare = { ...rec, markets: { ...rec.markets, 'BTC/USDT': quoted('-30', 0) } };
+  assert.equal(shiftQuotedIn(bare, { ...at, bps: -30n, since: 0 }), false, 'chosen but nothing rests at it');
+  const { shiftQuoted: waitShift } = harness;
+  await assert.rejects(waitShift('BTC/USDT', null, 0, { what: '1.234%' }), /BTC\/USDT: 1\.234% is not a TEST price shift/);
+  await assert.rejects(
+    waitShift('BTC/USDT', -30n, 0, { ms: 5, pause: 1, read: () => rec, pid: () => 41, what: '-0.30%' }),
+    /never quoted BTC\/USDT -0\.30% within 0\.005 s of the move/,
+  );
+  await waitShift('BTC/USDT', -30n, 0, { pause: 1, read: () => shifted, pid: () => 41 });
+
+  // The journeys' parseShift is the maker's rule.
+  for (const t of ['+2%', '-6%', '0.5%', '0%', '-50%', '-51%', '101%', '100%', '2', '1.234%', ' -0.30% ', '-1.25%', '', undefined])
+    assert.equal(journeyParse(t), makerParse(t), `parseShift(${JSON.stringify(t)})`);
+  console.log('local-test-market: the cycle record, and the journeys wait on it, not on the log');
+}

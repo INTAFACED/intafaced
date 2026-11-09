@@ -4,7 +4,8 @@ import { AUTH_ERROR_CATALOGUE, AUTH_ERRORS_PATH, type AuthErrorEntry } from '@in
 import * as refusals from './api-key-refusal.js';
 import { apiKeyRefusalBody, type ApiKeyRefusal } from './api-key-refusal.js';
 import type { Principal } from '@intafaced/auth';
-import { createQuotaStore, decideGateway, parseSandboxHosts } from './gateway-plane.js';
+import { decideGateway, parseSandboxHosts } from './gateway-plane.js';
+import { KeyBuckets } from './rate-bucket.js';
 import { AUTH_ERRORS_DOCS } from './reply-envelope.js';
 
 // The published catalogue (/developers/errors/auth) is the list a bot branches on. These tests hold the edge to it in
@@ -39,10 +40,10 @@ const gatewayRefusal = (principal: Principal, method: string, host?: string) => 
     pathname: '/api/v1/orders',
     method,
     principal,
-    quota: createQuotaStore(),
+    buckets: new KeyBuckets(),
+    keyRateLimit: { tier: 'base', burst: 10, refillPerMinute: 600 },
+    costs: [{ route: '* /api/**', cost: 1 }],
     now: 0,
-    max: 10,
-    windowMs: 60_000,
     host,
     sandboxHosts: parseSandboxHosts('sandbox.example'),
   });

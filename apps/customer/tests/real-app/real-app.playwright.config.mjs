@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { localTestDeviceState } from '../../../../tooling/scripts/local-test-device.mjs';
+import { localTestDeviceState } from '../../../../tooling/scripts/local-test-facts.mjs';
 
 // Journeys in the running app: `pnpm local:stack` must be up (Customer on 127.0.0.1:3210). Nothing is mocked; each
 // spec drives the browser and, where the journey names another actor (an operator, TEST funding, another trader),
@@ -10,7 +10,13 @@ export default defineConfig({
   testMatch: process.env.JOURNEY_FILES ? process.env.JOURNEY_FILES.split(' ').filter(Boolean) : '*.pw.mjs',
   workers: 1,
   fullyParallel: false,
-  retries: 0,
+  // A run on main retries a failed test once (JOURNEY_RETRIES=1, set by the Real-app journeys workflow), so a test that
+  // fails and then passes on the same commit ends "flaky" and the machine sets its step aside; a money step never
+  // (tooling/ci/journey-verdict.mjs, owner decision 2026-11-07). Everywhere else, no retry: a builder's run shows a red.
+  retries: process.env.JOURNEY_RETRIES === '1' ? 1 : 0,
+  // A focused test (`.only` in any form) runs alone and drops every other journey test in the run; CI refuses it outright
+  // (R3 C6, review 7550-R3), since the test judge reads only the steps a change touches.
+  forbidOnly: Boolean(process.env.CI),
   timeout: 90_000,
   // The Real-app journeys workflow stops a shard's journeys here, before its job's own limit, so the shard still sends
   // its report and only the journeys it did not reach count as not run. Unset locally: no limit.

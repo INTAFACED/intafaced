@@ -29,6 +29,7 @@ const TRACK_SLOW_MS = 30_000;
 const TRACK_FAST_READS = 150;
 /** A read that fails this many times in a row stops the tracker; the failure stays on screen with a retry. */
 const TRACK_FAILURES = 3;
+const FEE_NOT_KNOWN = 'bank.onramp_fee_not_known';
 const STEPS = ['created', 'opened', 'pending', 'credited'] as const;
 const STEP_KEYS = {
   created: 'step_created',
@@ -51,18 +52,20 @@ function amountOk(value: string) {
 function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolean; onChoose: () => void }) {
   const { t } = addMoneyCopy.useCopy();
   const quote = row.quote;
+  // The partner's ramp gave no fee: the fee and the pay amount are "not known", never 0, and the way to pay is not offered.
+  const feeUnknown = row.blocker === FEE_NOT_KNOWN;
   return (
     <label className={`bd-choice ${chosen ? 'bd-choice--on' : ''}`} data-testid={`method-${row.method}`}>
       <input type="radio" name="add-money-method" value={row.method} checked={chosen} onChange={onChoose} />
       <strong>{t(METHOD_KEYS[row.method])}</strong>
       <span className="money-caption">
-        {t('fee')}: {quote ? funds(quote.fee, quote.payCurrency) : t('notSet')}
+        {t('fee')}: {quote ? funds(quote.fee, quote.payCurrency) : feeUnknown ? t('notKnown') : t('notSet')}
       </span>
       <span className="money-caption">
         {t('arrives')}: {quote?.deliveryEstimate ?? t('notSet')}
       </span>
       <span className="money-caption">
-        {t('youPay')}: {quote ? funds(quote.payAmount, quote.payCurrency) : t('notSet')}
+        {t('youPay')}: {quote ? funds(quote.payAmount, quote.payCurrency) : feeUnknown ? t('notKnown') : t('notSet')}
       </span>
       {quote && (
         <span className="money-caption" data-testid="method-receive">
@@ -82,7 +85,7 @@ function Method({ row, chosen, onChoose }: { row: AddMoneyOption; chosen: boolea
       {row.quote && row.payStandIn && <small className="muted">{t('payStandIn', { label: row.payStandIn })}</small>}
       {row.blocker && (
         <small className="muted">
-          {t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
+          {feeUnknown ? t('feeNotKnown') : t('railOff', { rail: row.rail })} {t('reference', { code: row.blocker })}
         </small>
       )}
     </label>

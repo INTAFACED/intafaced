@@ -291,6 +291,7 @@ export const en = {
   // ── errors ────────────────────────────────────────────────────────────────
   'error.insufficientFunds': 'Insufficient balance.',
   'error.generic': 'Something went wrong. Try again.',
+  'error.custodyLayerOff': 'INTAFACED does not hold customer money, so this money movement is not offered. Nothing was moved.',
   'error.network': 'No connection. Check your network.',
   'error.notFound': 'We could not find that.',
   'error.unauthorized': 'Sign in to continue.',

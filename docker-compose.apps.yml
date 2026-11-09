@@ -189,6 +189,10 @@ services:
       # reaches the container. Do not default posting OFF — that would halt the
       # money plane on a clean clone.
       LEDGER_POSTING_ENABLED: ${LEDGER_POSTING_ENABLED:-true}
+      # The custody switch (OWNER 226: no customer money held at launch). Off unless the environment says on: this file
+      # is also staging's deployment unit. The TEST journey stacks (pnpm local:stack, the CX-8 boot) set it on for the
+      # journeys marked Later. tooling/ci/custody-layer-check.mjs fails if this default stops being off.
+      LEDGER_CUSTODY_LAYER: ${LEDGER_CUSTODY_LAYER:-off}
       # Owner-published reconcile cadence — pass-through, no compose default.
       # Blank refuses boot. Host may set 60 explicitly. Never invent 60.
       RECONCILE_CRON_MINUTES: ${RECONCILE_CRON_MINUTES:-}
@@ -1476,6 +1480,10 @@ services:
       # mountain moves no value (§0.6) and a refund is a request it files, not a
       # transaction it posts.
       IDENTITY_URL: http://svc-identity:4002
+      # Read-only, for a request's links to the customer's own records (J-support-public-20 #1): svc-trade's
+      # support order read and svc-pay's one-boolean ownership door. Neither moves value.
+      TRADE_URL: http://svc-trade:4004
+      PAY_URL: http://svc-pay:4006
       # Access-token life + iss/aud (edge/identity defaults). Host `.env` can
       # pin them; without these lines the desk keeps schema-only 900 /
       # intafaced / intafaced.api. No JWT_ACCESS_SECRET here — the desk

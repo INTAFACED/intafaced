@@ -997,6 +997,66 @@ export const recoveryWrites = {
   }),
   execute: z.object({ claim: recoveryClaimSchema, round: z.number().int().nullable(), sweeps: z.array(recoverySweepSchema) }),
 };
+/** Pay from (J-bank-29 #1 #2): svc-bank `cards.payFrom` and `cards.setPayFromOrder`. Each null is "not known". */
+const payFromSchema = z.object({
+  test: z.boolean(),
+  custodyMode: z.enum(['partner_holds', 'wallet_pull']).nullable(),
+  settlementAssetId: z.string().nullable(),
+  assets: z.array(
+    z.object({
+      assetId: z.string(),
+      state: z.enum(['offered', 'not_offered', 'not_known', 'not_listed']),
+      partnerBalance: z.string().nullable(),
+      rate: z.string().nullable(),
+      rateAsOf: z.string().nullable(),
+    }),
+  ),
+  order: z.array(z.string()).nullable(),
+  notUsedForCards: z.array(z.enum(['trading', 'agent'])),
+});
+
+/**
+ * svc-bank `cards.controls.*` (J-bank-14 #1, BK-cctl-01): the categories a card can block, its live blocks of a
+ * category, a merchant or a country, and the history of its temporary lock, newest first.
+ */
+export const cardControlsSchema = z.object({
+  categories: z.array(z.string()),
+  controls: z.array(
+    z.object({ id: z.string(), kind: z.enum(['category', 'merchant', 'country']), value: z.string(), createdAt: z.string() }),
+  ),
+  history: z.array(
+    z.object({
+      id: z.string(),
+      status: z.enum(['active', 'frozen', 'closed']),
+      actor: z.enum(['owner', 'holder', 'operator', 'system']),
+      at: z.string(),
+    }),
+  ),
+});
+export type CardControls = z.infer<typeof cardControlsSchema>;
+
+/**
+ * svc-bank card details, PIN and phone wallets (J-bank-14 #3 #4, BK-cctl-03, BK-cctl-04): which the issuer offers, the
+ * revealed details and PIN with when to drop them, and the wallets the card was added to. `test` marks the TEST
+ * partner's stand-ins, which the screen labels TEST.
+ */
+export const cardSecretsOfferedSchema = z.object({ details: z.boolean(), pin: z.boolean(), wallet: z.boolean(), test: z.boolean() });
+export const cardRevealSchema = z.object({
+  pan: z.string(),
+  expiry: z.string(),
+  cvv: z.string(),
+  expiresAt: z.string(),
+  test: z.boolean(),
+});
+export const cardPinRevealSchema = z.object({ pin: z.string(), expiresAt: z.string(), test: z.boolean() });
+export const cardWalletTokensSchema = z.object({
+  test: z.boolean(),
+  tokens: z.array(
+    z.object({ id: z.string(), wallet: z.enum(['apple', 'google']), state: z.enum(['added', 'paused', 'closed']), addedAt: z.string() }),
+  ),
+});
+export type CardWalletTokens = z.infer<typeof cardWalletTokensSchema>;
+
 export const bankReads = {
   'accounts.features': accountTermsSchema,
   'accounts.profile': bankProfileSchema,
@@ -1072,6 +1132,7 @@ export const bankReads = {
   }),
   'cards.programme': programmeSchema,
   'cards.catalogue': cardCatalogueSchema,
+  'cards.payFrom': payFromSchema,
   'cards.delivery': cardDeliverySchema,
   'cards.cashback': z.object({
     tier: z.enum(['none', 'standard', 'metal', 'obsidian']),
@@ -1096,12 +1157,18 @@ export const bankReads = {
   }),
   'cards.uses': z.object({ cardId: z.string(), usesAllowed: z.number().int().nullable(), usesMade: z.number().int() }),
   'cards.list': z.array(cardSchema),
+  'cards.controls.get': cardControlsSchema,
+  'cards.secretsOffered': cardSecretsOfferedSchema,
+  'cards.walletTokens': cardWalletTokensSchema,
   'cards.authorizations': z.array(
     z.object({
       id: z.string(),
       authorizationRef: z.string(),
       amount: money,
       merchantCategory: z.string().nullable(),
+      /** The merchant and its country as the issuer named them (J-bank-14 #1); null when it named none. */
+      merchant: z.string().nullable().default(null),
+      merchantCountry: z.string().nullable().default(null),
       decision: z.enum(['approved', 'declined']),
       declineCode: z.string().nullable(),
       status: z.string(),
@@ -1193,10 +1260,17 @@ export const bankWrites = {
   'cards.order': cardSchema,
   'cards.acceptTerms': z.object({ id: z.string(), version: z.string(), acceptedAt: z.string() }),
   'cards.updateShipping': cardDeliverySchema,
+  'cards.setPayFromOrder': payFromSchema,
   'cards.activate': cardSchema,
   'cards.replace': cardSchema,
   'cards.setLimits': cardSchema,
   'cards.setChannels': cardSchema,
+  'cards.controls.block': cardControlsSchema,
+  'cards.controls.lift': cardControlsSchema,
+  'cards.reveal': cardRevealSchema,
+  'cards.pin.reveal': cardPinRevealSchema,
+  'cards.pin.set': z.object({ ok: z.literal(true) }),
+  'cards.walletProvision': z.object({ payload: z.string(), expiresAt: z.string(), test: z.boolean() }),
   'autoInvest.createDca': ruleSchema,
   'autoInvest.createThresholdSweep': ruleSchema,
   'autoInvest.createRoundUp': ruleSchema,

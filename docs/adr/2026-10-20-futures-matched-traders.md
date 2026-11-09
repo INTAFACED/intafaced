@@ -1,5 +1,7 @@
 # ADR: futures match trader against trader, and settle through one clearing pot on the ledger
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** accepted 2026-10-20. Decided on evidence by an agent under the project's decision rule (Nino, 2026-10-20 05:01: decide without waiting on Phantom; Phantom may overrule afterwards).
 **Date:** 2026-10-20
 **Area:** perpetual and dated futures in `services/svc-trade/src/futures/`, the futures recipes in `packages/ledger-client/src/recipes/index.ts`, futures markets in `services/svc-matching`.

@@ -30,7 +30,8 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-      issues: write # comment on the culprit's pull request and the red issue
+      issues: write # comment on the "Main is red" issue
+      pull-requests: write # comment on the culprit's pull request (a pull request's comments need this; issues: write alone got 403 on all 4 runs since 1 Nov, e.g. run 41301217298)
     services:
       postgres:
         image: postgres:16-alpine

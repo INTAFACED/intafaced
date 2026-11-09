@@ -9,4 +9,4 @@ import { deskGet, deskPost } from '@/lib/ops-desk/route';
 export const dynamic = 'force-dynamic';
 
 export const GET = (request: Request) => deskGet(request, 'bank');
-export const POST = (request: Request) => deskPost(request, 'bank', ['bank.card.status']);
+export const POST = (request: Request) => deskPost(request, 'bank', ['bank.card.status', 'bank.card.funding']);

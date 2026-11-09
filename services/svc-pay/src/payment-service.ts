@@ -3020,7 +3020,7 @@ export class PayService {
     disputeId: string,
     amount: Amount,
     settledPot: 'proceeds' | 'user',
-    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount }>,
+    compute: () => Promise<{ fromClearing: Amount; fromMerchantBalance: Amount; shortfall: Amount; uncovered?: Amount }>,
   ): Promise<ChargebackSplit> {
     return chargebacks.chargebackSplit(this.internal, paymentId, disputeId, amount, settledPot, compute);
   }

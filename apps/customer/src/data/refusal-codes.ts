@@ -175,6 +175,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
 
   'trade.order_not_found': 'orderGone',
   'trade.order_not_open': 'orderGone',
+  'trade.queue_unavailable': 'tryAgain',
   'trade.convert_price_moved': 'priceMoved',
   'trade.price_not_accepted': 'priceMoved',
   'trade.convert_quote_expired': 'quoteExpired',
@@ -209,6 +210,7 @@ const EXACT: Readonly<Record<string, RefusalKind>> = {
   'trade.self_trade': 'selfTrade',
   'trade.order_type_unsupported': 'orderTypeUnsupported',
   'trade.mode_limit_only': 'marketLimitOnly',
+  'trade.rpi_unavailable': 'optionUnsupported',
   'trade.mode_cancel_only': 'marketCancelOnly',
   'trade.mode_post_only': 'marketPostOnly',
   'trade.stp_mode_unsupported': 'optionUnsupported',

@@ -55,6 +55,7 @@ import {
   localStackState,
   assertActiveLocalStack,
   processRecordMatches,
+  readKernelStart,
   readProcessIdentity,
   readLatestEmailConfirmToken,
 } from './local-test-state.mjs';
@@ -86,6 +87,7 @@ export function stackPaths(home = os.homedir()) {
     shiftFile: path.join(stateDir, 'run', 'market-shift.json'),
     holdFile: path.join(stateDir, 'run', 'market-hold.json'),
     heldFile: path.join(stateDir, 'run', 'market-held.json'),
+    cycleFile: path.join(stateDir, 'run', 'market-cycle.json'),
     log: path.join(stateDir, 'logs', 'market.log'),
   };
 }
@@ -398,6 +400,22 @@ export function quotesThisCycle(symbol, holds, now = Date.now()) {
  * so a step never loses its hold part-way.
  */
 export const HOLD_MAX_MS = 150_000;
+
+/**
+ * The maker's newest whole cycle, as data a journey waits on (exported for tests): `{ pid, runId, cycle, startedAt,
+ * endedAt, markets }`, where each market is `{ held: true }` or `{ held: false, resting, ladder, shiftBps }` (`shiftBps`
+ * is null for a market that follows another's book). Written whole (a temporary file renamed over it), only after a
+ * cycle has gone through every market; a cycle the stack's guard stops part-way writes none. The log lines stay as they
+ * are. Failure it prevents: waits that read the log's wording (`unquotedMarkets`, `shiftQuoted`) returned before the
+ * book was what they waited for. The world restore saw every market quoted earlier in the run and went on at once after
+ * its `unshift`, so the next file could read a book still shifted or held until the next cycle.
+ */
+export function writeCycleRecord(p, record) {
+  fs.mkdirSync(p.runDir, { recursive: true, mode: 0o700 });
+  const tmp = `${p.cycleFile}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(record), { mode: 0o600 });
+  fs.renameSync(tmp, p.cycleFile);
+}
 
 /** Whether a cycle that started after a hold was asked for has passed the market by (exported for tests). */
 export function holdTaken(held, symbol, askedAt) {
@@ -951,11 +969,15 @@ async function runLoop(opts, home) {
     cycle += 1;
     /** This cycle's mid per market, so a follower whose leader's book cannot be read uses the leader's walk. */
     const mids = new Map();
+    // Taken before the shift and hold files are read, so the record's `startedAt` never postdates what this cycle read.
+    const readAt = Date.now();
     const shifts = readShifts(p);
     // Only holds still in force; one past HOLD_MAX_MS is quoted again from this cycle.
     const asked = readHolds(p);
     const cycleAt = Date.now();
     const holds = new Map([...asked].filter(([k]) => !quotesThisCycle(k, asked, cycleAt)));
+    /** What this cycle did to each market, written once the cycle has gone through every market (`cycleFile`). */
+    const done = {};
     if (holds.size > 0) {
       // Written before this cycle quotes anything: a held market is passed by from here, so `hold` can return.
       const startedAt = Date.now();
@@ -969,6 +991,7 @@ async function runLoop(opts, home) {
         if (!quotesThisCycle(m.symbol, holds, cycleAt)) {
           // Its leader's book stands still too, so a follower quoted round it stays where it was.
           log(`${m.symbol} held: its quotes rest as they are, no crossing this cycle`);
+          done[m.symbol] = { held: true };
           continue;
         }
         current = m.symbol;
@@ -1094,6 +1117,7 @@ async function runLoop(opts, home) {
           `${m.symbol} TEST PRICE mid ${fromScaled(mid)} ${m.quote}: ${rested}/${ladder.length} quotes resting${refused ? `; last refusal ${refused}` : ''}`,
         );
         if (newShift) log(`${m.symbol} TEST PRICE shift ${shift} bps quoted`);
+        done[m.symbol] = { held: false, resting: rested, ladder: ladder.length, shiftBps: shift === undefined ? null : String(shift) };
         if (cfg.cross !== false && rested > 0 && crossesOn(cycle, m.symbol)) {
           // Alternate per market (failure it prevents: every symbol here has the same name length, so a
           // side picked from cycle and name parity was always "buy", drained the taker's quote asset, and
@@ -1122,6 +1146,11 @@ async function runLoop(opts, home) {
         }
       }
       inactiveSince = null;
+      try {
+        writeCycleRecord(p, { pid: process.pid, runId, cycle, startedAt: readAt, endedAt: Date.now(), markets: done });
+      } catch (err) {
+        log(`cycle record not written (${err.message}); quoting goes on`);
+      }
     } catch (err) {
       // Every write first checks that the stack's services are up (`assertActiveLocalStack`), so while one restarts
       // (svc-trade in J-derivatives-02 #2) the check refuses. That refusal stops this cycle and writes nothing; it used to
@@ -1707,7 +1736,8 @@ async function startBackground(p, args, { wait }) {
     });
     child.unref();
     fs.closeSync(fd);
-    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), args, argv }), { mode: 0o600 });
+    const kernelStart = readKernelStart(child.pid) ?? undefined; // held to it exactly on Linux (#7488)
+    fs.writeFileSync(p.pidFile, JSON.stringify({ pid: child.pid, startedAt: nowIso(), kernelStart, args, argv }), { mode: 0o600 });
     console.log(`test market starting (pid ${child.pid}). Watch: tail -f ${p.log}`);
   } finally {
     release();

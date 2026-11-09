@@ -373,6 +373,17 @@ export type EvaluateAlertReport = {
   readonly notificationId: string | null;
 };
 
+/** A quota refusal from the store, in the words a create refuses with; any other error is returned as it is. */
+export function quotaLimitError(err: unknown): unknown {
+  if (!(err instanceof AlertQuotaReachedError)) return err;
+  return new AlertLimitError(
+    'alert.quota_reached',
+    err.wanted === undefined
+      ? `a person may hold ${err.limit} open price alerts`
+      : `a person may hold ${err.limit} open price alerts; ${err.held} are open and ${err.wanted} more were asked for`,
+  );
+}
+
 export class AlertService {
   constructor(
     private readonly store: AlertStore,
@@ -454,6 +465,27 @@ export class AlertService {
     },
     now: Date = new Date(),
   ): Promise<readonly PriceAlert[]> {
+    const { inputs, maxOpen } = await this.prepareMany(input, now);
+    try {
+      return await this.store.createMany(inputs, maxOpen);
+    } catch (err) {
+      throw quotaLimitError(err);
+    }
+  }
+
+  /**
+   * The alerts a watchlist alert stores, one per market, each checked exactly as a single create is, with the owner's quota to
+   * hold them to. Nothing is stored here: `createMany` and the watchlist rules store them, all or none. A market named twice is
+   * one alert. Expired alerts are retired first, so an alert past its time does not use up a place.
+   */
+  async prepareMany(
+    input: Omit<CreatePriceAlertInput, 'targetPrice' | 'marketId' | 'kind' | 'maxOpen'> & {
+      readonly marketIds: readonly string[];
+      readonly targetPrice?: string | null;
+    },
+    now: Date = new Date(),
+    opts: { readonly expire?: boolean } = {},
+  ): Promise<{ readonly inputs: readonly CreatePriceAlertInput[]; readonly maxOpen: number }> {
     const { marketIds, ...rule } = input;
     const markets = [...new Set(marketIds.map((id) => id.trim()).filter((id) => id !== ''))];
     if (markets.length === 0) throw new AlertValidationError('alert.invalid_market', 'at least one market is needed');
@@ -466,33 +498,21 @@ export class AlertService {
     if (this.limits.maxActivePrice === null) {
       throw new AlertLimitError(NOTIFY_ALERT_QUOTA_UNSET, 'the owner has not set how many price alerts a person may hold');
     }
-    await this.store.expireDue(now);
-    try {
-      return await this.store.createMany(
-        markets.map((marketId) => ({
-          ...rule,
-          kind: 'price' as const,
-          marketId,
-          targetPrice,
-          name,
-          message,
-          expiresAt,
-          extras,
-          frequency,
-        })),
-        this.limits.maxActivePrice,
-      );
-    } catch (err) {
-      if (err instanceof AlertQuotaReachedError) {
-        throw new AlertLimitError(
-          'alert.quota_reached',
-          err.wanted === undefined
-            ? `a person may hold ${err.limit} open price alerts`
-            : `a person may hold ${err.limit} open price alerts; ${err.held} are open and ${err.wanted} more were asked for`,
-        );
-      }
-      throw err;
-    }
+    if (opts.expire !== false) await this.store.expireDue(now);
+    return {
+      inputs: markets.map((marketId) => ({
+        ...rule,
+        kind: 'price' as const,
+        marketId,
+        targetPrice,
+        name,
+        message,
+        expiresAt,
+        extras,
+        frequency,
+      })),
+      maxOpen: this.limits.maxActivePrice,
+    };
   }
 
   /** The burst rule when both owner values are set, else `null`: the rule is off and nothing is stopped for triggering often. */
