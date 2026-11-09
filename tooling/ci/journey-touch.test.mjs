@@ -387,7 +387,7 @@ test('real-app-journeys.yml runs on ready pull requests, tests their head, and a
     assert.match(
       t,
       new RegExp(
-        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && needs\\.touch\\.outputs\\.mode != 'none' && \\(github\\.event_name != 'pull_request'`,
+        `\\n  ${job}:\\n(?: {4}[^\\n]*\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && \\(needs\\.touch\\.result == 'success' \\|\\| \\(needs\\.touch\\.result == 'skipped' && github\\.ref == 'refs/heads/main'\\)\\) && needs\\.touch\\.outputs\\.mode != 'none' && \\(github\\.event_name != 'pull_request'`,
       ),
     );
   assert.match(t, /\.draft\)\) && !\(needs\.plan\.result == 'failure' && needs\.touch\.outputs\.target != ''\)/);
