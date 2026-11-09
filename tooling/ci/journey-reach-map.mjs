@@ -51,7 +51,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, posix } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMainRun, manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 
@@ -595,10 +595,28 @@ const WORKSPACE_KEYS = new Set(['consumers', 'dependents', 'harness', 'subscribe
 /** The map as the builder writes it: one line of JSON and a newline. */
 export const mapText = (map) => `${JSON.stringify(map)}\n`;
 
-/** Builds the map from main's runs (GH_TOKEN), as text: `ids` names the runs to read, `until` the newest run to read. */
-function buildFromMain({ ids, until } = {}) {
-  const ws = workspace();
-  const services = new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d)));
+/**
+ * The map's inputs read from a checkout's code (WORKSPACE_KEYS, and the services the runs' reach is keyed by). `verify`
+ * reads them from the pull request's checkout (`--workspace`) while the runs and the builder stay main's: a pull request
+ * that adds a package, a money one included, then holds the map its own build writes (B1, #7724: main's workspaces made
+ * the map differ in consumers, dependents and money, while tooling tests require the PR's money list).
+ */
+export function workspaceInputs(root = ROOT) {
+  const ws = workspace(root);
+  return {
+    services: new Set(ws.dirs.filter((d) => SERVICE_DIR.test(d))),
+    consumers: consumersOf(ws),
+    dependents: dependentPackages(ws),
+    harness: harnessImports(root, ws),
+    subscribers: subscribers(root),
+    money: [...moneyCodeDirs(manifestsAt(root))],
+  };
+}
+
+/** Builds the map from main's runs (GH_TOKEN), as text: `ids` names the runs to read, `until` the newest run to read,
+ *  `root` the checkout whose code gives the workspace inputs (workspaceInputs; this checkout by default). */
+function buildFromMain({ ids, until, root = ROOT } = {}) {
+  const inputs = workspaceInputs(root);
   const runs = [];
   let whole = 0;
   for (const r of mainCandidates(ids, until)) {
@@ -622,15 +640,7 @@ function buildFromMain({ ids, until } = {}) {
     const ran = reportFiles(report);
     if ([...files].every((f) => ran.has(f)) && ++whole === MIN_RUNS) break;
   }
-  return buildMap({
-    runs,
-    services,
-    consumers: consumersOf(ws),
-    dependents: dependentPackages(ws),
-    harness: harnessImports(ROOT, ws),
-    subscribers: subscribers(),
-    money: [...moneyCodeDirs(manifestsAt(ROOT))],
-  });
+  return buildMap({ runs, ...inputs });
 }
 
 /**
@@ -695,14 +705,15 @@ function main() {
   }
   if (cmd === 'verify') {
     const file = opt('--map') ?? MAP_FILE;
-    const r = verifyMap(readFileSync(file, 'utf8'), (until) => mapText(buildFromMain({ until })));
+    const root = opt('--workspace') ? resolve(opt('--workspace')) : ROOT;
+    const r = verifyMap(readFileSync(file, 'utf8'), (until) => mapText(buildFromMain({ until, root })));
     console.log(r.ok ? `ok: ${file} is the map main's builder builds from the runs it names` : `FAIL: ${r.why}`);
     if (!r.ok) process.exitCode = 1;
     return;
   }
   if (cmd !== 'build') {
     console.error(
-      'usage: journey-reach-map.mjs build [--runs <id,id,id>] [--until <run id>] [--out <file>] | verify [--map <file>] | show [--map <file>]',
+      'usage: journey-reach-map.mjs build [--runs <id,id,id>] [--until <run id>] [--out <file>] | verify [--map <file>] [--workspace <checkout>] | show [--map <file>]',
     );
     process.exit(2);
   }

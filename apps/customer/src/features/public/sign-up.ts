@@ -61,6 +61,7 @@ export const SIGN_UP_CODES = [
   'identity.underage',
   'identity.country_invalid',
   'identity.region_blocked',
+  'identity.subdivision_required',
   'identity.screening_unset',
   'identity.signup_expired',
   'identity.signup_code_invalid',
