@@ -15,6 +15,11 @@ import { fund, restartWith, tool } from './stack.mjs';
 
 const J = 'J-ops-console-24';
 const ASSET = 'ETH';
+/**
+ * A TEST asset only this step funds. Own funds in ETH also move with every other journey's ETH fees and market-maker
+ * fills on the shared stack, so an exact before-and-after sum is only exact in an asset nothing else posts to.
+ */
+const OWN = 'CAP24TEST';
 const CONTACT = 'TEST treasury on-call';
 const REASON = 'TEST buffer policy for J-ops-console-24 #1';
 const UNSET_WORDS =
@@ -33,6 +38,13 @@ async function ownFunds(page, asset) {
   const row = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: asset, exact: true }) });
   await expect(row).toHaveCount(1);
   return (await page.getByTestId(`own-funds-${asset}`).innerText()).trim();
+}
+
+/** The same, where an asset with nothing in it yet has no row: its own funds are then 0 by the ledger's own rows. */
+async function ownFundsOrNone(page, asset) {
+  const table = page.getByRole('table', { name: 'INTAFACED’s own funds per asset' });
+  const row = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: asset, exact: true }) });
+  return (await row.count()) === 0 ? '0' : ownFunds(page, asset);
 }
 
 /** Exact decimal sum of two non-negative decimal strings, as scaled bigints (18 places). */
@@ -114,19 +126,21 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   // INTAFACED's own funds come from the ledger and name it as their source; customer money is never counted.
   await expect(a.getByTestId('own-funds-source')).toContainText('Source: the ledger (svc-ledger), house and module accounts only, read ');
   await expect(a.getByTestId('own-funds-source')).toContainText('Customer balances are never counted as ours.');
-  const before = await ownFunds(a, ASSET);
+  const before = await ownFundsOrNone(a, OWN);
   const run = Date.now().toString(36);
-  fund('house', ASSET, '2.5', `cap24-house-${run}`);
-  fund(founderA.userId, ASSET, '7', `cap24-user-${run}`);
+  fund('house', OWN, '2.5', `cap24-house-${run}`);
+  fund(founderA.userId, OWN, '7', `cap24-user-${run}`);
   await openMonitor(a);
-  expect(await ownFunds(a, ASSET), 'the house funding counts, the customer funding does not').toBe(plus(before, '2.5'));
+  expect(await ownFunds(a, OWN), 'the house funding counts, the customer funding does not').toBe(plus(before, '2.5'));
   const funds = a.getByRole('table', { name: 'INTAFACED’s own funds per asset' });
-  await expect(funds.getByRole('row').filter({ hasText: ASSET }).getByRole('cell').last()).toHaveText(/^Ledger: \d+ accounts?$/);
+  await expect(funds.getByRole('row').filter({ hasText: OWN }).getByRole('cell').last()).toHaveText(/^Ledger: 1 account$/);
   await a.getByText('The ledger accounts these sum').click();
   const accounts = a.getByRole('table', { name: 'Ledger accounts in INTAFACED’s own funds' });
-  await expect(accounts.getByRole('row').filter({ hasText: 'house market-maker' }).filter({ hasText: ASSET })).toHaveCount(1);
+  await expect(accounts.getByRole('row').filter({ hasText: 'house market-maker' }).filter({ hasText: OWN })).toHaveCount(1);
   await expect(accounts).not.toContainText(founderA.userId);
-  await expect(bufferRow(a).getByRole('cell').first()).toHaveText(plus(before, '2.5'));
+  // The buffer reads the same own funds as the table, on the same page: ETH's own funds as the page shows them.
+  const held = await ownFunds(a, ASSET);
+  await expect(bufferRow(a).getByRole('cell').first()).toHaveText(held);
 
   // Any reserve a partner holds of ours: the TEST partner bank and the TEST card partner each say "not known", never 0.
   const reserves = a.getByRole('table', { name: 'Reserves partners hold of ours' });
@@ -137,7 +151,7 @@ test(`${J} #1 the capital monitor with the threshold blank: own funds from the l
   await expect(cardRow.getByRole('cell').first()).toHaveText('not known');
   await expect(cardRow.getByRole('cell').last()).toContainText('svc-bank, the card partner’s terms, read ');
 
-  const held = plus(before, '2.5');
+  // A minimum 1 ETH above the buffer just read: other journeys' fees move it by far less, so it stays below.
   const minimum = plus(held, '1');
   let set = false;
   try {
