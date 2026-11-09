@@ -8,7 +8,7 @@ import { defineCopy } from '../../../shared/i18n';
  */
 const en = {
   blockedBy: 'Blocked by',
-  noWallet: 'No wallet is connected, so there is nothing to sign with. Connect one in the wallet room.',
+  noWallet: 'This page has no wallet to sign with yet. Connect one in the wallet room.',
   connectWallet: 'Connect a wallet',
   backToDex: 'Back to DEX',
   backToPools: 'Back to pools',

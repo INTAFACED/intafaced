@@ -93,7 +93,7 @@ test(`${J} #2 a room with no indexer or no wallet keeps its layout and names the
   await expectWeb3(page);
   await expect(page.getByRole('form', { name: 'New pool' })).toBeVisible();
   await expect(page.getByText('Blocked by')).toBeVisible();
-  await expect(page.getByText('No wallet is connected, so there is nothing to sign with.', { exact: false })).toBeVisible();
+  await expect(page.getByText('This page has no wallet to sign with yet.', { exact: false })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Back to DEX' })).toBeVisible();
 
   // A malformed pool id is not found, with no lookup and no blocker: the page says so in words.
