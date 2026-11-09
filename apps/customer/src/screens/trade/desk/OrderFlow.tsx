@@ -8,8 +8,8 @@ import { memo, useMemo, useState, type PointerEvent as ReactPointerEvent } from 
 import type { OrderBook, Trade } from '@intafaced/exchange-contract/schemas';
 import type { Order } from '../../../features/trade/trade-api';
 import type { Preferences } from '../../../shared/preferences';
-import { fmtAmount, fmtPrice, refusalCopy, StateBlock, Skeleton, type Loadable } from './deps';
-import { useTape } from './data';
+import { fmtAmount, fmtPct, fmtPrice, refusalCopy, StateBlock, Skeleton, type Loadable } from './deps';
+import { useQueuePosition, useTape } from './data';
 import { useNow } from './hooks';
 import type { DeskMarket } from './market';
 import { STALE_BOOK_MS } from './OrderBook';
@@ -18,6 +18,7 @@ import {
   buildLadder,
   depthCurve,
   LADDER_STEPS,
+  queueReadout,
   stepOf,
   tapeView,
   type DomSetting,
@@ -151,6 +152,99 @@ function Ladder({
         })}
       </div>
     </div>
+  );
+}
+
+/** One of my resting orders: its place in the native queue and, only with the owner's window set, the chance of a fill. */
+function QueueRow({ market, order }: { market: DeskMarket; order: Order }) {
+  const { t } = flowCopy.useCopy();
+  const read = useQueuePosition(order.id);
+  const amountPlaces = placesOf(market.lotSize);
+  const size = (value: string) => fmtAmount(value, { places: amountPlaces });
+  const head = t('My queue order', {
+    side: order.side === 'buy' ? t('My queue side buy') : t('My queue side sell'),
+    // Once the queue read answers, its own remaining size, so the heading and the basis below never disagree.
+    amount: size(read.status === 'ready' ? read.data.remaining : order.remaining),
+    asset: market.base,
+    price: order.price ? fmtPrice(order.price, market.tickSize) : '—',
+  });
+  if (read.status !== 'ready')
+    return (
+      <li className="of-queue-row" data-testid="of-queue-row" data-order-id={order.id} data-state={read.status}>
+        <span className="of-queue-head">{head}</span>
+        <span className="of-note" role={read.status === 'loading' ? undefined : 'status'}>
+          {read.status === 'loading'
+            ? t('My queue loading')
+            : read.status === 'refused' && read.code === 'trade.queue_unavailable'
+              ? t('My queue unavailable')
+              : read.status === 'refused'
+                ? refusalCopy(read.code).title
+                : t('My queue unavailable')}
+        </span>
+      </li>
+    );
+  const q = read.data;
+  const view = queueReadout(q);
+  const chance = view.chance.kind === 'estimate' ? view.chance : null;
+  return (
+    <li
+      className="of-queue-row"
+      data-testid="of-queue-row"
+      data-state="ready"
+      data-order-id={q.orderId}
+      data-price={q.price}
+      data-orders-ahead={q.ordersAhead}
+      data-size-ahead={q.sizeAhead}
+      data-as-of={q.asOfSequence}
+      data-source={q.source}
+      data-chance={chance ? chance.ratio : 'unset'}
+      data-window={chance?.windowSeconds ?? ''}
+      data-traded={chance?.tradedThrough ?? ''}
+      data-to-fill={chance?.sizeToFill ?? ''}
+    >
+      <span className="of-queue-head">{head}</span>
+      <span data-testid="of-queue-ahead">
+        {view.ahead.kind === 'first'
+          ? t('My queue first')
+          : view.ahead.kind === 'one'
+            ? t('My queue ahead one', { size: size(view.ahead.size), asset: market.base })
+            : t('My queue ahead', { n: view.ahead.n, size: size(view.ahead.size), asset: market.base })}
+      </span>
+      <span data-testid="of-queue-chance">
+        {chance ? t('My queue chance', { pct: fmtPct(chance.ratio, { signed: false }) }) : t('My queue chance unset')}
+      </span>
+      <span className="of-note" data-testid="of-queue-basis">
+        {chance
+          ? t('My queue basis', {
+              traded: size(chance.tradedThrough),
+              asset: market.base,
+              seconds: chance.windowSeconds,
+              toFill: size(chance.sizeToFill),
+            })
+          : t('My queue basis unset')}{' '}
+        {t('My queue source')}
+      </span>
+    </li>
+  );
+}
+
+/** My resting limit orders in this market and where each stands in the queue. */
+function MyQueue({ market, mine }: { market: DeskMarket; mine: readonly Order[] }) {
+  const { t } = flowCopy.useCopy();
+  const resting = mine.filter((order) => order.type === 'limit' && order.price !== null);
+  return (
+    <section className="of-section" aria-label={t('My queue')} data-testid="of-queue">
+      <h3 className="of-title">{t('My queue')}</h3>
+      {resting.length === 0 ? (
+        <p className="of-note">{t('My queue none')}</p>
+      ) : (
+        <ul className="of-queue">
+          {resting.map((order) => (
+            <QueueRow key={order.id} market={market} order={order} />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -432,7 +526,10 @@ export const OrderFlow = memo(function OrderFlow({ market, book, openOrders, zon
         </p>
       ) : null}
       <div className="of-body">
-        <div className="of-col">{ladder}</div>
+        <div className="of-col">
+          {ladder}
+          <MyQueue market={market} mine={mine} />
+        </div>
         <div className="of-col">
           {data ? <DepthChart market={market} data={data} /> : null}
           <TimeAndSales market={market} zone={zone} setting={setting} onSetting={onSetting} />
