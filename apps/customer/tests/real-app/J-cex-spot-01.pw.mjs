@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import path from 'node:path';
 import { api, bestPrices, fromUnits, journeyState, ROOT, signUpInBrowser, toUnits, signOutBrowser, restartWith } from './stack.mjs';
-import { confirm, free, held, openDesk, openOrders, previewed, reviewSheet, signIn } from './desk.mjs';
+import { confirm, deskPath, free, held, openDesk, openOrders, previewed, reviewSheet, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
 import { CHAIN_ID, testChain } from './dex.mjs';
@@ -275,9 +275,13 @@ async function personWallet(page) {
 }
 
 /** The venue desk for BTC/USDC with the person's TEST wallet connected; returns the wallet and the venue-account panel. */
-async function venueDesk(page) {
+async function venueDesk(page, { signedIn = false } = {}) {
   const wallet = await personWallet(page);
-  await openDesk(page, account(), DESK_SYMBOL);
+  if (signedIn) {
+    // This browser is already signed in (with a second factor, which openDesk's sign-in cannot give).
+    await page.goto(deskPath(DESK_SYMBOL));
+    await expect(page.getByRole('button', { name: 'Buy BTC' })).toBeVisible();
+  } else await openDesk(page, account(), DESK_SYMBOL);
   const panel = venuePanel(page);
   await expect(panel).toBeVisible();
   const connect = panel.getByRole('button', { name: `Connect ${TEST_WALLET.name}` });
@@ -814,17 +818,19 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   page,
 }) => {
   test.setTimeout(420_000);
-  const who = account();
+  const person = account();
   const { owner } = run.read();
-  // A second factor to step up with, from Security.
-  await signIn(page, who);
+  // A second factor to step up with, from Security. From here the account signs in only with a code, so the step's
+  // reads use one session signed in with a fresh code, and the browser stays signed in.
+  await signIn(page, person);
   const { totp } = await totpLib();
   const { secret, step } = await addAuthenticator(page, totp);
   run.write({ secret, step });
+  const who = { ...person, client: await api(person, { totpCode: await freshCode() }) };
   const before = await venueBalance(who, owner, 'USDC');
   expect(wireUnits(before.free) >= toUnits('10')).toBe(true);
   // A session that has not stepped up is refused before the wallet is asked: nothing to sign, nothing withdrawn.
-  const { wallet, panel } = await venueDesk(page);
+  const { wallet, panel } = await venueDesk(page, { signedIn: true });
   const asked = wallet.requests.length;
   await panel.getByRole('button', { name: /^Withdraw/ }).click();
   const form = page.getByRole('dialog', { name: /withdraw/i });
@@ -838,9 +844,7 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
   await expect(stepUp).toBeVisible();
   await page.keyboard.press('Escape');
   expect(wallet.requests.length, 'the wallet is not asked before the step-up').toBe(asked);
-  const unstepped = await (
-    await api(who)
-  ).post('/api/v1/venue/prepare', {
+  const unstepped = await who.client.post('/api/v1/venue/prepare', {
     owner,
     signer: { role: 'owner', address: owner },
     intent: { kind: 'withdraw', asset: 'USDC', amount: '10', destination: owner, withdrawalKey: `withdraw:${owner}:${J}-12-unstepped` },

@@ -42,9 +42,15 @@ export function venueOff() {
   restartTrade(null);
 }
 
+/**
+ * The person's own API session: `who.client` when the step already signed in with its second factor (an account with an
+ * authenticator cannot sign in without a code), or a fresh sign-in.
+ */
+const clientOf = (who) => who.client ?? api(who);
+
 /** The door's status for this person: on, the venue up, and a TEST venue, labelled TEST. */
 export async function venueStatus(who) {
-  const { status, body } = await (await api(who)).get('/api/v1/venue/status');
+  const { status, body } = await (await clientOf(who)).get('/api/v1/venue/status');
   expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
   expect(body, 'the user-venue door is on and the TEST venue answers').toMatchObject({
     enabled: true,
@@ -58,7 +64,7 @@ export async function venueStatus(who) {
 /** One of the venue's own reads through the door, for the venue account `owner` owns, with its as-of time. */
 export async function venueRead(who, route, owner, query = {}) {
   const qs = new URLSearchParams({ owner, ...query }).toString();
-  const { status, body } = await (await api(who)).get(`/api/v1/venue/${route}?${qs}`);
+  const { status, body } = await (await clientOf(who)).get(`/api/v1/venue/${route}?${qs}`);
   expect(status, `${route}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
   expect(typeof body.asOf, `${route} carries the venue's as-of time`).toBe('string');
   expect(Number.isNaN(Date.parse(body.asOf)), body.asOf).toBe(false);
