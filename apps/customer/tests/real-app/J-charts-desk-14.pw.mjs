@@ -476,13 +476,16 @@ test(`${J} #5 uses Buy and Sell buttons on the chart; each shows the live spread
 });
 
 test(`${J} #8 reads my place in the queue and the fill chance of a resting order: from the book, with the estimate's basis`, async () => {
-  // A price no one rests at yet, well under the touch, so the queue there is exactly the orders this step places.
-  const { body: deep } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(SYMBOL)}?limit=500`, {
-    headers: { origin: ORIGIN },
-  }).then(async (res) => ({ body: await res.json() }));
-  const taken = new Set((deep.bids ?? []).map(([p]) => toUnits(canon(p) || '0')));
-  let price = await awayBid(85);
-  while (taken.has(toUnits(price))) price = fromUnits(toUnits(price) - toUnits('1'));
+  // A price inside the spread, a third of the way up from the best bid: no one rests there yet, so the queue there is
+  // exactly the orders this step places, and it becomes the best bid, so a sell at that price trades against it first.
+  // (The TEST market maker quotes 6 bps either side of its mid, so the spread is many ticks wide.)
+  const { precision } = await market();
+  const tick = toUnits(precision.price);
+  const touch = await bestPrices(SYMBOL);
+  const third = (toUnits(touch.ask) - toUnits(touch.bid)) / 3n;
+  const price = fromUnits(((toUnits(touch.bid) + third) / tick) * tick);
+  expect(toUnits(price), 'a price strictly inside the spread').toBeGreaterThan(toUnits(touch.bid));
+  expect(toUnits(price), 'a price strictly inside the spread').toBeLessThan(toUnits(touch.ask));
   // Two other TEST accounts rest first, then me: two orders and their sizes are ahead of mine.
   const taker = await api(otherTrader());
   const second = await api(await fundedTrader(page, 'jcd14q', '500'));
@@ -550,7 +553,6 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
     // A trade prints at my price: the seller's limit sell of 0.001 there, immediate or cancel, fills against the first
     // order in the queue. My place moves up by that size, the traded volume grows by it, and the chance is no longer
     // the empty-window answer: it is that volume's share of the size that must trade, above zero.
-    const before = toUnits(basis.tradedThrough);
     const sold = await seller.post('/api/v1/orders', {
       symbol: SYMBOL,
       type: 'limit',
@@ -571,7 +573,21 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
     expect(toUnits(after.body.sizeAhead)).toBe(sizeAheadAfter);
     const basisAfter = after.body.fillProbabilityBasis;
     expect(toUnits(basisAfter.sizeToFill)).toBe(sizeAheadAfter + toUnits(SMALL));
-    expect(toUnits(basisAfter.tradedThrough)).toBeGreaterThanOrEqual(before + toUnits(SMALL));
+    // The print itself is in the window, and the volume holds at least every sell the public tape shows at or below my
+    // price in this read's own window, the print included.
+    expect(toUnits(basisAfter.tradedThrough)).toBeGreaterThanOrEqual(toUnits(SMALL));
+    const untilAfter = Number(after.body.serverTime);
+    const { body: tapeAfter } = await mineClient.get(
+      `/api/v1/trades/${encodeURIComponent(SYMBOL)}?limit=500&since=${untilAfter - basisAfter.windowSeconds * 1000}`,
+    );
+    const printed = (Array.isArray(tapeAfter) ? tapeAfter : []).filter(
+      (p) => p.side === 'sell' && p.timestamp <= untilAfter && toUnits(canon(p.price)) <= toUnits(price),
+    );
+    expect(
+      printed.some((p) => toUnits(canon(p.price)) === toUnits(price) && toUnits(canon(p.amount)) === toUnits(SMALL)),
+      'the print at my price is on the tape',
+    ).toBe(true);
+    expect(toUnits(basisAfter.tradedThrough)).toBeGreaterThanOrEqual(printed.reduce((sum, p) => sum + toUnits(canon(p.amount)), 0n));
     const ratioAfter = (toUnits(basisAfter.tradedThrough) * 10n ** 18n) / toUnits(basisAfter.sizeToFill);
     const chanceAfter = ((ratioAfter > 10n ** 18n ? 10n ** 18n : ratioAfter) / 10n ** 14n) * 10n ** 14n;
     expect(toUnits(after.body.fillProbability)).toBe(chanceAfter);
