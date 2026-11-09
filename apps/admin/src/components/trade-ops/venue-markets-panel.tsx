@@ -81,7 +81,7 @@ function MarketsTable({ view }: { view: VenueMarketsView }) {
                 <>
                   <span className="block">
                     Shown · v{m.listing.version}
-                    {m.listing.delisted ? ' · delisted' : m.listing.open ? ' · open' : ' · not open yet'}
+                    {m.listing.delisted ? ' · delisted' : m.listing.open ? ' · open' : ' · before its opening time'}
                   </span>
                   <span className="block text-xs text-fg-2">
                     Opens at <span className="if-num">{m.listing.opensAt}</span>

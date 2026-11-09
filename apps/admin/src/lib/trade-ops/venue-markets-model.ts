@@ -268,7 +268,7 @@ export const VENUE_CODE_WORDS: Readonly<Record<string, string>> = {
   'trade.venue_listing_opening_window_blank': 'A listing needs its opening time. Nothing was written.',
   'trade.venue_listing_opening_window_invalid': 'The opening time is not a time, or falls after the delisting date.',
   'trade.venue_listing_stale': 'The market changed since this was proposed. Read the desk again and propose again.',
-  'trade.venue_listing_missing': 'This market has no listing yet. List it first.',
+  'trade.venue_listing_missing': 'This market has no listing. List it first.',
   'trade.venue_routing_invalid': 'The routing state is show, close only or stop.',
   'trade.venue_routing_unchanged': 'The market is already in that routing state.',
   'trade.venue_limit_blank': 'A limit is blank. A limit is never filled in.',
