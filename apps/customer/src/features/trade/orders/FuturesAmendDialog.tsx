@@ -92,7 +92,7 @@ export function FuturesAmendDialog({
           <DialogTitle>{t('amendTitle', { symbol: order.symbol ?? order.marketId })}</DialogTitle>
           <DialogDescription>{t('amendLead')}</DialogDescription>
         </DialogHeader>
-        <div className="mt-4 flex flex-col gap-3 text-sm">
+        <div className="mbs-4 flex flex-col gap-3 text-sm">
           {reviewing ? (
             <section aria-label={t('amendReview')} className="flex flex-col gap-2">
               <KeyValue
@@ -131,7 +131,7 @@ export function FuturesAmendDialog({
             </p>
           ) : null}
         </div>
-        <DialogFooter className="mt-5">
+        <DialogFooter className="mbs-5">
           {reviewing ? (
             <>
               <Button variant="secondary" size={40} onClick={() => setReviewing(false)} disabled={busy}>
