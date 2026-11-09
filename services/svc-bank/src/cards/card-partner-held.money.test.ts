@@ -596,7 +596,9 @@ describe('partner-held card authorisations (PG)', () => {
         },
       };
       const svc = build({ holds: lossy }).cards;
-      await expect(svc.authorize({ cardId: card.id, authorizationRef: 'freeze-lost', amount: amt('40') })).rejects.toThrow('socket hang up');
+      await expect(svc.authorize({ cardId: card.id, authorizationRef: 'freeze-lost', amount: amt('40') })).rejects.toThrow(
+        'socket hang up',
+      );
       posting = false;
       await expect(codeOf(svc.authorize({ cardId: card.id, authorizationRef: 'freeze-lost', amount: amt('40') }))).resolves.toBe(
         'bank.posting_frozen',
