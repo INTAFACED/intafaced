@@ -307,3 +307,52 @@ export function apiKeyCreateRequestId(
   ]);
   return `api-key-create:${userId.toLowerCase()}:${digest(seen)}:${digest(asked)}`;
 }
+
+/**
+ * The sensitive actions an agent key's attempt is held for its owner instead of run (DV-keys-05: "a sensitive action by
+ * an agent key creates an approval-queue row instead of running"). The edge names the action from the route; nothing
+ * is forwarded to the service, so the action never runs from the attempt.
+ */
+export const AGENT_HELD_ACTIONS = ['pay.payout', 'pay.refund'] as const;
+export type AgentHeldAction = (typeof AGENT_HELD_ACTIONS)[number];
+
+const bodyHash = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+
+/** The edge's ask: this key attempted this action. Service-only (`svc-edge`). */
+export const agentKeyHoldInputSchema = z
+  .object({
+    userId: z.string().guid(),
+    keyId: z.string().guid(),
+    action: z.enum(AGENT_HELD_ACTIONS),
+    method: z.string().min(1).max(16),
+    path: z.string().min(1).max(512),
+    bodyHash,
+  })
+  .strict();
+export type AgentKeyHoldInput = z.infer<typeof agentKeyHoldInputSchema>;
+
+/** One held attempt, as its owner sees it. `waiting`: nothing was sent and nothing ran. */
+export const agentKeyApprovalSchema = z
+  .object({
+    id: z.string().guid(),
+    keyId: z.string().guid(),
+    keyName: z.string(),
+    action: z.enum(AGENT_HELD_ACTIONS),
+    method: z.string(),
+    path: z.string(),
+    status: z.literal('waiting'),
+    createdAt: z.string(),
+  })
+  .strict();
+export type AgentKeyApproval = z.infer<typeof agentKeyApprovalSchema>;
+
+/** `held: false`: the key is not an agent key, and the request goes on as any key's would. */
+export const agentKeyHoldOutputSchema = z.discriminatedUnion('held', [
+  z.object({ held: z.literal(false) }).strict(),
+  z.object({ held: z.literal(true), approval: agentKeyApprovalSchema }).strict(),
+]);
+export type AgentKeyHoldOutput = z.infer<typeof agentKeyHoldOutputSchema>;
+
+export const agentKeyApprovalListInputSchema = z.object({ limit: z.number().int().min(1).max(200) }).strict();
+export const agentKeyApprovalListOutputSchema = z.object({ approvals: z.array(agentKeyApprovalSchema) }).strict();
+export type AgentKeyApprovalList = z.infer<typeof agentKeyApprovalListOutputSchema>;

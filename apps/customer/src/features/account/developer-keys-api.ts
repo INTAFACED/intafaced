@@ -8,6 +8,8 @@ import {
   apiKeyRevokeOutputSchema,
   apiKeyScopesOutputSchema,
   apiKeySetExpiryOutputSchema,
+  agentKeyApprovalListOutputSchema,
+  type AgentKeyApprovalList,
   type ApiKeyCreateInput,
   type ApiKeyCreateOutput,
   type ApiKeyDetail,
@@ -30,6 +32,14 @@ export function readDeveloperKeys(api: ApiClient, signal: AbortSignal): Promise<
 
 export function readKeyScopes(api: ApiClient, signal: AbortSignal): Promise<ApiResult<{ scopes: ApiKeyScopeEntry[] }>> {
   return api.query('identity', 'developerKeys.scopes', undefined, apiKeyScopesOutputSchema, { signal });
+}
+
+/** The newest held agent attempts the key page shows (DV-keys-05). */
+const APPROVALS_LIMIT = 50;
+
+/** The agent keys' held attempts (a payout, a refund), each waiting for the owner; nothing was sent. */
+export function readAgentApprovals(api: ApiClient, signal: AbortSignal): Promise<ApiResult<AgentKeyApprovalList>> {
+  return api.query('identity', 'developerKeys.approvals', { limit: APPROVALS_LIMIT }, agentKeyApprovalListOutputSchema, { signal });
 }
 
 /** The most sub-accounts the key form offers at once; the owner's sub-account cap is far below it. */

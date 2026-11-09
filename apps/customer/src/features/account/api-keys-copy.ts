@@ -118,6 +118,18 @@ const messages = {
   agentKeyHint:
     'An agent key is tagged on your list. It cannot hold refund, payout, withdrawal or settings permissions, and an action that needs your approval waits for you.',
   agentBadge: 'Agent',
+  approvalsTitle: 'Waiting for your approval',
+  approvalsIntro:
+    'When an agent key tries a payout or a refund, it does not run. It waits here for you, and nothing is sent until you act.',
+  approvalsEmpty: 'No agent key has asked for your approval.',
+  approvalsLoading: 'Reading what your agent keys asked for…',
+  colApprovalKey: 'Key',
+  colApprovalAction: 'Asked to',
+  colApprovalAsked: 'Asked',
+  colApprovalState: 'State',
+  'approvalAction.pay.payout': 'Send a payout',
+  'approvalAction.pay.refund': 'Send a refund',
+  approvalWaiting: 'Waiting for you. Nothing was sent.',
   'refused.identity.agent_scope_forbidden':
     'An agent key cannot hold refund, payout, withdrawal or settings permissions. Remove them and try again. Nothing was created.',
   accountOwn: 'This account',

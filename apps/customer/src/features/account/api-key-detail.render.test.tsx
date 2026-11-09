@@ -172,6 +172,43 @@ describe('the key list', () => {
     expect(rows[2]!.textContent).toContain('Revoked. The reason was not recorded.');
   });
 
+  it('says when no agent key has asked for approval (J-developer-15 #6)', async () => {
+    world.queries['developerKeys.list'] = [list([live])];
+    world.queries['developerKeys.approvals'] = [{ ok: true, data: { approvals: [] } }];
+    await render(<ApiKeys />);
+    expect(host.textContent).toContain('Waiting for your approval');
+    expect(host.textContent).toContain('No agent key has asked for your approval.');
+    expect(world.asked.find((a) => a.procedure === 'developerKeys.approvals')?.input).toEqual({ limit: 50 });
+  });
+
+  it("lists an agent key's held payout as waiting, with nothing sent (J-developer-15 #6)", async () => {
+    world.queries['developerKeys.list'] = [list([live])];
+    world.queries['developerKeys.approvals'] = [
+      {
+        ok: true,
+        data: {
+          approvals: [
+            {
+              id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+              keyId: KEY,
+              keyName: 'agent-reader',
+              action: 'pay.payout',
+              method: 'POST',
+              path: '/api/pay/trpc/settlement.payout',
+              status: 'waiting',
+              createdAt: '2026-11-09T13:00:00.000Z',
+            },
+          ],
+        },
+      },
+    ];
+    await render(<ApiKeys />);
+    const row = host.querySelector('[data-testid="api-keys__approvals"] tbody tr');
+    expect(row?.textContent).toContain('agent-reader');
+    expect(row?.textContent).toContain('Send a payout');
+    expect(row?.textContent).toContain('Waiting for you. Nothing was sent.');
+  });
+
   it('revokes with an optional reason and no second factor, then reads the list again and shows the reason', async () => {
     world.queries['developerKeys.list'] = [
       list([live]),

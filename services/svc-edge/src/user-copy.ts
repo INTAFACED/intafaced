@@ -37,6 +37,8 @@ const CATALOG_ALIAS: Readonly<Record<string, string>> = {
   // Key refusals and the account freeze (api-key-refusal.ts). Generic sentences until the catalogue gains
   // dedicated ones; the code and the docs link carry the detail.
   'edge.api_key_denied': 'error.forbidden',
+  // An agent key's sensitive action, held for its owner (agent-key-hold.ts, DV-keys-05).
+  'edge.agent_approval_required': 'error.agentApprovalRequired',
   'edge.api_key_revoked': 'error.forbidden',
   'edge.api_key_expired': 'error.forbidden',
   account_frozen: 'error.forbidden',

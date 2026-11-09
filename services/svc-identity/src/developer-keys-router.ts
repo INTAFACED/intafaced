@@ -1,4 +1,4 @@
-import { router, scopedProcedure, TRPCError } from '@intafaced/contracts';
+import { router, scopedProcedure, serviceProcedureFor, TRPCError } from '@intafaced/contracts';
 import {
   apiKeyCreateInputSchema,
   apiKeyCreateOutputSchema,
@@ -11,7 +11,12 @@ import {
   apiKeySetExpiryOutputSchema,
   apiKeyListOutputSchema,
   apiKeyScopesOutputSchema,
+  agentKeyApprovalListInputSchema,
+  agentKeyApprovalListOutputSchema,
+  agentKeyHoldInputSchema,
+  agentKeyHoldOutputSchema,
 } from '@intafaced/contracts/api-keys';
+import { AgentKeyApprovalError, holdAgentKeyAction, listAgentKeyApprovals } from './auth/agent-key-approvals.js';
 import { optionalFactorProof } from './auth/api-key-fresh-factor.js';
 import {
   createDeveloperKey,
@@ -141,6 +146,33 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
         .query(({ ctx }) => {
           assertSignedInPerson(ctx.principal);
           return { scopes: describeKeyScopes(ctx.principal.scopes) };
+        }),
+
+      /** The owner's agent keys' held attempts (DV-keys-05): each a waiting row; nothing was sent. */
+      approvals: scopedProcedure('identity:read')
+        .input(agentKeyApprovalListInputSchema)
+        .output(agentKeyApprovalListOutputSchema)
+        .query(async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          return listAgentKeyApprovals(deps.sql, ctx.principal.userId, input.limit);
+        }),
+
+      /**
+       * The edge's ask when an API key attempts a held action (`AGENT_HELD_ACTIONS`): an agent key's attempt becomes a
+       * waiting row and is not forwarded; any other key is not held. Only the edge may call it.
+       */
+      holdAgentAction: serviceProcedureFor(['svc-edge'])
+        .input(agentKeyHoldInputSchema)
+        .output(agentKeyHoldOutputSchema)
+        .mutation(async ({ input }) => {
+          try {
+            return await holdAgentKeyAction(deps.sql, input);
+          } catch (err) {
+            if (err instanceof AgentKeyApprovalError) {
+              throw new TRPCError({ code: 'NOT_FOUND', message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+            }
+            throw err;
+          }
         }),
     }),
   });

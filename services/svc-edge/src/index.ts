@@ -30,7 +30,8 @@ import { markAuthOutcome, registerMetrics } from './metrics.js';
 import { decideGateway, parseSandboxHosts, sandboxOf } from './gateway-plane.js';
 import { KeyBuckets, parseRouteCosts } from './rate-bucket.js';
 import { registerRateLimitsDoor } from './rate-limits-door.js';
-import { apiKeyRefusalBody } from './api-key-refusal.js';
+import { API_KEY_DENIED, apiKeyRefusalBody } from './api-key-refusal.js';
+import { agentHeldAction, holdAgentKeyAttempt } from './agent-key-hold.js';
 import { markProxied, registerReplyEnvelope, REQUEST_ID_HEADER, REQUEST_ID_OPTIONS } from './reply-envelope.js';
 import { exchangePrincipal } from './principal-exchange.js';
 import { upstreamBody } from './proxy-body.js';
@@ -509,6 +510,41 @@ await app.register(async (api) => {
     // signing-key mismatch, and a spike in `anonymous` is a front-end that stopped
     // attaching the header. An availability panel that merges them shows neither.
     markAuthOutcome(req, exchanged.rejected ? 'refused' : exchanged.principal ? 'authenticated' : 'anonymous');
+
+    // An agent key's sensitive action (a payout, a refund) is held for its owner and never forwarded (DV-keys-05):
+    // identity writes the waiting row, and the answer names it. Any other key's request goes on below.
+    const heldAction = exchanged.principal?.kid ? agentHeldAction(req.method, url.pathname) : undefined;
+    if (heldAction && exchanged.principal?.kid) {
+      const hold = env.IDENTITY_OWNERSHIP_SECRET
+        ? await holdAgentKeyAttempt({
+            identityUrl: env.IDENTITY_URL,
+            identityOwnershipSecret: env.IDENTITY_OWNERSHIP_SECRET,
+            s2s: edgeS2s,
+            userId: exchanged.principal.userId,
+            keyId: exchanged.principal.kid,
+            action: heldAction,
+            method: req.method,
+            path: url.pathname,
+            body: rawBody,
+          })
+        : ({ kind: 'unavailable' } as const);
+      if (hold.kind === 'unavailable') {
+        req.log.warn({ path: url.pathname }, 'edge: agent hold could not be recorded');
+        return reply
+          .code(503)
+          .header('retry-after', '1')
+          .send({ error: userCopy('edge.authority_unavailable'), code: 'edge.authority_unavailable' });
+      }
+      if (hold.kind === 'refused') {
+        return reply.code(API_KEY_DENIED.status).send(apiKeyRefusalBody(API_KEY_DENIED));
+      }
+      if (hold.kind === 'held') {
+        req.log.info({ action: heldAction, approvalId: hold.approval.id }, 'edge: agent key action held for its owner');
+        return reply
+          .code(202)
+          .send({ error: userCopy('edge.agent_approval_required'), code: 'edge.agent_approval_required', approval: hold.approval });
+      }
+    }
 
     // One key/scope/quota/sandbox plane. Dialects stay two — refuse bodies are
     // CCXT on /api/v1 and tRPC on /api/pay. The environment rule (env.mismatch)

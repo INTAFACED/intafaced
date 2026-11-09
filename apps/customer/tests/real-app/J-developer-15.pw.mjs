@@ -21,6 +21,8 @@ let who;
 let me;
 const sub = { a: '', b: '' };
 let subKey = '';
+/** The agent key #5 makes (trade:read), which #6 uses. */
+let agentKey = '';
 
 const BALANCE = '/api/v1/account/balance';
 
@@ -185,7 +187,7 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   await page.getByLabel('Custom', { exact: true }).check();
   await page.getByRole('checkbox', { name: /^trade:read/ }).check();
   await page.getByRole('button', { name: 'Create with a passkey', exact: true }).click();
-  const agentKey = await takeShownKey();
+  agentKey = await takeShownKey();
   const row = keyRow('agent-reader');
   await expect(row.getByTestId('api-keys__agent')).toHaveText('Agent');
   await expect(row).toContainText('trade:read');
@@ -200,4 +202,44 @@ test(`${J} #5 creates an agent key: it is tagged and restricted, and a forbidden
   const listed = await me.get(`/api/identity/trpc/developerKeys.list?input=${encodeURIComponent(JSON.stringify({ limit: 200 }))}`);
   const record = listed.body.result.data.keys.find((key) => key.name === 'agent-reader');
   expect(record).toMatchObject({ kind: 'agent', scopes: ['trade:read'] });
+});
+
+test(`${J} #6 the agent key attempts a payout: an approval row appears and no payout runs; a read call runs`, async () => {
+  test.setTimeout(180_000);
+  expect(agentKey, 'the agent key from #5').toMatch(/^ifc_/);
+  const asked = { settlementId: '9f1c2b3a-0000-4000-8000-00000000d015', railId: 'test-rail' };
+  const PAYOUT = '/api/pay/trpc/settlement.payout';
+  const approvalsPath = `/api/identity/trpc/developerKeys.approvals?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`;
+
+  // The attempt is held at the door: a typed answer naming the waiting row, and nothing is forwarded to the service.
+  const attempt = await withKey(agentKey, { method: 'POST', path: PAYOUT, body: asked });
+  expect(attempt.status, JSON.stringify(attempt.body).slice(0, 300)).toBe(202);
+  expect(codeOf(attempt.body)).toBe('edge.agent_approval_required');
+  expect(attempt.body.approval).toMatchObject({ keyName: 'agent-reader', action: 'pay.payout', status: 'waiting' });
+  // The same attempt again is the same row, not a second one.
+  const again = await withKey(agentKey, { method: 'POST', path: PAYOUT, body: asked });
+  expect(again.status).toBe(202);
+  expect(again.body.approval.id).toBe(attempt.body.approval.id);
+
+  // An approval row appears: the owner's list holds exactly this one, waiting.
+  const approvals = await me.get(approvalsPath);
+  expect(approvals.status, JSON.stringify(approvals.body).slice(0, 300)).toBe(200);
+  expect(approvals.body.result.data.approvals).toEqual([
+    expect.objectContaining({ id: attempt.body.approval.id, keyName: 'agent-reader', action: 'pay.payout', status: 'waiting' }),
+  ]);
+  // And the key page shows it, saying nothing was sent.
+  await page.goto('/uc/safe/api-keys');
+  const row = page.getByTestId('api-keys__approvals').locator('tbody tr');
+  await expect(row).toHaveCount(1);
+  await expect(row).toContainText('agent-reader');
+  await expect(row).toContainText('Send a payout');
+  await expect(row).toContainText('Waiting for you. Nothing was sent.');
+
+  // No payout runs. Read back: the master's money is where it was.
+  const own = await me.balances();
+  expect(own.USDT?.total, JSON.stringify(own)).toBe('250');
+
+  // A read call runs with the same agent key.
+  const read = await withKey(agentKey, { path: BALANCE });
+  expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
 });
