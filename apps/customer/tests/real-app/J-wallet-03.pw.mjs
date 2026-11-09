@@ -1,7 +1,8 @@
 // World: restart
+import { existsSync, readFileSync } from 'node:fs';
 import { test, expect } from './journey.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { api, journeyState, tool, toUnits } from './stack.mjs';
+import { api, journeyState, stackFile, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 
 // J-wallet-03, in the running app (docs/roadmap/journeys.json): my deposit is held and then released. One test per step,
@@ -319,6 +320,31 @@ test(`${J} #4 compliance freezes the deposit address: the confirming deposit sho
   }
 });
 
+/** The person's ledger lines of one reason (every asset, newest first), as the ledger answers them through Edge. */
+async function ledgerLines(who, type) {
+  const { status, body } = await (await api(who)).get('/api/v1/ledger?limit=200');
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.entries.filter((e) => e.type === type);
+}
+const units = (amount) => toUnits(String(amount).replace(/^-/, ''));
+
+/** svc-pay's alerts that a credited deposit was taken back after its funds were spent, from the stack's pay log. */
+const UNFUNDED = 'custody deposit reversal unfunded: the credited funds were already spent';
+function unfundedAlerts() {
+  const file = stackFile('logs/pay.log');
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    })
+    .filter((entry) => entry.msg === UNFUNDED && entry.alert === true);
+}
+
 test(`${J} #5 a credited deposit the chain takes back is reversed once and the balance drops by the amount once; if it was already spent, it is sent to review and the balance never goes below zero`, async ({
   page,
 }, testInfo) => {
@@ -351,8 +377,16 @@ test(`${J} #5 a credited deposit the chain takes back is reversed once and the b
   await expect(recordRow(page, tx)).toContainText('Reversed');
   await expect(recordRow(page, tx)).toContainText('The network rewrote the block this deposit was in');
   expect(await mine.usdt()).toBe(0n);
+  // The reversal is one depositReverse posting (`deposit.reversed`) of exactly 100, against the one credit of 100.
+  const reversedOnce = async () => {
+    const reversals = await ledgerLines(who, 'deposit.reversed');
+    expect(reversals, JSON.stringify(reversals)).toHaveLength(1);
+    expect(units(reversals[0].amount)).toBe(toUnits('100'));
+  };
+  await reversedOnce();
   chainReorg(address, first);
   expect(await mine.usdt()).toBe(0n);
+  await reversedOnce();
 
   // TEST 50 credits, then 40 of it moves into a space of the person's own, so the main balance holds 10.
   const second = `jw03-${who.handle}-50-r${testInfo.retry}`;
@@ -365,8 +399,13 @@ test(`${J} #5 a credited deposit the chain takes back is reversed once and the b
   await mine.bank('transfers.create', { transferId: `jw03-spend-${space.id}`, fromSpaceId: main.id, toSpaceId: space.id, amount: '40' });
   expect(await mine.usdt()).toBe(toUnits('10'));
 
-  // The chain takes the 50 back: the 10 left cannot cover it, so nothing moves and the deposit goes to review, in words.
+  // The chain takes the 50 back: the 10 left cannot cover it, so nothing moves and the deposit goes to review, in words,
+  // with an alert from svc-pay naming the deposit, and no second depositReverse.
+  const alertsBefore = unfundedAlerts().length;
   chainReorg(address, second);
+  await expect.poll(() => unfundedAlerts().length, { timeout: 20_000 }).toBe(alertsBefore + 1);
+  expect(unfundedAlerts().at(-1).depositId).toBeTruthy();
+  await reversedOnce();
   await page.reload();
   await expect(recordRow(page, spentTx).locator('[data-status]')).toHaveAttribute('data-status', 'needs_review');
   await expect(recordRow(page, spentTx)).toContainText('the funds are already spent, so support is reviewing it');
