@@ -83,10 +83,11 @@ describe('ticket links and the queue on Postgres', () => {
     const stuck = await service.createTicket({ userId: OWNER, category: 'trading', subject: 'TEST order stuck', body: 'TEST hold' });
     // Same age, so only the link can change their order.
     await sql`UPDATE support.tickets SET created_at = '2026-11-09T09:00:00Z' WHERE id IN (${withdrawal.id}, ${stuck.id})`;
-    const order = async () =>
-      (await service.listOperatorQueue({ limit: 50 })).entries
-        .map((e: { ticketId: string }) => e.ticketId)
-        .filter((id: string) => id === withdrawal.id || id === stuck.id);
+    const order = async () => {
+      const queue = await service.listOperatorQueue({ limit: 50 });
+      if (queue.status !== 'ok') throw new Error('the queue answered empty');
+      return queue.entries.map((e) => e.ticketId).filter((id) => id === withdrawal.id || id === stuck.id);
+    };
     expect(await order()).toEqual([withdrawal.id, stuck.id]);
 
     const first = await links.link('op-1', { ticketId: stuck.id, kind: 'order', recordId: ORDER });
