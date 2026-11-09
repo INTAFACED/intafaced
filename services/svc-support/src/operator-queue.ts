@@ -19,6 +19,10 @@ export const CATEGORY_WEIGHT: Readonly<Record<string, number>> = {
   phishing: 60,
   /** A fraud report sits in the compliance group; it is read with the same weight as a reported scam. */
   fraud_report: 60,
+  /** A complaint runs against the owner's final-response limit; it is read before an ordinary question. */
+  complaint: 50,
+  /** A reported death is read before an ordinary question. */
+  bereavement: 50,
   other: 10,
 };
 
