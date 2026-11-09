@@ -187,6 +187,38 @@ describe('svc-trade futures orders cleared by the dead-man switch (PG-backed)', 
     expect(engine.cancels).toHaveLength(2);
   });
 
+  it('an order not yet sent is cancelled before it can reach the book: released, the engine not asked', async () => {
+    const svc = build();
+    const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    // As an order whose hold is posted but which no submit has claimed yet.
+    await sql`UPDATE trade.futures_orders SET status = 'held' WHERE id = ${a.orderId}`;
+    expect(await svc.cancelEveryOrder(principal(ALICE))).toEqual([a.orderId]);
+    expect(await statusOf(a.orderId)).toBe('cancelled');
+    expect(await free(ALICE)).toBe(A('1000'));
+    expect(engine.cancels).toEqual([]);
+  });
+
+  it('an order the book does not confirm off, one still pending its hold, or no engine at all keeps the switch armed', async () => {
+    const svc = build();
+    const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));
+    const real = engine.cancel.bind(engine);
+    engine.cancel = async (_m, orderId) => ({ cancelled: false, orderId, sequence: null, cancellation: null }) as never;
+    await expect(svc.cancelEveryOrder(principal(ALICE))).rejects.toMatchObject({ code: 'trade.futures_cancel_unresolved' });
+    expect(await statusOf(a.orderId)).toBe('open');
+    engine.cancel = real;
+
+    await sql`UPDATE trade.futures_orders SET status = 'pending' WHERE id = ${a.orderId}`;
+    await expect(svc.cancelEveryOrder(principal(ALICE))).rejects.toMatchObject({ code: 'trade.futures_cancel_unresolved' });
+    await sql`UPDATE trade.futures_orders SET status = 'open' WHERE id = ${a.orderId}`;
+
+    await expect(build({ matching: undefined }).cancelEveryOrder(principal(ALICE))).rejects.toMatchObject({
+      code: 'trade.futures_matching_unconfigured',
+    });
+    expect(await statusOf(a.orderId)).toBe('open');
+    expect(await svc.cancelEveryOrder(principal(ALICE))).toEqual([a.orderId]);
+    expect(await free(ALICE)).toBe(A('1000'));
+  });
+
   it('a fault on one order is raised once the rest are cancelled, so the next pass finishes it', async () => {
     const svc = build();
     const a = await svc.place(principal(ALICE), order({ userId: ALICE, side: 'buy', qty: A('1') }));

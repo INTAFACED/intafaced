@@ -2853,27 +2853,57 @@ export class MatchedFuturesOrders {
   }
 
   /**
-   * Every live futures order of the caller, cancelled as `cancel` cancels one (the dead-man switch firing,
-   * J-derivatives-04 step 5). A liquidation's order is the venue's and is left alone. An order the book refuses to
-   * cancel by name is skipped; any other fault is raised once every order has been tried, so the switch stays armed
-   * and the next pass finishes what is left. Returns the ids cancelled.
+   * Every live futures order of the caller, cancelled (the dead-man switch firing, J-derivatives-04 step 5). An order
+   * not yet sent (`held`) is cancelled here before any submit can claim it, so it never reaches the book; one that may
+   * be at the engine goes through `cancel`, so each hold is released once. A liquidation's order is the venue's and is
+   * left alone. Only a refusal that names the order as not cancellable or gone is skipped. Anything else (a fault, an
+   * order the book has not confirmed off, one still `pending` its hold) is raised once every order has been tried, so
+   * the switch stays armed and the next pass finishes what is left. Returns the ids cancelled.
    */
   async cancelEveryOrder(principal: Principal): Promise<string[]> {
-    const rows = await this.deps.sql<{ id: string }[]>`
-      SELECT id FROM trade.futures_orders
-       WHERE user_id = ${principal.userId} AND status IN ${this.deps.sql(LIVE_OR_UNKNOWN)} AND origin <> 'liquidation'
+    const rows = await this.deps.sql<{ id: string; status: string }[]>`
+      SELECT id, status FROM trade.futures_orders
+       WHERE user_id = ${principal.userId} AND status IN ${this.deps.sql(['pending', ...LIVE_OR_UNKNOWN])}
+         AND origin <> 'liquidation'
        ORDER BY created_at, id
     `;
     const cancelled: string[] = [];
+    const unresolved: string[] = [];
     let fault: unknown = null;
-    for (const { id } of rows) {
+    for (const { id, status } of rows) {
+      // Its hold is being posted: cancelling now could strand it, so the next pass takes it once it is held.
+      if (status === 'pending') {
+        unresolved.push(id);
+        continue;
+      }
       try {
-        if ((await this.cancel(principal, id)).status === 'cancelled') cancelled.push(id);
+        const unsent = await this.deps.sql<{ reduce_only: boolean }[]>`
+          UPDATE trade.futures_orders SET status = 'cancelled', engine_filled_qty = 0, updated_at = now()
+           WHERE id = ${id} AND status = 'held'
+           RETURNING reduce_only
+        `;
+        if (unsent[0]) {
+          if (!unsent[0].reduce_only) await this.releaseWhenDone(id);
+          cancelled.push(id);
+          continue;
+        }
+        const now = await this.cancel(principal, id);
+        if (now.status === 'cancelled') cancelled.push(id);
+        else if ((LIVE_OR_UNKNOWN as readonly string[]).includes(now.status)) unresolved.push(id);
       } catch (err) {
-        if (!(err instanceof MatchedOrderError)) fault ??= err;
+        const gone =
+          err instanceof MatchedOrderError && (err.code === FUTURES_ORDER_NOT_CANCELLABLE || err.code === 'trade.futures_order_not_found');
+        if (!gone) fault ??= err;
       }
     }
     if (fault) throw fault;
+    if (unresolved.length > 0) {
+      refuse(
+        'trade.futures_cancel_unresolved',
+        `${unresolved.length} futures order(s) not yet confirmed off the book (${unresolved.join(', ')}); the next pass tries again`,
+        503,
+      );
+    }
     return cancelled;
   }
 

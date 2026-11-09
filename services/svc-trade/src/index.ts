@@ -995,12 +995,11 @@ const optionsExerciseJobs = startOptionsExerciseJobs({
   },
   onError: (name, err) => app.log.error({ err, job: name }, 'options exercise job tick failed'),
 });
-// The dead-man switch clears the futures book too when it fires (J-derivatives-04 step 5).
-if (env.TRADE_FUTURES_MATCHING_ENABLED) {
-  setCancelAllAfterAlso(trade, async (principal) => {
-    await positions.cancelEveryMatchedOrder(principal);
-  });
-}
+// The dead-man switch clears the futures book too when it fires (J-derivatives-04 step 5), whether or not new futures
+// orders are being taken: an order left live from before matching was switched off is still cleared, or kept armed.
+setCancelAllAfterAlso(trade, async (principal) => {
+  await positions.cancelEveryMatchedOrder(principal);
+});
 const holdUnknownSweep = startHoldUnknownSweepJobs({
   trade,
   config: {

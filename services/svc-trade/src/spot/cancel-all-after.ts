@@ -162,9 +162,22 @@ async function sweep(host: Host): Promise<CancelAllAfterSweep> {
       continue;
     }
     try {
-      await host.cancelAllOrders(principal);
+      // Both books are tried whatever the other answered; the first fault keeps the countdown for the next pass.
+      let fault: unknown = null;
+      try {
+        await host.cancelAllOrders(principal);
+      } catch (err) {
+        fault = err;
+      }
       const also = host[ALSO];
-      if (also) await also(principal);
+      if (also) {
+        try {
+          await also(principal);
+        } catch (err) {
+          fault ??= err;
+        }
+      }
+      if (fault) throw fault;
       await drop(row.user_id, deadline);
       fired += 1;
     } catch {

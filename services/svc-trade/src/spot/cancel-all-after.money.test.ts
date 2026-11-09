@@ -222,6 +222,25 @@ describe('svc-trade spot cancel-all-after dead-man switch (PG-hard)', () => {
     expect(await rowCount()).toBe(0);
   });
 
+  it('a spot fault never keeps the futures book from being cleared in the same pass', async () => {
+    await rest(ALICE, 'a-1');
+    const calls: string[] = [];
+    setCancelAllAfterAlso(trade, async (p) => {
+      calls.push(p.userId);
+    });
+    await caa().armCancelAllAfter(principal(ALICE), 10, PUBLISHED);
+    tick(10_000);
+    const realCancel = matching.cancel.bind(matching);
+    matching.cancel = async () => {
+      throw new Error('spot cancel transport timed out');
+    };
+    expect(await caa().sweepCancelAllAfter()).toMatchObject({ fired: 0, failed: 1 });
+    expect(calls).toEqual([ALICE]);
+    expect(await rowCount()).toBe(1);
+    matching.cancel = realCancel;
+    expect(await caa().sweepCancelAllAfter()).toMatchObject({ fired: 1 });
+  });
+
   it('a pass that could not finish keeps the countdown and the next pass completes it', async () => {
     const a1 = await rest(ALICE, 'a-1');
     await caa().armCancelAllAfter(principal(ALICE), 10, PUBLISHED);
