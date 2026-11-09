@@ -100,7 +100,7 @@ test(`${J} #4 reads which order types the API accepts: the same list the ticket 
   }
 
   // The trading ticket a person sees: its type tabs, in order, and the kinds it lists as unavailable.
-  const who = await signUp(page, 'cs15-ticket');
+  const who = await signUp(page, 'cs15t');
   await verify(page, who);
   await openDesk(page, who, 'BTC/USDT');
   const tabs = page.getByRole('tablist', { name: 'Order type' }).getByRole('tab');
