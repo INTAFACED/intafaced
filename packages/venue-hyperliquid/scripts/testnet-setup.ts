@@ -290,8 +290,18 @@ export async function runSetup(deps: SetupDeps): Promise<SetupExit> {
   return failed ? 1 : 0;
 }
 
-/** Post a signed action. `ok` only on the venue's own `status: "ok"`; every other answer is shown in the venue's words. */
-export async function postExchange(fetchImpl: FetchLike, baseUrl: string, body: string): Promise<{ ok: boolean; text: string }> {
+/**
+ * Post a signed action. `ok` only on the venue's own `status: "ok"`; every other answer is shown in the venue's words.
+ * `httpStatus` and `raw` (the venue's body as it came, cut at 2000 characters; `null` when nothing readable came back)
+ * are for a caller that records the answer verbatim.
+ */
+export async function postExchange(
+  fetchImpl: FetchLike,
+  baseUrl: string,
+  body: string,
+): Promise<{ ok: boolean; text: string; httpStatus: number | null; raw: string | null }> {
+  let httpStatus: number | null = null;
+  let raw: string | null = null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 10_000);
   try {
@@ -301,22 +311,30 @@ export async function postExchange(fetchImpl: FetchLike, baseUrl: string, body: 
       body,
       signal: controller.signal,
     });
+    httpStatus = res.status;
     const text = await res.text();
+    raw = text.slice(0, 2000);
     if (!res.ok)
       return {
         ok: false,
         text: `unknown (HTTP ${res.status}); the balances below show whether it landed, and a re-run sends only what is still short`,
+        httpStatus,
+        raw,
       };
     const answer = JSON.parse(text) as { status?: unknown; response?: unknown };
-    if (answer.status === 'ok') return { ok: true, text: 'ok' };
+    if (answer.status === 'ok') return { ok: true, text: 'ok', httpStatus, raw };
     return {
       ok: false,
       text: `refused by the venue: ${typeof answer.response === 'string' ? answer.response : JSON.stringify(answer.response)}`,
+      httpStatus,
+      raw,
     };
   } catch {
     return {
       ok: false,
       text: 'unknown (no readable answer); the balances below show whether it landed, and a re-run sends only what is still short',
+      httpStatus,
+      raw,
     };
   } finally {
     clearTimeout(timer);

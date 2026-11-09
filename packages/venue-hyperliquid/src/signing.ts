@@ -10,7 +10,7 @@ import { encodeMsgpack, type MsgpackValue } from './msgpack.js';
  *    EIP-712 `Agent { source, connectionId }` in the `Exchange` domain
  *    (chain id 1337). `source` is "b" on testnet ("a" is mainnet and is refused
  *    here).
- * 2. User-signed actions (withdraw3, usdSend, usdClassTransfer, approveAgent, approveBuilderFee): EIP-712
+ * 2. User-signed actions (withdraw3, usdSend, spotSend, sendAsset, usdClassTransfer, approveAgent, approveBuilderFee): EIP-712
  *    `HyperliquidTransaction:<Name>` in the `HyperliquidSignTransaction`
  *    domain, whose chain id is `signatureChainId`; the message carries
  *    `hyperliquidChain: "Testnet"` ("Mainnet" is refused here).
@@ -101,6 +101,28 @@ export const USER_SIGNED_TYPES = {
     { name: 'destination', type: 'string' },
     { name: 'amount', type: 'string' },
     { name: 'time', type: 'uint64' },
+  ],
+  /**
+   * The SDK's `SPOT_TRANSFER_SIGN_TYPES` (`hyperliquid/utils/signing.py`). No vector for it in the SDK's tests at the
+   * pinned commit: `signing.test.ts` proves its digest against an independent EIP-712 encoding instead.
+   */
+  'HyperliquidTransaction:SpotSend': [
+    { name: 'hyperliquidChain', type: 'string' },
+    { name: 'destination', type: 'string' },
+    { name: 'token', type: 'string' },
+    { name: 'amount', type: 'string' },
+    { name: 'time', type: 'uint64' },
+  ],
+  /** The SDK's `SEND_ASSET_SIGN_TYPES`. No vector at the pinned commit either; proven as SpotSend is. */
+  'HyperliquidTransaction:SendAsset': [
+    { name: 'hyperliquidChain', type: 'string' },
+    { name: 'destination', type: 'string' },
+    { name: 'sourceDex', type: 'string' },
+    { name: 'destinationDex', type: 'string' },
+    { name: 'token', type: 'string' },
+    { name: 'amount', type: 'string' },
+    { name: 'fromSubAccount', type: 'string' },
+    { name: 'nonce', type: 'uint64' },
   ],
   /**
    * The SDK's `USD_CLASS_TRANSFER_SIGN_TYPES` (`hyperliquid/utils/signing.py`). The SDK's tests at the pinned commit
@@ -221,6 +243,112 @@ export function usdClassTransferAction(
     hyperliquidChain: HL_TESTNET_CHAIN,
     amount,
     toPerp,
+    nonce: Number(nonce),
+  };
+  return { action, typedData };
+}
+
+function positiveDecimal(label: string, amount: string): void {
+  if (!/^\d+(\.\d+)?$/.test(amount) || /^0+(\.0+)?$/.test(amount)) throw new Error(`${label}: ${amount} is not a positive decimal`);
+}
+
+/**
+ * The SDK's `withdraw_from_bridge`: withdraw perpetual-account USDC to `destination` on the TESTNET. `amount` is the
+ * venue's decimal string; `time` is the nonce. Returns the wire action and what the wallet signs.
+ */
+export function withdraw3Action(
+  destination: string,
+  amount: string,
+  nonce: bigint,
+): { readonly action: Record<string, MsgpackValue>; readonly typedData: UserSignedTypedData } {
+  const to = addressBytes(destination);
+  positiveDecimal('withdraw3', amount);
+  const typedData = userSignedTypedData('HyperliquidTransaction:Withdraw', USER_SIGNED_TYPES['HyperliquidTransaction:Withdraw'], {
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    destination: to,
+    amount,
+    time: nonce,
+  });
+  const action: Record<string, MsgpackValue> = {
+    type: 'withdraw3',
+    signatureChainId: HL_SIGNATURE_CHAIN_ID,
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    destination: to,
+    amount,
+    time: Number(nonce),
+  };
+  return { action, typedData };
+}
+
+/**
+ * The SDK's `spot_transfer`: send a spot token to another address on the TESTNET. `token` is the venue's
+ * `<name>:<tokenId>` (the SDK's example: "PURR:0xc4bf…"); `amount` is a decimal string; `time` is the nonce.
+ */
+export function spotSendAction(
+  destination: string,
+  token: string,
+  amount: string,
+  nonce: bigint,
+): { readonly action: Record<string, MsgpackValue>; readonly typedData: UserSignedTypedData } {
+  const to = addressBytes(destination);
+  positiveDecimal('spotSend', amount);
+  if (!/^[^:\s]+:0x[0-9a-fA-F]{32}$/.test(token)) throw new Error(`spotSend: ${token} is not <name>:<tokenId>`);
+  const typedData = userSignedTypedData('HyperliquidTransaction:SpotSend', USER_SIGNED_TYPES['HyperliquidTransaction:SpotSend'], {
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    destination: to,
+    token,
+    amount,
+    time: nonce,
+  });
+  const action: Record<string, MsgpackValue> = {
+    type: 'spotSend',
+    signatureChainId: HL_SIGNATURE_CHAIN_ID,
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    destination: to,
+    token,
+    amount,
+    time: Number(nonce),
+  };
+  return { action, typedData };
+}
+
+export interface SendAssetFields {
+  readonly destination: string;
+  /** "" for the default perp dex, "spot" for spot (the SDK's words). */
+  readonly sourceDex: string;
+  readonly destinationDex: string;
+  readonly token: string;
+  readonly amount: string;
+  /** "" from the main account, else the sub-account's address. */
+  readonly fromSubAccount: string;
+}
+
+/** The SDK's `send_asset`: move a token between dexes and to another address on the TESTNET. `nonce` is the nonce. */
+export function sendAssetAction(
+  fields: SendAssetFields,
+  nonce: bigint,
+): { readonly action: Record<string, MsgpackValue>; readonly typedData: UserSignedTypedData } {
+  const to = addressBytes(fields.destination);
+  positiveDecimal('sendAsset', fields.amount);
+  if (fields.fromSubAccount !== '') addressBytes(fields.fromSubAccount);
+  const signed = {
+    destination: to,
+    sourceDex: fields.sourceDex,
+    destinationDex: fields.destinationDex,
+    token: fields.token,
+    amount: fields.amount,
+    fromSubAccount: fields.fromSubAccount === '' ? '' : fields.fromSubAccount.toLowerCase(),
+  };
+  const typedData = userSignedTypedData('HyperliquidTransaction:SendAsset', USER_SIGNED_TYPES['HyperliquidTransaction:SendAsset'], {
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    ...signed,
+    nonce,
+  });
+  const action: Record<string, MsgpackValue> = {
+    type: 'sendAsset',
+    signatureChainId: HL_SIGNATURE_CHAIN_ID,
+    hyperliquidChain: HL_TESTNET_CHAIN,
+    ...signed,
     nonce: Number(nonce),
   };
   return { action, typedData };

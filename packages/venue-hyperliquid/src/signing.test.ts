@@ -17,6 +17,9 @@ import {
   userSignedTypedData,
   usdSendAction,
   usdClassTransferAction,
+  withdraw3Action,
+  spotSendAction,
+  sendAssetAction,
   typedDataDigest,
   USER_SIGNED_TYPES,
   type Eip712Field,
@@ -194,6 +197,104 @@ describe('Hyperliquid signing vectors (official Python SDK)', () => {
     expect(() => usdClassTransferAction('0', true, 1n)).toThrow(/positive/);
     expect(() => usdClassTransferAction('-1', false, 1n)).toThrow(/positive/);
     expect(() => usdClassTransferAction('1e3', false, 1n)).toThrow(/positive/);
+  });
+
+  it('withdraw3Action builds the bytes the SDK signed for test_sign_withdraw_from_bridge_action (testnet)', async () => {
+    const v = vectors.userSigned.find((u) => u.test === 'test_sign_withdraw_from_bridge_action')!;
+    const { action, typedData } = withdraw3Action(String(v.message.destination), String(v.message.amount), BigInt(v.message.time!));
+    expect(typedData.primaryType).toBe('HyperliquidTransaction:Withdraw');
+    expect(typedData.types[typedData.primaryType]).toEqual(v.types);
+    expect(action).toEqual({
+      type: 'withdraw3',
+      signatureChainId: '0x66eee',
+      hyperliquidChain: 'Testnet',
+      destination: v.message.destination,
+      amount: '1',
+      time: v.message.time,
+    });
+    await expectSdkSigned(typedData, v.signature);
+    expect(() => withdraw3Action(String(v.message.destination), '0', 1n)).toThrow(/positive/);
+  });
+
+  // spotSend and sendAsset: the SDK's signing_test.py at the pinned commit has no vector for either, so each digest is
+  // checked against EIP-712 written out by hand from the SDK's SPOT_TRANSFER_SIGN_TYPES and SEND_ASSET_SIGN_TYPES
+  // (hyperliquid/utils/signing.py) and its exchange.py `spot_transfer` and `send_asset`, and a TEST key round-trips.
+  const handDigest = (typeString: string, types: string[], values: unknown[]) => {
+    const word = (t: string[], v: unknown[]) =>
+      keccak256(
+        encodeAbiParameters(
+          t.map((type) => ({ type })),
+          v as never,
+        ),
+      );
+    const domain = word(
+      ['bytes32', 'bytes32', 'bytes32', 'uint256', 'address'],
+      [
+        keccak256(toHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')),
+        keccak256(toHex('HyperliquidSignTransaction')),
+        keccak256(toHex('1')),
+        421614n,
+        '0x0000000000000000000000000000000000000000',
+      ],
+    );
+    const struct = word(['bytes32', ...types], [keccak256(toHex(typeString)), ...values]);
+    return keccak256(concat(['0x1901', domain, struct]));
+  };
+  const str32 = (x: string) => keccak256(toHex(x));
+  const DEST = '0x5e9ee1089755c3435139848e47e6635505d5a13a';
+
+  it('spotSendAction: the SDK fields and types, and a digest equal to EIP-712 encoded by hand', async () => {
+    const token = 'USDC:0x00000000000000000000000000000000';
+    const { action, typedData } = spotSendAction(DEST, token, '1.5', 1_700_000_000_123n);
+    expect(action).toEqual({
+      type: 'spotSend',
+      signatureChainId: '0x66eee',
+      hyperliquidChain: 'Testnet',
+      destination: DEST,
+      token,
+      amount: '1.5',
+      time: 1_700_000_000_123,
+    });
+    expect(typedData.primaryType).toBe('HyperliquidTransaction:SpotSend');
+    expect(typedDataDigest(typedData)).toBe(
+      handDigest(
+        'HyperliquidTransaction:SpotSend(string hyperliquidChain,string destination,string token,string amount,uint64 time)',
+        ['bytes32', 'bytes32', 'bytes32', 'bytes32', 'uint256'],
+        [str32('Testnet'), str32(DEST), str32(token), str32('1.5'), 1_700_000_000_123n],
+      ),
+    );
+    const signer = privateKeyToAccount(keccak256(toHex('intafaced TEST spotSend')));
+    const signature = await signer.sign({ hash: typedDataDigest(typedData) });
+    expect(await recoverTypedDataSigner(typedData, signature)).toBe(signer.address.toLowerCase());
+    expect(() => spotSendAction(DEST, 'USDC', '1', 1n)).toThrow(/tokenId/);
+    expect(() => spotSendAction(DEST, token, '0', 1n)).toThrow(/positive/);
+  });
+
+  it('sendAssetAction: the SDK fields and types, and a digest equal to EIP-712 encoded by hand', async () => {
+    const fields = { destination: DEST, sourceDex: '', destinationDex: 'spot', token: 'USDC', amount: '2', fromSubAccount: '' };
+    const { action, typedData } = sendAssetAction(fields, 1_700_000_000_456n);
+    expect(action).toEqual({
+      type: 'sendAsset',
+      signatureChainId: '0x66eee',
+      hyperliquidChain: 'Testnet',
+      ...fields,
+      nonce: 1_700_000_000_456,
+    });
+    expect(typedData.primaryType).toBe('HyperliquidTransaction:SendAsset');
+    expect(typedDataDigest(typedData)).toBe(
+      handDigest(
+        'HyperliquidTransaction:SendAsset(string hyperliquidChain,string destination,string sourceDex,string destinationDex,string token,string amount,string fromSubAccount,uint64 nonce)',
+        ['bytes32', 'bytes32', 'bytes32', 'bytes32', 'bytes32', 'bytes32', 'bytes32', 'uint256'],
+        [str32('Testnet'), str32(DEST), str32(''), str32('spot'), str32('USDC'), str32('2'), str32(''), 1_700_000_000_456n],
+      ),
+    );
+    // Each field is in the signed bytes: another destination dex is another digest.
+    expect(typedDataDigest(sendAssetAction({ ...fields, destinationDex: '' }, 1_700_000_000_456n).typedData)).not.toBe(
+      typedDataDigest(typedData),
+    );
+    const signer = privateKeyToAccount(keccak256(toHex('intafaced TEST sendAsset')));
+    const signature = await signer.sign({ hash: typedDataDigest(typedData) });
+    expect(await recoverTypedDataSigner(typedData, signature)).toBe(signer.address.toLowerCase());
   });
 
   it('a vector checked against the wrong digest does not recover the SDK key (the check can fail)', async () => {

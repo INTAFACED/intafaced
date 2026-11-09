@@ -39,6 +39,18 @@
  *   HL_PERP_SYMBOL  ETH-PERP;
  *   HL_WITHDRAW_AMOUNT  2 (USDC-PERP; the venue takes its fee out of it).
  *
+ * probe:agent-cannot-move-funds (for J-agents-21; B2's ask on project-state #1671): Hyperliquid's docs do not say plainly
+ * that an agent key cannot move funds, so the venue is asked. The trader approves the key file's `agent` key (owner
+ * signed, through the adapter; skipped when the venue already lists it), and the agent key then signs `withdraw3`,
+ * `usdSend`, `spotSend` and `sendAsset`, each moving a small amount to the agent's own address. The raw actions go
+ * straight to `/exchange`, never through `UserVenue.prepare`, whose own guard (`assertSignerMaySign`) would refuse them
+ * before the venue is asked. A user-signed action acts on the account that signed it, so a refusal alone may only mean
+ * the agent's own account is empty: PASS needs each answer to be a refusal (recorded verbatim, with what its wording
+ * suggests) AND the trader's spot and perp balances, read before and after, unchanged. An accepted action is a loud
+ * FAIL that names it. `agentSendAsset` is not in the pinned SDK, so that part is SKIPPED, never guessed. The pinned
+ * SDK has no form to revoke an agent, so an agent the probe approved stays approved, and the run says so.
+ * It runs after the perp close in the full run, or alone with `--probe agent-funds` (keys `trader` and `agent` only).
+ *
  * Exit codes: 0 no step failed, 1 a step failed or something was left open, 2 refused before anything was sent.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -67,10 +79,13 @@ import {
   PERP_COLLATERAL_ASSET,
   assertTestnetUrl,
   recoverTypedDataSigner,
+  sendAssetAction,
+  spotSendAction,
   splitSignature,
   typedDataDigest,
   usdClassTransferAction,
   usdSendAction,
+  withdraw3Action,
   type FetchLike,
   type HlBook,
   type HlTypedData,
@@ -99,8 +114,19 @@ const DUST = a('0.00000001');
 const CUSHION = a('2');
 const TRANSFER_DECIMALS = 2;
 
-type KeyName = 'trader' | 'other' | 'third';
-const NEEDED_KEYS: readonly KeyName[] = ['trader', 'other', 'third'];
+type KeyName = 'trader' | 'agent' | 'other' | 'third';
+/** The full run's keys; `--probe agent-funds` alone needs only the trader and the agent. */
+const NEEDED_KEYS: readonly KeyName[] = ['trader', 'other', 'third', 'agent'];
+const PROBE_KEYS: readonly KeyName[] = ['trader', 'agent'];
+
+export const AGENT_PROBE = 'probe:agent-cannot-move-funds';
+/** The pinned SDK commit the typed-data shapes follow (`src/fixtures/hl-python-sdk-signing-vectors.json`). */
+const SDK_COMMIT = '2fdb18f9517675ea03695a0962bd19eece9c83f0';
+/** The name the trader gives the probe's agent on the venue. */
+const PROBE_AGENT_NAME = 'TEST probe agent';
+/** What each agent-signed transfer tries to move: small, TEST funds. The withdrawal is larger than its fee. */
+const PROBE_SEND = a('1');
+const PROBE_WITHDRAW = a('2');
 
 export interface LiveStepsDeps {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -169,7 +195,7 @@ interface Party {
   signDigest(digest: `0x${string}`): Promise<string>;
 }
 
-function readKeys(path: string | undefined): Record<KeyName, `0x${string}`> {
+function readKeys(path: string | undefined, needed: readonly KeyName[]): Partial<Record<KeyName, `0x${string}`>> {
   if (!path) throw new Refused('HL_TESTNET_KEY_FILE is not set: give the path of the TESTNET key file the owner arranged.');
   let parsed: unknown;
   try {
@@ -181,13 +207,13 @@ function readKeys(path: string | undefined): Record<KeyName, `0x${string}`> {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new Refused('HL_TESTNET_KEY_FILE must hold one JSON object (its contents are not shown).');
   const out: Partial<Record<KeyName, `0x${string}`>> = {};
-  for (const name of NEEDED_KEYS) {
+  for (const name of needed) {
     const value = (parsed as Record<string, unknown>)[name];
     if (value === undefined) throw new Refused(`the key file has no "${name}" key; run testnet:setup first.`);
     if (!isHexKey(value)) throw new Refused(`key "${name}" is not a 32-byte hex key (its value is not shown).`);
     out[name] = value;
   }
-  return out as Record<KeyName, `0x${string}`>;
+  return out;
 }
 
 function party(name: KeyName, key: `0x${string}`): Party {
@@ -232,6 +258,12 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
   const argv = deps.argv ?? [];
   const outIndex = argv.indexOf('--out');
   const evidencePath = outIndex >= 0 && argv[outIndex + 1] ? argv[outIndex + 1]! : './live-steps-evidence.json';
+  const probeIndex = argv.indexOf('--probe');
+  const probeOnly = probeIndex >= 0;
+  if (probeOnly && argv[probeIndex + 1] !== 'agent-funds') {
+    err(`live steps refused: --probe takes "agent-funds", the one probe offered (got ${argv[probeIndex + 1] ?? 'nothing'}).`);
+    return 2;
+  }
 
   // ── refusals before anything is sent: mainnet, APP_ENV, the key file ──
   let baseUrl: string;
@@ -243,18 +275,20 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
     return baseFetch(input, init);
   };
   const nonces = new InMemoryNonceSource();
-  let keys: Record<KeyName, `0x${string}`>;
+  let keys: Partial<Record<KeyName, `0x${string}`>>;
   try {
     baseUrl = assertTestnetUrl(env.HL_API_URL ?? HL_TESTNET_API_URL);
     venue = new HyperliquidTestnetUserVenue({ appEnv: env.APP_ENV, baseUrl, fetch: fetchImpl, clock, nonceSource: nonces });
-    keys = readKeys(env.HL_TESTNET_KEY_FILE);
+    keys = readKeys(env.HL_TESTNET_KEY_FILE, probeOnly ? PROBE_KEYS : NEEDED_KEYS);
   } catch (error) {
     err(`live steps refused: ${(error as Error).message}`);
     return 2;
   }
-  const trader = party('trader', keys.trader);
-  const other = party('other', keys.other);
-  const builderParty = party('third', keys.third);
+  const trader = party('trader', keys.trader!);
+  const agent = party('agent', keys.agent!);
+  // Not read for `--probe agent-funds` alone; no step uses them there.
+  const other = keys.other ? party('other', keys.other) : trader;
+  const builderParty = keys.third ? party('third', keys.third) : trader;
 
   const started = clock();
   const runId = started.toISOString().replace(/[-:.]/g, '').toLowerCase();
@@ -265,6 +299,8 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
   const failedGroups = new Map<string, string>();
   let perpOpened = false;
   let leftOpen = false;
+  /** Cleanup lines that report something kept on purpose (the probe's agent), not an order or position left open. */
+  let notes = 0;
   let stopped: string | null = null;
   let settingsShown: Record<string, string> = {};
 
@@ -422,10 +458,212 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
     out(lineOf(record));
   };
 
+  // ── probe:agent-cannot-move-funds ──
+  /** The venue's spot token name for USDC, `USDC:<tokenId>`, from its own spotMeta; `null` when it lists no tokenId. */
+  const usdcSpotToken = async (): Promise<string | null> => {
+    const res = await fetchImpl(`${baseUrl}/info`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'spotMeta' }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) throw new Error(`spotMeta: HTTP ${res.status}`);
+    const meta = JSON.parse(await res.text()) as { tokens?: { name?: unknown; tokenId?: unknown }[] };
+    const usdc = (meta.tokens ?? []).find((t) => t.name === 'USDC');
+    return usdc && typeof usdc.tokenId === 'string' && /^0x[0-9a-fA-F]{32}$/.test(usdc.tokenId) ? `USDC:${usdc.tokenId}` : null;
+  };
+
+  const agentProbe = () =>
+    step(
+      AGENT_PROBE,
+      0,
+      "an agent key cannot move the trader's funds: agent-signed withdraw3, usdSend, spotSend and sendAsset are each refused by the venue, and the trader's balances do not move",
+      'agent-probe',
+      async (s) => {
+        // 1. The trader approves the agent (owner signed, through the adapter), unless the venue already lists it.
+        const listed = async () =>
+          (await venue.agents(trader.account)).value.some(
+            (x) => x.address === agent.address && (x.validUntil === null || x.validUntil.getTime() > clock().getTime()),
+          );
+        const wasApproved = await listed();
+        s.ev('agent', { address: agent.address, approvedBefore: wasApproved });
+        let approvedHere = false;
+        if (wasApproved) s.pass('agent approved', `the venue already lists ${agent.address} for the trader; not approved again`);
+        else {
+          const { outcome } = await act(trader, {
+            kind: 'approve_agent',
+            agentAddress: agent.address,
+            agentName: PROBE_AGENT_NAME,
+            validUntil: null,
+          });
+          s.ev('approveAgentOutcome', outcome);
+          const now = await until(listed, (v) => v);
+          // Whatever the answer said, an agent the venue now lists was approved by this run.
+          approvedHere = now;
+          s.check('agent approved', now, `approveAgent signed by the trader: ${outcomeText(outcome)}; the venue lists the agent: ${now}`);
+        }
+        try {
+          // 2. The trader's (and the agent's) balances before anything is sent.
+          const traderBefore = await balancesOf(trader);
+          const agentBefore = (await venue.balances(agent.account)).value;
+          s.ev('traderBalancesBefore', traderBefore);
+          s.ev('agentBalancesBefore', agentBefore);
+          const token = await usdcSpotToken();
+
+          interface Sent {
+            readonly action: string;
+            readonly typedData: string;
+            readonly signedBy: string;
+            readonly destination: string;
+            readonly amount: string;
+            readonly answer: 'refused' | 'ACCEPTED' | 'no definite answer' | 'not sent';
+            readonly venueWords: string | null;
+            readonly httpStatus: number | null;
+            readonly suggests: string;
+          }
+          const sent: Sent[] = [];
+          const send = async (
+            label: string,
+            primaryType: string,
+            amount: Amount,
+            build: (nonce: bigint) => { action: Record<string, unknown>; typedData: UserSignedTypedData },
+          ) => {
+            const nonce = BigInt(await nonces.next(agent.address, clock().getTime()));
+            const { action, typedData } = build(nonce);
+            if (typedData.primaryType !== primaryType) throw new Error(`${label}: built ${typedData.primaryType}, not ${primaryType}`);
+            const signature = await agent.signDigest(typedDataDigest(typedData));
+            if ((await recoverTypedDataSigner(typedData, signature)) !== agent.address)
+              throw new Error(`${label}: the signature does not recover the agent`);
+            const verdict = await postExchange(
+              fetchImpl,
+              baseUrl,
+              JSON.stringify({
+                action,
+                nonce: Number(nonce),
+                signature: splitSignature(signature),
+                vaultAddress: null,
+                expiresAfter: null,
+              }),
+            );
+            const refused =
+              !verdict.ok &&
+              (verdict.text.startsWith('refused by the venue') ||
+                (verdict.httpStatus !== null && verdict.httpStatus >= 400 && verdict.httpStatus < 500));
+            const words = verdict.raw ?? verdict.text;
+            const record: Sent = {
+              action: label,
+              typedData: primaryType,
+              signedBy: agent.address,
+              destination: agent.address,
+              amount: fmt(amount),
+              answer: verdict.ok ? 'ACCEPTED' : refused ? 'refused' : 'no definite answer',
+              venueWords: words,
+              httpStatus: verdict.httpStatus,
+              suggests: verdict.ok ? '-' : refused ? suggestsFrom(words ?? '') : '-',
+            };
+            sent.push(record);
+            if (verdict.ok) err(`PROBE FAIL ${AGENT_PROBE}: the venue ACCEPTED an agent-signed ${label}: ${words ?? 'ok'}`);
+          };
+
+          // 3. Each action, signed by the agent key, moving the TRADER's funds to the agent's own address.
+          await send('withdraw3', 'HyperliquidTransaction:Withdraw', PROBE_WITHDRAW, (n) =>
+            withdraw3Action(agent.address, fmt(PROBE_WITHDRAW), n),
+          );
+          await send('usdSend', 'HyperliquidTransaction:UsdSend', PROBE_SEND, (n) => usdSendAction(agent.address, fmt(PROBE_SEND), n));
+          if (token === null) {
+            sent.push({
+              action: 'spotSend',
+              typedData: 'HyperliquidTransaction:SpotSend',
+              signedBy: agent.address,
+              destination: agent.address,
+              amount: fmt(PROBE_SEND),
+              answer: 'not sent',
+              venueWords: null,
+              httpStatus: null,
+              suggests: '-',
+            });
+          } else
+            await send('spotSend', 'HyperliquidTransaction:SpotSend', PROBE_SEND, (n) =>
+              spotSendAction(agent.address, token, fmt(PROBE_SEND), n),
+            );
+          await send('sendAsset', 'HyperliquidTransaction:SendAsset', PROBE_SEND, (n) =>
+            sendAssetAction(
+              { destination: agent.address, sourceDex: '', destinationDex: '', token: 'USDC', amount: fmt(PROBE_SEND), fromSubAccount: '' },
+              n,
+            ),
+          );
+          s.ev('sent', sent);
+
+          // 4. The trader's balances after: unchanged (the probe signs nothing of the trader's that carries a fee).
+          const traderAfter = await until(
+            () => balancesOf(trader),
+            (b) => show(b) !== show(traderBefore),
+          );
+          const agentAfter = (await venue.balances(agent.account)).value;
+          s.ev('traderBalancesAfter', traderAfter);
+          s.ev('agentBalancesAfter', agentAfter);
+
+          for (const x of sent) {
+            if (x.answer === 'refused')
+              s.assess(`${x.action} refused`, true, `the venue: ${x.venueWords ?? '(no body)'}; wording suggests: ${x.suggests}`);
+            else if (x.answer === 'not sent')
+              s.skip(`${x.action} refused`, "not sent: the venue's spotMeta lists no tokenId for USDC, so the token is not guessed");
+            else if (x.answer === 'ACCEPTED')
+              s.assess(`${x.action} refused`, false, `ACCEPTED by the venue from the agent key: ${x.venueWords ?? 'ok'}`);
+            else s.assess(`${x.action} refused`, false, `no definite answer from the venue: ${x.venueWords ?? '(nothing readable)'}`);
+          }
+          s.skip(
+            'agentSendAsset refused to any address but its own source',
+            `not in the pinned SDK (hyperliquid-python-sdk ${SDK_COMMIT.slice(0, 12)}): its shape is not guessed`,
+          );
+          const moved = balanceChanges(traderBefore, traderAfter);
+          s.assess(
+            "trader's balances unchanged",
+            moved.length === 0,
+            moved.length === 0 ? 'spot and perp, every asset, as before' : `MOVED: ${moved.join('; ')}`,
+          );
+          const gained = balanceChanges(agentBefore, agentAfter).filter((c) => c.includes('(+'));
+          s.assess("nothing reached the agent's address", gained.length === 0, gained.length === 0 ? 'no balance rose' : gained.join('; '));
+          const accepted = sent.filter((x) => x.answer === 'ACCEPTED').map((x) => x.action);
+          const tally = sent
+            .filter((x) => x.answer === 'refused')
+            .map((x) => `${x.action}: ${x.suggests}`)
+            .join(', ');
+          s.summary(
+            accepted.length > 0
+              ? `ACCEPTED from the agent key: ${accepted.join(', ')}`
+              : `every action sent was refused; trader's balances ${moved.length === 0 ? 'unchanged' : 'MOVED'}; wording suggests ${tally || 'nothing'}`,
+          );
+        } finally {
+          // 5. Leave the agent as it was found. The pinned SDK has no revoke form, so one approved here stays approved.
+          if (approvedHere) {
+            const line = `agent ${agent.address} stays approved on the trader's account ("${PROBE_AGENT_NAME}"): the pinned SDK (${SDK_COMMIT.slice(0, 12)}) has no form to revoke an agent, so this run cannot revoke it; remove it by hand on the testnet if it must go`;
+            cleanupLog.push(line);
+            notes += 1;
+            out(`cleanup: ${line}`);
+            s.ev('agentLeftApproved', true);
+          }
+        }
+      },
+    );
+
   let exit: LiveStepsExit = 0;
+  if (probeOnly) {
+    out(`venue: ${venue.venue.displayName} (${venue.venue.id}, ${baseUrl}), TEST funds only; run ${runId}; ${AGENT_PROBE} alone`);
+    out(`addresses: trader ${trader.address}, agent ${agent.address}`);
+    try {
+      await agentProbe();
+    } catch (error) {
+      stopped = `the run stopped: ${(error as Error).message}`;
+      err(`live steps stopped: ${(error as Error).message}`);
+      exit = 1;
+    }
+    if (cleanupLog.length === notes) out('cleanup: nothing left open by this run');
+    return finish(exit);
+  }
   try {
     out(`venue: ${venue.venue.displayName} (${venue.venue.id}, ${baseUrl}), TEST funds only; run ${runId}`);
-    out(`addresses: trader ${trader.address}, other ${other.address}, builder (third) ${builderParty.address}`);
+    out(`addresses: trader ${trader.address}, agent ${agent.address}, other ${other.address}, builder (third) ${builderParty.address}`);
 
     // ── settings, read-only ──
     const markets = (await venue.markets(trader.account)).value;
@@ -1277,6 +1515,9 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
         w ? `nonce ${w.nonce}, ${fmt(w.amount)} ${w.asset}, ${w.status}, fee ${w.fee.known ? fmt(w.fee.value) : 'not known'}` : 'no record',
       );
     });
+
+    // ════════ probe:agent-cannot-move-funds, after the perp close and the withdrawal ════════
+    await agentProbe();
   } catch (error) {
     if (error instanceof Refused && steps.length === 0 && exchangeWrites === 0) {
       err(`live steps refused: ${error.message}`);
@@ -1313,37 +1554,43 @@ export async function runLiveSteps(deps: LiveStepsDeps): Promise<LiveStepsExit> 
       }
     }
     if (perpOpened) await closePerp();
-    if (cleanupLog.length === 0 && exit !== 2) out('cleanup: nothing left open by this run');
+    if (cleanupLog.length === notes && exit !== 2) out('cleanup: nothing left open by this run');
   }
 
-  if (exit === 2) return 2;
-  const failed = steps.filter((x) => x.verdict === 'FAIL').length;
-  const skipped = steps.filter((x) => x.verdict === 'SKIPPED').length;
-  const evidence = {
-    note: 'TEST: the Hyperliquid testnet. Holds addresses and venue records only, never a key.',
-    runId,
-    venue: { id: venue.venue.id, displayName: venue.venue.displayName, baseUrl },
-    startedAt: started,
-    finishedAt: clock(),
-    addresses: { trader: trader.address, other: other.address, builder: builderParty.address },
-    settings: settingsShown,
-    setup: setupLog,
-    steps,
-    cleanup: cleanupLog,
-    stopped,
-    leftOpen,
-  };
-  try {
-    writeFileSync(evidencePath, `${show(evidence)}\n`);
-    out(`evidence: ${evidencePath}`);
-  } catch (error) {
-    err(`the evidence file could not be written (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
-    exit = 1;
+  return finish(exit);
+
+  function finish(exit: LiveStepsExit): LiveStepsExit {
+    if (exit === 2) return 2;
+    const failed = steps.filter((x) => x.verdict === 'FAIL').length;
+    const skipped = steps.filter((x) => x.verdict === 'SKIPPED').length;
+    const evidence = {
+      note: 'TEST: the Hyperliquid testnet. Holds addresses and venue records only, never a key.',
+      runId,
+      venue: { id: venue.venue.id, displayName: venue.venue.displayName, baseUrl },
+      startedAt: started,
+      finishedAt: clock(),
+      addresses: probeOnly
+        ? { trader: trader.address, agent: agent.address }
+        : { trader: trader.address, agent: agent.address, other: other.address, builder: builderParty.address },
+      settings: settingsShown,
+      setup: setupLog,
+      steps,
+      cleanup: cleanupLog,
+      stopped,
+      leftOpen,
+    };
+    try {
+      writeFileSync(evidencePath, `${show(evidence)}\n`);
+      out(`evidence: ${evidencePath}`);
+    } catch (error) {
+      err(`the evidence file could not be written (${(error as NodeJS.ErrnoException).code ?? 'error'})`);
+      exit = 1;
+    }
+    out(
+      `${steps.length} steps: ${steps.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped${leftOpen ? '; SOMETHING WAS LEFT OPEN' : ''}`,
+    );
+    return exit === 1 || failed > 0 || leftOpen ? 1 : 0;
   }
-  out(
-    `${steps.length} steps: ${steps.length - failed - skipped} passed, ${failed} failed, ${skipped} skipped${leftOpen ? '; SOMETHING WAS LEFT OPEN' : ''}`,
-  );
-  return exit === 1 || failed > 0 || leftOpen ? 1 : 0;
 }
 
 // ── one step's checks ───────────────────────────────────────────────────────
@@ -1354,6 +1601,10 @@ class StepContext {
   check(name: string, ok: boolean, detail: string): void {
     this.record.checks.push({ name, verdict: ok ? 'PASS' : 'FAIL', detail });
     if (!ok) throw new CheckFailed(`${name}: ${detail}`);
+  }
+  /** A check that does not stop the step: the rest of its checks still run and are recorded. */
+  assess(name: string, ok: boolean, detail: string): void {
+    this.record.checks.push({ name, verdict: ok ? 'PASS' : 'FAIL', detail });
   }
   pass(name: string, detail: string): void {
     this.record.checks.push({ name, verdict: 'PASS', detail });
@@ -1375,7 +1626,7 @@ class StepContext {
 }
 
 function lineOf(r: StepRecord): string {
-  const head = `${r.verdict.padEnd(7)} ${r.journey} #${r.n}`;
+  const head = `${r.verdict.padEnd(7)} ${r.n > 0 ? `${r.journey} #${r.n}` : r.journey}`;
   const skipped = r.checks.filter((c) => c.verdict === 'SKIPPED');
   const skippedText = skipped.length ? `; skipped: ${skipped.map((c) => `${c.name} (${c.detail})`).join('; ')}` : '';
   if (r.verdict === 'FAIL') {
@@ -1384,6 +1635,35 @@ function lineOf(r: StepRecord): string {
   }
   const summary = typeof r.evidence.summary === 'string' ? r.evidence.summary : '';
   return `${head}  ${summary ? `${summary}${skippedText}` : skippedText.replace(/^; /, '')}`.trimEnd();
+}
+
+/**
+ * What a refusal's wording suggests, for the agent probe: that the venue bars an agent from moving funds, or that it
+ * read the action as the agent's own account's and found it empty. Anything else is "unclear"; the words themselves are
+ * the evidence, and this is only a reading of them.
+ */
+export function suggestsFrom(words: string): 'agent not allowed' | "agent's own account has no funds" | 'unclear' {
+  if (/insufficient|not enough|no funds|balance|does not exist|doesn't exist|unknown user/i.test(words))
+    return "agent's own account has no funds";
+  if (/agent|api wallet|not allowed|not permitted|permission|unauthori[sz]ed|not authori[sz]ed|cannot|can't|must be signed by/i.test(words))
+    return 'agent not allowed';
+  return 'unclear';
+}
+
+/** Every asset whose free, locked or total figure differs between two balance reads, as "<asset> <field> <before> -> <after> (+/-change)". */
+export function balanceChanges(before: readonly UserVenueBalance[], after: readonly UserVenueBalance[]): string[] {
+  const assets = [...new Set([...before, ...after].map((b) => b.asset))].sort();
+  const changes: string[] = [];
+  for (const asset of assets) {
+    const x = bal(before, asset);
+    const y = bal(after, asset);
+    for (const field of ['total', 'free', 'locked'] as const) {
+      if (x[field] === y[field]) continue;
+      const d = sub(y[field], x[field]);
+      changes.push(`${asset} ${field} ${fmt(x[field])} -> ${fmt(y[field])} (${compare(d, ZERO) > 0 ? '+' : ''}${fmt(d)})`);
+    }
+  }
+  return changes;
 }
 
 function outcomeText(o: VenueSubmitOutcome): string {

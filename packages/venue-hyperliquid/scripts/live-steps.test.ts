@@ -10,13 +10,16 @@ import {
   actionHash,
   l1TypedData,
   recoverTypedDataSigner,
+  sendAssetAction,
+  spotSendAction,
   usdClassTransferAction,
   usdSendAction,
   userSignedTypedData,
+  withdraw3Action,
   type FetchLike,
   type HlTypedData,
 } from '../src/index.js';
-import { runLiveSteps } from './live-steps.js';
+import { AGENT_PROBE, balanceChanges, runLiveSteps, suggestsFrom } from './live-steps.js';
 
 /**
  * The whole live-steps run against a scripted fake Hyperliquid: `/info` and `/exchange` answered from a small venue
@@ -34,12 +37,15 @@ const KEYS = { trader: testKey('trader'), agent: testKey('agent'), other: testKe
 const addr = (key: Hex) => privateKeyToAccount(key).address.toLowerCase();
 const TRADER = addr(KEYS.trader);
 const OTHER = addr(KEYS.other);
+const AGENT = addr(KEYS.agent);
+/** A TEST token id for USDC in the fake's spotMeta. */
+const USDC_TOKEN_ID = '0x6d1e7cde53ba9467b783cb7c530ce054';
 
 const META = { universe: [{ name: 'ETH', szDecimals: 4, maxLeverage: 25 }] };
 const SPOT_META = {
   tokens: [
-    { name: 'USDC', szDecimals: 8, weiDecimals: 8, index: 0 },
-    { name: 'HYPE', szDecimals: 2, weiDecimals: 8, index: 1 },
+    { name: 'USDC', szDecimals: 8, weiDecimals: 8, index: 0, tokenId: USDC_TOKEN_ID },
+    { name: 'HYPE', szDecimals: 2, weiDecimals: 8, index: 1, tokenId: '0x7317beb7cceed72ef0b346074cc8e7ab' },
   ],
   universe: [{ name: '@1', tokens: [1, 0], index: 1, isCanonical: false }],
 };
@@ -62,6 +68,8 @@ interface User {
   positions: Map<string, Position>;
   leverage: Map<string, { type: 'cross' | 'isolated'; value: number }>;
   builders: Map<string, number>;
+  /** Agents this user approved: address -> name. */
+  agents: Map<string, string>;
   ledger: Record<string, unknown>[];
   fills: Record<string, unknown>[];
 }
@@ -88,6 +96,11 @@ export interface Faults {
   failInfo?: (type: string, venue: FakeVenue) => boolean;
   /** Refuse every order this address sends. */
   refuseOrdersFrom?: string;
+  /**
+   * A broken venue: these user-signed transfers, signed by an approved agent, are applied to the agent's OWNER's account
+   * (the venue lets the agent move the owner's funds). Unset, a user-signed action acts on the signer's own account.
+   */
+  agentMovesOwnerFunds?: readonly string[];
 }
 
 class FakeVenue {
@@ -106,7 +119,16 @@ class FakeVenue {
     const key = address.toLowerCase();
     let u = this.users.get(key);
     if (!u) {
-      u = { spot: new Map(), cash: ZERO, positions: new Map(), leverage: new Map(), builders: new Map(), ledger: [], fills: [] };
+      u = {
+        spot: new Map(),
+        cash: ZERO,
+        positions: new Map(),
+        leverage: new Map(),
+        builders: new Map(),
+        agents: new Map(),
+        ledger: [],
+        fills: [],
+      };
       this.users.set(key, u);
     }
     return u;
@@ -202,7 +224,7 @@ class FakeVenue {
       case 'maxBuilderFee':
         return u!.builders.get(String(body.builder).toLowerCase()) ?? 0;
       case 'extraAgents':
-        return [];
+        return [...u!.agents].map(([address, name]) => ({ address, name, validUntil: this.now() + 86_400_000 }));
       case 'activeAssetData':
         return { leverage: this.levOf(u!, String(body.coin)) };
       default:
@@ -253,6 +275,32 @@ class FakeVenue {
           amount: String(action.amount),
           time: BigInt(nonce),
         });
+        // The probe's builder must sign the same bytes the fake checks.
+        expect(withdraw3Action(String(action.destination), String(action.amount), BigInt(nonce)).typedData).toEqual(typed);
+        break;
+      case 'spotSend':
+        typed = spotSendAction(String(action.destination), String(action.token), String(action.amount), BigInt(nonce)).typedData;
+        break;
+      case 'sendAsset':
+        typed = sendAssetAction(
+          {
+            destination: String(action.destination),
+            sourceDex: String(action.sourceDex),
+            destinationDex: String(action.destinationDex),
+            token: String(action.token),
+            amount: String(action.amount),
+            fromSubAccount: String(action.fromSubAccount),
+          },
+          BigInt(nonce),
+        ).typedData;
+        break;
+      case 'approveAgent':
+        typed = userSignedTypedData('HyperliquidTransaction:ApproveAgent', USER_SIGNED_TYPES['HyperliquidTransaction:ApproveAgent'], {
+          hyperliquidChain: 'Testnet',
+          agentAddress: String(action.agentAddress),
+          agentName: String(action.agentName),
+          nonce: BigInt(nonce),
+        });
         break;
       case 'approveBuilderFee':
         typed = userSignedTypedData(
@@ -276,7 +324,8 @@ class FakeVenue {
     this.nonces.set(signer, used);
     if (used.has(nonce)) return { status: 'err', response: `Invalid nonce: duplicate nonce ${nonce}` };
     used.add(nonce);
-    const u = this.user(signer);
+    const ownerOfAgent = [...this.users].find(([, x]) => x.agents.has(signer))?.[0];
+    const u = ownerOfAgent && this.faults.agentMovesOwnerFunds?.includes(String(action.type)) ? this.user(ownerOfAgent) : this.user(signer);
     const ok = (response: unknown) => ({ status: 'ok', response });
     switch (action.type) {
       case 'usdSend': {
@@ -308,6 +357,29 @@ class FakeVenue {
         u.ledger.push({ time: this.now(), hash: '0x00', delta: { type: 'withdraw', usdc: fmt(amt), nonce, fee: '1' } });
         return ok({ type: 'default' });
       }
+      case 'spotSend': {
+        const amt = a(String(action.amount));
+        const coin = String(action.token).split(':')[0]!;
+        const from = this.spot(u, coin);
+        if (compare(sub(from.total, from.hold), amt) < 0) return { status: 'err', response: 'Insufficient balance for token transfer' };
+        from.total = sub(from.total, amt);
+        const to = this.spot(this.user(String(action.destination)), coin);
+        to.total = add(to.total, amt);
+        return ok({ type: 'default' });
+      }
+      case 'sendAsset': {
+        const amt = a(String(action.amount));
+        if (action.sourceDex !== '' || action.destinationDex !== '' || action.token !== 'USDC')
+          return { status: 'err', response: 'TEST fake: only perp USDC to perp USDC' };
+        if (compare(this.withdrawable(u), amt) < 0) return { status: 'err', response: 'Insufficient balance for asset transfer' };
+        u.cash = sub(u.cash, amt);
+        const to = this.user(String(action.destination));
+        to.cash = add(to.cash, amt);
+        return ok({ type: 'default' });
+      }
+      case 'approveAgent':
+        u.agents.set(String(action.agentAddress).toLowerCase(), String(action.agentName));
+        return ok({ type: 'default' });
       case 'approveBuilderFee': {
         const builder = this.user(String(action.builder));
         if (compare(add(builder.cash, this.upnl(builder)), a('100')) < 0)
@@ -512,16 +584,22 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-async function run(faults: Faults = {}, env: Record<string, string> = {}) {
+async function run(
+  faults: Faults = {},
+  env: Record<string, string> = {},
+  argv: readonly string[] = [],
+  arrange: (fake: FakeVenue) => void = () => {},
+) {
   let t = T0;
   const now = () => (t += 3);
   const fake = new FakeVenue(now, faults);
   fake.user(TRADER).cash = a('1000');
+  arrange(fake);
   const stdout: string[] = [];
   const stderr: string[] = [];
   const code = await runLiveSteps({
     env: { APP_ENV: 'test', HL_TESTNET_KEY_FILE: keyFile, ...env },
-    argv: ['--out', evidenceFile],
+    argv: ['--out', evidenceFile, ...argv],
     fetch: fake.fetch(),
     clock: () => new Date(now()),
     sleep: async () => {},
@@ -546,6 +624,7 @@ const STEPS = [
   'J-derivatives-01 #9',
   'J-derivatives-01 #11',
   'J-cex-spot-01 #12',
+  AGENT_PROBE,
 ];
 
 function expectNothingOpen(fake: FakeVenue) {
@@ -586,7 +665,7 @@ describe('live steps against a scripted fake venue', () => {
       steps: { verdict: string; checks: unknown[] }[];
       addresses: Record<string, string>;
     };
-    expect(evidence.steps).toHaveLength(13);
+    expect(evidence.steps).toHaveLength(14);
     expect(evidence.steps.every((s) => s.verdict === 'PASS')).toBe(true);
     expect(evidence.addresses.trader).toBe(TRADER);
     // One order per double press: the perp open was sent twice and applied once.
@@ -638,5 +717,126 @@ describe('live steps against a scripted fake venue', () => {
     expect(short.err).toContain('no "other" key');
     expect(short.fake.exchangeCalls).toEqual([]);
     expectNoKey(live.err, mainnet.err, short.err);
+  });
+});
+
+describe('probe:agent-cannot-move-funds against the fake venue', () => {
+  interface ProbeEvidence {
+    steps: {
+      journey: string;
+      verdict: string;
+      checks: { name: string; verdict: string; detail: string }[];
+      evidence: {
+        sent: { action: string; typedData: string; signedBy: string; answer: string; venueWords: string | null; suggests: string }[];
+        agent: { address: string; approvedBefore: boolean };
+      };
+    }[];
+    addresses: Record<string, string>;
+  }
+  const probeOf = () => {
+    const e = JSON.parse(readFileSync(evidenceFile, 'utf8')) as ProbeEvidence;
+    return { e, step: e.steps.find((x) => x.journey === AGENT_PROBE)! };
+  };
+  /** The four agent-signed transfers the fake received, by type, each with the address its signature recovers to. */
+  const agentSends = async (fake: FakeVenue) => {
+    const types = ['withdraw3', 'usdSend', 'spotSend', 'sendAsset'];
+    const calls = fake.exchangeCalls.filter((c) => types.includes(String((c.action as { type: string }).type)));
+    return calls.map((c) => (c.action as { type: string }).type);
+  };
+
+  it('PASS: each action refused in the venue words, the trader balances unchanged; approves the agent and says it stays', async () => {
+    // Only the trader and the agent are needed for the probe alone.
+    writeFileSync(keyFile, JSON.stringify({ trader: KEYS.trader, agent: KEYS.agent }));
+    const { code, fake, out, err, lines } = await run({}, {}, ['--probe', 'agent-funds']);
+    expect(err).toBe('');
+    expect(stepLine(lines, AGENT_PROBE), out).toMatch(/^PASS/);
+    expect(code).toBe(0);
+    // No journey step ran: the probe alone.
+    for (const id of STEPS.filter((x) => x !== AGENT_PROBE)) expect(stepLine(lines, id)).toBeUndefined();
+    expect(await agentSends(fake)).toEqual(['withdraw3', 'usdSend', 'spotSend', 'sendAsset']);
+    // The trader approved the agent, owner signed; the venue lists it.
+    expect(fake.user(TRADER).agents.has(AGENT)).toBe(true);
+    expect(fake.user(TRADER).cash).toBe(a('1000'));
+    const { step, e } = probeOf();
+    expect(e.addresses).toEqual({ trader: TRADER, agent: AGENT });
+    expect(step.evidence.agent).toEqual({ address: AGENT, approvedBefore: false });
+    expect(step.evidence.sent.map((x) => [x.action, x.typedData, x.signedBy, x.answer])).toEqual([
+      ['withdraw3', 'HyperliquidTransaction:Withdraw', AGENT, 'refused'],
+      ['usdSend', 'HyperliquidTransaction:UsdSend', AGENT, 'refused'],
+      ['spotSend', 'HyperliquidTransaction:SpotSend', AGENT, 'refused'],
+      ['sendAsset', 'HyperliquidTransaction:SendAsset', AGENT, 'refused'],
+    ]);
+    // The venue's words, verbatim, and what they suggest.
+    expect(step.evidence.sent[0]!.venueWords).toBe('{"status":"err","response":"Insufficient balance for withdrawal"}');
+    expect(step.evidence.sent[2]!.venueWords).toBe('{"status":"err","response":"Insufficient balance for token transfer"}');
+    expect(step.evidence.sent.every((x) => x.suggests === "agent's own account has no funds")).toBe(true);
+    expect(step.checks.find((c) => c.name === 'usdSend refused')!.detail).toContain('Insufficient balance for transfer');
+    expect(step.checks.find((c) => c.name === "trader's balances unchanged")).toMatchObject({ verdict: 'PASS' });
+    expect(step.checks.find((c) => c.name === 'agentSendAsset refused to any address but its own source')).toMatchObject({
+      verdict: 'SKIPPED',
+      detail: expect.stringContaining('not in the pinned SDK'),
+    });
+    expect(out).toMatch(/cleanup: agent 0x[0-9a-f]{40} stays approved .*no form to revoke an agent/);
+    expectNoKey(out, err, readFileSync(evidenceFile, 'utf8'));
+  });
+
+  it('an agent the venue already lists is not approved again, and nothing is said about leaving it', async () => {
+    const { code, fake, out, lines } = await run({}, {}, ['--probe', 'agent-funds'], (f) => f.user(TRADER).agents.set(AGENT, 'earlier'));
+    expect(stepLine(lines, AGENT_PROBE), out).toMatch(/^PASS/);
+    expect(code).toBe(0);
+    expect(fake.exchangeCalls.filter((c) => (c.action as { type: string }).type === 'approveAgent')).toEqual([]);
+    expect(out).not.toContain('stays approved');
+    expect(out).toContain('cleanup: nothing left open by this run');
+    expect(probeOf().step.evidence.agent.approvedBefore).toBe(true);
+  });
+
+  it('FAIL, loudly: the venue accepts an agent-signed usdSend and the trader balance moves', async () => {
+    const { code, fake, out, err, lines } = await run({ agentMovesOwnerFunds: ['usdSend'] }, {}, ['--probe', 'agent-funds']);
+    const line = stepLine(lines, AGENT_PROBE)!;
+    expect(line, out).toMatch(/^FAIL/);
+    expect(line).toMatch(/usdSend refused: ACCEPTED by the venue from the agent key/);
+    expect(line).toMatch(/trader's balances unchanged: MOVED: USDC-PERP total 1000 -> 999 \(-1\)/);
+    expect(line).toMatch(/nothing reached the agent's address: USDC-PERP total 0 -> 1 \(\+1\)/);
+    expect(err).toContain(`PROBE FAIL ${AGENT_PROBE}: the venue ACCEPTED an agent-signed usdSend`);
+    expect(code).toBe(1);
+    expect(fake.user(TRADER).cash).toBe(a('999'));
+    const { step } = probeOf();
+    // The rest were still sent and recorded. The agent's own account now holds the 1 USDC the broken venue let it take,
+    // so its sendAsset of that USDC goes through too, and the probe names it as well.
+    expect(step.evidence.sent.map((x) => x.answer)).toEqual(['refused', 'ACCEPTED', 'refused', 'ACCEPTED']);
+    expectNoKey(out, err, readFileSync(evidenceFile, 'utf8'));
+  });
+
+  it('runs in the full run after the perp close and the withdrawal', async () => {
+    const { lines } = await run();
+    const at = (id: string) => lines.findIndex((l) => stepLine([l], id) !== undefined);
+    expect(at(AGENT_PROBE)).toBeGreaterThan(at('J-derivatives-01 #11'));
+    expect(at(AGENT_PROBE)).toBeGreaterThan(at('J-cex-spot-01 #12'));
+  });
+
+  it('refuses a --probe it does not offer, and a key file without the agent key, before anything is sent', async () => {
+    const other = await run({}, {}, ['--probe', 'other']);
+    expect(other.code).toBe(2);
+    expect(other.err).toMatch(/--probe takes "agent-funds"/);
+    expect(other.fake.exchangeCalls).toEqual([]);
+    writeFileSync(keyFile, JSON.stringify({ trader: KEYS.trader }));
+    const short = await run({}, {}, ['--probe', 'agent-funds']);
+    expect(short.code).toBe(2);
+    expect(short.err).toContain('no "agent" key');
+    expect(short.fake.exchangeCalls).toEqual([]);
+    expectNoKey(other.err, short.err);
+  });
+
+  it('reads the wording of a refusal, and lists balance changes', () => {
+    expect(suggestsFrom('User or API Wallet 0xabc does not exist.')).toBe("agent's own account has no funds");
+    expect(suggestsFrom('Insufficient balance for transfer')).toBe("agent's own account has no funds");
+    expect(suggestsFrom('Agent wallets are not allowed to transfer funds')).toBe('agent not allowed');
+    expect(suggestsFrom('Invalid nonce')).toBe('unclear');
+    const before = [{ asset: 'USDC', free: a('5'), locked: ZERO, total: a('5') }];
+    expect(balanceChanges(before, before)).toEqual([]);
+    expect(balanceChanges(before, [{ asset: 'USDC', free: a('4'), locked: ZERO, total: a('4') }])).toEqual([
+      'USDC total 5 -> 4 (-1)',
+      'USDC free 5 -> 4 (-1)',
+    ]);
   });
 });
