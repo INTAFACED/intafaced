@@ -69,6 +69,10 @@ const FACTS: Array<[phrase: string, why: string]> = [
   ['Ne l’enregistrez pas encore une deuxième fois.', 'French of the allowed “Do not save it again yet”'],
   ['Tu n’as pas encore de worker', 'French: an empty worker list'],
   ['Do not save it again yet.', 'an instruction while a duplicate check runs'],
+  [
+    'Bot policy: not yet published',
+    'the journey’s own words (J-cex-spot-15 #3): the owner’s policy has no text, and the page shows it once it has',
+  ],
 ];
 
 const walk = (dir: string): string[] =>

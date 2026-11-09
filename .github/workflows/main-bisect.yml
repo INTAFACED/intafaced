@@ -3,10 +3,12 @@ name: Main bisect
 # Two searches, both started by Main trust; workflow_dispatch can only be started by a person with write access or by
 # Main trust.
 #
-# Unit tests (`tests`): when a CI run on main has failed twice. Walks the commits between the last green and the red one
-# with a binary search, running only the failing test files at each probe, and comments the first commit where they
-# fail on its pull request and on the "Main is red" issue. It reverts nothing and changes no test.
-# See tooling/ci/bisect-main.mjs.
+# CI (`tests`, `jobs`): when a CI run on main has failed twice. Walks the commits between the last green and the red one
+# with a binary search, running only the failing test files, or a failed job's own command (bisect-main.mjs
+# JOB_PROBES: Doctrine gates runs `pnpm gates`), at each probe, and comments the first commit where they fail on its
+# pull request and on the "Main is red" issue. With the red run named (`red_run`, which Main trust passes), the same
+# revert job as the journeys opens that commit's revert, so a red CI on main is undone within OWNER 180's 2 hours too.
+# It changes no test. See tooling/ci/bisect-main.mjs.
 #
 # Real-app journeys (`journeys`): when a journey step that passed on main failed outright in two runs in a row (Main
 # trust's post-merge job, tooling/ci/journeys-revert.mjs trigger). Finds the one pull request between the last passing
@@ -29,12 +31,16 @@ on:
         description: Failing unit test files, one repo-relative path per line (the unit-test bisect)
         required: false
         default: ''
+      jobs:
+        description: 'Failed CI jobs searched by their own command, comma-separated (bisect-main.mjs JOB_PROBES, e.g. Doctrine gates)'
+        required: false
+        default: ''
       journeys:
         description: 'Failing journey steps, comma-separated, e.g. J-wallet-05#2 (the journeys revert)'
         required: false
         default: ''
       red_run:
-        description: The Real-app journeys run that failed them on the bad commit (the journeys revert)
+        description: The run that failed on the bad commit (Real-app journeys for the journeys revert, CI for the unit-test bisect)
         required: false
         default: ''
       base:
@@ -52,9 +58,11 @@ concurrency:
 jobs:
   bisect:
     name: Bisect main
-    if: inputs.tests != ''
+    if: inputs.journeys == '' && (inputs.tests != '' || inputs.jobs != '')
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    outputs:
+      culprit: ${{ steps.bisect.outputs.culprit }}
     permissions:
       contents: read
       issues: write # comment on the "Main is red" issue
@@ -97,10 +105,12 @@ jobs:
       - name: Keep the bisect script outside the checkout
         run: cp tooling/ci/bisect-main.mjs "$RUNNER_TEMP/bisect-main.mjs"
       - name: Bisect
+        id: bisect
         env:
           GOOD: ${{ inputs.good }}
           BAD: ${{ inputs.bad }}
           TESTS: ${{ inputs.tests }}
+          JOBS: ${{ inputs.jobs }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node "$RUNNER_TEMP/bisect-main.mjs"
 
@@ -156,11 +166,13 @@ jobs:
     steps:
       - name: Paths
         run: |
-          echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state" >> "$GITHUB_ENV"
-          echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server" >> "$GITHUB_ENV"
-          echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil" >> "$GITHUB_ENV"
-          echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json" >> "$GITHUB_ENV"
-          echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob" >> "$GITHUB_ENV"
+          {
+            echo "LOCAL_STACK_STATE=$RUNNER_TEMP/stack-state"
+            echo "LOCAL_STACK_NATS_BIN=$RUNNER_TEMP/nats-server"
+            echo "LOCAL_STACK_ANVIL_BIN=$RUNNER_TEMP/anvil"
+            echo "JOURNEY_REPORT=$RUNNER_TEMP/journeys/report.json"
+            echo "JOURNEY_BLOB_DIR=$RUNNER_TEMP/journeys/blob"
+          } >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
@@ -208,9 +220,10 @@ jobs:
         run: node tooling/scripts/local-test-stack.mjs stop || true
 
   revert-open:
-    name: 'Journeys revert: open the revert'
-    needs: [revert-find, revert-probe]
-    if: ${{ !cancelled() && (needs.revert-find.outputs.culprit != '' || needs.revert-probe.outputs.culprit != '') }}
+    name: 'Revert on main: open the revert'
+    # One revert for both reds on main: a journeys step (revert-find, revert-probe) or a CI job (bisect, with red_run).
+    needs: [revert-find, revert-probe, bisect]
+    if: ${{ !cancelled() && (needs.revert-find.outputs.culprit != '' || needs.revert-probe.outputs.culprit != '' || (needs.bisect.outputs.culprit != '' && inputs.red_run != '')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10 # healthy run: under a minute
     # FACTORY_APP_KEY: a pull request opened with GITHUB_TOKEN starts no workflow, so its seal would never run. The
@@ -229,8 +242,11 @@ jobs:
       - name: Open the revert
         env:
           FACTORY_APP_KEY: ${{ secrets.FACTORY_APP_KEY }}
-          CULPRIT: ${{ needs.revert-find.outputs.culprit || needs.revert-probe.outputs.culprit }}
+          CULPRIT: ${{ needs.revert-find.outputs.culprit || needs.revert-probe.outputs.culprit || needs.bisect.outputs.culprit }}
+          KIND: ${{ inputs.journeys != '' && 'journeys' || 'ci' }}
           STEPS: ${{ needs.revert-find.outputs.steps }}
+          TESTS: ${{ inputs.tests }}
+          JOBS: ${{ inputs.jobs }}
           RED_RUN: ${{ inputs.red_run }}
           BASE: ${{ inputs.base }}
         run: node tooling/ci/journeys-revert.mjs open
