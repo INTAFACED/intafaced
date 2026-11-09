@@ -3,10 +3,12 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from './journey.mjs';
 import path from 'node:path';
 import { api, bestPrices, fromUnits, journeyState, ROOT, signUpInBrowser, toUnits, signOutBrowser, restartWith } from './stack.mjs';
-import { confirm, deskPath, free, held, openDesk, openOrders, previewed, reviewSheet, signIn } from './desk.mjs';
+import { confirm, deskPath, held, openDesk, openOrders, reviewSheet, signIn } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { installTestWallet, testWalletKey, TEST_WALLET } from './test-wallet.mjs';
-import { CHAIN_ID, testChain } from './dex.mjs';
+import { createPublicClient, http, pad } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
 import {
   otherVenueTrader,
   testVenue,
@@ -20,6 +22,7 @@ import {
   venueOrder,
   venueRead,
   venueStatus,
+  TEST_VENUE,
   VENUE_SPOT,
 } from './venue-reads.mjs';
 
@@ -95,14 +98,6 @@ function asPercent(ratio) {
 /** The pointer leaves the top bar, as a person's does, so a door's hover menu closes over the room. */
 async function pointerOff(page) {
   await page.mouse.move(0, 600);
-}
-
-/** One percent under the best bid, to the cent: a limit sell there still fills at the bids' own prices when the
- * market maker requotes between the read and the order, which a sell at the old best bid would not. */
-async function underBid() {
-  const { bid } = await bestPrices();
-  const cent = toUnits('0.01');
-  return fromUnits(((toUnits(bid) * 99n) / 100n / cent) * cent);
 }
 
 test(`${J} #1 signs up with an email and a password`, async ({ page }) => {
@@ -264,15 +259,27 @@ test(`${J} #3 passes the trading checks (legal name, country confirmed, sanction
   }
 });
 
-/** The person's TEST wallet in `page`: one TEST key for the whole run, kept in the run file (mode 600), on the TEST chain. */
-async function personWallet(page) {
+/** The run's one TEST wallet key, kept in the run file (mode 600), made on first use. */
+function personKey() {
   let { walletKey } = run.read();
   if (!walletKey) {
     walletKey = testWalletKey();
     run.write({ walletKey });
   }
-  return installTestWallet(page, { chainId: CHAIN_ID, privateKey: walletKey, rpcUrl: testChain().gateUrl });
+  return walletKey;
 }
+
+/** The person's TEST wallet in `page`: the run's one TEST key, on the TEST chain. */
+async function personWallet(page) {
+  return installTestWallet(page, { chainId: CHAIN_ID, privateKey: personKey(), rpcUrl: testChain().gateUrl });
+}
+
+/** The TEST USD #4 deposits, in the row's own words: TEST 1,000 USDC. */
+const DEPOSIT = '1000';
+/** What one `local-test-chain.mjs fund <address> venue` gives in TEST USD (seed-test-chain.ts VENUE_FUNDING, intafaced#7666). */
+const VENUE_FUNDING = '100';
+/** The ERC-20 Transfer(address,address,uint256) event's topic. */
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 /** The venue desk for BTC/USDC with the person's TEST wallet connected; returns the wallet and the venue-account panel. */
 async function venueDesk(page, { signedIn = false } = {}) {
@@ -310,6 +317,17 @@ async function venueReviewLimit(page, side, price, amount) {
   return review;
 }
 
+/**
+ * The app's own "Check before you sign" sheet, which comes before every wallet prompt (WalletProvider.sign), answered
+ * with "Continue in wallet": only then is the wallet asked.
+ */
+async function continueInWallet(page) {
+  const sheet = page.getByRole('dialog', { name: 'Check before you sign' });
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole('button', { name: 'Continue in wallet' }).click();
+  await expect(sheet).toHaveCount(0);
+}
+
 /** The desk's venue-account panel: the person's own venue balances, as the venue reports them. */
 const venuePanel = (page) => page.getByRole('region', { name: /venue account/i });
 
@@ -344,6 +362,10 @@ test(`${J} #4 connects a wallet and deposits TEST 1,000 USDC into the venue acco
   const who = account();
   await venueStatus(who);
   const ledgerBefore = await ledgerOf(who);
+  // The Starts line's TEST wallet holding TEST USDC: the stack's TEST chain gives it TEST ETH for gas and TEST USD, as
+  // many times as it takes to hold the 1,000 deposited (each call gives VENUE_FUNDING).
+  const address = privateKeyToAccount(personKey()).address;
+  for (let held = 0n; held < toUnits(DEPOSIT); held += toUnits(VENUE_FUNDING)) fundOnTestChain(address, 'venue');
   const { wallet, owner, panel } = await venueDesk(page);
   run.write({ owner });
   expect(toUnits((await venueBalance(who, owner, 'USDC')).total)).toBe(0n);
@@ -351,32 +373,51 @@ test(`${J} #4 connects a wallet and deposits TEST 1,000 USDC into the venue acco
   const asked = wallet.requests.length + wallet.sends.length;
   await panel.getByRole('button', { name: /^Deposit/ }).click();
   const deposit = page.getByRole('dialog', { name: /deposit/i });
-  await deposit.getByRole('textbox', { name: /^Amount/ }).fill('1000');
+  await deposit.getByRole('textbox', { name: /^Amount/ }).fill(DEPOSIT);
   await expect(deposit).toContainText('USDC');
   await deposit
     .getByRole('button', { name: /deposit|sign/i })
     .last()
     .click();
+  await continueInWallet(page);
   await expect.poll(() => wallet.requests.length + wallet.sends.length, { timeout: 30_000 }).toBeGreaterThan(asked);
   // The venue credits 1,000 USDC: free 1,000, used 0, and the desk shows the venue's figures with its as-of time.
   await expect.poll(async () => (await venueBalance(who, owner, 'USDC')).free, { timeout: 120_000 }).toMatch(/^1000(\.0+)?$/);
   const venue = await panelEqualsVenue(page, who, owner);
-  expect(wireUnits(venue.free)).toBe(toUnits('1000'));
+  expect(wireUnits(venue.free)).toBe(toUnits(DEPOSIT));
   expect(wireUnits(venue.locked)).toBe(0n);
-  // The same deposit event replayed: the venue keys a deposit by its chain transfer, so it adds nothing.
+  // The same deposit event replayed: the venue keys a chain deposit by its transfer log, `<chainId>:<txHash>:<logIndex>`
+  // (venueDepositRef, packages/venue-contracts), so the same log, credited again, adds nothing.
   const transfer = wallet.sends.at(-1)?.hash;
   expect(transfer, 'the wallet sent the deposit as a chain transfer').toMatch(/^0x[0-9a-f]{64}$/);
+  const described = await fetch(`${TEST_VENUE}/venue`, { signal: AbortSignal.timeout(10_000) });
+  expect(described.status).toBe(200);
+  const {
+    venue: { id: venueId },
+    deposit: route,
+  } = await described.json();
+  expect(route, 'the TEST venue names its deposit route').toMatchObject({ chainId: CHAIN_ID, asset: 'USDC' });
+  const receipt = await createPublicClient({ transport: http(testChain().gateUrl) }).waitForTransactionReceipt({ hash: transfer });
+  expect(receipt.status).toBe('success');
+  const logs = receipt.logs.filter(
+    (l) =>
+      l.address.toLowerCase() === route.token.toLowerCase() &&
+      l.topics[0] === TRANSFER_TOPIC &&
+      l.topics[1]?.toLowerCase() === pad(owner).toLowerCase() &&
+      l.topics[2]?.toLowerCase() === pad(route.address).toLowerCase(),
+  );
+  expect(logs, 'the transfer holds one TEST USD transfer from the wallet to the venue').toHaveLength(1);
   const replay = await testVenue('/test/deposit', {
-    account: { venueId: (await venueStatus(who)).venue.id, owner, subAccount: null },
+    account: { venueId, owner, subAccount: null },
     asset: 'USDC',
-    amount: '1000',
-    depositRef: transfer,
+    amount: DEPOSIT,
+    depositRef: `${route.chainId}:${transfer.toLowerCase()}:${logs[0].logIndex}`,
   });
   expect(replay.status, JSON.stringify(replay.body)).toBe(200);
   expect(replay.body.credited, 'the replayed deposit is not credited again').toBe(false);
   await page.reload();
   const after = await panelEqualsVenue(page, who, owner);
-  expect(wireUnits(after.free)).toBe(toUnits('1000'));
+  expect(wireUnits(after.free)).toBe(toUnits(DEPOSIT));
   // The ledger posts nothing: INTAFACED holds none of it.
   expect(await ledgerOf(who)).toEqual(ledgerBefore);
 });
@@ -537,6 +578,7 @@ test(`${J} #7 confirms and signs: the order rests on the venue, shows Open, and 
   await venueReviewLimit(page, 'buy', price, VENUE_BUY);
   const asked = wallet.requests.length;
   await confirm(page, 'buy');
+  await continueInWallet(page);
   // The wallet signs the order once.
   await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
   expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
@@ -635,6 +677,7 @@ test(`${J} #9 places a market buy: it fills on the venue inside its slippage lim
   await page.getByRole('button', { name: 'Buy BTC' }).click();
   const asked = wallet.requests.length;
   await confirm(page, 'buy');
+  await continueInWallet(page);
   await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
   const intent = prepares.at(-1)?.intent;
   expect(intent, 'the market buy was prepared for the venue').toMatchObject({
@@ -681,6 +724,7 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   const row = page.locator('tr', { hasText: Number(away).toLocaleString('en-US') });
   const asked = wallet.requests.length;
   await row.getByRole('button', { name: /^Cancel/ }).click();
+  await continueInWallet(page);
   await expect.poll(async () => (await venueOrder(who, owner, order.venueClientOrderId))?.status, { timeout: 20_000 }).toBe('canceled');
   expect(wallet.requests.length).toBe(asked + 1);
   await expect(page.getByText(/cancel+ed/i).first()).toBeVisible();
@@ -700,95 +744,119 @@ test(`${J} #10 rests a limit away from the market, cancels it, cancels it again:
   expect(wireUnits((await venueBalance(who, owner, 'USDC')).locked)).toBe(wireUnits(before.locked));
 });
 
-test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the realised result`, async ({ page }) => {
-  const who = account();
-  const client = await api(who);
-  /** Profit and loss as svc-tax works it out for this account (the room's own read), its BTC lots and its realised sum. */
-  const lotBook = async () => {
-    const { status, body } = await client.get('/api/tax/trpc/lotBook');
-    expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
-    const book = body.result.data;
-    return { book, lots: book.lots.filter((lot) => String(lot.assetId).toUpperCase() === 'BTC') };
-  };
-  // What the buys cost: every BTC/USDT buy fill of this account (#8's limit buy and #9's market buy), in USDT.
-  const { status: read, body: mine } = await client.get('/api/v1/account/trades?symbol=BTC%2FUSDT&limit=500');
-  expect(read, JSON.stringify(mine).slice(0, 300)).toBe(200);
-  const buys = mine.filter((t) => t.side === 'buy');
-  expect(buys.length).toBeGreaterThan(0);
-  expect(mine.filter((t) => t.side === 'sell')).toHaveLength(0);
-  // Each buy's fee came out of the coins it received (BTC), so what left the account for the coins is its cost alone,
-  // which is what svc-tax books as a lot's cost (the quote leg paid out of the order's hold).
-  expect(
-    buys.every((t) => t.fee?.currency === 'BTC'),
-    JSON.stringify(buys.map((t) => t.fee)),
-  ).toBe(true);
-  const paid = buys.reduce((sum, t) => sum + wireUnits(t.cost), 0n);
-  const btc = toUnits((await client.balances()).BTC?.total ?? '0');
+/** A venue fill's quote leg (price × amount), as scaled units, as #8 works it out. */
+const quoteOf = (fill) => (wireUnits(fill.price) * wireUnits(fill.amount)) / toUnits('1');
 
-  // After the buy: the bought lots are open at their cost. svc-tax holds them as bought (trade), nothing of them sold,
-  // still held, together costing what the buys paid and holding the BTC the ledger holds.
-  const before = await lotBook();
-  expect(before.lots.length).toBeGreaterThan(0);
-  for (const lot of before.lots) {
-    expect(lot, JSON.stringify(lot)).toMatchObject({ source: 'trade' });
-    expect(wireUnits(lot.remaining), JSON.stringify(lot)).toBe(wireUnits(lot.qty));
-    expect(lot.daysHeld, JSON.stringify(lot)).not.toBeNull();
-    expect(lot.costUsd, JSON.stringify(lot)).not.toBeNull();
+/**
+ * The person's BTC lots as the venue's own fills make them, oldest first: each spot buy fill is one lot holding what it
+ * delivered (its amount, less a fee the venue took in BTC) at what it cost (its quote leg, plus a fee the venue took in
+ * USDC). The TEST USDC the venue settles in counts one for one as a TEST dollar, as the desk shows it.
+ */
+function venueLots(fills) {
+  return fills
+    .filter((f) => f.symbol === VENUE_SPOT && f.side === 'buy')
+    .sort((x, y) => Date.parse(x.filledAt) - Date.parse(y.filledAt))
+    .map((f) => ({
+      qty: wireUnits(f.amount) - (f.feeAsset === 'BTC' ? wireUnits(f.venueFee) : 0n),
+      cost: quoteOf(f) + (f.feeAsset === 'USDC' ? wireUnits(f.venueFee) : 0n),
+    }));
+}
+
+/**
+ * The realised result of `sells` against `lots`, first in first out (svc-tax's DEFAULT_LOT_BOOK_METHOD): what the sales
+ * brought in (their quote legs, less the venue's USDC fees), less the cost of the lots they used up, a part lot at its
+ * share of the cost.
+ */
+function realisedFifo(lots, sells) {
+  let left = sells.reduce((s, f) => s + wireUnits(f.amount), 0n);
+  const proceeds = sells.reduce((s, f) => s + quoteOf(f) - (f.feeAsset === 'USDC' ? wireUnits(f.venueFee) : 0n), 0n);
+  let used = 0n;
+  for (const lot of lots) {
+    if (left === 0n) break;
+    const take = left < lot.qty ? left : lot.qty;
+    used += take === lot.qty ? lot.cost : (lot.cost * take) / lot.qty;
+    left -= take;
   }
-  expect(before.lots.reduce((sum, lot) => sum + wireUnits(lot.costUsd), 0n)).toBe(paid);
-  expect(before.lots.reduce((sum, lot) => sum + wireUnits(lot.remaining), 0n)).toBe(btc);
-  // The room shows each of those lots: what is left, its cost to the shown cent, and a number of days held, not Sold.
+  expect(left, 'the sale sold no more than the lots held').toBe(0n);
+  return fromUnits(proceeds - used);
+}
+
+test(`${J} #11 reads the bought lot on Profit and loss, sells it, and reads the realised result`, async ({ page }) => {
+  test.setTimeout(300_000);
+  const who = account();
+  const { owner } = run.read();
+  expect(owner, '#4 connected a wallet').toBeTruthy();
+  // What was bought: #8's limit buy and #9's market buy, every BTC-USDC fill of this venue account, read from the venue.
+  // Nothing has been sold yet.
+  const before = await venueFills(who, owner, new Date(0));
+  const lots = venueLots(before);
+  expect(lots.length, 'the venue holds the buys of #8 and #9').toBeGreaterThan(0);
+  expect(before.filter((f) => f.symbol === VENUE_SPOT && f.side === 'sell')).toHaveLength(0);
+  const btc = await venueBalance(who, owner, 'BTC');
+  // The lots hold what the venue holds: every BTC of this account came from those buys.
+  expect(lots.reduce((s, lot) => s + lot.qty, 0n)).toBe(wireUnits(btc.total));
+  const paid = lots.reduce((s, lot) => s + lot.cost, 0n);
+
+  // After the buy: Profit and loss shows the bought lots as open at their cost: what is left of each, its cost in
+  // dollars and a number of days held (an open lot, not Sold). Together they hold the venue's BTC and cost what the
+  // venue's fills paid, each row's cost rounded to the shown cent.
   await signIn(page, who);
   await page.goto('/money/pnl?asset=BTC');
   const main = page.locator('main').first();
-  const lots = main.locator('tr[data-lot]');
-  await expect(lots.first()).toBeVisible({ timeout: 30_000 });
-  await expect(lots).toHaveCount(before.lots.length);
-  for (const lot of before.lots) {
-    const row = main.locator(`tr[data-lot="${lot.id}"]`);
-    await expect(row).toHaveCount(1);
-    expect(shownUnits(await row.locator('td[data-col=left]').innerText())).toBe(wireUnits(lot.remaining));
+  const rows = main.locator('tr[data-lot]');
+  await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+  const count = await rows.count();
+  let shownLeft = 0n;
+  let shownCost = 0n;
+  for (let i = 0; i < count; i++) {
+    const row = rows.nth(i);
+    shownLeft += shownUnits(await row.locator('td[data-col=left]').innerText());
     await expect(row.locator('td[data-col=cost]')).toHaveText(new RegExp(`^${DOLLARS}$`));
-    expect(shownUnits(await row.locator('td[data-col=cost]').innerText())).toBe(asShownUsd(lot.costUsd));
+    shownCost += shownUnits(await row.locator('td[data-col=cost]').innerText());
     await expect(row.locator('td[data-col=days]')).toHaveText(/^\d+$/);
   }
+  expect(shownLeft, "the open lots hold the venue's BTC").toBe(wireUnits(btc.total));
+  // A shown cost is within half a cent of its own (fmtUsd); summed over the rows, within half a cent a row.
+  const drift = shownCost > paid ? shownCost - paid : paid - shownCost;
+  expect(drift <= BigInt(count) * toUnits('0.005'), `shown ${fromUnits(shownCost)} for paid ${fromUnits(paid)}`).toBe(true);
 
-  // Sells the coins on the desk.
-  await page.goto(DESK);
-  await page.locator('[role=tab]', { hasText: /^Limit$/ }).click();
-  await page
-    .getByRole('textbox', { name: 'Price' })
-    .nth(1)
-    .fill(await underBid());
-  // The sell side's Max: every whole step of the BTC held.
-  await previewed(page, () => page.getByRole('button', { name: 'Max' }).last().click());
-  await page.getByRole('button', { name: 'Sell BTC' }).click();
-  await expect(reviewSheet(page)).toBeVisible();
+  // Sells the coins on the venue desk: a limit sell one percent under the venue's best bid, of every whole lot step of
+  // the BTC the venue holds free, signed in the wallet.
+  const since = new Date(Date.now() - 1_000);
+  const { wallet } = await venueDesk(page);
+  const { body: markets } = await testVenue('/markets', {});
+  const market = markets.value.find((m) => m.symbol === VENUE_SPOT);
+  expect(market, JSON.stringify(markets).slice(0, 300)).toBeTruthy();
+  const step = toUnits(market.lotSize);
+  const tick = toUnits(market.tickSize);
+  const free = wireUnits((await venueBalance(who, owner, 'BTC')).free);
+  const amount = (free / step) * step;
+  expect(amount > 0n, `${fromUnits(free)} BTC free holds a whole lot step`).toBe(true);
+  const { bid } = await venueBook(VENUE_SPOT);
+  const price = fromUnits(((bid * 99n) / 100n / tick) * tick);
+  await venueReviewLimit(page, 'sell', price, fromUnits(amount));
+  const asked = wallet.requests.length;
   await confirm(page, 'sell');
-  // What is left is below the market's amount step (0.00001 BTC).
-  await expect.poll(async () => toUnits((await client.balances()).BTC?.total ?? '0'), { timeout: 20_000 }).toBeLessThan(toUnits('0.00001'));
+  await continueInWallet(page);
+  await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
+  expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+  const sold = async () =>
+    (await venueFills(who, owner, since))
+      .filter((f) => f.symbol === VENUE_SPOT && f.side === 'sell')
+      .reduce((s, f) => s + wireUnits(f.amount), 0n);
+  await expect.poll(sold, { timeout: 20_000 }).toBe(amount);
+  const sells = (await venueFills(who, owner, since)).filter((f) => f.symbol === VENUE_SPOT && f.side === 'sell');
+  // What is left on the venue is below the market's lot step.
+  expect(wireUnits((await venueBalance(who, owner, 'BTC')).total) < step).toBe(true);
 
-  // After the sale: the realised result shows, as svc-tax works it out, labelled as an indicator.
-  // svc-tax books the sale's fills one by one, so its figure is read once every fill is in: a realised sum, and BTC lots
-  // whose remaining amount is what the ledger still holds.
-  const left = toUnits((await client.balances()).BTC?.total ?? '0');
-  let after;
-  await expect
-    .poll(
-      async () => {
-        after = await lotBook();
-        return after.book.realizedUsd !== null && after.lots.reduce((sum, lot) => sum + wireUnits(lot.remaining), 0n) === left;
-      },
-      { timeout: 30_000 },
-    )
-    .toBe(true);
+  // After the sale: the realised result shows, as the venue's own fills make it, labelled as an indicator.
+  const realisedUsd = realisedFifo(lots, sells);
   await page.goto('/money/pnl');
   await expect(main.getByTestId('money-label').filter({ hasText: 'Realised' }).first()).toBeVisible();
   const realised = main.locator('[data-testid=money-total][data-figure=realised]');
-  // A signed dollar result: the sale and its fees leave a non-zero result, which can be under $1 ("−$0.8094" in run 1123).
-  await expect(realised).toHaveText(new RegExp(`^[+−]${DOLLARS}$`));
-  expect(shownUnits(await realised.innerText())).toBe(asShownUsd(after.book.realizedUsd));
-  expect(after.book.indicator).toBe('indicator_not_tax_advice');
+  // A signed dollar result: the sale and its fees leave a non-zero result, which can be under $1.
+  await expect(realised).toHaveText(new RegExp(`^[+−]${DOLLARS}$`), { timeout: 30_000 });
+  await expect.poll(async () => shownUnits(await realised.innerText()), { timeout: 30_000 }).toBe(asShownUsd(realisedUsd));
   await expect(main.locator('[data-testid=money-note][data-indicator=true]')).toHaveText(
     'This is an indicator worked out from your own trades. It is not a tax form.',
   );
@@ -857,6 +925,7 @@ test(`${J} #12 withdraws TEST 10 USDC from the venue to the wallet: the wallet s
     .last()
     .click();
   await confirmItsMe(page);
+  await continueInWallet(page);
   await expect.poll(() => wallet.requests.length, { timeout: 20_000 }).toBe(asked + 1);
   expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
   // The venue's withdrawal shows pending, then done, with its fee or "not known".
