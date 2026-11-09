@@ -1,3 +1,5 @@
+import { buildCsv } from '../merchants/csv';
+
 /**
  * The shape of svc-trade's builder-fee recon (services/svc-trade/src/venue/builder-fee-recon.ts), read strictly: a field
  * of the wrong type makes the whole answer invalid, never a guessed zero. Amounts stay decimal strings.
@@ -27,6 +29,7 @@ export interface BuilderFeeReconTotal {
 export interface BuilderFeeOwed {
   readonly assetId: string;
   readonly amount: string;
+  readonly state: 'owed' | 'overpaid';
 }
 
 export interface BuilderFeeVolumeRow {
@@ -40,7 +43,8 @@ export interface BuilderFeeVolumeRow {
   readonly matched: boolean;
 }
 
-export type BuilderFeeVolumeGapReason = 'fee_differs' | 'not_a_routed_order';
+export type BuilderFeeVolumeGapReason = 'fee_differs' | 'not_a_routed_order' | 'fee_asset_unknown' | 'market_unknown';
+const GAP_REASONS: readonly BuilderFeeVolumeGapReason[] = ['fee_differs', 'not_a_routed_order', 'fee_asset_unknown', 'market_unknown'];
 
 export interface BuilderFeeVolumeGap {
   readonly fillId: string;
@@ -48,9 +52,9 @@ export interface BuilderFeeVolumeGap {
   readonly assetId: string;
   readonly volume: string;
   readonly feeBps: string | null;
-  readonly expectedFee: string;
+  readonly expectedFee: string | null;
   readonly chargedFee: string;
-  readonly gap: string;
+  readonly gap: string | null;
   readonly reason: BuilderFeeVolumeGapReason;
 }
 
@@ -133,8 +137,8 @@ function total(raw: unknown): BuilderFeeReconTotal | null {
 }
 
 function owed(raw: unknown): BuilderFeeOwed | null {
-  if (!rec(raw) || !str(raw.assetId) || !dec(raw.amount)) return null;
-  return { assetId: raw.assetId, amount: raw.amount };
+  if (!rec(raw) || !str(raw.assetId) || !dec(raw.amount) || (raw.state !== 'owed' && raw.state !== 'overpaid')) return null;
+  return { assetId: raw.assetId, amount: raw.amount, state: raw.state };
 }
 
 function volumeRow(raw: unknown): BuilderFeeVolumeRow | null {
@@ -154,8 +158,8 @@ function volumeRow(raw: unknown): BuilderFeeVolumeRow | null {
 
 function volumeGap(raw: unknown): BuilderFeeVolumeGap | null {
   if (!rec(raw) || !str(raw.fillId) || !str(raw.symbol) || !str(raw.assetId) || !dec(raw.volume) || !decOrNull(raw.feeBps)) return null;
-  if (!dec(raw.expectedFee) || !dec(raw.chargedFee) || !dec(raw.gap)) return null;
-  if (raw.reason !== 'fee_differs' && raw.reason !== 'not_a_routed_order') return null;
+  if (!decOrNull(raw.expectedFee) || !dec(raw.chargedFee) || !decOrNull(raw.gap)) return null;
+  if (!GAP_REASONS.includes(raw.reason as BuilderFeeVolumeGapReason)) return null;
   return {
     fillId: raw.fillId,
     symbol: raw.symbol,
@@ -165,7 +169,7 @@ function volumeGap(raw: unknown): BuilderFeeVolumeGap | null {
     expectedFee: raw.expectedFee,
     chargedFee: raw.chargedFee,
     gap: raw.gap,
-    reason: raw.reason,
+    reason: raw.reason as BuilderFeeVolumeGapReason,
   };
 }
 
@@ -250,17 +254,28 @@ export function reconPeriod(from: unknown, to: unknown, now: Date): { from: stri
 export const GAP_WORDS: Readonly<Record<BuilderFeeVolumeGapReason, string>> = {
   fee_differs: 'Gap: the venue charged a builder fee other than the order rate on this volume',
   not_a_routed_order: 'Gap: the venue charged our builder fee on a fill of no order we routed',
+  fee_asset_unknown: 'Gap: the venue charged the fee in an asset that is neither side of the market, so it cannot be checked',
+  market_unknown: 'Gap: the venue does not list this market, so the fee cannot be checked',
 };
 
 const CSV_HEADER = ['ledger_tx_id', 'idempotency_key', 'venue_id', 'fill_id', 'user_id', 'asset', 'amount', 'posted_at'];
 
-/** One CSV field, quoted when it holds a comma, a quote or a line break. */
-function field(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-/** The export for one venue and period (J-derivatives-17 #5): one row per ledger builder-fee transaction, as the ledger holds it. */
-export function builderFeeCsv(venueId: string, records: readonly BuilderFeeLedgerRecord[]): string {
-  const rows = records.map((r) => [r.ledgerTxId, r.idempotencyKey, venueId, r.fillId, r.userId ?? '', r.assetId, r.amount, r.postedAt]);
-  return [CSV_HEADER, ...rows].map((row) => row.map(field).join(',')).join('\n') + '\n';
+/**
+ * The export for one venue and period (J-derivatives-17 #5): one row per ledger builder-fee transaction, as the ledger
+ * holds it, with the generated-at and as-of lines every console export carries, and no cell a spreadsheet would run.
+ */
+export function builderFeeCsv(
+  venueId: string,
+  records: readonly BuilderFeeLedgerRecord[],
+  generatedAt: string,
+  asOf: string,
+  period: { from: string; to: string },
+): string {
+  return buildCsv({
+    header: CSV_HEADER,
+    rows: records.map((r) => [r.ledgerTxId, r.idempotencyKey, venueId, r.fillId, r.userId ?? '', r.assetId, r.amount, r.postedAt]),
+    generatedAt,
+    asOf,
+    note: `Builder fees the ledger records as earned on ${venueId}, fills from ${period.from} to ${period.to}`,
+  });
 }

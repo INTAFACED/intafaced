@@ -363,9 +363,10 @@ test(`${J} #4 opens the routed-volume recon: volume by venue against the builder
   expect(dec(g[5])).toBe(dec(direct.builderFee));
   expect(dec(g[6].split(' ')[0])).toBe(dec(direct.builderFee));
   expect(g[7]).toBe('Gap: the venue charged our builder fee on a fill of no order we routed');
-  const total = await block.locator(`tbody tr[data-asset="${direct.feeAsset}"] td`).allInnerTexts();
-  expect(dec(total[5])).toBe(dec(direct.builderFee));
-  expect(total[6]).toBe('Gap');
+  // Volume we did not route is not counted as routed volume: the routed row is as it was.
+  const after = await block.locator(`tbody tr[data-asset="${asset}"] td`).allInnerTexts();
+  expect(Number(after[1])).toBe(fills.length);
+  expect(dec(after[2].split(' ')[0])).toBe(dec(fromUnits(volume)));
 });
 
 test(`${J} #5 exports for the period: a file whose rows match the ledger's builder-fee records`, async ({ page, browser }) => {

@@ -96,27 +96,29 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
     expect(row?.amount).toBe('0.123456789012345678');
   });
 
-  it('reads the builder fee rate of the orders we prepared, by venue client order id (J-derivatives-17 #4)', async () => {
+  it('reads the builder fee rate of the orders we routed, by venue client order id (J-derivatives-17 #4)', async () => {
     const store = new SqlPreparedActionStore(db!.sql);
-    const order = (n: string, cloid: string, fee: PreparedVenueAction['builderFee']): PreparedVenueAction => ({
+    const order = (n: string, cloid: string, fee: PreparedVenueAction['builderFee'], venueId = 'test-venue-sim'): PreparedVenueAction => ({
       ...prepared(n, '60000'),
+      venueId,
       venueClientOrderId: cloid,
       builderFee: fee,
     });
-    await store.insertOnce(
-      USER,
-      `order:${USER}:sql:fee-1`,
-      order('301', '0x0301', { builder: OWNER, feeBps: parseAmount('0.5') }),
-      new Date(),
-    );
-    await store.insertOnce(USER, `order:${USER}:sql:fee-2`, order('302', '0x0302', null), new Date());
-    await store.insertOnce(
-      USER,
-      `order:${USER}:sql:fee-3`,
-      { ...order('303', '0x0303', { builder: OWNER, feeBps: parseAmount('1') }), venueId: 'other-venue' },
-      new Date(),
-    );
-    const rates = await store.builderFeeOrders('test-venue-sim', ['0x0301', '0x0302', '0x0303', '0x0999']);
+    const accepted = { definite: true, accepted: true, venueRef: null, order: null, asOf: new Date() } as const;
+    const route = async (key: string, p: PreparedVenueAction, outcome: 'accepted' | 'unsigned' | 'refused') => {
+      await store.insertOnce(USER, key, p, new Date());
+      if (outcome === 'unsigned') return;
+      await store.signOnce(USER, key, { digest: p.digest, signature: '0xsig', signedBy: OWNER }, new Date());
+      await store.recordOutcome(USER, key, outcome === 'accepted' ? accepted : { definite: false, reason: 'timeout' }, new Date());
+    };
+    await route(`order:${USER}:sql:fee-1`, order('301', '0x0301', { builder: OWNER, feeBps: parseAmount('0.5') }), 'accepted');
+    await route(`order:${USER}:sql:fee-2`, order('302', '0x0302', null), 'accepted');
+    await route(`order:${USER}:sql:fee-3`, order('303', '0x0303', { builder: OWNER, feeBps: parseAmount('1') }, 'other-venue'), 'accepted');
+    await route(`order:${USER}:sql:fee-4`, order('304', '0x0304', { builder: OWNER, feeBps: parseAmount('1') }), 'unsigned');
+    await route(`order:${USER}:sql:fee-5`, order('305', '0x0305', { builder: OWNER, feeBps: parseAmount('1') }), 'refused');
+    // A second order under an id already routed: the first one prepared wins.
+    await route(`order:${USER}:sql:fee-6`, order('306', '0x0301', { builder: OWNER, feeBps: parseAmount('3') }), 'accepted');
+    const rates = await store.builderFeeOrders('test-venue-sim', ['0x0301', '0x0302', '0x0303', '0x0304', '0x0305', '0x0999']);
     expect([...rates]).toEqual([['0x0301', parseAmount('0.5')]]);
     expect((await store.builderFeeOrders('test-venue-sim', [])).size).toBe(0);
   });

@@ -111,6 +111,7 @@ const venue = () => door.venue();
 const routedOrders = (venueId: string, ids: readonly string[]) => actions.builderFeeOrders(venueId, ids);
 const deps = () => ({ venue, ledger, store, routedOrders, now: () => new Date() });
 const period = () => [start, new Date(Date.now() + 60_000)] as const;
+const market = async (symbol: string) => (await (await venue()).markets(null)).value.find((m) => m.symbol === symbol)!;
 const venueFees = async () => (await (await venue()).fills(account().account, start)).value.filter((f) => f.builderFee > 0n);
 
 describe('the builder-fee poster', () => {
@@ -270,12 +271,15 @@ describe('the builder-fee recon (J-derivatives-17 #3 #4 #5)', () => {
     const fills = await venueFees();
     const asset = fills[0]!.feeAsset;
     const earned = fills.reduce((s, f) => s + f.builderFee, 0n);
-    expect((await read()).owed).toEqual([{ assetId: asset, amount: formatAmount(earned) }]);
+    expect((await read()).owed).toEqual([{ assetId: asset, amount: formatAmount(earned), state: 'owed' }]);
     expect((await ledger.balance(venueBuilderFeeReceivable(sim.venue.id, asset))).amount).toBe(-earned);
     // A payout the venue makes (the socket recipe; no production writer yet) is what brings the owed figure down.
     const part = earned / 2n;
     await ledger.post(recipes.builderFeeReceive({ venueId: sim.venue.id, payoutId: 'payout-1', assetId: asset, amount: part }));
-    expect((await read()).owed).toEqual([{ assetId: asset, amount: formatAmount(earned - part) }]);
+    expect((await read()).owed).toEqual([{ assetId: asset, amount: formatAmount(earned - part), state: 'owed' }]);
+    // Received above what was earned: shown as overpaid, a break, never a negative "owed".
+    await ledger.post(recipes.builderFeeReceive({ venueId: sim.venue.id, payoutId: 'payout-2', assetId: asset, amount: earned }));
+    expect((await read()).owed).toEqual([{ assetId: asset, amount: formatAmount(-part), state: 'overpaid' }]);
     // The owed figure is the ledger's: the recon posted nothing to reach it.
     expect(ledger.journal().filter((t) => t.reason !== 'trade.builder_fee.earned' && t.reason !== 'trade.builder_fee.received')).toEqual(
       [],
@@ -300,7 +304,7 @@ describe('the builder-fee recon (J-derivatives-17 #3 #4 #5)', () => {
       gap: '0',
       matched: true,
     });
-    for (const f of routed) expect(expectedBuilderFee(f, BUILDER.feeBps)).toBe(f.builderFee);
+    for (const f of routed) expect(expectedBuilderFee(f, await market(f.symbol), BUILDER.feeBps)).toBe(f.builderFee);
   });
 
   it('#4: a fill charged other than its order rate, or charged with no routed order of ours, is a named gap', async () => {
@@ -312,16 +316,44 @@ describe('the builder-fee recon (J-derivatives-17 #3 #4 #5)', () => {
     expect(v.volumeGaps.map((g) => [g.fillId, g.reason, g.feeBps])).toEqual(routed.map((f) => [f.fillId, 'fee_differs', '2']));
     for (const g of v.volumeGaps) {
       const f = routed.find((x) => x.fillId === g.fillId)!;
-      const expected = expectedBuilderFee(f, a('2'));
+      const expected = expectedBuilderFee(f, await market(f.symbol), a('2'))!;
       expect(g).toMatchObject({
         expectedFee: formatAmount(expected),
         chargedFee: formatAmount(f.builderFee),
         gap: formatAmount(f.builderFee - expected),
       });
     }
+    // A fee charged on fills of no order of ours: not routed volume, each fill a named gap.
     const none = await read({ ...deps(), routedOrders: async () => new Map() });
     expect(none.volumeGaps.map((g) => g.reason)).toEqual(routed.map(() => 'not_a_routed_order'));
-    expect(none.volume[0]).toMatchObject({ expectedFee: '0', matched: false });
+    expect(none.volume).toEqual([]);
+    // One fill over its rate and one under never net to green: the row is a gap while any fill is.
+    const [first, second] = routed;
+    const offset = async (venueId: string, ids: readonly string[]) => {
+      const out = new Map(await routedOrders(venueId, ids));
+      out.set(first!.venueClientOrderId!, a('0.5'));
+      out.set(second!.venueClientOrderId!, a('1.5'));
+      return out;
+    };
+    const mixed = await read({ ...deps(), routedOrders: offset });
+    expect(mixed.volume[0]).toMatchObject({ matched: false });
+    expect(mixed.volumeGaps.map((g) => g.fillId)).toEqual([first!.fillId, second!.fillId]);
+    // A fill on a market the venue does not list can't be checked: named, never guessed.
+    const unlisted = await read({
+      ...deps(),
+      venue: async () => {
+        const real = await venue();
+        return new Proxy(real, {
+          get: (target, key) =>
+            key === 'markets'
+              ? async () => ({ value: [], asOf: new Date() })
+              : typeof Reflect.get(target, key) === 'function'
+                ? Reflect.get(target, key).bind(target)
+                : Reflect.get(target, key),
+        });
+      },
+    });
+    expect(unlisted.volumeGaps.map((g) => [g.reason, g.expectedFee, g.gap])).toEqual(routed.map(() => ['market_unknown', null, null]));
   });
 
   it('#5: the export rows are the ledger builder-fee transactions for the period, one per posted fill', async () => {

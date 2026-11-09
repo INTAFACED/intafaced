@@ -48,10 +48,14 @@ export interface BuilderFeeReconTotal {
   readonly matched: boolean;
 }
 
-/** What a venue owes us in builder fees now, per asset (the receivable's balance, as a positive amount). */
+/**
+ * What a venue owes us in builder fees now, per asset: the receivable's balance, negated. `owed` while fees are earned
+ * and not received; `overpaid` when the ledger records more received than earned, a break for a person (never netted).
+ */
 export interface BuilderFeeOwed {
   readonly assetId: string;
   readonly amount: string;
+  readonly state: 'owed' | 'overpaid';
 }
 
 /** The routed volume and its builder fees, per fee asset and quote asset. */
@@ -65,12 +69,13 @@ export interface BuilderFeeVolumeRow {
   readonly expectedFee: string;
   /** The builder fee the venue charged on those fills. */
   readonly chargedFee: string;
-  /** Charged less expected: zero when the two agree. */
+  /** Charged less expected over the row. */
   readonly gap: string;
+  /** True only when every routed fill in the row carries exactly its order rate (offsetting gaps never net to green). */
   readonly matched: boolean;
 }
 
-export type BuilderFeeVolumeGapReason = 'fee_differs' | 'not_a_routed_order';
+export type BuilderFeeVolumeGapReason = 'fee_differs' | 'not_a_routed_order' | 'fee_asset_unknown' | 'market_unknown';
 
 export interface BuilderFeeVolumeGap {
   readonly fillId: string;
@@ -79,9 +84,11 @@ export interface BuilderFeeVolumeGap {
   readonly volume: string;
   /** The rate on the order we sent, or null for a fill of no order of ours. */
   readonly feeBps: string | null;
-  readonly expectedFee: string;
+  /** The fee at the order rate, or null when it can't be worked out (an unknown market, a fee in a third asset). */
+  readonly expectedFee: string | null;
   readonly chargedFee: string;
-  readonly gap: string;
+  /** Charged less expected, or null when there is no expected fee to compare. */
+  readonly gap: string | null;
   readonly reason: BuilderFeeVolumeGapReason;
 }
 
@@ -166,17 +173,22 @@ export function earnedAsset(tx: LedgerTx): string | null {
 
 const BPS = parseAmount('10000');
 
-/**
- * The builder fee a fill should carry at `feeBps`, on the venue's fee basis: the quantity when the fee is charged in the
- * symbol's base asset (a spot buy pays in what it receives), else the notional. Rounded up, as a fee is.
- */
-export function expectedBuilderFee(fill: UserVenueFill, feeBps: Amount): Amount {
-  const basis = fill.feeAsset === baseAsset(fill.symbol) ? fill.amount : notional(fill);
-  return div(mul(basis, feeBps, 'ceil'), BPS, 'ceil');
+/** The base and quote asset of a market, from the venue's own market list. */
+export interface FeeMarket {
+  readonly baseAsset: string;
+  readonly quoteAsset: string;
 }
 
-const baseAsset = (symbol: string) => symbol.split(/[-/]/)[0] ?? symbol;
-const quoteAsset = (symbol: string) => symbol.split(/[-/]/)[1] ?? symbol;
+/**
+ * The builder fee a fill should carry at `feeBps`, on the venue's fee basis: the quantity when the fee is charged in the
+ * market's base asset (a spot buy pays in what it receives), the notional when it is charged in the quote asset. Rounded
+ * up, as a fee is. Null when the fee is in neither asset: the two can't be compared, and the recon names that gap.
+ */
+export function expectedBuilderFee(fill: UserVenueFill, market: FeeMarket, feeBps: Amount): Amount | null {
+  const basis = fill.feeAsset === market.baseAsset ? fill.amount : fill.feeAsset === market.quoteAsset ? notional(fill) : null;
+  return basis === null ? null : div(mul(basis, feeBps, 'ceil'), BPS, 'ceil');
+}
+
 const notional = (fill: UserVenueFill) => mul(fill.price, fill.amount, 'ceil');
 
 export function assertReconPeriod(from: Date, to: Date): void {
@@ -208,8 +220,10 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   let reported: (UserVenueFill & { userId: string })[] = [];
   const inPeriod: UserVenueFill[] = [];
   let asOf = now;
+  let markets: ReadonlyMap<string, FeeMarket>;
   try {
     venue = await deps.venue();
+    markets = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m]));
     for (const { userId, account } of await deps.store.accounts(venue.venue.id)) {
       const fills = await venue.fills(account, from);
       if (fills.asOf < asOf) asOf = fills.asOf;
@@ -297,45 +311,76 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
   lines.sort((a, b) => a.filledAt.localeCompare(b.filledAt) || a.fillId.localeCompare(b.fillId));
   ledgerRecords.sort((a, b) => a.postedAt.localeCompare(b.postedAt) || a.fillId.localeCompare(b.fillId));
 
-  // What the venue owes us now: the receivable's own balance, negative while fees are earned and not yet paid out.
-  const owed = (await deps.ledger.balances('treasury', venueBuilderFeeReceivable(venueId, '').ownerId))
+  // What the venue owes us now (the receivable's own balance, negative while fees are earned and not yet paid out), and
+  // the orders we routed among the period's fills: two reads that share nothing, run together.
+  const ids = [...new Set(inPeriod.map((f) => f.venueClientOrderId).filter((id): id is string => id !== null))];
+  const [balances, rates] = await Promise.all([
+    deps.ledger.balances('treasury', venueBuilderFeeReceivable(venueId, '').ownerId),
+    deps.routedOrders(venueId, ids),
+  ]);
+  const owed: BuilderFeeOwed[] = balances
     .filter((b) => b.account.kind === 'available' && b.amount !== 0n)
-    .map((b) => ({ assetId: b.account.assetId, amount: formatAmount(-b.amount) }))
+    .map((b) => ({
+      assetId: b.account.assetId,
+      amount: formatAmount(-b.amount),
+      state: b.amount < 0n ? ('owed' as const) : ('overpaid' as const),
+    }))
     .sort((a, b) => a.assetId.localeCompare(b.assetId));
 
-  // The routed volume: fills of the orders we sent with our builder fee, and any fill the venue charged our fee on.
-  const ids = [...new Set(inPeriod.map((f) => f.venueClientOrderId).filter((id): id is string => id !== null))];
-  const rates = await deps.routedOrders(venueId, ids);
+  // The routed volume: fills of the orders we sent with our builder fee, against the fee charged on them. A fill the venue
+  // charged our fee on with no routed order of ours is not routed volume: it is listed as a gap only.
   const volumeSums = new Map<
     string,
-    { assetId: string; quoteAsset: string; fills: number; volume: Amount; expected: Amount; charged: Amount }
+    { assetId: string; quoteAsset: string; fills: number; volume: Amount; expected: Amount; charged: Amount; gaps: number }
   >();
   const volumeGaps: BuilderFeeVolumeGap[] = [];
   for (const fill of [...inPeriod].sort((a, b) => a.filledAt.getTime() - b.filledAt.getTime() || a.fillId.localeCompare(b.fillId))) {
     const rate = fill.venueClientOrderId === null ? undefined : rates.get(fill.venueClientOrderId);
     if (rate === undefined && fill.builderFee <= 0n) continue;
-    const expected = rate === undefined ? 0n : expectedBuilderFee(fill, rate);
-    const quote = quoteAsset(fill.symbol);
-    const id = `${fill.feeAsset}\u0000${quote}`;
-    const sum = volumeSums.get(id) ?? { assetId: fill.feeAsset, quoteAsset: quote, fills: 0, volume: 0n, expected: 0n, charged: 0n };
-    volumeSums.set(id, {
-      ...sum,
-      fills: sum.fills + 1,
-      volume: sum.volume + notional(fill),
-      expected: sum.expected + expected,
-      charged: sum.charged + fill.builderFee,
-    });
-    if (fill.builderFee !== expected) {
+    const market = markets.get(fill.symbol);
+    const expected = rate === undefined ? 0n : market ? expectedBuilderFee(fill, market, rate) : null;
+    const reason: BuilderFeeVolumeGapReason | null =
+      rate === undefined
+        ? 'not_a_routed_order'
+        : !market
+          ? 'market_unknown'
+          : expected === null
+            ? 'fee_asset_unknown'
+            : fill.builderFee !== expected
+              ? 'fee_differs'
+              : null;
+    if (rate !== undefined) {
+      const quote = market?.quoteAsset ?? fill.feeAsset;
+      const id = `${fill.feeAsset}\u0000${quote}`;
+      const sum = volumeSums.get(id) ?? {
+        assetId: fill.feeAsset,
+        quoteAsset: quote,
+        fills: 0,
+        volume: 0n,
+        expected: 0n,
+        charged: 0n,
+        gaps: 0,
+      };
+      volumeSums.set(id, {
+        ...sum,
+        fills: sum.fills + 1,
+        volume: sum.volume + notional(fill),
+        expected: sum.expected + (expected ?? 0n),
+        charged: sum.charged + fill.builderFee,
+        gaps: sum.gaps + (reason === null ? 0 : 1),
+      });
+    }
+    if (reason !== null) {
       volumeGaps.push({
         fillId: fill.fillId,
         symbol: fill.symbol,
         assetId: fill.feeAsset,
         volume: formatAmount(notional(fill)),
         feeBps: rate === undefined ? null : formatAmount(rate),
-        expectedFee: formatAmount(expected),
+        expectedFee: expected === null ? null : formatAmount(expected),
         chargedFee: formatAmount(fill.builderFee),
-        gap: formatAmount(fill.builderFee - expected),
-        reason: rate === undefined ? 'not_a_routed_order' : 'fee_differs',
+        gap: expected === null ? null : formatAmount(fill.builderFee - expected),
+        reason,
       });
     }
   }
@@ -349,7 +394,7 @@ export async function builderFeeRecon(deps: BuilderFeeReconDeps, from: Date, to:
       expectedFee: formatAmount(v.expected),
       chargedFee: formatAmount(v.charged),
       gap: formatAmount(v.charged - v.expected),
-      matched: v.charged === v.expected,
+      matched: v.gaps === 0,
     }));
 
   const totalRows = [...totals.entries()]

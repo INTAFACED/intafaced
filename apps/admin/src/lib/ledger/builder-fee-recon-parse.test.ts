@@ -21,7 +21,7 @@ const venue = {
   matched: false,
   totals: [{ assetId: 'USDC', venueTotal: '0.25', ledgerTotal: '0', matched: false }],
   lines: [line],
-  owed: [{ assetId: 'USDC', amount: '0.25' }],
+  owed: [{ assetId: 'USDC', amount: '0.25', state: 'owed' }],
   volume: [
     {
       assetId: 'USDC',
@@ -83,24 +83,30 @@ describe('parseBuilderFeeRecon', () => {
 describe('owed, routed volume and the export (J-derivatives-17 #3 #4 #5)', () => {
   it('reads them, and refuses the whole answer when one of them is wrong', () => {
     expect(parseBuilderFeeRecon(recon)?.venues[0]).toMatchObject({
-      owed: [{ assetId: 'USDC', amount: '0.25' }],
+      owed: [{ assetId: 'USDC', amount: '0.25', state: 'owed' }],
       volume: [{ gap: '0.19', matched: false }],
       volumeGaps: [{ reason: 'fee_differs', feeBps: '1' }],
       ledgerRecords: [{ ledgerTxId: 'tx-1' }],
     });
-    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, owed: [{ assetId: 'USDC', amount: 0.25 }] }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, owed: [{ assetId: 'USDC', amount: 0.25, state: 'owed' }] }] })).toBeNull();
+    expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, owed: [{ assetId: 'USDC', amount: '0.25' }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, volume: undefined }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, volumeGaps: [{ ...venue.volumeGaps[0], reason: 'odd' }] }] })).toBeNull();
     expect(parseBuilderFeeRecon({ ...recon, venues: [{ ...venue, ledgerRecords: [{ ledgerTxId: 'tx-1' }] }] })).toBeNull();
   });
-  it('the export has one row per ledger record, fields quoted only when they must be', () => {
-    expect(builderFeeCsv('test-venue-sim', venue.ledgerRecords)).toBe(
-      'ledger_tx_id,idempotency_key,venue_id,fill_id,user_id,asset,amount,posted_at\n' +
-        'tx-1,builder-fee:test-venue-sim:f1,test-venue-sim,f1,u1,USDC,0.25,2026-11-09T10:00:02.000Z\n',
-    );
-    expect(builderFeeCsv('v', [{ ...venue.ledgerRecords[0]!, fillId: 'a,"b"', userId: null }]).split('\n')[1]).toBe(
-      'tx-1,builder-fee:test-venue-sim:f1,v,"a,""b""",,USDC,0.25,2026-11-09T10:00:02.000Z',
-    );
+  it('the export has one row per ledger record, with its time lines, and no cell a spreadsheet would run', () => {
+    const period = { from: '2026-11-02T10:00:00.000Z', to: '2026-11-09T10:00:00.000Z' };
+    const csv = builderFeeCsv('test-venue-sim', venue.ledgerRecords, '2026-11-09T10:00:05.000Z', '2026-11-09T10:00:01.000Z', period);
+    expect(csv.split('\r\n')).toEqual([
+      '# Generated at 2026-11-09T10:00:05.000Z',
+      '# Data as of 2026-11-09T10:00:01.000Z',
+      '# Builder fees the ledger records as earned on test-venue-sim, fills from 2026-11-02T10:00:00.000Z to 2026-11-09T10:00:00.000Z',
+      'ledger_tx_id,idempotency_key,venue_id,fill_id,user_id,asset,amount,posted_at',
+      'tx-1,builder-fee:test-venue-sim:f1,test-venue-sim,f1,u1,USDC,0.25,2026-11-09T10:00:02.000Z',
+      '',
+    ]);
+    const odd = builderFeeCsv('v', [{ ...venue.ledgerRecords[0]!, fillId: '=HYPERLINK("x")', userId: null }], 'g', 'a', period);
+    expect(odd.split('\r\n')[4]).toBe('tx-1,builder-fee:test-venue-sim:f1,v,"\'=HYPERLINK(""x"")",,USDC,0.25,2026-11-09T10:00:02.000Z');
   });
 });
 

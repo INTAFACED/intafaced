@@ -120,9 +120,11 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
               </tr>
             ) : (
               venue.owed.map((o) => (
-                <tr key={o.assetId} data-asset={o.assetId}>
+                <tr key={o.assetId} data-asset={o.assetId} data-state={o.state}>
                   <td>{o.assetId}</td>
-                  <td>{o.amount}</td>
+                  <td>
+                    {o.state === 'owed' ? o.amount : `${o.amount.replace(/^-/, '')} received above what was earned: a break for a person`}
+                  </td>
                 </tr>
               ))
             )}
@@ -130,10 +132,14 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
         </table>
       </div>
       <h3>Routed volume</h3>
-      <div data-testid="builder-fee-volume" data-state={venue.volume.every((v) => v.matched) ? 'green' : 'gap'}>
+      <div
+        data-testid="builder-fee-volume"
+        data-state={venue.volume.every((v) => v.matched) && venue.volumeGaps.length === 0 ? 'green' : 'gap'}
+      >
         <p>
           The volume of the period&apos;s fills on orders we routed with our builder fee, against the builder fee the venue charged on them.
-          The fee a fill should carry is its order&apos;s rate on the venue&apos;s fee basis.
+          A fee charged on a fill we did not route is not routed volume: it is listed as a gap. The fee a fill should carry is its
+          order&apos;s rate on the venue&apos;s fee basis.
         </p>
         <table>
           <thead>
@@ -190,11 +196,9 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
                   <td>{g.symbol}</td>
                   <td>{g.volume}</td>
                   <td>{g.feeBps ?? 'none'}</td>
-                  <td>{g.expectedFee}</td>
+                  <td>{g.expectedFee ?? 'not known'}</td>
                   <td>{g.chargedFee}</td>
-                  <td>
-                    {g.gap} {g.assetId}
-                  </td>
+                  <td>{g.gap === null ? 'not known' : `${g.gap} ${g.assetId}`}</td>
                   <td>{GAP_WORDS[g.reason]}</td>
                 </tr>
               ))}
@@ -206,7 +210,7 @@ function Venue({ venue, from, to }: { venue: BuilderFeeReconVenue; from: string;
       <p data-testid="builder-fee-export">
         One row per builder-fee transaction the ledger holds for this period&apos;s fills, as the ledger records it.{' '}
         <CsvButton
-          csv={builderFeeCsv(venue.venueId, venue.ledgerRecords)}
+          csv={builderFeeCsv(venue.venueId, venue.ledgerRecords, new Date().toISOString(), venue.asOf, { from, to })}
           filename={`builder-fees-${venue.venueId}-${from.slice(0, 10)}-${to.slice(0, 10)}.csv`}
           count={venue.ledgerRecords.length}
         />
