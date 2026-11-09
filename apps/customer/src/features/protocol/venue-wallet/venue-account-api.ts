@@ -7,7 +7,7 @@
  * posts nothing.
  */
 import { z } from 'zod';
-import type { ApiClient } from '../../../shared/api';
+import type { ApiClient, RefusalReason } from '../../../shared/api';
 
 const decimal = z.string().regex(/^-?[0-9]+(\.[0-9]+)?$/);
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/);
@@ -181,9 +181,40 @@ export function toTokenUnits(amount: string, decimals: number): bigint | null {
 }
 
 /**
- * The withdrawal's business key: the owner and the moment this withdrawal was asked for, so a double press or a retry of
- * the same withdrawal is the same key (one prepared action, one wallet prompt), and a new withdrawal is a new key.
+ * The withdrawal's business key: the owner and the moment this withdrawal was asked for. The room makes it once per
+ * withdrawal and keeps it until the venue answers definitely (`withdrawalAfter`), so a retry of the same withdrawal is
+ * the same key (one prepared action, one wallet prompt), and only a new withdrawal is a new key.
  */
 export function venueWithdrawalKey(owner: string, askedAt: number): string {
   return `venue-withdraw:${owner.toLowerCase()}:${askedAt}`;
+}
+
+/** A request whose answer did not arrive (or could not be read): it may have reached svc-trade or the venue. */
+export function outcomeUnknown(reason: RefusalReason): boolean {
+  return reason === 'unreachable' || reason === 'uncertain' || reason === 'aborted' || reason === 'invalid_response';
+}
+
+/**
+ * What the room does with a withdrawal's key after one step answers:
+ *   · `retry`: nothing reached the venue as a signed withdrawal, or the answer is not known before signing: the ask stays,
+ *     with the SAME key, so a retry is the same prepared action and never a second withdrawal;
+ *   · `new`: the venue or svc-trade answered definitely that this withdrawal will not happen: the next one is a new key;
+ *   · `follow`: the venue took it, or may have (not definite): no new withdrawal starts until its record reads back;
+ *   · `follow-then-retry`: the submit's answer was lost: the record is followed by its nonce, and if it never shows,
+ *     the ask comes back with the SAME key, so the retry can't be a second withdrawal.
+ */
+export type WithdrawalNext = 'retry' | 'new' | 'follow' | 'follow-then-retry';
+export function withdrawalAfter(
+  step:
+    | { at: 'prepare'; failed: RefusalReason }
+    | { at: 'sign'; signed: false }
+    | { at: 'submit'; failed: RefusalReason }
+    | { at: 'submit'; definite: boolean; accepted: boolean },
+): WithdrawalNext {
+  if (step.at === 'sign') return 'retry';
+  if ('failed' in step) {
+    if (!outcomeUnknown(step.failed)) return 'new';
+    return step.at === 'prepare' ? 'retry' : 'follow-then-retry';
+  }
+  return step.definite && !step.accepted ? 'new' : 'follow';
 }

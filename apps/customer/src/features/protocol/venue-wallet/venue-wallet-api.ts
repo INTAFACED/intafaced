@@ -1,5 +1,6 @@
 import {
   PROTOCOL_VENUE_WALLET_REFUSALS,
+  protocolVenueWalletAuthorizedOutputSchema,
   protocolVenueWalletChallengeOutputSchema,
   protocolVenueWalletConnectionSchema,
   protocolVenueWalletDisconnectedOutputSchema,
@@ -28,8 +29,9 @@ export function createVenueWalletApi(api: ApiClient) {
       call('venueWallet.challenge', input, protocolVenueWalletChallengeOutputSchema),
     open: (input: { challenge: string; signature: string }) => call('venueWallet.open', input, protocolVenueWalletConnectionSchema),
     disconnect: (address: string) => call('venueWallet.disconnect', { address }, protocolVenueWalletDisconnectedOutputSchema),
-    /** Checks the connection before a signed venue action. Never succeeds until a venue is wired: it answers its refusal. */
-    authorize: (address: string, action: VenueWalletAction) => call('venueWallet.authorize', { address, action }, z.never()),
+    /** Checks the connection before a signed venue action: live with its expiry, or its refusal (expired, none). */
+    authorize: (address: string, action: VenueWalletAction) =>
+      call('venueWallet.authorize', { address, action }, protocolVenueWalletAuthorizedOutputSchema),
   };
 }
 export type VenueWalletApi = ReturnType<typeof createVenueWalletApi>;

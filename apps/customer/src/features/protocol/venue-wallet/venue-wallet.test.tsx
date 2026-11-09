@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { WithdrawalView, readFailedState, venueRefusal } from './VenueWalletRoom';
-import { canonicalAmount, plainDecimal, scaledDecimal, toTokenUnits, venueWithdrawalKey, withDomainTypes } from './venue-account-api';
+import {
+  canonicalAmount,
+  outcomeUnknown,
+  plainDecimal,
+  scaledDecimal,
+  toTokenUnits,
+  venueWithdrawalKey,
+  withDomainTypes,
+  withdrawalAfter,
+} from './venue-account-api';
 import { venueWalletCopy } from './venue-wallet-copy';
+import { createVenueWalletApi } from './venue-wallet-api';
+import type { ApiClient } from '../../../shared/api';
 
 /** J-wallet-09: every refusal the venue room can meet reads in the room's own words, with its code as the reference. */
 const { t } = venueWalletCopy.forLocale('en');
@@ -55,6 +66,24 @@ describe('venue room refusals', () => {
 });
 
 describe('the venue account (J-wallet-09 #3, #5)', () => {
+  it("keeps a withdrawal's key until the venue answers definitely, so a retry is never a second withdrawal", () => {
+    // Before anything signed reaches the venue: an unknown answer, or a wallet that did not sign, keeps the same key.
+    expect(withdrawalAfter({ at: 'prepare', failed: 'unreachable' })).toBe('retry');
+    expect(withdrawalAfter({ at: 'prepare', failed: 'uncertain' })).toBe('retry');
+    expect(withdrawalAfter({ at: 'sign', signed: false })).toBe('retry');
+    // A submit whose answer was lost may have reached the venue: its record decides, then the same key comes back.
+    expect(withdrawalAfter({ at: 'submit', failed: 'unreachable' })).toBe('follow-then-retry');
+    expect(withdrawalAfter({ at: 'submit', failed: 'aborted' })).toBe('follow-then-retry');
+    expect(withdrawalAfter({ at: 'submit', definite: false, accepted: false })).toBe('follow');
+    expect(withdrawalAfter({ at: 'submit', definite: true, accepted: true })).toBe('follow');
+    // Only a definite no makes the next withdrawal a new key.
+    expect(withdrawalAfter({ at: 'prepare', failed: 'error' })).toBe('new');
+    expect(withdrawalAfter({ at: 'submit', failed: 'forbidden' })).toBe('new');
+    expect(withdrawalAfter({ at: 'submit', definite: true, accepted: false })).toBe('new');
+    expect(['unreachable', 'uncertain', 'aborted', 'invalid_response'].every((r) => outcomeUnknown(r as 'unreachable'))).toBe(true);
+    expect(['error', 'unauthorized', 'forbidden', 'not_mounted', 'not_supported'].some((r) => outcomeUnknown(r as 'error'))).toBe(false);
+  });
+
   it('a refused withdrawal, a signature that does not match, and a missing step-up each say nothing was sent', () => {
     expect(venueRefusal(failed('trade.venue.insufficient_balance'), t)).toMatchObject({
       title: 'Not enough on the venue',
@@ -134,5 +163,24 @@ describe('the venue account (J-wallet-09 #3, #5)', () => {
     expect(done).toContain('Done');
     expect(done).toMatch(/data-testid="network-fee">0.25 TEST USDC</);
     expect(renderToStaticMarkup(<WithdrawalView amount="10" record={null} t={t} />)).toContain('Not known: the venue is checking it');
+  });
+});
+
+describe('the connection check before a signed venue action', () => {
+  /** An ApiClient whose mutate answers `body` through the call's own schema, as the real client parses an answer. */
+  const answering = (body: unknown) =>
+    ({
+      mutate: async (_module: string, _procedure: string, _input: unknown, schema: { safeParse: (v: unknown) => { success: boolean } }) =>
+        schema.safeParse(body).success ? { ok: true, data: body } : { ok: false, reason: 'uncertain', message: 'unparsed' },
+    }) as unknown as ApiClient;
+
+  it('takes svc-protocol’s live answer (J-wallet-09 #3: a never-schema read every live answer as uncertain)', async () => {
+    const live = { address: '0x' + 'a'.repeat(40), action: 'deposit', live: true, expiresAt: '2026-11-09T14:50:13.000Z' };
+    expect(await createVenueWalletApi(answering(live)).authorize(live.address, 'deposit')).toEqual({ ok: true, data: live });
+  });
+
+  it('an answer that is not live is not taken as live', async () => {
+    const odd = { address: '0x' + 'a'.repeat(40), action: 'deposit', live: false, expiresAt: '2026-11-09T14:50:13.000Z' };
+    expect((await createVenueWalletApi(answering(odd)).authorize(odd.address, 'deposit')).ok).toBe(false);
   });
 });

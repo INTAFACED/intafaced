@@ -4,7 +4,7 @@ import { encodeFunctionData, keccak256, parseAbi, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { test, expect } from './journey.mjs';
 import { CHAIN_ID, fundOnTestChain, testChain } from './dex.mjs';
-import { signIn, signUp } from './desk.mjs';
+import { signIn, signUp, verify } from './desk.mjs';
 import { addAuthenticator, nextCode } from './identity-factors.mjs';
 import { api, journeyState, restartWith, ROOT, tool } from './stack.mjs';
 import { installTestWallet, TEST_WALLET, testWalletKey } from './test-wallet.mjs';
@@ -249,9 +249,20 @@ async function chainUsd(address) {
   return BigInt(body.result);
 }
 
-/** Starts this step connected: the connection from an earlier step may have ended, so the wallet signs again. */
+/** What a signed action needs left of the connection: the stack's TEST connection lasts 60 s (local-stack-services/protocol.mjs). */
+const CONNECTION_MARGIN_MS = 45_000;
+
+/**
+ * Connected for the next signed action: the connection from an earlier step, or an earlier action, may have ended, so
+ * the wallet signs again. One about to end is let end first (the room shows it expired), so the action never races it.
+ */
 async function connectedNow(page) {
   await roomSettled(page);
+  if (await page.getByRole('heading', { name: 'Connected' }).isVisible()) {
+    const expiresAt = Date.parse(await page.getByTestId('venue-connection-expires').getAttribute('datetime'));
+    if (expiresAt - Date.now() > CONNECTION_MARGIN_MS) return;
+    await expect(page.getByRole('heading', { name: 'Connection expired' })).toBeVisible({ timeout: CONNECTION_MARGIN_MS + 15_000 });
+  }
   if (await page.getByRole('button', { name: 'Sign again' }).isVisible()) await connectAndSign(page, 'Sign again');
   if (await page.getByRole('button', { name: 'Connect to my account' }).isVisible()) await connectAndSign(page);
 }
@@ -261,9 +272,16 @@ test(`${J} #3 deposits TEST USDC from the wallet into the venue account: the use
 }) => {
   // One restart of trade (and the TEST venue's start), and the venue's credit.
   test.setTimeout(300_000);
-  const { who, walletKey } = state();
+  const { who, walletKey, verified } = state();
   const address = privateKeyToAccount(walletKey).address;
   expect(testChain().chain, 'the stack runs its TEST chain').toBe('running');
+  // The venue door's account reads and withdrawals are trade, which needs a verified person (svc-trade
+  // requireTradeJurisdiction: trade's minimum tier is basic); the person verifies once, as every trading journey does.
+  if (!verified) {
+    await signIn(page, who);
+    await verify(page, who);
+    run.write({ verified: true });
+  }
   if (!(await venueDoor(who)).deposit) userVenue(true);
   const door = await venueDoor(who);
   expect(door).toMatchObject({
@@ -364,11 +382,15 @@ test(`${J} #4 lets the connection expire: every signed action refuses until the 
 
 /** Presses Withdraw for `amount`, confirms with a fresh authenticator code, and continues to the wallet. */
 async function withdrawWithCode(page, amount, code) {
+  // A connection that outlasts the action, then the code (it may wait up to 30 s for the authenticator's next step), so
+  // the code is fresh when the step-up takes it and the connection still has at least 15 s for the signed action.
+  await connectedNow(page);
+  const totpCode = await code();
   await page.getByRole('region', { name: 'Venue actions' }).getByLabel('Amount').fill(amount);
   await venueAction(page, 'Withdraw TEST USDC').click();
   const stepUp = page.getByTestId('step-up-confirm');
   await expect(stepUp).toContainText('Confirm it’s you');
-  await stepUp.getByLabel('Authenticator code').fill(await code());
+  await stepUp.getByLabel('Authenticator code').fill(totpCode);
   await stepUp.getByRole('button', { name: 'Confirm', exact: true }).click();
   await sheet(page).getByRole('button', { name: 'Continue in wallet' }).click();
 }
@@ -428,10 +450,12 @@ test(`${J} #5 withdraws TEST USDC from the venue to the wallet: the user signs; 
     await expect(figure).toHaveText(`${deposited} TEST USDC`);
 
     // The user signs: the venue's withdrawal shows pending, then done, with the venue's fee and the network fee.
+    // One signature of the venue's withdrawal (typed data); a connection the wallet signs again first is a personal_sign.
     const signedBefore = wallet.requests.length;
     await withdrawWithCode(page, '10', code);
-    await expect.poll(() => wallet.requests.length).toBe(signedBefore + 1);
-    expect(wallet.requests.at(-1).method).toBe('eth_signTypedData_v4');
+    const withdrawalSigns = () => wallet.requests.slice(signedBefore).filter((r) => r.method !== 'personal_sign');
+    await expect.poll(() => withdrawalSigns().length).toBe(1);
+    expect(withdrawalSigns()[0].method).toBe('eth_signTypedData_v4');
     const withdrawal = page.getByTestId('venue-withdrawal');
     await expect(withdrawal.getByTestId('venue-withdrawal-status')).toHaveText('Pending', { timeout: 30_000 });
     await expect(withdrawal.getByTestId('venue-fee')).toHaveText(VENUE_FEE);

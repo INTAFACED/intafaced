@@ -24,7 +24,9 @@ import type { TestVenueSimulator } from './simulator.js';
  *   · WITHDRAWALS. A withdrawal the customer signed is pending on the venue; after `settleAfterMs` the sender pays what
  *     arrives (the amount less the network fee taken) from the deposit address to the destination on chain, and only
  *     when that transfer's receipt succeeds settles it `done` (`payPendingWithdrawals`). One payment per withdrawal: the
- *     hash is kept before the receipt is awaited, so a slow receipt is waited on again, never sent twice.
+ *     hash is kept before the receipt is awaited, so a slow receipt is waited on again, never sent twice; one transfer
+ *     settles one withdrawal only; a send the node never took settles `failed` after LOST_PAYMENT_AFTER_MS; and one
+ *     withdrawal's chain error never stops the others.
  *
  * The deposit address has no key: it is impersonated on this anvil only (`anvil_impersonateAccount`), as the stack's
  * TEST fee relayer is, so nothing can sign for it anywhere else. If this process dies, the simulator's in-memory record
@@ -83,6 +85,36 @@ export function creditDepositLogs(
   return { credited, replayed };
 }
 
+/** A log as the node returns it: a pending one may lack its transaction hash, index or block. */
+export interface RawLog {
+  readonly transactionHash: string | null;
+  readonly logIndex: number | null;
+  readonly blockNumber: bigint | null;
+}
+
+/**
+ * The logs that have a transfer id (transaction hash and index), and the block to read from next. A log without one is
+ * not credited, and the next read starts again from its block (or from `fromBlock` when it has none), so it is credited
+ * once the node fills it in and the watcher never stalls on it; a re-read credits nothing twice.
+ */
+export function completeLogs<L extends RawLog>(
+  logs: readonly L[],
+  fromBlock: bigint,
+  head: bigint,
+): { complete: L[]; nextFromBlock: bigint } {
+  const complete: L[] = [];
+  let retryFrom: bigint | null = null;
+  for (const l of logs) {
+    if (l.transactionHash != null && l.logIndex != null) {
+      complete.push(l);
+      continue;
+    }
+    const b = l.blockNumber ?? fromBlock;
+    if (retryFrom === null || b < retryFrom) retryFrom = b;
+  }
+  return { complete, nextFromBlock: retryFrom ?? head + 1n };
+}
+
 /** What the payer needs from a chain: send one token transfer from the deposit address, and read its receipt. */
 export interface WithdrawalPayer {
   /** The chain's latest block, read before a payment is sent. */
@@ -90,9 +122,16 @@ export interface WithdrawalPayer {
   send(to: string, units: bigint): Promise<string>;
   /** `true` succeeded, `false` reverted, `null` not mined yet. */
   receipt(hash: string): Promise<boolean | null>;
-  /** The hash of a transfer of exactly `units` from the deposit address to `to` since `fromBlock`, or null when none. */
-  find(to: string, units: bigint, fromBlock: bigint): Promise<string | null>;
+  /** The hashes of every transfer of exactly `units` from the deposit address to `to` since `fromBlock`, oldest first. */
+  find(to: string, units: bigint, fromBlock: bigint): Promise<readonly string[]>;
 }
+
+/**
+ * How long a payment whose send had no answer is looked for on chain before it counts as never accepted. The TEST
+ * chain is anvil, which mines a transaction the moment it takes it, so a transfer not found by then was never taken:
+ * the withdrawal settles `failed` and the venue returns the amount and its fee. It is never sent again.
+ */
+export const LOST_PAYMENT_AFTER_MS = 60_000;
 
 /**
  * One payment, recorded BEFORE it is sent: where it goes, how much, and the block the chain was at. `hash` is null
@@ -103,6 +142,8 @@ export interface WithdrawalPayment {
   readonly to: string;
   readonly units: bigint;
   readonly fromBlock: bigint;
+  /** When the send was made, so a send the node never took is given up after LOST_PAYMENT_AFTER_MS. */
+  readonly sentAt: Date;
   hash: string | null;
 }
 
@@ -119,6 +160,7 @@ export async function payPendingWithdrawals(
   paid: Map<string, WithdrawalPayment>,
   now: Date,
   settleAfterMs: number,
+  onError: (nonce: string, err: unknown) => void = () => undefined,
 ): Promise<{ done: string[]; failed: string[] }> {
   const done: string[] = [];
   const failed: string[] = [];
@@ -126,29 +168,43 @@ export async function payPendingWithdrawals(
     if (pending.withdrawal.asset !== route.asset) continue;
     if (now.getTime() - pending.submittedAt.getTime() < settleAfterMs) continue;
     const key = `${pending.account.owner}/${pending.account.subAccount ?? ''}#${pending.nonce}`;
-    let payment = paid.get(key);
-    if (!payment) {
-      const units = amountToTokenUnits(pending.arrives, route.tokenDecimals);
-      const destination = pending.withdrawal.destination;
-      if (!destination || units <= 0n) {
-        // Nothing can arrive (no destination, or the fee takes it all): the venue returns it.
-        if (sim.settleWithdrawal(pending.account, pending.nonce, 'failed')) failed.push(pending.nonce);
-        continue;
+    // One withdrawal's chain error never stops the pass: the others are still paid, and this one is tried next pass.
+    try {
+      let payment = paid.get(key);
+      if (!payment) {
+        const units = amountToTokenUnits(pending.arrives, route.tokenDecimals);
+        const destination = pending.withdrawal.destination;
+        if (!destination || units <= 0n) {
+          // Nothing can arrive (no destination, or the fee takes it all): the venue returns it.
+          if (sim.settleWithdrawal(pending.account, pending.nonce, 'failed')) failed.push(pending.nonce);
+          continue;
+        }
+        // Recorded before the send: if it throws after the node took it, the next pass finds it instead of paying again.
+        payment = { to: destination, units, fromBlock: await payer.head(), sentAt: now, hash: null };
+        paid.set(key, payment);
+        payment.hash = await payer.send(destination, units);
       }
-      // Recorded before the send: if it throws after the node took it, the next pass finds it instead of paying again.
-      payment = { to: destination, units, fromBlock: await payer.head(), hash: null };
-      paid.set(key, payment);
-      payment.hash = await payer.send(destination, units);
+      if (payment.hash === null) {
+        // Another payment to the same place for the same units may match too: a transfer already held by one
+        // payment is never claimed by a second, so two withdrawals are never settled by one transfer.
+        const claimed = new Set([...paid.values()].map((p) => p.hash).filter((h): h is string => h !== null));
+        const found = (await payer.find(payment.to, payment.units, payment.fromBlock)).find((h) => !claimed.has(h));
+        if (found === undefined) {
+          if (now.getTime() - payment.sentAt.getTime() < LOST_PAYMENT_AFTER_MS) continue;
+          // Never taken by the node: the venue returns it, and the record stays so it is never sent again.
+          if (sim.settleWithdrawal(pending.account, pending.nonce, 'failed')) failed.push(pending.nonce);
+          continue;
+        }
+        payment.hash = found;
+      }
+      const ok = await payer.receipt(payment.hash);
+      if (ok === null) continue;
+      // Settled elsewhere meanwhile (a TEST control): this pass reports nothing for it.
+      if (!sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed')) continue;
+      (ok ? done : failed).push(pending.nonce);
+    } catch (err) {
+      onError(pending.nonce, err);
     }
-    if (payment.hash === null) {
-      payment.hash = await payer.find(payment.to, payment.units, payment.fromBlock);
-      if (payment.hash === null) continue;
-    }
-    const ok = await payer.receipt(payment.hash);
-    if (ok === null) continue;
-    // Settled elsewhere meanwhile (a TEST control): this pass reports nothing for it.
-    if (!sim.settleWithdrawal(pending.account, pending.nonce, ok ? 'done' : 'failed')) continue;
-    (ok ? done : failed).push(pending.nonce);
   }
   return { done, failed };
 }
@@ -195,7 +251,7 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
         args: { from: depositAddress, to: to as Address },
         fromBlock: from,
       });
-      return logs.find((l) => l.args.value === units && !l.removed)?.transactionHash ?? null;
+      return logs.filter((l) => l.args.value === units && !l.removed && l.transactionHash).map((l) => l.transactionHash as string);
     },
     async send(to, units) {
       return wallet.sendTransaction({
@@ -237,12 +293,13 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
           fromBlock,
           toBlock: head,
         });
+        const { complete, nextFromBlock } = completeLogs(logs, fromBlock, head);
         const result = creditDepositLogs(
           opts.sim,
           opts.route,
-          logs.map((l) => ({
-            transactionHash: l.transactionHash ?? '',
-            logIndex: l.logIndex ?? -1,
+          complete.map((l) => ({
+            transactionHash: l.transactionHash as string,
+            logIndex: l.logIndex as number,
             from: l.args.from ?? '',
             to: l.args.to ?? '',
             value: l.args.value ?? 0n,
@@ -250,9 +307,11 @@ export async function startChainDeposits(opts: ChainDepositsOptions): Promise<()
           })),
         );
         if (result.credited.length) log({ msg: 'test-venue.deposit_credited', label: 'TEST', refs: result.credited });
-        fromBlock = head + 1n;
+        fromBlock = nextFromBlock;
       }
-      const settled = await payPendingWithdrawals(opts.sim, opts.route, payer, paid, clock(), opts.settleAfterMs ?? 4000);
+      const settled = await payPendingWithdrawals(opts.sim, opts.route, payer, paid, clock(), opts.settleAfterMs ?? 4000, (nonce, err) =>
+        log({ msg: 'test-venue.withdrawal_payment_error', label: 'TEST', nonce, detail: (err as Error).message }),
+      );
       if (settled.done.length || settled.failed.length) log({ msg: 'test-venue.withdrawals_settled', label: 'TEST', ...settled });
     } catch (err) {
       // The chain is unreachable for now: nothing is credited or paid until it answers again.
