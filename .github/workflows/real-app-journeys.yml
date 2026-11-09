@@ -208,9 +208,6 @@ jobs:
           echo "journey-touch: $mode ($listed changed files)"
           # Counts only: a changed path is the pull request's own text and never reaches a log line here.
           jq -r 'select(.reach) | "journey-touch: the touched-journeys map narrows \(.reach | length) product path(s) to \(.files | length) journey file(s)"' <<<"$touch"
-          # OWNER 249 (3): a path no map places runs the title's journeys, never the full suite; main's full run after the
-          # merge and the journeys revert (tooling/ci/journeys-revert.mjs) catch the rest. Counts only, as above.
-          jq -r 'select((.unplaced // []) | length > 0) | "journey-touch: \(.unplaced | length) path(s) no map places run the title'"'"'s journeys; main'"'"'s full run catches the rest"' <<<"$touch"
           # The steps the title names and no Left-or-replaced line leaves (the seal's titleSteps and exemptions): their
           # journey files at the head run too, so the seal's named steps are proven without a manual run.
           named=$(SEAL="$seal" node -e 'import(process.env.SEAL).then((m) => { const left = new Set(m.exemptions(process.env.BODY).steps); const js = new Set(m.titleSteps(process.env.TITLE).filter((k) => !left.has(k)).map((k) => k.split("#")[0])); const dir = "apps/customer/tests/real-app"; const out = require("fs").readdirSync(dir).filter((f) => { const x = m.JOURNEY_TEST.exec(dir + "/" + f); return x && js.has(x[1]); }); console.log(out.sort().join(" ")); })') || full "the steps the title names couldn't be read"

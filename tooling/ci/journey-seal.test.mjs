@@ -649,16 +649,16 @@ test('sealPull: a shared-setup pull request needs the clean full run, whatever i
   assert.equal(dirtySeal.fullOk, false);
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared }) })).ok, true, 'with a clean one passes');
   assert.equal((await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: shared, runs: [] }) })).ok, false, 'with none fails');
-  // Product code no map places runs what its title names, never the full run (OWNER 249 (3), journey-touch.mjs):
-  // main's full run after the merge and the journeys revert catch the rest. Shared setup alone keeps the full run.
+  // Product code off the list can reach any journey and no recorded map says which (journey-touch.mjs), so it needs the
+  // same clean full run; a pull request touching nothing a journeys run reads needs none.
   const product = (over) =>
     sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'], ...over }) });
   const none = await product({ runs: [] });
-  assert.equal(none.ok, true, 'product code with no named step needs no run before merge');
-  assert.doesNotMatch(none.lines.join('\n'), /it changes what can reach any journey/);
-  assert.equal((await product({ verdict: dirty })).ok, true, "a full run's red outside its named steps no longer holds it");
-  const withShared = await product({ files: ['services/svc-support/src/chat.ts', ...shared], runs: [] });
-  assert.equal(withShared.ok, false, 'planted: the same product code beside shared setup still needs the clean full run');
+  assert.equal(none.ok, false, 'planted: product code with no run on its head fails');
+  assert.equal(none.fullOk, false);
+  assert.match(none.lines.join('\n'), /it changes what can reach any journey \(services\/svc-support\/src\/chat\.ts: product code/);
+  assert.equal((await product({ verdict: dirty })).ok, false, 'product code with a dirty full run fails');
+  assert.equal((await product({})).ok, true, 'product code with a clean full run passes');
   const plain = await sealPull({
     repo: REPO,
     number: 7,
@@ -689,11 +689,11 @@ test('the recheck takes a shared-setup pull request whose title names no step', 
   pulls.push(p(4, 'ci: a check'));
   files[4] = ['.github/workflows/ci.yml'];
   const shared = await sharedPulls({ pulls, sha: HEAD, repo: REPO, filesOf: async (n) => (asked.push(n), files[n]) });
-  assert.deepEqual([...shared], [1], 'shared setup needs a journeys run; product code no map places runs what its title names');
+  assert.deepEqual([...shared], [1, 2], 'shared setup and product code both need a journeys run (journey-touch.mjs)');
   assert.deepEqual(asked, [1, 2, 4], 'a title that names steps is taken without reading its files');
   assert.deepEqual(
     recheckPulls({ pulls, sha: HEAD, repo: REPO, shared }).map((x) => x.number),
-    [1, 3],
+    [1, 2, 3],
   );
 });
 
@@ -1265,16 +1265,6 @@ test('C1: the main run compared with is the newest finished full one on main the
 
 test('C1 sealPull planted: a product pull request on a red main seals outside the red area and not inside it', async () => {
   const inheritedDirty = { ...dirty, lastPass: { 'J-wallet-05#3': PASS_SHA } };
-  // Product code runs the journeys the touched-journeys map places for it (OWNER 249 (3): never the full suite), so the
-  // red area is judged on that run: this map places svc-support and svc-wallet code on both journeys.
-  const at = '2026-11-06T05:00:00Z';
-  const reachMap = {
-    v: 1,
-    mode: 'reach',
-    runs: [1, 2, 3].map((id) => ({ id: 900 + id, created: at })),
-    journeys: ['J-bank-13.pw.mjs', 'J-wallet-05.pw.mjs', 'J-tax-01.pw.mjs'],
-    services: { 'services/svc-support': [0, 1], 'services/svc-wallet': [0, 1] },
-  };
   const io = ({
     files,
     title = 'svc-support: chat keeps its draft',
@@ -1291,9 +1281,6 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
     contains: async (sha, head) => sha === MAIN_SHA && head === HEAD,
     mergeBase: async (base, head) => (base === MAIN_SHA && head === HEAD ? MAIN_SHA : null),
     rangeOf: async () => ({ files: rangeFiles, commits: 2, short: false }),
-    reachMap: async () => reachMap,
-    journeyFiles: async () => new Set(reachMap.journeys),
-    reachMode: 'reach',
   });
   const outside = await sealPull({ repo: REPO, number: 7, sha: HEAD, io: io({ files: ['services/svc-support/src/chat.ts'] }) });
   assert.equal(outside.ok, true, outside.lines.join('\n'));
@@ -1360,19 +1347,8 @@ test('C1 sealPull planted: a product pull request on a red main seals outside th
     sha: HEAD,
     io: { ...io({ files: ['services/svc-support/src/chat.ts'] }), mainRuns: async () => Promise.reject(new Error('HTTP 502')) },
   });
-  // Main's runs unreadable: the map's age can't be read, so it places nothing and the product path runs what its title
-  // names (none here), never the full suite (OWNER 249 (3)); no run is read, so no red is judged.
-  assert.equal(broken.ok, true, broken.lines.join('\n'));
-  const brokenNamed = await sealPull({
-    repo: REPO,
-    number: 7,
-    sha: HEAD,
-    io: {
-      ...io({ files: ['services/svc-support/src/chat.ts'], title: 'svc-support: chat (J-wallet-05 #3)' }),
-      mainRuns: async () => Promise.reject(new Error('HTTP 502')),
-    },
-  });
-  assert.equal(brokenNamed.ok, false, 'planted: a step its title names that is red still fails, map or no map');
+  assert.equal(broken.ok, false, 'an unreadable main fails closed');
+  assert.match(broken.lines.join('\n'), /couldn't be read \(HTTP 502\), so every red counts/);
 });
 
 test('C1: fullVerdict says where each red step last passed on main', () => {

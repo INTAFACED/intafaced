@@ -44,13 +44,11 @@
  * of them is red, and is passed over only when all are clean, never read as a full run.
  *
  * Every pull request is also held to the journeys it touches (journey-touch.mjs journeyTouch, from its changed paths):
- * its journey test files and the journeys the touched-journeys map places for its product code need running on its
- * exact head and clean by the journeys verdict (judgeTouchedRun). Only shared setup needs the full run (OWNER 249 (3),
- * 9 Nov 2026: "a PR runs only the journeys it touches, the full suite runs on main after a merge, a red main is
- * reverted"): any other path no map places (product code the map can't speak for, a script, the journeys workflow, this
- * seal, a doc the run reads, a build file) adds no journey, its title's steps decide, and main's full run with the
- * journeys revert (journeys-revert.mjs) catches the rest. A pull request touching nothing a journeys run executes or
- * reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
+ * a path that can reach any journey (product code with no recorded map of what reaches it yet, every script under
+ * tooling/scripts, the journeys workflow, this seal, the verdict, docs, build and environment files) needs the same
+ * clean full run as shared setup (judgeFullRun); a pull request whose only such paths are journey test files needs
+ * those files run on its exact head and clean by the journeys verdict (judgeTouchedRun); a pull request touching nothing
+ * a journeys run executes or reads needs no run. (Failure it prevents: #7415 changed product code, merged on its own
  * steps and broke J-copy-bots-otc-01 #1 on main on 7 Nov 2026, so builders ran the full suite on nearly every branch by
  * hand. The seal now says exactly which run each pull request needs, and a builder runs that one.)
  *
@@ -1002,9 +1000,8 @@ export async function rangeFromCommits(get, repo, from, to) {
 export async function reachInputs({ io, paths, head, text }) {
   const kinds = paths.map((p) => [p, pathKind(p)]);
   const product = kinds.filter(([, k]) => k.product).map(([p]) => p);
-  // Shared setup makes the whole change full, so nothing below would be used: read nothing. Any other path no map places
-  // adds no journey and leaves the product paths to the map (journey-touch.mjs journeyTouch).
-  if (!product.length || paths.some(isSharedSetup) || !io.mainRuns || !io.journeyFiles) return null;
+  // Any other full path makes the whole change full, so nothing below would be used: read nothing.
+  if (!product.length || kinds.some(([, k]) => k.kind === 'full' && !k.product) || !io.mainRuns || !io.journeyFiles) return null;
   const map = io.reachMap ? await io.reachMap() : loadMap();
   let behind = null;
   try {

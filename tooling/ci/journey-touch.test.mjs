@@ -92,20 +92,17 @@ test('pathKind: what needs the full run, what touches only its own journey file,
   assert.equal(pathKind('apps/customer/tests/real-app/registry-blockers.pw.mjs').kind, 'full');
 });
 
-test('a path with a control character is printed without it (no workflow command from a file name)', () => {
+test('a path with a control character is full and is printed without it (no workflow command from a file name)', () => {
   const evil = 'apps/customer/tests/real-app/J-a-01\n::error::x.pw.mjs';
   assert.equal(pathKind(evil).kind, 'full');
   const t = journeyTouch([evil]);
-  assert.equal(t.mode, 'none', 'not shared setup, so it runs only what the title names');
-  assert.equal(t.unplaced[0].path.includes('\n'), false);
-  const shared = journeyTouch(['tooling/scripts/local-test-a\n::error::.mjs']);
-  assert.equal(shared.mode, 'full');
-  assert.equal(shared.full[0].path.includes('\n'), false);
+  assert.equal(t.mode, 'full');
+  assert.equal(t.full[0].path.includes('\n'), false);
 });
 
-test('journeyTouch: only shared setup runs the full suite; a removed journey file runs nothing', () => {
-  assert.deepEqual(journeyTouch(['.github/workflows/ci.yml']), { mode: 'none', full: [], files: [], unplaced: [] });
-  assert.deepEqual(journeyTouch([]), { mode: 'none', full: [], files: [], unplaced: [] });
+test('journeyTouch: the most demanding path decides; a removed journey file runs nothing', () => {
+  assert.deepEqual(journeyTouch(['.github/workflows/ci.yml']), { mode: 'none', full: [], files: [] });
+  assert.deepEqual(journeyTouch([]), { mode: 'none', full: [], files: [] });
   const two = journeyTouch([
     'apps/customer/tests/real-app/J-bank-14.pw.mjs',
     'apps/customer/tests/real-app/J-bank-13.pw.mjs',
@@ -113,36 +110,13 @@ test('journeyTouch: only shared setup runs the full suite; a removed journey fil
   ]);
   assert.deepEqual([two.mode, two.files], ['files', ['J-bank-13.pw.mjs', 'J-bank-14.pw.mjs']]);
   const mixed = journeyTouch(['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'services/svc-bank/src/cards.ts']);
-  assert.equal(mixed.mode, 'files', 'product code no map places runs its own journey file, not the full suite (OWNER 249 (3))');
-  assert.deepEqual(mixed.files, ['J-bank-13.pw.mjs']);
+  assert.equal(mixed.mode, 'full', 'a journey test with the product code it proves needs the full run');
   assert.deepEqual(
-    mixed.unplaced.map((x) => x.path),
+    mixed.full.map((x) => x.path),
     ['services/svc-bank/src/cards.ts'],
   );
-  // Every path that used to force the full run, other than shared setup, now runs none of its own.
-  const was = [
-    'services/svc-bank/src/cards.ts',
-    'tooling/scripts/roadmap.mjs',
-    '.github/workflows/real-app-journeys.yml',
-    '.github/actions/test-infra/action.yml',
-    'tooling/ci/journey-touch.mjs',
-    'pnpm-lock.yaml',
-    'docs/runbooks/journey-baseline.json',
-    'tooling/profiles/test.env',
-    'somewhere/new.txt',
-  ];
-  const narrowed = journeyTouch(was);
-  assert.deepEqual([narrowed.mode, narrowed.full, narrowed.files], ['none', [], []]);
-  assert.equal(narrowed.unplaced.length, was.length, 'each is named as unplaced, so the log says why');
-  // Planted: one shared-setup path among them still runs the full suite.
-  const withShared = journeyTouch([...was, 'tooling/scripts/local-test-stack.mjs']);
-  assert.equal(withShared.mode, 'full');
-  assert.deepEqual(
-    withShared.full.map((x) => x.path),
-    ['tooling/scripts/local-test-stack.mjs'],
-  );
   const gone = journeyTouch(['apps/customer/tests/real-app/J-old-01.pw.mjs'], () => false);
-  assert.deepEqual(gone, { mode: 'none', full: [], files: [], unplaced: [] }, 'a file the head removed has nothing to run');
+  assert.deepEqual(gone, { mode: 'none', full: [], files: [] }, 'a file the head removed has nothing to run');
   // A rename counts by both names (pullFilePaths): the old one is gone at the head, the new one runs.
   const renamed = journeyTouch(['apps/customer/tests/real-app/J-a-01.pw.mjs', 'apps/customer/tests/real-app/J-a-01-x.pw.mjs'], (f) =>
     f.endsWith('-x.pw.mjs'),
@@ -289,24 +263,26 @@ test('planted 1: a shared-setup pull request with only a partial run fails the s
   assert.equal(good.ok, true, good.lines.join('\n'));
 });
 
-test('planted 2: a product pull request is held to its named steps, not the full run; a run that misses a journey it touches fails', async () => {
-  // Product code no map places: its title's steps decide (OWNER 249 (3)); main's full run and the revert catch the rest.
+test('planted 2: a product pull request whose run misses a journey it touches fails the seal; with every one run it passes', async () => {
+  // Product code: no map says which journeys reach it, so it touches every journey and needs the full run.
   const product = ['services/svc-bank/src/cards.ts', 'apps/customer/src/features/bank/Cards.tsx'];
-  const good = await seal({
+  const bad = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
     files: product,
     runs: [run(1)],
     reports: { 1: { ...partial, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } },
   });
-  assert.equal(good.ok, true, `green named steps in a targeted run are enough: ${good.lines.join('\n')}`);
-  assert.doesNotMatch(good.lines.join('\n'), /it changes what can reach any journey/);
-  const red = await seal({
+  assert.equal(bad.ok, false, 'green named steps in a targeted run do not cover the journeys product code can reach');
+  assert.equal(bad.stepsOk, true);
+  assert.equal(bad.fullOk, false);
+  assert.match(bad.lines.join('\n'), /it changes what can reach any journey/);
+  const good = await seal({
     title: 'svc-bank: cards (J-bank-13 #1 #2)',
     files: product,
     runs: [run(1)],
-    reports: { 1: { ...partial, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'failed' } } },
+    reports: { 1: { ...fullRun, states: { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed' } } },
   });
-  assert.equal(red.ok, false, 'a named step red still fails');
+  assert.equal(good.ok, true, good.lines.join('\n'));
   // Journey test files only: the run must hold each changed file.
   const tests = ['apps/customer/tests/real-app/J-bank-13.pw.mjs', 'apps/customer/tests/real-app/J-bank-14.pw.mjs'];
   const states = { 'J-bank-13#1': 'passed', 'J-bank-13#2': 'passed', 'J-bank-14#1': 'passed' };
@@ -349,13 +325,8 @@ test("GitHub's Revert form of a product change needs no run; a revert of shared 
   );
   assert.equal(
     (await seal({ title: 'Revert "svc-bank: cards"', body: 'undo', files: ['services/svc-bank/src/cards.ts'], runs: [], reports: {} })).ok,
-    true,
-    'product code no map places, with no steps in its title, needs no run before merge (OWNER 249 (3)), revert or not',
-  );
-  assert.equal(
-    (await seal({ title: 'Revert "stack: x"', body: 'undo', files: ['tooling/scripts/local-test-market.mjs'], runs: [], reports: {} })).ok,
     false,
-    'a Revert title without GitHub’s body line is no revert, so its shared setup still needs the full run',
+    'a Revert title without GitHub’s body line is no revert',
   );
 });
 
@@ -370,13 +341,7 @@ test('--json --files-from: a pull request file list, judged against this checkou
       execFileSync('node', [join(ROOT, 'tooling/ci/journey-touch.mjs'), '--json', '--files-from', f], { cwd: ROOT, encoding: 'utf8' }),
     );
   };
-  const product = run(['services/svc-bank/src/a.ts']);
-  assert.deepEqual(
-    [product.mode, product.unplaced.length],
-    ['none', 1],
-    "product code no map places: the title's journeys, never the full suite",
-  );
-  assert.equal(run(['tooling/scripts/local-test-stack.mjs']).mode, 'full', 'shared setup: the full suite');
+  assert.equal(run(['services/svc-bank/src/a.ts']).mode, 'full', 'product code: the full suite');
   const files = run(['.github/workflows/ci.yml', 'apps/customer/tests/real-app/J-bank-13.pw.mjs']);
   assert.deepEqual([files.mode, files.files], ['files', ['J-bank-13.pw.mjs']], 'a journey test file: only it');
   assert.equal(run(['.github/workflows/ci.yml', 'services/svc-bank/src/a.test.ts']).mode, 'none', 'nothing a journeys run reads');
@@ -575,9 +540,25 @@ export function docsRead(files, strict = () => false) {
 }
 const covered = (doc) => DOCS_READ.some((d) => (d.endsWith('/') ? doc.startsWith(d) : doc === d));
 const PRODUCT_CODE = (f) => /^(apps|services|packages)\//.test(f) && !f.startsWith('apps/customer/tests/');
+/** Files where any `docs/` name counts as a read: the stack's code, and what builds or starts its containers (a
+ *  `COPY docs/…` or a `./docs:` volume reads a doc without any of docsRead's read words). */
+const STRICT = (f) =>
+  PRODUCT_CODE(f) || f.startsWith('tooling/infra/') || /(^|\/)(Dockerfile[^/]*|\.dockerignore|[^/]*compose[^/]*\.ya?ml)$/.test(f);
+/** Files outside the journeys run that read a doc outside DOCS_READ, each checked by hand on 9 Nov 2026 as never run by
+ *  real-app-journeys.yml; the test below also proves none is reachable from it. A new one fails until it is checked
+ *  and added here, or its doc goes into DOCS_READ. */
+const OUTSIDE_RUN = new Set([
+  'tooling/ci/brand-scan.mjs', // pnpm scan:brand, run by ci.yml
+  'tooling/ci/gates.mjs', // pnpm gates, run by ci.yml
+  'tooling/scripts/services-map.mjs', // writes docs/SERVICES.md, by hand
+  'tooling/scripts/tracker.mjs', // writes docs/TRACKER.md, by hand
+  'tooling/scripts/truth-check.mjs', // a doc-link check, by hand
+  'tooling/scripts/worktree-gc.mjs', // pnpm wt cleanup, on a laptop
+]);
 /** Docs the stack's code names only in text shown to a person (a message, a footnote, an API description), never reads;
  *  each checked by hand on 9 Nov 2026. A new one fails the test until it is added here or to DOCS_READ. */
 const NAMED_ONLY = new Set([
+  'docker-compose.apps.yml docs/AI-GATEWAY-SOCKET.md', // the message of a required-variable check (`${LITELLM_CONFIG_PATH:?…}`)
   'apps/admin/src/components/kill-switch-board.tsx docs/OPS-KILL-SWITCH-RUNBOOK.md', // a footnote
   'packages/config/src/production-posture.ts docs/decisions/s2s-body-bind.md', // a refusal message
   'packages/i18n/src/catalog.ts docs/OWNER-OPS-CHECKLIST-2026-07-31.md', // a banner string
@@ -595,8 +576,14 @@ test("a doc outside DOCS_READ runs no journeys because neither the journeys run 
       .split('\n')
       .filter(Boolean);
   const WORKFLOW = '.github/workflows/real-app-journeys.yml';
+  // Names are followed only from code, not comments: the workflow's comments name test files the run never starts.
+  const codeOf = (x) =>
+    x
+      .split('\n')
+      .map((l) => l.replace(/^\s*(\/\/|\*|\/\*|#).*$/, '').replace(/\s(\/\/|#)\s.*$/, ''))
+      .join('\n');
   const workflow = readFileSync(join(ROOT, WORKFLOW), 'utf8');
-  const scripts = [...workflow.matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts))\b/g)].map((m) => m[1]);
+  const scripts = [...codeOf(workflow).matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts))\b/g)].map((m) => m[1]);
   const product = git('ls-files', 'apps', 'services', 'packages').filter(
     (f) =>
       /\.(?:[cm]?[jt]sx?|vue|json|ya?ml|sql|html)$/.test(f) &&
@@ -611,11 +598,23 @@ test("a doc outside DOCS_READ runs no journeys because neither the journeys run 
     if (seen.has(f) || !existsSync(join(ROOT, f))) continue;
     const text = readFileSync(join(ROOT, f), 'utf8');
     seen.set(f, text);
-    if (f.startsWith('tooling/') || f.startsWith('.github/'))
-      for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
+    if (f.startsWith('tooling/') || f.startsWith('.github/')) {
+      const code = codeOf(text);
+      // Relative imports, and every script named by a relative path or from the repository root, so a script started
+      // through child_process (spawn('node', [join(here, 'x.mjs')]), bash tooling/…/x.sh) is followed too.
+      for (const m of code.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
         queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+      // Every line of code except an entry of a path list (JOURNEY_CI and the like name files as data, not to run them).
+      const entry = /^\s*['"`][^'"`]+['"`],?\s*$/;
+      for (const line of code.split('\n').filter((l) => !entry.test(l))) {
+        for (const m of line.matchAll(/['"`]((?:\.{1,2}\/)?[\w./-]+\.(?:mjs|cjs|js|ts|sh))['"`]/g))
+          if (!m[1].startsWith('tooling/')) queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+        for (const m of line.matchAll(/\b(tooling\/[\w./-]+\.(?:mjs|cjs|js|ts|sh))\b/g)) queue.push(m[1]);
+      }
+    }
   }
   assert.ok(seen.size > 1000, `read the journeys run's files and the stack's code (${seen.size})`);
+  for (const f of OUTSIDE_RUN) assert.equal(seen.has(f), false, `${f} is listed as outside the journeys run, but the run reaches it`);
   const named = docsRead(seen, PRODUCT_CODE);
   assert.ok(
     named.some((n) => n.doc.startsWith('docs/roadmap/')),
@@ -625,6 +624,27 @@ test("a doc outside DOCS_READ runs no journeys because neither the journeys run 
     named.filter((n) => !covered(n.doc) && !NAMED_ONLY.has(`${n.at.replace(/:\d+$/, '')} ${n.doc}`)).map((n) => `${n.at} ${n.doc}`),
     [],
     'every doc the journeys run or the stack names is in DOCS_READ',
+  );
+  // Everything else in tooling/, .github/ and the container files: a file that reads a doc outside DOCS_READ must be
+  // one checked as never run by the journeys (OUTSIDE_RUN), so a new reader fails here until someone looks.
+  const rest = new Map(
+    git('ls-files', 'tooling', '.github', '*Dockerfile*', '*compose*.yml', '*compose*.yaml', '.dockerignore')
+      .filter((f) => !seen.has(f) && !/\.(png|jpe?g|gif|webp|gz|zip|woff2?|ico|pdf)$/.test(f) && !/\.test\.[cm]?[jt]s$/.test(f))
+      .map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]),
+  );
+  assert.ok(rest.size > 100, `read the rest of tooling, .github and the container files (${rest.size})`);
+  assert.deepEqual(
+    [
+      ...new Set(
+        docsRead(rest, STRICT)
+          .filter((n) => !covered(n.doc) && !NAMED_ONLY.has(`${n.at.replace(/:\d+$/, '')} ${n.doc}`))
+          .map((n) => n.at.replace(/:\d+$/, '')),
+      ),
+    ]
+      .filter((f) => !OUTSIDE_RUN.has(f))
+      .sort(),
+    [],
+    'every other file that reads a doc outside DOCS_READ is checked as outside the journeys run',
   );
 });
 
@@ -639,10 +659,30 @@ test('planted: a doc named in product code outside DOCS_READ is caught, and in a
     ['apps/admin/src/h.tsx', 'Operator runbook: <code>docs/OPS-KILL-SWITCH-RUNBOOK.md</code>'],
   ]);
   const bad = docsRead(planted, PRODUCT_CODE).filter((n) => !covered(n.doc) && !n.at.startsWith('apps/admin/src/h.tsx'));
-  assert.ok(
-    docsRead(planted).every((n) => !n.at.startsWith('services/svc-x/src/i.ts')),
-    'outside the strict files, a name with no read is not a read',
+  assert.deepEqual(
+    docsRead(planted)
+      .filter((n) => n.at.startsWith('tooling/scripts/g.mjs'))
+      .map((n) => n.doc),
+    ['docs/roadmap/journeys.json'],
+    "outside the strict files, a name with no read (g.mjs's log of docs/RUNNING.md) is not a read",
   );
+  assert.deepEqual(
+    docsRead(planted, () => true)
+      .filter((n) => n.at.startsWith('tooling/scripts/g.mjs'))
+      .map((n) => n.doc),
+    ['docs/RUNNING.md', 'docs/roadmap/journeys.json'],
+    'in a strict file the same name is a read',
+  );
+  // A container file reads a doc with no read word: STRICT holds it.
+  const infra = new Map([
+    ['services/svc-x/Dockerfile', 'COPY docs/legal/ /app/legal/'],
+    ['tooling/infra/compose.yml', 'volumes:\n  - ./docs/pay:/pay'],
+  ]);
+  assert.deepEqual(
+    docsRead(infra, STRICT).map((n) => n.doc),
+    ['docs/legal/', 'docs/pay'],
+  );
+  assert.deepEqual(docsRead(infra), [], 'without STRICT those lines have no read word');
   assert.deepEqual(
     bad.map((n) => n.doc),
     ['docs/legal/terms.md', 'docs/x.md', 'docs/<computed>', 'docs/pay/GUIDE.md?raw'.replace('?raw', '')],
@@ -650,15 +690,7 @@ test('planted: a doc named in product code outside DOCS_READ is caught, and in a
   for (const p of ['docs/ARCHITECTURE.md', 'docs/adr/2026-08-04-pay-rails-and-psp-socket.md', 'docs/agents/build-slice.md'])
     assert.equal(pathKind(p).kind, 'none', p);
   for (const d of DOCS_READ) assert.equal(pathKind(d.endsWith('/') ? `${d}x.json` : d).kind, 'full', d);
-  // A docs-only pull request runs nothing and names nothing unplaced; a doc the run reads is unplaced, not the full suite.
-  assert.deepEqual(journeyTouch(['docs/adr/a.md', 'docs/ARCHITECTURE.md', 'README.md']), {
-    mode: 'none',
-    full: [],
-    files: [],
-    unplaced: [],
-  });
-  assert.deepEqual(
-    journeyTouch(['docs/adr/a.md', 'docs/runbooks/journey-baseline.json']).unplaced.map((x) => x.path),
-    ['docs/runbooks/journey-baseline.json'],
-  );
+  // A docs-only pull request runs nothing; a doc beside a read doc still runs the full suite.
+  assert.equal(journeyTouch(['docs/adr/a.md', 'docs/ARCHITECTURE.md', 'README.md']).mode, 'none');
+  assert.equal(journeyTouch(['docs/adr/a.md', 'docs/runbooks/journey-baseline.json']).mode, 'full');
 });
