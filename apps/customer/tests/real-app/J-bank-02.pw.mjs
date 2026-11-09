@@ -569,7 +569,7 @@ test(`${J} #6 links an external bank account: listed unverified with rail.bank, 
   expect(await usdt(who)).toBe('50');
 });
 
-test(`${J} #7 reads incoming payments: when each arrived, that it is available, and returns and refusals in plain words`, async ({
+test(`${J} #7 reads incoming payments: when each arrived, that it is available, a returned payment shown reversed once, and refusals in plain words`, async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -596,6 +596,28 @@ test(`${J} #7 reads incoming payments: when each arrived, that it is available, 
   const page1 = await api.query('activity.list', { limit: 20, direction: 'in', kind: ['deposit', 'welcome_funds', 'transfer_in'] });
   expect(page1.ok && page1.data.items).toEqual([expect.objectContaining({ kind: 'welcome_funds', amount: '50', asset: 'USDT' })]);
   expect(await usdt(who)).toBe('50');
+
+  // A return, as the partner reports it: the payer's pay-by-bank payment from #5 is sent back. Their incoming payments
+  // show it returned in plain words, taken out of the balance once, and the partner saying so again changes nothing.
+  const back = payer();
+  const [paidIn] = (await requests(back)).filter((r) => r.method === 'pay_by_bank' && r.status === 'credited');
+  expect(paidIn, 'a credited pay-by-bank payment from #3 or #5').toBeTruthy();
+  const before = await usdtUnits(back);
+  const returned = await partnerCall('returned', { requestId: paidIn.requestId, reason: 'TEST account closed' });
+  expect(returned, 'the partner reports the payment returned').toMatchObject({
+    status: 200,
+    answer: { requestId: paidIn.requestId, status: 'returned' },
+  });
+  expect(await partnerCall('returned', { requestId: paidIn.requestId, reason: 'TEST account closed' })).toEqual(returned);
+  expect(before - (await usdtUnits(back))).toBe(toUnits(paidIn.creditedAmount));
+  const theirPage = await (await page.context().browser().newContext({ baseURL: ORIGIN })).newPage();
+  await signIn(theirPage, back);
+  await theirPage.goto('/bank/ramps/new');
+  const line = theirPage.getByTestId('incoming-line').filter({ hasText: `${paidIn.creditedAmount} USDT` });
+  await expect(line).toContainText(/Returned/);
+  await expect(line).toContainText('TEST account closed');
+  await expect(line).toContainText(/taken out of your balance once/i);
+  await theirPage.context().close();
 });
 
 test(`${J} #8 pays another person more than the bank holds on a plan that allows a negative balance: refused with the plan's rule, and nothing moves`, async ({
