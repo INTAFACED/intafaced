@@ -150,6 +150,7 @@ const p2p: P2pService = new P2pService(sql, ledger, bus, {
   tradingEnabled: env.P2P_TRADING_ENABLED,
   offerLimits,
   appealReviewHours: env.P2P_APPEAL_REVIEW_HOURS,
+  followerNoticesPerDay: env.P2P_FOLLOWER_NOTICES_PER_DAY,
   reviewEditWindowSeconds: env.P2P_REVIEW_EDIT_WINDOW_SECONDS,
   exportPolicy: {
     maxRangeDays: env.P2P_EXPORT_MAX_RANGE_DAYS,
@@ -361,6 +362,11 @@ async function sweep(): Promise<void> {
       app.log.error({ err, sweep: 'offer_paused' }, 'p2p ad-paused notice sweep failed — makers may not be told yet');
       return { sent: 0, failures: [] };
     });
+    // Followed-trader notices (a new ad) the fast path did not hand over, on their own catch likewise.
+    const followers = await p2p.sweepFollowerNotices(100).catch((err: unknown) => {
+      app.log.error({ err, sweep: 'follower_notice' }, 'p2p followed-trader notice sweep failed — followers may not be told yet');
+      return { sent: 0, failures: [] };
+    });
     // Remark-case notices (a reported payment note) the fast path did not hand over, on their own catch likewise.
     const remarks = await p2p.sweepRemarkCases(100).catch((err: unknown) => {
       app.log.error({ err, sweep: 'remark_case' }, 'p2p remark-case notice sweep failed — reported parties may not be told yet');
@@ -394,6 +400,12 @@ async function sweep(): Promise<void> {
     }
     for (const f of pauses.failures) {
       app.log.error({ ...f, sweep: 'offer_paused' }, 'p2p ad-paused notice could not be handed to the bus — the maker is not told yet');
+    }
+    for (const f of followers.failures) {
+      app.log.error(
+        { ...f, sweep: 'follower_notice' },
+        'p2p followed-trader notice could not be handed to the bus — the follower is not told yet',
+      );
     }
     for (const f of remarks.failures) {
       app.log.error(
