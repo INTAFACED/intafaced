@@ -70,6 +70,8 @@ export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind
 }
 
 const MARKET_KINDS_TTL_MS = 60_000;
+/** On a symbol the list doesn't hold, the list is read again at most this often, so unlisted symbols can't each cost a venue read. */
+const MARKET_MISS_REREAD_MS = 5_000;
 
 export const VENUE_WITHDRAW_STEP_UP_SCOPE = 'trade.step_up.venue.withdraw' as const;
 
@@ -289,8 +291,10 @@ export class UserVenueDoor {
     const now = this.deps.now().getTime();
     const fresh = this.marketList && now - this.marketList.at < MARKET_KINDS_TTL_MS ? this.marketList : null;
     let market = fresh?.markets.get(symbol);
-    if (!market) {
-      // A miss re-reads the list: a market listed since the last read is found, and an unlisted one is refused.
+    // A miss re-reads the list, so a market listed since the last read is found within seconds, but not more often than
+    // once per MARKET_MISS_REREAD_MS: inside that, an unlisted symbol is refused from the list just read.
+    const justRead = fresh !== null && now - fresh.at < MARKET_MISS_REREAD_MS;
+    if (!market && !justRead) {
       const markets = new Map((await venue.markets(null)).value.map((m) => [m.symbol, m] as const));
       this.marketList = { at: now, markets };
       market = markets.get(symbol);
