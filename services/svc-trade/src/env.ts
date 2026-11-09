@@ -13,6 +13,19 @@ const schema = serviceEnvSchema
     z.object({
       SERVICE_NAME: z.string().default('svc-trade'),
 
+      /**
+       * B1 user-venue door (src/venue/): the base URL of a user-signed venue reached over HTTP. Unset is off: every
+       * `/api/v1/venue/*` route but `status` refuses `trade.user_venue_off`. A TEST venue (the simulator) is refused at boot
+       * unless the raw APP_ENV is exactly dev or test (`refuseTestVenueOutsideTest`).
+       */
+      TRADE_USER_VENUE_URL: z.string().default(''),
+      /** Per call to the venue, milliseconds. A submit that times out is `definite: false` and is read back. */
+      TRADE_USER_VENUE_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
+      /** Owner value: our builder address on the venue (lowercase 0x). Blank refuses orders `builder_fee_not_published`. */
+      TRADE_USER_VENUE_BUILDER_ADDRESS: z.string().default(''),
+      /** Owner value: our builder fee, basis points as a decimal string (`0.5` is half a bp). Blank refuses orders. */
+      TRADE_USER_VENUE_BUILDER_FEE_BPS: z.string().default(''),
+
       /** CB-bots-10 bot verification switch: `required` (unset) or `off`, written explicitly. See algo/bots-verification.ts. */
       TRADE_BOTS_VERIFICATION: z.enum(['required', 'off']).optional(),
       /** CB-bots-10 lowest tier allowed to create a bot (basic|full|institutional). Blank refuses every bot create. */
