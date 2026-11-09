@@ -540,9 +540,25 @@ export function docsRead(files, strict = () => false) {
 }
 const covered = (doc) => DOCS_READ.some((d) => (d.endsWith('/') ? doc.startsWith(d) : doc === d));
 const PRODUCT_CODE = (f) => /^(apps|services|packages)\//.test(f) && !f.startsWith('apps/customer/tests/');
+/** Files where any `docs/` name counts as a read: the stack's code, and what builds or starts its containers (a
+ *  `COPY docs/…` or a `./docs:` volume reads a doc without any of docsRead's read words). */
+const STRICT = (f) =>
+  PRODUCT_CODE(f) || f.startsWith('tooling/infra/') || /(^|\/)(Dockerfile[^/]*|\.dockerignore|[^/]*compose[^/]*\.ya?ml)$/.test(f);
+/** Files outside the journeys run that read a doc outside DOCS_READ, each checked by hand on 9 Nov 2026 as never run by
+ *  real-app-journeys.yml; the test below also proves none is reachable from it. A new one fails until it is checked
+ *  and added here, or its doc goes into DOCS_READ. */
+const OUTSIDE_RUN = new Set([
+  'tooling/ci/brand-scan.mjs', // pnpm scan:brand, run by ci.yml
+  'tooling/ci/gates.mjs', // pnpm gates, run by ci.yml
+  'tooling/scripts/services-map.mjs', // writes docs/SERVICES.md, by hand
+  'tooling/scripts/tracker.mjs', // writes docs/TRACKER.md, by hand
+  'tooling/scripts/truth-check.mjs', // a doc-link check, by hand
+  'tooling/scripts/worktree-gc.mjs', // pnpm wt cleanup, on a laptop
+]);
 /** Docs the stack's code names only in text shown to a person (a message, a footnote, an API description), never reads;
  *  each checked by hand on 9 Nov 2026. A new one fails the test until it is added here or to DOCS_READ. */
 const NAMED_ONLY = new Set([
+  'docker-compose.apps.yml docs/AI-GATEWAY-SOCKET.md', // the message of a required-variable check (`${LITELLM_CONFIG_PATH:?…}`)
   'apps/admin/src/components/kill-switch-board.tsx docs/OPS-KILL-SWITCH-RUNBOOK.md', // a footnote
   'packages/config/src/production-posture.ts docs/decisions/s2s-body-bind.md', // a refusal message
   'packages/i18n/src/catalog.ts docs/OWNER-OPS-CHECKLIST-2026-07-31.md', // a banner string
@@ -560,8 +576,14 @@ test("a doc outside DOCS_READ runs no journeys because neither the journeys run 
       .split('\n')
       .filter(Boolean);
   const WORKFLOW = '.github/workflows/real-app-journeys.yml';
+  // Names are followed only from code, not comments: the workflow's comments name test files the run never starts.
+  const codeOf = (x) =>
+    x
+      .split('\n')
+      .map((l) => l.replace(/^\s*(\/\/|\*|\/\*|#).*$/, '').replace(/\s(\/\/|#)\s.*$/, ''))
+      .join('\n');
   const workflow = readFileSync(join(ROOT, WORKFLOW), 'utf8');
-  const scripts = [...workflow.matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts))\b/g)].map((m) => m[1]);
+  const scripts = [...codeOf(workflow).matchAll(/\b((?:tooling|apps|services|packages)\/[\w./-]+\.(?:mjs|cjs|js|ts))\b/g)].map((m) => m[1]);
   const product = git('ls-files', 'apps', 'services', 'packages').filter(
     (f) =>
       /\.(?:[cm]?[jt]sx?|vue|json|ya?ml|sql|html)$/.test(f) &&
@@ -576,11 +598,19 @@ test("a doc outside DOCS_READ runs no journeys because neither the journeys run 
     if (seen.has(f) || !existsSync(join(ROOT, f))) continue;
     const text = readFileSync(join(ROOT, f), 'utf8');
     seen.set(f, text);
-    if (f.startsWith('tooling/') || f.startsWith('.github/'))
-      for (const m of text.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
+    if (f.startsWith('tooling/') || f.startsWith('.github/')) {
+      const code = codeOf(text);
+      // Relative imports, and every script named by a relative path or from the repository root, so a script started
+      // through child_process (spawn('node', [join(here, 'x.mjs')]), bash tooling/…/x.sh) is followed too.
+      for (const m of code.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
         queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+      for (const m of code.matchAll(/['"`]((?:\.{1,2}\/)?[\w./-]+\.(?:mjs|cjs|js|ts|sh))['"`]/g))
+        if (!m[1].startsWith('tooling/')) queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+      for (const m of code.matchAll(/\b(tooling\/[\w./-]+\.(?:mjs|cjs|js|ts|sh))\b/g)) queue.push(m[1]);
+    }
   }
   assert.ok(seen.size > 1000, `read the journeys run's files and the stack's code (${seen.size})`);
+  for (const f of OUTSIDE_RUN) assert.equal(seen.has(f), false, `${f} is listed as outside the journeys run, but the run reaches it`);
   const named = docsRead(seen, PRODUCT_CODE);
   assert.ok(
     named.some((n) => n.doc.startsWith('docs/roadmap/')),
@@ -590,6 +620,27 @@ test("a doc outside DOCS_READ runs no journeys because neither the journeys run 
     named.filter((n) => !covered(n.doc) && !NAMED_ONLY.has(`${n.at.replace(/:\d+$/, '')} ${n.doc}`)).map((n) => `${n.at} ${n.doc}`),
     [],
     'every doc the journeys run or the stack names is in DOCS_READ',
+  );
+  // Everything else in tooling/, .github/ and the container files: a file that reads a doc outside DOCS_READ must be
+  // one checked as never run by the journeys (OUTSIDE_RUN), so a new reader fails here until someone looks.
+  const rest = new Map(
+    git('ls-files', 'tooling', '.github', '*Dockerfile*', '*compose*.yml', '*compose*.yaml', '.dockerignore')
+      .filter((f) => !seen.has(f) && !/\.(png|jpe?g|gif|webp|gz|zip|woff2?|ico|pdf)$/.test(f) && !/\.test\.[cm]?[jt]s$/.test(f))
+      .map((f) => [f, readFileSync(join(ROOT, f), 'utf8')]),
+  );
+  assert.ok(rest.size > 100, `read the rest of tooling, .github and the container files (${rest.size})`);
+  assert.deepEqual(
+    [
+      ...new Set(
+        docsRead(rest, STRICT)
+          .filter((n) => !covered(n.doc) && !NAMED_ONLY.has(`${n.at.replace(/:\d+$/, '')} ${n.doc}`))
+          .map((n) => n.at.replace(/:\d+$/, '')),
+      ),
+    ]
+      .filter((f) => !OUTSIDE_RUN.has(f))
+      .sort(),
+    [],
+    'every other file that reads a doc outside DOCS_READ is checked as outside the journeys run',
   );
 });
 
@@ -604,10 +655,30 @@ test('planted: a doc named in product code outside DOCS_READ is caught, and in a
     ['apps/admin/src/h.tsx', 'Operator runbook: <code>docs/OPS-KILL-SWITCH-RUNBOOK.md</code>'],
   ]);
   const bad = docsRead(planted, PRODUCT_CODE).filter((n) => !covered(n.doc) && !n.at.startsWith('apps/admin/src/h.tsx'));
-  assert.ok(
-    docsRead(planted).every((n) => !n.at.startsWith('services/svc-x/src/i.ts')),
-    'outside the strict files, a name with no read is not a read',
+  assert.deepEqual(
+    docsRead(planted)
+      .filter((n) => n.at.startsWith('tooling/scripts/g.mjs'))
+      .map((n) => n.doc),
+    ['docs/roadmap/journeys.json'],
+    "outside the strict files, a name with no read (g.mjs's log of docs/RUNNING.md) is not a read",
   );
+  assert.deepEqual(
+    docsRead(planted, () => true)
+      .filter((n) => n.at.startsWith('tooling/scripts/g.mjs'))
+      .map((n) => n.doc),
+    ['docs/RUNNING.md', 'docs/roadmap/journeys.json'],
+    'in a strict file the same name is a read',
+  );
+  // A container file reads a doc with no read word: STRICT holds it.
+  const infra = new Map([
+    ['services/svc-x/Dockerfile', 'COPY docs/legal/ /app/legal/'],
+    ['tooling/infra/compose.yml', 'volumes:\n  - ./docs/pay:/pay'],
+  ]);
+  assert.deepEqual(
+    docsRead(infra, STRICT).map((n) => n.doc),
+    ['docs/legal/', 'docs/pay'],
+  );
+  assert.deepEqual(docsRead(infra), [], 'without STRICT those lines have no read word');
   assert.deepEqual(
     bad.map((n) => n.doc),
     ['docs/legal/terms.md', 'docs/x.md', 'docs/<computed>', 'docs/pay/GUIDE.md?raw'.replace('?raw', '')],
