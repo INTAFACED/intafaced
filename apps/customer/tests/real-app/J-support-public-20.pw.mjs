@@ -1,7 +1,7 @@
 // World: book
 import { test, expect } from './journey.mjs';
 import { asDesk } from './help-centre.mjs';
-import { fundedTrader, signUp } from './desk.mjs';
+import { awayBid, fundedTrader, signUp } from './desk.mjs';
 import { api, ORIGIN } from './stack.mjs';
 
 // J-support-public-20, in the running app (docs/roadmap/journeys.json): a support agent handles a customer's "my deposit
@@ -58,7 +58,10 @@ async function request(browser) {
   return shared;
 }
 
-/** One TEST limit buy far below the market, so it rests on the book: an order of `who`'s own. Its id. */
+/**
+ * One TEST limit buy at 90% of the best bid, so it rests on the book: an order of `who`'s own. 0.0002 BTC there is above
+ * the 5 USDT minimum order value and within the 20 USDT the customer is funded with. Its id.
+ */
 async function restingOrder(who) {
   const res = await (
     await api(who)
@@ -66,8 +69,8 @@ async function restingOrder(who) {
     symbol: 'BTC/USDT',
     type: 'limit',
     side: 'buy',
-    price: '1',
-    amount: '0.001',
+    price: await awayBid(90),
+    amount: '0.0002',
     clientOrderId: `${J}-${RUN}-${Math.random().toString(36).slice(2, 8)}`,
   });
   expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
