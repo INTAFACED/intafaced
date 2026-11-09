@@ -5,7 +5,9 @@ import {
   MONEY_SERVICES,
   MIN_RUNS,
   REACH_MAP_MODE,
-  reportUnclean,
+  reportTests,
+  speaksFor,
+  unbuiltSteps,
   STALE_RUNS,
   buildMap,
   candidates,
@@ -60,6 +62,7 @@ const report = (records, files = [...new Set(records.map((r) => r.file))], faili
         file: f,
         tests: [
           {
+            status: failing.has(f) ? 'unexpected' : 'expected',
             results: [
               {
                 status: failing.has(f) ? 'failed' : 'passed',
@@ -105,9 +108,10 @@ const run = (id, created, recs = records(), files = FILES, failing = new Set()) 
 });
 const RUNS = [run(3, '2026-11-08T15:00:00Z'), run(2, '2026-11-08T14:00:00Z'), run(1, '2026-11-08T13:00:00Z')];
 /**
- * A run whose journeys have several tests (`#1`, `#2`, `#3`, an unnumbered `starts:` setup test): `over[file]` names
- * the tests that fail (`fail`) and the file's records (`recs`, each attached to the test of the same index, or to the
- * afterAll hook's last test). Files not named pass whole with records().
+ * A run whose journeys have several tests (an unnumbered `starts:` setup test, `#1`, `#2`, `#3`): `over[file]` names
+ * the tests that fail (`fail`) and are skipped (`skip`), each by the start of its title after the journey id, and the
+ * file's records (`recs`, each attached to the test of the same index, or to the afterAll hook's last test). Files not
+ * named pass whole with records().
  */
 const STEPS = ['starts: the stack', '#1 step', '#2 step', '#3 step'];
 const stepsRun = (id, over = {}, files = FILES) => {
@@ -121,36 +125,52 @@ const stepsRun = (id, over = {}, files = FILES) => {
       suites: [...files].map((f) => {
         const o = over[f] ?? {};
         const recs = o.recs ?? base.filter((r) => r.file === f);
+        const J = f.replace('.pw.mjs', '');
+        const is = (list, title) => (list ?? []).some((x) => title.startsWith(x));
         return {
           title: f,
           file: f,
           suites: [
             {
-              title: f.replace('.pw.mjs', ''),
+              title: J,
               file: f,
-              specs: STEPS.map((title, i) => ({
-                title,
-                file: f,
-                tests: [
-                  {
-                    projectName: 'chromium',
-                    results: [
-                      {
-                        status: (o.fail ?? []).some((x) => title.startsWith(x)) ? 'failed' : 'passed',
-                        attachments: recs
-                          .filter((_, j) => j === i || (i === STEPS.length - 1 && j >= STEPS.length))
-                          .map((r) => ({ name: 'journey-reach', contentType: 'application/json', body: b64(r) })),
-                      },
-                    ],
-                  },
-                ],
-              })),
+              specs: STEPS.map((title, i) => {
+                const st = is(o.fail, title) ? 'failed' : is(o.skip, title) ? 'skipped' : 'passed';
+                return {
+                  title: `${J} ${title}`,
+                  file: f,
+                  tests: [
+                    {
+                      projectName: 'chromium',
+                      status: { failed: 'unexpected', skipped: 'skipped', passed: 'expected' }[st],
+                      results: [
+                        {
+                          status: st,
+                          attachments: recs
+                            .filter((_, j) => j === i || (i === STEPS.length - 1 && j >= STEPS.length))
+                            .map((r) => ({ name: 'journey-reach', contentType: 'application/json', body: b64(r) })),
+                        },
+                      ],
+                    },
+                  ],
+                };
+              }),
             },
           ],
         };
       }),
     },
   };
+};
+/** Main's journey baseline in the tests: TAX's #3 is unbuilt, its #2 a regression; BANK's #2 and POPUP's #3 are unbuilt. */
+const BASELINE = {
+  run: { number: 1 },
+  steps: [
+    { step: 'J-tax-01#3', file: `apps/customer/tests/real-app/${TAX}`, state: 'unbuilt', money: true },
+    { step: 'J-tax-01#2', file: `apps/customer/tests/real-app/${TAX}`, state: 'regression', money: false, issue: 1 },
+    { step: 'J-bank-01#2', file: `apps/customer/tests/real-app/${BANK}`, state: 'unbuilt', money: true },
+    { step: 'J-merchant-01#3', file: `apps/customer/tests/real-app/${POPUP}`, state: 'unbuilt', money: false },
+  ],
 };
 const reachOf = (map, key, dir) => (map[key][dir] ?? []).map((i) => map.journeys[i]).sort();
 const CONSUMERS = {
@@ -171,6 +191,7 @@ const build = (runs = RUNS, over = {}) =>
     harness: ['packages/events', 'apps/customer/deployment/host-dispatch.mjs'],
     subscribers: ['services/svc-notify'],
     money: ['packages/ledger-client', 'services/svc-ops'],
+    baseline: BASELINE,
     ...over,
   });
 const MAP = build();
@@ -249,16 +270,22 @@ test('planted: reach is taken only from runs where the journey passed whole (rev
   assert.match(allFailed.full[TAX], /no run the map is built from speaks for it/);
   const sel = reachSelect({ map: allFailed, paths: ['services/svc-support/src/x.ts'], behind: 0, atHead: FILES, mode: 'reach' });
   assert.deepEqual(sel.files, [BOTH, POPUP, TAX], 'an unproven journey joins every selection');
-  // A test with no result, or whose last result is skipped or timedOut, is not clean.
+  // A test that did not end expected (timedOut, no result, flaky with no pass after a failure) did not pass; a test.fail()
+  // that failed ended expected, and a flaky test that passed on its retry passed (journey-verdict.mjs testPassed).
   const r = report(records(), [...FILES]);
-  r.suites[0].specs[0].tests[0].results[0].status = 'timedOut';
-  r.suites[1].specs[0].tests[0].results = [];
-  assert.deepEqual([...reportUnclean(r)].sort(), [BANK, TAX].sort());
+  Object.assign(r.suites[0].specs[0].tests[0], { status: 'unexpected', results: [{ status: 'timedOut' }] });
+  Object.assign(r.suites[1].specs[0].tests[0], { status: undefined, results: [] });
+  Object.assign(r.suites[2].specs[0].tests[0], { status: 'expected', results: [{ status: 'failed' }] });
+  Object.assign(r.suites[3].specs[0].tests[0], { status: 'flaky', results: [{ status: 'failed' }, { status: 'passed' }] });
+  const passed = (f) => [...reportTests(r).get(f).tests.values()].every((t) => t.passed);
+  assert.deepEqual([...FILES].filter((f) => !passed(f)).sort(), [BANK, TAX].sort());
+  Object.assign(r.suites[3].specs[0].tests[0], { status: 'flaky', results: [{ status: 'failed' }, { status: 'skipped' }] });
+  assert.equal(passed(POPUP), false, 'a failed test whose retry was skipped did not pass');
 });
 
 test('planted: a journey red in the same tests in every run takes its recorded reach and is not full (project-state#1574)', () => {
-  // TAX's #3 is unbuilt (red in every run) and its setup test never passes: what the green steps recorded is its reach.
-  const map = build([3, 2, 1].map((id) => stepsRun(id, { [TAX]: { fail: ['#3', 'starts:'] } })));
+  // TAX's #3 is unbuilt in main's baseline and red in every run: what its tests recorded is its reach.
+  const map = build([3, 2, 1].map((id) => stepsRun(id, { [TAX]: { fail: ['#3'] } })));
   assert.equal(map.mode, 'reach');
   assert.equal(map.full[TAX], undefined, 'a persistently red step does not make it full');
   assert.deepEqual(reachOf(map, 'services', 'services/svc-tax'), [TAX]);
@@ -292,9 +319,97 @@ test('planted: a test that fails in one run and passes in another disqualifies t
   // A red test only run 3 holds (a step added since) is not red in every run, so run 3 doesn't count.
   const added = stepsRun(3, { [TAX]: { recs: [short] } });
   const spec = added.report.suites[0].suites[0];
-  spec.specs.push({ ...spec.specs[1], title: '#4 step', tests: [{ projectName: 'chromium', results: [{ status: 'failed' }] }] });
+  spec.specs.push({
+    ...spec.specs[1],
+    title: 'J-tax-01 #4 step',
+    tests: [{ projectName: 'chromium', status: 'unexpected', results: [{ status: 'failed' }] }],
+  });
   const fresh = build([added, stepsRun(2), stepsRun(1)]);
   assert.deepEqual(reachOf(fresh, 'customer', 'apps/customer/src/x.tsx'), [], 'a red test the other runs lack disqualifies the run');
+});
+
+test('planted: a red test excuses a run only when every whole run holds the file (project-state#1574)', () => {
+  // TAX is in runs 3 and 2 only (run 1's head predates it), its unbuilt #3 red in both: two runs can't show it red for
+  // good, so neither counts, and it is full.
+  const noTax = new Set([...FILES].filter((f) => f !== TAX));
+  const two = build([stepsRun(3, { [TAX]: { fail: ['#3'] } }), stepsRun(2, { [TAX]: { fail: ['#3'] } }), stepsRun(1, {}, noTax)]);
+  assert.equal(two.mode, 'reach');
+  assert.match(two.full[TAX], /no run the map is built from speaks for it/);
+  // The old rule still holds for such a file: a run where it passed whole speaks for it.
+  const one = build([stepsRun(3, { [TAX]: { fail: ['#3'] } }), stepsRun(2), stepsRun(1, {}, noTax)]);
+  assert.equal(one.full[TAX], undefined);
+  assert.deepEqual(reachOf(one, 'services', 'services/svc-tax'), [TAX]);
+});
+
+test('planted: only an unbuilt step of main’s baseline, and the tests skipped after it, excuse a red run (project-state#1574)', () => {
+  const every = (over) => build([3, 2, 1].map((id) => stepsRun(id, over)));
+  // A red setup test, red in every run (its steps all skipped): full, not the setup's own small reach.
+  const setup = every({ [TAX]: { fail: ['starts:'], skip: ['#'] } });
+  assert.match(setup.full[TAX], /no run the map is built from speaks for it/);
+  // A red step the baseline calls a regression, and one it doesn't list, red in every run: full.
+  assert.match(every({ [TAX]: { fail: ['#2'] } }).full[TAX], /speaks for it/, 'a regression step');
+  assert.match(every({ [TAX]: { fail: ['#1'] } }).full[TAX], /speaks for it/, 'a step not in the baseline');
+  // An unbuilt step of another file with the same number excuses nothing here.
+  assert.match(every({ [BOTH]: { fail: ['#3'] } }).full[BOTH], /speaks for it/, 'J-bank-02 #3 is not listed');
+  // So a flaky step that happens to be red in every sampled run is full too: it is not an unbuilt step of the baseline.
+  // BANK's unbuilt #2 is red in every run and #3 is skipped after it: the run counts, with every record of the file.
+  const recs = [rec(BANK, { served: ['edge GET'] }), rec(BANK, { served: ['bank GET'] }), rec(BANK, { served: ['support GET'] })];
+  const ok = every({ [BANK]: { fail: ['#2'], skip: ['#3'], recs } });
+  assert.equal(ok.full[BANK], undefined);
+  assert.deepEqual(reachOf(ok, 'services', 'services/svc-bank'), [BANK, BOTH]);
+  assert.deepEqual(reachOf(ok, 'services', 'services/svc-support'), [BANK, BOTH], 'the unbuilt step’s own record counts');
+  // A skipped test with no excused step before it is not excused.
+  assert.match(every({ [BANK]: { skip: ['#3'] } }).full[BANK], /speaks for it/, 'a skip with nothing red before it');
+  assert.match(every({ [BANK]: { fail: ['#2'], skip: ['#1'] } }).full[BANK], /speaks for it/, 'a skip before the unbuilt step');
+  // No baseline given: nothing is excused.
+  assert.match(
+    build(
+      [3, 2, 1].map((id) => stepsRun(id, { [BANK]: { fail: ['#2'] } })),
+      { baseline: null },
+    ).full[BANK],
+    /speaks for it/,
+  );
+});
+
+test('planted: a red unbuilt step another run lacks, or a spec with no test, excuses nothing (project-state#1574)', () => {
+  // TAX's unbuilt #3 is red in runs 3 and 2, and run 1 has no #3 (its head predates the step): runs 3 and 2 don't count,
+  // so what only their records carried is not its reach; run 1 passed whole and speaks for it.
+  const extra = rec(TAX, { served: ['support GET'], active: ['support'] });
+  const tax = records().filter((r) => r.file === TAX);
+  const old = stepsRun(1);
+  const spec = old.report.suites.find((x) => x.file === TAX).suites[0];
+  spec.specs = spec.specs.filter((x) => !x.title.includes('#3'));
+  const map = build([stepsRun(3, { [TAX]: { fail: ['#3'], recs: [...tax, extra] } }), stepsRun(2, { [TAX]: { fail: ['#3'] } }), old]);
+  assert.equal(map.full[TAX], undefined);
+  assert.deepEqual(reachOf(map, 'services', 'services/svc-support'), [BOTH], 'run 3 adds nothing for TAX');
+  // A spec of TAX holding no test, in every run, with every other test green: full.
+  const broken = [3, 2, 1].map((id) => {
+    const r = stepsRun(id);
+    r.report.suites.find((x) => x.file === TAX).suites[0].specs.push({ title: 'J-tax-01 #4 step', file: TAX, tests: [] });
+    return r;
+  });
+  assert.match(build(broken).full[TAX], /no run the map is built from speaks for it/);
+});
+
+test('unbuiltSteps and speaksFor: the baseline reader leaves out a step listed twice or not baselined', () => {
+  const u = unbuiltSteps({
+    steps: [
+      { step: 'J-a-01#1', file: 'x/J-a-01.pw.mjs', state: 'unbuilt' },
+      { step: 'J-a-01#2', file: 'x/J-a-01.pw.mjs', state: 'unbuilt' },
+      { step: 'J-a-01#2', file: 'x/J-a-01.pw.mjs', state: 'unbuilt' },
+      { step: 'J-a-01#3', file: 'x/J-a-01.pw.mjs', state: 'unbuilt' },
+      { step: 'J-a-01#4', file: 'x/J-a-01.pw.mjs', state: 'regression' },
+    ],
+    notBaselined: [{ step: 'J-a-01#3' }],
+  });
+  assert.deepEqual([...u], [['J-a-01#1', 'J-a-01.pw.mjs']]);
+  assert.deepEqual(unbuiltSteps(null).size, 0);
+  // speaksFor straight: BANK's unbuilt #2 red in all three runs; a run where it passed whole speaks too.
+  const whole = [3, 2, 1].map((id) => {
+    const r = stepsRun(id, { [BANK]: { fail: id === 1 ? [] : ['#2'], skip: id === 1 ? [] : ['#3'] } });
+    return { ...r, tests: reportTests(r.report) };
+  });
+  assert.deepEqual(speaksFor(whole, BANK, unbuiltSteps(BASELINE)), [false, false, true], '#2 passed in run 1, so it is built');
 });
 
 test('planted: a persistently red journey whose afterAll record never came stays full (project-state#1574)', () => {
