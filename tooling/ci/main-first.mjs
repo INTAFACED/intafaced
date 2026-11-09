@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * MAIN FIRST (real-app-journeys.yml job `Main's journeys first`; INTAFACED/project-state#1574 item 3): a Real-app
- * journeys run on a branch or pull request waits, before it plans or builds anything, while a run on main still has
- * jobs waiting for a runner, so main's shards take the runners first. It never fails and never touches a main run: it
+ * MAIN FIRST (real-app-journeys.yml, the `touch` job's step `Main's journeys first`; INTAFACED/project-state#1574 item
+ * 3): a Real-app journeys run on a branch or pull request waits, before it plans or builds anything, while a run on main
+ * still has jobs waiting for a runner or has not yet planned its shards, so main's shards take the runners first. It never fails and never touches a main run: it
  * reads, waits at most MAX_WAIT_MS, then lets the run go on, whatever it read (an unreadable API lets it go on at once).
  *
  *   node tooling/ci/main-first.mjs --self-test
@@ -14,8 +14,11 @@
  * created at 02:03:31, started from 02:26:05 to 02:45:51, 23 to 42 minutes later, while about 100 jobs ran at once and
  * 18 Real-app journeys runs were queued. Runners go to the jobs queued first, so a branch's shards queued before main's
  * took them. GitHub has no job priority; holding branch runs back while main's jobs wait is the lever there is. Its
- * cost: this job holds one runner per waiting branch run, where the run would have queued its planner, its build and
- * up to 48 shards.
+ * cost: each waiting branch run keeps the one runner its `touch` job already holds, where the run would have queued its
+ * planner, its build and up to 48 shards; it adds no job, so a branch run queues no more often than before.
+ * A run waiting in main's concurrency group reads `pending` (run 42554292414 at 03:13 UTC), not `queued`; a run whose
+ * only unstarted job is waiting for a runner reads `queued` (42542683115, its scoreboard job, at 03:13 UTC); and a job
+ * waiting on `needs` is not listed until it is created (42542683115's jobs at 02:49 UTC listed no scoreboard job).
  */
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -25,14 +28,16 @@ export const POLL_MS = 60_000;
 export const MAX_WAIT_MS = 30 * 60_000;
 /** A job GitHub has created but not yet given a runner. */
 const WAITING = new Set(['queued', 'waiting', 'pending', 'requested']);
-/** The shard jobs (real-app-journeys.yml `journeys`): until they exist, a running main run will still queue them. */
-const SHARD = /^Journeys \(shard /;
+/** real-app-journeys.yml's planner job: until it finishes, a main run has not queued its shards (workflow-concurrency.test.mjs
+ *  holds the name). */
+export const PLAN_JOB = 'Plan the shards';
 
 /**
  * Why a main run is still waiting for runners, or null when none is. `runs` are WORKFLOW's runs on main not completed;
  * `jobsOf(id)` gives one run's latest jobs. A run waiting in its concurrency group (`pending`, behind the running main
- * run) needs no runner yet, so it holds nothing back. A run `queued`, or in progress with a job waiting or its shards
- * not yet created, is still taking runners. Pure apart from `jobsOf`, so the self-test runs offline.
+ * run) needs no runner yet, so it holds nothing back. A run `queued`, or in progress with a job waiting for a runner
+ * or its planner not finished (its shards are queued when the planner ends), is still taking runners. A run whose jobs
+ * can't be read is passed over. Pure apart from `jobsOf`, so the self-test runs offline.
  */
 export async function mainWaiting(runs, jobsOf) {
   for (const run of runs ?? []) {
@@ -40,11 +45,10 @@ export async function mainWaiting(runs, jobsOf) {
     if (run.status === 'queued') return `main's run ${run.id} is queued for a runner`;
     if (run.status !== 'in_progress') continue;
     const jobs = await jobsOf(run.id);
-    if (!Array.isArray(jobs)) return null;
+    if (!Array.isArray(jobs)) continue;
     const waiting = jobs.filter((j) => WAITING.has(j?.status));
     if (waiting.length) return `main's run ${run.id} has ${waiting.length} job(s) waiting for a runner`;
-    const done = jobs.some((j) => j?.name === 'Plan the shards' && j?.status === 'completed' && j?.conclusion !== 'success');
-    if (!done && !jobs.some((j) => SHARD.test(j?.name ?? ''))) return `main's run ${run.id} has not queued its shards yet`;
+    if (!jobs.some((j) => j?.name === PLAN_JOB && j?.status === 'completed')) return `main's run ${run.id} has not queued its shards yet`;
   }
   return null;
 }
@@ -97,6 +101,8 @@ async function selfTest() {
       { name: 'Journeys (shard 2 of 2)', status: 'in_progress' },
     ],
     5: [{ name: 'Plan the shards', status: 'completed', conclusion: 'failure' }],
+    6: [{ name: 'What this run runs', status: 'in_progress' }],
+    7: [{ name: 'Plan the shards', status: 'completed', conclusion: 'success' }], // shards skipped after the plan
   };
   const jobsOf = async (id) => jobs[id];
   const run = (id, status, over = {}) => ({ id, status, head_branch: 'main', event: 'push', ...over });
@@ -106,6 +112,9 @@ async function selfTest() {
     [[run(3, 'in_progress')], /1 job\(s\) waiting/],
     [[run(4, 'in_progress')], null],
     [[run(5, 'in_progress')], null], // a failed plan queues no shards
+    [[run(6, 'in_progress')], /not queued its shards/], // still deciding what it runs
+    [[run(7, 'in_progress')], null],
+    [[run(8, 'in_progress'), run(1, 'in_progress')], /run 1 has 1 job/], // run 8's jobs can't be read: passed over
     [[run(9, 'queued')], /queued for a runner/],
     [[run(9, 'pending')], null], // waiting behind the running main run in its group: no runner asked for
     [[run(1, 'in_progress', { head_branch: 'feature' })], null],

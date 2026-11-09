@@ -28,19 +28,22 @@ on:
 
 permissions: {}
 
-# One waiting re-check per head for finished journeys runs (2026-11-07): on 7 Nov at 11:01 UTC, 32 re-checks were queued,
-# 21 of them repeats of a head already queued, each holding a runner up to 25 minutes. A finished journeys run on a pull
-# request's head joins that head's group: a running re-check is never cancelled (cancel-in-progress false), and GitHub
-# keeps one waiting run per group, so a newer finished run replaces the waiting one, which would have read an older state;
-# the group also names the finished workflow, so a waiting CI re-check (every pull request) is never replaced by a
-# journeys one (named pull requests only);
-# the one that runs reads every run finished before it. Every other event gets a group of its own (its run id), so it
-# never displaces a waiting re-check: an event whose job is skipped (a main or fork run, an edit of neither title nor
-# body), and every title or body edit, since the script reads that edit's old title (OLD_TITLE).
+# One re-check per pull request and finished workflow (INTAFACED/project-state#1574 item 4; the OG at 03:13 UTC on
+# 9 Nov 2026): a finished CI or Real-app journeys run on a pull request's head joins the group of that pull request
+# (the run's first pull request) and that workflow, and cancels the re-check there, waiting or running: that one read
+# an older run, or an older head, and its own re-run reads only a pull request still on its head, so the newer
+# re-check does all it would have done. The group names the finished workflow, so a CI re-check (every armed pull
+# request on the head) never cancels a journeys one (named ones and ci.yml's seal too), or the reverse. A finished run
+# that names no pull request (a fork's, whose runs list none) keeps the older form: one group per head and workflow,
+# never cancelled, a newer run replacing only a waiting one. Every other event gets a group of its own (its run id), so
+# it never displaces a re-check: an event whose job is skipped (a main or fork run, an edit of neither title nor body,
+# an edit or arming of a pull request not armed), every title or body edit, since the script reads that edit's old
+# title (OLD_TITLE), and every arming. Main is never touched: a run on main starts no re-check job, in a group of its own.
+# (Before 9 Nov: on 7 Nov at 11:01 UTC, 32 re-checks were queued, 21 of them repeats of a head already queued.)
 # tooling/ci/workflow-concurrency.test.mjs holds this.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' && github.event.workflow_run.head_repository.full_name == github.repository) && format('journey-seal-recheck-head-{0}-{1}', github.event.workflow_run.head_sha, github.event.workflow_run.name) || format('journey-seal-recheck-run-{0}', github.run_id) }}
-  cancel-in-progress: false
+  group: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' && github.event.workflow_run.head_repository.full_name == github.repository) && (github.event.workflow_run.pull_requests[0].number && format('journey-seal-recheck-pr-{0}-{1}', github.event.workflow_run.pull_requests[0].number, github.event.workflow_run.name) || format('journey-seal-recheck-head-{0}-{1}', github.event.workflow_run.head_sha, github.event.workflow_run.name)) || format('journey-seal-recheck-run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.pull_requests[0].number != null }}
 
 jobs:
   recheck:

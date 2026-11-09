@@ -1356,8 +1356,9 @@ export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = ''
 }
 
 /**
- * journey-seal-recheck.yml: the open pull requests whose head is `sha` and whose title names steps now (or named them
- * before an edit, OLD_TITLE), each with its seal re-run. A head no open pull request names is left alone.
+ * journey-seal-recheck.yml: the open pull requests with auto-merge armed whose head is `sha` and whose title names steps
+ * now (or named them before an edit, OLD_TITLE), or every armed one after CI or on arming (recheckTargets), each with its
+ * seal re-run. A head no such pull request is on is left alone.
  */
 async function recheck({ repo, token }) {
   const { SHA, PR_NUMBER, OLD_TITLE = '', OLD_BODY = '', FINISHED = '' } = process.env;
@@ -1378,8 +1379,8 @@ async function recheck({ repo, token }) {
   const pulls = PR_NUMBER
     ? [await get(`/repos/${repo}/pulls/${PR_NUMBER}`)]
     : await get(`/repos/${repo}/commits/${SHA}/pulls?per_page=100`);
-  // CI finished (FINISHED=CI): the default branch's seal reads CI's jobs (ci-jobs-seal.mjs), so every open pull request
-  // on the head is re-sealed, whatever it names (recheckTargets).
+  // CI finished (FINISHED=CI) or auto-merge armed (ARMED): the default branch's seal reads CI's jobs (ci-jobs-seal.mjs),
+  // so every open pull request with auto-merge armed on the head is re-sealed, whatever it names (recheckTargets).
   const named = await recheckTargets({
     finished: FINISHED,
     pulls,
