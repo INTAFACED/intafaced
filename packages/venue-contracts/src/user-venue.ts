@@ -686,16 +686,25 @@ const BUSINESS_KEY_RE = /^[a-z][a-z0-9-]*:.+$/;
  * retry test proves it is stable.
  */
 export function venueClientOrderId(venueId: string, clientOrderKey: string): string {
-  const key = clientOrderKey.trim();
-  if (UUID_RE.test(key) || !BUSINESS_KEY_RE.test(key)) {
+  const key = assertBusinessKey(venueId, clientOrderKey, 'client order key');
+  const hex = createHash('sha256').update(`${venueId}\u0000${key}`).digest('hex').slice(0, 32);
+  return `0x${hex}`;
+}
+
+/**
+ * The one business-key rule (AGENTS.md floor 3): refuses `invalid_client_order_key` for a missing or blank key, a bare
+ * UUID, or a key without a `<kind>:` prefix. Returns the trimmed key.
+ */
+export function assertBusinessKey(venueId: string, key: unknown, label: string): string {
+  const trimmed = typeof key === 'string' ? key.trim() : '';
+  if (UUID_RE.test(trimmed) || !BUSINESS_KEY_RE.test(trimmed)) {
     throw new VenueRefusalError({
       venueId,
       code: 'invalid_client_order_key',
-      detail: `client order key "${clientOrderKey}" is not a business key (expected "<kind>:<owner>:<intent>", never a random id)`,
+      detail: `${label} "${String(key)}" is not a business key (expected "<kind>:<owner>:<intent>", never a random id)`,
     });
   }
-  const hex = createHash('sha256').update(`${venueId}\u0000${key}`).digest('hex').slice(0, 32);
-  return `0x${hex}`;
+  return trimmed;
 }
 
 /**
@@ -727,19 +736,20 @@ export function assertSignerMaySign(account: UserVenueAccount, signer: VenueSign
       detail: `${intent.kind} is signed on the owner's main account, not on a sub-account`,
     });
   }
-  if (intent.kind === 'sub_account_transfer' && compare(intent.amount, ZERO) <= 0) {
-    throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a transfer must be positive' });
-  }
-  if (intent.kind === 'create_sub_account' || intent.kind === 'sub_account_transfer') {
-    const key = intent.kind === 'create_sub_account' ? intent.subAccountKey : intent.moveKey;
-    if (UUID_RE.test(key.trim()) || !BUSINESS_KEY_RE.test(key.trim())) {
+  if (intent.kind === 'sub_account_transfer') {
+    if (intent.direction !== 'into_sub_account' && intent.direction !== 'out_of_sub_account') {
       throw new VenueRefusalError({
         venueId,
-        code: 'invalid_client_order_key',
-        detail: `key "${key}" is not a business key (expected "<kind>:<intent>", never a random id)`,
+        code: 'venue_rejected',
+        detail: `transfer direction "${String(intent.direction)}" is not one the venue knows`,
       });
     }
+    if (typeof intent.amount !== 'bigint' || compare(intent.amount, ZERO) <= 0) {
+      throw new VenueRefusalError({ venueId, code: 'venue_rejected', detail: 'a transfer must be positive' });
+    }
+    assertBusinessKey(venueId, intent.moveKey, 'move key');
   }
+  if (intent.kind === 'create_sub_account') assertBusinessKey(venueId, intent.subAccountKey, 'sub-account key');
 }
 
 /**

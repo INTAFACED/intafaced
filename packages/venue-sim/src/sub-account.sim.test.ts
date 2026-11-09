@@ -376,6 +376,30 @@ describe('TEST venue simulator: J-agents-21 sub-accounts', () => {
   });
 });
 
+describe('TEST venue simulator: hand-built moves', () => {
+  it('an unknown direction, a missing key or a refused move changes nothing and leaves no new balance row', async () => {
+    const w = world();
+    const sub = await w.openSub();
+    const bad = { ...(w.move(sub, 'into_sub_account', '1', 'agent:move:j21-d') as object), direction: 'into' } as unknown as VenueIntent;
+    expect(await refusal(w.sim.prepare(w.main, w.wallet.signer, bad))).toBe('venue_rejected');
+    const nokey = { ...(w.move(sub, 'into_sub_account', '1', 'x') as object), moveKey: undefined } as unknown as VenueIntent;
+    expect(await refusal(w.sim.prepare(w.main, w.wallet.signer, nokey))).toBe('invalid_client_order_key');
+    const foo: VenueIntent = { ...(w.move(sub, 'into_sub_account', '10', 'agent:move:j21-foo') as object), asset: 'FOO' } as VenueIntent;
+    expect(refusedCode((await w.run(w.wallet, w.main, foo)).outcome)).toBe('insufficient_balance');
+    expect((await w.sim.balances(w.main)).value.map((b) => b.asset)).toEqual(['USDC']);
+    expect((await w.sim.balances(sub)).value).toEqual([]);
+  });
+
+  it('a sub-account id in other casing is not the venue’s id', async () => {
+    const w = world();
+    const sub = await w.openSub();
+    const shouted = { ...sub, subAccount: sub.subAccount.toUpperCase().replace('0X', '0x') };
+    expect(await refusal(w.sim.prepare(w.main, w.wallet.signer, w.move(shouted, 'into_sub_account', '1', 'agent:move:j21-c')))).toBe(
+      'unknown_sub_account',
+    );
+  });
+});
+
 describe('TEST venue simulator: agent keys as the venue keeps them', () => {
   const approve = (agentAddress: string, agentName: string, validUntil: Date | null = null): VenueIntent => ({
     kind: 'approve_agent',
@@ -428,6 +452,26 @@ describe('TEST venue simulator: agent keys as the venue keeps them', () => {
     ).toBe('venue_rejected');
     expect(await refusal(w.sim.prepare(sub, w.wallet.signer, approve(w.agent.address, 'a', new Date(w.at() - 1))))).toBe('venue_rejected');
     accepted((await w.run(w.wallet, sub, approve(w.agent.address, 'a', new Date(w.at() + MAX_AGENT_VALIDITY_MS)))).outcome);
+  });
+
+  it('revoking an address that is not an agent here is refused, and does not retire it', async () => {
+    const w = world();
+    const sub = await w.openSub();
+    expect(await refusal(w.sim.prepare(sub, w.wallet.signer, { kind: 'revoke_agent', agentAddress: w.agent.address }))).toBe(
+      'venue_rejected',
+    );
+    accepted((await w.run(w.wallet, sub, approve(w.agent.address, 'TEST assistant'))).outcome);
+  });
+
+  it('an expired agent holds no slot under the named-agent limit', async () => {
+    const w = world();
+    const sub = await w.openSub();
+    const [k1, k2, k3] = ['j21-e1', 'j21-e2', 'j21-e3'].map((n) => testWallet(n, 'agent'));
+    accepted((await w.run(w.wallet, sub, approve(k1!.address, 'one', new Date(w.at() + 2000)))).outcome);
+    accepted((await w.run(w.wallet, sub, approve(k2!.address, 'two'))).outcome);
+    w.tick();
+    w.tick();
+    accepted((await w.run(w.wallet, sub, approve(k3!.address, 'three'))).outcome);
   });
 
   it('the owner wallet cannot be approved as its own agent', async () => {

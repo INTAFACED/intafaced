@@ -164,7 +164,7 @@ function refuse(venueId: string, code: VenueRefusalCode, detail: string): never 
 }
 
 function accountKey(account: UserVenueAccount): string {
-  return `${account.owner.toLowerCase()}/${account.subAccount?.toLowerCase() ?? ''}`;
+  return `${account.owner.toLowerCase()}/${account.subAccount ?? ''}`;
 }
 
 export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
@@ -358,6 +358,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         this.checkAgentApproval(account, state, intent.agentAddress, intent.agentName, intent.validUntil);
         return;
       case 'revoke_agent':
+        // Revoking an address that is not approved here would retire it for good without the owner meaning to.
+        if (!state.agents.has(intent.agentAddress.toLowerCase())) {
+          refuse(this.venue.id, 'venue_rejected', `${intent.agentAddress.toLowerCase()} is not an agent on this account`);
+        }
         return;
       case 'create_sub_account': {
         const name = intent.name.trim();
@@ -376,8 +380,9 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** The owner's sub-account `id`, or `unknown_sub_account`. */
   private subAccountOf(owner: string, id: string): UserVenueSubAccount {
     const main = this.account({ venueId: this.venue.id, owner, subAccount: null });
-    const sub = main.subAccounts.get(id.toLowerCase());
-    if (!sub) refuse(this.venue.id, 'unknown_sub_account', `no sub-account ${id.toLowerCase()} under ${owner.toLowerCase()}`);
+    // Exact match: the venue's id as it named it, the same string the account's state and the signed bytes carry.
+    const sub = main.subAccounts.get(id);
+    if (!sub) refuse(this.venue.id, 'unknown_sub_account', `no sub-account ${id} under ${owner.toLowerCase()}`);
     return sub;
   }
 
@@ -406,7 +411,10 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     }
     const name = agentName.trim();
     if (name === '') return; // the one unnamed agent: a new one replaces it
-    const named = [...state.agents.values()].filter((a) => a.name.trim() !== '' && a.address !== address);
+    // An expired agent signs nothing, so it holds no slot.
+    const named = [...state.agents.values()].filter(
+      (a) => a.name.trim() !== '' && a.address !== address && this.agentLive(state, a.address),
+    );
     if (named.some((a) => a.name.trim() === name)) return; // replaces the key under that name
     const limit = account.subAccount === null ? MAX_NAMED_AGENTS_MAIN : MAX_NAMED_AGENTS_SUB;
     if (named.length >= limit) {
@@ -781,21 +789,23 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
         return accepted(id, null);
       }
       case 'sub_account_transfer': {
-        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount.toLowerCase() });
+        const subState = this.account({ venueId: this.venue.id, owner: state.owner, subAccount: intent.subAccount });
         const into = intent.direction === 'into_sub_account';
-        const from = this.balance(into ? state : subState, intent.asset);
-        const to = this.balance(into ? subState : state, intent.asset);
-        if (compare(from.free, intent.amount) < 0) {
+        const fromState = into ? state : subState;
+        // Read before creating: a refused move leaves no new balance row behind.
+        if (compare(fromState.balances.get(intent.asset)?.free ?? ZERO, intent.amount) < 0) {
           return refused(
             'insufficient_balance',
             `free ${intent.asset} on the ${into ? 'main account' : 'sub-account'} does not cover the move (what is locked or held as margin stays)`,
           );
         }
+        const from = this.balance(fromState, intent.asset);
+        const to = this.balance(into ? subState : state, intent.asset);
         from.free = sub(from.free, intent.amount);
         to.free = add(to.free, intent.amount);
         state.transfers.set(prepared.nonce, {
           nonce: prepared.nonce,
-          subAccount: intent.subAccount.toLowerCase(),
+          subAccount: intent.subAccount,
           direction: intent.direction,
           asset: intent.asset,
           amount: intent.amount,
