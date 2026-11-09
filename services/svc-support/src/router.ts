@@ -1,12 +1,18 @@
 import { TRPCError } from '@trpc/server';
 import { guestProcedures } from './guest-router.js';
+import { chatProcedures } from './chat-router.js';
+import type { SupportChat } from './chat.js';
 import { officialChannelProcedures } from './official-channels.js';
 import type { OfficialChannelList } from '@intafaced/contracts';
+import { safetyRouter } from './safety-router.js';
+import { MemorySafetyBook, SafetyCases } from './safety-cases.js';
 import type { GuestRequests } from './guest-requests.js';
 import { z } from 'zod';
 import {
   createTicketWireInputSchema,
   SUPPORT_CATEGORY_UNKNOWN,
+  SUPPORT_CATEGORY_GUIDED,
+  SUPPORT_GUIDED_CATEGORIES,
   supportCategoriesSchema,
   supportMyTicketPropertiesSchema,
   supportTicketCategorySchema,
@@ -103,6 +109,15 @@ export function mapError(err: unknown): never {
     const message = err.missingKey ? `${userCopy(err.code)} ${err.missingKey}` : userCopy(err.code);
     if (err.code === 'support.not_found' || err.code === 'support.claim.not_found') {
       throw new TRPCError({ code: 'NOT_FOUND', message });
+    }
+    // Live chat (SP-chat-01).
+    if (err.code.startsWith('support.chat_')) {
+      if (err.code === 'support.chat_not_found') throw new TRPCError({ code: 'NOT_FOUND', message });
+      if (err.code === 'support.chat_rate_limited') throw new TRPCError({ code: 'TOO_MANY_REQUESTS', message });
+      if (err.code === 'support.chat_already_accepted' || err.code === 'support.chat_message_conflict')
+        throw new TRPCError({ code: 'CONFLICT', message });
+      if (err.code === 'support.chat_prechat_invalid') throw new TRPCError({ code: 'BAD_REQUEST', message });
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message });
     }
     if (err.code === 'support.claim.already_claimed' || err.code === 'support.kb.revision_stale' || err.code === 'support.already_rated') {
       throw new TRPCError({ code: 'CONFLICT', message });
@@ -247,9 +262,14 @@ export function createSupportRouter(
   checks: VerificationChecks = new VerificationChecks(new MemoryCheckBook(), support, null),
   /** The owner's official channel list (`SUPPORT_OFFICIAL_CHANNELS`); null is unpublished. */
   officialChannels: OfficialChannelList | null = null,
+  /** Complaints and bereavement reports, each acknowledged once (BK-safe-03, J-bank-18 #5 #6). */
+  safety: SafetyCases = new SafetyCases(new MemorySafetyBook(), support, null),
+  /** Live chat (SP-chat-01). Left out, every chat door refuses `support.chat_unwired`. */
+  chat?: SupportChat,
 ) {
   const helpCentreOpen = helpCentreGate(helpCentre);
   return router({
+    ...chatProcedures(chat, mapError),
     ...macroProcedures(macros),
     ...contactProcedures(contact, support),
     ...attachmentProcedures(attachmentSettings, support),
@@ -263,6 +283,7 @@ export function createSupportRouter(
     ...kbSegmentProcedures(kbSegmentCap),
     ...verificationCheckProcedures(checks),
     ...officialChannelProcedures(officialChannels),
+    safety: safetyRouter(safety),
 
     deskPolicy: publicProcedure.query(() => describeSupportDeskPolicy(internalServiceSecret ?? null)),
 
@@ -290,6 +311,13 @@ export function createSupportRouter(
             code: 'BAD_REQUEST',
             message: userCopy(SUPPORT_CATEGORY_UNKNOWN),
             cause: Object.assign(new Error(SUPPORT_CATEGORY_UNKNOWN), { code: SUPPORT_CATEGORY_UNKNOWN }),
+          });
+        // A complaint or a bereavement report is made only through its own form, which acknowledges it once (BK-safe-03).
+        if ((SUPPORT_GUIDED_CATEGORIES as readonly string[]).includes(category.data))
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: userCopy(SUPPORT_CATEGORY_GUIDED),
+            cause: Object.assign(new Error(SUPPORT_CATEGORY_GUIDED), { code: SUPPORT_CATEGORY_GUIDED }),
           });
         const input = { ...wire, category: category.data };
         const userId = ctx.principal!.userId;

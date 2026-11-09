@@ -604,6 +604,12 @@ export function createOpsRouter(c: BankRouterContext) {
            */
           amount: amountString,
           merchantCategory: z.string().min(1).max(64).optional(),
+          /** The merchant and its two-letter country as the issuer names them; a blocked one declines (J-bank-14 #1). */
+          merchant: z.string().min(1).max(64).optional(),
+          merchantCountry: z
+            .string()
+            .regex(/^[A-Za-z]{2}$/)
+            .optional(),
           channel: z.enum(['card-present', 'online', 'contactless', 'atm', 'foreign']).optional(),
           ...actionApprovalFields,
         }),
@@ -640,6 +646,8 @@ export function createOpsRouter(c: BankRouterContext) {
             authorizationRef: input.authorizationRef,
             amount: parseAmount(input.amount),
             ...(input.merchantCategory === undefined ? {} : { merchantCategory: input.merchantCategory }),
+            ...(input.merchant === undefined ? {} : { merchant: input.merchant }),
+            ...(input.merchantCountry === undefined ? {} : { merchantCountry: input.merchantCountry }),
             ...(input.channel === undefined ? {} : { channel: input.channel }),
           });
           return {

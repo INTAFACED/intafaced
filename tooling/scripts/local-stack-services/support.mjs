@@ -52,9 +52,18 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
     ...(process.env.LOCAL_STACK_SUPPORT_OFFICIAL_CHANNELS === 'off'
       ? {}
       : { SUPPORT_OFFICIAL_CHANNELS: loadProfile().values.SUPPORT_OFFICIAL_CHANNELS.value }),
+    // LOCAL TEST only, labelled in the same file: a complaint's final-response limit in calendar days (J-bank-18 #5).
+    // Production stays blank: complaints are still acknowledged and every deadline reads "not set" until the owner sets it.
+    SUPPORT_COMPLAINT_RESPONSE_DAYS: '14',
     // LOCAL TEST only: leads see every group; an agent sees only its own groups' requests, as the desk scopes it. A
     // journey whose agent sees or works a request puts it in the agent's group first (J-support-public-10 #2, #3, #4, #8, #10).
     SUPPORT_ALL_GROUPS_ROLES: 'lead',
+    // LOCAL TEST only: the owner's automatic-offline window is blank on the stack, as in production, so the directory says
+    // automatic offline is not set. `LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW=<seconds>` on a restart of support sets a TEST
+    // window, so a silent agent can be seen going offline (J-support-public-12 #1).
+    ...(/^[1-9][0-9]{0,5}$/.test(process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW ?? '')
+      ? { STAFF_HEARTBEAT_WINDOW_SECONDS: process.env.LOCAL_STACK_SUPPORT_HEARTBEAT_WINDOW }
+      : {}),
     // LOCAL TEST only, labelled in the same file: what a customer reads of the desk's priority and type on their request.
     // Production stays blank and the customer reads neither (support.customer_properties_unset) until the owner chooses.
     SUPPORT_CUSTOMER_SEES: 'priority,type',
@@ -82,5 +91,13 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, CUSTOMER_ORIGIN }) => ({
       ? {}
       : { SUPPORT_GUEST_RATE_LIMIT: '3', SUPPORT_GUEST_RATE_WINDOW_SECONDS: '3600' }),
     SUPPORT_GUEST_RETENTION_DAYS: '30',
+    // LOCAL TEST only, labelled in the same file: live chat (J-support-public-05). The customer messages one chat may send
+    // per window, how long an embedding page's identity claim works, and the pre-chat fields a guest is asked for.
+    // Production stays blank: every chat refuses support.chat_rate_limit_unset and every claim
+    // support.chat_identity_ttl_unset until the owner sets them, and a guest is asked for a first message only.
+    SUPPORT_CHAT_RATE_LIMIT: '30',
+    SUPPORT_CHAT_RATE_WINDOW_SECONDS: '60',
+    SUPPORT_CHAT_IDENTITY_TTL_SECONDS: '300',
+    SUPPORT_CHAT_PRECHAT_FIELDS: 'name,email',
   }),
 });

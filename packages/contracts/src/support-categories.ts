@@ -6,8 +6,25 @@
  */
 import { z } from 'zod';
 
-export const supportTicketCategorySchema = z.enum(['account', 'trading', 'deposit_withdraw', 'phishing', 'fraud_report', 'other']);
+export const supportTicketCategorySchema = z.enum([
+  'account',
+  'trading',
+  'deposit_withdraw',
+  'phishing',
+  'fraud_report',
+  'other',
+  'complaint',
+  'bereavement',
+]);
 export type SupportTicketCategory = z.infer<typeof supportTicketCategorySchema>;
+
+/**
+ * Categories made only through their own guided form, never the general request form: a complaint
+ * (`support.safety.complain`) and a bereavement report (`support.safety.reportBereavement`), each acknowledged once with
+ * its reference (BK-safe-03). The general `support.create` refuses them with `support.category_guided`.
+ */
+export const SUPPORT_GUIDED_CATEGORIES = ['complaint', 'bereavement'] as const satisfies readonly SupportTicketCategory[];
+export const SUPPORT_CATEGORY_GUIDED = 'support.category_guided';
 
 /** A category the service does not offer is refused by name, not as a shape error (SP-tickets-01). */
 export const SUPPORT_CATEGORY_UNKNOWN = 'support.category_unknown';
@@ -30,6 +47,8 @@ export const SUPPORT_CATEGORY_ROUTES = {
   phishing: 'desk',
   fraud_report: 'compliance',
   other: 'desk',
+  complaint: 'desk',
+  bereavement: 'desk',
 } as const satisfies Record<SupportTicketCategory, 'desk' | 'compliance'>;
 
 /** The categories a signed-in person can send, each with where it goes and, when it cannot be sent now, the refusal. */

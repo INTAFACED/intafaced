@@ -1061,7 +1061,12 @@ export type BankErrorCode =
   /** The partner's ramp gave no fee, so the pay amount is not known; no quote was kept. */
   | 'bank.onramp_fee_not_known'
   /** The TEST partner switches exist only on a stack that runs the TEST partner (`BANK_TEST_PARTNER=test`). */
-  | 'bank.test_partner_off';
+  | 'bank.test_partner_off'
+  // ── Card controls (BK-cctl-01, J-bank-14 #1) ───────
+  /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
+  | 'bank.card_control_invalid'
+  /** The control to lift is not a live control of this card. */
+  | 'bank.card_control_not_found';
 
 export class BankError extends Error {
   constructor(

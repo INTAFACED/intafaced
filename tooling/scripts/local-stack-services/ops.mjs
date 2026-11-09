@@ -38,6 +38,9 @@ export default ({ c, secrets, dbUrl, urlOf, PORTS, opsOutreachEnv }) => ({
     OPS_STAFF_HOLD_EXPIRY_MAX_HOURS: '24',
     // Home's owner values (home.config: J-home-ia-01 #4, J-home-ia-02 #5), labelled TEST in the ops profile. Unset, Home's
     // work list refuses home.work_list_cap_unset and the header search's Help group says no limit is set.
+    // Staff incident severities (J-ops-console-19 #10), labelled TEST in the ops profile. Unset, an incident can only be
+    // declared pending and a severity refuses ops.incident_severities_unset.
+    OPS_INCIDENT_SEVERITIES: testValue('OPS_INCIDENT_SEVERITIES'),
     OPS_HOME_WORK_LIST_CAP: testValue('OPS_HOME_WORK_LIST_CAP'),
     OPS_HOME_WORK_LIST_ORDER: testValue('OPS_HOME_WORK_LIST_ORDER'),
     OPS_HOME_SEARCH_RESULT_CAP: testValue('OPS_HOME_SEARCH_RESULT_CAP'),
