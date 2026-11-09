@@ -477,6 +477,23 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
     expect(order1.actionKey).toBe(order(1).clientOrderKey);
   });
 
+  it('an order below the trading level is refused tier.insufficient before anything is stored; a cancel and a withdrawal stay open (J-cex-spot-01 #3)', async () => {
+    const { d, store, connects } = door();
+    const unverified = { ...principal, tier: 'none' } as Principal;
+    await expect(d.prepare(unverified, { owner, signer, intent: order(7) })).rejects.toMatchObject({ code: 'tier.insufficient' });
+    expect(await store.find(USER, order(7).clientOrderKey)).toBeNull();
+    expect(connects()).toBe(0);
+    // A cancel only takes risk off the venue, so a held account can still make one.
+    const cancel = await d.prepare(unverified, {
+      owner,
+      signer,
+      intent: { kind: 'cancel_order', symbol: 'BTC-USDC', clientOrderKey: order(7).clientOrderKey } as VenueIntent,
+    });
+    expect(cancel.actionKey).toBeTruthy();
+    // The same order at the trading level is prepared.
+    expect((await d.prepare(principal, { owner, signer, intent: order(7) })).actionKey).toBe(order(7).clientOrderKey);
+  });
+
   it('a withdrawal prepared in the session cannot be submitted from an API key', async () => {
     const { d } = door();
     const withdraw: VenueIntent = {

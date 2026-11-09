@@ -1,6 +1,6 @@
 import { hashTypedData, recoverTypedDataAddress, type Hex, type TypedDataDefinition } from 'viem';
 import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client/money';
-import { AuthError, isApiKeyPrincipal, type Principal } from '@intafaced/auth';
+import { AuthError, isApiKeyPrincipal, requireTier, type Principal } from '@intafaced/auth';
 import type { StepUpCheck } from '@intafaced/contracts';
 import {
   OWNER_ONLY_INTENTS,
@@ -50,6 +50,15 @@ export function assertInteractive(principal: Principal, kind: VenueIntent['kind'
       'scope.interactive_only',
     );
   }
+}
+
+/**
+ * A new or changed order needs the level the custodial desk's place needs (`basic`, which the trading checks grant:
+ * J-cex-spot-01 #3, OWNER 258 (4)), checked before anything is read, prepared or stored. A cancel, a withdrawal and the
+ * grants stay open below it: they only reduce what is on the venue, so a held account never strands its own funds there.
+ */
+export function assertTradingLevel(principal: Principal, kind: VenueIntent['kind']): void {
+  if (kind === 'place_order' || kind === 'amend_order') requireTier(principal, 'basic');
 }
 
 const MARKET_KINDS_TTL_MS = 60_000;
@@ -304,6 +313,7 @@ export class UserVenueDoor {
       invalid('signer must be { role: owner|agent, address: 0x... }');
     }
     assertInteractive(principal, intent.kind);
+    assertTradingLevel(principal, intent.kind);
     const key = this.businessKey(intent, req.actionKey);
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
