@@ -146,7 +146,10 @@ function AppealForm({ pay, onDone }: { pay: PersonalPayApi; onDone: () => void }
         ) : (
           <form
             className="form-stack"
+            // Named twice on purpose: the heading by id, and the same words directly, so the form keeps its name even when
+            // the id reference doesn't resolve (J-p2p-12 #2 found the form unnamed in a CI build).
             aria-labelledby={formId}
+            aria-label={t('appealForm')}
             onSubmit={(event) => {
               event.preventDefault();
               void send();
