@@ -143,7 +143,8 @@ test(`${J} #4 builds a rule with nested AND and OR, tests it on a fixture accoun
       const rules = await sql`SELECT row_to_json(r)::text AS raw FROM campaigns.rule_library r ORDER BY lower(r.name), r.revision`;
       const drafts = await sql`SELECT row_to_json(c)::text AS raw FROM campaigns.campaigns c WHERE c.name = ${draftName()}`;
       // And the row count of every table svc-campaigns keeps: a test on a fixture account adds a row to none of them.
-      const tables = await sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'campaigns' AND table_type = 'BASE TABLE' ORDER BY table_name`;
+      const tables =
+        await sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'campaigns' AND table_type = 'BASE TABLE' ORDER BY table_name`;
       const counts = {};
       for (const { table_name: t } of tables) counts[t] = (await sql`SELECT count(*)::int AS n FROM ${sql('campaigns')}.${sql(t)}`)[0].n;
       return { rules: rules.map((r) => r.raw), drafts: drafts.map((r) => r.raw), counts };

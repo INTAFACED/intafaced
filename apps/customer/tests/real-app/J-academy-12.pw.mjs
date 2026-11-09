@@ -371,7 +371,8 @@ test(`${J} #3 with an access code and an IP filter set, a start without the code
   expect(userId).toMatch(/^[0-9a-f-]{36}$/);
   const sql = await academyDb();
   try {
-    const [{ n }] = await sql`SELECT count(*)::int AS n FROM academy.course_quiz_attempts WHERE item_id = ${run.quizId} AND user_id = ${userId}`;
+    const [{ n }] =
+      await sql`SELECT count(*)::int AS n FROM academy.course_quiz_attempts WHERE item_id = ${run.quizId} AND user_id = ${userId}`;
     expect(n).toBe(0);
   } finally {
     await sql.end();
