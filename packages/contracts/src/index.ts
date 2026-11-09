@@ -129,6 +129,7 @@ export * from './support-kb-review.js';
 export * from './support-help-centre.js';
 export * from './support-forms.js';
 export * from './support-guest.js';
+export * from './support-safety.js';
 export * from './outreach-public.js';
 export * from './status-page.js';
 export * from './status-subscriptions.js';

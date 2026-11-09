@@ -56,6 +56,11 @@
       "value": "2",
       "note": "The fewest characters a macro shortcode may have, so J-support-public-10 #7 can save a macro. Not an owner decision."
     },
+    "SUPPORT_COMPLAINT_RESPONSE_DAYS": {
+      "service": "support",
+      "value": "14",
+      "note": "A complaint's final-response limit in calendar days, so J-bank-18 #5 can show a deadline. Not an owner decision; blank, every deadline reads not set."
+    },
     "SUPPORT_FRAUD_GROUP": {
       "service": "support",
       "value": "TEST Compliance",

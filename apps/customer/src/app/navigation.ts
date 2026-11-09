@@ -246,6 +246,20 @@ export const rooms: readonly Room[] = [
     area: 'money',
   },
   {
+    path: '/bank/safety/complaint',
+    title: 'Make a complaint',
+    description: 'Acknowledged once, with a reference and a response date',
+    door: 'Money',
+    area: 'money',
+  },
+  {
+    path: '/bank/safety/bereavement',
+    title: 'Report a death',
+    description: 'Tell us that a customer has died',
+    door: 'Money',
+    area: 'money',
+  },
+  {
     path: '/bank/recovery',
     title: 'Recovery claim',
     description: 'Claim the balances of someone who named you',
