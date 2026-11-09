@@ -11,7 +11,7 @@
  * deadline reads `not_set`: no limit is ever made up.
  */
 import { z } from 'zod';
-import { bankTransferIdSchema } from './bank-scam-transfer.js';
+import { bankTransferIdSchema } from './bank-transfer-id.js';
 
 /** What a complaint is about. */
 export const supportComplaintTopicSchema = z.enum(['account', 'cards', 'payments', 'trading', 'support', 'other']);

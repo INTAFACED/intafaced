@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { serviceCallSigner, type ServiceCallSignerOptions } from './service-auth-http.js';
 import type { ServiceName } from './service-keys.js';
+import { bankTransferIdSchema } from './bank-transfer-id.js';
 
 /**
  * Is this transfer one the person sent? Asked by svc-support when someone reports a scam naming a transfer (BK-safe-02,
@@ -21,13 +22,8 @@ export const BANK_SCAM_TRANSFER_PROCEDURE = 'safety.transferSent' as const;
 /** The only service allowed to call it. Passed to `serviceProcedureFor`; the list is enforced under either S2S mode. */
 export const BANK_SCAM_TRANSFER_CALLERS: readonly ServiceName[] = ['svc-support'];
 
-/** svc-bank's own transfer id, as the person's transfer record shows it. */
-export const bankTransferIdSchema = z
-  .string()
-  .trim()
-  .min(8)
-  .max(64)
-  .regex(/^[A-Za-z0-9._:-]+$/);
+/** svc-bank's own transfer id (`bank-transfer-id.ts`, browser-safe), re-exported for the door's callers. */
+export { bankTransferIdSchema };
 
 export const bankScamTransferInputSchema = z
   .object({
