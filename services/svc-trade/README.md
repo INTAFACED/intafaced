@@ -150,6 +150,21 @@ that holds them.
 
 ---
 
+### User-venue door (B1)
+
+Off unless `TRADE_USER_VENUE_URL` is set. The customer's own account on a user-signed venue (today only the TEST
+venue simulator, `tooling/scripts/local-test-venue.mjs`): `GET /api/v1/venue/status` (`{ enabled: false }` when off),
+reads, `POST /api/v1/venue/preview`, `/prepare` and `/submit` (`src/venue/`). The venue prepares, the customer's wallet
+signs, svc-trade submits. Each prepared action and its first signature are stored under the intent's business key in
+`trade.user_venue_actions` before anything is sent, so a second prepare returns the stored action and a re-submit re-sends
+the same bytes; a submit whose answer is lost after send is `definite: false` with where to read it back. A withdrawal
+spends identity's step-up (`trade.step_up.venue.withdraw`) before it is prepared. Our builder fee comes from
+`TRADE_USER_VENUE_BUILDER_ADDRESS` / `TRADE_USER_VENUE_BUILDER_FEE_BPS` (owner values); blank, orders refuse
+`builder_fee_not_published`. A TEST venue is refused unless the raw APP_ENV is dev or test. The ledger posts nothing and
+no event is sent: the venue is the record of balances, locks, fills and withdrawals.
+Venue reads are by wallet address, as on a public venue: the door does not yet bind a wallet to a user (that comes with
+B2's TEST wallet). The withdrawal step-up binds the venue account (`owner`, `subAccount`) with the amount and destination.
+
 ## Events
 
 **Publishes**

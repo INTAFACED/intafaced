@@ -4,7 +4,8 @@ import { SupportDesk } from '@/components/support-desk';
 import { KbPanel } from '@/components/support-kb-panel';
 import { GroupsPanel } from '@/components/support-groups-panel';
 import { StaffPanel } from '@/components/support-staff-panel';
-import { loadGroups, loadKb, loadQueue, loadStaff } from '@/lib/support/server';
+import { RoutingWaiting } from '@/components/support-routing-waiting';
+import { loadGroups, loadKb, loadQueue, loadRoutingWaiting, loadStaff } from '@/lib/support/server';
 import { queueQueryString, type QueueQuery } from '@/lib/support/queue-query';
 
 /**
@@ -17,11 +18,12 @@ import { queueQueryString, type QueueQuery } from '@/lib/support/queue-query';
  */
 export async function SupportDeskPage({ query, ticketId }: { query: QueueQuery; ticketId?: string }) {
   const founder = await requireFounderPage();
-  const [initial, kb, staff, groups] = await Promise.all([
+  const [initial, kb, staff, groups, waiting] = await Promise.all([
     loadQueue(founder, query),
     loadKb(founder),
     loadStaff(founder),
     loadGroups(founder),
+    loadRoutingWaiting(founder),
   ]);
   return (
     // A new address is a new queue: the desk starts again from what the server read for it.
@@ -35,6 +37,7 @@ export async function SupportDeskPage({ query, ticketId }: { query: QueueQuery; 
         <Link href="/support/settings">Contact details for the help centre</Link> ·{' '}
         <Link href="/support/articles">Write and review help articles</Link>
       </p>
+      <RoutingWaiting initial={waiting} />
       <StaffPanel initial={staff} />
       <GroupsPanel initial={groups} />
       <KbPanel initial={kb} />

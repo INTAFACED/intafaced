@@ -39,6 +39,8 @@ export type L3QueueLevel = {
 export type L3Queue = {
   readonly level: 'L3';
   readonly marketId: MarketId;
+  /** The book's own sequence this queue was read at (the same number `/depth` answers); 0 for a book never opened. */
+  readonly sequence: number;
   readonly bids: readonly L3QueueLevel[];
   readonly asks: readonly L3QueueLevel[];
 };
@@ -80,6 +82,7 @@ export type L4Result = {
 type BookView = {
   toState(): { bids: readonly PriceLevelState[]; asks: readonly PriceLevelState[] };
   depth(n: number): { bids: readonly L2Level[]; asks: readonly L2Level[] };
+  readonly currentSequence: number;
 };
 
 type Host = MatchingEngine & {
@@ -102,7 +105,7 @@ function mapLevels(levels: readonly PriceLevelState[]): L3QueueLevel[] {
 }
 
 export function emptyL3(marketId: MarketId): L3Queue {
-  return { level: 'L3', marketId, bids: [], asks: [] };
+  return { level: 'L3', marketId, sequence: 0, bids: [], asks: [] };
 }
 
 export function l3QueueFromBook(book: BookView, marketId: MarketId): L3Queue {
@@ -110,6 +113,7 @@ export function l3QueueFromBook(book: BookView, marketId: MarketId): L3Queue {
   return {
     level: 'L3',
     marketId,
+    sequence: book.currentSequence,
     bids: mapLevels(state.bids),
     asks: mapLevels(state.asks),
   };

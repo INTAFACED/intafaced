@@ -6,7 +6,7 @@
  */
 import type { Timeframe } from '@intafaced/exchange-contract';
 import { requireScope, type Principal } from '@intafaced/auth';
-import { parseAmount } from '@intafaced/ledger-client';
+import { formatAmount, parseAmount, type Amount } from '@intafaced/ledger-client';
 import { queryCandlesFromFills, assertCandleRangeWithinCap, exportOhlcv, OHLC_RECENT_ROW_CAP } from '../candles.js';
 import { publicTapePrint } from '../public-tape.js';
 import { orderIdFor } from '../ids.js';
@@ -392,6 +392,35 @@ export async function publicTape(svc: TradeServiceInternal, marketId: string, li
       ts: row.ts,
     }),
   );
+}
+
+/**
+ * Volume that traded at or through `price` on the side a resting order on `side` waits for, since `sinceMs`: for a
+ * resting buy, taker sells printed at or below its price; for a resting sell, taker buys printed at or above it. One row
+ * per match (the taker leg), summed in SQL so no page cuts it short. Seeded orders are counted here, unlike on the public
+ * tape: the queue this volume is set against counts every resting order, seeded ones included, so both sides of the
+ * estimate measure the same book. Feeds the queue fill estimate (queue-position.ts); a read only.
+ */
+export async function tradedThrough(
+  svc: TradeServiceInternal,
+  marketId: string,
+  side: OrderSide,
+  price: Amount,
+  sinceMs: number,
+): Promise<Amount> {
+  const taker: OrderSide = side === 'buy' ? 'sell' : 'buy';
+  const at = formatAmount(price);
+  const through = side === 'buy' ? svc.sql`f.price <= ${at}::numeric` : svc.sql`f.price >= ${at}::numeric`;
+  const [row] = await svc.sql<Array<{ volume: string | null }>>`
+    SELECT sum(f.qty)::text AS volume
+      FROM trade.fills f
+     WHERE f.market_id = ${marketId}
+       AND f.liquidity = 'taker'
+       AND f.side = ${taker}
+       AND ${through}
+       AND f.ts >= ${new Date(sinceMs)}
+  `;
+  return row?.volume ? parseAmount(row.volume) : 0n;
 }
 
 /**
