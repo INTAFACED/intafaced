@@ -95,4 +95,17 @@ describe('SqlPreparedActionStore on Postgres (trade.user_venue_actions)', () => 
       SELECT prepared #>> '{intent,amount}' AS amount FROM trade.user_venue_actions WHERE business_key = ${key}`;
     expect(row?.amount).toBe('0.123456789012345678');
   });
+
+  it('lists one person’s actions under a key prefix, oldest first, reading `_` and `%` in the prefix literally (J-wallet-22 #8)', async () => {
+    const store = new SqlPreparedActionStore(db!.sql);
+    const base = `session-key:${USER}:test_venue:`;
+    await store.insertOnce(USER, `${base}fam.1`, prepared('300', '60000'), new Date('2026-11-09T10:00:00.000Z'));
+    await store.insertOnce(USER, `${base}fam.2`, prepared('301', '60000'), new Date('2026-11-09T10:00:01.000Z'));
+    // `_` would match any one character under LIKE: this key differs from the prefix only there, and is not listed.
+    await store.insertOnce(USER, `session-key:${USER}:testXvenue:fam.1`, prepared('302', '60000'), new Date('2026-11-09T10:00:02.000Z'));
+    await store.insertOnce('22222222-2222-4222-8222-2222222222b2', `${base}fam.1`, prepared('303', '60000'), new Date());
+    const listed = await store.listByPrefix(USER, base);
+    expect(listed.map((r) => r.businessKey)).toEqual([`${base}fam.1`, `${base}fam.2`]);
+    expect(await store.listByPrefix(USER, `session-key:${USER}:%`)).toEqual([]);
+  });
 });

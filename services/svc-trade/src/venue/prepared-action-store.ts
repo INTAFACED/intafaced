@@ -31,6 +31,8 @@ export interface PreparedActionStore {
    * outcome now stored (the earlier definite one when it was kept).
    */
   recordOutcome(userId: string, businessKey: string, outcome: VenueSubmitOutcome, at: Date): Promise<VenueSubmitOutcome>;
+  /** Every action of this person whose business key starts with `prefix` (the session keys of one venue account, say), oldest first. */
+  listByPrefix(userId: string, prefix: string): Promise<readonly StoredVenueAction[]>;
 }
 
 /** The JSON form both stores keep, so a stored action decodes to the exact action the venue prepared. */
@@ -76,6 +78,12 @@ export class InMemoryPreparedActionStore implements PreparedActionStore {
     const next = { ...row, lastOutcome: wire(outcome) };
     this.rows.set(id, next);
     return next.lastOutcome;
+  }
+
+  async listByPrefix(userId: string, prefix: string) {
+    return [...this.rows.values()]
+      .filter((r) => r.userId === userId && r.businessKey.startsWith(prefix))
+      .sort((a, b) => a.prepared.preparedAt.getTime() - b.prepared.preparedAt.getTime());
   }
 }
 
@@ -137,5 +145,14 @@ export class SqlPreparedActionStore implements PreparedActionStore {
     const stored = await this.find(userId, businessKey);
     if (!stored?.lastOutcome) throw new Error(`no prepared venue action under ${businessKey}`);
     return stored.lastOutcome;
+  }
+
+  async listByPrefix(userId: string, prefix: string) {
+    // starts_with, not LIKE: a key may hold `_` or `%`, which LIKE would read as wildcards.
+    const rows = await this.sql<Row[]>`
+      SELECT user_id, business_key, prepared, signature, last_outcome FROM trade.user_venue_actions
+      WHERE user_id = ${userId} AND starts_with(business_key, ${prefix})
+      ORDER BY created_at, business_key`;
+    return rows.map(fromRow);
   }
 }

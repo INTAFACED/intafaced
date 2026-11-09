@@ -38,6 +38,8 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
  *        /test/switches {venueDown?,withdrawalFee?}       withdrawalFee: MaybeKnown<Amount>
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
+ *        /test/lose-answers {account,count}               the account's next `count` submits apply, answer not definite
+ *        /test/expire-agent {account,agentAddress}        the agent's expiry passes now (it stays listed, expired)
  *        /test/seed                                       TEST makers rest a two-sided ladder on every market
  *
  * TEST ONLY: `startTestVenueServer` refuses to start unless APP_ENV is exactly `dev` or `test`, and binds loopback.
@@ -242,6 +244,15 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
       sim.setMark(str(body, 'symbol'), price as Amount);
       return { ok: true, label: 'TEST' };
     }
+    case '/test/lose-answers': {
+      const count = body.count;
+      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0)
+        throw new VenueWireError('count is required (a whole number)');
+      sim.loseAnswersOn(account(body), count);
+      return { ok: true, label: 'TEST' };
+    }
+    case '/test/expire-agent':
+      return { expired: sim.expireAgent(account(body), str(body, 'agentAddress')), label: 'TEST' };
     case '/test/seed':
       return { ...(await seedTestVenue(sim)), label: 'TEST' };
     default:

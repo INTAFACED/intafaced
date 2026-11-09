@@ -66,7 +66,27 @@ export type UserVenueDoorCode =
   | 'trade.venue_action_key_invalid'
   | 'trade.venue_action_key_reused'
   | 'trade.venue_builder_fee_changed'
-  | 'trade.venue_action_unknown';
+  | 'trade.venue_action_unknown'
+  | 'trade.venue_action_key_reserved'
+  | 'trade.venue_session_key_reused'
+  | 'trade.venue_session_pending'
+  | 'trade.venue_session_none'
+  | 'trade.venue_session_unavailable';
+
+/**
+ * The trading session's keys (J-wallet-22 #8, D-venue-09; src/venue/session-key.ts): the owner's `approve_agent` for a
+ * session key is stored under `session-key:<accountId>:<venueId>:<sessionId>`, and its `revoke_agent` under
+ * `session-key-end:` with the same tail. Only the session routes prepare under these keys, so the rule "a new session
+ * approves a new key, never one used before" cannot be walked around through the plain prepare route.
+ */
+export const SESSION_KEY_PREFIX = 'session-key:';
+export const SESSION_KEY_END_PREFIX = 'session-key-end:';
+const RESERVED_KEY_PREFIXES = [SESSION_KEY_PREFIX, SESSION_KEY_END_PREFIX] as const;
+
+export interface PrepareOptions {
+  /** Set only by the session routes (session-key.ts): lets the action be stored under a reserved session key. */
+  readonly sessionKey?: boolean;
+}
 
 export class UserVenueDoorError extends Error {
   constructor(
@@ -186,6 +206,11 @@ export class UserVenueDoor {
 
   constructor(private readonly deps: UserVenueDoorDeps) {}
 
+  /** The store and clock the trading-session routes read with (session-key.ts). */
+  get sessionDeps(): { readonly store: PreparedActionStore; readonly now: () => Date } {
+    return { store: this.deps.store, now: this.deps.now };
+  }
+
   /** The connected venue, checked against APP_ENV. A failed connect is retried on the next call. */
   async venue(): Promise<UserVenue & { readonly chainId?: number }> {
     if (!this.venuePromise) {
@@ -265,7 +290,7 @@ export class UserVenueDoor {
     return k;
   }
 
-  async prepare(principal: Principal, req: PrepareRequest): Promise<PreparedAnswer> {
+  async prepare(principal: Principal, req: PrepareRequest, opts: PrepareOptions = {}): Promise<PreparedAnswer> {
     const intent = req.intent;
     if (!intent || typeof intent !== 'object' || typeof intent.kind !== 'string') invalid('intent is required');
     if (
@@ -277,6 +302,34 @@ export class UserVenueDoor {
     }
     assertInteractive(principal, intent.kind);
     const key = this.businessKey(intent, req.actionKey);
+    if (!opts.sessionKey && RESERVED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      throw new UserVenueDoorError(
+        `the action key ${JSON.stringify(key)} belongs to the trading session's own routes (/api/v1/venue/session/...)`,
+        'trade.venue_action_key_reserved',
+        409,
+      );
+    }
+    // An agent key (a session key) never signs a withdrawal or an approval: refused here, before a step-up is spent or
+    // the venue is asked, as the venue would refuse it (user-venue.ts `assertSignerMaySign`).
+    if (req.signer.role === 'agent' && OWNER_ONLY_INTENTS.has(intent.kind)) {
+      throw new VenueRefusalError({
+        venueId: (await this.venue()).venue.id,
+        code: 'agent_not_permitted',
+        detail: `an agent key cannot sign ${intent.kind}; only the account owner's wallet can`,
+      });
+    }
+    // A key once approved as a trading session's key is never approved again, by any route (user-venue.ts:177-180).
+    if (!opts.sessionKey && intent.kind === 'approve_agent') {
+      const address = (intent.agentAddress ?? '').toLowerCase();
+      const used = await this.deps.store.listByPrefix(principal.userId, `${SESSION_KEY_PREFIX}${principal.userId}:`);
+      if (used.some((row) => row.prepared.intent.kind === 'approve_agent' && row.prepared.intent.agentAddress.toLowerCase() === address)) {
+        throw new UserVenueDoorError(
+          `${address} was a trading session's key; a key is approved once and never again`,
+          'trade.venue_session_key_reused',
+          409,
+        );
+      }
+    }
 
     // A withdrawal spends identity's step-up first: nothing is read, prepared or stored before it passes.
     if (intent.kind === 'withdraw') {

@@ -181,6 +181,8 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   private readonly marks = new Map<string, Amount>();
   private readonly accounts = new Map<string, AccountState>();
   private readonly submitted = new Map<string, Map<string, SubmittedRecord>>(); // account → nonce → record
+  /** TEST: per account, how many more submits lose their answer (`loseAnswersOn`). */
+  private readonly lostAnswers = new Map<string, number>();
   private readonly book = new Map<string, OrderState[]>(); // symbol → resting orders
   private lastNonce = 0;
   private readonly withdrawalFeeCharged = new Map<string, Amount>();
@@ -235,6 +237,24 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
   /** Move a perpetual's mark price. */
   setMark(symbol: string, price: Amount): void {
     this.marks.set(symbol, price);
+  }
+
+  /** TEST: the next `count` submits on this account are applied and then answered `definite: false` (a lost answer). */
+  loseAnswersOn(account: UserVenueAccount, count: number): void {
+    if (!Number.isSafeInteger(count) || count < 0) throw new Error('count must be a whole number, zero or more');
+    this.lostAnswers.set(accountKey(account), count);
+  }
+
+  /**
+   * TEST: the expiry of this account's agent passes now, as it would when its time came: the venue's record keeps the
+   * agent with its expiry set to now, so it signs nothing more. Returns false when the account has no such agent.
+   */
+  expireAgent(account: UserVenueAccount, agentAddress: string): boolean {
+    const state = this.account(account);
+    const agent = state.agents.get(agentAddress.toLowerCase());
+    if (!agent) return false;
+    state.agents.set(agent.address, { ...agent, validUntil: this.clock() });
+    return true;
   }
 
   /**
@@ -563,6 +583,11 @@ export class TestVenueSimulator implements UserVenue, UserVenueSubAccountReads {
     byNonce.set(prepared.nonce, { digest, outcome });
     if (this.switches.loseAnswers > 0) {
       this.switches.loseAnswers -= 1;
+      return { definite: false, reason: 'timeout' };
+    }
+    const lost = this.lostAnswers.get(key) ?? 0;
+    if (lost > 0) {
+      this.lostAnswers.set(key, lost - 1);
       return { definite: false, reason: 'timeout' };
     }
     return outcome;
