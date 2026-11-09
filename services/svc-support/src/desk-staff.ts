@@ -23,6 +23,14 @@ export interface StaffMember {
   readonly lastHeartbeatAt: string | null;
 }
 
+export interface AvailabilityLogEntry {
+  readonly userId: string;
+  readonly availability: StaffAvailability;
+  readonly by: string;
+  readonly reason: string | null;
+  readonly at: string;
+}
+
 export interface DeskReplay<T> {
   readonly hit: boolean;
   readonly value?: T;
@@ -47,6 +55,8 @@ export interface StaffBook {
   }): Promise<StaffMember | null>;
   /** Stamps the last heartbeat. Returns null when the user is not staff. */
   heartbeat(userId: string, at: string): Promise<StaffMember | null>;
+  /** The availability log, oldest first: one row per change, with who made it and the reason. */
+  availabilityHistory(userId?: string): Promise<AvailabilityLogEntry[]>;
   /** Same key and fingerprint returns the stored value. A different fingerprint refuses. */
   begin(key: string, fingerprint: string): Promise<'new' | 'replay'>;
   save<T>(key: string, value: T): Promise<void>;
@@ -103,6 +113,10 @@ export class MemoryStaffBook implements StaffBook {
     this.members.set(input.userId, next);
     this.availabilityLog.push({ userId: input.userId, availability: input.value, by: input.by, reason: input.reason, at: input.at });
     return next;
+  }
+
+  async availabilityHistory(userId?: string): Promise<AvailabilityLogEntry[]> {
+    return this.availabilityLog.filter((e) => userId === undefined || e.userId === userId).map((e) => ({ ...e }));
   }
 
   async heartbeat(userId: string, at: string): Promise<StaffMember | null> {
@@ -209,6 +223,17 @@ export class SqlStaffBook implements StaffBook {
       `;
       return fromStaff(updated[0]!);
     }) as Promise<StaffMember | null>;
+  }
+
+  async availabilityHistory(userId?: string): Promise<AvailabilityLogEntry[]> {
+    const rows = await this.sql<
+      { user_id: string; availability: StaffAvailability; set_by: string; reason: string | null; set_at: Date | string }[]
+    >`
+      SELECT user_id, availability, set_by, reason, set_at FROM support.staff_availability_log
+      ${userId === undefined ? this.sql`` : this.sql`WHERE user_id = ${userId}`}
+      ORDER BY id ASC
+    `;
+    return rows.map((r) => ({ userId: r.user_id, availability: r.availability, by: r.set_by, reason: r.reason, at: iso(r.set_at) }));
   }
 
   async heartbeat(userId: string, at: string): Promise<StaffMember | null> {

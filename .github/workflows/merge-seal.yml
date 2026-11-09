@@ -67,7 +67,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: node tooling/ci/journey-seal.mjs
-      # The CI review (and the test judge) on this exact head (review-marker.mjs). Only once CI's jobs are green, as before:
+      # The CI review (its Verdict and, for test changes, its Test verdict) on this exact head (review-marker.mjs). Only once CI's jobs are green, as before:
       # it may wait up to 20 minutes for the review.
       - name: Require the CI review on this exact head
         if: ${{ !cancelled() && steps.needed.outcome == 'success' }}
