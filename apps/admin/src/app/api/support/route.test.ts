@@ -651,23 +651,38 @@ describe('staff roster and availability', () => {
     lastHeartbeatAt: null,
     ...over,
   });
+  const row = (userId: string, over: Record<string, unknown> = {}) => ({ groups: [], ...member(userId, over) });
   const policy = { automaticOffline: 'not_set', heartbeatWindowSeconds: null };
+  const overview = { groups: [], staff: [], sweepSeconds: null };
+  const staffRead = (url: string, roster: unknown[]) =>
+    url.includes('/staffList')
+      ? ok(roster)
+      : url.includes('/routingOverview')
+        ? ok(overview)
+        : url.includes('/staffAvailabilityLog')
+          ? ok([])
+          : ok(policy);
   const sent = (fn: ReturnType<typeof vi.fn>) =>
     fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
 
   it('reads the roster and the policy as the founder, each on its own, and names the signed-in person from the session', async () => {
-    const fn = vi.fn(async (url: string, _init?: RequestInit) => (url.includes('/staffList') ? ok([member(FOUNDER)]) : ok(policy)));
+    const fn = vi.fn(async (url: string, _init?: RequestInit) =>
+      staffRead(url, [row(FOUNDER, { groups: [{ id: 'g1', name: 'Payments' }] })]),
+    );
     vi.stubGlobal('fetch', fn);
     const json = await (await get('?view=staff')).json();
     expect(json.meId).toBe(FOUNDER);
     expect(json.roster).toMatchObject({ kind: 'ok', data: [{ userId: FOUNDER }] });
     expect(json.policy).toMatchObject({ kind: 'ok', data: { automaticOffline: 'not_set' } });
+    expect(json.roster.data[0].groups).toEqual([{ id: 'g1', name: 'Payments' }]);
+    expect(json.routing).toMatchObject({ kind: 'ok', data: { staff: [] } });
+    expect(json.log).toMatchObject({ kind: 'ok', data: [] });
   });
 
   it('a roster row it cannot read is a failure, not a shorter roster', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string) => (url.includes('/staffList') ? ok([member(FOUNDER), { userId: U }]) : ok(policy))),
+      vi.fn(async (url: string) => staffRead(url, [row(FOUNDER), { userId: U }])),
     );
     const json = await (await get('?view=staff')).json();
     expect(json.roster.kind).toBe('failed');
@@ -727,28 +742,51 @@ describe('desk groups', () => {
       availability: 'online',
       availabilitySetAt: null,
       lastHeartbeatAt: null,
+      groups: [{ id: GID, name: 'Payments' }],
     },
   ];
+  const overview = {
+    groups: [
+      { groupId: GID, name: 'Payments', mode: 'round_robin', cursorUserId: FOUNDER, setBy: FOUNDER, setAt: '2026-10-20T02:00:00.000Z' },
+    ],
+    staff: [],
+    sweepSeconds: null,
+  };
   const sent = (fn: ReturnType<typeof vi.fn>) =>
     fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
 
   it('reads groups, the scope and the roster as the founder, each on its own', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (url: string) => (url.includes('/groupsList') ? ok([group()]) : url.includes('/deskScope') ? ok(scope) : ok(roster))),
+      vi.fn(async (url: string) =>
+        url.includes('/groupsList')
+          ? ok([group()])
+          : url.includes('/deskScope')
+            ? ok(scope)
+            : url.includes('/routingOverview')
+              ? ok(overview)
+              : ok(roster),
+      ),
     );
     const json = await (await get('?view=groups')).json();
     expect(json.meId).toBe(FOUNDER);
     expect(json.groups).toMatchObject({ kind: 'ok', data: [{ name: 'Payments' }] });
     expect(json.scope).toMatchObject({ kind: 'ok', data: { restricted: true } });
     expect(json.roster.kind).toBe('ok');
+    expect(json.routing).toMatchObject({ kind: 'ok', data: { groups: [{ mode: 'round_robin', cursorUserId: FOUNDER }] } });
   });
 
   it('a group it cannot read is a failure, not a shorter list', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string) =>
-        url.includes('/groupsList') ? ok([group(), { id: GID }]) : url.includes('/deskScope') ? ok(scope) : ok(roster),
+        url.includes('/groupsList')
+          ? ok([group(), { id: GID }])
+          : url.includes('/deskScope')
+            ? ok(scope)
+            : url.includes('/routingOverview')
+              ? ok(overview)
+              : ok(roster),
       ),
     );
     const json = await (await get('?view=groups')).json();
@@ -995,5 +1033,134 @@ describe('merge duplicate requests', () => {
     const json = await (await post({ action: 'merge', ticketId: T1, survivorId: B, reason: 'dup' })).json();
     expect(json.ok).toBe(false);
     expect(json.refusal).toMatchObject({ title: 'Those requests cannot be merged', changed: 'no' });
+  });
+});
+
+describe('routing, capacity, skills and the logs', () => {
+  const GID = '55555555-5555-4555-8555-555555555555';
+  const at = '2026-10-20T02:00:00.000Z';
+  const sent = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.map((c) => ({ url: c[0] as string, body: JSON.parse(((c[1] as RequestInit).body as string) ?? 'null') }));
+
+  it('reads one group’s log as the founder, and refuses a group id that is not one before the network', async () => {
+    const fn = vi.fn(async (_url: string, _init?: RequestInit) =>
+      ok([{ groupId: GID, action: 'created', subject: null, by: FOUNDER, at }]),
+    );
+    vi.stubGlobal('fetch', fn);
+    const json = await (await get(`?view=group_log&id=${GID}`)).json();
+    expect(json).toMatchObject({ groupId: GID, log: { kind: 'ok', data: [{ action: 'created' }] } });
+    expect(fn.mock.calls[0]![0]).toBe(
+      `http://edge:4000/api/support/trpc/groupsLog?input=${encodeURIComponent(JSON.stringify({ groupId: GID }))}`,
+    );
+    expect((await get('?view=group_log&id=x')).status).toBe(400);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a group log row it cannot read is a failure, not a shorter log', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok([{ groupId: GID, action: 'vanished', subject: null, by: FOUNDER, at }])),
+    );
+    expect((await (await get(`?view=group_log&id=${GID}`)).json()).log.kind).toBe('failed');
+  });
+
+  it('reads the requests waiting for an agent', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok([{ ticketId: T1, code: 'support.no_agent_available', since: at }])),
+    );
+    const json = await (await get('?view=routing_waiting')).json();
+    expect(json.waiting).toMatchObject({ kind: 'ok', data: [{ ticketId: T1, code: 'support.no_agent_available' }] });
+  });
+
+  it('reads one request’s routing and the roster, each on its own', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.includes('/ticketRouting')
+          ? ok({ ticketId: T1, requiredSkill: 'kyc', state: 'no_agent', code: 'support.no_agent_available', stateAt: at })
+          : trpcErr(503, 'down'),
+      ),
+    );
+    const json = await (await get(`?view=ticket_routing&id=${T1}`)).json();
+    expect(json.meId).toBe(FOUNDER);
+    expect(json.routing).toMatchObject({ kind: 'ok', data: { requiredSkill: 'kyc', state: 'no_agent' } });
+    expect(json.roster.kind).toBe('failed');
+    expect((await get('?view=ticket_routing&id=nope')).status).toBe(400);
+  });
+
+  it('sets a group’s routing, a person’s capacity and skills, and a request’s skill through the matching procedures', async () => {
+    const fn = vi.fn(async (url: string, _init?: RequestInit) =>
+      url.includes('/routingSetMode')
+        ? ok({
+            routing: { groupId: GID, mode: 'load_balanced', cursorUserId: null, revision: 2, setBy: FOUNDER, setAt: at },
+            routed: [
+              { status: 'assigned', ticketId: T1, assigneeId: U, groupId: GID, mode: 'load_balanced' },
+              { status: 'queued', ticketId: T1, groupId: GID, code: 'support.no_agent_available' },
+            ],
+          })
+        : url.includes('/staffSetRouting')
+          ? ok({ userId: U, capacity: null, skills: ['kyc'] })
+          : ok({
+              routing: { ticketId: T1, requiredSkill: null, state: 'no_agent', stateAt: at },
+              outcome: { status: 'queued', ticketId: T1, groupId: GID, code: 'support.no_agent_available' },
+            }),
+    );
+    vi.stubGlobal('fetch', fn);
+    const mode = await (await post({ action: 'routing_mode', groupId: GID, mode: 'load_balanced' })).json();
+    expect(mode).toMatchObject({ ok: true, action: 'routing_mode' });
+    expect(mode.summary).toContain('Least loaded');
+    expect(mode.summary).toContain('assigned 1 waiting request;');
+    const staff = await (await post({ action: 'staff_routing', userId: U, capacity: null, skills: ['kyc'] })).json();
+    expect(staff.summary).toContain('capacity not set (never assigned automatically), skills kyc');
+    const skill = await (await post({ action: 'ticket_skill', ticketId: T1, skill: null })).json();
+    expect(skill.summary).toContain('needs no skill');
+    expect(skill.summary).toContain('support.no_agent_available');
+    expect(sent(fn)).toEqual([
+      { url: 'http://edge:4000/api/support/trpc/routingSetMode', body: { groupId: GID, mode: 'load_balanced' } },
+      { url: 'http://edge:4000/api/support/trpc/staffSetRouting', body: { userId: U, capacity: null, skills: ['kyc'] } },
+      { url: 'http://edge:4000/api/support/trpc/ticketSetRequiredSkill', body: { ticketId: T1, skill: null } },
+    ]);
+  });
+
+  it('refuses a malformed routing write before the network', async () => {
+    const fn = vi.fn();
+    vi.stubGlobal('fetch', fn);
+    for (const bad of [
+      { action: 'routing_mode', groupId: GID, mode: 'fastest' },
+      { action: 'staff_routing', userId: U, capacity: 1.5, skills: [] },
+      { action: 'staff_routing', userId: U, capacity: 1, skills: ['No Spaces'] },
+      { action: 'ticket_skill', ticketId: T1, skill: '' },
+    ])
+      expect((await post(bad)).status).toBe(400);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('turns svc-support’s routing refusals into plain words that say nothing changed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(403, 'support.not_lead')),
+    );
+    const res = await post({ action: 'routing_mode', groupId: GID, mode: 'off' });
+    expect(res.status).toBe(403);
+    expect((await res.json()).refusal).toMatchObject({ title: 'Only a lead can do that', code: 'support.not_lead', changed: 'no' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => trpcErr(400, 'support.skill_invalid')),
+    );
+    expect((await (await post({ action: 'ticket_skill', ticketId: T1, skill: 'kyc' })).json()).refusal).toMatchObject({
+      title: 'svc-support did not accept a skill',
+      changed: 'no',
+    });
+  });
+
+  it('a routing answer the console cannot read is "not known", not done', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ok({ routing: { groupId: GID }, routed: [] })),
+    );
+    const json = await (await post({ action: 'routing_mode', groupId: GID, mode: 'off' })).json();
+    expect(json.ok).toBe(false);
+    expect(json.refusal.changed).toBe('unknown');
   });
 });
