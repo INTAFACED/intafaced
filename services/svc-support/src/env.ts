@@ -34,6 +34,8 @@ const schema = serviceEnvSchema
        * unknown rather than calling a guessed address. Never a ledger URL.
        */
       TRADE_URL: z.string().url().optional(),
+      /** svc-pay, for its record-ownership door (J-support-public-20 #1). Unset, a withdrawal or deposit link refuses unverifiable. */
+      PAY_URL: z.string().url().optional(),
       /**
        * Seconds without a heartbeat before an online or busy agent reads as
        * offline. Blank is an owner value left unset: availability stays as

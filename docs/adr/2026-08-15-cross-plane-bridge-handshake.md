@@ -1,5 +1,7 @@
 # D26-P4-02 — Cross-plane bridge handshake (ledger ↔ chain · who signs)
 
+> **Later: custody (OWNER 226).** This decision is for the custodial layer: INTAFACED holds no customer money at launch, so it applies when that layer is switched on, not to the launch build. It stays as written.
+
 **Status:** Handshake recorded — 2026-08-15. **Does not** implement `svc-bridge`, protocol, or chain.
 **Board:** D26-P4-02 (`docs/DENON-HARD-PARALLEL-BOARD-2026-08-09.md` (removed) §8).
 **Lane:** `denon-d26-p4-02-bridge-handshake`.

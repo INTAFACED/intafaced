@@ -295,6 +295,9 @@ test('stepsIn keys match the report reader (journey-verdict readReport)', () => 
   assert.deepEqual(stepsIn('J-p2p-01 #9'), ['J-p2p-01#9']);
 });
 
+// A ci.yml seal job a re-check still re-runs: one red on a step only an older ci.yml runs on a pull request (ciSealReads).
+const OLD_CI_STEPS = [{ name: 'Require the named journey steps on this exact head', conclusion: 'failure' }];
+
 test('the recheck re-runs a finished seal whatever its colour, waits out a running one, leaves an unstarted one', async () => {
   const seal = (over) => ({
     id: 9,
@@ -323,7 +326,7 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
   const get = async (path) => {
     calls.push(`GET ${path}`);
     if (path.includes('/workflows/ci.yml/runs')) return { workflow_runs: [ci()] };
-    return { jobs: [seal({ status: polls++ < 2 ? 'in_progress' : 'completed' })] };
+    return { jobs: [seal({ status: polls++ < 2 ? 'in_progress' : 'completed', conclusion: 'failure', steps: OLD_CI_STEPS })] };
   };
   const post = async (path) => (calls.push(`POST ${path}`), { status: 201 });
   const msg = await rerunSealJob({ repo: 'o/r', sha: HEAD, get, post, sleep: async () => {}, log: () => {} });
@@ -333,7 +336,8 @@ test('the recheck re-runs a finished seal whatever its colour, waits out a runni
     ['POST /repos/o/r/actions/jobs/9/rerun'],
   );
   assert.equal(calls.filter((c) => c.includes('check-runs')).length, 0, 'the Checks API is never read');
-  const done = async (path) => (path.includes('/runs?') ? { workflow_runs: [ci()] } : { jobs: [seal()] });
+  const done = async (path) =>
+    path.includes('/runs?') ? { workflow_runs: [ci()] } : { jobs: [seal({ conclusion: 'failure', steps: OLD_CI_STEPS })] };
   await assert.rejects(rerunSealJob({ repo: 'o/r', sha: HEAD, get: done, post: async () => ({ status: 500 }), sleep: async () => {} }));
   assert.match(
     await rerunSealJob({
@@ -488,7 +492,7 @@ test('a Revert title is only the exact form; extra text or an unclosed quote is 
 // Second-model read at f30df036: the recheck re-runs the newest pull_request run that has a seal job. A newer run that
 // finished with none (cancelled before its jobs) does not hide an older run's seal.
 test('the recheck skips a finished CI run with no seal job and re-runs the newest seal there is', async () => {
-  const sealJob = (id, over) => ({ id, name: SEAL, status: 'completed', conclusion: 'failure', ...over });
+  const sealJob = (id, over) => ({ id, name: SEAL, status: 'completed', conclusion: 'failure', steps: OLD_CI_STEPS, ...over });
   const ci = (id, over) => ({ id, event: 'pull_request', status: 'completed', ...over });
   const runs = [ci(78, { conclusion: 'cancelled' }), ci(77)];
   const jobs = { 78: [], 77: [sealJob(9)] };
@@ -965,7 +969,7 @@ test('journey-seal-recheck.yml passes the old body to the recheck as an env valu
 // each skip has its own test, and each test fails on its own planted fault.
 const STALE_OLD = 'b'.repeat(40);
 const STALE_NEW = 'c'.repeat(40);
-const recheckSeal = (over) => ({ id: 9, name: SEAL, status: 'completed', conclusion: 'success', ...over });
+const recheckSeal = (over) => ({ id: 9, name: SEAL, status: 'completed', conclusion: 'failure', steps: OLD_CI_STEPS, ...over });
 const ciRun = (id, over) => ({ id, event: 'pull_request', status: 'completed', head_sha: STALE_OLD, ...over });
 const pr7398 = (over) => ({ number: 7398, state: 'open', head: { sha: STALE_OLD, ref: 'b1' }, ...over });
 // `runs(i)` and `jobs(i)` answer the i-th read of the head's runs; `blocker(i)` is read with the same counter, so a
@@ -1576,6 +1580,7 @@ test('recheckTargets: after CI every open pull request on the head is re-sealed;
     head: { sha },
     base: { repo: { full_name: 'o/r' } },
     body: '',
+    auto_merge: { merge_method: 'squash' },
     ...over,
   });
   const pulls = [
@@ -1595,6 +1600,57 @@ test('recheckTargets: after CI every open pull request on the head is re-sealed;
     journeys.map((p) => p.number),
     [2],
     'a journeys run re-seals only what names or touches journeys',
+  );
+});
+
+test('recheckTargets: only pull requests with auto-merge armed are re-sealed, and arming re-seals that one whatever it names (#1574 item 4)', async () => {
+  const { recheckTargets, ARMED, armed } = await import('./journey-seal.mjs');
+  const sha = 'c'.repeat(40);
+  const pr = (number, title, auto_merge) => ({
+    number,
+    title,
+    state: 'open',
+    head: { sha },
+    base: { repo: { full_name: 'o/r' } },
+    body: '',
+    auto_merge,
+  });
+  const on = { merge_method: 'squash' };
+  const pulls = [pr(1, 'fix the copy', on), pr(2, 'J-bank-13 #1 pays', null), pr(3, 'J-bank-13 #2 pays', on), pr(4, 'no field')];
+  delete pulls[3].auto_merge;
+  const filesOf = async () => ['services/svc-pay/src/a.test.ts'];
+  assert.deepEqual(
+    [on, null, undefined].map((a) => armed({ auto_merge: a })),
+    [true, false, false],
+  );
+  const numbers = async (finished, list = pulls) =>
+    (await recheckTargets({ finished, pulls: list, sha, repo: 'o/r', filesOf })).map((p) => p.number);
+  assert.deepEqual(await numbers('CI'), [1, 3], 'after CI: every armed pull request on the head, none that is not armed');
+  assert.deepEqual(await numbers('Real-app journeys'), [3], 'after a journeys run: armed and naming steps');
+  assert.deepEqual(await numbers(''), [3], 'after an edit: armed and naming steps');
+  assert.deepEqual(await numbers(ARMED, [pulls[0]]), [1], 'on arming: the armed pull request, whatever its title names');
+  assert.deepEqual(await numbers(ARMED, [pr(5, 'J-x #1', null)]), [], 'disarmed again before the re-check read it: left alone');
+  // Planted: without the filter, an unarmed pull request named by its title would be re-sealed after a journeys run.
+  const unfiltered = await recheckTargets({
+    finished: 'Real-app journeys',
+    pulls: pulls.map((p) => ({ ...p, auto_merge: on })),
+    sha,
+    repo: 'o/r',
+    filesOf,
+  });
+  assert.deepEqual(
+    unfiltered.map((p) => p.number),
+    [2, 3],
+  );
+});
+
+test('journey-seal-recheck.yml: arming auto-merge starts a re-check, and an edit of a pull request not armed takes no runner', () => {
+  const text = readFileSync('.github/workflows/journey-seal-recheck.yml', 'utf8');
+  assert.match(text, /pull_request_target:\n\s+types: \[edited, auto_merge_enabled\]/);
+  assert.match(text, /github\.event_name == 'pull_request_target' && github\.event\.pull_request\.auto_merge &&/);
+  assert.match(
+    text,
+    /FINISHED: \$\{\{ github\.event\.workflow_run\.name \|\| \(github\.event\.action == 'auto_merge_enabled' && 'armed'\) \|\| '' \}\}/,
   );
 });
 
@@ -1661,13 +1717,40 @@ test('review 7552-R2: a reopen leaves an older red seal run on the head; the re-
   assert.ok(!posted.includes('320'), 'a skipped seal is never re-run');
 });
 
+/** Problems with merge-seal.yml's seal job skipping, or []: it may skip only a first attempt whose `now` job decided,
+ *  without error, that the seal waits for its inputs; and its name must be that same expression, valued `CI merge
+ *  seal`, so a skipped run never reports under the seal's name (probe intafaced#7679). */
+function sealJobSkipProblems(text) {
+  const job = text.split('\n  seal:\n')[1] ?? '';
+  const cond = "github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true'";
+  const ifs = [...job.matchAll(/\n {4}if: ([^\n]*)/g)].map((m) => m[1].trim());
+  const name = /\n {4}name: ([^\n]*)/.exec(job)?.[1]?.trim() ?? '';
+  const out = [];
+  if (ifs.length !== 1) out.push(`the seal job needs exactly one job-level if:, has ${ifs.length}`);
+  if (ifs[0] !== `\${{ !cancelled() && (${cond}) }}`)
+    out.push(`the seal job's if: must be \`!cancelled() && (${cond})\` (a failed decision seals at once), not \`${ifs[0]}\``);
+  if (name !== `\${{ (${cond}) && 'CI merge seal' || 'CI merge seal waits for CI, the CI review and the journeys it needs' }}`)
+    out.push(`a skippable seal job needs its name as the same expression, never a static name: \`${name}\``);
+  if (!/\n {2}now:\n {4}name: [^\n]+\n {4}if: github\.run_attempt == '1'\n/.test(text))
+    out.push('the `now` job must ask on a first attempt only');
+  return out;
+}
+
 test('review 7552-R1: merge-seal.yml seals a pull request retargeted to main (edited, base change only)', () => {
   const text = readFileSync(new URL('../../.github/workflows/merge-seal.yml', import.meta.url), 'utf8');
   assert.match(text, /types: \[opened, synchronize, reopened, edited\]/);
-  // Review 7552-R6: never a skipped seal job (GitHub counts it as passing); every edit runs the whole seal.
-  assert.doesNotMatch(text.split('\njobs:')[1], /\n {4}if:/, 'the seal job has no if: that could skip it');
+  // Review 7552-R6: a skipped job counts as passing a required check, so a skipped seal job is never named `CI merge seal`.
+  assert.deepEqual(sealJobSkipProblems(text), []);
+  // Planted: a static name beside the `if:` would leave a skipped, passing `CI merge seal` on every waiting head.
+  assert.match(
+    sealJobSkipProblems(text.replace(/name: \$\{\{ \(github\.run_attempt[^\n]*\n/, 'name: CI merge seal\n')).join(),
+    /static name/,
+  );
+  // Planted: without `needs.now.result != 'success'`, a decision that errored would skip the seal instead of sealing now.
+  assert.match(sealJobSkipProblems(text.replaceAll(" || needs.now.result != 'success'", '')).join(), /failed decision/);
+  // Planted: a `now` job on every attempt would let a re-run skip again, so the seal would never give its verdict.
+  assert.match(sealJobSkipProblems(text.replace("    if: github.run_attempt == '1'\n", '')).join(), /first attempt only/);
   assert.match(text, /branches: \[main\]/);
-  // Planted: without `edited`, a retarget to main starts no seal run here.
   assert.doesNotMatch(text.replace('reopened, edited', 'reopened'), /reopened, edited/);
 });
 
@@ -1686,4 +1769,259 @@ test('after CI finished, only the default branch seal is re-run; re-running ci.y
     ['ci.yml', 'merge-seal.yml'],
     'an edit re-runs both',
   );
+});
+
+// ---- One seal verdict per head per finished CI run (INTAFACED/project-state#1574, 9 Nov 2026) ----------------------
+
+test("#1574: ci.yml's seal is re-run only when it is red on a step only an older ci.yml runs on a pull request", async () => {
+  const { ciSealReads, PR_READ_STEPS } = await import('./journey-seal.mjs');
+  const step = (name, conclusion) => ({ name, conclusion });
+  assert.deepEqual([...PR_READ_STEPS], ['Require the named journey steps on this exact head', 'Require the CI review on this exact head']);
+  assert.equal(ciSealReads({ conclusion: 'failure', steps: [step('Require needed jobs', 'failure')] }), false, 'red on CI jobs');
+  assert.equal(ciSealReads({ conclusion: 'success', steps: [step('Require the CI review on this exact head', 'success')] }), false);
+  assert.equal(ciSealReads({ conclusion: 'failure', steps: [step('Require the CI review on this exact head', 'skipped')] }), false);
+  assert.equal(ciSealReads({ conclusion: 'failure' }), false, 'no steps read: never re-run');
+  assert.equal(ciSealReads(undefined), false);
+  assert.equal(ciSealReads({ conclusion: 'failure', steps: [step('Require the CI review on this exact head', 'failure')] }), true);
+  assert.equal(ciSealReads({ conclusion: 'failure', steps: OLD_CI_STEPS }), true);
+
+  // Through rerunSealJob: a ci.yml seal red on CI's own jobs, or green, posts nothing (a post would be a new CI attempt,
+  // whose end starts another re-check); one red on the old journey step is re-run once.
+  const run = (id) => ({ id, event: 'pull_request', status: 'completed' });
+  const sealOf = (over) => ({ id: 9, name: SEAL, status: 'completed', ...over });
+  const go = async (jobs, runs = [run(77)]) => {
+    const posts = [];
+    const msg = await rerunSealJob({
+      repo: 'o/r',
+      sha: HEAD,
+      get: async (path) => (path.includes('/runs?') ? { workflow_runs: runs } : { jobs: jobs[/runs\/(\d+)\/jobs/.exec(path)[1]] }),
+      post: async (path) => (posts.push(path), { status: 201 }),
+      sleep: async () => {},
+      log: () => {},
+    });
+    return { msg, posts };
+  };
+  let r = await go({ 77: [sealOf({ conclusion: 'failure', steps: [step('Require needed jobs', 'failure')] })] });
+  assert.deepEqual(r.posts, [], r.msg);
+  assert.match(r.msg, /^not re-run: ci\.yml's seal job 9 reads only CI's own jobs/);
+  r = await go({ 77: [sealOf({ conclusion: 'success', steps: [] })] });
+  assert.deepEqual(r.posts, [], 'a green ci.yml seal is left: merge-seal.yml decides the steps and the review');
+  r = await go({ 77: [sealOf({ conclusion: 'failure', steps: OLD_CI_STEPS })] });
+  assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/9/rerun']);
+  // An older ci.yml run on the head, red on CI's jobs, is not re-run beside the newest (otherSeals).
+  r = await go(
+    {
+      78: [sealOf({ id: 10, conclusion: 'failure', steps: OLD_CI_STEPS })],
+      77: [sealOf({ conclusion: 'failure', steps: [step('Require needed jobs', 'failure')] })],
+    },
+    [run(78), run(77)],
+  );
+  assert.deepEqual(r.posts, ['/repos/o/r/actions/jobs/10/rerun'], r.msg);
+  // Planted: merge-seal.yml's seal is re-run whatever it failed on (it reads the steps and the review).
+  const posts = [];
+  await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get: async (path) =>
+      path.includes('/runs?')
+        ? { workflow_runs: [{ id: 5, event: 'pull_request_target', status: 'completed' }] }
+        : { jobs: [sealOf({ id: 50, conclusion: 'failure', steps: [step("Require CI's jobs on this exact head", 'failure')] })] },
+    post: async (path) => (posts.push(path), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: 'pull_request_target',
+  });
+  assert.deepEqual(posts, ['/repos/o/r/actions/jobs/50/rerun']);
+});
+
+test('#1574: a re-check takes a runner only for a finished input run, never a cancelled or skipped one', () => {
+  const text = readFileSync('.github/workflows/journey-seal-recheck.yml', 'utf8');
+  const cond = text.split('\n    if: >-\n')[1].split('\n    runs-on:')[0].replace(/\s+/g, ' ');
+  assert.match(text, /workflows: \[Real-app journeys, CI, CI review\]/);
+  assert.match(
+    cond,
+    /github\.event\.workflow_run\.conclusion != 'cancelled' && github\.event\.workflow_run\.conclusion != 'skipped' && \(\(github\.event\.workflow_run\.name == 'CI' && github\.event\.workflow_run\.event == 'pull_request'\) \|\| \(github\.event\.workflow_run\.name != 'CI' && github\.event\.workflow_run\.head_branch != 'main' && github\.event\.workflow_run\.head_repository\.full_name == github\.repository\)\)/,
+  );
+  // Planted: without the conclusion filter, every cancelled run (a superseded push) takes a runner.
+  assert.doesNotMatch(cond.replace("github.event.workflow_run.conclusion != 'cancelled' && ", ''), /conclusion != 'cancelled'/);
+});
+
+test("#1574: on a pull request ci.yml's seal reads only CI's own jobs and the switch; the steps and the review are merge-seal.yml's", () => {
+  const ci = readFileSync('.github/workflows/ci.yml', 'utf8');
+  const seal = ci.split('\n  merge-seal:\n')[1].split(/\n {2}[a-z][a-z0-9-]*:\n/)[0];
+  const ifOf = (name) => new RegExp(`- name: ${name}\\n\\s+if: ([^\\n]+)`).exec(seal)?.[1] ?? '';
+  for (const name of PR_READ_STEPS_LIST)
+    assert.match(ifOf(name), /github\.event_name == 'merge_group'/, `${name} runs only on a merge queue's commit`);
+  assert.match(ifOf('The factory switch says run'), /github\.event_name == 'pull_request'/);
+  // merge-seal.yml, the default branch's copy, still runs both on every pull request, with no `if:` that skips them for one.
+  const ms = readFileSync('.github/workflows/merge-seal.yml', 'utf8');
+  assert.match(ms, /- name: Require the named journey steps on this exact head\n\s+if: \$\{\{ !cancelled\(\) \}\}/);
+  assert.match(
+    ms,
+    /- name: Require the CI review on this exact head\n\s+if: \$\{\{ !cancelled\(\) && steps\.needed\.outcome == 'success' \}\}/,
+  );
+});
+const PR_READ_STEPS_LIST = ['Require the named journey steps on this exact head', 'Require the CI review on this exact head'];
+
+// ---- One verdict once the inputs finish: the first attempt waits with no check on the head (#1574) -----------------
+
+test('#1574 sealNow: a first attempt waits only when nothing could stand in for the seal and an input is still going', async () => {
+  const { sealNow, CI_JOBS_NAME } = await import('./journey-seal.mjs');
+  const newCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
+  const going = ['CI run 1 (in_progress)'];
+  assert.deepEqual(sealNow({ files: ['services/a.ts'], headCi: newCi, going }).now, false, 'waits');
+  // Planted, each seals at once (red while waiting, as before), since a pass of its own could stand in for the seal:
+  assert.equal(sealNow({ files: ['.github/workflows/x.yml'], headCi: newCi, going }).now, true, 'a workflow change');
+  assert.equal(sealNow({ files: ['.github/actions/a/action.yml'], headCi: newCi, going }).now, true, 'an action change');
+  assert.equal(
+    sealNow({ files: ['services/a.ts'], headCi: 'jobs:\n  merge-seal:\n    name: CI merge seal\n', going }).now,
+    true,
+    'an old ci.yml',
+  );
+  assert.equal(sealNow({ files: ['services/a.ts'], headCi: null, going }).now, true, 'no ci.yml at the head');
+  // Every input already finished (the first attempt got its runner late): seal now, since no re-check is coming.
+  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going: [] }).now, true);
+  // The name sealNow looks for is the one main's ci.yml gives its job.
+  assert.match(
+    readFileSync('.github/workflows/ci.yml', 'utf8'),
+    new RegExp(`\\n    name: ${CI_JOBS_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n`),
+  );
+});
+
+test('#1574 inputsGoing: CI and the review always count; journeys only when the change needs them', async () => {
+  const { inputsGoing } = await import('./journey-seal.mjs');
+  const sha = HEAD;
+  const runsOf = {
+    'ci.yml': [{ id: 1, head_sha: sha, event: 'pull_request', status: 'completed' }],
+    'ci-review.yml': [{ id: 2, head_sha: sha, event: 'pull_request_target', status: 'completed' }],
+    'real-app-journeys.yml': [{ id: 3, head_sha: sha, event: 'pull_request', status: 'queued' }],
+  };
+  assert.deepEqual(inputsGoing({ sha, runsOf, needJourneys: false }), [], 'a change that reaches no journey never waits for one');
+  assert.deepEqual(inputsGoing({ sha, runsOf, needJourneys: true }), ['Real-app journeys run 3 (queued)']);
+  runsOf['ci.yml'].push({ id: 4, head_sha: sha, event: 'pull_request', status: 'in_progress' });
+  runsOf['ci-review.yml'].push({ id: 5, head_sha: 'f'.repeat(40), event: 'pull_request_target', status: 'in_progress' });
+  assert.deepEqual(
+    inputsGoing({ sha, runsOf, needJourneys: false }),
+    ['CI run 4 (in_progress)'],
+    "another head's review is not this head's input",
+  );
+});
+
+test('#1574 recheckStep: a waiting first attempt is started whole; a verdict, once given, is re-run in place', async () => {
+  const waitingJob = {
+    id: 8,
+    name: "${{ (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') && 'CI merge seal' || '...' }}",
+    status: 'completed',
+    conclusion: 'skipped',
+  };
+  const nowJob = { id: 7, name: 'Does the seal wait for its inputs', status: 'completed', conclusion: 'success' };
+  const run = (id, over) => ({ id, event: 'pull_request_target', status: 'completed', ...over });
+  const J = (o) => new Map(Object.entries(o));
+  const e = 'pull_request_target';
+  assert.deepEqual(recheckStep([run(5)], J({ 5: [nowJob, waitingJob] }), e), {
+    act: 'start',
+    runId: '5',
+    msg: 'run 5 waits for its inputs',
+  });
+  // An edit's newer waiting run beside a push's run that already gave its verdict: the verdict is re-run, not a second one.
+  const verdict = { id: 9, name: SEAL, status: 'completed', conclusion: 'failure' };
+  assert.deepEqual(recheckStep([run(5), run(6)], J({ 6: [nowJob, waitingJob], 5: [verdict] }), e), {
+    act: 'rerun',
+    runId: '5',
+    jobId: '9',
+  });
+  // A first attempt still deciding: wait, so a seal it skips is then started (never `done`, which would strand it).
+  assert.equal(recheckStep([run(5, { status: 'in_progress' })], J({ 5: [{ ...nowJob, status: 'in_progress' }] }), e).act, 'wait');
+  // ci.yml's `CI jobs` on a head is no seal: done, not a failure.
+  const ci = { id: 1, event: 'pull_request', status: 'completed' };
+  assert.equal(recheckStep([ci], J({ 1: [{ id: 2, name: 'CI jobs', status: 'completed', conclusion: 'success' }] })).act, 'done');
+  // Planted: a run with no seal, no waiting job and no `CI jobs` is still said, never passed.
+  assert.equal(recheckStep([ci], J({ 1: [{ id: 2, name: 'Format', status: 'completed', conclusion: 'success' }] })).act, 'fail');
+
+  // rerunSealJob starts the waiting run with a whole-run re-run (a skipped job has no attempt to re-run by itself).
+  const posts = [];
+  const msg = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get: async (path) => (path.includes('/runs?') ? { workflow_runs: [run(5)] } : { jobs: [nowJob, waitingJob] }),
+    post: async (path) => (posts.push(path), { status: 201 }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: e,
+  });
+  assert.deepEqual(posts, ['/repos/o/r/actions/runs/5/rerun'], msg);
+  // A head that moved is never started (the re-run would judge a head nobody can merge).
+  const none = [];
+  const skipped = await rerunSealJob({
+    repo: 'o/r',
+    sha: HEAD,
+    get: async (path) => (path.includes('/runs?') ? { workflow_runs: [run(5)] } : { jobs: [nowJob, waitingJob] }),
+    post: async (path) => (none.push(path), { status: 201 }),
+    blocker: async () => ({ act: 'skip', msg: '#1 moved' }),
+    sleep: async () => {},
+    log: () => {},
+    workflow: 'merge-seal.yml',
+    event: e,
+  });
+  assert.deepEqual(none, []);
+  assert.match(skipped, /^not started: #1 moved/);
+});
+
+test('#1574 readGoing: the re-check leaves the seal alone while an input on the head is still going', async () => {
+  const { readGoing } = await import('./journey-seal.mjs');
+  const reads = [];
+  const get = async (path) => {
+    reads.push(path);
+    if (path.includes('/workflows/ci.yml/runs'))
+      return { workflow_runs: [{ id: 1, head_sha: HEAD, event: 'pull_request', status: 'completed' }] };
+    if (path.includes('/workflows/ci-review.yml/runs'))
+      return { workflow_runs: [{ id: 2, head_sha: HEAD, event: 'pull_request_target', status: 'in_progress' }] };
+    if (path.includes('/workflows/real-app-journeys.yml/runs')) return { workflow_runs: [] };
+    if (path.includes('/files')) return [{ filename: 'docs/a.md' }];
+    throw new Error(path);
+  };
+  const going = await readGoing({ get, repo: 'o/r', sha: HEAD, pulls: [{ number: 3, title: 'docs: a' }] });
+  assert.deepEqual(going, ['the CI review run 2 (in_progress)']);
+  assert.ok(reads.some((r) => r.includes('ci-review.yml/runs?head_sha=') && r.includes('event=pull_request_target')));
+  // Planted: an unreadable list fails the re-check, never reads as nothing going.
+  await assert.rejects(readGoing({ get: async () => ({}), repo: 'o/r', sha: HEAD, pulls: [] }), /not a list/);
+});
+
+test('CI review on e1ba6699: a green verdict never stands while its inputs change; an edit re-judges at once', async () => {
+  const { sealNow, whileGoing, readVerdicts, CI_JOBS_NAME } = await import('./journey-seal.mjs');
+  const newCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
+  const going = ['the CI review run 2 (in_progress)'];
+  // An edit (or reopen) on a head that already has a verdict: seal now, so the old green can't stand for the new title.
+  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going, verdict: true }).now, true);
+  // Planted: the first push of a head, no verdict yet, still waits.
+  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going, verdict: false }).now, false);
+  // The re-check: an input still going and a green verdict on the head: re-run it now (it then waits or goes red).
+  assert.equal(whileGoing({ going, green: true }), 'rerun-green');
+  // A red verdict already blocks, and no verdict is no check: leave both until the last input ends.
+  assert.equal(whileGoing({ going, green: false }), 'leave');
+  assert.equal(whileGoing({ going: [], green: false }), 'seal');
+  // readVerdicts reads merge-seal.yml's latest-attempt seal jobs on the head.
+  const get = async (path) =>
+    path.includes('/workflows/merge-seal.yml/runs')
+      ? {
+          workflow_runs: [
+            { id: 5, head_sha: HEAD },
+            { id: 6, head_sha: HEAD },
+          ],
+        }
+      : {
+          jobs: /runs\/5\//.test(path)
+            ? [{ name: SEAL, status: 'completed', conclusion: 'success' }]
+            : [{ name: 'Does the seal wait for its inputs', status: 'completed', conclusion: 'success' }],
+        };
+  assert.deepEqual(await readVerdicts({ get, repo: 'o/r', sha: HEAD }), { any: true, green: true });
+  const none = async (path) =>
+    path.includes('/runs?')
+      ? { workflow_runs: [{ id: 6, head_sha: HEAD }] }
+      : { jobs: [{ name: 'x', status: 'completed', conclusion: 'skipped' }] };
+  assert.deepEqual(await readVerdicts({ get: none, repo: 'o/r', sha: HEAD }), { any: false, green: false });
+  // Planted: an unreadable list fails, never reads as "no verdict".
+  await assert.rejects(readVerdicts({ get: async () => ({}), repo: 'o/r', sha: HEAD }), /not a list/);
 });

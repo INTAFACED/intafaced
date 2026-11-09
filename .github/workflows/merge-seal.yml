@@ -4,36 +4,88 @@ name: CI merge seal
 # script it runs are the default branch's: a pull request can't change, drop or replace the check that judges it. It never
 # checks out, builds or runs a pull request's code; it reads the pull request, and the runs on its head, through the API.
 #
-# ci.yml keeps its own seal job, which a pull request runs in its own version and so could edit. Every Actions job named
-# `CI merge seal` on a head must pass (probe #7547: a red one blocked the merge though a green one finished after it), so
-# this seal decides whatever a pull request does to that one or adds beside it. ci.yml's job stays, so the change that
-# adds this file is sealed too (main had no merge-seal.yml to run for it), and so is the merge queue's commit, which
-# pull_request_target never reaches: its required check is ci.yml's, on a commit holding only pull requests this passed.
+# ci.yml keeps a job that judges CI's own jobs, named `CI merge seal` only on a merge queue's commit, which
+# pull_request_target never reaches; on a pull request it is `CI jobs`, so it never answers for this check. Every Actions
+# job named `CI merge seal` on a head must pass (probe #7547: a red one blocked the merge though a green one finished
+# after it).
 #
-# A head can hold several runs of this seal (a push, a reopen, each edit), and an older red run blocks until re-run, so
-# every red one is re-run in place: journey-seal-recheck.yml when CI or a Real-app journeys run on the head finishes, or
-# the title or body is edited (otherSeals); the CI review job when its verdict lands (seal-rerun.mjs sealsByRun); the
-# factory switch on a flip.
+# One verdict per head, once its inputs have finished (INTAFACED/project-state#1574, 9 Nov 2026). A push, open, reopen
+# or edit starts a run whose first attempt asks whether to seal now (the `now` job). Usually it waits: the seal job is
+# skipped, the head holds no `CI merge seal` check, and a missing required check blocks the merge. When the last input
+# finishes (CI, the CI review, the journeys run the change needs), journey-seal-recheck.yml re-runs this run, and that
+# attempt is the verdict. A change that touches .github/, or whose head's ci.yml predates `CI jobs`, seals at once as
+# before, since it could pass a seal job of its own while this one waits. Before this the seal was red from every push
+# until a re-run: 375 of 510 runs ended red in the 24 h to 10:00 UTC on 9 Nov, and one run reached 7 attempts.
+# An older red verdict left on the head (a reopen) is re-run in place: journey-seal-recheck.yml (otherSeals), the CI
+# review job when its verdict lands (seal-rerun.mjs sealsByRun), the factory switch on a flip.
 on:
   pull_request_target:
     branches: [main]
-    # `edited`: a pull request retargeted to main gets this seal too, so its own ci.yml seal never decides alone (review
-    # 7552-R1). Every edit runs the whole seal, never a skipped job: GitHub counts a skipped job as passing a required
-    # check, so a skipped seal could stand in for one that never judged the head (review 7552-R6). Fails closed.
+    # `edited`: a pull request retargeted to main gets this seal too (review 7552-R1). An edit, like a push, asks whether
+    # to seal now; when a verdict is already on the head it seals at once, so an earlier green never stands for the new
+    # title or body (CI review on e1ba6699). Fails closed: a missing seal blocks, and a running one does too.
     types: [opened, synchronize, reopened, edited]
 
 permissions: {}
 
-# A group of its own per run, never cancelled: a cancelled seal is a red required check that would block its head until
-# re-run, and GitHub cancels a pending run whenever a newer one queues in the same group. An older head's seal finishes
-# on its own head and never blocks the newer one (workflow-concurrency.test.mjs PR_EXCEPTIONS).
+# One group per pull request (INTAFACED/project-state#1574 item 2; the OG at 03:13 UTC on 9 Nov 2026: on one head the
+# seal piled up 2 or 3 queued runs per pull request while its group was per run). In that group:
+#   - a push (`synchronize`) or an open (`opened`) cancels the run there, which is an older head's: every `synchronize`
+#     is a new head and `opened` the first run. That seal's verdict is on a head nobody can merge, so nobody reads it;
+#   - an edit or a reopen never cancels (cancel-in-progress false): it runs on the head being merged, and a running seal
+#     cancelled there is a red required check that blocks it until re-run (every `CI merge seal` on a head must pass,
+#     probe #7547; pr-checks.yml dropped `edited` for this). GitHub keeps one waiting run per group, so a newer event
+#     replaces a waiting one; a replaced run never started a job, so it leaves no check run, red or green, on the head,
+#     and the run that replaced it seals the same head with the newer title and body.
+#   - a re-run (run_attempt above 1: journey-seal-recheck.yml, the CI review's seal re-run, the factory switch) keeps a
+#     group of its own: it is never cancelled or replaced, and re-running an old head's seal never cancels the new
+#     head's. A re-run is posted only while the pull request is still on that head (journey-seal.mjs rerunBlocker,
+#     seal-rerun.mjs moved), and re-running the newest seal and then an older red one on one head cancels neither.
+# Main is never touched: this runs on pull requests only. workflow-concurrency.test.mjs holds this.
 concurrency:
-  group: merge-seal-${{ github.run_id }}
-  cancel-in-progress: false
+  # An edit that is not a retarget (its job is skipped) keeps a group of its own: in the pull request's group it could
+  # replace a waiting push's seal and leave the new head with none.
+  group: ${{ github.run_attempt == '1' && (github.event.action != 'edited' || github.event.changes.base) && format('merge-seal-pr-{0}', github.event.pull_request.number) || format('merge-seal-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.run_attempt == '1' && (github.event.action == 'synchronize' || github.event.action == 'opened') }}
 
 jobs:
+  # One verdict once the seal's inputs have finished (journey-seal.mjs sealNow; INTAFACED/project-state#1574). A first
+  # attempt asks whether to seal now; when it waits, the seal job below is skipped and journey-seal-recheck.yml re-runs
+  # this run when the last input (CI, the CI review, the journeys the change needs) finishes. It seals now when the change
+  # touches .github/ or its head's ci.yml still names its job `CI merge seal`: either could pass a seal of its own while
+  # this one waits. Any error here fails this job, and the seal then runs at once.
+  now:
+    name: Does the seal wait for its inputs
+    if: github.run_attempt == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5 # healthy run: seconds
+    permissions:
+      contents: read # the default branch's scripts, and ci.yml at the head
+      actions: read # the input runs on the head
+      pull-requests: read # the changed files and the title
+    outputs:
+      now: ${{ steps.now.outputs.now }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Seal now, or wait for the inputs
+        id: now
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node tooling/ci/journey-seal.mjs --seal-now
   seal:
-    name: CI merge seal
+    # `CI merge seal` whenever the job runs. A skipped job counts as passing a required check (review 7552-R6), so its
+    # name is an expression: GitHub names a skipped job's check run with the expression's raw text, never `CI merge seal`
+    # (probe intafaced#7679, 9 Nov 2026), and a re-run attempt is named by the expression's value. So a waiting seal is
+    # no check at all, and a missing required check blocks the merge.
+    name: ${{ (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') && 'CI merge seal' || 'CI merge seal waits for CI, the CI review and the journeys it needs' }}
+    needs: [now]
+    if: ${{ !cancelled() && (github.run_attempt != '1' || needs.now.result != 'success' || needs.now.outputs.now == 'true') }}
     runs-on: ubuntu-latest
     # healthy run: seconds; up to 20 minutes when it waits for the CI review (tooling/ci/review-marker.mjs)
     timeout-minutes: 25
