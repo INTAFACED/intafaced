@@ -47,6 +47,12 @@ export interface CardPartnerTerms {
   readonly fundingAssetId: string | null;
   /** Which of fund, defund and auto reload the partner offers the programme (J-bank-26 #6), or null ("not known"). */
   readonly fundingOffers: { readonly fund: boolean; readonly defund: boolean; readonly autoReload: boolean } | null;
+  /**
+   * `test`: the TEST partner shows TEST card details, keeps a TEST PIN and adds TEST wallet tokens (J-bank-14 #3, #4), each
+   * labelled TEST. Absent: the partner offers none of them, and each refuses by name. Only the TEST adapter can say `test`,
+   * and it refuses to start outside dev or test.
+   */
+  readonly secrets?: 'test';
 }
 
 /** Nothing reported: what a partner that has answered none of the four looks like. */
@@ -95,6 +101,8 @@ const simShape = z
       .nullable(),
     fundingAssetId: assetId.nullable(),
     fundingOffers: z.object({ fund: z.boolean(), defund: z.boolean(), autoReload: z.boolean() }).strict().nullable(),
+    // Optional, unlike the unknowns above: absent is a partner that offers no card secrets, which refuses, never a guess.
+    secrets: z.literal('test').optional(),
   })
   .strict();
 
@@ -191,6 +199,13 @@ export function parseSpendAssets(raw: string | undefined | null): readonly strin
   const ids = raw.split(',').map((s) => s.trim());
   if (ids.some((id) => !assetId.safeParse(id).success) || new Set(ids).size !== ids.length) return null;
   return ids;
+}
+
+/** The owner's PIN try limit (`BANK_CARD_PIN_TRY_LIMIT`): a whole number 1 to 10, else null (not set), never a default. */
+export function parsePinTryLimit(raw: string | undefined | null): number | null {
+  if (raw === undefined || raw === null || !/^\s*\d{1,2}\s*$/.test(raw)) return null;
+  const n = Number(raw.trim());
+  return n >= 1 && n <= 10 ? n : null;
 }
 
 export function requireSpendAssets(list: readonly string[] | null): readonly string[] {
