@@ -604,9 +604,13 @@ test("a doc outside DOCS_READ runs no journeys because neither the journeys run 
       // through child_process (spawn('node', [join(here, 'x.mjs')]), bash tooling/…/x.sh) is followed too.
       for (const m of code.matchAll(/(?:from\s+|import\(\s*|require\(\s*)['"](\.{1,2}\/[^'"]+)['"]/g))
         queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
-      for (const m of code.matchAll(/['"`]((?:\.{1,2}\/)?[\w./-]+\.(?:mjs|cjs|js|ts|sh))['"`]/g))
-        if (!m[1].startsWith('tooling/')) queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
-      for (const m of code.matchAll(/\b(tooling\/[\w./-]+\.(?:mjs|cjs|js|ts|sh))\b/g)) queue.push(m[1]);
+      // Every line of code except an entry of a path list (JOURNEY_CI and the like name files as data, not to run them).
+      const entry = /^\s*['"`][^'"`]+['"`],?\s*$/;
+      for (const line of code.split('\n').filter((l) => !entry.test(l))) {
+        for (const m of line.matchAll(/['"`]((?:\.{1,2}\/)?[\w./-]+\.(?:mjs|cjs|js|ts|sh))['"`]/g))
+          if (!m[1].startsWith('tooling/')) queue.push(relative(ROOT, join(ROOT, dirname(f), m[1])));
+        for (const m of line.matchAll(/\b(tooling\/[\w./-]+\.(?:mjs|cjs|js|ts|sh))\b/g)) queue.push(m[1]);
+      }
     }
   }
   assert.ok(seen.size > 1000, `read the journeys run's files and the stack's code (${seen.size})`);
