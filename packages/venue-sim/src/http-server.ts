@@ -13,6 +13,7 @@ import {
   type PlaceUserOrderIntent,
   type PreparedVenueAction,
   type UserVenueAccount,
+  type UserVenueDepositRoute,
   type VenueIntent,
   type VenueSignature,
   type VenueSigner,
@@ -29,14 +30,14 @@ import { TestVenueSimulator, type SimMarketConfig } from './simulator.js';
  * with a JSON body except `GET /health` and `GET /venue`. A `VenueRefusalError` answers 422 `{ refusal }`; a body
  * that does not parse answers 400. Routes:
  *
- *   GET  /health, GET /venue                         descriptor, chain id, label TEST
+ *   GET  /health, GET /venue                         descriptor, chain id, label TEST, and the deposit route (or null)
  *   POST /markets {account|null}, /preview {account,intent}, /prepare {account,signer,intent},
  *        /submit {prepared,signature}, /balances|/open-orders|/positions|/agents {account},
  *        /order-by-client-id {account,venueClientOrderId}, /fills {account,since}, /withdrawal {account,nonce},
  *        /builder-fee-approval {account,builder}, /leverage {account,symbol}
  *   TEST controls (never part of UserVenue):
  *   POST /test/deposit {account,asset,amount,depositRef}   idempotent by depositRef
- *        /test/switches {venueDown?,withdrawalFee?}       withdrawalFee: MaybeKnown<Amount>
+ *        /test/switches {venueDown?,withdrawalFee?,networkFee?}   each fee a MaybeKnown<Amount>
  *        /test/settle-withdrawals, /test/set-mark {symbol,price}
  *        /test/seed                                       TEST makers rest a two-sided ladder on every market
  *
@@ -90,6 +91,8 @@ function testMakerKey(name: string) {
 
 export interface TestVenueHttpOptions {
   readonly sim: TestVenueSimulator;
+  /** Where a wallet sends a token to fund its venue account on the TEST chain (chain-deposits.ts), or null when none. */
+  readonly deposit?: UserVenueDepositRoute | null;
 }
 
 type Answer = readonly [status: number, body: unknown];
@@ -104,6 +107,14 @@ function str(body: Record<string, unknown>, key: string): string {
   const v = body[key];
   if (typeof v !== 'string' || v.trim() === '') throw new VenueWireError(`${key} is required`);
   return v;
+}
+
+/** A fee switch: `{ known: false }`, or `{ known: true, value: <decimal string> }` (decoded to an Amount). */
+function maybeKnownAmount(raw: unknown, key: string): MaybeKnown<Amount> {
+  const v = raw as { known?: unknown; value?: unknown } | null;
+  if (v && v.known === false) return { known: false };
+  if (v && v.known === true && typeof v.value === 'bigint' && v.value >= 0n) return { known: true, value: v.value as Amount };
+  throw new VenueWireError(`${key} must be { known: false } or { known: true, value: "<decimal>" }`);
 }
 
 /** Signs and submits as a TEST maker. A refusal or a lost answer stops the seed loudly. */
@@ -170,9 +181,15 @@ export async function seedTestVenue(sim: TestVenueSimulator): Promise<{ makers: 
 }
 
 /** One request's answer. Exported so a test can drive it without a socket. */
-export async function answerTestVenue(sim: TestVenueSimulator, method: string, path: string, rawBody: string): Promise<Answer> {
+export async function answerTestVenue(
+  sim: TestVenueSimulator,
+  method: string,
+  path: string,
+  rawBody: string,
+  deposit: UserVenueDepositRoute | null = null,
+): Promise<Answer> {
   if (method === 'GET' && path === '/health') return [200, { ok: true, label: 'TEST', venue: sim.venue.id, chainId: sim.chainId }];
-  if (method === 'GET' && path === '/venue') return [200, { label: 'TEST', venue: sim.venue, chainId: sim.chainId }];
+  if (method === 'GET' && path === '/venue') return [200, { label: 'TEST', venue: sim.venue, chainId: sim.chainId, deposit }];
   if (method !== 'POST') return [405, { error: 'POST only' }];
   let body: Record<string, unknown>;
   try {
@@ -231,8 +248,14 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
     }
     case '/test/switches': {
       if (typeof body.venueDown === 'boolean') sim.switches.venueDown = body.venueDown;
-      if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = body.withdrawalFee as MaybeKnown<Amount>;
-      return { venueDown: sim.switches.venueDown, withdrawalFee: sim.switches.withdrawalFee, label: 'TEST' };
+      if (body.withdrawalFee !== undefined) sim.switches.withdrawalFee = maybeKnownAmount(body.withdrawalFee, 'withdrawalFee');
+      if (body.networkFee !== undefined) sim.switches.networkFee = maybeKnownAmount(body.networkFee, 'networkFee');
+      return {
+        venueDown: sim.switches.venueDown,
+        withdrawalFee: sim.switches.withdrawalFee,
+        networkFee: sim.switches.networkFee,
+        label: 'TEST',
+      };
     }
     case '/test/settle-withdrawals':
       return { settled: sim.settleWithdrawals(), label: 'TEST' };
@@ -250,7 +273,7 @@ async function route(sim: TestVenueSimulator, path: string, body: Record<string,
 }
 
 /** The HTTP handler for one simulator. Bodies are capped at 1 MiB. */
-export function testVenueHandler(sim: TestVenueSimulator): http.RequestListener {
+export function testVenueHandler(sim: TestVenueSimulator, deposit: UserVenueDepositRoute | null = null): http.RequestListener {
   return (req, res) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -266,7 +289,7 @@ export function testVenueHandler(sim: TestVenueSimulator): http.RequestListener 
     });
     req.on('end', () => {
       const path = new URL(req.url ?? '/', 'http://test-venue').pathname;
-      void answerTestVenue(sim, req.method ?? 'GET', path, Buffer.concat(chunks).toString('utf8')).then(([status, body]) => {
+      void answerTestVenue(sim, req.method ?? 'GET', path, Buffer.concat(chunks).toString('utf8'), deposit).then(([status, body]) => {
         res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
         res.end(JSON.stringify(body));
       });
@@ -281,6 +304,8 @@ export interface StartTestVenueOptions {
   readonly appEnv: string | undefined;
   readonly chainId?: number;
   readonly clock?: () => Date;
+  /** The deposit route `GET /venue` names (the TEST chain's watcher is started by the caller, chain-deposits.ts). */
+  readonly deposit?: UserVenueDepositRoute | null;
 }
 
 /** Start the TEST venue on loopback. Refuses outside APP_ENV dev/test and on a non-loopback host. */
@@ -292,7 +317,7 @@ export async function startTestVenueServer(
   }
   const sim = new TestVenueSimulator({ clock: opts.clock ?? (() => new Date()), markets: TEST_VENUE_MARKETS, chainId: opts.chainId });
   refuseTestVenueOutsideTest(sim.venue, opts.appEnv);
-  const server = http.createServer(testVenueHandler(sim));
+  const server = http.createServer(testVenueHandler(sim, opts.deposit ?? null));
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, opts.host, () => resolve());

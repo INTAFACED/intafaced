@@ -40,6 +40,7 @@ const AMOUNT_FIELDS: ReadonlySet<string> = new Set([
   'takerFeeBps',
   'fee',
   'withdrawalFee',
+  'networkFee',
   // MaybeKnown<Amount>.value and AsOf<Amount>.value
   'value',
 ]);
@@ -54,6 +55,7 @@ const AMOUNT_OR_OBJECT_FIELDS: ReadonlySet<string> = new Set([
   'venueFee',
   'fee',
   'withdrawalFee',
+  'networkFee',
   'liquidationPrice',
   'initialMargin',
   'makerFeeBps',

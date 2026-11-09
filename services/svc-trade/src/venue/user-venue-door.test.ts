@@ -13,7 +13,7 @@ import {
   type VenueSubmitOutcome,
 } from '@intafaced/venue-contracts';
 import { startTestVenueServer, type TestVenueSimulator, type TestVenueTypedData } from '@intafaced/venue-sim';
-import { HttpUserVenue } from './http-user-venue.js';
+import { HttpUserVenue, readDepositRoute } from './http-user-venue.js';
 import { InMemoryPreparedActionStore, type PreparedActionStore } from './prepared-action-store.js';
 import { UserVenueDoor, parseBuilderFee, type BuilderFeeValue } from './user-venue-door.js';
 
@@ -544,5 +544,71 @@ describe('UserVenueDoor against the TEST simulator over loopback HTTP', () => {
         intent: { kind: 'update_leverage', symbol: 'BTC-PERP', leverageBps: 100_000, marginMode: 'isolated' },
       }),
     ).rejects.toMatchObject({ code: 'trade.venue_action_key_invalid' });
+  });
+});
+
+describe('the deposit route and a withdrawal read back through the door (J-wallet-09 #3, #5)', () => {
+  const ROUTE = {
+    chainId: 84532,
+    token: '0x000000000000000000000000000000000000d011',
+    tokenDecimals: 6,
+    address: '0x00000000000000000000000000000000de905170',
+    asset: 'USDC',
+  };
+  let server: http.Server;
+  let sim: TestVenueSimulator;
+  let url: string;
+  beforeAll(async () => {
+    ({ server, sim, url } = await startTestVenueServer({ host: '127.0.0.1', port: 0, appEnv: 'test', chainId: 84532, deposit: ROUTE }));
+  });
+  afterAll(async () => closeServer(server));
+  const door = () =>
+    new UserVenueDoor({
+      connect: () => HttpUserVenue.connect({ baseUrl: url, timeoutMs: 2000 }),
+      appEnv: 'test',
+      store: new InMemoryPreparedActionStore(),
+      stepUp: stepUp('approve').check,
+      builder: BUILDER,
+      now: () => new Date(),
+    });
+
+  it('status names the venue’s deposit route: where the customer’s own wallet sends the token', async () => {
+    expect(await door().status()).toMatchObject({ enabled: true, available: true, label: 'TEST', deposit: ROUTE });
+  });
+
+  it('a withdrawal reads back over HTTP pending, then done, with the venue fee and the network fee or "not known"', async () => {
+    const d = door();
+    sim.deposit({ venueId: sim.venue.id, owner, subAccount: null }, 'USDC', a('25'), `84532:${'0x'.padEnd(66, '1')}:0`);
+    sim.switches.networkFee = { known: false };
+    const prepared = await d.prepare(principal, {
+      owner,
+      signer,
+      intent: { kind: 'withdraw', asset: 'USDC', amount: a('10'), destination: owner, withdrawalKey: `venue-withdraw:${owner}:route-1` },
+      stepUpApprovalId: 'approval-1',
+    });
+    const submitted = await d.submit(principal, prepared.actionKey, await sign(prepared.prepared));
+    expect(submitted.outcome).toMatchObject({ definite: true, accepted: true });
+    const venue = await d.venue();
+    const account = await d.account(owner);
+    expect((await venue.withdrawal(account, prepared.prepared.nonce)).value).toEqual({
+      nonce: prepared.prepared.nonce,
+      asset: 'USDC',
+      amount: a('10'),
+      destination: owner,
+      status: 'pending',
+      fee: { known: true, value: a('1') },
+      networkFee: { known: false },
+    });
+    sim.settleWithdrawals();
+    expect((await venue.withdrawal(account, prepared.prepared.nonce)).value?.status).toBe('done');
+  });
+
+  it('a route that is named but malformed is not used: no deposit is offered rather than a wrong address', () => {
+    expect(readDepositRoute(ROUTE)).toEqual(ROUTE);
+    expect(readDepositRoute(null)).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, address: 'nowhere' })).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, tokenDecimals: 19 })).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, chainId: '84532' })).toBeNull();
+    expect(readDepositRoute({ ...ROUTE, asset: ' ' })).toBeNull();
   });
 });
