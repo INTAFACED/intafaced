@@ -43,7 +43,7 @@ const messages = {
   Upcoming: 'Upcoming',
   Delisting: 'Delisting',
   'Leaves the board on {date}': 'Leaves the board on {date}',
-  'Not open for trading yet': 'Not open for trading yet',
+  'This market has not opened for trading': 'This market has not opened for trading',
   'This market is being delisted': 'This market is being delisted',
   'Not offered here': 'Not offered here',
   'Tokenized equities': 'Tokenized equities',

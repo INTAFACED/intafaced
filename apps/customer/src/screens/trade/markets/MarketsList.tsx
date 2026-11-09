@@ -393,7 +393,7 @@ export function MarketsList({
               disabled
               focusableWhenDisabled
               aria-label={aria}
-              title={market.listing === 'upcoming' ? t('Not open for trading yet') : t('This market is being delisted')}
+              title={market.listing === 'upcoming' ? t('This market has not opened for trading') : t('This market is being delisted')}
             >
               {text}
             </Button>,
