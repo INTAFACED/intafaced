@@ -756,6 +756,13 @@ jobs:
       actions: read # to download this run's shard artifacts, and the reports the verdict reads
       issues: read # the verdict reads the state line of each regression issue the baseline names
     steps:
+      # A run whose touch job didn't finish (GitHub dropped or cancelled it) decided nothing and ran no shards: it fails
+      # here, outright, so it never reads as an empty run. The merge seal also fails closed on a run with no report.
+      - name: The run decided what it runs
+        if: github.ref != 'refs/heads/main' && needs.touch.result != 'success'
+        run: |
+          echo "::error::the touch job ended '${{ needs.touch.result }}', so this run decided nothing and ran no journeys; re-run the whole run"
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}

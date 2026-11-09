@@ -468,6 +468,19 @@ export function mainFirstProblems(text) {
     if (!runs(MAIN, 'skipped', '') || !runs('refs/heads/b1', 'success', 'run'))
       problems.push(`the ${key} job doesn't run on main or after a touch job that says run`);
   }
+  // ...and the run then fails outright, so a run that decided nothing never reads as an empty one.
+  const decided = step(job(text, 'scoreboard'), 'The run decided what it runs');
+  const decidedIf = /\n {8}if: (.*)\n/.exec(decided)?.[1] ?? '';
+  const failsOn = (ref, result) => decidedIf && truthy(evaluate(decidedIf, { github: { ref }, needs: { touch: { result } } }));
+  if (
+    !decided ||
+    !/\n {10}exit 1(\n|$)/.test(decided) ||
+    !failsOn('refs/heads/b1', 'cancelled') ||
+    !failsOn('refs/heads/b1', '') ||
+    failsOn('refs/heads/b1', 'success') ||
+    failsOn(MAIN, 'skipped')
+  )
+    problems.push("the scoreboard doesn't fail a run off main whose touch job didn't finish, so it can read as an empty run");
   // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
   const release = job(text, 'release');
   const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
@@ -715,6 +728,12 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
       key,
     );
   }
+  const quiet = t.replace(
+    "if: github.ref != 'refs/heads/main' && needs.touch.result != 'success'",
+    "if: github.ref != 'refs/heads/main' && needs.touch.result == 'failure'",
+  );
+  assert.notEqual(quiet, t);
+  assert.ok(mainFirstProblems(quiet).some((p) => /can read as an empty run/.test(p)));
   const noMark = t.replace(`- name: ${DISPATCH_MARK}\n`, '- name: Something\n');
   assert.notEqual(noMark, t);
   assert.ok(mainFirstProblems(noMark).some((p) => /can't count them/.test(p)));
