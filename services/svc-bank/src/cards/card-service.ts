@@ -511,6 +511,11 @@ export interface CardServiceOptions {
    * refuses `bank.card_spend_assets_unset`.
    */
   readonly spendAssets?: readonly string[] | null;
+  /**
+   * The owner's count of wrong PIN tries in a row that block a card's PIN (`BANK_CARD_PIN_TRY_LIMIT`, J-bank-14 #3).
+   * Absent or null, an authorisation that carries a PIN declines `bank.card_pin_try_limit_unset`.
+   */
+  readonly pinTryLimit?: number | null;
 }
 
 /** One change of a card's status, as `onStatusChanged` hears it. */
@@ -538,6 +543,7 @@ export class CardService {
   private readonly rankTier: RankTierPort;
   private readonly simulatorPays: boolean;
   private readonly spendAssets: readonly string[] | null;
+  private readonly pinTryLimit: number | null;
 
   constructor(
     private readonly sql: Sql,
@@ -556,6 +562,7 @@ export class CardService {
     this.rankTier = options.cashback?.rankTier ?? unconfiguredRankTier();
     this.simulatorPays = options.cashback?.simulatorPays === true;
     this.spendAssets = options.spendAssets ?? null;
+    this.pinTryLimit = options.pinTryLimit ?? null;
   }
 
   /**
@@ -1335,6 +1342,8 @@ export class CardService {
     const card = await this.ownedCard(input.cardId, input.userId);
     this.assertLiveSecret('wallet');
     if (!this.issuer.provisionWallet) throw new BankError(WALLET_UNSET, 'bank.card_wallet_issuer_unset');
+    // A frozen or closed card is not added to a wallet; its tokens already there show paused (J-bank-14 #4).
+    if (card.status !== 'active' || cardInactive(card)) throw new BankError('This card is not active', 'bank.card_not_active');
     const payloadHash = commandHash({ wallet: input.wallet, nonce: input.nonce });
     const provisioned = await this.issuer.provisionWallet({
       cardId: card.id,
@@ -1349,7 +1358,31 @@ export class CardService {
       kind: 'wallet_provision',
       payloadHash,
     });
+    // One token per card and wallet: adding the same card to the same wallet again keeps the first row. The payload is
+    // not kept.
+    await this.sql`
+      INSERT INTO bank.card_wallet_tokens (id, card_id, user_id, wallet)
+      VALUES (${input.provisionId}, ${card.id}, ${input.userId}, ${input.wallet})
+      ON CONFLICT (card_id, wallet) DO NOTHING
+    `;
     return { payload: provisioned.payload, expiresAt: this.secretExpiresAt() };
+  }
+
+  /**
+   * The phone wallets this card was added to (J-bank-14 #4). A token reads `added` while the card is active, `paused`
+   * while it is frozen, and `closed` once the card is closed, from the card's own status. Reads only.
+   */
+  async walletTokens(input: {
+    cardId: string;
+    userId: string;
+  }): Promise<Array<{ id: string; wallet: 'apple' | 'google'; state: 'added' | 'paused' | 'closed'; addedAt: string }>> {
+    this.assertModuleEnabled();
+    const card = await this.ownedCard(input.cardId, input.userId);
+    const rows = await this.sql<Array<{ id: string; wallet: 'apple' | 'google'; created_at: Date }>>`
+      SELECT id, wallet, created_at FROM bank.card_wallet_tokens WHERE card_id = ${card.id} ORDER BY created_at, id
+    `;
+    const state = card.status === 'closed' ? 'closed' : card.status === 'frozen' || cardInactive(card) ? 'paused' : 'added';
+    return rows.map((r) => ({ id: r.id, wallet: r.wallet, state, addedAt: new Date(r.created_at).toISOString() }));
   }
 
   /**
@@ -1432,6 +1465,8 @@ export class CardService {
     merchantCountry?: string;
     /** Omitted means card-present (chip or swipe at home), which the four switches do not gate. */
     channel?: CardChannel;
+    /** The PIN typed at the terminal, when there was one. Checked by the issuer; never stored or put in an error (J-bank-14 #3). */
+    pin?: string;
   }): Promise<AuthorizationRecord> {
     this.assertModuleEnabled();
     this.assertIssuerMayMutate();
@@ -1468,7 +1503,13 @@ export class CardService {
         span.setAttribute('intafaced.card_funding_amount', formatAmount(fundingAmount));
         span.setAttribute('intafaced.card_channel', channel);
 
-        const declineCode = await this.declineReason(card, fundingAmount, channel, input);
+        const declineCode = await this.declineReason(
+          card,
+          fundingAmount,
+          channel,
+          input,
+          input.pin === undefined ? undefined : { pin: input.pin, authorizationRef: input.authorizationRef },
+        );
 
         if (declineCode) {
           span.setAttribute('intafaced.card_decision', 'declined');
@@ -1603,12 +1644,17 @@ export class CardService {
     fundingAmount: Amount,
     channel: CardChannel,
     at: AuthorizationMerchant,
+    pin?: { pin: string; authorizationRef: string },
   ): Promise<string | null> {
     if (card.status !== 'active' || cardInactive(card)) return 'bank.card_not_active';
     // The person's own blocks (J-bank-14 #1): a blocked category, merchant or country declines before any limit or
     // balance is read, so nothing is held for it.
     const blocked = blockedBy(await new CardControlStore(this.sql).list(card.id), at);
     if (blocked) return blocked;
+    if (pin !== undefined) {
+      const pinDecline = await this.pinDecline(card, pin.pin, pin.authorizationRef);
+      if (pinDecline) return pinDecline;
+    }
     // THE CEILING IS IN THE FUNDING ASSET, and it is checked against the
     // CONVERTED amount. A limit denominated in the asset the card draws on is a
     // limit on what may leave the user's balance, which is the thing a ceiling
@@ -2642,9 +2688,49 @@ export class CardService {
     return posted.id;
   }
 
+  /**
+   * A PIN typed at a terminal, checked by the issuer against the owner's try limit (J-bank-14 #3). Null is a right PIN.
+   * The owner's limit unset, or an issuer that checks no PIN, declines by name rather than letting the PIN through.
+   */
+  private async pinDecline(card: CardRecord, pin: string, authorizationRef: string): Promise<string | null> {
+    if (this.pinTryLimit === null) return 'bank.card_pin_try_limit_unset';
+    if (!this.liveSecretProgramme() || !this.issuer.verifyPin) return 'bank.card_pin_issuer_unset';
+    const verdict = await this.issuer.verifyPin({
+      cardId: card.id,
+      issuerRef: card.issuerRef,
+      authorizationRef,
+      pin,
+      tryLimit: this.pinTryLimit,
+    });
+    if (verdict === 'ok') return null;
+    if (verdict === 'unset') return 'bank.card_pin_not_set';
+    return verdict === 'blocked' ? 'bank.card_pin_blocked' : 'bank.card_pin_wrong';
+  }
+
+  /** A live issuer, or the TEST partner adapter whose switches say `secrets: "test"` (boot-guarded to dev and test). */
   private liveSecretProgramme(): boolean {
     const programme = this.issuer.programme;
+    if (this.issuer.testSecrets === true && programme.id === 'card-sim') return true;
     return programme.simulated === false && programme.id !== 'none' && programme.id !== 'card-sim';
+  }
+
+  /** True when the card details, PIN and wallet answers are the TEST partner's stand-ins, so every answer says TEST. */
+  secretsAreTest(): boolean {
+    return this.issuer.testSecrets === true;
+  }
+
+  /**
+   * Which of card details, PIN and phone wallets this deployment's issuer offers (J-bank-14 #3, #4), so a screen shows the
+   * button or the reason. The same rule each call itself runs; reading it changes nothing.
+   */
+  secretsOffered(): { details: boolean; pin: boolean; wallet: boolean; test: boolean } {
+    const live = this.moduleEnabled && this.liveSecretProgramme();
+    return {
+      details: live && Boolean(this.issuer.revealCredentials),
+      pin: live && Boolean(this.issuer.revealPin && this.issuer.setPin),
+      wallet: live && Boolean(this.issuer.provisionWallet),
+      test: this.secretsAreTest(),
+    };
   }
 
   private assertLiveSecret(kind: 'pan' | 'pin' | 'wallet'): void {
