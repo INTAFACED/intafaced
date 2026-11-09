@@ -78,6 +78,10 @@
       "types": "./dist/protocol-address-risk.d.ts",
       "default": "./dist/protocol-address-risk.js"
     },
+    "./protocol-embedded-wallet": {
+      "types": "./dist/protocol-embedded-wallet.d.ts",
+      "default": "./dist/protocol-embedded-wallet.js"
+    },
     "./protocol-venue-wallet": {
       "types": "./dist/protocol-venue-wallet.d.ts",
       "default": "./dist/protocol-venue-wallet.js"
@@ -357,6 +361,10 @@
     "./trade-errors": {
       "types": "./dist/trade-errors.d.ts",
       "default": "./dist/trade-errors.js"
+    },
+    "./spot-order-types": {
+      "types": "./dist/spot-order-types.d.ts",
+      "default": "./dist/spot-order-types.js"
     },
     "./auth-errors": {
       "types": "./dist/auth-errors.d.ts",

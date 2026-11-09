@@ -167,7 +167,7 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
     expect(b).toEqual({ asset: 'USDC', free: a('1000'), locked: ZERO, total: a('1000') });
   });
 
-  it('#7–#8 a limit buy rests with the venue lock, then a TEST sell fills it as maker with both fee lines', async () => {
+  it('#7–#8 a limit buy rests with the venue lock, a TEST sell fills it as maker with the venue fee and no builder fee, and a sell pays the builder fee', async () => {
     const w = world();
     w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:1');
     w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:1');
@@ -181,30 +181,58 @@ describe('TEST venue simulator: J-cex-spot-01 at the venue', () => {
 
     await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.1', 'order:maker:desk:8'));
     const fill = (await w.sim.fills(w.trader, new Date(0))).value[0]!;
-    // A spot buy pays in the BTC it receives: maker 1 bps of 0.1 BTC = 0.00001; builder 0.5 bps = 0.000005.
+    // A spot buy pays the venue's fee in the BTC it receives (maker 1 bps of 0.1 BTC = 0.00001) and no builder fee:
+    // "builder codes do not apply to the buying side of spot trades" (Hyperliquid's builder-codes page; project-state #1888).
     expect([fill.role, fill.price, fill.amount, fill.venueFee, fill.builderFee, fill.feeAsset]).toEqual([
       'maker',
       a('60000'),
       a('0.1'),
       a('0.00001'),
-      a('0.000005'),
+      ZERO,
       'BTC',
     ]);
     const balances = (await w.sim.balances(w.trader)).value;
     expect(balanceOf(balances, 'USDC')).toMatchObject({ free: a('94000'), locked: ZERO });
-    expect(balanceOf(balances, 'BTC').free).toBe(sub(a('0.1'), a('0.000015')));
+    expect(balanceOf(balances, 'BTC').free).toBe(sub(a('0.1'), a('0.00001')));
     expect((await w.sim.orderByClientId(w.trader, placed.prepared.venueClientOrderId!)).value?.status).toBe('filled');
+
+    // The sell side does pay it: the trader sells 0.05 BTC into a resting TEST bid, as taker, with the same builder fee.
+    w.sim.deposit(w.other, 'USDC', a('10000'), 'chain:o:2');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'buy', '60000', '0.05', 'order:maker:desk:8b'));
+    await w.run(
+      w.wallet,
+      w.trader,
+      order('BTC-USDC', 'sell', '60000', '0.05', 'order:trader:desk:8s', { builderFee: { builder: '0xb11de4', feeBps: a('0.5') } }),
+    );
+    const sold = (await w.sim.fills(w.trader, new Date(0))).value.find((f) => f.side === 'sell')!;
+    // 0.05 × 60000 = 3000 USDC; builder 0.5 bps = 0.15 USDC, in the quote asset.
+    expect([sold.builderFee, sold.feeAsset]).toEqual([a('0.15'), 'USDC']);
+  });
+
+  it('a spot buy that carries a builder fee needs no approval and pays none, since the venue charges none on a spot buy', async () => {
+    const w = world();
+    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:nb');
+    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:nb');
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.01', 'order:o:nb'));
+    const out = await w.run(
+      w.wallet,
+      w.trader,
+      order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:nb', { builderFee: { builder: '0xb11de4', feeBps: a('5') } }),
+    );
+    expect(out.outcome).toMatchObject({ definite: true, accepted: true });
+    expect((await w.sim.fills(w.trader, new Date(0))).value[0]!.builderFee).toBe(ZERO);
   });
 
   it('#6 an order carrying more builder fee than the account approved is refused before signing', async () => {
     const w = world();
-    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:6');
+    // A spot sell: a spot buy carries no builder fee and so needs no approval (project-state #1888).
+    w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:6');
     expect(
       await refusal(
         w.sim.prepare(
           w.trader,
           w.wallet.signer,
-          order('BTC-USDC', 'buy', '60000', '0.1', 'order:t:6', { builderFee: { builder: '0xb11de4', feeBps: a('0.5') } }),
+          order('BTC-USDC', 'sell', '60000', '0.1', 'order:t:6', { builderFee: { builder: '0xb11de4', feeBps: a('0.5') } }),
         ),
       ),
     ).toBe('builder_fee_not_approved');
@@ -676,17 +704,19 @@ describe('TEST venue simulator: council round 1 regressions', () => {
 
   it('P5b the builder fee comes from the signed intent: dropping it from the prepared object changes nothing', async () => {
     const w = world();
-    w.sim.deposit(w.trader, 'USDC', a('100000'), 'chain:t:p5c');
-    w.sim.deposit(w.other, 'BTC', a('1'), 'chain:o:p5c');
+    // A spot sell, because a spot buy pays no builder fee at all (project-state #1888).
+    w.sim.deposit(w.trader, 'BTC', a('1'), 'chain:t:p5c');
+    w.sim.deposit(w.other, 'USDC', a('100000'), 'chain:o:p5c');
     await w.run(w.wallet, w.trader, { kind: 'approve_builder_fee', builder: '0xb11de4', maxFeeBps: a('1') });
-    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'sell', '60000', '0.01', 'order:o:p5c'));
+    await w.run(w.otherWallet, w.other, order('BTC-USDC', 'buy', '60000', '0.01', 'order:o:p5c'));
     const p = await w.sim.prepare(
       w.trader,
       w.wallet.signer,
-      order('BTC-USDC', 'buy', '60000', '0.01', 'order:t:p5c', { builderFee: { builder: '0xb11de4', feeBps: a('1') } }),
+      order('BTC-USDC', 'sell', '60000', '0.01', 'order:t:p5c', { builderFee: { builder: '0xb11de4', feeBps: a('1') } }),
     );
     await w.sim.submit({ ...p, builderFee: null }, await w.wallet.sign(p));
-    expect((await w.sim.fills(w.trader, new Date(0))).value[0]!.builderFee).toBe(a('0.000001'));
+    // 0.01 × 60000 = 600 USDC at 1 bps = 0.06 USDC.
+    expect((await w.sim.fills(w.trader, new Date(0))).value[0]!.builderFee).toBe(a('0.06'));
   });
 
   it('P6 a negative builder fee is refused, on the order and on the approval', async () => {

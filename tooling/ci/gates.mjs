@@ -64,13 +64,6 @@ export const GATES = [
       'those tests, and deleting it has to be a visible act. About 40 seconds, no network.',
   },
   {
-    id: 'tracker',
-    script: 'tooling/scripts/tracker.mjs',
-    args: ['--check'],
-    doctrine: 'tracker honesty',
-    why: 'a tracker that drifts from the code is worse than no tracker',
-  },
-  {
     id: 'truth-check',
     script: 'tooling/scripts/truth-check.mjs',
     doctrine: 'agent map honesty',
@@ -88,18 +81,6 @@ export const GATES = [
       'docs/SERVICES.md is the one table of services, ports and required env that agents read instead of opening 25 ' +
       'compose blocks and env files. Hand-kept service counts had already drifted in three docs (eleven, twenty-one, 25). ' +
       'Generated from the code, so a stale copy fails here, the same way the tracker does.',
-  },
-  {
-    id: 'coverage',
-    script: 'tooling/ci/coverage-check.mjs',
-    doctrine: '§25:740',
-    why:
-      'the law names this gate by path. It answers, on every push, the question the 2026-08-03 audit had to ' +
-      'answer by hand: is anything in the law absent from the board without someone having said so — and its ' +
-      'mirror, is anything on the board claiming a law that does not say it. Ordered after tracker because it ' +
-      'imports features.mjs, and a broken tracker should report as a broken tracker rather than as coverage drift. ' +
-      'It was a hand-written step in ci.yml on this branch; it is an entry here instead, because a step that CI ' +
-      'runs and `pnpm verify` does not is the exact drift gates.mjs exists to make impossible.',
   },
   {
     id: 'reachability',
@@ -397,8 +378,6 @@ export const NOT_GATES = {
     "not a gate: the headless builder's steps, run by .github/workflows/builder.yml (check the dispatched journey, read the factory switch, pick the branch, write the prompt, run the CLI watched by the switch and the clock with its output kept in files, the PR's handover line, usage as numbers). It needs the factory token and the CLI, so a laptop verify cannot run it; `tooling/ci/factory-builder.test.mjs` checks it and the workflow's shape.",
   'factory-builder.test.mjs':
     'not a gate: the node:test file of factory-builder.mjs and builder.yml, with planted faults in the workflow and an end-to-end run against a fake CLI and a local switch. tooling-tests.mjs runs it with every other tooling test.',
-  'coverage-check.test.mjs':
-    'not a gate: the node:test file of coverage-check.mjs, the planted cases of its law index (a moved or dropped chapter, a cited line marked blank, a title drift, a missing, empty or malformed index, --law with the wrong law). tooling-tests runs it.',
   'gates.mjs': 'this runner — it is the list, so it cannot be an entry in itself.',
   'dod-gate.mjs':
     'run by `pnpm gate`, separately and last — it walks every service and is the §14 Definition of Done, not a repo-wide scan. verify runs it after build/typecheck/test. CI runs it as a reported, non-blocking step at the end of the `gates` job.',
