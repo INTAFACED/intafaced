@@ -61,6 +61,8 @@ export const JOURNEY_CI = [
   'tooling/ci/review-marker.mjs',
   'tooling/ci/workflow-concurrency.test.mjs',
   'tooling/ci/factory-switch.mjs',
+  // real-app-journeys.yml's `Main's journeys first` job runs it.
+  'tooling/ci/main-first.mjs',
   // Reached through the seal's imports (review-marker.mjs) and the test-infra action; journey-touch.test.mjs finds them.
   'tooling/ci/assert-test-db-env.mjs',
   'tooling/ci/look-baselines.mjs',
@@ -88,6 +90,10 @@ const NONE_RULES = [
   (p) => p.startsWith('.github/') && !/^\.github\/(workflows\/real-app-journeys\.yml|actions\/)/.test(p),
   (p) => p.startsWith('tooling/ci/') && !JOURNEY_CI.includes(p),
   (p) => /^(apps|services|packages)\//.test(p) && /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) && !p.startsWith('apps/customer/tests/real-app/'),
+  // Markdown at the repository root (AGENTS.md, CLAUDE.md, CONTRIBUTING.md, README.md): no journey, stack script or
+  // harness file reads it (U6 on project-state#1574: an AGENTS.md-only PR paid for a full run, 42547155694). docs/ stays
+  // full: journeys read docs/roadmap and docs/runbooks.
+  (p) => /^[^/]+\.md$/.test(p),
 ];
 
 const PRODUCT = 'product code, and no map recorded from real runs says which journeys reach it yet';
