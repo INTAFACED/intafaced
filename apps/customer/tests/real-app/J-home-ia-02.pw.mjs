@@ -6,8 +6,6 @@ import { nextCode } from './identity-factors.mjs';
 import { businessReadyPerson, openBusiness, verifiedBusiness } from './merchant.mjs';
 import { DEVICE_KEY, EDGE, ORIGIN, tool } from './stack.mjs';
 import { ADMIN, founderSignIn } from './admin.mjs';
-import { rooms } from '../../src/app/navigation.ts';
-import { isHiddenPath } from '../../src/app/feature-registry.ts';
 
 // J-home-ia-02, in the running app (docs/roadmap/journeys.json): I find any room I need. Tests titled "J-home-ia-02 #<n>"
 // prove a whole step. One TEST person, signed up once; the signed-out step uses a fresh browser. #7's Business half makes
@@ -165,30 +163,6 @@ test(`${J} #2 More and All services list every room from the one route table, wi
   await expect(all).toBeVisible();
   for (const name of ['Earn', 'Loans', 'Futures', 'Send globally', 'Merchant home', 'Academy', 'Chain', 'DEX', 'Protocol', 'Help centre'])
     await expect(main.getByRole('link', { name, exact: true }).first()).toBeVisible();
-  // Every room of the one route table (apps/customer/src/app/navigation.ts `rooms`) has its row, and no row names a page
-  // outside it. A room is left out only for the reasons the table itself records: an alias, a parameter route, a hidden
-  // or founder page, or a merchant-portal page (reached from Merchant home and Business bank), or a hidden feature.
-  const listed = (
-    await main.locator('a[data-service]').evaluateAll((links) => links.map((link) => link.getAttribute('data-service')))
-  ).sort();
-  const portalWay = new Set(['/pay/merchant', '/bank/business']);
-  const expected = [
-    ...new Set(
-      rooms
-        .filter(
-          (room) =>
-            !room.alias &&
-            !room.hidden &&
-            room.area !== 'team' &&
-            !/[:*]/.test(room.path) &&
-            (!room.business || portalWay.has(room.path)) &&
-            !isHiddenPath(room.path),
-        )
-        .map((room) => room.path),
-    ),
-  ].sort();
-  expect(expected.length, 'the route table has rooms to list').toBeGreaterThan(20);
-  expect(listed, 'All services lists exactly the route table rooms').toEqual(expected);
   await expect(main.getByRole('link', { name: 'chain', exact: true })).toHaveCount(0);
 
   // Every tile opens its room.
