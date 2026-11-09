@@ -184,6 +184,19 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_CLAIM_ESCROW_ADDRESS: evmAddressDefaultZero,
     /**
+     * Router v2 swaps (D-swap-03, D-swap-intents-01, -02): the SovereignRouterV2 contract, the SovereignPermit contract it
+     * pulls standing allowances through, and the wrapped native token it wraps around a swap. NO DEFAULTS: any one zero
+     * and every v2 swap procedure refuses `protocol.router_v2_unset`; the v1 pool swap is unchanged.
+     */
+    PROTOCOL_ROUTER_V2_ADDRESS: evmAddressDefaultZero,
+    PROTOCOL_SOVEREIGN_PERMIT_ADDRESS: evmAddressDefaultZero,
+    PROTOCOL_WRAPPED_NATIVE_ADDRESS: evmAddressDefaultZero,
+    /**
+     * The longest a permit signature or a standing allowance may last, in seconds (D-swap-intents-01). An owner setting.
+     * NO DEFAULT: blank refuses `protocol.permit.lifetime_unset` and no permit is built.
+     */
+    PROTOCOL_PERMIT_LIFETIME_CAP_SECONDS: z.string().default('').transform(parsePositiveWhole),
+    /**
      * Speed up and cancel (RC-dex-protocol-01): how much a replacement raises both fee fields, in basis points (1 to
      * 10000), and the most per gas any replacement may offer, in whole wei. NO DEFAULTS: blank refuses
      * `protocol.fee_bump_unset` / `protocol.fee_ceiling_unset` and nothing is built.
@@ -301,6 +314,14 @@ const schema = serviceEnvSchema.merge(edgeEnvSchema).merge(
      */
     PROTOCOL_VENUE_CONNECTION_TTL_SECONDS: blankIsUnset(z.string().max(64).optional()),
     PROTOCOL_WALLET_SANCTIONS: blankIsUnset(z.string().max(100_000).optional()),
+    /**
+     * The embedded self-custody wallet's provider (J-wallet-22, src/embedded-wallet/provider.ts; OWNER 237). The owner's
+     * setting, NO DEFAULT: blank refuses `wallet.embedded_provider_unset` and no wallet is made. `privy` or `turnkey` are
+     * known but unwired in this build (`wallet.embedded_provider_unwired`). `TEST:test` is the labelled TEST provider,
+     * refused at boot outside APP_ENV dev or test; it needs the TEST provider's loopback URL below.
+     */
+    PROTOCOL_EMBEDDED_WALLET_PROVIDER: blankIsUnset(z.string().max(64).optional()),
+    PROTOCOL_EMBEDDED_WALLET_TEST_URL: blankIsUnset(z.string().max(200).optional()),
     /**
      * How many contacts one wallet's address book may hold, and how many wallet groups (D-portfolio-wallet-03). Owner
      * settings, NO DEFAULT: blank refuses `protocol.address_book_max_contacts_unset` / `protocol.wallet_groups_max_unset`.
