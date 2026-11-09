@@ -1,3 +1,5 @@
+import type { OperatorAccess, StaffArea } from '@/lib/operator-access';
+
 /**
  * The tabs of one customer's record and its address rules. Kept apart from the reads (record.ts) so the browser gets these
  * constants without the desk catalogue.
@@ -14,6 +16,27 @@ export const TAB_LABELS: Readonly<Record<CustomerTab, string>> = {
   documents: 'Documents',
   tickets: 'Tickets',
 };
+
+/**
+ * The staff area each tab belongs to. A staff member whose session may not read a tab's area sees "permission denied" on that
+ * tab and nothing is read for it (OPS-founder-01, J-ops-console-02 #3); a founder reads every tab.
+ */
+export const TAB_STAFF_AREA = {
+  money: 'payments',
+  trade: 'trading',
+  pay: 'payments',
+  cards: 'cards',
+  documents: 'documents',
+  tickets: 'accounts',
+} as const satisfies Readonly<Record<CustomerTab, StaffArea>>;
+
+/** The code a tab carries when the signed-in staff member may not read its area. */
+export const RECORD_PERMISSION_DENIED = 'ops.customer_record_permission_denied';
+
+/** Whether `access` may read `tab`: a founder always; staff when their session may read the tab's area. */
+export function mayReadTab(access: OperatorAccess, tab: CustomerTab): boolean {
+  return access.kind === 'founder' || access.readAreas.includes(TAB_STAFF_AREA[tab]);
+}
 
 /** The code a block with no source carries, so a refusal can be told apart from a read that was never possible. */
 export const RECORD_SOURCE_UNWIRED = 'ops.customer_record_source_unwired';

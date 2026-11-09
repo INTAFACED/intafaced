@@ -27,10 +27,12 @@ import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './ca
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
+import { cardSimPartnerFor, parseSpendAssets } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
 import { onrampStandInFor } from './ramps/onramp-sim.js';
+import { testPartnerFor } from './partner/test-partner.js';
 import { cashOutPartnerFor } from './cash-out/payout-sim.js';
 import { onrampPartnerFor, payinPaidBody } from './ramps/payin-sim.js';
 import { registerPayinSimPage } from './ramps/payin-sim-page.js';
@@ -148,7 +150,11 @@ const onrampPartner = onrampPartnerFor(
   { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
 );
 
+/** The TEST partner bank and ramp: none unless chosen, and it refuses to boot outside dev/test. It holds no money. */
+const testPartner = testPartnerFor(env.BANK_TEST_PARTNER, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV });
+
 const bank = createBankServices(sql, ledger, history, {
+  testPartner,
   sendReviewRule: parseSendReviewRule(env.BANK_PERSONAL_SEND_REVIEW_JSON),
   remindPolicy: readRemindPolicy(env.BANK_REQUEST_REMIND_POLICY_JSON),
   strangerHoldDays: readStrangerHoldDays(env.BANK_STRANGER_HOLD_DAYS),
@@ -236,7 +242,14 @@ const bank = createBankServices(sql, ledger, history, {
    * deployment gets by SAYING ANYTHING.
    */
   cards: {
-    issuer: cardIssuerFor(env.BANK_CARD_ISSUER, { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    issuer: cardIssuerFor(
+      env.BANK_CARD_ISSUER,
+      { APP_ENV: env.APP_ENV, NODE_ENV: process.env.NODE_ENV },
+      // The TEST partner card adapter's switches; refused at boot outside dev/test (CUSTODY-DELTA §4).
+      cardSimPartnerFor(env.BANK_CARD_SIM_PARTNER_JSON, { APP_ENV: process.env.APP_ENV, NODE_ENV: process.env.NODE_ENV }),
+    ),
+    /** The owner's list of assets a card may pay from (BK-ccrypto-01). Blank refuses `bank.card_spend_assets_unset`. */
+    spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
     /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
     programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
     /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */

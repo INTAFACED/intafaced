@@ -1,6 +1,7 @@
 import postgres from 'postgres';
 import { createHmac } from 'node:crypto';
 import { createChatProfileClient, SqlChatBook, SupportChat } from './chat.js';
+import { officialChannelsFromEnv } from './official-channels.js';
 import { GuestRequests } from './guest-requests.js';
 import { createGuestVerificationClient } from './guest-verification-client.js';
 import { edgeTrustFromEnv } from '@intafaced/config';
@@ -32,6 +33,7 @@ import { SupportService } from './support-service.js';
 import { PostgresSupportStore } from './store.js';
 import { createSupportRouter } from './router.js';
 import { SqlCheckBook, VerificationChecks } from './verification-checks.js';
+import { SafetyCases, SqlSafetyBook } from './safety-cases.js';
 import { createTicketKbLoopObserver } from './ticket-kb-loop-observation.js';
 import { registerProcessHooks, startTelemetry } from '@intafaced/telemetry';
 
@@ -265,6 +267,9 @@ const appRouter = createSupportRouter(
   // Balance disclosure gate: no owner serves the desk a check door yet (svc-identity, svc-trade, svc-pay), so none is wired:
   // every check refuses naming its owner, and every read refuses support.verification_checks_required.
   new VerificationChecks(new SqlCheckBook(sql), support, env.SUPPORT_VERIFICATION_ATTEMPTS ?? null),
+  officialChannelsFromEnv(env.SUPPORT_OFFICIAL_CHANNELS),
+  // Complaints and bereavement reports (BK-safe-03): the deadline limit is the owner's; blank reads "not set".
+  new SafetyCases(new SqlSafetyBook(sql), support, env.SUPPORT_COMPLAINT_RESPONSE_DAYS ?? null),
   chat,
 );
 const edgeContext = createEdgeContext({

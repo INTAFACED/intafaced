@@ -25,7 +25,9 @@ import type { SpendGate } from './spend/gate.js';
 import { publishPendingApprovalRequests } from './own/approval-notices.js';
 import { publishPendingUsageAlerts } from './own/usage-limits.js';
 import { UserSpendStore } from './spend/store.js';
+import { productKindOff } from './fleet/control.js';
 import { withEngineSpan } from './tracing.js';
+import { isCatalogueOnlyAgent } from './fleet/catalogue-only.js';
 
 /**
  * THE FLEET RUNTIME (§8.2).
@@ -301,7 +303,9 @@ export class AgentRuntime {
    * svc-token.
    */
   async openSession(input: { userId: string; agentId: string; metered?: boolean }): Promise<SessionRecord> {
-    const definition = await this.agentDefinition(input.agentId);
+    const definition = isCatalogueOnlyAgent(input.agentId) ? null : await this.agentDefinition(input.agentId);
+    // A catalogue-only agent is stored so the catalogue lists it, never to open a session: it refuses as before it was
+    // stored (fleet/catalogue-only.ts).
     if (!definition) {
       throw new AgentError(`No agent "${input.agentId}" is registered`, 'agents.agent_not_found', 'agents.error.route_not_found', {
         task: input.agentId,
@@ -309,6 +313,11 @@ export class AgentRuntime {
     }
     if (!definition.enabled) {
       throw new AgentError(`Agent "${input.agentId}" is disabled`, 'agents.agent_not_found', 'agents.error.engine_unavailable');
+    }
+    // An operator switched every product agent off in one action (AG-control-02): a new session refuses until two founders
+    // restore the kind. A restart reads the row again.
+    if (await productKindOff(this.sql)) {
+      throw new AgentError(`Agent "${input.agentId}" is disabled by kind`, 'agents.agent_not_found', 'agents.error.engine_unavailable');
     }
 
     return this.insertSession(input.userId, definition.guardrail, input.metered ?? true);

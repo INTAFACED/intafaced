@@ -21,6 +21,7 @@ import { publicCopy } from './public-copy';
 import { PasswordRecovery } from './PasswordRecovery';
 import { AboutPage, AppPage, NoticePage, PartnerPage, RoomDirectory } from './PublicPages';
 import { LabPage } from './LabPage';
+import { OfficialChannels } from './OfficialChannels';
 import { FeesPage } from './FeesPage';
 import { MyTierPage } from './MyTierPage';
 import { RulebookRoom } from './rulebook/RulebookRoom';
@@ -102,6 +103,8 @@ export function PublicRoutes({ path }: { path: string }) {
           <AuthForm register={false} />
         ) : path === '/invite' ? (
           <Invitation />
+        ) : path === '/help/official-channels' ? (
+          <OfficialChannels />
         ) : path === '/help' || path === '/helpdetail' ? (
           <Help />
         ) : library ? (

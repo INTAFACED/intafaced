@@ -36,9 +36,7 @@ describe('what each tab reads', () => {
       for (const read of plan.reads) expect(JSON.stringify(read.input)).toContain(USER);
       for (const u of plan.unwired) expect(u.reason.length).toBeGreaterThan(40);
     }
-    expect(tabPlan('cards', USER).reads).toEqual([]);
     expect(tabPlan('tickets', USER).reads).toEqual([]);
-    expect(tabPlan('cards', USER).unwired[0]!.reason).toContain('no operator read of one customer’s cards');
     expect(tabPlan('tickets', USER).unwired[0]!.reason).toContain('refuses on purpose to answer about an arbitrary account');
     const docs = tabPlan('documents', USER);
     expect(docs.reads.map((r) => [r.module, r.procedure, r.input])).toEqual([
@@ -57,8 +55,6 @@ describe('what each tab reads', () => {
   });
   it('names procedures the owning services serve today', () => {
     expect(service('svc-bank/src/router/ops.router.ts')).toContain('customerBalances:');
-    // The cards blocker: svc-bank's card list is the owner's own, read by the signed-in principal.
-    expect(service('svc-bank/src/router/cards.router.ts')).toContain('bank.cards.cardsOf(ctx.principal.userId');
     // The tickets blocker: svc-support's account read goes by ticket, strictly.
     expect(service('svc-support/src/router.ts')).toContain('.input(z.object({ ticketId: z.string().guid() }).strict())');
     expect(service('svc-trade/src/controls/router.ts')).toMatch(/history: protectedProcedure/);
@@ -95,6 +91,66 @@ describe('what each tab reads', () => {
       shape: 'record',
     });
     expect(readData(mode!, null)).toBeNull();
+  });
+});
+
+describe('cards tab', () => {
+  const card = {
+    id: '3c1d2e3f-4a5b-4c6d-8e7f-8091a2b3c4d5',
+    assetId: 'USDT',
+    settlementAssetId: 'USDT',
+    issuer: 'sim',
+    simulated: true,
+    panTail: '4242',
+    status: 'closed',
+    cardType: 'virtual',
+    cashbackBps: 0,
+    perAuthorizationLimit: '50',
+    dailyLimit: null,
+    monthlyLimit: null,
+    cashLimit: null,
+    online: true,
+    contactless: true,
+    atm: true,
+    abroad: true,
+    usesAllowed: null,
+    designId: null,
+    deliverySpeed: null,
+    replacesCardId: null,
+    replacedByCardId: null,
+  };
+  it('reads svc-bank ops.customerCards for this account, at svc-bank’s page cap, as the cards.list read', () => {
+    const plan = tabPlan('cards', USER);
+    expect(plan.reads.map((r) => [r.id, r.module, r.procedure, r.input, r.shape, r.rowsKey, r.idKey, r.page])).toEqual([
+      ['cards.list', 'bank', 'ops.customerCards', { userId: USER, limit: 200 }, 'list', 'cards', 'id', 200],
+    ]);
+    const shown = plan.reads[0]!.columns.filter((c) => !c.detail).map((c) => c.key);
+    expect(shown).toEqual(expect.arrayContaining(['id', 'status']));
+    expect(plan.reads[0]!.columns.map((c) => c.key)).not.toContain('shippingAddress');
+    expect(plan.reads[0]!.note).toContain('When 200 are shown, older cards may exist');
+    expect(plan.reads[0]!.forbiddenText).toContain('admin:read');
+    expect(plan.reads[0]!.refusals?.['bank.ops_audit_unavailable']).toContain('read nothing');
+    expect(plan.unwired.map((u) => u.id)).toEqual(['cards.payments']);
+    expect(plan.unwired.map((u) => u.id)).not.toContain('cards.list');
+  });
+  it('shows each card with its id and status in the table, a closed card as closed, and no card as an honest empty', () => {
+    const [read] = tabPlan('cards', USER).reads;
+    const data = readData(read!, {
+      userId: USER,
+      cards: [card, { ...card, id: '5e3f4a5b-6c7d-4e8f-9081-a2b3c4d5e6f7', status: 'active' }],
+    });
+    expect(data).toMatchObject({ shape: 'list', rows: [{ id: card.id }, { id: '5e3f4a5b-6c7d-4e8f-9081-a2b3c4d5e6f7' }] });
+    const cells = data?.shape === 'list' ? data.rows[0]!.cells.filter((c) => !c.detail) : [];
+    expect(cells.find((c) => c.key === 'id')?.value).toBe(card.id);
+    expect(cells.find((c) => c.key === 'status')).toMatchObject({ value: 'closed', words: 'Closed' });
+    expect(readData(read!, { userId: USER, cards: [] })).toMatchObject({ shape: 'list', rows: [] });
+    expect(read!.emptyText).toContain('no card');
+  });
+  it('refuses a status it has no words for, and a row without its status, rather than guess', () => {
+    const [read] = tabPlan('cards', USER).reads;
+    expect(readData(read!, { userId: USER, cards: [{ ...card, status: 'lost' }] })).toBeNull();
+    const { status: _drop, ...noStatus } = card;
+    expect(readData(read!, { userId: USER, cards: [noStatus] })).toBeNull();
   });
 });
 
@@ -147,5 +203,15 @@ describe('documents tab', () => {
     const parked = tabPlan('documents', USER).unwired.map((u) => u.id);
     expect(parked).toEqual(['documents.decisions']);
     expect(tabPlan('documents', USER).unwired[0]!.reason).toContain('verification it is attached to');
+  });
+});
+
+describe('a tab whose staff area the person may not read is denied (J-ops-console-02 #3)', () => {
+  it('a founder reads every tab; TEST support staff are denied the cards tab only', async () => {
+    const { CUSTOMER_TABS, mayReadTab } = await import('./tabs');
+    for (const tab of CUSTOMER_TABS) expect(mayReadTab({ kind: 'founder' }, tab)).toBe(true);
+    const support = { kind: 'staff', readAreas: ['accounts', 'payments', 'trading', 'documents'] } as const;
+    expect(CUSTOMER_TABS.filter((tab) => !mayReadTab(support, tab))).toEqual(['cards']);
+    expect(CUSTOMER_TABS.filter((tab) => mayReadTab({ kind: 'staff', readAreas: [] }, tab))).toEqual([]);
   });
 });

@@ -85,6 +85,14 @@ const schema = serviceEnvSchema
        */
       SUPPORT_VERIFICATION_ATTEMPTS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
+       * A complaint's final-response limit, in calendar days from its acknowledgement (BK-safe-03, J-bank-18 #5). Blank is an
+       * owner value left unset: complaints are still taken and acknowledged, and each deadline reads "not set". Never defaulted.
+       */
+      SUPPORT_COMPLAINT_RESPONSE_DAYS: z.preprocess(
+        (v) => (v === '' ? undefined : v),
+        z.coerce.number().int().positive().max(366).optional(),
+      ),
+      /**
        * How many personal views one person may save, and how many shared views the desk may keep.
        * Blank is unset: a save refuses support.view_cap_unset and names the setting. Never defaulted.
        */
@@ -158,6 +166,12 @@ const schema = serviceEnvSchema
       NOTIFY_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
       NOTIFY_SUPPORT_SERVICE_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(32).optional()),
       SUPPORT_PUBLIC_ORIGIN: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+      /**
+       * The owner's official channel list (I-signin-sessions-26), as JSON: `{ "domains": [...], "senders": [...],
+       * "channels": [{ "label", "url" }] }`. Blank is unpublished: /help/official-channels says so and checks nothing. A
+       * value that is not a valid list refuses boot (officialChannelsFromEnv). Never defaulted.
+       */
+      SUPPORT_OFFICIAL_CHANNELS: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(2).optional()),
       STAFF_HEARTBEAT_WINDOW_SECONDS: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().positive().optional()),
       /**
        * Live chat (SP-chat-01). The customer messages one chat may send per window and the window, and how long a signed

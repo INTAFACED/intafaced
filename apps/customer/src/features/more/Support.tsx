@@ -7,7 +7,7 @@ import { isHiddenPath } from '../../app/feature-registry';
 import { stamp } from '../../screens/money/time';
 import { useApi, useSession } from '../session/session';
 import { t as copyText } from './copy';
-import { categoryLabel } from './support-category';
+import { categoryLabel, topicFromAddress } from './support-category';
 import { Details, Read, Select, useAction } from './common';
 import { SupportHelpArticles } from './SupportHelpArticles';
 import { chatCopy } from './support-chat-copy';
@@ -32,7 +32,7 @@ import {
 import { readRatedTicketIds } from './support-calls';
 import { CATEGORY_VALUES, ticketSchema, type Ticket } from './support-schemas';
 import { supportRequestFormsSchema, type SupportField, type SupportFieldValue } from '@intafaced/contracts/support-forms';
-import { supportCategoriesSchema } from '@intafaced/contracts/support-categories';
+import { SUPPORT_MESSAGE_HEADERS_MAX, supportCategoriesSchema } from '@intafaced/contracts/support-categories';
 import { formAnswers, formReady, RequestTypeFields, type FormAnswers } from './SupportRequestForm';
 
 import './support-desk.css';
@@ -318,11 +318,13 @@ function NewRequest({
     { userId } = useSession();
   const depositsHidden = isHiddenPath('/uc/recharge');
   const draft = follows ? followUpDraft(follows, copy.t('followUpPrefix')) : null;
-  const [category, setCategory] = useState(draft?.category ?? 'other'),
+  const [category, setCategory] = useState(() => draft?.category ?? topicFromAddress() ?? 'other'),
     [subject, setSubject] = useState(draft?.subject ?? drafted),
     [body, setBody] = useState(''),
     [headers, setHeaders] = useState('');
   const sendHeaders = category === 'phishing' && headers.trim() !== '' ? headers.trim() : null;
+  // A paste over the cap is refused with the cap, never cut short: what was pasted is what would be sent.
+  const headersTooLong = category === 'phishing' && headers.trim().length > SUPPORT_MESSAGE_HEADERS_MAX;
   // The request types the desk set up, each with its questions (SP-tickets-03). Unread or none: a general request.
   const catalogue = useResource(
     (signal) => api.query('support', 'requestForms', undefined, supportRequestFormsSchema, { signal }),
@@ -482,13 +484,30 @@ function NewRequest({
             </p>
             <label className="field">
               <span>{copy.t('headersField')}</span>
-              <textarea lang="zxx" value={headers} onChange={(event) => setHeaders(event.target.value)} maxLength={10000} rows={5} />
+              <textarea
+                lang="zxx"
+                value={headers}
+                onChange={(event) => setHeaders(event.target.value)}
+                rows={5}
+                aria-invalid={headersTooLong}
+              />
               <small>{copy.t('headersHint')}</small>
-              <small>{copy.t('headersCharacters', { count: headers.length, max: 10000 })}</small>
+              <small>{copy.t('headersCharacters', { count: headers.length, max: SUPPORT_MESSAGE_HEADERS_MAX })}</small>
             </label>
+            {headersTooLong && (
+              <p className="notice" role="alert" data-testid="support__headers-cap">
+                {copy.t('headersTooLong', {
+                  max: SUPPORT_MESSAGE_HEADERS_MAX.toLocaleString('en-US'),
+                  count: headers.trim().length.toLocaleString('en-US'),
+                })}
+              </p>
+            )}
           </>
         )}
-        <Button type="submit" disabled={action.disabled || !subject.trim() || !body.trim() || !formOk || routeNote?.blocks === true}>
+        <Button
+          type="submit"
+          disabled={action.disabled || !subject.trim() || !body.trim() || !formOk || routeNote?.blocks === true || headersTooLong}
+        >
           {copy.t('reviewRequest')}
         </Button>
       </form>

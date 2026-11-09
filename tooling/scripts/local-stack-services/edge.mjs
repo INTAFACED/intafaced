@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { profileEnvFor } from '../owner-settings.mjs';
 
 export default ({
   c,
@@ -27,10 +28,18 @@ export default ({
       EDGE_RATE_LIMIT_MAX: '6000',
       EDGE_RATE_LIMIT_WINDOW_MS: '60000',
       EDGE_BODY_LIMIT_BYTES: '1048576',
+      // LOCAL TEST per-route cost of a key call (EDGE_RATE_ROUTE_COSTS, J-developer-06): the labelled TEST profile
+      // (tooling/profiles/test-owner-values/edge.json), never an owner decision. Blank refuses every key call at the trade
+      // and pay doors with edge.cost_unset.
+      ...profileEnvFor('edge', 'dev'),
       // Owner value, blank in git. LOCAL TEST: the same edge answers as the sandbox host at localhost and as the live
       // host at 127.0.0.1, so J-developer-02 can call one key at both and see env.mismatch at the live one.
       EDGE_SANDBOX_HOSTS: `localhost:${PORTS.edge}`,
       EDGE_KILL_STATE_PATH: path.join(P.data, 'edge-kill-state.json'),
+      // Edge's other state files, in the stack's state folder too: their defaults are relative to the service's folder in
+      // the checkout, which the build stamp reads as source (#7463).
+      EDGE_COMPLIANCE_QUEUE_PATH: path.join(P.data, 'edge-compliance-queue.json'),
+      EDGE_RECONCILE_LAST_PATH: path.join(P.data, 'edge-reconcile-last.json'),
       // The FIX and SBE adapters' own status for the founder console (J-cex-spot-20 #3), each with its own read key.
       FIX_STATUS_URL: urlOf('fix'),
       FIX_STATUS_READ_SECRET: secrets.fixStatusRead,

@@ -21,6 +21,30 @@ test.describe.configure({ mode: 'default' });
 const main = (page) => page.getByRole('main');
 const workspace = (page) => main(page).getByRole('region', { name: 'Session workspace' });
 
+/** A guardrail refusal code in the detail page's words (apps/customer agents-catalogue-copy, English); a code it does
+ * not word stays the code itself. */
+const REFUSAL_WORDS = {
+  session_closed: 'The session is closed',
+  action_limit: 'The session’s action budget is spent',
+  tool_not_declared: 'This agent may never use it',
+  module_not_allowed: 'Its module is not granted to this agent',
+  mode_unknown: 'No known permission mode allows it',
+  mode_forbids_write: 'The permission mode does not allow changes',
+  withdraw_scope_required: 'Withdrawals need a separate grant',
+  tool_call_limit: 'Its calls for this session are used up',
+  approval_required: 'It waits for your approval',
+  place_idempotency_required: 'An order needs its own request key',
+  place_key_conflict: 'That request key already belongs to another order',
+  task_not_allowed: 'This agent may not run that task',
+  'copy_intel.returns_board_refused': 'Copy intelligence never ranks leaders by returns; nothing was run or charged',
+  output_limit: 'It asked for more output than allowed',
+  spend_limit: 'Its worst case would pass the spend cap',
+  price_unset: 'No rate is published for this task',
+  funds_insufficient: 'Your available balance is below its worst case',
+  funds_unread: 'Your balance could not be read, so it did not start',
+};
+const refusalWords = (code) => REFUSAL_WORDS[code.replace(/^agents\./, '')] ?? code;
+
 /** The session #5 ran, from the run file; a later step after a failed #5 says so instead of using another session. */
 function ranSession() {
   const { sessionId } = agents.run.read();
@@ -52,8 +76,35 @@ test(`${J} starts: a verified TEST account funded with TEST USDT, opening Agents
 test(`${J} #1 opens Agents: the catalogue from the stored list with filters, sort and status; a disabled agent stays visible with its open button off`, async ({
   page,
 }) => {
+  // The catalogue is the stored list: the cards are exactly the agents svc-agents answers the page (agent.catalogue),
+  // no more and no fewer, each with its stored status. A card for an agent the stored list does not hold would be a
+  // sample card, which the step's words rule out (with none published, the empty state shows no card at all).
+  const catalogue = page.waitForResponse((r) => r.ok() && new URL(r.url()).pathname.endsWith('/api/agents/trpc/agent.catalogue'));
   await openAgents(page, agents);
   await expect(main(page).getByRole('heading', { name: 'Agent catalogue' })).toBeVisible();
+  const storedList = (await (await catalogue).json())?.result?.data ?? [];
+  expect(storedList.length, 'the stack publishes agents').toBeGreaterThan(0);
+  const LABEL = {
+    navigator: 'Navigator',
+    support: 'Support helper',
+    scanner: 'Market scanner',
+    merchant: 'Merchant watcher',
+    'copy-intel': 'Copy intelligence',
+    coach: 'Curriculum coach',
+    launch: 'Launch check',
+    growth: 'Growth drafts',
+    portfolio: 'Portfolio planner',
+    'risk-compliance': 'Risk and compliance',
+  };
+  const storedNames = storedList.map((row) => LABEL[row.agentId] ?? row.name ?? row.agentId).sort((a, b) => a.localeCompare(b));
+  const cardNames = (await main(page).getByRole('article').getByRole('heading', { level: 3 }).allInnerTexts()).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  expect(cardNames, 'every card is a stored agent and every stored agent has a card').toEqual(storedNames);
+  for (const row of storedList)
+    await expect(agentCard(page, LABEL[row.agentId] ?? row.name ?? row.agentId).getByTestId('agent-status')).toHaveText(
+      row.enabled ? 'Enabled' : 'Disabled',
+    );
   // The stored list: the five session agents the stack registers, each a card.
   for (const name of ['Navigator', 'Support helper', 'Market scanner', 'Merchant watcher', 'Copy intelligence']) {
     await expect(agentCard(page, name)).toBeVisible();
@@ -137,6 +188,76 @@ test(`${J} #2 selects two agents to compare: one table of tools, modes, caps and
         .getByRole('cell'),
     ).toHaveText([row, of(navigator), of(support)]);
   }
+  // Eligibility, from the stored guardrail: each agent states who may use it, and the table says per column whether
+  // this person may, naming the real reason (plan, age or region) when not.
+  for (const [g, who] of [
+    [navigator, 'navigator'],
+    [support, 'support'],
+  ])
+    expect(g, `${who}'s stored guardrail states who may use it`).toHaveProperty('eligibility');
+  const eligibility = compare.getByRole('row').filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
+  await expect(eligibility).toHaveCount(1);
+  const verdicts = eligibility.getByRole('cell');
+  await expect(verdicts).toHaveCount(3);
+  for (const i of [1, 2]) await expect(verdicts.nth(i)).toHaveText(/you may use it|plan|age|region/i);
+});
+
+test(`${J} #2 an agent the person is not eligible for shows the real reason (plan, age or region) in the comparison`, async ({
+  browser,
+}) => {
+  // A second person, signed up for this step only, who is not verified: an agent whose stored eligibility asks for more
+  // than this person has must say which rule (plan, age or region) leaves them out, in the comparison's own row.
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    const { signUpInBrowser } = await import('./stack.mjs');
+    const { randomBytes } = await import('node:crypto');
+    const handle = `ag01e${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
+    await signUpInBrowser(page, {
+      handle,
+      email: `${handle}@local-test.invalid`,
+      password: `TEST-${randomBytes(9).toString('base64url')}-9a`,
+    });
+    await page.goto('/agents');
+    // Both columns' stored guardrails, each read as the page asks for it: each must say this person is left out and why.
+    const read = (agentId) =>
+      page.waitForResponse(
+        (r) =>
+          r.ok() &&
+          r.request().method() === 'GET' &&
+          r.url().includes('/api/agents/trpc/agent.get') &&
+          decodeURIComponent(r.url()).includes(`"agentId":"${agentId}"`),
+        { timeout: 15_000 },
+      );
+    const reads = [read('navigator'), read('support')];
+    await agentCard(page, 'Navigator').getByRole('checkbox', { name: 'Compare' }).check(UNBUILT);
+    await agentCard(page, 'Support helper').getByRole('checkbox', { name: 'Compare' }).check();
+    await main(page).getByRole('button', { name: 'Compare 2 agents' }).click();
+    const guardrails = await Promise.all(reads.map(async (answer) => (await (await answer).json())?.result?.data));
+    for (const [g, who] of [
+      [guardrails[0], 'navigator'],
+      [guardrails[1], 'support'],
+    ]) {
+      expect(g, `${who}'s stored guardrail states who may use the agent`).toHaveProperty('eligibility');
+      // The unverified person is not eligible, for a named rule, with the service's own refusal code.
+      expect(g.eligibility, `${who}: ${JSON.stringify(g.eligibility)}`).toMatchObject({ eligible: false });
+      expect(['plan', 'age', 'region'], `${who}'s reason`).toContain(g.eligibility.reason);
+      expect(g.eligibility.code, `${who}'s refusal code`).toMatch(/^agents\.[a-z_]+$/);
+    }
+    const row = tableIn(main(page), 'Compare agents')
+      .getByRole('row')
+      .filter({ has: page.getByRole('cell', { name: /eligib|who may use/i }) });
+    await expect(row).toHaveCount(1);
+    // Each column, not the row as a whole, says the person is left out and names the rule.
+    const cells = row.getByRole('cell');
+    await expect(cells).toHaveCount(3);
+    for (const i of [1, 2]) {
+      await expect(cells.nth(i)).toHaveText(/^Not\b.*\b(plan|age|region)\b/i);
+      await expect(cells.nth(i)).not.toHaveText(/you may use it|is one it is published for|no plan, age or region rule/i);
+    }
+  } finally {
+    await context.close();
+  }
 });
 
 test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refusal reasons; the permission mode; it acts as the person, never with broader access`, async ({
@@ -151,8 +272,29 @@ test(`${J} #3 opens an agent's detail page: tools with inputs, outputs and refus
   await expect(tools.getByRole('row').filter({ hasText: 'trade.quote' })).toBeVisible();
   for (const header of ['Inputs', 'Outputs', 'Refusals'])
     await expect(tools.getByRole('columnheader', { name: header })).toBeVisible(UNBUILT);
-  // A tool that publishes no shape says so, rather than showing an empty cell.
-  for (const cell of await tools.getByRole('cell').all()) await expect(cell).toHaveText(/\S/);
+  // Each declared tool, held to its stored guardrail row by row: its name, and every refusal it can return in words, in
+  // the stored order. The stored guardrail publishes no input or output shape for a tool, so each such cell says so in
+  // words, never an empty cell.
+  const declared = stored?.result?.data?.tools ?? [];
+  expect(declared.length, JSON.stringify(stored).slice(0, 400)).toBeGreaterThan(0);
+  const rows = tools.getByRole('row').filter({ has: page.getByRole('cell') });
+  await expect(rows).toHaveCount(declared.length);
+  for (const [i, tool] of declared.entries()) {
+    expect(tool.refusals.length, `${tool.name} declares the refusals it can return`).toBeGreaterThan(0);
+    const cells = rows.nth(i).getByRole('cell');
+    await expect(cells).toHaveCount(6);
+    await expect(cells.nth(0)).toHaveText(tool.name);
+    await expect(cells.nth(1)).toHaveText(tool.mode);
+    await expect(cells.nth(2)).toHaveText(tool.requiresApproval ? 'Required' : 'None needed');
+    // agent.get publishes no input or output shape for any tool, so both cells say so in words.
+    expect(tool, `${tool.name} publishes no input shape`).not.toHaveProperty('inputs');
+    expect(tool, `${tool.name} publishes no output shape`).not.toHaveProperty('outputs');
+    await expect(cells.nth(3)).toHaveText('Not published by this agent');
+    await expect(cells.nth(4)).toHaveText('Not published by this agent');
+    // Every refusal is worded, never left as its raw code.
+    for (const code of tool.refusals) expect(REFUSAL_WORDS[code.replace(/^agents\./, '')], `${tool.name}: ${code} has words`).toBeDefined();
+    await expect(cells.nth(5).getByRole('listitem')).toHaveText(tool.refusals.map(refusalWords));
+  }
   // The permission mode is the one svc-agents stores for Navigator, in its words: research only.
   expect(stored?.result?.data?.capacityMode, JSON.stringify(stored).slice(0, 400)).toBe('research_only');
   const mode = main(page).getByRole('term').filter({ hasText: 'Permission mode' });
