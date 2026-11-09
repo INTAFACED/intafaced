@@ -15,6 +15,10 @@ import {
   agentKeyApprovalListOutputSchema,
   agentKeyHoldInputSchema,
   agentKeyHoldOutputSchema,
+  developerSetRoleInputSchema,
+  developerSetRoleOutputSchema,
+  developerTeamInputSchema,
+  developerTeamSchema,
 } from '@intafaced/contracts/api-keys';
 import { AgentKeyApprovalError, holdAgentKeyAction, listAgentKeyApprovals } from './auth/agent-key-approvals.js';
 import { optionalFactorProof } from './auth/api-key-fresh-factor.js';
@@ -24,10 +28,13 @@ import {
   DeveloperKeyError,
   getDeveloperKey,
   listDeveloperKeys,
+  checkRevokeReason,
   revokeDeveloperKey,
   setDeveloperKeyExpiry,
+  toRecord,
   type DeveloperKeysDeps,
 } from './auth/developer-keys.js';
+import { developerTeam, DeveloperTeamError, revokeOrgKey, setDeveloperRole } from './auth/developer-team.js';
 import { MintApiKeyPasskeyError } from './auth/mint-api-key-passkey.js';
 import { userCopy } from './user-copy.js';
 
@@ -53,9 +60,26 @@ export const DEVELOPER_KEY_STATUS: Record<DeveloperKeyError['code'], TRPCError['
   'identity.portfolio_key_cap_unset': 'PRECONDITION_FAILED',
   'identity.portfolio_key_cap_reached': 'PRECONDITION_FAILED',
   'identity.agent_scope_forbidden': 'FORBIDDEN',
+  'identity.developer_roles_unset': 'PRECONDITION_FAILED',
+  'identity.developer_role_read_only': 'FORBIDDEN',
+  'identity.developer_role_none': 'FORBIDDEN',
+};
+
+const DEVELOPER_TEAM_STATUS: Record<DeveloperTeamError['code'], TRPCError['code']> = {
+  'identity.developer_roles_unset': 'PRECONDITION_FAILED',
+  'identity.developer_role_read_only': 'FORBIDDEN',
+  'identity.developer_role_none': 'FORBIDDEN',
+  'identity.developer_org_denied': 'NOT_FOUND',
+  'identity.developer_role_denied': 'FORBIDDEN',
+  'identity.developer_role_unknown': 'BAD_REQUEST',
+  'identity.developer_member_unknown': 'NOT_FOUND',
+  'identity.developer_request_conflict': 'CONFLICT',
 };
 
 function refused(err: unknown): never {
+  if (err instanceof DeveloperTeamError) {
+    throw new TRPCError({ code: DEVELOPER_TEAM_STATUS[err.code], message: `${userCopy(err.code)} [${err.code}]`, cause: err });
+  }
   if (err instanceof DeveloperKeyError) {
     throw new TRPCError({ code: DEVELOPER_KEY_STATUS[err.code], message: `${userCopy(err.code)} [${err.code}]`, cause: err });
   }
@@ -118,7 +142,46 @@ export function createDeveloperKeysRouter(deps: DeveloperKeysDeps) {
         .mutation(async ({ ctx, input }) => {
           assertSignedInPerson(ctx.principal);
           try {
+            if (input.orgId !== undefined) {
+              // An organisation's key: its owner or a key admin revokes it (DV-console-01).
+              const done = await revokeOrgKey(
+                deps.sql,
+                input.orgId,
+                ctx.principal.userId,
+                input.keyId,
+                checkRevokeReason(input.reason),
+                deps.developerRoles ?? null,
+              );
+              if (!done) throw new DeveloperKeyError('No key with this id in this organisation', 'identity.key_not_found');
+              return { record: toRecord(done.row), changed: done.changed };
+            }
             return await revokeDeveloperKey(deps, ctx.principal.userId, input);
+          } catch (err) {
+            refused(err);
+          }
+        }),
+
+      /** The organisation's developer area as the caller sees it (DV-console-01): their role, the reason, its keys. */
+      team: scopedProcedure('identity:read')
+        .input(developerTeamInputSchema)
+        .output(developerTeamSchema)
+        .query(async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await developerTeam(deps.sql, input.orgId, ctx.principal.userId, deps.developerRoles ?? null);
+          } catch (err) {
+            refused(err);
+          }
+        }),
+
+      /** The owner gives a member a developer role or takes it away; a member never can. */
+      setTeamRole: scopedProcedure('identity:write')
+        .input(developerSetRoleInputSchema)
+        .output(developerSetRoleOutputSchema)
+        .mutation(async ({ ctx, input }) => {
+          assertSignedInPerson(ctx.principal);
+          try {
+            return await setDeveloperRole(deps.sql, ctx.principal.userId, input, deps.developerRoles ?? null);
           } catch (err) {
             refused(err);
           }

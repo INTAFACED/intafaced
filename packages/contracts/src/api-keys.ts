@@ -205,6 +205,8 @@ export const apiKeyRevokeInputSchema = z
   .object({
     keyId: z.string().guid(),
     reason: codePointsAtMost(API_KEY_REVOKE_REASON_MAX).optional(),
+    /** An organisation's key, revoked by its owner or a member holding `keys_admin` (DV-console-01). */
+    orgId: z.string().guid().optional(),
   })
   .strict();
 export type ApiKeyRevokeInput = z.infer<typeof apiKeyRevokeInputSchema>;
@@ -356,3 +358,60 @@ export type AgentKeyHoldOutput = z.infer<typeof agentKeyHoldOutputSchema>;
 export const agentKeyApprovalListInputSchema = z.object({ limit: z.number().int().min(1).max(200) }).strict();
 export const agentKeyApprovalListOutputSchema = z.object({ approvals: z.array(agentKeyApprovalSchema) }).strict();
 export type AgentKeyApprovalList = z.infer<typeof agentKeyApprovalListOutputSchema>;
+
+/**
+ * Developer-area roles in an organisation (DV-console-01). The organisation's admin is its owner and always manages its
+ * keys; a member holds at most one developer role. The owner value `IDENTITY_DEVELOPER_ROLES` publishes which roles
+ * exist; blank means `roles not set`: a member has no key authority and no role can be given.
+ */
+export const DEVELOPER_ROLES = ['keys_admin', 'keys_read'] as const;
+export type DeveloperRole = (typeof DEVELOPER_ROLES)[number];
+export const developerRoleSchema = z.enum(DEVELOPER_ROLES);
+
+/** Why the caller may not create or revoke the organisation's keys. */
+export const DEVELOPER_TEAM_REFUSALS = [
+  'identity.developer_roles_unset',
+  'identity.developer_role_read_only',
+  'identity.developer_role_none',
+] as const;
+export type DeveloperTeamRefusal = (typeof DEVELOPER_TEAM_REFUSALS)[number];
+
+export const developerTeamInputSchema = z.object({ orgId: z.string().guid() }).strict();
+export const developerTeamMemberSchema = z
+  .object({
+    userId: z.string().guid(),
+    email: z.string(),
+    orgRole: z.string(),
+    developerRole: developerRoleSchema.nullable(),
+  })
+  .strict();
+export const developerTeamSchema = z
+  .object({
+    orgId: z.string().guid(),
+    orgName: z.string(),
+    /** The roles the owner published; null is `roles not set`. */
+    rolesPublished: z.array(developerRoleSchema).nullable(),
+    /** `owner`: the organisation's admin. Null: a member with no developer role. */
+    myRole: z.enum(['owner', ...DEVELOPER_ROLES]).nullable(),
+    /** Null when the caller may create and revoke the organisation's keys; otherwise why not. */
+    manageRefusal: z.enum(DEVELOPER_TEAM_REFUSALS).nullable(),
+    /** Every member with their developer role; listed to the owner only. */
+    members: z.array(developerTeamMemberSchema),
+    keys: z.array(apiKeyRecordSchema),
+  })
+  .strict();
+export type DeveloperTeam = z.infer<typeof developerTeamSchema>;
+
+/** The owner gives a member a developer role, or takes it away (`role: null`). The request id makes a repeat a no-op. */
+export const developerSetRoleInputSchema = z
+  .object({
+    orgId: z.string().guid(),
+    userId: z.string().guid(),
+    role: developerRoleSchema.nullable(),
+    requestId: z.string().min(8).max(128),
+  })
+  .strict();
+export type DeveloperSetRoleInput = z.infer<typeof developerSetRoleInputSchema>;
+export const developerSetRoleOutputSchema = z
+  .object({ userId: z.string().guid(), role: developerRoleSchema.nullable(), changed: z.boolean() })
+  .strict();

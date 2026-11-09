@@ -36,6 +36,7 @@ import {
   API_KEY_REVOKE_REASON_MAX,
   API_KEY_REVOKED_BY,
   type ApiKeyKind,
+  type DeveloperRole,
 } from '@intafaced/contracts/api-keys';
 import type { KycTier, PayStepUpFactorProof } from './auth-service.js';
 import { bindApiKeyIpAllowlist } from './auth-service-ip.js';
@@ -43,6 +44,7 @@ import { normalizeIp } from './api-key-ip.js';
 import { guardedApiKeyAction, type ApiKeyFactorGate } from './api-key-fresh-factor.js';
 import { issueSigningSecret, sealSigningSecret } from './api-key-request-sign.js';
 import { signsByDefault } from './api-key-signs-by-default.js';
+import { DeveloperTeamError, manageRefusalOf, seatOf, type DeveloperSeat } from './developer-team.js';
 import { expireApiKey, ExpireApiKeyError } from './expire-api-key.js';
 import { MintApiKeyPasskeyError, requireVerifiedPasskey } from './mint-api-key-passkey.js';
 
@@ -67,7 +69,10 @@ export type DeveloperKeyRefusal =
   | 'identity.key_org_denied'
   | 'identity.portfolio_key_cap_unset'
   | 'identity.portfolio_key_cap_reached'
-  | 'identity.agent_scope_forbidden';
+  | 'identity.agent_scope_forbidden'
+  | 'identity.developer_roles_unset'
+  | 'identity.developer_role_read_only'
+  | 'identity.developer_role_none';
 
 export class DeveloperKeyError extends Error {
   constructor(
@@ -291,6 +296,8 @@ export type DeveloperKeysDeps = {
   idleExpirySeconds?: number | null;
   /** The owner's cap on live keys per sub-account (`parsePortfolioKeyCap`). Null or absent: a portfolio-scoped key refuses. */
   portfolioKeyCap?: number | null;
+  /** The developer roles the owner published (`parseDeveloperRoles`). Null or absent: `roles not set`, and only an organisation's owner makes its keys. */
+  developerRoles?: readonly DeveloperRole[] | null;
   now?: () => Date;
 };
 
@@ -336,12 +343,18 @@ async function assertNameFree(sql: Sql, userId: string, name: string): Promise<v
 async function assertAccountKeyAllowed(deps: DeveloperKeysDeps, userId: string, checked: Checked, sql: Sql): Promise<void> {
   if (checked.accountId === null) return;
   if (checked.orgId !== null) {
-    const member = await sql<Array<{ role: string }>>`
-      SELECT role FROM organization_members WHERE org_id = ${checked.orgId} AND user_id = ${userId} LIMIT 1
-    `;
-    if (member[0]?.role !== 'admin') {
-      throw new DeveloperKeyError('Only an admin of this organisation may make its keys', 'identity.key_org_denied');
+    // The owner (the organisation's admin) always may; a member only with a published `keys_admin` role (DV-console-01).
+    let seat: DeveloperSeat;
+    try {
+      seat = await seatOf(sql, checked.orgId, userId);
+    } catch (err) {
+      if (err instanceof DeveloperTeamError) {
+        throw new DeveloperKeyError('Only an admin of this organisation may make its keys', 'identity.key_org_denied');
+      }
+      throw err;
     }
+    const refusal = manageRefusalOf(seat, deps.developerRoles ?? null);
+    if (refusal !== null) throw new DeveloperKeyError('Your developer role in this organisation does not let you make its keys', refusal);
   }
   const owned = await sql<Array<{ parent_user_id: string; revoked: boolean }>>`
     SELECT parent_user_id, revoked FROM sub_accounts WHERE id = ${checked.accountId} LIMIT 1
@@ -422,6 +435,9 @@ export async function createDeveloperKey(
         });
         if (checked.accountId !== null) {
           await tx`UPDATE api_keys SET account_id = ${checked.accountId} WHERE id = ${minted.id} AND user_id = ${caller.userId}`;
+        }
+        if (checked.orgId !== null) {
+          await tx`UPDATE api_keys SET org_id = ${checked.orgId} WHERE id = ${minted.id} AND user_id = ${caller.userId}`;
         }
         if (checked.kind === 'agent') {
           await tx`UPDATE api_keys SET kind = 'agent' WHERE id = ${minted.id} AND user_id = ${caller.userId}`;
