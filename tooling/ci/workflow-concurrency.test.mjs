@@ -122,6 +122,7 @@ export function evaluate(src, ctx) {
         }
         take(')');
         if (t.v === 'format') return args[0].replace(/\{(\d+)\}/g, (_, n) => str(args[1 + Number(n)]));
+        if (t.v === 'cancelled' && args.length === 0) return Boolean(ctx.cancelled);
         throw new Error(`function ${t.v} is not known to this test`);
       }
       return t.v
@@ -448,6 +449,25 @@ export function mainFirstProblems(text) {
   for (const key of ['plan', 'build', 'journeys'])
     if (!/\n {4}if: \$\{\{ !cancelled\(\) && /.test(job(text, key)))
       problems.push(`the ${key} job doesn't run on a skipped touch job (\`!cancelled()\`), so main would run nothing`);
+  // A touch job that never finished (GitHub dropped it, or it was cancelled) leaves its mode empty, and an empty mode
+  // isn't 'none': on 9 Nov 2026 from 17:48 UTC, PR runs whose touch job GitHub never ran fell back to the whole suite
+  // in 8 shards (run 42673388695, an AGENTS.md-only change). The shards, the planner and the build need a touch job
+  // that succeeded, or skipped on main.
+  for (const key of ['plan', 'build', 'journeys']) {
+    const cond = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(job(text, key))?.[1] ?? '';
+    const runs = (ref, result, mode) =>
+      cond &&
+      truthy(
+        evaluate(cond, {
+          github: { ref, event_name: ref === MAIN ? 'push' : 'workflow_dispatch' },
+          needs: { touch: { result, outputs: { mode, target: '' } }, plan: { result: 'success' } },
+        }),
+      );
+    if (runs('refs/heads/b1', 'cancelled', '') || runs('refs/heads/b1', '', '') || runs('refs/heads/b1', 'failure', ''))
+      problems.push(`the ${key} job runs when the touch job didn't finish, so a dropped touch job runs the whole suite`);
+    if (!runs(MAIN, 'skipped', '') || !runs('refs/heads/b1', 'success', 'run'))
+      problems.push(`the ${key} job doesn't run on main or after a touch job that says run`);
+  }
   // The release: on main after the planner, with the right to re-run, running main-first.mjs --release.
   const release = job(text, 'release');
   const relIf = /\n {4}if: \$\{\{ (.*) \}\}\n/.exec(release)?.[1] ?? '';
@@ -682,6 +702,19 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   const afterDeferred = t.replace(" && needs.touch.outputs.mode != 'none' }}", ' }}');
   assert.notEqual(afterDeferred, t);
   assert.ok(mainFirstProblems(afterDeferred).some((p) => /re-run each other/.test(p)));
+  for (const key of ['plan', 'build', 'journeys']) {
+    const failOpen = t.replace(
+      new RegExp(
+        `(\\n  ${key}:\\n(?: {4}.*\\n|\\n)*? {4}if: \\$\\{\\{ !cancelled\\(\\) && )\\(needs\\.touch\\.result == 'success' \\|\\| \\(needs\\.touch\\.result == 'skipped' && github\\.ref == 'refs/heads/main'\\)\\) && `,
+      ),
+      '$1',
+    );
+    assert.notEqual(failOpen, t, key);
+    assert.ok(
+      mainFirstProblems(failOpen).some((p) => p.startsWith(`the ${key} job runs when the touch job didn't finish`)),
+      key,
+    );
+  }
   const noMark = t.replace(`- name: ${DISPATCH_MARK}\n`, '- name: Something\n');
   assert.notEqual(noMark, t);
   assert.ok(mainFirstProblems(noMark).some((p) => /can't count them/.test(p)));
