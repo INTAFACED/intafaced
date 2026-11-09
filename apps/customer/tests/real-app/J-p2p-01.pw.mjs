@@ -20,6 +20,7 @@ import {
   registerSlowMethod,
   retireRetiringMethod,
   holderOf,
+  ledgerTradeEscrow,
   testInstrument,
   testPasskey,
   unconfirmedAccount,
@@ -288,6 +289,21 @@ test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quo
   // 20 EUR at 0.92 is 21.739130434782608695… USDT, rounded down: never more fiat than asked.
   expect(held.amount).toBe('21.739130434782608695');
   expect(held.fiatAmount).toBe('20');
+  // The frozen fee: the quote holds the published rate and the fee it makes on this amount (rounded up, as the ledger's
+  // release recipe takes it), and asking for the same quote again returns the same fee, not a fresh one.
+  const schedule = await b.query('fees.schedule');
+  expect(held.feeBps).toBe(schedule.feeBps);
+  const heldFee = (toUnits(held.amount) * BigInt(schedule.feeBps) + 9_999n) / 10_000n;
+  expect(held.fee).toBe(fromUnits(heldFee));
+  expect(held.netAmount).toBe(fromUnits(toUnits(held.amount) - heldFee));
+  const again = await b.mutate('trades.lockQuote', { quoteId: held.quoteId, offerId: state.offerId, fiatAmount: '20', method: METHOD });
+  expect({ feeBps: again.feeBps, fee: again.fee, netAmount: again.netAmount, expiresAt: again.expiresAt }).toEqual({
+    feeBps: held.feeBps,
+    fee: held.fee,
+    netAmount: held.netAmount,
+    expiresAt: held.expiresAt,
+  });
+  const percent = String(schedule.feeBps / 100);
 
   await signIn(page, state.buyer);
   await page.goto(`/p2p?offerId=${state.offerId}`);
@@ -298,10 +314,13 @@ test('J-p2p-01 #4 a fiat amount becomes a quote held with a countdown, and a quo
   const quote = take.getByTestId('take-quote');
   await expect(quote).toContainText('20 EUR');
   await expect(quote).toContainText('0.92 EUR / USDT');
+  const feeRow = (where) => where.locator('dl.pay-details > div').filter({ has: page.locator('dt', { hasText: /^Service fee$/ }) });
+  await expect(feeRow(quote).locator('dd')).toHaveText(`${held.fee} USDT (${percent}%)`);
   await take.getByTestId('take-review').click();
   const dialog = page.getByTestId('take-review-dialog');
   const countdown = dialog.getByTestId('take-quote-countdown');
   await expect(countdown).toContainText(/Price, fee and amounts held for 1:[45]\d/);
+  await expect(feeRow(dialog.getByTestId('take-quote')).locator('dd')).toHaveText(`${held.fee} USDT (${percent}%)`);
   // Placing is the fresh confirmation (#5): offered while the quote holds.
   const passkey = dialog.getByRole('button', { name: 'Use a passkey' });
   await expect(passkey).toBeEnabled();
@@ -816,12 +835,26 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
   expect((await p2p(seller, sellerPasskey).mutate('trades.confirmReceived', { tradeId: state.tradeId })).status).toBe('released');
   const trade = await p2p(buyer).query('trades.get', { tradeId: state.tradeId });
   expect(trade).toMatchObject({ status: 'released', displayStatus: 'completed' });
-  // The release split is the fee rate frozen at take; the buyer's share is what the ledger pays out.
-  expect(fromUnits(toUnits(trade.netAmount) + toUnits(trade.fee))).toBe(fromUnits(toUnits(trade.amount)));
+  // Released once to the buyer minus the published fee: the order's rate is the published schedule's, its fee is that
+  // rate of the released amount (rounded up, as the ledger's fee recipe does), and the buyer gets the rest.
+  const schedule = await p2p(buyer).query('fees.schedule');
+  expect(trade.feeBps).toBe(schedule.feeBps);
+  const units = toUnits(trade.amount);
+  const fee = (units * BigInt(schedule.feeBps) + 9_999n) / 10_000n;
+  expect(trade.fee).toBe(fromUnits(fee));
+  expect(trade.netAmount).toBe(fromUnits(units - fee));
   await expect
     .poll(async () => (await p2p(buyer).query('trades.get', { tradeId: state.tradeId })).settledAt, { timeout: 30_000 })
     .not.toBeNull();
-  await expect.poll(usdt, { timeout: 30_000 }).toBe(fromUnits(toUnits(before) + toUnits(trade.netAmount)));
+  await expect.poll(usdt, { timeout: 30_000 }).toBe(fromUnits(toUnits(before) + units - fee));
+  // The seller's escrow for this trade is empty: the order says nothing is held, and svc-ledger's own escrow pot for the
+  // trade took the amount in once at take and paid it out once at release, leaving zero.
+  expect((await p2p(seller).query('trades.get', { tradeId: state.tradeId })).escrowHeld).toBe('0');
+  const pot = await ledgerTradeEscrow(await sellerId(p2p(buyer), state.offerId), 'USDT', state.tradeId);
+  expect(pot, 'svc-ledger books an escrow pot for the trade').not.toBeNull();
+  expect(toUnits(pot.balance)).toBe(0n);
+  expect(toUnits(pot.debits)).toBe(units);
+  expect(toUnits(pot.credits)).toBe(units);
 
   await signIn(page, state.buyer);
   await page.goto(`/uc/order?tradeId=${state.tradeId}`);
@@ -832,6 +865,7 @@ test('J-p2p-01 #8 the seller releases; the order says Completed with the coins a
   const shown = (value) => value.replace(/^\d+/, (whole) => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ','));
   await expect(result).toContainText(`${shown(trade.netAmount)} USDT, after the service fee`);
   await expect(result).toContainText(`${shown(trade.fee)} USDT (`);
+  await expect(order.getByTestId('order-escrow-held')).toContainText('0 USDT');
 
   // The order list puts it under Completed, in the same words.
   await page.goto('/uc/order');
