@@ -47,7 +47,7 @@ interface Row {
 export function assertQuotesLimit(limit: number | undefined): number {
   if (limit === undefined || !Number.isInteger(limit) || limit < 1 || limit > ONRAMP_QUOTES_LIST_MAX) {
     throw new BankError(
-      `The fiat buy quotes read needs a limit from 1 to ${ONRAMP_QUOTES_LIST_MAX} (bank.onramp_quotes_limit_unset)`,
+      `This fiat buy read needs a limit from 1 to ${ONRAMP_QUOTES_LIST_MAX} (bank.onramp_quotes_limit_unset)`,
       'bank.onramp_quotes_limit_unset',
     );
   }
@@ -105,4 +105,86 @@ export function onrampQuotesProcedure(sql: () => Sql, guard: Guard) {
       ),
     )
     .query(({ input }) => guard(async () => readOnrampQuotes(sql(), assertQuotesLimit(input.limit))));
+}
+
+/** The one refusal that means the partner's ramp gave no fee for a buy. */
+export const ONRAMP_FEE_NOT_KNOWN = 'bank.onramp_fee_not_known' as const;
+
+export interface OnrampFeeNotKnownRow {
+  readonly requestId: string;
+  readonly userId: string;
+  readonly assetId: string;
+  readonly amount: string;
+  readonly method: string;
+  readonly country: string;
+  readonly refusalCode: typeof ONRAMP_FEE_NOT_KNOWN;
+  readonly createdAt: string;
+}
+
+export interface OnrampFeesNotKnown {
+  /** The TEST partner's label when the local stack's TEST partner ramp is the one that gave no fee, or null. */
+  readonly testPartner: string | null;
+  readonly rows: OnrampFeeNotKnownRow[];
+}
+
+interface NotKnownRow {
+  id: string;
+  user_id: string;
+  asset_id: string;
+  amount: string;
+  method: string;
+  country: string;
+  created_at: Date;
+}
+
+/**
+ * The partner's buy fees it did not give (J-cex-spot-17 #8, "or 'not known'"): each add-money request the partner's ramp
+ * gave no fee for, so no quote was kept and it was refused `bank.onramp_fee_not_known`. No fee, pay amount or rate was
+ * quoted, so none is read: finance sees "not known", never 0. Read only, newest first.
+ */
+export async function readOnrampFeesNotKnown(sql: Sql, limit: number): Promise<OnrampFeeNotKnownRow[]> {
+  const rows = await sql<NotKnownRow[]>`
+    SELECT id::text, user_id, asset_id, amount::text, method, country, created_at
+      FROM bank.add_money_requests
+     WHERE status = 'refused' AND refusal_code = ${ONRAMP_FEE_NOT_KNOWN} AND quote_id IS NULL
+     ORDER BY created_at DESC, id
+     LIMIT ${limit}`;
+  return rows.map((row) => ({
+    requestId: row.id,
+    userId: row.user_id,
+    assetId: row.asset_id,
+    amount: decimal(row.amount),
+    method: row.method,
+    country: row.country,
+    refusalCode: ONRAMP_FEE_NOT_KNOWN,
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
+export function onrampFeesNotKnownProcedure(sql: () => Sql, testPartnerLabel: () => string | null, guard: Guard) {
+  return scopedProcedure('admin:read')
+    .input(z.object({ limit: z.number().int().optional() }).strict())
+    .output(
+      z.object({
+        testPartner: z.string().nullable(),
+        rows: z.array(
+          z.object({
+            requestId: z.string(),
+            userId: z.string(),
+            assetId: z.string(),
+            amount: z.string(),
+            method: z.string(),
+            country: z.string(),
+            refusalCode: z.literal(ONRAMP_FEE_NOT_KNOWN),
+            createdAt: z.string(),
+          }),
+        ),
+      }),
+    )
+    .query(({ input }) =>
+      guard(async (): Promise<OnrampFeesNotKnown> => ({
+        testPartner: testPartnerLabel(),
+        rows: await readOnrampFeesNotKnown(sql(), assertQuotesLimit(input.limit)),
+      })),
+    );
 }
