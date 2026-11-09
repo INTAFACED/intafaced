@@ -397,20 +397,24 @@ test(`${J} #7 exercises the order-flow protections: self-trade mode applied and 
   const published = (await me.get('/api/v1/futures/order-protections')).body;
   expect(published).toMatchObject({ selfTrade: { mode: 'cancel_resting' }, orderRateLimit: { perMarket: null, applies: 'edge' } });
   const edge = await (await fetch(`${EDGE}/api/edge/rate-limits/costs`, { headers: { origin: ORIGIN } })).json();
-  expect(edge.address).toMatchObject({ max: expect.any(Number), windowMs: expect.any(Number) });
+  expect(edge.address).toMatchObject({ max: expect.any(Number), windowMs: expect.any(Number), keyedOn: expect.any(String) });
   await room(page);
   const panel = page.getByRole('region', { name: 'Order-flow protections' });
   await expect(panel).toContainText('the resting one is cancelled and the new one goes on');
-  await expect(panel).toContainText(
-    `Not set for futures, so the edge limit applies: ${edge.address.max} requests every ${Math.round(edge.address.windowMs / 1000)} seconds from your address.`,
-  );
+  await expect(panel).toContainText(`Not set for futures, so the edge limit applies: ${edge.address.max} requests every `);
+  // The window exactly as the edge holds it, in seconds.
+  await expect(panel).toContainText(` every ${edge.address.windowMs / 1000} seconds`);
 
   // Self-trade applied: a TEST long, then the trader's own reduce-only sell resting as the best ask, then their own buy
   // at that price. The engine cancels the resting sell instead of trading the trader with themselves.
   const position = await openLong(me, 'stp');
+  // The tier is read before the hold, so the hold's few seconds are spent only on the two orders.
+  const { tier } = await markOf(me);
+  // A hold keeps the ladder the maker last quoted, so it is asked for only once that ladder has both sides (as openLong).
+  await bestPrices(SYMBOL, 50, 60_000);
+  const heldAt = Date.now();
   hold();
   try {
-    await bestPrices(SYMBOL);
     const { bid, ask } = await bestPrices(SYMBOL);
     const unit = 10n ** 18n;
     expect(toUnits(ask) - toUnits(bid), `the ${SYMBOL} spread ${bid}..${ask} leaves no room inside it`).toBeGreaterThan(unit);
@@ -427,7 +431,6 @@ test(`${J} #7 exercises the order-flow protections: self-trade mode applied and 
     });
     expect(sell.status, JSON.stringify(sell.body)).toBe(200);
     expect(sell.body.status).toBe('open');
-    const { tier } = await markOf(me);
     const buy = await me.post('/api/v1/futures/orders', {
       symbol: SYMBOL,
       side: 'buy',
@@ -440,6 +443,8 @@ test(`${J} #7 exercises the order-flow protections: self-trade mode applied and 
       clientOrderId: `${J}-stp-buy-${Date.now()}`,
     });
     expect(buy.status, JSON.stringify(buy.body)).toBe(200);
+    // The maker's ladder was still held when the buy met the book, so the only ask at that price was the trader's own.
+    expect(Date.now() - heldAt, `the ${SYMBOL} hold lapsed before the buy was placed`).toBeLessThan(HOLD_MAX_MS);
 
     // Logged on the order itself: cancelled, with self-trade prevention as its reason; nothing traded with itself.
     const cancelled = await until(

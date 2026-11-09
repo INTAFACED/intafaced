@@ -2882,7 +2882,8 @@ export class MatchedFuturesOrders {
   /**
    * Self-trade prevention (J-derivatives-04 step 7). The engine has one mode (`SELF_TRADE_MODE`): an order that would
    * trade with the same account's resting order cancels the resting one and carries on; the engine opens a surveillance
-   * case for each. The cancelled order keeps the reason, `trade.self_trade_prevention`, unless it already has one.
+   * case for each. The cancelled order keeps the reason, `trade.self_trade_prevention`, unless it already has one or
+   * has already ended for another reason (a late or replayed event never relabels it).
    */
   private async recordSelfTradeCancels(
     cancellations: readonly { readonly orderId: string; readonly reason?: string | null }[],
@@ -2891,7 +2892,7 @@ export class MatchedFuturesOrders {
     if (ids.length === 0) return;
     await this.deps.sql`
       UPDATE trade.futures_orders SET refusal_code = ${FUTURES_SELF_TRADE_PREVENTION}, updated_at = now()
-       WHERE id IN ${this.deps.sql(ids)} AND refusal_code IS NULL
+       WHERE id IN ${this.deps.sql(ids)} AND refusal_code IS NULL AND status IN ${this.deps.sql(LIVE_OR_UNKNOWN)}
     `;
   }
 

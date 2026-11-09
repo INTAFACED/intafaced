@@ -78,7 +78,10 @@ const messages = {
   rateMarket: '{limit}',
   rateEdgeReading: 'Not set for futures, so the edge limit applies. Reading it…',
   rateEdgeUnreadable: 'Not set for futures, so the edge limit applies. Its figure couldn’t be read.',
-  rateEdge: 'Not set for futures, so the edge limit applies: {max} requests every {seconds} seconds from your address.',
+  rateEdge:
+    'Not set for futures, so the edge limit applies: {max} requests every {seconds} seconds from your address, counted by each edge server.',
+  rateEdgeShared:
+    'Not set for futures, so the edge limit applies: {max} requests every {seconds} seconds, counted on the address the edge sees, which everyone behind the same proxy shares.',
   rateNone: 'Not set for futures, and the edge sets no limit either.',
   kindOpen: 'Open',
   kindClose: 'Close',

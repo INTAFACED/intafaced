@@ -56,7 +56,17 @@ export type RouteCost = z.infer<typeof routeCostSchema>;
  * requests in each `windowMs`. Null when the edge enforces none. It is the limit that applies wherever a product sets
  * no rate limit of its own (J-derivatives-04 step 7).
  */
-export const addressRateLimitSchema = z.object({ max: z.number().int().positive(), windowMs: z.number().int().positive() }).strict();
+export const addressRateLimitSchema = z
+  .object({
+    max: z.number().int().positive(),
+    windowMs: z.number().int().positive(),
+    /**
+     * What the count is keyed on: the caller's own address (`client`, behind a trusted proxy), or the address the edge
+     * sees on its socket (`socket`), which behind a proxy every caller shares. Each edge server counts on its own.
+     */
+    keyedOn: z.enum(['client', 'socket']),
+  })
+  .strict();
 export type AddressRateLimit = z.infer<typeof addressRateLimitSchema>;
 
 /**
@@ -64,7 +74,8 @@ export type AddressRateLimit = z.infer<typeof addressRateLimitSchema>;
  * the per-address limit in force.
  */
 export const rateCostsOutputSchema = z
-  .object({ asOf: isoInstant, costs: z.array(routeCostSchema), address: addressRateLimitSchema.nullable() })
+  // Optional so a page reading an edge from before this field still reads the cost table; absent is "not published".
+  .object({ asOf: isoInstant, costs: z.array(routeCostSchema), address: addressRateLimitSchema.nullable().optional() })
   .strict();
 export type RateCostsOutput = z.infer<typeof rateCostsOutputSchema>;
 

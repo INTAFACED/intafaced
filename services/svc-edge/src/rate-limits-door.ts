@@ -17,7 +17,7 @@ export interface RateLimitsDoorDeps {
   readonly buckets: KeyBuckets;
   readonly costs: readonly RouteCost[];
   /** The per-address limit this edge enforces (`EDGE_RATE_LIMIT_MAX` per `EDGE_RATE_LIMIT_WINDOW_MS`), or null when off. */
-  readonly address: { readonly max: number; readonly windowMs: number } | null;
+  readonly address: { readonly max: number; readonly windowMs: number; readonly keyedOn: 'client' | 'socket' } | null;
   readonly now?: () => number;
 }
 

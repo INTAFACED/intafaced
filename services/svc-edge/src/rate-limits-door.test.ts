@@ -20,13 +20,13 @@ async function read(address: RateLimitsDoorDeps['address']) {
 
 describe('the edge rate-limits door (J-developer-06, J-derivatives-04 step 7)', () => {
   it('publishes the per-address limit it enforces with the cost table, in the contract’s shape', async () => {
-    const res = await read({ max: 6000, windowMs: 60_000 });
+    const res = await read({ max: 6000, windowMs: 60_000, keyedOn: 'client' });
     expect(res.statusCode).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
     expect(rateCostsOutputSchema.parse(res.json())).toEqual({
       asOf: '2026-11-09T02:00:00.000Z',
       costs: base.costs,
-      address: { max: 6000, windowMs: 60_000 },
+      address: { max: 6000, windowMs: 60_000, keyedOn: 'client' },
     });
   });
 

@@ -6,6 +6,15 @@ import { useFuturesApi } from '../../../screens/trade/futures/data';
 import { readRateCosts } from '../../developers/rate-limits/rate-limits-api';
 import { futuresOrdersCopy } from './futures-orders-copy';
 
+/** Whole milliseconds as exact seconds: 60000 is "60", 1500 is "1.5", 400 is "0.4". */
+export function secondsOf(ms: number): string {
+  const whole = Math.floor(ms / 1000);
+  const rest = String(ms % 1000)
+    .padStart(3, '0')
+    .replace(/0+$/, '');
+  return rest ? `${whole}.${rest}` : String(whole);
+}
+
 type Read<T> = { status: 'loading' } | { status: 'failed' } | { status: 'ready'; data: T };
 
 /**
@@ -22,10 +31,12 @@ export function OrderProtections() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void api
-      .orderProtections(controller.signal)
-      .then((r) => setProtections(r.ok ? { status: 'ready', data: r.data } : { status: 'failed' }));
-    void readRateCosts(client, controller.signal).then((r) => setEdge(r.ok ? { status: 'ready', data: r.data } : { status: 'failed' }));
+    void api.orderProtections(controller.signal).then((r) => {
+      setProtections(r.ok ? { status: 'ready', data: r.data } : { status: 'failed' });
+      // The edge's figure is read only when it is the one that applies.
+      if (r.ok && r.data.orderRateLimit.perMarket === null)
+        void readRateCosts(client, controller.signal).then((e) => setEdge(e.ok ? { status: 'ready', data: e.data } : { status: 'failed' }));
+    });
     return () => controller.abort();
   }, [api, client]);
 
@@ -42,12 +53,13 @@ export function OrderProtections() {
   if (protections.status !== 'ready') rate = protections.status === 'loading' ? t('protectionsReading') : t('protectionsUnreadable');
   else if (protections.data.orderRateLimit.perMarket !== null) rate = t('rateMarket', { limit: protections.data.orderRateLimit.perMarket });
   else if (edge.status === 'loading') rate = t('rateEdgeReading');
-  else if (edge.status === 'failed') rate = t('rateEdgeUnreadable');
+  else if (edge.status === 'failed' || edge.data.address === undefined) rate = t('rateEdgeUnreadable');
   else if (edge.data.address === null) rate = t('rateNone');
   else
-    rate = t('rateEdge', {
+    rate = t(edge.data.address.keyedOn === 'client' ? 'rateEdge' : 'rateEdgeShared', {
       max: String(edge.data.address.max),
-      seconds: String(Math.round(edge.data.address.windowMs / 1000)),
+      // Exact: 1500 ms is 1.5 seconds, never rounded to a figure the edge does not enforce.
+      seconds: secondsOf(edge.data.address.windowMs),
     });
 
   return (

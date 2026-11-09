@@ -15,6 +15,7 @@ import {
   FUTURES_ORDER_ORIGINS,
   MATCHED_ORDER_STATUSES,
   SELF_TRADE_MODE,
+  FUTURES_SELF_TRADE_PREVENTION,
   MatchedOrderError,
   ORDER_LABEL_INVALID,
   ORDER_LABEL_PATTERN,
@@ -101,9 +102,10 @@ export const FUTURES_ORDER_PROTECTIONS = {
   selfTrade: {
     mode: SELF_TRADE_MODE,
     modes: [SELF_TRADE_MODE],
-    cancelledReason: 'trade.self_trade_prevention',
+    cancelledReason: FUTURES_SELF_TRADE_PREVENTION,
     logged: 'each one opens a self-trade surveillance case',
   },
+  // `edge`: whatever the edge enforces applies, which it publishes (possibly none) at `limits`; svc-trade sets none.
   orderRateLimit: { perMarket: null, applies: 'edge', limits: '/api/edge/rate-limits/costs' },
 } as const;
 

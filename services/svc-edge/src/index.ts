@@ -349,7 +349,9 @@ registerRateLimitsDoor(app, {
   sessionLive,
   buckets: keyBuckets,
   costs: routeCosts,
-  address: rateLimit.enabled ? { max: rateLimit.max, windowMs: rateLimit.windowMs } : null,
+  address: rateLimit.enabled
+    ? { max: rateLimit.max, windowMs: rateLimit.windowMs, keyedOn: rateLimit.trustProxy ? 'client' : 'socket' }
+    : null,
 });
 
 // The FIX and SBE adapters' own status (J-cex-spot-20 #3), each signed with its own read key.
