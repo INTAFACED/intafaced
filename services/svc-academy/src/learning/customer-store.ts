@@ -62,11 +62,21 @@ export type UpcomingSession = {
   role: 'host' | 'speaker' | 'attendee';
 };
 
+/**
+ * One line of the grant audit (AC-access-grants-02): a course access grant's event, a certificate issued, or a certificate
+ * revoked. `actorId` is who did it: the staff member, or null when no person did (an issue by the certificate rule, an
+ * access that ran out). `reason` is what they gave; a staff grant and a revoke always carry one.
+ */
 export type GrantAuditRow = {
   accountId: string;
-  certificateId: string;
-  grantedAt: Date;
-  status: 'granted';
+  kind: 'access_granted' | 'access_revoked' | 'access_expired' | 'access_reinstated' | 'certificate_granted' | 'certificate_revoked';
+  /** The course slug for an access line, the certificate id for a certificate line. */
+  target: string;
+  /** How an access grant came about (`staff`, `purchase`, `free`, `bundle`, `membership`); `issue` for a certificate line. */
+  source: string;
+  actorId: string | null;
+  reason: string | null;
+  at: Date;
   reference: string;
 };
 
@@ -123,15 +133,20 @@ function encodeCursor(at: Date, key: string): string {
   return Buffer.from(`${at.toISOString()}\n${key}`, 'utf8').toString('base64url');
 }
 
-function encodeGrantCursor(at: Date, certId: string, accountId: string): string {
-  return Buffer.from(`${at.toISOString()}\n${certId}\n${accountId}`, 'utf8').toString('base64url');
+/** The grant audit's page marker: the last line's time as the database wrote it (to the microsecond) and its reference. */
+function encodeGrantCursor(atText: string, reference: string): string {
+  return Buffer.from(`${atText}\n${reference}`, 'utf8').toString('base64url');
 }
 
-function decodeGrantCursor(cursor: string): { at: Date; certId: string; accountId: string } {
-  const decoded = decodeCursor(cursor);
-  const nl = decoded.key.indexOf('\n');
-  if (nl < 1) throw new AcademyError('cursor is not valid', 'academy.cert_invalid');
-  return { at: decoded.at, certId: decoded.key.slice(0, nl), accountId: decoded.key.slice(nl + 1) };
+function decodeGrantCursor(cursor: string): { atText: string; reference: string } {
+  const raw = Buffer.from(cursor, 'base64url').toString('utf8');
+  const nl = raw.indexOf('\n');
+  const atText = nl > 0 ? raw.slice(0, nl) : '';
+  const reference = nl > 0 ? raw.slice(nl + 1) : '';
+  if (!/^\d{4}-\d{2}-\d{2}[ T][0-9:.]+(?:[+-]\d{2}(?::?\d{2})?|Z)$/.test(atText) || reference.length === 0) {
+    throw new AcademyError('cursor is not valid', 'academy.cert_invalid');
+  }
+  return { atText, reference };
 }
 
 function decodeCursor(cursor: string): { at: Date; key: string } {
@@ -540,45 +555,63 @@ export class AcademyCustomerStore {
     });
   }
 
-  async grantAudit(input: {
-    limit: number | null | undefined;
-    cursor?: string | null;
-    certificateId?: string | null;
-  }): Promise<GrantAuditPage> {
+  /**
+   * The grant audit (AC-access-grants-02), newest first: every course access grant event (granted, revoked, expired,
+   * reinstated) with who did it and why, every certificate issued, and every certificate revoked with who revoked it and
+   * why. It reads the records themselves, never a copy. `limit` is the owner's page size; blank refuses
+   * `academy.grant_audit_list_limit_unset`. `target` keeps the lines of one course or one certificate.
+   */
+  async grantAudit(input: { limit: number | null | undefined; cursor?: string | null; target?: string | null }): Promise<GrantAuditPage> {
     const limit = assertCustomerListLimit(input.limit, 'academy.grant_audit_list_limit_unset', 'Grant audit');
     const cursor = input.cursor ? decodeGrantCursor(input.cursor) : null;
-    const certificateId = input.certificateId?.trim() || null;
-    const rows = cursor
-      ? await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string }>>`
-          SELECT user_id, cert_id, granted_at, idempotency_key
-            FROM academy.cert_grants
-           WHERE (${certificateId}::text IS NULL OR cert_id = ${certificateId})
-             AND (granted_at, cert_id, user_id) < (
-               ${cursor.at}::timestamptz,
-               ${cursor.certId},
-               ${cursor.accountId}::uuid
-             )
-           ORDER BY granted_at DESC, cert_id DESC, user_id DESC
-           LIMIT ${limit + 1}
-        `
-      : await this.sql<Array<{ user_id: string; cert_id: string; granted_at: Date; idempotency_key: string }>>`
-          SELECT user_id, cert_id, granted_at, idempotency_key
-            FROM academy.cert_grants
-           WHERE (${certificateId}::text IS NULL OR cert_id = ${certificateId})
-           ORDER BY granted_at DESC, cert_id DESC, user_id DESC
-           LIMIT ${limit + 1}
-        `;
+    const target = input.target?.trim() || null;
+    const rows = await this.sql<
+      Array<{
+        user_id: string;
+        kind: GrantAuditRow['kind'];
+        target: string;
+        source: string;
+        actor_id: string | null;
+        reason: string | null;
+        at: Date;
+        at_text: string;
+        reference: string;
+      }>
+    >`
+      WITH lines AS (
+        SELECT g.user_id, 'access_' || e.kind AS kind, g.path_slug AS target, g.source, e.actor_id::text AS actor_id,
+               e.reason, e.at, e.key AS reference
+          FROM academy.access_grant_events e
+          JOIN academy.access_grants g ON g.id = e.grant_id
+        UNION ALL
+        SELECT user_id, 'certificate_granted', cert_id, 'issue', NULL, NULL, granted_at, idempotency_key
+          FROM academy.cert_grants
+        UNION ALL
+        SELECT user_id, 'certificate_revoked', cert_id, 'issue', revoked_by::text, reason, revoked_at, 'revoke:' || public_id
+          FROM academy.cert_revocations
+      )
+      SELECT user_id, kind, target, source, actor_id, reason, at, at::text AS at_text, reference
+        FROM lines
+       WHERE (${target}::text IS NULL OR target = ${target})
+         AND (${cursor?.atText ?? null}::timestamptz IS NULL
+              OR (at, reference) < (${cursor?.atText ?? null}::timestamptz, ${cursor?.reference ?? null}::text))
+       ORDER BY at DESC, reference DESC
+       LIMIT ${limit + 1}
+    `;
     const page = rows.slice(0, limit);
     const last = page[page.length - 1];
     return {
       items: page.map((r) => ({
         accountId: r.user_id,
-        certificateId: r.cert_id,
-        grantedAt: r.granted_at,
-        status: 'granted' as const,
-        reference: r.idempotency_key,
+        kind: r.kind,
+        target: r.target,
+        source: r.source,
+        actorId: r.actor_id,
+        reason: r.reason,
+        at: r.at,
+        reference: r.reference,
       })),
-      nextCursor: rows.length > limit && last ? encodeGrantCursor(last.granted_at, last.cert_id, last.user_id) : null,
+      nextCursor: rows.length > limit && last ? encodeGrantCursor(last.at_text, last.reference) : null,
     };
   }
 

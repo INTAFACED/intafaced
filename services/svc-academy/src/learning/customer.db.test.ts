@@ -675,23 +675,59 @@ describe('academy customer learning reads and writes', () => {
       )
     `;
     const academy = service();
-    const operator = createAcademyRouter(academy).createCaller(signed());
+    const STAFF = '33333333-3333-4333-8333-333333333333';
+    const PAGE = { ACADEMY_GRANT_AUDIT_PAGE_SIZE: 2 };
+    const operator = createAcademyRouter(academy, undefined, undefined, undefined, null, PAGE).createCaller(signed());
     await sql`
       INSERT INTO academy.cert_grants (user_id, cert_id, granted_at, idempotency_key) VALUES
         (${OTHER}, 'foundations-v1', '2026-10-17T05:00:00Z', ${`cert:${OTHER}:foundations-v1`}),
         (${USER}, 'other-cert', '2026-10-16T03:00:00Z', ${`cert:${USER}:other-cert`})
     `;
-    const audit = await operator.admin.grantAudit({ limit: 2 });
-    const auditRest = await operator.admin.grantAudit({ limit: 2, cursor: audit.nextCursor ?? undefined });
-    const auditIds = [...audit.items, ...auditRest.items].map((row) => `${row.accountId}:${row.certificateId}`);
-    expect(new Set(auditIds).size).toBe(auditIds.length);
-    expect(auditIds).toHaveLength(3);
-    expect(audit.items[0]).toEqual({
-      accountId: OTHER,
-      certificateId: 'foundations-v1',
-      grantedAt: new Date('2026-10-17T05:00:00Z'),
-      status: 'granted',
-      reference: `cert:${OTHER}:foundations-v1`,
+    // A staff access grant on a course, then its revoke, each with who and why; and one certificate revoked.
+    const [grant] = await sql<{ id: string }[]>`
+      INSERT INTO academy.access_grants (user_id, path_slug, source, reason, starts_at, state, created_at, updated_at)
+      VALUES (${USER}, 'markets', 'staff', 'Scholarship for the October cohort', '2026-10-17T06:00:00Z', 'revoked',
+              '2026-10-17T06:00:00Z', '2026-10-17T08:00:00Z')
+      RETURNING id
+    `;
+    await sql`
+      INSERT INTO academy.access_grant_events (grant_id, n, kind, key, reason, actor_id, at) VALUES
+        (${grant!.id}, 1, 'granted', ${`grant:markets:${USER}`}, 'Scholarship for the October cohort', ${STAFF}, '2026-10-17T06:00:00Z'),
+        (${grant!.id}, 2, 'revoked', ${`revoke-access:markets:${USER}:2`}, 'Cohort place withdrawn', ${STAFF}, '2026-10-17T08:00:00Z')
+    `;
+    await sql`
+      INSERT INTO academy.cert_revocations (public_id, user_id, cert_id, proposed_by, approved_by, revoked_by, reason, revoked_at)
+      VALUES ('PUB-OTHER-1', ${OTHER}, 'foundations-v1', 'founder-a', 'founder-b', ${STAFF}, 'Issued in error', '2026-10-17T07:00:00Z')
+    `;
+    // Newest first at the owner's page size, every line with its actor, time and reason, across pages without a repeat.
+    const lines: Array<{ kind: string; target: string; actorId: string | null; reason: string | null; at: Date }> = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const page = await operator.admin.grantAudit(cursor ? { cursor } : undefined);
+      expect(page.items.length).toBeLessThanOrEqual(2);
+      lines.push(...page.items);
+      cursor = page.nextCursor ?? undefined;
+      pages += 1;
+    } while (cursor && pages < 10);
+    expect(lines.map((l) => [l.kind, l.target, l.actorId, l.reason, l.at.toISOString()])).toEqual([
+      ['access_revoked', 'markets', STAFF, 'Cohort place withdrawn', '2026-10-17T08:00:00.000Z'],
+      ['certificate_revoked', 'foundations-v1', STAFF, 'Issued in error', '2026-10-17T07:00:00.000Z'],
+      ['access_granted', 'markets', STAFF, 'Scholarship for the October cohort', '2026-10-17T06:00:00.000Z'],
+      ['certificate_granted', 'foundations-v1', null, null, '2026-10-17T05:00:00.000Z'],
+      ['certificate_granted', 'foundations-v1', null, null, '2026-10-17T03:00:00.000Z'],
+      ['certificate_granted', 'other-cert', null, null, '2026-10-16T03:00:00.000Z'],
+    ]);
+    expect(pages).toBe(3);
+    // A caller may ask for fewer than the owner's size, never more.
+    expect((await operator.admin.grantAudit({ limit: 1 })).items).toHaveLength(1);
+    expect((await operator.admin.grantAudit({ limit: 50 })).items).toHaveLength(2);
+    // One course's or one certificate's lines.
+    expect((await operator.admin.grantAudit({ target: 'markets' })).items.map((l) => l.kind)).toEqual(['access_revoked', 'access_granted']);
+    // A blank owner page size refuses with its own code, whatever the caller asks for.
+    const unset = createAcademyRouter(academy).createCaller(signed());
+    await expect(unset.admin.grantAudit({ limit: 10 })).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: 'academy.grant_audit_list_limit_unset' }),
     });
     const metrics = await operator.admin.opsMetrics({ from: '2026-10-17', to: '2026-10-18' });
     expect(metrics.days).toEqual([
