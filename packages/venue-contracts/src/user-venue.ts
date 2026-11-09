@@ -310,6 +310,8 @@ export type VenueRefusalCode =
   | 'builder_fee_not_published'
   /** The account has not approved our builder fee, or approved less than the order carries. */
   | 'builder_fee_not_approved'
+  /** The order's builder fee is above the venue's own published cap for its market (`UserVenueMarket.builderFeeCapBps`). */
+  | 'builder_fee_above_cap'
   /** An agent key tried an owner-only action (withdraw, approvals). */
   | 'agent_not_permitted'
   /** The signer is not the account's owner or an approved agent. */
@@ -515,6 +517,12 @@ export interface UserVenueMarket {
   /** The venue's published fee for this account, or `known: false`. */
   readonly makerFeeBps: MaybeKnown<Amount>;
   readonly takerFeeBps: MaybeKnown<Amount>;
+  /**
+   * The most builder fee the venue lets any builder attach to an order on this market, in bps of notional (scaled, as
+   * `maxFeeBps`), as the venue publishes it; `known: false` when it publishes none. An order carrying more is refused
+   * `builder_fee_above_cap`, and our builder-fee versions are never written above it (J-cex-spot-17 #3).
+   */
+  readonly builderFeeCapBps: MaybeKnown<Amount>;
 }
 
 /** One figure of a preview: an amount in a named asset. */

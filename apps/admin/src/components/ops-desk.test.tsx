@@ -161,7 +161,7 @@ describe('academy and more desks', () => {
   it('academy reads its grants and enrolments, and links each section to a page of its own', () => {
     const html = render(props('academy', view('academy', [])));
     expect(html).not.toContain('Not available:');
-    expect(html).toContain('Certificate grants');
+    expect(html).toContain('Grants and revokes');
     expect(html).toContain('href="/academy-ops/grants"');
     const page = render({ ...props('academy', view('academy', [])), spec: academySectionDesk('grants') });
     expect(page).toContain('aria-current="page"');
