@@ -163,7 +163,7 @@ test('planted: a one-service change selects that service’s journeys and no oth
   assert.deepEqual(later.files, [POPUP, TAX, 'J-tax-02.pw.mjs']);
 });
 
-test('journeyTouch with the map: product code joins the files list; only shared setup makes the whole change full', () => {
+test('journeyTouch with the map: product code joins the files list; any other full path keeps the whole change full', () => {
   const reach = { map: MAP, behind: 0, journeyFiles: FILES, subscribes: () => false, mode: 'reach' };
   assert.equal(journeyTouch(['services/svc-tax/src/rates.ts'], () => true, { ...reach, mode: undefined }).mode, 'files', 'on by default');
   const t = journeyTouch(['services/svc-tax/src/rates.ts', `apps/customer/tests/real-app/${BANK}`], () => true, reach);
@@ -176,19 +176,8 @@ test('journeyTouch with the map: product code joins the files list; only shared 
   assert.equal(setup.mode, 'full', 'shared setup');
   const helper = journeyTouch(['services/svc-tax/src/rates.ts', 'apps/customer/tests/real-app/journey.mjs'], () => true, reach);
   assert.equal(helper.mode, 'full', 'a real-app helper (shared setup)');
-  // OWNER 249 (3): anything else no map places runs the title's journeys, never the full suite, and keeps the map's picks.
-  const mapItself = journeyTouch(['tooling/ci/journey-reach-map.json', 'services/svc-tax/src/rates.ts'], () => true, reach);
-  assert.deepEqual(
-    [mapItself.mode, mapItself.files, mapItself.unplaced.map((x) => x.path)],
-    ['files', [POPUP, TAX], ['tooling/ci/journey-reach-map.json']],
-    'the map itself',
-  );
-  const noMap = journeyTouch(['services/svc-tax/src/rates.ts']);
-  assert.deepEqual(
-    [noMap.mode, noMap.unplaced.map((x) => x.path)],
-    ['none', ['services/svc-tax/src/rates.ts']],
-    'no map given: product code is unplaced',
-  );
+  assert.equal(journeyTouch(['tooling/ci/journey-reach-map.json'], () => true, reach).mode, 'full', 'the map itself');
+  assert.equal(journeyTouch(['services/svc-tax/src/rates.ts']).mode, 'full', 'no map given: product code is full');
   assert.equal(journeyTouch(['services/svc-tax/src/rates.test.ts'], () => true, reach).mode, 'none', 'a unit test runs nothing');
 });
 
@@ -495,8 +484,7 @@ test('planted: the seal accepts a run of exactly the selected journeys, and fail
   });
   assert.equal(broken.ok, false);
   assert.match(broken.lines.join('\n'), /J-tax-01#1: failing, not in the baseline/);
-  // The same change with the map off or stale is unplaced: its title's steps (none here) decide, never the full run
-  // (OWNER 249 (3)); main's full run and the journeys revert catch the rest.
+  // The same change with the map off or stale needs the full run, so the targeted run no longer seals it.
   const stale = await sealWith({
     files,
     runs: [ghRun(1)],
@@ -504,8 +492,8 @@ test('planted: the seal accepts a run of exactly the selected journeys, and fail
     verdict: async () => ({ ...clean, missing: [BANK, BOTH] }),
     mainRuns: [],
   });
-  assert.equal(stale.ok, true, stale.lines.join('\n'));
-  assert.doesNotMatch(stale.lines.join('\n'), /full run: it changes what can reach any journey/);
+  assert.equal(stale.ok, false);
+  assert.match(stale.lines.join('\n'), /full run: it changes what can reach any journey .*couldn't be read/);
 });
 
 // ---- The committed map is public: only repository paths, service directories, journey names and run facts ----
