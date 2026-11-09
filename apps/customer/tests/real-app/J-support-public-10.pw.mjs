@@ -122,6 +122,31 @@ async function sendReply(workspace, body) {
 }
 
 test(`${J} #1 /support lists unassigned open and pending requests by score, "not a promise", with no due time`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // An empty queue says so honestly. The stack's queue is shared, so the lead holds every unassigned open or waiting
+  // request for this check, sees the empty queue, and lets each go again.
+  const drained = [];
+  try {
+    for (let round = 0; round < 50; round += 1) {
+      const answer = await desk('lead', 'query', 'listQueue', { limit: 100 });
+      if (answer.status !== 'ok' || answer.entries.length === 0) break;
+      for (const entry of answer.entries) {
+        await desk('lead', 'mutation', 'claim', { ticketId: entry.ticketId });
+        drained.push(entry.ticketId);
+      }
+    }
+    expect(await desk('lead', 'query', 'listQueue', { limit: 100 })).toEqual({ status: 'empty' });
+    await founderSignIn(page, 'a');
+    await page.goto(`${ADMIN}/support`);
+    await expect(page.getByRole('heading', { name: 'Support queue', level: 1 })).toBeVisible();
+    await expect(page.getByTestId('queue-empty')).toHaveText('svc-support says the queue is empty: no open or waiting tickets.');
+    // No table of rows and no failure shown in its place: the empty queue is the service's own answer.
+    await expect(page.getByRole('region', { name: 'Support queue' })).toHaveCount(0);
+  } finally {
+    for (const ticketId of drained)
+      await desk('lead', 'mutation', 'unclaim', { ticketId, idempotencyKey: `${J}:${RUN}:drain:${ticketId}` });
+  }
+
   const ticket = await request(`TEST queue ${RUN}`);
   // A request someone holds is not in the queue.
   const held = await request(`TEST queue held ${RUN}`);

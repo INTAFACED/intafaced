@@ -1,8 +1,8 @@
-// World: none
+// World: restart
 import { test, expect } from './journey.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 import { configureStatusPage, findSubscriber, recordReading } from './status-page.mjs';
-import { ORIGIN, statusMail } from './stack.mjs';
+import { ORIGIN, restartWith, statusMail } from './stack.mjs';
 
 // J-support-public-07, in the running app (docs/roadmap/journeys.json): a signed-out visitor checks /status and sees
 // only states the platform recorded or published. Tests titled "J-support-public-07 #<n>" prove a whole step.
@@ -263,6 +263,32 @@ test(`${J} #6 subscribe to status updates by email: proof of work in the browser
   expect(mail).toHaveLength(1);
   expect(mail[0].subject).toBe('Confirm your status updates');
   await page.context().close();
+
+  // With no email sender (svc-notify started without one), the form says email needs a sender with vendor.email, SMS
+  // and push keep their own codes, and nothing is mailed to an address typed in.
+  const quiet = `status-nosender-${RUN}@example.com`;
+  restartWith('notify', 'LOCAL_STACK_NOTIFY_STATUS_MAIL', false);
+  try {
+    const off = await visitor(browser);
+    await off.goto('/status');
+    const offForm = off.getByTestId('status-subscribe');
+    const emailOff = offForm.getByTestId('status-subscribe-email-off');
+    await expect(emailOff).toContainText('Email updates need an email sender. It is switched off in this build.');
+    await expect(emailOff).toContainText('vendor.email');
+    const channels = offForm.getByTestId('status-subscribe-channels');
+    await expect(channels).toContainText('vendor.sms');
+    await expect(channels).toContainText('vendor.push');
+    const policy = await fetch(`${ORIGIN}/api/notify/trpc/statusPage.subscriptions.policy`).then((res) => res.json());
+    expect(JSON.stringify(policy)).toContain('vendor.email');
+    await offForm.getByLabel('Email address').fill(quiet);
+    await offForm.getByRole('button', { name: 'Subscribe' }).click();
+    await off.waitForTimeout(3_000);
+    expect(statusMail(quiet)).toHaveLength(0);
+    await off.context().close();
+  } finally {
+    restartWith('notify', 'LOCAL_STACK_NOTIFY_STATUS_MAIL', true);
+  }
+  expect(statusMail(quiet)).toHaveLength(0);
 });
 
 test(`${J} #7 confirm by the emailed link, twice is one subscriber; choose components; a private webhook is refused`, async ({
@@ -300,8 +326,23 @@ test(`${J} #7 confirm by the emailed link, twice is one subscriber; choose compo
   await again.getByRole('button', { name: 'Confirm' }).click();
   await expect(again.getByTestId('status-subscription-state')).toHaveText('Active');
   const stored = await findSubscriber(SUBSCRIBER);
-  expect(stored).toMatchObject({ state: 'active', email: SUBSCRIBER });
+  expect(stored).toMatchObject({ state: 'active', email: SUBSCRIBER, componentIds: expect.arrayContaining(['trading', 'wallets']) });
+  // The channel chosen is email alone: the refused webhooks left none.
+  expect(stored.webhookUrl).toBeNull();
   expect(statusMail(SUBSCRIBER)).toHaveLength(1);
+
+  // A subscribe whose proof-of-work check fails stores no row: refused by name, no subscriber and no mail for the address.
+  const other = `status-pow-${RUN}@example.com`;
+  const challenge = await publicMutate('statusPage.subscriptions.challenge');
+  const failed = await publicMutate('statusPage.subscriptions.subscribe', {
+    email: other,
+    componentIds: ['trading'],
+    challenge: { token: challenge.json.result.data.token, nonce: 'zzzzzzzz' },
+  });
+  expect(failed.status).toBe(400);
+  expect(JSON.stringify(failed.json)).toContain('status.challenge_failed');
+  expect(await findSubscriber(other)).toBeNull();
+  expect(statusMail(other)).toHaveLength(0);
   await page.context().close();
   await again.context().close();
 });
