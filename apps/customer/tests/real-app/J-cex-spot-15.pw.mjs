@@ -108,6 +108,6 @@ test(`${J} #4 reads which order types the API accepts: the same list the ticket 
   const ticketNames = (await tabs.allInnerTexts()).map((name) => name.trim());
   expect(ticketNames, 'the API lists exactly the ticket’s types, in the ticket’s order').toEqual(docNames);
   await page.getByRole('button', { name: 'Other order types (not available)' }).click();
-  const unavailable = (await page.getByRole('menuitem').allInnerTexts()).map((name) => name.trim());
-  expect(unavailable, 'what the ticket lists as unavailable, the API lists as refused').toEqual(docRefused);
+  // What the ticket lists as unavailable, the API lists as refused: the menu's items, once it has opened, in order.
+  await expect(page.getByRole('menuitem')).toHaveText(docRefused);
 });
