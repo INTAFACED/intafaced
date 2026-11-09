@@ -589,9 +589,29 @@ test(`${J} #8 reads my place in the queue and the fill chance of a resting order
     expect(toUnits(canon(await row.getAttribute('data-size-ahead')))).toBe(sizeAheadAfter);
     await expect(row).toHaveAttribute('data-source', 'native_l3');
     await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^2 orders ahead, 0\.0020* BTC ahead of you$/);
-    // The badge's chance is the service's, which can only grow while the window still holds the print.
-    expect(toUnits(canon(await row.getAttribute('data-chance')))).toBeGreaterThanOrEqual(chanceAfter);
-    await expect(row.getByTestId('of-queue-chance')).toHaveText(/^Estimated chance of a fill: \d+\.\d{2}%$/);
+    // The badge's chance is exactly the service's: the same 4-place ratio, and its percent with 2 places. The window
+    // slides, so the badge and a fresh service read are compared until one of the badge's refreshes matches it.
+    const percentOf = (chance) => {
+      const basisPoints = toUnits(chance) / 10n ** 14n;
+      return `${basisPoints / 100n}.${(basisPoints % 100n).toString().padStart(2, '0')}%`;
+    };
+    await expect
+      .poll(
+        async () => {
+          const now = await mineClient.get(`/api/v1/orders/${mine}/queue`);
+          const shown = await row.getAttribute('data-chance');
+          const text = await row.getByTestId('of-queue-chance').innerText();
+          return (
+            now.status === 200 &&
+            toUnits(canon(shown)) === toUnits(now.body.fillProbability) &&
+            text === `Estimated chance of a fill: ${percentOf(now.body.fillProbability)}`
+          );
+        },
+        { timeout: 20_000, message: "the badge shows the service's own chance" },
+      )
+      .toBe(true);
+    // And that chance carries the print: above zero, the empty-window answer never shown.
+    expect(toUnits(canon(await row.getAttribute('data-chance')))).toBeGreaterThan(0n);
     expect(await row.getByTestId('of-queue-chance').innerText()).not.toBe('Estimated chance of a fill: 0.00%');
     await expect(row.getByTestId('of-queue-basis')).toContainText(
       new RegExp(`traded at or through this price in the last ${basis.windowSeconds} seconds, against the 0\\.0030* BTC that must trade`),
