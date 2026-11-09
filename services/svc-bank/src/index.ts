@@ -27,7 +27,8 @@ import { cardSimCashbackFor, parseCardProgramme, parseCashbackRates } from './ca
 import { createIdentityRankTier } from './cards/rank-tier.js';
 import { cardShipmentJobBody } from './cards/card-orders.js';
 import { cardIssuerFor } from './cards/issuer.js';
-import { cardSimPartnerFor, parseSpendAssets } from './cards/partner-terms.js';
+import { parseDisputeCap } from './cards/card-disputes.js';
+import { cardSimPartnerFor, parsePinTryLimit, parseSpendAssets } from './cards/partner-terms.js';
 import { globalPortsFor } from './personal-pay/global-sim.js';
 import { parseSendReviewRule } from './transfers/send-review.js';
 import { readStrangerHoldDays } from './holds/received-holds.js';
@@ -229,6 +230,8 @@ const bank = createBankServices(sql, ledger, history, {
     affiliateAccrue: env.IDENTITY_URL ? createAffiliateAccrueClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
     affiliatePayout: env.IDENTITY_URL ? createAffiliatePayoutClient(env.IDENTITY_URL, env.INTERNAL_SERVICE_SECRET, ledgerS2s) : undefined,
   },
+  /** The owner's card dispute cap (J-bank-27 #4). Blank refuses `bank.card_dispute_cap_unset`; malformed refuses to start. */
+  cardDisputeCap: parseDisputeCap(env.BANK_CARD_DISPUTE_CAP_JSON),
   /**
    * THE OTHER HALF THAT WAS MISSING, and it was missing in the same shape.
    *
@@ -251,6 +254,8 @@ const bank = createBankServices(sql, ledger, history, {
     ),
     /** The owner's list of assets a card may pay from (BK-ccrypto-01). Blank refuses `bank.card_spend_assets_unset`. */
     spendAssets: parseSpendAssets(env.BANK_CARD_SPEND_ASSETS),
+    /** The owner's count of wrong PIN tries that block a card's PIN (J-bank-14 #3). Blank declines a PIN by name. */
+    pinTryLimit: parsePinTryLimit(env.BANK_CARD_PIN_TRY_LIMIT),
     /** The owner's card programme terms (BK-cissue-01): eligibility, count limits, terms, designs, speeds. Blank refuses. */
     programmeTerms: parseCardProgramme(env.BANK_CARD_PROGRAMME_JSON),
     /** Cashback by rank card tier (RC-bank-02): the owner's rates, identity's rank door, and the simulator's TEST stand-in. */
