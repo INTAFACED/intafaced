@@ -79,7 +79,7 @@ const messages = {
   outcomeCancelled: 'Cancelled',
   outcomeNotFound: 'Not found: no futures order of yours has this ID',
   outcomeRefused: 'Not cancelled: {reason}',
-  outcomeNotCancelled: 'Not cancelled yet, still {status}',
+  outcomeNotCancelled: 'Not cancelled: the order is still {status}',
   batchMore: 'More orders match than one request cancels. Press again for the rest.',
   kindOpen: 'Open',
   kindClose: 'Close',
