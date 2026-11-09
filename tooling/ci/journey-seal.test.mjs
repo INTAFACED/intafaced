@@ -1988,3 +1988,40 @@ test('#1574 readGoing: the re-check leaves the seal alone while an input on the 
   // Planted: an unreadable list fails the re-check, never reads as nothing going.
   await assert.rejects(readGoing({ get: async () => ({}), repo: 'o/r', sha: HEAD, pulls: [] }), /not a list/);
 });
+
+test('CI review on e1ba6699: a green verdict never stands while its inputs change; an edit re-judges at once', async () => {
+  const { sealNow, whileGoing, readVerdicts, CI_JOBS_NAME } = await import('./journey-seal.mjs');
+  const newCi = `jobs:\n  merge-seal:\n    name: ${CI_JOBS_NAME}\n`;
+  const going = ['the CI review run 2 (in_progress)'];
+  // An edit (or reopen) on a head that already has a verdict: seal now, so the old green can't stand for the new title.
+  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going, verdict: true }).now, true);
+  // Planted: the first push of a head, no verdict yet, still waits.
+  assert.equal(sealNow({ files: ['services/a.ts'], headCi: newCi, going, verdict: false }).now, false);
+  // The re-check: an input still going and a green verdict on the head: re-run it now (it then waits or goes red).
+  assert.equal(whileGoing({ going, green: true }), 'rerun-green');
+  // A red verdict already blocks, and no verdict is no check: leave both until the last input ends.
+  assert.equal(whileGoing({ going, green: false }), 'leave');
+  assert.equal(whileGoing({ going: [], green: false }), 'seal');
+  // readVerdicts reads merge-seal.yml's latest-attempt seal jobs on the head.
+  const get = async (path) =>
+    path.includes('/workflows/merge-seal.yml/runs')
+      ? {
+          workflow_runs: [
+            { id: 5, head_sha: HEAD },
+            { id: 6, head_sha: HEAD },
+          ],
+        }
+      : {
+          jobs: /runs\/5\//.test(path)
+            ? [{ name: SEAL, status: 'completed', conclusion: 'success' }]
+            : [{ name: 'Does the seal wait for its inputs', status: 'completed', conclusion: 'success' }],
+        };
+  assert.deepEqual(await readVerdicts({ get, repo: 'o/r', sha: HEAD }), { any: true, green: true });
+  const none = async (path) =>
+    path.includes('/runs?')
+      ? { workflow_runs: [{ id: 6, head_sha: HEAD }] }
+      : { jobs: [{ name: 'x', status: 'completed', conclusion: 'skipped' }] };
+  assert.deepEqual(await readVerdicts({ get: none, repo: 'o/r', sha: HEAD }), { any: false, green: false });
+  // Planted: an unreadable list fails, never reads as "no verdict".
+  await assert.rejects(readVerdicts({ get: async () => ({}), repo: 'o/r', sha: HEAD }), /not a list/);
+});

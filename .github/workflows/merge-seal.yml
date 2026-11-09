@@ -22,7 +22,8 @@ on:
   pull_request_target:
     branches: [main]
     # `edited`: a pull request retargeted to main gets this seal too (review 7552-R1). An edit, like a push, asks whether
-    # to seal now; the CI review runs again on an edit, and its end starts the seal. Fails closed: a missing seal blocks.
+    # to seal now; when a verdict is already on the head it seals at once, so an earlier green never stands for the new
+    # title or body (CI review on e1ba6699). Fails closed: a missing seal blocks, and a running one does too.
     types: [opened, synchronize, reopened, edited]
 
 permissions: {}

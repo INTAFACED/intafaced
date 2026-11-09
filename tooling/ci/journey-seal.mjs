@@ -1206,7 +1206,7 @@ export const needsJourneys = (pull, files) => namesSteps(pull?.title ?? '') || j
  * `files` are the change's paths; `headCi` the text of ci.yml at the head (null when it has none); `going` what
  * inputsGoing returns. Pure.
  */
-export function sealNow({ files, headCi, going }) {
+export function sealNow({ files, headCi, going, verdict = false }) {
   const gh = (files ?? []).filter((f) => f.startsWith('.github/'));
   if (gh.length)
     return {
@@ -1216,6 +1216,9 @@ export function sealNow({ files, headCi, going }) {
   if (!String(headCi ?? '').includes(`name: ${CI_JOBS_NAME}`))
     return { now: true, why: "the head's ci.yml still names its seal job `CI merge seal` on a pull request" };
   if (!going.length) return { now: true, why: 'every input on this head has finished' };
+  // A verdict already on the head (an edit, a reopen): judge again at once, so the old verdict never stands while an
+  // input is re-running (CI review on e1ba6699: an edit naming a red step must never merge on the earlier green).
+  if (verdict) return { now: true, why: 'a seal verdict is already on this head, so this change re-judges it now' };
   return { now: false, why: `waiting for ${going.join(', ')}; the re-check starts the seal when the last one finishes` };
 }
 
@@ -1467,6 +1470,33 @@ export async function recheckTargets({ finished, pulls, sha, repo, oldTitle = ''
  * now (or named them before an edit, OLD_TITLE), or every armed one after CI or on arming (recheckTargets), each with its
  * seal re-run. A head no such pull request is on is left alone.
  */
+/**
+ * Whether merge-seal.yml already gave a verdict on `sha`, and whether one is green: the latest-attempt `CI merge seal`
+ * jobs of its finished pull_request_target runs there.
+ */
+export async function readVerdicts({ get, repo, sha }) {
+  const runs = (await get(`/repos/${repo}/actions/workflows/merge-seal.yml/runs?head_sha=${sha}&event=pull_request_target&per_page=100`))
+    ?.workflow_runs;
+  if (!Array.isArray(runs)) throw new Error(`merge-seal.yml runs on ${sha}: not a list`);
+  const out = { any: false, green: false };
+  for (const r of runs.filter((x) => x?.head_sha === sha)) {
+    const jobs = (await get(`/repos/${repo}/actions/runs/${r.id}/jobs?filter=latest&per_page=100`))?.jobs;
+    if (!Array.isArray(jobs)) throw new Error(`run ${r.id}'s jobs: not a list`);
+    for (const j of jobs.filter((x) => x?.name === SEAL)) {
+      out.any = true;
+      if (j.status === 'completed' && j.conclusion === 'success') out.green = true;
+    }
+  }
+  return out;
+}
+
+/**
+ * What a re-check does with merge-seal.yml's seal while an input on the head is still going: leave it (the input's own
+ * end starts the re-check again), unless a green verdict is on the head, which is re-run now so it can't stand while its
+ * inputs change (CI review on e1ba6699). A red one already blocks. Pure.
+ */
+export const whileGoing = ({ going, green }) => (!going.length ? 'seal' : green ? 'rerun-green' : 'leave');
+
 /** inputsGoing on `sha` read through the API, journeys counted when any of `pulls` needs them (needsJourneys). */
 export async function readGoing({ get, repo, sha, pulls }) {
   const runsOf = {};
@@ -1500,7 +1530,7 @@ async function sealNowStep({ repo, token }) {
     if (!/HTTP 404/.test(e.message)) throw e;
   }
   const going = await readGoing({ get, repo, sha: HEAD_SHA, pulls: [pull] });
-  const v = sealNow({ files, headCi, going });
+  const v = sealNow({ files, headCi, going, verdict: going.length ? (await readVerdicts({ get, repo, sha: HEAD_SHA })).any : false });
   console.log(`${v.now ? 'seals now' : 'waits'}: ${v.why}`);
   if (GITHUB_OUTPUT) writeFileSync(GITHUB_OUTPUT, `now=${v.now}\n`, { flag: 'a' });
 }
@@ -1549,7 +1579,10 @@ async function recheck({ repo, token }) {
   // that input's own end starts this re-check again; so the seal gives one verdict, once they have all finished.
   const going = await readGoing({ get, repo, sha: SHA, pulls: named });
   for (const { workflow, event } of sealsToRecheck(FINISHED)) {
-    if (workflow !== CI_WORKFLOW && going.length) {
+    if (
+      workflow !== CI_WORKFLOW &&
+      whileGoing({ going, green: going.length ? (await readVerdicts({ get, repo, sha: SHA })).green : false }) === 'leave'
+    ) {
       outcomes.push(`${workflow}: not re-run: waiting for ${going.join(', ')}; its end starts the seal`);
       continue;
     }
