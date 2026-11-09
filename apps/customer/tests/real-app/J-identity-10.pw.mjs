@@ -24,6 +24,7 @@ test(`${J} #1 opens Account and copies my UID: the UID in mono type with a Copy 
   page,
   context,
 }) => {
+  expect(1, 'planted red: the journeys revert proof (project-state#1786)').toBe(2);
   test.setTimeout(120_000);
   const who = person('pfa');
   await signUpInBrowser(page, who);
