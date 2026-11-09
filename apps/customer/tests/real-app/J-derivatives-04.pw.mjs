@@ -250,7 +250,7 @@ test(`${J} #1 opens the orders room: open orders, history, the trader's own trad
 // Released after the steps that open a long, passed or not: a step stopped by its timeout runs no `finally`.
 test.afterEach(() => {
   const title = test.info().title;
-  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `)) release();
+  if (title.startsWith(`${J} #1 `) || title.startsWith(`${J} #2 `) || title.startsWith(`${J} #6 `)) release();
 });
 
 test(`${J} #2 opens an order a stop placed and one a liquidation placed: the origin named, the label shown and filtered`, async ({
@@ -383,4 +383,65 @@ test(`${J} #2 opens an order a stop placed and one a liquidation placed: the ori
   await expect(page.getByRole('definition').filter({ hasText: /^Liquidation$/ })).toBeVisible();
   await expect(page.getByText(`Liquidation step ${fromLiq.originRef}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
+});
+
+test(`${J} #6 tries a second closing order on a closing position: refused, one closing order per position`, async ({ page }) => {
+  test.setTimeout(240_000);
+  // Its own TEST account, so the position and orders it reads are only its own.
+  const who = await fundedTrader(page, 'jd4f', '1000');
+  const me = await api(who);
+  await signIn(page, who);
+  const position = await openLong(me, 'closing');
+
+  // A closing order for the whole position rests: a reduce-only limit sell 3% over the mark.
+  const { mark } = await markOf(me);
+  const first = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'sell',
+    type: 'limit',
+    price: away(mark, 300),
+    amount: position.contracts ?? SIZE,
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-close-1-${Date.now()}`,
+  });
+  expect(first.status, JSON.stringify(first.body)).toBe(200);
+  expect(first.body).toMatchObject({ status: 'open', reduceOnly: true, positionId: position.id });
+
+  // A second one from the desk's own Close: refused by name, nothing sent to the book.
+  await page.goto(DESK);
+  const row = page.getByRole('row').filter({ hasText: SYMBOL }).first();
+  await row.getByRole('button', { name: `Close, ${SYMBOL}` }).click();
+  const dialog = page.getByRole('alertdialog').or(page.getByRole('dialog')).first();
+  const answered = page.waitForResponse(
+    (r) =>
+      r.request().method() === 'POST' &&
+      (r.url().endsWith('/api/v1/futures/orders') || r.url().includes(`/positions/${position.id}/close`)),
+  );
+  await dialog.getByRole('button', { name: 'Close position' }).click();
+  const answer = await answered;
+  expect(answer.status(), await answer.text()).toBe(409);
+  expect((await answer.json()).error).toBe('trade.futures_one_closing_order');
+  await expect(page.getByText('This position already has a closing order').first()).toBeVisible();
+
+  // And a smaller one through the API, as a bot sends it: the same refusal, naming the order that rests.
+  const second = await me.post('/api/v1/futures/orders', {
+    symbol: SYMBOL,
+    side: 'sell',
+    type: 'limit',
+    price: away(mark, 400),
+    amount: '0.001',
+    reduceOnly: true,
+    marginMode: 'isolated',
+    clientOrderId: `${J}-close-2-${Date.now()}`,
+  });
+  expect(second.status, JSON.stringify(second.body)).toBe(409);
+  expect(second.body.error).toBe('trade.futures_one_closing_order');
+  expect(second.body.message).toContain(first.body.orderId);
+
+  // The position as it was, and the first closing order the only one.
+  const after = (await me.get('/api/v1/positions')).body.find((p) => p.id === position.id);
+  expect(after).toMatchObject({ status: 'open', contracts: position.contracts });
+  const reduces = (await orders(me, 'scope=all&limit=50')).filter((o) => o.reduceOnly);
+  expect(reduces.map((o) => o.orderId)).toEqual([first.body.orderId]);
 });

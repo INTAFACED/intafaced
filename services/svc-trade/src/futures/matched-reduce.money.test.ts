@@ -413,6 +413,29 @@ describe('svc-trade reduce-only matched futures orders (slice 6b, PG-backed)', (
       expect(fits.status).toBe('open');
     });
 
+    it('one closing order per position: a second order to close a position already wholly claimed is refused by name', async () => {
+      await aliceLongBobShort();
+      const closing = await reduce(ALICE, 'sell', A('2'));
+      expect(closing.status).toBe('open');
+      const submits = engine.submits.length;
+      for (const extra of [{}, { type: 'market' as const }]) {
+        const err = await reduce(ALICE, 'sell', A('0.5'), extra).catch((e: unknown) => e);
+        expect(err).toMatchObject({ code: 'trade.futures_one_closing_order', status: 409 });
+        expect((err as Error).message).toContain(closing.orderId);
+      }
+      // Nothing went to the engine, nothing was written: the first order is the only close.
+      expect(engine.submits).toHaveLength(submits);
+      const rows = await sql<{ id: string }[]>`SELECT id FROM trade.futures_orders WHERE user_id = ${ALICE} AND reduce_only`;
+      expect(rows.map((r) => r.id)).toEqual([closing.orderId]);
+      // Partly claimed is not a closing order: the rest of the position may still be reduced.
+      await build().cancel(principal(ALICE), closing.orderId);
+      const part = await reduce(ALICE, 'sell', A('1'));
+      expect(part.status).toBe('open');
+      expect((await reduce(ALICE, 'sell', A('1'))).status).toBe('open');
+      await expect(reduce(ALICE, 'sell', A('0.1'))).rejects.toMatchObject({ code: 'trade.futures_one_closing_order' });
+      await assertBooksAgree();
+    });
+
     it('a limit past the bankruptcy price refuses; a market reduce gets that price as its limit', async () => {
       await aliceLongBobShort();
       // Alice is long 2 at 100 with 20 margin: bankrupt at 90. Mark 93, band 88.35 to 97.65.

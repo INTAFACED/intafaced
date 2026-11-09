@@ -161,6 +161,8 @@ export const FUTURES_FILL_CROSSES_ORDER_PATHS = 'trade.futures_fill_crosses_orde
 export const FUTURES_REDUCE_ONLY_NO_POSITION = 'trade.futures_reduce_only_no_position';
 /** A reduce-only order larger than its position less the position's other live reduce-only orders. */
 export const FUTURES_REDUCE_ONLY_EXCEEDS_POSITION = 'trade.futures_reduce_only_exceeds_position';
+/** A second closing order on a position whose live reduce orders already claim all of it. */
+export const FUTURES_ONE_CLOSING_ORDER = 'trade.futures_one_closing_order';
 /** A reduce-only limit past the position's bankruptcy price: the fill could lose more than the margin. */
 export const FUTURES_REDUCE_PAST_BANKRUPTCY = 'trade.futures_reduce_past_bankruptcy';
 /** A market reduce whose bankruptcy price lies beyond the whole band: no price in the band is inside the bound. */
@@ -1414,6 +1416,21 @@ export class MatchedFuturesOrders {
       }
       const size = parseAmount(position.size);
       const reserved = await reservedReduceQty(tx, position.id);
+      // One closing order per position (J-derivatives-04 step 6): once the trader's live reduce orders already claim the
+      // whole position, a second order of theirs to close it is refused by name, pointing at the one that rests. A
+      // stop or a liquidation is sized against what is left and answers to its own rules.
+      if (reserved > 0n && reserved >= size && (input.origin === undefined || input.origin.kind === 'user')) {
+        const [closing] = await tx<{ id: string }[]>`
+          SELECT id FROM trade.futures_orders
+           WHERE position_id = ${position.id} AND reduce_only AND status IN ${tx(['pending', ...LIVE_OR_UNKNOWN])}
+           ORDER BY created_at, id LIMIT 1
+        `;
+        refuse(
+          FUTURES_ONE_CLOSING_ORDER,
+          `position ${position.id} already has a closing order${closing ? ` (${closing.id})` : ''} for its whole size: one closing order per position; amend or cancel that one first`,
+          409,
+        );
+      }
       if (input.qty + reserved > size) {
         refuse(
           FUTURES_REDUCE_ONLY_EXCEEDS_POSITION,
