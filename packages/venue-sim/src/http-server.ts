@@ -68,8 +68,10 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     makerFeeBps: { known: true, value: parseAmount('1') },
     takerFeeBps: { known: true, value: parseAmount('3.5') },
     status: 'trading',
-    maxOrderQty: parseAmount('50'),
-    maxOrderNotional: parseAmount('5000000'),
+    // TEST: roomy enough for every journey's TEST orders on the shared BTC markets (J-cex-spot-01 #8 sells 100 BTC);
+    // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('100000000'),
     // TEST: the venue's own cap on a builder fee, 1% on spot (the figure Hyperliquid publishes for its builder codes).
     builderFeeCapBps: { known: true, value: parseAmount('100') },
   },
@@ -91,8 +93,10 @@ export const TEST_VENUE_MARKETS: readonly SimMarketConfig[] = [
     maintenanceMarginRate: parseAmount('0.005'),
     markPrice: parseAmount('60000'),
     status: 'trading',
-    maxOrderQty: parseAmount('50'),
-    maxOrderNotional: parseAmount('5000000'),
+    // TEST: roomy enough for every journey's TEST orders on the shared BTC markets (J-cex-spot-01 #8 sells 100 BTC);
+    // J-cex-spot-16 proves the venue's own caps on TEST markets of its own (/test/market-add, /test/market-limits).
+    maxOrderQty: parseAmount('1000'),
+    maxOrderNotional: parseAmount('100000000'),
   },
   {
     symbol: 'ETH-USDC',
