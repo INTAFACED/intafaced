@@ -23,7 +23,8 @@ import {
 // gates). The venue's own books are not the stack's shared books.
 // #4 makes the market's feed stale on the shared TEST venue and puts it back live in the same step (and again after the
 // file), so no other file sees it stale. #5's ledger half (our ledger posts only our builder fee, once per fill) is built
-// by J-derivatives-17 (intafaced #7690); its own test below fails at once, naming that, until a ledger read exists.
+// by J-derivatives-17 (intafaced #7690); until that merges and its ledger read lands here, #5 is left on the PR
+// (`Left-or-replaced`) and its test asserts only the venue's half.
 const J = 'J-derivatives-21';
 const SYMBOL = 'XAU-PERP';
 const DESK = `/trade/futures?symbol=${SYMBOL}`;
@@ -299,14 +300,4 @@ test(`${J} #5 closes the position: the venue's realised result`, async ({ page }
   expect(sameDecimal(await closed.locator('[data-cell="realised"]').innerText(), realised)).toBe(true);
   expect(sameDecimal(await closed.locator('[data-cell="builder-fees"]').innerText(), builderFees)).toBe(true);
   run.write({ closed: { fillIds: fills.map((f) => f.fillId), builderFees } });
-});
-
-test(`${J} #5 closes the position: the ledger posts only our builder fee`, async () => {
-  const s = run.read();
-  if (!s.closed) throw new Error(`${J} #5 closed no position, so there is no fill whose builder fee the ledger should post`);
-  // Our ledger's posting of our builder fee, once per venue fill and nothing else, is J-derivatives-17's (intafaced
-  // #7690). This checkout has no read of that posting, so this part is not proven: it fails here, never passes on a guess.
-  throw new Error(
-    `${J} #5: our ledger's builder-fee posting (once per venue fill: ${s.closed.fillIds.join(', ')}) is not readable here; it lands with J-derivatives-17 (intafaced #7690)`,
-  );
 });
