@@ -202,6 +202,55 @@ test('the script: passes the base unchanged, refuses a dropped journey with a re
   }
 });
 
+test('the script: judges against the main the checkout was built on, so main adding a journey later is not a drop', async () => {
+  // intafaced#7686, 9 Nov: CI checked out GitHub's merge made on an older main, then fetched main after #7648 had added
+  // journeys, and the guard said the pull request removed them.
+  const dir = mkdtempSync(join(tmpdir(), 'journey-list-guard-'));
+  try {
+    const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' });
+    const put = (p, text) => {
+      mkdirSync(dirname(join(dir, p)), { recursive: true });
+      writeFileSync(join(dir, p), text);
+    };
+    const commit = async (journeys, msg) => {
+      put('docs/roadmap/journeys.json', JSON.stringify(journeys));
+      put('docs/roadmap/slices.json', JSON.stringify(SLICES));
+      put('docs/ROADMAP.md', await compose(SLICES, journeys, ROADMAP));
+      git('add', '.');
+      git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', msg);
+    };
+    git('init', '-q', '-b', 'main');
+    const older = withoutJourney();
+    await commit(older, 'older main');
+    git('checkout', '-q', '-b', 'pr');
+    put('pr.txt', 'the pull request');
+    git('add', '.');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'pull request');
+    git('checkout', '-q', 'main');
+    await commit(JOURNEYS, `main adds ${target.id}`);
+    git('checkout', '-q', 'pr');
+    const run = () =>
+      spawnSync(process.execPath, [SCRIPT, '--base-ref', 'main'], {
+        cwd: dir,
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, PR_BODY: '' },
+      });
+    const behind = run();
+    assert.equal(behind.status, 0, behind.stderr);
+    assert.doesNotMatch(behind.stderr, new RegExp(target.id));
+    // Planted: the same stale checkout that really drops a journey its own base had still fails.
+    const dropped = older.filter((j) => j.id !== older[0].id);
+    put('docs/roadmap/journeys.json', JSON.stringify(dropped));
+    put('docs/ROADMAP.md', await compose(SLICES, dropped, ROADMAP));
+    const refused = run();
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, new RegExp(`${older[0].id} is on the base and this pull request removes it`));
+    assert.doesNotMatch(refused.stderr, new RegExp(`${target.id} is on the base`));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('planted: a journey marked later (custody) at Order 1 fails; at Order 2 it passes and stays live', async () => {
   const head = copy();
   const j = head.find((x) => !x.parked && !x.deferred && x.order === 1);

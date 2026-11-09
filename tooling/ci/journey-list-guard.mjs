@@ -34,6 +34,9 @@
  * roadmap.mjs (what is live, and how the page is built) is the base's too; the pull request's copy runs only while the
  * base has none (the pull request that adds it). Its tests are tooling/ci/journey-list-guard.test.mjs.
  *
+ * The base is where the checkout meets `--base-ref` (their merge base), so main moving on after the pull request's
+ * merge was made isn't read as the pull request dropping what main added.
+ *
  *   node tooling/ci/journey-list-guard.mjs [--base-ref origin/main]     (from the pull request's checkout)
  */
 import { execFileSync } from 'node:child_process';
@@ -223,11 +226,27 @@ async function bodyFromEnv() {
   return (await res.json()).body ?? '';
 }
 
+/**
+ * The base is the commit of `ref` this checkout is built on (their merge base), not `ref`'s tip. A pull request's CI
+ * checks out the merge GitHub made when the pull request last changed, and the queue can start it hours later, after
+ * main has added journeys; judged against main's tip, every such pull request "removed" journeys it never saw
+ * (intafaced#7686 at 11:18 UTC 9 Nov: merge on dbf18372b, main at fc33cdb13 after #7648). What the pull request drops
+ * is what its tree lacks against the main it was built on. A ref with no common history is used as given.
+ */
+export function forkPoint(ref, cwd) {
+  try {
+    return execFileSync('git', ['merge-base', ref, 'HEAD'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return ref;
+  }
+}
+
 async function main(argv) {
   const at = argv.indexOf('--base-ref');
-  const baseRef = at === -1 ? 'origin/main' : argv[at + 1];
+  const ref = at === -1 ? 'origin/main' : argv[at + 1];
   const cwd = process.cwd();
   const read = (p) => readFileSync(join(cwd, p), 'utf8');
+  const baseRef = forkPoint(ref, cwd);
   let baseText;
   try {
     baseText = execFileSync('git', ['show', `${baseRef}:${JOURNEYS_PATH}`], { cwd, encoding: 'utf8', maxBuffer: 64 * 2 ** 20 });
@@ -243,7 +262,7 @@ async function main(argv) {
   const roadmapFresh = shapeProblems(head).length ? false : (await compose(slices, head, roadmap)) === roadmap;
   const v = await judge({ base, head, slices, roadmapFresh, body: bodyFromEnv });
   for (const l of v.lines) console.error(`journey-list-guard: ${l}`);
-  if (v.ok) console.log(`journey-list-guard: ok (${head.length} journeys against ${baseRef}'s ${base.length})`);
+  if (v.ok) console.log(`journey-list-guard: ok (${head.length} journeys against ${ref} at ${baseRef.slice(0, 12)}: ${base.length})`);
   return v.ok ? 0 : 1;
 }
 
