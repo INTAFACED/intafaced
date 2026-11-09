@@ -26,7 +26,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { PLAN_JOB } from './main-first.mjs';
+import { DISPATCH_MARK, MAX_WAIT_MS, PLAN_JOB } from './main-first.mjs';
 
 const DIR = join(process.cwd(), '.github', 'workflows');
 const read = (f) => readFileSync(join(DIR, f), 'utf8');
@@ -428,8 +428,39 @@ export function mainFirstProblems(text) {
   if (!/\n {8}continue-on-error: true\n/.test(wait)) problems.push("the main-first step's wait can fail the run");
   const stepLimit = Number(/\n {8}timeout-minutes: (\d+)/.exec(wait)?.[1]);
   const jobLimit = Number(/\n {4}timeout-minutes: (\d+)/.exec(touch)?.[1]);
-  if (!(stepLimit >= 31 && jobLimit > stepLimit + 1))
-    problems.push(`the touch job's limit (${jobLimit} min) can end the run before the wait's own limit (${stepLimit} min)`);
+  if (!(stepLimit > MAX_WAIT_MS / 60_000 && jobLimit > stepLimit + 1))
+    problems.push(
+      `the touch job's limit (${jobLimit} min) or the step's (${stepLimit} min) can end the wait before main-first.mjs's own ${MAX_WAIT_MS / 60_000} min, so it gives up on main`,
+    );
+  // The cap on hand-dispatched full runs: the mark main-first.mjs counts, main's copy of the script, and the flag.
+  const mark = step(touch, DISPATCH_MARK);
+  const markIf = /\n {8}if: (.*)\n/.exec(mark)?.[1] ?? '';
+  const marks = (event, ref, target) =>
+    markIf && evaluate(markIf, { github: { event_name: event, ref }, env: { JOURNEYS_TARGET: target } });
+  if (
+    !mark ||
+    !marks('workflow_dispatch', 'refs/heads/b1', '') ||
+    marks('workflow_dispatch', 'refs/heads/b1', 'J-a.pw.mjs') ||
+    marks('workflow_dispatch', MAIN, '') ||
+    marks('pull_request', 'refs/pull/7/merge', '')
+  )
+    problems.push(
+      `the touch job's step "${DISPATCH_MARK}" doesn't mark exactly a hand-dispatched full run off main, so the cap can't count them`,
+    );
+  if (
+    !/\n {10}DISPATCH_FULL: \$\{\{ github\.event_name == 'workflow_dispatch' && env\.JOURNEYS_TARGET == '' \}\}\n/.test(wait) ||
+    !/\n {10}RUN_ID: \$\{\{ github\.run_id \}\}\n/.test(wait)
+  )
+    problems.push('the main-first step does not tell main-first.mjs a hand-dispatched full run from another, so the cap never applies');
+  const base = /- uses: actions\/checkout@[^\n]*\n {8}if: (.*)\n(?: {8}.*\n)*? {10}path: \.base\n/.exec(touch)?.[1] ?? '';
+  if (
+    !base ||
+    !evaluate(base, { github: { event_name: 'workflow_dispatch', ref: 'refs/heads/b1' } }) ||
+    !evaluate(base, { github: { event_name: 'pull_request', ref: 'refs/pull/7/merge' } })
+  )
+    problems.push(
+      "a manual run off main doesn't check out main's tooling (.base), so its branch's older main-first.mjs, without the cap, would run",
+    );
   if (!new RegExp(`name: ${PLAN_JOB.replace(/[()]/g, '\\$&')}\n`).test(text))
     problems.push(`no job is named "${PLAN_JOB}", the name main-first.mjs reads to know main's shards are queued`);
   return problems;
@@ -584,7 +615,28 @@ test('planted: a main-first step that runs on main, can fail the run, outlives i
   assert.ok(mainFirstProblems(hard).some((p) => /can fail the run/.test(p)));
   const short = t.replace(/(\n  touch:\n(?: {4}.*\n)*? {4})timeout-minutes: \d+/, '$1timeout-minutes: 5');
   assert.notEqual(short, t);
-  assert.ok(mainFirstProblems(short).some((p) => /can end the run/.test(p)));
+  assert.ok(mainFirstProblems(short).some((p) => /can end the wait/.test(p)));
+  const gives = t.replace(/(- name: Main's journeys first\n(?: {8}.*\n)*? {8})timeout-minutes: \d+/, '$1timeout-minutes: 32');
+  assert.notEqual(gives, t);
+  assert.ok(mainFirstProblems(gives).some((p) => /gives up on main/.test(p)));
+  const noMark = t.replace(`- name: ${DISPATCH_MARK}\n`, '- name: Something\n');
+  assert.notEqual(noMark, t);
+  assert.ok(mainFirstProblems(noMark).some((p) => /can't count them/.test(p)));
+  const anyDispatch = t.replace(
+    "github.ref != 'refs/heads/main' && env.JOURNEYS_TARGET == ''\n        run: echo",
+    "github.ref != 'refs/heads/main'\n        run: echo",
+  );
+  assert.notEqual(anyDispatch, t);
+  assert.ok(mainFirstProblems(anyDispatch).some((p) => /can't count them/.test(p)));
+  const noFlag = t.replace(/\n {10}DISPATCH_FULL: .*\n/, '\n');
+  assert.notEqual(noFlag, t);
+  assert.ok(mainFirstProblems(noFlag).some((p) => /cap never applies/.test(p)));
+  const prBase = t.replace(
+    "if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main')",
+    "if: github.event_name == 'pull_request'",
+  );
+  assert.notEqual(prBase, t);
+  assert.ok(mainFirstProblems(prBase).some((p) => /\.base/.test(p)));
   const renamed = t.replace('name: Plan the shards\n', 'name: Plan shards\n');
   assert.notEqual(renamed, t);
   assert.ok(mainFirstProblems(renamed).some((p) => /Plan the shards/.test(p)));
