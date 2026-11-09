@@ -1,6 +1,6 @@
 // World: restart, stack
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, journeyState, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, journeyState, restartWith, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { draftNotice, publishNotice } from './notices.mjs';
 import { TEST_UNSUPPORTED_DEPOSIT } from '../../../../tooling/scripts/local-test-gates.mjs';
@@ -185,6 +185,20 @@ test(`${J} #3 with custody connected, reads the address: no address until a netw
   await page.getByRole('checkbox', { name: `I will send only ${ASSET} on ${NETWORK}.` }).check();
   await page.getByRole('button', { name: 'Show my deposit address' }).click();
   await expect(page.getByTestId('deposit-address').locator('strong[data-testid="numeric"]')).toHaveText(address);
+
+  // A network that needs a memo or tag (the stack's TEST memo network): the address comes with its memo and a copy button
+  // for it, and the page says a deposit sent without the memo stays uncredited.
+  await page.reload();
+  await page.mouse.move(0, 600);
+  await assetPicker(page).selectOption(ASSET);
+  await page.getByRole('combobox', { name: 'Network', exact: true }).selectOption({ label: 'TEST Memo network' });
+  await page.getByRole('checkbox', { name: /^I will send only USDT on TEST Memo network\./ }).check();
+  await page.getByRole('button', { name: 'Show my deposit address' }).click();
+  const memoIssued = page.getByTestId('deposit-address');
+  const memo = memoIssued.locator('section, div', { has: page.getByText('Memo or tag (required)') }).last();
+  await expect(memo).toBeVisible();
+  await expect(memo.getByRole('button', { name: /copy/i })).toBeVisible();
+  await expect(memoIssued).toContainText('A deposit sent without this memo stays uncredited.');
 });
 
 test(`${J} #5 sends TEST 100 ${ASSET} on the TEST chain: detected, then confirming with a count, then credited; below the minimum nothing posts`, async ({
@@ -464,6 +478,10 @@ test(`${J} #2 chooses asset and network: an unsupported-case list shows with its
   await openDeposit(page, who);
   await assetPicker(page).selectOption('USDC');
   const network = page.getByRole('combobox', { name: 'Network', exact: true });
+  // No address until a network is picked: the asset alone shows none, and nothing to confirm.
+  await expect(page.getByText('Choose an asset and a network, then confirm below to see your address.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
+  await expect(page.getByTestId('deposit-address')).toHaveCount(0);
   await network.selectOption({ label: 'TEST Base (switched off)' });
   const banner = page.getByTestId('deposit-halted');
   await expect(banner).toHaveAttribute('role', 'alert');
@@ -497,6 +515,21 @@ test(`${J} #2 chooses asset and network: an unsupported-case list shows with its
   await expect(page.locator('[data-code="bank.deposit_asset_unpublished"]')).toContainText(
     'BTC is not an asset custody publishes for deposits, so nothing was chosen.',
   );
+
+  // An unpublished catalogue: with custody connected but no deposit networks published, the room says the catalogue is
+  // not published, offers no network and issues no address.
+  restartWith('pay', 'LOCAL_STACK_PAY_DEPOSIT_CATALOGUE', false);
+  try {
+    const refused = await client.get('/api/bank/trpc/deposits.assets');
+    expect(JSON.stringify(refused.body)).toContain('bank.deposit_catalogue_unpublished');
+    await page.goto('/uc/recharge');
+    await page.mouse.move(0, 600);
+    await expect(page.locator('[data-code="bank.deposit_catalogue_unpublished"]')).toContainText('not published');
+    await expect(page.getByRole('button', { name: 'Show my deposit address' })).toHaveCount(0);
+    await expect(page.getByTestId('deposit-address')).toHaveCount(0);
+  } finally {
+    restartWith('pay', 'LOCAL_STACK_PAY_DEPOSIT_CATALOGUE', true);
+  }
 
   // A person who has not finished verification: the room is whole, and its address panel sends them to Verification.
   await page.context().clearCookies();

@@ -1,7 +1,7 @@
-// World: freeze, gates
+// World: restart, freeze, gates
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, restartWith, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import {
@@ -168,12 +168,11 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
   const ad = (key, extra) => s.mutate('offers.create', adInput(key, extra));
   const dear = (await ad('dear', { price: '0.95' })).id;
   const cheap = (await ad('cheap', { price: '0.90', minAmount: '30' })).id;
-  // A floating ad posts only while a EUR / USDT reference prices it (P-ads-merchant-03). This stack publishes none, so it
-  // is refused with that reason and never reaches the board as an ad nobody can price; where a feed answers, it is closed
-  // again so the board below holds the same three ads either way.
+  // A floating ad posts while the stack's TEST EUR / USDT reference prices it (P-ads-merchant-03). The reference then
+  // stops: the ad stays listed and the board says it needs a market feed, instead of a price nobody can take.
   const floating = await s.raw.mutate('offers.create', adInput('float', { priceType: 'float', price: '1.01' }));
-  if (floating.status === 200) await s.mutate('offers.close', { offerId: floating.body.result.data.id });
-  else expect(refusalCode(floating)).toBe('p2p.reference_price_unavailable');
+  expect(floating.status, `a floating ad posts while a reference prices it: ${JSON.stringify(floating.body).slice(0, 300)}`).toBe(200);
+  const floatId = floating.body.result.data.id;
   const first = state.offerId;
 
   const buyer = p2p(await api(state.buyer));
@@ -189,20 +188,47 @@ test('J-p2p-01 #2 the ad board searches by coin, fiat, method and amount, sorts 
     } while (cursor && seen.length < 10);
     return seen;
   };
-  expect(await walk('price_asc')).toEqual([cheap, first, dear]);
-  expect(await walk('price_desc')).toEqual([dear, first, cheap]);
+  // Floating ads come last in either order (svc-p2p's board sort).
+  expect(await walk('price_asc')).toEqual([cheap, first, dear, floatId]);
+  expect(await walk('price_desc')).toEqual([dear, first, cheap, floatId]);
 
   await signIn(page, state.buyer);
   await page.goto(`/p2p?makerId=${maker}`);
   const rows = page.locator('li[data-testid="p2p-offer-row"]');
   const order = () => rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-offer-id')));
-  await expect(rows).toHaveCount(3);
-  expect(await order()).toEqual([cheap, first, dear]);
+  await expect(rows).toHaveCount(4);
+  // Fixed prices first, cheapest first; the floating ad last.
+  expect(await order()).toEqual([cheap, first, dear, floatId]);
   // Each row: price, limits, method and maker.
-  const firstRow = page.locator(`li[data-offer-id="${first}"]`);
-  await expect(firstRow).toContainText('0.92');
-  await expect(firstRow).toContainText(METHOD);
+  for (const [id, price, min] of [
+    [cheap, '0.9', '30'],
+    [first, AD.price, AD.min],
+    [dear, '0.95', '10'],
+  ]) {
+    const row = page.locator(`li[data-offer-id="${id}"]`);
+    await expect(row.locator('.p2p-offer-price')).toContainText(`${price} EUR / USDT`);
+    await expect(row.locator('.p2p-offer-quantities')).toContainText(`${min} USDT – 50 USDT`);
+    await expect(row).toContainText(METHOD);
+    await expect(row.locator('.p2p-offer-reference')).toHaveText(`@${state.seller.handle}`);
+  }
   await expect(page.getByText('That is every open offer for these filters.')).toBeVisible();
+
+  // The reference stops: the floating ad is still listed, says it needs a market feed, and cannot be taken.
+  restartWith('p2p', 'LOCAL_STACK_P2P_REFERENCE_FEED', false);
+  try {
+    const listed = await buyer.query('offers.page', { makerId: maker, limit: 10 });
+    expect(listed.offers.find((offer) => offer.id === floatId)?.referencePrice).toBeNull();
+    await page.reload();
+    const unpriced = page.locator(`li[data-offer-id="${floatId}"]`);
+    await expect(unpriced.getByTestId('p2p-offer-needs-feed')).toHaveText(
+      'Needs a market feed: no EUR / USDT reference price is published, so this ad cannot be priced or taken.',
+    );
+    const take = await buyer.raw.mutate('trades.take', { offerId: floatId, tradeId: randomUUID(), amount: '10', method: METHOD });
+    expect(refusalCode(take)).toBe('p2p.reference_price_unavailable');
+  } finally {
+    restartWith('p2p', 'LOCAL_STACK_P2P_REFERENCE_FEED', true);
+    await s.mutate('offers.close', { offerId: floatId });
+  }
 
   // Coin, fiat, method and a 20 EUR amount, dearest first: the cheap ad (30 USDT minimum) drops out.
   await page.getByText('Filters', { exact: true }).click();

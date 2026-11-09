@@ -113,7 +113,7 @@ test(`${J} #3 with no email sender, the send says so with vendor.email and the r
     const page = await guest(browser);
     const form = await sendRequest(page, { email, subject });
     const off = form.getByTestId('support-guest-not-connected');
-    await expect(off).toContainText('A verification email needs an email delivery provider. It is switched off in this build.');
+    await expect(off).toContainText('A verification email needs an email sender. It is switched off in this build.');
     await expect(off.locator('[data-not-connected="vendor.email"]')).toBeVisible();
     expect(guestMail(email)).toHaveLength(0);
     expect(await deskRequests(subject)).toHaveLength(0);

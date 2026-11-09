@@ -1,11 +1,21 @@
-// World: freeze, gates
+// World: restart, freeze, gates
 import { randomUUID } from 'node:crypto';
 import { test, expect } from './journey.mjs';
-import { api, fromUnits, fund, journeyState, tool, toUnits } from './stack.mjs';
+import { api, fromUnits, fund, journeyState, restartWith, restartWithSetting, tool, toUnits } from './stack.mjs';
 import { signIn, signUp, verify } from './desk.mjs';
 import { PASSKEY_ORIGIN } from './identity-factors.mjs';
 import { draftNotice, openNotices, publishNotice, publishedNotices } from './notices.mjs';
-import { METHOD, browserHoldsPasskey, p2p, readyTaker, refusalCode, restorePasskey, testInstrument, testPasskey } from './p2p.mjs';
+import {
+  METHOD,
+  approveMerchant,
+  browserHoldsPasskey,
+  p2p,
+  readyTaker,
+  refusalCode,
+  restorePasskey,
+  testInstrument,
+  testPasskey,
+} from './p2p.mjs';
 
 // J-p2p-02, in the running app (docs/roadmap/journeys.json): I sell crypto, confirm the money arrived outside, and
 // release. One test per step part, titled "J-p2p-02 #<n>", run in order on one verified TEST seller with TEST 50 USDT,
@@ -101,9 +111,30 @@ test('J-p2p-02 #1 the buyer marks the order paid and the seller gets one inbox r
   // Still one after the next svc-p2p sweep (every 30 s on the stack) has had its chance to hand it over again.
   await page.waitForTimeout(35_000);
   expect(await notices()).toHaveLength(1);
+
+  // A publisher retry, forced: a second order is marked paid while svc-p2p cannot hand its notice to the bus, so the
+  // notice waits in its outbox; with the bus back, the sweep hands it over again. The seller still gets one row.
+  const second = await b.mutate('trades.take', { offerId: offer.id, tradeId: randomUUID(), amount: AD.min, method: METHOD });
+  run.write({ buyerPasskey: buyerPasskey.saved() });
+  const secondNotices = async () => {
+    const res = await sellerSession.get(`/api/notify/trpc/notify.list?input=${encodeURIComponent(JSON.stringify({ limit: 100 }))}`);
+    expect(res.status).toBe(200);
+    return res.body.result.data.items.filter((n) => n.kind === 'p2p.trade.fiat_sent' && n.params?.tradeId === second.id);
+  };
+  restartWith('p2p', 'LOCAL_STACK_P2P_EVENT_BUS', false);
+  try {
+    await b.mutate('trades.markFiatSent', { tradeId: second.id });
+    await page.waitForTimeout(5_000);
+    expect(await secondNotices(), 'the fast path could not hand the notice over').toHaveLength(0);
+  } finally {
+    restartWith('p2p', 'LOCAL_STACK_P2P_EVENT_BUS', true);
+  }
+  await expect.poll(async () => (await secondNotices()).length, { timeout: 60_000 }).toBe(1);
+  await page.waitForTimeout(35_000);
+  expect(await secondNotices()).toHaveLength(1);
 });
 
-test('J-p2p-02 #1 a notice to P2P merchants reaches P2P merchants only', async () => {
+test('J-p2p-02 #1 a notice to P2P merchants reaches P2P merchants only', async ({ browser }) => {
   const state = journey();
   // The founders' notice desk names who a notice is for; "P2P merchants" is one audience, and this seller is not one.
   const s = await api(state.seller);
@@ -129,8 +160,48 @@ test('J-p2p-02 #1 a notice to P2P merchants reaches P2P merchants only', async (
   const mine = await s.get(`/api/notify/trpc/notify.memberNotices?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`);
   expect(mine.status, 'notify has no signed-in read of member notices').toBe(200);
   expect(mine.body.result.data.map((n) => n.id)).not.toContain(published.id);
-  // A merchant reading it signed in is proven in svc-notify's tests against svc-p2p's merchant answer; this stack has
-  // no approved P2P merchant (10 earned trades and a two-founder decision), so the room's merchant view is the next slice.
+  // An approved P2P merchant reads it signed in: a TEST trader earns the programme's ten escrowed trades, all released,
+  // applies, and the founder pair approves.
+  test.setTimeout(300_000);
+  const page = await (await browser.newContext()).newPage();
+  const merchant = await signUp(page, 'p2p02m');
+  await verify(page, merchant);
+  expect(fund(merchant.email, 'USDT', '100').tx).toBeTruthy();
+  const merchantSession = await api(merchant);
+  const m = p2p(merchantSession, await testPasskey(merchantSession));
+  await testInstrument(m, merchant);
+  const ad = await m.mutate('offers.create', {
+    side: 'sell',
+    asset: 'USDT',
+    fiatCurrency: 'EUR',
+    priceType: 'fixed',
+    price: AD.price,
+    minAmount: '1',
+    maxAmount: '10',
+    totalAmount: '20',
+    methods: [METHOD],
+    terms: 'TEST terms',
+    idempotencyKey: `${J}:merchant-offer:${merchant.handle}`,
+  });
+  const taker = await signUp(page, 'p2p02k');
+  await verify(page, taker);
+  const takerSession = await api(taker);
+  const t = await readyTaker(takerSession, taker, await testPasskey(takerSession));
+  for (let n = 0; n < 10; n += 1) {
+    const trade = await t.mutate('trades.take', { offerId: ad.id, tradeId: randomUUID(), amount: '1', method: METHOD });
+    await t.mutate('trades.markFiatSent', { tradeId: trade.id });
+    expect((await m.mutate('trades.confirmReceived', { tradeId: trade.id })).status).toBe('released');
+  }
+  const applied = await m.mutate('merchants.submitApplication');
+  expect(applied.status).toBe('applied');
+  const merchantId = (await m.query('offers.get', { offerId: ad.id })).makerId;
+  expect((await approveMerchant(merchantId, `TEST ${J} merchant notice reader`)).status).toBe('approved');
+  const theirs = await merchantSession.get(
+    `/api/notify/trpc/notify.memberNotices?input=${encodeURIComponent(JSON.stringify({ limit: 50 }))}`,
+  );
+  expect(theirs.status).toBe(200);
+  expect(theirs.body.result.data.filter((n) => n.id === published.id)).toHaveLength(1);
+  await page.context().close();
 });
 
 test('J-p2p-02 #2 the seller opens the order: the buyer by handle, the exact quantity and amount, and the release deadline', async ({
@@ -247,6 +318,27 @@ test('J-p2p-02 #3 a payment within tolerance lets the order go on; one outside i
   expect((await s.query('trades.get', { tradeId: other })).status).toBe('fiat_sent');
   // The way on is a dispute, on the same page.
   await expect(page.getByRole('button', { name: 'Open dispute' })).toBeVisible();
+
+  // With the owner's tolerance blank, nothing is judged by the service: even a near match goes to a person.
+  const blank = await paidOrder(state);
+  restartWith('p2p', 'LOCAL_STACK_P2P_MISMATCH_TOLERANCE', false);
+  try {
+    const sent = await (
+      await sellerClient(state)
+    ).raw.mutate('trades.reportMismatch', {
+      tradeId: blank,
+      kind: 'under',
+      amountReceived: '9.19',
+    });
+    expect(sent.status).toBe(200);
+    expect(sent.body.result.data).toMatchObject({ classification: 'reported', toleranceBps: null });
+    expect((await s.query('trades.get', { tradeId: blank })).status).toBe('fiat_sent');
+    await page.goto(`/uc/order?tradeId=${blank}`);
+    await expect(page.getByTestId('order-mismatch-result')).toContainText('This service sets no tolerance, so a person decides.');
+    await expect(page.getByRole('button', { name: 'Open dispute' })).toBeVisible();
+  } finally {
+    restartWith('p2p', 'LOCAL_STACK_P2P_MISMATCH_TOLERANCE', true);
+  }
 });
 
 test('J-p2p-02 #4 with no payment validation rail the order says the bank rail is switched off, and nothing is released', async ({
@@ -263,6 +355,31 @@ test('J-p2p-02 #4 with no payment validation rail the order says the bank rail i
   const check = page.getByTestId('order-validate');
   await expect(check.getByRole('button', { name: 'Check the payment with the bank' })).toBeDisabled();
   await expect(check).toContainText('Payment validation needs a bank rail. It is switched off in this build');
+
+  // With the stack's TEST bank rail connected: an exact match releases once, a replay does nothing more, and a mismatch
+  // leaves a row for a person and releases nothing.
+  restartWithSetting('p2p', 'LOCAL_STACK_P2P_TEST_RAIL', 'on');
+  try {
+    const exact = await paidOrder(state);
+    const exactTrade = await s.query('trades.get', { tradeId: exact });
+    tool('local-test-stack.mjs', 'p2p-rail-confirm', exact, 'EUR', exactTrade.fiatAmount, exactTrade.paymentReference ?? exact);
+    const first = await s.mutate('trades.validatePayment', { tradeId: exact });
+    expect(first.outcome).toBe('released');
+    expect((await s.query('trades.get', { tradeId: exact })).status).toBe('released');
+    const replay = await s.mutate('trades.validatePayment', { tradeId: exact });
+    expect(replay.outcome).toBe('released');
+    expect((await s.query('trades.get', { tradeId: exact })).escrowHeld).toBe('0');
+
+    const short = await paidOrder(state);
+    const shortTrade = await s.query('trades.get', { tradeId: short });
+    tool('local-test-stack.mjs', 'p2p-rail-confirm', short, 'EUR', '5', shortTrade.paymentReference ?? short);
+    const mismatch = await s.mutate('trades.validatePayment', { tradeId: short });
+    expect(mismatch.outcome).toBe('review');
+    expect(mismatch.mismatch).toBe('amount');
+    expect((await s.query('trades.get', { tradeId: short })).status).toBe('fiat_sent');
+  } finally {
+    restartWithSetting('p2p', 'LOCAL_STACK_P2P_TEST_RAIL', null);
+  }
 });
 
 test('J-p2p-02 #5 the seller ticks the five checks, confirms with a passkey and releases once; a second press returns the same order', async ({
