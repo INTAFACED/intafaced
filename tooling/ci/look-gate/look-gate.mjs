@@ -1197,6 +1197,16 @@ async function selfTest() {
     'block',
     'a file loose in a baseline folder answers for every row there',
   );
+  eq(
+    policy.verdict({
+      failing: statusRow,
+      changed: ['apps/customer/src/features/public/look-baselines/StatusPage.tsx'],
+      today: '2026-12-01',
+      importsLit: lit,
+    }).mode,
+    'block',
+    'a look-baselines folder inside a migrated room is room code, and blocks on its rows',
+  );
   eq(policy.verdict({ failing: [], changed: ['packages/ui/src/lit/x.css'], today: '2026-12-01' }).mode, 'pass', 'nothing failing passes');
   eq(
     policy.verdict({ failing: kitRow, changed: null, today: '2026-12-01' }),

@@ -54,7 +54,8 @@ export function placeOf(target) {
 export function owns(path, target, importsLit) {
   if (KIT_PATHS.some((re) => re.test(path))) return true;
   const place = placeOf(target);
-  const base = /^(.*?look-baselines)\/(?:([^/]+)\/)?/.exec(path);
+  // Only the three baseline folders the runner reads count as baselines; a `look-baselines` folder in a room is room code.
+  const base = /^(packages\/ui\/look-baselines|apps\/customer\/look-baselines|apps\/admin\/look-baselines)\/(?:([^/]+)\/)?/.exec(path);
   if (base) return base[1] === place.baselines && (base[2] === undefined || base[2] === place.room);
   return place.surface === 'customer' && migratedRoomOf(path, importsLit) !== null;
 }
