@@ -77,6 +77,16 @@ describe('native L3/queue is matching truth — never call L2 L3', () => {
     expect(l3.asks[0]!.orders[1]!).not.toHaveProperty('accountId');
   });
 
+  it('carries the book sequence the queue was read at, the same number /depth answers', async () => {
+    const { engine } = build();
+    await engine.submit(MARKET, order({ id: FIRST, account: 'maker-a', side: 'sell', qty: '1', price: '100' }));
+    await engine.submit(MARKET, order({ id: SECOND, account: 'maker-b', side: 'sell', qty: '2', price: '100' }));
+    const l3 = engine.l3Queue(MARKET);
+    const depth = engine.book(MARKET).depth(1) as { sequence: number };
+    expect(l3.sequence).toBe(depth.sequence);
+    expect(l3.sequence).toBeGreaterThanOrEqual(l3.asks[0]!.orders[1]!.sequence);
+  });
+
   it('book.depth / l2 is aggregated size and is not labeled L3', async () => {
     const { engine } = build();
     await engine.submit(MARKET, order({ id: FIRST, account: 'maker-a', side: 'sell', qty: '1', price: '100' }));
@@ -155,7 +165,7 @@ describe('native L3/queue is matching truth — never call L2 L3', () => {
     const missing = 'ETH/USDT';
     expect(engine.hasMarket(missing)).toBe(false);
     const l3 = engine.l3Queue(missing);
-    expect(l3).toEqual({ level: 'L3', marketId: missing, bids: [], asks: [] });
+    expect(l3).toEqual({ level: 'L3', marketId: missing, sequence: 0, bids: [], asks: [] });
     expect(engine.hasMarket(missing)).toBe(false);
     expect(engine.markets).toEqual([]);
   });

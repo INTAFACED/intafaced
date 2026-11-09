@@ -1,6 +1,6 @@
 // World: book
 import { test, expect } from './journey.mjs';
-import { api, bestPrices, EDGE, fromUnits, ORIGIN, toUnits } from './stack.mjs';
+import { api, bestPrices, EDGE, fromUnits, ORIGIN, otherTrader, toUnits } from './stack.mjs';
 import { awayBid, chosePro, deskPath, free, fundedTrader, held, openOrders, placements, reviewSheet, signIn } from './desk.mjs';
 
 // J-charts-desk-14 "I read the order flow: time and sales, depth, ladder and the DOM, and trade from the ladder", in the
@@ -8,9 +8,6 @@ import { awayBid, chosePro, deskPath, free, fundedTrader, held, openOrders, plac
 // funded with TEST USDT, signed in on the spot desk with its chart open. Every price is read from the stack's own book,
 // never typed in. Money line: a ladder order is the desk's own order (its review, its confirm, its hold), and nothing is
 // sent from a click without the review.
-//
-// Step #8 (queue position and fill chance) is not in this file yet: it lands with its code, so this file never carries a
-// step that is red by design.
 const J = 'J-charts-desk-14';
 const SYMBOL = 'BTC/USDT';
 const OTHER = 'ETH/USDT';
@@ -767,4 +764,112 @@ test(`${J} #7 one-click close, cancel and size presets each act once with the re
   expect(sent).toHaveLength(2);
 
   await turnInstantOff();
+});
+
+test(`${J} #8 reads my place in the queue and the fill chance of a resting order: from the book, with the estimate's basis`, async () => {
+  // A price no one rests at yet, well under the touch, so the queue there is exactly the orders this step places.
+  const { body: deep } = await fetch(`${EDGE}/api/v1/orderbook/${encodeURIComponent(SYMBOL)}?limit=500`, {
+    headers: { origin: ORIGIN },
+  }).then(async (res) => ({ body: await res.json() }));
+  const taken = new Set((deep.bids ?? []).map(([p]) => toUnits(canon(p) || '0')));
+  let price = await awayBid(85);
+  while (taken.has(toUnits(price))) price = fromUnits(toUnits(price) - toUnits('1'));
+  // Two other TEST accounts rest first, then me: two orders and their sizes are ahead of mine.
+  const taker = await api(otherTrader());
+  const second = await api(await fundedTrader(page, 'jcd14q', '500'));
+  const mineClient = await api(who);
+  const rest = async (client, amount, tag) => {
+    const res = await client.post('/api/v1/orders', {
+      symbol: SYMBOL,
+      type: 'limit',
+      side: 'buy',
+      price,
+      amount,
+      timeInForce: 'GTC',
+      clientOrderId: `jcd14-q8-${tag}-${RUN}`,
+    });
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBeLessThan(300);
+    return res.body.id;
+  };
+  const placed = [];
+  try {
+    const first = await rest(taker, '0.002', 'a');
+    placed.push([taker, first]);
+    placed.push([second, await rest(second, SMALL, 'b')]);
+    const mine = await rest(mineClient, SMALL, 'me');
+    placed.push([mineClient, mine]);
+
+    // What the book says at that price: the total resting there is the size ahead of me plus my own.
+    const level = async () => {
+      const { body } = await bestPrices(SYMBOL, 500);
+      const row = (body.bids ?? []).find(([p]) => toUnits(canon(p) || '0') === toUnits(price));
+      return row ? toUnits(canon(row[1])) : 0n;
+    };
+    await expect.poll(level, { timeout: 15_000 }).toBe(toUnits('0.002') + toUnits(SMALL) + toUnits(SMALL));
+    const sizeAheadOnBook = (await level()) - toUnits(SMALL);
+    expect(sizeAheadOnBook).toBe(toUnits('0.003'));
+
+    // The service's own answer for my order: from the native queue, the same as the book.
+    const read = await mineClient.get(`/api/v1/orders/${mine}/queue`);
+    expect(read.status, JSON.stringify(read.body).slice(0, 300)).toBe(200);
+    expect(read.body).toMatchObject({ orderId: mine, symbol: SYMBOL, side: 'buy', ordersAhead: 2, source: 'native_l3' });
+    expect(toUnits(read.body.sizeAhead)).toBe(sizeAheadOnBook);
+    // No other maker's id or single size is on the wire: only the count and the sum.
+    for (const [, id] of placed.slice(0, 2)) expect(JSON.stringify(read.body)).not.toContain(id);
+    // The estimate is served with its basis, the TEST stack's owner window, and it is that basis's own ratio.
+    const basis = read.body.fillProbabilityBasis;
+    expect(basis).toMatchObject({ method: 'traded_through_window' });
+    expect(basis.windowSeconds).toBeGreaterThan(0);
+    expect(toUnits(basis.sizeToFill)).toBe(sizeAheadOnBook + toUnits(SMALL));
+    const ratio = (toUnits(basis.tradedThrough) * 10n ** 18n) / toUnits(basis.sizeToFill);
+    const capped = ratio > 10n ** 18n ? 10n ** 18n : ratio;
+    expect(toUnits(read.body.fillProbability)).toBe((capped / 10n ** 14n) * 10n ** 14n);
+    // The traded volume holds every sell printed at or below my price inside the window: at least what the public tape
+    // shows there (the tape leaves out prints with a seeded maker, which the queue, and so the estimate, counts).
+    const until = Number(read.body.serverTime);
+    const since = until - basis.windowSeconds * 1000;
+    const { body: tape } = await mineClient.get(`/api/v1/trades/${encodeURIComponent(SYMBOL)}?limit=500&since=${since}`);
+    const through = (Array.isArray(tape) ? tape : [])
+      .filter((p) => p.side === 'sell' && p.timestamp <= until && toUnits(canon(p.price)) <= toUnits(price))
+      .reduce((sum, p) => sum + toUnits(canon(p.amount)), 0n);
+    expect(toUnits(basis.tradedThrough)).toBeGreaterThanOrEqual(through);
+
+    // The DOM shows the same place and the chance with its basis, on my resting order's row.
+    await signIn(page, who);
+    await openDesk();
+    await openDom();
+    const queue = dom().getByRole('region', { name: 'My place in the queue' });
+    const row = queue.getByTestId('of-queue-row').and(page.locator(`[data-order-id="${mine}"]`));
+    await expect(row).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+    await expect(row).toHaveAttribute('data-orders-ahead', '2');
+    expect(toUnits(canon(await row.getAttribute('data-size-ahead')))).toBe(sizeAheadOnBook);
+    await expect(row).toHaveAttribute('data-source', 'native_l3');
+    await expect(row.getByTestId('of-queue-ahead')).toHaveText(/^2 orders ahead, 0\.0030* BTC ahead of you$/);
+    expect(toUnits(canon(await row.getAttribute('data-chance')))).toBe((capped / 10n ** 14n) * 10n ** 14n);
+    await expect(row.getByTestId('of-queue-chance')).toHaveText(/^Estimated chance of a fill: \d+\.\d{2}%$/);
+    await expect(row.getByTestId('of-queue-basis')).toContainText(
+      new RegExp(`traded at or through this price in the last ${basis.windowSeconds} seconds, against the 0\\.0040* BTC that must trade`),
+    );
+    await expect(row.getByTestId('of-queue-basis')).toContainText('From the matching engine’s own queue.');
+
+    // The first order at that price has nothing ahead: its owner reads that, from the same queue.
+    const theirs = await taker.get(`/api/v1/orders/${first}/queue`);
+    expect(theirs.status).toBe(200);
+    expect(theirs.body).toMatchObject({ ordersAhead: 0, sizeAhead: '0' });
+    // Another person's order id refuses exactly as an order that does not exist: no existence leak.
+    const foreign = await mineClient.get(`/api/v1/orders/${first}/queue`);
+    const missing = await mineClient.get(`/api/v1/orders/${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}/queue`);
+    expect(foreign.status).toBe(404);
+    expect(foreign.body.intafacedCode).toBe('trade.order_not_found');
+    expect([missing.status, missing.body.intafacedCode]).toEqual([foreign.status, foreign.body.intafacedCode]);
+  } finally {
+    for (const [client, id] of placed) await client.delete(`/api/v1/orders/${id}?symbol=${encodeURIComponent(SYMBOL)}`);
+  }
+  // Once cancelled, my order is not in the queue: the read says it is not open.
+  const [, mine] = placed.at(-1) ?? [];
+  if (mine) {
+    const gone = await mineClient.get(`/api/v1/orders/${mine}/queue`);
+    expect(gone.status).toBe(409);
+    expect(gone.body.intafacedCode).toBe('trade.order_not_open');
+  }
 });
