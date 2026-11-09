@@ -194,7 +194,9 @@ jobs:
             exit 0
           fi
           git worktree add --detach "$RUNNER_TEMP/reach-base" "$base"
-          node "$RUNNER_TEMP/reach-base/tooling/ci/journey-reach-map.mjs" verify --map "$GITHUB_WORKSPACE/$map"
+          # The runs and the builder are main's; the workspace inputs (packages, consumers, money) are the pull request's own,
+          # so a pull request that adds a package holds the map its own build writes (B1, #7724).
+          node "$RUNNER_TEMP/reach-base/tooling/ci/journey-reach-map.mjs" verify --map "$GITHUB_WORKSPACE/$map" --workspace "$GITHUB_WORKSPACE"
 
       # The journey list is the finish line (OWNER 1), from main like the guard above (tooling/ci/journey-list-guard.mjs):
       # a journey or step on main may leave docs/roadmap/journeys.json, or its live count, only on a body line
