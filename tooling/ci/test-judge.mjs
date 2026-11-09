@@ -945,7 +945,12 @@ export function refusal(res, text) {
     msg = undefined;
   }
   const h = (k) => res.headers?.get?.(k);
-  const parts = [`"${String(msg ?? text ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)}"`];
+  const parts = [
+    `"${String(msg ?? text ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 200)}"`,
+  ];
   if (h('x-ratelimit-remaining') != null) parts.push(`rate limit ${h('x-ratelimit-remaining')} of ${h('x-ratelimit-limit') ?? '?'} left`);
   const reset = Number(h('x-ratelimit-reset'));
   if (reset > 0) parts.push(`resets ${new Date(reset * 1000).toISOString()}`);
