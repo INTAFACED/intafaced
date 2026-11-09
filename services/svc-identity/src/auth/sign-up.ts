@@ -258,10 +258,13 @@ export function assertEligible(deps: Pick<SignUpDeps, 'minAgeYears' | 'closedCou
     if (!residence.allowed) throw paused(residence.code) ? pausedError() : blocked();
   }
 
-  // Citizenship, wherever the person lives: the sanctions screening list only (1.6 (c)), never a business block, so a
-  // US citizen living outside the US is served. The owner's sign-up off switch still applies to it, as before.
+  // Citizenship, wherever the person lives: the owner's sign-up off switch, the per-country switch with the identity
+  // module's rules (business blocks such as the US, OWNER 237), as before, and then the sanctions screening list, which
+  // also reads subdivision rows (1.6 (c)). Serving a US citizen who lives elsewhere would need an owner decision.
   if (nationality) {
     if (closed(nationality)) throw blocked();
+    const national = access(nationality);
+    if (!national.allowed) throw paused(national.code) ? pausedError() : blocked();
     const citizenship = checkCitizenship({ citizenship: nationality });
     if (!citizenship.allowed) throw paused(citizenship.code) ? pausedError() : blocked();
   }

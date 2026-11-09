@@ -73,10 +73,11 @@ describe('sign-up residence and citizenship (Hyperliquid terms 1.6, OWNER 258)',
     expect(codeOf({ country: 'DE' })).toBe('allowed');
   });
 
-  it('refuses a US resident (1.6 (a)) but not a US citizen living outside the US', () => {
+  it('refuses a US resident (1.6 (a)) and, as before this change, a US citizen living outside the US (OWNER 237)', () => {
     expect(codeOf({ country: 'US' })).toBe('identity.region_blocked');
-    expect(codeOf({ country: 'DE', nationality: 'US' })).toBe('allowed');
-    expect(codeOf({ country: 'CA', subdivision: 'CA-QC', nationality: 'US' })).toBe('allowed');
+    expect(codeOf({ country: 'DE', nationality: 'US' })).toBe('identity.region_blocked');
+    expect(codeOf({ country: 'CA', subdivision: 'CA-QC', nationality: 'US' })).toBe('identity.region_blocked');
+    expect(codeOf({ country: 'DE', nationality: 'GB' })).toBe('allowed');
   });
 
   it('a subdivision row in the screening list refuses that region and its citizens', () => {
