@@ -468,7 +468,9 @@ export function pathReach(map, path, subscribesHere = false) {
   if (map.harness?.includes(p) || (pkgOf && map.harness?.includes(pkgOf))) return { full: 'the journey harness imports it' };
   const svc = /^(services\/svc-[a-z0-9-]+)\//.exec(p)?.[1];
   // Money code narrows like any path (REVIEW.md's C4 entry, OWNER 249: no money process holds anything up before real
-  // money; main's full run with a revert is the backstop). The map still lists it (`money`), for the record.
+  // money; main's full run with a revert is the backstop). The map still lists it (`money`), for the record. AGENTS.md
+  // "How work flows" 8 is unchanged: a red in money code a pull request changes still blocks its merge; only which
+  // journeys run is narrowed.
   if (svc) {
     if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
     if (map.subscribers?.includes(svc))
