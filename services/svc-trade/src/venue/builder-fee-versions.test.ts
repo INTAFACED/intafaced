@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { parseAmount } from '@intafaced/ledger-client/money';
 import type { UserVenueMarket } from '@intafaced/venue-contracts';
-import { BuilderFeeVersionError, assertWithinVenueCaps, builderFeeOf, parseBuilderFees } from './builder-fee-versions.js';
+import {
+  BuilderFeeVersionError,
+  assertWithinVenueCaps,
+  builderFeeOf,
+  parseBuilderFees,
+  type BuilderFeeBook,
+} from './builder-fee-versions.js';
 
 const a = parseAmount;
 const VENUE = 'test-venue-sim';
-const book = (groups: Record<string, unknown>, marketGroups?: Record<string, unknown>, defaultGroup = 'all-markets') =>
-  parseBuilderFees({ [VENUE]: { defaultGroup, groups, ...(marketGroups ? { marketGroups } : {}) } });
+const book = (groups: Record<string, unknown>, marketGroups?: Record<string, unknown>, defaultGroup = 'all-markets'): BuilderFeeBook => {
+  const parsed = parseBuilderFees({ [VENUE]: { defaultGroup, groups, ...(marketGroups ? { marketGroups } : {}) } });
+  if (!parsed) throw new Error('a non-empty builder fee book parsed to null');
+  return parsed;
+};
 
 const market = (symbol: string, cap: string | null, kind: 'spot' | 'perpetual' = 'spot'): UserVenueMarket => ({
   symbol,
