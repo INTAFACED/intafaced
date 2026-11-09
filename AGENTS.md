@@ -46,7 +46,7 @@ Within the floor, these win over any agent's or reviewer's preference.
 ## Services
 
 - Services never read each other's tables. Use tRPC through `packages/contracts`, or an event declared in `packages/events/src/catalog.ts`. Consumers are idempotent.
-- User-facing copy names no partner or model vendor (`pnpm scan:brand`). The one exception: the execution venue an order routes to (Hyperliquid) is named in the venue disclosure and the terms, as the owner adopted on 8 Nov 2026 (OWNER 237, Positioning: "Hyperliquid is disclosed as the execution venue"). Model vendors and every other partner stay unnamed.
+- User-facing copy names no partner or model vendor (`pnpm scan:brand`). The one exception: an execution venue an order routes to (Hyperliquid today; Ostium next) is named in the venue disclosure and the terms, as the owner adopted on 8 Nov 2026 (OWNER 237, Positioning: "Hyperliquid is disclosed as the execution venue"). Model vendors and every other partner stay unnamed.
 
 ## GitHub and git
 
