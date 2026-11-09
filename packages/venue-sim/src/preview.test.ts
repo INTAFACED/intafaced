@@ -161,7 +161,8 @@ describe('HTTP answers', () => {
       const [status, out] = await answerTestVenue(sim, 'POST', path, JSON.stringify(encodeVenueWire(body)));
       return { status, out: decodeVenueWire<any>(JSON.parse(JSON.stringify(out))), raw: out as any };
     };
-    expect((await call('/test/seed', {})).out.orders).toBe(20);
+    // Five levels a side on each of the three TEST markets (BTC-USDC, BTC-PERP, XAU-PERP).
+    expect((await call('/test/seed', {})).out.orders).toBe(30);
     expect((await call('/test/seed', {})).out.orders).toBe(0);
     expect((await call('/test/deposit', { account, asset: 'USDC', amount: a('70000'), depositRef: 'dep:http' })).out.credited).toBe(true);
     expect((await call('/test/deposit', { account, asset: 'USDC', amount: a('70000'), depositRef: 'dep:http' })).out.credited).toBe(false);
