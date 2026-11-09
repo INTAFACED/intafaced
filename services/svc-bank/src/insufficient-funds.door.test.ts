@@ -87,6 +87,11 @@ function build(opts: { transferError: unknown; earnFails?: boolean }) {
         posted.push(input);
         throw opts.transferError;
       },
+      // `transfers.create`'s door: the service decides whose book holds the money (OWNER 226).
+      moveBetweenSpaces: async (input: unknown) => {
+        posted.push(input);
+        throw opts.transferError;
+      },
     },
     personalPay: {
       send: async (input: unknown) => {

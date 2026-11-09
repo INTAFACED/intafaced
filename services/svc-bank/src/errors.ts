@@ -370,6 +370,10 @@ export type BankErrorCode =
   | 'bank.card_pin_issuer_unset'
   /** A PIN was not 4 to 12 digits. The refusal never echoes the PIN. */
   | 'bank.card_pin_invalid'
+  /** The card has no PIN at the issuer yet, so there is none to show. */
+  | 'bank.card_pin_not_set'
+  /** The owner has not set how many wrong PIN tries block a card (`BANK_CARD_PIN_TRY_LIMIT`), so no PIN is checked. */
+  | 'bank.card_pin_try_limit_unset'
   /**
    * No live issuer can push a card into Apple Pay or Google Pay.
    * The missing piece is `socket.live-issuer`.
@@ -1062,6 +1066,52 @@ export type BankErrorCode =
   | 'bank.onramp_fee_not_known'
   /** The TEST partner switches exist only on a stack that runs the TEST partner (`BANK_TEST_PARTNER=test`). */
   | 'bank.test_partner_off'
+  // ── Partner-held bank money (OWNER 226; `partner/partner-bank.ts`) ─────
+  /** The custodial layer is off and no partner bank holds this money, so no customer balance is posted. */
+  | 'bank.no_partner_bank'
+  /** svc-ledger's platform posting freeze is on, or could not be read: the partner is asked to move nothing. */
+  | 'bank.posting_frozen'
+  /** The partner has not reported this balance: "not known", never 0. */
+  | 'bank.partner_balance_not_known'
+  /** One side of a move is held at the partner and the other is not; no single partner move can make it. */
+  | 'bank.partner_custody_mismatch'
+  /** The partner holds a different move under this business key; nothing was moved. */
+  | 'bank.partner_move_conflict'
+  /** The source account at the partner does not hold the amount; nothing was moved. */
+  | 'bank.partner_insufficient_funds'
+  /** The partner's answer was lost: the move may have been made. Retry under the same key: it is made at most once. */
+  | 'bank.partner_reply_lost'
+  /** A partner move or TEST funding needs an amount above zero. */
+  | 'bank.partner_amount_invalid'
+  /** This payment's partner path is not built yet; nothing was sent. */
+  | 'bank.partner_path_not_built'
+  /** The partner's history cannot answer this filter here; nothing is silently ignored. */
+  | 'bank.partner_history_filter_unsupported'
+  // ── Partner-held money (OWNER 226; B3 on project-state #1790) ─────────
+  /** No partner holds this person's money and the custodial layer is off (`LEDGER_CUSTODY_LAYER`): nothing was written. */
+  | 'bank.partner_unset'
+  /** This person's card money is partner-held, but the card programme has no partner that holds authorisations. */
+  | 'bank.card_partner_holds_unset'
+  /** The card partner has not said whether it holds the crypto or pulls from the wallet; nothing was decided. */
+  | 'bank.card_partner_mode_not_known'
+  /** The card partner reports no balance for this asset, so no hold can be asked; nothing was decided. */
+  | 'bank.card_partner_balance_not_known'
+  /** The card partner refused a capture above what it holds for the authorisation. Nothing moved. */
+  | 'bank.card_partner_capture_exceeds_hold'
+  /** The card partner says the hold is already captured, released or expired. Nothing moved. */
+  | 'bank.card_partner_hold_closed'
+  /** The card partner refused a refund above what was captured. Nothing moved. */
+  | 'bank.card_partner_refund_exceeds_capture'
+  /** The card partner saw one business key with a different instruction. Nothing moved. */
+  | 'bank.card_partner_key_conflict'
+  /** The card partner has no record of this hold (the TEST partner forgets on a restart). */
+  | 'bank.card_partner_hold_not_found'
+  /** A refund on a card held in INTAFACED's own ledger is not built (`card-service.ts`, WHAT IS NOT HERE). */
+  | 'bank.card_refund_not_built'
+  /** A refund needs a settled capture first. */
+  | 'bank.card_refund_nothing_captured'
+  /** This authorisation's one refund was asked for a different amount. */
+  | 'bank.card_refund_amount_conflict'
   // ── Card controls (BK-cctl-01, J-bank-14 #1) ───────
   /** A card control names a category the programme doesn't list, an empty merchant, or a country that isn't two letters. */
   | 'bank.card_control_invalid'

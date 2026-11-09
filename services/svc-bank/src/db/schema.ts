@@ -962,6 +962,12 @@ export const cardAuthorizations = bank.table(
     status: loanEventStatusEnum('status').notNull().default('pending'),
     /** The hold. NULL on a decline, because a decline moves nothing. */
     holdLedgerTxId: text('hold_ledger_tx_id'),
+    /** `ledger` (the custodial layer) or `partner` (the card partner holds it; our ledger posts nothing). */
+    heldBy: text('money_book').notNull().default('ledger'),
+    /** The partner's reference for its hold, on a partner-held approval. */
+    partnerHoldRef: text('partner_hold_ref'),
+    /** `partner_holds` or `wallet_pull`, as the partner answered the hold. */
+    partnerMode: text('partner_mode'),
     decidedAt: tstz('decided_at').notNull().defaultNow(),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
@@ -1047,6 +1053,9 @@ export const cardSettlements = bank.table(
     status: loanEventStatusEnum('status').notNull().default('pending'),
     ledgerTxId: text('ledger_tx_id'),
     rejectionCode: text('rejection_code'),
+    /** `ledger`, or `partner`: the partner moved it and `partnerRef` names its instruction. */
+    heldBy: text('money_book').notNull().default('ledger'),
+    partnerRef: text('partner_ref'),
     createdAt: createdAt(),
     settledAt: tstz('settled_at'),
   },
@@ -1094,6 +1103,22 @@ export const cardCashback = bank.table(
     index('card_cashback_status_idx').on(t.status),
   ],
 );
+
+/**
+ * A MERCHANT'S REFUND OF A PARTNER-HELD CAPTURE (OWNER 226). One per authorisation, under
+ * `card.partner.refund:<authorisation>`; the money is the partner's to move, and nothing posts to our ledger.
+ */
+export const cardPartnerRefunds = bank.table('card_partner_refunds', {
+  authorizationId: uuid('authorization_id')
+    .primaryKey()
+    .references(() => cardAuthorizations.id),
+  amount: amount('amount').notNull(),
+  status: loanEventStatusEnum('status').notNull().default('pending'),
+  partnerRef: text('partner_ref'),
+  rejectionCode: text('rejection_code'),
+  createdAt: createdAt(),
+  settledAt: tstz('settled_at'),
+});
 
 // ── Ramps (§8.1 / D-S-09, crypto ledger half) ────────────────────────────────
 
@@ -1821,6 +1846,7 @@ export const schema = {
   loanLiquidations,
   cards,
   cardAuthorizations,
+  cardPartnerRefunds,
   cardConversions,
   cardSettlements,
   cardCashback,

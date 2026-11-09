@@ -135,6 +135,9 @@ import {
 } from './trusted-devices.js';
 import {
   completePasswordReset,
+  completePasswordResetByCode,
+  passwordResetLimits,
+  type PasswordResetLimits,
   publishedPasswordResetTtlSeconds,
   relayMailOutbox,
   requestHandleRecovery,
@@ -243,6 +246,7 @@ export class AuthError extends Error {
       | 'auth.password_breached'
       | 'auth.reset_proof_invalid'
       | 'auth.reset_unwired'
+      | 'auth.reset_limit'
       | 'auth.email_confirm_invalid'
       | 'auth.email_confirm_unwired'
       | 'auth.email_confirm_rate_limited'
@@ -2330,6 +2334,11 @@ export class AuthService {
     return requestPasswordReset(this.resetDeps(), input);
   }
 
+  /** The owner's reset request cap and window, or null while the reset is unwired. The same for every visitor. */
+  passwordResetLimits(): PasswordResetLimits | null {
+    return passwordResetLimits(this.resetDeps());
+  }
+
   /** Same shape as `requestPasswordReset`: the username goes to a known address, a notice (if on) to any other. */
   async requestHandleRecovery(input: { email: string }): Promise<{ accepted: true }> {
     return requestHandleRecovery(this.resetDeps(), input);
@@ -2358,8 +2367,12 @@ export class AuthService {
    * Signed-out reset, step 2. A correct proof replaces the hash and ends every
    * session. This call does not sign the person in.
    */
-  async completePasswordReset(input: { email: string; code: string; newPassword: string }): Promise<void> {
-    const result = await completePasswordReset(this.resetDeps(), input);
+  async completePasswordReset(input: { email?: string | undefined; code: string; newPassword: string }): Promise<void> {
+    // From the mailed link the code comes alone (J-identity-03 #2); typed on the page, with the address.
+    const result =
+      input.email === undefined
+        ? await completePasswordResetByCode(this.resetDeps(), { code: input.code, newPassword: input.newPassword })
+        : await completePasswordReset(this.resetDeps(), { email: input.email, code: input.code, newPassword: input.newPassword });
     if (result.sessionsRevoked > 0) await syncNavigatorSessionsClosedForUser(this.sql, result.userId);
     this.log.warn({ userId: result.userId, sessionsRevoked: result.sessionsRevoked }, 'auth.password_reset');
   }

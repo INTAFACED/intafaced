@@ -224,20 +224,20 @@ describe('TRD-0308 place attempt on orders.create', () => {
       placeOrder: async () => {
         placeCalls += 1;
         available -= ONE;
-        return openOrder('us-basic-1');
+        return openOrder('gb-basic-1');
       },
     } as unknown as TradeService;
     const app = createTradeRouter(trade);
-    const trader = app.createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'US'));
+    const trader = app.createCaller(contextFor(principal(USER, 'basic', ['trade:write']), 'GB'));
     const officer = app.createCaller(contextFor(principal(OFFICER, 'full', ['admin:read']), 'SG'));
 
-    await expect(trader.orders.create({ ...placeBody, clientOrderId: 'us-basic-1' })).rejects.toMatchObject({
+    await expect(trader.orders.create({ ...placeBody, clientOrderId: 'gb-basic-1' })).rejects.toMatchObject({
       code: 'FORBIDDEN',
       cause: { code: 'denied.kyc_required' },
     });
     expect(placeCalls).toBe(0);
     expect(available).toBe(TEST_AVAILABLE);
-    await expect(officer.orders.placeAttempt({ clientOrderId: 'us-basic-1' })).resolves.toMatchObject({
+    await expect(officer.orders.placeAttempt({ clientOrderId: 'gb-basic-1' })).resolves.toMatchObject({
       outcome: 'refused',
       reason: 'denied.kyc_required',
       orderId: null,
