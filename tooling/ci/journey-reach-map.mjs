@@ -57,10 +57,10 @@ import { isMainRun, manifestsAt, moneyCodeDirs } from './journey-verdict.mjs';
 
 /**
  * The off switch: 'full' sends every product change to the full suite, whatever the map says. 'reach' uses the map.
- * It ships 'full' (the CI review on b26447ca): narrowing turns on only in a reviewed code change, once a map built from
- * MIN_RUNS whole runs is committed and REVIEW.md records the owner's decision for it, never by a data-only map commit.
+ * On since REVIEW.md's C4 entry (OWNER 240, 249) and a map built from MIN_RUNS whole main runs; only a reviewed code
+ * change moves it, never a data-only map commit. Setting it to 'full' is the way back.
  */
-export const REACH_MAP_MODE = 'full';
+export const REACH_MAP_MODE = 'reach';
 /** Money code beyond moneyCodeDirs (journey-verdict.mjs): the ledger service itself. */
 export const MONEY_SERVICES = ['services/svc-ledger'];
 export const MAP_VERSION = 1;
@@ -451,7 +451,6 @@ export function mapProblem(map, behind, mode = REACH_MAP_MODE) {
   if (map.mode !== 'reach') return `the touched-journeys map is full (${map.why ?? 'no reason given'})`;
   if (!Array.isArray(map.runs) || map.runs.length < MIN_RUNS) return `the touched-journeys map holds fewer than ${MIN_RUNS} runs`;
   if (!Array.isArray(map.journeys) || !map.journeys.length) return 'the touched-journeys map lists no journeys';
-  if (!Array.isArray(map.money) || !map.money.length) return 'the touched-journeys map lists no money code';
   if (behind === null || behind === undefined || !Number.isFinite(behind))
     return "how many main runs came after the touched-journeys map's newest run couldn't be read";
   if (behind > STALE_RUNS)
@@ -468,19 +467,8 @@ export function pathReach(map, path, subscribesHere = false) {
   const pkgOf = /^(packages\/[a-z0-9-]+)\//.exec(p)?.[1];
   if (map.harness?.includes(p) || (pkgOf && map.harness?.includes(pkgOf))) return { full: 'the journey harness imports it' };
   const svc = /^(services\/svc-[a-z0-9-]+)\//.exec(p)?.[1];
-  // Money code always runs the full suite (AGENTS.md "How work flows" 8: packages/ledger-client, its direct dependents,
-  // svc-edge, svc-ops, svc-protocol, svc-fix; and svc-ledger), and so does a package money code depends on.
-  const money = Array.isArray(map.money) ? map.money : null;
-  if (!money) return { full: 'the map lists no money code' };
-  if ((svc && money.includes(svc)) || (pkgOf && money.includes(pkgOf))) return { full: 'money code, which always runs the full suite' };
-  if (pkgOf && (map.consumers?.[pkgOf] ?? []).some((d) => money.includes(d)))
-    return { full: `money code depends on ${pkgOf}, and money code always runs the full suite` };
-  // A package only a money package depends on (consumersOf keeps apps and services only; review 7561-R2). A map without
-  // the list can't tell, so every package path is full.
-  if (pkgOf && (!map.dependents || typeof map.dependents !== 'object'))
-    return { full: 'the map does not list which packages depend on which, so it cannot tell whether money code does' };
-  const moneyPkg = pkgOf && (map.dependents[pkgOf] ?? []).find((d) => money.includes(d));
-  if (moneyPkg) return { full: `money code (${moneyPkg}) depends on ${pkgOf}, and money code always runs the full suite` };
+  // Money code narrows like any path (REVIEW.md's C4 entry, OWNER 249: no money process holds anything up before real
+  // money; main's full run with a revert is the backstop). The map still lists it (`money`), for the record.
   if (svc) {
     if (subscribesHere) return { full: 'it subscribes to bus events, and a handler that logs nothing is recorded nowhere' };
     if (map.subscribers?.includes(svc))

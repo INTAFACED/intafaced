@@ -158,7 +158,7 @@ test('planted: a one-service change selects that service’s journeys and no oth
 
 test('journeyTouch with the map: product code joins the files list; any other full path keeps the whole change full', () => {
   const reach = { map: MAP, behind: 0, journeyFiles: FILES, subscribes: () => false, mode: 'reach' };
-  assert.equal(journeyTouch(['services/svc-tax/src/rates.ts'], () => true, { ...reach, mode: undefined }).mode, 'full', 'shipped off');
+  assert.equal(journeyTouch(['services/svc-tax/src/rates.ts'], () => true, { ...reach, mode: undefined }).mode, 'files', 'on by default');
   const t = journeyTouch(['services/svc-tax/src/rates.ts', `apps/customer/tests/real-app/${BANK}`], () => true, reach);
   assert.equal(t.mode, 'files');
   assert.deepEqual(t.files, [BANK, POPUP, TAX]);
@@ -204,49 +204,27 @@ test('planted: reach is taken only from runs where the journey passed whole (rev
   assert.deepEqual([...reportUnclean(r)].sort(), [BANK, TAX].sort());
 });
 
-test('planted: money code never narrows (the CI review on b26447ca)', () => {
-  assert.deepEqual(MAP.money, ['packages/ledger-client', 'services/svc-ledger', 'services/svc-ops'], 'svc-ledger always');
-  for (const p of ['services/svc-ledger/src/post.ts', 'services/svc-ops/src/x.ts', 'packages/ledger-client/src/recipes.ts']) {
-    const r = select([p]);
-    assert.equal(r.mode, 'full', p);
-    assert.match(r.why, /money code, which always runs the full suite/);
-  }
-  const dep = select(['packages/money-util/src/x.ts']);
-  assert.equal(dep.mode, 'full');
-  assert.match(dep.why, /money code depends on packages\/money-util/);
-  // A map with no money list can't say what is money: everything is full.
-  const { money, ...bare } = MAP;
-  assert.ok(money);
-  assert.match(select(['services/svc-tax/src/rates.ts'], { map: bare }).why, /lists no money code/);
-  // Mixed with a narrowable path, the money path keeps the whole change full.
-  assert.equal(select(['services/svc-tax/src/rates.ts', 'services/svc-ledger/src/post.ts']).mode, 'full');
-});
-
-test('planted: a package only a money package depends on never narrows (review 7561-R2)', () => {
-  // packages/fee-math is used only by packages/wallet-kit, a money package; consumersOf reaches svc-tax through it, and
-  // svc-tax is not money code, so without the dependents list the change would narrow to svc-tax's journeys.
+test('planted: money code narrows like any path (REVIEW.md C4 entry, OWNER 249)', () => {
+  // svc-tax as money code: a change to it still runs only the journeys recorded reaching it.
+  const map = build(RUNS, { money: ['packages/ledger-client', 'services/svc-tax'] });
+  assert.ok(map.money.includes('services/svc-tax'), 'the map still lists money code, for the record');
+  const r = select(['services/svc-tax/src/rates.ts'], { map });
+  assert.equal(r.mode, 'files', JSON.stringify(r));
+  assert.deepEqual(r.files, [POPUP, TAX]);
+  // A package only a money package depends on narrows to the journeys of the services that use it.
   const over = {
     consumers: { ...CONSUMERS, 'packages/fee-math': ['services/svc-tax'] },
     dependents: { ...DEPENDENTS, 'packages/fee-math': ['packages/wallet-kit'] },
     money: ['packages/ledger-client', 'packages/wallet-kit', 'services/svc-ops'],
   };
-  const map = build(RUNS, over);
-  const r = select(['packages/fee-math/src/round.ts'], { map });
-  assert.equal(r.mode, 'full', JSON.stringify(r));
-  assert.match(r.why, /money code \(packages\/wallet-kit\) depends on packages\/fee-math/);
-  // The fault it closes: the same package under a package that is not money narrows to svc-tax's journeys.
-  const plain = build(RUNS, { ...over, dependents: { ...DEPENDENTS, 'packages/fee-math': ['packages/other'] } });
-  assert.deepEqual(
-    select(['packages/fee-math/src/round.ts'], { map: plain }).files,
-    [POPUP, TAX].sort(),
-    'its journeys, and the one the map cannot speak for',
-  );
-  // A map without the list can't tell: every package path is full, and a service path still narrows.
-  const { dependents, ...bare } = plain;
-  assert.ok(dependents);
-  assert.match(select(['packages/fee-math/src/round.ts'], { map: bare }).why, /does not list which packages depend/);
-  assert.match(select(['packages/market-data/src/x.ts'], { map: bare }).why, /does not list which packages depend/);
+  assert.deepEqual(select(['packages/fee-math/src/round.ts'], { map: build(RUNS, over) }).files, [POPUP, TAX].sort());
+  // A map with no money list narrows the same.
+  const { money, ...bare } = map;
+  assert.ok(money);
   assert.equal(select(['services/svc-tax/src/rates.ts'], { map: bare }).mode, 'files');
+});
+
+test('dependentPackages: packages through packages', () => {
   // dependentPackages follows packages through packages, and leaves apps and services to consumersOf.
   const ws = {
     dirs: ['packages/fee-math', 'packages/wallet-kit', 'packages/top', 'services/svc-tax', 'apps/customer'],
@@ -379,11 +357,11 @@ test('planted: each full fallback', () => {
 });
 
 test('planted: the off switch and the builder’s refusal', () => {
-  assert.equal(REACH_MAP_MODE, 'full', 'off in this commit: narrowing turns on only in a reviewed code change');
+  assert.equal(REACH_MAP_MODE, 'reach', 'on: setting it to full turns every product change back to the full suite');
   assert.equal(
     reachSelect({ map: MAP, paths: ['services/svc-tax/src/rates.ts'], behind: 0, atHead: FILES }).mode,
-    'full',
-    'the default is off',
+    'files',
+    'the default is on',
   );
   const off = select(['services/svc-tax/src/rates.ts'], { mode: 'full' });
   assert.equal(off.mode, 'full');
