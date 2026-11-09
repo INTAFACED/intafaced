@@ -924,6 +924,44 @@ test('planted (U4): a journey step file whose step no longer checks its words fa
   assert.deepEqual(verdicts(), ['FAIL', 'PASS']);
 });
 
+test('U4 (#1819): the combined call with look-baseline images streams the same prompt and still reads both parts', async () => {
+  const dir = tmp();
+  const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'c'.repeat(40) });
+  const images = [{ path: 'apps/customer/look-baselines/home/phone.png', side: 'before', commit: BASE, data: 'iVBORw0KGgo=' }];
+  const said = await writeReviewInputs(dir, {
+    diff: DIFF,
+    base: BASE,
+    head: HEAD,
+    pr: 7,
+    src: fakeSrc(),
+    loadWords,
+    ...realBriefs(),
+    images,
+  });
+  assert.match(said, /one call for the review and the test part .*; 1 look-baseline image\(s\) attached$/);
+  assert.ok(existsSync(join(dir, 'combined')));
+  assert.deepEqual(JSON.parse(readFileSync(join(dir, 'schema.json'), 'utf8')), COMBINED_SCHEMA);
+  const prompt = readFileSync(join(dir, 'prompt.txt'), 'utf8');
+  assert.equal(prompt, readFileSync(join(dir, 'tests', 'prompt.txt'), 'utf8'), "prompt.txt is the test part's one prompt, as before");
+  const content = JSON.parse(readFileSync(join(dir, 'input.jsonl'), 'utf8')).message.content;
+  assert.equal(content[0].text, prompt, 'the stream input heads with the whole prompt, step words and all');
+  assert.deepEqual(content[2], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } });
+  const tests = {
+    verdict: 'PASS',
+    steps: ['J-x-01 #1', 'J-x-01 #2'].map((step) => ({ step, verdict: 'still-proves', why: 'unchanged matcher' })),
+    changes: [{ file: 'apps/customer/tests/real-app/stack.mjs', verdict: 'still-proves', why: 'unchanged' }],
+    setAside: NO_SET_ASIDE,
+  };
+  const init = JSON.stringify({ type: 'system', subtype: 'init' });
+  writeFileSync(join(dir, 'answer.jsonl'), `${init}\n${answerText({ verdict: 'PASS', findings: [], tests })}\n`);
+  assert.equal(readVerdicts(dir).ok, true);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'verdict.json'), 'utf8')).verdict, 'PASS');
+  assert.equal(JSON.parse(readFileSync(join(dir, 'tests', 'verdict.json'), 'utf8')).verdict, 'PASS');
+  // The stream's answer without its test part is no verdict, as the JSON answer's is.
+  writeFileSync(join(dir, 'answer.jsonl'), `${answerText({ verdict: 'PASS', findings: [] })}\n`);
+  assert.match(readVerdicts(dir).why, /^the test part: /);
+});
+
 test("planted (U4): the diff can't close the one prompt's fence, nor pose as the step words", async () => {
   const dir = tmp();
   const loadWords = async () => ({ words: parseStepWords(WORDS_MD), ref: 'r' });
