@@ -43,6 +43,21 @@ Four ways, in increasing order of strength — all of them are tests that run on
 
 Point 3 is the one that matters most, because it fails for a change nobody has made yet.
 
+### When the partner bank holds the money (OWNER 226)
+
+INTAFACED launches holding no customer money: a person's currency accounts and spaces are the partner bank's. svc-bank reads and moves them through one port, `src/partner/partner-bank.ts` (`PartnerBank`); no partner is named, so the only implementation is the TEST partner bank (`src/partner/test-partner.ts`, labelled TEST, dev and test stacks only). Which path runs is per person: `PartnerCustody.bankFor(userId)`.
+
+| Path                                                           | With the person's TEST switch `custody: 'off'`                                                                                              | Without it (the default)     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| A balance (`spaces.list`, `spaces.unnamed`, `currencies.list`) | the partner's figure, with `heldAt: { label, asOf }`, `ledgerAccount: null`; not reported refuses `bank.partner_balance_not_known`, never 0 | the ledger's, as above       |
+| `transfers.create`                                             | ONE partner move under `bank.transfer.own:<transferId>:0`; output `ledgerTxId: null`, `partnerMove`; nothing posted                         | `bankTransfer` on the ledger |
+| A standing order's occurrence                                  | ONE partner move under `bank.transfer.sched:<scheduleId>:<n>`; the run records `partner_move_id`; bills-pot top-up at the partner           | as before                    |
+| History (`activity.list`, `activity.get`, `transfers.list`)    | the partner's record of its moves, each line `heldAt: { label }`                                                                            | the ledger's feed            |
+
+The partner deduplicates on the key, so a retry after a lost reply (`bank.partner_reply_lost`) is answered with the move it made, once. A locked or archived source refuses before any partner request. One side partner-held and the other not refuses `bank.partner_custody_mismatch`; Send, business transfers and the other doors that record a ledger transaction refuse `bank.partner_path_not_built` for a partner-held person until their partner path is built. On the TEST stack, `testPartner.fund` pays TEST money into the person's main balance at the partner.
+
+Outside the TEST partner, svc-bank follows the custody switch, `LEDGER_CUSTODY_LAYER` (the value svc-ledger reads, the same parser, unset is off): off, every customer-balance post is refused `bank.no_partner_bank` before svc-ledger is asked. The TEST stack pins it `on`, as it pins svc-ledger's.
+
 ---
 
 ## API
