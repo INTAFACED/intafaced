@@ -374,6 +374,14 @@ export type BankErrorCode =
   | 'bank.card_pin_not_set'
   /** The owner has not set how many wrong PIN tries block a card (`BANK_CARD_PIN_TRY_LIMIT`), so no PIN is checked. */
   | 'bank.card_pin_try_limit_unset'
+  /** No card partner can send a 3D Secure code for this card (J-bank-14 #5). The missing piece is `socket.live-issuer`. */
+  | 'bank.card_3ds_issuer_unset'
+  /** The owner has not set how many wrong 3D Secure codes lock a challenge (`BANK_CARD_3DS_TRY_LIMIT`), so none is checked. */
+  | 'bank.card_3ds_try_limit_unset'
+  /** No 3D Secure challenge with this id on this person's card. */
+  | 'bank.card_3ds_not_found'
+  /** This challenge reference was already opened for a different purchase. Nothing changed. */
+  | 'bank.card_3ds_conflict'
   /**
    * No live issuer can push a card into Apple Pay or Google Pay.
    * The missing piece is `socket.live-issuer`.

@@ -216,6 +216,11 @@
       "value": "3",
       "note": "TEST count of wrong PIN tries in a row that block a card's PIN (J-bank-14 #3). Made up for the local test stack; not an owner decision."
     },
+    "BANK_CARD_3DS_TRY_LIMIT": {
+      "service": "bank",
+      "value": "3",
+      "note": "TEST count of wrong 3D Secure codes that lock a challenge (J-bank-14 #5). Made up for the local test stack; not an owner decision."
+    },
     "BANK_CARD_DISPUTE_CAP_JSON": {
       "service": "bank",
       "value": "{\"USDC\": \"100.00\"}",

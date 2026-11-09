@@ -37,6 +37,30 @@ const cardControlsOutput = z.object({
   ),
 });
 
+/** One 3D Secure challenge as the person sees it (J-bank-14 #5). */
+const threeDSChallengeOutput = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  challengeRef: z.string(),
+  amount: z.string(),
+  merchant: z.string().nullable(),
+  merchantCountry: z.string().nullable(),
+  state: z.enum(['open', 'approved', 'locked']),
+  triesLeft: z.number().int(),
+  authorizationId: z.string().nullable(),
+  createdAt: z.string(),
+  testCode: z.string().nullable(),
+});
+
+/** One card fraud report (J-bank-14 #7). */
+const fraudReportOutput = z.object({
+  id: z.string(),
+  cardId: z.string(),
+  authorizationId: z.string(),
+  state: z.literal('open'),
+  createdAt: z.string(),
+});
+
 const payFromOutput = z.object({
   test: z.boolean(),
   custodyMode: z.enum(CARD_CUSTODY_MODES).nullable(),
@@ -611,6 +635,67 @@ export function createCardsRouter(c: BankRouterContext) {
           };
         }),
       ),
+
+    /**
+     * 3D Secure (J-bank-14 #5): the challenges the card partner asked this person to answer for online purchases, and the
+     * answer. A wrong code counts once and the owner's count locks the challenge; the right code completes the purchase's
+     * authorisation once. `testCode` is the TEST partner's code, shown only on the TEST stack; a real partner sends its own.
+     */
+    threeDS: router({
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid() }))
+        .output(z.object({ challenges: z.array(threeDSChallengeOutput) }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => ({
+            challenges: await bank.cards.safety.list({ cardId: input.cardId, userId: ctx.principal.userId }),
+          })),
+        ),
+      answer: scopedProcedure('bank:write', { module: 'bank' })
+        .input(
+          z.object({
+            cardId: z.string().guid(),
+            challengeId: z.string().guid(),
+            code: z.string().regex(/^\d{4,8}$/),
+          }),
+        )
+        .output(threeDSChallengeOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.cards.safety.answer({
+              cardId: input.cardId,
+              userId: ctx.principal.userId,
+              challengeId: input.challengeId,
+              code: input.code,
+            }),
+          ),
+        ),
+    }),
+
+    /**
+     * Report fraud on a card payment (J-bank-14 #7): the card is frozen as the person's own lock and one case opens for
+     * that payment. `reportId` is the idempotency key; the same payment reported again returns its case.
+     */
+    fraud: router({
+      report: scopedProcedure('bank:write', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid(), authorizationId: z.string().guid(), reportId: z.string().guid() }))
+        .output(fraudReportOutput)
+        .mutation(async ({ ctx, input }) =>
+          guard(async () =>
+            bank.cards.safety.reportFraud({
+              cardId: input.cardId,
+              userId: ctx.principal.userId,
+              authorizationId: input.authorizationId,
+              reportId: input.reportId,
+            }),
+          ),
+        ),
+      list: scopedProcedure('bank:read', { module: 'bank' })
+        .input(z.object({ cardId: z.string().guid() }))
+        .output(z.object({ reports: z.array(fraudReportOutput) }))
+        .query(async ({ ctx, input }) =>
+          guard(async () => ({ reports: await bank.cards.safety.fraudReports({ cardId: input.cardId, userId: ctx.principal.userId }) })),
+        ),
+    }),
 
     /**
      * Close this card and issue another with the same asset, ceilings and channels.
