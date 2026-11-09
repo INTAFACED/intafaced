@@ -95,11 +95,13 @@ async function door(intent, actionKey) {
   });
   expect(sent.status, JSON.stringify(sent.body).slice(0, 400)).toBe(200);
   expect(sent.body.outcome, JSON.stringify(sent.body.outcome).slice(0, 400)).toMatchObject({ definite: true, accepted: true });
-  return sent.body;
+  return { ...sent.body, prepared: p };
 }
 let orders = 0;
-const buy = () =>
-  door({
+/** The builder-fee rates our door signed into the orders it routed: the version in force for BTC-USDC, else the boot value. */
+const signedRates = new Set();
+const buy = async () => {
+  const sent = await door({
     kind: 'place_order',
     symbol: 'BTC-USDC',
     side: 'buy',
@@ -111,6 +113,18 @@ const buy = () =>
     clientOrderKey: `order:${J}:${process.env.JOURNEY_RUN_ID ?? 'local'}:${(orders += 1)}`,
     builderFee: null,
   });
+  expect(sent.prepared.builderFee, 'the door signs our builder fee into the order').not.toBeNull();
+  signedRates.add(dec(sent.prepared.builderFee.feeBps));
+  return sent;
+};
+/** The venue's own published cap on our builder fee for `symbol`. */
+async function venueCap(symbol) {
+  const { status, body } = await testVenue('/markets', { account: null });
+  expect(status, JSON.stringify(body).slice(0, 300)).toBe(200);
+  const market = body.value.find((m) => m.symbol === symbol);
+  expect(market?.builderFeeCapBps, `${symbol}'s cap as the venue publishes it`).toMatchObject({ known: true });
+  return market.builderFeeCapBps.value;
+}
 
 /** The recon the console reads, as the stack's TEST founders' trade-ops token reads it (admin.builderFees.recon). */
 let staffDoor;
@@ -183,8 +197,10 @@ test(`${J} #1 opens recon for a period: the venue's builder fees against the led
   expect(funded.status, JSON.stringify(funded.body)).toBe(200);
   const builder = (await (await api(trader)).get('/api/v1/venue/status')).body;
   expect(builder, JSON.stringify(builder).slice(0, 300)).toMatchObject({ enabled: true, test: true });
+  // The trader approves our builder fee up to the venue's own cap: the rate an order carries is the builder-fee version in
+  // force when it is prepared (another journey may have published one on this stack), never above that cap.
   await door(
-    { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: builder.builder.feeBps },
+    { kind: 'approve_builder_fee', builder: builder.builder.address, maxFeeBps: await venueCap('BTC-USDC') },
     `approve-builder:${owner}:${J}`,
   );
   await buy();
@@ -300,7 +316,9 @@ test(`${J} #4 opens the routed-volume recon: volume by venue against the builder
   test.setTimeout(300_000);
   const to = new Date(Date.now() + 10 * 60_000);
   const status = (await (await api(trader)).get('/api/v1/venue/status')).body;
-  const feeBps = status.builder.feeBps;
+  // Our rate: the one the door signed into every order it routed for this trader.
+  expect([...signedRates], 'every routed order carries one rate').toHaveLength(1);
+  const [feeBps] = signedRates;
   const fills = await venueFills(start);
   // Every fill so far is on an order routed through our door at our rate: worked out here from the venue's own fills.
   let volume = 0n;
@@ -385,7 +403,13 @@ test(`${J} #5 exports for the period: a file whose rows match the ledger's build
     .click();
   const file = await download;
   const text = await (await import('node:fs/promises')).readFile(await file.path(), 'utf8');
-  const [header, ...rows] = text.trim().split('\n');
+  // The file says when it was made, how fresh its data is and what it covers, on `#` lines above the header.
+  const lines = text.trim().split(/\r?\n/);
+  const notes = lines.filter((l) => l.startsWith('#'));
+  expect(notes[0]).toMatch(/^# Generated at \d{4}-\d\d-\d\dT/);
+  expect(notes[1]).toMatch(/^# Data as of /);
+  expect(notes[2]).toBe(`# Builder fees the ledger records as earned on ${id}, fills from ${start.toISOString()} to ${to.toISOString()}`);
+  const [header, ...rows] = lines.filter((l) => !l.startsWith('#'));
   expect(header).toBe('ledger_tx_id,idempotency_key,venue_id,fill_id,user_id,asset,amount,posted_at');
   // One row per fill the venue charged our fee on in the period, each read back from svc-ledger itself.
   const byFill = new Map(rows.map((r) => r.split(',')).map((c) => [c[3], c]));
